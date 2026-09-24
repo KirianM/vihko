@@ -49,8 +49,9 @@ versión funcional y estable.
 [AGPL-3.0](LICENSE). Contribuciones con DCO (`Signed-off-by`), sin CLA. Ver
 `docs/decisiones.md` (D-020).
 
-## Stack previsto
+## Stack
 
-Sin cerrar. Ver `docs/decisiones.md` (P-004). Requisitos: watcher de sistema de
-archivos con rescan periódico, SQLite con FTS5 y búsqueda vectorial, servidor
-HTTP, UI web, MCP remoto con OAuth, imagen Docker ligera.
+TypeScript en servidor y UI, sobre Node LTS: Yjs + Hocuspocus para la
+colaboración, CodeMirror 6 como editor, SQLite (`better-sqlite3`, FTS5,
+`sqlite-vec`) para el índice y el SDK oficial de MCP. Ver `docs/decisiones.md`
+(D-021).
