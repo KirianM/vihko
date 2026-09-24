@@ -18,7 +18,15 @@ export interface Runtime {
   rescan(force: boolean): ScanReport
 }
 
+/** Lo que la API necesita del hub de colaboración. */
+export interface Orphans {
+  orphans(): string[]
+  restoreOrphan(path: string): Promise<{ etag: string }>
+  discardOrphan(path: string): Promise<void>
+}
+
 export interface AppDeps {
+  orphans?: Orphans
   auth: Auth
   notes: NoteService
   index: Db
@@ -196,7 +204,17 @@ export function createApp(deps: AppDeps) {
       syncConflicts: conflicts,
       uidConflicts: deps.indexer.uidConflicts(),
       scanAborted: scan?.aborted ?? null,
+      orphanedNotes: deps.orphans?.orphans() ?? [],
     })
+  })
+
+  // Nota borrada desde fuera con una copia abierta: conservarla o darla por borrada.
+  app.post('/api/note/orphan', async (c) => {
+    const { path, action } = await c.req.json<{ path: string; action: 'restore' | 'discard' }>()
+    if (!deps.orphans) return c.json({ error: 'not_found', message: 'sin hub de colaboración' }, 404)
+    if (action === 'restore') return c.json(await deps.orphans.restoreOrphan(path))
+    if (action === 'discard') { await deps.orphans.discardOrphan(path); return c.json({ ok: true }) }
+    return c.json({ error: 'invalid', message: 'action debe ser restore o discard' }, 400)
   })
 
   app.post('/api/admin/rescan', adminOnly, async (c) => {

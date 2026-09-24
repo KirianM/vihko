@@ -130,3 +130,78 @@ test('WebSocket: sin sesión, desde otro origen o a una nota inexistente, se rec
   } finally { closeAll(); await srv.stop() }
 })
 
+
+test('borrado externo con la nota abierta: aviso en vivo, no se recrea, y se conserva la copia si se pide', async () => {
+  const { notes, env } = makeDirs()
+  const srv = await startServer(env)
+  try {
+    const cookie = await login(srv)
+    const a = await connect(srv, cookie, NOTE)
+    const messages: string[] = []
+    a.provider.on('stateless', ({ payload }: { payload: string }) => messages.push(JSON.parse(payload).type))
+    typeLine(a, 'ANTES')
+    const file = join(notes, NOTE)
+    await waitFor(() => readFileSync(file, 'utf8').includes('ANTES\n'), 'volcado')
+    const { rmSync } = await import('node:fs')
+    rmSync(file) // alguien la borra con el explorador de archivos
+    await waitFor(() => messages.includes('thoth:deleted-externally'), 'aviso en vivo')
+    typeLine(a, 'DESPUES-DEL-BORRADO')
+    await sleep(2500)
+    assert.ok(!existsSync(file), 'thoth no deshace el borrado por su cuenta')
+    assert.deepEqual((await api(srv, cookie, 'GET', '/api/alerts')).body.orphanedNotes, [NOTE])
+    const r = await api(srv, cookie, 'POST', '/api/note/orphan', { path: NOTE, action: 'restore' })
+    assert.equal(r.status, 200)
+    const back = readFileSync(file, 'utf8')
+    assert.ok(back.includes('ANTES\n') && back.includes('DESPUES-DEL-BORRADO\n'), 'la copia conserva todo lo escrito')
+    await waitFor(() => messages.includes('thoth:orphan-resolved'), 'aviso de resolución')
+    typeLine(a, 'SIGUE-EDITANDO')
+    await waitFor(() => readFileSync(file, 'utf8').includes('SIGUE-EDITANDO'), 'vuelve a volcar con normalidad')
+    assert.deepEqual((await api(srv, cookie, 'GET', '/api/alerts')).body.orphanedNotes, [])
+  } finally { closeAll(); await srv.stop() }
+})
+
+test('borrado externo con la nota abierta: descartar da el borrado por bueno', async () => {
+  const { notes, env } = makeDirs()
+  const srv = await startServer(env)
+  try {
+    const cookie = await login(srv)
+    const a = await connect(srv, cookie, NOTE)
+    typeLine(a, 'X')
+    const file = join(notes, NOTE)
+    await waitFor(() => readFileSync(file, 'utf8').includes('X\n'), 'volcado')
+    const { rmSync } = await import('node:fs')
+    rmSync(file)
+    await waitFor(async () => (await api(srv, cookie, 'GET', '/api/alerts')).body.orphanedNotes.length === 1, 'alerta')
+    assert.equal((await api(srv, cookie, 'POST', '/api/note/orphan', { path: NOTE, action: 'discard' })).status, 200)
+    await sleep(1500)
+    assert.ok(!existsSync(file))
+    assert.deepEqual((await api(srv, cookie, 'GET', '/api/alerts')).body.orphanedNotes, [])
+    await waitFor(() => readdirSync(join(env.THOTH_STATE_DIR!, 'collab')).length === 0, 'log eliminado')
+  } finally { closeAll(); await srv.stop() }
+})
+
+test('borrada con el servidor caído y ediciones pendientes: no se vacía ni se recrea; la copia espera decisión', async () => {
+  const { notes, env } = makeDirs()
+  let srv = await startServer(env)
+  const file = join(notes, NOTE)
+  try {
+    const cookie = await login(srv)
+    const a = await connect(srv, cookie, NOTE)
+    for (let i = 0; i < 5; i++) typeLine(a, `PENDIENTE-${i}`)
+    await waitFor(() => a.provider.unsyncedChanges === 0, 'envío al servidor')
+    await sleep(100)
+    a.close()
+    await srv.stop('SIGKILL')
+    const { rmSync } = await import('node:fs')
+    rmSync(file) // se borra mientras el servidor está caído
+    srv = await startServer(env)
+    await sleep(1500)
+    assert.ok(!existsSync(file), 'la recuperación no la recrea')
+    const cookie2 = await login(srv)
+    assert.deepEqual((await api(srv, cookie2, 'GET', '/api/alerts')).body.orphanedNotes, [NOTE])
+    assert.equal((await api(srv, cookie2, 'POST', '/api/note/orphan', { path: NOTE, action: 'restore' })).status, 200)
+    const back = readFileSync(file, 'utf8')
+    for (let i = 0; i < 5; i++) assert.ok(back.includes(`PENDIENTE-${i}\n`), `falta PENDIENTE-${i}`)
+    assert.ok(back.includes('# Proxy'), 'el documento no se vació')
+  } finally { closeAll(); await srv.stop() }
+})

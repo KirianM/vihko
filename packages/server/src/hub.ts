@@ -37,7 +37,16 @@ interface Hot {
   uid: string | null
   /** La nota se borró desde thoth: no se vuelve a volcar. */
   discarded: boolean
+  /**
+   * El archivo se borró desde fuera con la nota abierta. No se escribe nada en
+   * disco hasta que alguien decida conservar su copia o descartarla; mientras
+   * tanto, lo escrito sigue en el log de recuperación.
+   */
+  orphaned: boolean
 }
+
+/** Mensaje en vivo para los editores de una nota borrada desde fuera. */
+export const ORPHAN_MESSAGE = 'thoth:deleted-externally'
 
 export interface HubOptions {
   notesDir: string
@@ -234,7 +243,8 @@ export class CollabHub implements HotDocuments {
       const file = this.file(path)
       const logFile = this.logPath(path)
       const recovered = readLog(logFile)
-      const disk = (await readStable(file)) ?? ''
+      const diskOrNull = await readStable(file)
+      const disk = diskOrNull ?? ''
       const diskHash = contentHash(disk)
       let snapshot: Uint8Array
       let flushedText: string
@@ -261,11 +271,13 @@ export class CollabHub implements HotDocuments {
       const h: Hot = {
         doc, file, logFile, logFd, snapshot, flushedText, flushedHash,
         history: [{ snapshot, text: flushedText, hash: flushedHash }],
-        uid: this.uidIn(flushedText), discarded: false,
+        uid: this.uidIn(flushedText), discarded: false, orphaned: false,
       }
       this.hot.set(path, h)
       doc.on('update', (update: Uint8Array) => writeSync(h.logFd, record('U', update)))
-      if (recovered && diskHash !== flushedHash) this.mergeExternal(path, h, disk, diskHash)
+      // Un archivo ausente no es "vacío": se borró (con el servidor caído o antes de reabrir).
+      if (diskOrNull === null) this.markOrphan(path, h)
+      else if (recovered && diskHash !== flushedHash) this.mergeExternal(path, h, disk, diskHash)
     })
   }
 
@@ -306,9 +318,14 @@ export class CollabHub implements HotDocuments {
   checkExternal(path: string) {
     return withLock(path, async () => {
       const h = this.hot.get(path)
-      if (!h || h.discarded) return
+      if (!h || h.discarded || h.orphaned) return
       const now = readText(h.file)
-      if (now === null || contentHash(now) === h.flushedHash) return
+      if (now === null) {
+        // Puede ser un editor a mitad de guardar con rename: se confirma antes de decidir.
+        if ((await readStable(h.file)) === null) this.markOrphan(path, h)
+        return
+      }
+      if (contentHash(now) === h.flushedHash) return
       const text = await readStable(h.file, h.flushedText)
       if (text === null) return
       const hash = contentHash(text)
@@ -320,8 +337,12 @@ export class CollabHub implements HotDocuments {
   flush(path: string) {
     return withLock(path, async () => {
       const h = this.hot.get(path)
-      if (!h || h.discarded) return
+      if (!h || h.discarded || h.orphaned) return
       const now = readText(h.file)
+      if (now === null && (await readStable(h.file)) === null) {
+        this.markOrphan(path, h)
+        return
+      }
       if (now !== null && contentHash(now) !== h.flushedHash) {
         const disk = await readStable(h.file, h.flushedText)
         if (disk !== null) {
@@ -340,14 +361,12 @@ export class CollabHub implements HotDocuments {
         let set = this.expected.get(path)
         if (!set) this.expected.set(path, (set = new Set()))
         set.add(hash)
-        mkdirSync(dirname(h.file), { recursive: true })
-        const exists = readText(h.file) !== null
-        if (!exists) this.log(`${path} ya no existe en disco: se vuelve a crear con el contenido abierto`)
-        const r = await replaceText(h.file, text, exists ? h.flushedHash : null)
+        const r = await replaceText(h.file, text, h.flushedHash)
         if (!r.replaced) {
-          this.log(`carrera con una escritura externa en ${path} (antes del rename)`)
           const disk = await readStable(h.file, h.flushedText)
-          if (disk !== null) this.mergeExternal(path, h, disk, contentHash(disk))
+          if (disk === null) { this.markOrphan(path, h); return }
+          this.log(`carrera con una escritura externa en ${path} (antes del rename)`)
+          this.mergeExternal(path, h, disk, contentHash(disk))
           continue
         }
         h.snapshot = snap
@@ -372,10 +391,64 @@ export class CollabHub implements HotDocuments {
       const h = this.hot.get(path)
       if (!h) return
       closeSync(h.logFd)
-      if (h.discarded || h.doc.getText(TEXT).toString() === h.flushedText) rmSync(h.logFile, { force: true })
+      // Una huérfana sin decidir conserva su log: es la copia de lo que se estaba escribiendo.
+      if (h.discarded || (!h.orphaned && h.doc.getText(TEXT).toString() === h.flushedText)) rmSync(h.logFile, { force: true })
       this.hot.delete(path)
       this.expected.delete(path)
     })
+  }
+
+  private markOrphan(path: string, h: Hot) {
+    if (h.orphaned) return
+    h.orphaned = true
+    this.log(`${path} se ha borrado fuera de thoth con la nota abierta: no se escribe hasta que alguien decida`)
+    this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: ORPHAN_MESSAGE, path }))
+  }
+
+  /** Notas borradas desde fuera con una copia pendiente de decisión (abiertas o solo en el log). */
+  orphans(): string[] {
+    const out = new Set<string>()
+    for (const [path, h] of this.hot) if (h.orphaned && !h.discarded) out.add(path)
+    for (const f of readdirSync(this.logDir).filter((x) => x.endsWith('.ylog'))) {
+      const path = decodeURIComponent(f.slice(0, -'.ylog'.length))
+      if (!this.hot.has(path) && readText(this.file(path)) === null) out.add(path)
+    }
+    return [...out].sort()
+  }
+
+  /** Conserva la copia: vuelve a crear el archivo con lo que se estaba escribiendo. */
+  async restoreOrphan(path: string): Promise<{ etag: string }> {
+    if (!this.orphans().includes(path)) throw new NoteError('not_found', `no hay ninguna copia pendiente de ${path}`)
+    const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: 'conservar copia de una nota borrada fuera' } })
+    try {
+      return await withLock(path, async () => {
+        const h = this.hot.get(path)!
+        const text = h.doc.getText(TEXT).toString()
+        mkdirSync(dirname(h.file), { recursive: true })
+        const r = await replaceText(h.file, text, null)
+        if (!r.replaced) throw new NoteError('exists', `ya existe otra nota en ${path}`)
+        h.orphaned = false
+        h.snapshot = Y.encodeStateAsUpdate(h.doc)
+        h.flushedText = text
+        h.flushedHash = contentHash(text)
+        this.remember(h)
+        this.opts.indexer.indexPaths([path])
+        this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: 'thoth:orphan-resolved', path, action: 'restore' }))
+        this.log(`${path}: se conserva la copia abierta`)
+        return { etag: h.flushedHash }
+      })
+    } finally {
+      await conn.disconnect()
+    }
+  }
+
+  /** Descarta la copia: el borrado externo se da por bueno. */
+  async discardOrphan(path: string) {
+    if (!this.orphans().includes(path)) throw new NoteError('not_found', `no hay ninguna copia pendiente de ${path}`)
+    this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: 'thoth:orphan-resolved', path, action: 'discard' }))
+    if (this.hot.has(path)) await this.discard(path)
+    else rmSync(this.logPath(path), { force: true })
+    this.log(`${path}: se descarta la copia; el borrado externo se da por bueno`)
   }
 
   /** Al arrancar: cada log pendiente es una nota con ediciones sin volcar. */
