@@ -39,6 +39,18 @@ servidor**, renunciando al offline completo. Ver `docs/decisiones.md`.
 |---|---|
 | `CLAUDE.md` | Contexto para agentes que trabajen en el repo |
 
+## Instalación
+
+```sh
+docker compose up -d        # con el compose.yaml de ejemplo (ajusta los volúmenes)
+docker compose logs thoth   # el primer arranque muestra un token para crear el admin
+# o crea el admin desde la línea de comandos:
+docker compose exec -T thoth thoth user create <nombre> --admin <<< 'contraseña'
+```
+
+Dos volúmenes: `/data/notes` (tus notas; puede estar en NFS) y `/data/state`
+(estado local; **nunca** en NFS). Detalles en `docs/infra.md`.
+
 ## Estado
 
 Diseño cerrado; implementación por empezar (M1). Repositorio privado hasta la

@@ -66,7 +66,10 @@ export function createApp(deps: AppDeps) {
     await next()
   })
 
-  // --- Sin sesión: primer arranque y login -----------------------------------
+  // --- Sin sesión: salud, primer arranque y login ---------------------------
+
+  // Para el healthcheck de Docker. No revela nada salvo que el proceso responde.
+  app.get('/api/health', (c) => c.json({ ok: true }))
 
   app.get('/api/setup', (c) => c.json({ needed: auth.userCount() === 0 }))
 
