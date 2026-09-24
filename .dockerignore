@@ -1,0 +1,11 @@
+**/node_modules
+.git
+.github
+.data
+**/.data
+poc
+docs
+testdata
+**/test
+*.md
+!LICENSE

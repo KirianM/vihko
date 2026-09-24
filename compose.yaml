@@ -1,0 +1,15 @@
+# Ejemplo mínimo. Ajusta las rutas de los volúmenes a tu sistema.
+services:
+  thoth:
+    image: thoth:local
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # Notas: cualquier carpeta de Markdown (disco local o NFS).
+      - ./notas:/data/notes
+      # Estado: SIEMPRE en disco local (SQLite no es fiable sobre NFS).
+      - ./estado:/data/state
+    # Usuario con el que escribe en tus notas (por defecto 1000:1000).
+    # user: "1000:1000"
