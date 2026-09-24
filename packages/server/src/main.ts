@@ -72,7 +72,7 @@ export async function start(config: Config) {
   watcher.start()
 
   const notes = new NoteService({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub })
-  const app = createApp({ auth, notes, index, indexer, notesDir: config.notesDir, runtime })
+  const app = createApp({ auth, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub })
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   hub.attach(server, SESSION_COOKIE)
   // serve() abre el puerto de forma asíncrona: solo se anuncia cuando de verdad escucha.
