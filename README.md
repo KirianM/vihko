@@ -44,6 +44,11 @@ servidor**, renunciando al offline completo. Ver `docs/decisiones.md`.
 Fase de diseño. Nada implementado todavía. Repositorio privado hasta tener una
 versión funcional y estable.
 
+## Licencia
+
+[AGPL-3.0](LICENSE). Contribuciones con DCO (`Signed-off-by`), sin CLA. Ver
+`docs/decisiones.md` (D-020).
+
 ## Stack previsto
 
 Sin cerrar. Ver `docs/decisiones.md` (P-004). Requisitos: watcher de sistema de
