@@ -34,7 +34,8 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           missing=0
-          for c in $(git rev-list "$BASE..$HEAD"); do
+          # Los commits de merge los genera GitHub al fusionar PR: no llevan firma.
+          for c in $(git rev-list --no-merges "$BASE..$HEAD"); do
             if ! git show -s --format=%B "$c" | grep -q '^Signed-off-by: '; then
               echo "::error::El commit $c no lleva Signed-off-by (usa git commit -s)"
               missing=1
