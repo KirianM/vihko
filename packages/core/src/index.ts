@@ -3,3 +3,7 @@ export {
   FrontmatterError, locateFrontmatter, readFrontmatter, setFrontmatterKey,
   type Eol, type Frontmatter, type FrontmatterBlock, type ScalarValue,
 } from './frontmatter.ts'
+export {
+  extract, markdownParser, normalizeTag, thothSyntax,
+  type ExtractOptions, type Extracted, type Heading, type LinkRef, type TagRef,
+} from './markdown.ts'
