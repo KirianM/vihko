@@ -41,8 +41,8 @@ servidor**, renunciando al offline completo. Ver `docs/decisiones.md`.
 
 ## Estado
 
-Fase de diseño. Nada implementado todavía. Repositorio privado hasta tener una
-versión funcional y estable.
+Diseño cerrado; implementación por empezar (M1). Repositorio privado hasta la
+v1.0 (M5).
 
 ## Licencia
 
