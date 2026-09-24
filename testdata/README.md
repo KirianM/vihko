@@ -16,7 +16,8 @@ archivos con un editor que normalice.
 | `proyectos/thoth/notas.md` | `[[Plan]]`, `[[plan]]`, `[[Plan\|el plan]]` | `proyectos/thoth/Plan.md` (misma carpeta; sin distinguir mayúsculas) |
 | `proyectos/thoth/notas.md` | `![[Plan]]` | Igual: el embed se indexa como enlace (su render queda fuera de alcance) |
 | `proyectos/thoth/notas.md` | `[[notas]]` | Resuelve a sí misma |
-| `diario/2026-09-24.md` | `[[Plan]]` | **Ambiguo** con tres candidatos: `Plan.md`, `proyectos/thoth/Plan.md`, `proyectos/blog/Plan.md` |
+| `diario/2026-09-24.md` | `[[Plan]]` | `Plan.md`: los tres candidatos comparten la raíz, y el de la raíz está 0 niveles por debajo frente a 2 |
+| `diario/2026-09-24.md` | `[[Tareas]]` | **Ambiguo** con dos candidatos a la misma distancia: `proyectos/thoth/Tareas.md` y `proyectos/blog/Tareas.md` |
 | `diario/2026-09-24.md` | `[[proyectos/blog/Plan]]`, `[[blog/Plan]]` | `proyectos/blog/Plan.md` (ruta y sufijo de ruta) |
 | `recetas/índice.md` | `[[Café]]`, `[[CAFÉ]]` | `recetas/Café.md`, cuyo nombre está en NFD |
 | `recetas/índice.md` | `[[Notas de reunión (2026)]]` | `recetas/Notas de reunión (2026).md` |
@@ -28,8 +29,8 @@ archivos con un editor que normalice.
 | `hogar/enlaces.md` | `[…](Proxy.md)`, `[…](../proyectos/thoth/Plan.md)` | Resueltos (enlaces Markdown relativos) |
 | `hogar/enlaces.md` | `[roto](no-existe.md)` | Roto |
 | `hogar/enlaces.md` | `[externo](https://example.com/#ancla)` | Enlace externo: ni enlace entre notas ni tag |
-| `codigo.md` | Todo lo que está en código en línea, bloques cercados o indentados | Ni enlaces ni tags. Fuera del código, `[[Plan]]` es ambiguo y `#hogar` es tag |
-| `frontmatter/sin-frontmatter.md`, `frontmatter/bom-crlf.md` | `[[Plan]]` | Ambiguo (carpeta `frontmatter/` equidistante de los tres) |
+| `codigo.md` | Todo lo que está en código en línea, bloques cercados o indentados | Ni enlaces ni tags. Fuera del código, `[[Plan]]` resuelve a `Plan.md` (misma carpeta) y `#hogar` es tag |
+| `frontmatter/sin-frontmatter.md`, `frontmatter/bom-crlf.md` | `[[Plan]]` | `Plan.md` (el menos profundo bajo la raíz común) |
 
 ## Tags (D-019)
 
