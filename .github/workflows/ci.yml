@@ -52,6 +52,8 @@ jobs:
           missing=0
           # Los commits de merge los genera GitHub al fusionar PR: no llevan firma.
           for c in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            # Los commits de bots (Dependabot) no pueden firmar el DCO.
+            case "$(git show -s --format=%ae "$c")" in *'[bot]@users.noreply.github.com') continue ;; esac
             if ! git show -s --format=%B "$c" | grep -q '^Signed-off-by: '; then
               echo "::error::El commit $c no lleva Signed-off-by (usa git commit -s)"
               missing=1
