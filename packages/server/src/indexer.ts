@@ -174,7 +174,7 @@ export class Indexer {
 
     const ins = {
       note: db.prepare('insert into notes (path, uid, title, hash, mtime_ms, size, fm_json, fm_error, aliases) values (?, ?, ?, ?, ?, ?, ?, ?, ?)'),
-      fts: db.prepare('insert into notes_fts (path, title, body) values (?, ?, ?)'),
+      fts: db.prepare('insert into notes_fts (path, title, aliases, body) values (?, ?, ?, ?)'),
       key: db.prepare('insert or ignore into link_keys (key, path, kind) values (?, ?, ?)'),
       link: db.prepare(`insert into links (src_path, ord, kind, raw, target, anchor, display, pos_from, pos_to, key, status)
                         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'missing')`),
@@ -196,7 +196,7 @@ export class Indexer {
         const aliases = this.aliasesOf(x)
         ins.note.run(u.path, this.uidOf(x), this.titleOf(u.path, x), u.hash, u.stat.mtimeMs, u.stat.size,
           JSON.stringify(x.frontmatter.data), x.frontmatter.error, JSON.stringify(aliases))
-        ins.fts.run(u.path, this.titleOf(u.path, x), u.text.slice(x.frontmatter.bodyStart))
+        ins.fts.run(u.path, this.titleOf(u.path, x), aliases.join('\n'), u.text.slice(x.frontmatter.bodyStart))
         for (const k of pathKeys(u.path)) ins.key.run(k, u.path, 'path')
         for (const a of aliases) ins.key.run(normKey(a), u.path, 'alias')
         x.links.forEach((l, i) => {
