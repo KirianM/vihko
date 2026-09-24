@@ -57,8 +57,9 @@ test('primer arranque: token de un solo uso para crear el admin', async () => {
   assert.deepEqual((await req('GET', '/api/setup')).body, { needed: false })
 })
 
-test('todo exige sesión; login, sesión y logout', async () => {
+test('todo exige sesión salvo la salud; login, sesión y logout', async () => {
   const { auth, req } = await setup()
+  assert.deepEqual((await req('GET', '/api/health')).body, { ok: true })
   await auth.createUser('noa', 'contraseña-larga', 'admin')
   for (const p of ['/api/tree', '/api/note?path=Plan.md', '/api/search?q=plan', '/api/alerts', '/api/auth/me']) {
     assert.equal((await req('GET', p)).status, 401, p)
