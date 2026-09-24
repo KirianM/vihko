@@ -5,5 +5,10 @@
   "license": "AGPL-3.0-only",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@lezer/common": "^1.5.3",
+    "@lezer/markdown": "^1.7.2",
+    "yaml": "^2.9.1"
   }
 }
