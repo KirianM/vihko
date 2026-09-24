@@ -10,6 +10,9 @@ import { Indexer } from './indexer.ts'
 import { NoteService } from './notes.ts'
 import { openState } from './state.ts'
 import { Watcher } from './watcher.ts'
+import { CollabHub } from './hub.ts'
+import { SESSION_COOKIE } from './http/app.ts'
+import type { Server } from 'node:http'
 
 export interface Config {
   notesDir: string
@@ -54,6 +57,9 @@ export async function start(config: Config) {
   const first = runtime.rescan(false)
   log(`índice listo: ${first.added.length} nuevas, ${first.changed.length} cambiadas, ${first.removed.length} retiradas, ${first.unchanged} sin cambios`)
 
+  const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log })
+  await hub.recoverAll()
+
   const watcher = new Watcher({
     notesDir: config.notesDir,
     indexer,
@@ -61,12 +67,16 @@ export async function start(config: Config) {
     rescanMs: config.rescanSeconds * 1000,
     onReport: (kind, r) => { if (kind === 'rescan') runtime.lastScan = r },
     onError: (err) => log(`watcher: ${err instanceof Error ? err.message : String(err)}`),
+    onChange: (paths) => { for (const p of paths) if (hub.has(p)) hub.checkExternal(p).catch(() => {}) },
   })
   watcher.start()
 
-  const notes = new NoteService({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index })
+  const notes = new NoteService({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub })
   const app = createApp({ auth, notes, index, indexer, notesDir: config.notesDir, runtime })
-  const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port })
+  const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
+  hub.attach(server, SESSION_COOKIE)
+  // serve() abre el puerto de forma asíncrona: solo se anuncia cuando de verdad escucha.
+  if (!server.listening) await new Promise<void>((resolve, reject) => { server.once('listening', resolve); server.once('error', reject) })
   log(`escuchando en http://${config.host}:${config.port}`)
 
   const setup = auth.setupToken()
@@ -76,11 +86,12 @@ export async function start(config: Config) {
     log('  o desde la línea de comandos: thoth user create <nombre> --admin')
   }
 
-  const stop = () => {
+  const stop = async () => {
     watcher.stop()
+    await hub.close()
     server.close()
     index.close()
     state.close()
   }
-  return { app, stop, auth }
+  return { app, stop, auth, hub, notes, server }
 }

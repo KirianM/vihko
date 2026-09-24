@@ -15,7 +15,7 @@ export type Actor =
   | { kind: 'agent'; id: string; onBehalfOf: string }
   | { kind: 'system'; reason: string }
 
-export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path'
+export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'edit_mismatch'
 
 export class NoteError extends Error {
   readonly code: NoteErrorCode
@@ -38,6 +38,8 @@ export interface NoteRead {
 export interface HotDocuments {
   has(path: string): boolean
   edit(path: string, fn: (text: string) => string, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }>
+  /** La nota se borra: cerrar sus sesiones de edición sin volver a volcarla. */
+  discard(path: string): Promise<void>
 }
 
 export interface NoteServiceOptions {
@@ -151,6 +153,7 @@ export class NoteService {
   /** Mueve la nota a la papelera del volumen de estado. */
   async delete(path: string, opts: { ifMatch?: string; actor: Actor }): Promise<TrashEntry> {
     const file = this.file(path)
+    if (this.opts.hot?.has(path)) await this.opts.hot.discard(path)
     const current = await readStable(file)
     if (current === null) throw new NoteError('not_found', `no existe: ${path}`)
     const hash = contentHash(current)

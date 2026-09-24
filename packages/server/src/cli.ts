@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // thoth serve                          arranca el servidor
 // thoth user create <nombre> [--admin] crea un usuario; la contraseña se lee de stdin
+import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { Auth, AuthError } from './auth.ts'
 import { configFromEnv, start } from './main.ts'
@@ -17,10 +18,11 @@ async function main(argv: string[]) {
   const config = configFromEnv()
   if (cmd === 'serve' || cmd === undefined) {
     const s = await start(config)
-    for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => { s.stop(); process.exit(0) })
+    for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, async () => { await s.stop(); process.exit(0) })
     return
   }
   if (cmd === 'user' && sub === 'create' && rest[0]) {
+    mkdirSync(config.stateDir, { recursive: true }) // puede ser lo primero que se ejecute en una instalación nueva
     const state = openState(join(config.stateDir, 'state.db'))
     try {
       if (process.stdin.isTTY) process.stderr.write('contraseña (se lee de stdin; termina con Ctrl-D): ')
