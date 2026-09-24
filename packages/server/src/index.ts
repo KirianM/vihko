@@ -1,5 +1,6 @@
 export { SCHEMA_VERSION, dumpIndex, openIndex, type Db } from './db.ts'
 export { Indexer, type FrontmatterKeys, type IndexerOptions, type ScanReport } from './indexer.ts'
 export { Watcher, type WatcherOptions } from './watcher.ts'
-export { NoteError, NoteService, type Actor, type HotDocuments, type NoteErrorCode, type NoteRead, type NoteServiceOptions, type TrashEntry } from './notes.ts'
+export { NoteError, NoteService, type Actor, type HotDocuments, type NoteErrorCode, type MoveReport, type NoteRead, type NoteServiceOptions, type TrashEntry } from './notes.ts'
 export { commitText, readStable, readText, writeTmp, type CommitResult } from './fsutil.ts'
+export { applyReplacements, planRelinks, type Replacement } from './relink.ts'

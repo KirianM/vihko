@@ -3,8 +3,9 @@
 // (fsutil.ts), `uid` perezoso (D-015) y borrado a papelera.
 import { mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix } from 'node:path'
-import { classifyPath, contentHash, newUid, readFrontmatter, setFrontmatterKey } from '@thoth/core'
+import { addToFrontmatterList, classifyPath, contentHash, newUid, normKey, pathKeys, readFrontmatter, setFrontmatterKey } from '@thoth/core'
 import { commitText, readStable, readText } from './fsutil.ts'
+import { applyReplacements, planRelinks } from './relink.ts'
 import type { Indexer } from './indexer.ts'
 import type { Db } from './db.ts'
 
@@ -47,6 +48,18 @@ export interface NoteServiceOptions {
   db: Db
   uidKey?: string
   hot?: HotDocuments
+}
+
+export interface MoveReport {
+  from: string
+  to: string
+  /** Notas cuyos enlaces se reescriben (o se reescribirían, en dryRun), con el número de enlaces. */
+  relinked: { path: string; links: number }[]
+  /** Notas que no se pudieron reescribir. */
+  failed: { path: string; reason: string }[]
+  /** Se añadió el nombre antiguo como alias porque alguna reescritura falló (D-018). */
+  aliasAdded: string | null
+  dryRun: boolean
 }
 
 export interface TrashEntry {
@@ -162,6 +175,97 @@ export class NoteService {
     return entry
   }
 
+  /**
+   * Mueve o renombra una nota y reescribe los enlaces necesarios para que ninguno
+   * cambie de destino (D-018). Las reescrituras las hace el sistema en nombre de
+   * quien renombra. Con `dryRun`, solo informa de lo que haría.
+   */
+  async move(from: string, to: string, opts: { ifMatch?: string; actor: Actor; dryRun?: boolean }): Promise<MoveReport> {
+    const fromFile = this.file(from)
+    const toFile = this.file(to)
+    if (this.opts.hot?.has(from)) throw new NoteError('precondition_failed', `la nota está abierta en el editor: ${from}`)
+    const text = await readStable(fromFile)
+    if (text === null) throw new NoteError('not_found', `no existe: ${from}`)
+    if (readText(toFile) !== null) throw new NoteError('exists', `ya existe: ${to}`)
+    const hash = contentHash(text)
+    if (opts.ifMatch !== undefined && opts.ifMatch !== hash) throw new NoteError('precondition_failed', `la nota ha cambiado: ${from}`, hash)
+
+    // Estado de resolución antes y después del movimiento.
+    this.opts.indexer.indexPaths([from])
+    // Copias congeladas: el índice vivo cambia en cuanto se reindexa durante la ejecución.
+    const before = this.opts.indexer.links.clone()
+    const after = before.clone()
+    const keys = before.get(from) ?? { path: from }
+    after.delete(from)
+    after.set({ ...keys, path: to })
+    const map = (p: string) => (p === from ? to : p)
+
+    // Notas que pueden verse afectadas: la movida, las que enlazan a ella y las que
+    // buscan alguna de sus claves (un nombre igual más cercano "robaría" el enlace).
+    const affected = [...pathKeys(from), ...pathKeys(to), ...(keys.aliases ?? []).map(normKey)]
+    const sources = new Set<string>([from])
+    for (const r of this.opts.db.prepare('select distinct src_path from links where dst_path = ?').all(from) as { src_path: string }[]) sources.add(r.src_path)
+    const byKey = this.opts.db.prepare('select distinct src_path from links where key = ?')
+    for (const k of affected) for (const r of byKey.all(k) as { src_path: string }[]) sources.add(r.src_path)
+
+    const report: MoveReport = { from, to, relinked: [], failed: [], aliasAdded: null, dryRun: !!opts.dryRun }
+    const movedReps = planRelinks(text, from, to, before, after, map)
+    if (movedReps.length) report.relinked.push({ path: to, links: movedReps.length })
+    const others: string[] = []
+    for (const src of [...sources].filter((p) => p !== from).sort()) {
+      const t = readText(this.file(src))
+      if (t === null) continue
+      const reps = planRelinks(t, src, src, before, after, map)
+      if (reps.length) { report.relinked.push({ path: src, links: reps.length }); others.push(src) }
+    }
+    if (opts.dryRun) return report
+
+    // 1. La nota movida: se crea en destino (sin pisar) y se retira el origen si no cambió.
+    const newText = this.ensureUid(applyReplacements(text, movedReps), this.uidIn(text)).text
+    mkdirSync(dirname(toFile), { recursive: true })
+    const created = await commitText(toFile, newText, null)
+    if (!created.ok) throw new NoteError('exists', `ya existe: ${to}`)
+    const aside = join(dirname(fromFile), `.${posix.basename(from)}.thoth-mv-${process.pid}-${Date.now()}`)
+    try {
+      renameSync(fromFile, aside)
+    } catch (err) {
+      // Sin esto quedaría la nota duplicada: se deshace la creación en destino.
+      rmSync(toFile, { force: true })
+      throw err
+    }
+    const moved = readText(aside)
+    if (moved === null || contentHash(moved) !== hash) {
+      renameSync(aside, fromFile)
+      rmSync(toFile, { force: true })
+      throw new NoteError('precondition_failed', `la nota cambió durante el movimiento: ${from}`, moved === null ? null : contentHash(moved))
+    }
+    rmSync(aside)
+    this.opts.indexer.indexPaths([from, to])
+
+    // 2. El resto de notas, como sistema. El plan se recalcula sobre el texto actual.
+    const system: Actor = { kind: 'system', reason: `renombrado de ${from} a ${to} por ${actorLabel(opts.actor)}` }
+    for (const src of others) {
+      try {
+        await this.edit(src, (t) => applyReplacements(t, planRelinks(t, src, src, before, after, map)), { actor: system })
+      } catch (err) {
+        report.failed.push({ path: src, reason: err instanceof Error ? err.message : String(err) })
+      }
+    }
+
+    // 3. Red de seguridad: si algo no se pudo reescribir, el nombre antiguo queda como alias.
+    const oldName = posix.basename(from).replace(/\.md$/i, '')
+    const newName = posix.basename(to).replace(/\.md$/i, '')
+    if (report.failed.length && oldName !== newName) {
+      try {
+        await this.edit(to, (t) => addToFrontmatterList(t, 'aliases', oldName), { actor: system })
+        report.aliasAdded = oldName
+      } catch (err) {
+        report.failed.push({ path: to, reason: `no se pudo añadir el alias: ${err instanceof Error ? err.message : String(err)}` })
+      }
+    }
+    return report
+  }
+
   trash(): TrashEntry[] {
     const root = join(this.opts.stateDir, 'trash')
     let ids: string[]
@@ -200,4 +304,8 @@ export class NoteService {
     const uid = previous ?? newUid()
     return { text: setFrontmatterKey(text, this.uidKey, uid), uid }
   }
+}
+
+function actorLabel(a: Actor): string {
+  return a.kind === 'user' ? a.id : a.kind === 'agent' ? `${a.id} (en nombre de ${a.onBehalfOf})` : `sistema: ${a.reason}`
 }

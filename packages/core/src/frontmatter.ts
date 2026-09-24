@@ -2,7 +2,7 @@
 // el bloque. Todo lo que no se toca explícitamente se conserva byte a byte
 // (comentarios, orden, comillas, estilo de listas, claves desconocidas).
 import { isDeepStrictEqual } from 'node:util'
-import { isMap, isScalar, parseDocument, stringify, type Document } from 'yaml'
+import { isMap, isScalar, isSeq, parseDocument, stringify, type Document } from 'yaml'
 
 export type Eol = '\n' | '\r\n'
 
@@ -89,8 +89,14 @@ function scalarText(value: ScalarValue): string {
  * Lanza FrontmatterError si el frontmatter es inválido: una nota así no se escribe.
  */
 export function setFrontmatterKey(text: string, key: string, value: ScalarValue): string {
+  const out = setFrontmatterKeyRaw(text, key, scalarText(value))
+  verifyPatch(text, out, key, value)
+  return out
+}
+
+/** Fija `key` a `valueText`, que ya es YAML de una línea. Sin verificar: lo hace quien llama. */
+function setFrontmatterKeyRaw(text: string, key: string, valueText: string): string {
   const block = locateFrontmatter(text)
-  const valueText = scalarText(value)
   const keyText = scalarText(key)
 
   let out: string
@@ -125,8 +131,6 @@ export function setFrontmatterKey(text: string, key: string, value: ScalarValue)
     }
     out = text.slice(0, block.yamlStart) + newRaw + text.slice(block.yamlEnd)
   }
-
-  verifyPatch(text, out, key, value)
   return out
 }
 
@@ -148,4 +152,69 @@ function verifyPatch(before: string, after: string, key: string, value: ScalarVa
   delete restB[key]
   if (!isDeepStrictEqual(restA, restB)) throw new FrontmatterError('el parche alteró otras claves')
   if (before.slice(a.bodyStart) !== after.slice(b.bodyStart)) throw new FrontmatterError('el parche alteró el cuerpo')
+}
+
+/**
+ * Añade `item` a la lista de primer nivel `key` sin re-serializar el bloque:
+ * en una lista en flujo se inserta antes del `]`, en una en bloque se añade una
+ * línea, un escalar se convierte en lista en flujo y, si la clave no existe, se
+ * crea como `key: [item]`. No hace nada si el elemento ya está.
+ */
+export function addToFrontmatterList(text: string, key: string, item: string): string {
+  const fm = readFrontmatter(text)
+  if (fm.error) throw new FrontmatterError(`frontmatter inválido: ${fm.error}`)
+  const current = fm.data[key]
+  const list = Array.isArray(current) ? current : current == null ? [] : [current]
+  if (list.some((x) => String(x) === item)) return text
+  const itemText = scalarText(item)
+
+  let out: string
+  const block = fm.block
+  const pairRange = block ? findPair(text.slice(block.yamlStart, block.yamlEnd), key) : null
+  if (!block || !pairRange) {
+    out = setFrontmatterKeyRaw(text, key, `[${itemText}]`)
+  } else {
+    const raw = text.slice(block.yamlStart, block.yamlEnd)
+    const { value, colon } = pairRange
+    let newRaw: string
+    if (value && value.flow && value.kind === 'seq') {
+      const close = raw.lastIndexOf(']', value.end - 1)
+      const inner = raw.slice(value.start + 1, close).trim()
+      newRaw = raw.slice(0, close) + (inner ? `, ${itemText}` : itemText) + raw.slice(close)
+    } else if (value && value.kind === 'seq') {
+      // Lista en bloque: nueva línea con la misma sangría que el primer elemento.
+      const lineStart = raw.lastIndexOf('\n', value.start - 1) + 1
+      const indent = raw.slice(lineStart, value.start)
+      const end = value.end
+      const needsEol = end > 0 && raw[end - 1] !== '\n'
+      newRaw = raw.slice(0, end) + (needsEol ? block.eol : '') + `${indent}- ${itemText}${block.eol}` + raw.slice(end)
+    } else if (value) {
+      const old = raw.slice(value.start, value.end).trim()
+      newRaw = raw.slice(0, value.start) + `[${old}, ${itemText}]` + raw.slice(value.end)
+    } else {
+      newRaw = raw.slice(0, colon + 1) + ` [${itemText}]` + raw.slice(colon + 1)
+    }
+    out = text.slice(0, block.yamlStart) + newRaw + text.slice(block.yamlEnd)
+  }
+
+  const after = readFrontmatter(out)
+  const rest = (d: Record<string, unknown>) => { const c = { ...d }; delete c[key]; return c }
+  if (after.error || !isDeepStrictEqual(after.data[key], [...list, item]) || !isDeepStrictEqual(rest(after.data), rest(fm.data))) {
+    throw new FrontmatterError('el parche de lista no produjo el resultado esperado')
+  }
+  if (text.slice(fm.bodyStart) !== out.slice(after.bodyStart)) throw new FrontmatterError('el parche alteró el cuerpo')
+  return out
+}
+
+function findPair(raw: string, key: string) {
+  const parsed = parseYaml(raw)
+  if ('error' in parsed) return null
+  const map = parsed.doc.contents
+  const pair = isMap(map) ? map.items.find((p) => isScalar(p.key) && p.key.value === key) : undefined
+  if (!pair) return null
+  const keyNode = pair.key as { range: [number, number, number] }
+  const colon = raw.indexOf(':', keyNode.range[1])
+  const v = pair.value as ({ range?: [number, number, number]; flow?: boolean } & object) | null
+  if (!v?.range) return { colon, value: null }
+  return { colon, value: { start: v.range[0], end: v.range[1], flow: !!v.flow, kind: isSeq(v) ? 'seq' : 'other' } }
 }

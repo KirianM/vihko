@@ -94,3 +94,15 @@ test('incremental: las claves afectadas permiten re-resolver solo lo necesario',
   const renamed = idx.set({ path: 'c/Nota.md', aliases: ['alias'] })
   assert.ok(renamed.has('alias'))
 })
+
+test('[[/ruta]] es ruta exacta desde la raíz', () => {
+  const idx = new LinkIndex()
+  idx.set({ path: 'Plan.md' })
+  idx.set({ path: 'diario/Plan.md' })
+  const r = (target: string) => idx.resolve('diario/hoy.md', { kind: 'wiki', target, anchor: null })
+  assertResolves(r('Plan'), ok('diario/Plan.md'))
+  assertResolves(r('/Plan'), ok('Plan.md'))
+  assertResolves(r('/diario/Plan'), ok('diario/Plan.md'))
+  assertResolves(r('/Plan/x'), { status: 'missing' })
+  assertResolves(r('/iario/Plan'), { status: 'missing' }, )
+})

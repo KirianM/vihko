@@ -1,6 +1,6 @@
 export { contentHash } from './hash.ts'
 export {
-  FrontmatterError, locateFrontmatter, readFrontmatter, setFrontmatterKey,
+  FrontmatterError, addToFrontmatterList, locateFrontmatter, readFrontmatter, setFrontmatterKey,
   type Eol, type Frontmatter, type FrontmatterBlock, type ScalarValue,
 } from './frontmatter.ts'
 export {
