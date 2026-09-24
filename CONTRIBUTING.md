@@ -22,7 +22,7 @@ mejora obvia ya se descartó por una razón concreta.
 
 ## Entorno
 
-- Node 24 LTS (`.nvmrc`). El código TypeScript se ejecuta directamente con
+- Node 26 (`.nvmrc`; LTS desde el 2026-10-28). El código TypeScript se ejecuta directamente con
   Node, sin paso de compilación: solo sintaxis que se pueda borrar (nada de
   `enum` ni `namespace`).
 - `npm ci`, `npm run typecheck`, `npm test`.

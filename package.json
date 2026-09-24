@@ -4,7 +4,7 @@
   "type": "module",
   "license": "AGPL-3.0-only",
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   },
   "workspaces": [
     "packages/*"
@@ -15,7 +15,10 @@
     "load": "node --test --test-concurrency=1 \"packages/*/test/**/*.collab.ts\""
   },
   "devDependencies": {
-    "@types/node": "^24.13.6",
+    "@types/node": "^26.6.2",
     "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "better-sqlite3": true
   }
 }
