@@ -9,6 +9,7 @@ import type { Db } from '../db.ts'
 import type { Indexer, ScanReport } from '../indexer.ts'
 import { NoteError, type Actor, type NoteService } from '../notes.ts'
 import { ftsQuery, HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
+import { applyEdits, type EditOp } from '../edits.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 
@@ -31,7 +32,7 @@ type Env = { Variables: { user: User; token: string } }
 const actorOf = (u: User): Actor => ({ kind: 'user', id: u.username })
 
 function noteErrorStatus(e: NoteError) {
-  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400 } as const)[e.code]
+  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409 } as const)[e.code]
 }
 
 export function createApp(deps: AppDeps) {
@@ -128,6 +129,14 @@ export function createApp(deps: AppDeps) {
     if (!ifMatch) return c.json({ error: 'precondition_required', message: 'falta If-Match: no se sobrescribe una nota que no se ha leído' }, 428)
     const { text } = await c.req.json<{ text: string }>()
     const r = await notes.write(c.req.query('path') ?? '', text, { ifMatch, actor: actorOf(c.get('user')) })
+    c.header('ETag', `"${r.etag}"`)
+    return c.json(r)
+  })
+
+  // Ediciones por operación: atómicas sobre el texto actual, también con la nota abierta.
+  app.post('/api/note/edit', async (c) => {
+    const { path, ops } = await c.req.json<{ path: string; ops: EditOp[] }>()
+    const r = await notes.edit(path, (t) => applyEdits(t, ops), { ifMatch: unquote(c.req.header('if-match')), actor: actorOf(c.get('user')) })
     c.header('ETag', `"${r.etag}"`)
     return c.json(r)
   })

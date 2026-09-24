@@ -103,3 +103,12 @@ test('uid → ruta, y conflicto si el uid está duplicado', () => {
   assert.throws(() => notes.pathOfUid('01J8X4M2K9QZ'), NoteError, 'duplicado en el vault')
   assert.throws(() => notes.pathOfUid('NOEXISTE'), NoteError)
 })
+
+test('ediciones por operación: find_replace contado y append', async () => {
+  const { applyEdits } = await import('@thoth/server')
+  assert.equal(applyEdits('a\nb\n', [{ op: 'find_replace', find: 'b', replace: 'c' }, { op: 'append', text: 'd\n' }]), 'a\nc\nd\n')
+  assert.equal(applyEdits('x', [{ op: 'append', text: 'y' }]), 'x\ny')
+  assert.equal(applyEdits('a a', [{ op: 'find_replace', find: 'a', replace: 'b', expectedCount: 2 }]), 'b b')
+  assert.throws(() => applyEdits('a a', [{ op: 'find_replace', find: 'a', replace: 'b' }]), (e: NoteError) => e.code === 'edit_mismatch')
+  assert.throws(() => applyEdits('a', [{ op: 'find_replace', find: 'z', replace: 'b' }]), (e: NoteError) => e.code === 'edit_mismatch')
+})
