@@ -42,6 +42,17 @@ export class LinkIndex {
     return this.notes.has(path)
   }
 
+  get(path: string): NoteKeys | undefined {
+    return this.notes.get(path)
+  }
+
+  /** Copia independiente, para simular un cambio (p. ej. un renombrado) sin tocar el original. */
+  clone(): LinkIndex {
+    const c = new LinkIndex()
+    for (const n of this.notes.values()) c.set(n)
+    return c
+  }
+
   /** Añade o sustituye una nota. Devuelve las claves afectadas (para re-resolver enlaces). */
   set(note: NoteKeys): Set<string> {
     const affected = this.delete(note.path)
@@ -72,8 +83,9 @@ export class LinkIndex {
     if (link.target === '') return this.withAnchor(source, link.anchor, 'self')
     const key = LinkIndex.keyOf(source, link)!
 
-    if (link.kind === 'markdown') {
-      // Ruta relativa: coincidencia exacta de ruta completa, sin heurísticas.
+    if (link.kind === 'markdown' || link.target.startsWith('/')) {
+      // Ruta relativa (Markdown) o absoluta desde la raíz (`[[/carpeta/Nota]]`):
+      // coincidencia exacta de ruta completa, sin heurísticas.
       const hits = [...(this.byPath.get(key) ?? [])].filter((p) => normKey(stripMd(p)) === key)
       return hits.length === 1 ? this.withAnchor(hits[0]!, link.anchor, 'path') : { status: 'missing' }
     }

@@ -80,3 +80,16 @@ test('los valores que lo necesitan se entrecomillan y releen igual', () => {
 test('valores multilínea se rechazan', () => {
   assert.throws(() => setFrontmatterKey('---\na: 1\n---\n', 'a', 'x\ny'), FrontmatterError)
 })
+
+test('añadir a una lista: en flujo, en bloque, desde escalar y creándola', async () => {
+  const { addToFrontmatterList } = await import('@thoth/core')
+  assert.equal(addToFrontmatterList('---\naliases: [a, b]  # c\n---\nx\n', 'aliases', 'Viejo'), '---\naliases: [a, b, Viejo]  # c\n---\nx\n')
+  assert.equal(addToFrontmatterList('---\naliases: []\n---\n', 'aliases', 'V'), '---\naliases: [V]\n---\n')
+  assert.equal(addToFrontmatterList('---\naliases:\n  - a\ntitle: t\n---\n', 'aliases', 'V'), '---\naliases:\n  - a\n  - V\ntitle: t\n---\n')
+  assert.equal(addToFrontmatterList('---\naliases: a\n---\n', 'aliases', 'V'), '---\naliases: [a, V]\n---\n')
+  assert.equal(addToFrontmatterList('---\ntitle: t\n---\n', 'aliases', 'V'), '---\ntitle: t\naliases: [V]\n---\n')
+  assert.equal(addToFrontmatterList('# sin frontmatter\n', 'aliases', 'Plan: viejo'), '---\naliases: ["Plan: viejo"]\n---\n# sin frontmatter\n')
+  assert.equal(addToFrontmatterList('---\naliases: [a]\n---\n', 'aliases', 'a'), '---\naliases: [a]\n---\n', 'sin duplicados')
+  const crlf = addToFrontmatterList('---\r\naliases:\r\n  - a\r\n---\r\n', 'aliases', 'V')
+  assert.equal(crlf, '---\r\naliases:\r\n  - a\r\n  - V\r\n---\r\n')
+})
