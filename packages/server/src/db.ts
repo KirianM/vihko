@@ -6,7 +6,7 @@ import { rmSync } from 'node:fs'
 export type Db = Database.Database
 
 /** Subir este número fuerza una reconstrucción completa del índice. */
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 const SCHEMA = `
 create table meta (
@@ -29,7 +29,7 @@ create table notes (
 create index notes_uid on notes(uid) where uid is not null;
 
 create virtual table notes_fts using fts5(
-  path unindexed, title, body,
+  path unindexed, title, aliases, body,
   tokenize = 'unicode61 remove_diacritics 2'
 );
 
@@ -125,7 +125,7 @@ export function dumpIndex(db: Db): string {
     const rows = db.prepare(`select * from ${t} order by 1, 2, 3`).all()
     out.push(`## ${t}`, ...rows.map((r) => JSON.stringify(r)))
   }
-  const fts = db.prepare('select path, title, body from notes_fts order by path').all()
+  const fts = db.prepare('select path, title, aliases, body from notes_fts order by path').all()
   out.push('## notes_fts', ...fts.map((r) => JSON.stringify(r)))
   return out.join('\n')
 }
