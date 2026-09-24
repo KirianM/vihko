@@ -1,0 +1,1 @@
+Nota sin frontmatter. [[Plan]]
