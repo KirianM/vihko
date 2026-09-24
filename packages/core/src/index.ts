@@ -9,3 +9,4 @@ export {
 } from './markdown.ts'
 export { LinkIndex, normKey, pathKeys, type NoteKeys, type Resolution } from './resolve.ts'
 export { classifyPath, isIgnoredDir, type PathKind } from './paths.ts'
+export { newUid } from './uid.ts'
