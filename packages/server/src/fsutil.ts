@@ -60,43 +60,60 @@ export type CommitResult =
   /** El archivo no tenía el hash esperado: no se ha escrito nada. */
   | { ok: false; current: string | null }
 
+export type ReplaceResult =
+  /** El archivo no tenía el hash esperado: no se ha escrito nada. `current` es lo que hay. */
+  | { replaced: false; current: string | null }
+  /**
+   * Escrito. `rescued` es lo que un editor escribió in situ durante la ventana del
+   * rename y nuestro rename reemplazó (null si nada): quien llama decide qué hacer.
+   */
+  | { replaced: true; rescued: string | null }
+
 /**
- * Sustituye `file` por `text` solo si su contenido actual tiene `expectedHash`
- * (null = el archivo no debe existir). Si un editor escribe in situ durante la
- * ventana del rename, su versión se restaura y se informa como conflicto.
+ * Sustituye `file` por `text` si su contenido actual tiene `expectedHash`, o lo
+ * crea si `expectedHash` es null y no existe. Antes del rename se hace un enlace
+ * duro al archivo previo para rescatar escrituras in situ que caigan en la ventana.
  */
-export async function commitText(file: string, text: string, expectedHash: string | null): Promise<CommitResult> {
+export async function replaceText(file: string, text: string, expectedHash: string | null): Promise<ReplaceResult> {
   const tmp = writeTmp(file, text)
   try {
     if (expectedHash === null) {
-      // Crear sin pisar: link() falla si el destino ya existe.
       try {
-        linkSync(tmp, file)
+        linkSync(tmp, file) // link() falla si el destino ya existe: crear sin pisar
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return { ok: false, current: readText(file) }
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return { replaced: false, current: readText(file) }
         throw err
       }
       fsyncDir(dirname(file))
-      return { ok: true }
+      return { replaced: true, rescued: null }
     }
-
     const before = readText(file)
-    if (before === null || contentHash(before) !== expectedHash) return { ok: false, current: before }
+    if (before === null || contentHash(before) !== expectedHash) return { replaced: false, current: before }
     const prev = tmp + '.prev'
     linkSync(file, prev)
     renameSync(tmp, file)
     fsyncDir(dirname(file))
-    const old = await readStable(prev)
+    const old = await readStable(prev) // el editor puede seguir escribiendo en el inodo antiguo
     rmSync(prev, { force: true })
-    if (old !== null && contentHash(old) !== expectedHash) {
-      // Un editor escribió sobre el archivo en la ventana y nuestro rename lo reemplazó.
-      const restore = writeTmp(file, old)
-      renameSync(restore, file)
-      fsyncDir(dirname(file))
-      return { ok: false, current: old }
-    }
-    return { ok: true }
+    return { replaced: true, rescued: old !== null && contentHash(old) !== expectedHash ? old : null }
   } finally {
     rmSync(tmp, { force: true })
   }
+}
+
+/**
+ * Como replaceText, pero si un editor escribió en la ventana se restaura su
+ * versión y se informa como conflicto: para escrituras puntuales (API) que no
+ * pueden fusionar.
+ */
+export async function commitText(file: string, text: string, expectedHash: string | null): Promise<CommitResult> {
+  const r = await replaceText(file, text, expectedHash)
+  if (!r.replaced) return { ok: false, current: r.current }
+  if (r.rescued !== null) {
+    const restore = writeTmp(file, r.rescued)
+    renameSync(restore, file)
+    fsyncDir(dirname(file))
+    return { ok: false, current: r.rescued }
+  }
+  return { ok: true }
 }

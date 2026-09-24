@@ -15,6 +15,8 @@ export interface WatcherOptions {
   /** Intervalo del rescan completo. */
   rescanMs?: number
   onReport?: (kind: 'events' | 'rescan', report: ScanReport) => void
+  /** Rutas con eventos, antes de indexarlas (el hub las usa para integrar cambios externos). */
+  onChange?: (paths: string[]) => void
   onError?: (err: unknown) => void
 }
 
@@ -61,6 +63,7 @@ export class Watcher {
     const paths = [...this.pending]
     this.pending.clear()
     try {
+      this.opts.onChange?.(paths)
       // Un evento sobre un directorio (p. ej. renombrar una carpeta) no dice qué notas cambiaron.
       if (this.needScan || paths.some((p) => this.isDirectoryChange(p))) {
         this.needScan = false
