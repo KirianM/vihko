@@ -52,6 +52,11 @@ export type Alert =
    * last valid one it read (`fallback: 'last_good'`) or with none (`'none'`).
    */
   | { code: 'config_invalid'; file: string; errors: ConfigError[]; fallback: 'last_good' | 'none'; actions: never[] }
+  /**
+   * The workspace configuration applies, but without some parts: unknown keys,
+   * a newer `version`, a rejected strict section (D-031.9).
+   */
+  | { code: 'config_warnings'; file: string; warnings: ConfigError[]; actions: never[] }
   /** A daily-note series names a template note that doesn't exist: its notes are created empty. */
   | { code: 'config_template_missing'; series: string; template: string; actions: never[] }
 

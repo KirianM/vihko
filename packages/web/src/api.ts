@@ -121,7 +121,12 @@ export interface ServerConfig { externalImages: 'allow' | 'block'; maxImageBytes
 /** A stored image: `path` from the notes root, `src` relative to the note (to link it). */
 export interface Attachment { path: string; src: string }
 /** What the UI needs from thoth.yaml: daily-note series and the templates folder. */
-export interface WorkspaceInfo { daily: Series[]; templates: string | null }
+export interface WorkspaceInfo {
+  daily: Series[]
+  templates: string | null
+  /** `aliases`: whether aliases resolve links (thoth.yaml `links.aliases`). */
+  links: { aliases: boolean }
+}
 /** The person's own settings (state.db). */
 export interface Profile { timezone: string | null; dailySeries: string | null; openDailyOnStart: boolean }
 

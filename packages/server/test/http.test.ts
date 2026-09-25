@@ -1,11 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { scryptSync } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
-import { Auth, Indexer, NoteService, Profiles, Workspace, SESSION_COOKIE, STATE_VERSION, createApp, ftsQuery, hashPassword, openIndex, openState, verifyPassword, type Runtime } from '@thoth/server'
+import { Auth, Indexer, NoteService, Profiles, Workspace, SESSION_COOKIE, STATE_VERSION, createApp, ftsQuery, hashPassword, needsRehash, openIndex, openState, verifyPassword, type Runtime } from '@thoth/server'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
@@ -40,12 +41,46 @@ async function setup(opts: { webDir?: string } = {}) {
 /** Status and code of an error response: the UI only needs the code. */
 const errorOf = (r: { status: number; body: { error?: string } | null }) => [r.status, r.body?.error]
 
-test('passwords: scrypt, verification and rejection', async () => {
+/** A hash as thoth made them before argon2id. */
+function legacyScrypt(password: string): string {
+  const salt = Buffer.alloc(16, 7)
+  const hash = scryptSync(password.normalize('NFC'), salt, 32, { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 })
+  return `scrypt$32768$8$1$${salt.toString('base64')}$${hash.toString('base64')}`
+}
+
+test('passwords: argon2id with OWASP parameters, verification and rejection', async () => {
   const h = await hashPassword('a long password')
-  assert.match(h, /^scrypt\$32768\$8\$1\$/)
+  assert.match(h, /^\$argon2id\$v=19\$m=19456,t=2,p=1\$[A-Za-z0-9+/]{22}\$[A-Za-z0-9+/]{43}$/)
   assert.ok(await verifyPassword('a long password', h))
   assert.ok(!(await verifyPassword('otra', h)))
+  assert.ok(await verifyPassword('Reunio\u0301n larga', await hashPassword('Reunión larga')), 'NFC before hashing')
   assert.notEqual(await hashPassword('x'.repeat(12)), await hashPassword('x'.repeat(12)), 'random salt')
+  assert.equal(needsRehash(h), false)
+  assert.equal(needsRehash(h.replace('m=19456', 'm=4096')), true, 'weaker parameters')
+  assert.ok(!(await verifyPassword('a long password', h.replace('v=19', 'v=16'))), 'an unknown Argon2 version never matches')
+  assert.ok(!(await verifyPassword('a long password', 'md5$abc')), 'an unknown algorithm never matches')
+})
+
+test('passwords: scrypt hashes still verify and become argon2id on the next login', async () => {
+  const legacy = legacyScrypt('a long password')
+  assert.ok(await verifyPassword('a long password', legacy))
+  assert.ok(!(await verifyPassword('otra', legacy)))
+  assert.equal(needsRehash(legacy), true)
+
+  const state = openState(join(mkdtempSync(join(tmpdir(), 'thoth-auth-')), 'state.db'))
+  const auth = new Auth(state)
+  const user = await auth.createUser('noa', 'a long password', 'admin')
+  const stored = () => (state.prepare('select password_hash from users where id = ?').get(user.id) as { password_hash: string }).password_hash
+  assert.match(stored(), /^\$argon2id\$/, 'new users get argon2id')
+  state.prepare('update users set password_hash = ? where id = ?').run(legacy, user.id)
+
+  assert.equal(await auth.login('noa', 'wrong password'), null)
+  assert.equal(stored(), legacy, 'a failed login changes nothing')
+
+  assert.ok(await auth.login('noa', 'a long password'))
+  assert.match(stored(), /^\$argon2id\$v=19\$m=19456,t=2,p=1\$/, 'rehashed on a successful login')
+  assert.ok(await auth.login('noa', 'a long password'), 'and the new hash works')
+  assert.equal(await auth.login('noa', 'wrong password'), null)
 })
 
 test('first boot: one-time token to create the admin', async () => {

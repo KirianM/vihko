@@ -282,7 +282,7 @@ export function createApp(deps: AppDeps) {
   // The workspace settings the UI needs from thoth.yaml (reloaded when it changes).
   app.get('/api/workspace', (c) => {
     const w = workspace.config
-    return c.json({ daily: w.daily, templates: w.templates })
+    return c.json({ daily: w.daily, templates: w.templates, links: w.links })
   })
 
   app.get('/api/profile', (c) => c.json(profiles.get(c.get('user').id)))
@@ -440,6 +440,7 @@ export function createApp(deps: AppDeps) {
     const noteExists = index.prepare('select 1 from notes where path = ?')
     const ws = workspace.status
     if (ws.errors.length) alerts.push({ code: 'config_invalid', file: WORKSPACE_FILE, errors: ws.errors, fallback: ws.fallback, actions: [] })
+    if (ws.warnings.length) alerts.push({ code: 'config_warnings', file: WORKSPACE_FILE, warnings: ws.warnings, actions: [] })
     for (const s of workspace.config.daily) {
       if (s.template && !noteExists.get(s.template)) alerts.push({ code: 'config_template_missing', series: s.id, template: s.template, actions: [] })
     }
