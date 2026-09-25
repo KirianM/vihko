@@ -84,8 +84,10 @@ function diffCost(a: string, b: string) {
   return n
 }
 
-// Recovery log: [type:1][len:4 BE][payload]. 'S' = snapshot (hash + flushed state), 'U' = update.
-function record(type: 'S' | 'U', payload: Uint8Array): Buffer {
+// Recovery log: [type:1][len:4 BE][payload]. 'S' = snapshot (hash + flushed state),
+// 'U' = update, 'F' = a flush about to replace the file (hash of the text, which is
+// the document's state at that point of the log).
+function record(type: 'S' | 'U' | 'F', payload: Uint8Array): Buffer {
   const head = Buffer.alloc(5)
   head.write(type, 0, 'latin1')
   head.writeUInt32BE(payload.length, 1)
@@ -94,10 +96,19 @@ function record(type: 'S' | 'U', payload: Uint8Array): Buffer {
 const HASH_LEN = contentHash('').length
 const snapshotRecord = (hash: string, update: Uint8Array) => record('S', Buffer.concat([Buffer.from(hash, 'latin1'), update]))
 
-function readLog(file: string): { updates: Uint8Array[]; lastSnapshot: Uint8Array; lastHash: string } | null {
+interface Log {
+  updates: Uint8Array[]
+  lastSnapshot: Uint8Array
+  lastHash: string
+  /** Flushes started after the last snapshot: `at` is how many of `updates` make up the text written. */
+  flushes: { hash: string; at: number }[]
+}
+
+function readLog(file: string): Log | null {
   if (!existsSync(file)) return null
   const buf = readFileSync(file)
   const updates: Uint8Array[] = []
+  const flushes: Log['flushes'] = []
   let lastSnapshot: Uint8Array | null = null
   let lastHash = ''
   let off = 0
@@ -110,10 +121,24 @@ function readLog(file: string): { updates: Uint8Array[]; lastSnapshot: Uint8Arra
       lastHash = payload.toString('latin1', 0, HASH_LEN)
       lastSnapshot = payload.subarray(HASH_LEN)
       updates.push(lastSnapshot)
-    } else updates.push(payload)
+    } else if (type === 'F') flushes.push({ hash: payload.toString('latin1'), at: updates.length })
+    else updates.push(payload)
     off += 5 + len
   }
-  return lastSnapshot ? { updates, lastSnapshot, lastHash } : null
+  return lastSnapshot ? { updates, lastSnapshot, lastHash, flushes } : null
+}
+
+/** The states the log's flushes wrote to the file, oldest first. */
+function flushedStates(log: Log): Base[] {
+  const out: Base[] = []
+  const doc = new Y.Doc()
+  let applied = 0
+  for (const f of log.flushes) {
+    for (; applied < f.at; applied++) Y.applyUpdate(doc, log.updates[applied]!)
+    const text = doc.getText(TEXT).toString()
+    if (contentHash(text) === f.hash) out.push({ snapshot: Y.encodeStateAsUpdate(doc), text, hash: f.hash })
+  }
+  return out
 }
 
 const locks = new Map<string, Promise<unknown>>()
@@ -334,6 +359,7 @@ export class CollabHub implements HotDocuments {
       let snapshot: Uint8Array
       let flushedText: string
       let flushedHash: string
+      let history: Base[] = []
       if (previous) {
         for (const u of previous.updates) Y.applyUpdate(doc, u, 'recovery')
         const base = new Y.Doc()
@@ -341,6 +367,12 @@ export class CollabHub implements HotDocuments {
         snapshot = previous.lastSnapshot
         flushedText = base.getText(TEXT).toString()
         flushedHash = previous.lastHash
+        // Killed after a flush replaced the file but before the log recorded it:
+        // the file holds that flush's state, which is already in the document.
+        // Merging it as an external change would insert its new text a second time.
+        history = flushedStates(previous)
+        const own = history.find((b) => b.hash === diskHash)
+        if (own) ({ snapshot, text: flushedText, hash: flushedHash } = own)
         if (recovered) this.log(`recovered ${path} from the log (${recovered.updates.length} records)`)
       } else {
         doc.getText(TEXT).insert(0, disk)
@@ -355,7 +387,7 @@ export class CollabHub implements HotDocuments {
       fsyncSync(logFd)
       const h: Hot = {
         doc, file, logFile, logFd, snapshot, flushedText, flushedHash,
-        history: [{ snapshot, text: flushedText, hash: flushedHash }],
+        history: [...history.filter((b) => b.hash !== flushedHash), { snapshot, text: flushedText, hash: flushedHash }].slice(-HISTORY),
         uid: this.uidIn(flushedText), discarded: false, orphaned: false,
       }
       this.hot.set(path, h)
@@ -454,6 +486,7 @@ export class CollabHub implements HotDocuments {
       let set = this.expected.get(path)
       if (!set) this.expected.set(path, (set = new Set()))
       set.add(hash)
+      writeSync(h.logFd, record('F', Buffer.from(hash, 'latin1')))
       const r = await replaceText(h.file, text, h.flushedHash)
       if (!r.replaced) {
         const disk = await readStable(h.file, h.flushedText)

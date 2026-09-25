@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import WebSocket from 'ws'
@@ -338,6 +338,48 @@ test('an editor that lost its connection resyncs without duplicating the note', 
     const text = a.text()
     for (const line of ['# Proxy', '## Red', 'BEFORE-DROP', 'OFFLINE-1', 'OFFLINE-2', 'EDITED-WHILE-DOWN']) {
       assert.equal(text.split('\n').filter((l) => l === line).length, 1, `${line} exactly once in:\n${text}`)
+    }
+  } finally { closeAll(); await srv.stop() }
+})
+
+// The hub's recovery log, as it is when the process dies in the middle of a
+// flush: the file already replaced (rename done), the log not yet rewritten.
+test('killed after a flush replaced the file but before the log recorded it: nothing is duplicated', async () => {
+  const { notes, env } = makeDirs()
+  const file = join(notes, NOTE)
+  const original = readFileSync(file, 'utf8')
+  const doc = new Y.Doc()
+  const text = doc.getText('md')
+  text.insert(0, original)
+  const snapshot = Y.encodeStateAsUpdate(doc)
+  const updates: Uint8Array[] = []
+  doc.on('update', (u: Uint8Array) => updates.push(u))
+  text.insert(text.length, 'FLUSHED-1\n')
+  text.insert(text.length, 'FLUSHED-2\n')
+  const flushed = text.toString()
+  const atFlush = updates.length
+  text.insert(text.length, 'AFTER-THE-FLUSH\n')
+  const rec = (type: string, payload: Uint8Array) => {
+    const head = Buffer.alloc(5)
+    head.write(type, 0, 'latin1')
+    head.writeUInt32BE(payload.length, 1)
+    return Buffer.concat([head, payload])
+  }
+  const log = Buffer.concat([
+    rec('S', Buffer.concat([Buffer.from(contentHash(original), 'latin1'), snapshot])),
+    ...updates.slice(0, atFlush).map((u) => rec('U', u)),
+    rec('F', Buffer.from(contentHash(flushed), 'latin1')),
+    ...updates.slice(atFlush).map((u) => rec('U', u)),
+  ])
+  mkdirSync(join(env.THOTH_STATE_DIR!, 'collab'), { recursive: true })
+  writeFileSync(join(env.THOTH_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + '.ylog'), log)
+  writeFileSync(file, flushed)
+  const srv = await startServer(env)
+  try {
+    await waitFor(() => readFileSync(file, 'utf8').includes('AFTER-THE-FLUSH'), 'recovery')
+    const lines = readFileSync(file, 'utf8').split('\n')
+    for (const line of ['# Proxy', 'FLUSHED-1', 'FLUSHED-2', 'AFTER-THE-FLUSH']) {
+      assert.equal(lines.filter((l) => l === line).length, 1, `${line} exactly once in:\n${lines.join('\n')}`)
     }
   } finally { closeAll(); await srv.stop() }
 })
