@@ -150,5 +150,5 @@ function unquote(etag: string | undefined) {
 
 /** HTTP status for each history error code. */
 export function historyErrorStatus(e: HistoryError) {
-  return ({ history_off: 409, history_unmanaged_unavailable: 409, history_unavailable: 503, not_found: 404, invalid: 400 } as const)[e.code]
+  return ({ history_off: 409, history_unavailable: 503, not_found: 404, invalid: 400 } as const)[e.code]
 }

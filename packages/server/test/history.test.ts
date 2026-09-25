@@ -378,7 +378,9 @@ test('unmanaged mode without a repository says so', async () => {
     // The test vault lives in a temporary folder with no git above it.
     assert.equal(s.error.code, 'history_no_repository')
     assert.ok((await h.noa('GET', '/api/alerts')).body.alerts.some((a: any) => a.code === 'history_no_repository'))
-    assert.equal((await h.noa('GET', `/api/history/versions?path=${h.q(NOTE)}`)).body.error, 'history_unmanaged_unavailable')
+    // There is nothing to read: the status and the alert say why.
+    const r = await h.noa('GET', `/api/history/versions?path=${h.q(NOTE)}`)
+    assert.deepEqual([r.status, r.body.error], [503, 'history_unavailable'])
   } finally { await h.close() }
 })
 

@@ -21,6 +21,8 @@ export interface HistorySetup {
   dir?: string
   quietMs?: number
   maxOpenMs?: number
+  /** Before anything starts, once the files are there (the user's own git repository, say). */
+  prepare?: (dirs: { dir: string; notesDir: string }) => void
 }
 
 export async function setup(opts: HistorySetup = {}) {
@@ -35,6 +37,7 @@ export async function setup(opts: HistorySetup = {}) {
       writeFileSync(join(notesDir, p), content)
     }
     if (opts.config !== undefined) writeFileSync(join(notesDir, 'thoth.yaml'), opts.config)
+    opts.prepare?.({ dir, notesDir })
   }
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))

@@ -8,6 +8,7 @@ export { authorKey, authorOf, parseAuthorKey, type Author, type Reason, type Rea
 export { History, HistoryError, repositoryOf, type AuthorRef, type ChangeKind, type HistoryOptions, type HistoryReader, type HistoryStatus, type RawChange, type RawVersion, type VersionText } from './history/index.ts'
 export { HISTORY_REF, Recorder, historyPath, type FileChange, type IndexedChanges, type RecorderOptions, type SweepKind, type WriteHandle } from './history/recorder.ts'
 export { ManagedReader } from './history/managed.ts'
+export { UnmanagedReader, type UnmanagedOptions } from './history/unmanaged.ts'
 export { authorFilter, matchesAuthor } from './history/reader.ts'
 export { countWords, wordDiff, wordStats, type DiffOp, type WordDiff } from './history/diff.ts'
 export { Git, GitError, blobOid } from './history/git.ts'
