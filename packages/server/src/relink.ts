@@ -37,6 +37,22 @@ export function planRelinks(
   return out
 }
 
+/**
+ * Links in a note to `from` that still reach `to` without being touched (through
+ * an alias, or because the name does not change). For the preview: what is not
+ * rewritten.
+ */
+export function keptLinks(text: string, src: string, before: LinkIndex, after: LinkIndex, from: string, to: string): { raw: string; via: 'path' | 'alias' }[] {
+  const out: { raw: string; via: 'path' | 'alias' }[] = []
+  for (const link of extract(text).links) {
+    const rb = before.resolve(src, link)
+    if (rb.status !== 'resolved' || rb.path !== from) continue
+    const ra = after.resolve(src, link)
+    if (ra.status === 'resolved' && ra.path === to) out.push({ raw: link.raw, via: ra.via === 'alias' ? 'alias' : 'path' })
+  }
+  return out
+}
+
 export function applyReplacements(text: string, reps: Replacement[]): string {
   let out = text
   for (const r of [...reps].sort((a, b) => b.from - a.from)) out = out.slice(0, r.from) + r.text + out.slice(r.to)

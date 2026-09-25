@@ -213,3 +213,66 @@ test('borrada con el servidor caído y ediciones pendientes: no se vacía ni se 
     assert.ok(back.includes('# Proxy'), 'el documento no se vació')
   } finally { closeAll(); await srv.stop() }
 })
+
+test('renaming an open note: editors are told, nothing is lost and the old path does not reopen', async () => {
+  const { notes, env } = makeDirs()
+  const srv = await startServer(env)
+  const TO = 'hogar/Hipervisor Proxy.md'
+  try {
+    const cookie = await login(srv)
+    const a = await connect(srv, cookie, NOTE)
+    const b = await connect(srv, cookie, NOTE)
+    const moved: { from: string; to: string }[] = []
+    for (const c of [a, b]) c.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'thoth:moved') moved.push(m) })
+    typeLine(a, 'UNFLUSHED') // still in the debounce: the move flushes it first
+    await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
+    const preview = await api(srv, cookie, 'POST', '/api/note/move', { from: NOTE, to: TO, dryRun: true })
+    assert.equal(preview.status, 200)
+    assert.ok(existsSync(join(notes, NOTE)), 'the preview moves nothing')
+    const r = await api(srv, cookie, 'POST', '/api/note/move', { from: NOTE, to: TO })
+    assert.equal(r.status, 200)
+    assert.deepEqual(r.body.relinked.map((x: { path: string }) => x.path), preview.body.relinked.map((x: { path: string }) => x.path))
+    await waitFor(() => moved.length === 2, 'both editors told')
+    assert.deepEqual(moved[0], { type: 'thoth:moved', from: NOTE, to: TO })
+    assert.ok(!existsSync(join(notes, NOTE)))
+    assert.ok(readFileSync(join(notes, TO), 'utf8').includes('UNFLUSHED\n'))
+    assert.ok(readFileSync(join(notes, 'hogar/enlaces.md'), 'utf8').includes('[[Hipervisor Proxy#Red]]'))
+    a.close(); b.close()
+    // It reopens at the new path and editing goes on as usual.
+    const c = await connect(srv, cookie, TO)
+    assert.ok(c.text().includes('UNFLUSHED\n'))
+    typeLine(c, 'AFTER-MOVE')
+    await waitFor(() => readFileSync(join(notes, TO), 'utf8').includes('AFTER-MOVE'), 'flushed at the new path')
+    await sleep(1500)
+    assert.ok(!existsSync(join(notes, NOTE)), 'the old path is not recreated')
+  } finally { closeAll(); await srv.stop() }
+})
+
+test('trashing an open note tells its editors the entry, and restoring it reopens it', async () => {
+  const { notes, env } = makeDirs()
+  const srv = await startServer(env)
+  try {
+    const cookie = await login(srv)
+    const a = await connect(srv, cookie, NOTE)
+    const messages: { type: string; id?: string; by?: string }[] = []
+    a.provider.on('stateless', ({ payload }: { payload: string }) => messages.push(JSON.parse(payload)))
+    typeLine(a, 'LAST-LINE')
+    await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
+    const del = await api(srv, cookie, 'DELETE', `/api/note?path=${encodeURIComponent(NOTE)}`)
+    assert.equal(del.status, 200)
+    await waitFor(() => messages.some((m) => m.type === 'thoth:trashed'), 'trash notice')
+    assert.deepEqual(messages.find((m) => m.type === 'thoth:trashed'), { type: 'thoth:trashed', path: NOTE, id: del.body.id, by: 'noa' })
+    // The editor is still around and retries: it does not resurrect the note, not even by typing.
+    typeLine(a, 'AFTER-DELETE')
+    await sleep(1500)
+    assert.ok(!existsSync(join(notes, NOTE)))
+    const restored = await api(srv, cookie, 'POST', `/api/trash/${del.body.id}/restore`)
+    assert.equal(restored.status, 200)
+    const back = readFileSync(join(notes, NOTE), 'utf8')
+    assert.ok(back.includes('LAST-LINE\n'), 'the trash has the latest text')
+    assert.ok(!back.includes('AFTER-DELETE'))
+    a.close()
+    const c = await connect(srv, cookie, NOTE)
+    assert.equal(c.text(), back)
+  } finally { closeAll(); await srv.stop() }
+})

@@ -49,6 +49,10 @@ interface Hot {
 export const ORPHAN_MESSAGE = 'thoth:deleted-externally'
 /** Tras cada volcado: `etag` es el hash del texto que ya está en el archivo. La UI lo usa para decir "guardado". */
 export const SAVED_MESSAGE = 'thoth:saved'
+/** The note was moved or renamed: editors reopen it at `to`. */
+export const MOVED_MESSAGE = 'thoth:moved'
+/** The note was moved to the trash from thoth: `id` is the entry, to restore it. */
+export const TRASHED_MESSAGE = 'thoth:trashed'
 
 export interface HubOptions {
   notesDir: string
@@ -148,6 +152,8 @@ export class CollabHub implements HotDocuments {
       maxDebounce: debounce * 10,
       onConnect: async ({ documentName }) => {
         NoteService.checkPath(documentName)
+        // A note deleted or moved from thoth is not reopened: a reconnecting editor cannot resurrect it.
+        if (this.hot.get(documentName)?.discarded) throw new NoteError('not_found', `does not exist: ${documentName}`)
         if (!this.hot.has(documentName) && readText(this.file(documentName)) === null) {
           throw new NoteError('not_found', `no existe: ${documentName}`)
         }
@@ -201,8 +207,10 @@ export class CollabHub implements HotDocuments {
 
   // --- HotDocuments (servicio de notas) -------------------------------------
 
+  /** A discarded note (deleted or moved) no longer counts as open: writes go to the file. */
   has(path: string) {
-    return this.hot.has(path)
+    const h = this.hot.get(path)
+    return !!h && !h.discarded
   }
 
   /** Edición de una nota caliente: el cambio se aplica como operaciones Yjs y llega a los editores abiertos. */
@@ -229,13 +237,75 @@ export class CollabHub implements HotDocuments {
     return result
   }
 
-  /** La nota se borró desde thoth: se cierra sin volcar y se descarta su estado. */
-  async discard(path: string) {
-    await withLock(path, () => {
+  /**
+   * The note is deleted from thoth: what is pending is flushed (so the trash gets
+   * the latest text), it stops being flushed and its sessions are closed. With
+   * `trash`, editors are told the trash entry so they can restore it.
+   */
+  async discard(path: string, opts: { ifMatch?: string; trash?: { id: string; actor: Actor } } = {}) {
+    await withLock(path, async () => {
       const h = this.hot.get(path)
-      if (h) h.discarded = true
+      if (!h) return
+      await this.flushNow(path, h)
+      if (opts.ifMatch !== undefined && !h.orphaned && opts.ifMatch !== h.flushedHash) {
+        throw new NoteError('precondition_failed', `the note has changed: ${path}`, h.flushedHash)
+      }
+      h.discarded = true
+      if (opts.trash) {
+        const msg = { type: TRASHED_MESSAGE, path, id: opts.trash.id, by: actorName(opts.trash.actor) }
+        this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify(msg))
+      }
     })
     this.hocuspocus.closeConnections(path)
+  }
+
+  /**
+   * Moves a hot note. With the document locked, what is pending is flushed and
+   * `run` does the move on disk (the file matches the document) and returns the
+   * text left at the destination. The note's own changes (rewritten links, uid)
+   * are merged into the document, and editors are told to reopen it at the new
+   * path. Anything typed during the move is written to the destination: nothing
+   * is lost.
+   */
+  async move<T>(from: string, to: string, run: () => Promise<{ result: T; written: string | null }>): Promise<T> {
+    let late: { text: string; base: string } | null = null
+    const result = await withLock(from, async () => {
+      const h = this.hot.get(from)
+      if (!h || h.discarded) return (await run()).result // closed meanwhile: plain move
+      await this.flushNow(from, h)
+      if (h.orphaned) throw new NoteError('not_found', `does not exist: ${from}`)
+      const base = Y.encodeStateAsUpdate(h.doc)
+      const text = h.doc.getText(TEXT).toString()
+      h.discarded = true
+      let r: { result: T; written: string | null }
+      try {
+        r = await run()
+      } catch (err) {
+        h.discarded = false
+        throw err
+      }
+      if (r.written !== null && r.written !== text) {
+        // Like an external change: from the flushed state, so as not to overwrite what was typed meanwhile.
+        const fork = new Y.Doc()
+        Y.applyUpdate(fork, base)
+        const sv = Y.encodeStateVector(fork)
+        fork.transact(() => applyTextDiff(fork.getText(TEXT), text, r.written!))
+        Y.applyUpdate(h.doc, Y.encodeStateAsUpdate(fork, sv), 'move')
+      }
+      this.hocuspocus.documents.get(from)?.broadcastStateless(JSON.stringify({ type: MOVED_MESSAGE, from, to }))
+      this.hocuspocus.closeConnections(from)
+      const final = h.doc.getText(TEXT).toString()
+      if (r.written !== null && final !== r.written) late = { text: final, base: r.written }
+      this.log(`${from} moved to ${to} while open`)
+      return r.result
+    })
+    if (late) {
+      const { text, base } = late as { text: string; base: string }
+      const w = await replaceText(this.file(to), text, contentHash(base))
+      if (w.replaced) this.opts.indexer.indexPaths([to])
+      else this.log(`${to}: could not write what was typed during the move (the file changed)`)
+    }
+    return result
   }
 
   // --- Ciclo de vida ------------------------------------------------------------
@@ -341,53 +411,58 @@ export class CollabHub implements HotDocuments {
   flush(path: string) {
     return withLock(path, async () => {
       const h = this.hot.get(path)
-      if (!h || h.discarded || h.orphaned) return
-      const now = readText(h.file)
-      if (now === null && (await readStable(h.file)) === null) {
-        this.markOrphan(path, h)
-        return
-      }
-      if (now !== null && contentHash(now) !== h.flushedHash) {
-        const disk = await readStable(h.file, h.flushedText)
-        if (disk !== null) {
-          const dh = contentHash(disk)
-          if (dh !== h.flushedHash && !this.expected.get(path)?.has(dh)) this.mergeExternal(path, h, disk, dh)
-        }
-      }
-      for (let attempt = 0; ; attempt++) {
-        if (attempt > 5) throw new Error(`demasiadas carreras seguidas en ${path}`)
-        this.ensureUid(h)
-        // Texto y snapshot juntos, antes de cualquier await.
-        const text = h.doc.getText(TEXT).toString()
-        if (text === h.flushedText && readText(h.file) !== null) return
-        const snap = Y.encodeStateAsUpdate(h.doc)
-        const hash = contentHash(text)
-        let set = this.expected.get(path)
-        if (!set) this.expected.set(path, (set = new Set()))
-        set.add(hash)
-        const r = await replaceText(h.file, text, h.flushedHash)
-        if (!r.replaced) {
-          const disk = await readStable(h.file, h.flushedText)
-          if (disk === null) { this.markOrphan(path, h); return }
-          this.log(`carrera con una escritura externa en ${path} (antes del rename)`)
-          this.mergeExternal(path, h, disk, contentHash(disk))
-          continue
-        }
-        h.snapshot = snap
-        h.flushedText = text
-        h.flushedHash = hash
-        this.remember(path, h)
-        ftruncateSync(h.logFd, 0)
-        writeSync(h.logFd, snapshotRecord(hash, snap))
-        if (text !== h.doc.getText(TEXT).toString()) {
-          writeSync(h.logFd, record('U', Y.encodeStateAsUpdate(h.doc, Y.encodeStateVectorFromUpdate(snap))))
-        }
-        fsyncSync(h.logFd)
-        this.opts.indexer.indexPaths([path])
-        if (r.rescued === null) return
-        this.mergeExternal(path, h, r.rescued, contentHash(r.rescued), false)
-      }
+      if (h) await this.flushNow(path, h)
     })
+  }
+
+  /** Writes the document to the file. Only with the note's lock held. */
+  private async flushNow(path: string, h: Hot) {
+    if (h.discarded || h.orphaned) return
+    const now = readText(h.file)
+    if (now === null && (await readStable(h.file)) === null) {
+      this.markOrphan(path, h)
+      return
+    }
+    if (now !== null && contentHash(now) !== h.flushedHash) {
+      const disk = await readStable(h.file, h.flushedText)
+      if (disk !== null) {
+        const dh = contentHash(disk)
+        if (dh !== h.flushedHash && !this.expected.get(path)?.has(dh)) this.mergeExternal(path, h, disk, dh)
+      }
+    }
+    for (let attempt = 0; ; attempt++) {
+      if (attempt > 5) throw new Error(`too many races in a row on ${path}`)
+      this.ensureUid(h)
+      // Text and snapshot together, before any await.
+      const text = h.doc.getText(TEXT).toString()
+      if (text === h.flushedText && readText(h.file) !== null) return
+      const snap = Y.encodeStateAsUpdate(h.doc)
+      const hash = contentHash(text)
+      let set = this.expected.get(path)
+      if (!set) this.expected.set(path, (set = new Set()))
+      set.add(hash)
+      const r = await replaceText(h.file, text, h.flushedHash)
+      if (!r.replaced) {
+        const disk = await readStable(h.file, h.flushedText)
+        if (disk === null) { this.markOrphan(path, h); return }
+        this.log(`race with an external write on ${path} (before the rename)`)
+        this.mergeExternal(path, h, disk, contentHash(disk))
+        continue
+      }
+      h.snapshot = snap
+      h.flushedText = text
+      h.flushedHash = hash
+      this.remember(path, h)
+      ftruncateSync(h.logFd, 0)
+      writeSync(h.logFd, snapshotRecord(hash, snap))
+      if (text !== h.doc.getText(TEXT).toString()) {
+        writeSync(h.logFd, record('U', Y.encodeStateAsUpdate(h.doc, Y.encodeStateVectorFromUpdate(snap))))
+      }
+      fsyncSync(h.logFd)
+      this.opts.indexer.indexPaths([path])
+      if (r.rescued === null) return
+      this.mergeExternal(path, h, r.rescued, contentHash(r.rescued), false)
+    }
   }
 
   private unload(path: string) {
@@ -484,6 +559,10 @@ export class CollabHub implements HotDocuments {
     const next = setFrontmatterKey(cur, this.uidKey, h.uid)
     h.doc.transact(() => applyTextDiff(ytext, cur, next), 'uid')
   }
+}
+
+function actorName(a: Actor): string {
+  return a.kind === 'user' ? a.id : a.kind === 'agent' ? a.id : 'system'
 }
 
 function parseCookie(header: string, name: string): string | undefined {

@@ -70,6 +70,23 @@ test('los enlaces de la propia nota movida siguen apuntando a lo mismo', async (
   assert.equal(dst('ideas/notas thoth.md', '[[notas thoth]]'), 'ideas/notas thoth.md')
 })
 
+test('the preview details every link that changes and those that keep working untouched', async () => {
+  const { notes } = setup()
+  const r = await notes.move('hogar/Proxy.md', 'hogar/Hipervisor Proxy.md', { actor: me, dryRun: true })
+  const enlaces = r.relinked.find((x) => x.path === 'hogar/enlaces.md')!
+  assert.deepEqual(enlaces.changes, [
+    { before: '[[Proxy#Red]]', after: '[[Hipervisor Proxy#Red]]' },
+    { before: '[[Proxy#No existe]]', after: '[[Hipervisor Proxy#No existe]]' },
+    { before: '[Proxy en Markdown](Proxy.md)', after: '[Proxy en Markdown](Hipervisor%20Proxmox.md)' },
+  ])
+  assert.equal(enlaces.links, enlaces.changes.length)
+  assert.deepEqual(r.kept.filter((k) => k.path === 'hogar/enlaces.md'), [{ path: 'hogar/enlaces.md', raw: '[[gw]]', via: 'alias' }])
+  // Moving without renaming: links by name keep working.
+  const m = await notes.move('hogar/Proxy.md', 'infra/Proxy.md', { actor: me, dryRun: true })
+  assert.ok(m.kept.some((k) => k.raw === '[[Proxy#Red]]' && k.via === 'path'))
+  assert.ok(!m.relinked.some((x) => x.changes.some((c) => c.before === '[[Proxy#Red]]')))
+})
+
 test('dryRun no toca nada; destino existente e if_match viejo se rechazan', async () => {
   const { notesDir, db, notes } = setup()
   const snapshot = dumpIndex(db)
@@ -78,6 +95,7 @@ test('dryRun no toca nada; destino existente e if_match viejo se rechazan', asyn
   assert.ok(r.relinked.some((x) => x.path === 'hogar/enlaces.md'))
   assert.ok(existsSync(join(notesDir, 'hogar/Proxy.md')) && !existsSync(join(notesDir, 'hogar/GW.md')))
   assert.equal(dumpIndex(db), snapshot)
+  await assert.rejects(notes.move('hogar/Proxy.md', '../fuera.md', { actor: me, dryRun: true }), (e: NoteError) => e.code === 'invalid_path')
   await assert.rejects(notes.move('hogar/Proxy.md', 'hogar/Red.md', { actor: me }), (e: NoteError) => e.code === 'exists')
   await assert.rejects(notes.move('hogar/Proxy.md', 'x.md', { actor: me, ifMatch: 'sha256:malo' }), (e: NoteError) => e.code === 'precondition_failed')
 })

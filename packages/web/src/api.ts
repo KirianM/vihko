@@ -51,6 +51,18 @@ export interface SearchResult { path: string; title: string; snippet: string }
 /** Resultados de búsqueda; el resaltado del fragmento va entre caracteres de control, no en HTML. */
 export interface SearchResponse { results: SearchResult[]; highlight?: { start: string; end: string } }
 
+/** What a rename or move does (or would do, with `dryRun`). */
+export interface MoveReport {
+  from: string
+  to: string
+  relinked: { path: string; links: number; changes: { before: string; after: string }[] }[]
+  kept: { path: string; raw: string; via: 'path' | 'alias' }[]
+  failed: { path: string; reason: string }[]
+  aliasAdded: string | null
+  dryRun: boolean
+}
+export interface TrashEntry { id: string; path: string; deletedAt: string }
+
 export const api = {
   setupNeeded: () => request<{ needed: boolean }>('GET', '/api/setup'),
   setup: (token: string, username: string, password: string) => request<{ user: User }>('POST', '/api/setup', { token, username, password }),
@@ -66,4 +78,7 @@ export const api = {
   search: (q: string) => request<SearchResponse>('GET', `/api/search?q=${encodeURIComponent(q)}`),
   createNote: (path: string, text: string) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, text }),
   orphan: (path: string, action: 'restore' | 'discard') => request<{ ok: true }>('POST', '/api/note/orphan', { path, action }),
+  move: (from: string, to: string, dryRun = false) => request<MoveReport>('POST', '/api/note/move', { from, to, dryRun }),
+  trash: (path: string) => request<TrashEntry>('DELETE', `/api/note?path=${encodeURIComponent(path)}`),
+  restore: (id: string) => request<{ path: string; etag: string }>('POST', `/api/trash/${encodeURIComponent(id)}/restore`),
 }

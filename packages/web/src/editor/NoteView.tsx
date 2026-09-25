@@ -1,5 +1,6 @@
-// Nota abierta: cabecera (ruta, estado de guardado, presencia), aviso de nota
-// borrada fuera (D-022), el editor y el panel lateral.
+// The open note: header (path, save state, presence, panel toggle, more
+// actions), the banner for a note deleted outside thoth (D-022), the editor and
+// the side panel.
 import type { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from 'react-aria-components'
@@ -10,18 +11,20 @@ import { errorText, useT } from '../i18n.tsx'
 import { Crumbs, Icon, ThemeToggle } from '../ui.tsx'
 import { SearchButton } from '../Palette.tsx'
 import { useCollab, type CollabState } from './collab.ts'
+import type { Trashed } from '../TrashToast.tsx'
 import { Editor } from './Editor.tsx'
+import { NoteActions } from './NoteActions.tsx'
 import type { LinkInfo } from './livePreview.ts'
 import { NotePanel, PanelToggle, usePanel, type LinksData } from './NotePanel.tsx'
 import { usePresence } from './presence.ts'
 
 function SaveStatus({ c }: { c: CollabState }) {
   const t = useT()
-  if (c.orphaned) return <span className="status status-warn">{Icon.alert}{t('editor.orphanStatus')}</span>
-  if (c.connection === 'offline') return <span className="status status-warn">{Icon.alert}{t('editor.offline')}</span>
-  if (c.connection === 'connecting') return <span className="status">{t('editor.connecting')}</span>
-  if (c.save === 'saving') return <span className="status">{t('editor.saving')}</span>
-  return <span className="status status-ok">{Icon.check}{t('editor.saved')}</span>
+  if (c.orphaned) return <span className="status status-warn">{Icon.alert}<span className="status-label">{t('editor.orphanStatus')}</span></span>
+  if (c.connection === 'offline') return <span className="status status-warn">{Icon.alert}<span className="status-label">{t('editor.offline')}</span></span>
+  if (c.connection === 'connecting') return <span className="status"><span className="status-label">{t('editor.connecting')}</span></span>
+  if (c.save === 'saving') return <span className="status"><span className="status-label">{t('editor.saving')}</span></span>
+  return <span className="status status-ok">{Icon.check}<span className="status-label">{t('editor.saved')}</span></span>
 }
 
 function Presence({ c }: { c: CollabState }) {
@@ -56,7 +59,16 @@ function OrphanBanner({ path }: { path: string }) {
   )
 }
 
-export function NoteView({ path, user, onNavigate }: { path: string; user: User; onNavigate: (p: string) => void }) {
+interface Props {
+  path: string
+  user: User
+  onNavigate: (p: string) => void
+  /** The note changed path (renamed by you or someone else): reopen it there. */
+  onMoved: (to: string) => void
+  onTrashed: (t: Trashed) => void
+}
+
+export function NoteView({ path, user, onNavigate, onMoved, onTrashed }: Props) {
   const c = useCollab(path)
   const [linkData, setLinkData] = useState<LinksData | null>(null)
   const links = useMemo(
@@ -74,6 +86,12 @@ export function NoteView({ path, user, onNavigate }: { path: string; user: User;
     return () => { live = false }
   }, [path, c.save])
 
+  // Moved or trashed from thoth, by you or someone else: the hub tells all its editors.
+  useEffect(() => { if (c.moved) onMoved(c.moved) }, [c.moved]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (c.trashed) onTrashed({ id: c.trashed.id, path, by: c.trashed.by === user.username ? null : c.trashed.by })
+  }, [c.trashed]) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <>
       <header className="main-head">
@@ -84,6 +102,7 @@ export function NoteView({ path, user, onNavigate }: { path: string; user: User;
         <SearchButton />
         <ThemeToggle />
         <PanelToggle panel={panel} />
+        <NoteActions path={path} onMoved={onMoved} onTrashed={(id) => onTrashed({ id, path, by: null })} />
       </header>
       {c.orphaned && <OrphanBanner path={path} />}
       <div className="note-body">

@@ -5,7 +5,7 @@ import { mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:
 import { dirname, join, posix } from 'node:path'
 import { addToFrontmatterList, classifyPath, contentHash, newUid, normKey, pathKeys, readFrontmatter, setFrontmatterKey } from '@thoth/core'
 import { commitText, readStable, readText } from './fsutil.ts'
-import { applyReplacements, planRelinks } from './relink.ts'
+import { applyReplacements, keptLinks, planRelinks, type Replacement } from './relink.ts'
 import type { Indexer } from './indexer.ts'
 import type { Db } from './db.ts'
 
@@ -38,8 +38,16 @@ export interface NoteRead {
 export interface HotDocuments {
   has(path: string): boolean
   edit(path: string, fn: (text: string) => string, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }>
-  /** La nota se borra: cerrar sus sesiones de edición sin volver a volcarla. */
-  discard(path: string): Promise<void>
+  /**
+   * The note is deleted: flush what is pending, close its sessions and never
+   * flush it again. With `trash`, its editors are told the trash entry.
+   */
+  discard(path: string, opts?: { ifMatch?: string; trash?: { id: string; actor: Actor } }): Promise<void>
+  /**
+   * The note is moved while open: `run` does the move on disk with the note
+   * flushed and locked, and returns the text left at the destination.
+   */
+  move<T>(from: string, to: string, run: () => Promise<{ result: T; written: string | null }>): Promise<T>
 }
 
 export interface NoteServiceOptions {
@@ -55,8 +63,13 @@ export interface NoteServiceOptions {
 export interface MoveReport {
   from: string
   to: string
-  /** Notas cuyos enlaces se reescriben (o se reescribirían, en dryRun), con el número de enlaces. */
-  relinked: { path: string; links: number }[]
+  /**
+   * Notes whose links are rewritten (or would be, in dryRun): number of links and
+   * each change, text before and after.
+   */
+  relinked: { path: string; links: number; changes: { before: string; after: string }[] }[]
+  /** Links to the note that keep working untouched: through an alias (`via: 'alias'`) or by name or path. */
+  kept: { path: string; raw: string; via: 'path' | 'alias' }[]
   /** Notas que no se pudieron reescribir. */
   failed: { path: string; reason: string }[]
   /** Se añadió el nombre antiguo como alias porque alguna reescritura falló (D-018). */
@@ -83,6 +96,7 @@ export class NoteService {
 
   /** Valida una ruta de nota: relativa, sin `..`, sin segmentos ocultos, terminada en `.md`. */
   static checkPath(path: string): string {
+    if (typeof path !== 'string' || path === '') throw new NoteError('invalid_path', `invalid note path: ${String(path)}`)
     const norm = posix.normalize(path)
     if (path !== norm || path.startsWith('/') || norm.split('/').includes('..') || classifyPath(norm) !== 'note') {
       throw new NoteError('invalid_path', `ruta de nota no válida: ${path}`)
@@ -153,7 +167,9 @@ export class NoteService {
   /** Mueve la nota a la papelera del volumen de estado. */
   async delete(path: string, opts: { ifMatch?: string; actor: Actor }): Promise<TrashEntry> {
     const file = this.file(path)
-    if (this.opts.hot?.has(path)) await this.opts.hot.discard(path)
+    const id = newUid()
+    // Open in the editor: flush what is pending and close it, telling its editors the trash entry.
+    if (this.opts.hot?.has(path)) await this.opts.hot.discard(path, { ifMatch: opts.ifMatch, trash: { id, actor: opts.actor } })
     const current = await readStable(file)
     if (current === null) throw new NoteError('not_found', `no existe: ${path}`)
     const hash = contentHash(current)
@@ -168,7 +184,7 @@ export class NoteService {
       renameSync(aside, file)
       throw new NoteError('precondition_failed', `la nota cambió durante el borrado: ${path}`, moved === null ? null : contentHash(moved))
     }
-    const entry: TrashEntry = { id: newUid(), path, deletedAt: new Date().toISOString(), actor: opts.actor, etag: hash }
+    const entry: TrashEntry = { id, path, deletedAt: new Date().toISOString(), actor: opts.actor, etag: hash }
     const dir = join(this.opts.stateDir, 'trash', entry.id)
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'note.md'), moved)
@@ -184,9 +200,20 @@ export class NoteService {
    * quien renombra. Con `dryRun`, solo informa de lo que haría.
    */
   async move(from: string, to: string, opts: { ifMatch?: string; actor: Actor; dryRun?: boolean }): Promise<MoveReport> {
+    const hot = this.opts.hot
+    // Open in the editor: the hub flushes and locks it during the move, and its editors follow it.
+    if (!opts.dryRun && hot?.has(from)) {
+      return hot.move(from, to, async () => {
+        const result = await this.moveNow(from, to, opts)
+        return { result, written: readText(this.file(to)) }
+      })
+    }
+    return this.moveNow(from, to, opts)
+  }
+
+  private async moveNow(from: string, to: string, opts: { ifMatch?: string; actor: Actor; dryRun?: boolean }): Promise<MoveReport> {
     const fromFile = this.file(from)
     const toFile = this.file(to)
-    if (this.opts.hot?.has(from)) throw new NoteError('precondition_failed', `la nota está abierta en el editor: ${from}`)
     const text = await readStable(fromFile)
     if (text === null) throw new NoteError('not_found', `no existe: ${from}`)
     if (readText(toFile) !== null) throw new NoteError('exists', `ya existe: ${to}`)
@@ -211,15 +238,17 @@ export class NoteService {
     const byKey = this.opts.db.prepare('select distinct src_path from links where key = ?')
     for (const k of affected) for (const r of byKey.all(k) as { src_path: string }[]) sources.add(r.src_path)
 
-    const report: MoveReport = { from, to, relinked: [], failed: [], aliasAdded: null, dryRun: !!opts.dryRun }
+    const report: MoveReport = { from, to, relinked: [], kept: [], failed: [], aliasAdded: null, dryRun: !!opts.dryRun }
+    const changes = (t: string, reps: Replacement[]) => reps.map((r) => ({ before: t.slice(r.from, r.to), after: r.text }))
     const movedReps = planRelinks(text, from, to, before, after, map)
-    if (movedReps.length) report.relinked.push({ path: to, links: movedReps.length })
+    if (movedReps.length) report.relinked.push({ path: to, links: movedReps.length, changes: changes(text, movedReps) })
     const others: string[] = []
     for (const src of [...sources].filter((p) => p !== from).sort()) {
       const t = readText(this.file(src))
       if (t === null) continue
       const reps = planRelinks(t, src, src, before, after, map)
-      if (reps.length) { report.relinked.push({ path: src, links: reps.length }); others.push(src) }
+      if (reps.length) { report.relinked.push({ path: src, links: reps.length, changes: changes(t, reps) }); others.push(src) }
+      for (const k of keptLinks(t, src, before, after, from, to)) report.kept.push({ path: src, ...k })
     }
     if (opts.dryRun) return report
 
