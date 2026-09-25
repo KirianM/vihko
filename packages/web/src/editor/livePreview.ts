@@ -40,10 +40,10 @@ const focused = StateField.define<boolean>({
   update: (v, tr) => tr.effects.reduce((acc, e) => (e.is(focusEffect) ? e.value : acc), v),
 })
 const trackFocus = EditorView.focusChangeEffect.of((_state, focusing) => focusEffect.of(focusing))
-const focusChanged = (tr: { effects: readonly StateEffect<unknown>[] }) => tr.effects.some((e) => e.is(focusEffect))
+export const focusChanged = (tr: { effects: readonly StateEffect<unknown>[] }) => tr.effects.some((e) => e.is(focusEffect))
 
 /** El cursor (o una selección) toca el rango y el editor tiene el foco: ahí se muestran las marcas. */
-function touches(state: EditorState, from: number, to: number) {
+export function touches(state: EditorState, from: number, to: number) {
   return state.field(focused) && state.selection.ranges.some((r) => r.from <= to && r.to >= from)
 }
 function touchesLines(state: EditorState, from: number, to: number) {
