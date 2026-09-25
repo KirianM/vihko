@@ -1,17 +1,17 @@
-# Ejemplo mínimo. Ajusta las rutas de los volúmenes a tu sistema.
+# Minimal example. Adjust the volume paths to your system.
 services:
   thoth:
     image: thoth:local
     build: .
     restart: unless-stopped
     ports:
-      # Puerto del host: 8080 si no dices otro. Si ya está ocupado,
-      # THOTH_HOST_PORT=8098 docker compose up -d (o en un archivo .env).
+      # Host port: 8080 unless you say otherwise. If it is taken,
+      # THOTH_HOST_PORT=8098 docker compose up -d (or put it in a .env file).
       - "${THOTH_HOST_PORT:-8080}:8080"
     volumes:
-      # Notas: cualquier carpeta de Markdown (disco local o NFS).
-      - ./notas:/data/notes
-      # Estado: SIEMPRE en disco local (SQLite no es fiable sobre NFS).
-      - ./estado:/data/state
-    # Usuario con el que escribe en tus notas (por defecto 1000:1000).
+      # Notes: any Markdown folder (local disk or NFS).
+      - ./notes:/data/notes
+      # State: ALWAYS on local disk (SQLite is not reliable over NFS).
+      - ./state:/data/state
+    # User that writes your notes (1000:1000 by default).
     # user: "1000:1000"
