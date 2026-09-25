@@ -76,6 +76,22 @@ export function createFile(file: string, data: Uint8Array): boolean {
   }
 }
 
+/**
+ * Gives an existing file a second name, `to`, only if nothing is there: a hard
+ * link, so it appears whole and the original stays untouched until the caller
+ * removes it. false if the name is taken.
+ */
+export function linkNew(from: string, to: string): boolean {
+  try {
+    linkSync(from, to)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false
+    throw err
+  }
+  fsyncDir(dirname(to))
+  return true
+}
+
 export type CommitResult =
   | { ok: true }
   /** The file didn't have the expected hash: nothing was written. */

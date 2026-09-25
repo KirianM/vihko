@@ -1,12 +1,12 @@
 // Note service: the system's only write point (UI, API and MCP all go
 // through here). Optimistic concurrency by hash, safe writes
 // (fsutil.ts), lazy `uid` and deletion to trash.
-import { mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix } from 'node:path'
-import { addToFrontmatterList, classifyPath, contentHash, newUid, normKey, pathKeys, readFrontmatter, setFrontmatterKey, type ErrorCode } from '@thoth/core'
-import { commitText, createFile, readStable, readText } from './fsutil.ts'
-import { attachmentPath, sniffImage } from './attachments.ts'
-import { applyReplacements, keptLinks, planRelinks, type Replacement } from './relink.ts'
+import { addToFrontmatterList, classifyPath, contentHash, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type ErrorCode, type LinkIndex } from '@thoth/core'
+import { commitText, createFile, linkNew, readStable, readText } from './fsutil.ts'
+import { attachmentPath, sniffImage, suffixedName } from './attachments.ts'
+import { applyReplacements, keptLinks, planImageRelinks, planRelinks, type Replacement } from './relink.ts'
 import type { Indexer } from './indexer.ts'
 import type { Db } from './db.ts'
 
@@ -82,6 +82,23 @@ export interface MoveReport {
   failed: { path: string; error: ErrorCode; message: string }[]
   /** The old name was added as an alias because some rewrite failed: the links left behind still resolve. */
   aliasAdded: string | null
+  /**
+   * The moved note's images (D-028), when it changes folder; empty otherwise.
+   * `moved`: images in its folder that only it uses go with it (a taken name
+   * gets a suffix, nothing is overwritten). `stayed`: shared with other notes
+   * (`shared`) or in another folder (`elsewhere`); the note's links to them
+   * are rewritten so they keep working. The note's rewritten image links are
+   * in `relinked`, under the note.
+   * `failed`: what went wrong with an image. `outcome: 'stayed'`: it could not
+   * go with the note, stays at `path` and the note links it there.
+   * `outcome: 'copied'`: it is at `to` and the note links it there, but the
+   * original at `path` could not be removed.
+   */
+  images: {
+    moved: { from: string; to: string }[]
+    stayed: { path: string; reason: 'shared' | 'elsewhere' }[]
+    failed: { path: string; to: string | null; outcome: 'stayed' | 'copied'; error: ErrorCode; message: string }[]
+  }
   dryRun: boolean
 }
 
@@ -249,44 +266,70 @@ export class NoteService {
     const byKey = this.opts.db.prepare('select distinct src_path from links where key = ?')
     for (const k of affected) for (const r of byKey.all(k) as { src_path: string }[]) sources.add(r.src_path)
 
-    const report: MoveReport = { from, to, relinked: [], kept: [], failed: [], aliasAdded: null, dryRun: !!opts.dryRun }
-    const changes = (t: string, reps: Replacement[]) => reps.map((r) => ({ before: t.slice(r.from, r.to), after: r.text }))
-    const movedReps = planRelinks(text, from, to, before, after, map)
-    if (movedReps.length) report.relinked.push({ path: to, links: movedReps.length, changes: changes(text, movedReps) })
+    const report: MoveReport = { from, to, relinked: [], kept: [], failed: [], aliasAdded: null, images: { moved: [], stayed: [], failed: [] }, dryRun: !!opts.dryRun }
+    const imagePlan = this.planImages(text, from, to)
+    report.images = { moved: imagePlan.moved, stayed: imagePlan.stayed, failed: imagePlan.unplaceable }
+    const planned = movedNotePlan(text, from, to, before, after, map, placeOf(imagePlan.moved))
+    if (planned.changes.length) report.relinked.push({ path: to, links: planned.changes.length, changes: planned.changes })
     const others: string[] = []
     for (const src of [...sources].filter((p) => p !== from).sort()) {
       const t = readText(this.file(src))
       if (t === null) continue
       const reps = planRelinks(t, src, src, before, after, map)
-      if (reps.length) { report.relinked.push({ path: src, links: reps.length, changes: changes(t, reps) }); others.push(src) }
+      if (reps.length) { report.relinked.push({ path: src, links: reps.length, changes: changesOf(t, reps) }); others.push(src) }
       for (const k of keptLinks(t, src, before, after, from, to)) report.kept.push({ path: src, ...k })
     }
     if (opts.dryRun) return report
 
-    // 1. The moved note: created at the destination (without overwriting), and
-    // the source is removed if it didn't change.
-    const newText = this.ensureUid(applyReplacements(text, movedReps), this.uidIn(text)).text
-    mkdirSync(dirname(toFile), { recursive: true })
-    const created = await commitText(toFile, newText, null)
-    if (!created.ok) throw new NoteError('exists', `already exists: ${to}`)
+    // 1. Its images get their name at the destination first (a second link to
+    // the same file): until the note is in place, the originals stay untouched.
+    // One that can't be placed stays where it is, and the note links it there.
+    const placed = this.placeImages(imagePlan.moved, posix.dirname(to), report)
+    report.images.moved = placed
+    const unplace = () => { for (const p of placed) rmSync(join(this.opts.notesDir, p.to), { force: true }) }
+    const final = movedNotePlan(text, from, to, before, after, map, placeOf(placed))
+    report.relinked = report.relinked.filter((r) => r.path !== to)
+    if (final.changes.length) report.relinked.unshift({ path: to, links: final.changes.length, changes: final.changes })
+
+    // 2. The moved note: created at the destination (without overwriting), and
+    // the source is removed if it didn't change. If anything fails, the images
+    // placed are removed again: everything stays as it was.
+    const newText = this.ensureUid(final.text, this.uidIn(text)).text
     const aside = join(dirname(fromFile), `.${posix.basename(from)}.thoth-mv-${process.pid}-${Date.now()}`)
     try {
-      renameSync(fromFile, aside)
+      mkdirSync(dirname(toFile), { recursive: true })
+      const created = await commitText(toFile, newText, null)
+      if (!created.ok) throw new NoteError('exists', `already exists: ${to}`)
+      try {
+        renameSync(fromFile, aside)
+      } catch (err) {
+        // Without this the note would end up duplicated: undo the creation at the destination.
+        rmSync(toFile, { force: true })
+        throw err
+      }
+      const moved = readText(aside)
+      if (moved === null || contentHash(moved) !== hash) {
+        renameSync(aside, fromFile)
+        rmSync(toFile, { force: true })
+        throw new NoteError('precondition_failed', `the note changed during the move: ${from}`, moved === null ? null : contentHash(moved))
+      }
     } catch (err) {
-      // Without this the note would end up duplicated: undo the creation at the destination.
-      rmSync(toFile, { force: true })
+      unplace()
       throw err
-    }
-    const moved = readText(aside)
-    if (moved === null || contentHash(moved) !== hash) {
-      renameSync(aside, fromFile)
-      rmSync(toFile, { force: true })
-      throw new NoteError('precondition_failed', `the note changed during the move: ${from}`, moved === null ? null : contentHash(moved))
     }
     rmSync(aside)
     this.opts.indexer.indexPaths([from, to])
 
-    // 2. The rest of the notes, as the system. The plan is recalculated over the current text.
+    // 3. The note links its images at their new names: the originals go.
+    for (const p of placed) {
+      try {
+        this.removeOriginal(p.from, p.to)
+      } catch (err) {
+        report.images.failed.push({ path: p.from, to: p.to, outcome: 'copied', ...failure(err) })
+      }
+    }
+
+    // 4. The rest of the notes, as the system. The plan is recalculated over the current text.
     const system: Actor = { kind: 'system', reason: `renamed ${from} to ${to} by ${actorLabel(opts.actor)}` }
     for (const src of others) {
       try {
@@ -296,7 +339,7 @@ export class NoteService {
       }
     }
 
-    // 3. Safety net: if something couldn't be rewritten, the old name stays as an alias.
+    // 5. Safety net: if something couldn't be rewritten, the old name stays as an alias.
     const oldName = posix.basename(from).replace(/\.md$/i, '')
     const newName = posix.basename(to).replace(/\.md$/i, '')
     if (report.failed.length && oldName !== newName) {
@@ -309,6 +352,70 @@ export class NoteService {
       }
     }
     return report
+  }
+
+  /**
+   * Which of the note's images go with it when it moves to another folder:
+   * those in its folder that no other note uses (by the index). The rest stay.
+   * Names are only predicted here (the first free one); placing them decides.
+   */
+  private planImages(text: string, from: string, to: string): Omit<MoveReport['images'], 'failed'> & { unplaceable: MoveReport['images']['failed'] } {
+    const plan: ReturnType<NoteService['planImages']> = { moved: [], stayed: [], unplaceable: [] }
+    const dir = posix.dirname(from)
+    const toDir = posix.dirname(to)
+    if (dir === toDir) return plan
+    const users = this.opts.db.prepare('select distinct src_path from images where path = ?')
+    const seen = new Set<string>()
+    const taken = new Set<string>()
+    for (const img of extract(text).images) {
+      const path = resolveImageRef(from, img.dest, { embed: img.kind === 'embed' || img.kind === 'wiki' })
+      if (path === null || seen.has(path)) continue
+      seen.add(path)
+      if (!this.isFile(path)) continue // a broken reference: nothing to move, its link keeps its target
+      if (posix.dirname(path) !== dir) { plan.stayed.push({ path, reason: 'elsewhere' }); continue }
+      if ((users.all(path) as { src_path: string }[]).some((r) => r.src_path !== from)) { plan.stayed.push({ path, reason: 'shared' }); continue }
+      const free = firstName(path, toDir, (dest) => !taken.has(dest) && !existsSync(join(this.opts.notesDir, dest)))
+      if (free === undefined) {
+        plan.unplaceable.push({ path, to: null, outcome: 'stayed', error: 'exists', message: `no free name for ${path} in ${toDir}` })
+        continue
+      }
+      taken.add(free)
+      plan.moved.push({ from: path, to: free })
+    }
+    return plan
+  }
+
+  /** Gives each image a name in `dir` without overwriting anything; the originals stay. Failures are reported and the image stays. */
+  private placeImages(moves: { from: string; to: string }[], dir: string, report: MoveReport): { from: string; to: string }[] {
+    const placed: { from: string; to: string }[] = []
+    for (const m of moves) {
+      try {
+        mkdirSync(join(this.opts.notesDir, dir), { recursive: true })
+        placed.push({ from: m.from, to: this.linkImage(m.from, dir) })
+      } catch (err) {
+        report.images.failed.push({ path: m.from, to: null, outcome: 'stayed', ...failure(err) })
+      }
+    }
+    return placed
+  }
+
+  private linkImage(from: string, dir: string): string {
+    const src = join(this.opts.notesDir, from)
+    const free = firstName(from, dir, (path) => linkNew(src, join(this.opts.notesDir, path)))
+    if (free === undefined) throw new NoteError('exists', `no free name for ${from} in ${dir}`)
+    return free
+  }
+
+  /** Removes an image's old name, only if it is still the same file as the new one. */
+  private removeOriginal(from: string, to: string) {
+    const a = statSync(join(this.opts.notesDir, from))
+    const b = statSync(join(this.opts.notesDir, to))
+    if (a.ino !== b.ino || a.dev !== b.dev) throw new NoteError('precondition_failed', `the image changed during the move: ${from}`)
+    rmSync(join(this.opts.notesDir, from))
+  }
+
+  private isFile(path: string): boolean {
+    try { return statSync(join(this.opts.notesDir, path)).isFile() } catch { return false }
   }
 
   /**
@@ -370,6 +477,46 @@ export class NoteService {
     const uid = previous ?? newUid()
     return { text: setFrontmatterKey(text, this.uidKey, uid), uid }
   }
+}
+
+/** How many suffixed names are tried for an image before giving up. */
+const MAX_NAMES = 1000
+
+/**
+ * The first name the image at `path` can take in `dir` for which `take` says
+ * yes: its own, then with a suffix. undefined if none.
+ */
+function firstName(path: string, dir: string, take: (candidate: string) => boolean): string | undefined {
+  for (let n = 1; n <= MAX_NAMES; n++) {
+    const name = suffixedName(posix.basename(path), n)
+    const candidate = dir === '.' ? name : `${dir}/${name}`
+    if (take(candidate)) return candidate
+  }
+  return undefined
+}
+
+/** Each replacement as the preview shows it: the text before and after. */
+const changesOf = (text: string, reps: Replacement[]) => reps.map((r) => ({ before: text.slice(r.from, r.to), after: r.text }))
+
+const placeOf = (moves: { from: string; to: string }[]) => {
+  const at = new Map(moves.map((m) => [m.from, m.to]))
+  return (path: string) => at.get(path) ?? path
+}
+
+/**
+ * The moved note's text at its destination and what changes in it: image
+ * references first (so they keep reaching each image where it ends up), then
+ * links to notes, over the text with the images already rewritten.
+ */
+function movedNotePlan(text: string, from: string, to: string, before: LinkIndex, after: LinkIndex, map: (p: string) => string, place: (p: string) => string) {
+  const imageReps = planImageRelinks(text, from, to, place)
+  const withImages = applyReplacements(text, imageReps)
+  const linkReps: Replacement[] = planRelinks(withImages, from, to, before, after, map)
+  const changes = [
+    ...changesOf(withImages, linkReps),
+    ...imageReps.map((r) => ({ before: r.before, after: r.after })),
+  ]
+  return { text: applyReplacements(withImages, linkReps), changes }
 }
 
 function actorLabel(a: Actor): string {
