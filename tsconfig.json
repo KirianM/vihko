@@ -18,6 +18,7 @@
     "packages/core/src",
     "packages/core/test",
     "packages/server/src",
-    "packages/server/test"
+    "packages/server/test",
+    "packages/web/test"
   ]
 }

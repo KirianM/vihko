@@ -2,7 +2,8 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Button, Collection, Tree, TreeItem, TreeItemContent, type Key } from 'react-aria-components'
 import { ApiError, alertCount, api, type TreeNote, type User } from './api.ts'
-import { userToken } from './editor/presence.ts'
+import { useTheme } from './theme.ts'
+import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
 import { Brand, Crumbs, Icon, ThemeToggle } from './ui.tsx'
 
@@ -74,6 +75,7 @@ function NoteTree({ nodes, selected, onOpen }: { nodes: Node[]; selected: string
 
 export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout: () => void; onUnauthorized: () => void }) {
   const t = useT()
+  const { effective } = useTheme()
   const [notes, setNotes] = useState<TreeNote[] | null>(null)
   const [alerts, setAlerts] = useState(0)
   const [openPath, setOpenPath] = useState<string | null>(() => new URLSearchParams(location.search).get('note'))
@@ -121,7 +123,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         </div>
         {alerts > 0 && <a className="sidebar-alerts" href="#avisos">{Icon.alert}<span>{t('shell.alerts', { n: alerts })}</span></a>}
         <div className="sidebar-user">
-          <span className="avatar" aria-hidden="true" style={{ background: `var(${userToken(user.username)})` }}>{user.username.slice(0, 1).toUpperCase()}</span>
+          <span className="avatar" aria-hidden="true" style={{ background: userColor(baseHue(user.id), effective) }}>{user.username.slice(0, 1).toUpperCase()}</span>
           <span className="name">{user.username}</span>
           <span className="role">{t(user.role === 'admin' ? 'role.admin' : 'role.member')}</span>
           <Button className="btn btn-icon" aria-label={t('shell.logout')} onPress={onLogout}>{Icon.logout}</Button>
@@ -130,7 +132,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       <main className="main">
         {openPath && ready === openPath ? (
           <Suspense fallback={<div className="empty">{t('common.loading')}</div>}>
-            <NoteView key={openPath} path={openPath} username={user.username} onNavigate={setOpenPath} />
+            <NoteView key={openPath} path={openPath} user={user} onNavigate={setOpenPath} />
           </Suspense>
         ) : (
           <>

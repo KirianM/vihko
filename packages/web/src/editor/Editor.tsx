@@ -11,6 +11,7 @@ import { thothSyntax } from '@thoth/core/syntax'
 import { useEffect, useRef } from 'react'
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
 import * as Y from 'yjs'
+import type { User } from '../api.ts'
 import { useT } from '../i18n.tsx'
 import type { Session } from './collab.ts'
 import { labels, livePreview, navigate, setLinks, type LinkInfo } from './livePreview.ts'
@@ -19,12 +20,12 @@ import './editor.css'
 
 interface Props {
   session: Session
-  username: string
+  user: User
   links: Map<string, LinkInfo>
   onNavigate: (path: string) => void
 }
 
-export function Editor({ session, username, links, onNavigate }: Props) {
+export function Editor({ session, user, links, onNavigate }: Props) {
   const t = useT()
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -33,7 +34,7 @@ export function Editor({ session, username, links, onNavigate }: Props) {
 
   useEffect(() => {
     const { text, provider } = session
-    const unannounce = provider.awareness ? announce(provider.awareness, username) : () => {}
+    const unannounce = provider.awareness ? announce(provider.awareness, user) : () => {}
     const undoManager = new Y.UndoManager(text)
     const state = EditorState.create({
       doc: text.toString(),
@@ -62,7 +63,7 @@ export function Editor({ session, username, links, onNavigate }: Props) {
       view.current = null
     }
     // t cambia solo con el idioma; recrear el editor entonces es aceptable.
-  }, [session, username, t])
+  }, [session, user, t])
 
   useEffect(() => {
     view.current?.dispatch({ effects: setLinks.of(links) })

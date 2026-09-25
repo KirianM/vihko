@@ -2,7 +2,9 @@
 // borrada fuera (D-022) y el editor.
 import { useEffect, useState } from 'react'
 import { Button } from 'react-aria-components'
-import { api } from '../api.ts'
+import { api, type User } from '../api.ts'
+import { useTheme } from '../theme.ts'
+import { userColor } from '../userColor.ts'
 import { errorText, useT } from '../i18n.tsx'
 import { Crumbs, Icon, ThemeToggle } from '../ui.tsx'
 import { useCollab, type CollabState } from './collab.ts'
@@ -21,11 +23,12 @@ function SaveStatus({ c }: { c: CollabState }) {
 
 function Presence({ c }: { c: CollabState }) {
   const peers = usePresence(c.session?.provider)
+  const { effective } = useTheme()
   if (peers.length === 0) return null
   return (
     <span className="presence">
       {peers.map((p) => (
-        <span key={p.name} className="avatar avatar-stack" title={p.name} style={{ background: `var(${p.token})` }}>
+        <span key={p.name} className="avatar avatar-stack" title={p.name} style={{ background: userColor(p.hue, effective) }}>
           {p.name.slice(0, 1).toUpperCase()}
         </span>
       ))}
@@ -50,7 +53,7 @@ function OrphanBanner({ path }: { path: string }) {
   )
 }
 
-export function NoteView({ path, username, onNavigate }: { path: string; username: string; onNavigate: (p: string) => void }) {
+export function NoteView({ path, user, onNavigate }: { path: string; user: User; onNavigate: (p: string) => void }) {
   const c = useCollab(path)
   const [links, setLinks] = useState<Map<string, LinkInfo>>(new Map())
 
@@ -76,7 +79,7 @@ export function NoteView({ path, username, onNavigate }: { path: string; usernam
       </header>
       {c.orphaned && <OrphanBanner path={path} />}
       <div className="note">
-        {c.session && c.connection !== 'connecting' && <Editor session={c.session} username={username} links={links} onNavigate={onNavigate} />}
+        {c.session && c.connection !== 'connecting' && <Editor session={c.session} user={user} links={links} onNavigate={onNavigate} />}
       </div>
     </>
   )
