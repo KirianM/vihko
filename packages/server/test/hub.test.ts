@@ -6,7 +6,7 @@ import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/pro
 import WebSocket from 'ws'
 import * as Y from 'yjs'
 import { contentHash, readFrontmatter } from '@thoth/core'
-import { api, closeAll, connect, login, makeDirs, open, sleep, startServer, typeLine, waitFor } from './_collab.ts'
+import { api, closeAll, connect, login, makeDirs, open, sleep, socket, startServer, typeLine, waitFor } from './_collab.ts'
 
 const NOTE = 'hogar/Proxy.md'
 
@@ -185,6 +185,38 @@ test('external deletion with the note open: discarding accepts the deletion as f
     assert.ok(!existsSync(file))
     assert.deepEqual(await orphaned(srv, cookie), [])
     await waitFor(() => readdirSync(join(env.THOTH_STATE_DIR!, 'collab')).length === 0, 'log removed')
+  } finally { closeAll(); await srv.stop() }
+})
+
+test('discarding the copy of a note deleted outside: once recreated, it reopens live on the same socket', async () => {
+  const { notes, env } = makeDirs()
+  const srv = await startServer(env)
+  try {
+    const cookie = await login(srv)
+    const ws = socket(srv, cookie) // one socket for every note, like the web UI
+    const a = await connect(srv, cookie, NOTE, ws)
+    const resolved: string[] = []
+    a.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'thoth:orphan-resolved') resolved.push(m.action) })
+    const file = join(notes, NOTE)
+    const { rmSync } = await import('node:fs')
+    rmSync(file)
+    await waitFor(async () => (await orphaned(srv, cookie)).length === 1, 'alert')
+    assert.equal((await api(srv, cookie, 'POST', '/api/note/orphan', { path: NOTE, action: 'discard' })).status, 200)
+    await waitFor(() => resolved.includes('discard'), 'discard notice')
+    // The notice arrives before the hub closes the document. The web client drops
+    // the provider from the socket then (collab.ts): destroying it while still
+    // attached would send a close that Hocuspocus queues and applies to the next
+    // opening of this path on the socket, killing it on arrival.
+    ws.configuration.providerMap.delete(NOTE)
+    a.close() // the user leaves the note
+    await sleep(500)
+    writeFileSync(file, '# Proxy\n\nBACK\n') // the note comes back with the same path
+    const b = await connect(srv, cookie, NOTE, ws)
+    assert.equal(b.text(), '# Proxy\n\nBACK\n')
+    await sleep(500)
+    assert.ok(b.provider.isAuthenticated, 'the new session is still open on the server')
+    typeLine(b, 'LIVE')
+    await waitFor(() => readFileSync(file, 'utf8').includes('LIVE\n'), 'edits reach the file')
   } finally { closeAll(); await srv.stop() }
 })
 

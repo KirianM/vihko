@@ -4,8 +4,8 @@ export {
   type Eol, type Frontmatter, type FrontmatterBlock, type ScalarValue,
 } from './frontmatter.ts'
 export {
-  extract, normalizeTag,
-  type ExtractOptions, type Extracted, type Heading, type LinkRef, type TagRef,
+  extract, normalizeTag, withoutRanges,
+  type ExtractOptions, type Extracted, type Heading, type LinkRef, type Range, type TagRef,
 } from './markdown.ts'
 export { markdownParser, thothSyntax } from './syntax.ts'
 export { LinkIndex, normKey, pathKeys, type NoteKeys, type Resolution } from './resolve.ts'

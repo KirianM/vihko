@@ -1,5 +1,5 @@
 // thoth API client. Cookie-based session (HttpOnly): the browser sends it on its own.
-import type { Alert } from '@thoth/core/codes'
+import type { Alert, ErrorCode } from '@thoth/core/codes'
 
 export type { Alert }
 
@@ -58,7 +58,7 @@ export interface MoveReport {
   to: string
   relinked: { path: string; links: number; changes: { before: string; after: string }[] }[]
   kept: { path: string; raw: string; via: 'path' | 'alias' }[]
-  failed: { path: string; reason: string }[]
+  failed: { path: string; error: ErrorCode; message: string }[]
   aliasAdded: string | null
   dryRun: boolean
 }

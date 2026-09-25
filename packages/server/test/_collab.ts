@@ -60,17 +60,25 @@ export async function login(srv: Srv): Promise<string> {
 export interface Client { doc: Y.Doc; text(): string; close(): void; provider: HocuspocusProvider }
 export const open: { destroy(): void }[] = []
 
-export async function connect(srv: Srv, cookie: string, name: string): Promise<Client> {
+/** One WebSocket that several documents can share, as the web UI does. */
+export function socket(srv: Srv, cookie: string): HocuspocusProviderWebsocket {
   class AuthedWS extends WebSocket {
     constructor(url: string, protocols?: string | string[]) { super(url, protocols, { headers: { cookie } }) }
   }
+  const ws = new HocuspocusProviderWebsocket({ url: srv.base.replace('http', 'ws') + '/collab', WebSocketPolyfill: AuthedWS })
+  open.push(ws) // otherwise it retries and keeps the process alive
+  return ws
+}
+
+/** Opens `name` on its own socket, or on `shared` (then `close` leaves the socket open). */
+export async function connect(srv: Srv, cookie: string, name: string, shared?: HocuspocusProviderWebsocket): Promise<Client> {
   const doc = new Y.Doc()
-  const websocketProvider = new HocuspocusProviderWebsocket({ url: srv.base.replace('http', 'ws') + '/collab', WebSocketPolyfill: AuthedWS })
+  const websocketProvider = shared ?? socket(srv, cookie)
   const provider = new HocuspocusProvider({ websocketProvider, name, document: doc })
   provider.attach() // with its own websocketProvider, the provider doesn't connect on its own (v4)
-  open.push(provider, websocketProvider) // the websocket too: otherwise it retries and keeps the process alive
+  open.unshift(provider) // providers before their socket
   await waitFor(() => provider.isSynced, `sync of ${name}`)
-  return { doc, provider, text: () => doc.getText('md').toString(), close: () => { provider.destroy(); websocketProvider.destroy() } }
+  return { doc, provider, text: () => doc.getText('md').toString(), close: () => { provider.destroy(); if (!shared) websocketProvider.destroy() } }
 }
 export const closeAll = () => { for (const p of open.splice(0)) p.destroy() }
 

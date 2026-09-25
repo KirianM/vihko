@@ -46,6 +46,8 @@
 .toast { position: fixed; z-index: 5; left: 50%; bottom: var(--space-6); transform: translateX(-50%); width: max-content; max-width: calc(100vw - 2 * var(--space-4)); display: flex; align-items: center; gap: var(--space-3); padding: 10px 10px 10px var(--space-4); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); color: var(--ink); }
 .toast-icon { color: var(--muted); display: inline-flex; }
 .toast-text { display: flex; flex-direction: column; gap: 2px; font-size: 14px; line-height: 20px; }
+.toast-warn { width: auto; max-width: min(560px, calc(100vw - 2 * var(--space-4))); }
+.toast-warn .toast-icon { color: var(--warn-strong); }
 .btn-quiet { border-color: transparent; color: var(--muted); }
 
 @media (max-width: 760px) {

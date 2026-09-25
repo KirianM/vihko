@@ -1,15 +1,17 @@
 // Main structure: folder tree and the note open in the editor.
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
-import { Button, Collection, Tree, TreeItem, TreeItemContent, type Key } from 'react-aria-components'
-import { ApiError, api, type TreeNote, type User } from './api.ts'
+import { Button, Collection, Dialog, Modal, ModalOverlay, Tree, TreeItem, TreeItemContent, type Key } from 'react-aria-components'
+import { ApiError, api, type MoveReport, type TreeNote, type User } from './api.ts'
 import { AlertsPage } from './Alerts.tsx'
 import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
-import { Brand, Crumbs, Icon, ThemeToggle } from './ui.tsx'
+import { Brand, Crumbs, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
 import { TrashToast, type Trashed } from './TrashToast.tsx'
+import { MoveToast } from './MoveToast.tsx'
 import { OpenPaletteContext, Palette, SearchButton, type PaletteMode } from './Palette.tsx'
 import { rememberNote } from './recent.ts'
+import { useBackClose, useMobile, useVisualViewport } from './mobile.ts'
 
 // The editor (CodeMirror, Yjs) is downloaded separately, when the first note is opened.
 const NoteView = lazy(() => import('./editor/NoteView.tsx').then((m) => ({ default: m.NoteView })))
@@ -44,7 +46,16 @@ export function buildTree(notes: TreeNote[]): Node[] {
   return root.children!
 }
 
-function NoteTree({ nodes, selected, onOpen }: { nodes: Node[]; selected: string | null; onOpen: (path: string) => void }) {
+/** Folder keys that contain a note, so it shows in the tree. */
+const ancestors = (path: string) => path.split('/').slice(0, -1).map((_, i, a) => `d:${a.slice(0, i + 1).join('/')}`)
+
+function NoteTree({ nodes, selected, expanded, onExpanded, onOpen }: {
+  nodes: Node[]
+  selected: string | null
+  expanded: Set<Key>
+  onExpanded: (keys: Set<Key>) => void
+  onOpen: (path: string) => void
+}) {
   const t = useT()
   return (
     <Tree
@@ -53,7 +64,16 @@ function NoteTree({ nodes, selected, onOpen }: { nodes: Node[]; selected: string
       items={nodes}
       selectionMode="single"
       selectedKeys={selected ? [`n:${selected}`] : []}
-      onAction={(key: Key) => { const k = String(key); if (k.startsWith('n:')) onOpen(k.slice(2)) }}
+      expandedKeys={expanded}
+      onExpandedChange={onExpanded}
+      onAction={(key: Key) => {
+        const k = String(key)
+        if (k.startsWith('n:')) return onOpen(k.slice(2))
+        // A folder row opens or closes (on a phone the chevron alone is too small a target).
+        const next = new Set(expanded)
+        if (!next.delete(key)) next.add(key)
+        onExpanded(next)
+      }}
       renderEmptyState={() => <div className="empty">{t('shell.noNotes')}</div>}
     >
       {function render(node: Node) {
@@ -90,7 +110,15 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [ready, setReady] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [trashed, setTrashed] = useState<Trashed | null>(null)
+  /** Your last rename or move, if some link could not be rewritten. */
+  const [moveIssue, setMoveIssue] = useState<MoveReport | null>(null)
   const [palette, setPalette] = useState<PaletteMode | null>(null)
+  const mobile = useMobile()
+  // On a phone with nothing open, start at the tree: it's the only way in.
+  const [navOpen, setNavOpen] = useState(() => mobile && !openPath && !view)
+  const [expanded, setExpanded] = useState<Set<Key>>(() => new Set(openPath ? ancestors(openPath) : []))
+  useBackClose(mobile && navOpen, () => setNavOpen(false))
+  useVisualViewport(mobile)
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -128,7 +156,10 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   useEffect(() => {
     setReady(null)
     if (!openPath) return
+    // The tree shows where the note is (it may have been opened by a link or the palette).
+    setExpanded((e) => { const add = ancestors(openPath).filter((k) => !e.has(k)); return add.length ? new Set([...e, ...add]) : e })
     setTrashed(null)
+    setMoveIssue((m) => (m?.to === openPath ? m : null))
     setError(null)
     // Check that it exists before opening co-editing: the hub rejects notes that don't exist.
     api.note(openPath).then(() => { setReady(openPath); rememberNote(openPath) }).catch(fail)
@@ -143,33 +174,67 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setOpenPath(path)
   }
 
+  // In the drawer, whatever you pick closes it.
+  const pick = <A extends unknown[]>(fn: (...a: A) => void) => (...a: A) => { setNavOpen(false); fn(...a) }
+  const treeView = (
+    <div className="sidebar-tree">
+      {notes === null
+        ? <div className="empty">{t('common.loading')}</div>
+        : <NoteTree nodes={tree} selected={openPath} expanded={expanded} onExpanded={setExpanded} onOpen={mobile ? pick(setOpenPath) : setOpenPath} />}
+    </div>
+  )
+  const alertsLink = alerts > 0 && (
+    <a className="sidebar-alerts" href="?view=avisos" aria-current={view === 'avisos' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); setNavOpen(false); showAlerts() }}>
+      {Icon.alert}<span>{t('shell.alerts', { n: alerts })}</span>
+    </a>
+  )
+  const userRow = (
+    <div className="sidebar-user">
+      <span className="avatar" aria-hidden="true" style={{ background: userColor(baseHue(user.id), effective) }}>{user.username.slice(0, 1).toUpperCase()}</span>
+      <span className="name">{user.username}</span>
+      <span className="role">{t(user.role === 'admin' ? 'role.admin' : 'role.member')}</span>
+      <Button className="btn btn-icon" aria-label={t('shell.logout')} onPress={onLogout}>{Icon.logout}</Button>
+    </div>
+  )
+
   return (
     <OpenPaletteContext.Provider value={() => setPalette('search')}>
+    <OpenNavContext.Provider value={mobile ? () => setNavOpen(true) : null}>
     <div className="shell">
-      <nav className="sidebar" aria-label={t('shell.folders')}>
-        <div className="sidebar-head">
-          <Brand />
-          <span className="spacer" />
-          <Button className="btn btn-icon" aria-label={t('shell.newNote')} onPress={() => setPalette('create')}>{Icon.plus}</Button>
-        </div>
-        <Button className="btn sidebar-search" onPress={() => setPalette('search')}>
-          {Icon.search}<span>{t('shell.search')}</span><kbd>⌘K</kbd>
-        </Button>
-        <div className="sidebar-tree">
-          {notes === null ? <div className="empty">{t('common.loading')}</div> : <NoteTree nodes={tree} selected={openPath} onOpen={setOpenPath} />}
-        </div>
-        {alerts > 0 && (
-          <a className="sidebar-alerts" href="?view=avisos" aria-current={view === 'avisos' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); showAlerts() }}>
-            {Icon.alert}<span>{t('shell.alerts', { n: alerts })}</span>
-          </a>
-        )}
-        <div className="sidebar-user">
-          <span className="avatar" aria-hidden="true" style={{ background: userColor(baseHue(user.id), effective) }}>{user.username.slice(0, 1).toUpperCase()}</span>
-          <span className="name">{user.username}</span>
-          <span className="role">{t(user.role === 'admin' ? 'role.admin' : 'role.member')}</span>
-          <Button className="btn btn-icon" aria-label={t('shell.logout')} onPress={onLogout}>{Icon.logout}</Button>
-        </div>
-      </nav>
+      {mobile ? (
+        <ModalOverlay className="drawer-overlay" isOpen={navOpen} onOpenChange={setNavOpen} isDismissable>
+          <Modal className="drawer">
+            <Dialog className="drawer-dialog" aria-label={t('shell.folders')}>
+              <div className="sidebar-head">
+                <Brand />
+                <span className="spacer" />
+                <ThemeToggle />
+                <Button className="btn btn-icon" aria-label={t('shell.closeFolders')} onPress={() => setNavOpen(false)}>{Icon.close}</Button>
+              </div>
+              {treeView}
+              <div className="drawer-foot">
+                <Button className="btn btn-primary btn-xl" onPress={pick(() => setPalette('create'))}>{t('shell.newNote')}</Button>
+                {alertsLink}
+              </div>
+              {userRow}
+            </Dialog>
+          </Modal>
+        </ModalOverlay>
+      ) : (
+        <nav className="sidebar" aria-label={t('shell.folders')}>
+          <div className="sidebar-head">
+            <Brand />
+            <span className="spacer" />
+            <Button className="btn btn-icon" aria-label={t('shell.newNote')} onPress={() => setPalette('create')}>{Icon.plus}</Button>
+          </div>
+          <Button className="btn sidebar-search" onPress={() => setPalette('search')}>
+            {Icon.search}<span>{t('shell.search')}</span><kbd>⌘K</kbd>
+          </Button>
+          {treeView}
+          {alertsLink}
+          {userRow}
+        </nav>
+      )}
       <main className="main">
         {view === 'avisos' ? (
           <AlertsPage
@@ -184,13 +249,14 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               path={openPath}
               user={user}
               onNavigate={setOpenPath}
-              onMoved={(to) => { setOpenPath(to); void loadTree() }}
+              onMoved={(to, report) => { setOpenPath(to); if (report?.failed.length) setMoveIssue(report); void loadTree() }}
               onTrashed={(t) => { setOpenPath(null); setTrashed(t); void loadTree() }}
             />
           </Suspense>
         ) : (
           <>
             <header className="main-head">
+              <MenuButton />
               <Crumbs path={openPath} />
               <span className="spacer" />
               <SearchButton />
@@ -202,6 +268,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             </div>
           </>
         )}
+        {moveIssue && <MoveToast report={moveIssue} onDismiss={() => setMoveIssue(null)} />}
         {trashed && (
           <TrashToast
             key={trashed.id}
@@ -225,6 +292,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         />
       )}
     </div>
+    </OpenNavContext.Provider>
     </OpenPaletteContext.Provider>
   )
 }

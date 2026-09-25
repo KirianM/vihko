@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { extract } from '@thoth/core'
+import { extract, withoutRanges } from '@thoth/core'
 
 const vault = (p: string) => readFileSync(new URL(`../../../testdata/vault/${p}`, import.meta.url), 'utf8')
 const targets = (text: string) => extract(text).links.map((l) => l.target)
@@ -77,4 +77,45 @@ test('syntax edge cases', () => {
   assert.deepEqual(targets('[[#Sección]]'), [''], 'anchor to the note itself')
   assert.deepEqual(targets('[a](mailto:x@y.z) [b](//cdn/x) [c](Nota%20con%20espacios.md)'), ['Nota con espacios.md'])
   assert.deepEqual(tagNames('a#b #c-d_e #/x #á #1a'), ['1a', 'c-d_e', 'á'])
+})
+
+test('HTML comments: found inline and in blocks, never in code; what they hold is not a link or a tag', () => {
+  const text = [
+    '---',
+    'uid: x',
+    '---',
+    '# Plan <!-- @ana 2026-09-24T08:10Z · rename it? -->',
+    '',
+    'Use Postgres.<!-- @noa 2026-09-24T08:12Z · no, [[SQLite]] #db -->',
+    '<!-- @claude 2026-09-24T08:15Z · ↳ agreed --> after it',
+    '',
+    '`<!-- code -->`',
+    '',
+    '```',
+    '<!-- fenced -->',
+    '```',
+    '<div>',
+    '<!-- in html -->',
+    '</div>',
+    '',
+  ].join('\n')
+  const x = extract(text)
+  assert.deepEqual(x.comments.map((c) => text.slice(c.from, c.to)), [
+    '<!-- @ana 2026-09-24T08:10Z · rename it? -->',
+    '<!-- @noa 2026-09-24T08:12Z · no, [[SQLite]] #db -->',
+    '<!-- @claude 2026-09-24T08:15Z · ↳ agreed -->',
+    '<!-- in html -->',
+  ])
+  assert.deepEqual(x.links, [])
+  assert.deepEqual(x.tags, [])
+  assert.deepEqual(x.headings.map((h) => h.text), ['Plan'], "a heading's comment is not part of its text")
+  assert.ok(withoutRanges(text, x.comments).includes('\n after it\n'), 'the text after a comment block on its line stays')
+})
+
+test('withoutRanges: removes the ranges within the window and keeps words apart', () => {
+  const text = 'one<!-- a -->two <!-- b -->three.<!-- c -->\nfour'
+  const x = extract(text)
+  assert.equal(withoutRanges(text, x.comments), 'one two three.\nfour')
+  assert.equal(withoutRanges(text, x.comments, 5, 33), 'two three.', 'ranges cut by the window are clipped')
+  assert.equal(withoutRanges(text, []), text)
 })

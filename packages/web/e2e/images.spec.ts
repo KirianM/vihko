@@ -174,6 +174,6 @@ test('screenshots: light, dark and 390 px', async () => {
   await k.screenshot({ path: `${SHOTS}/images-insert-390.png` })
   await k.keyboard.press('Escape')
   await k.screenshot({ path: `${SHOTS}/images-390.png` })
-  await k.getByRole('button', { name: 'Cambiar a tema claro' }).click()
   await k.setViewportSize({ width: 1280, height: 800 })
+  await k.getByRole('button', { name: 'Cambiar a tema claro' }).click()
 })
