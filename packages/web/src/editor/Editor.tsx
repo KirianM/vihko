@@ -18,6 +18,7 @@ import { commentMarks, commentUi } from './commentMarks.ts'
 import { imageHost, images } from './images.ts'
 import { labels, livePreview, navigate, setLinks, type LinkInfo } from './livePreview.ts'
 import { announce } from './presence.ts'
+import { tables } from './tables.ts'
 import { taskLabel, tasks } from './tasks.ts'
 import { viewUpdates } from './viewUpdates.ts'
 import './editor.css'
@@ -76,6 +77,7 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
         // tasks brings lang-markdown's keymap (Enter continues a task as a task).
         tasks,
         taskLabel.of(t('editor.task')),
+        tables,
         images,
         imageHost.of({
           note: path,

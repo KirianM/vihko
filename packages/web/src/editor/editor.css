@@ -65,6 +65,15 @@
   .editor .cm-task-line { padding-block: max(0px, calc((var(--touch) - 1.65em) / 2)); }
 }
 
+/* Tables: drawn outside the cursor; wide ones scroll sideways */
+/* width 0 + min-width 100%: the table's width never widens the editor, the wrapper scrolls instead. */
+.editor .cm-table-wrap { width: 0; min-width: 100%; overflow-x: auto; margin: var(--space-2) 0; }
+/* As wide as its content (long cells wrap at a readable width), never squeezed into the column. */
+.editor .cm-table { width: max-content; border-collapse: collapse; line-height: 1.5; }
+.editor .cm-table th, .editor .cm-table td { max-width: 40ch; border: 1px solid var(--line); padding: var(--space-1) var(--space-3); text-align: left; vertical-align: top; white-space: normal; overflow-wrap: normal; word-break: normal; cursor: text; }
+.editor .cm-table th { background: var(--panel); font-weight: 600; }
+.editor .cm-table code { font-family: var(--font-mono); font-size: 0.88em; background: var(--chip); border-radius: var(--radius-sm); padding: 1px 4px; }
+
 /* Folded frontmatter */
 .editor .cm-frontmatter-chip { padding-bottom: 18px; }
 .editor .cm-frontmatter-chip button { font-family: var(--font-mono); font-size: 12px; height: 30px; padding: 0 12px; border: 1px dashed var(--line-strong); border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
