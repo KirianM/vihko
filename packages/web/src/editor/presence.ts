@@ -1,58 +1,42 @@
-// Presencia: quién tiene la nota abierta, con un color estable por usuario.
+// Presencia: quién tiene la nota abierta, cada persona con su color (userColor.ts).
+// Por la red viaja el tono; cada navegador lo pinta con su tema.
 import type { HocuspocusProvider } from '@hocuspocus/provider'
 import { useEffect, useState } from 'react'
-
-/** Colores de usuario del sistema de diseño (tokens user-*). */
-const USER_TOKENS = ['--user-1', '--user-2']
-
-function hash(s: string) {
-  let h = 0
-  for (const ch of s) h = (h * 31 + ch.codePointAt(0)!) | 0
-  return Math.abs(h)
-}
-
-export function userToken(username: string) {
-  return USER_TOKENS[hash(username) % USER_TOKENS.length]!
-}
-
-/** Valor real del color (el cursor remoto de y-codemirror necesita un hex, no una variable). */
-function tokenValue(token: string) {
-  return getComputedStyle(document.documentElement).getPropertyValue(token).trim() || '#96611A'
-}
+import { currentTheme, onThemeChange } from '../theme.ts'
+import { distinctHue, userColor } from '../userColor.ts'
 
 type Awareness = NonNullable<HocuspocusProvider['awareness']>
-type PeerState = { user?: { name?: string; token?: string } }
+type PeerState = { user?: { name?: string; hue?: number } }
 
 /**
- * Anuncia al usuario en la nota con un color que no tenga otro de los presentes.
- * Si dos coinciden (llegaron a la vez), cede el de clientID mayor. Con más personas
- * que colores, se repiten.
+ * Anuncia a la persona en la nota. Su tono se separa del de quienes tienen un
+ * clientID menor, y solo de esos: así nadie depende de quien llega después y los
+ * tonos no oscilan. El color del cursor (y-codemirror necesita un hex) se rehace
+ * al cambiar de tema.
  */
-export function announce(awareness: Awareness, username: string): () => void {
+export function announce(awareness: Awareness, user: { id: string; username: string }): () => void {
   const choose = () => {
-    const mine = (awareness.getLocalState() as PeerState | null)?.user?.token
-    const taken = new Set<string>()
-    let clash = false
+    const before: number[] = []
     for (const [id, s] of awareness.getStates()) {
-      if (id === awareness.clientID) continue
-      const token = (s as PeerState).user?.token
-      if (!token) continue
-      taken.add(token)
-      if (token === mine && id < awareness.clientID) clash = true
+      const hue = (s as PeerState).user?.hue
+      if (id < awareness.clientID && typeof hue === 'number') before.push(hue)
     }
-    if (mine && !clash) return
-    const preferred = userToken(username)
-    const token = !taken.has(preferred) ? preferred : USER_TOKENS.find((t) => !taken.has(t)) ?? preferred
-    if (token === mine) return
-    const color = tokenValue(token)
-    awareness.setLocalStateField('user', { name: username, token, color, colorLight: color + '33' })
+    const hue = distinctHue(user.id, before)
+    const color = userColor(hue, currentTheme())
+    const cur = (awareness.getLocalState() as { user?: { hue?: number; color?: string } } | null)?.user
+    if (cur?.hue === hue && cur.color === color) return
+    awareness.setLocalStateField('user', { name: user.username, hue, color, colorLight: color + '33' })
   }
   choose()
   awareness.on('change', choose)
-  return () => awareness.off('change', choose)
+  const offTheme = onThemeChange(choose)
+  return () => {
+    awareness.off('change', choose)
+    offTheme()
+  }
 }
 
-export interface Peer { name: string; token: string }
+export interface Peer { name: string; hue: number }
 
 export function usePresence(provider: HocuspocusProvider | undefined): Peer[] {
   const [peers, setPeers] = useState<Peer[]>([])
@@ -60,12 +44,12 @@ export function usePresence(provider: HocuspocusProvider | undefined): Peer[] {
     const awareness = provider?.awareness
     if (!awareness) return
     const read = () => {
-      const byName = new Map<string, string>()
+      const byName = new Map<string, number>()
       for (const s of awareness.getStates().values()) {
         const u = (s as PeerState).user
-        if (u?.name && !byName.has(u.name)) byName.set(u.name, u.token ?? userToken(u.name))
+        if (u?.name && typeof u.hue === 'number' && !byName.has(u.name)) byName.set(u.name, u.hue)
       }
-      setPeers([...byName].sort(([a], [b]) => a.localeCompare(b)).map(([name, token]) => ({ name, token })))
+      setPeers([...byName].sort(([a], [b]) => a.localeCompare(b)).map(([name, hue]) => ({ name, hue })))
     }
     read()
     awareness.on('change', read)
