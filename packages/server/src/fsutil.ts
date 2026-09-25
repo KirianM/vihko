@@ -2,7 +2,14 @@
 // the race window, a hash re-check right before the rename, a hard link to
 // rescue in-place writes that land in the window, and stable reads against
 // editors that truncate and rewrite.
-import { closeSync, fsyncSync, linkSync, openSync, readFileSync, renameSync, rmSync, writeSync } from 'node:fs'
+//
+// The write path is asynchronous: on a network filesystem every open, link,
+// rename and fsync is a round trip to the server (5–10 ms each over NFS), and
+// sync calls would line them all up on the event loop. Async, the rewrites of
+// a big rename overlap theirs; a per-file lock keeps each hash check and its
+// rename together, as the sync version did by construction.
+import { closeSync, fsyncSync, linkSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs'
+import { link, open, readFile, rename, rm } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
 import { contentHash } from '@thoth/core'
@@ -20,17 +27,27 @@ export function readText(file: string): string | null {
   }
 }
 
+/** File contents, or null if it doesn't exist, without blocking the event loop. */
+export async function readTextAsync(file: string): Promise<string | null> {
+  try {
+    return await readFile(file, 'utf8')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw err
+  }
+}
+
 /**
  * Reads a file that another process may be writing to: only accepted once two
  * consecutive reads match. If it looks like a mass truncation relative to
  * `reference`, more stability is required.
  */
 export async function readStable(file: string, reference?: string | null, gap = 60): Promise<string | null> {
-  let a = readText(file)
+  let a = await readTextAsync(file)
   for (let i = 0; i < 20; i++) {
     const suspicious = reference != null && a !== null && a.length < reference.length / 2
     await sleep(suspicious ? gap * 5 : gap)
-    const b = readText(file)
+    const b = await readTextAsync(file)
     if (a === b) return a
     a = b
   }
@@ -42,11 +59,48 @@ function fsyncDir(dir: string) {
   try { fsyncSync(fd) } finally { closeSync(fd) }
 }
 
+async function fsyncDirAsync(dir: string) {
+  const fh = await open(dir, 'r')
+  try { await fh.sync() } finally { await fh.close() }
+}
+
+// pid + counter alone repeat after a crash in a container (always pid 1, counter
+// back at 0) and meet the leftovers of the killed process: the random part avoids it.
+const tmpName = (file: string) => join(dirname(file), `.${basename(file)}.thoth-${process.pid}-${counter++}-${randomBytes(4).toString('hex')}`)
+
+/** writeTmp without blocking the event loop. */
+async function writeTmpAsync(file: string, data: string): Promise<string> {
+  const tmp = tmpName(file)
+  const fh = await open(tmp, 'wx')
+  try {
+    await fh.writeFile(data)
+    await fh.sync()
+  } finally {
+    await fh.close()
+  }
+  return tmp
+}
+
+/**
+ * Runs `fn` with `file` to itself within this process: two writes to the same
+ * file never interleave their hash check and their rename.
+ */
+const locks = new Map<string, Promise<unknown>>()
+async function withFileLock<T>(file: string, fn: () => Promise<T>): Promise<T> {
+  const prev = locks.get(file) ?? Promise.resolve()
+  const run = prev.then(fn, fn)
+  const tail = run.catch(() => {})
+  locks.set(file, tail)
+  try {
+    return await run
+  } finally {
+    if (locks.get(file) === tail) locks.delete(file)
+  }
+}
+
 /** Writes and syncs a hidden temp file in the same directory (the indexer ignores it). */
 export function writeTmp(file: string, data: string | Uint8Array): string {
-  // pid + counter alone repeat after a crash in a container (always pid 1, counter
-  // back at 0) and meet the leftovers of the killed process: the random part avoids it.
-  const tmp = join(dirname(file), `.${basename(file)}.thoth-${process.pid}-${counter++}-${randomBytes(4).toString('hex')}`)
+  const tmp = tmpName(file)
   const fd = openSync(tmp, 'wx')
   try {
     if (typeof data === 'string') writeSync(fd, data)
@@ -116,29 +170,41 @@ export type ReplaceResult =
  * in the window.
  */
 export async function replaceText(file: string, text: string, expectedHash: string | null): Promise<ReplaceResult> {
-  const tmp = writeTmp(file, text)
+  const tmp = await writeTmpAsync(file, text)
+  let placed = false
   try {
     if (expectedHash === null) {
       try {
-        linkSync(tmp, file) // link() fails if the target already exists: create without overwriting
+        await link(tmp, file) // link() fails if the target already exists: create without overwriting
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return { replaced: false, current: readText(file) }
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return { replaced: false, current: await readTextAsync(file) }
         throw err
       }
-      fsyncDir(dirname(file))
+      await fsyncDirAsync(dirname(file))
       return { replaced: true, rescued: null }
     }
-    const before = readText(file)
-    if (before === null || contentHash(before) !== expectedHash) return { replaced: false, current: before }
     const prev = tmp + '.prev'
-    linkSync(file, prev)
-    renameSync(tmp, file)
-    fsyncDir(dirname(file))
+    const swapped = await withFileLock(file, async () => {
+      const before = await readTextAsync(file)
+      if (before === null || contentHash(before) !== expectedHash) return { current: before }
+      await link(file, prev)
+      try {
+        await rename(tmp, file)
+      } catch (err) {
+        await rm(prev, { force: true })
+        throw err
+      }
+      placed = true
+      await fsyncDirAsync(dirname(file))
+      return null
+    })
+    if (swapped !== null) return { replaced: false, current: swapped.current }
     const old = await readStable(prev) // the editor may keep writing to the old inode
-    rmSync(prev, { force: true })
+    await rm(prev, { force: true })
     return { replaced: true, rescued: old !== null && contentHash(old) !== expectedHash ? old : null }
   } finally {
-    rmSync(tmp, { force: true })
+    // After the rename the temp name is gone: removing it would be one more round trip for nothing.
+    if (!placed) await rm(tmp, { force: true })
   }
 }
 
@@ -150,9 +216,9 @@ export async function commitText(file: string, text: string, expectedHash: strin
   const r = await replaceText(file, text, expectedHash)
   if (!r.replaced) return { ok: false, current: r.current }
   if (r.rescued !== null) {
-    const restore = writeTmp(file, r.rescued)
-    renameSync(restore, file)
-    fsyncDir(dirname(file))
+    const restore = await writeTmpAsync(file, r.rescued)
+    await rename(restore, file)
+    await fsyncDirAsync(dirname(file))
     return { ok: false, current: r.rescued }
   }
   return { ok: true }

@@ -50,3 +50,20 @@ test('commitText: leftovers of a killed process with the same pid do not block w
   assert.deepEqual(await commitText(f, 'dos\n', contentHash('uno\n')), { ok: true })
   assert.equal(readFileSync(f, 'utf8'), 'dos\n')
 })
+
+// The write path is asynchronous (so a big rename on NFS doesn't queue every
+// round trip on the event loop): two writes from the same base must still
+// never both pass the hash check.
+test('commitText: of two concurrent writes from the same version, only one lands', async () => {
+  const d = dir()
+  const f = join(d, 'n.md')
+  writeFileSync(f, 'base\n')
+  for (let round = 0; round < 20; round++) {
+    const base = readFileSync(f, 'utf8')
+    const [a, b] = await Promise.all([commitText(f, `a${round}\n`, contentHash(base)), commitText(f, `b${round}\n`, contentHash(base))])
+    assert.equal([a, b].filter((r) => r.ok).length, 1, `round ${round}: exactly one write wins`)
+    const loser = a.ok ? b : a
+    assert.equal(loser.ok ? null : loser.current, readFileSync(f, 'utf8'), 'the loser is told what is there')
+  }
+  assert.deepEqual(readdirSync(d), ['n.md'], 'no temp files left')
+})
