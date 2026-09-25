@@ -1,5 +1,5 @@
-// Tags in the sidebar: every tag with how many notes carry it, nested tags
-// (`hogar/red`) as a tree under their parent. Picking one lists its notes
+// Tags in the sidebar: every tag with how many notes carry it (nested ones
+// included), nested tags (`hogar/red`) as a tree under their parent. Picking one lists its notes
 // (the same `tag:` filter as the search: the tag and those nested under it).
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Collection, ListBox, ListBoxItem, Tree, TreeItem, TreeItemContent, type Key } from 'react-aria-components'
@@ -7,19 +7,25 @@ import { api, type SearchResult, type TagCount } from './api.ts'
 import { errorText, useT } from './i18n.tsx'
 import { Icon } from './ui.tsx'
 
-interface TagNode { id: string; name: string; tag: string; total: number; children: TagNode[] }
+/** `total` is null for a parent nobody writes on its own (`hogar` when only `hogar/red` exists). */
+interface TagNode { id: string; name: string; tag: string; total: number | null; children: TagNode[] }
 
-/** `hogar`, `hogar/red`… → a tree by `/`. The server already lists the parents of nested tags. */
+/** `hogar`, `hogar/red`… → a tree by `/`, alphabetical; missing parents are added as plain groups. */
 export function buildTagTree(tags: TagCount[]): TagNode[] {
   const root: TagNode[] = []
   const byTag = new Map<string, TagNode>()
-  for (const t of [...tags].sort((a, b) => a.tag.localeCompare(b.tag))) {
-    const i = t.tag.lastIndexOf('/')
-    const node: TagNode = { id: t.tag, name: t.tag.slice(i + 1), tag: t.tag, total: t.total, children: [] }
-    byTag.set(t.tag, node)
-    const parent = i === -1 ? null : byTag.get(t.tag.slice(0, i))
-    ;(parent ? parent.children : root).push(node)
+  const node = (tag: string): TagNode => {
+    let n = byTag.get(tag)
+    if (n) return n
+    const i = tag.lastIndexOf('/')
+    n = { id: tag, name: tag.slice(i + 1), tag, total: null, children: [] }
+    byTag.set(tag, n)
+    ;(i === -1 ? root : node(tag.slice(0, i)).children).push(n)
+    return n
   }
+  for (const t of tags) node(t.tag).total = t.total
+  const sort = (list: TagNode[]) => { list.sort((a, b) => a.name.localeCompare(b.name)); for (const n of list) sort(n.children) }
+  sort(root)
   return root
 }
 
@@ -114,7 +120,7 @@ export function TagsView({ selected, onSelect, openPath, onOpen, refresh }: {
                     ? <Button slot="chevron" className="tree-chevron">{Icon.chevron}</Button>
                     : <span className="tree-chevron-space" />}
                   <span className="tree-label"><span className="tag-hash">#</span>{node.name}</span>
-                  <span className="tag-count" aria-label={t(node.total === 1 ? 'tags.countOne' : 'tags.count', { n: node.total })}>{node.total}</span>
+                  {node.total !== null && <span className="tag-count" aria-label={t(node.total === 1 ? 'tags.countOne' : 'tags.count', { n: node.total })}>{node.total}</span>}
                 </div>
               )}
             </TreeItemContent>

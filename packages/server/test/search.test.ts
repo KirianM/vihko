@@ -47,8 +47,8 @@ test('tag: matches case-insensitively and includes nested tags; path: a folder o
   assert.deepEqual(paths(await q('path:homel_b')), [])
 })
 
-test('the tags list counts notes per tag and adds parents of nested tags', async () => {
-  const { noa } = await setup()
+test('the tags list counts notes per tag, with and without nested tags', async () => {
+  const { notesDir, noa } = await setup()
   const r = await noa('GET', '/api/tags')
   assert.equal(r.status, 200)
   const by = new Map((r.body.tags as { tag: string; count: number; total: number }[]).map((t) => [t.tag, t]))
@@ -56,6 +56,11 @@ test('the tags list counts notes per tag and adds parents of nested tags', async
   assert.deepEqual(by.get('hogar/red'), { tag: 'hogar/red', count: 1, total: 1 })
   assert.deepEqual(by.get('proyectos'), { tag: 'proyectos', count: 1, total: 1 })
   assert.ok(!by.has('notag') && !by.has('tampoco'), 'tags inside code are not tags')
+  writeFileSync(join(notesDir, 'solo-anidado.md'), '#hogar/wifi y #viaje/2026\n')
+  await noa('POST', '/api/admin/rescan', {})
+  const after = new Map(((await noa('GET', '/api/tags')).body.tags as { tag: string; count: number; total: number }[]).map((t) => [t.tag, t]))
+  assert.deepEqual(after.get('hogar'), { tag: 'hogar', count: 2, total: 3 }, 'a note with only a nested tag counts in the total')
+  assert.ok(!after.has('viaje'), 'a parent nobody writes is not a tag in use (the view groups it)')
 })
 
 test('the tree lists folders, the empty ones too; folders are created, moved and deleted over HTTP', async () => {
