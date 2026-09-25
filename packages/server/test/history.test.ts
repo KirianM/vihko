@@ -303,10 +303,17 @@ test('«Recent changes» filters file by file with the permission check, and by 
     const byAna = await h.changes(`&author=user:${h.ids.ana}`)
     assert.deepEqual(byAna.changes.map((c: any) => who(c)), ['user:ana'])
     assert.deepEqual((await h.changes('&author=system')).changes.map((c: any) => c.reason.code), ['history_enabled'])
+    // A note moved out of a folder the user can't read: where it was isn't said.
+    await h.noa('POST', '/api/note/move', { from: 'privado/sin-ia.md', to: 'publica.md' })
+    await h.settle()
+    const all = (await h.changes()).changes
+    const moved = all[0].files.find((f: any) => f.path === 'publica.md')
+    assert.equal(moved.change, 'moved')
+    assert.equal(moved.from, undefined)
     const page = await h.noa('GET', '/api/history/changes?limit=1')
-    assert.equal(page.body.changes.length, 1)
+    assert.deepEqual(page.body.changes.map((c: any) => c.id), [all[0].id])
     const rest = await h.noa('GET', `/api/history/changes?limit=5&cursor=${page.body.next}`)
-    assert.deepEqual(rest.body.changes.map((c: any) => c.id), changes.slice(1).map((c: any) => c.id))
+    assert.deepEqual(rest.body.changes.map((c: any) => c.id), all.slice(1).map((c: any) => c.id))
     assert.equal(rest.body.next, null)
   } finally { await h.close() }
 })

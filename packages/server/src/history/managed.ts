@@ -145,7 +145,9 @@ export class ManagedReader implements HistoryReader {
           scanned++
           const meta = parseMessage(c.message)
           if (!matchesAuthor(authorsOf(meta), page.author)) continue
+          // Where a readable file came from is only said if that path is readable too.
           const files = pairFiles(c.files, meta).filter((f) => page.canRead(f.path))
+            .map((f) => (f.from !== undefined && !page.canRead(f.from) ? { ...f, from: undefined } : f))
           if (files.length) found.push({ commit: c, meta, files })
         }
         const last = commits.at(-1)!
@@ -161,7 +163,7 @@ export class ManagedReader implements HistoryReader {
         authors: authorsOf(f.meta),
         reason: f.meta.reason,
         foundAtStartup: f.meta.foundAtStartup,
-        files: f.files.map((file) => ({ path: file.path, change: file.change, ...(file.from ? { from: file.from } : {}), ...counts[k++]! })),
+        files: f.files.map((file) => ({ path: file.path, change: file.change, ...(file.from !== undefined ? { from: file.from } : {}), ...counts[k++]! })),
       }))
       return { changes, next }
     })
