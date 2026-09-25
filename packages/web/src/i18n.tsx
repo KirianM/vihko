@@ -1,7 +1,7 @@
 // Translations: no UI text is written directly in the components.
 // Adding a language means adding a dictionary with the same keys (the type enforces it).
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { ErrorCode } from '@thoth/core/codes'
+import type { ConfigErrorCode, ErrorCode } from '@thoth/core/codes'
 
 const es = {
   'app.name': 'thoth',
@@ -38,6 +38,8 @@ const es = {
   'note.rename': 'Renombrar o mover…',
   'note.trash': 'Mover a la papelera',
   'note.insertImage': 'Insertar imagen…',
+  'note.prevDaily': 'Nota anterior de la serie',
+  'note.nextDaily': 'Nota siguiente de la serie',
   'image.insertTitle': 'Insertar imagen',
   'image.pickFile': 'Elegir una imagen…',
   'image.orUrl': 'O desde una dirección web:',
@@ -54,6 +56,7 @@ const es = {
   'editor.imageMissing': 'Imagen no encontrada',
   'editor.imageBlocked': 'Imagen externa bloqueada · {domain}',
   'cmd.insertImage': 'insertar imagen',
+  'cmd.today': 'nota de hoy',
   'rename.title': 'Renombrar o mover «{name}»',
   'rename.name': 'Nuevo nombre',
   'rename.folder': 'Carpeta',
@@ -113,6 +116,18 @@ const es = {
   'shell.noNotes': 'La carpeta de notas está vacía.',
   'shell.openFolders': 'Abrir carpetas',
   'shell.closeFolders': 'Cerrar carpetas',
+  'shell.today': 'Nota de hoy',
+  'shell.preferences': 'Preferencias',
+  'prefs.title': 'Preferencias',
+  'prefs.timezone': 'Zona horaria',
+  'prefs.timezoneHint': 'Decide qué día es «hoy» para ti, también para la nota del día.',
+  'prefs.useBrowser': 'Usar la del navegador ({tz})',
+  'prefs.series': 'Serie de la nota del día',
+  'prefs.seriesHint': 'La que abre el botón «Hoy». Las series se declaran en thoth.yaml.',
+  'prefs.seriesOff': 'La nota del día está desactivada: thoth.yaml no declara ninguna serie.',
+  'prefs.openOnStart': 'Abrir la nota de hoy al entrar',
+  'prefs.openOnStartHint': 'Solo si ya existe: al entrar nunca se crea una nota.',
+  'prefs.save': 'Guardar',
   'editor.bar': 'Formato',
   'editor.insertLink': 'Enlazar nota',
   'editor.insertTag': 'Añadir tag',
@@ -145,6 +160,8 @@ const es = {
   'palette.createIn': 'Crear «{name}» en {folder}',
   'palette.root': 'la raíz',
   'palette.currentFolder': 'carpeta actual',
+  'palette.fromTemplate': 'Desde plantilla',
+  'palette.createWith': 'Crear «{name}» con la plantilla {template}',
   'palette.commands': 'Comandos',
   'palette.commandsHint': 'Comandos · escribe',
   'palette.noResults': 'Ninguna nota coincide.',
@@ -183,6 +200,23 @@ const es = {
   'alerts.showCopy': 'Ver la copia',
   'alerts.hideCopy': 'Ocultar la copia',
   'alerts.copyLabel': 'Contenido de la copia de conflicto',
+  'alerts.configTitle': '{file} no se puede usar',
+  'alerts.configLastGood': 'thoth sigue con la última versión válida que leyó. Cuando corrijas el archivo se aplicará solo.',
+  'alerts.configNone': 'Mientras tanto no hay nada configurado: la nota del día y las plantillas están desactivadas. Cuando corrijas el archivo se aplicará solo.',
+  'alerts.configLine': 'línea {line}',
+  'alerts.templateTitle': 'Falta la plantilla de la serie «{series}»',
+  'alerts.templateBody': 'thoth.yaml dice que la serie usa {template}, pero esa nota no existe. Mientras falte, las notas de la serie se crean vacías.',
+  'config.yaml': 'No es YAML válido.',
+  'config.not_a_map': 'Debería ser un conjunto de «clave: valor».',
+  'config.unknown_key': 'Clave desconocida (¿una errata?).',
+  'config.not_supported': 'Esta versión de thoth aún no la admite; se rechaza para no aparentar que funciona.',
+  'config.unsupported_version': 'Versión no admitida: solo existe la 1.',
+  'config.invalid_type': 'Tipo de valor incorrecto: se esperaba texto.',
+  'config.invalid_path': 'Ruta no válida: relativa a la carpeta de notas, sin «..» ni carpetas ocultas.',
+  'config.invalid_id': 'Nombre de serie no válido: letras, dígitos, «-» o «_».',
+  'config.pattern_token': 'Variable desconocida en el patrón: {detail}.',
+  'config.pattern_period': 'El patrón debe dar una nota por día ({YYYY}, {MM} y {DD}), semana ({GGGG} y {WW}), mes ({YYYY} y {MM}) o año ({YYYY}).',
+  'config.unreadable': 'No se puede leer el archivo (¿permisos?).',
   'role.admin': 'admin',
   'role.member': 'miembro',
   'theme.toDark': 'Cambiar a tema oscuro',
@@ -207,6 +241,7 @@ const es = {
   'error.too_large': 'La imagen es demasiado grande.',
   'error.unsupported_type': 'Solo se admiten imágenes PNG, JPEG, GIF, WebP o AVIF.',
   'error.fetch_failed': 'No se ha podido descargar la imagen de esa dirección.',
+  'error.not_configured': 'La nota del día no está configurada: declara una serie en thoth.yaml.',
 }
 
 const en: Record<keyof typeof es, string> = {
@@ -244,6 +279,8 @@ const en: Record<keyof typeof es, string> = {
   'note.rename': 'Rename or move…',
   'note.trash': 'Move to trash',
   'note.insertImage': 'Insert image…',
+  'note.prevDaily': 'Previous note in the series',
+  'note.nextDaily': 'Next note in the series',
   'image.insertTitle': 'Insert image',
   'image.pickFile': 'Choose an image…',
   'image.orUrl': 'Or from a web address:',
@@ -260,6 +297,7 @@ const en: Record<keyof typeof es, string> = {
   'editor.imageMissing': 'Image not found',
   'editor.imageBlocked': 'External image blocked · {domain}',
   'cmd.insertImage': 'insert image',
+  'cmd.today': "today's note",
   'rename.title': 'Rename or move “{name}”',
   'rename.name': 'New name',
   'rename.folder': 'Folder',
@@ -319,6 +357,18 @@ const en: Record<keyof typeof es, string> = {
   'shell.noNotes': 'The notes folder is empty.',
   'shell.openFolders': 'Open folders',
   'shell.closeFolders': 'Close folders',
+  'shell.today': "Today's note",
+  'shell.preferences': 'Preferences',
+  'prefs.title': 'Preferences',
+  'prefs.timezone': 'Timezone',
+  'prefs.timezoneHint': 'Decides what day “today” is for you, the daily note included.',
+  'prefs.useBrowser': "Use the browser's ({tz})",
+  'prefs.series': 'Daily note series',
+  'prefs.seriesHint': 'The one the “Today” button opens. Series are declared in thoth.yaml.',
+  'prefs.seriesOff': 'Daily notes are off: thoth.yaml declares no series.',
+  'prefs.openOnStart': "Open today's note when thoth opens",
+  'prefs.openOnStartHint': 'Only if it already exists: opening thoth never creates a note.',
+  'prefs.save': 'Save',
   'editor.bar': 'Formatting',
   'editor.insertLink': 'Link a note',
   'editor.insertTag': 'Add a tag',
@@ -351,6 +401,8 @@ const en: Record<keyof typeof es, string> = {
   'palette.createIn': 'Create “{name}” in {folder}',
   'palette.root': 'the root folder',
   'palette.currentFolder': 'current folder',
+  'palette.fromTemplate': 'From a template',
+  'palette.createWith': 'Create “{name}” from the template {template}',
   'palette.commands': 'Commands',
   'palette.commandsHint': 'Commands · type',
   'palette.noResults': 'No note matches.',
@@ -389,6 +441,23 @@ const en: Record<keyof typeof es, string> = {
   'alerts.showCopy': 'View the copy',
   'alerts.hideCopy': 'Hide the copy',
   'alerts.copyLabel': 'Contents of the conflict copy',
+  'alerts.configTitle': '{file} can’t be used',
+  'alerts.configLastGood': 'thoth keeps the last valid version it read. Once the file is fixed it applies on its own.',
+  'alerts.configNone': 'Meanwhile nothing is configured: daily notes and templates are off. Once the file is fixed it applies on its own.',
+  'alerts.configLine': 'line {line}',
+  'alerts.templateTitle': 'The template of the “{series}” series is missing',
+  'alerts.templateBody': 'thoth.yaml says the series uses {template}, but that note doesn’t exist. Until it does, the series’ notes are created empty.',
+  'config.yaml': 'Not valid YAML.',
+  'config.not_a_map': 'Should be a set of “key: value”.',
+  'config.unknown_key': 'Unknown key (a typo?).',
+  'config.not_supported': 'This version of thoth doesn’t support it yet; refused so it doesn’t look like it works.',
+  'config.unsupported_version': 'Unsupported version: only 1 exists.',
+  'config.invalid_type': 'Wrong kind of value: text was expected.',
+  'config.invalid_path': 'Invalid path: relative to the notes folder, with no “..” or hidden folders.',
+  'config.invalid_id': 'Invalid series name: letters, digits, “-” or “_”.',
+  'config.pattern_token': 'Unknown variable in the pattern: {detail}.',
+  'config.pattern_period': 'The pattern must give one note per day ({YYYY}, {MM} and {DD}), week ({GGGG} and {WW}), month ({YYYY} and {MM}) or year ({YYYY}).',
+  'config.unreadable': 'The file can’t be read (permissions?).',
   'role.admin': 'admin',
   'role.member': 'member',
   'theme.toDark': 'Switch to dark theme',
@@ -413,6 +482,7 @@ const en: Record<keyof typeof es, string> = {
   'error.too_large': 'The image is too large.',
   'error.unsupported_type': 'Only PNG, JPEG, GIF, WebP and AVIF images are accepted.',
   'error.fetch_failed': 'The image could not be downloaded from that address.',
+  'error.not_configured': 'Daily notes aren’t configured: declare a series in thoth.yaml.',
 }
 
 export type MessageKey = keyof typeof es
@@ -421,6 +491,10 @@ export type MessageKey = keyof typeof es
 type MissingErrorText = Exclude<`error.${ErrorCode}`, MessageKey>
 const _allErrorsTranslated: [MissingErrorText] extends [never] ? true : MissingErrorText = true
 void _allErrorsTranslated
+// The same for the reasons thoth.yaml can't be used.
+type MissingConfigText = Exclude<`config.${ConfigErrorCode}`, MessageKey>
+const _allConfigErrorsTranslated: [MissingConfigText] extends [never] ? true : MissingConfigText = true
+void _allConfigErrorsTranslated
 export type Lang = 'es' | 'en'
 const dictionaries: Record<Lang, Record<MessageKey, string>> = { es, en }
 

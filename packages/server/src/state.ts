@@ -1,5 +1,5 @@
 // state.db: application state that is NOT derived from the files: users,
-// sessions and, later, API keys and webhooks. It's not disposable: it's
+// sessions, profiles and, later, API keys and webhooks. It's not disposable: it's
 // backed up, and its schema evolves through migrations, never by deleting it.
 import Database from 'better-sqlite3'
 import { copyFileSync, existsSync } from 'node:fs'
@@ -23,6 +23,14 @@ const MIGRATIONS: string[] = [
      last_seen_at text not null
    );
    create index sessions_user on sessions(user_id);`,
+  // Each person's profile: the timezone that decides what "today" is for them
+  // and their daily-note preferences (D-030). No row = nothing chosen yet.
+  `create table profiles (
+     user_id      text primary key references users(id) on delete cascade,
+     timezone     text,
+     daily_series text,
+     open_daily   integer not null default 0
+   );`,
 ]
 
 export const STATE_VERSION = MIGRATIONS.length

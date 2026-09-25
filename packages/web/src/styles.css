@@ -100,7 +100,11 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .sidebar-tree { flex-grow: 1; overflow: auto; padding: 4px 8px; }
 .sidebar-alerts { margin: 8px 12px; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border-radius: var(--radius-md); background: var(--warn-soft); color: var(--warn-ink); font-size: 13px; text-decoration: none; }
 .sidebar-user { height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 16px; border-top: 1px solid var(--line); }
-.sidebar-user .name { flex-grow: 1; }
+.sidebar-user .name { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Avatar, name and role open the preferences */
+.sidebar-user-btn { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; height: 40px; margin-left: -6px; padding: 0 6px; border: none; border-radius: var(--radius-md); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; outline: none; }
+.sidebar-user-btn[data-hovered], .sidebar-user-btn[data-pressed] { background: var(--chip); }
+.sidebar-user-btn[data-focus-visible] { outline: 2px solid var(--accent); outline-offset: -2px; }
 .sidebar-user .role { font-size: 12px; color: var(--muted); }
 .avatar { width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: var(--muted); color: var(--on-user); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
 
@@ -133,6 +137,10 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .status-warn { color: var(--warn-strong); }
 .presence { display: flex; align-items: center; }
 .avatar-stack { width: 30px; height: 30px; border: 2px solid var(--bg); }
+/* Previous / next note of a daily-note series, next to the note name */
+.daily-nav { display: inline-flex; gap: 2px; flex-shrink: 0; }
+.daily-nav .btn-icon { border-color: transparent; color: var(--muted); }
+.daily-nav .btn-icon[data-disabled] { opacity: 0.35; }
 .avatar-stack + .avatar-stack { margin-left: -8px; }
 
 /* Notice for a note deleted from outside thoth */
@@ -205,6 +213,10 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .bar-btn { width: var(--touch); height: var(--touch); border: none; font-size: 16px; font-weight: 600; }
 .bar-hash { font-size: 18px; }
 .editor-bar .status { padding-right: var(--space-2); }
+/* With the daily-note arrows in the bar there's no room for the save text: the icon stays, the text is for screen readers */
+.status-compact { display: inline-flex; }
+.status-compact .status-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.status-compact .status { padding: 0 var(--space-2); }
 /* Workspace alerts */
 .sidebar-alerts[aria-current] { outline: 1px solid var(--warn-line); }
 .alerts-page { flex-grow: 1; overflow: auto; padding: 40px var(--space-18) var(--space-12); display: flex; flex-direction: column; gap: 18px; }
@@ -222,6 +234,8 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .alert-text p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
 .alert-text .mono { font-size: 13px; overflow-wrap: anywhere; }
 .alert-paths { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
+.alert-config li { font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.alert-config .mono { color: var(--muted); }
 .alert-copy { margin: var(--space-2) 0 0; max-height: 320px; overflow: auto; padding: var(--space-3); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: 12px; line-height: 18px; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 .alert-actions { display: flex; gap: var(--space-2); flex-shrink: 0; flex-wrap: wrap; }
 .alert-hint { font-size: 13px; color: var(--muted); }

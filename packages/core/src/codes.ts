@@ -1,5 +1,8 @@
 // Stable codes the server returns instead of text: the UI translates them.
 // Renaming a code breaks clients; adding a new one doesn't.
+import type { ConfigError } from './workspace.ts'
+
+export type { ConfigError, ConfigErrorCode } from './workspace.ts'
 
 /**
  * The `error` field of every API error response. The accompanying `message`
@@ -25,6 +28,7 @@ export type ErrorCode =
   | 'too_large' // an image over the size limit
   | 'unsupported_type' // not an image type thoth stores
   | 'fetch_failed' // an image URL could not be downloaded
+  | 'not_configured' // a feature that thoth.yaml doesn't turn on (daily notes with no series)
 
 /**
  * Space-level alerts: what thoth has detected in the notes folder that needs
@@ -42,6 +46,13 @@ export type Alert =
   | { code: 'uid_conflict'; uid: string; paths: string[]; actions: never[] }
   /** A sync tool's conflict copy; `note` is the original note if it exists. */
   | { code: 'sync_conflict'; path: string; note: string | null; actions: never[] }
+  /**
+   * The workspace configuration file can't be used. thoth goes on with the
+   * last valid one it read (`fallback: 'last_good'`) or with none (`'none'`).
+   */
+  | { code: 'config_invalid'; file: string; errors: ConfigError[]; fallback: 'last_good' | 'none'; actions: never[] }
+  /** A daily-note series names a template note that doesn't exist: its notes are created empty. */
+  | { code: 'config_template_missing'; series: string; template: string; actions: never[] }
 
 export type AlertCode = Alert['code']
 export type AlertAction = Alert['actions'][number]

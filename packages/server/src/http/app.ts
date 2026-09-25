@@ -7,7 +7,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { join, posix, sep } from 'node:path'
-import { classifyPath, conflictOriginal, extract, withoutRanges, type Alert, type ErrorCode, type Range } from '@thoth/core'
+import { WORKSPACE_FILE, classifyPath, conflictOriginal, extract, withoutRanges, type Alert, type ErrorCode, type Range } from '@thoth/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
@@ -15,6 +15,10 @@ import { NoteError, type Actor, type NoteService } from '../notes.ts'
 import { ftsQuery, HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import { applyEdits, type EditOp } from '../edits.ts'
 import { FetchImageError, SERVED_TYPES, fetchImage } from '../attachments.ts'
+import { DailyNotes } from '../daily.ts'
+import { createFromTemplate } from '../templates.ts'
+import { ProfileError, type Profile, type Profiles } from '../profiles.ts'
+import type { Workspace } from '../workspace.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 
@@ -33,6 +37,10 @@ export interface Orphans {
 export interface AppDeps {
   orphans?: Orphans
   auth: Auth
+  /** Each person's timezone and preferences (state.db). */
+  profiles: Profiles
+  /** thoth.yaml, as currently in force. */
+  workspace: Workspace
   notes: NoteService
   index: Db
   indexer: Indexer
@@ -45,6 +53,8 @@ export interface AppDeps {
    * browser (`allow`, the default) or blocked for the whole installation (D-028).
    */
   externalImages?: ExternalImages
+  /** The clock (tests). */
+  now?: () => Date
 }
 
 export type ExternalImages = 'allow' | 'block'
@@ -69,7 +79,7 @@ type Env = { Variables: { user: User; token: string } }
 const actorOf = (u: User): Actor => ({ kind: 'user', id: u.username })
 
 function noteErrorStatus(e: NoteError) {
-  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415 } as const)[e.code]
+  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409 } as const)[e.code]
 }
 
 function fetchErrorStatus(e: FetchImageError) {
@@ -85,8 +95,10 @@ function fail(c: Context, status: ContentfulStatusCode, error: ErrorCode, messag
 }
 
 export function createApp(deps: AppDeps) {
-  const { auth, notes, index } = deps
+  const { auth, notes, index, profiles, workspace } = deps
   const externalImages = deps.externalImages ?? 'allow'
+  const now = deps.now ?? (() => new Date())
+  const daily = new DailyNotes({ workspace, profiles, notes, now })
   const app = new Hono<Env>()
 
   app.onError((err, c) => {
@@ -95,6 +107,7 @@ export function createApp(deps: AppDeps) {
       return fail(c, noteErrorStatus(err), err.code, err.message, { etag: err.etag })
     }
     if (err instanceof FetchImageError) return fail(c, fetchErrorStatus(err), err.code, err.message)
+    if (err instanceof ProfileError) return fail(c, 400, err.code, err.message)
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400, err.code, err.message)
     // Body that isn't JSON.
     if (err instanceof SyntaxError) return fail(c, 400, 'invalid', err.message)
@@ -178,9 +191,43 @@ export function createApp(deps: AppDeps) {
     return c.json({ ...r, meta })
   })
 
+  // A new note, with the given text or from a template note (its variables
+  // filled in with the person's date and name, D-030). Never overwrites.
   app.post('/api/note', async (c) => {
-    const { path, text } = await c.req.json<{ path: string; text: string }>()
-    return c.json(await notes.create(path, text ?? '', actorOf(c.get('user'))), 201)
+    const { path, text, template } = await c.req.json<{ path: string; text?: string; template?: string }>()
+    const user = c.get('user')
+    if (template !== undefined) {
+      if (typeof template !== 'string') return fail(c, 400, 'invalid', 'template must be a note path')
+      return c.json(await createFromTemplate(notes, { path, template, user, now: profiles.now(user.id, now()) }), 201)
+    }
+    return c.json(await notes.create(path, text ?? '', actorOf(user)), 201)
+  })
+
+  // The workspace settings the UI needs from thoth.yaml (reloaded when it changes).
+  app.get('/api/workspace', (c) => {
+    const w = workspace.config
+    return c.json({ daily: w.daily, templates: w.templates })
+  })
+
+  app.get('/api/profile', (c) => c.json(profiles.get(c.get('user').id)))
+
+  app.put('/api/profile', async (c) => {
+    const body = await c.req.json<Record<string, unknown>>()
+    if (typeof body !== 'object' || body === null) return fail(c, 400, 'invalid', 'expected an object')
+    const patch: Partial<Profile> = {}
+    for (const k of ['timezone', 'dailySeries', 'openDailyOnStart'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
+    return c.json(profiles.update(c.get('user').id, patch))
+  })
+
+  // Today's note (D-030): GET says where it is and whether it exists, POST
+  // opens or creates it. `series` picks one other than the person's own.
+  app.get('/api/daily', (c) => c.json(daily.today(c.get('user'), c.req.query('series'))))
+
+  app.post('/api/daily', async (c) => {
+    const { series } = await c.req.json<{ series?: string }>().catch(() => ({ series: undefined }))
+    if (series !== undefined && series !== null && typeof series !== 'string') return fail(c, 400, 'invalid', 'series must be a series id')
+    const r = await daily.open(c.get('user'), series)
+    return c.json(r, r.created ? 201 : 200)
   })
 
   app.put('/api/note', async (c) => {
@@ -259,7 +306,8 @@ export function createApp(deps: AppDeps) {
     const path = c.req.query('path') ?? ''
     const norm = posix.normalize(path)
     if (!path || norm !== path || path.startsWith('/') || norm.split('/').includes('..')) return fail(c, 400, 'invalid_path', `invalid file path: ${path}`)
-    if (classifyPath(norm) !== 'other') return fail(c, 404, 'not_found', `not a servable file: ${path}`)
+    // thoth.yaml isn't content: once it holds permissions (M4), it's not for every reader.
+    if (classifyPath(norm) !== 'other' || norm === WORKSPACE_FILE) return fail(c, 404, 'not_found', `not a servable file: ${path}`)
     let file: string
     let st: ReturnType<typeof statSync>
     try {
@@ -315,6 +363,11 @@ export function createApp(deps: AppDeps) {
     for (const path of deps.orphans?.orphans() ?? []) alerts.push({ code: 'orphaned_note', path, actions: ['keep_copy', 'discard_copy'] })
     for (const u of deps.indexer.uidConflicts()) alerts.push({ code: 'uid_conflict', uid: u.uid, paths: u.paths, actions: [] })
     const noteExists = index.prepare('select 1 from notes where path = ?')
+    const ws = workspace.status
+    if (ws.errors.length) alerts.push({ code: 'config_invalid', file: WORKSPACE_FILE, errors: ws.errors, fallback: ws.fallback, actions: [] })
+    for (const s of workspace.config.daily) {
+      if (s.template && !noteExists.get(s.template)) alerts.push({ code: 'config_template_missing', series: s.id, template: s.template, actions: [] })
+    }
     for (const { path } of index.prepare("select path from alerts where kind = 'sync_conflict' order by path").all() as { path: string }[]) {
       const note = conflictOriginal(path)
       alerts.push({ code: 'sync_conflict', path, note: noteExists.get(note) ? note : null, actions: [] })

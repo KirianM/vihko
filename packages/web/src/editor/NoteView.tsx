@@ -67,7 +67,26 @@ function OrphanBanner({ path }: { path: string }) {
  * Phone editor bar (link, tag, list, comment and save state), under the
  * editor. Its buttons don't take focus: the keyboard stays open.
  */
-function EditorBar({ view, c, onComment, onImage }: { view: EditorView | null; c: CollabState; onComment: () => void; onImage: () => void }) {
+/** Previous and next note of the daily-note series: in the header, or in the editor bar on a phone. */
+function DailyNav({ daily, onNavigate, bar }: { daily: { prev: string | null; next: string | null }; onNavigate: (p: string) => void; bar?: boolean }) {
+  const t = useT()
+  const cls = bar ? 'btn btn-icon bar-btn' : 'btn btn-icon'
+  return (
+    <span className="daily-nav">
+      <Button className={cls} preventFocusOnPress={bar} aria-label={t('note.prevDaily')} isDisabled={!daily.prev} onPress={() => { if (daily.prev) onNavigate(daily.prev) }}>{Icon.prev}</Button>
+      <Button className={cls} preventFocusOnPress={bar} aria-label={t('note.nextDaily')} isDisabled={!daily.next} onPress={() => { if (daily.next) onNavigate(daily.next) }}>{Icon.next}</Button>
+    </span>
+  )
+}
+
+function EditorBar({ view, c, onComment, onImage, daily, onNavigate }: {
+  view: EditorView | null
+  c: CollabState
+  onComment: () => void
+  onImage: () => void
+  daily: { prev: string | null; next: string | null } | null
+  onNavigate: (p: string) => void
+}) {
   const t = useT()
   // The keyboard shrinks the visible area: keep the cursor in sight.
   useEffect(() => {
@@ -92,7 +111,8 @@ function EditorBar({ view, c, onComment, onImage }: { view: EditorView | null; c
       <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('image.insertTitle')} onPress={onImage}>{Icon.image}</Button>
       <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.comment')} onPress={onComment}>{Icon.comment}</Button>
       <span className="spacer" />
-      <SaveStatus c={c} />
+      {daily && <DailyNav daily={daily} onNavigate={onNavigate} bar />}
+      <span className={daily ? 'status-compact' : undefined}><SaveStatus c={c} /></span>
     </div>
   )
 }
@@ -100,13 +120,15 @@ function EditorBar({ view, c, onComment, onImage }: { view: EditorView | null; c
 interface Props {
   path: string
   user: User
+  /** Neighbours in its daily-note series, when the note belongs to one (null otherwise). */
+  daily?: { prev: string | null; next: string | null } | null
   onNavigate: (p: string) => void
   /** The note changed path (renamed by you or someone else): reopen it there. With the report when you did it. */
   onMoved: (to: string, report?: MoveReport) => void
   onTrashed: (t: Trashed) => void
 }
 
-export function NoteView({ path, user, onNavigate, onMoved, onTrashed }: Props) {
+export function NoteView({ path, user, daily, onNavigate, onMoved, onTrashed }: Props) {
   const c = useCollab(path)
   const [linkData, setLinkData] = useState<LinksData | null>(null)
   const links = useMemo(
@@ -155,6 +177,7 @@ export function NoteView({ path, user, onNavigate, onMoved, onTrashed }: Props) 
       <header className="main-head">
         <MenuButton />
         <Crumbs path={path} />
+        {daily && !mobile && <DailyNav daily={daily} onNavigate={onNavigate} />}
         <span className="spacer" />
         {!mobile && <SaveStatus c={c} />}
         <Presence c={c} />
@@ -173,7 +196,7 @@ export function NoteView({ path, user, onNavigate, onMoved, onTrashed }: Props) 
         </div>
         <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} onNavigate={onNavigate} />
       </div>
-      {mobile && !panel.open && <EditorBar view={view} c={c} onComment={() => panel.showComments(null)} onImage={images.openInsert} />}
+      {mobile && !panel.open && <EditorBar view={view} c={c} onComment={() => panel.showComments(null)} onImage={images.openInsert} daily={daily ?? null} onNavigate={onNavigate} />}
       <ImageInsertUi ins={images} />
     </>
   )

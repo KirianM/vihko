@@ -16,7 +16,7 @@ export type Actor =
   | { kind: 'agent'; id: string; onBehalfOf: string }
   | { kind: 'system'; reason: string }
 
-export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'edit_mismatch' | 'too_large' | 'unsupported_type'
+export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'edit_mismatch' | 'too_large' | 'unsupported_type' | 'not_configured'
 
 export class NoteError extends Error {
   readonly code: NoteErrorCode
@@ -61,6 +61,8 @@ export interface NoteServiceOptions {
   hot?: HotDocuments
   /** Largest image accepted, in bytes (20 MB by default). */
   maxImageBytes?: number
+  /** Fixed folder for new images (thoth.yaml), or null to store them next to their note. Asked on each upload. */
+  attachmentsFolder?: () => string | null
 }
 
 export const DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -150,10 +152,15 @@ export class NoteService {
     return { path, text, etag: contentHash(text) }
   }
 
-  /** Creates a new note; never overwrites. Born with a `uid`. */
-  async create(path: string, text: string, _actor: Actor): Promise<{ path: string; etag: string; uid: string | null }> {
+  /**
+   * Creates a new note; never overwrites. Born with a `uid`. With `freshUid`
+   * (a copy of another note, such as a template) a `uid` already in the text
+   * is replaced, so the copy doesn't share its identity.
+   */
+  async create(path: string, text: string, _actor: Actor, opts: { freshUid?: boolean } = {}): Promise<{ path: string; etag: string; uid: string | null }> {
     const file = this.file(path)
     mkdirSync(dirname(file), { recursive: true })
+    if (opts.freshUid && this.uidIn(text)) text = setFrontmatterKey(text, this.uidKey, newUid())
     const withUid = this.ensureUid(text, null)
     const r = await commitText(file, withUid.text, null)
     if (!r.ok) throw new NoteError('exists', `already exists: ${path}`, r.current === null ? null : contentHash(r.current))
@@ -430,8 +437,9 @@ export class NoteService {
     if (bytes.byteLength > this.maxImageBytes) throw new NoteError('too_large', `${bytes.byteLength} bytes, the limit is ${this.maxImageBytes}`)
     const type = sniffImage(bytes)
     if (!type) throw new NoteError('unsupported_type', 'only PNG, JPEG, GIF, WebP and AVIF images are stored')
+    const folder = this.opts.attachmentsFolder?.() ?? null
     for (let n = 1; n <= 1000; n++) {
-      const path = attachmentPath(notePath, type.ext, now, n)
+      const path = attachmentPath(notePath, type.ext, now, n, folder)
       const file = join(this.opts.notesDir, path)
       mkdirSync(dirname(file), { recursive: true })
       if (createFile(file, bytes)) return { path, src: posix.relative(posix.dirname(notePath), path) }

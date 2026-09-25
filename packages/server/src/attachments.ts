@@ -60,11 +60,12 @@ const pad = (n: number) => String(n).padStart(2, '0')
  * `projects/plan-2026-09-25-1012.png`). `n` > 1 adds a suffix for a name
  * that is taken (`…-1012-2.png`).
  *
- * This is the single place that decides it: when `thoth.yaml` exists, its
- * destination setting (a fixed folder, a subfolder per note) plugs in here.
+ * This is the single place that decides it: `folder` (`attachments.folder` in
+ * thoth.yaml) puts every new image in that fixed folder instead, with the
+ * same name.
  */
-export function attachmentPath(notePath: string, ext: string, now: Date, n = 1): string {
-  const dir = posix.dirname(notePath)
+export function attachmentPath(notePath: string, ext: string, now: Date, n = 1, folder: string | null = null): string {
+  const dir = folder ?? posix.dirname(notePath)
   const stem = posix.basename(notePath).replace(/\.md$/i, '')
   const stamp = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`
   const name = `${stem}-${stamp}${n > 1 ? `-${n}` : ''}.${ext}`
