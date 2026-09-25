@@ -59,7 +59,7 @@ test('crear una que ya existe muestra el error traducido', async () => {
   await k.keyboard.press('Control+k')
   await field().fill('Red')
   await palette().getByRole('option', { name: /^Crear «Red»/ }).click()
-  await expect(palette().getByRole('alert')).toHaveText('Ya hay una nota con ese nombre en esa carpeta.')
+  await expect(palette().getByRole('alert')).toHaveText('Ya existe una nota con ese nombre.')
   await k.keyboard.press('Escape')
 })
 
