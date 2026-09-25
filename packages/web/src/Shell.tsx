@@ -62,6 +62,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [pinOffer, setPinOffer] = useState<PinOffer | null>(null)
   /** Your last rename or move, if some link could not be rewritten. */
   const [moveIssue, setMoveIssue] = useState<MoveReport | null>(null)
+  /** The open note was moved by another tool and followed its file; `links`: left behind (null until known). */
+  const [outsideMove, setOutsideMove] = useState<{ from: string; to: string; links: number | null } | null>(null)
   /** Your move whose links are still being rewritten, and what went wrong following it. */
   const [moveJob, setMoveJob] = useState<MoveJob | null>(null)
   const [jobIssue, setJobIssue] = useState<string | null>(null)
@@ -159,6 +161,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setTrashed(null)
     setPinOffer((o) => (o?.target === openPath ? o : null))
     setMoveIssue((m) => (m?.to === openPath ? m : null))
+    setOutsideMove((m) => (m?.to === openPath ? m : null))
     setError(null)
     // Check that it exists before opening co-editing: the hub rejects notes that don't exist.
     api.note(openPath).then(() => { setReady(openPath); rememberNote(openPath) }).catch(fail)
@@ -208,6 +211,19 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     if (openPath === from) setOpenPath(to)
     if (report && moveNotice(report)) setMoveIssue(report)
     void loadTree()
+  }
+  /** Another tool moved the open note and it followed its file: the alert may offer «Update links». */
+  const movedOutside = (from: string, to: string) => {
+    setExpanded((e) => new Set([...e, ...ancestors(to)]))
+    setOpenPath(to)
+    setOutsideMove({ from, to, links: null })
+    void loadTree()
+    api.alerts().then((list) => {
+      setAlerts(list.length)
+      const a = list.find((x) => x.code === 'external_move' && x.moves.some((m) => m.from === from && m.to === to))
+      const links = a?.code === 'external_move' ? a.links : 0
+      setOutsideMove((m) => (m?.to === to ? { ...m, links } : m))
+    }).catch(() => {})
   }
   const folderPlaced = (from: string, to: string) => {
     setTreeDialog(null)
@@ -368,6 +384,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               daily={dailyNav}
               onNavigate={setOpenPath}
               onMoved={(to, report) => { setOpenPath(to); if (report && moveNotice(report)) setMoveIssue(report); void loadTree() }}
+              onMovedOutside={movedOutside}
               onMoveStarted={moveStarted}
               onTrashed={(t) => { setOpenPath(null); setTrashed(t); void loadTree() }}
               templates={templates}
@@ -391,6 +408,17 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           </>
         )}
         {moveIssue && <MoveToast report={moveIssue} onDismiss={() => setMoveIssue(null)} />}
+        {outsideMove && outsideMove.to === openPath && (
+          <div className="toast">
+            <span className="toast-icon">{Icon.rename}</span>
+            <span className="toast-text" role="status">
+              {t('movedOutside.done', { name: baseName(outsideMove.from).replace(/\.md$/i, ''), to: outsideMove.to })}
+              {outsideMove.links ? ` ${t(outsideMove.links === 1 ? 'movedOutside.linksOne' : 'movedOutside.links', { n: outsideMove.links })}` : ''}
+            </span>
+            {!!outsideMove.links && <Button className="btn" onPress={() => { setOutsideMove(null); showAlerts() }}>{t('movedOutside.review')}</Button>}
+            <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setOutsideMove(null)}>{Icon.close}</Button>
+          </div>
+        )}
         {folderIssue && (
           <div className="toast toast-warn">
             <span className="toast-icon">{Icon.alert}</span>

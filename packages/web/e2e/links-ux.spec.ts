@@ -2,7 +2,7 @@
 // (open one, or pin the link to it), and a note renamed outside thoth raises
 // an alert whose «Update links» rewrites the links left behind.
 import { expect, test, type Page } from '@playwright/test'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { E2E_DIR, NOTES } from './env.ts'
 import { editorText, signIn } from './helpers.ts'
 
@@ -163,6 +163,53 @@ test('renamed on disk: the alert says where it went and how many links point to 
   await k.goto(`/?note=${encodeURIComponent(origin)}`)
   await k.locator('.cm-wikilink-resolved a', { hasText: 'la sección' }).click()
   await expect(k.locator('.crumbs b')).toHaveText('Destino renombrado')
+  await k.context().close()
+})
+
+test('the open note renamed on disk: the editor follows it (URL, tree), keeps what was typed, and offers to update the links', async ({ browser }) => {
+  const note = `${DIR}/Abierta.md`
+  const renamed = `${DIR}/Abierta movida.md`
+  const origin = `${DIR}/Enlaza a abierta.md`
+  writeFileSync(`${NOTES}/${note}`, '# Abierta\n\nTexto.\n')
+  writeFileSync(`${NOTES}/${origin}`, '# Enlaza\n\n- [[Abierta]] por nombre\n')
+  const k = await signIn(browser, 'noa', note)
+  await expect.poll(async () => (await (await k.request.get(`/api/note/links?path=${encodeURIComponent(note)}`)).json()).backlinks.length, { timeout: 20_000 }).toBe(1)
+  await k.locator('.cm-h1').click()
+  await k.keyboard.press('Control+End')
+  await k.keyboard.type('\nescrito y guardado')
+  await expect.poll(() => disk(note)).toContain('escrito y guardado')
+  // Typed and sent, but not yet on disk, when another tool renames the file.
+  await k.keyboard.type('\nescrito justo antes')
+  renameSync(`${NOTES}/${note}`, `${NOTES}/${renamed}`)
+
+  await expect(k.locator('.crumbs b')).toHaveText('Abierta movida', { timeout: 15_000 })
+  expect(new URL(k.url()).searchParams.get('note')).toBe(renamed)
+  await expect(k.getByRole('row', { name: 'Abierta movida', exact: true })).toBeVisible()
+  await expect(k.getByRole('row', { name: 'Abierta', exact: true })).toHaveCount(0)
+  await expect(k.locator('.cm-content')).toContainText('escrito justo antes')
+  await expect(k.getByRole('alert').filter({ hasText: 'se ha borrado fuera' })).toHaveCount(0)
+  const toast = k.getByRole('status').filter({ hasText: 'se ha movido fuera de thoth' })
+  await expect(toast).toHaveText(`«Abierta» se ha movido fuera de thoth a ${renamed}: la nota lo ha seguido y lo que escribías está a salvo. 1 enlace sigue apuntando a la ruta antigua.`)
+  await k.screenshot({ path: `${SHOTS}/movida-fuera-abierta.png`, animations: 'disabled' })
+
+  // Editing goes on at the new path; everything is there once, and the old path stays gone.
+  await k.locator('.cm-h1').click()
+  await k.keyboard.press('Control+End')
+  await k.keyboard.type('\nescrito después')
+  await expect.poll(() => disk(renamed)).toContain('escrito después')
+  for (const line of ['escrito y guardado', 'escrito justo antes', 'escrito después']) {
+    expect(disk(renamed).split('\n').filter((l) => l === line), line).toHaveLength(1)
+  }
+  expect(existsSync(`${NOTES}/${note}`)).toBe(false)
+
+  // «See alerts»: the alert offers to update the link left behind.
+  await k.getByRole('button', { name: 'Ver avisos' }).click()
+  const card = k.locator('.alert-card', { hasText: `${note} se movió fuera de thoth` })
+  await expect(card).toBeVisible()
+  await card.getByRole('button', { name: 'Actualizar enlaces' }).click()
+  await k.getByRole('dialog', { name: 'Actualizar enlaces' }).getByRole('button', { name: 'Actualizar 1 enlace' }).click()
+  await expect(card).toHaveCount(0)
+  expect(disk(origin)).toContain('- [[Abierta movida]] por nombre')
   await k.context().close()
 })
 

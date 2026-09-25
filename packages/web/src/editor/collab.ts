@@ -1,7 +1,8 @@
 // Co-editing session for a note: a Yjs document synced with the hub over
 // /collab. The file is still the source of truth; the hub says whenever the text
-// reaches the disk (`thoth:saved`), when the note is deleted outside thoth
-// and when anyone moves or trashes it from thoth. If the hub refuses the tab's
+// reaches the disk (`thoth:saved`), when the note is deleted outside thoth,
+// when anyone moves or trashes it from thoth and when it was moved outside
+// thoth and the hub followed it. If the hub refuses the tab's
 // copy on a reconnection (another document generation, see lineage.ts), the
 // session moves to the hub's document and what hadn't been sent is set aside.
 import { HocuspocusProviderWebsocket, type HocuspocusProvider } from '@hocuspocus/provider'
@@ -40,8 +41,8 @@ export interface CollabState {
   connection: Connection
   save: SaveState
   orphaned: boolean
-  /** The note was moved to this path: reopen it there. */
-  moved: string | null
+  /** The note was moved to this path: reopen it there. `outside`: by another tool, and the hub followed it. */
+  moved: { to: string; outside: boolean } | null
   /** The note was moved to the trash: the entry and who did it. */
   trashed: { id: string; by: string } | null
   /** The hub refused this tab's copy and it had changes that never arrived: the text to keep aside. */
@@ -93,12 +94,12 @@ export function useCollab(path: string): CollabState {
         else if (status === 'connected' && provider.isSynced) set({ connection: 'online' })
       })
       provider.on('stateless', ({ payload }: { payload: string }) => {
-        let msg: { type?: string; etag?: string; to?: string; id?: string; by?: string; action?: string }
+        let msg: { type?: string; etag?: string; to?: string; external?: boolean; id?: string; by?: string; action?: string }
         try { msg = JSON.parse(payload) } catch { return }
         if (msg.type === SAVED && msg.etag) { savedHash = msg.etag; void recheck() }
         else if (msg.type === ORPHANED) set({ orphaned: true })
         else if (msg.type === ORPHAN_RESOLVED) { if (msg.action === 'discard') closedByHub = true; set({ orphaned: false }) }
-        else if (msg.type === MOVED && msg.to) { closedByHub = true; set({ moved: msg.to }) }
+        else if (msg.type === MOVED && msg.to) { closedByHub = true; set({ moved: { to: msg.to, outside: msg.external === true } }) }
         else if (msg.type === TRASHED && msg.id) { closedByHub = true; set({ trashed: { id: msg.id, by: msg.by ?? '' } }) }
       })
     }
