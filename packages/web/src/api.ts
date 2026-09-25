@@ -42,6 +42,15 @@ export interface Alerts {
   orphanedNotes: string[]
 }
 
+export interface OutgoingLink {
+  raw: string
+  kind: 'wiki' | 'embed' | 'md'
+  status: 'resolved' | 'ambiguous' | 'missing'
+  dst_path: string | null
+  candidates: string[] | null
+}
+export interface Backlink { path: string; title: string; raw: string; context: string }
+
 export const api = {
   setupNeeded: () => request<{ needed: boolean }>('GET', '/api/setup'),
   setup: (token: string, username: string, password: string) => request<{ user: User }>('POST', '/api/setup', { token, username, password }),
@@ -51,6 +60,8 @@ export const api = {
   tree: () => request<{ notes: TreeNote[] }>('GET', '/api/tree'),
   note: (path: string) => request<Note>('GET', `/api/note?path=${encodeURIComponent(path)}`),
   alerts: () => request<Alerts>('GET', '/api/alerts'),
+  links: (path: string) => request<{ outgoing: OutgoingLink[]; backlinks: Backlink[] }>('GET', `/api/note/links?path=${encodeURIComponent(path)}`),
+  orphan: (path: string, action: 'restore' | 'discard') => request<{ ok: true }>('POST', '/api/note/orphan', { path, action }),
 }
 
 export const alertCount = (a: Alerts) =>
