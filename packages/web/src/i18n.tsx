@@ -316,6 +316,14 @@ const es = {
   'alerts.movedBodyOne': '1 enlace sigue apuntando a la ruta antigua. thoth no lo cambia por su cuenta: la herramienta que movió la nota puede estar actualizándolo.',
   'alerts.movedMore': 'y {n} más',
   'alerts.updateLinks': 'Actualizar enlaces',
+  'alerts.historyUnavailableTitle': 'El historial no puede guardar versiones',
+  'alerts.historyUnavailableBody': 'Las notas se siguen guardando con normalidad. Lo pendiente espera en el volumen de estado y thoth lo reintenta solo. Suele deberse a que falta git, a un disco lleno o a un repositorio dañado.',
+  'alerts.historyDetail': 'Detalle para quien administra thoth',
+  'alerts.historyTooLargeTitle': '{n} archivos no entran en el historial',
+  'alerts.historyTooLargeTitleOne': '1 archivo no entra en el historial',
+  'alerts.historyTooLargeBody': 'Superan el límite de {limit} MB (history.maxFileSize en thoth.yaml): sus cambios no se guardan en el historial y no se pueden recuperar desde él.',
+  'alerts.historyNoRepoTitle': 'La carpeta de notas no tiene repositorio git',
+  'alerts.historyNoRepoBody': 'thoth.yaml pide leer el historial del git de la carpeta (history.mode: unmanaged), pero la carpeta no está dentro de ningún repositorio. Crea uno o cambia el modo a managed.',
   'relink.title': 'Actualizar enlaces',
   'relink.body': 'Los enlaces se reescriben como si la nota se hubiera movido desde thoth. No se mueve ningún archivo.',
   'relink.none': 'Ya no queda ningún enlace que actualizar.',
@@ -364,6 +372,9 @@ const es = {
   'error.fetch_failed': 'No se ha podido descargar la imagen de esa dirección.',
   'error.not_configured': 'La nota del día no está configurada: declara una serie en thoth.yaml.',
   'error.not_empty': 'La carpeta no está vacía: mueve sus notas y archivos o mándalos a la papelera antes.',
+  'error.history_off': 'El historial está apagado en thoth.yaml.',
+  'error.history_unavailable': 'El historial no está disponible ahora mismo. Mira los avisos del espacio.',
+  'error.history_unmanaged_unavailable': 'Leer el historial del repositorio git de la carpeta aún no está disponible.',
 }
 
 const en: Record<keyof typeof es, string> = {
@@ -662,6 +673,14 @@ const en: Record<keyof typeof es, string> = {
   'alerts.syncBody': 'A sync tool (Syncthing or similar) left {file} next to {note}. It is not indexed as a note.',
   'alerts.syncBodyAlone': 'A sync tool (Syncthing or similar) left {file}, and the original note no longer exists. It is not indexed as a note.',
   'alerts.openNote': 'Open the note',
+  'alerts.historyUnavailableTitle': 'History can’t save versions',
+  'alerts.historyUnavailableBody': 'Notes are still saved as usual. What is pending waits in the state volume and thoth retries on its own. The usual causes are git missing, a full disk or a damaged repository.',
+  'alerts.historyDetail': 'Detail for whoever runs thoth',
+  'alerts.historyTooLargeTitle': '{n} files don’t go into the history',
+  'alerts.historyTooLargeTitleOne': '1 file doesn’t go into the history',
+  'alerts.historyTooLargeBody': 'They are over the {limit} MB limit (history.maxFileSize in thoth.yaml): their changes aren’t kept in the history and can’t be recovered from it.',
+  'alerts.historyNoRepoTitle': 'The notes folder has no git repository',
+  'alerts.historyNoRepoBody': 'thoth.yaml asks to read history from the folder’s own git (history.mode: unmanaged), but the folder isn’t inside any repository. Create one or set the mode to managed.',
   'alerts.showCopy': 'View the copy',
   'alerts.hideCopy': 'Hide the copy',
   'alerts.copyLabel': 'Contents of the conflict copy',
@@ -727,6 +746,9 @@ const en: Record<keyof typeof es, string> = {
   'error.fetch_failed': 'The image could not be downloaded from that address.',
   'error.not_configured': 'Daily notes aren’t configured: declare a series in thoth.yaml.',
   'error.not_empty': 'The folder is not empty: move its notes and files out or send them to the trash first.',
+  'error.history_off': 'History is turned off in thoth.yaml.',
+  'error.history_unavailable': 'History isn’t available right now. See the workspace alerts.',
+  'error.history_unmanaged_unavailable': 'Reading history from the notes folder’s own git repository isn’t available yet.',
 }
 
 export type MessageKey = keyof typeof es

@@ -30,6 +30,9 @@ export type ErrorCode =
   | 'fetch_failed' // an image URL could not be downloaded
   | 'not_configured' // a feature that thoth.yaml doesn't turn on (daily notes with no series)
   | 'not_empty' // a folder that still holds files can't be deleted
+  | 'history_off' // thoth.yaml turns the history off
+  | 'history_unavailable' // the history can't be read right now (see /api/history/status)
+  | 'history_unmanaged_unavailable' // reading the notes folder's own repository isn't available yet
 
 /**
  * Space-level alerts: what thoth has detected in the notes folder that needs
@@ -66,6 +69,19 @@ export type Alert =
   | { code: 'config_warnings'; file: string; warnings: ConfigError[]; actions: never[] }
   /** A daily-note series names a template note that doesn't exist: its notes are created empty. */
   | { code: 'config_template_missing'; series: string; template: string; actions: never[] }
+  /**
+   * The history can't record right now (git missing, disk full, a broken
+   * repository). Notes are still written; what is pending waits in the state
+   * volume and is retried. `detail` is for developers, never shown.
+   */
+  | { code: 'history_unavailable'; detail: string; actions: never[] }
+  /**
+   * Files larger than the history's limit (thoth.yaml `history.maxFileSize`,
+   * `limitMb`): they don't enter the history, and restoring can't bring them back.
+   */
+  | { code: 'history_files_too_large'; paths: string[]; limitMb: number; actions: never[] }
+  /** `history.mode: unmanaged`, but the notes folder isn't inside a git repository: there is no history to show. */
+  | { code: 'history_no_repository'; actions: never[] }
 
 export type AlertCode = Alert['code']
 export type AlertAction = Alert['actions'][number]
