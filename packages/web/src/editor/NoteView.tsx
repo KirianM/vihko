@@ -19,11 +19,11 @@ import { usePresence } from './presence.ts'
 
 function SaveStatus({ c }: { c: CollabState }) {
   const t = useT()
-  if (c.orphaned) return <span className="status status-warn">{Icon.alert}{t('editor.orphanStatus')}</span>
-  if (c.connection === 'offline') return <span className="status status-warn">{Icon.alert}{t('editor.offline')}</span>
-  if (c.connection === 'connecting') return <span className="status">{t('editor.connecting')}</span>
-  if (c.save === 'saving') return <span className="status">{t('editor.saving')}</span>
-  return <span className="status status-ok">{Icon.check}{t('editor.saved')}</span>
+  if (c.orphaned) return <span className="status status-warn">{Icon.alert}<span className="status-label">{t('editor.orphanStatus')}</span></span>
+  if (c.connection === 'offline') return <span className="status status-warn">{Icon.alert}<span className="status-label">{t('editor.offline')}</span></span>
+  if (c.connection === 'connecting') return <span className="status"><span className="status-label">{t('editor.connecting')}</span></span>
+  if (c.save === 'saving') return <span className="status"><span className="status-label">{t('editor.saving')}</span></span>
+  return <span className="status status-ok">{Icon.check}<span className="status-label">{t('editor.saved')}</span></span>
 }
 
 function Presence({ c }: { c: CollabState }) {
