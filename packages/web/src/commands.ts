@@ -12,6 +12,8 @@ export interface CommandContext {
   openPath: string | null
   /** Switches the palette to create-note mode in the current folder. */
   newNote: () => void
+  /** Opens (or creates) today's note; null while thoth.yaml declares no series. */
+  today: (() => void) | null
 }
 
 export interface Command {
@@ -29,6 +31,7 @@ export const commands: Command[] = [
     run: (c) => chooseTheme(c.theme === 'dark' ? 'light' : 'dark'),
   },
   { id: 'new-note', label: () => 'cmd.newNote', run: (c) => c.newNote() },
+  { id: 'today', label: () => 'cmd.today', available: (c) => c.today !== null, run: (c) => c.today?.() },
   // The open note listens for this event and opens its «Insert image» dialog.
   { id: 'insert-image', label: () => 'cmd.insertImage', available: (c) => c.openPath !== null, run: () => { window.dispatchEvent(new Event(INSERT_IMAGE)) } },
 ]

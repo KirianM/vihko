@@ -108,7 +108,8 @@ attachments:
   (`YYYY`+`MM`+`DD`), week (`GGGG`+`WW`), month (`YYYY`+`MM`) or year. Each
   person picks their series in their preferences; «Today» opens that note in
   their own timezone, or creates it from the template if it doesn't exist
-  (never overwriting one).
+  (never overwriting one). It is in the sidebar, the palette and on
+  Ctrl+Alt+D (⌘⌥D); previous and next are in the note header.
 - **Templates** are plain notes. When a note is created from one, these are
   filled in, and nothing else runs: `{{title}}` (the new note's name),
   `{{user}}`, `{{date}}` (`YYYY-MM-DD`) and `{{date:FORMAT}}`, with the tokens

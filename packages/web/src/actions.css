@@ -24,6 +24,14 @@
 .dialog .field input { height: var(--control-lg); font-size: 16px; border-radius: var(--radius-md); }
 .dialog .field input:focus-visible, .dialog .field input[data-focused] { outline: 2px solid var(--accent); outline-offset: -1px; }
 
+/* Native select and checkbox (preferences): the same look as the text fields */
+.select { font: inherit; font-size: 16px; height: var(--control-lg); padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--field); color: var(--ink); }
+.select:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.check { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 20px; color: var(--ink); cursor: pointer; }
+.check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); flex-shrink: 0; }
+.check-text { display: flex; flex-direction: column; gap: 2px; }
+.btn.prefs-browser { align-self: flex-start; margin-top: -6px; height: auto; min-height: 0; padding: 2px 0; color: var(--accent-strong); }
+
 /* Preview of the links that change: before (struck through) → after */
 .preview { margin: var(--space-3) var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }
 .preview-head { padding: 10px 14px; background: var(--side); font-size: 13px; font-weight: 600; }

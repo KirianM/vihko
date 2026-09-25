@@ -1,7 +1,8 @@
 // Main structure: folder tree and the note open in the editor.
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Collection, Dialog, Modal, ModalOverlay, Tree, TreeItem, TreeItemContent, type Key } from 'react-aria-components'
-import { ApiError, api, type MoveReport, type TreeNote, type User } from './api.ts'
+import { seriesNeighbors } from '@thoth/core/series'
+import { ApiError, api, type MoveReport, type Profile, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
 import { AlertsPage } from './Alerts.tsx'
 import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
@@ -12,6 +13,7 @@ import { MoveToast } from './MoveToast.tsx'
 import { OpenPaletteContext, Palette, SearchButton, type PaletteMode } from './Palette.tsx'
 import { rememberNote } from './recent.ts'
 import { useBackClose, useMobile, useVisualViewport } from './mobile.ts'
+import { PreferencesDialog, browserTimeZone } from './Preferences.tsx'
 
 // The editor (CodeMirror, Yjs) is downloaded separately, when the first note is opened.
 const NoteView = lazy(() => import('./editor/NoteView.tsx').then((m) => ({ default: m.NoteView })))
@@ -119,6 +121,10 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [expanded, setExpanded] = useState<Set<Key>>(() => new Set(openPath ? ancestors(openPath) : []))
   useBackClose(mobile && navOpen, () => setNavOpen(false))
   useVisualViewport(mobile)
+  /** thoth.yaml as the server has it now: daily-note series and the templates folder. */
+  const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [prefsOpen, setPrefsOpen] = useState(false)
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -126,12 +132,47 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   }
 
   const loadTree = () => api.tree().then((r) => setNotes(r.notes)).catch(fail)
+  const loadWorkspace = () => api.workspace().then(setWorkspace).catch(() => {})
+  const loadAlerts = () => api.alerts().then((a) => setAlerts(a.length)).catch(() => {})
 
   useEffect(() => {
     void loadTree()
-    api.alerts().then((a) => setAlerts(a.length)).catch(() => {})
+    void loadAlerts()
+    void loadWorkspace()
+    const startedEmpty = !openPath && !view
+    api.profile().then(async (p) => {
+      // First sign-in: the browser's timezone becomes the person's (editable in Preferences).
+      if (!p.timezone) p = await api.updateProfile({ timezone: browserTimeZone() }).catch(() => p)
+      setProfile(p)
+      // «Open on start» only opens today's note if it exists: it never creates one (D-030).
+      if (!p.openDailyOnStart || !startedEmpty) return
+      const today = await api.today().catch(() => null)
+      if (!today?.exists) return
+      setOpenPathState((current) => current ?? today.path)
+      setNavOpen(false)
+    }).catch(() => {})
+    // thoth.yaml can change at any time (another editor, git pull): read again on coming back.
+    const refresh = () => { if (document.visibilityState === 'visible') { void loadWorkspace(); void loadAlerts() } }
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => { window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const dailyOn = (workspace?.daily.length ?? 0) > 0
+  /** Opens today's note, creating it from its template if needed; never overwrites. */
+  const openToday = async () => {
+    setError(null)
+    try {
+      const r = await api.openToday()
+      if (r.created) void loadTree()
+      setOpenPath(r.path)
+    } catch (err) {
+      fail(err)
+    }
+  }
+  const todayRef = useRef<(() => void) | null>(null)
+  todayRef.current = dailyOn ? () => void openToday() : null
 
   // ⌘K / Ctrl+K opens the palette from anywhere, including from the editor.
   useEffect(() => {
@@ -141,6 +182,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         e.preventDefault()
         e.stopPropagation()
         setPalette('search')
+      }
+      // ⌘⌥D / Ctrl+Alt+D: today's note. By physical key: Option changes e.key on a Mac.
+      if ((e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey && e.code === 'KeyD' && todayRef.current) {
+        e.preventDefault()
+        e.stopPropagation()
+        todayRef.current()
       }
     }
     window.addEventListener('keydown', onKey, true)
@@ -167,6 +214,23 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   }, [openPath])
 
   const tree = useMemo(() => (notes ? buildTree(notes) : []), [notes])
+  // Template notes: those in the templates folder of thoth.yaml, subfolders included.
+  const templates = useMemo(() => {
+    const dir = workspace?.templates
+    if (!dir || !notes) return []
+    const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
+    return notes.map((n) => n.path).filter((p) => p.startsWith(`${dir}/`)).sort(collator.compare)
+  }, [workspace, notes])
+  // Previous and next in the header when the open note belongs to a daily-note series.
+  const dailyNav = useMemo(() => {
+    if (!openPath || !notes || !workspace) return null
+    const paths = notes.map((n) => n.path)
+    for (const s of workspace.daily) {
+      const n = seriesNeighbors(s, paths, openPath)
+      if (n) return n
+    }
+    return null
+  }, [openPath, notes, workspace])
   const folder = openPath?.includes('/') ? openPath.slice(0, openPath.lastIndexOf('/')) : ''
   const created = (path: string) => {
     setPalette(null)
@@ -190,9 +254,11 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   )
   const userRow = (
     <div className="sidebar-user">
-      <span className="avatar" aria-hidden="true" style={{ background: userColor(baseHue(user.id), effective) }}>{user.username.slice(0, 1).toUpperCase()}</span>
-      <span className="name">{user.username}</span>
-      <span className="role">{t(user.role === 'admin' ? 'role.admin' : 'role.member')}</span>
+      <Button className="sidebar-user-btn" aria-label={t('shell.preferences')} isDisabled={!profile} onPress={pick(() => setPrefsOpen(true))}>
+        <span className="avatar" aria-hidden="true" style={{ background: userColor(baseHue(user.id), effective) }}>{user.username.slice(0, 1).toUpperCase()}</span>
+        <span className="name">{user.username}</span>
+        <span className="role">{t(user.role === 'admin' ? 'role.admin' : 'role.member')}</span>
+      </Button>
       <Button className="btn btn-icon" aria-label={t('shell.logout')} onPress={onLogout}>{Icon.logout}</Button>
     </div>
   )
@@ -214,6 +280,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               {treeView}
               <div className="drawer-foot">
                 <Button className="btn btn-primary btn-xl" onPress={pick(() => setPalette('create'))}>{t('shell.newNote')}</Button>
+                {dailyOn && <Button className="btn btn-xl" onPress={pick(() => void openToday())}>{Icon.calendar}{t('shell.today')}</Button>}
                 {alertsLink}
               </div>
               {userRow}
@@ -225,6 +292,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <div className="sidebar-head">
             <Brand />
             <span className="spacer" />
+            {dailyOn && <Button className="btn btn-icon" aria-label={t('shell.today')} onPress={() => void openToday()}>{Icon.calendar}</Button>}
             <Button className="btn btn-icon" aria-label={t('shell.newNote')} onPress={() => setPalette('create')}>{Icon.plus}</Button>
           </div>
           <Button className="btn sidebar-search" onPress={() => setPalette('search')}>
@@ -248,6 +316,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               key={openPath}
               path={openPath}
               user={user}
+              daily={dailyNav}
               onNavigate={setOpenPath}
               onMoved={(to, report) => { setOpenPath(to); if (report && (report.failed.length || report.images.failed.length)) setMoveIssue(report); void loadTree() }}
               onTrashed={(t) => { setOpenPath(null); setTrashed(t); void loadTree() }}
@@ -285,10 +354,20 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           folder={folder}
           openPath={openPath}
           notes={notes}
+          templates={templates}
+          onToday={dailyOn ? () => void openToday() : null}
           onClose={() => setPalette(null)}
           onMode={setPalette}
           onOpen={setOpenPath}
           onCreated={created}
+        />
+      )}
+      {prefsOpen && profile && (
+        <PreferencesDialog
+          profile={profile}
+          workspace={workspace}
+          onClose={() => setPrefsOpen(false)}
+          onSaved={(p) => { setProfile(p); setPrefsOpen(false) }}
         />
       )}
     </div>
