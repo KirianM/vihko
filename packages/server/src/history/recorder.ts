@@ -146,6 +146,8 @@ interface Journal {
   inflight: { parent: string | null; count: number } | null
   /** Operations under way: the files they wrote so far (without contents). */
   groups: { authors: string[]; reason: ReasonData; refs: { path: string; oid: string | null }[] }[]
+  /** Writes to disk under way: who, why and what each file will hold (without contents). */
+  writes: { authors: string[]; reason: ReasonData; changes: QChange[] }[]
 }
 
 interface CacheEntry { size: number; mtimeMs: number; ctimeMs: number; ino: number; oid: string; checkedAt: number }
@@ -223,6 +225,11 @@ export class Recorder {
   private groups = new Map<Actor, Group>()
   /** Journaled refs of operations cut short by a crash, confirmed at `start`. */
   private leftoverGroups: Journal['groups'] = []
+  /** Writes to disk under way (between `prepare` and `done`), journaled. */
+  private writesInFlight = new Map<number, Journal['writes'][number]>()
+  private writeSeq = 0
+  /** Writes a crash cut short, confirmed at `start`. */
+  private leftoverWrites: Journal['writes'] = []
   private own = new Map<string, { oid: string | null; at: number }[]>()
   private blobs = new Map<string, Uint8Array>()
   private blobBytes = 0
@@ -273,6 +280,7 @@ export class Recorder {
       this.queue = j.queue
       this.inflight = j.inflight
       this.leftoverGroups = j.groups
+      this.leftoverWrites = j.writes
     }
     this.readCache()
     this.mode = mode
@@ -501,7 +509,7 @@ export class Recorder {
   write(path: string, w: { typed: string; after: string; actor: Actor }) {
     if (!this.live || !historyPath(path)) return
     this.flushing(path, w.typed)
-    this.prepare([{ path, after: w.after }], { actor: w.actor }).done()
+    this.prepare([{ path, after: w.after }], { actor: w.actor, inMemory: true }).done()
   }
 
   /** The hub integrated a change made outside thoth (what is now on disk). */
@@ -519,7 +527,7 @@ export class Recorder {
    * at once (`immediate`, or the system's), or accumulated with the actor's
    * previous writes (users and agents editing notes).
    */
-  prepare(changes: FileChange[], opts: { actor: Actor; reason?: Reason; immediate?: boolean }): WriteHandle {
+  prepare(changes: FileChange[], opts: { actor: Actor; reason?: Reason; immediate?: boolean; inMemory?: boolean }): WriteHandle {
     if (!this.live) return NOOP
     const max = this.opts.maxFileBytes()
     changes = changes.filter((c) => {
@@ -555,12 +563,21 @@ export class Recorder {
     }
     const expected = changes.flatMap((c) => this.expectChange(c))
     for (const c of changes) this.touch(c.path)
+    // A write to disk: journaled before it happens, so a kill -9 right after
+    // it reaches the disk doesn't leave it without its author (`confirmJournal`).
+    const id = ++this.writeSeq
+    if (!group && !opts.inMemory) {
+      this.writesInFlight.set(id, { authors, reason, changes: changes.map((c) => this.refOf(c)) })
+      this.saveJournal()
+    }
     let settled = false
     return {
       done: (final = changes) => {
         if (settled) return
         settled = true
-        if (!this.live) return
+        if (this.writesInFlight.has(id)) crashPoint('history-written')
+        const journaled = this.writesInFlight.delete(id)
+        if (!this.live) { if (journaled) this.saveJournal(); return }
         final = final.filter((c) => historyPath(c.path))
         const g = this.groups.get(opts.actor)
         if (g) this.addToGroup(g, final)
@@ -572,8 +589,16 @@ export class Recorder {
         if (settled) return
         settled = true
         for (const [path, oid] of expected) this.unexpect(path, oid)
+        if (this.writesInFlight.delete(id)) this.saveJournal()
       },
     }
+  }
+
+  /** A change as the journal keeps a write in progress: where, and the content's id (not the content). */
+  private refOf(c: FileChange): QChange {
+    const base: QChange = { path: c.path, ...(c.from !== undefined ? { from: c.from } : {}), ...(c.folder ? { folder: true } : {}) }
+    if (c.after === undefined) return base
+    return { ...base, oid: c.after === null ? null : blobOid(c.after) }
   }
 
   /**
@@ -856,7 +881,25 @@ export class Recorder {
       if (changes.length) this.enqueue({ authors: g.authors, reason: g.reason, at: this.now(), changes })
     }
     this.leftoverGroups = []
+    // Writes a kill cut short between the disk and the journal: those that are on disk whole are their authors'.
+    for (const w of this.leftoverWrites) {
+      if (!w.changes.every((c) => this.onDisk(c))) continue
+      this.enqueue({ authors: w.authors, reason: w.reason, at: this.now(), changes: w.changes.map((c) => (c.oid ? { ...c, file: true } : c)) })
+    }
+    this.leftoverWrites = []
     this.saveJournal()
+  }
+
+  /** Whether the notes folder shows this change done. */
+  private onDisk(c: QChange): boolean {
+    const abs = (p: string) => join(this.opts.notesDir, p)
+    if (c.folder && c.from !== undefined) return !existsSync(abs(c.from)) && existsSync(abs(c.path))
+    if (c.from !== undefined && existsSync(abs(c.from))) return false
+    if (c.oid === undefined) return existsSync(abs(c.path))
+    let bytes: Buffer | null = null
+    try { bytes = readFileSync(abs(c.path)) } catch { /* gone */ }
+    if (c.oid === null || bytes === null) return c.oid === null && bytes === null
+    return blobOid(isTextPath(c.path) ? bytes.toString('utf8') : bytes) === c.oid
   }
 
   // --- Versions ---------------------------------------------------------------------
@@ -1246,7 +1289,7 @@ export class Recorder {
     try {
       const j = JSON.parse(text) as Journal
       if (j.version !== 1) throw new Error(`version ${String(j.version)}`)
-      return { version: 1, mode: j.mode ?? 'managed', typing: j.typing ?? {}, pending: j.pending ?? {}, queue: j.queue ?? [], inflight: j.inflight ?? null, groups: j.groups ?? [] }
+      return { version: 1, mode: j.mode ?? 'managed', typing: j.typing ?? {}, pending: j.pending ?? {}, queue: j.queue ?? [], inflight: j.inflight ?? null, groups: j.groups ?? [], writes: j.writes ?? [] }
     } catch (err) {
       this.log(`history: the journal can't be read (${err instanceof Error ? err.message : String(err)}); starting without it`)
       return null
@@ -1266,6 +1309,7 @@ export class Recorder {
       groups: [...this.groups.values()].filter((g) => g.changes.size).map((g) => ({
         authors: g.authors, reason: g.reason, refs: [...g.changes.values()].filter((c) => c.oid !== undefined && !c.folder && c.from === undefined).map((c) => ({ path: c.path, oid: c.oid! })),
       })),
+      writes: [...this.leftoverWrites, ...this.writesInFlight.values()],
     }
     try {
       mkdirSync(this.dir, { recursive: true })

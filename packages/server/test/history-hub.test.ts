@@ -149,6 +149,19 @@ test('kill -9 after a version is journaled and before git has it: the version ke
   } finally { closeAll(); await srv.stop() }
 })
 
+test('kill -9 right after a write reaches the disk, before the history recorded it: the version keeps its author', async () => {
+  const { srv, cookie, notes } = await crashAt('history-written', async (s, c) => {
+    const cur = await api(s, c, 'GET', `/api/note?path=${q('tags.md')}`)
+    await api(s, c, 'PUT', `/api/note?path=${q('tags.md')}`, { text: cur.body.text + 'JUSTO-ANTES-DEL-KILL\n' }, { 'if-match': `"${cur.body.etag}"` }).catch(() => null)
+  })
+  try {
+    assert.ok(readFileSync(join(notes, 'tags.md'), 'utf8').includes('JUSTO-ANTES-DEL-KILL'), 'the write reached the disk')
+    await waitFor(async () => (await versionsOf(srv, cookie, 'tags.md')).versions.length === 2, 'the version')
+    const { versions } = await versionsOf(srv, cookie, 'tags.md')
+    assert.deepEqual(versions.map((v: any) => [who(v), v.foundAtStartup]), [['noa', false], ['system', false]])
+  } finally { closeAll(); await srv.stop() }
+})
+
 test('kill -9 after git has a commit and before the journal knows: it is not repeated', async () => {
   const { srv, cookie } = await crashAt('history-committed', async (s, c) => {
     const cur = await api(s, c, 'GET', `/api/note?path=${q('tags.md')}`)
