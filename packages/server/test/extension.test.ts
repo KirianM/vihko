@@ -97,6 +97,10 @@ test('an extension whose DDL creates something it did not declare is refused', (
   const sneaky = ext('sneaky', { ddl: 'create table t_sneaky (x); create table elsewhere (y)' })
   assert.throws(() => new ExtensionHost(db, [sneaky]).install(), /created "elsewhere"/)
   assert.equal(db.prepare("select 1 from sqlite_master where name = 'elsewhere'").get(), undefined, 'rolled back')
+  // Only a virtual table gets shadow tables named after it.
+  assert.throws(() => new ExtensionHost(db, [ext('plain', { ddl: 'create table t_plain (x); create table t_plain_more (y)' })]).install(), /created "t_plain_more"/)
+  new ExtensionHost(db, [ext('search', { ddl: 'create virtual table t_search using fts5(body)' })]).install()
+  assert.ok(db.prepare("select 1 from sqlite_master where name = 't_search_data'").get())
 })
 
 test('versions: only what changed (and what depends on it) is stale; unregistered extensions are dropped', () => {

@@ -275,15 +275,15 @@ export class ExtensionHost {
 
   /** Runs the extension's DDL and checks it only created what it declared. */
   private createTables(e: Extension) {
-    const objects = () => new Set((this.db.prepare('select type, name, tbl_name from sqlite_master').all() as { name: string }[]).map((o) => o.name))
-    const before = objects()
+    const before = new Set((this.db.prepare('select name from sqlite_master').all() as { name: string }[]).map((o) => o.name))
     const declared = Object.keys(e.tables)
     for (const t of declared) this.db.exec(e.tables[t]!)
-    const all = this.db.prepare('select type, name, tbl_name from sqlite_master').all() as { type: string; name: string; tbl_name: string }[]
+    const all = this.db.prepare('select type, name, tbl_name, sql from sqlite_master').all() as { type: string; name: string; tbl_name: string; sql: string | null }[]
+    // Virtual tables (FTS5) create shadow tables named after them.
+    const virtual = declared.filter((t) => all.some((o) => o.name === t && /^\s*create\s+virtual\s/i.test(o.sql ?? '')))
     for (const o of all) {
       if (before.has(o.name)) continue
-      // Virtual tables (FTS5) create shadow tables named after them.
-      const owned = declared.some((t) => o.tbl_name === t || o.tbl_name.startsWith(t + '_'))
+      const owned = declared.includes(o.tbl_name) || virtual.some((t) => o.tbl_name.startsWith(t + '_'))
       if (!owned) throw new ExtensionError(`extension "${e.name}" created "${o.name}", which is not among its tables`)
     }
     for (const t of declared) {
