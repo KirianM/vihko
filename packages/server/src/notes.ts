@@ -38,8 +38,16 @@ export interface NoteRead {
 export interface HotDocuments {
   has(path: string): boolean
   edit(path: string, fn: (text: string) => string, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }>
-  /** La nota se borra: cerrar sus sesiones de edición sin volver a volcarla. */
-  discard(path: string): Promise<void>
+  /**
+   * The note is deleted: flush what is pending, close its sessions and never
+   * flush it again. With `trash`, its editors are told the trash entry.
+   */
+  discard(path: string, opts?: { ifMatch?: string; trash?: { id: string; actor: Actor } }): Promise<void>
+  /**
+   * The note is moved while open: `run` does the move on disk with the note
+   * flushed and locked, and returns the text left at the destination.
+   */
+  move<T>(from: string, to: string, run: () => Promise<{ result: T; written: string | null }>): Promise<T>
 }
 
 export interface NoteServiceOptions {
@@ -159,7 +167,9 @@ export class NoteService {
   /** Mueve la nota a la papelera del volumen de estado. */
   async delete(path: string, opts: { ifMatch?: string; actor: Actor }): Promise<TrashEntry> {
     const file = this.file(path)
-    if (this.opts.hot?.has(path)) await this.opts.hot.discard(path)
+    const id = newUid()
+    // Open in the editor: flush what is pending and close it, telling its editors the trash entry.
+    if (this.opts.hot?.has(path)) await this.opts.hot.discard(path, { ifMatch: opts.ifMatch, trash: { id, actor: opts.actor } })
     const current = await readStable(file)
     if (current === null) throw new NoteError('not_found', `no existe: ${path}`)
     const hash = contentHash(current)
@@ -174,7 +184,7 @@ export class NoteService {
       renameSync(aside, file)
       throw new NoteError('precondition_failed', `la nota cambió durante el borrado: ${path}`, moved === null ? null : contentHash(moved))
     }
-    const entry: TrashEntry = { id: newUid(), path, deletedAt: new Date().toISOString(), actor: opts.actor, etag: hash }
+    const entry: TrashEntry = { id, path, deletedAt: new Date().toISOString(), actor: opts.actor, etag: hash }
     const dir = join(this.opts.stateDir, 'trash', entry.id)
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'note.md'), moved)
@@ -190,9 +200,20 @@ export class NoteService {
    * quien renombra. Con `dryRun`, solo informa de lo que haría.
    */
   async move(from: string, to: string, opts: { ifMatch?: string; actor: Actor; dryRun?: boolean }): Promise<MoveReport> {
+    const hot = this.opts.hot
+    // Open in the editor: the hub flushes and locks it during the move, and its editors follow it.
+    if (!opts.dryRun && hot?.has(from)) {
+      return hot.move(from, to, async () => {
+        const result = await this.moveNow(from, to, opts)
+        return { result, written: readText(this.file(to)) }
+      })
+    }
+    return this.moveNow(from, to, opts)
+  }
+
+  private async moveNow(from: string, to: string, opts: { ifMatch?: string; actor: Actor; dryRun?: boolean }): Promise<MoveReport> {
     const fromFile = this.file(from)
     const toFile = this.file(to)
-    if (this.opts.hot?.has(from)) throw new NoteError('precondition_failed', `la nota está abierta en el editor: ${from}`)
     const text = await readStable(fromFile)
     if (text === null) throw new NoteError('not_found', `no existe: ${from}`)
     if (readText(toFile) !== null) throw new NoteError('exists', `ya existe: ${to}`)
