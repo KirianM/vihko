@@ -78,7 +78,7 @@ export function planLinks(
     if (rb.status === 'resolved') {
       const want = map(rb.path)
       if (ra.status === 'resolved' && ra.path === want) continue
-      const raw = rewrite(link, srcAfter, want, after)
+      const raw = rewriteLink(link, srcAfter, want, after)
       if (raw !== null) {
         if (raw !== link.raw) reps.push({ from: link.from, to: link.to, text: raw })
         continue
@@ -161,7 +161,13 @@ export function applyReplacements(text: string, reps: Replacement[]): string {
   return out
 }
 
-function rewrite(link: LinkRef, src: string, want: string, index: LinkIndex): string | null {
+/**
+ * The link written so that, in `src`, it reaches `want`: a Markdown link by
+ * its relative path, a wikilink by the shortest target that resolves there
+ * (`shortestTarget`), keeping its anchor (`#…`) and visible text (`|…`).
+ * Null if no form of it reaches `want`.
+ */
+export function rewriteLink(link: LinkRef, src: string, want: string, index: LinkIndex): string | null {
   if (link.kind === 'markdown') {
     const open = link.raw.indexOf('](')
     const url = link.raw.slice(open + 2, -1)

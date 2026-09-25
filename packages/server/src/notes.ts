@@ -6,7 +6,7 @@ import { dirname, join, posix } from 'node:path'
 import { addToFrontmatterList, classifyPath, contentHash, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type ErrorCode, type LinkIndex } from '@thoth/core'
 import { commitText, createFile, linkNew, readStable, readText } from './fsutil.ts'
 import { attachmentPath, sniffImage, suffixedName } from './attachments.ts'
-import { applyReplacements, keptLinks, planImageRelinks, planLinks, planRelinks, type Replacement, type Shift } from './relink.ts'
+import { applyReplacements, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
 import type { Indexer } from './indexer.ts'
 import { applySplices, spliceOf, type Splice } from './edits.ts'
 import type { Db } from './db.ts'
@@ -465,6 +465,36 @@ export class NoteService {
     return { before, after, map, sources: [...sources].sort() }
   }
 
+  // --- Link fixes ---------------------------------------------------------
+
+  /**
+   * Fixes where one ambiguous link leads (D-031.2), only on an explicit
+   * request: the occurrence of `link.raw` in the note nearest to `link.at`
+   * (the first one without it) is rewritten to the shortest form that, from
+   * this note, leads to `target` alone, keeping its anchor and visible text.
+   * `target` must be one of the link's candidates now; if the link already
+   * leads there, nothing is written. On an open note it's an exact splice in
+   * the live document. Returns the link as it is written now.
+   */
+  async pinLink(path: string, link: { raw: string; at?: number }, target: string, opts: { actor: Actor }): Promise<{ etag: string; raw: string }> {
+    let raw = link.raw
+    const r = await this.edit(path, (text) => {
+      const index = this.opts.indexer.links
+      const occurrence = nearest(extract(text).links.filter((l) => l.raw === link.raw && l.kind !== 'markdown'), link.at)
+      if (!occurrence) throw new NoteError('edit_mismatch', `no link ${link.raw} in ${path}`)
+      const now = index.resolve(path, occurrence)
+      if (now.status === 'resolved' && now.path === target) return []
+      if (now.status !== 'ambiguous' || !now.candidates.includes(target)) {
+        throw new NoteError('edit_mismatch', `${link.raw} in ${path} is not ambiguous with ${target} among its candidates`)
+      }
+      const next = rewriteLink(occurrence, path, target, index)
+      if (next === null) throw new NoteError('edit_mismatch', `no form of ${link.raw} leads to ${target} from ${path}`)
+      raw = next
+      return [spliceOf(text, occurrence.from, occurrence.to, next)]
+    }, opts)
+    return { etag: r.etag, raw }
+  }
+
   // --- Folders ------------------------------------------------------------
   // A folder only exists on disk: the index lists them (so an empty one shows
   // in the tree), but creating, moving or deleting one is a disk operation.
@@ -813,6 +843,14 @@ function movedNotePlan(text: string, from: string, to: string, before: LinkIndex
   ]
   const reps = [...imageReps, ...linkReps]
   return { text: applyReplacements(text, reps), splices: relinkSplices(text, reps), changes, shifts }
+}
+
+/** The link nearest to `at` (the first one without it). */
+function nearest<T extends { from: number }>(links: T[], at: number | undefined): T | undefined {
+  if (at === undefined || !Number.isFinite(at)) return links[0]
+  let best: T | undefined
+  for (const l of links) if (!best || Math.abs(l.from - at) < Math.abs(best.from - at)) best = l
+  return best
 }
 
 function addShifts(groups: ShiftGroup[], path: string, shifts: Shift[]) {

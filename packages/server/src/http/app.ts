@@ -323,7 +323,7 @@ export function createApp(deps: AppDeps) {
   app.get('/api/note/links', (c) => {
     const path = c.req.query('path') ?? ''
     notes.read(path) // 404 if it doesn't exist
-    const outgoing = index.prepare(`select raw, kind, target, anchor, status, dst_path, anchor_ok, candidates
+    const outgoing = index.prepare(`select raw, kind, target, anchor, status, dst_path, anchor_ok, candidates, pos_from
       from links where src_path = ? order by ord`).all(path) as { candidates: string | null }[]
     const incoming = index.prepare(`select l.src_path, n.title, l.raw, l.pos_from, l.pos_to
       from links l join notes n on n.path = l.src_path where l.dst_path = ? and l.src_path != ? order by l.src_path, l.ord`)
@@ -338,10 +338,25 @@ export function createApp(deps: AppDeps) {
       }
       return { path: l.src_path, title: l.title, raw: l.raw, context: context(src.text, src.comments, l.pos_from, l.pos_to) }
     })
-    return c.json({
-      outgoing: outgoing.map((l) => ({ ...l, candidates: l.candidates ? JSON.parse(l.candidates) : null })),
-      backlinks,
+    // The titles of an ambiguous link's candidates, for the picker.
+    const titles: Record<string, string> = {}
+    const titleOf = index.prepare('select title from notes where path = ?')
+    const out = outgoing.map((l) => {
+      const candidates = l.candidates ? JSON.parse(l.candidates) as string[] : null
+      for (const p of candidates ?? []) titles[p] ??= (titleOf.get(p) as { title: string } | undefined)?.title ?? p
+      return { ...l, candidates }
     })
+    return c.json({ outgoing: out, backlinks, titles })
+  })
+
+  // Fixes where one ambiguous link leads (D-031.2): that occurrence (`raw`,
+  // nearest to `at`) is rewritten to the shortest form that reaches `target`.
+  app.post('/api/note/link/pin', async (c) => {
+    const { path, raw, at, target } = await c.req.json<{ path: string; raw: string; at?: number; target: string }>()
+    if (typeof raw !== 'string' || typeof target !== 'string' || (at !== undefined && typeof at !== 'number')) return fail(c, 400, 'invalid', 'expected path, raw, target and an optional numeric at')
+    const r = await notes.pinLink(path, { raw, at }, target, { actor: actorOf(c.get('user')) })
+    c.header('ETag', `"${r.etag}"`)
+    return c.json(r)
   })
 
   // Images (D-028). Upload and paste are the same: the raw bytes of the file
