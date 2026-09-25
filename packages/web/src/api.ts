@@ -1,0 +1,57 @@
+// Cliente de la API de thoth. Sesión por cookie (HttpOnly): el navegador la envía sola.
+
+export class ApiError extends Error {
+  readonly status: number
+  /** Código de error del servidor (`not_found`, `precondition_failed`…) o `network`. */
+  readonly code: string
+  readonly etag: string | null
+  constructor(status: number, code: string, message: string, etag: string | null = null) {
+    super(message)
+    this.status = status
+    this.code = code
+    this.etag = etag
+  }
+}
+
+async function request<T>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(path, {
+      method,
+      credentials: 'same-origin',
+      headers: body === undefined ? headers : { 'content-type': 'application/json', ...headers },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  } catch {
+    throw new ApiError(0, 'network', 'network')
+  }
+  const data = (await res.json().catch(() => null)) as Record<string, unknown> | null
+  if (!res.ok) {
+    throw new ApiError(res.status, String(data?.error ?? 'internal'), String(data?.message ?? res.statusText), (data?.etag as string | null) ?? null)
+  }
+  return data as T
+}
+
+export interface User { id: string; username: string; role: 'admin' | 'member' }
+export interface TreeNote { path: string; title: string; uid: string | null }
+export interface Note { path: string; text: string; etag: string; meta: { title: string; uid: string | null; fm_error: string | null } | null }
+export interface Alerts {
+  syncConflicts: { path: string; kind: string }[]
+  uidConflicts: { uid: string; paths: string[] }[]
+  scanAborted: string | null
+  orphanedNotes: string[]
+}
+
+export const api = {
+  setupNeeded: () => request<{ needed: boolean }>('GET', '/api/setup'),
+  setup: (token: string, username: string, password: string) => request<{ user: User }>('POST', '/api/setup', { token, username, password }),
+  login: (username: string, password: string) => request<{ user: User }>('POST', '/api/auth/login', { username, password }),
+  logout: () => request<{ ok: true }>('POST', '/api/auth/logout'),
+  me: () => request<{ user: User }>('GET', '/api/auth/me'),
+  tree: () => request<{ notes: TreeNote[] }>('GET', '/api/tree'),
+  note: (path: string) => request<Note>('GET', `/api/note?path=${encodeURIComponent(path)}`),
+  alerts: () => request<Alerts>('GET', '/api/alerts'),
+}
+
+export const alertCount = (a: Alerts) =>
+  a.syncConflicts.length + a.uidConflicts.length + a.orphanedNotes.length + (a.scanAborted ? 1 : 0)

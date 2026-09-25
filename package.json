@@ -10,9 +10,10 @@
     "packages/*"
   ],
   "scripts": {
-    "typecheck": "tsc -p .",
+    "typecheck": "tsc -p . && tsc -p packages/web",
     "test": "node --test \"packages/*/test/**/*.test.ts\"",
-    "load": "node --test --test-concurrency=1 \"packages/*/test/**/*.collab.ts\""
+    "load": "node --test --test-concurrency=1 \"packages/*/test/**/*.collab.ts\"",
+    "build": "npm run build -w @thoth/web"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

@@ -25,7 +25,11 @@ mejora obvia ya se descartó por una razón concreta.
 - Node 26 (`.nvmrc`; LTS desde el 2026-10-28). El código TypeScript se ejecuta directamente con
   Node, sin paso de compilación: solo sintaxis que se pueda borrar (nada de
   `enum` ni `namespace`).
-- `npm ci`, `npm run typecheck`, `npm test`.
+- `npm ci`, `npm run typecheck`, `npm run build` (UI), `npm test`.
+- UI en desarrollo: el servidor en una terminal
+  (`THOTH_NOTES_DIR=… THOTH_STATE_DIR=… node packages/server/src/cli.ts serve`)
+  y `npm run dev -w @thoth/web` en otra; Vite reenvía `/api` y `/collab` al
+  puerto 8080 (`THOTH_DEV_SERVER` para otro).
 
 ## Commits
 
