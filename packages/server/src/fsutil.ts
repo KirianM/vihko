@@ -3,13 +3,16 @@
 // rescue in-place writes that land in the window, and stable reads against
 // editors that truncate and rewrite.
 //
-// The write path is asynchronous: on a network filesystem every open, link,
-// rename and fsync is a round trip to the server (5–10 ms each over NFS), and
-// sync calls would line them all up on the event loop. Async, the rewrites of
-// a big rename overlap theirs; a per-file lock keeps each hash check and its
-// rename together, as the sync version did by construction.
+// The calls that change the folder are asynchronous: on a network filesystem
+// every create, link, rename, unlink and fsync is a round trip to the server
+// (5–10 ms each over NFS), and sync calls would line them all up on the event
+// loop. Async, the rewrites of a big rename overlap theirs; a per-file lock
+// keeps each hash check and its rename together, as the sync version did by
+// construction. Reads stay sync: they are served from the client's cache in
+// well under a millisecond, and going through the thread pool made a big
+// rename on local disk slower (2.1 → 2.7 s) for nothing on NFS.
 import { closeSync, fsyncSync, linkSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs'
-import { link, open, readFile, rename, rm } from 'node:fs/promises'
+import { link, open, rename, rm } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
 import { contentHash } from '@thoth/core'
@@ -27,27 +30,17 @@ export function readText(file: string): string | null {
   }
 }
 
-/** File contents, or null if it doesn't exist, without blocking the event loop. */
-export async function readTextAsync(file: string): Promise<string | null> {
-  try {
-    return await readFile(file, 'utf8')
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
-    throw err
-  }
-}
-
 /**
  * Reads a file that another process may be writing to: only accepted once two
  * consecutive reads match. If it looks like a mass truncation relative to
  * `reference`, more stability is required.
  */
 export async function readStable(file: string, reference?: string | null, gap = 60): Promise<string | null> {
-  let a = await readTextAsync(file)
+  let a = readText(file)
   for (let i = 0; i < 20; i++) {
     const suspicious = reference != null && a !== null && a.length < reference.length / 2
     await sleep(suspicious ? gap * 5 : gap)
-    const b = await readTextAsync(file)
+    const b = readText(file)
     if (a === b) return a
     a = b
   }
@@ -177,7 +170,7 @@ export async function replaceText(file: string, text: string, expectedHash: stri
       try {
         await link(tmp, file) // link() fails if the target already exists: create without overwriting
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return { replaced: false, current: await readTextAsync(file) }
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return { replaced: false, current: readText(file) }
         throw err
       }
       await fsyncDirAsync(dirname(file))
@@ -185,7 +178,7 @@ export async function replaceText(file: string, text: string, expectedHash: stri
     }
     const prev = tmp + '.prev'
     const swapped = await withFileLock(file, async () => {
-      const before = await readTextAsync(file)
+      const before = readText(file)
       if (before === null || contentHash(before) !== expectedHash) return { current: before }
       await link(file, prev)
       try {
