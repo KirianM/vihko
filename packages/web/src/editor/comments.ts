@@ -1,17 +1,18 @@
-// Comentarios dentro de la nota (D-023): comentarios HTML con autor, fecha y texto.
+// Comments inside the note: HTML comments with author, date and text.
 //
 //   Usaremos Postgres para el índice.<!-- @noa 2026-09-24 10:12 · esto no, usa SQLite -->
 //   <!-- @claude 2026-09-24 10:15 · ↳ de acuerdo, lo cambio -->
 //
-// - Hilo: comentarios consecutivos (solo espacios o un salto de línea entre ellos).
-//   `↳` marca las respuestas.
-// - Ancla: el texto que precede al primer comentario del hilo en su línea, desde el
-//   inicio de la frase (o de la línea, o desde el comentario anterior). Así el ancla
-//   se deduce del archivo, sin marcas de inicio ni posiciones guardadas aparte.
-// - Fecha: hora local de quien comenta, `AAAA-MM-DD HH:MM`, sin zona.
+// - Thread: consecutive comments (only spaces or a single line break between them).
+//   `↳` marks replies.
+// - Anchor: the text preceding the thread's first comment on its line, starting
+//   from the beginning of the sentence (or of the line, or from the previous
+//   comment). This way the anchor is derived from the file, with no start markers
+//   or positions stored separately.
+// - Date: the commenter's local time, `YYYY-MM-DD HH:MM`, no timezone.
 //
-// Módulo puro (sin DOM ni CodeMirror): lo prueba el runner de Node. Quien lo usa
-// aplica los cambios que devuelve sobre el Y.Text de la sesión.
+// Pure module (no DOM, no CodeMirror): tested by the Node test runner. Whoever
+// uses it applies the changes it returns to the session's Y.Text.
 
 export interface Comment {
   from: number
@@ -23,18 +24,18 @@ export interface Comment {
 }
 
 export interface Thread {
-  /** Estable mientras no cambie el primer comentario: autor, fecha, texto y aparición. */
+  /** Stable as long as the first comment doesn't change: author, date, text and occurrence. */
   id: string
   comments: Comment[]
-  /** Desde el primer comentario hasta el final del último. */
+  /** From the first comment to the end of the last. */
   from: number
   to: number
-  /** Texto comentado; vacío si el hilo está solo en su línea. */
+  /** Commented text; empty if the thread is alone on its line. */
   anchorFrom: number
   anchorTo: number
 }
 
-/** Cambio sobre el texto: borrar [from, to) e insertar `insert`. */
+/** Change to the text: delete [from, to) and insert `insert`. */
 export interface Change {
   from: number
   to: number
@@ -44,12 +45,12 @@ export interface Change {
 const COMMENT = /<!--[ \t]*@([\p{L}\p{N}._-]+)[ \t]+(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)[ \t]*·[ \t]*([\s\S]*?)[ \t]*-->/gu
 const REPLY = /^↳[ \t]*/
 const FENCE = /^[ \t]{0,3}(`{3,}|~{3,})/
-/** Fin de frase: un signo de cierre seguido de espacio. */
+/** End of sentence: a closing mark followed by whitespace. */
 const SENTENCE_END = /[.!?…][)"'»”’]*\s+/g
-/** Marcas de bloque al inicio de línea que no forman parte del texto comentado. */
+/** Block markers at the start of a line that aren't part of the commented text. */
 const BLOCK_PREFIX = /^[ \t]*(?:>[ \t]?)*(?:#{1,6}[ \t]+|(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?/
 
-/** Rangos de bloques de código cercados: ahí un `<!-- -->` es código, no un comentario. */
+/** Ranges of fenced code blocks: there, a `<!-- -->` is code, not a comment. */
 function fencedRanges(doc: string): [number, number][] {
   const out: [number, number][] = []
   let open: { at: number; mark: string } | null = null
@@ -88,14 +89,14 @@ export function parseComments(doc: string): Comment[] {
   return out
 }
 
-/** Entre dos comentarios del mismo hilo solo cabe espacio y, como mucho, un salto de línea. */
+/** Between two comments of the same thread there's only room for whitespace and, at most, one line break. */
 const joins = (between: string) => /^[ \t]*(?:\n[ \t]*)?$/.test(between)
 
 function anchorOf(doc: string, at: number, floor: number): [number, number] {
   const lineStart = doc.lastIndexOf('\n', at - 1) + 1
   let start = Math.max(lineStart, floor)
-  // La frase en la que acaba el texto: último fin de frase antes del final (sin contar
-  // el signo con el que acaba el propio texto comentado).
+  // The sentence the text ends in: last sentence end before the end (not counting
+  // the mark that the commented text itself ends with).
   const before = doc.slice(start, at)
   const trimmed = before.replace(/[.!?…][)"'»”’]*\s*$/, '')
   let last = -1
@@ -131,12 +132,12 @@ export function parseThreads(doc: string): Thread[] {
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-/** Hora local, `AAAA-MM-DD HH:MM`. */
+/** Local time, `YYYY-MM-DD HH:MM`. */
 export function formatDate(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/** Una línea, sin nada que cierre el comentario antes de tiempo. */
+/** One line, with nothing that closes the comment early. */
 export function cleanText(text: string): string {
   return text.replace(/\s+/g, ' ').trim().replace(/--+>/g, (m) => m.slice(0, -1) + ' >')
 }
@@ -146,9 +147,9 @@ export function formatComment(author: string, date: Date, text: string, reply = 
 }
 
 /**
- * Dónde se inserta un comentario nuevo sobre la selección [from, to): pegado al final
- * de lo seleccionado, sin partir una palabra. Sin selección, al final de la frase (o de
- * la línea) donde está el cursor. Dentro de un comentario, tras su hilo.
+ * Where a new comment on the selection [from, to) gets inserted: right after the end
+ * of the selection, without splitting a word. With no selection, at the end of the
+ * sentence (or line) where the cursor is. Inside a comment, after its thread.
  */
 export function commentPosition(doc: string, from: number, to: number): number {
   let at = to
@@ -157,7 +158,7 @@ export function commentPosition(doc: string, from: number, to: number): number {
     const rest = doc.slice(at, lineEnd)
     const m = /[.!?…][)"'»”’]*(?=\s|$)/.exec(rest)
     at = m ? at + m.index + m[0].length : lineEnd
-    // Sin espacios colgando antes del comentario.
+    // No trailing spaces before the comment.
     while (at > from && /[ \t]/.test(doc[at - 1]!)) at--
   } else {
     while (at > from && /\s/.test(doc[at - 1]!)) at--
@@ -173,9 +174,9 @@ export function addComment(doc: string, at: number, author: string, date: Date, 
 }
 
 /**
- * Respuesta al final del hilo. En su propia línea (como en D-023) si el hilo cierra la
- * línea y lo siguiente es una línea en blanco o el final; si no, pegada al hilo, para
- * no partir el párrafo en dos.
+ * Reply at the end of the thread. On its own line (as in the format above) if the
+ * thread closes the line and what follows is a blank line or the end; otherwise,
+ * right after the thread, so as not to split the paragraph in two.
  */
 export function replyTo(doc: string, thread: Thread, author: string, date: Date, text: string): Change {
   const comment = formatComment(author, date, text, true)
@@ -187,7 +188,7 @@ export function replyTo(doc: string, thread: Thread, author: string, date: Date,
   return { from: thread.to, to: thread.to, insert: comment }
 }
 
-/** Resolver es borrar el hilo (D-023). Si ocupaba la línea entera, se va la línea. */
+/** Resolving deletes the thread. If it took up the whole line, the line goes too. */
 export function resolveThread(doc: string, thread: Thread): Change {
   const lineStart = doc.lastIndexOf('\n', thread.from - 1) + 1
   const lineEnd = doc.indexOf('\n', thread.to) === -1 ? doc.length : doc.indexOf('\n', thread.to)

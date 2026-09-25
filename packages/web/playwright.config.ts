@@ -1,8 +1,8 @@
 import { defineConfig } from '@playwright/test'
 import { BASE_URL, E2E_PORT } from './e2e/env.ts'
 
-// Con E2E_BASE_URL el servidor ya está arrancado fuera (npm run e2e:serve);
-// si no, Playwright lo arranca y lo para.
+// With E2E_BASE_URL the server is already running externally (npm run e2e:serve);
+// otherwise, Playwright starts and stops it.
 export default defineConfig({
   testDir: 'e2e',
   fullyParallel: false,

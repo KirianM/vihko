@@ -1,5 +1,5 @@
-// Avisos del espacio: lo que detecta el servidor en la carpeta de notas, las
-// acciones según el rol y la cuenta de la barra lateral.
+// Workspace alerts: what the server detects in the notes folder, the actions
+// depending on role, and the sidebar count.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { E2E_DIR, NOTES } from './env.ts'
@@ -10,13 +10,13 @@ const SHOTS = `${E2E_DIR}/shots`
 
 test.describe.configure({ mode: 'serial' })
 test.beforeAll(() => mkdirSync(DIR, { recursive: true }))
-// Las demás pruebas comparten carpeta de notas: se deja como estaba.
+// The other tests share the notes folder: it's left as it was.
 test.afterAll(() => rmSync(DIR, { recursive: true, force: true }))
 
 const card = (page: Page, text: string) => page.locator('.alert-card', { hasText: text })
 const sidebarCount = async (page: Page) => Number((await page.locator('.sidebar-alerts').innerText()).match(/\d+/)?.[0])
 
-/** Recarga la página de avisos hasta que aparezca uno (el servidor reescanea cada 5 s). */
+/** Reloads the alerts page until one appears (the server rescans every 5s). */
 async function waitForCard(page: Page, text: string) {
   await expect(async () => {
     await page.reload()
@@ -24,7 +24,7 @@ async function waitForCard(page: Page, text: string) {
   }).toPass({ timeout: 20_000 })
 }
 
-test('uid repetido: aparece tras el reescaneo y se abren las dos notas', async ({ browser }) => {
+test('duplicate uid: appears after the rescan and both notes open', async ({ browser }) => {
   writeFileSync(`${DIR}/Original.md`, '---\nuid: E2E-AVISOS\n---\n# Original\n')
   writeFileSync(`${DIR}/Copia.md`, '---\nuid: E2E-AVISOS\n---\n# Copia\n')
   const k = await signIn(browser, 'noa')
@@ -34,7 +34,7 @@ test('uid repetido: aparece tras el reescaneo y se abren las dos notas', async (
   await waitForCard(k, 'E2E-AVISOS')
   const uid = card(k, 'E2E-AVISOS')
   await expect(uid.getByRole('heading')).toHaveText('Mismo identificador en 2 notas')
-  await expect(uid.getByRole('button')).toHaveCount(0) // se arregla en el frontmatter, no con un botón (D-015)
+  await expect(uid.getByRole('button')).toHaveCount(0) // fixed in the frontmatter, not with a button
   await uid.getByRole('link', { name: 'e2e-avisos/Copia.md' }).click()
   await expect(k.locator('.crumbs b')).toHaveText('Copia')
   await expect(k).toHaveURL(/\?note=e2e-avisos%2FCopia\.md$/)
@@ -46,7 +46,7 @@ test('uid repetido: aparece tras el reescaneo y se abren las dos notas', async (
   await k.context().close()
 })
 
-test('copia pendiente de una nota borrada fuera: se conserva desde la página y la cuenta baja', async ({ browser }) => {
+test('pending copy of a note deleted externally: kept from the page and the count drops', async ({ browser }) => {
   const NOTE = 'e2e-avisos/Borrada.md'
   const file = `${NOTES}/${NOTE}`
   writeFileSync(file, '# Borrada\n')
@@ -58,7 +58,7 @@ test('copia pendiente de una nota borrada fuera: se conserva desde la página y 
   rmSync(file)
   await expect(k.getByRole('alert')).toContainText('se ha borrado fuera')
 
-  // Se cierra el editor sin decidir: la copia queda como aviso (D-022).
+  // The editor is closed without deciding: the copy stays as an alert.
   await k.goto('/?view=avisos')
   const orphan = card(k, 'Copia pendiente de «e2e-avisos / Borrada»')
   await expect(orphan).toBeVisible()
@@ -70,7 +70,7 @@ test('copia pendiente de una nota borrada fuera: se conserva desde la página y 
   await k.context().close()
 })
 
-test('conflicto de sincronización: ver la copia y abrir la nota; un miembro también lo ve', async ({ browser }) => {
+test('sync conflict: viewing the copy and opening the note; a member sees it too', async ({ browser }) => {
   const a = await signIn(browser, 'ana')
   await a.goto('/?view=avisos')
   const sync = card(a, 'Conflicto de sincronización')
@@ -85,8 +85,8 @@ test('conflicto de sincronización: ver la copia y abrir la nota; un miembro tam
   await a.context().close()
 })
 
-// El borrado masivo es difícil de provocar sin romper las demás pruebas (se
-// prueba contra el servidor en http.test.ts): aquí se simula la respuesta.
+// Mass deletion is hard to trigger without breaking the other tests (it's
+// tested against the server in http.test.ts): here the response is mocked.
 const SCAN = { code: 'scan_aborted_mass_delete', removing: 214, total: 260 }
 const FIXTURE = [
   { ...SCAN, actions: ['rescan', 'confirm_removal'] },
@@ -97,7 +97,7 @@ const FIXTURE = [
 const mockAlerts = (page: Page, alerts: unknown[]) =>
   page.route('**/api/alerts', (route) => route.fulfill({ json: { alerts } }))
 
-test('escaneo detenido: el admin confirma con la cifra que ve; un miembro no tiene acciones', async ({ browser }) => {
+test('scan stopped: the admin confirms with the figure they see; a member has no actions', async ({ browser }) => {
   const k = await signIn(browser, 'noa')
   await mockAlerts(k, FIXTURE)
   let sent: unknown = null
@@ -123,7 +123,7 @@ test('escaneo detenido: el admin confirma con la cifra que ve; un miembro no tie
   await a.context().close()
 })
 
-test('estado vacío', async ({ browser }) => {
+test('empty state', async ({ browser }) => {
   const k = await signIn(browser, 'noa')
   await mockAlerts(k, [])
   await k.goto('/?view=avisos')
@@ -132,7 +132,7 @@ test('estado vacío', async ({ browser }) => {
   await k.context().close()
 })
 
-test('capturas: claro, oscuro y móvil', async ({ browser }) => {
+test('screenshots: light, dark and mobile', async ({ browser }) => {
   const k = await signIn(browser, 'noa')
   await mockAlerts(k, FIXTURE)
   await k.setViewportSize({ width: 1440, height: 900 })

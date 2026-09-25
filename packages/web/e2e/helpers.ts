@@ -1,7 +1,7 @@
 import { expect, type Browser, type Page } from '@playwright/test'
 import { PASSWORD } from './env.ts'
 
-/** Sesión propia (contexto aislado) con la persona ya dentro y la nota abierta. */
+/** Own session (isolated context) with the person already signed in and the note open. */
 export async function signIn(browser: Browser, user: string, note?: string): Promise<Page> {
   const ctx = await browser.newContext()
   const page = await ctx.newPage()

@@ -1,7 +1,7 @@
-// Servidor para las pruebas de navegador: copia limpia de testdata/vault, dos
-// usuarios (noa admin, ana miembro) y thoth sirviendo la UI compilada.
-// Lo arranca Playwright (webServer) o, si el navegador corre en otro sitio
-// (imagen Docker de Playwright), se lanza a mano: node packages/web/e2e/serve.ts
+// Server for the browser tests: a clean copy of testdata/vault, two users
+// (noa admin, ana member) and thoth serving the compiled UI.
+// Started by Playwright (webServer) or, if the browser runs elsewhere (the
+// Playwright Docker image), launched by hand: node packages/web/e2e/serve.ts
 import { execFileSync, spawn } from 'node:child_process'
 import { cpSync, mkdirSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

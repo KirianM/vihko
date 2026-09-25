@@ -1,12 +1,12 @@
-// Vista previa en vivo: el texto del archivo no cambia nunca; solo se decora.
-// Las marcas de Markdown (#, **, [[…]], frontmatter) se ocultan salvo donde está
-// el cursor, que las muestra para editarlas.
+// Live preview: the file's text never changes; it's only decorated.
+// Markdown marks (#, **, [[…]], frontmatter) are hidden except where the cursor
+// is, which reveals them for editing.
 import { syntaxTree } from '@codemirror/language'
 import { EditorState, Facet, StateEffect, StateField, type Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 
-// --- Estado de los enlaces (lo resuelve el índice del servidor, D-019) ----------
+// --- Link state (resolved by the server's index) ----------
 
 export interface LinkInfo {
   status: 'resolved' | 'ambiguous' | 'missing'
@@ -15,14 +15,14 @@ export interface LinkInfo {
 }
 export interface LinkLabels { ambiguous: (n: number) => string; missing: string; frontmatter: (n: number) => string }
 
-/** Enlaces salientes de la nota, por su texto exacto (`[[destino|alias]]`). */
+/** Outgoing links of the note, by their exact text (`[[target|alias]]`). */
 export const setLinks = StateEffect.define<Map<string, LinkInfo>>()
 const links = StateField.define<Map<string, LinkInfo>>({
   create: () => new Map(),
   update: (v, tr) => tr.effects.reduce((acc, e) => (e.is(setLinks) ? e.value : acc), v),
 })
 
-/** Qué hacer al pulsar un enlace resuelto. */
+/** What to do when a resolved link is clicked. */
 export const navigate = Facet.define<(path: string) => void, (path: string) => void>({
   combine: (fns) => fns[0] ?? (() => {}),
 })
@@ -30,10 +30,11 @@ export const labels = Facet.define<LinkLabels, LinkLabels>({
   combine: (v) => v[0] ?? { ambiguous: (n) => `ambiguous · ${n}`, missing: 'missing', frontmatter: (n) => `frontmatter · ${n}` },
 })
 
-// --- Utilidades -------------------------------------------------------------------
+// --- Utilities -------------------------------------------------------------------
 
-// Si el editor tiene el foco. Sin foco no hay cursor que editar: todo se ve limpio
-// (también al abrir la nota, con el cursor en la posición 0, dentro del frontmatter).
+// Whether the editor has focus. With no focus there's no cursor to edit: everything
+// looks clean (also when opening the note, with the cursor at position 0, inside
+// the frontmatter).
 const focusEffect = StateEffect.define<boolean>()
 const focused = StateField.define<boolean>({
   create: () => false,
@@ -42,7 +43,7 @@ const focused = StateField.define<boolean>({
 const trackFocus = EditorView.focusChangeEffect.of((_state, focusing) => focusEffect.of(focusing))
 export const focusChanged = (tr: { effects: readonly StateEffect<unknown>[] }) => tr.effects.some((e) => e.is(focusEffect))
 
-/** El cursor (o una selección) toca el rango y el editor tiene el foco: ahí se muestran las marcas. */
+/** The cursor (or a selection) touches the range and the editor has focus: the marks show there. */
 export function touches(state: EditorState, from: number, to: number) {
   return state.field(focused) && state.selection.ranges.some((r) => r.from <= to && r.to >= from)
 }
@@ -52,7 +53,7 @@ function touchesLines(state: EditorState, from: number, to: number) {
 
 const hidden = Decoration.replace({})
 
-/** `[[destino#ancla|alias]]` → lo que se lee: el alias o el destino. */
+/** `[[target#anchor|alias]]` → what's shown: the alias or the target. */
 function wikiLabel(raw: string, embed: boolean) {
   const inner = raw.slice(embed ? 3 : 2, -2)
   const bar = inner.indexOf('|')
@@ -81,9 +82,10 @@ class WikiWidget extends WidgetType {
     a.textContent = this.label
     a.href = this.info?.path ? `?note=${encodeURIComponent(this.info.path)}` : '#'
     if (this.info?.status === 'ambiguous') a.title = (this.info.candidates ?? []).join('\n')
-    // Un enlace resuelto navega al pulsarlo (en mousedown: si no, el editor mueve antes
-    // el cursor al enlace, muestra su texto para editarlo y el clic ya no llega). Los
-    // rotos o ambiguos dejan pasar el clic: el cursor entra y se pueden corregir.
+    // A resolved link navigates on click (on mousedown: otherwise the editor first
+    // moves the cursor to the link, reveals its text for editing, and the click never
+    // arrives). Broken or ambiguous links let the click through: the cursor enters
+    // and they can be fixed.
     const target = this.info?.status === 'resolved' ? this.info.path : null
     if (target) {
       a.addEventListener('mousedown', (e) => {
@@ -116,7 +118,7 @@ class BulletWidget extends WidgetType {
 }
 const bullet = Decoration.replace({ widget: new BulletWidget() })
 
-// --- Decoraciones en línea (ViewPlugin: solo lo visible) --------------------------
+// --- Inline decorations (ViewPlugin: only what's visible) --------------------------
 
 function inlineDecorations(view: EditorView): DecorationSet {
   const { state } = view
@@ -199,7 +201,7 @@ function hideChildren(node: SyntaxNode, names: string[], out: Range<Decoration>[
   for (let c = node.firstChild; c; c = c.nextSibling) if (names.includes(c.name)) out.push(hidden.range(c.from, c.to))
 }
 
-/** `[texto](url "título")` → se ve `texto` como enlace. */
+/** `[text](url "title")` → shows `text` as a link. */
 function hideLinkSyntax(node: SyntaxNode, out: Range<Decoration>[], status?: LinkInfo['status']) {
   const marks: SyntaxNode[] = []
   for (let c = node.firstChild; c; c = c.nextSibling) if (c.name === 'LinkMark') marks.push(c)
@@ -226,7 +228,7 @@ const inlinePreview = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 )
 
-// --- Frontmatter plegado (StateField: ocupa varias líneas) ------------------------
+// --- Folded frontmatter (StateField: spans several lines) ------------------------
 
 class FrontmatterChip extends WidgetType {
   readonly keys: number

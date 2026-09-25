@@ -1,5 +1,5 @@
-// Panel lateral de la nota: enlaces, índice y comentarios dentro del archivo (D-023)
-// con dos personas a la vez.
+// Note side panel: links, outline and comments inside the file,
+// with two people at once.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { E2E_DIR, NOTES } from './env.ts'
@@ -36,7 +36,7 @@ test.beforeAll(async ({ browser }) => {
   a = await signIn(browser, 'ana', NOTE)
 })
 
-test('enlaces: salientes con su estado, ambiguos con candidatos, y navegación', async () => {
+test('links: outgoing with their status, ambiguous with candidates, and navigation', async () => {
   await k.goto('/?note=diario/2026-09-24.md')
   await k.getByRole('tab', { name: /Enlaces/ }).click()
   const panel = k.getByRole('complementary', { name: 'Comentarios y contexto' })
@@ -46,7 +46,7 @@ test('enlaces: salientes con su estado, ambiguos con candidatos, y navegación',
   await expect(k.locator('.crumbs')).toHaveText('proyectos / blog / Tareas')
 })
 
-test('enlaces: entrantes con contexto', async () => {
+test('links: backlinks with context', async () => {
   await k.goto('/?note=proyectos/thoth/Plan.md')
   await k.getByRole('tab', { name: /Enlaces/ }).click()
   const backlink = k.locator('.backlink', { hasText: 'Notas de thoth' }).first()
@@ -56,14 +56,14 @@ test('enlaces: entrantes con contexto', async () => {
   await expect(k.locator('.crumbs b')).toHaveText('notas')
 })
 
-test('índice: encabezados en vivo; pulsar uno lleva el cursor allí', async () => {
+test('outline: live headings; clicking one moves the cursor there', async () => {
   await k.goto(`/?note=${NOTE}`)
   await k.getByRole('tab', { name: 'Índice' }).click()
   const toc = k.locator('.toc-item')
   await expect(toc).toHaveText(['Índice del índice', 'Almacenamiento', 'Pruebas'])
   await toc.filter({ hasText: 'Pruebas' }).click()
   await expect(k.locator('.toc-current')).toHaveText('Pruebas')
-  // Lo que se escribe aparece en el índice sin guardar ni recargar (lo escribe ana).
+  // What's typed shows up in the outline without saving or reloading (ana types it).
   await a.locator('.cm-line', { hasText: 'Texto de las pruebas' }).click()
   await a.keyboard.press('End')
   await a.keyboard.type('\n\n### Carga')
@@ -72,12 +72,12 @@ test('índice: encabezados en vivo; pulsar uno lleva el cursor allí', async () 
   await expect(toc).toHaveCount(3)
 })
 
-test('comentar, verlo en vivo, responder: todo dentro del archivo con el formato de D-023', async () => {
+test('commenting, seeing it live, replying: all inside the file, in the format described above', async () => {
   await k.getByRole('tab', { name: /Comentarios/ }).click()
   await a.getByRole('tab', { name: /Comentarios/ }).click()
   await expect(k.getByText('Esta nota no tiene comentarios', { exact: false })).toBeVisible()
 
-  // noa selecciona la frase y comenta.
+  // noa selects the sentence and comments.
   await k.locator('.cm-line', { hasText: 'usar Postgres' }).click()
   await k.keyboard.press('Home')
   await k.keyboard.press('Shift+End')
@@ -89,7 +89,7 @@ test('comentar, verlo en vivo, responder: todo dentro del archivo con el formato
   await expect.poll(disk).toMatch(/tipo de nota\.<!-- @noa \d{4}-\d{2}-\d{2} \d{2}:\d{2} · esto no, usa SQLite -->\n\n## Almacenamiento/)
   expect(disk().startsWith('---\ntitle: Comentarios\n# comentario de YAML que no se toca\n')).toBe(true)
 
-  // ana lo ve en vivo: hilo en el panel y el texto resaltado; la sintaxis, oculta.
+  // ana sees it live: thread in the panel and the text highlighted; the syntax stays hidden.
   const thread = a.locator('.thread', { hasText: 'esto no, usa SQLite' })
   await expect(thread).toBeVisible()
   await expect(thread.locator('.comment b')).toHaveText('noa')
@@ -97,7 +97,7 @@ test('comentar, verlo en vivo, responder: todo dentro del archivo con el formato
   await expect.poll(() => editorText(a)).not.toContain('<!--')
   await expect(a.getByRole('tab', { name: 'Comentarios · 1' })).toBeVisible()
 
-  // ana responde; la respuesta va en su línea, con ↳.
+  // ana replies; the reply goes on its own line, with ↳.
   await thread.getByRole('button', { name: 'Responder' }).click()
   await a.getByRole('textbox', { name: 'Escribe una respuesta…' }).fill('de acuerdo, lo cambio')
   await a.keyboard.press('Enter')
@@ -109,7 +109,7 @@ test('comentar, verlo en vivo, responder: todo dentro del archivo con el formato
   expect(lines.map((l) => COMMENT.exec(l)?.slice(1))).toEqual([['noa', undefined, 'esto no, usa SQLite'], ['ana', '↳ ', 'de acuerdo, lo cambio']])
 })
 
-test('capturas: claro, oscuro y estrecho', async () => {
+test('screenshots: light, dark and narrow', async () => {
   await k.locator('.cm-h1').click()
   await k.screenshot({ path: `${SHOTS}/panel-light.png` })
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()
@@ -117,7 +117,7 @@ test('capturas: claro, oscuro y estrecho', async () => {
   await k.getByRole('button', { name: 'Cambiar a tema claro' }).click()
 })
 
-test('pantalla estrecha: panel oculto, aviso bajo el párrafo y panel superpuesto', async () => {
+test('narrow screen: panel hidden, notice under the paragraph, and overlaid panel', async () => {
   await a.setViewportSize({ width: 900, height: 800 })
   await expect(a.getByRole('complementary', { name: 'Comentarios y contexto' })).toHaveCount(0)
   const notice = a.locator('.cm-comment-notice')
@@ -133,7 +133,7 @@ test('pantalla estrecha: panel oculto, aviso bajo el párrafo y panel superpuest
   await a.setViewportSize({ width: 1280, height: 800 })
 })
 
-test('resolver borra el hilo del archivo y deja el texto como estaba', async () => {
+test('resolving deletes the thread from the file and leaves the text as it was', async () => {
   await k.locator('.thread').first().getByRole('button', { name: 'Resolver' }).click()
   await expect.poll(disk).not.toContain('<!--')
   expect(disk()).toContain(BODY)
@@ -142,7 +142,7 @@ test('resolver borra el hilo del archivo y deja el texto como estaba', async () 
   await expect(a.locator('.cm-commented')).toHaveCount(0)
 })
 
-test('el panel recuerda si estaba cerrado', async () => {
+test('the panel remembers whether it was closed', async () => {
   await k.getByRole('button', { name: 'Ocultar el panel lateral' }).click()
   await k.reload()
   await expect(k.locator('.cm-content')).toBeVisible()

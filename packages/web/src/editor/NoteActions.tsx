@@ -1,5 +1,5 @@
 // "More actions" for the open note: rename or move with a preview of the links
-// that get rewritten (D-018), and move to the trash. History (M2) will live in
+// that get rewritten, and move to the trash. History (M2) will live in
 // this same menu.
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, Text, TextField } from 'react-aria-components'

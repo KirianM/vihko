@@ -1,5 +1,5 @@
-// Suscripción desde React al estado del editor: el panel lateral lee del EditorView
-// (hilos, encabezados, selección) y se entera de cada cambio por aquí.
+// React's subscription to editor state: the side panel reads from the EditorView
+// (threads, headings, selection) and hears about every change through here.
 import { syntaxTree } from '@codemirror/language'
 import type { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
@@ -13,7 +13,7 @@ export const viewUpdates = EditorView.updateListener.of((u) => {
   }
 })
 
-/** Valor derivado del estado del editor; se recalcula como mucho una vez por fotograma. */
+/** Value derived from editor state; recalculated at most once per frame. */
 export function useViewState<T>(view: EditorView | null, read: (s: EditorState) => T, initial: T): T {
   const [value, setValue] = useState<T>(() => (view ? read(view.state) : initial))
   useEffect(() => {
@@ -31,7 +31,7 @@ export function useViewState<T>(view: EditorView | null, read: (s: EditorState) 
       set.delete(refresh)
       cancelAnimationFrame(frame)
     }
-    // `read` e `initial` se tratan como constantes del sitio de llamada.
+    // `read` and `initial` are treated as constants from the call site.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view])
   return value
