@@ -3,7 +3,7 @@
 // we check where it resolves after the change; if it differs, it's rewritten
 // with the shortest form that still points to its destination.
 import { posix } from 'node:path'
-import { extract, type LinkIndex, type LinkRef } from '@thoth/core'
+import { extract, markdownDest, resolveImageRef, type ImageLink, type LinkIndex, type LinkRef } from '@thoth/core'
 
 export interface Replacement {
   from: number
@@ -51,6 +51,50 @@ export function keptLinks(text: string, src: string, before: LinkIndex, after: L
     if (ra.status === 'resolved' && ra.path === to) out.push({ raw: link.raw, via: ra.via === 'alias' ? 'alias' : 'path' })
   }
   return out
+}
+
+/** A rewrite of an image reference: the span of its destination, and the whole reference before and after (for the preview). */
+export interface ImageReplacement extends Replacement {
+  before: string
+  after: string
+}
+
+const isWiki = (img: ImageLink) => img.kind === 'embed' || img.kind === 'wiki'
+
+/**
+ * Replacements so a moved note's image references keep reaching their image.
+ * `place`: where each image is after the move (its own path if it stays).
+ * External URLs and references that leave the notes folder are not touched.
+ */
+export function planImageRelinks(text: string, srcBefore: string, srcAfter: string, place: (path: string) => string): ImageReplacement[] {
+  const out: ImageReplacement[] = []
+  for (const img of extract(text).images) {
+    const was = resolveImageRef(srcBefore, img.dest, { embed: isWiki(img) })
+    if (was === null) continue
+    const want = place(was)
+    if (resolveImageRef(srcAfter, img.dest, { embed: isWiki(img) }) === want) continue
+    const dest = imageDest(img, srcAfter, want)
+    const after = img.raw.slice(0, img.destFrom - img.from) + dest + img.raw.slice(img.destTo - img.from)
+    out.push({ from: img.destFrom, to: img.destTo, text: dest, before: img.raw, after })
+  }
+  return out
+}
+
+/**
+ * How a note at `src` writes a reference to the image at `path`, in the style
+ * of `img`: from the root if it was written from the root; otherwise relative
+ * (Markdown, encoded), or for embeds relative only while it doesn't climb out
+ * of the note's folder (`/path` from the root if it would). The `?query` or
+ * `#anchor` of a Markdown destination is kept.
+ */
+function imageDest(img: ImageLink, src: string, path: string): string {
+  const bare = img.dest.replace(/^<|>$/g, '')
+  const fromRoot = bare.startsWith('/')
+  const rel = posix.relative(posix.dirname(src), path)
+  if (isWiki(img)) return fromRoot || rel.startsWith('../') ? '/' + path : rel
+  const suffix = /[?#].*$/.exec(bare)?.[0] ?? ''
+  const dest = markdownDest(fromRoot ? '/' + path : rel) + suffix
+  return img.dest.startsWith('<') ? `<${dest}>` : dest
 }
 
 export function applyReplacements(text: string, reps: Replacement[]): string {

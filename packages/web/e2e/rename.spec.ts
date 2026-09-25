@@ -3,7 +3,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { E2E_DIR, NOTES, PASSWORD } from './env.ts'
-import { editorText, signIn } from './helpers.ts'
+import { editorText, png, sendFiles, signIn } from './helpers.ts'
 
 const DIR = 'rename-tests'
 const NOTE = `${DIR}/Server.md`
@@ -216,4 +216,55 @@ test('a link that cannot be rewritten: the notice names the note and the alias t
   } finally {
     chmodSync(`${NOTES}/${locked}`, 0o755)
   }
+})
+
+test('moving a note with images: its pasted image goes with it, a shared one stays, and both keep rendering', async () => {
+  const from = `${DIR}/photos`
+  const to = `${DIR}/album`
+  const trip = `${from}/Trip.md`
+  const other = `${from}/Other.md`
+  const blue = png(320, 120, [30, 74, 134])
+  const green = png(240, 90, [60, 140, 90])
+  mkdirSync(`${NOTES}/${from}`, { recursive: true })
+  writeFileSync(`${NOTES}/${from}/shared.png`, green)
+  writeFileSync(`${NOTES}/${trip}`, '# Trip\n\n![](shared.png)\n')
+  writeFileSync(`${NOTES}/${other}`, '# Other\n\n![](shared.png)\n')
+  await k.goto(`/?note=${encodeURIComponent(trip)}`)
+  await expect(k.locator('.cm-content')).toBeVisible()
+  await k.locator('.cm-h1').click()
+  await k.keyboard.press('Control+End')
+  await k.keyboard.press('Enter')
+  await sendFiles(k, 'paste', [{ name: 'image.png', bytes: blue }])
+  await expect.poll(() => read(trip)).toMatch(/!\[\]\(Trip-[\d-]+\.png\)/)
+  const pasted = /!\[\]\((Trip-[\d-]+\.png)\)/.exec(read(trip)!)![1]!
+  // Until the index sees Other.md, the move would not know shared.png is shared.
+  const stayed = async () => (await (await k.request.post('/api/note/move', { data: { from: trip, to: `${to}/Trip.md`, dryRun: true } })).json()).images.stayed.length
+  await expect.poll(stayed, { timeout: 15_000 }).toBe(1)
+
+  const dialog = await openRename(k)
+  await dialog.getByLabel('Carpeta').fill(to)
+  await expect(dialog.locator('.preview-image').first()).toHaveText(`rename-tests / photos / ${pasted}va con la nota a rename-tests / album / ${pasted}`)
+  await expect(dialog.locator('.preview-image.preview-kept')).toHaveText('rename-tests / photos / shared.pngse queda: la usan otras notas')
+  await expect(dialog.locator('.preview-change')).toHaveText('![](shared.png) → ![](../photos/shared.png)')
+  await shot(k, 'move-images')
+  await dialog.getByRole('button', { name: 'Mover con 1 imagen y actualizar 1 enlace' }).click()
+  await expect(k.locator('.crumbs')).toHaveText('rename-tests / album / Trip')
+
+  // On disk: the pasted image moved next to the note; the shared one stayed.
+  expect(existsSync(`${NOTES}/${to}/${pasted}`)).toBe(true)
+  expect(readFileSync(`${NOTES}/${to}/${pasted}`)).toEqual(blue)
+  expect(existsSync(`${NOTES}/${from}/${pasted}`)).toBe(false)
+  expect(readFileSync(`${NOTES}/${from}/shared.png`)).toEqual(green)
+  await expect.poll(() => read(`${to}/Trip.md`)).toContain('![](../photos/shared.png)')
+  expect(read(`${to}/Trip.md`)).toContain(`![](${pasted})`)
+  expect(read(other)).toBe('# Other\n\n![](shared.png)\n')
+
+  // Both render: in the moved note and in the one that shares the image.
+  await k.locator('.cm-h1').click()
+  const widths = () => k.locator('.cm-image img').evaluateAll((imgs) => imgs.map((i) => (i as HTMLImageElement).naturalWidth).sort())
+  await expect.poll(widths).toEqual([240, 320])
+  await k.goto(`/?note=${encodeURIComponent(other)}`)
+  await expect(k.locator('.cm-content')).toBeVisible()
+  await k.locator('.cm-h1').click()
+  await expect.poll(widths).toEqual([240])
 })

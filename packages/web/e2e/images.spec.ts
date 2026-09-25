@@ -4,9 +4,8 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
-import { crc32, deflateSync } from 'node:zlib'
 import { E2E_DIR, NOTES } from './env.ts'
-import { signIn } from './helpers.ts'
+import { png, sendFiles, signIn } from './helpers.ts'
 
 const DIR = 'imagenes'
 const NOTE = `${DIR}/galeria.md`
@@ -17,25 +16,6 @@ const EXTERNAL_PORT = 8132
 const EXTERNAL = `http://localhost:${EXTERNAL_PORT}`
 const disk = () => readFileSync(FILE, 'utf8')
 const stored = () => readdirSync(`${NOTES}/${DIR}`).filter((f) => /^galeria-\d{4}-\d{2}-\d{2}-\d{4}(-\d+)?\.png$/.test(f)).sort()
-
-/** A solid-colour PNG, so the browser really decodes and shows something. */
-function png(width: number, height: number, [r, g, b]: [number, number, number]): Buffer {
-  const chunk = (type: string, data: Buffer) => {
-    const len = Buffer.alloc(4)
-    len.writeUInt32BE(data.length)
-    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
-    const crc = Buffer.alloc(4)
-    crc.writeUInt32BE(crc32(body))
-    return Buffer.concat([len, body, crc])
-  }
-  const ihdr = Buffer.alloc(13)
-  ihdr.writeUInt32BE(width, 0)
-  ihdr.writeUInt32BE(height, 4)
-  ihdr.set([8, 2, 0, 0, 0], 8) // 8 bits, RGB
-  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: width }, () => [r, g, b]).flat())])
-  const raw = Buffer.concat(Array.from({ length: height }, () => row))
-  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
-}
 
 const BLUE = png(320, 120, [30, 74, 134])
 const GREEN = png(240, 90, [60, 140, 90])
@@ -56,20 +36,6 @@ test.beforeAll(async ({ browser }) => {
 })
 
 test.afterAll(() => { external.closeAllConnections(); external.close() })
-
-/** Dispatches a paste (or a drop) with these files, as the browser does with a screenshot on the clipboard. */
-async function sendFiles(page: Page, kind: 'paste' | 'drop', files: { name: string; bytes: Buffer }[]) {
-  await page.locator('.cm-content').evaluate((el, { kind, files }) => {
-    const dt = new DataTransfer()
-    for (const f of files) dt.items.add(new File([Uint8Array.from(f.bytes)], f.name, { type: 'image/png' }))
-    if (kind === 'paste') {
-      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
-    } else {
-      const line = el.querySelector('.cm-line:last-child')!.getBoundingClientRect()
-      el.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true, clientX: line.left + 5, clientY: line.top + 5 }))
-    }
-  }, { kind, files: files.map((f) => ({ name: f.name, bytes: [...f.bytes] })) })
-}
 
 async function pasteText(page: Page, text: string) {
   await page.locator('.cm-content').evaluate((el, text) => {

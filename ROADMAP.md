@@ -29,8 +29,9 @@ Goal: a complete notes system from the UI, without integrations.
       links/backlinks and outline, rename/move with preview, trash, workspace
       alerts. Translatable (English and Spanish).
 - [ ] Responsive PWA (no offline mode).
-- [x] Images: upload, paste and by URL (local copy or link); external images
-      can be blocked by the administrator.
+- [x] Images: upload, paste and by URL (local copy or link); they travel with
+      their note when it moves to another folder; external images can be
+      blocked by the administrator.
 - [x] Server errors and alerts as translatable codes.
 - [x] Local auth: an admin created from the CLI or a one-time token, sessions.
       A principal on every query from day one.

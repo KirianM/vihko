@@ -1,5 +1,6 @@
 // "More actions" for the open note: insert an image, rename or move with a
-// preview of the links that get rewritten, and move to the trash. History (M2) will live in
+// preview of the links that get rewritten and the images that go with the
+// note, and move to the trash. History (M2) will live in
 // this same menu.
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, Text, TextField } from 'react-aria-components'
@@ -49,11 +50,15 @@ function RenameDialog({ path, onClose, onMoved }: { path: string; onClose: () =>
 
   const report = preview.kind === 'ready' ? preview.report : null
   const n = report ? report.relinked.reduce((sum, r) => sum + r.links, 0) : 0
-  // The button says exactly what it will do: rename (if the name changes) or move, and how many links.
+  const m = report ? report.images.moved.length : 0
+  // The button says exactly what it will do: rename (if the name changes) or
+  // move, how many images go with the note and how many links are updated.
   const verb = to !== null && noteName(to) !== noteName(path) ? 'rename' : 'move'
-  const submitKey: MessageKey = verb === 'rename'
-    ? (n === 0 ? 'rename.submit' : n === 1 ? 'rename.submitOne' : 'rename.submitMany')
-    : (n === 0 ? 'rename.move' : n === 1 ? 'rename.moveOne' : 'rename.moveMany')
+  const action = verb === 'rename' ? 'submit' : 'move'
+  const count = n === 0 ? '' : n === 1 ? 'One' : 'Many'
+  const submitKey: MessageKey = `rename.${action}${count}${m ? 'Images' : ''}`
+  const images = t(m === 1 ? 'rename.imagesOne' : 'rename.imagesMany', { n: m })
+  const nothing = !!report && report.relinked.length === 0 && report.kept.length === 0 && report.images.moved.length === 0 && report.images.stayed.length === 0
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -90,7 +95,7 @@ function RenameDialog({ path, onClose, onMoved }: { path: string; onClose: () =>
             {preview.kind === 'idle' && <span className="preview-note">{t('rename.previewUnchanged')}</span>}
             {preview.kind === 'loading' && <span className="preview-note">{t('rename.previewLoading')}</span>}
             {preview.kind === 'error' && <span className="error-text" role="alert">{preview.message}</span>}
-            {report && report.relinked.length === 0 && report.kept.length === 0 && <span className="preview-note">{t('rename.previewNone')}</span>}
+            {nothing && <span className="preview-note">{t('rename.previewNone')}</span>}
             {report?.relinked.flatMap((r) => r.changes.map((c, i) => (
               <div className="preview-row" key={`${r.path}#${i}`}>
                 <span className="preview-src">{label(r.path)}</span>
@@ -99,6 +104,18 @@ function RenameDialog({ path, onClose, onMoved }: { path: string; onClose: () =>
                 </span>
               </div>
             )))}
+            {report?.images.moved.map((img) => (
+              <div className="preview-row preview-image" key={`m:${img.from}`}>
+                <span className="preview-src">{label(img.from)}</span>
+                <span>{t('rename.imageMoves')} <code>{label(img.to)}</code></span>
+              </div>
+            ))}
+            {report?.images.stayed.map((img) => (
+              <div className="preview-row preview-image preview-kept" key={`s:${img.path}`}>
+                <span className="preview-src">{label(img.path)}</span>
+                <span>{t(img.reason === 'shared' ? 'rename.imageShared' : 'rename.imageElsewhere')}</span>
+              </div>
+            ))}
             {report?.kept.map((k, i) => (
               <div className="preview-row preview-kept" key={`k:${k.path}#${i}`}>
                 <span className="preview-src">{label(k.path)}</span>
@@ -110,7 +127,7 @@ function RenameDialog({ path, onClose, onMoved }: { path: string; onClose: () =>
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className="btn btn-primary" isDisabled={!report || busy}>{t(submitKey, { n })}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={!report || busy}>{t(submitKey, { n, images })}</Button>
         </div>
       </form>
     </Dialog>

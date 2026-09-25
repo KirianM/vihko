@@ -5,7 +5,7 @@ export {
 } from './frontmatter.ts'
 export {
   extract, normalizeTag, withoutRanges,
-  type ExtractOptions, type Extracted, type Heading, type LinkRef, type Range, type TagRef,
+  type ExtractOptions, type Extracted, type Heading, type ImageLink, type LinkRef, type Range, type TagRef,
 } from './markdown.ts'
 export { markdownParser, thothSyntax } from './syntax.ts'
 export { LinkIndex, normKey, pathKeys, type NoteKeys, type Resolution } from './resolve.ts'

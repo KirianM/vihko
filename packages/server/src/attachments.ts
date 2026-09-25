@@ -71,6 +71,13 @@ export function attachmentPath(notePath: string, ext: string, now: Date, n = 1):
   return dir === '.' ? name : `${dir}/${name}`
 }
 
+/** `name` with a suffix for a taken name: `plan.png` → `plan-2.png` (n = 2). n = 1 is the name itself. */
+export function suffixedName(name: string, n: number): string {
+  if (n <= 1) return name
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? `${name.slice(0, dot)}-${n}${name.slice(dot)}` : `${name}-${n}`
+}
+
 export type FetchErrorCode = 'invalid' | 'too_large' | 'unsupported_type' | 'fetch_failed'
 
 export class FetchImageError extends Error {
