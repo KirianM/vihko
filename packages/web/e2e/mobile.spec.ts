@@ -1,5 +1,6 @@
 // Phone layout (390×844, touch): the folder drawer, the note header, the
 // editor bar, the side panel as a sheet, alerts, palette, theme and sign out.
+// Also the web app manifest and its icons (installable, no service worker).
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { E2E_DIR, NOTES, PASSWORD } from './env.ts'
@@ -156,6 +157,9 @@ test('dark theme from the drawer, and new note', async () => {
   await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
   await drawer(page).getByRole('button', { name: 'Cambiar a tema oscuro' }).tap()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  // The browser bar follows the chosen theme (colour from the tokens).
+  const bg = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim())
+  await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute('content', bg)
   await page.screenshot({ path: `${SHOTS}/mobile-drawer-dark.png`, animations: 'disabled' })
   await page.keyboard.press('Escape')
   await page.screenshot({ path: `${SHOTS}/mobile-note-dark.png`, animations: 'disabled' })
@@ -189,4 +193,34 @@ test('tablet (768px): sidebar and header fit, the note name is not clipped', asy
   await noHorizontalScroll(t)
   await t.screenshot({ path: `${SHOTS}/tablet-note.png`, animations: 'disabled' })
   await ctx.close()
+})
+
+test('web app manifest: installable fields and icons that exist', async ({ request }) => {
+  const html = await (await request.get('/')).text()
+  expect(html).toContain('<link rel="manifest" href="/manifest.webmanifest"')
+  expect(html).toMatch(/<meta name="theme-color" media="\(prefers-color-scheme: light\)" content="#[0-9A-Fa-f]{6}"/)
+  expect(html).toMatch(/<meta name="theme-color" media="\(prefers-color-scheme: dark\)" content="#[0-9A-Fa-f]{6}"/)
+  expect(html).toContain('<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png"')
+
+  const res = await request.get('/manifest.webmanifest')
+  expect(res.status()).toBe(200)
+  expect(res.headers()['content-type']).toMatch(/^application\/manifest\+json/)
+  const m = await res.json() as { name: string; short_name: string; start_url: string; display: string; theme_color: string; background_color: string; icons: { src: string; sizes: string; type: string; purpose: string }[] }
+  expect(m).toMatchObject({ name: 'thoth', short_name: 'thoth', start_url: '/', display: 'standalone' })
+  expect(m.theme_color).toMatch(/^#[0-9A-Fa-f]{6}$/)
+  expect(m.background_color).toMatch(/^#[0-9A-Fa-f]{6}$/)
+  // Chrome needs a 192 and a 512 icon; one maskable for Android's shapes.
+  expect(m.icons.map((i) => i.sizes)).toEqual(expect.arrayContaining(['192x192', '512x512']))
+  expect(m.icons.some((i) => i.purpose === 'maskable')).toBe(true)
+  for (const icon of [...m.icons, { src: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }]) {
+    const r = await request.get(icon.src)
+    expect(r.status(), icon.src).toBe(200)
+    expect(r.headers()['content-type']).toBe('image/png')
+    // PNG header: width and height (big-endian) at bytes 16 and 20.
+    const png = await r.body()
+    const [w, h] = icon.sizes.split('x').map(Number)
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)], icon.src).toEqual([w, h])
+  }
+  // No service worker: nothing is cached for offline use.
+  expect(html).not.toContain('serviceWorker')
 })
