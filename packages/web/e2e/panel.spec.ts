@@ -189,16 +189,11 @@ test('the text has changed: rewriting the commented sentence marks the thread fo
 ${SENTENCE}<!-- @noa`)
 })
 
-test('resolving asks first, then deletes the thread from the file and leaves the text as it was', async () => {
-  const thread = k.locator('.thread').first()
-  await thread.getByRole('button', { name: 'Resolver' }).click()
-  await expect(thread.locator('.thread-confirm p')).toHaveText('¿Resolver? Se borrará de la nota y, hasta que haya historial, no se podrá recuperar.')
-  await k.screenshot({ path: `${SHOTS}/comment-resolve-confirm.png` })
-  await thread.getByRole('button', { name: 'Cancelar' }).click()
-  await expect(thread.locator('.thread-confirm')).toHaveCount(0)
-  expect(disk()).toContain('<!--')
-  await thread.getByRole('button', { name: 'Resolver' }).click()
-  await thread.getByRole('button', { name: 'Resolver y borrar' }).click()
+// With the history on (the default), without asking: it can be reopened (resolved.spec.ts).
+test('resolving deletes the thread from the file and leaves the text as it was', async () => {
+  await expect(k.locator('.panel-note')).toContainText('quedan en el historial')
+  await k.locator('.thread').first().getByRole('button', { name: 'Resolver' }).click()
+  await expect(k.locator('.thread-confirm')).toHaveCount(0)
   await expect.poll(disk).not.toContain('<!--')
   expect(disk()).toContain(BODY)
   expect(disk().startsWith('---\ntitle: Comentarios\n# comentario de YAML que no se toca\n')).toBe(true)

@@ -34,6 +34,8 @@ export interface Session {
   doc: Y.Doc
   text: Y.Text
   provider: HocuspocusProvider
+  /** The note it edits. */
+  path: string
 }
 
 export interface CollabState {
@@ -70,7 +72,7 @@ export function useCollab(path: string): CollabState {
     let closedByHub = false
 
     const wire = ({ doc, text, provider }: Lineage) => {
-      set({ session: { doc, text, provider }, connection: 'connecting', save: 'saved' })
+      set({ session: { doc, text, provider, path }, connection: 'connecting', save: 'saved' })
       // Save state: on open, what arrives from the hub is what's on disk. After any
       // change (yours or someone else's), "saved" only once the hub announces the hash of the current text.
       let savedHash: string | null = null
