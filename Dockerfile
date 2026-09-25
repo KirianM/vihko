@@ -18,6 +18,18 @@ COPY packages/server/package.json packages/server/
 RUN npm ci --omit=dev --workspace @thoth/server --include-workspace-root=false \
  && npm cache clean --force
 
+FROM node:26-trixie-slim AS web
+# La UI se compila aquí y a la imagen final solo llegan los estáticos.
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY packages/core/package.json packages/core/
+COPY packages/server/package.json packages/server/
+COPY packages/web/package.json packages/web/
+RUN npm ci --workspace @thoth/web --include-workspace-root=false --ignore-scripts
+COPY packages/core/src packages/core/src
+COPY packages/web packages/web
+RUN npm run build --workspace @thoth/web
+
 FROM node:26-trixie-slim
 ENV NODE_ENV=production \
     THOTH_NOTES_DIR=/data/notes \
@@ -31,6 +43,7 @@ COPY packages/core/package.json packages/core/
 COPY packages/core/src packages/core/src
 COPY packages/server/package.json packages/server/
 COPY packages/server/src packages/server/src
+COPY --from=web /app/packages/web/dist packages/web/dist
 COPY LICENSE ./
 RUN mkdir -p /data/notes /data/state && chown -R node:node /data \
  && ln -s /app/packages/server/src/cli.ts /usr/local/bin/thoth
