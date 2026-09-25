@@ -63,15 +63,6 @@ create table links (
 create index links_key on links(key);
 create index links_dst on links(dst_path);
 
-create table headings (
-  path  text not null,
-  ord   integer not null,
-  level integer not null,
-  text  text not null,
-  pos   integer not null,
-  primary key (path, ord)
-);
-
 -- Every folder under the notes root (hidden ones aside), empty or not: the
 -- tree shows a folder that has no notes yet. Derived from disk like the rest.
 create table folders (

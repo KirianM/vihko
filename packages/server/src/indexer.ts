@@ -13,6 +13,7 @@ import { ExtensionHost, type Extension, type NoteSnapshot } from './extension.ts
 import { fts } from './extensions/fts.ts'
 import { tags } from './extensions/tags.ts'
 import { images } from './extensions/images.ts'
+import { headings } from './extensions/headings.ts'
 
 export interface IndexerOptions {
   notesDir: string
@@ -69,7 +70,7 @@ export class Indexer {
   constructor(opts: IndexerOptions) {
     this.opts = opts
     this.keys = { ...DEFAULT_KEYS, ...opts.keys }
-    this.host = new ExtensionHost(opts.db, [fts, images, tags, ...(opts.extensions ?? [])])
+    this.host = new ExtensionHost(opts.db, [fts, images, tags, headings, ...(opts.extensions ?? [])])
     this.host.markCurrent(this.host.install())
     this.loadLinkIndex()
   }
@@ -228,7 +229,6 @@ export class Indexer {
       notes: db.prepare('delete from notes where path = ?'),
       keys: db.prepare('delete from link_keys where path = ?'),
       links: db.prepare('delete from links where src_path = ?'),
-      headings: db.prepare('delete from headings where path = ?'),
     }
     const removeRows = (path: string) => {
       for (const s of Object.values(del)) s.run(path)
@@ -239,7 +239,6 @@ export class Indexer {
       key: db.prepare('insert or ignore into link_keys (key, path, kind) values (?, ?, ?)'),
       link: db.prepare(`insert into links (src_path, ord, kind, raw, target, anchor, display, pos_from, pos_to, key, status)
                         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'missing')`),
-      heading: db.prepare('insert into headings (path, ord, level, text, pos) values (?, ?, ?, ?, ?)'),
     }
     const touchStmt = db.prepare('update notes set mtime_ms = ?, size = ? where path = ?')
 
@@ -265,7 +264,6 @@ export class Indexer {
         x.links.forEach((l, i) => {
           ins.link.run(u.path, i, l.kind, l.raw, l.target, l.anchor, l.display, l.from, l.to, LinkIndex.keyOf(u.path, l))
         })
-        x.headings.forEach((h, i) => ins.heading.run(u.path, i, h.level, h.text, h.from))
         for (const k of this.links.set({ path: u.path, aliases, headings: x.headings.map((h) => h.text) })) affectedKeys.add(k)
         changedPaths.add(u.path)
         indexedPaths.add(u.path)
