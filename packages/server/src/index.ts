@@ -6,7 +6,7 @@ export { commitText, createFile, readStable, readText, replaceText, writeTmp, ty
 export { applyReplacements, planRelinks, type Replacement } from './relink.ts'
 export { Auth, AuthError, hashPassword, verifyPassword, type Role, type User } from './auth.ts'
 export { STATE_VERSION, openState } from './state.ts'
-export { SESSION_COOKIE, createApp, type AppDeps, type Orphans, type Runtime } from './http/app.ts'
+export { SESSION_COOKIE, createApp, type AppDeps, type ExternalImages, type Orphans, type Runtime } from './http/app.ts'
 export { ftsQuery } from './http/search.ts'
 export { configFromEnv, openStores, start, type Config } from './main.ts'
 export { COLLAB_PATH, CollabHub, ORPHAN_MESSAGE, SAVED_MESSAGE, TEXT, type HubOptions } from './hub.ts'

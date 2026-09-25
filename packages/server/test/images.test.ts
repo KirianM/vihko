@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   Auth, Indexer, NoteService, SESSION_COOKIE, attachmentPath, createApp, fetchImage, openIndex, openState, sniffImage,
-  type Runtime,
+  type ExternalImages, type Runtime,
 } from '@thoth/server'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
@@ -23,7 +23,7 @@ const WEBP = new TextEncoder().encode('RIFF\x10\x00\x00\x00WEBPVP8 ')
 const AVIF = Uint8Array.from([0, 0, 0, 0x1c, ...new TextEncoder().encode('ftypmif1\0\0\0\0mif1avifmiaf')])
 const SVG = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
 
-async function setup(opts: { maxImageBytes?: number; webDir?: string } = {}) {
+async function setup(opts: { maxImageBytes?: number; webDir?: string; externalImages?: ExternalImages } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'thoth-images-'))
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
@@ -33,7 +33,7 @@ async function setup(opts: { maxImageBytes?: number; webDir?: string } = {}) {
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
   runtime.rescan({})
   const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db: index, maxImageBytes: opts.maxImageBytes })
-  const app = createApp({ auth, notes, index, indexer, notesDir, runtime, webDir: opts.webDir })
+  const app = createApp({ auth, notes, index, indexer, notesDir, runtime, webDir: opts.webDir, externalImages: opts.externalImages })
   await auth.createUser('noa', 'a-long-password', 'member')
   const login = await app.request('/api/auth/login', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'noa', password: 'a-long-password' }),
@@ -184,5 +184,18 @@ test('by URL: a copy is downloaded and stored like an upload, following a few re
   } finally {
     server.closeAllConnections()
     server.close()
+  }
+})
+
+test('external images: exposed to the UI, and the UI CSP follows the setting', async () => {
+  const webDir = mkdtempSync(join(tmpdir(), 'thoth-web-'))
+  writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
+  for (const [setting, allowed] of [['allow', true], ['block', false]] as const) {
+    const { get } = await setup({ webDir, externalImages: setting, maxImageBytes: 1234 })
+    assert.deepEqual(await (await get('/api/config')).json(), { externalImages: setting, maxImageBytes: 1234 })
+    const csp = (await get('/')).headers.get('content-security-policy')!
+    const img = /img-src ([^;]*)/.exec(csp)![1]!
+    assert.equal(img.includes('https:'), allowed, csp)
+    assert.match(csp, /connect-src 'self'/, 'the UI itself still only talks to its server')
   }
 })

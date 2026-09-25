@@ -69,6 +69,8 @@ All optional:
 | `THOTH_HOST` / `THOTH_PORT` | `0.0.0.0` / `8080` | Where it listens |
 | `THOTH_RESCAN_SECONDS` | `60` | Full rescan interval |
 | `THOTH_WEB_DIR` | `packages/web/dist` | Built UI; without it the server only exposes the API |
+| `THOTH_MAX_IMAGE_MB` | `20` | Largest image stored from an upload, a paste or a URL |
+| `THOTH_EXTERNAL_IMAGES` | `allow` | `block` stops the browser loading images that notes link from other sites; a box with the domain is shown instead |
 
 No reverse proxy is required: it works over plain HTTP on a LAN. HTTPS and
 public exposure only matter if you enable remote MCP for external clients.

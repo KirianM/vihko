@@ -40,13 +40,24 @@ export interface AppDeps {
   runtime: Runtime
   /** Compiled UI (packages/web/dist). Without it, the server only exposes the API. */
   webDir?: string
+  /**
+   * External images already in notes (`![](https://…)`): loaded by the
+   * browser (`allow`, the default) or blocked for the whole installation (D-028).
+   */
+  externalImages?: ExternalImages
 }
 
-// The UI only talks to its own origin: no CDNs or third parties.
-const UI_HEADERS = {
-  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-  'X-Content-Type-Options': 'nosniff',
-  'Referrer-Policy': 'same-origin',
+export type ExternalImages = 'allow' | 'block'
+
+// The UI only talks to its own origin: no CDNs or third parties. The one
+// exception is images linked in notes, unless the administrator blocks them.
+function uiHeaders(external: ExternalImages) {
+  const img = external === 'allow' ? "img-src 'self' data: blob: https: http:" : "img-src 'self' data: blob:"
+  return {
+    'Content-Security-Policy': `default-src 'self'; ${img}; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'same-origin',
+  }
 }
 
 // Files from the notes folder are served inert: nothing in them runs, even
@@ -75,6 +86,7 @@ function fail(c: Context, status: ContentfulStatusCode, error: ErrorCode, messag
 
 export function createApp(deps: AppDeps) {
   const { auth, notes, index } = deps
+  const externalImages = deps.externalImages ?? 'allow'
   const app = new Hono<Env>()
 
   app.onError((err, c) => {
@@ -149,6 +161,9 @@ export function createApp(deps: AppDeps) {
   })
 
   app.get('/api/auth/me', (c) => c.json({ user: c.get('user') }))
+
+  // What the UI needs to know about this installation's settings.
+  app.get('/api/config', (c) => c.json({ externalImages, maxImageBytes: notes.maxImageBytes }))
 
   app.get('/api/tree', (c) => {
     const rows = index.prepare('select path, title, uid from notes order by path').all()
@@ -344,7 +359,7 @@ export function createApp(deps: AppDeps) {
     const root = deps.webDir
     app.use('*', async (c, next) => {
       await next()
-      for (const [k, v] of Object.entries(UI_HEADERS)) c.header(k, v)
+      for (const [k, v] of Object.entries(uiHeaders(externalImages))) c.header(k, v)
       // index.html uncached, so an update shows up on reload.
       if (c.res.headers.get('content-type')?.startsWith('text/html')) c.header('Cache-Control', 'no-cache')
     })
