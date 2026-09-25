@@ -15,6 +15,7 @@ import { Workspace } from './workspace.ts'
 import { Watcher } from './watcher.ts'
 import { ExternalMoves } from './externalMoves.ts'
 import { CollabHub } from './hub.ts'
+import { History } from './history/index.ts'
 import { SESSION_COOKIE } from './http/app.ts'
 import type { Server } from 'node:http'
 import { WORKSPACE_FILE } from '@thoth/core'
@@ -30,6 +31,14 @@ export interface Config {
   maxImageBytes: number
   /** THOTH_EXTERNAL_IMAGES: `allow` (default) or `block` images linked from other sites. */
   externalImages: ExternalImages
+  /**
+   * The history's timings, for tests and tuning (thoth.yaml says what matters:
+   * its mode and size limit). THOTH_HISTORY_QUIET_SECONDS: an open version
+   * closes after this long without changes (30); THOTH_HISTORY_MAX_SECONDS: or
+   * this long after it opened (300); THOTH_HISTORY_SWEEP_SECONDS: the full
+   * sweep of the folder (3600). THOTH_GIT: the git binary.
+   */
+  history: { quietMs: number; maxOpenMs: number; sweepMs: number; git: string }
 }
 
 export function configFromEnv(env = process.env): Config {
@@ -42,7 +51,19 @@ export function configFromEnv(env = process.env): Config {
     webDir: resolve(env.THOTH_WEB_DIR ?? fileURLToPath(new URL('../../web/dist', import.meta.url))),
     maxImageBytes: env.THOTH_MAX_IMAGE_MB ? positiveMb(env.THOTH_MAX_IMAGE_MB) : DEFAULT_MAX_IMAGE_BYTES,
     externalImages: externalImagesFrom(env.THOTH_EXTERNAL_IMAGES),
+    history: {
+      quietMs: seconds(env.THOTH_HISTORY_QUIET_SECONDS, 30),
+      maxOpenMs: seconds(env.THOTH_HISTORY_MAX_SECONDS, 300),
+      sweepMs: seconds(env.THOTH_HISTORY_SWEEP_SECONDS, 3600),
+      git: env.THOTH_GIT || 'git',
+    },
   }
+}
+
+function seconds(raw: string | undefined, fallback: number): number {
+  const n = raw === undefined || raw === '' ? fallback : Number(raw)
+  if (!Number.isFinite(n) || n <= 0) throw new Error(`expected a positive number of seconds, not "${raw}"`)
+  return n * 1000
 }
 
 function positiveMb(raw: string): number {
@@ -80,9 +101,18 @@ export async function start(config: Config) {
     log(`moved outside thoth: ${moves.map((m) => `${m.from} → ${m.to} (${m.by})`).join(', ')}`)
     follow?.followMoves(moves)
   }
-  /** Rereads thoth.yaml and applies what the index depends on. */
+  // The history: its journal is read before the hub recovers its notes (their
+  // flushes join what it left pending); it starts once they are recovered.
+  const history = new History({
+    notesDir: config.notesDir, stateDir: config.stateDir, config: () => workspace.config.history, log,
+    git: config.history.git, quietMs: config.history.quietMs, maxOpenMs: config.history.maxOpenMs, sweepMs: config.history.sweepMs,
+    nameOf: (a) => (a.kind === 'user' ? auth.username(a.id) ?? a.id : a.kind === 'agent' ? a.id : a.kind),
+  })
+  /** Rereads thoth.yaml and applies what the index and the history depend on. */
   const reloadWorkspace = () => {
-    if (workspace.reload()) indexer.setLinkAliases(workspace.config.links.aliases)
+    if (!workspace.reload()) return
+    indexer.setLinkAliases(workspace.config.links.aliases)
+    history.configure().catch((e) => log(`history: ${e instanceof Error ? e.message : String(e)}`))
   }
 
   const runtime: Runtime = {
@@ -97,7 +127,8 @@ export async function start(config: Config) {
   const first = runtime.rescan({})
   log(`index ready: ${first.added.length} added, ${first.changed.length} changed, ${first.removed.length} removed, ${first.unchanged} unchanged`)
 
-  const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log })
+  await history.open()
+  const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log, history: history.recorder })
   // Checked against the index as the first scan left it. One that stopped may
   // have left the index behind the files: then no saved state is trusted.
   if (!first.aborted) hub.trustSavedStates()
@@ -105,6 +136,9 @@ export async function start(config: Config) {
   // A note with pending edits moved while the server was stopped: its copy goes where the file is.
   hub.followMoves(first.moved)
   follow = hub
+  // What the journal left pending, then the folder against the history (changes made while stopped).
+  await history.start()
+  indexer.onApplied = (applied) => history.recorder.observeIndexed(applied)
 
   const watcher = new Watcher({
     notesDir: config.notesDir,
@@ -115,6 +149,8 @@ export async function start(config: Config) {
     onReport: (kind, r) => { if (kind === 'rescan') { runtime.lastScan = r; reloadWorkspace() } },
     onError: (err) => log(`watcher: ${err instanceof Error ? err.message : String(err)}`),
     onChange: (paths) => {
+      // Files that aren't notes reach the history here (notes, through the indexer).
+      void history.recorder.observePaths(paths)
       if (paths.includes(WORKSPACE_FILE)) reloadWorkspace()
       for (const p of paths) if (hub.has(p)) hub.checkExternal(p).catch(() => {})
     },
@@ -123,12 +159,12 @@ export async function start(config: Config) {
 
   const notes = new NoteService({
     notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes,
-    attachments: () => workspace.config.attachments,
+    attachments: () => workspace.config.attachments, history: history.recorder,
   })
   const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const profiles = new Profiles(state)
-  const app = createApp({ auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves })
+  const app = createApp({ auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history })
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   hub.attach(server, SESSION_COOKIE)
   // serve() opens the port asynchronously: only announced once it's actually listening.
@@ -145,9 +181,10 @@ export async function start(config: Config) {
   const stop = async () => {
     watcher.stop()
     await hub.close()
+    await history.close()
     server.close()
     index.close()
     state.close()
   }
-  return { app, stop, auth, hub, notes, server, workspace }
+  return { app, stop, auth, hub, notes, server, workspace, history }
 }

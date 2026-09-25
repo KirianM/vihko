@@ -286,6 +286,40 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           body: rich(t('alerts.templateBody'), { template: <span className="mono">{a.template}</span> }),
           actions: null,
         })
+      case 'history_unavailable':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.historyUnavailableTitle'),
+          body: t('alerts.historyUnavailableBody'),
+          extra: a.detail && (
+            <details>
+              <summary>{t('alerts.historyDetail')}</summary>
+              <pre className="alert-copy">{a.detail}</pre>
+            </details>
+          ),
+          actions: null,
+        })
+      case 'history_files_too_large':
+        return frame({
+          icon: icons.config,
+          title: a.paths.length === 1 ? t('alerts.historyTooLargeTitleOne') : t('alerts.historyTooLargeTitle', { n: a.paths.length }),
+          body: t('alerts.historyTooLargeBody', { limit: a.limitMb }),
+          extra: (
+            <ul className="alert-paths">
+              {a.paths.slice(0, 10).map((p) => <li key={p}><span className="mono">{p}</span></li>)}
+              {a.paths.length > 10 && <li>{t('alerts.movedMore', { n: a.paths.length - 10 })}</li>}
+            </ul>
+          ),
+          actions: null,
+        })
+      case 'history_no_repository':
+        return frame({
+          icon: icons.config,
+          title: t('alerts.historyNoRepoTitle'),
+          body: t('alerts.historyNoRepoBody'),
+          actions: null,
+        })
       case 'sync_conflict': {
         const shown = a.path in copies
         return frame({

@@ -6,7 +6,7 @@ import { renderTemplate, type CivilDateTime } from '@thoth/core'
 import type { User } from './auth.ts'
 import { NoteError, type Actor, type NoteService } from './notes.ts'
 
-const actorOf = (u: User): Actor => ({ kind: 'user', id: u.username })
+const actorOf = (u: User): Actor => ({ kind: 'user', id: u.id })
 
 /**
  * Creates `path` with the text of the note `template`, its variables filled

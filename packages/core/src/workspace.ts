@@ -32,7 +32,28 @@ export interface WorkspaceConfig {
    * Obsidian, and the editor inserts `[[Note|alias]]`.
    */
   links: { aliases: boolean }
+  /** Note history (D-016, D-032): how it's kept and the largest file it takes. */
+  history: HistoryConfig
 }
+
+/**
+ * Note history (`history` in thoth.yaml):
+ * - `mode`: `managed` (the default: thoth keeps its own repository in the
+ *   state volume), `unmanaged` (thoth only reads the repository the notes
+ *   folder already has) or `off`.
+ * - `maxFileSize`: in MB; a larger file doesn't enter the history.
+ */
+export interface HistoryConfig {
+  mode: HistoryMode
+  maxFileSize: number
+}
+
+export type HistoryMode = 'managed' | 'unmanaged' | 'off'
+
+export const HISTORY_MODES: readonly HistoryMode[] = ['managed', 'unmanaged', 'off']
+
+/** Largest file the history takes by default, in MB: the same as uploads. */
+export const DEFAULT_HISTORY_MAX_FILE_MB = 20
 
 /**
  * Where new images go. Three modes, chosen with `attachments.mode`:
@@ -50,7 +71,10 @@ export interface AttachmentsConfig {
 /** Suffix of a note's attachments folder in `per-note` mode, unless `attachments.suffix` says otherwise. */
 export const DEFAULT_ATTACHMENTS_SUFFIX = '.assets'
 
-export const EMPTY_WORKSPACE: WorkspaceConfig = { templates: null, daily: [], attachments: { folder: null }, links: { aliases: true } }
+export const EMPTY_WORKSPACE: WorkspaceConfig = {
+  templates: null, daily: [], attachments: { folder: null }, links: { aliases: true },
+  history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB },
+}
 
 /**
  * A problem in thoth.yaml. Stable codes; the UI words them.
@@ -135,8 +159,9 @@ const PERMISSIONS: StrictSection<null> = {
 
 export const STRICT_SECTIONS: readonly StrictSection[] = [PERMISSIONS]
 
-const TOP_KEYS = ['version', 'templates', 'daily', 'attachments', 'links']
+const TOP_KEYS = ['version', 'templates', 'daily', 'attachments', 'links', 'history']
 const LINKS_KEYS = ['aliases']
+const HISTORY_KEYS = ['mode', 'maxFileSize']
 const SERIES_KEYS = ['folder', 'name', 'template', 'label']
 const ATTACHMENT_KEYS = ['mode', 'folder', 'suffix']
 const ATTACHMENT_MODES = ['next-to-note', 'folder', 'per-note']
@@ -167,7 +192,10 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
   if (data === null || data === undefined) return { ok: true, config: EMPTY_WORKSPACE, warnings, sections }
   if (!isRecord(data)) return { ok: false, errors: [{ code: 'not_a_map', at: null, line: 1, detail: null }], warnings }
 
-  const config: WorkspaceConfig = { templates: null, daily: [], attachments: { folder: null }, links: { aliases: true } }
+  const config: WorkspaceConfig = {
+    templates: null, daily: [], attachments: { folder: null }, links: { aliases: true },
+    history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB },
+  }
   const strictKeys = new Set(strict.map((s) => s.key))
   for (const key of Object.keys(data)) if (!TOP_KEYS.includes(key) && !strictKeys.has(key)) warn('unknown_key', [key])
 
@@ -221,6 +249,22 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
       const a = data.links.aliases
       if (typeof a === 'boolean') config.links.aliases = a
       else if (a !== undefined && a !== null) fail('not_boolean', ['links', 'aliases'])
+    }
+  }
+
+  if (data.history !== undefined && data.history !== null) {
+    if (!isRecord(data.history)) fail('not_a_map', ['history'])
+    else {
+      const h = data.history
+      for (const k of Object.keys(h)) if (!HISTORY_KEYS.includes(k)) warn('unknown_key', ['history', k])
+      if (h.mode !== undefined && h.mode !== null) {
+        if (typeof h.mode === 'string' && (HISTORY_MODES as readonly string[]).includes(h.mode)) config.history.mode = h.mode as HistoryMode
+        else fail('invalid_value', ['history', 'mode'], HISTORY_MODES.join(', '))
+      }
+      if (h.maxFileSize !== undefined && h.maxFileSize !== null) {
+        if (typeof h.maxFileSize === 'number' && Number.isFinite(h.maxFileSize) && h.maxFileSize > 0) config.history.maxFileSize = h.maxFileSize
+        else fail('invalid_value', ['history', 'maxFileSize'], 'MB > 0')
+      }
     }
   }
 

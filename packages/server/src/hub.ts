@@ -88,6 +88,24 @@ export interface HubOptions {
    */
   orphanGraceMs?: number
   log?: (msg: string) => void
+  /** The history: who types, what the hub writes and what changed outside (history/recorder.ts). */
+  history?: HubHistory
+}
+
+/**
+ * What the hub tells the history. Each flush is reported right before the
+ * file is written, and a direct write inside its transaction: nothing can see
+ * the new text on disk before the history expects it.
+ */
+export interface HubHistory {
+  /** Someone typed in the note since its last flush. */
+  typing(path: string, actor: Actor): void
+  /** What people typed is about to be written. */
+  flushing(path: string, text: string): void
+  /** A direct write (agent, API, system) to the open note: `typed` is the document right before it. */
+  write(path: string, w: { typed: string; after: string; actor: Actor }): void
+  /** An external change was integrated: `text` is what's on disk. */
+  external(path: string, text: string): void
 }
 
 /** `generation`: the one the editor's copy belongs to (null: an empty copy, it claims none). */
@@ -284,6 +302,12 @@ export class CollabHub implements HotDocuments {
         // Without `message`, so the hook chain doesn't log it again. Hocuspocus closes the connection.
         throw { code: 4409, reason: STALE_MESSAGE }
       },
+      // Who types (D-033): an update from an editor's connection carries its session's user.
+      onChange: async ({ documentName, transactionOrigin }) => {
+        const origin = transactionOrigin as { source?: string; connection?: { context?: Ctx } } | null
+        const user = origin?.source === 'connection' ? origin.connection?.context?.user : undefined
+        if (user) this.opts.history?.typing(documentName, { kind: 'user', id: user.id })
+      },
       onLoadDocument: async ({ documentName, document }) => { await this.load(documentName, document) },
       onStoreDocument: async ({ documentName }) => { await this.flush(documentName) },
       beforeUnloadDocument: async ({ documentName }) => { await this.flush(documentName) },
@@ -370,7 +394,9 @@ export class CollabHub implements HotDocuments {
           if (s.remove) ytext.delete(s.at, s.remove)
           if (s.insert) ytext.insert(s.at, s.insert)
         }
-        result = { etag: contentHash(ytext.toString()) }
+        const after = ytext.toString()
+        if (after !== cur) this.opts.history?.write(path, { typed: cur, after, actor: opts.actor })
+        result = { etag: contentHash(after) }
       })
     } finally {
       await conn.disconnect()
@@ -394,7 +420,7 @@ export class CollabHub implements HotDocuments {
       }
       h.discarded = true
       if (opts.trash) {
-        const msg = { type: TRASHED_MESSAGE, path, id: opts.trash.id, by: actorName(opts.trash.actor) }
+        const msg = { type: TRASHED_MESSAGE, path, id: opts.trash.id, by: this.actorName(opts.trash.actor) }
         this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify(msg))
       }
     })
@@ -443,6 +469,7 @@ export class CollabHub implements HotDocuments {
     })
     if (late) {
       const { text, base } = late as { text: string; base: string }
+      this.opts.history?.flushing(to, text)
       const w = await replaceText(this.file(to), text, contentHash(base))
       if (w.replaced) this.opts.indexer.indexPaths([to])
       else this.log(`${to}: could not write what was typed during the move (the file changed)`)
@@ -476,7 +503,7 @@ export class CollabHub implements HotDocuments {
    */
   async followMove(from: string, to: string): Promise<boolean> {
     // Only in the recovery log (its editors left, or the server restarted): loaded to follow it.
-    const conn = this.hot.has(from) ? null : await this.hocuspocus.openDirectConnection(from, { system: { kind: 'system', reason: 'follow a note moved outside thoth' } })
+    const conn = this.hot.has(from) ? null : await this.hocuspocus.openDirectConnection(from, { system: { kind: 'system', reason: { code: 'follow_external_move' } } })
     try {
       return await withLock(from, async () => {
         const h = this.hot.get(from)
@@ -498,6 +525,7 @@ export class CollabHub implements HotDocuments {
             this.ensureUid(h)
             const text = h.doc.getText(TEXT).toString()
             if (text === disk) return
+            this.opts.history?.flushing(to, text)
             const r = await replaceText(target, text, contentHash(disk))
             if (r.replaced) {
               this.opts.indexer.indexPaths([to])
@@ -651,6 +679,7 @@ export class CollabHub implements HotDocuments {
     Y.applyUpdate(h.doc, Y.encodeStateAsUpdate(fork, sv), 'external')
     this.log(`external change integrated into ${path}${onDisk ? '' : ' (rescued from the rename)'}`)
     if (!onDisk) return
+    this.opts.history?.external(path, newText)
     h.snapshot = Y.encodeStateAsUpdate(fork)
     h.flushedText = newText
     h.flushedHash = newHash
@@ -719,6 +748,7 @@ export class CollabHub implements HotDocuments {
       if (!set) this.expected.set(path, (set = new Set()))
       set.add(hash)
       writeSync(h.logFd, record('F', Buffer.from(hash, 'latin1')))
+      this.opts.history?.flushing(path, text)
       const r = await replaceText(h.file, text, h.flushedHash)
       if (!r.replaced) {
         const disk = await readStable(h.file, h.flushedText)
@@ -809,12 +839,13 @@ export class CollabHub implements HotDocuments {
   /** Keeps the copy: recreates the file with what was being written. */
   async restoreOrphan(path: string): Promise<{ etag: string }> {
     if (!this.orphans().includes(path)) throw new NoteError('not_found', `no pending copy for ${path}`)
-    const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: 'keep the copy of a note deleted outside' } })
+    const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: { code: 'keep_copy' } } })
     try {
       return await withLock(path, async () => {
         const h = this.hot.get(path)!
         const text = h.doc.getText(TEXT).toString()
         mkdirSync(dirname(h.file), { recursive: true })
+        this.opts.history?.flushing(path, text)
         const r = await replaceText(h.file, text, null)
         if (!r.replaced) throw new NoteError('exists', `another note already exists at ${path}`)
         h.orphaned = false
@@ -876,7 +907,7 @@ export class CollabHub implements HotDocuments {
     for (const f of readdirSync(this.logDir).filter((x) => x.endsWith('.ylog'))) {
       const path = decodeURIComponent(f.slice(0, -'.ylog'.length))
       try {
-        const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: 'recovery after a crash' } })
+        const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: { code: 'crash_recovery' } } })
         await conn.disconnect()
       } catch (err) {
         this.log(`could not recover ${path}: ${err instanceof Error ? err.message : String(err)}`)
@@ -900,11 +931,14 @@ export class CollabHub implements HotDocuments {
     const next = setFrontmatterKey(cur, this.uidKey, h.uid)
     h.doc.transact(() => applyTextDiff(ytext, cur, next), 'uid')
   }
+
+  /** How editors are told who did something: the user's current name (actors carry ids). */
+  private actorName(a: Actor): string {
+    if (a.kind === 'user') return this.opts.auth.username(a.id) ?? a.id
+    return a.kind === 'agent' ? a.id : 'system'
+  }
 }
 
-function actorName(a: Actor): string {
-  return a.kind === 'user' ? a.id : a.kind === 'agent' ? a.id : 'system'
-}
 
 /** The generation in an editor's token (`{"generation": …}`); anything else claims none. */
 function parseGeneration(token: string): string | null {

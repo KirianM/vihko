@@ -123,6 +123,31 @@ test('scan stopped: the admin confirms with the figure they see; a member has no
   await a.context().close()
 })
 
+test('history alerts: git failing (with its detail), files over the limit, no repository in unmanaged mode', async ({ browser }) => {
+  const k = await signIn(browser, 'noa')
+  const big = Array.from({ length: 12 }, (_, i) => `videos/clip-${i}.mp4`)
+  await mockAlerts(k, [
+    { code: 'history_unavailable', detail: 'git fast-import exited with 128: fatal: write error: No space left on device', actions: [] },
+    { code: 'history_files_too_large', paths: big, limitMb: 20, actions: [] },
+    { code: 'history_no_repository', actions: [] },
+  ])
+  await k.goto('/?view=avisos')
+  const git = card(k, 'no puede guardar versiones')
+  await expect(git).toContainText('Las notas se siguen guardando con normalidad')
+  await expect(git.locator('.alert-copy')).toBeHidden()
+  await git.getByText('Detalle para quien administra thoth').click()
+  await expect(git.locator('.alert-copy')).toContainText('No space left on device')
+  const large = card(k, 'no entran en el historial')
+  await expect(large.getByRole('heading')).toHaveText('12 archivos no entran en el historial')
+  await expect(large).toContainText('límite de 20 MB')
+  await expect(large.locator('li')).toHaveCount(11) // ten paths and «and 2 more»
+  await expect(large).toContainText('y 2 más')
+  await expect(card(k, 'no tiene repositorio git')).toContainText('history.mode: unmanaged')
+  await k.setViewportSize({ width: 1440, height: 900 })
+  await k.screenshot({ path: `${SHOTS}/avisos-historial.png`, fullPage: true, animations: 'disabled' })
+  await k.context().close()
+})
+
 test('empty state', async ({ browser }) => {
   const k = await signIn(browser, 'noa')
   await mockAlerts(k, [])
