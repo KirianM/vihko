@@ -1,0 +1,25 @@
+{
+  "name": "@thoth/web",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "dev": "node scripts/tokens.ts && vite",
+    "build": "node scripts/tokens.ts && vite build",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "vite": "^8.3.1"
+  },
+  "dependencies": {
+    "@fontsource-variable/ibm-plex-sans": "^5.3.0",
+    "@fontsource-variable/literata": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "react": "^19.3.0",
+    "react-aria-components": "^1.21.1",
+    "react-dom": "^19.3.0"
+  }
+}

@@ -19,6 +19,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run build
       - run: npm test
 
   docker:
@@ -31,11 +32,13 @@ jobs:
         run: |
           docker run -d --name thoth -p 8080:8080 thoth:ci
           for i in $(seq 1 30); do
-            curl -fs http://127.0.0.1:8080/api/health && exit 0
+            curl -fs http://127.0.0.1:8080/api/health && break
             sleep 1
           done
           docker logs thoth
-          exit 1
+          curl -fs http://127.0.0.1:8080/api/health
+      - name: Sirve la UI
+        run: curl -fs http://127.0.0.1:8080/ | grep -q 'id="root"'
 
   dco:
     if: github.event_name == 'pull_request'

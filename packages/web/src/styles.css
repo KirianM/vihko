@@ -1,0 +1,132 @@
+/* Estilos base de thoth. Colores, escalas y familias salen de tokens.css
+   (sistema de diseño de Claude Design). Aquí no se escribe ningún color. */
+@import './theme/tokens.css';
+
+/* Las fuentes variables de Fontsource se registran con el sufijo «Variable»;
+   se anteponen a las familias del sistema de diseño. */
+:root {
+  --font-serif: 'Literata Variable', Literata, Georgia, serif;
+  --font-sans: 'IBM Plex Sans Variable', 'IBM Plex Sans', system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+}
+a { color: var(--accent); }
+a:hover { color: var(--accent-strong); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* --- Botones (componente Boton del sistema de diseño) ------------------ */
+.btn {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.2;
+  cursor: pointer;
+  height: var(--control-lg);
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink);
+}
+.btn[data-pressed] { background: var(--chip); }
+.btn[data-disabled] { opacity: 0.55; cursor: default; }
+.btn-primary { background: var(--accent); color: var(--on-accent); border: none; font-weight: 600; }
+.btn-primary[data-pressed] { background: var(--accent-strong); }
+.btn-danger { border-color: var(--danger); color: var(--danger); }
+.btn-xl { height: var(--control-xl); }
+.btn-icon { width: var(--control-md); height: var(--control-md); padding: 0; }
+@media (pointer: coarse) { .btn { min-height: var(--touch); } .btn-icon { width: var(--touch); height: var(--touch); } }
+
+/* --- Formularios -------------------------------------------------------- */
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.field input {
+  font: inherit;
+  font-size: 15px;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--field);
+  color: var(--ink);
+}
+.field .hint { font-size: 12px; color: var(--muted); }
+.mono { font-family: var(--font-mono); }
+.error-text { color: var(--danger); font-size: 13px; }
+
+/* --- Pantallas de acceso ------------------------------------------------ */
+.gate { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: var(--space-4); position: relative; }
+.gate-corner { position: absolute; top: var(--space-6); right: var(--space-6); }
+.gate-card {
+  width: 100%;
+  max-width: 460px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  padding: 36px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.gate-card h1 { margin: 0; font-family: var(--font-serif); font-size: 24px; font-weight: 600; line-height: 30px; }
+.gate-card p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
+.gate-card .small { font-size: 12px; }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--ink); }
+.brand svg { color: var(--accent); }
+.brand span { font-family: var(--font-serif); font-size: 26px; font-weight: 600; }
+
+/* --- Estructura principal ---------------------------------------------- */
+.shell { display: flex; height: 100%; }
+.sidebar { width: 272px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--side); min-height: 0; }
+.sidebar-head { height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); }
+.sidebar-head .brand span { font-size: 20px; }
+.sidebar-search { margin: 12px 12px 8px; justify-content: flex-start; color: var(--muted); background: var(--surface); height: 40px; padding: 0 12px; }
+.sidebar-search span { flex-grow: 1; text-align: left; }
+kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 1px 5px; }
+.sidebar-tree { flex-grow: 1; overflow: auto; padding: 4px 8px; }
+.sidebar-alerts { margin: 8px 12px; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border-radius: var(--radius-md); background: var(--warn-soft); color: var(--warn-ink); font-size: 13px; text-decoration: none; }
+.sidebar-user { height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 16px; border-top: 1px solid var(--line); }
+.sidebar-user .name { flex-grow: 1; }
+.sidebar-user .role { font-size: 12px; color: var(--muted); }
+.avatar { width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: var(--user-1); color: var(--on-user); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+
+/* Árbol (React Aria Tree) */
+.tree { display: flex; flex-direction: column; gap: 1px; outline: none; }
+.tree-item { outline: none; border-radius: 6px; color: var(--muted); cursor: pointer; }
+.tree-row { display: flex; align-items: center; gap: 6px; height: 32px; padding-right: 8px; }
+.tree-item[data-selected] { background: var(--accent-soft); color: var(--accent-strong); font-weight: 500; }
+.tree-item[data-focus-visible] { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tree-item[data-hovered]:not([data-selected]) { background: var(--chip); }
+.tree-chevron { width: 20px; height: 20px; padding: 0; border: none; background: transparent; color: inherit; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+.tree-chevron svg { transition: transform 120ms; }
+.tree-item[data-expanded] > .tree-row .tree-chevron svg { transform: rotate(90deg); }
+.tree-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (prefers-reduced-motion: reduce) { .tree-chevron svg { transition: none; } }
+
+.main { flex-grow: 1; min-width: 0; display: flex; flex-direction: column; }
+.main-head { height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 20px 0 28px; border-bottom: 1px solid var(--line); }
+.crumbs { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crumbs b { color: var(--ink); font-weight: 500; font-size: 14px; }
+.spacer { flex-grow: 1; }
+.note { flex-grow: 1; overflow: auto; padding: 36px 56px 48px var(--space-18); }
+.note-body { max-width: 72ch; font-family: var(--font-serif); font-size: 17px; line-height: 28px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.note-hint { font-size: 12px; color: var(--faint); margin-bottom: var(--space-4); }
+.empty { color: var(--muted); padding: var(--space-8); }
+
+@media (max-width: 760px) {
+  .sidebar { display: none; }
+  .note { padding: var(--space-6) var(--space-4); }
+  .main-head { padding: 0 8px 0 16px; }
+}

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { copyFileSync, cpSync, existsSync, mkdtempSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,7 +9,7 @@ import { Auth, Indexer, NoteService, SESSION_COOKIE, STATE_VERSION, createApp, f
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
-async function setup() {
+async function setup(opts: { webDir?: string } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'thoth-http-'))
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
@@ -21,8 +21,9 @@ async function setup() {
   const runtime: Runtime = { lastScan: null, rescan(force) { return (this.lastScan = indexer.scan({ force })) } }
   runtime.rescan(false)
   const notes = new NoteService({ notesDir, stateDir, indexer, db: index })
-  const app = createApp({ auth, notes, index, indexer, notesDir, runtime })
+  const app = createApp({ auth, notes, index, indexer, notesDir, runtime, webDir: opts.webDir })
   let cookie = ''
+  const raw = (path: string) => app.request(path, { headers: { cookie } })
   const req = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
     const res = await app.request(path, {
       method,
@@ -33,7 +34,7 @@ async function setup() {
     if (set?.startsWith(SESSION_COOKIE + '=')) cookie = set.split(';')[0]!
     return { status: res.status, headers: res.headers, body: await res.json().catch(() => null) as any }
   }
-  return { dir, notesDir, auth, req, runtime }
+  return { dir, notesDir, auth, req, raw, runtime }
 }
 
 test('contraseñas: scrypt, verificación y rechazo', async () => {
@@ -48,12 +49,15 @@ test('primer arranque: token de un solo uso para crear el admin', async () => {
   const { auth, req } = await setup()
   assert.deepEqual((await req('GET', '/api/setup')).body, { needed: true })
   const token = auth.setupToken()!
-  assert.equal((await req('POST', '/api/setup', { token: 'malo', username: 'noa', password: 'contraseña-larga' })).status, 400)
-  assert.equal((await req('POST', '/api/setup', { token, username: 'noa', password: 'corta' })).status, 400)
+  const bad = await req('POST', '/api/setup', { token: 'malo', username: 'noa', password: 'contraseña-larga' })
+  assert.deepEqual([bad.status, bad.body.error], [400, 'invalid_token'])
+  const weak = await req('POST', '/api/setup', { token, username: 'noa', password: 'corta' })
+  assert.deepEqual([weak.status, weak.body.error], [400, 'weak_password'])
   const ok = await req('POST', '/api/setup', { token, username: 'noa', password: 'contraseña-larga' })
   assert.equal(ok.status, 200)
   assert.equal(ok.body.user.role, 'admin')
-  assert.equal((await req('POST', '/api/setup', { token, username: 'otro', password: 'contraseña-larga' })).status, 400, 'el token se consume')
+  const again = await req('POST', '/api/setup', { token, username: 'otro', password: 'contraseña-larga' })
+  assert.deepEqual([again.status, again.body.error], [409, 'already_setup'], 'el token se consume')
   assert.deepEqual((await req('GET', '/api/setup')).body, { needed: false })
 })
 
@@ -136,6 +140,30 @@ test('enlaces, backlinks con contexto, búsqueda y alertas', async () => {
   assert.equal(alerts.body.uidConflicts[0].uid, '01J8X4M2K9QZ')
 
   assert.equal((await req('POST', '/api/admin/rescan', {})).status, 403, 'un member no es admin')
+})
+
+test('UI: estáticos, rutas de la aplicación a index.html y la API no cae en la UI', async () => {
+  const webDir = mkdtempSync(join(tmpdir(), 'thoth-web-'))
+  mkdirSync(join(webDir, 'assets'))
+  writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
+  writeFileSync(join(webDir, 'assets', 'app-abc123.js'), 'console.log(1)')
+  const { auth, req, raw } = await setup({ webDir })
+  const home = await raw('/')
+  assert.equal(home.status, 200)
+  assert.match(await home.text(), /id="root"/)
+  assert.match(home.headers.get('content-security-policy')!, /default-src 'self'/)
+  assert.equal(home.headers.get('cache-control'), 'no-cache')
+  const deep = await raw('/cualquier/ruta?note=Plan.md')
+  assert.equal(deep.status, 200)
+  assert.match(await deep.text(), /id="root"/, 'las rutas de la aplicación sirven index.html')
+  const asset = await raw('/assets/app-abc123.js')
+  assert.equal(await asset.text(), 'console.log(1)')
+  assert.match(asset.headers.get('cache-control')!, /immutable/)
+  assert.equal((await req('GET', '/api/no-existe')).status, 401, 'la API sigue exigiendo sesión')
+  await auth.createUser('noa', 'contraseña-larga', 'admin')
+  await req('POST', '/api/auth/login', { username: 'noa', password: 'contraseña-larga' })
+  const missing = await req('GET', '/api/no-existe')
+  assert.deepEqual([missing.status, missing.body.error], [404, 'not_found'], 'una ruta de API desconocida no devuelve la UI')
 })
 
 test('CSRF: se rechaza una escritura desde otro origen', async () => {

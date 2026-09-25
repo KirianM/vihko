@@ -27,7 +27,16 @@ export interface User {
   disabled: boolean
 }
 
-export class AuthError extends Error {}
+export type AuthErrorCode = 'invalid_username' | 'weak_password' | 'user_exists' | 'already_setup' | 'invalid_token'
+
+/** Error de alta o primer arranque. `code` es estable y la UI lo traduce (D-025). */
+export class AuthError extends Error {
+  readonly code: AuthErrorCode
+  constructor(code: AuthErrorCode, message: string) {
+    super(message)
+    this.code = code
+  }
+}
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16)
@@ -75,9 +84,9 @@ export class Auth {
 
   async createUser(username: string, password: string, role: Role): Promise<User> {
     const name = username.normalize('NFC').trim()
-    if (!/^[\p{L}\p{N}._-]{2,64}$/u.test(name)) throw new AuthError('nombre de usuario no válido (2–64 letras, dígitos, ".", "_" o "-")')
-    if (password.length < MIN_PASSWORD) throw new AuthError(`la contraseña debe tener al menos ${MIN_PASSWORD} caracteres`)
-    if (this.db.prepare('select 1 from users where username = ?').get(name)) throw new AuthError(`el usuario ${name} ya existe`)
+    if (!/^[\p{L}\p{N}._-]{2,64}$/u.test(name)) throw new AuthError('invalid_username', 'nombre de usuario no válido (2–64 letras, dígitos, ".", "_" o "-")')
+    if (password.length < MIN_PASSWORD) throw new AuthError('weak_password', `la contraseña debe tener al menos ${MIN_PASSWORD} caracteres`)
+    if (this.db.prepare('select 1 from users where username = ?').get(name)) throw new AuthError('user_exists', `el usuario ${name} ya existe`)
     const user: User = { id: newUid(), username: name, role, disabled: false }
     this.db.prepare('insert into users (id, username, password_hash, role, created_at) values (?, ?, ?, ?, ?)')
       .run(user.id, user.username, await hashPassword(password), role, new Date().toISOString())
@@ -86,10 +95,10 @@ export class Auth {
 
   /** Crea el primer admin con el token de primer arranque. El token se consume. */
   async setup(token: string, username: string, password: string): Promise<User> {
-    if (!this.setupHash || this.userCount() > 0) throw new AuthError('la instalación ya está configurada')
+    if (!this.setupHash || this.userCount() > 0) throw new AuthError('already_setup', 'la instalación ya está configurada')
     const a = Buffer.from(tokenHash(token))
     const b = Buffer.from(this.setupHash)
-    if (a.length !== b.length || !timingSafeEqual(a, b)) throw new AuthError('token de primer arranque no válido')
+    if (a.length !== b.length || !timingSafeEqual(a, b)) throw new AuthError('invalid_token', 'token de primer arranque no válido')
     const user = await this.createUser(username, password, 'admin')
     this.setupHash = null
     return user

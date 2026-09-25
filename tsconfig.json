@@ -10,7 +10,14 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["packages/*/src", "packages/*/test"]
+  "include": [
+    "packages/core/src",
+    "packages/core/test",
+    "packages/server/src",
+    "packages/server/test"
+  ]
 }

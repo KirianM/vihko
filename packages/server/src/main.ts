@@ -1,8 +1,9 @@
 // Arranque del servidor. Configuración por variables de entorno; ninguna es
 // obligatoria salvo dónde están las notas y el estado.
 import { serve } from '@hono/node-server'
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Auth } from './auth.ts'
 import { openIndex } from './db.ts'
 import { createApp, type Runtime } from './http/app.ts'
@@ -20,6 +21,7 @@ export interface Config {
   host: string
   port: number
   rescanSeconds: number
+  webDir: string
 }
 
 export function configFromEnv(env = process.env): Config {
@@ -29,6 +31,7 @@ export function configFromEnv(env = process.env): Config {
     host: env.THOTH_HOST ?? '0.0.0.0',
     port: Number(env.THOTH_PORT ?? 8080),
     rescanSeconds: Number(env.THOTH_RESCAN_SECONDS ?? 60),
+    webDir: resolve(env.THOTH_WEB_DIR ?? fileURLToPath(new URL('../../web/dist', import.meta.url))),
   }
 }
 
@@ -72,7 +75,9 @@ export async function start(config: Config) {
   watcher.start()
 
   const notes = new NoteService({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub })
-  const app = createApp({ auth, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub })
+  const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
+  if (!webDir) log(`sin UI: no hay compilación en ${config.webDir} (npm run build); solo API`)
+  const app = createApp({ auth, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir })
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   hub.attach(server, SESSION_COOKIE)
   // serve() abre el puerto de forma asíncrona: solo se anuncia cuando de verdad escucha.
