@@ -339,14 +339,20 @@ export class NoteService {
     }
 
     // 4. The rest of the notes, as the system. The plan is recalculated over the current text.
+    // Several at a time: each safe write spends most of its time waiting for stable reads.
     const system: Actor = { kind: 'system', reason: `renamed ${from} to ${to} by ${actorLabel(opts.actor)}` }
-    for (const src of others) {
-      try {
-        await this.edit(src, (t) => relinkSplices(t, planRelinks(t, src, src, before, after, map)), { actor: system })
-      } catch (err) {
-        report.failed.push({ path: src, ...failure(err) })
+    const queue = [...others]
+    const relink = async () => {
+      for (let src = queue.shift(); src !== undefined; src = queue.shift()) {
+        try {
+          await this.edit(src, (t) => relinkSplices(t, planRelinks(t, src, src, before, after, map)), { actor: system })
+        } catch (err) {
+          report.failed.push({ path: src, ...failure(err) })
+        }
       }
     }
+    await Promise.all(Array.from({ length: Math.min(RELINK_CONCURRENCY, queue.length) }, relink))
+    report.failed.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 
     // 5. Safety net: if something couldn't be rewritten, the old name stays as an alias.
     const oldName = posix.basename(from).replace(/\.md$/i, '')
@@ -487,6 +493,9 @@ export class NoteService {
     return { text: setFrontmatterKey(text, this.uidKey, uid), uid }
   }
 }
+
+/** Notes whose links a rename rewrites at the same time. */
+const RELINK_CONCURRENCY = 16
 
 /** How many suffixed names are tried for an image before giving up. */
 const MAX_NAMES = 1000
