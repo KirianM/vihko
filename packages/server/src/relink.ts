@@ -3,7 +3,7 @@
 // we check where it resolves after the change; if it differs, it's rewritten
 // with the shortest form that still points to its destination.
 import { posix } from 'node:path'
-import { extract, markdownDest, resolveImageRef, shortestTarget, type ImageLink, type LinkIndex, type LinkRef } from '@thoth/core'
+import { extract, markdownDest, resolveImageRef, shortestTarget, type ImageLink, type LinkIndex, type LinkRef, type Resolution } from '@thoth/core'
 
 export interface Replacement {
   from: number
@@ -24,17 +24,75 @@ export function planRelinks(
   after: LinkIndex,
   map: (path: string) => string,
 ): Replacement[] {
-  const out: Replacement[] = []
+  return planLinks(text, srcBefore, srcAfter, before, after, map).reps
+}
+
+/** A link's resolution as a report shows it: where it leads, among which notes it is ambiguous, or broken. */
+export type LinkState =
+  | { status: 'resolved'; path: string }
+  | { status: 'ambiguous'; candidates: string[] }
+  | { status: 'missing' }
+
+/**
+ * How a move changes a link it doesn't rewrite (D-019: an ambiguous link is
+ * never resolved silently). Stable codes, the UI words them:
+ * - `resolves`: it was ambiguous or broken and will lead to a note.
+ * - `ambiguous`: it will be ambiguous (it was broken, or led to a note it can't keep).
+ * - `retargets`: it led to a note and will lead to another one.
+ * - `breaks`: it will lead nowhere.
+ * An ambiguous link that stays ambiguous (among other candidates) is not a shift.
+ */
+export type ShiftCode = 'resolves' | 'ambiguous' | 'retargets' | 'breaks'
+
+/** `before` in the paths before the move, `after` in the paths after it. */
+export interface Shift {
+  raw: string
+  code: ShiftCode
+  before: LinkState
+  after: LinkState
+}
+
+const stateOf = (r: Resolution): LinkState =>
+  r.status === 'resolved' ? { status: 'resolved', path: r.path } : r.status === 'ambiguous' ? { status: 'ambiguous', candidates: r.candidates } : { status: 'missing' }
+
+/**
+ * The replacements that keep a note's links on their destination, and the
+ * links whose resolution the move changes all the same (`shifts`): those that
+ * weren't resolved before (ambiguous or broken) and are now, or are broken
+ * now, and the rare resolved one no rewrite can keep. Those links are not
+ * rewritten: the preview lists them so whoever moves decides.
+ */
+export function planLinks(
+  text: string,
+  srcBefore: string,
+  srcAfter: string,
+  before: LinkIndex,
+  after: LinkIndex,
+  map: (path: string) => string,
+): { reps: Replacement[]; shifts: Shift[] } {
+  const reps: Replacement[] = []
+  const shifts: Shift[] = []
   for (const link of extract(text).links) {
     const rb = before.resolve(srcBefore, link)
-    if (rb.status !== 'resolved') continue
-    const want = map(rb.path)
     const ra = after.resolve(srcAfter, link)
-    if (ra.status === 'resolved' && ra.path === want) continue
-    const raw = rewrite(link, srcAfter, want, after)
-    if (raw !== null && raw !== link.raw) out.push({ from: link.from, to: link.to, text: raw })
+    if (rb.status === 'resolved') {
+      const want = map(rb.path)
+      if (ra.status === 'resolved' && ra.path === want) continue
+      const raw = rewrite(link, srcAfter, want, after)
+      if (raw !== null) {
+        if (raw !== link.raw) reps.push({ from: link.from, to: link.to, text: raw })
+        continue
+      }
+      // No form of the link reaches its destination any more: it is left as it is, and said.
+      const code: ShiftCode = ra.status === 'resolved' ? 'retargets' : ra.status === 'ambiguous' ? 'ambiguous' : 'breaks'
+      shifts.push({ raw: link.raw, code, before: stateOf(rb), after: stateOf(ra) })
+      continue
+    }
+    if (ra.status === rb.status) continue // still broken, or still ambiguous (maybe among other candidates)
+    const code: ShiftCode = ra.status === 'resolved' ? 'resolves' : ra.status === 'ambiguous' ? 'ambiguous' : 'breaks'
+    shifts.push({ raw: link.raw, code, before: stateOf(rb), after: stateOf(ra) })
   }
-  return out
+  return { reps, shifts }
 }
 
 /**
