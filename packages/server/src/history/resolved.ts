@@ -15,19 +15,24 @@
 //   versions that removed words are read (a thread can't leave otherwise),
 //   each at most once: what a version removed is kept in memory (a version
 //   never changes), so asking again only reads the new ones. One request reads
-//   up to MAX_READS versions or for TIME_BUDGET_MS; past that it answers with
-//   what it found and `complete: false`, and the next one goes on.
+//   up to MAX_READS versions or for TIME_BUDGET_MS (always MIN_READS, so each
+//   one gets further); past that it answers with what it found and `complete:
+//   false`, and the next one goes on. Reading a version costs a few git calls
+//   (~30 ms): a note with hundreds of edits in the month takes a few requests
+//   the first time.
 import { commentKey, goneThreads, parseComments, parseThreads, removedThread, reopener, type RemovedThread } from '@thoth/core/comments'
 import type { AuthorRef, HistoryReader, RawVersion } from './reader.ts'
 
 export const RESOLVED_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
-const PAGE = 50
+const PAGE = 100
 /** Versions listed in one request (a very busy note)… */
 const MAX_LISTED = 2000
 /** …versions read… */
 const MAX_READS = 200
-/** …and time spent reading, before answering with what was found. */
-const TIME_BUDGET_MS = 2500
+/** …and time spent, before answering with what was found… */
+const TIME_BUDGET_MS = 2000
+/** …once at least this many were read. */
+const MIN_READS = 20
 /** Versions whose removed threads are remembered. */
 const CACHE = 5000
 
@@ -90,7 +95,7 @@ export class ResolvedThreads {
         if (listed > MAX_LISTED) { complete = false; break walk }
         // The newest is always read: it keeps the threads it has, for when something is open.
         if (!newest && !mayRemove(v)) continue
-        if (!this.cache.has(key(v)) && (budget.reads >= MAX_READS || this.now() > budget.until)) { complete = false; break walk }
+        if (!this.cache.has(key(v)) && (budget.reads >= MAX_READS || (budget.reads >= MIN_READS && this.now() > budget.until))) { complete = false; break walk }
         record((await this.snapshot(reader, path, v, newest, budget)).gone, v.at, v.authors, v.id)
       }
       if (!page.next) break
