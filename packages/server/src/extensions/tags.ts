@@ -4,7 +4,8 @@ import type { Extension } from '../extension.ts'
 
 export const tags: Extension<readonly TagRef[]> = {
   name: 'tags',
-  version: 1,
+  // 2: tags with full Unicode case folding.
+  version: 2,
   tables: {
     tags: `create table tags (
       path   text not null,

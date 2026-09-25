@@ -21,7 +21,8 @@ export function linksExtension(): LinksExtension {
   let index = new LinkIndex()
   return {
     name: 'links',
-    version: 1,
+    // 2: keys with full Unicode case folding.
+    version: 2,
     // Anchors are checked against the headings, and the index is loaded from them.
     requires: ['headings'],
     get index() { return index },

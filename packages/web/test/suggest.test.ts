@@ -130,3 +130,10 @@ test('a broken Markdown link creates the .md it points to, relative to the note'
   assert.equal(markdownLinkNote('a/b.md', '[x](https://ejemplo.org/a.md)', 'https://ejemplo.org/a.md'), null)
   assert.equal(markdownLinkNote('a/b.md', '[x](../../fuera.md)', '../../fuera.md'), null)
 })
+
+test('suggestions fold case like links and tags: «Straße» and «STRASSE»', () => {
+  const c = new NoteCatalog([{ path: 'Straße.md', title: 'Straße' }])
+  assert.equal(c.rank('STRASSE', 'x.md')[0]?.path, 'Straße.md')
+  assert.equal(c.resolve('x.md', 'strasse'), 'Straße.md')
+  assert.deepEqual(rankTags([{ tag: 'strasse', count: 1 }], 'Straß').map((t) => t.tag), ['strasse'])
+})

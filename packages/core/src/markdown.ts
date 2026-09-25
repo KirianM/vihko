@@ -2,6 +2,7 @@
 import { markdownParser } from './syntax.ts'
 import { readFrontmatter } from './frontmatter.ts'
 import { isImageRef } from './images.ts'
+import { caseFold } from './casefold.ts'
 
 // --- Extraction -------------------------------------------------------------
 
@@ -83,7 +84,7 @@ export interface Extracted {
   comments: Range[]
 }
 
-export const normalizeTag = (t: string) => t.replace(/^#/, '').normalize('NFC').toLowerCase()
+export const normalizeTag = (t: string) => caseFold(t.replace(/^#/, ''))
 
 const EXTERNAL = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i
 /** A comment inside a raw HTML block; unterminated, it runs to the end of the block. */

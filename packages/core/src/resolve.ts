@@ -2,6 +2,7 @@
 // suffixes of its path without the extension, plus its aliases, normalized.
 // It's the model for the indexer's `link_keys` table and also serves the editor.
 // Browser-safe entry point (@thoth/core/resolve): no Node modules here.
+import { caseFold } from './casefold.ts'
 import type { LinkRef } from './markdown.ts'
 
 export interface NoteKeys {
@@ -17,8 +18,8 @@ export type Resolution =
   | { status: 'ambiguous'; candidates: string[] }
   | { status: 'missing' }
 
-/** Key normalization: NFC, lowercase, no extra whitespace. */
-export const normKey = (s: string) => s.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ')
+/** Key normalization: NFC, full Unicode case folding (D-019), no extra whitespace. */
+export const normKey = (s: string) => caseFold(s).trim().replace(/\s+/g, ' ')
 
 const stripMd = (p: string) => (/\.md$/i.test(p) ? p.slice(0, -3) : p)
 const dirOf = (p: string) => {
