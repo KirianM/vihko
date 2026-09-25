@@ -82,6 +82,8 @@ export interface MoveReport {
   images: {
     moved: { from: string; to: string }[]
     stayed: { path: string; reason: 'shared' | 'elsewhere' }[]
+    /** In per-note mode (thoth.yaml), the note's folder of images, which moves with it whole. */
+    folder: { from: string; to: string; files: number } | null
     failed: { path: string; to: string | null; outcome: 'stayed' | 'copied'; error: ErrorCode; message: string }[]
   }
   dryRun: boolean

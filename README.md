@@ -103,9 +103,22 @@ daily:                      # daily-note series; the first one is the default
   weekly:
     folder: Weeks
     name: "{GGGG}-W{WW}"    # ISO week and its year
-attachments:
-  folder: Attachments       # optional: new images go here instead of next to their note
+attachments:                # where new images go (uploads, pastes, copies from a URL)
+  mode: next-to-note        # next-to-note (default), folder or per-note
+  # folder: Attachments     # with mode: folder, every new image goes here
+  # suffix: .assets         # with mode: per-note, plan.md keeps its images in plan.assets/
 ```
+
+- **Images** go next to their note by default (`plan-2026-09-25-1012.png`).
+  `mode: folder` puts them all in one folder (`folder` alone implies it).
+  `mode: per-note` gives each note its own folder next to it, named after it
+  plus `suffix` (`.assets` by default, as in Typora): `plan.assets/2026-09-25-1012.png`.
+  Renaming or moving the note moves that folder whole, renamed to match, and
+  rewrites every link into it, from the note or from any other. It stays where
+  it is (and the links are rewritten to reach it there) if the new name is
+  already taken or it holds notes; the move's preview says so. In every mode,
+  images next to the note that no other note uses go with it when it changes
+  folder.
 
 - **Series patterns** take `{YYYY}`, `{MM}`, `{DD}`, `{GGGG}` (ISO week year),
   `{WW}` (ISO week) and `{user}`, and must name one note per day

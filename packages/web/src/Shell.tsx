@@ -242,7 +242,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     try {
       if (key.startsWith('n:')) {
         const preview = await api.move(path, to, true)
-        if (preview.relinked.length || preview.shifted.length || preview.images.moved.length || preview.images.stayed.length) return setTreeDialog({ kind: 'moveNote', path, folder })
+        if (preview.relinked.length || preview.shifted.length || preview.images.moved.length || preview.images.stayed.length || preview.images.folder || preview.images.failed.length) return setTreeDialog({ kind: 'moveNote', path, folder })
         noteMoved(path, to, await api.move(path, to))
       } else {
         const preview = await api.moveFolder(path, to, true)

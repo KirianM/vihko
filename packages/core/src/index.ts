@@ -18,3 +18,4 @@ export { DEFAULT_DATE_FORMAT, renderTemplate, type TemplateVars } from './templa
 export { SERIES_TOKENS, matchSeries, patternPeriod, patternTokens, seriesNeighbors, seriesPath, seriesPattern, type Period, type Series, type SeriesToken } from './series.ts'
 export { hasSearchFilter, parseSearchQuery, type ParsedQuery, type SearchFilter } from './query.ts'
 export { EMPTY_WORKSPACE, WORKSPACE_FILE, parseWorkspaceConfig, type ConfigError, type ConfigErrorCode, type ParseResult, type WorkspaceConfig } from './workspace.ts'
+export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'

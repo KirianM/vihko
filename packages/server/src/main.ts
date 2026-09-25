@@ -103,7 +103,7 @@ export async function start(config: Config) {
 
   const notes = new NoteService({
     notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes,
-    attachmentsFolder: () => workspace.config.attachments.folder,
+    attachments: () => workspace.config.attachments,
   })
   const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)

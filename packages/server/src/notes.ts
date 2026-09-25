@@ -3,10 +3,10 @@
 // (fsutil.ts), lazy `uid` and deletion to trash.
 import { existsSync, mkdirSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix } from 'node:path'
-import { addToFrontmatterList, classifyPath, contentHash, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type ErrorCode, type LinkIndex } from '@thoth/core'
+import { addToFrontmatterList, classifyPath, contentHash, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@thoth/core'
 import { commitText, createFile, linkNew, readStable, readText } from './fsutil.ts'
-import { attachmentPath, sniffImage, suffixedName } from './attachments.ts'
-import { applyReplacements, keptLinks, planImageRelinks, planLinks, planRelinks, type Replacement, type Shift } from './relink.ts'
+import { attachmentPath, noteAttachmentsDir, sniffImage, suffixedName } from './attachments.ts'
+import { applyReplacements, keptLinks, planImageRelinks, planLinks, type Replacement, type Shift } from './relink.ts'
 import type { Indexer } from './indexer.ts'
 import { applySplices, spliceOf, type Splice } from './edits.ts'
 import type { Db } from './db.ts'
@@ -70,8 +70,12 @@ export interface NoteServiceOptions {
   hot?: HotDocuments
   /** Largest image accepted, in bytes (20 MB by default). */
   maxImageBytes?: number
-  /** Fixed folder for new images (thoth.yaml), or null to store them next to their note. Asked on each upload. */
-  attachmentsFolder?: () => string | null
+  /**
+   * Where new images go (thoth.yaml `attachments`): next to their note by
+   * default. Asked on each upload and each move (in `per-note` mode a note's
+   * folder of images moves with it).
+   */
+  attachments?: () => AttachmentsConfig
 }
 
 export const DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -112,10 +116,17 @@ export interface MoveReport {
    * go with the note, stays at `path` and the note links it there.
    * `outcome: 'copied'`: it is at `to` and the note links it there, but the
    * original at `path` could not be removed.
+   * `folder`: in `per-note` mode (thoth.yaml), the note's own folder of images
+   * (`plan.assets/`), which goes with it whole and is renamed to match
+   * (`files`: how many it holds). Links into it, from the note or from any
+   * other, are rewritten. It stays where it is (and is in `failed`, with the
+   * links rewritten to reach it there) if the destination's name is taken or
+   * it holds notes.
    */
   images: {
     moved: { from: string; to: string }[]
     stayed: { path: string; reason: 'shared' | 'elsewhere' }[]
+    folder: { from: string; to: string; files: number } | null
     failed: { path: string; to: string | null; outcome: 'stayed' | 'copied'; error: ErrorCode; message: string }[]
   }
   dryRun: boolean
@@ -303,12 +314,13 @@ export class NoteService {
           return { result, written: readText(this.file(to)) }
         })
         : await this.moveNow(from, to, opts)
-      const { report, others, before, after, map } = moved
+      const { report, others, before, after, map, place } = moved
       opts.onMoved?.(others.length)
 
-      // The rest of the notes, as the system. The plan is recalculated over the current text.
+      // The rest of the notes, as the system. The plan is recalculated over the
+      // current text: links to the note, and references to images in its folder of images.
       const system: Actor = { kind: 'system', reason: `renamed ${from} to ${to} by ${actorLabel(opts.actor)}` }
-      await this.rewriteAll(others.map((src) => ({ path: src, change: (t: string) => relinkSplices(t, planRelinks(t, src, src, before, after, map)) })), system, report.failed, opts.onProgress)
+      await this.rewriteAll(others.map((src) => ({ path: src, change: (t: string) => movedNotePlan(t, src, src, before, after, map, place).splices })), system, report.failed, opts.onProgress)
 
       // Safety net: if something couldn't be rewritten, the old name stays as an alias.
       const oldName = posix.basename(from).replace(/\.md$/i, '')
@@ -363,33 +375,50 @@ export class NoteService {
     const hash = contentHash(text)
     if (opts.ifMatch !== undefined && opts.ifMatch !== hash) throw new NoteError('precondition_failed', `the note has changed: ${from}`, hash)
 
-    const { before, after, map, sources } = this.relinkContext(new Map([[from, to]]))
+    const assets = this.planAssets(from, to)
+    const { before, after, map, sources } = this.relinkContext(new Map([[from, to]]), assets.folder?.from ?? null)
 
-    const report: MoveReport = { from, to, relinked: [], shifted: [], kept: [], failed: [], aliasAdded: null, images: { moved: [], stayed: [], failed: [] }, dryRun: !!opts.dryRun }
-    const imagePlan = this.planImages(text, from, to)
-    report.images = { moved: imagePlan.moved, stayed: imagePlan.stayed, failed: imagePlan.unplaceable }
-    const planned = movedNotePlan(text, from, to, before, after, map, placeOf(imagePlan.moved))
+    const report: MoveReport = { from, to, relinked: [], shifted: [], kept: [], failed: [], aliasAdded: null, images: { moved: [], stayed: [], folder: null, failed: [] }, dryRun: !!opts.dryRun }
+    const imagePlan = this.planImages(text, from, to, assets.folder?.from ?? null)
+    report.images = { moved: imagePlan.moved, stayed: imagePlan.stayed, folder: assets.folder, failed: [...assets.failed, ...imagePlan.unplaceable] }
+    const planned = movedNotePlan(text, from, to, before, after, map, placeOf(imagePlan.moved, assets.folder))
     if (planned.changes.length) report.relinked.push({ path: to, links: planned.changes.length, changes: planned.changes })
     addShifts(report.shifted, to, planned.shifts)
     const others: string[] = []
     for (const src of sources) {
       const t = readText(this.file(src))
       if (t === null) continue
-      const { reps, shifts } = planLinks(t, src, src, before, after, map)
-      if (reps.length) { report.relinked.push({ path: src, links: reps.length, changes: changesOf(t, reps) }); others.push(src) }
-      addShifts(report.shifted, src, shifts)
+      const plan = movedNotePlan(t, src, src, before, after, map, placeOf([], assets.folder))
+      if (plan.changes.length) { report.relinked.push({ path: src, links: plan.changes.length, changes: plan.changes }); others.push(src) }
+      addShifts(report.shifted, src, plan.shifts)
       for (const k of keptLinks(t, src, before, after, from, to)) report.kept.push({ path: src, ...k })
     }
-    const result = { report, others, before, after, map }
+    const result = { report, others, before, after, map, place: placeOf([], assets.folder) }
     if (opts.dryRun) return result
 
     // 1. Its images get their name at the destination first (a second link to
     // the same file): until the note is in place, the originals stay untouched.
     // One that can't be placed stays where it is, and the note links it there.
+    // Its folder of images (per-note mode) is renamed whole, and put back if the note can't move.
     const placed = this.placeImages(imagePlan.moved, posix.dirname(to), report)
     report.images.moved = placed
-    const unplace = () => { for (const p of placed) rmSync(join(this.opts.notesDir, p.to), { force: true }) }
-    const final = movedNotePlan(text, from, to, before, after, map, placeOf(placed))
+    const folder = assets.folder && this.moveAssets(assets.folder, report) ? assets.folder : null
+    report.images.folder = folder
+    const unplace = () => {
+      for (const p of placed) rmSync(join(this.opts.notesDir, p.to), { force: true })
+      if (folder) this.unmoveAssets(folder)
+    }
+    // The other notes only ever point into the folder (the images moved one by one are only this note's).
+    result.place = placeOf([], folder)
+    if (assets.folder && !folder) {
+      // It stayed: notes that only pointed into it have nothing to rewrite (and aren't touched).
+      result.others = others.filter((src) => {
+        const t = readText(this.file(src))
+        return t !== null && movedNotePlan(t, src, src, before, after, map, result.place).changes.length > 0
+      })
+      report.relinked = report.relinked.filter((r) => r.path === to || result.others.includes(r.path))
+    }
+    const final = movedNotePlan(text, from, to, before, after, map, placeOf(placed, folder))
     report.relinked = report.relinked.filter((r) => r.path !== to)
     if (final.changes.length) report.relinked.unshift({ path: to, links: final.changes.length, changes: final.changes })
 
@@ -421,6 +450,7 @@ export class NoteService {
     }
     rmSync(aside)
     this.opts.indexer.indexPaths([from, to])
+    if (folder) this.opts.indexer.indexFolders([folder.from, folder.to])
 
     // 3. The note links its images at their new names: the originals go.
     for (const p of placed) {
@@ -628,7 +658,7 @@ export class NoteService {
    * those in its folder that no other note uses (by the index). The rest stay.
    * Names are only predicted here (the first free one); placing them decides.
    */
-  private planImages(text: string, from: string, to: string): Omit<MoveReport['images'], 'failed'> & { unplaceable: MoveReport['images']['failed'] } {
+  private planImages(text: string, from: string, to: string, assetsDir: string | null): Pick<MoveReport['images'], 'moved' | 'stayed'> & { unplaceable: MoveReport['images']['failed'] } {
     const plan: ReturnType<NoteService['planImages']> = { moved: [], stayed: [], unplaceable: [] }
     const dir = posix.dirname(from)
     const toDir = posix.dirname(to)
@@ -641,6 +671,7 @@ export class NoteService {
       if (path === null || seen.has(path)) continue
       seen.add(path)
       if (!this.isFile(path)) continue // a broken reference: nothing to move, its link keeps its target
+      if (assetsDir !== null && path.startsWith(assetsDir + '/')) continue // goes with its folder
       if (posix.dirname(path) !== dir) { plan.stayed.push({ path, reason: 'elsewhere' }); continue }
       if ((users.all(path) as { src_path: string }[]).some((r) => r.src_path !== from)) { plan.stayed.push({ path, reason: 'shared' }); continue }
       const free = firstName(path, toDir, (dest) => !taken.has(dest) && !existsSync(join(this.opts.notesDir, dest)))
@@ -652,6 +683,62 @@ export class NoteService {
       plan.moved.push({ from: path, to: free })
     }
     return plan
+  }
+
+  /**
+   * In `per-note` mode, whether the note's folder of images goes with it: it
+   * exists and the note's name or folder changes. It stays (in `failed`) if
+   * the name it would take is taken, or if it holds notes (moving those is a
+   * folder move, with its own relinking).
+   */
+  private planAssets(from: string, to: string): { folder: MoveReport['images']['folder']; failed: MoveReport['images']['failed'] } {
+    const suffix = this.opts.attachments?.().perNote
+    if (suffix === undefined) return { folder: null, failed: [] }
+    const src = noteAttachmentsDir(from, suffix)
+    const dst = noteAttachmentsDir(to, suffix)
+    if (src === dst || classifyPath(src) !== 'other' || !isDirectory(join(this.opts.notesDir, src))) return { folder: null, failed: [] }
+    const files = listFiles(join(this.opts.notesDir, src))
+    if (files.some((p) => classifyPath(`${src}/${p}`) === 'note')) {
+      return { folder: null, failed: [{ path: src, to: null, outcome: 'stayed', error: 'not_empty', message: `${src} holds notes: it stays` }] }
+    }
+    if (classifyPath(dst) !== 'other' || existsSync(join(this.opts.notesDir, dst))) {
+      return { folder: null, failed: [{ path: src, to: null, outcome: 'stayed', error: 'exists', message: `${dst} already exists: ${src} stays` }] }
+    }
+    return { folder: { from: src, to: dst, files: files.length }, failed: [] }
+  }
+
+  /**
+   * Renames the note's folder of images, never over anything: the destination
+   * is claimed first with an empty folder (mkdir never reuses one), which the
+   * rename then replaces. false (and in `failed`) if it stays.
+   */
+  private moveAssets(folder: { from: string; to: string }, report: MoveReport): boolean {
+    const src = join(this.opts.notesDir, folder.from)
+    const dst = join(this.opts.notesDir, folder.to)
+    try {
+      mkdirSync(dirname(dst), { recursive: true })
+      mkdirSync(dst)
+    } catch (err) {
+      const taken = (err as NodeJS.ErrnoException).code === 'EEXIST'
+      report.images.failed.push({ path: folder.from, to: null, outcome: 'stayed', ...failure(taken ? new NoteError('exists', `already exists: ${folder.to}`) : err) })
+      return false
+    }
+    try {
+      renameSync(src, dst)
+      return true
+    } catch (err) {
+      try { rmdirSync(dst) } catch { /* not ours any more: left as it is */ }
+      report.images.failed.push({ path: folder.from, to: null, outcome: 'stayed', ...failure(err) })
+      return false
+    }
+  }
+
+  /** Puts the folder of images back when the note couldn't move, with the same claim-then-rename. */
+  private unmoveAssets(folder: { from: string; to: string }) {
+    try {
+      mkdirSync(join(this.opts.notesDir, folder.from))
+      renameSync(join(this.opts.notesDir, folder.to), join(this.opts.notesDir, folder.from))
+    } catch { /* something took its place meanwhile: it stays at the destination, whole */ }
   }
 
   /** Gives each image a name in `dir` without overwriting anything; the originals stay. Failures are reported and the image stays. */
@@ -699,9 +786,9 @@ export class NoteService {
     if (bytes.byteLength > this.maxImageBytes) throw new NoteError('too_large', `${bytes.byteLength} bytes, the limit is ${this.maxImageBytes}`)
     const type = sniffImage(bytes)
     if (!type) throw new NoteError('unsupported_type', 'only PNG, JPEG, GIF, WebP and AVIF images are stored')
-    const folder = this.opts.attachmentsFolder?.() ?? null
+    const config = this.opts.attachments?.() ?? { folder: null }
     for (let n = 1; n <= 1000; n++) {
-      const path = attachmentPath(notePath, type.ext, now, n, folder)
+      const path = attachmentPath(notePath, type.ext, now, n, config)
       const file = join(this.opts.notesDir, path)
       mkdirSync(dirname(file), { recursive: true })
       if (createFile(file, bytes)) return { path, src: posix.relative(posix.dirname(notePath), path) }
@@ -792,9 +879,10 @@ const relinkSplices = (text: string, reps: Replacement[]): Splice[] =>
 /** Each replacement as the preview shows it: the text before and after. */
 const changesOf = (text: string, reps: Replacement[]) => reps.map((r) => ({ before: text.slice(r.from, r.to), after: r.text }))
 
-const placeOf = (moves: { from: string; to: string }[]) => {
+/** Where each image ends up: the ones moved one by one, and those in a folder of images that moves whole. */
+const placeOf = (moves: { from: string; to: string }[], folder: { from: string; to: string } | null = null) => {
   const at = new Map(moves.map((m) => [m.from, m.to]))
-  return (path: string) => at.get(path) ?? path
+  return (path: string) => at.get(path) ?? (folder && path.startsWith(folder.from + '/') ? folder.to + path.slice(folder.from.length) : path)
 }
 
 /**

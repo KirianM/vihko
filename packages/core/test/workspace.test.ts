@@ -50,7 +50,7 @@ test('thoth.yaml: unknown and reserved keys are errors, never ignored', () => {
   assert.deepEqual(errors('templtes: Plantillas\n'), [['unknown_key', 'templtes', 1]])
   assert.deepEqual(errors('templates: P\npermissions:\n  Privado: {noa: edit}\n'), [['not_supported', 'permissions', 2]])
   assert.deepEqual(errors('daily:\n  d:\n    folder: D\n    fromat: x\n'), [['unknown_key', 'daily.d.fromat', 4]])
-  assert.deepEqual(errors('attachments:\n  mode: per-note\n'), [['unknown_key', 'attachments.mode', 2]])
+  assert.deepEqual(errors('attachments:\n  mdoe: per-note\n'), [['unknown_key', 'attachments.mdoe', 2]])
   assert.deepEqual(errors('version: 2\n'), [['unsupported_version', 'version', 1]])
 })
 
@@ -78,4 +78,25 @@ test('thoth.yaml: every error is reported at once', () => {
     ['invalid_path', 'templates', 2],
     ['pattern_period', 'daily.d.name', 6],
   ])
+})
+
+test('thoth.yaml: attachments modes', () => {
+  const att = (text: string) => {
+    const r = parseWorkspaceConfig(text)
+    assert.ok(r.ok, JSON.stringify(r))
+    return r.config.attachments
+  }
+  assert.deepEqual(att('attachments:\n  mode: next-to-note\n'), { folder: null })
+  assert.deepEqual(att('attachments:\n  mode: folder\n  folder: Media/\n'), { folder: 'Media' })
+  assert.deepEqual(att('attachments:\n  folder: Media\n'), { folder: 'Media' }, 'a folder alone implies the mode')
+  assert.deepEqual(att('attachments:\n  mode: per-note\n'), { folder: null, perNote: '.assets' })
+  assert.deepEqual(att('attachments:\n  mode: per-note\n  suffix: _files\n'), { folder: null, perNote: '_files' })
+
+  assert.deepEqual(errors('attachments:\n  mode: per_note\n'), [['invalid_value', 'attachments.mode', 2]])
+  assert.deepEqual(errors('attachments:\n  mode: folder\n'), [['invalid_value', 'attachments.mode', 2]], 'folder mode needs a folder')
+  assert.deepEqual(errors('attachments:\n  mode: per-note\n  folder: Media\n'), [['invalid_value', 'attachments.folder', 3]], 'a key of another mode')
+  assert.deepEqual(errors('attachments:\n  suffix: .assets\n'), [['invalid_value', 'attachments.suffix', 2]])
+  for (const bad of ['a/b', '.md', '', ' x']) {
+    assert.deepEqual(errors(`attachments:\n  mode: per-note\n  suffix: "${bad}"\n`), [['invalid_path', 'attachments.suffix', 3]], bad)
+  }
 })
