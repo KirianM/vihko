@@ -22,7 +22,7 @@ Texto de las pruebas.
 const ORIGINAL = `---\ntitle: Comentarios\n# comentario de YAML que no se toca\n---\n${BODY}`
 const disk = () => readFileSync(FILE, 'utf8')
 const SHOTS = `${E2E_DIR}/shots`
-const COMMENT = /<!-- @(\w+) \d{4}-\d{2}-\d{2} \d{2}:\d{2} · (↳ )?([^>]*) -->/
+const COMMENT = /<!-- @(\w+) \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z · (↳ )?([^>]*) -->/
 
 test.describe.configure({ mode: 'serial' })
 let k: Page
@@ -86,7 +86,7 @@ test('commenting, seeing it live, replying: all inside the file, in the format d
   await k.getByRole('textbox', { name: 'Escribe un comentario…' }).fill('esto no, usa SQLite')
   await k.keyboard.press('Enter')
 
-  await expect.poll(disk).toMatch(/tipo de nota\.<!-- @noa \d{4}-\d{2}-\d{2} \d{2}:\d{2} · esto no, usa SQLite -->\n\n## Almacenamiento/)
+  await expect.poll(disk).toMatch(/tipo de nota\.<!-- @noa \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z · esto no, usa SQLite -->\n\n## Almacenamiento/)
   expect(disk().startsWith('---\ntitle: Comentarios\n# comentario de YAML que no se toca\n')).toBe(true)
 
   // ana sees it live: thread in the panel and the text highlighted; the syntax stays hidden.
@@ -101,7 +101,7 @@ test('commenting, seeing it live, replying: all inside the file, in the format d
   await thread.getByRole('button', { name: 'Responder' }).click()
   await a.getByRole('textbox', { name: 'Escribe una respuesta…' }).fill('de acuerdo, lo cambio')
   await a.keyboard.press('Enter')
-  await expect.poll(disk).toMatch(/usa SQLite -->\n<!-- @ana \d{4}-\d{2}-\d{2} \d{2}:\d{2} · ↳ de acuerdo, lo cambio -->\n\n## Almacenamiento/)
+  await expect.poll(disk).toMatch(/usa SQLite -->\n<!-- @ana \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z · ↳ de acuerdo, lo cambio -->\n\n## Almacenamiento/)
   const replies = k.locator('.thread').first().locator('.comment')
   await expect(replies).toHaveCount(2)
   await expect(replies.nth(1)).toHaveClass(/comment-reply/)

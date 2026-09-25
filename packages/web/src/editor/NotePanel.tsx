@@ -13,7 +13,7 @@ import { useT } from '../i18n.tsx'
 import { useTheme } from '../theme.ts'
 import { baseHue, userColor } from '../userColor.ts'
 import type { Session } from './collab.ts'
-import { formatComment, formatDate, parseThreads, commentPosition, replyTo, resolveThread, type Change, type Thread } from './comments.ts'
+import { displayDate, formatComment, parseThreads, commentPosition, replyTo, resolveThread, type Change, type Thread } from './comments.ts'
 import { setCommentStyle, threadsField } from './commentMarks.ts'
 import { usePresence } from './presence.ts'
 import { useViewState } from './viewUpdates.ts'
@@ -160,10 +160,6 @@ function shortQuote(q: string) {
   return one.length > 60 ? one.slice(0, 57).trimEnd() + '…' : one
 }
 
-function when(date: string) {
-  const today = formatDate(new Date()).slice(0, 10)
-  return date.startsWith(today) ? date.slice(11) : date
-}
 
 function Composer({ label, submit, onSend, onCancel }: { label: string; submit: string; onSend: (text: string) => void; onCancel: () => void }) {
   const t = useT()
@@ -204,7 +200,7 @@ function ThreadCard({ tv, active, color, onSelect, onReply, onResolve }: {
         <div key={i} className={c.reply ? 'comment comment-reply' : 'comment'}>
           <span className="avatar avatar-sm" aria-hidden="true" style={{ background: color(c.author) }}>{c.author.slice(0, 1).toUpperCase()}</span>
           <div className="comment-body">
-            <b>{c.author}</b> <span className="comment-when">{when(c.date)}</span>
+            <b>{c.author}</b> <span className="comment-when">{displayDate(c.date)}</span>
             <div>{c.text}</div>
           </div>
         </div>
