@@ -1,71 +1,89 @@
 # thoth
 
-> Nombre provisional. Thoth: escriba, conocimiento y escritura.
+> Working name. Thoth: scribe, knowledge and writing.
 
-Sistema de notas self-hosted y open source sobre archivos Markdown, con UI web
-propia, multiusuario, e índice en el servidor consultable desde la UI y,
-opcionalmente, desde API, MCP y webhooks.
+A self-hosted, open source notes system over plain Markdown files, with its own
+web UI, multiple users, live collaboration, and a server-side index you can
+query from the UI and, optionally, from an API, MCP and webhooks.
 
-Tus notas siguen siendo una carpeta de `.md`. Si thoth desaparece, no pierdes
-nada.
+Your notes stay a folder of `.md` files. If thoth disappears, you lose nothing.
 
-## El problema que resuelve
+## The problem it solves
 
-Los proyectos existentes fallan todos en el mismo punto, por la misma tensión:
+Existing projects all fail at the same point, for the same reason:
 
-- **Archivos como fuente de verdad** → el servidor no sabe nada y el índice
-  acaba en el cliente. Es el caso de SilverBullet, que necesita un Chromium
-  headless en el servidor para exponer sus consultas por API.
-- **Base de datos como fuente de verdad** → ganas consultas, relaciones,
-  permisos y versionado, y pierdes portabilidad y editores intercambiables.
-  Trilium, Outline, Docmost, Kival.
+- **Files as the source of truth** → the server knows nothing and the index
+  ends up in the client (SilverBullet needs a headless Chromium on the server
+  to expose its queries through an API).
+- **A database as the source of truth** → you gain queries, relations,
+  permissions and history, and lose portability and interchangeable editors
+  (Trilium, Outline, Docmost).
 
-thoth elige un tercer punto: **archivos como fuente de verdad + índice en el
-servidor**, renunciando al offline completo. Ver `docs/decisiones.md`.
+thoth takes a third path: **files as the source of truth + an index on the
+server**, giving up full offline mode.
 
-## Qué es y qué no
+## What it is and isn't
 
-- Un sistema de notas completo por sí mismo, con UI web propia.
-- API, MCP y webhooks integrados pero **opcionales y desactivados por
-  defecto**. Sin activarlos, nada entra ni sale salvo por el usuario.
-- Pensado para que lo autoaloje cualquiera con Docker, sin reverse proxy,
-  Postgres ni proveedor de identidad obligatorios.
-- Sin telemetría, sin autoactualización, sin funciones detrás de una versión
-  de pago.
+- A complete notes system on its own, with its own web UI and real-time
+  co-editing between people (and, later, agents).
+- API, MCP and webhooks built in but **optional and off by default**. Without
+  them, nothing gets in or out except through the user.
+- Designed for anyone to self-host with Docker: no reverse proxy, Postgres or
+  external identity provider required.
+- No telemetry, no auto-update, no features behind a paid tier.
 
-## Qué hay aquí
-
-| Documento | Contenido |
-|---|---|
-| `CLAUDE.md` | Contexto para agentes que trabajen en el repo |
-
-## Instalación
+## Install
 
 ```sh
-docker compose up -d        # con el compose.yaml de ejemplo (ajusta los volúmenes)
-docker compose logs thoth   # el primer arranque muestra un token para crear el admin
-# o crea el admin desde la línea de comandos:
-docker compose exec -T thoth thoth user create <nombre> --admin <<< 'contraseña'
+docker compose up -d        # with the example compose.yaml (adjust the volumes)
+docker compose logs thoth   # the first start prints a one-time token to create the admin
+# or create the admin from the command line:
+docker compose exec -T thoth thoth user create <name> --admin <<< 'password'
 ```
 
-Dos volúmenes: `/data/notes` (tus notas; puede estar en NFS) y `/data/state`
-(estado local; **nunca** en NFS). La UI queda en `http://<servidor>:8080`; si ese
-puerto está ocupado, `THOTH_HOST_PORT=8098 docker compose up -d`. Detalles en
-`docs/infra.md`.
+The UI is at `http://<server>:8080`. If that port is taken,
+`THOTH_HOST_PORT=8098 docker compose up -d`.
 
-## Estado
+### Volumes
 
-Diseño cerrado; implementación por empezar (M1). Repositorio privado hasta la
-v1.0 (M5).
+| Volume | Contents | Local disk | Network filesystem (NFS, SMB) |
+|---|---|---|---|
+| `/data/notes` | Your `.md` files, the source of truth. Back it up | Supported | **Supported** (a periodic rescan catches missed events) |
+| `/data/state` | `state.db` (users, sessions; back it up), `index.db` (disposable), trash, collaboration logs | Supported | **Not supported**: SQLite locking over NFS is not reliable |
 
-## Licencia
+A Docker bind mount of a host directory that lives on NFS is NFS for all
+purposes.
 
-[AGPL-3.0](LICENSE). Contribuciones con DCO (`Signed-off-by`), sin CLA. Ver
-`docs/decisiones.md` (D-020).
+The container runs as the `node` user (uid 1000); `user:` in the compose file
+changes it. On NFS with user mapping, files get whatever owner the export
+imposes.
+
+### Environment variables
+
+All optional:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `THOTH_NOTES_DIR` | `/data/notes` | Notes folder |
+| `THOTH_STATE_DIR` | `/data/state` | Local state |
+| `THOTH_HOST` / `THOTH_PORT` | `0.0.0.0` / `8080` | Where it listens |
+| `THOTH_RESCAN_SECONDS` | `60` | Full rescan interval |
+| `THOTH_WEB_DIR` | `packages/web/dist` | Built UI; without it the server only exposes the API |
+
+No reverse proxy is required: it works over plain HTTP on a LAN. HTTPS and
+public exposure only matter if you enable remote MCP for external clients.
+
+## Status
+
+Under active development towards the first milestone; see
+[ROADMAP.md](ROADMAP.md). Not ready for real notes yet.
 
 ## Stack
 
-TypeScript en servidor y UI, sobre Node LTS: Yjs + Hocuspocus para la
-colaboración, CodeMirror 6 como editor, SQLite (`better-sqlite3`, FTS5,
-`sqlite-vec`) para el índice y el SDK oficial de MCP. Ver `docs/decisiones.md`
-(D-021).
+TypeScript on Node for server and UI: Yjs + Hocuspocus for collaboration,
+CodeMirror 6 as the editor, React + React Aria for the UI, SQLite
+(`better-sqlite3`, FTS5) for the index.
+
+## License
+
+[AGPL-3.0](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md).

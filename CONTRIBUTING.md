@@ -1,40 +1,25 @@
-# Contribuir
+# Contributing
 
-## Licencia y DCO
+## Pull requests
 
-thoth se publica bajo [AGPL-3.0](LICENSE). No hay CLA: no se cede ningún
-derecho. A cambio, cada commit tiene que llevar la firma del
-[Developer Certificate of Origin](https://developercertificate.org/), que
-certifica que tienes derecho a aportar ese código bajo la licencia del
-proyecto:
+thoth is not accepting external pull requests for now. Issues are welcome:
+bug reports, questions and ideas.
 
-```
-Signed-off-by: Nombre Apellido <correo@ejemplo.org>
-```
+## Development
 
-`git commit -s` la añade automáticamente. El CI rechaza las pull requests con
-commits sin firmar.
-
-## Antes de proponer cambios
-
-Lee `docs/vision.md` y `docs/decisiones.md`. Buena parte de lo que parece una
-mejora obvia ya se descartó por una razón concreta.
-
-## Entorno
-
-- Node 26 (`.nvmrc`; LTS desde el 2026-10-28). El código TypeScript se ejecuta directamente con
-  Node, sin paso de compilación: solo sintaxis que se pueda borrar (nada de
-  `enum` ni `namespace`).
+- Node 26 (`.nvmrc`). TypeScript runs directly on Node with no build step for
+  the server: only erasable syntax (no `enum`, `namespace` or parameter
+  properties).
 - `npm ci`, `npm run typecheck`, `npm run build` (UI), `npm test`.
-- UI en desarrollo: el servidor en una terminal
+- UI development: run the server in one terminal
   (`THOTH_NOTES_DIR=… THOTH_STATE_DIR=… packages/server/src/cli.ts serve`)
-  y `npm run dev -w @thoth/web` en otra; Vite reenvía `/api` y `/collab` al
-  puerto 8080 (`THOTH_DEV_SERVER` para otro).
-- Pruebas de navegador (`packages/web/e2e`, Playwright): `npm run build` y
-  `npm run e2e -w @thoth/web`, que arranca un servidor con una copia de
-  `testdata/vault` y dos usuarios. Si tu máquina no puede ejecutar Chromium, deja
-  el servidor en el host (`npm run e2e:serve -w @thoth/web`) y lanza el navegador
-  en la imagen oficial, con la misma versión que `@playwright/test`:
+  and `npm run dev -w @thoth/web` in another; Vite forwards `/api` and
+  `/collab` to port 8080 (`THOTH_DEV_SERVER` for another one).
+- Browser tests (`packages/web/e2e`, Playwright): `npm run build` and
+  `npm run e2e -w @thoth/web`, which starts a server with a copy of
+  `testdata/vault` and two users. If your machine cannot run Chromium, keep the
+  server on the host (`npm run e2e:serve -w @thoth/web`) and run the browser in
+  the official image, with the same version as `@playwright/test`:
 
   ```sh
   docker run --rm --network host --user $(id -u):$(id -g) -e HOME=/tmp \
@@ -42,7 +27,10 @@ mejora obvia ya se descartó por una razón concreta.
     mcr.microsoft.com/playwright:v1.63.0-noble npx playwright test
   ```
 
-## Commits
+## Conventions
 
-- Un cambio lógico por commit.
-- Mensajes, títulos y descripciones de PR en inglés.
+- Everything in the code is in English: identifiers, comments, test names, log
+  messages and error hints. User-facing text lives in
+  `packages/web/src/i18n.tsx` (English and Spanish); the server returns error
+  and alert codes, never prose for the UI.
+- One logical change per commit; commit messages and pull requests in English.
