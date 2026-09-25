@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import WebSocket from 'ws'
 import * as Y from 'yjs'
-import { readFrontmatter } from '@thoth/core'
+import { contentHash, readFrontmatter } from '@thoth/core'
 import { api, closeAll, connect, login, makeDirs, open, sleep, startServer, typeLine, waitFor } from './_collab.ts'
 
 const NOTE = 'hogar/Proxy.md'
@@ -17,6 +17,8 @@ test('dos clientes, API y editor externo sobre una nota abierta; el archivo conv
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
     const b = await connect(srv, cookie, NOTE)
+    const saved: string[] = []
+    a.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'thoth:saved') saved.push(m.etag) })
     for (let i = 0; i < 20; i++) { typeLine(a, `A-${i}`); typeLine(b, `B-${i}`); await sleep(5) }
     // Edición por la API con la nota caliente: pasa por el documento vivo. Mientras
     // los clientes escriben, el ETag cambia: se reintenta como haría un cliente real.
@@ -34,6 +36,7 @@ test('dos clientes, API y editor externo sobre una nota abierta; el archivo conv
     await waitFor(() => a.text().includes('(editado fuera)') && b.text().includes('(editado fuera)'), 'cambio externo en los clientes')
     await waitFor(() => a.text() === b.text() && a.text().includes('(editado por API)'), 'convergencia')
     const final = a.text()
+    await waitFor(() => saved.includes(contentHash(final)), 'aviso de guardado con el hash del texto volcado')
     for (let i = 0; i < 20; i++) assert.ok(final.includes(`A-${i}\n`) && final.includes(`B-${i}\n`), `falta A-${i}/B-${i}`)
     a.close(); b.close()
     await waitFor(() => readFileSync(file, 'utf8') === final, 'volcado final')
