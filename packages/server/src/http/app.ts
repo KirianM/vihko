@@ -1,5 +1,5 @@
-// API HTTP. La usa la UI con sesión (cookie) y siempre está activa; el acceso de
-// integraciones con API keys llegará en M3 y será opcional (D-010).
+// HTTP API. Used by the UI with a session (cookie) and always active; access
+// for integrations with API keys will arrive later and be optional.
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
@@ -21,7 +21,7 @@ export interface Runtime {
   rescan(opts: ScanOptions): ScanReport
 }
 
-/** Lo que la API necesita del hub de colaboración. */
+/** What the API needs from the collaboration hub. */
 export interface Orphans {
   orphans(): string[]
   restoreOrphan(path: string): Promise<{ etag: string }>
@@ -36,11 +36,11 @@ export interface AppDeps {
   indexer: Indexer
   notesDir: string
   runtime: Runtime
-  /** UI compilada (packages/web/dist). Sin ella, el servidor solo expone la API. */
+  /** Compiled UI (packages/web/dist). Without it, the server only exposes the API. */
   webDir?: string
 }
 
-// La UI solo habla con su propio origen: ni CDNs ni terceros (regla 4).
+// The UI only talks to its own origin: no CDNs or third parties.
 const UI_HEADERS = {
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   'X-Content-Type-Options': 'nosniff',
@@ -56,8 +56,8 @@ function noteErrorStatus(e: NoteError) {
 }
 
 /**
- * Respuesta de error: `error` es el código estable que traduce la UI (D-025);
- * `message`, una pista para quien desarrolla, que la UI no muestra.
+ * Error response: `error` is the stable code the UI translates; `message`
+ * is a hint for developers, which the UI never shows.
  */
 function fail(c: Context, status: ContentfulStatusCode, error: ErrorCode, message: string, extra: Record<string, unknown> = {}) {
   return c.json({ error, message, ...extra }, status)
@@ -73,24 +73,24 @@ export function createApp(deps: AppDeps) {
       return fail(c, noteErrorStatus(err), err.code, err.message, { etag: err.etag })
     }
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400, err.code, err.message)
-    // Cuerpo que no es JSON.
+    // Body that isn't JSON.
     if (err instanceof SyntaxError) return fail(c, 400, 'invalid', err.message)
     console.error(err)
-    return fail(c, 500, 'internal', 'error interno')
+    return fail(c, 500, 'internal', 'internal error')
   })
 
-  // CSRF: una petición que modifica algo y viene de otro origen se rechaza.
+  // CSRF: a request that modifies something and comes from another origin is rejected.
   app.use('/api/*', async (c, next) => {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
       const origin = c.req.header('origin')
-      if (origin && new URL(origin).host !== new URL(c.req.url).host) return fail(c, 403, 'forbidden', 'origen no permitido')
+      if (origin && new URL(origin).host !== new URL(c.req.url).host) return fail(c, 403, 'forbidden', 'origin not allowed')
     }
     await next()
   })
 
-  // --- Sin sesión: salud, primer arranque y login ---------------------------
+  // --- No session required: health, first boot and login --------------------
 
-  // Para el healthcheck de Docker. No revela nada salvo que el proceso responde.
+  // For Docker's healthcheck. Reveals nothing beyond the process responding.
   app.get('/api/health', (c) => c.json({ ok: true }))
 
   app.get('/api/setup', (c) => c.json({ needed: auth.userCount() === 0 }))
@@ -104,7 +104,7 @@ export function createApp(deps: AppDeps) {
   app.post('/api/auth/login', async (c) => {
     const { username, password } = await c.req.json<{ username: string; password: string }>()
     const s = await auth.login(username ?? '', password ?? '')
-    if (!s) return fail(c, 401, 'invalid_credentials', 'usuario o contraseña incorrectos')
+    if (!s) return fail(c, 401, 'invalid_credentials', 'incorrect username or password')
     setCookie(c, SESSION_COOKIE, s.token, {
       httpOnly: true,
       sameSite: 'Lax',
@@ -115,19 +115,19 @@ export function createApp(deps: AppDeps) {
     return c.json({ user: s.user })
   })
 
-  // --- A partir de aquí, sesión obligatoria --------------------------------
+  // --- From here on, a session is required -----------------------------------
 
   app.use('/api/*', async (c, next) => {
     const token = getCookie(c, SESSION_COOKIE)
     const user = auth.session(token)
-    if (!user) return fail(c, 401, 'unauthorized', 'inicia sesión')
+    if (!user) return fail(c, 401, 'unauthorized', 'please log in')
     c.set('user', user)
     c.set('token', token!)
     await next()
   })
 
   const adminOnly = async (c: Context<Env>, next: () => Promise<void>) => {
-    if (c.get('user').role !== 'admin') return fail(c, 403, 'forbidden', 'solo administradores')
+    if (c.get('user').role !== 'admin') return fail(c, 403, 'forbidden', 'admins only')
     await next()
   }
 
@@ -159,14 +159,14 @@ export function createApp(deps: AppDeps) {
 
   app.put('/api/note', async (c) => {
     const ifMatch = unquote(c.req.header('if-match'))
-    if (!ifMatch) return fail(c, 428, 'precondition_required', 'falta If-Match: no se sobrescribe una nota que no se ha leído')
+    if (!ifMatch) return fail(c, 428, 'precondition_required', 'missing If-Match: a note that hasn\'t been read won\'t be overwritten')
     const { text } = await c.req.json<{ text: string }>()
     const r = await notes.write(c.req.query('path') ?? '', text, { ifMatch, actor: actorOf(c.get('user')) })
     c.header('ETag', `"${r.etag}"`)
     return c.json(r)
   })
 
-  // Ediciones por operación: atómicas sobre el texto actual, también con la nota abierta.
+  // Edits by operation: atomic on the current text, even with the note open.
   app.post('/api/note/edit', async (c) => {
     const { path, ops } = await c.req.json<{ path: string; ops: EditOp[] }>()
     const r = await notes.edit(path, (t) => applyEdits(t, ops), { ifMatch: unquote(c.req.header('if-match')), actor: actorOf(c.get('user')) })
@@ -186,7 +186,7 @@ export function createApp(deps: AppDeps) {
 
   app.get('/api/note/links', (c) => {
     const path = c.req.query('path') ?? ''
-    notes.read(path) // 404 si no existe
+    notes.read(path) // 404 if it doesn't exist
     const outgoing = index.prepare(`select raw, kind, target, anchor, status, dst_path, anchor_ok, candidates
       from links where src_path = ? order by ord`).all(path) as { candidates: string | null }[]
     const incoming = index.prepare(`select l.src_path, n.title, l.raw, l.pos_from, l.pos_to
@@ -222,8 +222,8 @@ export function createApp(deps: AppDeps) {
     return c.json(await notes.restore(c.req.param('id'), actorOf(c.get('user')), to))
   })
 
-  // Avisos del espacio: códigos con sus datos, nunca texto (D-025). Las acciones
-  // de admin solo se ofrecen a quien puede hacerlas; el endpoint lo vuelve a exigir.
+  // Workspace alerts: codes with their data, never text. Admin actions are
+  // only offered to those who can perform them; the endpoint enforces it again.
   app.get('/api/alerts', (c) => {
     const admin = c.get('user').role === 'admin'
     const alerts: Alert[] = []
@@ -243,28 +243,28 @@ export function createApp(deps: AppDeps) {
     return c.json({ alerts })
   })
 
-  // Texto de una copia de conflicto, para compararla con la nota. Solo de las
-  // que el indexador ha detectado: no sirve para leer cualquier archivo.
+  // Text of a conflict copy, to compare it with the note. Only for those the
+  // indexer has detected: this can't be used to read an arbitrary file.
   app.get('/api/conflict', (c) => {
     const path = c.req.query('path') ?? ''
     const known = classifyPath(path) === 'conflict' && index.prepare("select 1 from alerts where path = ? and kind = 'sync_conflict'").get(path)
     let text: string | null = null
-    if (known) try { text = readFileSync(join(deps.notesDir, path), 'utf8') } catch { /* ya no existe */ }
-    if (text === null) return fail(c, 404, 'not_found', `no hay ninguna copia de conflicto en ${path}`)
+    if (known) try { text = readFileSync(join(deps.notesDir, path), 'utf8') } catch { /* no longer exists */ }
+    if (text === null) return fail(c, 404, 'not_found', `there's no conflict copy at ${path}`)
     return c.json({ path, text })
   })
 
-  // Nota borrada desde fuera con una copia abierta: conservarla o darla por borrada.
+  // Note deleted from outside with an open copy: keep it or treat it as deleted.
   app.post('/api/note/orphan', async (c) => {
     const { path, action } = await c.req.json<{ path: string; action: 'restore' | 'discard' }>()
-    if (!deps.orphans) return fail(c, 404, 'not_found', 'sin hub de colaboración')
+    if (!deps.orphans) return fail(c, 404, 'not_found', 'no collaboration hub')
     if (action === 'restore') return c.json(await deps.orphans.restoreOrphan(path))
     if (action === 'discard') { await deps.orphans.discardOrphan(path); return c.json({ ok: true }) }
-    return fail(c, 400, 'invalid', 'action debe ser restore o discard')
+    return fail(c, 400, 'invalid', 'action must be restore or discard')
   })
 
-  // `confirmRemoval`: el número de notas que el aviso decía que se iban a retirar.
-  // El borrado masivo solo se acepta si sigue siendo ese (Indexer.scan).
+  // `confirmRemoval`: the number of notes the alert said would be removed.
+  // The mass deletion is only accepted if that number still matches (Indexer.scan).
   app.post('/api/admin/rescan', adminOnly, async (c) => {
     const body = await c.req.json<{ force?: boolean; confirmRemoval?: number }>().catch(() => ({}) as { force?: boolean; confirmRemoval?: number })
     const confirmRemoval = Number.isInteger(body.confirmRemoval) ? body.confirmRemoval : undefined
@@ -276,23 +276,23 @@ export function createApp(deps: AppDeps) {
     return c.json({ user: await auth.createUser(username, password, role ?? 'member') }, 201)
   })
 
-  app.all('/api/*', (c) => fail(c, 404, 'not_found', 'no existe'))
+  app.all('/api/*', (c) => fail(c, 404, 'not_found', 'does not exist'))
 
   if (deps.webDir) {
     const root = deps.webDir
     app.use('*', async (c, next) => {
       await next()
       for (const [k, v] of Object.entries(UI_HEADERS)) c.header(k, v)
-      // index.html sin caché, para que una actualización se vea al recargar.
+      // index.html uncached, so an update shows up on reload.
       if (c.res.headers.get('content-type')?.startsWith('text/html')) c.header('Cache-Control', 'no-cache')
     })
-    // Los assets llevan hash en el nombre: se pueden cachear para siempre.
+    // Assets carry a hash in their name: they can be cached forever.
     app.use('/assets/*', async (c, next) => {
       await next()
       if (c.res.ok) c.header('Cache-Control', 'public, max-age=31536000, immutable')
     })
     app.get('*', serveStatic({ root }))
-    // Cualquier otra ruta es de la aplicación (SPA): index.html.
+    // Any other route belongs to the app (SPA): index.html.
     app.get('*', serveStatic({ root, path: 'index.html' }))
   }
 
@@ -307,7 +307,7 @@ function unquote(etag: string | undefined) {
   return etag?.replace(/^W\//, '').replace(/^"|"$/g, '') || undefined
 }
 
-/** Fragmento de texto alrededor de un enlace, para mostrar backlinks con contexto. */
+/** Text fragment around a link, to show backlinks with context. */
 function context(text: string, from: number, to: number, radius = 80) {
   const start = Math.max(0, text.lastIndexOf('\n', from - 1) + 1, from - radius)
   const nl = text.indexOf('\n', to)

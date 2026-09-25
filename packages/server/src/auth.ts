@@ -1,6 +1,6 @@
-// Usuarios locales, contraseñas y sesiones. Sin proveedor externo obligatorio
-// (D-010). Contraseñas con scrypt (incluido en Node); de los tokens de sesión
-// solo se guarda su hash.
+// Local users, passwords and sessions. No external provider required.
+// Passwords with scrypt (bundled with Node); only the hash of session
+// tokens is stored.
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 import { newUid } from '@thoth/core'
@@ -8,7 +8,7 @@ import type { Db } from './db.ts'
 
 const scryptAsync = promisify(scrypt) as (pw: string, salt: Buffer, len: number, opts: object) => Promise<Buffer>
 
-// Parámetros de scrypt: N=2^15, r=8, p=1 (~32 MiB, del orden de 100 ms).
+// scrypt parameters: N=2^15, r=8, p=1 (~32 MiB, on the order of 100 ms).
 const N = 2 ** 15
 const R = 8
 const P = 1
@@ -29,7 +29,7 @@ export interface User {
 
 export type AuthErrorCode = 'invalid_username' | 'weak_password' | 'user_exists' | 'already_setup' | 'invalid_token'
 
-/** Error de alta o primer arranque. `code` es estable y la UI lo traduce (D-025). */
+/** Error creating a user or on first boot. `code` is stable and the UI translates it. */
 export class AuthError extends Error {
   readonly code: AuthErrorCode
   constructor(code: AuthErrorCode, message: string) {
@@ -63,7 +63,7 @@ function rowToUser(r: { id: string; username: string; role: Role; disabled: numb
 
 export class Auth {
   private db: Db
-  /** Hash de un token de un solo uso para crear el primer admin (solo en memoria). */
+  /** Hash of a one-time token to create the first admin (in memory only). */
   private setupHash: string | null = null
 
   constructor(stateDb: Db) {
@@ -74,7 +74,7 @@ export class Auth {
     return (this.db.prepare('select count(*) n from users').get() as { n: number }).n
   }
 
-  /** Si no hay usuarios, genera el token de primer arranque. Se muestra una sola vez en el log. */
+  /** If there are no users, generates the first-boot token. It's shown only once, in the log. */
   setupToken(): string | null {
     if (this.userCount() > 0) return null
     const token = newToken()
@@ -84,31 +84,31 @@ export class Auth {
 
   async createUser(username: string, password: string, role: Role): Promise<User> {
     const name = username.normalize('NFC').trim()
-    if (!/^[\p{L}\p{N}._-]{2,64}$/u.test(name)) throw new AuthError('invalid_username', 'nombre de usuario no válido (2–64 letras, dígitos, ".", "_" o "-")')
-    if (password.length < MIN_PASSWORD) throw new AuthError('weak_password', `la contraseña debe tener al menos ${MIN_PASSWORD} caracteres`)
-    if (this.db.prepare('select 1 from users where username = ?').get(name)) throw new AuthError('user_exists', `el usuario ${name} ya existe`)
+    if (!/^[\p{L}\p{N}._-]{2,64}$/u.test(name)) throw new AuthError('invalid_username', 'invalid username (2-64 letters, digits, ".", "_" or "-")')
+    if (password.length < MIN_PASSWORD) throw new AuthError('weak_password', `password must be at least ${MIN_PASSWORD} characters`)
+    if (this.db.prepare('select 1 from users where username = ?').get(name)) throw new AuthError('user_exists', `user ${name} already exists`)
     const user: User = { id: newUid(), username: name, role, disabled: false }
     this.db.prepare('insert into users (id, username, password_hash, role, created_at) values (?, ?, ?, ?, ?)')
       .run(user.id, user.username, await hashPassword(password), role, new Date().toISOString())
     return user
   }
 
-  /** Crea el primer admin con el token de primer arranque. El token se consume. */
+  /** Creates the first admin with the first-boot token. The token is consumed. */
   async setup(token: string, username: string, password: string): Promise<User> {
-    if (!this.setupHash || this.userCount() > 0) throw new AuthError('already_setup', 'la instalación ya está configurada')
+    if (!this.setupHash || this.userCount() > 0) throw new AuthError('already_setup', 'the installation is already set up')
     const a = Buffer.from(tokenHash(token))
     const b = Buffer.from(this.setupHash)
-    if (a.length !== b.length || !timingSafeEqual(a, b)) throw new AuthError('invalid_token', 'token de primer arranque no válido')
+    if (a.length !== b.length || !timingSafeEqual(a, b)) throw new AuthError('invalid_token', 'invalid first-boot token')
     const user = await this.createUser(username, password, 'admin')
     this.setupHash = null
     return user
   }
 
-  /** Devuelve un token de sesión nuevo, o null si las credenciales no valen. */
+  /** Returns a new session token, or null if the credentials are invalid. */
   async login(username: string, password: string): Promise<{ token: string; user: User; expiresAt: Date } | null> {
     const row = this.db.prepare('select id, username, role, disabled, password_hash from users where username = ?')
       .get(username.normalize('NFC').trim()) as { id: string; username: string; role: Role; disabled: number; password_hash: string } | undefined
-    // Se verifica igualmente contra un hash ficticio para no revelar qué usuarios existen por el tiempo de respuesta.
+    // Verified against a dummy hash either way, so response time doesn't reveal which users exist.
     const ok = await verifyPassword(password, row?.password_hash ?? DUMMY_HASH)
     if (!row || !ok || row.disabled) return null
     const token = newToken()
@@ -119,7 +119,7 @@ export class Auth {
     return { token, user: rowToUser(row), expiresAt }
   }
 
-  /** Usuario de una sesión válida. Renueva la caducidad (sesión deslizante). */
+  /** User of a valid session. Renews the expiry (sliding session). */
   session(token: string | undefined): User | null {
     if (!token) return null
     const h = tokenHash(token)
@@ -132,7 +132,7 @@ export class Auth {
       this.db.prepare('delete from sessions where token_hash = ?').run(h)
       return null
     }
-    // Renovar como mucho una vez por hora para no escribir en cada petición.
+    // Renew at most once an hour, so we don't write on every request.
     if (now - Date.parse(row.last_seen_at) > 3_600_000) {
       this.db.prepare('update sessions set last_seen_at = ?, expires_at = ? where token_hash = ?')
         .run(new Date(now).toISOString(), new Date(now + SESSION_DAYS * 86_400_000).toISOString(), h)

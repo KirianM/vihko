@@ -1,6 +1,6 @@
-// Servicio de notas: el único punto de escritura del sistema (UI, API y MCP
-// pasan por aquí). Concurrencia optimista por hash, escritura segura
-// (fsutil.ts), `uid` perezoso (D-015) y borrado a papelera.
+// Note service: the system's only write point (UI, API and MCP all go
+// through here). Optimistic concurrency by hash, safe writes
+// (fsutil.ts), lazy `uid` and deletion to trash.
 import { mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix } from 'node:path'
 import { addToFrontmatterList, classifyPath, contentHash, newUid, normKey, pathKeys, readFrontmatter, setFrontmatterKey } from '@thoth/core'
@@ -9,7 +9,7 @@ import { applyReplacements, keptLinks, planRelinks, type Replacement } from './r
 import type { Indexer } from './indexer.ts'
 import type { Db } from './db.ts'
 
-/** Quién hace un cambio. Se registrará en el historial (M2). */
+/** Who makes a change. Will be recorded in history (M2). */
 export type Actor =
   | { kind: 'user'; id: string }
   | { kind: 'agent'; id: string; onBehalfOf: string }
@@ -19,7 +19,7 @@ export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'in
 
 export class NoteError extends Error {
   readonly code: NoteErrorCode
-  /** ETag actual cuando la precondición falla, para reintentar sin releer. */
+  /** Current ETag when the precondition fails, to retry without re-reading. */
   readonly etag: string | null
   constructor(code: NoteErrorCode, message: string, etag: string | null = null) {
     super(message)
@@ -34,7 +34,7 @@ export interface NoteRead {
   etag: string
 }
 
-/** Documentos abiertos en el editor colaborativo (D-012). Lo implementará el hub. */
+/** Documents open in the collaborative editor. The hub will implement this. */
 export interface HotDocuments {
   has(path: string): boolean
   edit(path: string, fn: (text: string) => string, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }>
@@ -52,7 +52,7 @@ export interface HotDocuments {
 
 export interface NoteServiceOptions {
   notesDir: string
-  /** Volumen de estado (disco local): aquí vive la papelera. */
+  /** State volume (local disk): the trash lives here. */
   stateDir: string
   indexer: Indexer
   db: Db
@@ -70,9 +70,9 @@ export interface MoveReport {
   relinked: { path: string; links: number; changes: { before: string; after: string }[] }[]
   /** Links to the note that keep working untouched: through an alias (`via: 'alias'`) or by name or path. */
   kept: { path: string; raw: string; via: 'path' | 'alias' }[]
-  /** Notas que no se pudieron reescribir. */
+  /** Notes that couldn't be rewritten. */
   failed: { path: string; reason: string }[]
-  /** Se añadió el nombre antiguo como alias porque alguna reescritura falló (D-018). */
+  /** The old name was added as an alias because some rewrite failed. */
   aliasAdded: string | null
   dryRun: boolean
 }
@@ -94,12 +94,12 @@ export class NoteService {
     this.uidKey = opts.uidKey ?? 'uid'
   }
 
-  /** Valida una ruta de nota: relativa, sin `..`, sin segmentos ocultos, terminada en `.md`. */
+  /** Validates a note path: relative, no `..`, no hidden segments, ending in `.md`. */
   static checkPath(path: string): string {
     if (typeof path !== 'string' || path === '') throw new NoteError('invalid_path', `invalid note path: ${String(path)}`)
     const norm = posix.normalize(path)
     if (path !== norm || path.startsWith('/') || norm.split('/').includes('..') || classifyPath(norm) !== 'note') {
-      throw new NoteError('invalid_path', `ruta de nota no válida: ${path}`)
+      throw new NoteError('invalid_path', `invalid note path: ${path}`)
     }
     return norm
   }
@@ -108,81 +108,81 @@ export class NoteService {
     return join(this.opts.notesDir, NoteService.checkPath(path))
   }
 
-  /** Ruta de la nota con ese uid (si hay varias, es un conflicto de identidad: se rechaza). */
+  /** Path of the note with that uid (if there are several, it's an identity conflict: rejected). */
   pathOfUid(uid: string): string {
     const rows = this.opts.db.prepare('select path from notes where uid = ?').all(uid) as { path: string }[]
-    if (rows.length === 0) throw new NoteError('not_found', `no hay ninguna nota con uid ${uid}`)
-    if (rows.length > 1) throw new NoteError('not_found', `uid ${uid} duplicado en ${rows.map((r) => r.path).join(', ')}`)
+    if (rows.length === 0) throw new NoteError('not_found', `no note with uid ${uid}`)
+    if (rows.length > 1) throw new NoteError('not_found', `duplicate uid ${uid} in ${rows.map((r) => r.path).join(', ')}`)
     return rows[0]!.path
   }
 
   read(path: string): NoteRead {
     const text = readText(this.file(path))
-    if (text === null) throw new NoteError('not_found', `no existe: ${path}`)
+    if (text === null) throw new NoteError('not_found', `does not exist: ${path}`)
     return { path, text, etag: contentHash(text) }
   }
 
-  /** Crea una nota nueva; nunca sobrescribe. Nace con `uid` (D-015). */
+  /** Creates a new note; never overwrites. Born with a `uid`. */
   async create(path: string, text: string, _actor: Actor): Promise<{ path: string; etag: string; uid: string | null }> {
     const file = this.file(path)
     mkdirSync(dirname(file), { recursive: true })
     const withUid = this.ensureUid(text, null)
     const r = await commitText(file, withUid.text, null)
-    if (!r.ok) throw new NoteError('exists', `ya existe: ${path}`, r.current === null ? null : contentHash(r.current))
+    if (!r.ok) throw new NoteError('exists', `already exists: ${path}`, r.current === null ? null : contentHash(r.current))
     this.opts.indexer.indexPaths([path])
     return { path, etag: contentHash(withUid.text), uid: withUid.uid }
   }
 
-  /** Sustituye el contenido entero. `ifMatch` es obligatorio: no se pisa lo que no se ha leído. */
+  /** Replaces the entire content. `ifMatch` is mandatory: what hasn't been read isn't overwritten. */
   async write(path: string, text: string, opts: { ifMatch: string; actor: Actor }): Promise<{ etag: string }> {
     return this.edit(path, () => text, opts)
   }
 
   /**
-   * Aplica `fn` sobre el contenido actual. Con `ifMatch`, solo si la nota no ha
-   * cambiado desde que se leyó. Si la nota no tenía `uid`, lo recibe en esta
-   * misma escritura; si lo tenía, se conserva aunque el nuevo texto lo omita.
+   * Applies `fn` to the current content. With `ifMatch`, only if the note
+   * hasn't changed since it was read. If the note had no `uid`, it gets one in
+   * this same write; if it had one, it's kept even if the new text omits it.
    */
   async edit(path: string, fn: (text: string) => string, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }> {
     const hot = this.opts.hot
     if (hot?.has(path)) return hot.edit(path, fn, opts)
     const file = this.file(path)
     const current = await readStable(file)
-    if (current === null) throw new NoteError('not_found', `no existe: ${path}`)
+    if (current === null) throw new NoteError('not_found', `does not exist: ${path}`)
     const currentHash = contentHash(current)
     if (opts.ifMatch !== undefined && opts.ifMatch !== currentHash) {
-      throw new NoteError('precondition_failed', `la nota ha cambiado: ${path}`, currentHash)
+      throw new NoteError('precondition_failed', `the note has changed: ${path}`, currentHash)
     }
     const oldUid = this.uidIn(current)
     const next = this.ensureUid(fn(current), oldUid).text
     if (next === current) return { etag: currentHash }
     const r = await commitText(file, next, currentHash)
     if (!r.ok) {
-      throw new NoteError('precondition_failed', `la nota cambió durante la escritura: ${path}`, r.current === null ? null : contentHash(r.current))
+      throw new NoteError('precondition_failed', `the note changed during the write: ${path}`, r.current === null ? null : contentHash(r.current))
     }
     this.opts.indexer.indexPaths([path])
     return { etag: contentHash(next) }
   }
 
-  /** Mueve la nota a la papelera del volumen de estado. */
+  /** Moves the note to the state volume's trash. */
   async delete(path: string, opts: { ifMatch?: string; actor: Actor }): Promise<TrashEntry> {
     const file = this.file(path)
     const id = newUid()
     // Open in the editor: flush what is pending and close it, telling its editors the trash entry.
     if (this.opts.hot?.has(path)) await this.opts.hot.discard(path, { ifMatch: opts.ifMatch, trash: { id, actor: opts.actor } })
     const current = await readStable(file)
-    if (current === null) throw new NoteError('not_found', `no existe: ${path}`)
+    if (current === null) throw new NoteError('not_found', `does not exist: ${path}`)
     const hash = contentHash(current)
-    if (opts.ifMatch !== undefined && opts.ifMatch !== hash) throw new NoteError('precondition_failed', `la nota ha cambiado: ${path}`, hash)
+    if (opts.ifMatch !== undefined && opts.ifMatch !== hash) throw new NoteError('precondition_failed', `the note has changed: ${path}`, hash)
 
-    // Primero se aparta dentro del mismo sistema de archivos (rename atómico) y se
-    // comprueba que lo apartado es lo que se quería borrar.
+    // First it's set aside within the same filesystem (atomic rename), then we
+    // check that what was set aside is what was meant to be deleted.
     const aside = join(dirname(file), `.${posix.basename(path)}.thoth-del-${process.pid}-${Date.now()}`)
     renameSync(file, aside)
     const moved = readText(aside)
     if (moved === null || contentHash(moved) !== hash) {
       renameSync(aside, file)
-      throw new NoteError('precondition_failed', `la nota cambió durante el borrado: ${path}`, moved === null ? null : contentHash(moved))
+      throw new NoteError('precondition_failed', `the note changed during deletion: ${path}`, moved === null ? null : contentHash(moved))
     }
     const entry: TrashEntry = { id, path, deletedAt: new Date().toISOString(), actor: opts.actor, etag: hash }
     const dir = join(this.opts.stateDir, 'trash', entry.id)
@@ -195,9 +195,9 @@ export class NoteService {
   }
 
   /**
-   * Mueve o renombra una nota y reescribe los enlaces necesarios para que ninguno
-   * cambie de destino (D-018). Las reescrituras las hace el sistema en nombre de
-   * quien renombra. Con `dryRun`, solo informa de lo que haría.
+   * Moves or renames a note and rewrites the links needed so none of them
+   * change destination. The rewrites are done by the system on behalf of
+   * whoever renamed it. With `dryRun`, it only reports what it would do.
    */
   async move(from: string, to: string, opts: { ifMatch?: string; actor: Actor; dryRun?: boolean }): Promise<MoveReport> {
     const hot = this.opts.hot
@@ -215,14 +215,14 @@ export class NoteService {
     const fromFile = this.file(from)
     const toFile = this.file(to)
     const text = await readStable(fromFile)
-    if (text === null) throw new NoteError('not_found', `no existe: ${from}`)
-    if (readText(toFile) !== null) throw new NoteError('exists', `ya existe: ${to}`)
+    if (text === null) throw new NoteError('not_found', `does not exist: ${from}`)
+    if (readText(toFile) !== null) throw new NoteError('exists', `already exists: ${to}`)
     const hash = contentHash(text)
-    if (opts.ifMatch !== undefined && opts.ifMatch !== hash) throw new NoteError('precondition_failed', `la nota ha cambiado: ${from}`, hash)
+    if (opts.ifMatch !== undefined && opts.ifMatch !== hash) throw new NoteError('precondition_failed', `the note has changed: ${from}`, hash)
 
-    // Estado de resolución antes y después del movimiento.
+    // Resolution state before and after the move.
     this.opts.indexer.indexPaths([from])
-    // Copias congeladas: el índice vivo cambia en cuanto se reindexa durante la ejecución.
+    // Frozen copies: the live index changes as soon as reindexing happens during execution.
     const before = this.opts.indexer.links.clone()
     const after = before.clone()
     const keys = before.get(from) ?? { path: from }
@@ -230,8 +230,8 @@ export class NoteService {
     after.set({ ...keys, path: to })
     const map = (p: string) => (p === from ? to : p)
 
-    // Notas que pueden verse afectadas: la movida, las que enlazan a ella y las que
-    // buscan alguna de sus claves (un nombre igual más cercano "robaría" el enlace).
+    // Notes that may be affected: the moved one, those linking to it, and those
+    // looking up one of its keys (a closer name match would "steal" the link).
     const affected = [...pathKeys(from), ...pathKeys(to), ...(keys.aliases ?? []).map(normKey)]
     const sources = new Set<string>([from])
     for (const r of this.opts.db.prepare('select distinct src_path from links where dst_path = ?').all(from) as { src_path: string }[]) sources.add(r.src_path)
@@ -252,16 +252,17 @@ export class NoteService {
     }
     if (opts.dryRun) return report
 
-    // 1. La nota movida: se crea en destino (sin pisar) y se retira el origen si no cambió.
+    // 1. The moved note: created at the destination (without overwriting), and
+    // the source is removed if it didn't change.
     const newText = this.ensureUid(applyReplacements(text, movedReps), this.uidIn(text)).text
     mkdirSync(dirname(toFile), { recursive: true })
     const created = await commitText(toFile, newText, null)
-    if (!created.ok) throw new NoteError('exists', `ya existe: ${to}`)
+    if (!created.ok) throw new NoteError('exists', `already exists: ${to}`)
     const aside = join(dirname(fromFile), `.${posix.basename(from)}.thoth-mv-${process.pid}-${Date.now()}`)
     try {
       renameSync(fromFile, aside)
     } catch (err) {
-      // Sin esto quedaría la nota duplicada: se deshace la creación en destino.
+      // Without this the note would end up duplicated: undo the creation at the destination.
       rmSync(toFile, { force: true })
       throw err
     }
@@ -269,13 +270,13 @@ export class NoteService {
     if (moved === null || contentHash(moved) !== hash) {
       renameSync(aside, fromFile)
       rmSync(toFile, { force: true })
-      throw new NoteError('precondition_failed', `la nota cambió durante el movimiento: ${from}`, moved === null ? null : contentHash(moved))
+      throw new NoteError('precondition_failed', `the note changed during the move: ${from}`, moved === null ? null : contentHash(moved))
     }
     rmSync(aside)
     this.opts.indexer.indexPaths([from, to])
 
-    // 2. El resto de notas, como sistema. El plan se recalcula sobre el texto actual.
-    const system: Actor = { kind: 'system', reason: `renombrado de ${from} a ${to} por ${actorLabel(opts.actor)}` }
+    // 2. The rest of the notes, as the system. The plan is recalculated over the current text.
+    const system: Actor = { kind: 'system', reason: `renamed ${from} to ${to} by ${actorLabel(opts.actor)}` }
     for (const src of others) {
       try {
         await this.edit(src, (t) => applyReplacements(t, planRelinks(t, src, src, before, after, map)), { actor: system })
@@ -284,7 +285,7 @@ export class NoteService {
       }
     }
 
-    // 3. Red de seguridad: si algo no se pudo reescribir, el nombre antiguo queda como alias.
+    // 3. Safety net: if something couldn't be rewritten, the old name stays as an alias.
     const oldName = posix.basename(from).replace(/\.md$/i, '')
     const newName = posix.basename(to).replace(/\.md$/i, '')
     if (report.failed.length && oldName !== newName) {
@@ -292,7 +293,7 @@ export class NoteService {
         await this.edit(to, (t) => addToFrontmatterList(t, 'aliases', oldName), { actor: system })
         report.aliasAdded = oldName
       } catch (err) {
-        report.failed.push({ path: to, reason: `no se pudo añadir el alias: ${err instanceof Error ? err.message : String(err)}` })
+        report.failed.push({ path: to, reason: `could not add the alias: ${err instanceof Error ? err.message : String(err)}` })
       }
     }
     return report
@@ -305,18 +306,18 @@ export class NoteService {
     return ids.sort().reverse().map((id) => JSON.parse(readText(join(root, id, 'meta.json'))!) as TrashEntry)
   }
 
-  /** Restaura desde la papelera a su ruta original (o a `to`). Nunca sobrescribe. */
+  /** Restores from the trash to its original path (or to `to`). Never overwrites. */
   async restore(id: string, _actor: Actor, to?: string): Promise<{ path: string; etag: string }> {
     const dir = join(this.opts.stateDir, 'trash', id)
     const meta = readText(join(dir, 'meta.json'))
-    if (meta === null) throw new NoteError('not_found', `no está en la papelera: ${id}`)
+    if (meta === null) throw new NoteError('not_found', `not in the trash: ${id}`)
     const entry = JSON.parse(meta) as TrashEntry
     const text = readText(join(dir, 'note.md'))!
     const path = to ?? entry.path
     const file = this.file(path)
     mkdirSync(dirname(file), { recursive: true })
     const r = await commitText(file, text, null)
-    if (!r.ok) throw new NoteError('exists', `ya existe: ${path}`)
+    if (!r.ok) throw new NoteError('exists', `already exists: ${path}`)
     rmSync(dir, { recursive: true })
     this.opts.indexer.indexPaths([path])
     return { path, etag: contentHash(text) }
@@ -328,16 +329,16 @@ export class NoteService {
     return typeof v === 'string' || typeof v === 'number' ? String(v) : null
   }
 
-  /** Añade `uid` (el anterior si lo había, o uno nuevo) si el texto no lo tiene y el frontmatter es válido. */
+  /** Adds `uid` (the previous one if there was one, or a new one) if the text doesn't have one and the frontmatter is valid. */
   private ensureUid(text: string, previous: string | null): { text: string; uid: string | null } {
     const existing = this.uidIn(text)
     if (existing) return { text, uid: existing }
-    if (readFrontmatter(text).error) return { text, uid: null } // YAML roto: se escribe tal cual, sin tocarlo
+    if (readFrontmatter(text).error) return { text, uid: null } // broken YAML: written as-is, untouched
     const uid = previous ?? newUid()
     return { text: setFrontmatterKey(text, this.uidKey, uid), uid }
   }
 }
 
 function actorLabel(a: Actor): string {
-  return a.kind === 'user' ? a.id : a.kind === 'agent' ? `${a.id} (en nombre de ${a.onBehalfOf})` : `sistema: ${a.reason}`
+  return a.kind === 'user' ? a.id : a.kind === 'agent' ? `${a.id} (on behalf of ${a.onBehalfOf})` : `system: ${a.reason}`
 }

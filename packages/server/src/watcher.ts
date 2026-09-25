@@ -1,6 +1,6 @@
-// Watcher + rescan periódico. El watcher es solo una pista: el rescan es
-// obligatorio (sistemas de archivos de red, eventos perdidos, cambios con el
-// servicio parado).
+// Watcher + periodic rescan. The watcher is only a hint: the rescan is
+// mandatory (network filesystems, lost events, changes made while the
+// service was stopped).
 import { watch, statSync, type FSWatcher } from 'node:fs'
 import { join, sep } from 'node:path'
 import { classifyPath } from '@thoth/core'
@@ -12,10 +12,10 @@ export interface WatcherOptions {
   indexer: Indexer
   db: Db
   debounceMs?: number
-  /** Intervalo del rescan completo. */
+  /** Interval for the full rescan. */
   rescanMs?: number
   onReport?: (kind: 'events' | 'rescan', report: ScanReport) => void
-  /** Rutas con eventos, antes de indexarlas (el hub las usa para integrar cambios externos). */
+  /** Paths with events, before indexing them (the hub uses them to integrate external changes). */
   onChange?: (paths: string[]) => void
   onError?: (err: unknown) => void
 }
@@ -38,7 +38,7 @@ export class Watcher {
       this.schedule()
     })
     this.fsw.on('error', (err) => {
-      // Se perdió el watcher (desmontaje, límite de inotify…): el rescan lo cubre.
+      // The watcher was lost (unmount, inotify limit…): the rescan covers it.
       this.opts.onError?.(err)
       this.needScan = true
       this.schedule()
@@ -64,7 +64,7 @@ export class Watcher {
     this.pending.clear()
     try {
       this.opts.onChange?.(paths)
-      // Un evento sobre un directorio (p. ej. renombrar una carpeta) no dice qué notas cambiaron.
+      // An event on a directory (e.g. renaming a folder) doesn't say which notes changed.
       if (this.needScan || paths.some((p) => this.isDirectoryChange(p))) {
         this.needScan = false
         this.rescan()
@@ -81,13 +81,13 @@ export class Watcher {
     if (classifyPath(rel) !== 'other') return false
     try {
       if (statSync(join(this.opts.notesDir, rel)).isDirectory()) return true
-    } catch { /* ya no existe: puede ser una carpeta renombrada o borrada */ }
+    } catch { /* no longer exists: may be a renamed or deleted folder */ }
     return !!this.opts.db.prepare('select 1 from notes where path like ? escape \'\\\' limit 1').get(likePrefix(rel))
   }
 
   rescan() {
     try {
-      // Ojo: con onReport?.(…, scan()) el escaneo no se ejecutaría si no hay onReport.
+      // Careful: with onReport?.(…, scan()) the scan wouldn't run if there's no onReport.
       const report = this.opts.indexer.scan()
       this.opts.onReport?.('rescan', report)
     } catch (err) {

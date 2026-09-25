@@ -1,11 +1,11 @@
-// index.db: derivado y desechable. Todo lo que hay aquí se reconstruye desde
-// los archivos. Si cambia el esquema, se borra y se vuelve a indexar.
+// index.db: derived and disposable. Everything here is rebuilt from the
+// files. If the schema changes, it's deleted and reindexed.
 import Database from 'better-sqlite3'
 import { rmSync } from 'node:fs'
 
 export type Db = Database.Database
 
-/** Subir este número fuerza una reconstrucción completa del índice. */
+/** Bumping this number forces a full rebuild of the index. */
 export const SCHEMA_VERSION = 2
 
 const SCHEMA = `
@@ -14,7 +14,7 @@ create table meta (
   value text not null
 );
 
--- Una fila por nota. Sin marcas de tiempo propias: solo lo que sale del disco.
+-- One row per note. No timestamps of its own: only what comes from disk.
 create table notes (
   path      text primary key,
   uid       text,
@@ -24,7 +24,7 @@ create table notes (
   size      integer not null,
   fm_json   text not null,
   fm_error  text,
-  aliases   text not null   -- JSON: lista de alias
+  aliases   text not null   -- JSON: list of aliases
 );
 create index notes_uid on notes(uid) where uid is not null;
 
@@ -33,7 +33,7 @@ create virtual table notes_fts using fts5(
   tokenize = 'unicode61 remove_diacritics 2'
 );
 
--- Claves de resolución de enlaces (D-019): sufijos de ruta y alias normalizados.
+-- Link resolution keys: path suffixes and normalised aliases.
 create table link_keys (
   key  text not null,
   path text not null,
@@ -51,12 +51,12 @@ create table links (
   display    text,
   pos_from   integer not null,
   pos_to     integer not null,
-  key        text,            -- clave de búsqueda; null = la propia nota
+  key        text,            -- search key; null = the note itself
   status     text not null check (status in ('resolved', 'ambiguous', 'missing')),
   dst_path   text,
   via        text,
-  anchor_ok  integer,         -- null sin ancla; 1 existe; 0 rota
-  candidates text,            -- JSON si es ambiguo
+  anchor_ok  integer,         -- null no anchor; 1 exists; 0 broken
+  candidates text,            -- JSON if ambiguous
   primary key (src_path, ord)
 );
 create index links_key on links(key);
@@ -79,7 +79,7 @@ create table headings (
   primary key (path, ord)
 );
 
--- Avisos derivados del disco: copias de conflicto de sincronizadores, etc.
+-- Alerts derived from disk: sync-tool conflict copies, etc.
 create table alerts (
   path   text primary key,
   kind   text not null,
@@ -117,7 +117,7 @@ function readVersion(db: Db): number | null {
   }
 }
 
-/** Volcado determinista de todo el índice (tests de reconstrucción). */
+/** Deterministic dump of the whole index (rebuild tests). */
 export function dumpIndex(db: Db): string {
   const tables = ['notes', 'link_keys', 'links', 'tags', 'headings', 'alerts']
   const out: string[] = []
