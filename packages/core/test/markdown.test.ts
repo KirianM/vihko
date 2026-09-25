@@ -7,20 +7,20 @@ const vault = (p: string) => readFileSync(new URL(`../../../testdata/vault/${p}`
 const targets = (text: string) => extract(text).links.map((l) => l.target)
 const tagNames = (text: string) => [...new Set(extract(text).tags.map((t) => t.name))].sort()
 
-test('nada de lo que está en código es enlace ni tag', () => {
+test('nothing inside a code block is a link or a tag', () => {
   const x = extract(vault('codigo.md'))
   assert.deepEqual(x.links.map((l) => l.raw), ['[[Plan]]'])
   assert.deepEqual(x.tags.map((t) => t.name), ['hogar'])
 })
 
-test('tags: mayúsculas, anidados, frontmatter, numéricos y encabezados', () => {
+test('tags: uppercase, nested, frontmatter, numeric and headings', () => {
   assert.deepEqual(tagNames(vault('tags.md')), ['hogar', 'hogar/red', 'proyectos'])
   const x = extract(vault('tags.md'))
   assert.equal(x.tags.filter((t) => t.source === 'frontmatter').length, 2)
   assert.ok(x.headings.some((h) => h.text === 'Título' && h.level === 1))
 })
 
-test('wikilinks: texto visible, embed, ancla y referencia a sí misma', () => {
+test('wikilinks: display text, embed, anchor and self-reference', () => {
   const links = extract(vault('proyectos/thoth/notas.md')).links
   assert.deepEqual(links.map((l) => [l.kind, l.target, l.display]), [
     ['wiki', 'Plan', null],
@@ -31,7 +31,7 @@ test('wikilinks: texto visible, embed, ancla y referencia a sí misma', () => {
   ])
 })
 
-test('enlaces del hogar: alias, anclas, rotos, Markdown relativo y externos', () => {
+test('hogar links: alias, anchors, broken, relative Markdown and external', () => {
   const links = extract(vault('hogar/enlaces.md')).links
   assert.deepEqual(links.map((l) => [l.kind, l.target, l.anchor]), [
     ['wiki', 'gw', null],
@@ -44,19 +44,19 @@ test('enlaces del hogar: alias, anclas, rotos, Markdown relativo y externos', ()
     ['markdown', 'no-existe.md', null],
   ])
   assert.equal(links[5]!.display, 'Proxy en Markdown')
-  assert.ok(!extract(vault('hogar/enlaces.md')).tags.length, 'el # de una URL no es tag')
+  assert.ok(!extract(vault('hogar/enlaces.md')).tags.length, 'a `#` inside a URL is not a tag')
 })
 
-test('rutas parciales en wikilinks', () => {
+test('partial paths in wikilinks', () => {
   assert.deepEqual(targets(vault('diario/2026-09-24.md')), ['Plan', 'Tareas', 'proyectos/blog/Plan', 'blog/Plan'])
 })
 
-test('encabezados con nivel y texto', () => {
+test('headings with level and text', () => {
   const h = extract(vault('hogar/Proxy.md')).headings
   assert.deepEqual(h.map((x) => [x.level, x.text]), [[1, 'Proxy'], [2, 'Red'], [2, 'Almacenamiento']])
 })
 
-test('los offsets apuntan al texto original, con frontmatter, BOM y CRLF', () => {
+test('offsets point into the original text, with frontmatter, BOM and CRLF', () => {
   for (const file of ['frontmatter/bom-crlf.md', 'hogar/enlaces.md', 'tags.md']) {
     const text = vault(file)
     const x = extract(text)
@@ -65,16 +65,16 @@ test('los offsets apuntan al texto original, con frontmatter, BOM y CRLF', () =>
   }
 })
 
-test('el frontmatter no se interpreta como Markdown', () => {
+test('frontmatter is not parsed as Markdown', () => {
   const x = extract('---\ntitle: "#noEsTag [[NoEsEnlace]]"\n---\n# Cuerpo\n')
   assert.deepEqual(x.links, [])
   assert.deepEqual(x.tags, [])
   assert.deepEqual(x.headings.map((h) => h.text), ['Cuerpo'])
 })
 
-test('casos límite de la sintaxis', () => {
-  assert.deepEqual(targets('[[]] [[a\nb]] [[x[y]]'), [], 'vacíos, multilínea o con corchetes dentro no son enlaces')
-  assert.deepEqual(targets('[[#Sección]]'), [''], 'ancla a la propia nota')
+test('syntax edge cases', () => {
+  assert.deepEqual(targets('[[]] [[a\nb]] [[x[y]]'), [], 'empty, multiline or with brackets inside are not links')
+  assert.deepEqual(targets('[[#Sección]]'), [''], 'anchor to the note itself')
   assert.deepEqual(targets('[a](mailto:x@y.z) [b](//cdn/x) [c](Nota%20con%20espacios.md)'), ['Nota con espacios.md'])
   assert.deepEqual(tagNames('a#b #c-d_e #/x #á #1a'), ['1a', 'c-d_e', 'á'])
 })

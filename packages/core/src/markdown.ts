@@ -1,25 +1,25 @@
-// Extracción de enlaces, tags y encabezados sobre la sintaxis de thoth (syntax.ts).
+// Extraction of links, tags and headings on top of thoth's syntax (syntax.ts).
 import { markdownParser } from './syntax.ts'
 import { readFrontmatter } from './frontmatter.ts'
 
-// --- Extracción -------------------------------------------------------------
+// --- Extraction -------------------------------------------------------------
 
 export interface LinkRef {
   kind: 'wiki' | 'embed' | 'markdown'
-  /** Texto literal del enlace tal como está en la nota. */
+  /** The link's literal text as it appears in the note. */
   raw: string
-  /** Destino sin ancla: nombre, ruta parcial o ruta relativa. Vacío = la propia nota. */
+  /** Target without the anchor: name, partial path or relative path. Empty = the note itself. */
   target: string
-  /** Encabezado tras `#`, o null. */
+  /** Heading after `#`, or null. */
   anchor: string | null
-  /** Texto visible (`|texto` o el texto del enlace Markdown), o null. */
+  /** Visible text (`|text` or the Markdown link's text), or null. */
   display: string | null
   from: number
   to: number
 }
 
 export interface TagRef {
-  /** Normalizado: NFC, minúsculas, sin `#`. */
+  /** Normalized: NFC, lowercase, no `#`. */
   name: string
   source: 'inline' | 'frontmatter'
   from: number | null
@@ -33,7 +33,7 @@ export interface Heading {
 }
 
 export interface ExtractOptions {
-  /** Clave del frontmatter con los tags (configurable, D-019). */
+  /** Frontmatter key holding the tags (configurable). */
   tagsKey?: string
 }
 
@@ -79,7 +79,7 @@ function frontmatterTags(value: unknown): string[] {
   return items.filter((t): t is string => typeof t === 'string' && t.trim() !== '').map(normalizeTag)
 }
 
-/** Extrae enlaces, tags y encabezados de una nota completa (frontmatter incluido). */
+/** Extracts links, tags and headings from a whole note (frontmatter included). */
 export function extract(text: string, opts: ExtractOptions = {}): Extracted {
   const frontmatter = readFrontmatter(text)
   const bodyStart = frontmatter.bodyStart

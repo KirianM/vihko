@@ -1,14 +1,14 @@
-// Resolución de enlaces (D-019). Índice de claves en memoria: cada nota aporta
-// todos los sufijos de su ruta sin extensión y sus alias, normalizados. Es el
-// modelo de la tabla `link_keys` del indexador y sirve también al editor.
+// Link resolution. An in-memory key index: each note contributes all the
+// suffixes of its path without the extension, plus its aliases, normalized.
+// It's the model for the indexer's `link_keys` table and also serves the editor.
 import { posix } from 'node:path'
 import type { LinkRef } from './markdown.ts'
 
 export interface NoteKeys {
-  /** Ruta relativa a la raíz de notas, con `/`, incluida la extensión `.md`. */
+  /** Path relative to the notes root, with `/`, including the `.md` extension. */
   path: string
   aliases?: readonly string[]
-  /** Textos de los encabezados, para comprobar anclas. */
+  /** Heading texts, to check anchors. */
   headings?: readonly string[]
 }
 
@@ -17,7 +17,7 @@ export type Resolution =
   | { status: 'ambiguous'; candidates: string[] }
   | { status: 'missing' }
 
-/** Normalización de claves: NFC, minúsculas, sin espacios sobrantes. */
+/** Key normalization: NFC, lowercase, no extra whitespace. */
 export const normKey = (s: string) => s.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ')
 
 const stripMd = (p: string) => (/\.md$/i.test(p) ? p.slice(0, -3) : p)
@@ -27,7 +27,7 @@ const dirOf = (p: string) => {
 }
 const segments = (dir: string) => (dir === '' ? [] : dir.split('/'))
 
-/** Claves de ruta de una nota: todos sus sufijos (`plan`, `thoth/plan`, `proyectos/thoth/plan`). */
+/** Path keys for a note: all its suffixes (`plan`, `thoth/plan`, `projects/thoth/plan`). */
 export function pathKeys(path: string): string[] {
   const parts = normKey(stripMd(path)).split('/')
   return parts.map((_, i) => parts.slice(i).join('/'))
@@ -46,14 +46,14 @@ export class LinkIndex {
     return this.notes.get(path)
   }
 
-  /** Copia independiente, para simular un cambio (p. ej. un renombrado) sin tocar el original. */
+  /** An independent copy, to simulate a change (e.g. a rename) without touching the original. */
   clone(): LinkIndex {
     const c = new LinkIndex()
     for (const n of this.notes.values()) c.set(n)
     return c
   }
 
-  /** Añade o sustituye una nota. Devuelve las claves afectadas (para re-resolver enlaces). */
+  /** Adds or replaces a note. Returns the affected keys (to re-resolve links). */
   set(note: NoteKeys): Set<string> {
     const affected = this.delete(note.path)
     this.notes.set(note.path, note)
@@ -72,7 +72,7 @@ export class LinkIndex {
     return affected
   }
 
-  /** Clave de búsqueda de un enlace, para saber si le afecta un cambio de claves. */
+  /** A link's lookup key, to tell whether a key change affects it. */
   static keyOf(source: string, link: Pick<LinkRef, 'kind' | 'target'>): string | null {
     if (link.target === '') return null
     if (link.kind === 'markdown') return normKey(stripMd(posix.join(dirOf(source), link.target)))
@@ -84,8 +84,8 @@ export class LinkIndex {
     const key = LinkIndex.keyOf(source, link)!
 
     if (link.kind === 'markdown' || link.target.startsWith('/')) {
-      // Ruta relativa (Markdown) o absoluta desde la raíz (`[[/carpeta/Nota]]`):
-      // coincidencia exacta de ruta completa, sin heurísticas.
+      // Relative path (Markdown) or absolute from the root (`[[/folder/Note]]`):
+      // exact full-path match, no heuristics.
       const hits = [...(this.byPath.get(key) ?? [])].filter((p) => normKey(stripMd(p)) === key)
       return hits.length === 1 ? this.withAnchor(hits[0]!, link.anchor, 'path') : { status: 'missing' }
     }
@@ -97,7 +97,7 @@ export class LinkIndex {
     return { status: 'missing' }
   }
 
-  /** Desempate de D-019: antecesor común más profundo; después, el menos profundo por debajo. */
+  /** Tie-break: the deepest common ancestor wins; then the shallowest one below it. */
   private pick(source: string, set: Set<string> | undefined): { status: 'resolved'; path: string } | { status: 'ambiguous'; candidates: string[] } | null {
     if (!set || set.size === 0) return null
     const candidates = [...set]

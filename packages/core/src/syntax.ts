@@ -1,7 +1,7 @@
-// Sintaxis de Markdown de thoth sobre lezer (D-019): wikilinks, embeds y tags.
-// Punto de entrada apto para el navegador (@thoth/core/syntax): lo usan el editor
-// y el indexador, así que un enlace o un tag se interpreta igual en los dos sitios
-// (D-021). Nada de módulos de Node aquí.
+// thoth's Markdown syntax on top of lezer: wikilinks, embeds and tags.
+// Browser-safe entry point (@thoth/core/syntax): used by both the editor
+// and the indexer, so a link or a tag is parsed the same way in both places.
+// No Node modules here.
 import { GFM, parser as baseParser, type InlineContext, type MarkdownConfig } from '@lezer/markdown'
 
 const BRACKET_OPEN = 91 // [
@@ -10,7 +10,7 @@ const BANG = 33 // !
 const HASH = 35 // #
 const NEWLINE = 10
 
-/** `[[destino#ancla|texto]]` y `![[…]]`. Sin saltos de línea ni corchetes dentro. */
+/** `[[target#anchor|text]]` and `![[…]]`. No line breaks or brackets inside. */
 function parseWiki(cx: InlineContext, pos: number, embed: boolean): number {
   const open = embed ? pos + 1 : pos
   if (cx.char(open) !== BRACKET_OPEN || cx.char(open + 1) !== BRACKET_OPEN) return -1
@@ -27,7 +27,7 @@ function parseWiki(cx: InlineContext, pos: number, embed: boolean): number {
 
 const TAG_CHAR = /[\p{L}\p{N}_\-/]/u
 
-/** `#tag`: precedido de inicio o espacio; letras, dígitos, `_`, `-`, `/`; no solo dígitos. */
+/** `#tag`: preceded by start-of-line or whitespace; letters, digits, `_`, `-`, `/`; not only digits. */
 function parseTag(cx: InlineContext, pos: number): number {
   if (pos > cx.offset && !/\s/.test(cx.slice(pos - 1, pos))) return -1
   let end = pos + 1
@@ -50,5 +50,5 @@ export const thothSyntax: MarkdownConfig = {
   ],
 }
 
-/** Parser de Markdown de thoth: CommonMark + GFM + wikilinks, embeds y tags. */
+/** thoth's Markdown parser: CommonMark + GFM + wikilinks, embeds and tags. */
 export const markdownParser = baseParser.configure([GFM, thothSyntax])
