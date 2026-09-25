@@ -70,7 +70,7 @@ export class Watcher {
         this.rescan()
         return
       }
-      const report = this.opts.indexer.indexPaths(paths.filter((p) => classifyPath(p) !== 'ignored'))
+      const report = this.opts.indexer.indexPaths(paths.filter((p) => classifyPath(p) !== 'ignored'), { detectMoves: true })
       this.opts.onReport?.('events', report)
     } catch (err) {
       this.opts.onError?.(err)

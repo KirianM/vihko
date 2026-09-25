@@ -18,7 +18,7 @@ import { commentMarks, commentUi } from './commentMarks.ts'
 import { imageHost, images } from './images.ts'
 import { linkAutocomplete } from './autocomplete.ts'
 import { createLinkUi, type NewLinkedNote } from './createLink.ts'
-import { labels, livePreview, navigate, notePath, setLinks, type LinkInfo } from './livePreview.ts'
+import { labels, livePreview, navigate, notePath, pickAmbiguous, setLinks, type LinkInfo, type PickAmbiguous } from './livePreview.ts'
 import { announce } from './presence.ts'
 import { tables } from './tables.ts'
 import { taskLabel, tasks } from './tasks.ts'
@@ -44,9 +44,11 @@ interface Props {
   onImageUrl?: (url: string, from: number, to: number) => void
   /** «create» on a broken link: the note to create and the button pressed (to anchor a menu). */
   onCreateLink?: (note: NewLinkedNote, anchor: HTMLElement) => void
+  /** An ambiguous link was clicked: open the picker of its candidates. */
+  onPickAmbiguous?: PickAmbiguous
 }
 
-export function Editor({ path, session, user, links, onNavigate, onView, onComments, externalImages, onImageFiles, onImageUrl, onCreateLink }: Props) {
+export function Editor({ path, session, user, links, onNavigate, onView, onComments, externalImages, onImageFiles, onImageUrl, onCreateLink, onPickAmbiguous }: Props) {
   const t = useT()
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -62,6 +64,8 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
   imageUrl.current = onImageUrl
   const createLink = useRef(onCreateLink)
   createLink.current = onCreateLink
+  const pick = useRef(onPickAmbiguous)
+  pick.current = onPickAmbiguous
 
   useEffect(() => {
     const { text, provider } = session
@@ -75,6 +79,7 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
         EditorView.lineWrapping,
         livePreview,
         navigate.of((p) => nav.current(p)),
+        pickAmbiguous.of((link, anchor) => pick.current?.(link, anchor)),
         notePath.of(path),
         createLinkUi.of({
           label: t('editor.linkCreate'),
