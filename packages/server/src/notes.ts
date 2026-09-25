@@ -1,7 +1,7 @@
 // Note service: the system's only write point (UI, API and MCP all go
 // through here). Optimistic concurrency by hash, safe writes
 // (fsutil.ts), lazy `uid` and deletion to trash.
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix } from 'node:path'
 import { addToFrontmatterList, classifyPath, contentHash, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type ErrorCode, type LinkIndex } from '@thoth/core'
 import { commitText, createFile, linkNew, readStable, readText } from './fsutil.ts'
@@ -17,7 +17,7 @@ export type Actor =
   | { kind: 'agent'; id: string; onBehalfOf: string }
   | { kind: 'system'; reason: string }
 
-export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'edit_mismatch' | 'too_large' | 'unsupported_type' | 'not_configured'
+export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'edit_mismatch' | 'too_large' | 'unsupported_type' | 'not_configured' | 'not_empty'
 
 export class NoteError extends Error {
   readonly code: NoteErrorCode
@@ -110,6 +110,25 @@ export interface MoveReport {
     stayed: { path: string; reason: 'shared' | 'elsewhere' }[]
     failed: { path: string; to: string | null; outcome: 'stayed' | 'copied'; error: ErrorCode; message: string }[]
   }
+  dryRun: boolean
+}
+
+/** What a folder move does (or would do, with `dryRun`). */
+export interface FolderMoveReport {
+  /** Folders, from the notes root. */
+  from: string
+  to: string
+  /** Every note in the folder, subfolders included, and where it ends up. */
+  notes: { from: string; to: string }[]
+  /** Other files that go with the folder (images, attachments). */
+  files: number
+  /**
+   * Notes whose links or image references are rewritten, moved ones under
+   * their new path, with each change as in a note move.
+   */
+  relinked: MoveReport['relinked']
+  /** Notes that couldn't be rewritten: an error code for the UI and a hint for developers. */
+  failed: MoveReport['failed']
   dryRun: boolean
 }
 
@@ -264,23 +283,7 @@ export class NoteService {
     const hash = contentHash(text)
     if (opts.ifMatch !== undefined && opts.ifMatch !== hash) throw new NoteError('precondition_failed', `the note has changed: ${from}`, hash)
 
-    // Resolution state before and after the move.
-    this.opts.indexer.indexPaths([from])
-    // Frozen copies: the live index changes as soon as reindexing happens during execution.
-    const before = this.opts.indexer.links.clone()
-    const after = before.clone()
-    const keys = before.get(from) ?? { path: from }
-    after.delete(from)
-    after.set({ ...keys, path: to })
-    const map = (p: string) => (p === from ? to : p)
-
-    // Notes that may be affected: the moved one, those linking to it, and those
-    // looking up one of its keys (a closer name match would "steal" the link).
-    const affected = [...pathKeys(from), ...pathKeys(to), ...(keys.aliases ?? []).map(normKey)]
-    const sources = new Set<string>([from])
-    for (const r of this.opts.db.prepare('select distinct src_path from links where dst_path = ?').all(from) as { src_path: string }[]) sources.add(r.src_path)
-    const byKey = this.opts.db.prepare('select distinct src_path from links where key = ?')
-    for (const k of affected) for (const r of byKey.all(k) as { src_path: string }[]) sources.add(r.src_path)
+    const { before, after, map, sources } = this.relinkContext(new Map([[from, to]]))
 
     const report: MoveReport = { from, to, relinked: [], kept: [], failed: [], aliasAdded: null, images: { moved: [], stayed: [], failed: [] }, dryRun: !!opts.dryRun }
     const imagePlan = this.planImages(text, from, to)
@@ -288,7 +291,7 @@ export class NoteService {
     const planned = movedNotePlan(text, from, to, before, after, map, placeOf(imagePlan.moved))
     if (planned.changes.length) report.relinked.push({ path: to, links: planned.changes.length, changes: planned.changes })
     const others: string[] = []
-    for (const src of [...sources].filter((p) => p !== from).sort()) {
+    for (const src of sources) {
       const t = readText(this.file(src))
       if (t === null) continue
       const reps = planRelinks(t, src, src, before, after, map)
@@ -373,6 +376,196 @@ export class NoteService {
         report.failed.push({ path: to, error: f.error, message: `could not add the alias: ${f.message}` })
       }
     }
+    return report
+  }
+
+  /**
+   * Link resolution before and after moving the notes in `moves` (path → new
+   * path), as frozen copies (the live index changes as soon as anything is
+   * reindexed during the move), and the other notes that may need rewriting:
+   * those linking to a moved note, those looking up one of its keys (a closer
+   * name match would "steal" the link) and, with `imageDir`, those using an
+   * image under that folder.
+   */
+  private relinkContext(moves: Map<string, string>, imageDir: string | null = null) {
+    this.opts.indexer.indexPaths(moves.keys())
+    const before = this.opts.indexer.links.clone()
+    const after = before.clone()
+    const affected = new Set<string>()
+    for (const [from, to] of moves) {
+      const keys = before.get(from) ?? { path: from }
+      for (const k of [...pathKeys(from), ...pathKeys(to), ...(keys.aliases ?? []).map(normKey)]) affected.add(k)
+      after.delete(from)
+    }
+    for (const [from, to] of moves) after.set({ ...(before.get(from) ?? { path: from }), path: to })
+    const map = (p: string) => moves.get(p) ?? p
+
+    const sources = new Set<string>()
+    const add = (rows: unknown[]) => { for (const r of rows as { src_path: string }[]) if (!moves.has(r.src_path)) sources.add(r.src_path) }
+    const byDst = this.opts.db.prepare('select distinct src_path from links where dst_path = ?')
+    for (const from of moves.keys()) add(byDst.all(from))
+    const byKey = this.opts.db.prepare('select distinct src_path from links where key = ?')
+    for (const k of affected) add(byKey.all(k))
+    if (imageDir !== null) add(this.opts.db.prepare("select distinct src_path from images where path like ? escape '\\'").all(likePrefix(imageDir)))
+    return { before, after, map, sources: [...sources].sort() }
+  }
+
+  // --- Folders ------------------------------------------------------------
+  // A folder only exists on disk: the index lists them (so an empty one shows
+  // in the tree), but creating, moving or deleting one is a disk operation.
+
+  /** Validates a folder path: relative, no `..`, no hidden segments, not the root and not named like a note. */
+  static checkFolder(path: string): string {
+    if (typeof path !== 'string' || path === '') throw new NoteError('invalid_path', `invalid folder path: ${String(path)}`)
+    const norm = posix.normalize(path)
+    if (path !== norm || path.startsWith('/') || path.endsWith('/') || norm.split('/').includes('..') || classifyPath(norm) !== 'other') {
+      throw new NoteError('invalid_path', `invalid folder path: ${path}`)
+    }
+    return norm
+  }
+
+  private dir(path: string) {
+    return join(this.opts.notesDir, NoteService.checkFolder(path))
+  }
+
+  /** Creates an empty folder (and its missing parents). Never reuses an existing one. */
+  createFolder(path: string, _actor: Actor): { path: string } {
+    const dir = this.dir(path)
+    mkdirSync(dirname(dir), { recursive: true })
+    try {
+      mkdirSync(dir)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw new NoteError('exists', `already exists: ${path}`)
+      throw err
+    }
+    this.opts.indexer.indexFolders([path])
+    return { path }
+  }
+
+  /**
+   * Deletes a folder only if it holds no file at all (empty subfolders go with
+   * it). Notes and images are never deleted along with a folder: they are moved
+   * or sent to the trash one by one first.
+   */
+  deleteFolder(path: string, _actor: Actor): { path: string } {
+    const dir = this.dir(path)
+    if (!isDirectory(dir)) throw new NoteError('not_found', `no such folder: ${path}`)
+    const dirs: string[] = []
+    const visit = (d: string) => {
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        if (!e.isDirectory()) throw new NoteError('not_empty', `the folder is not empty: ${path}`)
+        visit(join(d, e.name))
+      }
+      dirs.push(d)
+    }
+    visit(dir)
+    // Deepest first. Something created meanwhile stops it (rmdir never removes files).
+    try {
+      for (const d of dirs) rmdirSync(d)
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOTEMPTY' || code === 'EEXIST') throw new NoteError('not_empty', `the folder is not empty: ${path}`)
+      throw err
+    } finally {
+      this.opts.indexer.indexFolders([path])
+    }
+    return { path }
+  }
+
+  /**
+   * Moves or renames a folder with everything in it, as one rename on disk:
+   * its notes, images and other files go together, empty subfolders included.
+   * Links are kept like in a note move: no link, inside or outside the folder,
+   * changes destination (wikilinks by proximity, relative Markdown links and
+   * image references). Never overwrites: the destination must not exist. With
+   * `dryRun`, only reports what it would do.
+   */
+  async moveFolder(from: string, to: string, opts: { actor: Actor; dryRun?: boolean }): Promise<FolderMoveReport> {
+    const fromDir = this.dir(from)
+    const toDir = this.dir(to)
+    if (from === to || to.startsWith(from + '/')) throw new NoteError('invalid_path', `cannot move ${from} into itself`)
+    if (!isDirectory(fromDir)) throw new NoteError('not_found', `no such folder: ${from}`)
+    if (existsSync(toDir)) throw new NoteError('exists', `already exists: ${to}`)
+
+    const inside = listFiles(fromDir)
+    const notesInside = inside.filter((p) => classifyPath(`${from}/${p}`) === 'note')
+    const moves = new Map(notesInside.map((p) => [`${from}/${p}`, `${to}/${p}`]))
+    const { before, after, map, sources } = this.relinkContext(moves, from)
+    const place = (p: string) => (p.startsWith(from + '/') ? to + p.slice(from.length) : p)
+
+    const report: FolderMoveReport = {
+      from, to, notes: [...moves].map(([f, t]) => ({ from: f, to: t })),
+      files: inside.filter((p) => classifyPath(`${from}/${p}`) === 'other').length,
+      relinked: [], failed: [], dryRun: !!opts.dryRun,
+    }
+    const own: [string, string][] = []
+    for (const [f, t] of moves) {
+      const text = readText(join(this.opts.notesDir, f))
+      if (text === null) continue
+      const plan = movedNotePlan(text, f, t, before, after, map, place)
+      if (plan.changes.length) { report.relinked.push({ path: t, links: plan.changes.length, changes: plan.changes }); own.push([f, t]) }
+    }
+    const others: string[] = []
+    for (const src of sources) {
+      const text = readText(this.file(src))
+      if (text === null) continue
+      const plan = movedNotePlan(text, src, src, before, after, map, place)
+      if (plan.changes.length) { report.relinked.push({ path: src, links: plan.changes.length, changes: plan.changes }); others.push(src) }
+    }
+    if (opts.dryRun) return report
+
+    const system: Actor = { kind: 'system', reason: `moved folder ${from} to ${to} by ${actorLabel(opts.actor)}` }
+    // 1. One rename moves everything. The destination is claimed first with an
+    // empty folder (mkdir never reuses one), which the rename then replaces:
+    // anything that lands there meanwhile makes the rename fail, never overwritten.
+    const run = async () => {
+      mkdirSync(dirname(toDir), { recursive: true })
+      try {
+        mkdirSync(toDir)
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw new NoteError('exists', `already exists: ${to}`)
+        throw err
+      }
+      try {
+        renameSync(fromDir, toDir)
+      } catch (err) {
+        try { rmdirSync(toDir) } catch { /* not ours any more: left as it is */ }
+        const code = (err as NodeJS.ErrnoException).code
+        if (code === 'ENOTEMPTY' || code === 'EEXIST') throw new NoteError('exists', `already exists: ${to}`)
+        throw err
+      }
+      // Recorded as thoth's own change before anything else runs: the watcher and
+      // the rescan find the index already in step (no mass removal, no external change).
+      this.opts.indexer.indexPaths([...inside.map((p) => `${from}/${p}`), ...inside.map((p) => `${to}/${p}`)])
+      this.opts.indexer.indexFolders([from, to])
+      // 2. The moved notes' own links and image references, on their current text.
+      await inPool(own, async ([f, t]) => {
+        try {
+          await this.edit(t, (x) => movedNotePlan(x, f, t, before, after, map, place).splices, { actor: system })
+        } catch (err) {
+          report.failed.push({ path: t, ...failure(err) })
+        }
+      })
+    }
+    // Notes open in an editor: the hub flushes and locks each one during the
+    // move, and their editors follow them to the new path.
+    const hot = this.opts.hot
+    const open = [...moves].filter(([f]) => hot?.has(f)).sort(([a], [b]) => (a < b ? -1 : 1))
+    const locked = open.reduceRight<() => Promise<void>>(
+      (inner, [f, t]) => () => hot!.move(f, t, async () => ({ result: await inner(), written: readText(this.file(t)) })),
+      run,
+    )
+    await locked()
+
+    // 3. The rest of the notes, as the system, recalculated over the current text.
+    await inPool(others, async (src) => {
+      try {
+        await this.edit(src, (x) => movedNotePlan(x, src, src, before, after, map, place).splices, { actor: system })
+      } catch (err) {
+        report.failed.push({ path: src, ...failure(err) })
+      }
+    })
+    report.failed.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
     return report
   }
 
@@ -502,6 +695,23 @@ export class NoteService {
   }
 }
 
+/** Files under `dir` (relative to it, with `/`), hidden ones included: everything a folder move takes along. */
+function listFiles(dir: string, rel = ''): string[] {
+  const out: string[] = []
+  for (const e of readdirSync(join(dir, rel), { withFileTypes: true })) {
+    const r = rel ? `${rel}/${e.name}` : e.name
+    if (e.isDirectory()) out.push(...listFiles(dir, r))
+    else out.push(r)
+  }
+  return out.sort()
+}
+
+function isDirectory(path: string): boolean {
+  try { return statSync(path).isDirectory() } catch { return false }
+}
+
+const likePrefix = (dir: string) => dir.replace(/[\\%_]/g, (c) => '\\' + c) + '/%'
+
 /** Notes whose links a rename rewrites at the same time. */
 const RELINK_CONCURRENCY = 16
 
@@ -539,14 +749,25 @@ const placeOf = (moves: { from: string; to: string }[]) => {
  * links to notes, over the text with the images already rewritten.
  */
 function movedNotePlan(text: string, from: string, to: string, before: LinkIndex, after: LinkIndex, map: (p: string) => string, place: (p: string) => string) {
+  // Image references and note links never overlap, so both are planned over the
+  // same text and applied as exact splices: a hot note merges them with live typing.
   const imageReps = planImageRelinks(text, from, to, place)
-  const withImages = applyReplacements(text, imageReps)
-  const linkReps: Replacement[] = planRelinks(withImages, from, to, before, after, map)
+  const linkReps: Replacement[] = planRelinks(text, from, to, before, after, map)
   const changes = [
-    ...changesOf(withImages, linkReps),
+    ...changesOf(text, linkReps),
     ...imageReps.map((r) => ({ before: r.before, after: r.after })),
   ]
-  return { text: applyReplacements(withImages, linkReps), changes }
+  const reps = [...imageReps, ...linkReps]
+  return { text: applyReplacements(text, reps), splices: relinkSplices(text, reps), changes }
+}
+
+/** Runs `fn` over `items`, RELINK_CONCURRENCY at a time. */
+async function inPool<T>(items: readonly T[], fn: (item: T) => Promise<void>): Promise<void> {
+  const queue = [...items]
+  const worker = async () => {
+    for (let item = queue.shift(); item !== undefined; item = queue.shift()) await fn(item)
+  }
+  await Promise.all(Array.from({ length: Math.min(RELINK_CONCURRENCY, queue.length) }, worker))
 }
 
 function actorLabel(a: Actor): string {

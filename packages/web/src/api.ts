@@ -74,6 +74,19 @@ export interface MoveReport {
   }
   dryRun: boolean
 }
+/** What a folder move does (or would do, with `dryRun`): every note in it goes along, links kept. */
+export interface FolderMoveReport {
+  from: string
+  to: string
+  notes: { from: string; to: string }[]
+  /** Other files that go with the folder (images, attachments). */
+  files: number
+  relinked: MoveReport['relinked']
+  failed: MoveReport['failed']
+  dryRun: boolean
+}
+/** A tag in use, with the notes that carry it (`count`) and it or any tag nested under it (`total`). */
+export interface TagCount { tag: string; count: number; total: number }
 export interface TrashEntry { id: string; path: string; deletedAt: string }
 /** Installation settings the UI needs. */
 export interface ServerConfig { externalImages: 'allow' | 'block'; maxImageBytes: number }
@@ -92,14 +105,19 @@ export const api = {
   login: (username: string, password: string) => request<{ user: User }>('POST', '/api/auth/login', { username, password }),
   logout: () => request<{ ok: true }>('POST', '/api/auth/logout'),
   me: () => request<{ user: User }>('GET', '/api/auth/me'),
-  tree: () => request<{ notes: TreeNote[] }>('GET', '/api/tree'),
+  /** Notes and folders (empty ones included). */
+  tree: () => request<{ notes: TreeNote[]; folders: string[] }>('GET', '/api/tree'),
+  createFolder: (path: string) => request<{ path: string }>('POST', '/api/folder', { path }),
+  /** Only an empty folder (`not_empty` otherwise). */
+  deleteFolder: (path: string) => request<{ path: string }>('DELETE', `/api/folder?path=${encodeURIComponent(path)}`),
+  moveFolder: (from: string, to: string, dryRun = false) => request<FolderMoveReport>('POST', '/api/folder/move', { from, to, dryRun }),
   note: (path: string) => request<Note>('GET', `/api/note?path=${encodeURIComponent(path)}`),
   alerts: () => request<{ alerts: Alert[] }>('GET', '/api/alerts').then((r) => r.alerts),
   conflict: (path: string) => request<{ path: string; text: string }>('GET', `/api/conflict?path=${encodeURIComponent(path)}`),
   rescan: (confirmRemoval?: number) => request<{ aborted: string | null }>('POST', '/api/admin/rescan', confirmRemoval === undefined ? {} : { confirmRemoval }),
   links: (path: string) => request<{ outgoing: OutgoingLink[]; backlinks: Backlink[] }>('GET', `/api/note/links?path=${encodeURIComponent(path)}`),
-  /** Tags in use, most used first. */
-  tags: () => request<{ tags: { tag: string; count: number }[] }>('GET', '/api/tags').then((r) => r.tags),
+  /** Tags in use, most used first (editor suggestions and the tags view). */
+  tags: () => request<{ tags: TagCount[] }>('GET', '/api/tags').then((r) => r.tags),
   headings: (path: string) => request<{ headings: { level: number; text: string }[] }>('GET', `/api/note/headings?path=${encodeURIComponent(path)}`).then((r) => r.headings),
   search: (q: string) => request<SearchResponse>('GET', `/api/search?q=${encodeURIComponent(q)}`),
   createNote: (path: string, text: string) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, text }),

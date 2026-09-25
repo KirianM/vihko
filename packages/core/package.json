@@ -10,7 +10,8 @@
     "./images": "./src/images.ts",
     "./resolve": "./src/resolve.ts",
     "./dates": "./src/dates.ts",
-    "./series": "./src/series.ts"
+    "./series": "./src/series.ts",
+    "./query": "./src/query.ts"
   },
   "dependencies": {
     "@lezer/common": "^1.5.3",

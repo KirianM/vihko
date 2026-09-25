@@ -10,8 +10,9 @@ test('failed login, sign in, tree, theme and sign out', async ({ page, browser }
 
   const k = await signIn(browser, 'noa')
   const rows = k.getByRole('row')
-  await expect(rows.first()).toHaveText('diario')
-  await rows.first().click()
+  // Folders first, even one with no notes (adjuntos only holds images).
+  await expect(rows.first()).toHaveText('adjuntos')
+  await k.getByRole('row', { name: 'diario' }).click()
   await k.keyboard.press('ArrowRight')
   await expect(k.getByRole('row', { name: '2026-09-24' })).toBeVisible()
 

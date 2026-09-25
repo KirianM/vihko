@@ -6,7 +6,7 @@ import { rmSync } from 'node:fs'
 export type Db = Database.Database
 
 /** Bumping this number forces a full rebuild of the index. */
-export const SCHEMA_VERSION = 5 // 5: references to images, in their own table
+export const SCHEMA_VERSION = 6 // 6: folders, so empty ones show in the tree
 
 const SCHEMA = `
 create table meta (
@@ -93,6 +93,12 @@ create table headings (
   primary key (path, ord)
 );
 
+-- Every folder under the notes root (hidden ones aside), empty or not: the
+-- tree shows a folder that has no notes yet. Derived from disk like the rest.
+create table folders (
+  path text primary key
+);
+
 -- Alerts derived from disk: sync-tool conflict copies, etc.
 create table alerts (
   path   text primary key,
@@ -133,10 +139,12 @@ function readVersion(db: Db): number | null {
 
 /** Deterministic dump of the whole index (rebuild tests). */
 export function dumpIndex(db: Db): string {
-  const tables = ['notes', 'link_keys', 'links', 'images', 'tags', 'headings', 'alerts']
+  const tables = ['notes', 'link_keys', 'links', 'images', 'tags', 'headings', 'folders', 'alerts']
   const out: string[] = []
   for (const t of tables) {
-    const rows = db.prepare(`select * from ${t} order by 1, 2, 3`).all()
+    const columns = Math.min(3, (db.prepare(`pragma table_info(${t})`).all()).length)
+    const order = Array.from({ length: columns }, (_, i) => i + 1).join(', ')
+    const rows = db.prepare(`select * from ${t} order by ${order}`).all()
     out.push(`## ${t}`, ...rows.map((r) => JSON.stringify(r)))
   }
   const fts = db.prepare('select path, title, aliases, body from notes_fts order by path').all()

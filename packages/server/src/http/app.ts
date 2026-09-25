@@ -12,7 +12,7 @@ import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
 import { NoteError, type Actor, type NoteService } from '../notes.ts'
-import { ftsQuery, HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
+import { HIGHLIGHT_END, HIGHLIGHT_START, search } from './search.ts'
 import { planEdits, type EditOp } from '../edits.ts'
 import { FetchImageError, SERVED_TYPES, fetchImage } from '../attachments.ts'
 import { DailyNotes } from '../daily.ts'
@@ -79,7 +79,7 @@ type Env = { Variables: { user: User; token: string } }
 const actorOf = (u: User): Actor => ({ kind: 'user', id: u.username })
 
 function noteErrorStatus(e: NoteError) {
-  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409 } as const)[e.code]
+  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409 } as const)[e.code]
 }
 
 function fetchErrorStatus(e: FetchImageError) {
@@ -178,15 +178,29 @@ export function createApp(deps: AppDeps) {
   // What the UI needs to know about this installation's settings.
   app.get('/api/config', (c) => c.json({ externalImages, maxImageBytes: notes.maxImageBytes }))
 
+  // Notes and folders: a folder with no notes (just created, or emptied) still shows.
   app.get('/api/tree', (c) => {
     const rows = index.prepare('select path, title, uid, aliases from notes order by path').all() as { aliases: string }[]
-    return c.json({ notes: rows.map((r) => ({ ...r, aliases: JSON.parse(r.aliases) as string[] })) })
+    const folders = (index.prepare('select path from folders order by path').all() as { path: string }[]).map((r) => r.path)
+    return c.json({ notes: rows.map((r) => ({ ...r, aliases: JSON.parse(r.aliases) as string[] })), folders })
   })
 
-  // Tags in use, with how many notes carry each (inline or in the frontmatter).
+  // Tags in use, most used first (D-019: case-insensitive, nested with `/`).
+  // `count`: the notes that carry the tag (inline or in the frontmatter);
+  // `total`: those that carry it or any tag nested under it (the tags view).
   app.get('/api/tags', (c) => {
-    const rows = index.prepare('select tag, count(distinct path) as count from tags group by tag order by count desc, tag').all()
-    return c.json({ tags: rows })
+    const rows = index.prepare('select tag, count(distinct path) as count from tags group by tag order by count desc, tag').all() as { tag: string; count: number }[]
+    const under = new Map<string, Set<string>>()
+    for (const r of index.prepare('select distinct path, tag from tags').all() as { path: string; tag: string }[]) {
+      const parts = r.tag.split('/')
+      for (let i = 1; i <= parts.length; i++) {
+        const t = parts.slice(0, i).join('/')
+        let set = under.get(t)
+        if (!set) under.set(t, (set = new Set()))
+        set.add(r.path)
+      }
+    }
+    return c.json({ tags: rows.map((r) => ({ ...r, total: under.get(r.tag)?.size ?? r.count })) })
   })
 
   // A note's headings, in order (link anchors: `[[Note#Heading]]`).
@@ -195,6 +209,20 @@ export function createApp(deps: AppDeps) {
     notes.read(path) // 404 if it doesn't exist
     const rows = index.prepare('select level, text from headings where path = ? order by ord').all(path)
     return c.json({ headings: rows })
+  })
+
+  // Folders only exist on disk: these create, move (with every note in them,
+  // links kept as in a note move) and delete them (only when empty).
+  app.post('/api/folder', async (c) => {
+    const { path } = await c.req.json<{ path: string }>()
+    return c.json(notes.createFolder(path, actorOf(c.get('user'))), 201)
+  })
+
+  app.delete('/api/folder', (c) => c.json(notes.deleteFolder(c.req.query('path') ?? '', actorOf(c.get('user')))))
+
+  app.post('/api/folder/move', async (c) => {
+    const { from, to, dryRun } = await c.req.json<{ from: string; to: string; dryRun?: boolean }>()
+    return c.json(await notes.moveFolder(from, to, { actor: actorOf(c.get('user')), dryRun }))
   })
 
   app.get('/api/note', (c) => {
@@ -347,13 +375,9 @@ export function createApp(deps: AppDeps) {
     return c.body(readFileSync(file))
   })
 
+  // Full text plus `tag:` and `path:` filters (http/search.ts).
   app.get('/api/search', (c) => {
-    const q = ftsQuery(c.req.query('q') ?? '')
-    if (!q) return c.json({ results: [] })
-    const results = index.prepare(`select path, title,
-        snippet(notes_fts, 3, ?, ?, '…', 12) as snippet
-      from notes_fts where notes_fts match ? order by bm25(notes_fts, 0, 10.0, 8.0, 1.0) limit 50`)
-      .all(HIGHLIGHT_START, HIGHLIGHT_END, q)
+    const results = search(index, c.req.query('q') ?? '')
     return c.json({ results, highlight: { start: HIGHLIGHT_START, end: HIGHLIGHT_END } })
   })
 

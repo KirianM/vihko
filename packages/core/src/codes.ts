@@ -29,6 +29,7 @@ export type ErrorCode =
   | 'unsupported_type' // not an image type thoth stores
   | 'fetch_failed' // an image URL could not be downloaded
   | 'not_configured' // a feature that thoth.yaml doesn't turn on (daily notes with no series)
+  | 'not_empty' // a folder that still holds files can't be deleted
 
 /**
  * Space-level alerts: what thoth has detected in the notes folder that needs
