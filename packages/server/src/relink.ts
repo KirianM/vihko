@@ -3,7 +3,7 @@
 // we check where it resolves after the change; if it differs, it's rewritten
 // with the shortest form that still points to its destination.
 import { posix } from 'node:path'
-import { extract, markdownDest, resolveImageRef, type ImageLink, type LinkIndex, type LinkRef } from '@thoth/core'
+import { extract, markdownDest, resolveImageRef, shortestTarget, type ImageLink, type LinkIndex, type LinkRef } from '@thoth/core'
 
 export interface Replacement {
   from: number
@@ -103,8 +103,6 @@ export function applyReplacements(text: string, reps: Replacement[]): string {
   return out
 }
 
-const stripMd = (p: string) => p.replace(/\.md$/i, '')
-
 function rewrite(link: LinkRef, src: string, want: string, index: LinkIndex): string | null {
   if (link.kind === 'markdown') {
     const open = link.raw.indexOf('](')
@@ -114,13 +112,9 @@ function rewrite(link: LinkRef, src: string, want: string, index: LinkIndex): st
     return link.raw.slice(0, open + 2) + rel.replace(/ /g, '%20') + (hash === -1 ? '' : url.slice(hash)) + ')'
   }
   // Wikilink: name, progressively longer path suffixes, and finally the absolute path.
-  const parts = stripMd(want).split('/')
-  const candidates = [...parts.map((_, i) => parts.slice(parts.length - 1 - i).join('/')), '/' + parts.join('/')]
-  const target = candidates.find((c) => {
-    const r = index.resolve(src, { kind: 'wiki', target: c, anchor: null })
-    return r.status === 'resolved' && r.path === want
-  })
-  if (!target) return null
+  const target = shortestTarget(index, src, want)
+  const r = index.resolve(src, { kind: 'wiki', target, anchor: null })
+  if (r.status !== 'resolved' || r.path !== want) return null
   const start = link.raw.indexOf(link.target, link.kind === 'embed' ? 3 : 2)
   return link.raw.slice(0, start) + target + link.raw.slice(start + link.target.length)
 }
