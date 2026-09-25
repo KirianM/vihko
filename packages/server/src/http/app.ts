@@ -15,6 +15,7 @@ import { NoteError, type Actor, type NoteService } from '../notes.ts'
 import { ftsQuery, HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import { applyEdits, type EditOp } from '../edits.ts'
 import { FetchImageError, SERVED_TYPES, fetchImage } from '../attachments.ts'
+import { DailyNotes } from '../daily.ts'
 import { createFromTemplate } from '../templates.ts'
 import { ProfileError, type Profile, type Profiles } from '../profiles.ts'
 import type { Workspace } from '../workspace.ts'
@@ -78,7 +79,7 @@ type Env = { Variables: { user: User; token: string } }
 const actorOf = (u: User): Actor => ({ kind: 'user', id: u.username })
 
 function noteErrorStatus(e: NoteError) {
-  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415 } as const)[e.code]
+  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409 } as const)[e.code]
 }
 
 function fetchErrorStatus(e: FetchImageError) {
@@ -97,6 +98,7 @@ export function createApp(deps: AppDeps) {
   const { auth, notes, index, profiles, workspace } = deps
   const externalImages = deps.externalImages ?? 'allow'
   const now = deps.now ?? (() => new Date())
+  const daily = new DailyNotes({ workspace, profiles, notes, now })
   const app = new Hono<Env>()
 
   app.onError((err, c) => {
@@ -215,6 +217,17 @@ export function createApp(deps: AppDeps) {
     const patch: Partial<Profile> = {}
     for (const k of ['timezone', 'dailySeries', 'openDailyOnStart'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
     return c.json(profiles.update(c.get('user').id, patch))
+  })
+
+  // Today's note (D-030): GET says where it is and whether it exists, POST
+  // opens or creates it. `series` picks one other than the person's own.
+  app.get('/api/daily', (c) => c.json(daily.today(c.get('user'), c.req.query('series'))))
+
+  app.post('/api/daily', async (c) => {
+    const { series } = await c.req.json<{ series?: string }>().catch(() => ({ series: undefined }))
+    if (series !== undefined && series !== null && typeof series !== 'string') return fail(c, 400, 'invalid', 'series must be a series id')
+    const r = await daily.open(c.get('user'), series)
+    return c.json(r, r.created ? 201 : 200)
   })
 
   app.put('/api/note', async (c) => {
@@ -352,6 +365,9 @@ export function createApp(deps: AppDeps) {
     const noteExists = index.prepare('select 1 from notes where path = ?')
     const ws = workspace.status
     if (ws.errors.length) alerts.push({ code: 'config_invalid', file: WORKSPACE_FILE, errors: ws.errors, fallback: ws.fallback, actions: [] })
+    for (const s of workspace.config.daily) {
+      if (s.template && !noteExists.get(s.template)) alerts.push({ code: 'config_template_missing', series: s.id, template: s.template, actions: [] })
+    }
     for (const { path } of index.prepare("select path from alerts where kind = 'sync_conflict' order by path").all() as { path: string }[]) {
       const note = conflictOriginal(path)
       alerts.push({ code: 'sync_conflict', path, note: noteExists.get(note) ? note : null, actions: [] })

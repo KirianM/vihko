@@ -15,3 +15,4 @@ export { FetchImageError, SERVED_TYPES, attachmentPath, fetchImage, sniffImage, 
 export { Workspace, type WorkspaceOptions } from './workspace.ts'
 export { FALLBACK_TIMEZONE, ProfileError, Profiles, type Profile } from './profiles.ts'
 export { createFromTemplate } from './templates.ts'
+export { DailyNotes, type DailyOptions, type DailyToday } from './daily.ts'

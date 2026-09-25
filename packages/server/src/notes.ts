@@ -16,7 +16,7 @@ export type Actor =
   | { kind: 'agent'; id: string; onBehalfOf: string }
   | { kind: 'system'; reason: string }
 
-export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'edit_mismatch' | 'too_large' | 'unsupported_type'
+export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'edit_mismatch' | 'too_large' | 'unsupported_type' | 'not_configured'
 
 export class NoteError extends Error {
   readonly code: NoteErrorCode

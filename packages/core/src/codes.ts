@@ -28,6 +28,7 @@ export type ErrorCode =
   | 'too_large' // an image over the size limit
   | 'unsupported_type' // not an image type thoth stores
   | 'fetch_failed' // an image URL could not be downloaded
+  | 'not_configured' // a feature that thoth.yaml doesn't turn on (daily notes with no series)
 
 /**
  * Space-level alerts: what thoth has detected in the notes folder that needs
@@ -50,6 +51,8 @@ export type Alert =
    * last valid one it read (`fallback: 'last_good'`) or with none (`'none'`).
    */
   | { code: 'config_invalid'; file: string; errors: ConfigError[]; fallback: 'last_good' | 'none'; actions: never[] }
+  /** A daily-note series names a template note that doesn't exist: its notes are created empty. */
+  | { code: 'config_template_missing'; series: string; template: string; actions: never[] }
 
 export type AlertCode = Alert['code']
 export type AlertAction = Alert['actions'][number]
