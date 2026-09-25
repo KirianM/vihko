@@ -10,7 +10,8 @@ import { NoteError, type MoveHooks } from '../notes.ts'
 
 export type MoveJob<R> = {
   id: string
-  kind: 'note' | 'folder'
+  /** `relink`: updating the links after notes moved outside thoth (`from`/`to`: the first move). */
+  kind: 'note' | 'folder' | 'relink'
   from: string
   to: string
   /** Notes rewritten so far, of `total`. */
@@ -40,7 +41,7 @@ export class MoveJobs {
    * than `waitMs`, as soon as the move itself is: `{ report }` or `{ job }`.
    * An error before the move happened is thrown as usual (nothing changed).
    */
-  async start<R>(owner: string, kind: 'note' | 'folder', from: string, to: string, run: (hooks: MoveHooks) => Promise<R>, waitMs: number): Promise<{ report: R } | { job: MoveJob<R> }> {
+  async start<R>(owner: string, kind: MoveJob<R>['kind'], from: string, to: string, run: (hooks: MoveHooks) => Promise<R>, waitMs: number): Promise<{ report: R } | { job: MoveJob<R> }> {
     this.sweep()
     const entry: Entry = { owner, finishedAt: null, job: { id: randomUUID(), kind, from, to, done: 0, total: 0, state: 'running' } }
     let moved!: () => void

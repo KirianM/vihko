@@ -11,7 +11,7 @@ import { WORKSPACE_FILE, classifyPath, conflictOriginal, extract, withoutRanges,
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
-import { NoteError, type Actor, type NoteService } from '../notes.ts'
+import { NoteError, type Actor, type MoveHooks, type NoteService } from '../notes.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START, search } from './search.ts'
 import { planEdits, type EditOp } from '../edits.ts'
 import { FetchImageError, SERVED_TYPES, fetchImage } from '../attachments.ts'
@@ -20,6 +20,7 @@ import { createFromTemplate } from '../templates.ts'
 import { ProfileError, type Profile, type Profiles } from '../profiles.ts'
 import type { Workspace } from '../workspace.ts'
 import { MoveJobs } from './jobs.ts'
+import type { ExternalMoves } from '../externalMoves.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 
@@ -61,6 +62,8 @@ export interface AppDeps {
    * answers with a job instead of the report (1 s by default).
    */
   moveWaitMs?: number
+  /** Notes moved outside thoth, pending a link update (D-031.4). */
+  externalMoves?: ExternalMoves
 }
 
 export type ExternalImages = 'allow' | 'block'
@@ -359,6 +362,26 @@ export function createApp(deps: AppDeps) {
     return c.json(r)
   })
 
+  // Updates the links after notes moved outside thoth (D-031.4), as a move
+  // would; with `dryRun`, only what it would do. With `background`, as a move job.
+  app.post('/api/external-moves/:id/relink', async (c) => {
+    const group = deps.externalMoves?.get(c.req.param('id'))
+    if (!group) return fail(c, 404, 'not_found', 'no such external move')
+    const { dryRun, background } = await c.req.json<{ dryRun?: boolean; background?: boolean }>().catch(() => ({}) as { dryRun?: boolean; background?: boolean })
+    const actor = actorOf(c.get('user'))
+    if (dryRun) return c.json(await notes.relinkMoved(group.moves, { actor, dryRun: true }))
+    // Done once every rewrite went through; with failures it stays, to try again.
+    const run = async (hooks: MoveHooks) => {
+      const report = await notes.relinkMoved(group.moves, { actor, ...hooks })
+      if (report.failed.length === 0) deps.externalMoves?.drop(group.id)
+      return report
+    }
+    if (!background) return c.json(await run({}))
+    const first = group.moves[0]!
+    const r = await jobs.start(c.get('user').username, 'relink', first.from, first.to, run, moveWaitMs)
+    return 'job' in r ? c.json(r, 202) : c.json(r.report)
+  })
+
   // Images (D-028). Upload and paste are the same: the raw bytes of the file
   // in the body. It is stored next to the note and the editor links it.
   app.post('/api/attachments',
@@ -435,6 +458,7 @@ export function createApp(deps: AppDeps) {
       alerts.push({ code: 'scan_aborted_root_unavailable', actions: admin ? ['rescan'] : [] })
     }
     for (const path of deps.orphans?.orphans() ?? []) alerts.push({ code: 'orphaned_note', path, actions: ['keep_copy', 'discard_copy'] })
+    for (const m of deps.externalMoves?.pending() ?? []) alerts.push({ code: 'external_move', ...m, actions: ['update_links'] })
     for (const u of deps.indexer.uidConflicts()) alerts.push({ code: 'uid_conflict', uid: u.uid, paths: u.paths, actions: [] })
     const noteExists = index.prepare('select 1 from notes where path = ?')
     const ws = workspace.status

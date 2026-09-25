@@ -124,13 +124,21 @@ const isWiki = (img: ImageLink) => img.kind === 'embed' || img.kind === 'wiki'
  * `place`: where each image is after the move (its own path if it stays).
  * External URLs and references that leave the notes folder are not touched.
  */
-export function planImageRelinks(text: string, srcBefore: string, srcAfter: string, place: (path: string) => string): ImageReplacement[] {
+export function planImageRelinks(
+  text: string,
+  srcBefore: string,
+  srcAfter: string,
+  place: (path: string) => string,
+  /** Rewrites only the references for which it says yes: where the image is wanted and where the reference leads now. */
+  onlyIf?: (want: string, now: string | null) => boolean,
+): ImageReplacement[] {
   const out: ImageReplacement[] = []
   for (const img of extract(text).images) {
     const was = resolveImageRef(srcBefore, img.dest, { embed: isWiki(img) })
     if (was === null) continue
     const want = place(was)
-    if (resolveImageRef(srcAfter, img.dest, { embed: isWiki(img) }) === want) continue
+    const now = resolveImageRef(srcAfter, img.dest, { embed: isWiki(img) })
+    if (now === want || (onlyIf && !onlyIf(want, now))) continue
     const dest = imageDest(img, srcAfter, want)
     const after = img.raw.slice(0, img.destFrom - img.from) + dest + img.raw.slice(img.destTo - img.from)
     out.push({ from: img.destFrom, to: img.destTo, text: dest, before: img.raw, after })
@@ -153,6 +161,21 @@ function imageDest(img: ImageLink, src: string, path: string): string {
   const suffix = /[?#].*$/.exec(bare)?.[0] ?? ''
   const dest = markdownDest(fromRoot ? '/' + path : rel) + suffix
   return img.dest.startsWith('<') ? `<${dest}>` : dest
+}
+
+/**
+ * Link resolution as it was before notes moved outside thoth (D-031.4): a
+ * copy of `now` with each moved note back at its old path, its aliases and
+ * headings as they are now.
+ */
+export function beforeMoves(now: LinkIndex, moves: readonly { from: string; to: string }[]): LinkIndex {
+  const before = now.clone()
+  for (const m of moves) before.delete(m.to)
+  for (const m of moves) {
+    const keys = now.get(m.to)
+    if (keys) before.set({ ...keys, path: m.from })
+  }
+  return before
 }
 
 export function applyReplacements(text: string, reps: Replacement[]): string {

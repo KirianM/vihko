@@ -6,7 +6,7 @@ import { dirname, join, posix } from 'node:path'
 import { addToFrontmatterList, classifyPath, contentHash, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type ErrorCode, type LinkIndex } from '@thoth/core'
 import { commitText, createFile, linkNew, readStable, readText } from './fsutil.ts'
 import { attachmentPath, sniffImage, suffixedName } from './attachments.ts'
-import { applyReplacements, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
+import { applyReplacements, beforeMoves, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
 import type { Indexer } from './indexer.ts'
 import { applySplices, spliceOf, type Splice } from './edits.ts'
 import type { Db } from './db.ts'
@@ -138,6 +138,21 @@ export interface FolderMoveReport {
   /** Links whose resolution changes without being rewritten, as in a note move. */
   shifted: ShiftGroup[]
   /** Notes that couldn't be rewritten: an error code for the UI and a hint for developers. */
+  failed: MoveReport['failed']
+  dryRun: boolean
+}
+
+/**
+ * What updating the links after notes moved outside thoth does (or would do,
+ * with `dryRun`): the rewrites a thoth move of those notes would have made.
+ */
+export interface MovedRelinkReport {
+  /** The moves it applies to: those still in place (the note at `to`, nothing back at `from`). */
+  moves: { from: string; to: string }[]
+  /** Notes rewritten, moved ones under their new path, with each change as in a move. */
+  relinked: MoveReport['relinked']
+  /** Links whose resolution changes without being rewritten, as in a move. */
+  shifted: ShiftGroup[]
   failed: MoveReport['failed']
   dryRun: boolean
 }
@@ -493,6 +508,79 @@ export class NoteService {
       return [spliceOf(text, occurrence.from, occurrence.to, next)]
     }, opts)
     return { etag: r.etag, raw }
+  }
+
+  /**
+   * Updates the links after notes moved outside thoth (D-031.4): the rewrites
+   * a thoth move of those notes would have made, planned over the files as
+   * they are now, without moving any file. Only the moves still in place
+   * count (the note at `to`, and no note back at `from`). The moved notes'
+   * image references are only rewritten when the image is still where they
+   * led and the reference no longer reaches it: the other tool may have moved
+   * the images too. With `dryRun`, it only reports; otherwise it waits its
+   * turn with thoth's own moves and rewrites as the system, one note at a
+   * time (`onMoved` with the count, then `onProgress`).
+   */
+  async relinkMoved(moves: readonly { from: string; to: string }[], opts: { actor: Actor; dryRun?: boolean } & MoveHooks): Promise<MovedRelinkReport> {
+    const run = async () => {
+      const plan = this.planMoved(moves)
+      const report: MovedRelinkReport = { moves: plan.moves, relinked: plan.relinked, shifted: plan.shifted, failed: [], dryRun: !!opts.dryRun }
+      if (opts.dryRun) return report
+      opts.onMoved?.(plan.items.length)
+      const what = plan.moves.length === 1 ? `${plan.moves[0]!.from} to ${plan.moves[0]!.to}` : `${plan.moves.length} notes`
+      const system: Actor = { kind: 'system', reason: `links updated after moving ${what} outside thoth, by ${actorLabel(opts.actor)}` }
+      await this.rewriteAll(plan.items, system, report.failed, opts.onProgress)
+      return report
+    }
+    return opts.dryRun ? run() : this.oneMoveAtATime(run)
+  }
+
+  private planMoved(requested: readonly { from: string; to: string }[]) {
+    const after = this.opts.indexer.links.clone()
+    const moves = requested.filter((m) => after.has(m.to) && !after.has(m.from)).map((m) => ({ from: m.from, to: m.to }))
+    const before = beforeMoves(after, moves)
+    const forward = new Map(moves.map((m) => [m.from, m.to]))
+    const map = (p: string) => forward.get(p) ?? p
+    const movedTo = new Set(moves.map((m) => m.to))
+
+    const affected = new Set<string>()
+    for (const m of moves) {
+      for (const k of [...pathKeys(m.from), ...pathKeys(m.to), ...(after.get(m.to)?.aliases ?? []).map(normKey)]) affected.add(k)
+    }
+    const sources = new Set<string>()
+    const byKey = this.opts.db.prepare('select distinct src_path from links where key = ?')
+    for (const k of affected) for (const r of byKey.all(k) as { src_path: string }[]) if (!movedTo.has(r.src_path)) sources.add(r.src_path)
+
+    const relinked: MoveReport['relinked'] = []
+    const shifted: ShiftGroup[] = []
+    const items: { path: string; change: (text: string) => Change }[] = []
+    // The moved notes' own links and image references: written for where the note was.
+    const imageHere = (want: string, now: string | null) => this.isFile(want) && (now === null || !this.isFile(now))
+    const own = (text: string, m: { from: string; to: string }) => {
+      const imageReps = planImageRelinks(text, m.from, m.to, (p) => p, imageHere)
+      const { reps, shifts } = planLinks(text, m.from, m.to, before, after, map)
+      const all = [...imageReps, ...reps]
+      return { splices: relinkSplices(text, all), changes: [...changesOf(text, reps), ...imageReps.map((r) => ({ before: r.before, after: r.after }))], shifts }
+    }
+    for (const m of moves) {
+      const text = readText(this.file(m.to))
+      if (text === null) continue
+      const p = own(text, m)
+      if (p.changes.length) { relinked.push({ path: m.to, links: p.changes.length, changes: p.changes }); items.push({ path: m.to, change: (x) => own(x, m).splices }) }
+      addShifts(shifted, m.to, p.shifts)
+    }
+    for (const src of [...sources].sort()) {
+      const text = readText(this.file(src))
+      if (text === null) continue
+      const { reps, shifts } = planLinks(text, src, src, before, after, map)
+      if (reps.length) {
+        relinked.push({ path: src, links: reps.length, changes: changesOf(text, reps) })
+        items.push({ path: src, change: (x) => relinkSplices(x, planLinks(x, src, src, before, after, map).reps) })
+      }
+      addShifts(shifted, src, shifts)
+    }
+    shifted.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    return { moves, relinked, shifted, items }
   }
 
   // --- Folders ------------------------------------------------------------
