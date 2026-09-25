@@ -1,110 +1,133 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { addComment, cleanText, commentPosition, formatComment, formatDate, parseComments, parseThreads, replyTo, resolveThread, type Change } from '../src/editor/comments.ts'
+import { addComment, cleanText, commentPosition, displayDate, formatComment, formatDate, parseComments, parseDate, parseThreads, replyTo, resolveThread, type Change } from '../src/editor/comments.ts'
 
 const apply = (doc: string, c: Change) => doc.slice(0, c.from) + c.insert + doc.slice(c.to)
 const anchor = (doc: string, i = 0) => {
   const t = parseThreads(doc)[i]!
   return doc.slice(t.anchorFrom, t.anchorTo)
 }
-const WHEN = new Date(2026, 8, 24, 10, 12)
+const WHEN = new Date(Date.UTC(2026, 8, 24, 8, 12))
 
-const D023 = `Usaremos Postgres para el índice.<!-- @noa 2026-09-24 10:12 · esto no, usa SQLite -->
-<!-- @claude 2026-09-24 10:15 · ↳ de acuerdo, lo cambio -->
+const D023 = `Usaremos Postgres para el índice.<!-- @noa 2026-09-24T08:12Z · esto no, usa SQLite -->
+<!-- @claude 2026-09-24T08:15Z · ↳ de acuerdo, lo cambio -->
 `
 
-test('lee el ejemplo de D-023: un hilo con respuesta, anclado a la frase', () => {
+test('reads the example: a thread with a reply, anchored to the sentence', () => {
   const threads = parseThreads(D023)
   assert.equal(threads.length, 1)
   const [root, reply] = threads[0]!.comments
-  assert.deepEqual([root!.author, root!.date, root!.text, root!.reply], ['noa', '2026-09-24 10:12', 'esto no, usa SQLite', false])
+  assert.deepEqual([root!.author, root!.date, root!.text, root!.reply], ['noa', '2026-09-24T08:12Z', 'esto no, usa SQLite', false])
   assert.deepEqual([reply!.author, reply!.text, reply!.reply], ['claude', 'de acuerdo, lo cambio', true])
   assert.equal(anchor(D023), 'Usaremos Postgres para el índice.')
 })
 
-test('el ancla empieza en la frase, sin marcas de lista ni de encabezado', () => {
-  assert.equal(anchor('Primera frase. La segunda va aquí<!-- @ana 2026-09-24 10:12 · ojo -->'), 'La segunda va aquí')
-  assert.equal(anchor('- [ ] tarea pendiente<!-- @ana 2026-09-24 10:12 · ojo -->'), 'tarea pendiente')
-  assert.equal(anchor('## Título<!-- @ana 2026-09-24 10:12 · ojo -->'), 'Título')
-  assert.equal(anchor('> cita larga<!-- @ana 2026-09-24 10:12 · ojo -->'), 'cita larga')
-  // Tras otro hilo en la misma línea, el ancla empieza donde acaba ese hilo.
-  const two = 'uno<!-- @ana 2026-09-24 10:12 · a --> dos<!-- @ana 2026-09-24 10:13 · b -->'
+test('the anchor starts at the sentence, without list or heading marks', () => {
+  assert.equal(anchor('Primera frase. La segunda va aquí<!-- @ana 2026-09-24T08:12Z · ojo -->'), 'La segunda va aquí')
+  assert.equal(anchor('- [ ] tarea pendiente<!-- @ana 2026-09-24T08:12Z · ojo -->'), 'tarea pendiente')
+  assert.equal(anchor('## Título<!-- @ana 2026-09-24T08:12Z · ojo -->'), 'Título')
+  assert.equal(anchor('> cita larga<!-- @ana 2026-09-24T08:12Z · ojo -->'), 'cita larga')
+  // After another thread on the same line, the anchor starts where that thread ends.
+  const two = 'uno<!-- @ana 2026-09-24T08:12Z · a --> dos<!-- @ana 2026-09-24 10:13 · b -->'
   assert.equal(parseThreads(two).length, 2)
   assert.equal(anchor(two, 1), 'dos')
-  // Solo en su línea: sin ancla.
-  assert.equal(anchor('texto\n\n<!-- @ana 2026-09-24 10:12 · nota general -->'), '')
+  // Alone on its line: no anchor.
+  assert.equal(anchor('texto\n\n<!-- @ana 2026-09-24T08:12Z · nota general -->'), '')
 })
 
-test('hilos: consecutivos se unen; con texto o una línea en blanco entre medias, no', () => {
+test('threads: consecutive ones merge; with text or a blank line in between, they do not', () => {
   const c = (n: number) => `<!-- @ana 2026-09-24 10:1${n} · c${n} -->`
   assert.equal(parseThreads(`a${c(1)}${c(2)}\n${c(3)}`).length, 1)
   assert.equal(parseThreads(`a${c(1)} b${c(2)}`).length, 2)
   assert.equal(parseThreads(`a${c(1)}\n\n${c(2)}`).length, 2)
 })
 
-test('ignora comentarios HTML sin el formato y los que están en código', () => {
+test('ignores HTML comments without the format, and ones inside code', () => {
   assert.equal(parseComments('<!-- nota suelta --> y <!-- @ana sin fecha · x -->').length, 0)
-  assert.equal(parseComments('```\nx<!-- @ana 2026-09-24 10:12 · no -->\n```\ny<!-- @ana 2026-09-24 10:12 · sí -->').length, 1)
+  assert.equal(parseComments('```\nx<!-- @ana 2026-09-24T08:12Z · no -->\n```\ny<!-- @ana 2026-09-24T08:12Z · sí -->').length, 1)
 })
 
-test('los ids distinguen comentarios idénticos y son estables', () => {
-  const c = '<!-- @ana 2026-09-24 10:12 · igual -->'
+test('ids tell identical comments apart and stay stable', () => {
+  const c = '<!-- @ana 2026-09-24T08:12Z · igual -->'
   const doc = `uno${c}\n\ndos${c}`
   const ids = parseThreads(doc).map((t) => t.id)
   assert.equal(new Set(ids).size, 2)
   assert.deepEqual(parseThreads('antes\n\n' + doc).map((t) => t.id), ids)
 })
 
-test('formato: fecha local, una línea y nada que cierre el comentario antes de tiempo', () => {
-  assert.equal(formatDate(WHEN), '2026-09-24 10:12')
-  assert.equal(formatComment('noa', WHEN, 'esto no,\nusa SQLite'), '<!-- @noa 2026-09-24 10:12 · esto no, usa SQLite -->')
-  assert.equal(formatComment('ana', WHEN, 'vale', true), '<!-- @ana 2026-09-24 10:12 · ↳ vale -->')
+test('format: UTC date, one line, and nothing that closes the comment early', () => {
+  assert.equal(formatDate(WHEN), '2026-09-24T08:12Z')
+  assert.equal(formatComment('noa', WHEN, 'esto no,\nusa SQLite'), '<!-- @noa 2026-09-24T08:12Z · esto no, usa SQLite -->')
+  assert.equal(formatComment('ana', WHEN, 'vale', true), '<!-- @ana 2026-09-24T08:12Z · ↳ vale -->')
   assert.equal(cleanText('a --> b'), 'a -- > b')
   const doc = 'x' + formatComment('ana', WHEN, 'raro --> y <!-- más')
   assert.equal(parseComments(doc)[0]!.text, 'raro -- > y <!-- más')
 })
 
-test('comentar una selección: al final de lo seleccionado, sin partir palabras', () => {
+test('commenting a selection: right after the end of it, without splitting words', () => {
   const doc = 'La propuesta era usar Postgres con una tabla. Otra frase.'
   const sel = doc.indexOf('usar Postgres')
   assert.equal(commentPosition(doc, sel, sel + 'usar Postgres'.length), sel + 'usar Postgres'.length)
   assert.equal(commentPosition(doc, sel, sel + 'usar Postg'.length), sel + 'usar Postgres'.length)
   assert.equal(commentPosition(doc, sel, sel + 'usar Postgres '.length), sel + 'usar Postgres'.length)
   const out = apply(doc, addComment(doc, commentPosition(doc, sel, sel + 13), 'noa', WHEN, 'no'))
-  assert.equal(out, 'La propuesta era usar Postgres<!-- @noa 2026-09-24 10:12 · no --> con una tabla. Otra frase.')
+  assert.equal(out, 'La propuesta era usar Postgres<!-- @noa 2026-09-24T08:12Z · no --> con una tabla. Otra frase.')
   assert.equal(anchor(out), 'La propuesta era usar Postgres')
 })
 
-test('comentar sin selección: al final de la frase del cursor o de la línea', () => {
+test('commenting with no selection: at the end of the cursor\'s sentence or line', () => {
   const doc = 'Una frase. Otra sin punto  \nsiguiente'
   assert.equal(commentPosition(doc, 2, 2), 'Una frase.'.length)
   assert.equal(commentPosition(doc, 13, 13), 'Una frase. Otra sin punto'.length)
 })
 
-test('comentar dentro de un hilo lo añade tras el hilo', () => {
+test('commenting inside a thread adds it after the thread', () => {
   const doc = D023.trimEnd()
   const inside = doc.indexOf('esto no')
   assert.equal(commentPosition(doc, inside, inside), doc.length)
 })
 
-test('responder: en su línea tras un hilo que cierra párrafo; pegado si el párrafo sigue', () => {
-  const alone = 'Frase.<!-- @noa 2026-09-24 10:12 · a -->\n\nOtro párrafo.'
+test('replying: on its own line after a thread that closes a paragraph; attached if the paragraph continues', () => {
+  const alone = 'Frase.<!-- @noa 2026-09-24T08:12Z · a -->\n\nOtro párrafo.'
   const r1 = apply(alone, replyTo(alone, parseThreads(alone)[0]!, 'ana', WHEN, 'b'))
-  assert.equal(r1, 'Frase.<!-- @noa 2026-09-24 10:12 · a -->\n<!-- @ana 2026-09-24 10:12 · ↳ b -->\n\nOtro párrafo.')
+  assert.equal(r1, 'Frase.<!-- @noa 2026-09-24T08:12Z · a -->\n<!-- @ana 2026-09-24T08:12Z · ↳ b -->\n\nOtro párrafo.')
   assert.equal(parseThreads(r1)[0]!.comments.length, 2)
-  const inline = 'Frase.<!-- @noa 2026-09-24 10:12 · a --> sigue\nel párrafo'
+  const inline = 'Frase.<!-- @noa 2026-09-24T08:12Z · a --> sigue\nel párrafo'
   const r2 = apply(inline, replyTo(inline, parseThreads(inline)[0]!, 'ana', WHEN, 'b'))
-  assert.equal(r2, 'Frase.<!-- @noa 2026-09-24 10:12 · a --><!-- @ana 2026-09-24 10:12 · ↳ b --> sigue\nel párrafo')
-  const lazy = 'Frase.<!-- @noa 2026-09-24 10:12 · a -->\nsigue el párrafo'
+  assert.equal(r2, 'Frase.<!-- @noa 2026-09-24T08:12Z · a --><!-- @ana 2026-09-24T08:12Z · ↳ b --> sigue\nel párrafo')
+  const lazy = 'Frase.<!-- @noa 2026-09-24T08:12Z · a -->\nsigue el párrafo'
   assert.ok(!apply(lazy, replyTo(lazy, parseThreads(lazy)[0]!, 'ana', WHEN, 'b')).includes('-->\n<!--'))
 })
 
-test('resolver borra el hilo entero y nada más', () => {
+test('resolving deletes the whole thread and nothing else', () => {
   const doc = `---\nuid: X\n---\n${D023}\nFin.`
   const out = apply(doc, resolveThread(doc, parseThreads(doc)[0]!))
   assert.equal(out, '---\nuid: X\n---\nUsaremos Postgres para el índice.\n\nFin.')
-  const own = 'a\n<!-- @ana 2026-09-24 10:12 · suelta -->\nb'
+  const own = 'a\n<!-- @ana 2026-09-24T08:12Z · suelta -->\nb'
   assert.equal(apply(own, resolveThread(own, parseThreads(own)[0]!)), 'a\nb')
-  const last = 'a\n<!-- @ana 2026-09-24 10:12 · suelta -->'
+  const last = 'a\n<!-- @ana 2026-09-24T08:12Z · suelta -->'
   assert.equal(apply(last, resolveThread(last, parseThreads(last)[0]!)), 'a')
 })
+
+test('dates: written in UTC, shown in the reader\'s timezone, legacy dates kept as written', () => {
+  const tz = process.env.TZ
+  try {
+    process.env.TZ = 'Europe/Madrid'
+    const now = new Date(Date.UTC(2026, 8, 24, 20, 0))
+    assert.equal(displayDate('2026-09-24T08:12Z', now), '10:12', 'today: only the local time')
+    assert.equal(displayDate('2026-09-23T22:30Z', now), '00:30', 'yesterday in UTC, today locally')
+    assert.equal(displayDate('2026-09-23T21:30Z', now), '2026-09-23 23:30', 'another day: date and time')
+    process.env.TZ = 'America/Mexico_City'
+    assert.equal(displayDate('2026-09-24T08:12Z', now), '02:12', 'another reader, another local time')
+    assert.equal(displayDate('2026-09-24 10:12 +02:00', now), '02:12', 'an offset written by hand is read too')
+    assert.equal(displayDate('2026-09-24 10:12', now), '2026-09-24 10:12', 'no zone: shown as written')
+    assert.equal(parseDate('2026-09-24 10:12'), null)
+    assert.equal(parseDate('2026-09-24T10:12+0200')!.toISOString(), '2026-09-24T08:12:00.000Z')
+  } finally {
+    if (tz === undefined) delete process.env.TZ
+    else process.env.TZ = tz
+  }
+  const doc = 'Texto.<!-- @ana 2026-09-24 10:12 +02:00 · con desfase -->'
+  assert.equal(parseComments(doc)[0]!.date, '2026-09-24 10:12 +02:00')
+})
+

@@ -1,5 +1,5 @@
-// Traducciones (D-025): ningún texto de la UI va escrito en los componentes.
-// Añadir un idioma es añadir un diccionario con las mismas claves (el tipo lo exige).
+// Translations: no UI text is written directly in the components.
+// Adding a language means adding a dictionary with the same keys (the type enforces it).
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { ErrorCode } from '@thoth/core/codes'
 
@@ -331,7 +331,7 @@ const en: Record<keyof typeof es, string> = {
 
 export type MessageKey = keyof typeof es
 
-// Todo código de error del servidor tiene traducción: si falta una, no compila.
+// Every server error code has a translation: if one is missing, this doesn't compile.
 type MissingErrorText = Exclude<`error.${ErrorCode}`, MessageKey>
 const _allErrorsTranslated: [MissingErrorText] extends [never] ? true : MissingErrorText = true
 void _allErrorsTranslated
@@ -342,7 +342,7 @@ function initialLang(): Lang {
   try {
     const stored = localStorage.getItem('thoth.lang')
     if (stored === 'es' || stored === 'en') return stored
-  } catch { /* almacenamiento no disponible */ }
+  } catch { /* storage unavailable */ }
   return navigator.language.toLowerCase().startsWith('es') ? 'es' : 'en'
 }
 
@@ -355,7 +355,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     const dict = dictionaries[lang]
     const t: Translate = (key, vars) => dict[key].replace(/\{(\w+)\}/g, (_, k: string) => String(vars?.[k] ?? `{${k}}`))
     const setLang = (l: Lang) => {
-      try { localStorage.setItem('thoth.lang', l) } catch { /* sin persistencia */ }
+      try { localStorage.setItem('thoth.lang', l) } catch { /* no persistence */ }
       setLangState(l)
     }
     return { t, lang, setLang }
@@ -364,7 +364,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
 
-/** Texto de un error de la API: el servidor da el código (D-025) y aquí se traduce. */
+/** Text for an API error: the server gives the code and it is translated here. */
 export function errorText(t: Translate, err: unknown): string {
   const code = err instanceof Error && 'code' in err ? `error.${String(err.code)}` : 'error.internal'
   return code in es ? t(code as MessageKey) : t('error.internal')
@@ -372,6 +372,6 @@ export function errorText(t: Translate, err: unknown): string {
 
 export function useT(): Translate {
   const ctx = useContext(I18nContext)
-  if (!ctx) throw new Error('useT fuera de I18nProvider')
+  if (!ctx) throw new Error('useT outside I18nProvider')
   return ctx.t
 }

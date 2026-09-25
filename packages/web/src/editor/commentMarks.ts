@@ -1,23 +1,23 @@
-// Comentarios en el editor (D-023): el texto comentado se resalta con el color de
-// quien abrió el hilo y la sintaxis `<!-- … -->` se oculta salvo donde está el
-// cursor, como el resto de marcas (livePreview.ts). En pantallas estrechas, bajo
-// cada párrafo con comentarios, un aviso que abre el panel.
+// Comments in the editor: the commented text is highlighted with the color of
+// whoever opened the thread, and the `<!-- … -->` syntax is hidden except where
+// the cursor is, like the rest of the marks (livePreview.ts). On narrow screens,
+// below each paragraph with comments, a notice opens the panel.
 import { syntaxTree } from '@codemirror/language'
 import { Facet, StateEffect, StateField, type EditorState, type Range } from '@codemirror/state'
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view'
 import { parseThreads, type Thread } from './comments.ts'
 import { focusChanged, touches } from './livePreview.ts'
 
-/** Hilos de la nota, siempre al día con el texto. */
+/** The note's threads, always in sync with the text. */
 export const threadsField = StateField.define<Thread[]>({
   create: (s) => parseThreads(s.doc.toString()),
   update: (v, tr) => (tr.docChanged ? parseThreads(tr.state.doc.toString()) : v),
 })
 
 export interface CommentStyle {
-  /** Color (hex) de cada autor en el tema actual. */
+  /** Hex color for each author in the current theme. */
   color: (author: string) => string
-  /** Hilo seleccionado en el panel. */
+  /** Thread selected in the panel. */
   active: string | null
 }
 export const setCommentStyle = StateEffect.define<CommentStyle>()
@@ -27,7 +27,7 @@ const style = StateField.define<CommentStyle>({
 })
 
 export interface CommentUi {
-  /** «2 comentarios en este párrafo». */
+  /** "2 comments in this paragraph". */
   count: (n: number) => string
   show: string
   open: (threadId: string) => void
@@ -62,7 +62,7 @@ class ParagraphNotice extends WidgetType {
   ignoreEvent() { return true }
 }
 
-/** Hilo sin texto al que anclarse: se ve un icono en su sitio. */
+/** Thread with no text to anchor to: shows an icon in its place. */
 class LooseMark extends WidgetType {
   readonly color: string
   constructor(color: string) {
@@ -79,7 +79,7 @@ class LooseMark extends WidgetType {
   }
 }
 
-/** Bloque de primer nivel (párrafo, lista, cita…) que contiene la posición. */
+/** Top-level block (paragraph, list, quote…) that contains the position. */
 function topBlock(state: EditorState, pos: number) {
   let node = syntaxTree(state).resolveInner(pos, -1)
   while (node.parent && node.parent.name !== 'Document') node = node.parent
@@ -105,7 +105,7 @@ function decorations(state: EditorState): DecorationSet {
     else out.push(Decoration.replace(anchored ? {} : { widget: new LooseMark(c) }).range(t.from, t.to))
 
     const block = topBlock(state, t.anchorTo > t.anchorFrom ? t.anchorTo : t.from)
-    // Tras el bloque y tras el hilo (sus respuestas pueden ir en líneas propias, ocultas).
+    // After the block and after the thread (its replies may be on their own hidden lines).
     const end = state.doc.lineAt(Math.max(block ? Math.min(block.to, state.doc.length) : 0, t.to)).to
     const cur = perBlock.get(end)
     perBlock.set(end, { n: (cur?.n ?? 0) + t.comments.length, thread: cur?.thread ?? t.id })

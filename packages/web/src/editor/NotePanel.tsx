@@ -1,6 +1,7 @@
-// Panel lateral de la nota: comentarios (D-023), enlaces (D-019) e índice.
-// Todo lo que escribe (comentar, responder, resolver) va al Y.Text de la sesión
-// abierta, como una edición más: se mezcla con lo que otros escriben a la vez.
+// Note side panel: comments, links and outline.
+// Everything it writes (commenting, replying, resolving) goes to the open
+// session's Y.Text, like any other edit: it merges with what others write at
+// the same time.
 import { syntaxTree } from '@codemirror/language'
 import type { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
@@ -12,7 +13,7 @@ import { useT } from '../i18n.tsx'
 import { useTheme } from '../theme.ts'
 import { baseHue, userColor } from '../userColor.ts'
 import type { Session } from './collab.ts'
-import { formatComment, formatDate, parseThreads, commentPosition, replyTo, resolveThread, type Change, type Thread } from './comments.ts'
+import { displayDate, formatComment, parseThreads, commentPosition, replyTo, resolveThread, type Change, type Thread } from './comments.ts'
 import { setCommentStyle, threadsField } from './commentMarks.ts'
 import { usePresence } from './presence.ts'
 import { useViewState } from './viewUpdates.ts'
@@ -21,7 +22,7 @@ import './panel.css'
 export type PanelTab = 'comments' | 'links' | 'toc'
 export interface LinksData { outgoing: OutgoingLink[]; backlinks: Backlink[] }
 
-// --- Estado del panel ----------------------------------------------------------
+// --- Panel state ----------------------------------------------------------
 
 const STORE = 'thoth.panel'
 const NARROW = '(max-width: 1099px)'
@@ -37,7 +38,7 @@ function useNarrow() {
   return narrow
 }
 
-/** Petición al panel desde fuera (editor, atajo): `seq` hace que se repita la misma. */
+/** Request to the panel from outside (editor, shortcut): `seq` makes the same one repeat. */
 type Request = { seq: number; thread: string | null }
 
 export interface Panel {
@@ -47,15 +48,15 @@ export interface Panel {
   tab: PanelTab
   setTab: (tab: PanelTab) => void
   request: Request | null
-  /** El panel ya atendió la petición. */
+  /** The panel already handled the request. */
   done: () => void
-  /** Abre los comentarios: en un hilo o, con null, para comentar la selección. */
+  /** Opens comments: on a thread or, with null, to comment on the selection. */
   showComments: (thread: string | null) => void
 }
 
 /**
- * En pantalla ancha el panel está abierto salvo que la persona lo cierre (se recuerda
- * en este navegador). En estrecha empieza cerrado y se abre encima del editor.
+ * On a wide screen the panel is open unless the person closes it (remembered
+ * in this browser). On narrow it starts closed and opens over the editor.
  */
 export function usePanel(): Panel {
   const narrow = useNarrow()
@@ -67,7 +68,7 @@ export function usePanel(): Panel {
   const [request, setRequest] = useState<Request | null>(null)
   const setOpen = (open: boolean) => {
     if (narrow) return setNarrowOpen(open)
-    try { localStorage.setItem(STORE, open ? 'open' : 'closed') } catch { /* sin persistencia */ }
+    try { localStorage.setItem(STORE, open ? 'open' : 'closed') } catch { /* no persistence */ }
     setWideOpen(open)
   }
   return {
@@ -106,9 +107,9 @@ export function PanelToggle({ panel }: { panel: Panel }) {
   )
 }
 
-// --- Utilidades --------------------------------------------------------------------
+// --- Utilities --------------------------------------------------------------------
 
-/** Aplica un cambio al Y.Text en una sola transacción. */
+/** Applies a change to the Y.Text in a single transaction. */
 function apply(session: Session, c: Change) {
   session.doc.transact(() => {
     if (c.to > c.from) session.text.delete(c.from, c.to - c.from)
@@ -116,9 +117,9 @@ function apply(session: Session, c: Change) {
   })
 }
 
-/** Nodos que un comentario no debe partir: se inserta tras ellos. */
+/** Nodes a comment must not split: it is inserted after them. */
 const INLINE = new Set(['Link', 'Image', 'WikiLink', 'WikiEmbed', 'InlineCode', 'Autolink', 'URL', 'Tag', 'Comment', 'HTMLTag'])
-/** Bloques donde un comentario no sería comentario (o rompería el bloque): va en la línea siguiente. */
+/** Blocks where a comment wouldn't be a comment (or would break the block): it goes on the next line. */
 const OPAQUE = new Set(['Frontmatter', 'FencedCode', 'CodeBlock', 'HTMLBlock', 'CommentBlock', 'Table', 'LinkReference'])
 
 function safePosition(state: EditorState, pos: number): { pos: number; newline: boolean } {
@@ -134,7 +135,7 @@ function safePosition(state: EditorState, pos: number): { pos: number; newline: 
 function useAuthorColor(session: Session) {
   const peers = usePresence(session.provider)
   const { effective } = useTheme()
-  // Quien está en la nota, con el color de su cursor; quien no, con el tono de su nombre.
+  // Whoever is in the note, with their cursor's color; whoever isn't, with the hue of their name.
   return useMemo(() => {
     const hues = new Map(peers.map((p) => [p.name, p.hue]))
     return (author: string) => userColor(hues.get(author) ?? baseHue(author), effective)
@@ -146,7 +147,7 @@ function scrollTo(view: EditorView, pos: number, select = true) {
   view.focus()
 }
 
-// --- Comentarios -------------------------------------------------------------------
+// --- Comments -------------------------------------------------------------------
 
 interface ThreadView { thread: Thread; quote: string }
 const readThreads = (s: EditorState) => ({
@@ -159,10 +160,6 @@ function shortQuote(q: string) {
   return one.length > 60 ? one.slice(0, 57).trimEnd() + '…' : one
 }
 
-function when(date: string) {
-  const today = formatDate(new Date()).slice(0, 10)
-  return date.startsWith(today) ? date.slice(11) : date
-}
 
 function Composer({ label, submit, onSend, onCancel }: { label: string; submit: string; onSend: (text: string) => void; onCancel: () => void }) {
   const t = useT()
@@ -203,7 +200,7 @@ function ThreadCard({ tv, active, color, onSelect, onReply, onResolve }: {
         <div key={i} className={c.reply ? 'comment comment-reply' : 'comment'}>
           <span className="avatar avatar-sm" aria-hidden="true" style={{ background: color(c.author) }}>{c.author.slice(0, 1).toUpperCase()}</span>
           <div className="comment-body">
-            <b>{c.author}</b> <span className="comment-when">{when(c.date)}</span>
+            <b>{c.author}</b> <span className="comment-when">{displayDate(c.date)}</span>
             <div>{c.text}</div>
           </div>
         </div>
@@ -230,7 +227,7 @@ function CommentsTab({ view, session, user, request, done }: { view: EditorView 
   const [draft, setDraft] = useState<Draft | null>(null)
   const list = useRef<HTMLDivElement>(null)
 
-  // Hilo activo: el elegido en el panel o, si no, aquel en cuyo texto está el cursor.
+  // Active thread: the one picked in the panel or, failing that, the one whose text holds the cursor.
   const underCursor = threads.find(({ thread: th }) => head >= Math.min(th.anchorFrom, th.from) && head <= th.to)?.thread.id ?? null
   const active = picked && threads.some((x) => x.thread.id === picked) ? picked : underCursor
 
@@ -243,7 +240,7 @@ function CommentsTab({ view, session, user, request, done }: { view: EditorView 
     const doc = session.text.toString()
     const { from, to } = view.state.selection.main
     const { pos, newline } = safePosition(view.state, commentPosition(doc, from, to))
-    // El texto que quedará anclado: se simula el comentario y se lee su ancla.
+    // The text that will end up anchored: the comment is simulated and its anchor is read.
     const at = pos + (newline ? 1 : 0)
     const probe = doc.slice(0, pos) + (newline ? '\n' : '') + formatComment(user.username, new Date(), '·') + doc.slice(pos)
     const th = parseThreads(probe).find((x) => x.comments.some((c) => c.from === at))
@@ -257,7 +254,7 @@ function CommentsTab({ view, session, user, request, done }: { view: EditorView 
     if (request.thread === null) return startDraft()
     setPicked(request.thread)
     list.current?.querySelector(`[data-thread="${CSS.escape(request.thread)}"]`)?.scrollIntoView({ block: 'nearest' })
-    // Solo reacciona a peticiones nuevas.
+    // Only reacts to new requests.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request])
 
@@ -265,12 +262,12 @@ function CommentsTab({ view, session, user, request, done }: { view: EditorView 
     if (!draft) return
     const doc = session.text.toString()
     let pos = Y.createAbsolutePositionFromRelativePosition(draft.at, session.doc)?.index ?? doc.length
-    // Si entretanto alguien comentó justo ahí, el nuevo va tras ese hilo.
+    // If meanwhile someone commented right there, the new one goes after that thread.
     for (const th of parseThreads(doc)) if (pos > th.from && pos < th.to) pos = th.to
     apply(session, { from: pos, to: pos, insert: (draft.newline ? '\n' : '') + formatComment(user.username, new Date(), text) })
     setDraft(null)
   }
-  // Responder y resolver releen el texto en el momento: el hilo se busca por su id.
+  // Replying and resolving reread the text on the spot: the thread is looked up by its id.
   const current = (id: string) => {
     const doc = session.text.toString()
     const th = parseThreads(doc).find((x) => x.id === id)
@@ -317,7 +314,7 @@ function CommentsTab({ view, session, user, request, done }: { view: EditorView 
   )
 }
 
-// --- Enlaces -----------------------------------------------------------------------
+// --- Links -----------------------------------------------------------------------
 
 function linkLabel(l: OutgoingLink) {
   if (l.kind === 'md') return /^\[([^\]]*)\]/.exec(l.raw)?.[1] || l.raw
@@ -383,7 +380,7 @@ function LinksTab({ links, onNavigate }: { links: LinksData | null; onNavigate: 
   )
 }
 
-// --- Índice ------------------------------------------------------------------------
+// --- Outline ------------------------------------------------------------------------
 
 interface HeadingItem { level: number; text: string; from: number }
 
@@ -448,7 +445,7 @@ export function NotePanel({ panel, view, session, user, links, onNavigate }: {
   const aside = useRef<HTMLElement>(null)
   const linkCount = links ? new Set(links.outgoing.map((l) => l.raw)).size + links.backlinks.length : 0
 
-  // Superpuesto (pantalla estrecha): Escape lo cierra y el foco vuelve al editor.
+  // Overlaid (narrow screen): Escape closes it and focus returns to the editor.
   useEffect(() => {
     if (!panel.narrow || !panel.open) return
     const onKey = (e: globalThis.KeyboardEvent) => {

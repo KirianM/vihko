@@ -1,5 +1,5 @@
-// Notas abiertas hace poco, para la paleta con la consulta vacía. Es una
-// comodidad de este navegador: si no hay almacenamiento, la lista queda vacía.
+// Recently opened notes, for the palette with an empty query. It's a
+// convenience of this browser: if there's no storage, the list stays empty.
 const KEY = 'thoth.recent'
 const MAX = 8
 
@@ -12,5 +12,5 @@ export function recentNotes(): string[] {
 
 export function rememberNote(path: string) {
   const next = [path, ...recentNotes().filter((p) => p !== path)].slice(0, MAX)
-  try { localStorage.setItem(KEY, JSON.stringify(next)) } catch { /* sin persistencia */ }
+  try { localStorage.setItem(KEY, JSON.stringify(next)) } catch { /* no persistence */ }
 }

@@ -1,4 +1,4 @@
-// Editor de una nota: CodeMirror 6 sobre el Y.Text de la sesión de coedición.
+// Note editor: CodeMirror 6 on top of the co-editing session's Y.Text.
 import { defaultKeymap, indentWithTab } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { yamlFrontmatter } from '@codemirror/lang-yaml'
@@ -25,9 +25,9 @@ interface Props {
   user: User
   links: Map<string, LinkInfo>
   onNavigate: (path: string) => void
-  /** El EditorView, para el panel lateral (null al destruirlo). */
+  /** The EditorView, for the side panel (null when destroyed). */
   onView?: (view: EditorView | null) => void
-  /** Abrir los comentarios: un hilo concreto o, con null, comentar la selección. */
+  /** Open comments: a specific thread or, with null, comment on the selection. */
   onComments?: (threadId: string | null) => void
 }
 
@@ -82,7 +82,7 @@ export function Editor({ session, user, links, onNavigate, onView, onComments }:
       undoManager.destroy()
       view.current = null
     }
-    // t cambia solo con el idioma; recrear el editor entonces es aceptable.
+    // t only changes with the language; recreating the editor then is acceptable.
   }, [session, user, t])
 
   useEffect(() => {

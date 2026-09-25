@@ -1,4 +1,4 @@
-/* Panel lateral de la nota. Colores y medidas de los tokens del sistema de diseño. */
+/* Note side panel. Colors and measurements from the design system tokens. */
 .note-body { flex-grow: 1; display: flex; min-height: 0; position: relative; }
 .note-body > .note { min-width: 0; }
 
@@ -19,7 +19,7 @@
 .panel-new { height: var(--control-md); font-size: 13px; background: var(--surface); }
 .btn-sm { height: var(--control-md); padding: 0 12px; font-size: 13px; }
 
-/* Hilos de comentarios */
+/* Comment threads */
 .thread { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 .thread-active { border-color: var(--warn-line); box-shadow: 0 0 0 1px var(--warn-line); }
 .thread-quote { font: inherit; text-align: left; font-family: var(--font-serif); font-size: 13px; line-height: 1.45; color: var(--warn-ink); background: var(--warn-soft); border: none; border-radius: var(--radius-sm); padding: 4px 8px; cursor: pointer; }
@@ -34,7 +34,7 @@
 .composer { display: flex; flex-direction: column; gap: 8px; }
 .composer-input { font: inherit; font-size: 13px; line-height: 1.45; width: 100%; resize: vertical; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--field); color: var(--ink); }
 
-/* Enlaces */
+/* Links */
 .link-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .link-btn { font: inherit; width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 6px 8px; border: none; border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer; font-size: 13px; }
 .link-btn[data-hovered] { background: var(--chip); }
@@ -52,7 +52,7 @@
 .backlink-context { font-family: var(--font-serif); font-size: 13px; line-height: 1.45; color: var(--ink-2); }
 .backlink-context mark { background: var(--accent-soft); color: inherit; border-radius: 2px; }
 
-/* Índice */
+/* Outline */
 .toc { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
 .toc-item { font: inherit; width: 100%; text-align: left; font-size: 13px; line-height: 1.35; padding: 6px 8px; border: none; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
 .toc-item[data-hovered] { background: var(--chip); color: var(--ink); }

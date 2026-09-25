@@ -1,6 +1,6 @@
-// Avisos del espacio: lo que thoth ha detectado en la carpeta de notas y necesita
-// una decisión. El servidor da códigos, datos y las acciones permitidas a quien
-// mira (D-025); aquí se redactan y se ofrecen solo esas acciones.
+// Workspace alerts: what thoth has detected in the notes folder that needs a
+// decision. The server gives codes, data and the actions allowed to whoever is
+// looking; here they're worded and only those actions are offered.
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { Button } from 'react-aria-components'
 import { ApiError, api, type Alert } from './api.ts'
@@ -17,18 +17,18 @@ const icons = {
   sync: svg(<path d="M16 3h5v5M8 21H3v-5M21 3l-7 7M3 21l7-7" />),
 }
 
-/** `hogar/Proxy.md` → `hogar / Proxy`, como en las migas. */
+/** `hogar/Proxy.md` → `hogar / Proxy`, like in the breadcrumbs. */
 const noteName = (path: string) => path.replace(/\.md$/i, '').split('/').join(' / ')
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
-/** Sustituye `{clave}` de un texto traducido por elementos (rutas en monoespaciada, nombres en negrita). */
+/** Replaces `{key}` placeholders in a translated text with elements (paths in monospace, names in bold). */
 function rich(text: string, parts: Record<string, ReactNode>): ReactNode[] {
   return text.split(/\{(\w+)\}/).map((chunk, i) => (i % 2 ? <Fragment key={i}>{parts[chunk] ?? `{${chunk}}`}</Fragment> : chunk))
 }
 
 export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
   onOpen: (path: string) => void
-  /** Tras cargar o después de una acción: el número de avisos, para la barra lateral. */
+  /** After loading or after an action: the alert count, for the sidebar. */
   onChanged: (count: number) => void
   onUnauthorized: () => void
 }) {
@@ -49,7 +49,7 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** Ejecuta una acción y recarga los avisos, haya ido bien o no. */
+  /** Runs an action and reloads the alerts, whether it succeeded or not. */
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true)
     setError(null)

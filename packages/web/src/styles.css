@@ -1,9 +1,9 @@
-/* Estilos base de thoth. Colores, escalas y familias salen de tokens.css
-   (sistema de diseño de Claude Design). Aquí no se escribe ningún color. */
+/* Base styles for thoth. Colors, scales and families come from tokens.css
+   (the Claude Design design system). No color is written here. */
 @import './theme/tokens.css';
 
-/* Las fuentes variables de Fontsource se registran con el sufijo «Variable»;
-   se anteponen a las familias del sistema de diseño. */
+/* Fontsource variable fonts register with the «Variable» suffix; they take
+   precedence over the design system's families. */
 :root {
   --font-serif: 'Literata Variable', Literata, Georgia, serif;
   --font-sans: 'IBM Plex Sans Variable', 'IBM Plex Sans', system-ui, sans-serif;
@@ -23,7 +23,7 @@ a { color: var(--accent); }
 a:hover { color: var(--accent-strong); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* --- Botones (componente Boton del sistema de diseño) ------------------ */
+/* --- Buttons (Button component from the design system) ------------------ */
 .btn {
   font: inherit;
   display: inline-flex;
@@ -66,7 +66,7 @@ a:hover { color: var(--accent-strong); }
 .mono { font-family: var(--font-mono); }
 .error-text { color: var(--danger); font-size: 13px; }
 
-/* --- Pantallas de acceso ------------------------------------------------ */
+/* --- Access screens ------------------------------------------------ */
 .gate { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: var(--space-4); position: relative; }
 .gate-corner { position: absolute; top: var(--space-6); right: var(--space-6); }
 .gate-card {
@@ -87,7 +87,7 @@ a:hover { color: var(--accent-strong); }
 .brand svg { color: var(--accent); }
 .brand span { font-family: var(--font-serif); font-size: 26px; font-weight: 600; }
 
-/* --- Estructura principal ---------------------------------------------- */
+/* --- Main structure ---------------------------------------------- */
 .shell { display: flex; height: 100%; }
 .sidebar { width: 272px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--side); min-height: 0; }
 .sidebar-head { height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); }
@@ -102,7 +102,7 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .sidebar-user .role { font-size: 12px; color: var(--muted); }
 .avatar { width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: var(--muted); color: var(--on-user); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
 
-/* Árbol (React Aria Tree) */
+/* Tree (React Aria Tree) */
 .tree { display: flex; flex-direction: column; gap: 1px; outline: none; }
 .tree-item { outline: none; border-radius: 6px; color: var(--muted); cursor: pointer; }
 .tree-row { display: flex; align-items: center; gap: 6px; height: 32px; padding-right: 8px; }
@@ -123,7 +123,7 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .note { flex-grow: 1; overflow: auto; padding: 36px 56px 48px var(--space-18); }
 .note:has(.editor) { padding: 0; }
 
-/* Cabecera de la nota: estado de guardado y presencia */
+/* Note header: save status and presence */
 .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .status-ok { color: var(--ok); }
 .status-warn { color: var(--warn-strong); }
@@ -131,13 +131,13 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .avatar-stack { width: 30px; height: 30px; border: 2px solid var(--bg); }
 .avatar-stack + .avatar-stack { margin-left: -8px; }
 
-/* Aviso de nota borrada fuera (D-022) */
+/* Notice for a note deleted from outside thoth */
 .banner { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; padding: 14px 28px; background: var(--warn-soft-2); border-bottom: 1px solid var(--warn-line); color: var(--warn-ink); }
 .banner-text { flex: 1 1 320px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; line-height: 1.45; }
 .banner-text b { font-size: 14px; }
 .empty { color: var(--muted); padding: var(--space-8); }
 
-/* --- Paleta «Buscar o crear» (⌘K) --------------------------------------- */
+/* --- "Search or create" palette (⌘K) --------------------------------------- */
 .palette-overlay { position: fixed; inset: 0; z-index: 100; background: var(--scrim); display: flex; justify-content: center; align-items: flex-start; padding: 120px var(--space-4) var(--space-4); }
 .palette { width: 640px; max-width: 100%; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-xl); box-shadow: var(--shadow-dialog); overflow: hidden; outline: none; }
 .palette-dialog { display: flex; flex-direction: column; max-height: calc(100vh - 140px); outline: none; }
@@ -155,7 +155,7 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .palette-section:first-child .palette-header { padding-top: 6px; }
 .palette-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--radius-md); color: var(--ink); cursor: pointer; outline: none; }
 .palette-item[data-hovered] { background: var(--chip); }
-/* Foco virtual (el foco real sigue en el campo): lo marca el fondo, sin contorno. */
+/* Virtual focus (real focus stays in the field): marked by the background, no outline. */
 .palette-item[data-focused] { background: var(--accent-soft); color: var(--accent-strong); }
 .palette-icon { display: flex; align-self: flex-start; padding-top: 1px; color: var(--muted); flex-shrink: 0; }
 .palette-icon-accent { color: var(--accent); align-self: center; padding-top: 0; }
@@ -175,7 +175,7 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .palette-chip { font-size: 13px; border: 1px solid var(--line); border-radius: var(--radius-md); padding: 5px 10px; white-space: nowrap; }
 .palette-foot { display: flex; gap: var(--space-4); padding: 10px 18px; border-top: 1px solid var(--line); font-size: 12px; line-height: 16px; color: var(--faint); }
 .mobile-only { display: none; }
-/* Avisos del espacio */
+/* Workspace alerts */
 .sidebar-alerts[aria-current] { outline: 1px solid var(--warn-line); }
 .alerts-page { flex-grow: 1; overflow: auto; padding: 40px var(--space-18) var(--space-12); display: flex; flex-direction: column; gap: 18px; }
 .alerts-page h1 { margin: 0; font-family: var(--font-serif); font-size: 34px; line-height: 40px; font-weight: 600; }
@@ -199,7 +199,7 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 @media (max-width: 760px) {
   .sidebar { display: none; }
   .mobile-only { display: inline-flex; }
-  /* Paleta a pantalla completa (MovilBuscar) */
+  /* Full-screen palette (mobile search) */
   .palette-overlay { padding: 0; background: var(--surface); }
   .palette { width: 100%; height: 100%; border: none; border-radius: 0; box-shadow: none; }
   .palette-dialog { height: 100%; max-height: none; }

@@ -1,4 +1,4 @@
-// Pantallas sin sesión: primer arranque (crear el admin) y login.
+// Screens without a session: first start (create the admin) and login.
 import { useState, type FormEvent } from 'react'
 import { Button, FieldError, Form, Input, Label, TextField } from 'react-aria-components'
 import { ApiError, api, type User } from './api.ts'

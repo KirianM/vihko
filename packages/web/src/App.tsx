@@ -1,4 +1,4 @@
-// Arranque de la UI: primer arranque → login → aplicación.
+// UI boot: first start → login → application.
 import { useEffect, useState } from 'react'
 import { ApiError, api, type User } from './api.ts'
 import { useT } from './i18n.tsx'

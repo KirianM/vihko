@@ -1,5 +1,5 @@
-// Presencia: quién tiene la nota abierta, cada persona con su color (userColor.ts).
-// Por la red viaja el tono; cada navegador lo pinta con su tema.
+// Presence: who has the note open, each person with their color (userColor.ts).
+// Only the hue travels over the network; each browser paints it with its own theme.
 import type { HocuspocusProvider } from '@hocuspocus/provider'
 import { useEffect, useState } from 'react'
 import { currentTheme, onThemeChange } from '../theme.ts'
@@ -9,10 +9,10 @@ type Awareness = NonNullable<HocuspocusProvider['awareness']>
 type PeerState = { user?: { name?: string; hue?: number } }
 
 /**
- * Anuncia a la persona en la nota. Su tono se separa del de quienes tienen un
- * clientID menor, y solo de esos: así nadie depende de quien llega después y los
- * tonos no oscilan. El color del cursor (y-codemirror necesita un hex) se rehace
- * al cambiar de tema.
+ * Announces the person in the note. Their hue separates from that of whoever has
+ * a lower clientID, and only those: this way no one depends on who arrives later,
+ * and hues don't oscillate. The cursor color (y-codemirror needs a hex) is
+ * recomputed when the theme changes.
  */
 export function announce(awareness: Awareness, user: { id: string; username: string }): () => void {
   const choose = () => {

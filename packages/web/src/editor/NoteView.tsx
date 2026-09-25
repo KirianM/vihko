@@ -1,5 +1,5 @@
 // The open note: header (path, save state, presence, panel toggle, more
-// actions), the banner for a note deleted outside thoth (D-022), the editor and
+// actions), the banner for a note deleted outside thoth, the editor and
 // the side panel.
 import type { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useState } from 'react'
@@ -78,7 +78,7 @@ export function NoteView({ path, user, onNavigate, onMoved, onTrashed }: Props) 
   const panel = usePanel()
   const [view, setView] = useState<EditorView | null>(null)
 
-  // Los enlaces (estados y entrantes) salen del índice: se piden al abrir y tras cada guardado.
+  // Links (statuses and backlinks) come from the index: requested on open and after each save.
   useEffect(() => {
     if (c.save !== 'saved') return
     let live = true

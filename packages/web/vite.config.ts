@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// En desarrollo, la API y la coedición las sirve el servidor de thoth (npm run dev -w @thoth/server
-// o `thoth serve`); Vite solo sirve la UI y reenvía el resto.
+// In development, the API and co-editing are served by the thoth server (npm run dev -w @thoth/server
+// or `thoth serve`); Vite only serves the UI and proxies the rest.
 const target = process.env.THOTH_DEV_SERVER ?? 'http://localhost:8080'
 
 export default defineConfig({

@@ -1,5 +1,5 @@
-// Fuentes servidas por thoth, no por un CDN: cargarlas de Google Fonts haría
-// que cada visita saliera a un tercero (regla 4, cerrado por defecto).
+// Fonts served by thoth, not by a CDN: loading them from Google Fonts would
+// send every visit out to a third party (rule 4, closed by default).
 import '@fontsource-variable/literata/index.css'
 import '@fontsource-variable/literata/wght-italic.css'
 import '@fontsource-variable/ibm-plex-sans/index.css'

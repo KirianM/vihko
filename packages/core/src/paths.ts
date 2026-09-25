@@ -1,16 +1,16 @@
-// Qué es cada archivo de la carpeta de notas para thoth.
+// What each file in the notes folder is, as far as thoth is concerned.
 
 export type PathKind = 'note' | 'conflict' | 'ignored' | 'other'
 
 const SYNC_CONFLICT = /\.sync-conflict-\d{8}-\d{6}-[A-Z0-9]{7}(?:\.[^/]*)?$/
 
 /**
- * Clasifica una ruta relativa a la raíz de notas (con `/`):
- * - `ignored`: cualquier segmento oculto (`.obsidian/`, `.trash/`, `.git/`, `.nfsXXXX`,
- *   temporales de editores y de thoth) o copias de seguridad terminadas en `~`.
- * - `conflict`: copia de conflicto de Syncthing de una nota. Se avisa; no se indexa.
- * - `note`: archivo `.md`.
- * - `other`: cualquier otro archivo (adjuntos).
+ * Classifies a path relative to the notes root (with `/`):
+ * - `ignored`: any hidden segment (`.obsidian/`, `.trash/`, `.git/`, `.nfsXXXX`,
+ *   editor and thoth temp files) or backup copies ending in `~`.
+ * - `conflict`: a Syncthing conflict copy of a note. Flagged, not indexed.
+ * - `note`: a `.md` file.
+ * - `other`: any other file (attachments).
  */
 export function classifyPath(rel: string): PathKind {
   const parts = rel.split('/')
@@ -21,10 +21,10 @@ export function classifyPath(rel: string): PathKind {
   return isMd ? 'note' : 'other'
 }
 
-/** Ruta de la nota de la que salió una copia de conflicto (`Plan.sync-conflict-….md` → `Plan.md`). */
+/** Path of the note a conflict copy came from (`Plan.sync-conflict-….md` → `Plan.md`). */
 export function conflictOriginal(rel: string): string {
   return rel.replace(/\.sync-conflict-\d{8}-\d{6}-[A-Z0-9]{7}(?=\.[^/.]*$|$)/, '')
 }
 
-/** true si un directorio no debe recorrerse (ahorra entrar en `.git/` y similares). */
+/** true if a directory shouldn't be traversed (saves descending into `.git/` and similar). */
 export const isIgnoredDir = (name: string) => name.startsWith('.')

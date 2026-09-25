@@ -1,4 +1,4 @@
-// Estructura principal: árbol de carpetas y la nota abierta en el editor.
+// Main structure: folder tree and the note open in the editor.
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Button, Collection, Tree, TreeItem, TreeItemContent, type Key } from 'react-aria-components'
 import { ApiError, api, type TreeNote, type User } from './api.ts'
@@ -11,12 +11,12 @@ import { TrashToast, type Trashed } from './TrashToast.tsx'
 import { OpenPaletteContext, Palette, SearchButton, type PaletteMode } from './Palette.tsx'
 import { rememberNote } from './recent.ts'
 
-// El editor (CodeMirror, Yjs) se descarga aparte, al abrir la primera nota.
+// The editor (CodeMirror, Yjs) is downloaded separately, when the first note is opened.
 const NoteView = lazy(() => import('./editor/NoteView.tsx').then((m) => ({ default: m.NoteView })))
 
 interface Node { id: string; name: string; path: string; children: Node[] | null }
 
-/** Convierte la lista plana de rutas en un árbol: carpetas primero, luego notas, en orden alfabético. */
+/** Converts the flat list of paths into a tree: folders first, then notes, alphabetically. */
 export function buildTree(notes: TreeNote[]): Node[] {
   const root: Node = { id: 'd:', name: '', path: '', children: [] }
   const folders = new Map<string, Node>([['', root]])
@@ -83,7 +83,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [notes, setNotes] = useState<TreeNote[] | null>(null)
   const [alerts, setAlerts] = useState(0)
   const [openPath, setOpenPathState] = useState<string | null>(() => new URLSearchParams(location.search).get('note'))
-  // Vistas que no son una nota, en la URL como `?view=` (sin router: solo hay esta).
+  // Views that aren't a note, in the URL as `?view=` (no router: this is the only one).
   const [view, setView] = useState<'avisos' | null>(() => (new URLSearchParams(location.search).get('view') === 'avisos' ? 'avisos' : null))
   const setOpenPath = (path: string | null) => { setView(null); setOpenPathState(path) }
   const showAlerts = () => { setOpenPathState(null); setView('avisos') }
@@ -105,11 +105,11 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ⌘K / Ctrl+K abre la paleta desde cualquier sitio, también desde el editor.
+  // ⌘K / Ctrl+K opens the palette from anywhere, including from the editor.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
-        // En captura y sin propagar: el editor no llega a ver la tecla (en macOS, Ctrl+K borra hasta fin de línea).
+        // Captured and not propagated: the editor never sees the key (on macOS, Ctrl+K deletes to end of line).
         e.preventDefault()
         e.stopPropagation()
         setPalette('search')
@@ -130,7 +130,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     if (!openPath) return
     setTrashed(null)
     setError(null)
-    // Se comprueba que existe antes de abrir la coedición: el hub rechaza notas inexistentes.
+    // Check that it exists before opening co-editing: the hub rejects notes that don't exist.
     api.note(openPath).then(() => { setReady(openPath); rememberNote(openPath) }).catch(fail)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openPath])

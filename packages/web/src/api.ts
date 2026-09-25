@@ -1,11 +1,11 @@
-// Cliente de la API de thoth. Sesión por cookie (HttpOnly): el navegador la envía sola.
+// thoth API client. Cookie-based session (HttpOnly): the browser sends it on its own.
 import type { Alert } from '@thoth/core/codes'
 
 export type { Alert }
 
 export class ApiError extends Error {
   readonly status: number
-  /** Código de error del servidor (`not_found`, `precondition_failed`…) o `network`. */
+  /** Server error code (`not_found`, `precondition_failed`…) or `network`. */
   readonly code: string
   readonly etag: string | null
   constructor(status: number, code: string, message: string, etag: string | null = null) {
@@ -48,7 +48,7 @@ export interface OutgoingLink {
 }
 export interface Backlink { path: string; title: string; raw: string; context: string }
 export interface SearchResult { path: string; title: string; snippet: string }
-/** Resultados de búsqueda; el resaltado del fragmento va entre caracteres de control, no en HTML. */
+/** Search results; the snippet highlight uses control characters, not HTML. */
 export interface SearchResponse { results: SearchResult[]; highlight?: { start: string; end: string } }
 
 /** What a rename or move does (or would do, with `dryRun`). */

@@ -1,20 +1,20 @@
-// Comandos de la paleta (modo «>»). Añadir uno es añadir una entrada a la lista;
-// lo que necesite de la aplicación le llega por el contexto.
+// Palette commands (">" mode). Adding one means adding an entry to the list;
+// whatever it needs from the application arrives through the context.
 import type { MessageKey } from './i18n.tsx'
 import { chooseTheme, type Theme } from './theme.ts'
 
 export interface CommandContext {
   theme: Theme
-  /** Nota abierta, si hay alguna. */
+  /** Open note, if there is one. */
   openPath: string | null
-  /** Pasa la paleta al modo de crear nota en la carpeta actual. */
+  /** Switches the palette to create-note mode in the current folder. */
   newNote: () => void
 }
 
 export interface Command {
   id: string
   label: (c: CommandContext) => MessageKey
-  /** Si falta, el comando está siempre disponible. */
+  /** If missing, the command is always available. */
   available?: (c: CommandContext) => boolean
   run: (c: CommandContext) => void
 }
