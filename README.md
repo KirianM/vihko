@@ -49,7 +49,9 @@ docker compose exec -T thoth thoth user create <nombre> --admin <<< 'contraseña
 ```
 
 Dos volúmenes: `/data/notes` (tus notas; puede estar en NFS) y `/data/state`
-(estado local; **nunca** en NFS). Detalles en `docs/infra.md`.
+(estado local; **nunca** en NFS). La UI queda en `http://<servidor>:8080`; si ese
+puerto está ocupado, `THOTH_HOST_PORT=8098 docker compose up -d`. Detalles en
+`docs/infra.md`.
 
 ## Estado
 
