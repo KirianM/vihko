@@ -78,6 +78,25 @@ test('a direct write to an open note is its own version; what was typed before i
   } finally { closeAll(); await srv.stop() }
 })
 
+test('a direct write to an open note without a uid: the uid the hub adds on flushing is part of that write\'s version', async () => {
+  const { notes, env } = makeDirs()
+  withAna(env)
+  const srv = await startServer({ ...env, ...FAST })
+  try {
+    const k = await login(srv)
+    const a = await loginAs(srv, 'ana')
+    await connect(srv, k, NOTE) // open, nobody types
+    assert.ok(!readFileSync(join(notes, NOTE), 'utf8').includes('uid:'))
+    assert.equal((await api(srv, a, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'append', text: 'ANA-API\n' }] })).status, 200)
+    await waitFor(() => readFileSync(join(notes, NOTE), 'utf8').includes('uid:'), 'flushed with a uid')
+    await waitFor(async () => (await versionsOf(srv, k, NOTE)).versions.length >= 2, 'the version closes')
+    await sleep(800)
+    const { versions } = await versionsOf(srv, k, NOTE)
+    assert.deepEqual(versions.map(who), ['ana', 'system'])
+    assert.match(await textOf(srv, k, NOTE, versions[0].id), /uid: \w+[\s\S]*ANA-API/)
+  } finally { closeAll(); await srv.stop() }
+})
+
 test('an external change to an open note is its own version, after what was typed', async () => {
   const { notes, env } = makeDirs()
   const srv = await startServer({ ...env, ...FAST })

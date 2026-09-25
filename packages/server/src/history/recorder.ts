@@ -479,7 +479,9 @@ export class Recorder {
     const typing = this.typists.get(path) ?? new Set<string>()
     this.typists.delete(path)
     const p = this.pending.get(path)
-    if (p?.kind === 'typed') {
+    // What people typed goes on in their version; with nobody typing since the
+    // last flush (the hub adding a uid after an agent's write), in whatever is open.
+    if (p?.kind === 'typed' || (p && typing.size === 0)) {
       if (oid !== p.oids.at(-1)) {
         p.oids.push(oid)
         p.text = text
