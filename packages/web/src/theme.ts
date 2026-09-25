@@ -21,15 +21,29 @@ let pref = readPref()
 const listeners = new Set<() => void>()
 const notify = () => { for (const l of listeners) l() }
 
+/**
+ * The browser bar and the installed app's title bar take the page background.
+ * index.html carries one theme-color per OS scheme; once the person pins a
+ * theme, both follow it (the value comes from the tokens, via the CSS).
+ */
+function syncThemeColor() {
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
+  if (!bg) return
+  for (const m of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) m.content = bg
+}
+
 function apply(p: ThemePref) {
   const root = document.documentElement
   if (p === 'system') root.removeAttribute('data-theme')
   else root.setAttribute('data-theme', p)
+  syncThemeColor()
 }
 
 // Applying before the first render avoids a flash of the wrong theme.
 apply(pref)
-media.addEventListener('change', notify)
+media.addEventListener('change', () => { syncThemeColor(); notify() })
+// The styles may not be there yet on the first apply.
+addEventListener('load', syncThemeColor)
 
 export function currentTheme(): Theme {
   return pref === 'system' ? (media.matches ? 'dark' : 'light') : pref

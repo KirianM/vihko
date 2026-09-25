@@ -17,6 +17,7 @@ import { displayDate, formatComment, parseThreads, commentPosition, replyTo, res
 import { setCommentStyle, threadsField } from './commentMarks.ts'
 import { usePresence } from './presence.ts'
 import { useViewState } from './viewUpdates.ts'
+import { useBackClose } from '../mobile.ts'
 import './panel.css'
 
 export type PanelTab = 'comments' | 'links' | 'toc'
@@ -444,6 +445,8 @@ export function NotePanel({ panel, view, session, user, links, onNavigate }: {
   const count = useViewState(view, (s) => s.field(threadsField).length, 0)
   const aside = useRef<HTMLElement>(null)
   const linkCount = links ? new Set(links.outgoing.map((l) => l.raw)).size + links.backlinks.length : 0
+  // Overlaid, it's a screen of its own: the back button closes it.
+  useBackClose(panel.narrow && panel.open, () => panel.setOpen(false))
 
   // Overlaid (narrow screen): Escape closes it and focus returns to the editor.
   useEffect(() => {

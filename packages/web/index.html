@@ -2,10 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="color-scheme" content="light dark" />
     <title>thoth</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!-- Installable app (no offline, no service worker). Colours: vite.config.ts, from the tokens. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="__THOTH_BG_LIGHT__" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="__THOTH_BG_DARK__" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="thoth" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   </head>
   <body>
     <div id="root"></div>

@@ -71,7 +71,11 @@ All optional:
 | `THOTH_WEB_DIR` | `packages/web/dist` | Built UI; without it the server only exposes the API |
 
 No reverse proxy is required: it works over plain HTTP on a LAN. HTTPS and
-public exposure only matter if you enable remote MCP for external clients.
+public exposure only matter if you enable remote MCP for external clients, or
+to install thoth as an app: browsers only offer to install a web app served
+over HTTPS (or from `localhost`). Over plain HTTP the UI works the same in the
+browser, including on a phone, and a home-screen shortcut opens it in a
+browser tab. There is no offline mode either way.
 
 ## Status
 
