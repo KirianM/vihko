@@ -1,5 +1,6 @@
 export { SCHEMA_VERSION, dumpIndex, openIndex, type Db } from './db.ts'
 export { Indexer, type FrontmatterKeys, type IndexerOptions, type ScanOptions, type ScanReport } from './indexer.ts'
+export { ExtensionError, ExtensionHost, FRAMEWORK_TABLES, plan, type ChangeSet, type Extension, type ExtensionDb, type ExtensionWriter, type Inputs, type NoteSnapshot, type Statement } from './extension.ts'
 export { Watcher, type WatcherOptions } from './watcher.ts'
 export { DEFAULT_MAX_IMAGE_BYTES, NoteError, NoteService, type Actor, type Change, type HotDocuments, type NoteErrorCode, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type NoteServiceOptions, type ShiftGroup, type TrashEntry } from './notes.ts'
 export { commitText, createFile, readStable, readText, replaceText, writeTmp, type CommitResult, type ReplaceResult } from './fsutil.ts'
