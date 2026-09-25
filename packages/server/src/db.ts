@@ -15,12 +15,14 @@ export type Db = Database.Database
 export const SCHEMA_VERSION = 7 // 7: tables split into versioned extensions
 
 const SCHEMA = `
+-- schema_version, and one ext:<name> per installed extension (its version and tables).
 create table meta (
   key   text primary key,
   value text not null
 );
 
--- One row per note. No timestamps of its own: only what comes from disk.
+-- One row per note: what changes are detected against, and the note-level
+-- facts any extension may read. No timestamps of its own: only what comes from disk.
 create table notes (
   path      text primary key,
   uid       text,
@@ -33,35 +35,6 @@ create table notes (
   aliases   text not null   -- JSON: list of aliases
 );
 create index notes_uid on notes(uid) where uid is not null;
-
--- Link resolution keys: path suffixes and normalised aliases.
-create table link_keys (
-  key  text not null,
-  path text not null,
-  kind text not null check (kind in ('path', 'alias')),
-  primary key (key, path, kind)
-);
-
-create table links (
-  src_path   text not null,
-  ord        integer not null,
-  kind       text not null check (kind in ('wiki', 'embed', 'markdown')),
-  raw        text not null,
-  target     text not null,
-  anchor     text,
-  display    text,
-  pos_from   integer not null,
-  pos_to     integer not null,
-  key        text,            -- search key; null = the note itself
-  status     text not null check (status in ('resolved', 'ambiguous', 'missing')),
-  dst_path   text,
-  via        text,
-  anchor_ok  integer,         -- null no anchor; 1 exists; 0 broken
-  candidates text,            -- JSON if ambiguous
-  primary key (src_path, ord)
-);
-create index links_key on links(key);
-create index links_dst on links(dst_path);
 
 -- Every folder under the notes root (hidden ones aside), empty or not: the
 -- tree shows a folder that has no notes yet. Derived from disk like the rest.

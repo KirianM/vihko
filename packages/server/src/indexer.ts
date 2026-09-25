@@ -7,13 +7,10 @@
 // (extension.ts), run in the order of their dependencies.
 import { readFileSync, readdirSync, statSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
-import { LinkIndex, classifyPath, contentHash, extract, isIgnoredDir, normKey, pathKeys, type Extracted } from '@thoth/core'
+import { classifyPath, contentHash, extract, isIgnoredDir, type Extracted, type LinkIndex } from '@thoth/core'
 import type { Db } from './db.ts'
 import { ExtensionHost, type Extension, type NoteSnapshot } from './extension.ts'
-import { fts } from './extensions/fts.ts'
-import { tags } from './extensions/tags.ts'
-import { images } from './extensions/images.ts'
-import { headings } from './extensions/headings.ts'
+import { builtinExtensions, type LinksExtension } from './extensions/index.ts'
 
 export interface IndexerOptions {
   notesDir: string
@@ -62,33 +59,27 @@ interface Row { path: string; hash: string; mtime_ms: number; size: number }
 interface Upsert { path: string; text: string; hash: string; stat: Stats }
 
 export class Indexer {
-  readonly links = new LinkIndex()
   private keys: FrontmatterKeys
   private opts: IndexerOptions
   private host: ExtensionHost
+  private linkExt: LinksExtension
 
   constructor(opts: IndexerOptions) {
     this.opts = opts
     this.keys = { ...DEFAULT_KEYS, ...opts.keys }
-    this.host = new ExtensionHost(opts.db, [fts, images, tags, headings, ...(opts.extensions ?? [])])
+    const builtin = builtinExtensions()
+    this.linkExt = builtin.links
+    this.host = new ExtensionHost(opts.db, [...builtin.all, ...(opts.extensions ?? [])])
     this.host.markCurrent(this.host.install())
-    this.loadLinkIndex()
+  }
+
+  /** Link resolution keys of every indexed note (kept by the links extension). */
+  get links(): LinkIndex {
+    return this.linkExt.index
   }
 
   private get db() {
     return this.opts.db
-  }
-
-  private loadLinkIndex() {
-    const headings = new Map<string, string[]>()
-    for (const h of this.db.prepare('select path, text from headings order by path, ord').all() as { path: string; text: string }[]) {
-      let list = headings.get(h.path)
-      if (!list) headings.set(h.path, (list = []))
-      list.push(h.text)
-    }
-    for (const n of this.db.prepare('select path, aliases from notes').all() as { path: string; aliases: string }[]) {
-      this.links.set({ path: n.path, aliases: JSON.parse(n.aliases), headings: headings.get(n.path) ?? [] })
-    }
   }
 
   /** Full scan of the folder. */
@@ -220,57 +211,29 @@ export class Indexer {
     conflictsGone: string[] = [],
   ) {
     const db = this.db
-    const affectedKeys = new Set<string>()
-    const changedPaths = new Set<string>()
-    const indexedPaths = new Set<string>()
-    const removedPaths = new Set<string>()
-
-    const del = {
-      notes: db.prepare('delete from notes where path = ?'),
-      keys: db.prepare('delete from link_keys where path = ?'),
-      links: db.prepare('delete from links where src_path = ?'),
-    }
-    const removeRows = (path: string) => {
-      for (const s of Object.values(del)) s.run(path)
-    }
-
-    const ins = {
-      note: db.prepare('insert into notes (path, uid, title, hash, mtime_ms, size, fm_json, fm_error, aliases) values (?, ?, ?, ?, ?, ?, ?, ?, ?)'),
-      key: db.prepare('insert or ignore into link_keys (key, path, kind) values (?, ?, ?)'),
-      link: db.prepare(`insert into links (src_path, ord, kind, raw, target, anchor, display, pos_from, pos_to, key, status)
-                        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'missing')`),
-    }
+    const indexed = new Set<string>()
+    const gone = new Set<string>()
+    const delNote = db.prepare('delete from notes where path = ?')
+    const insNote = db.prepare('insert into notes (path, uid, title, hash, mtime_ms, size, fm_json, fm_error, aliases) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
     const touchStmt = db.prepare('update notes set mtime_ms = ?, size = ? where path = ?')
 
     db.transaction(() => {
       for (const path of removed) {
-        removeRows(path)
+        delNote.run(path)
         this.host.remove(path)
-        for (const k of this.links.delete(path)) affectedKeys.add(k)
-        changedPaths.add(path)
-        removedPaths.add(path)
+        gone.add(path)
       }
       for (const t of touch) touchStmt.run(t.stat.mtimeMs, t.stat.size, t.path)
       for (const u of upserts) {
-        removeRows(u.path)
         const note = this.snapshot(u.path, u.text, u.hash)
-        const x = note.parsed
-        const aliases = note.aliases
-        ins.note.run(u.path, note.uid, note.title, u.hash, u.stat.mtimeMs, u.stat.size,
-          JSON.stringify(x.frontmatter.data), x.frontmatter.error, JSON.stringify(aliases))
+        const fm = note.parsed.frontmatter
+        delNote.run(u.path)
+        insNote.run(u.path, note.uid, note.title, u.hash, u.stat.mtimeMs, u.stat.size, JSON.stringify(fm.data), fm.error, JSON.stringify(note.aliases))
         this.host.index(note)
-        for (const k of pathKeys(u.path)) ins.key.run(k, u.path, 'path')
-        for (const a of aliases) ins.key.run(normKey(a), u.path, 'alias')
-        x.links.forEach((l, i) => {
-          ins.link.run(u.path, i, l.kind, l.raw, l.target, l.anchor, l.display, l.from, l.to, LinkIndex.keyOf(u.path, l))
-        })
-        for (const k of this.links.set({ path: u.path, aliases, headings: x.headings.map((h) => h.text) })) affectedKeys.add(k)
-        changedPaths.add(u.path)
-        indexedPaths.add(u.path)
+        indexed.add(u.path)
       }
       this.syncConflicts(allConflicts, conflictsNow, conflictsGone)
-      this.resolveLinks(changedPaths, affectedKeys)
-      this.host.finalize({ indexed: indexedPaths, removed: removedPaths })
+      this.host.finalize({ indexed, removed: gone })
     })()
   }
 
@@ -278,38 +241,6 @@ export class Indexer {
   private snapshot(path: string, text: string, hash: string): NoteSnapshot {
     const parsed = extract(text, { tagsKey: this.keys.tags })
     return { path, text, hash, parsed, uid: this.uidOf(parsed), title: this.titleOf(path, parsed), aliases: this.aliasesOf(parsed) }
-  }
-
-  /** Re-resolves affected links: those in changed notes, those that look up an affected key, and those that pointed to a changed note. */
-  private resolveLinks(changedPaths: Set<string>, affectedKeys: Set<string>) {
-    if (changedPaths.size === 0 && affectedKeys.size === 0) return
-    const rows: { src_path: string; ord: number; kind: 'wiki' | 'embed' | 'markdown'; target: string; anchor: string | null }[] = []
-    const seen = new Set<string>()
-    const collect = (sql: string, values: string[]) => {
-      for (const chunk of chunks(values, 500)) {
-        const q = this.db.prepare(sql.replace('$IN', chunk.map(() => '?').join(',')))
-        for (const r of q.all(...chunk) as typeof rows) {
-          const id = r.src_path + '\u0000' + r.ord
-          if (!seen.has(id)) { seen.add(id); rows.push(r) }
-        }
-      }
-    }
-    const cols = 'select src_path, ord, kind, target, anchor from links'
-    collect(`${cols} where src_path in ($IN)`, [...changedPaths])
-    collect(`${cols} where key in ($IN)`, [...affectedKeys])
-    collect(`${cols} where dst_path in ($IN)`, [...changedPaths])
-    const update = this.db.prepare('update links set status = ?, dst_path = ?, via = ?, anchor_ok = ?, candidates = ? where src_path = ? and ord = ?')
-    for (const r of rows) {
-      if (!this.links.has(r.src_path)) continue // source note deleted
-      const res = this.links.resolve(r.src_path, r)
-      if (res.status === 'resolved') {
-        update.run('resolved', res.path, res.via, res.anchor === null ? null : res.anchor === 'ok' ? 1 : 0, null, r.src_path, r.ord)
-      } else if (res.status === 'ambiguous') {
-        update.run('ambiguous', null, null, null, JSON.stringify(res.candidates), r.src_path, r.ord)
-      } else {
-        update.run('missing', null, null, null, null, r.src_path, r.ord)
-      }
-    }
   }
 
   private syncConflicts(all: string[] | null, now: string[], gone: string[]) {
@@ -386,7 +317,3 @@ function ancestorsOf(path: string): string[] {
 }
 
 const likePrefix = (dir: string) => dir.replace(/[\\%_]/g, (c) => '\\' + c) + '/%'
-
-function* chunks<T>(list: T[], size: number) {
-  for (let i = 0; i < list.length; i += size) yield list.slice(i, i + size)
-}
