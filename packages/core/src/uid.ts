@@ -1,5 +1,5 @@
-// Identificadores de nota: ULID (48 bits de tiempo en ms + 80 aleatorios, en
-// base32 de Crockford). Ordenables por fecha de creación y sin coordinación.
+// Note identifiers: ULID (48 bits of time in ms + 80 random bits, in
+// Crockford base32). Sortable by creation time, no coordination needed.
 const B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 
 export function newUid(now = Date.now(), random: Uint8Array = crypto.getRandomValues(new Uint8Array(10))): string {
