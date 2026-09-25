@@ -1,10 +1,12 @@
-// "Search or create" palette (⌘K): notes from the index, creating a note in the
-// current folder, and commands (by typing ">"). React Aria combobox: focus stays
-// in the field and the arrow keys move the active option.
+// "Search or create" palette (⌘K): notes from the index (with `tag:` and
+// `path:` filters), creating a note in the current folder, and commands (by
+// typing ">"). React Aria combobox: focus stays in the field and the arrow keys
+// move the active option.
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import {
   Autocomplete, Button, Dialog, Header, Input, ListBox, ListBoxItem, ListBoxSection, Modal, ModalOverlay, TextField, type Key,
 } from 'react-aria-components'
+import { hasSearchFilter } from '@thoth/core/query'
 import { api, type SearchResult, type TreeNote } from './api.ts'
 import { commands, type CommandContext } from './commands.ts'
 import { errorText, useT } from './i18n.tsx'
@@ -130,7 +132,8 @@ export function Palette({ mode, folder, openPath, notes, templates, onToday, onC
   const recent = mode === 'search' && !text ? recentNotes().filter((p) => titles.has(p) && p !== openPath) : []
   // Create shows up once the results for what was typed have arrived: this way a
   // quick ↵ opens the matching note instead of creating another with the same name.
-  const fileName = commandMode || (mode === 'search' && found?.q !== text) ? null : noteFileName(query)
+  // A query with a filter (`tag:x`) is a search, never the name of a new note.
+  const fileName = commandMode || (mode === 'search' && (found?.q !== text || hasSearchFilter(query))) ? null : noteFileName(query)
 
   async function create(name: string, template?: string) {
     const path = folder ? `${folder}/${name}` : name
@@ -194,7 +197,7 @@ export function Palette({ mode, folder, openPath, notes, templates, onToday, onC
                 <ListBoxSection className="palette-section">
                   <Header className="palette-header">{t('palette.notes')}</Header>
                   {found.results.map((r) => (
-                    <NoteOption key={r.path} path={r.path} title={r.title} snippet={<Snippet text={r.snippet} start={found.start} end={found.end} />} />
+                    <NoteOption key={r.path} path={r.path} title={r.title} snippet={r.snippet ? <Snippet text={r.snippet} start={found.start} end={found.end} /> : undefined} />
                   ))}
                 </ListBoxSection>
               )}
@@ -241,6 +244,16 @@ export function Palette({ mode, folder, openPath, notes, templates, onToday, onC
                 </ListBoxSection>
               )}
             </ListBox>
+            {mode === 'search' && !commandMode && (
+              <div className="palette-filters">
+                <span className="palette-header">{t('palette.filtersHint')}</span>
+                <span className="palette-chips">
+                  {([['palette.exTag', 'palette.filterTag'], ['palette.exPath', 'palette.filterPath'], ['palette.exNot', 'palette.filterNot'], ['palette.exQuotes', 'palette.filterQuotes']] as const).map(([example, key]) => (
+                    <span key={key} className="palette-chip palette-filter"><code>{t(example)}</code> {t(key)}</span>
+                  ))}
+                </span>
+              </div>
+            )}
             {mode === 'search' && !commandMode && (
               <div className="palette-commands">
                 <span className="palette-header">{t('palette.commandsHint')} <kbd>&gt;</kbd></span>
