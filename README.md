@@ -35,6 +35,7 @@ server**, giving up full offline mode.
 ## Install
 
 ```sh
+mkdir -p notes state        # the two volumes, owned by you (Docker would create them as root)
 docker compose up -d        # with the example compose.yaml (adjust the volumes)
 docker compose logs thoth   # the first start prints a one-time token to create the admin
 # or create the admin from the command line:
@@ -55,7 +56,10 @@ A Docker bind mount of a host directory that lives on NFS is NFS for all
 purposes.
 
 The container runs as the `node` user (uid 1000); `user:` in the compose file
-changes it. On NFS with user mapping, files get whatever owner the export
+changes it. Both folders must exist and be writable by that user before the
+first start: a bind-mount folder that doesn't exist is created by Docker as
+root, and the server then can't open `state.db` (`SQLITE_CANTOPEN`, restarting
+in a loop). On NFS with user mapping, files get whatever owner the export
 imposes.
 
 ### Environment variables
