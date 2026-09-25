@@ -332,13 +332,17 @@ test('the preview lists ambiguous links the move would resolve, by note, and the
 
 // A rename that rewrites many notes: the note moves at once and the links follow in the background.
 test('a rename with many backlinks shows its progress, can go to the background, and the UI stays usable', async () => {
+  // Enough notes that the rewrites outlast the second the server waits before
+  // answering with a job, even on a fast disk: each takes at least two stable
+  // reads (120 ms), 16 at a time, so 400 notes take 3 s or more.
+  test.setTimeout(180_000)
   const dir = `${DIR}/many`
   const hub = `${dir}/Hub.md`
-  const N = 150
+  const N = 400
   mkdirSync(`${NOTES}/${dir}/refs`, { recursive: true })
   writeFileSync(`${NOTES}/${hub}`, '# Hub\n')
   for (let i = 0; i < N; i++) writeFileSync(`${NOTES}/${dir}/refs/Ref ${i}.md`, `# Ref ${i}\n\nSee [[Hub]].\n`)
-  await expect.poll(async () => (await (await k.request.get(`/api/note/links?path=${encodeURIComponent(hub)}`)).json()).backlinks.length, { timeout: 30_000 }).toBe(N)
+  await expect.poll(async () => (await (await k.request.get(`/api/note/links?path=${encodeURIComponent(hub)}`)).json()).backlinks.length, { timeout: 60_000 }).toBe(N)
   await k.goto(`/?note=${encodeURIComponent(hub)}`)
   await expect(k.locator('.cm-content')).toBeVisible()
   const dialog = await openRename(k)
@@ -362,6 +366,6 @@ test('a rename with many backlinks shows its progress, can go to the background,
   await k.getByRole('option', { name: /Ref 7(?!\d)/ }).first().click()
   await expect(k.locator('.crumbs b')).toHaveText('Ref 7')
   // At the end the notice goes and every link was rewritten.
-  await expect(toast).toHaveCount(0, { timeout: 60_000 })
+  await expect(toast).toHaveCount(0, { timeout: 120_000 })
   for (let i = 0; i < N; i++) expect(read(`${dir}/refs/Ref ${i}.md`)).toContain('[[Central hub]]')
 })
