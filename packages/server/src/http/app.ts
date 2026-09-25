@@ -52,7 +52,7 @@ export function createApp(deps: AppDeps) {
       if (err.etag) c.header('ETag', `"${err.etag}"`)
       return c.json({ error: err.code, message: err.message, etag: err.etag }, noteErrorStatus(err))
     }
-    if (err instanceof AuthError) return c.json({ error: 'invalid', message: err.message }, 400)
+    if (err instanceof AuthError) return c.json({ error: err.code, message: err.message }, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400)
     console.error(err)
     return c.json({ error: 'internal', message: 'error interno' }, 500)
   })

@@ -48,12 +48,15 @@ test('primer arranque: token de un solo uso para crear el admin', async () => {
   const { auth, req } = await setup()
   assert.deepEqual((await req('GET', '/api/setup')).body, { needed: true })
   const token = auth.setupToken()!
-  assert.equal((await req('POST', '/api/setup', { token: 'malo', username: 'noa', password: 'contraseña-larga' })).status, 400)
-  assert.equal((await req('POST', '/api/setup', { token, username: 'noa', password: 'corta' })).status, 400)
+  const bad = await req('POST', '/api/setup', { token: 'malo', username: 'noa', password: 'contraseña-larga' })
+  assert.deepEqual([bad.status, bad.body.error], [400, 'invalid_token'])
+  const weak = await req('POST', '/api/setup', { token, username: 'noa', password: 'corta' })
+  assert.deepEqual([weak.status, weak.body.error], [400, 'weak_password'])
   const ok = await req('POST', '/api/setup', { token, username: 'noa', password: 'contraseña-larga' })
   assert.equal(ok.status, 200)
   assert.equal(ok.body.user.role, 'admin')
-  assert.equal((await req('POST', '/api/setup', { token, username: 'otro', password: 'contraseña-larga' })).status, 400, 'el token se consume')
+  const again = await req('POST', '/api/setup', { token, username: 'otro', password: 'contraseña-larga' })
+  assert.deepEqual([again.status, again.body.error], [409, 'already_setup'], 'el token se consume')
   assert.deepEqual((await req('GET', '/api/setup')).body, { needed: false })
 })
 
