@@ -72,9 +72,24 @@ identical dump; a `kill -9` loses no edits.
 
 ## M2 · History
 
-- [ ] Git in the state volume: managed, unmanaged and off modes; commits after
-      a quiet period with authorship (user, agent, external).
-- [ ] UI: per-note history, diff and restore.
+- [ ] Git in the state volume (managed mode, the default): commits after a
+      quiet period with authorship (user, agent on behalf of a user, system
+      with its reason, external). What people type in the editor shares a
+      version; any other write is its own, so "just before the agent" always
+      exists. Notes and attachments up to 20 MB (configurable); nothing is
+      ever dropped. History never blocks a write, and a `kill -9` loses no
+      authorship.
+- [ ] Unmanaged mode (reads the user's own git in the folder, never writes to
+      it) and off, chosen in `thoth.yaml`.
+- [ ] UI: per-note history in the side panel, a read-only version view with an
+      inline word diff, and restore (a new version, bringing back the images
+      that version linked).
+- [ ] Recent changes: a read-only, workspace-wide feed of changes, filterable
+      by author.
+- [ ] Resolved comments listed from history and reopenable; resolving no
+      longer asks for confirmation in managed mode.
+- [ ] Edits an offline tab couldn't send merge after an external change thoth
+      saw while running (instead of going to a copy).
 
 **Done when:** any change, wherever it came from, can be seen and undone from
 the UI with its author.
@@ -105,6 +120,8 @@ agent sees those changes, with safeguards and everything in the history.
       (titles, backlinks, counts, candidates, errors).
 - [ ] Link rewriting as the system across permissions.
 - [ ] Presence and cursors across users in the editor.
+- [ ] Purge from history (admin): remove a version or a file from the managed
+      history, for a secret pasted by mistake.
 
 **Done when:** two users with different permissions work at the same time and
 the tests prove neither sees anything they shouldn't.
