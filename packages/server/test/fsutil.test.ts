@@ -36,3 +36,17 @@ test('commitText: a prior external write is detected and returned', async () => 
   assert.deepEqual(r, { ok: false, current: 'v1 editada fuera\n' })
   assert.equal(readFileSync(f, 'utf8'), 'v1 editada fuera\n')
 })
+
+// In a container the server is always pid 1 and, after a crash, its counter
+// starts again: the temp names of the killed process are still on disk.
+test('commitText: leftovers of a killed process with the same pid do not block writes', async () => {
+  const d = dir()
+  const f = join(d, 'n.md')
+  writeFileSync(f, 'uno\n')
+  for (let n = 0; n < 200; n++) {
+    writeFileSync(join(d, `.n.md.thoth-${process.pid}-${n}`), 'left by a crash')
+    writeFileSync(join(d, `.n.md.thoth-${process.pid}-${n}.prev`), 'left by a crash')
+  }
+  assert.deepEqual(await commitText(f, 'dos\n', contentHash('uno\n')), { ok: true })
+  assert.equal(readFileSync(f, 'utf8'), 'dos\n')
+})

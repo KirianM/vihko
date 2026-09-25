@@ -3,7 +3,7 @@
 // someone has the note open.
 import { Hocuspocus } from '@hocuspocus/server'
 import diff from 'fast-diff'
-import { closeSync, constants, existsSync, fsyncSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeSync } from 'node:fs'
+import { closeSync, constants, existsSync, fsyncSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { dirname, join } from 'node:path'
@@ -13,7 +13,7 @@ import { contentHash, newUid, readFrontmatter, setFrontmatterKey } from '@thoth/
 import type { Auth, User } from './auth.ts'
 import { readStable, readText, replaceText } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
-import { NoteError, NoteService, type Actor, type HotDocuments } from './notes.ts'
+import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
 
 export const TEXT = 'md'
 export const COLLAB_PATH = '/collab'
@@ -84,8 +84,10 @@ function diffCost(a: string, b: string) {
   return n
 }
 
-// Recovery log: [type:1][len:4 BE][payload]. 'S' = snapshot (hash + flushed state), 'U' = update.
-function record(type: 'S' | 'U', payload: Uint8Array): Buffer {
+// Recovery log: [type:1][len:4 BE][payload]. 'S' = snapshot (hash + flushed state),
+// 'U' = update, 'F' = a flush about to replace the file (hash of the text, which is
+// the document's state at that point of the log).
+function record(type: 'S' | 'U' | 'F', payload: Uint8Array): Buffer {
   const head = Buffer.alloc(5)
   head.write(type, 0, 'latin1')
   head.writeUInt32BE(payload.length, 1)
@@ -94,10 +96,19 @@ function record(type: 'S' | 'U', payload: Uint8Array): Buffer {
 const HASH_LEN = contentHash('').length
 const snapshotRecord = (hash: string, update: Uint8Array) => record('S', Buffer.concat([Buffer.from(hash, 'latin1'), update]))
 
-function readLog(file: string): { updates: Uint8Array[]; lastSnapshot: Uint8Array; lastHash: string } | null {
+interface Log {
+  updates: Uint8Array[]
+  lastSnapshot: Uint8Array
+  lastHash: string
+  /** Flushes started after the last snapshot: `at` is how many of `updates` make up the text written. */
+  flushes: { hash: string; at: number }[]
+}
+
+function readLog(file: string): Log | null {
   if (!existsSync(file)) return null
   const buf = readFileSync(file)
   const updates: Uint8Array[] = []
+  const flushes: Log['flushes'] = []
   let lastSnapshot: Uint8Array | null = null
   let lastHash = ''
   let off = 0
@@ -110,10 +121,24 @@ function readLog(file: string): { updates: Uint8Array[]; lastSnapshot: Uint8Arra
       lastHash = payload.toString('latin1', 0, HASH_LEN)
       lastSnapshot = payload.subarray(HASH_LEN)
       updates.push(lastSnapshot)
-    } else updates.push(payload)
+    } else if (type === 'F') flushes.push({ hash: payload.toString('latin1'), at: updates.length })
+    else updates.push(payload)
     off += 5 + len
   }
-  return lastSnapshot ? { updates, lastSnapshot, lastHash } : null
+  return lastSnapshot ? { updates, lastSnapshot, lastHash, flushes } : null
+}
+
+/** The states the log's flushes wrote to the file, oldest first. */
+function flushedStates(log: Log): Base[] {
+  const out: Base[] = []
+  const doc = new Y.Doc()
+  let applied = 0
+  for (const f of log.flushes) {
+    for (; applied < f.at; applied++) Y.applyUpdate(doc, log.updates[applied]!)
+    const text = doc.getText(TEXT).toString()
+    if (contentHash(text) === f.hash) out.push({ snapshot: Y.encodeStateAsUpdate(doc), text, hash: f.hash })
+  }
+  return out
 }
 
 const locks = new Map<string, Promise<unknown>>()
@@ -172,6 +197,17 @@ export class CollabHub implements HotDocuments {
     return join(this.logDir, encodeURIComponent(path) + '.ylog')
   }
 
+  /**
+   * The document as it was when its last editor closed it, with the hash of
+   * the text it matched. Only a cache: it's used when the note is reopened so
+   * the document keeps its Yjs identity. An editor that lost its connection
+   * (network, server restart) and resyncs its old copy then merges into the
+   * same document instead of adding a second copy of the whole text.
+   */
+  private statePath(path: string) {
+    return join(this.logDir, encodeURIComponent(path) + '.ystate')
+  }
+
   // --- Connections -------------------------------------------------------------
 
   /** Accepts WebSockets on `/collab` from users with a session and the same origin. */
@@ -213,7 +249,7 @@ export class CollabHub implements HotDocuments {
   }
 
   /** Edit of a hot note: the change is applied as Yjs operations and reaches the open editors. */
-  async edit(path: string, fn: (text: string) => string, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }> {
+  async edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }> {
     const conn = await this.hocuspocus.openDirectConnection(path, { system: opts.actor })
     let result: { etag: string } | NoteError = { etag: '' }
     try {
@@ -225,9 +261,13 @@ export class CollabHub implements HotDocuments {
           result = new NoteError('precondition_failed', `the note has changed: ${path}`, hash)
           return
         }
-        const next = fn(cur)
-        applyTextDiff(ytext, cur, next)
-        result = { etag: contentHash(next) }
+        const change = fn(cur)
+        if (typeof change === 'string') applyTextDiff(ytext, cur, change)
+        else for (const s of change) {
+          if (s.remove) ytext.delete(s.at, s.remove)
+          if (s.insert) ytext.insert(s.at, s.insert)
+        }
+        result = { etag: contentHash(ytext.toString()) }
       })
     } finally {
       await conn.disconnect()
@@ -317,17 +357,27 @@ export class CollabHub implements HotDocuments {
       const diskOrNull = await readStable(file)
       const disk = diskOrNull ?? ''
       const diskHash = contentHash(disk)
+      // Without pending edits, the last session's document (if the file still exists);
+      // what changed on disk since then is merged into it below, like an external change.
+      const previous = recovered ?? (diskOrNull === null ? null : readLog(this.statePath(path)))
       let snapshot: Uint8Array
       let flushedText: string
       let flushedHash: string
-      if (recovered) {
-        for (const u of recovered.updates) Y.applyUpdate(doc, u, 'recovery')
+      let history: Base[] = []
+      if (previous) {
+        for (const u of previous.updates) Y.applyUpdate(doc, u, 'recovery')
         const base = new Y.Doc()
-        Y.applyUpdate(base, recovered.lastSnapshot)
-        snapshot = recovered.lastSnapshot
+        Y.applyUpdate(base, previous.lastSnapshot)
+        snapshot = previous.lastSnapshot
         flushedText = base.getText(TEXT).toString()
-        flushedHash = recovered.lastHash
-        this.log(`recovered ${path} from the log (${recovered.updates.length} records)`)
+        flushedHash = previous.lastHash
+        // Killed after a flush replaced the file but before the log recorded it:
+        // the file holds that flush's state, which is already in the document.
+        // Merging it as an external change would insert its new text a second time.
+        history = flushedStates(previous)
+        const own = history.find((b) => b.hash === diskHash)
+        if (own) ({ snapshot, text: flushedText, hash: flushedHash } = own)
+        if (recovered) this.log(`recovered ${path} from the log (${recovered.updates.length} records)`)
       } else {
         doc.getText(TEXT).insert(0, disk)
         snapshot = Y.encodeStateAsUpdate(doc)
@@ -341,14 +391,14 @@ export class CollabHub implements HotDocuments {
       fsyncSync(logFd)
       const h: Hot = {
         doc, file, logFile, logFd, snapshot, flushedText, flushedHash,
-        history: [{ snapshot, text: flushedText, hash: flushedHash }],
+        history: [...history.filter((b) => b.hash !== flushedHash), { snapshot, text: flushedText, hash: flushedHash }].slice(-HISTORY),
         uid: this.uidIn(flushedText), discarded: false, orphaned: false,
       }
       this.hot.set(path, h)
       doc.on('update', (update: Uint8Array) => writeSync(h.logFd, record('U', update)))
       // A missing file isn't "empty": it was deleted (server down, or before reopening).
       if (diskOrNull === null) this.markOrphan(path, h)
-      else if (recovered && diskHash !== flushedHash) this.mergeExternal(path, h, disk, diskHash)
+      else if (previous && diskHash !== flushedHash) this.mergeExternal(path, h, disk, diskHash)
     })
   }
 
@@ -440,6 +490,7 @@ export class CollabHub implements HotDocuments {
       let set = this.expected.get(path)
       if (!set) this.expected.set(path, (set = new Set()))
       set.add(hash)
+      writeSync(h.logFd, record('F', Buffer.from(hash, 'latin1')))
       const r = await replaceText(h.file, text, h.flushedHash)
       if (!r.replaced) {
         const disk = await readStable(h.file, h.flushedText)
@@ -469,8 +520,15 @@ export class CollabHub implements HotDocuments {
       const h = this.hot.get(path)
       if (!h) return
       closeSync(h.logFd)
+      const clean = !h.discarded && !h.orphaned && h.doc.getText(TEXT).toString() === h.flushedText
+      const state = this.statePath(path)
+      if (clean) {
+        // Kept before the log goes: at every moment one of the two is on disk.
+        writeFileSync(state + '.tmp', snapshotRecord(h.flushedHash, Y.encodeStateAsUpdate(h.doc)))
+        renameSync(state + '.tmp', state)
+      } else rmSync(state, { force: true })
       // An undecided orphan keeps its log: it's the copy of what was being written.
-      if (h.discarded || (!h.orphaned && h.doc.getText(TEXT).toString() === h.flushedText)) rmSync(h.logFile, { force: true })
+      if (h.discarded || clean) rmSync(h.logFile, { force: true })
       this.hot.delete(path)
       this.expected.delete(path)
     })
@@ -525,7 +583,10 @@ export class CollabHub implements HotDocuments {
     if (!this.orphans().includes(path)) throw new NoteError('not_found', `no pending copy for ${path}`)
     this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: 'thoth:orphan-resolved', path, action: 'discard' }))
     if (this.hot.has(path)) await this.discard(path)
-    else rmSync(this.logPath(path), { force: true })
+    else {
+      rmSync(this.logPath(path), { force: true })
+      rmSync(this.statePath(path), { force: true })
+    }
     this.log(`${path}: copy discarded; the external deletion is accepted as final`)
   }
 

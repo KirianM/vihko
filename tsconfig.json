@@ -21,6 +21,8 @@
     "packages/server/test",
     "packages/web/test",
     "packages/web/e2e",
-    "packages/web/playwright.config.ts"
+    "packages/web/acceptance",
+    "packages/web/playwright.config.ts",
+    "packages/web/playwright.acceptance.config.ts"
   ]
 }

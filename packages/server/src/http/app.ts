@@ -13,7 +13,7 @@ import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
 import { NoteError, type Actor, type NoteService } from '../notes.ts'
 import { ftsQuery, HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
-import { applyEdits, type EditOp } from '../edits.ts'
+import { planEdits, type EditOp } from '../edits.ts'
 import { FetchImageError, SERVED_TYPES, fetchImage } from '../attachments.ts'
 import { DailyNotes } from '../daily.ts'
 import { createFromTemplate } from '../templates.ts'
@@ -256,7 +256,7 @@ export function createApp(deps: AppDeps) {
   // Edits by operation: atomic on the current text, even with the note open.
   app.post('/api/note/edit', async (c) => {
     const { path, ops } = await c.req.json<{ path: string; ops: EditOp[] }>()
-    const r = await notes.edit(path, (t) => applyEdits(t, ops), { ifMatch: unquote(c.req.header('if-match')), actor: actorOf(c.get('user')) })
+    const r = await notes.edit(path, (t) => planEdits(t, ops), { ifMatch: unquote(c.req.header('if-match')), actor: actorOf(c.get('user')) })
     c.header('ETag', `"${r.etag}"`)
     return c.json(r)
   })

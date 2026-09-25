@@ -111,4 +111,9 @@ test('edits by operation: counted find_replace and append', async () => {
   assert.equal(applyEdits('a a', [{ op: 'find_replace', find: 'a', replace: 'b', expectedCount: 2 }]), 'b b')
   assert.throws(() => applyEdits('a a', [{ op: 'find_replace', find: 'a', replace: 'b' }]), (e: NoteError) => e.code === 'edit_mismatch')
   assert.throws(() => applyEdits('a', [{ op: 'find_replace', find: 'z', replace: 'b' }]), (e: NoteError) => e.code === 'edit_mismatch')
+  // As exact splices, without what the replacement keeps at either end.
+  const { planEdits } = await import('@thoth/server')
+  assert.deepEqual(planEdits('MARK\nR0-\n', [{ op: 'find_replace', find: 'MARK\n', replace: 'MARK\nR0-AGENT\n' }]), [{ at: 5, remove: 0, insert: 'R0-AGENT\n' }])
+  assert.deepEqual(planEdits('a b a', [{ op: 'find_replace', find: 'a', replace: 'xa', expectedCount: 2 }]), [{ at: 4, remove: 0, insert: 'x' }, { at: 0, remove: 0, insert: 'x' }])
+  assert.deepEqual(planEdits('x', [{ op: 'append', text: 'y' }]), [{ at: 1, remove: 0, insert: '\ny' }])
 })

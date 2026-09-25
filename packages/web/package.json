@@ -8,7 +8,9 @@
     "build": "node scripts/tokens.ts && vite build",
     "typecheck": "tsc -p .",
     "e2e": "playwright test",
-    "e2e:serve": "node e2e/serve.ts"
+    "e2e:serve": "node e2e/serve.ts",
+    "acceptance:ui": "playwright test -c playwright.acceptance.config.ts",
+    "acceptance:serve": "node acceptance/serve.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
