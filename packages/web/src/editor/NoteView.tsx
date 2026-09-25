@@ -8,6 +8,7 @@ import { useTheme } from '../theme.ts'
 import { userColor } from '../userColor.ts'
 import { errorText, useT } from '../i18n.tsx'
 import { Crumbs, Icon, ThemeToggle } from '../ui.tsx'
+import { SearchButton } from '../Palette.tsx'
 import { useCollab, type CollabState } from './collab.ts'
 import { Editor } from './Editor.tsx'
 import type { LinkInfo } from './livePreview.ts'
@@ -80,6 +81,7 @@ export function NoteView({ path, user, onNavigate }: { path: string; user: User;
         <span className="spacer" />
         <SaveStatus c={c} />
         <Presence c={c} />
+        <SearchButton />
         <ThemeToggle />
         <PanelToggle panel={panel} />
       </header>

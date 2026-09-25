@@ -7,6 +7,8 @@ import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
 import { Brand, Crumbs, Icon, ThemeToggle } from './ui.tsx'
+import { OpenPaletteContext, Palette, SearchButton, type PaletteMode } from './Palette.tsx'
+import { rememberNote } from './recent.ts'
 
 // El editor (CodeMirror, Yjs) se descarga aparte, al abrir la primera nota.
 const NoteView = lazy(() => import('./editor/NoteView.tsx').then((m) => ({ default: m.NoteView })))
@@ -86,6 +88,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const showAlerts = () => { setOpenPathState(null); setView('avisos') }
   const [ready, setReady] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [palette, setPalette] = useState<PaletteMode | null>(null)
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -100,6 +103,20 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ⌘K / Ctrl+K abre la paleta desde cualquier sitio, también desde el editor.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+        // En captura y sin propagar: el editor no llega a ver la tecla (en macOS, Ctrl+K borra hasta fin de línea).
+        e.preventDefault()
+        e.stopPropagation()
+        setPalette('search')
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+
   useEffect(() => {
     const url = new URL(location.href)
     for (const [k, v] of [['note', openPath], ['view', view]] as const) v ? url.searchParams.set(k, v) : url.searchParams.delete(k)
@@ -111,21 +128,28 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     if (!openPath) return
     setError(null)
     // Se comprueba que existe antes de abrir la coedición: el hub rechaza notas inexistentes.
-    api.note(openPath).then(() => setReady(openPath)).catch(fail)
+    api.note(openPath).then(() => { setReady(openPath); rememberNote(openPath) }).catch(fail)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openPath])
 
   const tree = useMemo(() => (notes ? buildTree(notes) : []), [notes])
+  const folder = openPath?.includes('/') ? openPath.slice(0, openPath.lastIndexOf('/')) : ''
+  const created = (path: string) => {
+    setPalette(null)
+    api.tree().then((r) => setNotes(r.notes)).catch(fail)
+    setOpenPath(path)
+  }
 
   return (
+    <OpenPaletteContext.Provider value={() => setPalette('search')}>
     <div className="shell">
       <nav className="sidebar" aria-label={t('shell.folders')}>
         <div className="sidebar-head">
           <Brand />
           <span className="spacer" />
-          <Button className="btn btn-icon" aria-label={t('shell.newNote')} isDisabled>{Icon.plus}</Button>
+          <Button className="btn btn-icon" aria-label={t('shell.newNote')} onPress={() => setPalette('create')}>{Icon.plus}</Button>
         </div>
-        <Button className="btn sidebar-search" isDisabled>
+        <Button className="btn sidebar-search" onPress={() => setPalette('search')}>
           {Icon.search}<span>{t('shell.search')}</span><kbd>⌘K</kbd>
         </Button>
         <div className="sidebar-tree">
@@ -159,6 +183,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             <header className="main-head">
               <Crumbs path={openPath} />
               <span className="spacer" />
+              <SearchButton />
               <ThemeToggle />
             </header>
             <div className="note">
@@ -168,6 +193,20 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           </>
         )}
       </main>
+      {palette && (
+        <Palette
+          key={palette}
+          mode={palette}
+          folder={folder}
+          openPath={openPath}
+          notes={notes}
+          onClose={() => setPalette(null)}
+          onMode={setPalette}
+          onOpen={setOpenPath}
+          onCreated={created}
+        />
+      )}
     </div>
+    </OpenPaletteContext.Provider>
   )
 }
