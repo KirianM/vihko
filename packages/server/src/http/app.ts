@@ -4,6 +4,7 @@ import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { serveStatic } from '@hono/node-server/serve-static'
+import { bodyLimit } from 'hono/body-limit'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { classifyPath, conflictOriginal, type Alert, type ErrorCode } from '@thoth/core'
@@ -52,7 +53,7 @@ type Env = { Variables: { user: User; token: string } }
 const actorOf = (u: User): Actor => ({ kind: 'user', id: u.username })
 
 function noteErrorStatus(e: NoteError) {
-  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409 } as const)[e.code]
+  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415 } as const)[e.code]
 }
 
 /**
@@ -205,6 +206,15 @@ export function createApp(deps: AppDeps) {
       backlinks,
     })
   })
+
+  // Images (D-028). Upload and paste are the same: the raw bytes of the file
+  // in the body. It is stored next to the note and the editor links it.
+  app.post('/api/attachments',
+    bodyLimit({ maxSize: notes.maxImageBytes, onError: (c) => fail(c, 413, 'too_large', `the limit is ${notes.maxImageBytes} bytes`) }),
+    async (c) => {
+      const bytes = new Uint8Array(await c.req.arrayBuffer())
+      return c.json(await notes.attach(c.req.query('note') ?? '', bytes, actorOf(c.get('user'))), 201)
+    })
 
   app.get('/api/search', (c) => {
     const q = ftsQuery(c.req.query('q') ?? '')

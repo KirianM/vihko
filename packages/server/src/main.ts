@@ -8,7 +8,7 @@ import { Auth } from './auth.ts'
 import { openIndex } from './db.ts'
 import { createApp, type Runtime } from './http/app.ts'
 import { Indexer } from './indexer.ts'
-import { NoteService } from './notes.ts'
+import { DEFAULT_MAX_IMAGE_BYTES, NoteService } from './notes.ts'
 import { openState } from './state.ts'
 import { Watcher } from './watcher.ts'
 import { CollabHub } from './hub.ts'
@@ -22,6 +22,8 @@ export interface Config {
   port: number
   rescanSeconds: number
   webDir: string
+  /** THOTH_MAX_IMAGE_MB: largest image stored, from an upload or a URL (20 MB). */
+  maxImageBytes: number
 }
 
 export function configFromEnv(env = process.env): Config {
@@ -32,7 +34,14 @@ export function configFromEnv(env = process.env): Config {
     port: Number(env.THOTH_PORT ?? 8080),
     rescanSeconds: Number(env.THOTH_RESCAN_SECONDS ?? 60),
     webDir: resolve(env.THOTH_WEB_DIR ?? fileURLToPath(new URL('../../web/dist', import.meta.url))),
+    maxImageBytes: env.THOTH_MAX_IMAGE_MB ? positiveMb(env.THOTH_MAX_IMAGE_MB) : DEFAULT_MAX_IMAGE_BYTES,
   }
+}
+
+function positiveMb(raw: string): number {
+  const mb = Number(raw)
+  if (!Number.isFinite(mb) || mb <= 0) throw new Error(`THOTH_MAX_IMAGE_MB must be a positive number of megabytes, not "${raw}"`)
+  return Math.floor(mb * 1024 * 1024)
 }
 
 export function openStores(config: Config) {
@@ -74,7 +83,7 @@ export async function start(config: Config) {
   })
   watcher.start()
 
-  const notes = new NoteService({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub })
+  const notes = new NoteService({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes })
   const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const app = createApp({ auth, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir })

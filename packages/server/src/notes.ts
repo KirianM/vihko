@@ -4,7 +4,8 @@
 import { mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix } from 'node:path'
 import { addToFrontmatterList, classifyPath, contentHash, newUid, normKey, pathKeys, readFrontmatter, setFrontmatterKey } from '@thoth/core'
-import { commitText, readStable, readText } from './fsutil.ts'
+import { commitText, createFile, readStable, readText } from './fsutil.ts'
+import { attachmentPath, sniffImage } from './attachments.ts'
 import { applyReplacements, keptLinks, planRelinks, type Replacement } from './relink.ts'
 import type { Indexer } from './indexer.ts'
 import type { Db } from './db.ts'
@@ -15,7 +16,7 @@ export type Actor =
   | { kind: 'agent'; id: string; onBehalfOf: string }
   | { kind: 'system'; reason: string }
 
-export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'edit_mismatch'
+export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'edit_mismatch' | 'too_large' | 'unsupported_type'
 
 export class NoteError extends Error {
   readonly code: NoteErrorCode
@@ -58,7 +59,11 @@ export interface NoteServiceOptions {
   db: Db
   uidKey?: string
   hot?: HotDocuments
+  /** Largest image accepted, in bytes (20 MB by default). */
+  maxImageBytes?: number
 }
+
+export const DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
 export interface MoveReport {
   from: string
@@ -89,9 +94,12 @@ export class NoteService {
   private opts: NoteServiceOptions
   private uidKey: string
 
+  readonly maxImageBytes: number
+
   constructor(opts: NoteServiceOptions) {
     this.opts = opts
     this.uidKey = opts.uidKey ?? 'uid'
+    this.maxImageBytes = opts.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES
   }
 
   /** Validates a note path: relative, no `..`, no hidden segments, ending in `.md`. */
@@ -297,6 +305,27 @@ export class NoteService {
       }
     }
     return report
+  }
+
+  /**
+   * Stores an image for the note `notePath` (D-028) and returns where it went:
+   * `path` from the notes root and `src`, relative to the note, to link it.
+   * Never overwrites: a taken name gets a suffix. The note itself isn't
+   * touched; the editor inserts the link. Writing next to a note needs the same
+   * access as writing the note: per-folder permissions (D-014) apply here.
+   */
+  async attach(notePath: string, bytes: Uint8Array, _actor: Actor, now = new Date()): Promise<{ path: string; src: string }> {
+    this.read(notePath) // the note must exist (404 otherwise)
+    if (bytes.byteLength > this.maxImageBytes) throw new NoteError('too_large', `${bytes.byteLength} bytes, the limit is ${this.maxImageBytes}`)
+    const type = sniffImage(bytes)
+    if (!type) throw new NoteError('unsupported_type', 'only PNG, JPEG, GIF, WebP and AVIF images are stored')
+    for (let n = 1; n <= 1000; n++) {
+      const path = attachmentPath(notePath, type.ext, now, n)
+      const file = join(this.opts.notesDir, path)
+      mkdirSync(dirname(file), { recursive: true })
+      if (createFile(file, bytes)) return { path, src: posix.relative(posix.dirname(notePath), path) }
+    }
+    throw new NoteError('exists', `no free name for an image of ${notePath}`)
   }
 
   trash(): TrashEntry[] {

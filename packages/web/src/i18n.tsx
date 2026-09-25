@@ -164,6 +164,8 @@ const es = {
   'error.exists': 'Ya existe una nota con ese nombre.',
   'error.invalid_path': 'Esa ruta de nota no es válida.',
   'error.edit_mismatch': 'La nota ha cambiado y la edición ya no encaja.',
+  'error.too_large': 'La imagen es demasiado grande.',
+  'error.unsupported_type': 'Solo se admiten imágenes PNG, JPEG, GIF, WebP o AVIF.',
 }
 
 const en: Record<keyof typeof es, string> = {
@@ -327,6 +329,8 @@ const en: Record<keyof typeof es, string> = {
   'error.exists': 'A note with that name already exists.',
   'error.invalid_path': 'That note path is not valid.',
   'error.edit_mismatch': 'The note changed and the edit no longer fits.',
+  'error.too_large': 'The image is too large.',
+  'error.unsupported_type': 'Only PNG, JPEG, GIF, WebP and AVIF images are accepted.',
 }
 
 export type MessageKey = keyof typeof es
