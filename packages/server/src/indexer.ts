@@ -432,6 +432,11 @@ export class Indexer {
     return list.filter((a): a is string | number => typeof a === 'string' || typeof a === 'number').map(String).filter((a) => a.trim())
   }
 
+  /** The content hash of the note at `path` as the index last read it; null if it isn't indexed. */
+  hashOf(path: string): string | null {
+    return (this.db.prepare('select hash from notes where path = ?').get(path) as { hash: string } | undefined)?.hash ?? null
+  }
+
   /** Groups of notes that share a `uid` (e.g. from copy-pasting). Identity conflict. */
   uidConflicts(): { uid: string; paths: string[] }[] {
     const rows = this.db.prepare(`select uid, json_group_array(path) paths from (select uid, path from notes where uid in

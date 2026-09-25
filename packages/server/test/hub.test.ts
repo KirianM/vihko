@@ -7,7 +7,7 @@ import WebSocket from 'ws'
 import * as Y from 'yjs'
 import { contentHash, readFrontmatter } from '@thoth/core'
 import { NoteLink, type Lineage } from '../../web/src/editor/lineage.ts'
-import { api, closeAll, connect, login, makeDirs, open, sleep, socket, startServer, typeLine, waitFor, type Srv } from './_collab.ts'
+import { api, closeAll, connect, login, makeDirs, open, sleep, socket, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
 
 const NOTE = 'hogar/Proxy.md'
 
@@ -325,6 +325,9 @@ function follow(srv: Srv, cookie: string, name: string) {
     },
     /** A network drop: the socket closes and the provider reconnects on its own. */
     cut() { (ws as unknown as { webSocket: WebSocket }).webSocket.close() },
+    /** The network goes down until `online()`: the socket closes and doesn't try again. */
+    offline() { ws.disconnect() },
+    online() { void ws.connect() },
     settled: () => link.lineage.provider.isSynced && link.lineage.provider.unsyncedChanges === 0,
   }
 }
@@ -366,9 +369,10 @@ test('same generation: offline typing survives network drops and server restarts
 })
 
 // If the hub has to start the document again without a saved state that
-// continues it (lost, or no longer matching the file), a tab's old copy would
-// add its text a second time. The hub refuses it; the tab reopens the note and
-// sets aside what it hadn't sent.
+// continues it (lost, or not matching the file on startup: changed with thoth
+// stopped, or restored from a backup), a tab's old copy would add its text a
+// second time. The hub refuses it; the tab reopens the note and sets aside
+// what it hadn't sent.
 test('a copy from another generation is refused: no duplication, and what was not sent is set aside', async () => {
   const { notes, env } = makeDirs()
   let srv = await startServer(env)
@@ -435,6 +439,111 @@ test('a copy from another generation is refused: no duplication, and what was no
         await waitFor(() => readFileSync(file, 'utf8').includes(`AFTER-${tag}\n`), 'flush')
         lines.push(`AFTER-${tag}`)
       }
+    }
+  } finally { closeAll(); await srv.stop() }
+})
+
+// A saved state the hub trusts (written during this run, or matching its file
+// on startup) carries its generation on although the file changed after the
+// note was closed, while thoth was running: the change is merged into it as
+// another editor's, and what a tab typed offline merges as usual (D-032.4).
+test('changed outside while thoth runs and the note is closed: what a tab typed offline merges, without a copy or duplicates', async () => {
+  const { notes, env } = makeDirs()
+  let srv = await startServer(env)
+  const file = join(notes, NOTE)
+  const saved = (ext: string) => join(env.THOTH_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + ext)
+  try {
+    const cookie = await login(srv)
+    const a = follow(srv, cookie, NOTE)
+    await waitFor(a.settled, 'sync')
+    a.type('SENT')
+    await waitFor(() => readFileSync(file, 'utf8').includes('SENT\n'), 'flush')
+    const lines = ['# Proxy', '## Red', 'SENT']
+    const scenarios = ['another editor', 'another editor, state checked on startup', 'another editor, and someone opens it meanwhile', 'an agent edits the closed note'] as const
+    for (const scenario of scenarios) {
+      const tag = `${scenarios.indexOf(scenario)}`
+      // The tab loses the network: the hub closes the note and saves its state.
+      a.offline()
+      await waitFor(() => existsSync(saved('.ystate')) && !existsSync(saved('.ylog')), `${scenario}: the note closed`)
+      if (scenario === 'another editor, state checked on startup') {
+        await srv.stop()
+        srv = await startServer(env)
+        assert.ok(srv.out.join('').includes('saved editor states: 1 of 1 match their file'), srv.out.join(''))
+      }
+      a.type(`OFFLINE-${tag}`)
+      if (scenario === 'an agent edits the closed note') {
+        const r = await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'append', text: `AGENT-${tag}\n` }] })
+        assert.equal(r.status, 200, JSON.stringify(r.body))
+        lines.push(`AGENT-${tag}`)
+      } else {
+        writeFileSync(file, readFileSync(file, 'utf8').replace('## Red\n', `## Red\nEXTERNAL-${tag}\n`))
+        lines.push(`EXTERNAL-${tag}`)
+      }
+      let b: Client | null = null
+      if (scenario === 'another editor, and someone opens it meanwhile') {
+        b = await connect(srv, await login(srv), NOTE)
+        assert.ok(b.text().includes(`EXTERNAL-${tag}\n`), 'the change is merged when the note opens')
+        typeLine(b, `B-${tag}`)
+        await waitFor(() => readFileSync(file, 'utf8').includes(`B-${tag}\n`), 'flush')
+        lines.push(`B-${tag}`)
+      }
+      a.online()
+      await waitFor(() => a.settled() && readFileSync(file, 'utf8').includes(`OFFLINE-${tag}\n`), `${scenario}: merged`, 15000)
+      lines.push(`OFFLINE-${tag}`)
+      await waitFor(() => readFileSync(file, 'utf8') === a.text() && (!b || b.text() === a.text()), `${scenario}: convergence`)
+      for (const line of lines) assert.ok(once(a.text(), line), `${scenario}: ${line} exactly once in:\n${a.text()}`)
+      assert.equal(a.lineages.length, 1, `${scenario}: the copy was never refused`)
+      assert.deepEqual(a.aside, [], `${scenario}: nothing set aside`)
+      b?.close()
+    }
+  } finally { closeAll(); await srv.stop() }
+})
+
+// What a trusted state doesn't cover. Another note put at its path isn't what
+// the tab was writing; and an older state put back from outside is caught by
+// its hash, even while thoth runs (a backup is restored with thoth stopped, and
+// then it doesn't match its file on startup: the test above this one).
+test('a trusted state starts a new generation for another note at its path, or when an older state is put back', async () => {
+  const { notes, env } = makeDirs()
+  const srv = await startServer(env)
+  const file = join(notes, NOTE)
+  const state = join(env.THOTH_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + '.ystate')
+  const log = join(env.THOTH_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + '.ylog')
+  try {
+    const a = follow(srv, await login(srv), NOTE)
+    await waitFor(a.settled, 'sync')
+    a.type('SENT')
+    await waitFor(() => readFileSync(file, 'utf8').includes('SENT\n'), 'flush')
+    assert.ok(readFrontmatter(readFileSync(file, 'utf8')).data.uid, 'the note got a uid')
+    const lines = ['# Another note', 'Its own text.']
+    for (const scenario of ['another note at the path', 'an older state put back'] as const) {
+      const tag = scenario === 'another note at the path' ? 'OTHER' : 'OLDER'
+      const lineages = a.lineages.length
+      a.offline()
+      await waitFor(() => existsSync(state) && !existsSync(log), 'the note closed')
+      if (scenario === 'another note at the path') {
+        writeFileSync(file, '---\nuid: 01OTHERNOTE0000000000000000\n---\n# Another note\n\nIts own text.\n')
+      } else {
+        // A copy of the state, then more typing that reaches the file, and the copy put back.
+        const older = readFileSync(state)
+        a.online()
+        await waitFor(a.settled, 'resync')
+        a.type(`NEWER-${tag}`)
+        await waitFor(() => readFileSync(file, 'utf8').includes(`NEWER-${tag}\n`), 'flush')
+        lines.push(`NEWER-${tag}`)
+        a.offline()
+        await waitFor(() => existsSync(state) && !existsSync(log) && !readFileSync(state).equals(older), 'the note closed again')
+        writeFileSync(state, older)
+      }
+      const aside = a.aside.length
+      a.type(`UNSENT-${tag}`)
+      a.online()
+      await waitFor(() => a.lineages.length === lineages + 1 && a.settled(), `${scenario}: the copy was refused and the note reopened`, 15000)
+      await waitFor(() => a.aside.length === aside + 1, `${scenario}: set aside`)
+      assert.ok(a.aside.at(-1)!.includes(`UNSENT-${tag}\n`), `${scenario}: the unsent line is what's set aside`)
+      await waitFor(() => readFileSync(file, 'utf8') === a.text(), `${scenario}: the file is the hub's document`)
+      assert.ok(!a.text().includes(`UNSENT-${tag}`), `${scenario}: the refused copy isn't merged`)
+      for (const line of lines) assert.ok(once(a.text(), line), `${scenario}: ${line} exactly once in:\n${a.text()}`)
     }
   } finally { closeAll(); await srv.stop() }
 })
