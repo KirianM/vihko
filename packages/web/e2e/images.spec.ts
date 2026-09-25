@@ -169,8 +169,9 @@ test('screenshots: light, dark and 390 px', async () => {
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()
   await k.screenshot({ path: `${SHOTS}/images-dark.png` })
   await k.setViewportSize({ width: 390, height: 844 })
-  await k.getByRole('button', { name: 'Más acciones' }).click()
-  await k.getByRole('menuitem', { name: 'Insertar imagen…' }).click()
+  // On a phone, the editor bar has its own button for it.
+  await k.getByRole('toolbar').getByRole('button', { name: 'Insertar imagen' }).click()
+  await expect(k.getByRole('dialog', { name: 'Insertar imagen' })).toBeVisible()
   await k.screenshot({ path: `${SHOTS}/images-insert-390.png` })
   await k.keyboard.press('Escape')
   await k.screenshot({ path: `${SHOTS}/images-390.png` })

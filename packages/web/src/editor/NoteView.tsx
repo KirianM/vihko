@@ -67,7 +67,7 @@ function OrphanBanner({ path }: { path: string }) {
  * Phone editor bar (link, tag, list, comment and save state), under the
  * editor. Its buttons don't take focus: the keyboard stays open.
  */
-function EditorBar({ view, c, onComment }: { view: EditorView | null; c: CollabState; onComment: () => void }) {
+function EditorBar({ view, c, onComment, onImage }: { view: EditorView | null; c: CollabState; onComment: () => void; onImage: () => void }) {
   const t = useT()
   // The keyboard shrinks the visible area: keep the cursor in sight.
   useEffect(() => {
@@ -89,6 +89,7 @@ function EditorBar({ view, c, onComment }: { view: EditorView | null; c: CollabS
       <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertLink')} onPress={() => edit(wikilink)}>[[</Button>
       <Button className="btn btn-icon bar-btn bar-hash" preventFocusOnPress aria-label={t('editor.insertTag')} onPress={() => edit(tag)}>#</Button>
       <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertList')} onPress={() => edit((doc, from) => listItem(doc, from))}>{Icon.list}</Button>
+      <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('image.insertTitle')} onPress={onImage}>{Icon.image}</Button>
       <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.comment')} onPress={onComment}>{Icon.comment}</Button>
       <span className="spacer" />
       <SaveStatus c={c} />
@@ -172,7 +173,7 @@ export function NoteView({ path, user, onNavigate, onMoved, onTrashed }: Props) 
         </div>
         <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} onNavigate={onNavigate} />
       </div>
-      {mobile && !panel.open && <EditorBar view={view} c={c} onComment={() => panel.showComments(null)} />}
+      {mobile && !panel.open && <EditorBar view={view} c={c} onComment={() => panel.showComments(null)} onImage={images.openInsert} />}
       <ImageInsertUi ins={images} />
     </>
   )
