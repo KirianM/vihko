@@ -26,27 +26,27 @@ interface Hot {
   file: string
   logFile: string
   logFd: number
-  /** Estado del documento que coincide con lo que hay en disco. */
+  /** Document state that matches what's on disk. */
   snapshot: Uint8Array
   flushedText: string
   flushedHash: string
-  /** Últimos estados volcados: un editor externo puede guardar partiendo de uno antiguo. */
+  /** Last flushed states: an external editor may save starting from an old one. */
   history: Base[]
-  /** uid que tenía la nota al cargarla, para no perderlo si se borra en el editor. */
+  /** uid the note had when loaded, so it isn't lost if it's removed in the editor. */
   uid: string | null
-  /** La nota se borró desde thoth: no se vuelve a volcar. */
+  /** The note was deleted from thoth: it's no longer flushed. */
   discarded: boolean
   /**
-   * El archivo se borró desde fuera con la nota abierta. No se escribe nada en
-   * disco hasta que alguien decida conservar su copia o descartarla; mientras
-   * tanto, lo escrito sigue en el log de recuperación.
+   * The file was deleted from outside while the note was open. Nothing is
+   * written to disk until someone decides to keep or discard its copy;
+   * meanwhile, what was written stays in the recovery log.
    */
   orphaned: boolean
 }
 
-/** Mensaje en vivo para los editores de una nota borrada desde fuera. */
+/** Live message for editors of a note deleted from outside. */
 export const ORPHAN_MESSAGE = 'thoth:deleted-externally'
-/** Tras cada volcado: `etag` es el hash del texto que ya está en el archivo. La UI lo usa para decir "guardado". */
+/** After every flush: `etag` is the hash of the text already on the file. The UI uses it to say "saved". */
 export const SAVED_MESSAGE = 'thoth:saved'
 /** The note was moved or renamed: editors reopen it at `to`. */
 export const MOVED_MESSAGE = 'thoth:moved'
@@ -59,7 +59,7 @@ export interface HubOptions {
   indexer: Indexer
   auth: Auth
   debounceMs?: number
-  /** Cada cuánto se comprueban los archivos de las notas calientes. */
+  /** How often hot notes' files are checked. */
   checkMs?: number
   uidKey?: string
   log?: (msg: string) => void
@@ -67,7 +67,7 @@ export interface HubOptions {
 
 type Ctx = { user?: User; system?: Actor }
 
-// --- Utilidades ---------------------------------------------------------------
+// --- Utilities ---------------------------------------------------------------
 
 function applyTextDiff(ytext: Y.Text, from: string, to: string) {
   let pos = 0
@@ -84,7 +84,7 @@ function diffCost(a: string, b: string) {
   return n
 }
 
-// Log de recuperación: [tipo:1][len:4 BE][payload]. 'S' = snapshot (hash + estado volcado), 'U' = update.
+// Recovery log: [type:1][len:4 BE][payload]. 'S' = snapshot (hash + flushed state), 'U' = update.
 function record(type: 'S' | 'U', payload: Uint8Array): Buffer {
   const head = Buffer.alloc(5)
   head.write(type, 0, 'latin1')
@@ -104,7 +104,7 @@ function readLog(file: string): { updates: Uint8Array[]; lastSnapshot: Uint8Arra
   while (off + 5 <= buf.length) {
     const type = buf.toString('latin1', off, off + 1)
     const len = buf.readUInt32BE(off + 1)
-    if (off + 5 + len > buf.length) break // registro truncado por una caída
+    if (off + 5 + len > buf.length) break // record truncated by a crash
     const payload = buf.subarray(off + 5, off + 5 + len)
     if (type === 'S') {
       lastHash = payload.toString('latin1', 0, HASH_LEN)
@@ -154,7 +154,7 @@ export class CollabHub implements HotDocuments {
         // A note deleted or moved from thoth is not reopened: a reconnecting editor cannot resurrect it.
         if (this.hot.get(documentName)?.discarded) throw new NoteError('not_found', `does not exist: ${documentName}`)
         if (!this.hot.has(documentName) && readText(this.file(documentName)) === null) {
-          throw new NoteError('not_found', `no existe: ${documentName}`)
+          throw new NoteError('not_found', `does not exist: ${documentName}`)
         }
       },
       onLoadDocument: async ({ documentName, document }) => { await this.load(documentName, document) },
@@ -172,9 +172,9 @@ export class CollabHub implements HotDocuments {
     return join(this.logDir, encodeURIComponent(path) + '.ylog')
   }
 
-  // --- Conexiones -------------------------------------------------------------
+  // --- Connections -------------------------------------------------------------
 
-  /** Acepta WebSockets en `/collab` de usuarios con sesión y del mismo origen. */
+  /** Accepts WebSockets on `/collab` from users with a session and the same origin. */
   attach(server: Server, sessionCookie: string) {
     server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
       const url = new URL(req.url ?? '/', `http://${req.headers.host}`)
@@ -192,7 +192,7 @@ export class CollabHub implements HotDocuments {
       })
     })
     this.checkTimer = setInterval(() => {
-      for (const path of this.hot.keys()) this.checkExternal(path).catch((e) => this.log(`comprobación de ${path}: ${e}`))
+      for (const path of this.hot.keys()) this.checkExternal(path).catch((e) => this.log(`check of ${path}: ${e}`))
     }, this.opts.checkMs ?? 1000)
   }
 
@@ -204,7 +204,7 @@ export class CollabHub implements HotDocuments {
     this.wss.close()
   }
 
-  // --- HotDocuments (servicio de notas) -------------------------------------
+  // --- HotDocuments (note service) -------------------------------------
 
   /** A discarded note (deleted or moved) no longer counts as open: writes go to the file. */
   has(path: string) {
@@ -212,7 +212,7 @@ export class CollabHub implements HotDocuments {
     return !!h && !h.discarded
   }
 
-  /** Edición de una nota caliente: el cambio se aplica como operaciones Yjs y llega a los editores abiertos. */
+  /** Edit of a hot note: the change is applied as Yjs operations and reaches the open editors. */
   async edit(path: string, fn: (text: string) => string, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }> {
     const conn = await this.hocuspocus.openDirectConnection(path, { system: opts.actor })
     let result: { etag: string } | NoteError = { etag: '' }
@@ -222,7 +222,7 @@ export class CollabHub implements HotDocuments {
         const cur = ytext.toString()
         const hash = contentHash(cur)
         if (opts.ifMatch !== undefined && opts.ifMatch !== hash) {
-          result = new NoteError('precondition_failed', `la nota ha cambiado: ${path}`, hash)
+          result = new NoteError('precondition_failed', `the note has changed: ${path}`, hash)
           return
         }
         const next = fn(cur)
@@ -307,7 +307,7 @@ export class CollabHub implements HotDocuments {
     return result
   }
 
-  // --- Ciclo de vida ------------------------------------------------------------
+  // --- Lifecycle ------------------------------------------------------------
 
   private load(path: string, doc: Y.Doc) {
     return withLock(path, async () => {
@@ -327,7 +327,7 @@ export class CollabHub implements HotDocuments {
         snapshot = recovered.lastSnapshot
         flushedText = base.getText(TEXT).toString()
         flushedHash = recovered.lastHash
-        this.log(`recuperado ${path} desde el log (${recovered.updates.length} registros)`)
+        this.log(`recovered ${path} from the log (${recovered.updates.length} records)`)
       } else {
         doc.getText(TEXT).insert(0, disk)
         snapshot = Y.encodeStateAsUpdate(doc)
@@ -346,16 +346,16 @@ export class CollabHub implements HotDocuments {
       }
       this.hot.set(path, h)
       doc.on('update', (update: Uint8Array) => writeSync(h.logFd, record('U', update)))
-      // Un archivo ausente no es "vacío": se borró (con el servidor caído o antes de reabrir).
+      // A missing file isn't "empty": it was deleted (server down, or before reopening).
       if (diskOrNull === null) this.markOrphan(path, h)
       else if (recovered && diskHash !== flushedHash) this.mergeExternal(path, h, disk, diskHash)
     })
   }
 
   /**
-   * Integra en el documento vivo un cambio externo, desde el volcado reciente más
-   * parecido. `onDisk`: `newText` es lo que hay ahora en disco (no cuando se rescató
-   * de una escritura que nuestro propio rename reemplazó).
+   * Integrates an external change into the live document, from the closest
+   * recent flush. `onDisk`: `newText` is what's now on disk (not when it was
+   * rescued from a write that our own rename overwrote).
    */
   private mergeExternal(path: string, h: Hot, newText: string, newHash: string, onDisk = true) {
     let base = h.history[h.history.length - 1]!
@@ -368,10 +368,10 @@ export class CollabHub implements HotDocuments {
     Y.applyUpdate(fork, base.snapshot)
     const sv = Y.encodeStateVector(fork)
     const ftext = fork.getText(TEXT)
-    if (ftext.toString() !== base.text) throw new Error('snapshot y texto de la base no coinciden')
+    if (ftext.toString() !== base.text) throw new Error('snapshot and base text do not match')
     fork.transact(() => applyTextDiff(ftext, base.text, newText))
     Y.applyUpdate(h.doc, Y.encodeStateAsUpdate(fork, sv), 'external')
-    this.log(`cambio externo integrado en ${path}${onDisk ? '' : ' (rescatado del rename)'}`)
+    this.log(`external change integrated into ${path}${onDisk ? '' : ' (rescued from the rename)'}`)
     if (!onDisk) return
     h.snapshot = Y.encodeStateAsUpdate(fork)
     h.flushedText = newText
@@ -380,21 +380,21 @@ export class CollabHub implements HotDocuments {
     writeSync(h.logFd, snapshotRecord(newHash, h.snapshot))
   }
 
-  /** Registra el nuevo estado del archivo y avisa a los editores abiertos de que ya está en disco. */
+  /** Records the file's new state and tells the open editors it's now on disk. */
   private remember(path: string, h: Hot) {
     h.history.push({ snapshot: h.snapshot, text: h.flushedText, hash: h.flushedHash })
     if (h.history.length > HISTORY) h.history.shift()
     this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: SAVED_MESSAGE, path, etag: h.flushedHash }))
   }
 
-  /** Comprueba si el archivo de una nota caliente cambió desde fuera (watcher o comprobación periódica). */
+  /** Checks whether a hot note's file changed from outside (watcher or periodic check). */
   checkExternal(path: string) {
     return withLock(path, async () => {
       const h = this.hot.get(path)
       if (!h || h.discarded || h.orphaned) return
       const now = readText(h.file)
       if (now === null) {
-        // Puede ser un editor a mitad de guardar con rename: se confirma antes de decidir.
+        // Could be an editor mid-save via rename: confirmed before deciding.
         if ((await readStable(h.file)) === null) this.markOrphan(path, h)
         return
       }
@@ -469,7 +469,7 @@ export class CollabHub implements HotDocuments {
       const h = this.hot.get(path)
       if (!h) return
       closeSync(h.logFd)
-      // Una huérfana sin decidir conserva su log: es la copia de lo que se estaba escribiendo.
+      // An undecided orphan keeps its log: it's the copy of what was being written.
       if (h.discarded || (!h.orphaned && h.doc.getText(TEXT).toString() === h.flushedText)) rmSync(h.logFile, { force: true })
       this.hot.delete(path)
       this.expected.delete(path)
@@ -479,11 +479,11 @@ export class CollabHub implements HotDocuments {
   private markOrphan(path: string, h: Hot) {
     if (h.orphaned) return
     h.orphaned = true
-    this.log(`${path} se ha borrado fuera de thoth con la nota abierta: no se escribe hasta que alguien decida`)
+    this.log(`${path} was deleted outside thoth while the note was open: nothing is written until someone decides`)
     this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: ORPHAN_MESSAGE, path }))
   }
 
-  /** Notas borradas desde fuera con una copia pendiente de decisión (abiertas o solo en el log). */
+  /** Notes deleted from outside with a copy pending a decision (open, or only in the log). */
   orphans(): string[] {
     const out = new Set<string>()
     for (const [path, h] of this.hot) if (h.orphaned && !h.discarded) out.add(path)
@@ -494,17 +494,17 @@ export class CollabHub implements HotDocuments {
     return [...out].sort()
   }
 
-  /** Conserva la copia: vuelve a crear el archivo con lo que se estaba escribiendo. */
+  /** Keeps the copy: recreates the file with what was being written. */
   async restoreOrphan(path: string): Promise<{ etag: string }> {
-    if (!this.orphans().includes(path)) throw new NoteError('not_found', `no hay ninguna copia pendiente de ${path}`)
-    const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: 'conservar copia de una nota borrada fuera' } })
+    if (!this.orphans().includes(path)) throw new NoteError('not_found', `no pending copy for ${path}`)
+    const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: 'keep the copy of a note deleted outside' } })
     try {
       return await withLock(path, async () => {
         const h = this.hot.get(path)!
         const text = h.doc.getText(TEXT).toString()
         mkdirSync(dirname(h.file), { recursive: true })
         const r = await replaceText(h.file, text, null)
-        if (!r.replaced) throw new NoteError('exists', `ya existe otra nota en ${path}`)
+        if (!r.replaced) throw new NoteError('exists', `another note already exists at ${path}`)
         h.orphaned = false
         h.snapshot = Y.encodeStateAsUpdate(h.doc)
         h.flushedText = text
@@ -512,7 +512,7 @@ export class CollabHub implements HotDocuments {
         this.remember(path, h)
         this.opts.indexer.indexPaths([path])
         this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: 'thoth:orphan-resolved', path, action: 'restore' }))
-        this.log(`${path}: se conserva la copia abierta`)
+        this.log(`${path}: the open copy is kept`)
         return { etag: h.flushedHash }
       })
     } finally {
@@ -520,29 +520,29 @@ export class CollabHub implements HotDocuments {
     }
   }
 
-  /** Descarta la copia: el borrado externo se da por bueno. */
+  /** Discards the copy: the external deletion is accepted as final. */
   async discardOrphan(path: string) {
-    if (!this.orphans().includes(path)) throw new NoteError('not_found', `no hay ninguna copia pendiente de ${path}`)
+    if (!this.orphans().includes(path)) throw new NoteError('not_found', `no pending copy for ${path}`)
     this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: 'thoth:orphan-resolved', path, action: 'discard' }))
     if (this.hot.has(path)) await this.discard(path)
     else rmSync(this.logPath(path), { force: true })
-    this.log(`${path}: se descarta la copia; el borrado externo se da por bueno`)
+    this.log(`${path}: copy discarded; the external deletion is accepted as final`)
   }
 
-  /** Al arrancar: cada log pendiente es una nota con ediciones sin volcar. */
+  /** On startup: every pending log is a note with unflushed edits. */
   async recoverAll() {
     for (const f of readdirSync(this.logDir).filter((x) => x.endsWith('.ylog'))) {
       const path = decodeURIComponent(f.slice(0, -'.ylog'.length))
       try {
-        const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: 'recuperación tras una caída' } })
+        const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: 'recovery after a crash' } })
         await conn.disconnect()
       } catch (err) {
-        this.log(`no se pudo recuperar ${path}: ${err instanceof Error ? err.message : String(err)}`)
+        this.log(`could not recover ${path}: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
   }
 
-  // --- uid (D-015): se añade al volcar si la nota no lo tiene --------------------
+  // --- uid: added on flush if the note doesn't have one --------------------
 
   private uidIn(text: string): string | null {
     const fm = readFrontmatter(text)

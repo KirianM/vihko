@@ -1,11 +1,11 @@
-// state.db: estado de aplicación que NO se deriva de los archivos (D-011):
-// usuarios, sesiones y, más adelante, API keys y webhooks. No es desechable:
-// se respalda, y su esquema evoluciona con migraciones, nunca borrándolo.
+// state.db: application state that is NOT derived from the files: users,
+// sessions and, later, API keys and webhooks. It's not disposable: it's
+// backed up, and its schema evolves through migrations, never by deleting it.
 import Database from 'better-sqlite3'
 import { copyFileSync, existsSync } from 'node:fs'
 import type { Db } from './db.ts'
 
-/** Migraciones en orden. Nunca se edita una ya publicada: se añade otra. */
+/** Migrations in order. A published one is never edited: another one is added. */
 const MIGRATIONS: string[] = [
   `create table users (
      id            text primary key,
@@ -36,7 +36,7 @@ export function openState(file: string): Db {
   const current = db.pragma('user_version', { simple: true }) as number
   if (current > MIGRATIONS.length) {
     db.close()
-    throw new Error(`state.db tiene la versión ${current}, más nueva que esta instalación (${MIGRATIONS.length}). ¿Se ha vuelto a una versión anterior de thoth?`)
+    throw new Error(`state.db is at version ${current}, newer than this install (${MIGRATIONS.length}). Did you roll back to an older version of thoth?`)
   }
   if (current < MIGRATIONS.length) {
     if (existed && current > 0) {

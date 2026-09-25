@@ -1,5 +1,5 @@
-// Arranque del servidor. Configuración por variables de entorno; ninguna es
-// obligatoria salvo dónde están las notas y el estado.
+// Server startup. Configuration via environment variables; none is
+// mandatory except where the notes and the state live.
 import { serve } from '@hono/node-server'
 import { existsSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -53,12 +53,12 @@ export async function start(config: Config) {
     rescan(opts) {
       const r = indexer.scan(opts)
       this.lastScan = r
-      if (r.aborted) log(`escaneo abortado: ${r.aborted}`)
+      if (r.aborted) log(`scan aborted: ${r.aborted}`)
       return r
     },
   }
   const first = runtime.rescan({})
-  log(`índice listo: ${first.added.length} nuevas, ${first.changed.length} cambiadas, ${first.removed.length} retiradas, ${first.unchanged} sin cambios`)
+  log(`index ready: ${first.added.length} added, ${first.changed.length} changed, ${first.removed.length} removed, ${first.unchanged} unchanged`)
 
   const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log })
   await hub.recoverAll()
@@ -76,19 +76,19 @@ export async function start(config: Config) {
 
   const notes = new NoteService({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub })
   const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
-  if (!webDir) log(`sin UI: no hay compilación en ${config.webDir} (npm run build); solo API`)
+  if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const app = createApp({ auth, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir })
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   hub.attach(server, SESSION_COOKIE)
-  // serve() abre el puerto de forma asíncrona: solo se anuncia cuando de verdad escucha.
+  // serve() opens the port asynchronously: only announced once it's actually listening.
   if (!server.listening) await new Promise<void>((resolve, reject) => { server.once('listening', resolve); server.once('error', reject) })
-  log(`escuchando en http://${config.host}:${config.port}`)
+  log(`listening on http://${config.host}:${config.port}`)
 
   const setup = auth.setupToken()
   if (setup) {
-    log('primer arranque: no hay usuarios. Crea el administrador con este token de un solo uso')
-    log(`  (en la UI, o con POST /api/setup): ${setup}`)
-    log('  o desde la línea de comandos: thoth user create <nombre> --admin')
+    log('first boot: no users yet. Create the admin with this one-time token')
+    log(`  (in the UI, or with POST /api/setup): ${setup}`)
+    log('  or from the command line: thoth user create <name> --admin')
   }
 
   const stop = async () => {

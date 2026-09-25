@@ -1,6 +1,6 @@
-// Indexador: lleva el contenido de la carpeta de notas a index.db.
-// Detección de cambios por (mtime, tamaño) por igualdad como filtro rápido y el
-// hash del contenido como verdad. Nunca escribe en las notas (D-015).
+// Indexer: brings the contents of the notes folder into index.db.
+// Change detection by (mtime, size) equality as a fast filter, and the
+// content hash as ground truth. Never writes to the notes.
 import { readFileSync, readdirSync, statSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
 import { LinkIndex, classifyPath, contentHash, extract, isIgnoredDir, normKey, pathKeys, type Extracted } from '@thoth/core'
@@ -9,14 +9,14 @@ import type { Db } from './db.ts'
 export interface IndexerOptions {
   notesDir: string
   db: Db
-  /** Guarda contra borrados masivos: se aborta si un escaneo va a borrar más de esta fracción… */
+  /** Guards against mass deletion: aborts if a scan is about to remove more than this fraction… */
   massDeleteRatio?: number
-  /** …y más de este número de notas. */
+  /** …and more than this number of notes. */
   massDeleteMin?: number
   keys?: Partial<FrontmatterKeys>
 }
 
-/** Nombres de las claves de frontmatter que entiende thoth (configurables, D-019). */
+/** Names of the frontmatter keys thoth understands (configurable). */
 export interface FrontmatterKeys {
   uid: string
   title: string
@@ -31,18 +31,18 @@ export interface ScanReport {
   changed: string[]
   removed: string[]
   unchanged: number
-  /** Motivo si el escaneo no se aplicó (entero o en parte). */
+  /** Reason if the scan wasn't applied (entirely or in part). */
   aborted: 'root_unavailable' | 'mass_delete' | null
-  /** Con `mass_delete`: cuántas notas iba a retirar y cuántas había en el índice. */
+  /** With `mass_delete`: how many notes it was about to remove and how many were in the index. */
   massDelete: { removing: number; total: number } | null
 }
 
 export interface ScanOptions {
-  /** Salta la guarda de borrados masivos sin mirar qué se retira. */
+  /** Skips the mass-deletion guard without checking what's removed. */
   force?: boolean
   /**
-   * Salta la guarda solo si se retiran exactamente estas notas: es lo que alguien
-   * vio en el aviso y confirmó. Si entretanto cambió, el escaneo vuelve a detenerse.
+   * Skips the guard only if exactly these notes are removed: what someone saw
+   * in the alert and confirmed. If it changed meanwhile, the scan stops again.
    */
   confirmRemoval?: number
 }
@@ -77,11 +77,11 @@ export class Indexer {
     }
   }
 
-  /** Escaneo completo de la carpeta. */
+  /** Full scan of the folder. */
   scan({ force = false, confirmRemoval }: ScanOptions = {}): ScanReport {
     const report: ScanReport = { added: [], changed: [], removed: [], unchanged: 0, aborted: null, massDelete: null }
     try {
-      if (!statSync(this.opts.notesDir).isDirectory()) throw new Error('no es un directorio')
+      if (!statSync(this.opts.notesDir).isDirectory()) throw new Error('not a directory')
     } catch {
       report.aborted = 'root_unavailable'
       return report
@@ -102,7 +102,7 @@ export class Indexer {
       this.detect(rel, known.get(rel), upserts, touch, report)
     }
 
-    // Lo que cuelga de un directorio que no se pudo leer no se da por borrado.
+    // Anything under a directory that couldn't be read is not treated as deleted.
     const underUnreadable = (p: string) => unreadable.some((d) => p.startsWith(d + '/'))
     const removed = [...known.keys()].filter((p) => !seen.has(p) && !underUnreadable(p))
     const min = this.opts.massDeleteMin ?? 10
@@ -117,7 +117,7 @@ export class Indexer {
     return report
   }
 
-  /** Reindexa rutas concretas (eventos del watcher). No aplica la guarda de borrados masivos. */
+  /** Reindexes specific paths (watcher events). Doesn't apply the mass-deletion guard. */
   indexPaths(paths: Iterable<string>): ScanReport {
     const report: ScanReport = { added: [], changed: [], removed: [], unchanged: 0, aborted: null, massDelete: null }
     const upserts: Upsert[] = []
@@ -145,7 +145,7 @@ export class Indexer {
     try {
       stat = statSync(join(this.opts.notesDir, rel))
     } catch {
-      return // desapareció entre el listado y el stat; el siguiente escaneo lo verá
+      return // disappeared between listing and stat; the next scan will catch it
     }
     if (row && row.mtime_ms === stat.mtimeMs && row.size === stat.size) {
       report.unchanged++
@@ -226,7 +226,7 @@ export class Indexer {
     })()
   }
 
-  /** Re-resuelve los enlaces afectados: los de notas cambiadas, los que buscan una clave afectada y los que apuntaban a una nota cambiada. */
+  /** Re-resolves affected links: those in changed notes, those that look up an affected key, and those that pointed to a changed note. */
   private resolveLinks(changedPaths: Set<string>, affectedKeys: Set<string>) {
     if (changedPaths.size === 0 && affectedKeys.size === 0) return
     const rows: { src_path: string; ord: number; kind: 'wiki' | 'embed' | 'markdown'; target: string; anchor: string | null }[] = []
@@ -246,7 +246,7 @@ export class Indexer {
     collect(`${cols} where dst_path in ($IN)`, [...changedPaths])
     const update = this.db.prepare('update links set status = ?, dst_path = ?, via = ?, anchor_ok = ?, candidates = ? where src_path = ? and ord = ?')
     for (const r of rows) {
-      if (!this.links.has(r.src_path)) continue // nota de origen borrada
+      if (!this.links.has(r.src_path)) continue // source note deleted
       const res = this.links.resolve(r.src_path, r)
       if (res.status === 'resolved') {
         update.run('resolved', res.path, res.via, res.anchor === null ? null : res.anchor === 'ok' ? 1 : 0, null, r.src_path, r.ord)
@@ -288,7 +288,7 @@ export class Indexer {
     return list.filter((a): a is string | number => typeof a === 'string' || typeof a === 'number').map(String).filter((a) => a.trim())
   }
 
-  /** Grupos de notas que comparten `uid` (p. ej. por copiar y pegar). Conflicto de identidad. */
+  /** Groups of notes that share a `uid` (e.g. from copy-pasting). Identity conflict. */
   uidConflicts(): { uid: string; paths: string[] }[] {
     const rows = this.db.prepare(`select uid, json_group_array(path) paths from (select uid, path from notes where uid in
       (select uid from notes where uid is not null group by uid having count(*) > 1) order by path) group by uid order by uid`).all() as { uid: string; paths: string }[]
@@ -296,7 +296,7 @@ export class Indexer {
   }
 }
 
-/** Recorre la carpeta sin entrar en directorios ignorados. Devuelve rutas relativas con `/`. */
+/** Walks the folder without entering ignored directories. Returns relative paths with `/`. */
 function* walk(root: string, rel: string, unreadable: string[]): Generator<string> {
   let entries
   try {

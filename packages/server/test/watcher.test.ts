@@ -14,7 +14,7 @@ async function waitFor(cond: () => boolean, what: string, timeout = 5000) {
   }
 }
 
-test('el watcher indexa altas, cambios, bajas y carpetas renombradas', async () => {
+test('the watcher indexes additions, changes, removals and renamed folders', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'thoth-watch-'))
   const notes = join(dir, 'notes')
   mkdirSync(join(notes, 'a'), { recursive: true })
@@ -27,13 +27,13 @@ test('el watcher indexa altas, cambios, bajas y carpetas renombradas', async () 
   const title = (p: string) => (db.prepare('select title from notes where path = ?').get(p) as { title: string } | undefined)?.title
   try {
     writeFileSync(join(notes, 'a/uno.md'), '# Uno\n')
-    await waitFor(() => has('a/uno.md'), 'alta')
+    await waitFor(() => has('a/uno.md'), 'added')
     writeFileSync(join(notes, 'a/uno.md'), '# Uno bis\n')
-    await waitFor(() => title('a/uno.md') === 'Uno bis', 'cambio')
+    await waitFor(() => title('a/uno.md') === 'Uno bis', 'changed')
     renameSync(join(notes, 'a'), join(notes, 'b'))
-    await waitFor(() => has('b/uno.md') && !has('a/uno.md'), 'carpeta renombrada')
+    await waitFor(() => has('b/uno.md') && !has('a/uno.md'), 'renamed folder')
     rmSync(join(notes, 'b/uno.md'))
-    await waitFor(() => !has('b/uno.md'), 'baja')
+    await waitFor(() => !has('b/uno.md'), 'removed')
     writeFileSync(join(notes, 'b/.temporal.md.swp'), 'x')
     await sleep(200)
     assert.ok(!has('b/.temporal.md.swp'))
@@ -43,14 +43,14 @@ test('el watcher indexa altas, cambios, bajas y carpetas renombradas', async () 
   }
 })
 
-test('el rescan periódico recoge cambios que el watcher no ve', async () => {
+test('the periodic rescan picks up changes the watcher misses', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'thoth-rescan-'))
   const notes = join(dir, 'notes')
   mkdirSync(notes)
   const db = openIndex(join(dir, 'index.db'))
   const indexer = new Indexer({ notesDir: notes, db })
   indexer.scan()
-  // Sin start(): solo el rescan, como un cambio hecho desde otra máquina por NFS.
+  // No start(): only the rescan, like a change made from another machine over NFS.
   const w = new Watcher({ notesDir: notes, indexer, db, rescanMs: 100 })
   writeFileSync(join(notes, 'externa.md'), '# Externa\n')
   w.rescan()

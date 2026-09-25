@@ -1,7 +1,7 @@
-// Reescritura de enlaces al mover o renombrar una nota (D-018). Regla: un
-// renombrado nunca cambia el destino de un enlace existente. Para cada enlace
-// que resolvía a una nota, se comprueba a dónde resuelve después del cambio; si
-// difiere, se reescribe con la forma más corta que siga apuntando a su destino.
+// Link rewriting when moving or renaming a note. Rule: a rename never changes
+// the destination of an existing link. For each link that resolved to a note,
+// we check where it resolves after the change; if it differs, it's rewritten
+// with the shortest form that still points to its destination.
 import { posix } from 'node:path'
 import { extract, type LinkIndex, type LinkRef } from '@thoth/core'
 
@@ -12,9 +12,9 @@ export interface Replacement {
 }
 
 /**
- * Reemplazos para que los enlaces de una nota conserven su destino.
- * `srcBefore`/`srcAfter`: ruta de la nota antes y después (difieren si es la nota movida).
- * `map`: destino antes → destino después (la nota movida cambia de ruta; el resto no).
+ * Replacements so a note's links keep their destination.
+ * `srcBefore`/`srcAfter`: the note's path before and after (they differ if it's the moved note).
+ * `map`: destination before → destination after (the moved note changes path; the rest don't).
  */
 export function planRelinks(
   text: string,
@@ -69,7 +69,7 @@ function rewrite(link: LinkRef, src: string, want: string, index: LinkIndex): st
     const rel = posix.relative(posix.dirname(src), want)
     return link.raw.slice(0, open + 2) + rel.replace(/ /g, '%20') + (hash === -1 ? '' : url.slice(hash)) + ')'
   }
-  // Wikilink: nombre, sufijos de ruta cada vez más largos y, por último, ruta absoluta.
+  // Wikilink: name, progressively longer path suffixes, and finally the absolute path.
   const parts = stripMd(want).split('/')
   const candidates = [...parts.map((_, i) => parts.slice(parts.length - 1 - i).join('/')), '/' + parts.join('/')]
   const target = candidates.find((c) => {

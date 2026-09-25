@@ -37,59 +37,59 @@ async function setup(opts: { webDir?: string } = {}) {
   return { dir, notesDir, auth, req, raw, runtime }
 }
 
-/** Estado y código de una respuesta de error: la UI solo necesita el código (D-025). */
+/** Status and code of an error response: the UI only needs the code. */
 const errorOf = (r: { status: number; body: { error?: string } | null }) => [r.status, r.body?.error]
 
-test('contraseñas: scrypt, verificación y rechazo', async () => {
-  const h = await hashPassword('una contraseña larga')
+test('passwords: scrypt, verification and rejection', async () => {
+  const h = await hashPassword('a long password')
   assert.match(h, /^scrypt\$32768\$8\$1\$/)
-  assert.ok(await verifyPassword('una contraseña larga', h))
+  assert.ok(await verifyPassword('a long password', h))
   assert.ok(!(await verifyPassword('otra', h)))
-  assert.notEqual(await hashPassword('x'.repeat(12)), await hashPassword('x'.repeat(12)), 'sal aleatoria')
+  assert.notEqual(await hashPassword('x'.repeat(12)), await hashPassword('x'.repeat(12)), 'random salt')
 })
 
-test('primer arranque: token de un solo uso para crear el admin', async () => {
+test('first boot: one-time token to create the admin', async () => {
   const { auth, req } = await setup()
   assert.deepEqual((await req('GET', '/api/setup')).body, { needed: true })
   const token = auth.setupToken()!
-  const bad = await req('POST', '/api/setup', { token: 'malo', username: 'noa', password: 'contraseña-larga' })
+  const bad = await req('POST', '/api/setup', { token: 'bad', username: 'noa', password: 'a-long-password' })
   assert.deepEqual([bad.status, bad.body.error], [400, 'invalid_token'])
-  const weak = await req('POST', '/api/setup', { token, username: 'noa', password: 'corta' })
+  const weak = await req('POST', '/api/setup', { token, username: 'noa', password: 'short' })
   assert.deepEqual([weak.status, weak.body.error], [400, 'weak_password'])
-  const ok = await req('POST', '/api/setup', { token, username: 'noa', password: 'contraseña-larga' })
+  const ok = await req('POST', '/api/setup', { token, username: 'noa', password: 'a-long-password' })
   assert.equal(ok.status, 200)
   assert.equal(ok.body.user.role, 'admin')
-  const again = await req('POST', '/api/setup', { token, username: 'otro', password: 'contraseña-larga' })
-  assert.deepEqual([again.status, again.body.error], [409, 'already_setup'], 'el token se consume')
+  const again = await req('POST', '/api/setup', { token, username: 'otro', password: 'a-long-password' })
+  assert.deepEqual([again.status, again.body.error], [409, 'already_setup'], 'the token is consumed')
   assert.deepEqual((await req('GET', '/api/setup')).body, { needed: false })
 })
 
-test('todo exige sesión salvo la salud; login, sesión y logout', async () => {
+test('everything requires a session except health; login, session and logout', async () => {
   const { auth, req } = await setup()
   assert.deepEqual((await req('GET', '/api/health')).body, { ok: true })
-  await auth.createUser('noa', 'contraseña-larga', 'admin')
+  await auth.createUser('noa', 'a-long-password', 'admin')
   for (const p of ['/api/tree', '/api/note?path=Plan.md', '/api/search?q=plan', '/api/alerts', '/api/auth/me']) {
     assert.equal((await req('GET', p)).status, 401, p)
   }
-  for (const bad of [{ username: 'noa', password: 'mala-contraseña' }, { username: 'nadie', password: 'contraseña-larga' }]) {
+  for (const bad of [{ username: 'noa', password: 'wrong-password' }, { username: 'nadie', password: 'a-long-password' }]) {
     const r = await req('POST', '/api/auth/login', bad)
-    assert.deepEqual([r.status, r.body.error], [401, 'invalid_credentials'], 'distinto de una sesión caducada')
+    assert.deepEqual([r.status, r.body.error], [401, 'invalid_credentials'], 'distinct from an expired session')
   }
   assert.equal((await req('GET', '/api/auth/me')).body.error, 'unauthorized')
-  const login = await req('POST', '/api/auth/login', { username: 'NOA', password: 'contraseña-larga' })
-  assert.equal(login.status, 200, 'usuario sin distinguir mayúsculas')
+  const login = await req('POST', '/api/auth/login', { username: 'NOA', password: 'a-long-password' })
+  assert.equal(login.status, 200, 'username is case-insensitive')
   assert.match(login.headers.get('set-cookie')!, /HttpOnly/)
   assert.match(login.headers.get('set-cookie')!, /SameSite=Lax/)
-  assert.doesNotMatch(login.headers.get('set-cookie')!, /Secure/, 'por HTTP en LAN la cookie no puede ser Secure')
+  assert.doesNotMatch(login.headers.get('set-cookie')!, /Secure/, "over HTTP on a LAN the cookie can't be Secure")
   assert.equal((await req('GET', '/api/auth/me')).body.user.username, 'noa')
   await req('POST', '/api/auth/logout')
   assert.equal((await req('GET', '/api/auth/me')).status, 401)
 })
 
-test('notas por HTTP: leer, crear, escribir con If-Match, mover y borrar', async () => {
+test('notes over HTTP: read, create, write with If-Match, move and delete', async () => {
   const { auth, req } = await setup()
-  await auth.createUser('noa', 'contraseña-larga', 'admin')
-  await req('POST', '/api/auth/login', { username: 'noa', password: 'contraseña-larga' })
+  await auth.createUser('noa', 'a-long-password', 'admin')
+  await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
 
   const tree = await req('GET', '/api/tree')
   assert.ok(tree.body.notes.some((n: { path: string }) => n.path === 'Plan.md'))
@@ -99,10 +99,10 @@ test('notas por HTTP: leer, crear, escribir con If-Match, mover y borrar', async
   assert.equal(plan.headers.get('etag'), `"${plan.body.etag}"`)
 
   const noMatch = await req('PUT', '/api/note?path=Plan.md', { text: 'x' })
-  assert.deepEqual([noMatch.status, noMatch.body.error], [428, 'precondition_required'], 'sin If-Match no se sobrescribe')
-  const stale = await req('PUT', '/api/note?path=Plan.md', { text: 'x' }, { 'if-match': '"sha256:viejo"' })
+  assert.deepEqual([noMatch.status, noMatch.body.error], [428, 'precondition_required'], "without If-Match, nothing is overwritten")
+  const stale = await req('PUT', '/api/note?path=Plan.md', { text: 'x' }, { 'if-match': '"sha256:old"' })
   assert.deepEqual([stale.status, stale.body.error], [412, 'precondition_failed'])
-  assert.equal(stale.body.etag, plan.body.etag, 'el 412 devuelve el ETag actual')
+  assert.equal(stale.body.etag, plan.body.etag, 'the 412 returns the current ETag')
   const put = await req('PUT', '/api/note?path=Plan.md', { text: '# Plan general\n\nNuevo.\n' }, { 'if-match': `"${plan.body.etag}"` })
   assert.equal(put.status, 200)
 
@@ -111,7 +111,7 @@ test('notas por HTTP: leer, crear, escribir con If-Match, mover y borrar', async
   assert.deepEqual(errorOf(await req('GET', '/api/note?path=../fuera.md')), [400, 'invalid_path'])
   assert.deepEqual(errorOf(await req('GET', '/api/note?path=no-existe.md')), [404, 'not_found'])
   const notJson = await req('POST', '/api/note', '{no es json', {}, true)
-  assert.deepEqual(errorOf(notJson), [400, 'invalid'], 'un cuerpo que no es JSON no es un error interno')
+  assert.deepEqual(errorOf(notJson), [400, 'invalid'], "a body that isn't JSON isn't an internal error")
 
   const dry = await req('POST', '/api/note/move', { from: 'hogar/Proxy.md', to: 'hogar/GW.md', dryRun: true })
   assert.ok(dry.body.relinked.length > 0)
@@ -124,10 +124,10 @@ test('notas por HTTP: leer, crear, escribir con If-Match, mover y borrar', async
   assert.equal((await req('POST', `/api/trash/${del.body.id}/restore`, {})).status, 200)
 })
 
-test('enlaces, backlinks con contexto, búsqueda y alertas', async () => {
+test('links, backlinks with context, search and alerts', async () => {
   const { auth, req } = await setup()
-  await auth.createUser('noa', 'contraseña-larga', 'member')
-  await req('POST', '/api/auth/login', { username: 'noa', password: 'contraseña-larga' })
+  await auth.createUser('noa', 'a-long-password', 'member')
+  await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
 
   const links = await req('GET', '/api/note/links?path=diario/2026-09-24.md')
   const tareas = links.body.outgoing.find((l: { raw: string }) => l.raw === '[[Tareas]]')
@@ -138,20 +138,20 @@ test('enlaces, backlinks con contexto, búsqueda y alertas', async () => {
   assert.ok(back.body.backlinks.some((b: { path: string; context: string }) => b.path === 'hogar/enlaces.md' && b.context.includes('[[Proxy#Red]]')))
 
   const alias = await req('GET', '/api/search?q=hipervisor')
-  assert.equal(alias.body.results[0]?.path, 'hogar/Proxy.md', 'los alias se buscan')
+  assert.equal(alias.body.results[0]?.path, 'hogar/Proxy.md', 'aliases are searched too')
   const s = await req('GET', '/api/search?q=cafe')
   assert.ok(s.body.results.some((r: { path: string }) => r.path.normalize('NFC') === 'recetas/Café.md'))
-  assert.ok(s.body.results[0].snippet.includes('\u0002'), 'resaltado con marcas, no HTML')
-  assert.deepEqual((await req('GET', '/api/search?q=' + encodeURIComponent('" OR * NEAR('))).body.results, [], 'la sintaxis FTS5 del usuario no rompe nada')
+  assert.ok(s.body.results[0].snippet.includes('\u0002'), 'highlighted with markers, not HTML')
+  assert.deepEqual((await req('GET', '/api/search?q=' + encodeURIComponent('" OR * NEAR('))).body.results, [], "the user's FTS5 syntax breaks nothing")
 
-  assert.deepEqual(errorOf(await req('POST', '/api/admin/rescan', {})), [403, 'forbidden'], 'un member no es admin')
+  assert.deepEqual(errorOf(await req('POST', '/api/admin/rescan', {})), [403, 'forbidden'], "a member isn't an admin")
 })
 
-test('avisos del espacio: códigos con sus datos y acciones según el rol', async () => {
+test('workspace alerts: codes with their data and actions based on role', async () => {
   const { auth, notesDir, req } = await setup()
-  await auth.createUser('noa', 'contraseña-larga', 'admin')
-  await auth.createUser('ana', 'contraseña-larga', 'member')
-  const as = (username: string) => req('POST', '/api/auth/login', { username, password: 'contraseña-larga' })
+  await auth.createUser('noa', 'a-long-password', 'admin')
+  await auth.createUser('ana', 'a-long-password', 'member')
+  const as = (username: string) => req('POST', '/api/auth/login', { username, password: 'a-long-password' })
   const alerts = async () => (await req('GET', '/api/alerts')).body.alerts as { code: string; [k: string]: unknown }[]
 
   await as('noa')
@@ -164,10 +164,10 @@ test('avisos del espacio: códigos con sus datos y acciones según el rol', asyn
   assert.equal(copy.status, 200)
   assert.match(copy.body.text, /\S/)
   for (const p of ['Plan.md', '../fuera.md', 'proyectos/thoth/Otro.sync-conflict-20260924-120000-ABCDEFG.md']) {
-    assert.deepEqual(errorOf(await req('GET', `/api/conflict?path=${encodeURIComponent(p)}`)), [404, 'not_found'], `solo copias detectadas: ${p}`)
+    assert.deepEqual(errorOf(await req('GET', `/api/conflict?path=${encodeURIComponent(p)}`)), [404, 'not_found'], `only detected copies: ${p}`)
   }
 
-  // Borrado masivo (una carpeta de red sin montar, p. ej.): el escaneo se detiene y avisa.
+  // Mass deletion (e.g. an unmounted network folder): the scan stops and raises an alert.
   for (const d of ['proyectos', 'hogar', 'recetas', 'frontmatter', 'diario', 'uid', 'privado']) rmSync(join(notesDir, d), { recursive: true })
   const aborted = (await req('POST', '/api/admin/rescan', {})).body
   assert.equal(aborted.aborted, 'mass_delete')
@@ -175,25 +175,25 @@ test('avisos del espacio: códigos con sus datos y acciones según el rol', asyn
   assert.deepEqual(scan, { code: 'scan_aborted_mass_delete', ...aborted.massDelete, actions: ['rescan', 'confirm_removal'] })
   assert.ok((scan!.removing as number) > 10 && (scan!.total as number) > (scan!.removing as number))
 
-  // Un member ve el aviso, pero sin acciones, y el servidor también se las niega.
+  // A member sees the alert, but without actions, and the server denies them too.
   await as('ana')
   assert.deepEqual((await alerts())[0], { ...scan, actions: [] })
   assert.deepEqual(errorOf(await req('POST', '/api/admin/rescan', { confirmRemoval: scan!.removing })), [403, 'forbidden'])
 
-  // Confirmar con una cifra que ya no es la del aviso no borra nada.
+  // Confirming with a number that no longer matches the alert deletes nothing.
   await as('noa')
   const stale = (await req('POST', '/api/admin/rescan', { confirmRemoval: (scan!.removing as number) - 1 })).body
   assert.equal(stale.aborted, 'mass_delete')
   const done = (await req('POST', '/api/admin/rescan', { confirmRemoval: scan!.removing })).body
   assert.deepEqual([done.aborted, done.removed.length], [null, scan!.removing])
-  assert.deepEqual(await alerts(), [], 'confirmado, el aviso desaparece (y con las notas, sus conflictos)')
+  assert.deepEqual(await alerts(), [], 'once confirmed, the alert disappears (and its conflicts along with the notes)')
 
   rmSync(notesDir, { recursive: true })
   await req('POST', '/api/admin/rescan', {})
   assert.deepEqual(await alerts(), [{ code: 'scan_aborted_root_unavailable', actions: ['rescan'] }])
 })
 
-test('UI: estáticos, rutas de la aplicación a index.html y la API no cae en la UI', async () => {
+test("UI: static files, app routes serve index.html, and the API doesn't fall through to the UI", async () => {
   const webDir = mkdtempSync(join(tmpdir(), 'thoth-web-'))
   mkdirSync(join(webDir, 'assets'))
   writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
@@ -206,34 +206,34 @@ test('UI: estáticos, rutas de la aplicación a index.html y la API no cae en la
   assert.equal(home.headers.get('cache-control'), 'no-cache')
   const deep = await raw('/cualquier/ruta?note=Plan.md')
   assert.equal(deep.status, 200)
-  assert.match(await deep.text(), /id="root"/, 'las rutas de la aplicación sirven index.html')
+  assert.match(await deep.text(), /id="root"/, 'app routes serve index.html')
   const asset = await raw('/assets/app-abc123.js')
   assert.equal(await asset.text(), 'console.log(1)')
   assert.match(asset.headers.get('cache-control')!, /immutable/)
-  assert.equal((await req('GET', '/api/no-existe')).status, 401, 'la API sigue exigiendo sesión')
-  await auth.createUser('noa', 'contraseña-larga', 'admin')
-  await req('POST', '/api/auth/login', { username: 'noa', password: 'contraseña-larga' })
+  assert.equal((await req('GET', '/api/no-existe')).status, 401, 'the API still requires a session')
+  await auth.createUser('noa', 'a-long-password', 'admin')
+  await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
   const missing = await req('GET', '/api/no-existe')
-  assert.deepEqual([missing.status, missing.body.error], [404, 'not_found'], 'una ruta de API desconocida no devuelve la UI')
+  assert.deepEqual([missing.status, missing.body.error], [404, 'not_found'], "an unknown API route doesn't return the UI")
 })
 
-test('CSRF: se rechaza una escritura desde otro origen', async () => {
+test('CSRF: a write from another origin is rejected', async () => {
   const { auth, req } = await setup()
-  await auth.createUser('noa', 'contraseña-larga', 'admin')
-  await req('POST', '/api/auth/login', { username: 'noa', password: 'contraseña-larga' })
-  const r = await req('POST', '/api/note', { path: 'x.md', text: 'x' }, { origin: 'https://malicioso.example' })
+  await auth.createUser('noa', 'a-long-password', 'admin')
+  await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
+  const r = await req('POST', '/api/note', { path: 'x.md', text: 'x' }, { origin: 'https://malicious.example' })
   assert.equal(r.status, 403)
   const same = await req('POST', '/api/note', { path: 'x.md', text: 'x' }, { origin: 'http://localhost' })
   assert.equal(same.status, 201)
 })
 
-test('ftsQuery: términos entrecomillados y prefijo en el último', () => {
+test('ftsQuery: quoted terms and a prefix on the last one', () => {
   assert.equal(ftsQuery('café con leche'), '"café" "con" "leche"*')
   assert.equal(ftsQuery('" OR *'), '"OR"*')
   assert.equal(ftsQuery('   '), null)
 })
 
-test('state.db: migraciones, copia antes de migrar y rechazo de versiones futuras', () => {
+test('state.db: migrations, a copy before migrating, and rejecting future versions', () => {
   const dir = mkdtempSync(join(tmpdir(), 'thoth-state-'))
   const file = join(dir, 'state.db')
   openState(file).close()
@@ -241,8 +241,8 @@ test('state.db: migraciones, copia antes de migrar y rechazo de versiones futura
   assert.equal(raw.pragma('user_version', { simple: true }), STATE_VERSION)
   raw.pragma(`user_version = ${STATE_VERSION + 1}`)
   raw.close()
-  assert.throws(() => openState(file), /más nueva/)
-  // Simula una base de una versión anterior con datos: debe copiarse antes de migrar.
+  assert.throws(() => openState(file), /newer than/)
+  // Simulates a database from an older version with data: it must be copied before migrating.
   const old = join(dir, 'old.db')
   copyFileSync(file, old)
   const r = new Database(old)
@@ -250,5 +250,5 @@ test('state.db: migraciones, copia antes de migrar y rechazo de versiones futura
   r.pragma('user_version = 0')
   r.close()
   openState(old).close()
-  assert.ok(!existsSync(old + '.bak-v0'), 'una base vacía (v0) no necesita copia')
+  assert.ok(!existsSync(old + '.bak-v0'), "an empty database (v0) doesn't need a copy")
 })

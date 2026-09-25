@@ -13,7 +13,7 @@ function tmp(name: string) {
   return mkdtempSync(join(tmpdir(), `thoth-${name}-`))
 }
 
-/** Copia del vault en un directorio temporal, con su índice. */
+/** Copy of the vault in a temp directory, with its index. */
 function setup(name: string) {
   const dir = tmp(name)
   const notes = join(dir, 'notes')
@@ -34,14 +34,14 @@ const link = (db: Db, src: string, raw: string) =>
   db.prepare('select status, dst_path, via, anchor_ok, candidates from links where src_path = ? and raw = ?').get(src, raw) as
     { status: string; dst_path: string | null; via: string | null; anchor_ok: number | null; candidates: string | null }
 
-test('indexa el vault: notas, ignorados, conflictos y enlaces', () => {
+test('indexes the vault: notes, ignored files, conflicts and links', () => {
   const { db, indexer } = setup('full')
   const r = indexer.scan()
   assert.equal(r.aborted, null)
   const paths = (db.prepare('select path from notes order by path').all() as { path: string }[]).map((x) => x.path)
   assert.ok(paths.includes('Plan.md'))
   assert.ok(!paths.some((p) => p.includes('.obsidian') || p.includes('.trash') || p.includes('sync-conflict') || p.endsWith('~') || p.includes('.nfs')))
-  assert.ok(!paths.some((p) => !p.endsWith('.md')), 'adjuntos fuera')
+  assert.ok(!paths.some((p) => !p.endsWith('.md')), 'attachments excluded')
   assert.deepEqual(db.prepare('select path, kind from alerts').all(), [{ path: 'proyectos/thoth/Plan.sync-conflict-20260924-120000-ABCDEFG.md', kind: 'sync_conflict' }])
 
   assert.deepEqual(link(db, 'diario/2026-09-24.md', '[[Plan]]'), { status: 'resolved', dst_path: 'Plan.md', via: 'path', anchor_ok: null, candidates: null })
@@ -59,14 +59,14 @@ test('indexa el vault: notas, ignorados, conflictos y enlaces', () => {
   assert.equal(title('frontmatter/vacia.md'), 'vacia')
 })
 
-test('búsqueda de texto completo sin tildes', () => {
+test('full-text search without accents', () => {
   const { db, indexer } = setup('fts')
   indexer.scan()
   const hits = db.prepare("select path from notes_fts where notes_fts match 'cafe' order by path").all() as { path: string }[]
   assert.ok(hits.some((h) => h.path.normalize('NFC') === 'recetas/Café.md'))
 })
 
-test('el indexador nunca escribe en las notas', () => {
+test('the indexer never writes to the notes', () => {
   const { notes, indexer } = setup('readonly')
   const snapshot = () => readdirSync(notes, { recursive: true }).map(String).sort()
     .map((p) => { const s = statSync(join(notes, p)); return s.isFile() ? `${p}:${s.mtimeMs}:${s.size}` : p })
@@ -76,19 +76,19 @@ test('el indexador nunca escribe en las notas', () => {
   assert.deepEqual(snapshot(), before)
 })
 
-test('reconstruir dos veces da un índice idéntico', () => {
+test('rebuilding twice gives an identical index', () => {
   const { notes } = setup('determinism')
   assert.equal(freshDump(notes), freshDump(notes))
 })
 
-test('incremental = reconstrucción desde cero', () => {
+test('incremental = rebuild from scratch', () => {
   const { notes, db, indexer } = setup('incremental')
   indexer.scan()
-  // Cambios que mueven resoluciones de enlaces:
-  rmSync(join(notes, 'hogar/Red.md')) // [[Red]] pasa a resolver por alias a Firewall.md
-  writeFileSync(join(notes, 'proyectos/Tareas.md'), '# Tareas generales\n') // [[Tareas]] deja de ser ambiguo
-  writeFileSync(join(notes, 'hogar/Proxy.md'), '---\naliases: [gw]\n---\n# Proxy\n\n## No existe\n') // el ancla rota pasa a existir
-  renameSync(join(notes, 'proyectos/blog/Plan.md'), join(notes, 'proyectos/blog/Plan antiguo.md')) // [[blog/Plan]] se rompe
+  // Changes that shift link resolutions:
+  rmSync(join(notes, 'hogar/Red.md')) // [[Red]] now resolves via alias to Firewall.md
+  writeFileSync(join(notes, 'proyectos/Tareas.md'), '# Tareas generales\n') // [[Tareas]] is no longer ambiguous
+  writeFileSync(join(notes, 'hogar/Proxy.md'), '---\naliases: [gw]\n---\n# Proxy\n\n## No existe\n') // the broken anchor now exists
+  renameSync(join(notes, 'proyectos/blog/Plan.md'), join(notes, 'proyectos/blog/Plan antiguo.md')) // [[blog/Plan]] breaks
   const r = indexer.scan()
   assert.deepEqual(r.removed.sort(), ['hogar/Red.md', 'proyectos/blog/Plan.md'])
   assert.equal(link(db, 'hogar/enlaces.md', '[[Red]]').dst_path, 'hogar/Firewall.md')
@@ -98,7 +98,7 @@ test('incremental = reconstrucción desde cero', () => {
   assert.equal(dumpIndex(db), freshDump(notes))
 })
 
-test('indexPaths (watcher) = reconstrucción desde cero', () => {
+test('indexPaths (watcher) = rebuild from scratch', () => {
   const { notes, db, indexer } = setup('paths')
   indexer.scan()
   writeFileSync(join(notes, 'diario/nueva.md'), '# Nueva\n\n[[Tareas]] #diario\n')
@@ -109,11 +109,11 @@ test('indexPaths (watcher) = reconstrucción desde cero', () => {
   assert.equal(dumpIndex(db), freshDump(notes))
 })
 
-test('un cambio solo de mtime no reindexa; uno de contenido sí', () => {
+test("a change to just mtime doesn't reindex; a content change does", () => {
   const { notes, db, indexer } = setup('mtime')
   indexer.scan()
   const file = join(notes, 'Plan.md')
-  writeFileSync(file, readFileSync(file, 'utf8')) // mismo contenido, mtime nuevo
+  writeFileSync(file, readFileSync(file, 'utf8')) // same content, new mtime
   let r = indexer.scan()
   assert.deepEqual([r.changed, r.added, r.removed], [[], [], []])
   assert.equal((db.prepare('select mtime_ms from notes where path = ?').get('Plan.md') as { mtime_ms: number }).mtime_ms, statSync(file).mtimeMs)
@@ -122,7 +122,7 @@ test('un cambio solo de mtime no reindexa; uno de contenido sí', () => {
   assert.deepEqual(r.changed, ['Plan.md'])
 })
 
-test('guarda contra borrados masivos y raíz no disponible', () => {
+test('guards against mass deletion and an unavailable root', () => {
   const { notes, db, indexer } = setup('massdelete')
   indexer.scan()
   const count = () => (db.prepare('select count(*) n from notes').get() as { n: number }).n
@@ -130,10 +130,10 @@ test('guarda contra borrados masivos y raíz no disponible', () => {
   for (const d of ['proyectos', 'hogar', 'recetas', 'frontmatter', 'diario', 'uid', 'privado']) rmSync(join(notes, d), { recursive: true })
   const r = indexer.scan()
   assert.equal(r.aborted, 'mass_delete')
-  assert.equal(count(), before, 'no se borra nada sin confirmación')
+  assert.equal(count(), before, 'nothing is deleted without confirmation')
   assert.deepEqual(r.massDelete, { removing: r.massDelete!.removing, total: before })
   assert.ok(r.massDelete!.removing > 10)
-  // La confirmación vale para lo que se vio en el aviso: si cambió, se vuelve a detener.
+  // The confirmation is only valid for what was seen in the alert: if it changed, it stops again.
   const stale = indexer.scan({ confirmRemoval: r.massDelete!.removing + 1 })
   assert.equal(stale.aborted, 'mass_delete')
   assert.equal(count(), before)
@@ -145,14 +145,14 @@ test('guarda contra borrados masivos y raíz no disponible', () => {
   assert.equal(gone.scan().aborted, 'root_unavailable')
 })
 
-test('force salta la guarda de borrados masivos', () => {
+test('force skips the mass-deletion guard', () => {
   const { notes, indexer } = setup('massdelete-force')
   indexer.scan()
   for (const d of ['proyectos', 'hogar', 'recetas', 'frontmatter', 'diario', 'uid', 'privado']) rmSync(join(notes, d), { recursive: true })
   assert.ok(indexer.scan({ force: true }).removed.length > 10)
 })
 
-test('un subdirectorio ilegible no da por borradas sus notas', { skip: process.getuid?.() === 0 }, () => {
+test("an unreadable subdirectory doesn't get its notes treated as deleted", { skip: process.getuid?.() === 0 }, () => {
   const { notes, db, indexer } = setup('unreadable')
   indexer.scan()
   chmodSync(join(notes, 'hogar'), 0o000)
@@ -165,7 +165,7 @@ test('un subdirectorio ilegible no da por borradas sus notas', { skip: process.g
   }
 })
 
-test('un cambio de versión de esquema reconstruye el índice', () => {
+test('a schema version change rebuilds the index', () => {
   const file = join(tmp('schema'), 'index.db')
   const raw = new Database(file)
   raw.exec("create table meta (key text primary key, value text); insert into meta values ('schema_version', '0'); create table basura (x)")

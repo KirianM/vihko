@@ -23,12 +23,12 @@ function setup() {
   return { dir, notesDir, db, indexer, notes, body, dst }
 }
 
-test('renombrar reescribe wikilinks (con ancla) y enlaces Markdown, y deja los que siguen valiendo', async () => {
+test('renaming rewrites wikilinks (with an anchor) and Markdown links, and leaves the still-valid ones alone', async () => {
   const { notes, body, dst } = setup()
   const r = await notes.move('hogar/Proxy.md', 'hogar/Hipervisor Proxy.md', { actor: me })
   assert.deepEqual(r.failed, [])
   const t = body('hogar/enlaces.md')
-  assert.ok(t.includes('- [[gw]] resuelve por alias'), 'el alias sigue valiendo: no se toca')
+  assert.ok(t.includes('- [[gw]] resuelve por alias'), "the alias still works: it's left alone")
   assert.ok(t.includes('[[Hipervisor Proxy#Red]]'))
   assert.ok(t.includes('[[Hipervisor Proxy#No existe]]'))
   assert.ok(t.includes('[Proxy en Markdown](Hipervisor%20Proxmox.md)'))
@@ -36,11 +36,11 @@ test('renombrar reescribe wikilinks (con ancla) y enlaces Markdown, y deja los q
   assert.equal(dst('hogar/enlaces.md', '[Proxy en Markdown](Hipervisor%20Proxmox.md)'), 'hogar/Hipervisor Proxy.md')
 })
 
-test('mover a otra carpeta usa el sufijo más corto que no sea ambiguo y conserva texto visible y embeds', async () => {
+test('moving to another folder uses the shortest unambiguous suffix and keeps visible text and embeds', async () => {
   const { notes, body, dst } = setup()
   await notes.move('proyectos/thoth/Plan.md', 'archivo/Plan.md', { actor: me })
   const t = body('proyectos/thoth/notas.md')
-  // Desde proyectos/thoth/, [[Plan]] ahora iría a proyectos/blog/Plan.md: hay que desambiguar.
+  // From proyectos/thoth/, [[Plan]] would now go to proyectos/blog/Plan.md: it needs disambiguating.
   assert.ok(t.includes('- [[archivo/Plan]] resuelve'))
   assert.ok(t.includes('- [[archivo/Plan|el plan]]'))
   assert.ok(t.includes('- ![[archivo/Plan]]'))
@@ -48,20 +48,20 @@ test('mover a otra carpeta usa el sufijo más corto que no sea ambiguo y conserv
   assert.ok(body('hogar/enlaces.md').includes('[Plan de thoth](../archivo/Plan.md)'))
 })
 
-test('un renombrado no "roba" enlaces de otras notas; si hace falta, ruta absoluta', async () => {
+test('a rename doesn\'t "steal" links from other notes; an absolute path is used if needed', async () => {
   const { notes, body, dst } = setup()
-  // [[Plan]] en diario/ resuelve a Plan.md de la raíz. Al traer un Plan.md a diario/, pasaría a apuntar a él.
+  // [[Plan]] in diario/ resolves to the root Plan.md. Bringing a Plan.md into diario/ would make it point there instead.
   const r = await notes.move('proyectos/blog/Plan.md', 'diario/Plan.md', { actor: me })
   assert.ok(r.relinked.some((x) => x.path === 'diario/2026-09-24.md'))
-  assert.ok(body('diario/2026-09-24.md').includes('- [[/Plan]] resuelve'), 'la raíz solo se alcanza con ruta absoluta')
+  assert.ok(body('diario/2026-09-24.md').includes('- [[/Plan]] resuelve'), 'the root is only reached with an absolute path')
   assert.equal(dst('diario/2026-09-24.md', '[[/Plan]]'), 'Plan.md')
-  // [[proyectos/blog/Plan]] y [[blog/Plan]] apuntaban a la nota movida: pasan a la forma más corta.
+  // [[proyectos/blog/Plan]] and [[blog/Plan]] pointed to the moved note: they switch to the shortest form.
   assert.ok(body('diario/2026-09-24.md').includes('- [[Plan]] ruta parcial'))
   assert.ok(body('diario/2026-09-24.md').includes('- [[Plan]] sufijo de ruta'))
   assert.equal(dst('diario/2026-09-24.md', '[[Plan]]'), 'diario/Plan.md')
 })
 
-test('los enlaces de la propia nota movida siguen apuntando a lo mismo', async () => {
+test("the moved note's own links keep pointing to the same thing", async () => {
   const { notes, body, dst } = setup()
   await notes.move('proyectos/thoth/notas.md', 'ideas/notas thoth.md', { actor: me })
   const t = body('ideas/notas thoth.md')
@@ -87,7 +87,7 @@ test('the preview details every link that changes and those that keep working un
   assert.ok(!m.relinked.some((x) => x.changes.some((c) => c.before === '[[Proxy#Red]]')))
 })
 
-test('dryRun no toca nada; destino existente e if_match viejo se rechazan', async () => {
+test('dryRun changes nothing; an existing destination and a stale if_match are rejected', async () => {
   const { notesDir, db, notes } = setup()
   const snapshot = dumpIndex(db)
   const r = await notes.move('hogar/Proxy.md', 'hogar/GW.md', { actor: me, dryRun: true })
@@ -97,10 +97,10 @@ test('dryRun no toca nada; destino existente e if_match viejo se rechazan', asyn
   assert.equal(dumpIndex(db), snapshot)
   await assert.rejects(notes.move('hogar/Proxy.md', '../fuera.md', { actor: me, dryRun: true }), (e: NoteError) => e.code === 'invalid_path')
   await assert.rejects(notes.move('hogar/Proxy.md', 'hogar/Red.md', { actor: me }), (e: NoteError) => e.code === 'exists')
-  await assert.rejects(notes.move('hogar/Proxy.md', 'x.md', { actor: me, ifMatch: 'sha256:malo' }), (e: NoteError) => e.code === 'precondition_failed')
+  await assert.rejects(notes.move('hogar/Proxy.md', 'x.md', { actor: me, ifMatch: 'sha256:bad' }), (e: NoteError) => e.code === 'precondition_failed')
 })
 
-test('si una reescritura falla, el nombre antiguo queda como alias (D-018)', { skip: process.getuid?.() === 0 }, async () => {
+test('if a rewrite fails, the old name is kept as an alias', { skip: process.getuid?.() === 0 }, async () => {
   const { notesDir, indexer, notes, dst } = setup()
   const { mkdirSync, writeFileSync } = await import('node:fs')
   mkdirSync(join(notesDir, 'otra'))
@@ -115,13 +115,13 @@ test('si una reescritura falla, el nombre antiguo queda como alias (D-018)', { s
     assert.equal(r.aliasAdded, 'Destino')
     assert.deepEqual(readFrontmatter(readFileSync(join(notesDir, 'otra/Nuevo nombre.md'), 'utf8')).data.aliases, ['Destino'])
     assert.equal(readFileSync(join(notesDir, 'bloqueada/enlaza.md'), 'utf8'), '[[Destino]]\n')
-    assert.equal(dst('bloqueada/enlaza.md', '[[Destino]]'), 'otra/Nuevo nombre.md', 'el enlace no reescrito sigue resolviendo por alias')
+    assert.equal(dst('bloqueada/enlaza.md', '[[Destino]]'), 'otra/Nuevo nombre.md', 'the unrewritten link still resolves via the alias')
   } finally {
     chmodSync(join(notesDir, 'bloqueada'), 0o755)
   }
 })
 
-test('si no se puede retirar el origen, no queda la nota duplicada', { skip: process.getuid?.() === 0 }, async () => {
+test("if the source can't be removed, the note isn't left duplicated", { skip: process.getuid?.() === 0 }, async () => {
   const { notesDir, notes } = setup()
   chmodSync(join(notesDir, 'recetas'), 0o555)
   try {

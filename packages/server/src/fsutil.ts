@@ -9,7 +9,7 @@ import { contentHash } from '@thoth/core'
 let counter = 0
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-/** Contenido del archivo, o null si no existe. */
+/** File contents, or null if it doesn't exist. */
 export function readText(file: string): string | null {
   try {
     return readFileSync(file, 'utf8')
@@ -20,9 +20,9 @@ export function readText(file: string): string | null {
 }
 
 /**
- * Lectura de un archivo que otro proceso puede estar escribiendo: solo se acepta
- * cuando dos lecturas seguidas coinciden. Si parece un vaciado masivo respecto a
- * `reference`, se exige más estabilidad.
+ * Reads a file that another process may be writing to: only accepted once two
+ * consecutive reads match. If it looks like a mass truncation relative to
+ * `reference`, more stability is required.
  */
 export async function readStable(file: string, reference?: string | null, gap = 60): Promise<string | null> {
   let a = readText(file)
@@ -41,7 +41,7 @@ function fsyncDir(dir: string) {
   try { fsyncSync(fd) } finally { closeSync(fd) }
 }
 
-/** Escribe y sincroniza un temporal oculto en el mismo directorio (lo ignora el indexador). */
+/** Writes and syncs a hidden temp file in the same directory (the indexer ignores it). */
 export function writeTmp(file: string, text: string): string {
   const tmp = join(dirname(file), `.${basename(file)}.thoth-${process.pid}-${counter++}`)
   const fd = openSync(tmp, 'wx')
@@ -56,29 +56,30 @@ export function writeTmp(file: string, text: string): string {
 
 export type CommitResult =
   | { ok: true }
-  /** El archivo no tenía el hash esperado: no se ha escrito nada. */
+  /** The file didn't have the expected hash: nothing was written. */
   | { ok: false; current: string | null }
 
 export type ReplaceResult =
-  /** El archivo no tenía el hash esperado: no se ha escrito nada. `current` es lo que hay. */
+  /** The file didn't have the expected hash: nothing was written. `current` is what's there. */
   | { replaced: false; current: string | null }
   /**
-   * Escrito. `rescued` es lo que un editor escribió in situ durante la ventana del
-   * rename y nuestro rename reemplazó (null si nada): quien llama decide qué hacer.
+   * Written. `rescued` is what an editor wrote in place during the rename
+   * window and our rename overwrote (null if nothing): the caller decides what to do.
    */
   | { replaced: true; rescued: string | null }
 
 /**
- * Sustituye `file` por `text` si su contenido actual tiene `expectedHash`, o lo
- * crea si `expectedHash` es null y no existe. Antes del rename se hace un enlace
- * duro al archivo previo para rescatar escrituras in situ que caigan en la ventana.
+ * Replaces `file` with `text` if its current content has `expectedHash`, or
+ * creates it if `expectedHash` is null and it doesn't exist. Before the rename,
+ * a hard link to the previous file is made to rescue in-place writes that land
+ * in the window.
  */
 export async function replaceText(file: string, text: string, expectedHash: string | null): Promise<ReplaceResult> {
   const tmp = writeTmp(file, text)
   try {
     if (expectedHash === null) {
       try {
-        linkSync(tmp, file) // link() falla si el destino ya existe: crear sin pisar
+        linkSync(tmp, file) // link() fails if the target already exists: create without overwriting
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === 'EEXIST') return { replaced: false, current: readText(file) }
         throw err
@@ -92,7 +93,7 @@ export async function replaceText(file: string, text: string, expectedHash: stri
     linkSync(file, prev)
     renameSync(tmp, file)
     fsyncDir(dirname(file))
-    const old = await readStable(prev) // el editor puede seguir escribiendo en el inodo antiguo
+    const old = await readStable(prev) // the editor may keep writing to the old inode
     rmSync(prev, { force: true })
     return { replaced: true, rescued: old !== null && contentHash(old) !== expectedHash ? old : null }
   } finally {
@@ -101,9 +102,8 @@ export async function replaceText(file: string, text: string, expectedHash: stri
 }
 
 /**
- * Como replaceText, pero si un editor escribió en la ventana se restaura su
- * versión y se informa como conflicto: para escrituras puntuales (API) que no
- * pueden fusionar.
+ * Like replaceText, but if an editor wrote during the window, its version is
+ * restored and reported as a conflict: for one-off writes (API) that can't merge.
  */
 export async function commitText(file: string, text: string, expectedHash: string | null): Promise<CommitResult> {
   const r = await replaceText(file, text, expectedHash)

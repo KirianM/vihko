@@ -1,9 +1,9 @@
 #!/usr/bin/env -S node --no-experimental-webstorage
-// thoth serve                          arranca el servidor
-// thoth user create <nombre> [--admin] crea un usuario; la contraseña se lee de stdin
+// thoth serve                         starts the server
+// thoth user create <name> [--admin]  creates a user; the password is read from stdin
 //
-// Sin Web Storage: el servidor no lo usa y lib0 (Yjs) lo sondea al importarse, lo que en
-// Node 26 imprime un ExperimentalWarning en cada arranque.
+// No Web Storage: the server doesn't use it, and lib0 (Yjs) probes for it on import,
+// which on Node 26 prints an ExperimentalWarning on every startup.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { Auth, AuthError } from './auth.ts'
@@ -25,18 +25,18 @@ async function main(argv: string[]) {
     return
   }
   if (cmd === 'user' && sub === 'create' && rest[0]) {
-    mkdirSync(config.stateDir, { recursive: true }) // puede ser lo primero que se ejecute en una instalación nueva
+    mkdirSync(config.stateDir, { recursive: true }) // may be the first thing that runs on a new install
     const state = openState(join(config.stateDir, 'state.db'))
     try {
-      if (process.stdin.isTTY) process.stderr.write('contraseña (se lee de stdin; termina con Ctrl-D): ')
+      if (process.stdin.isTTY) process.stderr.write('password (read from stdin; end with Ctrl-D): ')
       const user = await new Auth(state).createUser(rest[0], await readStdin(), rest.includes('--admin') ? 'admin' : 'member')
-      console.log(`usuario creado: ${user.username} (${user.role})`)
+      console.log(`user created: ${user.username} (${user.role})`)
     } finally {
       state.close()
     }
     return
   }
-  console.error('uso: thoth serve | thoth user create <nombre> [--admin]')
+  console.error('usage: thoth serve | thoth user create <name> [--admin]')
   process.exit(2)
 }
 
