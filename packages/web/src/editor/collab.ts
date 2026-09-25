@@ -83,17 +83,18 @@ export function useCollab(path: string): CollabState {
       if (status === 'disconnected') set({ connection: 'offline' })
       else if (status === 'connected' && provider.isSynced) set({ connection: 'online' })
     })
-    // After a move or trash, the hub closes the document on its side. Drop the
-    // provider from the shared socket: otherwise destroying it sends a close that
-    // Hocuspocus queues and applies to the next opening of the same path on this
-    // socket (restoring it), which would be left disconnected without a word.
+    // After a move, a trash or a discarded orphan copy, the hub closes the
+    // document on its side. Drop the provider from the shared socket: otherwise
+    // destroying it sends a close that Hocuspocus queues and applies to the next
+    // opening of the same path on this socket (restoring or recreating it), which
+    // would be left disconnected without a word.
     const forget = () => { sharedSocket().configuration.providerMap.delete(provider.effectiveName) }
     provider.on('stateless', ({ payload }: { payload: string }) => {
-      let msg: { type?: string; etag?: string; to?: string; id?: string; by?: string }
+      let msg: { type?: string; etag?: string; to?: string; id?: string; by?: string; action?: string }
       try { msg = JSON.parse(payload) } catch { return }
       if (msg.type === SAVED && msg.etag) { savedHash = msg.etag; void recheck() }
       else if (msg.type === ORPHANED) set({ orphaned: true })
-      else if (msg.type === ORPHAN_RESOLVED) set({ orphaned: false })
+      else if (msg.type === ORPHAN_RESOLVED) { if (msg.action === 'discard') forget(); set({ orphaned: false }) }
       else if (msg.type === MOVED && msg.to) { forget(); set({ moved: msg.to }) }
       else if (msg.type === TRASHED && msg.id) { forget(); set({ trashed: { id: msg.id, by: msg.by ?? '' } }) }
     })
