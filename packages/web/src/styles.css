@@ -22,6 +22,8 @@ body {
 a { color: var(--accent); }
 a:hover { color: var(--accent-strong); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Pressed states come from the components; no extra browser highlight on tap. */
+html { -webkit-tap-highlight-color: transparent; }
 
 /* --- Buttons (Button component from the design system) ------------------ */
 .btn {
@@ -117,8 +119,10 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 
 .main { flex-grow: 1; min-width: 0; display: flex; flex-direction: column; }
 .main-head { height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 20px 0 28px; border-bottom: 1px solid var(--line); }
-.crumbs { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.crumbs b { color: var(--ink); font-weight: 500; font-size: 14px; }
+/* The folders give way before the name when the header runs out of room. */
+.crumbs { display: flex; align-items: baseline; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.crumbs-path { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.crumbs b { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font-weight: 500; font-size: 14px; }
 .spacer { flex-grow: 1; }
 .note { flex-grow: 1; overflow: auto; padding: 36px 56px 48px var(--space-18); }
 .note:has(.editor) { padding: 0; }
@@ -175,6 +179,32 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .palette-chip { font-size: 13px; border: 1px solid var(--line); border-radius: var(--radius-md); padding: 5px 10px; white-space: nowrap; }
 .palette-foot { display: flex; gap: var(--space-4); padding: 10px 18px; border-top: 1px solid var(--line); font-size: 12px; line-height: 16px; color: var(--faint); }
 .mobile-only { display: none; }
+
+/* --- Phone: folder drawer and editor bar -------------------------------------- */
+.drawer-overlay { position: fixed; inset: 0; z-index: 90; background: var(--scrim); }
+.drawer { position: absolute; top: 0; bottom: 0; left: 0; width: calc(320px + env(safe-area-inset-left)); max-width: calc(100% - var(--space-12)); background: var(--side); box-shadow: var(--shadow-dialog); outline: none; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.drawer-dialog { height: 100%; display: flex; flex-direction: column; min-height: 0; outline: none; }
+.drawer .btn-icon { border: none; }
+.drawer .sidebar-head { height: 60px; flex-shrink: 0; gap: 6px; padding: 0 8px 0 18px; }
+.drawer .brand span { font-size: 22px; }
+.drawer .sidebar-tree { padding: var(--space-2); }
+.drawer .tree-row { height: var(--touch); font-size: 16px; }
+.drawer .tree-chevron { height: var(--touch); }
+.drawer-foot { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); }
+.drawer-foot .btn-primary { width: 100%; font-size: 15px; border-radius: 10px; }
+.drawer-foot .sidebar-alerts { margin: 0; min-height: var(--touch); font-size: 14px; border-radius: 10px; }
+.drawer .sidebar-user { flex-shrink: 0; padding: 0 8px 0 18px; }
+@media (prefers-reduced-motion: no-preference) {
+  .drawer-overlay[data-entering] { animation: fade-in 160ms ease-out; }
+  .drawer[data-entering] { animation: slide-in 200ms ease-out; }
+}
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes slide-in { from { transform: translateX(-100%); } }
+
+.editor-bar { flex-shrink: 0; display: flex; align-items: center; gap: var(--space-1); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); padding-left: calc(8px + env(safe-area-inset-left)); padding-right: calc(8px + env(safe-area-inset-right)); border-top: 1px solid var(--line); background: var(--side); }
+.bar-btn { width: var(--touch); height: var(--touch); border: none; font-size: 16px; font-weight: 600; }
+.bar-hash { font-size: 18px; }
+.editor-bar .status { padding-right: var(--space-2); }
 /* Workspace alerts */
 .sidebar-alerts[aria-current] { outline: 1px solid var(--warn-line); }
 .alerts-page { flex-grow: 1; overflow: auto; padding: 40px var(--space-18) var(--space-12); display: flex; flex-direction: column; gap: 18px; }
@@ -199,8 +229,19 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 @media (max-width: 760px) {
   .sidebar { display: none; }
   .mobile-only { display: inline-flex; }
+  /* The visible viewport (set from JS; see mobile.ts): the keyboard doesn't cover the bottom. */
+  .shell { position: fixed; left: 0; right: 0; top: var(--app-top, 0px); height: var(--app-height, 100dvh); }
+  .main-head { height: 56px; flex-shrink: 0; gap: var(--space-1); padding: env(safe-area-inset-top) calc(6px + env(safe-area-inset-right)) 0 calc(6px + env(safe-area-inset-left)); box-sizing: content-box; }
+  .main-head > .spacer, .main-head .theme-toggle { display: none; }
+  .main-head .crumbs { flex: 1 1 auto; flex-direction: column; align-items: stretch; padding-left: var(--space-1); }
+  .main-head .crumbs-path { font-size: 11px; line-height: 14px; }
+  .main-head .crumbs-sep { display: none; }
+  .main-head .crumbs b { font-size: 15px; line-height: 20px; font-weight: 600; }
+  .main-head .presence { margin: 0 var(--space-1); }
+  .main-head .btn-icon { border: none; }
+  .palette-overlay { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
   /* Full-screen palette (mobile search) */
-  .palette-overlay { padding: 0; background: var(--surface); }
+  .palette-overlay { background: var(--surface); }
   .palette { width: 100%; height: 100%; border: none; border-radius: 0; box-shadow: none; }
   .palette-dialog { height: 100%; max-height: none; }
   .palette-head { gap: 6px; padding: 10px 8px 10px 14px; }
@@ -214,7 +255,6 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
   .palette-item { min-height: var(--touch); padding: 12px; }
   .palette-create { color: var(--accent); gap: 10px; }
   .note { padding: var(--space-6) var(--space-4); }
-  .main-head { padding: 0 8px 0 16px; }
   .alerts-page { padding: var(--space-6) var(--space-4); }
   .alerts-page h1 { font-size: 28px; line-height: 34px; }
   .alert-card { flex-wrap: wrap; padding: var(--space-4); }

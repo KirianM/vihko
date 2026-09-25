@@ -5,7 +5,8 @@ import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { Button } from 'react-aria-components'
 import { ApiError, api, type Alert } from './api.ts'
 import { errorText, useT } from './i18n.tsx'
-import { ThemeToggle } from './ui.tsx'
+import { MenuButton, ThemeToggle } from './ui.tsx'
+import { SearchButton } from './Palette.tsx'
 
 const svg = (children: ReactNode) => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">{children}</svg>
@@ -145,7 +146,9 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
   return (
     <>
       <header className="main-head">
+        <MenuButton />
         <span className="spacer" />
+        <SearchButton />
         <ThemeToggle />
       </header>
       <div className="alerts-page">

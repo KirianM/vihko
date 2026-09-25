@@ -1,0 +1,192 @@
+// Phone layout (390×844, touch): the folder drawer, the note header, the
+// editor bar, the side panel as a sheet, alerts, palette, theme and sign out.
+import { expect, test, type Page } from '@playwright/test'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { E2E_DIR, NOTES, PASSWORD } from './env.ts'
+
+const DIR = `${NOTES}/movil`
+const NOTE = 'movil/Una nota con un nombre bastante largo.md'
+const FILE = `${NOTES}/${NOTE}`
+const SHOTS = `${E2E_DIR}/shots`
+
+test.describe.configure({ mode: 'serial' })
+
+test.beforeAll(() => {
+  mkdirSync(DIR, { recursive: true })
+  mkdirSync(SHOTS, { recursive: true })
+  writeFileSync(FILE, '# Nota del móvil\n\nPrimera línea.\n')
+  // Two notes with the same uid: a workspace alert, reachable from the drawer.
+  writeFileSync(`${DIR}/Gemela A.md`, '---\nuid: E2E-MOVIL\n---\n# A\n')
+  writeFileSync(`${DIR}/Gemela B.md`, '---\nuid: E2E-MOVIL\n---\n# B\n')
+})
+// The note stays (deleting a note that was just open would leave a pending copy); the alert goes.
+test.afterAll(() => { for (const f of ['Gemela A.md', 'Gemela B.md']) rmSync(`${DIR}/${f}`, { force: true }) })
+
+const drawer = (page: Page) => page.getByRole('dialog', { name: 'Carpetas' })
+const noHorizontalScroll = (page: Page) =>
+  expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+
+async function signIn(page: Page) {
+  await page.goto('/')
+  await page.getByLabel('Nombre de usuario').fill('noa')
+  await page.getByLabel('Contraseña').fill(PASSWORD)
+  await page.getByRole('button', { name: 'Entrar' }).last().tap()
+}
+
+let page: Page
+test.beforeAll(async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: 'es-ES' })
+  page = await ctx.newPage()
+})
+test.afterAll(async () => { await page.context().close() })
+
+test('no sidebar; with nothing open the folder drawer is the first screen', async () => {
+  await signIn(page)
+  await expect(drawer(page)).toBeVisible()
+  await expect(page.locator('nav.sidebar')).toHaveCount(0)
+  await expect(drawer(page).getByRole('treegrid', { name: 'Carpetas' })).toBeVisible()
+  await expect(drawer(page).getByRole('button', { name: 'Nueva nota' })).toBeVisible()
+  await expect(drawer(page).getByRole('button', { name: 'Cerrar sesión' })).toBeVisible()
+  // Touch targets: tree rows and buttons at least 44px tall.
+  const row = await drawer(page).getByRole('row').first().boundingBox()
+  expect(row!.height).toBeGreaterThanOrEqual(44)
+  await noHorizontalScroll(page)
+  await page.screenshot({ path: `${SHOTS}/mobile-drawer-light.png`, animations: 'disabled' })
+})
+
+test('open a note from the tree: the drawer closes and the header shows the full name', async () => {
+  await drawer(page).getByRole('row', { name: 'movil' }).tap()
+  await drawer(page).getByRole('row', { name: 'Una nota con un nombre bastante largo' }).tap()
+  await expect(drawer(page)).toHaveCount(0)
+  await expect(page.locator('.cm-content')).toBeVisible()
+  await expect(page).toHaveURL(/\?note=movil%2FUna/)
+  const crumbs = page.locator('.main-head .crumbs')
+  await expect(crumbs.locator('.crumbs-path')).toHaveText('movil / ')
+  await expect(crumbs.locator('b')).toHaveText('Una nota con un nombre bastante largo')
+  await page.screenshot({ path: `${SHOTS}/mobile-open-light.png`, animations: 'disabled' })
+  // Not clipped to a couple of letters: the name gets all the width the header buttons leave it.
+  const width = await crumbs.locator('b').evaluate((b) => b.getBoundingClientRect().width)
+  expect(width).toBeGreaterThan(110)
+  await noHorizontalScroll(page)
+})
+
+test('edit with the keyboard and the editor bar ([[, #, list); the save state is in the bar', async () => {
+  await page.locator('.cm-line', { hasText: 'Primera línea.' }).tap()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' Ver ')
+  const bar = page.getByRole('toolbar', { name: 'Formato' })
+  await bar.getByRole('button', { name: 'Enlazar nota' }).tap()
+  await page.keyboard.type('Plan')
+  await page.keyboard.press('End')
+  await bar.getByRole('button', { name: 'Añadir tag' }).tap()
+  await page.keyboard.type('movil')
+  await bar.getByRole('button', { name: 'Lista' }).tap()
+  await expect.poll(() => readFileSync(FILE, 'utf8')).toContain('- Primera línea. Ver [[Plan]] #movil')
+  // The bar's buttons don't take the focus: the keyboard would close.
+  await expect(page.locator('.cm-content')).toBeFocused()
+  await expect(bar.getByText('Guardado en disco')).toBeVisible()
+  const barBox = await bar.boundingBox()
+  expect(barBox!.y + barBox!.height).toBeLessThanOrEqual(844)
+  await page.screenshot({ path: `${SHOTS}/mobile-note-light.png`, animations: 'disabled' })
+})
+
+test('the side panel opens as a full-width sheet; back closes it and keeps the note', async () => {
+  await page.getByRole('button', { name: 'Mostrar el panel lateral' }).tap()
+  const panel = page.getByRole('complementary', { name: 'Comentarios y contexto' })
+  await expect(panel).toBeVisible()
+  const box = await panel.boundingBox()
+  expect(box!.width).toBe(390)
+  await panel.getByRole('tab', { name: /Enlaces/ }).tap()
+  await expect(panel.getByText('Plan', { exact: false }).first()).toBeVisible()
+  await noHorizontalScroll(page)
+  await page.screenshot({ path: `${SHOTS}/mobile-panel-light.png`, animations: 'disabled' })
+  await page.goBack()
+  await expect(panel).toHaveCount(0)
+  await expect(page).toHaveURL(/\?note=movil%2FUna/)
+  await expect(page.locator('.cm-content')).toBeVisible()
+})
+
+test('the drawer: back and Escape close it; the note it was opened over stays', async () => {
+  await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
+  await expect(drawer(page)).toBeVisible()
+  // It shows where the open note is.
+  await expect(drawer(page).getByRole('row', { name: 'Una nota con un nombre bastante largo' })).toHaveAttribute('aria-selected', 'true')
+  await page.goBack()
+  await expect(drawer(page)).toHaveCount(0)
+  await expect(page).toHaveURL(/\?note=movil%2FUna/)
+  await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
+  await expect(drawer(page)).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(drawer(page)).toHaveCount(0)
+  await expect(page).toHaveURL(/\?note=movil%2FUna/)
+})
+
+test('palette: full screen from the header, back closes it', async () => {
+  await page.getByRole('button', { name: 'Buscar' }).tap()
+  const input = page.getByRole('textbox', { name: 'Buscar' })
+  await expect(input).toBeVisible()
+  await input.fill('plan')
+  await expect(page.getByRole('option').first()).toBeVisible()
+  await noHorizontalScroll(page)
+  await page.goBack()
+  await expect(input).toHaveCount(0)
+  await expect(page).toHaveURL(/\?note=movil%2FUna/)
+})
+
+test('alerts from the drawer', async () => {
+  // The server finds the duplicate uid on its next rescan (every 5s).
+  await expect(async () => {
+    await page.reload()
+    await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
+    await expect(drawer(page).getByRole('link', { name: /avisos del espacio/ })).toBeVisible({ timeout: 1000 })
+  }).toPass({ timeout: 20_000 })
+  await drawer(page).getByRole('link', { name: /avisos del espacio/ }).tap()
+  await expect(drawer(page)).toHaveCount(0)
+  await expect(page).toHaveURL(/\?view=avisos$/)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Avisos del espacio')
+  await expect(page.locator('.alert-card', { hasText: 'E2E-MOVIL' })).toBeVisible()
+  await noHorizontalScroll(page)
+  // From the alerts page, the drawer is still reachable.
+  await expect(page.getByRole('button', { name: 'Abrir carpetas' })).toBeVisible()
+})
+
+test('dark theme from the drawer, and new note', async () => {
+  await page.goto(`/?note=${encodeURIComponent(NOTE)}`)
+  await expect(page.locator('.cm-content')).toBeVisible()
+  await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
+  await drawer(page).getByRole('button', { name: 'Cambiar a tema oscuro' }).tap()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  await page.screenshot({ path: `${SHOTS}/mobile-drawer-dark.png`, animations: 'disabled' })
+  await page.keyboard.press('Escape')
+  await page.screenshot({ path: `${SHOTS}/mobile-note-dark.png`, animations: 'disabled' })
+
+  await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
+  await drawer(page).getByRole('button', { name: 'Nueva nota' }).tap()
+  await expect(drawer(page)).toHaveCount(0)
+  await expect(page.locator('.palette-input')).toBeFocused()
+  await page.getByRole('button', { name: 'Cancelar' }).tap()
+  await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
+  await drawer(page).getByRole('button', { name: 'Cambiar a tema claro' }).tap()
+})
+
+test('sign out from the drawer', async () => {
+  await drawer(page).getByRole('button', { name: 'Cerrar sesión' }).tap()
+  await expect(page.getByRole('heading', { name: 'Entrar' })).toBeVisible()
+})
+
+test('tablet (768px): sidebar and header fit, the note name is not clipped', async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 768, height: 1024 }, hasTouch: true, locale: 'es-ES' })
+  const t = await ctx.newPage()
+  await t.goto(`/?note=${encodeURIComponent('proyectos/thoth/Plan.md')}`)
+  await t.getByLabel('Nombre de usuario').fill('noa')
+  await t.getByLabel('Contraseña').fill(PASSWORD)
+  await t.getByRole('button', { name: 'Entrar' }).last().click()
+  await expect(t.locator('.cm-content')).toBeVisible()
+  await expect(t.locator('nav.sidebar')).toBeVisible()
+  const name = t.locator('.main-head .crumbs b')
+  await expect(name).toHaveText('Plan')
+  expect(await name.evaluate((b) => b.scrollWidth <= b.clientWidth)).toBe(true)
+  await noHorizontalScroll(t)
+  await t.screenshot({ path: `${SHOTS}/tablet-note.png`, animations: 'disabled' })
+  await ctx.close()
+})
