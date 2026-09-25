@@ -14,7 +14,7 @@ import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
 import { NoteError, type Actor, type NoteService } from '../notes.ts'
 import { ftsQuery, HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import { applyEdits, type EditOp } from '../edits.ts'
-import { SERVED_TYPES } from '../attachments.ts'
+import { FetchImageError, SERVED_TYPES, fetchImage } from '../attachments.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 
@@ -61,6 +61,10 @@ function noteErrorStatus(e: NoteError) {
   return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415 } as const)[e.code]
 }
 
+function fetchErrorStatus(e: FetchImageError) {
+  return ({ invalid: 400, too_large: 413, unsupported_type: 415, fetch_failed: 502 } as const)[e.code]
+}
+
 /**
  * Error response: `error` is the stable code the UI translates; `message`
  * is a hint for developers, which the UI never shows.
@@ -78,6 +82,7 @@ export function createApp(deps: AppDeps) {
       if (err.etag) c.header('ETag', `"${err.etag}"`)
       return fail(c, noteErrorStatus(err), err.code, err.message, { etag: err.etag })
     }
+    if (err instanceof FetchImageError) return fail(c, fetchErrorStatus(err), err.code, err.message)
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400, err.code, err.message)
     // Body that isn't JSON.
     if (err instanceof SyntaxError) return fail(c, 400, 'invalid', err.message)
@@ -220,6 +225,15 @@ export function createApp(deps: AppDeps) {
       const bytes = new Uint8Array(await c.req.arrayBuffer())
       return c.json(await notes.attach(c.req.query('note') ?? '', bytes, actorOf(c.get('user'))), 201)
     })
+
+  // A copy of an image from a URL, stored like an upload. Only on this explicit
+  // request from a user: the server never fetches URLs written in notes.
+  app.post('/api/attachments/fetch', async (c) => {
+    const { note, url } = await c.req.json<{ note: string; url: string }>()
+    notes.read(note ?? '') // nothing is downloaded for a note that doesn't exist
+    const { bytes } = await fetchImage(String(url ?? ''), { maxBytes: notes.maxImageBytes })
+    return c.json(await notes.attach(note, bytes, actorOf(c.get('user'))), 201)
+  })
 
   // A file in the notes folder that isn't a note (images and other attachments).
   // Same path rules as notes: relative, inside the root, no hidden or ignored

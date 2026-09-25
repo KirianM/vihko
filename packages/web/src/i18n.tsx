@@ -166,6 +166,7 @@ const es = {
   'error.edit_mismatch': 'La nota ha cambiado y la edición ya no encaja.',
   'error.too_large': 'La imagen es demasiado grande.',
   'error.unsupported_type': 'Solo se admiten imágenes PNG, JPEG, GIF, WebP o AVIF.',
+  'error.fetch_failed': 'No se ha podido descargar la imagen de esa dirección.',
 }
 
 const en: Record<keyof typeof es, string> = {
@@ -331,6 +332,7 @@ const en: Record<keyof typeof es, string> = {
   'error.edit_mismatch': 'The note changed and the edit no longer fits.',
   'error.too_large': 'The image is too large.',
   'error.unsupported_type': 'Only PNG, JPEG, GIF, WebP and AVIF images are accepted.',
+  'error.fetch_failed': 'The image could not be downloaded from that address.',
 }
 
 export type MessageKey = keyof typeof es

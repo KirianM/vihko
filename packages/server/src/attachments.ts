@@ -1,5 +1,6 @@
-// Images stored in the notes folder (D-028): which types are accepted and
-// where a new one goes and what it is called.
+// Images stored in the notes folder (D-028): which types are accepted, where a
+// new one goes and what it is called, and downloading one from a URL when a
+// user explicitly asks for a copy.
 import { posix } from 'node:path'
 
 /** Types thoth stores, detected from the bytes (never from the name or the declared type). */
@@ -68,4 +69,98 @@ export function attachmentPath(notePath: string, ext: string, now: Date, n = 1):
   const stamp = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`
   const name = `${stem}-${stamp}${n > 1 ? `-${n}` : ''}.${ext}`
   return dir === '.' ? name : `${dir}/${name}`
+}
+
+export type FetchErrorCode = 'invalid' | 'too_large' | 'unsupported_type' | 'fetch_failed'
+
+export class FetchImageError extends Error {
+  readonly code: FetchErrorCode
+  constructor(code: FetchErrorCode, message: string) {
+    super(message)
+    this.code = code
+  }
+}
+
+export interface FetchImageOptions {
+  maxBytes: number
+  timeoutMs?: number
+  maxRedirects?: number
+}
+
+/**
+ * Downloads an image for a user who asked for a copy of it. Only http(s), a
+ * total time limit, a size cap (checked while reading, not only from the
+ * headers), a bounded number of redirects, an image content type and bytes
+ * that really are one of the stored types.
+ *
+ * Private and LAN addresses are allowed on purpose: a user may want a copy of a
+ * chart from a service on their network. It only runs on an explicit user
+ * action, never for URLs found in notes (D-028).
+ */
+export async function fetchImage(url: string, opts: FetchImageOptions): Promise<{ bytes: Uint8Array; mime: string }> {
+  const signal = AbortSignal.timeout(opts.timeoutMs ?? 15_000)
+  const maxRedirects = opts.maxRedirects ?? 5
+  let current = parseHttpUrl(url)
+  try {
+    for (let hop = 0; ; hop++) {
+      const res = await fetch(current, { redirect: 'manual', signal, headers: { accept: 'image/*' } })
+      if (res.status >= 300 && res.status < 400 && res.headers.has('location')) {
+        await res.body?.cancel()
+        if (hop >= maxRedirects) throw new FetchImageError('fetch_failed', `too many redirects from ${url}`)
+        current = parseHttpUrl(new URL(res.headers.get('location')!, current).href)
+        continue
+      }
+      if (!res.ok) {
+        await res.body?.cancel()
+        throw new FetchImageError('fetch_failed', `the server answered ${res.status}`)
+      }
+      const type = (res.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
+      if (!type.startsWith('image/')) {
+        await res.body?.cancel()
+        throw new FetchImageError('unsupported_type', `not an image: ${type || 'no content type'}`)
+      }
+      const declared = Number(res.headers.get('content-length'))
+      if (declared > opts.maxBytes) {
+        await res.body?.cancel()
+        throw new FetchImageError('too_large', `${declared} bytes, the limit is ${opts.maxBytes}`)
+      }
+      const bytes = await readCapped(res, opts.maxBytes)
+      const sniffed = sniffImage(bytes)
+      if (!sniffed) throw new FetchImageError('unsupported_type', `unsupported image type (${type})`)
+      return { bytes, mime: sniffed.mime }
+    }
+  } catch (err) {
+    if (err instanceof FetchImageError) throw err
+    const reason = signal.aborted ? 'timed out' : err instanceof Error ? (err.cause instanceof Error ? err.cause.message : err.message) : String(err)
+    throw new FetchImageError('fetch_failed', `could not download ${url}: ${reason}`)
+  }
+}
+
+function parseHttpUrl(raw: string): URL {
+  let u: URL
+  try { u = new URL(raw) } catch { throw new FetchImageError('invalid', `not a URL: ${raw}`) }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new FetchImageError('invalid', `only http and https: ${u.protocol}`)
+  if (u.username || u.password) throw new FetchImageError('invalid', 'URLs with credentials are not fetched')
+  return u
+}
+
+async function readCapped(res: Response, max: number): Promise<Uint8Array> {
+  const reader = res.body?.getReader()
+  if (!reader) return new Uint8Array()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > max) {
+      await reader.cancel()
+      throw new FetchImageError('too_large', `more than ${max} bytes`)
+    }
+    chunks.push(value)
+  }
+  const out = new Uint8Array(total)
+  let at = 0
+  for (const c of chunks) { out.set(c, at); at += c.byteLength }
+  return out
 }
