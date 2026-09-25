@@ -42,13 +42,14 @@ Goal: a complete notes system from the UI, without integrations.
       tables render as tables outside the cursor.
 - [x] Folders and tags in the tree: create, rename and move folders (also by
       dragging notes), a tags view, and `tag:`/`path:` filters in search.
-- [ ] Review after comparing with other systems: configurable alias
+- [x] Review after comparing with other systems: configurable alias
       resolution; a picker and «pin this target» for ambiguous links; a
       generation number so a stale tab can't duplicate a note; detection of
-      renames made outside thoth with an «update links» alert; per-note
-      attachment subfolders; «text changed» marks on comments and confirmation
-      before resolving; argon2id passwords; a tolerant, versioned `thoth.yaml`
-      (strict only for permissions); full Unicode case folding in links.
+      renames made outside thoth with an «update links» alert (an open note
+      follows its file); per-note attachment subfolders; «text changed» marks
+      on comments and confirmation before resolving; argon2id passwords; a
+      tolerant, versioned `thoth.yaml` (strict only for permissions); full
+      Unicode case folding in links.
 - [x] Server errors and alerts as translatable codes.
 - [x] Local auth: an admin created from the CLI or a one-time token, sessions.
       A principal on every query from day one.
