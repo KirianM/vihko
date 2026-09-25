@@ -16,6 +16,7 @@ import { listItem, tag, wikilink, type Edit } from './insert.ts'
 import { SearchButton } from '../Palette.tsx'
 import { useCollab, type CollabState } from './collab.ts'
 import type { Trashed } from '../TrashToast.tsx'
+import { CreateLinkUi, useCreateLink } from './CreateLinkMenu.tsx'
 import { Editor } from './Editor.tsx'
 import { ImageInsertUi, useImageInsert } from './ImageInsert.tsx'
 import { NoteActions } from './NoteActions.tsx'
@@ -129,9 +130,13 @@ interface Props {
   /** The note changed path (renamed by you or someone else): reopen it there. With the report when you did it. */
   onMoved: (to: string, report?: MoveReport) => void
   onTrashed: (t: Trashed) => void
+  /** Template notes (thoth.yaml), offered when creating a note from a broken link. */
+  templates: readonly string[]
+  /** A note was created from here (a broken link): refresh the tree and open it. */
+  onCreated: (path: string) => void
 }
 
-export function NoteView({ path, user, daily, onNavigate, onMoved, onTrashed }: Props) {
+export function NoteView({ path, user, daily, onNavigate, onMoved, onTrashed, templates, onCreated }: Props) {
   const c = useCollab(path)
   const [linkData, setLinkData] = useState<LinksData | null>(null)
   const links = useMemo(
@@ -143,6 +148,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onTrashed }: 
   const mobile = useMobile()
   const [config, setConfig] = useState<ServerConfig | null>(null)
   const images = useImageInsert(path, c.session, view, config?.maxImageBytes ?? 0)
+  const createLink = useCreateLink(path, templates, onCreated)
 
   // Without the settings the editor can't know whether external images are
   // blocked; if they can't be read, the server's CSP still enforces it.
@@ -190,11 +196,12 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onTrashed }: 
         <NoteActions path={path} onMoved={onMoved} onTrashed={(id) => onTrashed({ id, path, by: null })} onInsertImage={images.openInsert} />
       </header>
       {c.orphaned && <OrphanBanner path={path} />}
+      <CreateLinkUi state={createLink} />
       <div className="note-body">
         <div className="note">
           {c.session && c.connection !== 'connecting' && config && (
             <Editor path={path} session={c.session} user={user} links={links} onNavigate={onNavigate} onView={setView} onComments={panel.showComments}
-              externalImages={config.externalImages} onImageFiles={images.onFiles} onImageUrl={images.onUrl} />
+              externalImages={config.externalImages} onImageFiles={images.onFiles} onImageUrl={images.onUrl} onCreateLink={createLink.onCreateLink} />
           )}
         </div>
         <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} onNavigate={onNavigate} />

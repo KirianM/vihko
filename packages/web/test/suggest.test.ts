@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { NoteCatalog, completionContext, completionEnd, matchScore, rankHeadings, rankTags, type NoteEntry } from '../src/editor/suggest.ts'
+import { markdownLinkNote, wikiLinkNote } from '../src/editor/createLink.ts'
 
 const NOTES: NoteEntry[] = [
   { path: 'Plan.md', title: 'Plan general' },
@@ -108,4 +109,24 @@ test('completionEnd: the rest of an old value up to ]] | or # is replaced; other
   assert.deepEqual(completionEnd('#Red]]', note), { extend: 0, closed: true })
   assert.deepEqual(completionEnd(' and text', note), { extend: 0, closed: false })
   assert.deepEqual(completionEnd('', note), { extend: 0, closed: false })
+})
+
+test('a broken wikilink creates its note where the link will find it', () => {
+  assert.deepEqual(wikiLinkNote('proyectos/thoth/notas.md', '[[Nota que no existe]]'),
+    { path: 'proyectos/thoth/Nota que no existe.md', title: 'Nota que no existe', raw: '[[Nota que no existe]]' })
+  assert.equal(wikiLinkNote('raiz.md', '[[Nueva#Sección|texto]]')?.path, 'Nueva.md')
+  assert.equal(wikiLinkNote('a/b.md', '[[sub/Nueva]]')?.path, 'a/sub/Nueva.md')
+  assert.equal(wikiLinkNote('a/b.md', '[[/otra/Nueva]]')?.path, 'otra/Nueva.md')
+  assert.equal(wikiLinkNote('a/b.md', '[[ Con espacios ]]')?.path, 'a/Con espacios.md')
+  assert.equal(wikiLinkNote('a/b.md', '[[.oculta]]'), null, 'no hidden files')
+  assert.equal(wikiLinkNote('a/b.md', '[[../fuera]]'), null)
+  assert.equal(wikiLinkNote('a/b.md', '[[#Sección]]'), null)
+})
+
+test('a broken Markdown link creates the .md it points to, relative to the note', () => {
+  assert.equal(markdownLinkNote('a/b.md', '[x](nueva.md)', 'nueva.md')?.path, 'a/nueva.md')
+  assert.equal(markdownLinkNote('a/b.md', '[x](../Otra%20nota.md)', '../Otra%20nota.md')?.path, 'Otra nota.md')
+  assert.equal(markdownLinkNote('a/b.md', '[x](foto.png)', 'foto.png'), null)
+  assert.equal(markdownLinkNote('a/b.md', '[x](https://ejemplo.org/a.md)', 'https://ejemplo.org/a.md'), null)
+  assert.equal(markdownLinkNote('a/b.md', '[x](../../fuera.md)', '../../fuera.md'), null)
 })
