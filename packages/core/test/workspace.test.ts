@@ -1,15 +1,22 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { EMPTY_WORKSPACE, parseWorkspaceConfig, type ConfigError } from '@thoth/core'
+import { EMPTY_WORKSPACE, parseWorkspaceConfig, type ConfigError, type StrictSection } from '@thoth/core'
 
 const errors = (text: string) => {
   const r = parseWorkspaceConfig(text)
   assert.ok(!r.ok, 'should be invalid')
   return r.errors.map((e: ConfigError) => [e.code, e.at, e.line] as const)
 }
+const brief = (list: ConfigError[]) => list.map((e) => [e.code, e.at, e.line] as const)
+/** Parses a valid file and returns what it left out. */
+const warnings = (text: string, strict?: readonly StrictSection[]) => {
+  const r = parseWorkspaceConfig(text, strict)
+  assert.ok(r.ok, `should be usable: ${JSON.stringify(!r.ok && r.errors)}`)
+  return brief(r.warnings)
+}
 
 test('thoth.yaml: empty or just comments is valid and turns nothing on', () => {
-  for (const text of ['', '# nothing yet\n', '---\n']) assert.deepEqual(parseWorkspaceConfig(text), { ok: true, config: EMPTY_WORKSPACE })
+  for (const text of ['', '# nothing yet\n', '---\n']) assert.deepEqual(parseWorkspaceConfig(text), { ok: true, config: EMPTY_WORKSPACE, warnings: [], sections: { permissions: null } })
 })
 
 test('thoth.yaml: series, templates and attachments', () => {
@@ -46,12 +53,77 @@ test('thoth.yaml: YAML errors carry their line', () => {
   assert.deepEqual(errors('- a\n- b\n'), [['not_a_map', null, 1]])
 })
 
-test('thoth.yaml: unknown and reserved keys are errors, never ignored', () => {
-  assert.deepEqual(errors('templtes: Plantillas\n'), [['unknown_key', 'templtes', 1]])
-  assert.deepEqual(errors('templates: P\npermissions:\n  Privado: {noa: edit}\n'), [['not_supported', 'permissions', 2]])
-  assert.deepEqual(errors('daily:\n  d:\n    folder: D\n    fromat: x\n'), [['unknown_key', 'daily.d.fromat', 4]])
-  assert.deepEqual(errors('attachments:\n  mode: per-note\n'), [['unknown_key', 'attachments.mode', 2]])
-  assert.deepEqual(errors('version: 2\n'), [['unsupported_version', 'version', 1]])
+test('thoth.yaml: unknown keys are reported and ignored; the rest applies', () => {
+  const r = parseWorkspaceConfig('templtes: Plantillas\ntemplates: P\nattachments:\n  fodler: x\n  folder: A\ndaily:\n  d:\n    folder: D\n    fromat: x\n')
+  assert.ok(r.ok)
+  assert.deepEqual(brief(r.warnings), [['unknown_key', 'templtes', 1], ['unknown_key', 'attachments.fodler', 4], ['unknown_key', 'daily.d.fromat', 9]])
+  assert.equal(r.config.templates, 'P')
+  assert.deepEqual(r.config.attachments, { folder: 'A' })
+  assert.deepEqual(r.config.daily.map((s) => s.folder), ['D'])
+})
+
+test('thoth.yaml: version is optional; a newer one warns and applies what is understood', () => {
+  assert.deepEqual(warnings('version: 1\ntemplates: P\n'), [])
+  const r = parseWorkspaceConfig('version: 2\ntemplates: P\nnewer_feature: true\n')
+  assert.ok(r.ok)
+  assert.deepEqual(brief(r.warnings), [['newer_version', 'version', 1], ['unknown_key', 'newer_feature', 3]])
+  assert.equal(r.warnings[0]!.detail, '2')
+  assert.equal(r.config.templates, 'P')
+  for (const bad of ['0', '-1', '1.5', 'dos', '"1"']) assert.deepEqual(errors(`version: ${bad}\n`), [['invalid_version', 'version', 1]], bad)
+})
+
+test('thoth.yaml: a wrong value in a known key still makes the file unusable', () => {
+  const r = parseWorkspaceConfig('unknown: 1\ntemplates: ../fuera\n')
+  assert.ok(!r.ok)
+  assert.deepEqual(brief(r.errors), [['invalid_path', 'templates', 2]])
+  assert.deepEqual(brief(r.warnings), [['unknown_key', 'unknown', 1]])
+})
+
+test('thoth.yaml: permissions is not applied until it exists, and never blocks the rest', () => {
+  const r = parseWorkspaceConfig('templates: P\npermissions:\n  Privado: {noa: edit}\n')
+  assert.ok(r.ok)
+  assert.deepEqual(brief(r.warnings), [['not_supported', 'permissions', 2]])
+  assert.equal(r.sections.permissions, null)
+  assert.equal(r.config.templates, 'P')
+})
+
+// A stand-in for a security section (M4's permissions): strict, failing closed.
+const FAKE: StrictSection<{ shared: string[] }> = {
+  key: 'sharing',
+  closed: { shared: [] },
+  parse(raw, at, report) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) { report('not_a_map', at); return { shared: [] } }
+    const out: string[] = []
+    for (const [k, v] of Object.entries(raw)) {
+      if (k !== 'shared') report('unknown_key', [...at, k])
+      else if (!Array.isArray(v) || !v.every((x) => typeof x === 'string')) report('invalid_type', [...at, k], 'list')
+      else out.push(...v)
+    }
+    return { shared: out }
+  },
+}
+
+test('thoth.yaml: a strict section with any doubt is rejected alone and fails closed', () => {
+  const good = parseWorkspaceConfig('templates: P\nsharing:\n  shared: [Público]\n', [FAKE])
+  assert.ok(good.ok)
+  assert.deepEqual(good.sections, { sharing: { shared: ['Público'] } })
+  assert.deepEqual(good.warnings, [])
+
+  // A typo inside the strict section is not ignored like elsewhere: the whole section goes.
+  const typo = parseWorkspaceConfig('templates: P\nsharing:\n  shared: [Público]\n  sahred: [Privado]\n', [FAKE])
+  assert.ok(typo.ok, 'the rest of the file still applies')
+  assert.equal(typo.config.templates, 'P')
+  assert.deepEqual(typo.sections, { sharing: { shared: [] } }, 'the most restrictive setting, not the half that parsed')
+  assert.deepEqual(brief(typo.warnings), [['section_rejected', 'sharing', 2], ['unknown_key', 'sharing.sahred', 4]])
+
+  const wrong = parseWorkspaceConfig('sharing: todo\n', [FAKE])
+  assert.ok(wrong.ok)
+  assert.deepEqual(wrong.sections, { sharing: { shared: [] } })
+  assert.deepEqual(brief(wrong.warnings), [['not_a_map', 'sharing', 1], ['section_rejected', 'sharing', 1]])
+
+  const missing = parseWorkspaceConfig('templates: P\n', [FAKE])
+  assert.ok(missing.ok)
+  assert.deepEqual(missing.sections, { sharing: { shared: [] } }, 'missing: closed too')
 })
 
 test('thoth.yaml: paths stay inside the notes folder and out of hidden folders', () => {
@@ -74,7 +146,6 @@ test('thoth.yaml: series patterns must name exactly one note per period', () => 
 
 test('thoth.yaml: every error is reported at once', () => {
   assert.deepEqual(errors('templtes: x\ntemplates: ../x\ndaily:\n  d:\n    folder: D\n    name: "{MM}"\n'), [
-    ['unknown_key', 'templtes', 1],
     ['invalid_path', 'templates', 2],
     ['pattern_period', 'daily.d.name', 6],
   ])

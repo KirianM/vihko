@@ -120,11 +120,19 @@ attachments:
   `YYYY`, `YY`, `MM`, `M`, `DD`, `D`, `GGGG`, `WW`, `W`, `HH` and `mm`; text in
   `[brackets]` is literal (`{{date:[Week] W}}`). Anything else in `{{…}}` is
   left as is. The date is the person's, in their timezone.
-- **Errors** don't stop thoth: an invalid file shows up as a workspace alert
-  with the reason and line, and thoth keeps using the last valid version it
-  read. Unknown keys are errors, not ignored, so a typo never looks like a
-  working setting. `permissions` is reserved for per-folder permissions and
-  refused until they exist.
+- **Versions and unknown keys:** `version` (1 if missing) says which format
+  the file follows. A key thoth doesn't know (a typo, or a setting from a
+  newer thoth) is ignored and listed in a workspace alert with its line; the
+  rest of the file applies. A `version` newer than thoth's gets the same
+  treatment: what it understands applies, and the alert says so.
+- **Errors** don't stop thoth: a file that isn't valid YAML, or a known key
+  with a wrong value (a path outside the notes folder, a bad series pattern),
+  shows up as a workspace alert with the reason and line, and thoth keeps
+  using the last valid version it read.
+- **Security sections are strict.** `permissions` (per-folder permissions,
+  not built yet) is reported and never applied. Once it exists, anything
+  doubtful in it (an unknown key included) rejects that section alone, and
+  the most restrictive setting applies instead.
 
 ## Status
 

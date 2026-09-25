@@ -1,7 +1,8 @@
 // thoth.yaml, the person's timezone, templates and the daily note (D-030):
 // «Today» creates the note from its template in its series folder and then
-// only opens it; previous/next in the header; an invalid thoth.yaml is an
-// alert and the last good one keeps working; two timezones, two dates.
+// only opens it; previous/next in the header; an unknown key in thoth.yaml is
+// ignored with a warning, an invalid file is an alert and the last good one
+// keeps working; two timezones, two dates.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { E2E_DIR, NOTES } from './env.ts'
@@ -192,15 +193,29 @@ test('preferences: series and «open on start», which never creates a note', as
   void browser
 })
 
-test('an invalid thoth.yaml is an alert; the last good one keeps working', async () => {
+test('thoth.yaml: an unknown key is ignored with a warning; an invalid file keeps the last good one', async () => {
+  // A misspelt key: left out, and the rest applies.
   writeFileSync(`${NOTES}/thoth.yaml`, CONFIG.replace('templates:', 'templtes:'))
+  await expect(async () => {
+    await k.goto('/?view=avisos')
+    await expect(k.locator('.alert-card', { hasText: 'salvo algunas partes' })).toBeVisible({ timeout: 1000 })
+  }).toPass({ timeout: 20_000 })
+  const warnings = k.locator('.alert-card', { hasText: 'salvo algunas partes' })
+  await expect(warnings).toContainText('Lo que aparece aquí no se aplica')
+  await expect(warnings.getByRole('listitem')).toHaveText('línea 2 · templtes Clave desconocida (¿una errata, o de una versión más nueva de thoth?): se ignora.')
+  await k.screenshot({ path: `${SHOTS}/config-warnings-light.png` })
+  await todayButton(k).click()
+  await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
+
+  // A wrong value in a known key: the whole file waits, the last good one stays.
+  writeFileSync(`${NOTES}/thoth.yaml`, CONFIG.replace('folder: e2e-equipo', 'folder: ../e2e-equipo'))
   await expect(async () => {
     await k.goto('/?view=avisos')
     await expect(k.locator('.alert-card', { hasText: 'no se puede usar' })).toBeVisible({ timeout: 1000 })
   }).toPass({ timeout: 20_000 })
   const card = k.locator('.alert-card', { hasText: 'no se puede usar' })
   await expect(card).toContainText('thoth sigue con la última versión válida')
-  await expect(card.getByRole('listitem')).toHaveText('línea 2 · templtes Clave desconocida (¿una errata?).')
+  await expect(card.getByRole('listitem')).toHaveText('línea 10 · daily.equipo.folder Ruta no válida: relativa a la carpeta de notas, sin «..» ni carpetas ocultas.')
   await k.screenshot({ path: `${SHOTS}/daily-alert-light.png` })
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()
   await k.screenshot({ path: `${SHOTS}/daily-alert-dark.png` })
@@ -208,12 +223,12 @@ test('an invalid thoth.yaml is an alert; the last good one keeps working', async
   await todayButton(k).click()
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
 
-  // Fixed: the alert goes away on its own.
+  // Fixed: the alerts go away on their own.
   writeFileSync(`${NOTES}/thoth.yaml`, CONFIG)
   await expect(async () => {
     await k.goto('/?view=avisos')
     await expect(k.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 1000 })
-    await expect(k.locator('.alert-card', { hasText: 'no se puede usar' })).toHaveCount(0, { timeout: 1000 })
+    await expect(k.locator('.alert-card', { hasText: /no se puede usar|salvo algunas partes/ })).toHaveCount(0, { timeout: 1000 })
   }).toPass({ timeout: 20_000 })
   await k.request.put('/api/profile', { data: { dailySeries: 'diario', openDailyOnStart: false } })
 })
