@@ -3,3 +3,5 @@ node_modules/
 coverage/
 packages/web/dist/
 packages/web/src/theme/tokens.css
+packages/web/playwright-report/
+packages/web/test-results/

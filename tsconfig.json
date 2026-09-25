@@ -19,6 +19,8 @@
     "packages/core/test",
     "packages/server/src",
     "packages/server/test",
-    "packages/web/test"
+    "packages/web/test",
+    "packages/web/e2e",
+    "packages/web/playwright.config.ts"
   ]
 }
