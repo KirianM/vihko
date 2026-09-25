@@ -56,7 +56,7 @@ test('pending copy of a note deleted externally: kept from the page and the coun
   await k.keyboard.type('\nescrito antes del borrado')
   await expect.poll(() => (existsSync(file) ? readFileSync(file, 'utf8') : '')).toContain('antes del borrado')
   rmSync(file)
-  await expect(k.getByRole('alert')).toContainText('se ha borrado fuera')
+  await expect(k.getByRole('alert')).toContainText('se ha borrado fuera', { timeout: 15_000 }) // after the grace for a move (6 s)
 
   // The editor is closed without deciding: the copy stays as an alert.
   await k.goto('/?view=avisos')

@@ -152,7 +152,7 @@ test('external deletion with the note open: live notice, not recreated, and the 
     const file = join(notes, NOTE)
     await waitFor(() => readFileSync(file, 'utf8').includes('BEFORE\n'), 'flush')
     rmSync(file) // someone deletes it with the file explorer
-    await waitFor(() => messages.includes('thoth:deleted-externally'), 'live notice')
+    await waitFor(() => messages.includes('thoth:deleted-externally'), 'live notice', 15000) // after the grace for a move (6 s)
     typeLine(a, 'AFTER-DELETE')
     await sleep(2500)
     assert.ok(!existsSync(file), "thoth doesn't undo the deletion on its own")
@@ -178,7 +178,7 @@ test('external deletion with the note open: discarding accepts the deletion as f
     const file = join(notes, NOTE)
     await waitFor(() => readFileSync(file, 'utf8').includes('X\n'), 'flush')
     rmSync(file)
-    await waitFor(async () => (await orphaned(srv, cookie)).length === 1, 'alert')
+    await waitFor(async () => (await orphaned(srv, cookie)).length === 1, 'alert', 15000)
     assert.equal((await api(srv, cookie, 'POST', '/api/note/orphan', { path: NOTE, action: 'discard' })).status, 200)
     await sleep(1500)
     assert.ok(!existsSync(file))
@@ -198,7 +198,7 @@ test('discarding the copy of a note deleted outside: once recreated, it reopens 
     a.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'thoth:orphan-resolved') resolved.push(m.action) })
     const file = join(notes, NOTE)
     rmSync(file)
-    await waitFor(async () => (await orphaned(srv, cookie)).length === 1, 'alert')
+    await waitFor(async () => (await orphaned(srv, cookie)).length === 1, 'alert', 15000)
     assert.equal((await api(srv, cookie, 'POST', '/api/note/orphan', { path: NOTE, action: 'discard' })).status, 200)
     await waitFor(() => resolved.includes('discard'), 'discard notice')
     // The notice arrives before the hub closes the document. The web client drops
