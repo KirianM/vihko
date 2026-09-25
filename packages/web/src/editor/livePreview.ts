@@ -183,7 +183,8 @@ function inlineDecorations(view: EditorView): DecorationSet {
             return false
           }
           case 'ListMark':
-            if (node.parent?.parent?.name === 'BulletList' && !touchesLines(state, node.from, node.to)) out.push(bullet.range(node.from, node.to))
+            // A task's checkbox (tasks.ts) stands in for its bullet.
+            if (node.parent?.parent?.name === 'BulletList' && node.nextSibling?.name !== 'Task' && !touchesLines(state, node.from, node.to)) out.push(bullet.range(node.from, node.to))
             return
           case 'Tag':
             out.push(Decoration.mark({ class: 'cm-tag' }).range(node.from, node.to))
