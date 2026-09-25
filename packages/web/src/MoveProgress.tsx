@@ -4,13 +4,13 @@
 // report goes to whoever started it, as for a quick move.
 import { useEffect, useRef, useState } from 'react'
 import { Button, Dialog, Heading, Modal, ModalOverlay } from 'react-aria-components'
-import { ApiError, api, type FolderMoveReport, type MoveJob, type MoveReport } from './api.ts'
+import { ApiError, api, type FolderMoveReport, type MoveJob, type MoveReport, type MovedRelinkReport } from './api.ts'
 import { errorText, useT } from './i18n.tsx'
 import { Icon } from './ui.tsx'
 import './actions.css'
 
 export type JobEnd =
-  | { kind: 'done'; report: MoveReport | FolderMoveReport }
+  | { kind: 'done'; report: MoveReport | FolderMoveReport | MovedRelinkReport }
   | { kind: 'failed'; message: string }
   /** The server no longer knows the job (it restarted). */
   | { kind: 'lost' }

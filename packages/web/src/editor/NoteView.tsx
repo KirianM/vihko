@@ -10,13 +10,15 @@ import { INSERT_IMAGE } from '../commands.ts'
 import { useTheme } from '../theme.ts'
 import { userColor } from '../userColor.ts'
 import { errorText, useT } from '../i18n.tsx'
-import { Crumbs, Icon, MenuButton, ThemeToggle } from '../ui.tsx'
+import { Crumbs, Icon, MenuButton, ThemeToggle, noteName } from '../ui.tsx'
 import { useMobile } from '../mobile.ts'
 import { listItem, tag, wikilink, type Edit } from './insert.ts'
 import { SearchButton } from '../Palette.tsx'
 import { useCollab, type CollabState } from './collab.ts'
 import type { Trashed } from '../TrashToast.tsx'
 import { CreateLinkUi, useCreateLink } from './CreateLinkMenu.tsx'
+import { AmbiguousPicker, type AmbiguousLink, type PickerState } from './AmbiguousPicker.tsx'
+import type { PinOffer } from '../PinOffer.tsx'
 import { Editor } from './Editor.tsx'
 import { ImageInsertUi, useImageInsert } from './ImageInsert.tsx'
 import { NoteActions } from './NoteActions.tsx'
@@ -136,9 +138,12 @@ interface Props {
   templates: readonly string[]
   /** A note was created from here (a broken link): refresh the tree and open it. */
   onCreated: (path: string) => void
+  /** One of an ambiguous link's candidates was chosen: open it and offer to pin the link there. */
+  onPickCandidate: (offer: PinOffer) => void
 }
 
-export function NoteView({ path, user, daily, onNavigate, onMoved, onMoveStarted, onTrashed, templates, onCreated }: Props) {
+export function NoteView({ path, user, daily, onNavigate, onMoved, onMoveStarted, onTrashed, templates, onCreated, onPickCandidate }: Props) {
+  const t = useT()
   const c = useCollab(path)
   const [linkData, setLinkData] = useState<LinksData | null>(null)
   const links = useMemo(
@@ -152,6 +157,16 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMoveStarted
   const [config, setConfig] = useState<ServerConfig | null>(null)
   const images = useImageInsert(path, c.session, view, config?.maxImageBytes ?? 0)
   const createLink = useCreateLink(path, templates, onCreated)
+  const [picker, setPicker] = useState<PickerState | null>(null)
+  const [pinned, setPinned] = useState<{ raw: string; target: string } | null>(null)
+  const openPicker = (link: AmbiguousLink, anchor: HTMLElement) => { setPinned(null); setPicker({ link, anchor: { current: anchor } }) }
+  const openCandidate = (link: AmbiguousLink, target: string) => { setPicker(null); onPickCandidate({ source: path, raw: link.raw, at: link.at, target }) }
+  // The confirmation of a pinned link goes away on its own.
+  useEffect(() => {
+    if (!pinned) return
+    const timer = setTimeout(() => setPinned(null), 6000)
+    return () => clearTimeout(timer)
+  }, [pinned])
 
   // Without the settings the editor can't know whether external images are
   // blocked; if they can't be read, the server's CSP still enforces it.
@@ -212,13 +227,27 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMoveStarted
         <div className="note">
           {c.session && c.connection !== 'connecting' && config && (
             <Editor path={path} session={c.session} user={user} links={links} onNavigate={onNavigate} onView={setView} onComments={panel.showComments}
-              externalImages={config.externalImages} onImageFiles={images.onFiles} onImageUrl={images.onUrl} onCreateLink={createLink.onCreateLink} />
+              externalImages={config.externalImages} onImageFiles={images.onFiles} onImageUrl={images.onUrl} onCreateLink={createLink.onCreateLink}
+              onPickAmbiguous={openPicker} />
           )}
         </div>
-        <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} originals={originals} onNavigate={onNavigate} />
+        <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} originals={originals} onNavigate={onNavigate}
+          onPickAmbiguous={openPicker} onOpenCandidate={openCandidate} />
       </div>
       {mobile && !panel.open && <EditorBar view={view} c={c} onComment={() => panel.showComments(null)} onImage={images.openInsert} daily={daily ?? null} onNavigate={onNavigate} />}
       <ImageInsertUi ins={images} />
+      {picker && (
+        <AmbiguousPicker source={path} state={picker} titles={linkData?.titles ?? {}} onClose={() => setPicker(null)}
+          onOpen={(target) => openCandidate(picker.link, target)}
+          onPinned={(target, raw) => { setPicker(null); setPinned({ raw, target }) }} />
+      )}
+      {pinned && (
+        <div className="toast">
+          <span className="toast-icon">{Icon.check}</span>
+          <span className="toast-text" role="status">{t('pin.pinned', { raw: pinned.raw, target: noteName(pinned.target) })}</span>
+          <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setPinned(null)}>{Icon.close}</Button>
+        </div>
+      )}
     </>
   )
 }
