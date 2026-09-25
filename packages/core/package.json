@@ -8,6 +8,7 @@
     "./syntax": "./src/syntax.ts",
     "./codes": "./src/codes.ts",
     "./images": "./src/images.ts",
+    "./resolve": "./src/resolve.ts",
     "./dates": "./src/dates.ts",
     "./series": "./src/series.ts",
     "./query": "./src/query.ts"

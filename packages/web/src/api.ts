@@ -38,7 +38,7 @@ async function request<T>(method: string, path: string, body?: unknown, headers:
 }
 
 export interface User { id: string; username: string; role: 'admin' | 'member' }
-export interface TreeNote { path: string; title: string; uid: string | null }
+export interface TreeNote { path: string; title: string; uid: string | null; aliases: string[] }
 export interface Note { path: string; text: string; etag: string; meta: { title: string; uid: string | null; fm_error: string | null } | null }
 
 export interface OutgoingLink {
@@ -85,7 +85,7 @@ export interface FolderMoveReport {
   failed: MoveReport['failed']
   dryRun: boolean
 }
-/** A tag, with the notes that carry exactly it (`count`) and it or any nested under it (`total`). */
+/** A tag in use, with the notes that carry it (`count`) and it or any tag nested under it (`total`). */
 export interface TagCount { tag: string; count: number; total: number }
 export interface TrashEntry { id: string; path: string; deletedAt: string }
 /** Installation settings the UI needs. */
@@ -107,7 +107,6 @@ export const api = {
   me: () => request<{ user: User }>('GET', '/api/auth/me'),
   /** Notes and folders (empty ones included). */
   tree: () => request<{ notes: TreeNote[]; folders: string[] }>('GET', '/api/tree'),
-  tags: () => request<{ tags: TagCount[] }>('GET', '/api/tags').then((r) => r.tags),
   createFolder: (path: string) => request<{ path: string }>('POST', '/api/folder', { path }),
   /** Only an empty folder (`not_empty` otherwise). */
   deleteFolder: (path: string) => request<{ path: string }>('DELETE', `/api/folder?path=${encodeURIComponent(path)}`),
@@ -117,6 +116,9 @@ export const api = {
   conflict: (path: string) => request<{ path: string; text: string }>('GET', `/api/conflict?path=${encodeURIComponent(path)}`),
   rescan: (confirmRemoval?: number) => request<{ aborted: string | null }>('POST', '/api/admin/rescan', confirmRemoval === undefined ? {} : { confirmRemoval }),
   links: (path: string) => request<{ outgoing: OutgoingLink[]; backlinks: Backlink[] }>('GET', `/api/note/links?path=${encodeURIComponent(path)}`),
+  /** Tags in use, most used first (editor suggestions and the tags view). */
+  tags: () => request<{ tags: TagCount[] }>('GET', '/api/tags').then((r) => r.tags),
+  headings: (path: string) => request<{ headings: { level: number; text: string }[] }>('GET', `/api/note/headings?path=${encodeURIComponent(path)}`).then((r) => r.headings),
   search: (q: string) => request<SearchResponse>('GET', `/api/search?q=${encodeURIComponent(q)}`),
   createNote: (path: string, text: string) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, text }),
   /** A new note with the text of the template note, its variables filled in by the server. */

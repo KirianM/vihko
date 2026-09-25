@@ -147,6 +147,27 @@ test('links, backlinks with context, search and alerts', async () => {
   assert.deepEqual(errorOf(await req('POST', '/api/admin/rescan', {})), [403, 'forbidden'], "a member isn't an admin")
 })
 
+test('editor autocomplete data: aliases in the tree, tags with counts and a note\'s headings', async () => {
+  const { auth, req } = await setup()
+  await auth.createUser('noa', 'a-long-password', 'member')
+  await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
+
+  const tree = await req('GET', '/api/tree')
+  const gw = tree.body.notes.find((n: { path: string }) => n.path === 'hogar/Proxy.md')
+  assert.deepEqual(gw.aliases, ['gw', 'Hipervisor'])
+
+  const tags = (await req('GET', '/api/tags')).body.tags as { tag: string; count: number }[]
+  assert.ok(tags.length > 0)
+  const hogar = tags.find((t) => t.tag === 'hogar')!
+  assert.ok(hogar.count >= 1, 'counted by notes')
+  assert.ok(!tags.some((t) => t.tag === 'Hogar'), 'tags are case-insensitive')
+  assert.deepEqual(tags.map((t) => t.count), tags.map((t) => t.count).sort((a, b) => b - a), 'most used first')
+
+  const headings = await req('GET', '/api/note/headings?path=hogar/Proxy.md')
+  assert.ok(headings.body.headings.some((h: { text: string }) => h.text === 'Red'))
+  assert.deepEqual(errorOf(await req('GET', '/api/note/headings?path=no-existe.md')), [404, 'not_found'])
+})
+
 test('comments inside a note stay out of backlink contexts and search', async () => {
   const { auth, req, notesDir, runtime } = await setup()
   await auth.createUser('noa', 'a-long-password', 'member')

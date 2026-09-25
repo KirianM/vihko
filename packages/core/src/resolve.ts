@@ -1,7 +1,7 @@
 // Link resolution. An in-memory key index: each note contributes all the
 // suffixes of its path without the extension, plus its aliases, normalized.
 // It's the model for the indexer's `link_keys` table and also serves the editor.
-import { posix } from 'node:path'
+// Browser-safe entry point (@thoth/core/resolve): no Node modules here.
 import type { LinkRef } from './markdown.ts'
 
 export interface NoteKeys {
@@ -26,6 +26,17 @@ const dirOf = (p: string) => {
   return i === -1 ? '' : p.slice(0, i)
 }
 const segments = (dir: string) => (dir === '' ? [] : dir.split('/'))
+
+/** `posix.join(dir, rel)` for relative note paths: `.` and `..` folded, empty segments dropped. */
+export function joinPath(dir: string, rel: string): string {
+  const out: string[] = []
+  for (const seg of `${dir}/${rel}`.split('/')) {
+    if (seg === '' || seg === '.') continue
+    if (seg === '..' && out.length > 0 && out[out.length - 1] !== '..') out.pop()
+    else out.push(seg)
+  }
+  return out.join('/') || '.'
+}
 
 /** Path keys for a note: all its suffixes (`plan`, `thoth/plan`, `projects/thoth/plan`). */
 export function pathKeys(path: string): string[] {
@@ -75,7 +86,7 @@ export class LinkIndex {
   /** A link's lookup key, to tell whether a key change affects it. */
   static keyOf(source: string, link: Pick<LinkRef, 'kind' | 'target'>): string | null {
     if (link.target === '') return null
-    if (link.kind === 'markdown') return normKey(stripMd(posix.join(dirOf(source), link.target)))
+    if (link.kind === 'markdown') return normKey(stripMd(joinPath(dirOf(source), link.target)))
     return normKey(stripMd(link.target.replace(/^\/+/, '')))
   }
 
@@ -124,6 +135,21 @@ export class LinkIndex {
     const ok = headings.some((h) => normKey(h) === normKey(anchor))
     return { status: 'resolved', path, anchor: ok ? 'ok' : 'missing', via }
   }
+}
+
+/**
+ * The shortest wikilink target that, written in `source`, resolves to `path`:
+ * the name, then progressively longer path suffixes and, as a last resort,
+ * the absolute path `/folder/Note` (D-019). Without the `.md` extension.
+ */
+export function shortestTarget(index: LinkIndex, source: string, path: string): string {
+  const parts = stripMd(path).split('/')
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const target = parts.slice(i).join('/')
+    const r = index.resolve(source, { kind: 'wiki', target, anchor: null })
+    if (r.status === 'resolved' && r.path === path) return target
+  }
+  return '/' + parts.join('/')
 }
 
 function add(map: Map<string, Set<string>>, key: string, path: string, affected: Set<string>) {

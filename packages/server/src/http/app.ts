@@ -180,27 +180,35 @@ export function createApp(deps: AppDeps) {
 
   // Notes and folders: a folder with no notes (just created, or emptied) still shows.
   app.get('/api/tree', (c) => {
-    const rows = index.prepare('select path, title, uid from notes order by path').all()
+    const rows = index.prepare('select path, title, uid, aliases from notes order by path').all() as { aliases: string }[]
     const folders = (index.prepare('select path from folders order by path').all() as { path: string }[]).map((r) => r.path)
-    return c.json({ notes: rows, folders })
+    return c.json({ notes: rows.map((r) => ({ ...r, aliases: JSON.parse(r.aliases) as string[] })), folders })
   })
 
-  // Tags with how many notes carry each one (D-019: case-insensitive, nested
-  // with `/`). A parent that nobody writes on its own (`hogar` when only
-  // `hogar/red` exists) is listed too: `count` is the notes with exactly that
-  // tag and `total` those with it or any nested under it.
+  // Tags in use, most used first (D-019: case-insensitive, nested with `/`).
+  // `count`: the notes that carry the tag (inline or in the frontmatter);
+  // `total`: those that carry it or any tag nested under it (the tags view).
   app.get('/api/tags', (c) => {
-    const exact = new Map<string, Set<string>>()
-    const total = new Map<string, Set<string>>()
-    const add = (m: Map<string, Set<string>>, tag: string, path: string) => { let s = m.get(tag); if (!s) m.set(tag, (s = new Set())); s.add(path) }
+    const rows = index.prepare('select tag, count(distinct path) as count from tags group by tag order by count desc, tag').all() as { tag: string; count: number }[]
+    const under = new Map<string, Set<string>>()
     for (const r of index.prepare('select distinct path, tag from tags').all() as { path: string; tag: string }[]) {
-      add(exact, r.tag, r.path)
       const parts = r.tag.split('/')
-      for (let i = 1; i <= parts.length; i++) add(total, parts.slice(0, i).join('/'), r.path)
+      for (let i = 1; i <= parts.length; i++) {
+        const t = parts.slice(0, i).join('/')
+        let set = under.get(t)
+        if (!set) under.set(t, (set = new Set()))
+        set.add(r.path)
+      }
     }
-    const tags = [...total].map(([tag, paths]) => ({ tag, count: exact.get(tag)?.size ?? 0, total: paths.size }))
-    tags.sort((a, b) => (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0))
-    return c.json({ tags })
+    return c.json({ tags: rows.map((r) => ({ ...r, total: under.get(r.tag)?.size ?? r.count })) })
+  })
+
+  // A note's headings, in order (link anchors: `[[Note#Heading]]`).
+  app.get('/api/note/headings', (c) => {
+    const path = c.req.query('path') ?? ''
+    notes.read(path) // 404 if it doesn't exist
+    const rows = index.prepare('select level, text from headings where path = ? order by ord').all(path)
+    return c.json({ headings: rows })
   })
 
   // Folders only exist on disk: these create, move (with every note in them,
