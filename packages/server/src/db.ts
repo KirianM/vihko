@@ -6,7 +6,7 @@ import { rmSync } from 'node:fs'
 export type Db = Database.Database
 
 /** Bumping this number forces a full rebuild of the index. */
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3 // 3: links to images are no longer extracted
 
 const SCHEMA = `
 create table meta (

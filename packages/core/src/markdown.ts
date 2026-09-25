@@ -1,6 +1,7 @@
 // Extraction of links, tags and headings on top of thoth's syntax (syntax.ts).
 import { markdownParser } from './syntax.ts'
 import { readFrontmatter } from './frontmatter.ts'
+import { isImageRef } from './images.ts'
 
 // --- Extraction -------------------------------------------------------------
 
@@ -99,12 +100,14 @@ export function extract(text: string, opts: ExtractOptions = {}): Extracted {
       const to = node.to + bodyStart
       const raw = body.slice(node.from, node.to)
       switch (node.name) {
+        // A reference to an image is not a link between notes: it never resolves
+        // to a note and would show up as broken (the editor renders it instead).
         case 'WikiLink':
-          links.push(parseWikiRaw(raw, 'wiki', from, to))
+        case 'WikiEmbed': {
+          const link = parseWikiRaw(raw, node.name === 'WikiEmbed' ? 'embed' : 'wiki', from, to)
+          if (!isImageRef(link.target)) links.push(link)
           return false
-        case 'WikiEmbed':
-          links.push(parseWikiRaw(raw, 'embed', from, to))
-          return false
+        }
         case 'Tag':
           tags.push({ name: normalizeTag(raw), source: 'inline', from, to })
           return false
@@ -112,7 +115,7 @@ export function extract(text: string, opts: ExtractOptions = {}): Extracted {
           const url = node.node.getChild('URL')
           if (!url) return
           let dest = body.slice(url.from, url.to).replace(/^<|>$/g, '')
-          if (!dest || EXTERNAL.test(dest)) return
+          if (!dest || EXTERNAL.test(dest) || isImageRef(dest)) return
           const hash = dest.indexOf('#')
           const anchor = hash === -1 ? null : safeDecode(dest.slice(hash + 1)) || null
           dest = safeDecode(hash === -1 ? dest : dest.slice(0, hash))
