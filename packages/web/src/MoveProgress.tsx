@@ -16,6 +16,8 @@ export type JobEnd =
   | { kind: 'lost' }
 
 const POLL_MS = 400
+/** A status request that takes longer is dropped and asked again: one that never answered froze the notice. */
+const REQUEST_MS = 10_000
 const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/i, '')
 
 export function MoveProgress({ job: first, onFinished }: { job: MoveJob; onFinished: (end: JobEnd) => void }) {
@@ -25,25 +27,45 @@ export function MoveProgress({ job: first, onFinished }: { job: MoveJob; onFinis
   const finished = useRef(onFinished)
   finished.current = onFinished
 
+  // Polled until it ends. One request at a time, each with a deadline, and
+  // again at once when the page comes back to the front (a browser may hold
+  // back timers in a page in the background): the end can't be missed.
   useEffect(() => {
     let live = true
-    let timer: ReturnType<typeof setTimeout>
+    let busy = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const end = (e: JobEnd) => { live = false; finished.current(e) }
     const poll = async () => {
+      if (!live || busy) return
+      busy = true
+      clearTimeout(timer)
       try {
-        const j = await api.moveJob(first.id)
+        const j = await api.moveJob(first.id, REQUEST_MS)
         if (!live) return
         setJob(j)
-        if (j.state === 'done') return finished.current({ kind: 'done', report: j.report })
-        if (j.state === 'failed') return finished.current({ kind: 'failed', message: errorText(t, new ApiError(500, j.error, j.message)) })
+        if (j.state === 'done') return end({ kind: 'done', report: j.report })
+        if (j.state === 'failed') return end({ kind: 'failed', message: errorText(t, new ApiError(500, j.error, j.message)) })
       } catch (err) {
         if (!live) return
-        if (err instanceof ApiError && err.status === 404) return finished.current({ kind: 'lost' })
-        // A network hiccup: try again.
+        if (err instanceof ApiError && err.status === 404) return end({ kind: 'lost' })
+        // A network hiccup or no answer in time: try again.
+      } finally {
+        busy = false
       }
       timer = setTimeout(poll, POLL_MS)
     }
+    const wake = () => { if (document.visibilityState === 'visible') void poll() }
     timer = setTimeout(poll, POLL_MS)
-    return () => { live = false; clearTimeout(timer) }
+    window.addEventListener('focus', wake)
+    window.addEventListener('online', wake)
+    document.addEventListener('visibilitychange', wake)
+    return () => {
+      live = false
+      clearTimeout(timer)
+      window.removeEventListener('focus', wake)
+      window.removeEventListener('online', wake)
+      document.removeEventListener('visibilitychange', wake)
+    }
   }, [first.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const name = nameOf(job.to)
