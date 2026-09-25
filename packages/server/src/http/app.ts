@@ -21,6 +21,9 @@ import { ProfileError, type Profile, type Profiles } from '../profiles.ts'
 import type { Workspace } from '../workspace.ts'
 import { MoveJobs } from './jobs.ts'
 import type { ExternalMoves } from '../externalMoves.ts'
+import { HistoryError, type History } from '../history/index.ts'
+import { GitError } from '../history/git.ts'
+import { historyErrorStatus, historyRoutes } from './history.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 
@@ -64,6 +67,13 @@ export interface AppDeps {
   moveWaitMs?: number
   /** Notes moved outside thoth, pending a link update (D-031.4). */
   externalMoves?: ExternalMoves
+  /** Note history (M2). Without it, the history API doesn't exist. */
+  history?: History
+  /**
+   * Whether a user can read a path now: the permission filter the history
+   * applies to every note and file it shows (D-014). Everything, until M4.
+   */
+  canRead?: (user: User, path: string) => boolean
 }
 
 export type ExternalImages = 'allow' | 'block'
@@ -119,6 +129,8 @@ export function createApp(deps: AppDeps) {
     }
     if (err instanceof FetchImageError) return fail(c, fetchErrorStatus(err), err.code, err.message)
     if (err instanceof ProfileError) return fail(c, 400, err.code, err.message)
+    if (err instanceof HistoryError) return fail(c, historyErrorStatus(err), err.code, err.message)
+    if (err instanceof GitError) return fail(c, 503, 'history_unavailable', err.message)
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400, err.code, err.message)
     // Body that isn't JSON.
     if (err instanceof SyntaxError) return fail(c, 400, 'invalid', err.message)
@@ -487,6 +499,7 @@ export function createApp(deps: AppDeps) {
       const note = conflictOriginal(path)
       alerts.push({ code: 'sync_conflict', path, note: noteExists.get(note) ? note : null, actions: [] })
     }
+    alerts.push(...(deps.history?.alerts() ?? []))
     return c.json({ alerts })
   })
 
@@ -522,6 +535,8 @@ export function createApp(deps: AppDeps) {
     const { username, password, role } = await c.req.json<{ username: string; password: string; role?: 'admin' | 'member' }>()
     return c.json({ user: await auth.createUser(username, password, role ?? 'member') }, 201)
   })
+
+  if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, canRead: deps.canRead ?? (() => true) })
 
   app.all('/api/*', (c) => fail(c, 404, 'not_found', 'does not exist'))
 
