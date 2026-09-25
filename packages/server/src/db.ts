@@ -63,20 +63,6 @@ create table links (
 create index links_key on links(key);
 create index links_dst on links(dst_path);
 
--- References to image files in the notes folder, to know which notes use
--- each image (an image moves with a note only if no other note uses it).
--- \`path\` is where the reference points, from the notes root, whether the file
--- exists or not; external URLs are not recorded.
-create table images (
-  src_path  text not null,
-  ord       integer not null,
-  kind      text not null check (kind in ('image', 'embed', 'markdown', 'wiki')),
-  raw       text not null,
-  path      text not null,
-  primary key (src_path, ord)
-);
-create index images_path on images(path);
-
 create table headings (
   path  text not null,
   ord   integer not null,
