@@ -66,6 +66,28 @@ test('full-text search without accents', () => {
   assert.ok(hits.some((h) => h.path.normalize('NFC') === 'recetas/Café.md'))
 })
 
+test('comments inside a note are not body text: not searchable, not in its title', () => {
+  const { notes, db, indexer } = setup('comments')
+  writeFileSync(join(notes, 'discussed.md'), [
+    '# Storage <!-- @ana 2026-09-24T08:10Z · rename it? -->',
+    '',
+    'We use Postgres for the index.<!-- @noa 2026-09-24T08:12Z · no, use zanahoria -->',
+    '<!-- @claude 2026-09-24T08:15Z · ↳ agreed, switching to pepino -->',
+    '',
+  ].join('\n'))
+  indexer.scan()
+  const hits = (q: string) => (db.prepare('select path from notes_fts where notes_fts match ?').all(q) as { path: string }[]).map((h) => h.path)
+  assert.deepEqual(hits('postgres'), ['discussed.md'])
+  assert.deepEqual(hits('zanahoria'), [])
+  assert.deepEqual(hits('pepino'), [])
+  assert.deepEqual(hits('rename'), [])
+  const row = db.prepare("select title, body from notes_fts where path = 'discussed.md'").get() as { title: string; body: string }
+  assert.equal(row.title, 'Storage')
+  assert.equal(row.body, '# Storage \n\nWe use Postgres for the index.\n\n')
+  // Rebuilding from scratch gives the same index, comments and all.
+  assert.equal(dumpIndex(db), freshDump(notes))
+})
+
 test('the indexer never writes to the notes', () => {
   const { notes, indexer } = setup('readonly')
   const snapshot = () => readdirSync(notes, { recursive: true }).map(String).sort()
