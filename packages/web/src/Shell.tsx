@@ -249,7 +249,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               path={openPath}
               user={user}
               onNavigate={setOpenPath}
-              onMoved={(to, report) => { setOpenPath(to); if (report?.failed.length) setMoveIssue(report); void loadTree() }}
+              onMoved={(to, report) => { setOpenPath(to); if (report && (report.failed.length || report.images.failed.length)) setMoveIssue(report); void loadTree() }}
               onTrashed={(t) => { setOpenPath(null); setTrashed(t); void loadTree() }}
             />
           </Suspense>

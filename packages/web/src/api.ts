@@ -60,6 +60,17 @@ export interface MoveReport {
   kept: { path: string; raw: string; via: 'path' | 'alias' }[]
   failed: { path: string; error: ErrorCode; message: string }[]
   aliasAdded: string | null
+  /**
+   * The note's images, when it changes folder: those that go with it, those
+   * that stay (shared, or in another folder) and those that ran into trouble
+   * (`stayed`: still in the old folder, linked there; `copied`: moved, but the
+   * original could not be removed).
+   */
+  images: {
+    moved: { from: string; to: string }[]
+    stayed: { path: string; reason: 'shared' | 'elsewhere' }[]
+    failed: { path: string; to: string | null; outcome: 'stayed' | 'copied'; error: ErrorCode; message: string }[]
+  }
   dryRun: boolean
 }
 export interface TrashEntry { id: string; path: string; deletedAt: string }
