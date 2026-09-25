@@ -6,7 +6,7 @@ import { rmSync } from 'node:fs'
 export type Db = Database.Database
 
 /** Bumping this number forces a full rebuild of the index. */
-export const SCHEMA_VERSION = 4 // 4: links to images are no longer extracted
+export const SCHEMA_VERSION = 5 // 5: references to images, in their own table
 
 const SCHEMA = `
 create table meta (
@@ -61,6 +61,20 @@ create table links (
 );
 create index links_key on links(key);
 create index links_dst on links(dst_path);
+
+-- References to image files in the notes folder, to know which notes use
+-- each image (an image moves with a note only if no other note uses it).
+-- \`path\` is where the reference points, from the notes root, whether the file
+-- exists or not; external URLs are not recorded.
+create table images (
+  src_path  text not null,
+  ord       integer not null,
+  kind      text not null check (kind in ('image', 'embed', 'markdown', 'wiki')),
+  raw       text not null,
+  path      text not null,
+  primary key (src_path, ord)
+);
+create index images_path on images(path);
 
 create table tags (
   path   text not null,
@@ -119,7 +133,7 @@ function readVersion(db: Db): number | null {
 
 /** Deterministic dump of the whole index (rebuild tests). */
 export function dumpIndex(db: Db): string {
-  const tables = ['notes', 'link_keys', 'links', 'tags', 'headings', 'alerts']
+  const tables = ['notes', 'link_keys', 'links', 'images', 'tags', 'headings', 'alerts']
   const out: string[] = []
   for (const t of tables) {
     const rows = db.prepare(`select * from ${t} order by 1, 2, 3`).all()

@@ -19,6 +19,30 @@ export interface LinkRef {
   to: number
 }
 
+/**
+ * A reference to an image file (D-028): `![alt](dest)`, `![[image.png]]`, and
+ * links to an image file (`[text](image.png)`, `[[image.png]]`). They are not
+ * links between notes; the index keeps them apart to know who uses each image.
+ */
+export interface ImageLink {
+  /** `image` = `![](…)`, `embed` = `![[…]]`, `markdown` = `[](…)`, `wiki` = `[[…]]`. */
+  kind: 'image' | 'embed' | 'markdown' | 'wiki'
+  /** The reference's literal text as it appears in the note. */
+  raw: string
+  /**
+   * The destination as written: for Markdown, possibly URL-encoded, in `<>` or
+   * with `?query`/`#anchor`; for wikilinks, the target without `|text` or `#anchor`.
+   * Only local references: URLs with a scheme are left out.
+   */
+  dest: string
+  /** Span of the whole reference. */
+  from: number
+  to: number
+  /** Span of `dest` in the note's text: what a rewrite replaces. */
+  destFrom: number
+  destTo: number
+}
+
 export interface TagRef {
   /** Normalized: NFC, lowercase, no `#`. */
   name: string
@@ -47,6 +71,8 @@ export interface ExtractOptions {
 export interface Extracted {
   frontmatter: ReturnType<typeof readFrontmatter>
   links: LinkRef[]
+  /** Local image references, in order of appearance. Resolved against the note with `resolveImageRef`. */
+  images: ImageLink[]
   tags: TagRef[]
   headings: Heading[]
   /**
@@ -78,6 +104,16 @@ function parseWikiRaw(raw: string, kind: 'wiki' | 'embed', from: number, to: num
     from,
     to,
   }
+}
+
+/** Where the target of a wikilink or embed is in the note: `[[ target #anchor|text]]` → ` target `, trimmed. */
+function wikiTargetSpan(raw: string, kind: 'wiki' | 'embed', from: number): { destFrom: number; destTo: number } {
+  const start = kind === 'embed' ? 3 : 2
+  const inner = raw.slice(start, -2)
+  const end = inner.search(/[|#]/)
+  const dest = end === -1 ? inner : inner.slice(0, end)
+  const lead = dest.length - dest.trimStart().length
+  return { destFrom: from + start + lead, destTo: from + start + dest.trimEnd().length }
 }
 
 function safeDecode(s: string) {
@@ -120,6 +156,7 @@ export function extract(text: string, opts: ExtractOptions = {}): Extracted {
   const body = text.slice(bodyStart)
   const tree = markdownParser.parse(body)
   const links: LinkRef[] = []
+  const images: ImageLink[] = []
   const tags: TagRef[] = []
   const headingNodes: { level: number; setext: boolean; from: number; to: number }[] = []
   const comments: Range[] = []
@@ -138,9 +175,18 @@ export function extract(text: string, opts: ExtractOptions = {}): Extracted {
         // to a note and would show up as broken (the editor renders it instead).
         case 'WikiLink':
         case 'WikiEmbed': {
-          const link = parseWikiRaw(raw, node.name === 'WikiEmbed' ? 'embed' : 'wiki', from, to)
+          const kind = node.name === 'WikiEmbed' ? 'embed' : 'wiki'
+          const link = parseWikiRaw(raw, kind, from, to)
           if (!isImageRef(link.target)) links.push(link)
+          else if (!EXTERNAL.test(link.target)) images.push({ kind, raw, dest: link.target, from, to, ...wikiTargetSpan(raw, kind, from) })
           return false
+        }
+        case 'Image': {
+          const url = node.node.getChild('URL')
+          if (!url) return
+          const dest = body.slice(url.from, url.to)
+          if (!EXTERNAL.test(dest.replace(/^</, ''))) images.push({ kind: 'image', raw, dest, from, to, destFrom: url.from + bodyStart, destTo: url.to + bodyStart })
+          return
         }
         case 'Tag':
           tags.push({ name: normalizeTag(raw), source: 'inline', from, to })
@@ -149,7 +195,11 @@ export function extract(text: string, opts: ExtractOptions = {}): Extracted {
           const url = node.node.getChild('URL')
           if (!url) return
           let dest = body.slice(url.from, url.to).replace(/^<|>$/g, '')
-          if (!dest || EXTERNAL.test(dest) || isImageRef(dest)) return
+          if (!dest || EXTERNAL.test(dest)) return
+          if (isImageRef(dest)) {
+            images.push({ kind: 'markdown', raw, dest: body.slice(url.from, url.to), from, to, destFrom: url.from + bodyStart, destTo: url.to + bodyStart })
+            return
+          }
           const hash = dest.indexOf('#')
           const anchor = hash === -1 ? null : safeDecode(dest.slice(hash + 1)) || null
           dest = safeDecode(hash === -1 ? dest : dest.slice(0, hash))
@@ -183,5 +233,5 @@ export function extract(text: string, opts: ExtractOptions = {}): Extracted {
 
   // After the walk: a heading's comments are its children.
   const headings = headingNodes.map((h) => ({ level: h.level, text: headingText(withoutRanges(text, comments, h.from, h.to), h.setext), from: h.from }))
-  return { frontmatter, links, tags, headings, comments }
+  return { frontmatter, links, images, tags, headings, comments }
 }

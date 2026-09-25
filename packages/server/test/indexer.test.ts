@@ -131,6 +131,30 @@ test('indexPaths (watcher) = rebuild from scratch', () => {
   assert.equal(dumpIndex(db), freshDump(notes))
 })
 
+test('image references: who uses each image, resolved from the note; external ones are left out; rebuild = incremental', () => {
+  const { notes, db, indexer } = setup('images')
+  indexer.scan()
+  writeFileSync(join(notes, 'proyectos/thoth/galeria.md'), [
+    '![a](diagrama%20v2.png) ![[captura.jpg|x]] [ver](../../adjuntos/imagen.png) ![](/adjuntos/imagen.png)',
+    '![](https://h/i.png) ![](../../../fuera.png) [[Plan]]', '',
+  ].join('\n'))
+  writeFileSync(join(notes, 'hogar/Red.md'), '# Red\n\n![](../adjuntos/imagen.png)\n')
+  indexer.indexPaths(['proyectos/thoth/galeria.md', 'hogar/Red.md'])
+  const rows = db.prepare('select src_path, kind, path from images order by src_path, ord').all() as { src_path: string; kind: string; path: string }[]
+  assert.deepEqual(rows.map((r) => [r.src_path, r.kind, r.path]), [
+    ['hogar/Red.md', 'image', 'adjuntos/imagen.png'],
+    ['proyectos/thoth/galeria.md', 'image', 'proyectos/thoth/diagrama v2.png'],
+    ['proyectos/thoth/galeria.md', 'embed', 'proyectos/thoth/captura.jpg'],
+    ['proyectos/thoth/galeria.md', 'markdown', 'adjuntos/imagen.png'],
+    ['proyectos/thoth/galeria.md', 'image', 'adjuntos/imagen.png'],
+  ])
+  assert.equal(dumpIndex(db), freshDump(notes))
+  rmSync(join(notes, 'proyectos/thoth/galeria.md'))
+  indexer.indexPaths(['proyectos/thoth/galeria.md'])
+  assert.deepEqual(db.prepare('select distinct src_path from images').all(), [{ src_path: 'hogar/Red.md' }])
+  assert.equal(dumpIndex(db), freshDump(notes))
+})
+
 test("a change to just mtime doesn't reindex; a content change does", () => {
   const { notes, db, indexer } = setup('mtime')
   indexer.scan()

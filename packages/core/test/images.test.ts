@@ -30,3 +30,18 @@ test('links to images are not note links: not extracted, so never broken', () =>
   const x = extract('![](plan.png) ![[foto.jpg]] [[foto.webp]] [ver](diagrama.svg) ![[Plan]] [[Otra]] ![alt](https://h/i.png)')
   assert.deepEqual(x.links.map((l) => [l.kind, l.target]), [['embed', 'Plan'], ['wiki', 'Otra']])
 })
+
+test('image references are extracted apart, with the span of their destination', () => {
+  const text = '---\nt: 1\n---\n![a](img/a%20b.png "t") ![[ foto.jpg |x]] [[plano.webp#y]] [ver](<d i.svg>) ![](https://h/i.png) ![](data:image/png;base64,AA) ![](no-extension)'
+  const x = extract(text)
+  assert.deepEqual(x.images.map((i) => [i.kind, i.dest, text.slice(i.destFrom, i.destTo)]), [
+    ['image', 'img/a%20b.png', 'img/a%20b.png'],
+    ['embed', 'foto.jpg', 'foto.jpg'],
+    ['wiki', 'plano.webp', 'plano.webp'],
+    ['markdown', '<d i.svg>', '<d i.svg>'],
+    ['image', 'no-extension', 'no-extension'],
+  ])
+  assert.ok(x.images.every((i) => text.slice(i.from, i.to) === i.raw))
+  assert.deepEqual(x.images.map((i) => i.raw), ['![a](img/a%20b.png "t")', '![[ foto.jpg |x]]', '[[plano.webp#y]]', '[ver](<d i.svg>)', '![](no-extension)'])
+  assert.deepEqual(x.links, [])
+})

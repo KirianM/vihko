@@ -3,7 +3,7 @@
 // content hash as ground truth. Never writes to the notes.
 import { readFileSync, readdirSync, statSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
-import { LinkIndex, classifyPath, contentHash, extract, isIgnoredDir, normKey, pathKeys, withoutRanges, type Extracted } from '@thoth/core'
+import { LinkIndex, classifyPath, contentHash, extract, isIgnoredDir, normKey, pathKeys, resolveImageRef, withoutRanges, type Extracted } from '@thoth/core'
 import type { Db } from './db.ts'
 
 export interface IndexerOptions {
@@ -179,6 +179,7 @@ export class Indexer {
       fts: db.prepare('delete from notes_fts where path = ?'),
       keys: db.prepare('delete from link_keys where path = ?'),
       links: db.prepare('delete from links where src_path = ?'),
+      images: db.prepare('delete from images where src_path = ?'),
       tags: db.prepare('delete from tags where path = ?'),
       headings: db.prepare('delete from headings where path = ?'),
     }
@@ -192,6 +193,7 @@ export class Indexer {
       key: db.prepare('insert or ignore into link_keys (key, path, kind) values (?, ?, ?)'),
       link: db.prepare(`insert into links (src_path, ord, kind, raw, target, anchor, display, pos_from, pos_to, key, status)
                         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'missing')`),
+      image: db.prepare('insert into images (src_path, ord, kind, raw, path) values (?, ?, ?, ?, ?)'),
       tag: db.prepare('insert or ignore into tags (path, tag, source) values (?, ?, ?)'),
       heading: db.prepare('insert into headings (path, ord, level, text, pos) values (?, ?, ?, ?, ?)'),
     }
@@ -215,6 +217,10 @@ export class Indexer {
         for (const a of aliases) ins.key.run(normKey(a), u.path, 'alias')
         x.links.forEach((l, i) => {
           ins.link.run(u.path, i, l.kind, l.raw, l.target, l.anchor, l.display, l.from, l.to, LinkIndex.keyOf(u.path, l))
+        })
+        x.images.forEach((img, i) => {
+          const path = resolveImageRef(u.path, img.dest, { embed: img.kind === 'embed' || img.kind === 'wiki' })
+          if (path !== null) ins.image.run(u.path, i, img.kind, img.raw, path)
         })
         for (const t of x.tags) ins.tag.run(u.path, t.name, t.source)
         x.headings.forEach((h, i) => ins.heading.run(u.path, i, h.level, h.text, h.from))
