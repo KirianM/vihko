@@ -34,9 +34,13 @@ interface Props {
   onComments?: (threadId: string | null) => void
   /** Images linked from other sites: shown, or blocked by the administrator. */
   externalImages: 'allow' | 'block'
+  /** Image files pasted or dropped, for the range `from`–`to`. */
+  onImageFiles?: (files: File[], from: number, to: number) => void
+  /** A single image URL pasted over `from`–`to`. */
+  onImageUrl?: (url: string, from: number, to: number) => void
 }
 
-export function Editor({ path, session, user, links, onNavigate, onView, onComments, externalImages }: Props) {
+export function Editor({ path, session, user, links, onNavigate, onView, onComments, externalImages, onImageFiles, onImageUrl }: Props) {
   const t = useT()
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -46,6 +50,10 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
   comments.current = onComments
   const viewCb = useRef(onView)
   viewCb.current = onView
+  const imageFiles = useRef(onImageFiles)
+  imageFiles.current = onImageFiles
+  const imageUrl = useRef(onImageUrl)
+  imageUrl.current = onImageUrl
 
   useEffect(() => {
     const { text, provider } = session
@@ -73,6 +81,8 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
             missing: t('editor.imageMissing'),
             blocked: (domain) => t('editor.imageBlocked', { domain }),
           },
+          onFiles: (files, from, to) => imageFiles.current?.(files, from, to),
+          onUrl: (url, from, to) => imageUrl.current?.(url, from, to),
         }),
         commentMarks,
         commentUi.of({

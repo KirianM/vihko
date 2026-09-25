@@ -1,5 +1,5 @@
-// "More actions" for the open note: rename or move with a preview of the links
-// that get rewritten, and move to the trash. History (M2) will live in
+// "More actions" for the open note: insert an image, rename or move with a
+// preview of the links that get rewritten, and move to the trash. History (M2) will live in
 // this same menu.
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, Text, TextField } from 'react-aria-components'
@@ -146,7 +146,7 @@ function TrashDialog({ path, onClose, onTrashed }: { path: string; onClose: () =
   )
 }
 
-export function NoteActions({ path, onMoved, onTrashed }: { path: string; onMoved: (to: string) => void; onTrashed: (id: string) => void }) {
+export function NoteActions({ path, onMoved, onTrashed, onInsertImage }: { path: string; onMoved: (to: string) => void; onTrashed: (id: string) => void; onInsertImage: () => void }) {
   const t = useT()
   const [open, setOpen] = useState<'rename' | 'trash' | null>(null)
   const close = () => setOpen(null)
@@ -155,7 +155,8 @@ export function NoteActions({ path, onMoved, onTrashed }: { path: string; onMove
       <MenuTrigger>
         <Button className="btn btn-icon" aria-label={t('note.moreActions')}>{Icon.more}</Button>
         <Popover className="menu-popover" placement="bottom end">
-          <Menu className="menu" onAction={(key) => setOpen(key as 'rename' | 'trash')}>
+          <Menu className="menu" onAction={(key) => (key === 'image' ? onInsertImage() : setOpen(key as 'rename' | 'trash'))}>
+            <MenuItem id="image" className="menu-item">{Icon.image}{t('note.insertImage')}</MenuItem>
             <MenuItem id="rename" className="menu-item">{Icon.rename}{t('note.rename')}</MenuItem>
             <MenuItem id="trash" className="menu-item menu-item-danger">{Icon.trash}{t('note.trash')}</MenuItem>
           </Menu>

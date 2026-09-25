@@ -158,7 +158,7 @@ test('trash: confirmation names the note, whoever had it open is told, and it re
 
 test('screenshots: menu, dialog in dark and on mobile', async ({ browser }) => {
   await k.getByRole('button', { name: 'Más acciones' }).click()
-  await expect(k.getByRole('menuitem')).toHaveCount(2)
+  await expect(k.getByRole('menuitem')).toHaveCount(3)
   await shot(k, 'menu')
   await k.keyboard.press('Escape')
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()

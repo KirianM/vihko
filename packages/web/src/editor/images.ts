@@ -1,6 +1,7 @@
 // Images in the editor (D-028): `![alt](path)` and `![[image.png]]` are shown
-// as the image, resolved against the note's folder. The text of the note never
-// changes here; this only decorates it.
+// as the image, resolved against the note's folder, and pasting or dropping an
+// image hands it to whoever uploads it. The text of the note never changes
+// here; this only decorates it.
 import { syntaxTree } from '@codemirror/language'
 import { Facet, type Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
@@ -20,6 +21,10 @@ export interface ImageHost {
   /** External images: loaded, or replaced by a box with their domain. */
   external: 'allow' | 'block'
   text: ImageLabels
+  /** Image files pasted or dropped, to replace `from`–`to`. */
+  onFiles: (files: File[], from: number, to: number) => void
+  /** A single image URL pasted: someone decides whether to copy it, link it or paste it as text. */
+  onUrl: (url: string, from: number, to: number) => void
 }
 
 export const imageHost = Facet.define<ImageHost, ImageHost | null>({ combine: (v) => v[0] ?? null })
@@ -160,4 +165,45 @@ const imagePreview = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 )
 
-export const images = [imagePreview]
+/** Image files in a paste or a drop. A paste that also carries text (a spreadsheet range, say) stays a text paste. */
+function imageFiles(data: DataTransfer | null, ignoreIfText: boolean): File[] {
+  if (!data) return []
+  if (ignoreIfText && data.getData('text/plain').trim()) return []
+  return [...data.files].filter((f) => f.type.startsWith('image/'))
+}
+
+/** A single `http(s)` URL that names an image. */
+export function imageUrl(text: string): string | null {
+  const t = text.trim()
+  return /^https?:\/\/\S+$/i.test(t) && isImageRef(t) ? t : null
+}
+
+const imageInput = EditorView.domEventHandlers({
+  paste(e, view) {
+    const host = view.state.facet(imageHost)
+    if (!host) return false
+    const { from, to } = view.state.selection.main
+    const files = imageFiles(e.clipboardData, true)
+    if (files.length) {
+      e.preventDefault()
+      host.onFiles(files, from, to)
+      return true
+    }
+    const url = imageUrl(e.clipboardData?.getData('text/plain') ?? '')
+    if (!url) return false
+    e.preventDefault()
+    host.onUrl(url, from, to)
+    return true
+  },
+  drop(e, view) {
+    const host = view.state.facet(imageHost)
+    const files = imageFiles(e.dataTransfer, false)
+    if (!host || !files.length) return false
+    e.preventDefault()
+    const pos = view.posAtCoords({ x: e.clientX, y: e.clientY }) ?? view.state.selection.main.head
+    host.onFiles(files, pos, pos)
+    return true
+  },
+})
+
+export const images = [imagePreview, imageInput]
