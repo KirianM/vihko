@@ -12,7 +12,7 @@ import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
 import { NoteError, type Actor, type NoteService } from '../notes.ts'
-import { ftsQuery, HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
+import { HIGHLIGHT_END, HIGHLIGHT_START, search } from './search.ts'
 import { applyEdits, type EditOp } from '../edits.ts'
 import { FetchImageError, SERVED_TYPES, fetchImage } from '../attachments.ts'
 import { DailyNotes } from '../daily.ts'
@@ -333,13 +333,9 @@ export function createApp(deps: AppDeps) {
     return c.body(readFileSync(file))
   })
 
+  // Full text plus `tag:` and `path:` filters (http/search.ts).
   app.get('/api/search', (c) => {
-    const q = ftsQuery(c.req.query('q') ?? '')
-    if (!q) return c.json({ results: [] })
-    const results = index.prepare(`select path, title,
-        snippet(notes_fts, 3, ?, ?, '…', 12) as snippet
-      from notes_fts where notes_fts match ? order by bm25(notes_fts, 0, 10.0, 8.0, 1.0) limit 50`)
-      .all(HIGHLIGHT_START, HIGHLIGHT_END, q)
+    const results = search(index, c.req.query('q') ?? '')
     return c.json({ results, highlight: { start: HIGHLIGHT_START, end: HIGHLIGHT_END } })
   })
 
