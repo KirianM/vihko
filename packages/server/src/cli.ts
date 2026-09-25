@@ -1,6 +1,9 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --no-experimental-webstorage
 // thoth serve                          arranca el servidor
 // thoth user create <nombre> [--admin] crea un usuario; la contraseña se lee de stdin
+//
+// Sin Web Storage: el servidor no lo usa y lib0 (Yjs) lo sondea al importarse, lo que en
+// Node 26 imprime un ExperimentalWarning en cada arranque.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { Auth, AuthError } from './auth.ts'
