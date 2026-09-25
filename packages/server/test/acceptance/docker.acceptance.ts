@@ -10,7 +10,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { api, closeAll, login, type Srv } from '../_collab.ts'
@@ -34,8 +34,9 @@ test(`docker compose up over ${NOTES} notes: startup, search and kill -9`, { ski
   mkdirSync(ws.stateDir, { recursive: true })
   const port = freePort()
   const project = `thoth-acc-${port}`
-  // The example compose file as it is, plus the image to use and the user that owns the folders.
-  writeFileSync(join(ws.root, 'compose.override.yaml'), `services:\n  thoth:\n    image: ${image}\n    user: "${process.getuid!()}:${process.getgid!()}"\n`)
+  // The example compose file as it is, plus the image to use and the user that owns the folders
+  // (and versions that close after 1 s without changes, to check the history without waiting).
+  writeFileSync(join(ws.root, 'compose.override.yaml'), `services:\n  thoth:\n    image: ${image}\n    user: "${process.getuid!()}:${process.getgid!()}"\n    environment:\n      THOTH_HISTORY_QUIET_SECONDS: "1"\n`)
   const compose = (args: string[], input?: string) => {
     const r = spawnSync('docker', ['compose', '-p', project, '--project-directory', ws.root, '-f', join(REPO, 'compose.yaml'), '-f', join(ws.root, 'compose.override.yaml'), ...args],
       { encoding: 'utf8', input, env: { ...process.env, THOTH_HOST_PORT: String(port) } })
@@ -87,6 +88,16 @@ test(`docker compose up over ${NOTES} notes: startup, search and kill -9`, { ski
       metric(`docker kill -9 round ${round}`, r.recoveryMs, 'ms', { typed: r.typed, acked: r.acked, agentHot: r.agentHot, agentCold: r.agentCold })
     }
     assert.deepEqual(failures, [])
+
+    // The history works in the container (git in the image, the repository in the
+    // state volume, written by the container's user), through the kills: what was
+    // typed and edited has versions by the user.
+    const status = (await api(srv, cookie, 'GET', '/api/history/status')).body
+    assert.deepEqual([status.mode, status.available], ['managed', true], JSON.stringify(status))
+    assert.ok(existsSync(join(ws.stateDir, 'history.git', 'HEAD')), 'the repository is in the state volume')
+    const byUser = async (path: string) => ((await api(srv, cookie, 'GET', `/api/history/versions?path=${encodeURIComponent(path)}`)).body.versions as { authors: { kind: string; name: string }[] }[])
+      .some((v) => v.authors.some((a) => a.kind === 'user' && a.name === USER))
+    await waitFor(async () => (await byUser(hot)) && (await byUser(cold)), 'versions by the user of both edited notes', 30_000)
   } finally {
     closeAll()
     try { compose(['logs', '--no-color', '--tail', '40']).split('\n').forEach((l) => l && console.log(`[container] ${l}`)) } catch {}

@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1
 # thoth: one container, two volumes, no required variables.
 #   /data/notes  notes folder (source of truth; may be on NFS)
-#   /data/state  local state: state.db, index.db, trash, collaboration logs
-#                (local disk, never NFS: SQLite locking over NFS is unreliable)
+#   /data/state  local state: state.db, index.db, trash, collaboration logs and
+#                the note history (history.git); local disk, never NFS: SQLite
+#                locking over NFS is unreliable
 
 FROM node:26-trixie-slim AS deps
 # better-sqlite3 compiles on install: build tools only in this stage.
@@ -31,6 +32,10 @@ COPY packages/web packages/web
 RUN npm run build --workspace @thoth/web
 
 FROM node:26-trixie-slim
+# The note history keeps its versions with the system's git (D-016).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production \
     THOTH_NOTES_DIR=/data/notes \
     THOTH_STATE_DIR=/data/state \
