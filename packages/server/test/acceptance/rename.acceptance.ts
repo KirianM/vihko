@@ -62,14 +62,28 @@ async function checkedMove(srv: Server, cookie: string, ws: Workspace, from: str
 
   const preview = await api(srv, cookie, 'POST', '/api/note/move', { from, to, dryRun: true })
   assert.equal(preview.status, 200, JSON.stringify(preview.body))
-  const [res, ms] = await timed(() => api(srv, cookie, 'POST', '/api/note/move', { from, to }))
-  assert.equal(res.status, 200, JSON.stringify(res.body))
-  const report = res.body as { relinked: { path: string; links: number }[]; failed: unknown[]; aliasAdded: string | null; kept: unknown[] }
+  // As the UI does it: in the background. The request answers once the note
+  // is in place (or with the report, if the rewrites end within a second).
+  type Report = { relinked: { path: string; links: number }[]; shifted: { path: string; links: number; changes: { raw: string; code: string; after: { status: string; path?: string } }[] }[]; failed: unknown[]; aliasAdded: string | null; kept: unknown[] }
+  const t0 = performance.now()
+  const res = await api(srv, cookie, 'POST', '/api/note/move', { from, to, background: true })
+  const answeredMs = performance.now() - t0
+  assert.ok(res.status === 200 || res.status === 202, JSON.stringify(res.body))
+  let report: Report
+  if (res.status === 202) {
+    const id = (res.body as { job: { id: string } }).job.id
+    let job: { state: string; report?: Report } = { state: 'running' }
+    await waitFor(async () => (job = (await api(srv, cookie, 'GET', `/api/move-jobs/${id}`)).body as typeof job).state !== 'running', 'the move job ends', 120_000)
+    assert.equal(job.state, 'done', JSON.stringify(job))
+    report = job.report!
+  } else report = res.body as Report
+  const ms = performance.now() - t0
   const rewritten = report.relinked.reduce((n, r) => n + r.links, 0)
-  metric(`move ${from} → ${to}`, ms, 'ms', { notesRewritten: report.relinked.length, linksRewritten: rewritten, kept: report.kept.length, failed: report.failed.length })
+  metric(`move ${from} → ${to}`, ms, 'ms', { answeredMs: Math.round(answeredMs), notesRewritten: report.relinked.length, linksRewritten: rewritten, kept: report.kept.length, failed: report.failed.length })
   assert.deepEqual(report.failed, [], 'every rewrite succeeded')
   assert.equal(report.aliasAdded, null, 'no alias safety net needed')
   assert.deepEqual(report.relinked.map((r) => r.path).sort(), (preview.body as typeof report).relinked.map((r) => r.path).sort(), 'the preview announced what was done')
+  assert.deepEqual(report.shifted, (preview.body as typeof report).shifted, 'the preview announced the links it resolves without rewriting them')
 
   if (editor && source) {
     // The open note got its links rewritten live, and the file converges.
@@ -101,6 +115,9 @@ async function checkedMove(srv: Server, cookie: string, ws: Workspace, from: str
   }
   if (after.size !== before.size) problems.push(`${before.size} links before, ${after.size} after`)
   if (nowResolved.length) metric(`  ambiguous links now resolved to ${to}`, nowResolved.length, 'links', { e: nowResolved.slice(0, 3) })
+  // D-019: none of them was resolved silently. The report lists each one, by source note.
+  const announced = report.shifted.flatMap((g) => g.changes.filter((c) => c.code === 'resolves' && c.after.path === to).map((c) => `${g.path === to ? from : g.path} ${c.raw}`)).sort()
+  assert.deepEqual(announced, nowResolved.map((l) => l.slice(0, l.indexOf(' → '))).sort(), 'every ambiguous link the move resolved was announced')
   if (ambiguousChanged) metric(`  ambiguous links with other candidates after moving ${from}`, ambiguousChanged, 'links')
   assert.deepEqual(problems.slice(0, 20), [], `${problems.length} links changed state or destination`)
   const toMoved = [...after.values()].filter((l) => l.dst_path === to).length
@@ -120,7 +137,7 @@ async function checkedMove(srv: Server, cookie: string, ws: Workspace, from: str
   }
   assert.deepEqual(changed.sort(), report.relinked.map((r) => r.path).filter((p) => p !== to).sort(), 'the files that changed are the ones the report lists')
   assert.ok(!filesAfter.has(from) && filesAfter.has(to))
-  return { ambiguousChanged, nowResolved, rewritten, ms }
+  return { ambiguousChanged, nowResolved, rewritten, ms, answeredMs }
 }
 
 test('renaming heavily linked notes keeps every link of the vault', { timeout: 300_000 }, async () => {
@@ -133,7 +150,8 @@ test('renaming heavily linked notes keeps every link of the vault', { timeout: 3
     // The hub moves to another folder, to the name the trap already has.
     const r1 = await checkedMove(srv, cookie, ws, hub, hubTarget, true)
     assert.ok(r1.rewritten > 200, `the hub is heavily linked (${r1.rewritten} links rewritten)`)
-    assert.ok(r1.ms < 10_000, `a rename that rewrites ${r1.rewritten} links answers in less than 10 s (${Math.round(r1.ms)} ms)`)
+    assert.ok(r1.answeredMs < 2_000, `the note is in place and the request answers in less than 2 s (${Math.round(r1.answeredMs)} ms)`)
+    assert.ok(r1.ms < 10_000, `a rename that rewrites ${r1.rewritten} links ends in less than 10 s (${Math.round(r1.ms)} ms)`)
     // The trap is renamed in place: [[Diseño]] now has to keep reaching each of the two.
     await checkedMove(srv, cookie, ws, trap, trap.replace('Diseño', 'Pantallas y colores'), true)
     // A note with a decomposed (NFD) name, to a composed one.

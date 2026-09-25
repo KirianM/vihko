@@ -44,6 +44,24 @@
 .preview-kept { color: var(--muted); }
 .preview-note { color: var(--muted); }
 
+/* Links the move doesn't rewrite but whose resolution changes: a decision, so warn colours */
+.shifts { display: flex; flex-direction: column; gap: var(--space-2); padding: 10px var(--space-3); background: var(--warn-soft-2); border: 1px solid var(--warn-line); border-radius: var(--radius-md); color: var(--warn-ink); }
+.shifts-head { display: flex; gap: var(--space-2); align-items: flex-start; }
+.shifts-head strong { display: block; font-weight: 600; }
+.shifts-icon { display: inline-flex; color: var(--warn-strong); padding-top: 1px; }
+.shifts-hint { display: block; font-size: 12px; }
+.shifts-group { display: flex; flex-direction: column; gap: 2px; padding-top: var(--space-2); border-top: 1px solid var(--warn-line); }
+.shifts-src { display: flex; justify-content: space-between; gap: 10px; font-weight: 600; overflow-wrap: anywhere; }
+.shifts-count { flex-shrink: 0; font-weight: 400; font-size: 12px; }
+.shifts-row { overflow-wrap: anywhere; }
+.shifts-row code { font-family: var(--font-mono); font-size: 12px; }
+
+/* A move whose links are still being rewritten */
+.job-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.job-fill { height: 100%; background: var(--accent); transition: width 0.2s; }
+.job-progress { display: flex; flex-direction: column; gap: var(--space-2); font-size: 13px; color: var(--muted); }
+.toast .job-progress { min-width: 180px; }
+
 /* --- Insert image ----------------------------------------------------- */
 .image-pick { align-self: flex-start; display: inline-flex; align-items: center; gap: var(--space-2); }
 .image-or { color: var(--muted); }

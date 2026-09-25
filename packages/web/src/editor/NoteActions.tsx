@@ -4,7 +4,8 @@
 // this same menu.
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, Text, TextField } from 'react-aria-components'
-import { api, type MoveReport } from '../api.ts'
+import { api, type MoveJob, type MoveReport } from '../api.ts'
+import { ShiftPreview } from '../Shifts.tsx'
 import { errorText, useT, type MessageKey } from '../i18n.tsx'
 import { Icon, noteName } from '../ui.tsx'
 import '../actions.css'
@@ -24,8 +25,18 @@ function targetPath(name: string, folder: string): string | null {
 
 type Preview = { kind: 'idle' } | { kind: 'loading' } | { kind: 'ready'; report: MoveReport } | { kind: 'error'; message: string }
 
-/** Also used from the folder tree; `initialFolder` presets the destination (a drop onto a folder). */
-export function RenameDialog({ path, initialFolder, onClose, onMoved }: { path: string; initialFolder?: string; onClose: () => void; onMoved: (to: string, report: MoveReport) => void }) {
+/**
+ * Also used from the folder tree; `initialFolder` presets the destination (a
+ * drop onto a folder). A move whose links take long to rewrite hands its job
+ * to `onStarted` once the note is in place.
+ */
+export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted }: {
+  path: string
+  initialFolder?: string
+  onClose: () => void
+  onMoved: (to: string, report: MoveReport) => void
+  onStarted: (job: MoveJob) => void
+}) {
   const t = useT()
   const [name, setName] = useState(noteName(path))
   const [folder, setFolder] = useState(initialFolder ?? folderOf(path))
@@ -59,7 +70,7 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved }: { path: 
   const count = n === 0 ? '' : n === 1 ? 'One' : 'Many'
   const submitKey: MessageKey = `rename.${action}${count}${m ? 'Images' : ''}`
   const images = t(m === 1 ? 'rename.imagesOne' : 'rename.imagesMany', { n: m })
-  const nothing = !!report && report.relinked.length === 0 && report.kept.length === 0 && report.images.moved.length === 0 && report.images.stayed.length === 0
+  const nothing = !!report && report.relinked.length === 0 && report.shifted.length === 0 && report.kept.length === 0 && report.images.moved.length === 0 && report.images.stayed.length === 0
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -67,8 +78,9 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved }: { path: 
     setBusy(true)
     setError(null)
     try {
-      const r = await api.move(path, report.to)
-      onMoved(r.to, r)
+      const r = await api.startMove(path, report.to)
+      if ('job' in r) onStarted(r.job)
+      else onMoved(r.report.to, r.report)
     } catch (err) {
       setError(errorText(t, err))
       setBusy(false)
@@ -91,12 +103,13 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved }: { path: 
           </TextField>
         </div>
         <div className="preview" aria-live="polite">
-          <div className="preview-head">{t('rename.preview')}</div>
+          <div className="preview-head">{t(report?.shifted.length ? 'rename.previewPlain' : 'rename.preview')}</div>
           <div className="preview-body">
             {preview.kind === 'idle' && <span className="preview-note">{t('rename.previewUnchanged')}</span>}
             {preview.kind === 'loading' && <span className="preview-note">{t('rename.previewLoading')}</span>}
             {preview.kind === 'error' && <span className="error-text" role="alert">{preview.message}</span>}
             {nothing && <span className="preview-note">{t('rename.previewNone')}</span>}
+            {report && <ShiftPreview groups={report.shifted} />}
             {report?.relinked.flatMap((r) => r.changes.map((c, i) => (
               <div className="preview-row" key={`${r.path}#${i}`}>
                 <span className="preview-src">{label(r.path)}</span>
@@ -164,7 +177,13 @@ export function TrashDialog({ path, onClose, onTrashed }: { path: string; onClos
   )
 }
 
-export function NoteActions({ path, onMoved, onTrashed, onInsertImage }: { path: string; onMoved: (to: string, report: MoveReport) => void; onTrashed: (id: string) => void; onInsertImage: () => void }) {
+export function NoteActions({ path, onMoved, onMoveStarted, onTrashed, onInsertImage }: {
+  path: string
+  onMoved: (to: string, report: MoveReport) => void
+  onMoveStarted: (job: MoveJob) => void
+  onTrashed: (id: string) => void
+  onInsertImage: () => void
+}) {
   const t = useT()
   const [open, setOpen] = useState<'rename' | 'trash' | null>(null)
   const close = () => setOpen(null)
@@ -182,7 +201,7 @@ export function NoteActions({ path, onMoved, onTrashed, onInsertImage }: { path:
       </MenuTrigger>
       <ModalOverlay className="modal-overlay" isOpen={open !== null} onOpenChange={(o) => { if (!o) close() }} isDismissable>
         <Modal className="modal">
-          {open === 'rename' && <RenameDialog path={path} onClose={close} onMoved={(to, r) => { close(); onMoved(to, r) }} />}
+          {open === 'rename' && <RenameDialog path={path} onClose={close} onMoved={(to, r) => { close(); onMoved(to, r) }} onStarted={(job) => { close(); onMoveStarted(job) }} />}
           {open === 'trash' && <TrashDialog path={path} onClose={close} onTrashed={(id) => { close(); onTrashed(id) }} />}
         </Modal>
       </ModalOverlay>

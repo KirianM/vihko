@@ -22,7 +22,7 @@ attachments:
 `
 
 
-export async function setup(opts: { config?: string; clock?: { now: Date } } = {}) {
+export async function setup(opts: { config?: string; clock?: { now: Date }; moveWaitMs?: number } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'thoth-daily-'))
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
@@ -37,7 +37,7 @@ export async function setup(opts: { config?: string; clock?: { now: Date } } = {
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
   const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db: index, attachmentsFolder: () => workspace.config.attachments.folder })
   const clock = opts.clock ?? { now: new Date('2026-09-24T23:30:00Z') }
-  const app = createApp({ auth, profiles, workspace, notes, index, indexer, notesDir, runtime, now: () => clock.now })
+  const app = createApp({ auth, profiles, workspace, notes, index, indexer, notesDir, runtime, now: () => clock.now, moveWaitMs: opts.moveWaitMs })
   const users = { noa: await auth.createUser('noa', 'a-long-password', 'admin'), ana: await auth.createUser('ana', 'a-long-password', 'member') }
   runtime.rescan({})
   const cookies: Record<string, string> = {}

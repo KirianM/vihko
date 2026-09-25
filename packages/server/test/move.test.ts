@@ -132,3 +132,18 @@ test("if the source can't be removed, the note isn't left duplicated", { skip: p
     chmodSync(join(notesDir, 'recetas'), 0o755)
   }
 })
+
+test('a move says when the note is in place, counts its rewrites, and moves run one at a time', async () => {
+  const { notes } = setup()
+  const events: string[] = []
+  const hooks = (name: string) => ({
+    onMoved: (n: number) => { events.push(`${name} moved (${n} to rewrite)`) },
+    onProgress: (done: number, total: number) => { if (done === total) events.push(`${name} ${done}/${total}`) },
+  })
+  const [a, b] = await Promise.all([
+    notes.move('hogar/Proxy.md', 'hogar/GW.md', { actor: me, ...hooks('a') }).then((r) => { events.push('a done'); return r }),
+    notes.moveFolder('proyectos/blog', 'blog', { actor: me, ...hooks('b') }).then((r) => { events.push('b done'); return r }),
+  ])
+  assert.deepEqual([a.failed, b.failed], [[], []])
+  assert.deepEqual(events, ['a moved (1 to rewrite)', 'a 1/1', 'a done', 'b moved (1 to rewrite)', 'b 1/1', 'b done'])
+})

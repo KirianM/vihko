@@ -53,11 +53,23 @@ export interface SearchResult { path: string; title: string; snippet: string }
 /** Search results; the snippet highlight uses control characters, not HTML. */
 export interface SearchResponse { results: SearchResult[]; highlight?: { start: string; end: string } }
 
+/** A link's resolution in a move report: where it leads, among which notes it is ambiguous, or broken. */
+export type LinkState = { status: 'resolved'; path: string } | { status: 'ambiguous'; candidates: string[] } | { status: 'missing' }
+/**
+ * A link a move leaves as it is but whose resolution changes (D-019):
+ * `resolves` (it was ambiguous or broken), `ambiguous`, `retargets` or `breaks`.
+ * `before` in the paths before the move, `after` in those after it.
+ */
+export interface Shift { raw: string; code: 'resolves' | 'ambiguous' | 'retargets' | 'breaks'; before: LinkState; after: LinkState }
+/** Those links, by source note. */
+export interface ShiftGroup { path: string; links: number; changes: Shift[] }
+
 /** What a rename or move does (or would do, with `dryRun`). */
 export interface MoveReport {
   from: string
   to: string
   relinked: { path: string; links: number; changes: { before: string; after: string }[] }[]
+  shifted: ShiftGroup[]
   kept: { path: string; raw: string; via: 'path' | 'alias' }[]
   failed: { path: string; error: ErrorCode; message: string }[]
   aliasAdded: string | null
@@ -82,9 +94,21 @@ export interface FolderMoveReport {
   /** Other files that go with the folder (images, attachments). */
   files: number
   relinked: MoveReport['relinked']
+  shifted: ShiftGroup[]
   failed: MoveReport['failed']
   dryRun: boolean
 }
+/**
+ * A move whose link rewrites go on in the background: the note (or folder) is
+ * already in place; `done` of `total` notes rewritten, and the report at the end.
+ */
+export type MoveJob = { id: string; kind: 'note' | 'folder'; from: string; to: string; done: number; total: number } & (
+  | { state: 'running' }
+  | { state: 'done'; report: MoveReport | FolderMoveReport }
+  | { state: 'failed'; error: ErrorCode; message: string }
+)
+/** A move asked for in the background: its report if it ended quickly, or its job. */
+export type MoveStart<R> = { report: R } | { job: MoveJob }
 /** A tag in use, with the notes that carry it (`count`) and it or any tag nested under it (`total`). */
 export interface TagCount { tag: string; count: number; total: number }
 export interface TrashEntry { id: string; path: string; deletedAt: string }
@@ -99,6 +123,8 @@ export interface Profile { timezone: string | null; dailySeries: string | null; 
 
 let config: Promise<ServerConfig> | null = null
 
+const started = <R>(r: R | { job: MoveJob }): MoveStart<R> => (r !== null && typeof r === 'object' && 'job' in r ? { job: r.job } : { report: r as R })
+
 export const api = {
   setupNeeded: () => request<{ needed: boolean }>('GET', '/api/setup'),
   setup: (token: string, username: string, password: string) => request<{ user: User }>('POST', '/api/setup', { token, username, password }),
@@ -111,6 +137,9 @@ export const api = {
   /** Only an empty folder (`not_empty` otherwise). */
   deleteFolder: (path: string) => request<{ path: string }>('DELETE', `/api/folder?path=${encodeURIComponent(path)}`),
   moveFolder: (from: string, to: string, dryRun = false) => request<FolderMoveReport>('POST', '/api/folder/move', { from, to, dryRun }),
+  /** Moves a folder; if rewriting the links takes long, they go on in the background (a job). */
+  startMoveFolder: (from: string, to: string) => request<FolderMoveReport | { job: MoveJob }>('POST', '/api/folder/move', { from, to, background: true }).then(started<FolderMoveReport>),
+  moveJob: (id: string) => request<MoveJob>('GET', `/api/move-jobs/${encodeURIComponent(id)}`),
   note: (path: string) => request<Note>('GET', `/api/note?path=${encodeURIComponent(path)}`),
   alerts: () => request<{ alerts: Alert[] }>('GET', '/api/alerts').then((r) => r.alerts),
   conflict: (path: string) => request<{ path: string; text: string }>('GET', `/api/conflict?path=${encodeURIComponent(path)}`),
@@ -132,6 +161,8 @@ export const api = {
   openToday: () => request<{ series: string; path: string; created: boolean }>('POST', '/api/daily', {}),
   orphan: (path: string, action: 'restore' | 'discard') => request<{ ok: true }>('POST', '/api/note/orphan', { path, action }),
   move: (from: string, to: string, dryRun = false) => request<MoveReport>('POST', '/api/note/move', { from, to, dryRun }),
+  /** Moves a note; if rewriting the links takes long, they go on in the background (a job). */
+  startMove: (from: string, to: string) => request<MoveReport | { job: MoveJob }>('POST', '/api/note/move', { from, to, background: true }).then(started<MoveReport>),
   trash: (path: string) => request<TrashEntry>('DELETE', `/api/note?path=${encodeURIComponent(path)}`),
   /** Asked once per page load: it only changes when the server restarts. */
   config: () => (config ??= request<ServerConfig>('GET', '/api/config').catch((err) => { config = null; throw err })),

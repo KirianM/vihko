@@ -6,7 +6,7 @@ import { dirname, join, posix } from 'node:path'
 import { addToFrontmatterList, classifyPath, contentHash, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type ErrorCode, type LinkIndex } from '@thoth/core'
 import { commitText, createFile, linkNew, readStable, readText } from './fsutil.ts'
 import { attachmentPath, sniffImage, suffixedName } from './attachments.ts'
-import { applyReplacements, keptLinks, planImageRelinks, planRelinks, type Replacement } from './relink.ts'
+import { applyReplacements, keptLinks, planImageRelinks, planLinks, planRelinks, type Replacement, type Shift } from './relink.ts'
 import type { Indexer } from './indexer.ts'
 import { applySplices, spliceOf, type Splice } from './edits.ts'
 import type { Db } from './db.ts'
@@ -84,6 +84,14 @@ export interface MoveReport {
    * each change, text before and after.
    */
   relinked: { path: string; links: number; changes: { before: string; after: string }[] }[]
+  /**
+   * Links the move doesn't rewrite but whose resolution it changes (D-019): an
+   * ambiguous or broken link that will lead to a note, one that will be broken
+   * or ambiguous, by source note (the moved note under its new path), with a
+   * count. Reported in the preview so whoever moves decides; the report after
+   * the move says the same.
+   */
+  shifted: ShiftGroup[]
   /** Links to the note that keep working untouched: through an alias (`via: 'alias'`) or by name or path. */
   kept: { path: string; raw: string; via: 'path' | 'alias' }[]
   /**
@@ -127,9 +135,24 @@ export interface FolderMoveReport {
    * their new path, with each change as in a note move.
    */
   relinked: MoveReport['relinked']
+  /** Links whose resolution changes without being rewritten, as in a note move. */
+  shifted: ShiftGroup[]
   /** Notes that couldn't be rewritten: an error code for the UI and a hint for developers. */
   failed: MoveReport['failed']
   dryRun: boolean
+}
+
+/** A source note's links whose resolution a move changes (relink.ts, `Shift`). */
+export interface ShiftGroup {
+  path: string
+  links: number
+  changes: Shift[]
+}
+
+/** What a move says while it runs: the move itself is done (and how many notes are left to rewrite), and how many are. */
+export interface MoveHooks {
+  onMoved?: (toRewrite: number) => void
+  onProgress?: (done: number, total: number) => void
 }
 
 export interface TrashEntry {
@@ -261,20 +284,77 @@ export class NoteService {
    * Moves or renames a note and rewrites the links needed so none of them
    * change destination. The rewrites are done by the system on behalf of
    * whoever renamed it. With `dryRun`, it only reports what it would do.
+   *
+   * First the note moves (with its images); then the other notes are
+   * rewritten one by one, each as an independent safe write: `onMoved` says
+   * when the first part is done and `onProgress` counts the second. A crash
+   * in between leaves every file whole, the note at its destination, and some
+   * links not yet rewritten. One move (of a note or a folder) at a time: each
+   * plans over the links as the previous one left them.
    */
-  async move(from: string, to: string, opts: { ifMatch?: string; actor: Actor; dryRun?: boolean }): Promise<MoveReport> {
-    const hot = this.opts.hot
-    // Open in the editor: the hub flushes and locks it during the move, and its editors follow it.
-    if (!opts.dryRun && hot?.has(from)) {
-      return hot.move(from, to, async () => {
-        const result = await this.moveNow(from, to, opts)
-        return { result, written: readText(this.file(to)) }
-      })
-    }
-    return this.moveNow(from, to, opts)
+  async move(from: string, to: string, opts: { ifMatch?: string; actor: Actor; dryRun?: boolean } & MoveHooks): Promise<MoveReport> {
+    if (opts.dryRun) return (await this.moveNow(from, to, opts)).report
+    return this.oneMoveAtATime(async () => {
+      const hot = this.opts.hot
+      // Open in the editor: the hub flushes and locks it while it moves, and its editors follow it.
+      const moved = hot?.has(from)
+        ? await hot.move(from, to, async () => {
+          const result = await this.moveNow(from, to, opts)
+          return { result, written: readText(this.file(to)) }
+        })
+        : await this.moveNow(from, to, opts)
+      const { report, others, before, after, map } = moved
+      opts.onMoved?.(others.length)
+
+      // The rest of the notes, as the system. The plan is recalculated over the current text.
+      const system: Actor = { kind: 'system', reason: `renamed ${from} to ${to} by ${actorLabel(opts.actor)}` }
+      await this.rewriteAll(others.map((src) => ({ path: src, change: (t: string) => relinkSplices(t, planRelinks(t, src, src, before, after, map)) })), system, report.failed, opts.onProgress)
+
+      // Safety net: if something couldn't be rewritten, the old name stays as an alias.
+      const oldName = posix.basename(from).replace(/\.md$/i, '')
+      const newName = posix.basename(to).replace(/\.md$/i, '')
+      if (report.failed.length && oldName !== newName) {
+        try {
+          await this.edit(to, (t) => addToFrontmatterList(t, 'aliases', oldName), { actor: system })
+          report.aliasAdded = oldName
+        } catch (err) {
+          const f = failure(err)
+          report.failed.push({ path: to, error: f.error, message: `could not add the alias: ${f.message}` })
+        }
+      }
+      return report
+    })
   }
 
-  private async moveNow(from: string, to: string, opts: { ifMatch?: string; actor: Actor; dryRun?: boolean }): Promise<MoveReport> {
+  private moving: Promise<unknown> = Promise.resolve()
+
+  private oneMoveAtATime<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.moving.then(fn, fn)
+    this.moving = run.catch(() => {})
+    return run
+  }
+
+  /**
+   * Rewrites notes as the system, several at a time (each safe write spends
+   * most of its time waiting for stable reads and, on a network filesystem,
+   * for the server). Failures are collected, sorted by path.
+   */
+  private async rewriteAll(items: { path: string; change: (text: string) => Change }[], system: Actor, failed: MoveReport['failed'], onProgress?: MoveHooks['onProgress']) {
+    let done = 0
+    onProgress?.(0, items.length)
+    await inPool(items, async ({ path, change }) => {
+      try {
+        await this.edit(path, change, { actor: system })
+      } catch (err) {
+        failed.push({ path, ...failure(err) })
+      }
+      onProgress?.(++done, items.length)
+    })
+    failed.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+  }
+
+  /** The move itself (or, with dryRun, its plan), and what the rewrites of the other notes need. */
+  private async moveNow(from: string, to: string, opts: { ifMatch?: string; actor: Actor; dryRun?: boolean }) {
     const fromFile = this.file(from)
     const toFile = this.file(to)
     const text = await readStable(fromFile)
@@ -285,20 +365,23 @@ export class NoteService {
 
     const { before, after, map, sources } = this.relinkContext(new Map([[from, to]]))
 
-    const report: MoveReport = { from, to, relinked: [], kept: [], failed: [], aliasAdded: null, images: { moved: [], stayed: [], failed: [] }, dryRun: !!opts.dryRun }
+    const report: MoveReport = { from, to, relinked: [], shifted: [], kept: [], failed: [], aliasAdded: null, images: { moved: [], stayed: [], failed: [] }, dryRun: !!opts.dryRun }
     const imagePlan = this.planImages(text, from, to)
     report.images = { moved: imagePlan.moved, stayed: imagePlan.stayed, failed: imagePlan.unplaceable }
     const planned = movedNotePlan(text, from, to, before, after, map, placeOf(imagePlan.moved))
     if (planned.changes.length) report.relinked.push({ path: to, links: planned.changes.length, changes: planned.changes })
+    addShifts(report.shifted, to, planned.shifts)
     const others: string[] = []
     for (const src of sources) {
       const t = readText(this.file(src))
       if (t === null) continue
-      const reps = planRelinks(t, src, src, before, after, map)
+      const { reps, shifts } = planLinks(t, src, src, before, after, map)
       if (reps.length) { report.relinked.push({ path: src, links: reps.length, changes: changesOf(t, reps) }); others.push(src) }
+      addShifts(report.shifted, src, shifts)
       for (const k of keptLinks(t, src, before, after, from, to)) report.kept.push({ path: src, ...k })
     }
-    if (opts.dryRun) return report
+    const result = { report, others, before, after, map }
+    if (opts.dryRun) return result
 
     // 1. Its images get their name at the destination first (a second link to
     // the same file): until the note is in place, the originals stay untouched.
@@ -348,35 +431,7 @@ export class NoteService {
       }
     }
 
-    // 4. The rest of the notes, as the system. The plan is recalculated over the current text.
-    // Several at a time: each safe write spends most of its time waiting for stable reads.
-    const system: Actor = { kind: 'system', reason: `renamed ${from} to ${to} by ${actorLabel(opts.actor)}` }
-    const queue = [...others]
-    const relink = async () => {
-      for (let src = queue.shift(); src !== undefined; src = queue.shift()) {
-        try {
-          await this.edit(src, (t) => relinkSplices(t, planRelinks(t, src, src, before, after, map)), { actor: system })
-        } catch (err) {
-          report.failed.push({ path: src, ...failure(err) })
-        }
-      }
-    }
-    await Promise.all(Array.from({ length: Math.min(RELINK_CONCURRENCY, queue.length) }, relink))
-    report.failed.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-
-    // 5. Safety net: if something couldn't be rewritten, the old name stays as an alias.
-    const oldName = posix.basename(from).replace(/\.md$/i, '')
-    const newName = posix.basename(to).replace(/\.md$/i, '')
-    if (report.failed.length && oldName !== newName) {
-      try {
-        await this.edit(to, (t) => addToFrontmatterList(t, 'aliases', oldName), { actor: system })
-        report.aliasAdded = oldName
-      } catch (err) {
-        const f = failure(err)
-        report.failed.push({ path: to, error: f.error, message: `could not add the alias: ${f.message}` })
-      }
-    }
-    return report
+    return result
   }
 
   /**
@@ -478,9 +533,15 @@ export class NoteService {
    * Links are kept like in a note move: no link, inside or outside the folder,
    * changes destination (wikilinks by proximity, relative Markdown links and
    * image references). Never overwrites: the destination must not exist. With
-   * `dryRun`, only reports what it would do.
+   * `dryRun`, only reports what it would do. As with a note: the folder moves
+   * first (`onMoved`), then the notes are rewritten one by one (`onProgress`).
    */
-  async moveFolder(from: string, to: string, opts: { actor: Actor; dryRun?: boolean }): Promise<FolderMoveReport> {
+  async moveFolder(from: string, to: string, opts: { actor: Actor; dryRun?: boolean } & MoveHooks): Promise<FolderMoveReport> {
+    if (opts.dryRun) return this.moveFolderNow(from, to, opts)
+    return this.oneMoveAtATime(() => this.moveFolderNow(from, to, opts))
+  }
+
+  private async moveFolderNow(from: string, to: string, opts: { actor: Actor; dryRun?: boolean } & MoveHooks): Promise<FolderMoveReport> {
     const fromDir = this.dir(from)
     const toDir = this.dir(to)
     if (from === to || to.startsWith(from + '/')) throw new NoteError('invalid_path', `cannot move ${from} into itself`)
@@ -496,7 +557,7 @@ export class NoteService {
     const report: FolderMoveReport = {
       from, to, notes: [...moves].map(([f, t]) => ({ from: f, to: t })),
       files: inside.filter((p) => classifyPath(`${from}/${p}`) === 'other').length,
-      relinked: [], failed: [], dryRun: !!opts.dryRun,
+      relinked: [], shifted: [], failed: [], dryRun: !!opts.dryRun,
     }
     const own: [string, string][] = []
     for (const [f, t] of moves) {
@@ -504,6 +565,7 @@ export class NoteService {
       if (text === null) continue
       const plan = movedNotePlan(text, f, t, before, after, map, place)
       if (plan.changes.length) { report.relinked.push({ path: t, links: plan.changes.length, changes: plan.changes }); own.push([f, t]) }
+      addShifts(report.shifted, t, plan.shifts)
     }
     const others: string[] = []
     for (const src of sources) {
@@ -511,7 +573,9 @@ export class NoteService {
       if (text === null) continue
       const plan = movedNotePlan(text, src, src, before, after, map, place)
       if (plan.changes.length) { report.relinked.push({ path: src, links: plan.changes.length, changes: plan.changes }); others.push(src) }
+      addShifts(report.shifted, src, plan.shifts)
     }
+    report.shifted.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
     if (opts.dryRun) return report
 
     const system: Actor = { kind: 'system', reason: `moved folder ${from} to ${to} by ${actorLabel(opts.actor)}` }
@@ -538,14 +602,6 @@ export class NoteService {
       // the rescan find the index already in step (no mass removal, no external change).
       this.opts.indexer.indexPaths([...inside.map((p) => `${from}/${p}`), ...inside.map((p) => `${to}/${p}`)])
       this.opts.indexer.indexFolders([from, to])
-      // 2. The moved notes' own links and image references, on their current text.
-      await inPool(own, async ([f, t]) => {
-        try {
-          await this.edit(t, (x) => movedNotePlan(x, f, t, before, after, map, place).splices, { actor: system })
-        } catch (err) {
-          report.failed.push({ path: t, ...failure(err) })
-        }
-      })
     }
     // Notes open in an editor: the hub flushes and locks each one during the
     // move, and their editors follow them to the new path.
@@ -556,16 +612,14 @@ export class NoteService {
       run,
     )
     await locked()
+    opts.onMoved?.(own.length + others.length)
 
-    // 3. The rest of the notes, as the system, recalculated over the current text.
-    await inPool(others, async (src) => {
-      try {
-        await this.edit(src, (x) => movedNotePlan(x, src, src, before, after, map, place).splices, { actor: system })
-      } catch (err) {
-        report.failed.push({ path: src, ...failure(err) })
-      }
-    })
-    report.failed.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    // 2. The moved notes' own links and image references, then the rest of the
+    // notes, as the system, recalculated over the current text.
+    await this.rewriteAll([
+      ...own.map(([f, t]) => ({ path: t, change: (x: string) => movedNotePlan(x, f, t, before, after, map, place).splices })),
+      ...others.map((src) => ({ path: src, change: (x: string) => movedNotePlan(x, src, src, before, after, map, place).splices })),
+    ], system, report.failed, opts.onProgress)
     return report
   }
 
@@ -752,13 +806,17 @@ function movedNotePlan(text: string, from: string, to: string, before: LinkIndex
   // Image references and note links never overlap, so both are planned over the
   // same text and applied as exact splices: a hot note merges them with live typing.
   const imageReps = planImageRelinks(text, from, to, place)
-  const linkReps: Replacement[] = planRelinks(text, from, to, before, after, map)
+  const { reps: linkReps, shifts } = planLinks(text, from, to, before, after, map)
   const changes = [
     ...changesOf(text, linkReps),
     ...imageReps.map((r) => ({ before: r.before, after: r.after })),
   ]
   const reps = [...imageReps, ...linkReps]
-  return { text: applyReplacements(text, reps), splices: relinkSplices(text, reps), changes }
+  return { text: applyReplacements(text, reps), splices: relinkSplices(text, reps), changes, shifts }
+}
+
+function addShifts(groups: ShiftGroup[], path: string, shifts: Shift[]) {
+  if (shifts.length) groups.push({ path, links: shifts.length, changes: shifts })
 }
 
 /** Runs `fn` over `items`, RELINK_CONCURRENCY at a time. */

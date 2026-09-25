@@ -79,6 +79,7 @@ test('rename with preview: links are rewritten on disk and both editors follow t
   await expect(k.getByRole('dialog')).toHaveCount(0)
   await expect.poll(() => read(RENAMED)).toContain('Written by ana before the rename.')
   expect(read(NOTE)).toBeNull()
+  await expect.poll(() => read(LINKS)).toContain('[Server in Markdown](Main%20server.md)')
   const links = read(LINKS)!
   expect(links).toContain('- [[Main server]] by name.')
   expect(links).toContain('- [[Main server#Network]] with an anchor.')
@@ -115,7 +116,8 @@ test('move to another folder: the button says "Mover" and only what would stop r
   }
   await expect.poll(() => read(MOVED)).toContain('And afterwards.')
   expect(read(RENAMED)).toBeNull()
-  expect(read(LINKS)).toContain('[Server in Markdown](archive/Main%20server.md)')
+  // The note moves first; the links follow (in the background if it takes long).
+  await expect.poll(() => read(LINKS)).toContain('[Server in Markdown](archive/Main%20server.md)')
   expect(read(LINKS)).toContain('- [[Main server]] by name.')
 })
 
@@ -267,4 +269,103 @@ test('moving a note with images: its pasted image goes with it, a shared one sta
   await expect(k.locator('.cm-content')).toBeVisible()
   await k.locator('.cm-h1').click()
   await expect.poll(widths).toEqual([240])
+})
+
+// D-019: ambiguous links a move would resolve are listed in the preview, by source note.
+test('the preview lists ambiguous links the move would resolve, by note, and the notice says it after', async ({ browser }) => {
+  const dir = `${DIR}/tie`
+  const note = `${dir}/a/Diseño.md`
+  mkdirSync(`${NOTES}/${dir}/a`, { recursive: true })
+  mkdirSync(`${NOTES}/${dir}/b`, { recursive: true })
+  writeFileSync(`${NOTES}/${note}`, '# Diseño A\n')
+  writeFileSync(`${NOTES}/${dir}/b/Diseño.md`, '# Diseño B\n')
+  const uses = '# Uses\n\n- [[Diseño]] first.\n- [[Diseño]] second.\n'
+  const also = '# Also\n\n- [[Diseño]] here too.\n'
+  writeFileSync(`${NOTES}/${dir}/Uses.md`, uses)
+  writeFileSync(`${NOTES}/${dir}/Also.md`, also)
+  const shifted = async () => (await (await k.request.post('/api/note/move', { data: { from: note, to: `${dir}/Diseño.md`, dryRun: true } })).json()).shifted.length
+  await expect.poll(shifted, { timeout: 15_000 }).toBe(2)
+  await k.goto(`/?note=${encodeURIComponent(note)}`)
+  await expect(k.locator('.cm-content')).toBeVisible()
+
+  const fill = async (page: Page) => {
+    const dialog = await openRename(page)
+    await dialog.getByLabel('Carpeta').fill(dir)
+    await expect(dialog.locator('.shifts')).toBeVisible()
+    return dialog
+  }
+  let dialog = await fill(k)
+  await expect(dialog.locator('.preview-head')).toHaveText('Vista previa')
+  const shifts = dialog.locator('.shifts')
+  await expect(shifts.locator('strong')).toHaveText('3 enlaces no se reescriben pero cambiarán adónde llevan')
+  await expect(shifts.locator('.shifts-src')).toHaveText(['rename-tests / tie / Also1 enlace', 'rename-tests / tie / Uses2 enlaces'])
+  await expect(shifts.locator('.shifts-row').first()).toHaveText('[[Diseño]] era ambiguo; llevará a rename-tests / tie / Diseño')
+  await shot(k, 'rename-shifts-light')
+  // Dark and phone, before deciding.
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+  await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()
+  dialog = await fill(k)
+  await shot(k, 'rename-shifts-dark')
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+  await k.getByRole('button', { name: 'Cambiar a tema claro' }).click()
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, storageState: await k.context().storageState() })
+  const m = await ctx.newPage()
+  await m.goto(`/?note=${encodeURIComponent(note)}`)
+  await expect(m.locator('.cm-content')).toBeVisible()
+  const md = await fill(m)
+  await md.locator('.shifts').scrollIntoViewIfNeeded()
+  await shot(m, 'rename-shifts-mobile')
+  await md.getByRole('button', { name: 'Cancelar' }).click()
+  await ctx.close()
+
+  // Going ahead: the links stay as they are and the notice says where they lead now.
+  dialog = await fill(k)
+  await dialog.getByRole('button', { name: 'Mover', exact: true }).click()
+  await expect(k.locator('.crumbs')).toHaveText('rename-tests / tie / Diseño')
+  await expect(k.getByRole('alert').filter({ hasText: 'llevan ahora a otra parte' })).toHaveText(
+    '«Diseño» ya está en su sitio. 3 enlaces que no se han reescrito llevan ahora a otra parte, en: Also, Uses.')
+  await shot(k, 'rename-shifts-notice')
+  expect(read(`${dir}/Uses.md`)).toBe(uses)
+  expect(read(`${dir}/Also.md`)).toBe(also)
+  await k.getByRole('button', { name: 'Cerrar aviso' }).click()
+})
+
+// A rename that rewrites many notes: the note moves at once and the links follow in the background.
+test('a rename with many backlinks shows its progress, can go to the background, and the UI stays usable', async () => {
+  // Enough notes that the rewrites outlast the second the server waits before
+  // answering with a job, even on a fast disk: each takes at least two stable
+  // reads (120 ms), 16 at a time, so 400 notes take 3 s or more.
+  test.setTimeout(180_000)
+  const dir = `${DIR}/many`
+  const hub = `${dir}/Hub.md`
+  const N = 400
+  mkdirSync(`${NOTES}/${dir}/refs`, { recursive: true })
+  writeFileSync(`${NOTES}/${hub}`, '# Hub\n')
+  for (let i = 0; i < N; i++) writeFileSync(`${NOTES}/${dir}/refs/Ref ${i}.md`, `# Ref ${i}\n\nSee [[Hub]].\n`)
+  await expect.poll(async () => (await (await k.request.get(`/api/note/links?path=${encodeURIComponent(hub)}`)).json()).backlinks.length, { timeout: 60_000 }).toBe(N)
+  await k.goto(`/?note=${encodeURIComponent(hub)}`)
+  await expect(k.locator('.cm-content')).toBeVisible()
+  const dialog = await openRename(k)
+  await dialog.getByLabel('Nuevo nombre').fill('Central hub')
+  await dialog.getByRole('button', { name: `Renombrar y actualizar ${N} enlaces` }).click()
+
+  const progress = k.getByRole('dialog').filter({ hasText: 'Actualizando enlaces' })
+  await expect(progress).toBeVisible()
+  await expect(progress).toContainText('«Central hub» ya está en su sitio.')
+  await expect(progress.getByRole('progressbar')).toHaveAttribute('aria-valuemax', String(N))
+  await expect(k.locator('.crumbs b')).toHaveText('Central hub')
+  await shot(k, 'move-progress')
+  await progress.getByRole('button', { name: 'Seguir en segundo plano' }).click()
+  await expect(progress).toHaveCount(0)
+  const toast = k.getByRole('status').filter({ hasText: 'Actualizando los enlaces a «Central hub»' })
+  await expect(toast).toBeVisible()
+  await shot(k, 'move-progress-toast')
+  // The UI answers meanwhile: another note opens.
+  await k.keyboard.press('Control+k')
+  await k.keyboard.type('Ref 7')
+  await k.getByRole('option', { name: /Ref 7(?!\d)/ }).first().click()
+  await expect(k.locator('.crumbs b')).toHaveText('Ref 7')
+  // At the end the notice goes and every link was rewritten.
+  await expect(toast).toHaveCount(0, { timeout: 120_000 })
+  for (let i = 0; i < N; i++) expect(read(`${dir}/refs/Ref ${i}.md`)).toContain('[[Central hub]]')
 })

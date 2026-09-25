@@ -19,6 +19,7 @@ import { DailyNotes } from '../daily.ts'
 import { createFromTemplate } from '../templates.ts'
 import { ProfileError, type Profile, type Profiles } from '../profiles.ts'
 import type { Workspace } from '../workspace.ts'
+import { MoveJobs } from './jobs.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 
@@ -55,6 +56,11 @@ export interface AppDeps {
   externalImages?: ExternalImages
   /** The clock (tests). */
   now?: () => Date
+  /**
+   * How long a move asked for with `background` may take before the request
+   * answers with a job instead of the report (1 s by default).
+   */
+  moveWaitMs?: number
 }
 
 export type ExternalImages = 'allow' | 'block'
@@ -99,6 +105,8 @@ export function createApp(deps: AppDeps) {
   const externalImages = deps.externalImages ?? 'allow'
   const now = deps.now ?? (() => new Date())
   const daily = new DailyNotes({ workspace, profiles, notes, now })
+  const jobs = new MoveJobs()
+  const moveWaitMs = deps.moveWaitMs ?? 1000
   const app = new Hono<Env>()
 
   app.onError((err, c) => {
@@ -220,9 +228,19 @@ export function createApp(deps: AppDeps) {
 
   app.delete('/api/folder', (c) => c.json(notes.deleteFolder(c.req.query('path') ?? '', actorOf(c.get('user')))))
 
+  // With `background`, a move that takes long answers 202 with a job as soon
+  // as the folder (or note) is in place; GET /api/move-jobs/:id follows it.
   app.post('/api/folder/move', async (c) => {
-    const { from, to, dryRun } = await c.req.json<{ from: string; to: string; dryRun?: boolean }>()
-    return c.json(await notes.moveFolder(from, to, { actor: actorOf(c.get('user')), dryRun }))
+    const { from, to, dryRun, background } = await c.req.json<{ from: string; to: string; dryRun?: boolean; background?: boolean }>()
+    const actor = actorOf(c.get('user'))
+    if (!background || dryRun) return c.json(await notes.moveFolder(from, to, { actor, dryRun }))
+    const r = await jobs.start(c.get('user').username, 'folder', from, to, (hooks) => notes.moveFolder(from, to, { actor, ...hooks }), moveWaitMs)
+    return 'job' in r ? c.json(r, 202) : c.json(r.report)
+  })
+
+  app.get('/api/move-jobs/:id', (c) => {
+    const job = jobs.get(c.get('user').username, c.req.param('id'))
+    return job ? c.json(job) : fail(c, 404, 'not_found', 'no such move job')
   })
 
   app.get('/api/note', (c) => {
@@ -295,8 +313,11 @@ export function createApp(deps: AppDeps) {
   })
 
   app.post('/api/note/move', async (c) => {
-    const { from, to, dryRun } = await c.req.json<{ from: string; to: string; dryRun?: boolean }>()
-    return c.json(await notes.move(from, to, { ifMatch: unquote(c.req.header('if-match')), actor: actorOf(c.get('user')), dryRun }))
+    const { from, to, dryRun, background } = await c.req.json<{ from: string; to: string; dryRun?: boolean; background?: boolean }>()
+    const opts = { ifMatch: unquote(c.req.header('if-match')), actor: actorOf(c.get('user')) }
+    if (!background || dryRun) return c.json(await notes.move(from, to, { ...opts, dryRun }))
+    const r = await jobs.start(c.get('user').username, 'note', from, to, (hooks) => notes.move(from, to, { ...opts, ...hooks }), moveWaitMs)
+    return 'job' in r ? c.json(r, 202) : c.json(r.report)
   })
 
   app.get('/api/note/links', (c) => {
