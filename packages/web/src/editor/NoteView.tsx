@@ -9,6 +9,7 @@ import { useTheme } from '../theme.ts'
 import { userColor } from '../userColor.ts'
 import { errorText, useT } from '../i18n.tsx'
 import { Crumbs, Icon, ThemeToggle } from '../ui.tsx'
+import { SearchButton } from '../Palette.tsx'
 import { useCollab, type CollabState } from './collab.ts'
 import type { Trashed } from '../TrashToast.tsx'
 import { Editor } from './Editor.tsx'
@@ -98,6 +99,7 @@ export function NoteView({ path, user, onNavigate, onMoved, onTrashed }: Props) 
         <span className="spacer" />
         <SaveStatus c={c} />
         <Presence c={c} />
+        <SearchButton />
         <ThemeToggle />
         <PanelToggle panel={panel} />
         <NoteActions path={path} onMoved={onMoved} onTrashed={(id) => onTrashed({ id, path, by: null })} />
