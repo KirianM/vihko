@@ -1,7 +1,7 @@
 // Comments inside the note: HTML comments with author, date and text.
 //
-//   Usaremos Postgres para el índice.<!-- @noa 2026-09-24 10:12 · esto no, usa SQLite -->
-//   <!-- @claude 2026-09-24 10:15 · ↳ de acuerdo, lo cambio -->
+//   Usaremos Postgres para el índice.<!-- @noa 2026-09-24T08:12Z · esto no, usa SQLite -->
+//   <!-- @claude 2026-09-24T08:15Z · ↳ de acuerdo, lo cambio -->
 //
 // - Thread: consecutive comments (only spaces or a single line break between them).
 //   `↳` marks replies.
@@ -9,7 +9,10 @@
 //   from the beginning of the sentence (or of the line, or from the previous
 //   comment). This way the anchor is derived from the file, with no start markers
 //   or positions stored separately.
-// - Date: the commenter's local time, `YYYY-MM-DD HH:MM`, no timezone.
+// - Date: UTC, ISO 8601 to the minute (`2026-09-24T08:12Z`): people commenting
+//   on the same note may live in different timezones. The UI shows it in the
+//   reader's local time. Dates with an offset or without a zone (written by hand
+//   or by other tools) are still read.
 //
 // Pure module (no DOM, no CodeMirror): tested by the Node test runner. Whoever
 // uses it applies the changes it returns to the session's Y.Text.
@@ -42,7 +45,7 @@ export interface Change {
   insert: string
 }
 
-const COMMENT = /<!--[ \t]*@([\p{L}\p{N}._-]+)[ \t]+(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)[ \t]*·[ \t]*([\s\S]*?)[ \t]*-->/gu
+const COMMENT = /<!--[ \t]*@([\p{L}\p{N}._-]+)[ \t]+(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?(?: ?(?:Z|[+-]\d{2}:?\d{2}))?)?)[ \t]*·[ \t]*([\s\S]*?)[ \t]*-->/gu
 const REPLY = /^↳[ \t]*/
 const FENCE = /^[ \t]{0,3}(`{3,}|~{3,})/
 /** End of sentence: a closing mark followed by whitespace. */
@@ -132,9 +135,31 @@ export function parseThreads(doc: string): Thread[] {
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-/** Local time, `YYYY-MM-DD HH:MM`. */
+/** UTC to the minute, as written into the note: `YYYY-MM-DDTHH:MMZ`. */
 export function formatDate(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}Z`
+}
+
+/** Instant of a comment date, or null when it has no timezone (then it can't be converted). */
+export function parseDate(date: string): Date | null {
+  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?) ?(Z|[+-]\d{2}:?\d{2})$/.exec(date)
+  if (!m) return null
+  const zone = m[3] === 'Z' ? 'Z' : m[3]!.replace(/^([+-]\d{2})(\d{2})$/, '$1:$2')
+  const d = new Date(`${m[1]}T${m[2]}${zone}`)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+/**
+ * How a reader sees a comment date: in their local time, only `HH:MM` when it
+ * is from today. Dates without a zone are shown as written.
+ */
+export function displayDate(date: string, now = new Date()): string {
+  const d = parseDate(date)
+  if (!d) return date
+  const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+  return day === today ? time : `${day} ${time}`
 }
 
 /** One line, with nothing that closes the comment early. */
