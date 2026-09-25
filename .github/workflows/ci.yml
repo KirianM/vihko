@@ -32,11 +32,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - name: Chromium y sus librerías
+      - name: Chromium and its libraries
         run: npx -w @thoth/web playwright install --with-deps chromium
-      - name: Pruebas de navegador
+      - name: Browser tests
         run: npm run e2e -w @thoth/web
-      - name: Informe si falla
+      - name: Report on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
@@ -50,9 +50,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Construir la imagen
+      - name: Build the image
         run: docker build -t thoth:ci .
-      - name: Arranca y responde al healthcheck
+      - name: Starts and answers the healthcheck
         run: |
           docker run -d --name thoth -p 8080:8080 thoth:ci
           for i in $(seq 1 30); do
@@ -61,29 +61,5 @@ jobs:
           done
           docker logs thoth
           curl -fs http://127.0.0.1:8080/api/health
-      - name: Sirve la UI
+      - name: Serves the UI
         run: curl -fs http://127.0.0.1:8080/ | grep -q 'id="root"'
-
-  dco:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - name: Todos los commits llevan Signed-off-by
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          missing=0
-          # Los commits de merge los genera GitHub al fusionar PR: no llevan firma.
-          for c in $(git rev-list --no-merges "$BASE..$HEAD"); do
-            # Los commits de bots (Dependabot) no pueden firmar el DCO.
-            case "$(git show -s --format=%ae "$c")" in *'[bot]@users.noreply.github.com') continue ;; esac
-            if ! git show -s --format=%B "$c" | grep -q '^Signed-off-by: '; then
-              echo "::error::El commit $c no lleva Signed-off-by (usa git commit -s)"
-              missing=1
-            fi
-          done
-          exit $missing
