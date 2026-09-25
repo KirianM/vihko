@@ -179,8 +179,22 @@ export function createApp(deps: AppDeps) {
   app.get('/api/config', (c) => c.json({ externalImages, maxImageBytes: notes.maxImageBytes }))
 
   app.get('/api/tree', (c) => {
-    const rows = index.prepare('select path, title, uid from notes order by path').all()
-    return c.json({ notes: rows })
+    const rows = index.prepare('select path, title, uid, aliases from notes order by path').all() as { aliases: string }[]
+    return c.json({ notes: rows.map((r) => ({ ...r, aliases: JSON.parse(r.aliases) as string[] })) })
+  })
+
+  // Tags in use, with how many notes carry each (inline or in the frontmatter).
+  app.get('/api/tags', (c) => {
+    const rows = index.prepare('select tag, count(distinct path) as count from tags group by tag order by count desc, tag').all()
+    return c.json({ tags: rows })
+  })
+
+  // A note's headings, in order (link anchors: `[[Note#Heading]]`).
+  app.get('/api/note/headings', (c) => {
+    const path = c.req.query('path') ?? ''
+    notes.read(path) // 404 if it doesn't exist
+    const rows = index.prepare('select level, text from headings where path = ? order by ord').all(path)
+    return c.json({ headings: rows })
   })
 
   app.get('/api/note', (c) => {

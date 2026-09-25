@@ -6,6 +6,7 @@ import { EditorState, Facet, StateEffect, StateField, type Range } from '@codemi
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 import { isImageRef } from '@thoth/core/images'
+import { markdownLinkNote, missingBadge, onCreateButton, wikiLinkNote } from './createLink.ts'
 
 // --- Link state (resolved by the server's index) ----------
 
@@ -22,6 +23,9 @@ const links = StateField.define<Map<string, LinkInfo>>({
   create: () => new Map(),
   update: (v, tr) => tr.effects.reduce((acc, e) => (e.is(setLinks) ? e.value : acc), v),
 })
+
+/** Path of the note being edited: where a note created from a broken link goes. */
+export const notePath = Facet.define<string, string>({ combine: (v) => v[0] ?? '' })
 
 /** What to do when a resolved link is clicked. */
 export const navigate = Facet.define<(path: string) => void, (path: string) => void>({
@@ -75,17 +79,19 @@ function wikiLabel(raw: string, embed: boolean) {
 }
 
 class WikiWidget extends WidgetType {
+  readonly raw: string
   readonly label: string
   readonly info: LinkInfo | undefined
   readonly text: LinkLabels
-  constructor(label: string, info: LinkInfo | undefined, text: LinkLabels) {
+  constructor(raw: string, label: string, info: LinkInfo | undefined, text: LinkLabels) {
     super()
+    this.raw = raw
     this.label = label
     this.info = info
     this.text = text
   }
   eq(o: WikiWidget) {
-    return o.label === this.label && o.info?.status === this.info?.status && o.info?.path === this.info?.path && o.text === this.text
+    return o.raw === this.raw && o.label === this.label && o.info?.status === this.info?.status && o.info?.path === this.info?.path && o.text === this.text
   }
   toDOM(view: EditorView) {
     const status = this.info?.status ?? 'pending'
@@ -109,15 +115,17 @@ class WikiWidget extends WidgetType {
     }
     a.addEventListener('click', (e) => e.preventDefault())
     wrap.append(a)
-    if (status === 'ambiguous' || status === 'missing') {
+    if (status === 'missing') {
+      wrap.append(missingBadge(view, this.text.missing, wikiLinkNote(view.state.facet(notePath), this.raw)))
+    } else if (status === 'ambiguous') {
       const badge = document.createElement('span')
       badge.className = 'cm-wikilink-badge'
-      badge.textContent = status === 'missing' ? this.text.missing : this.text.ambiguous(this.info?.candidates?.length ?? 0)
+      badge.textContent = this.text.ambiguous(this.info?.candidates?.length ?? 0)
       wrap.append(badge)
     }
     return wrap
   }
-  ignoreEvent(e: Event) { return this.info?.status === 'resolved' && e.type === 'mousedown' }
+  ignoreEvent(e: Event) { return (this.info?.status === 'resolved' && e.type === 'mousedown') || onCreateButton(e) }
 }
 
 class BulletWidget extends WidgetType {
@@ -167,7 +175,7 @@ function inlineDecorations(view: EditorView): DecorationSet {
             if (!touches(state, node.from, node.to)) hideChildren(node, ['EmphasisMark', 'StrikethroughMark', 'CodeMark'], out)
             return
           case 'Link':
-            if (!touches(state, node.from, node.to)) hideLinkSyntax(node, out, linkMap.get(state.doc.sliceString(node.from, node.to))?.status)
+            if (!touches(state, node.from, node.to)) hideLinkSyntax(state, node, out, linkMap.get(state.doc.sliceString(node.from, node.to))?.status)
             return
           case 'WikiLink':
           case 'WikiEmbed': {
@@ -178,7 +186,7 @@ function inlineDecorations(view: EditorView): DecorationSet {
               out.push(Decoration.mark({ class: 'cm-wikilink-raw' }).range(node.from, node.to))
             } else {
               const info = linkMap.get(raw)
-              out.push(Decoration.replace({ widget: new WikiWidget(wikiLabel(raw, name === 'WikiEmbed'), info, text) }).range(node.from, node.to))
+              out.push(Decoration.replace({ widget: new WikiWidget(raw, wikiLabel(raw, name === 'WikiEmbed'), info, text) }).range(node.from, node.to))
             }
             return false
           }
@@ -217,8 +225,29 @@ function hideChildren(node: SyntaxNode, names: string[], out: Range<Decoration>[
   for (let c = node.firstChild; c; c = c.nextSibling) if (names.includes(c.name)) out.push(hidden.range(c.from, c.to))
 }
 
+/** «missing · create» after a Markdown link to a note that doesn't exist. */
+class MissingLinkWidget extends WidgetType {
+  readonly raw: string
+  readonly dest: string
+  readonly text: string
+  constructor(raw: string, dest: string, text: string) {
+    super()
+    this.raw = raw
+    this.dest = dest
+    this.text = text
+  }
+  eq(o: MissingLinkWidget) { return o.raw === this.raw && o.text === this.text }
+  toDOM(view: EditorView) {
+    const wrap = document.createElement('span')
+    wrap.className = 'cm-wikilink-missing'
+    wrap.append(missingBadge(view, this.text, markdownLinkNote(view.state.facet(notePath), this.raw, this.dest)))
+    return wrap
+  }
+  ignoreEvent(e: Event) { return onCreateButton(e) }
+}
+
 /** `[text](url "title")` → shows `text` as a link. */
-function hideLinkSyntax(node: SyntaxNode, out: Range<Decoration>[], status?: LinkInfo['status']) {
+function hideLinkSyntax(state: EditorState, node: SyntaxNode, out: Range<Decoration>[], status?: LinkInfo['status']) {
   const marks: SyntaxNode[] = []
   for (let c = node.firstChild; c; c = c.nextSibling) if (c.name === 'LinkMark') marks.push(c)
   if (marks.length < 2) return
@@ -227,7 +256,13 @@ function hideLinkSyntax(node: SyntaxNode, out: Range<Decoration>[], status?: Lin
   if (open.to >= close.from) return
   out.push(hidden.range(open.from, open.to))
   out.push(Decoration.mark({ class: status ? `cm-link cm-link-${status}` : 'cm-link' }).range(open.to, close.from))
-  out.push(hidden.range(close.from, node.to))
+  const url = node.getChild('URL')
+  if (status === 'missing' && url) {
+    const widget = new MissingLinkWidget(state.doc.sliceString(node.from, node.to), state.doc.sliceString(url.from, url.to), state.facet(labels).missing)
+    out.push(Decoration.replace({ widget }).range(close.from, node.to))
+  } else {
+    out.push(hidden.range(close.from, node.to))
+  }
 }
 
 const inlinePreview = ViewPlugin.fromClass(

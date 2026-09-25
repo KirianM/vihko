@@ -1,6 +1,7 @@
 // The open note: header (path, save state, presence, panel toggle, more
 // actions), the banner for a note deleted outside thoth, the editor and
 // the side panel.
+import { startCompletion } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from 'react-aria-components'
@@ -15,6 +16,7 @@ import { listItem, tag, wikilink, type Edit } from './insert.ts'
 import { SearchButton } from '../Palette.tsx'
 import { useCollab, type CollabState } from './collab.ts'
 import type { Trashed } from '../TrashToast.tsx'
+import { CreateLinkUi, useCreateLink } from './CreateLinkMenu.tsx'
 import { Editor } from './Editor.tsx'
 import { ImageInsertUi, useImageInsert } from './ImageInsert.tsx'
 import { NoteActions } from './NoteActions.tsx'
@@ -96,17 +98,19 @@ function EditorBar({ view, c, onComment, onImage, daily, onNavigate }: {
     vv.addEventListener('resize', on)
     return () => vv.removeEventListener('resize', on)
   }, [view])
-  const edit = (make: (doc: string, from: number, to: number) => Edit) => {
+  const edit = (make: (doc: string, from: number, to: number) => Edit, suggest = false) => {
     if (!view) return
     const { from, to } = view.state.selection.main
     const e = make(view.state.doc.toString(), from, to)
     view.dispatch({ changes: { from: e.from, to: e.to, insert: e.insert }, selection: { anchor: e.cursor }, scrollIntoView: true, userEvent: 'input' })
     view.focus()
+    // An empty `[[]]` or `#` opens the suggestions, as typing them would.
+    if (suggest && e.from === e.to) startCompletion(view)
   }
   return (
     <div className="editor-bar" role="toolbar" aria-label={t('editor.bar')}>
-      <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertLink')} onPress={() => edit(wikilink)}>[[</Button>
-      <Button className="btn btn-icon bar-btn bar-hash" preventFocusOnPress aria-label={t('editor.insertTag')} onPress={() => edit(tag)}>#</Button>
+      <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertLink')} onPress={() => edit(wikilink, true)}>[[</Button>
+      <Button className="btn btn-icon bar-btn bar-hash" preventFocusOnPress aria-label={t('editor.insertTag')} onPress={() => edit(tag, true)}>#</Button>
       <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertList')} onPress={() => edit((doc, from) => listItem(doc, from))}>{Icon.list}</Button>
       <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('image.insertTitle')} onPress={onImage}>{Icon.image}</Button>
       <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.comment')} onPress={onComment}>{Icon.comment}</Button>
@@ -126,9 +130,13 @@ interface Props {
   /** The note changed path (renamed by you or someone else): reopen it there. With the report when you did it. */
   onMoved: (to: string, report?: MoveReport) => void
   onTrashed: (t: Trashed) => void
+  /** Template notes (thoth.yaml), offered when creating a note from a broken link. */
+  templates: readonly string[]
+  /** A note was created from here (a broken link): refresh the tree and open it. */
+  onCreated: (path: string) => void
 }
 
-export function NoteView({ path, user, daily, onNavigate, onMoved, onTrashed }: Props) {
+export function NoteView({ path, user, daily, onNavigate, onMoved, onTrashed, templates, onCreated }: Props) {
   const c = useCollab(path)
   const [linkData, setLinkData] = useState<LinksData | null>(null)
   const links = useMemo(
@@ -140,6 +148,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onTrashed }: 
   const mobile = useMobile()
   const [config, setConfig] = useState<ServerConfig | null>(null)
   const images = useImageInsert(path, c.session, view, config?.maxImageBytes ?? 0)
+  const createLink = useCreateLink(path, templates, onCreated)
 
   // Without the settings the editor can't know whether external images are
   // blocked; if they can't be read, the server's CSP still enforces it.
@@ -187,11 +196,12 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onTrashed }: 
         <NoteActions path={path} onMoved={onMoved} onTrashed={(id) => onTrashed({ id, path, by: null })} onInsertImage={images.openInsert} />
       </header>
       {c.orphaned && <OrphanBanner path={path} />}
+      <CreateLinkUi state={createLink} />
       <div className="note-body">
         <div className="note">
           {c.session && c.connection !== 'connecting' && config && (
             <Editor path={path} session={c.session} user={user} links={links} onNavigate={onNavigate} onView={setView} onComments={panel.showComments}
-              externalImages={config.externalImages} onImageFiles={images.onFiles} onImageUrl={images.onUrl} />
+              externalImages={config.externalImages} onImageFiles={images.onFiles} onImageUrl={images.onUrl} onCreateLink={createLink.onCreateLink} />
           )}
         </div>
         <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} onNavigate={onNavigate} />

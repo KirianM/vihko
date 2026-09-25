@@ -38,7 +38,7 @@ async function request<T>(method: string, path: string, body?: unknown, headers:
 }
 
 export interface User { id: string; username: string; role: 'admin' | 'member' }
-export interface TreeNote { path: string; title: string; uid: string | null }
+export interface TreeNote { path: string; title: string; uid: string | null; aliases: string[] }
 export interface Note { path: string; text: string; etag: string; meta: { title: string; uid: string | null; fm_error: string | null } | null }
 
 export interface OutgoingLink {
@@ -98,6 +98,9 @@ export const api = {
   conflict: (path: string) => request<{ path: string; text: string }>('GET', `/api/conflict?path=${encodeURIComponent(path)}`),
   rescan: (confirmRemoval?: number) => request<{ aborted: string | null }>('POST', '/api/admin/rescan', confirmRemoval === undefined ? {} : { confirmRemoval }),
   links: (path: string) => request<{ outgoing: OutgoingLink[]; backlinks: Backlink[] }>('GET', `/api/note/links?path=${encodeURIComponent(path)}`),
+  /** Tags in use, most used first. */
+  tags: () => request<{ tags: { tag: string; count: number }[] }>('GET', '/api/tags').then((r) => r.tags),
+  headings: (path: string) => request<{ headings: { level: number; text: string }[] }>('GET', `/api/note/headings?path=${encodeURIComponent(path)}`).then((r) => r.headings),
   search: (q: string) => request<SearchResponse>('GET', `/api/search?q=${encodeURIComponent(q)}`),
   createNote: (path: string, text: string) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, text }),
   /** A new note with the text of the template note, its variables filled in by the server. */
