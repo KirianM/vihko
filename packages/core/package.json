@@ -4,7 +4,8 @@
   "type": "module",
   "license": "AGPL-3.0-only",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./syntax": "./src/syntax.ts"
   },
   "dependencies": {
     "@lezer/common": "^1.5.3",
