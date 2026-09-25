@@ -30,6 +30,9 @@
 .comment-when { color: var(--faint); }
 .avatar-sm { width: 24px; height: 24px; font-size: 11px; }
 .thread-actions { display: flex; gap: 8px; }
+.thread-changed { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 12px; line-height: 1.45; }
+.thread-changed-badge { font-weight: 600; color: var(--warn-strong); border: 1px solid var(--warn-line); border-radius: 999px; padding: 0 8px; }
+.thread-original { color: var(--muted); font-family: var(--font-serif); overflow-wrap: anywhere; }
 .thread-actions .btn { flex: 1 1 0; }
 .composer { display: flex; flex-direction: column; gap: 8px; }
 .composer-input { font: inherit; font-size: 13px; line-height: 1.45; width: 100%; resize: vertical; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--field); color: var(--ink); }

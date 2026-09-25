@@ -124,3 +124,21 @@ export function parseThreads(doc: string): Thread[] {
   return threads
 }
 
+/**
+ * The commented text as it is compared (D-031.6): Unicode NFC, whitespace
+ * runs as one space, trimmed. Reflowing a paragraph or retyping an accent
+ * the other way is not a change.
+ */
+export const normalizeAnchor = (text: string) => text.normalize('NFC').replace(/\s+/g, ' ').trim()
+
+/**
+ * Whether the commented text changed since `original`: any difference after
+ * normalizing. No similarity threshold on purpose: a small edit ("no" added,
+ * a number changed) can turn the sentence around, and the mark only says
+ * "look again", never hides anything. A thread that had no text to anchor to
+ * (alone on its line) never changes.
+ */
+export function anchorChanged(original: string, current: string): boolean {
+  const was = normalizeAnchor(original)
+  return was !== '' && was !== normalizeAnchor(current)
+}

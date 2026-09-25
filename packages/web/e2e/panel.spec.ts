@@ -133,6 +133,62 @@ test('narrow screen: panel hidden, notice under the paragraph, and overlaid pane
   await a.setViewportSize({ width: 1280, height: 800 })
 })
 
+// D-031.6: the index remembers the commented text as it first saw it.
+const originals = async (p: Page) => {
+  const r = await p.request.get(`/api/note/comments?path=${encodeURIComponent(NOTE)}`)
+  return ((await r.json()) as { threads: { original: string; changed: boolean }[] }).threads.map((t) => [t.original, t.changed])
+}
+const SENTENCE = 'La propuesta inicial era usar Postgres con una tabla por tipo de nota.'
+
+test('the text has changed: rewriting the commented sentence marks the thread for everyone; restoring it clears the mark', async () => {
+  await expect.poll(() => originals(k)).toEqual([[SENTENCE, false]])
+  const thread = (p: Page) => p.locator('.thread', { hasText: 'esto no, usa SQLite' })
+  await expect(thread(k).locator('.thread-changed')).toHaveCount(0)
+
+  await k.locator('.cm-line', { hasText: 'usar Postgres' }).click()
+  await k.keyboard.press('Home')
+  await k.keyboard.type('Al final no: ')
+  for (const p of [k, a]) {
+    await expect(thread(p).locator('.thread-changed-badge')).toHaveText('El texto ha cambiado')
+    await expect(thread(p).locator('.thread-original')).toHaveText(/^Texto original: «La propuesta inicial era usar Postgres con una .*…»$/)
+  }
+  // Once saved, the server says the same; the note file holds nothing of it.
+  await expect.poll(() => originals(k)).toEqual([[SENTENCE, true]])
+  expect(disk()).toContain(`Al final no: ${SENTENCE}<!-- @noa`)
+  expect(disk()).not.toContain('Texto original')
+
+  await k.screenshot({ path: `${SHOTS}/comment-changed-light.png` })
+  await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()
+  await k.screenshot({ path: `${SHOTS}/comment-changed-dark.png` })
+  await k.getByRole('button', { name: 'Cambiar a tema claro' }).click()
+  await a.setViewportSize({ width: 390, height: 800 })
+  await a.locator('.cm-comment-notice').click()
+  await expect(thread(a).locator('.thread-changed-badge')).toBeVisible()
+  await a.screenshot({ path: `${SHOTS}/comment-changed-390.png` })
+  await a.getByRole('complementary', { name: 'Comentarios y contexto' }).getByRole('button', { name: 'Ocultar el panel lateral' }).click()
+  await a.setViewportSize({ width: 1280, height: 800 })
+
+  // Only spaces differ: not a change. Back to the words it had: no mark.
+  // The line wraps now: clicked on its first row. Home twice: with leading
+  // spaces the first one stops after them.
+  const select = async (n: number) => {
+    await k.locator('.cm-line', { hasText: 'propuesta inicial' }).click({ position: { x: 4, y: 6 } })
+    await k.keyboard.press('Home')
+    await k.keyboard.press('Home')
+    for (let i = 0; i < n; i++) await k.keyboard.press('Shift+ArrowRight')
+  }
+  await select('Al final no: '.length)
+  await k.keyboard.type('  ')
+  await expect.poll(() => originals(k)).toEqual([[SENTENCE, false]])
+  await expect(thread(k).locator('.thread-changed')).toHaveCount(0)
+  await expect(thread(a).locator('.thread-changed')).toHaveCount(0)
+  await select(2)
+  await k.keyboard.press('Backspace')
+  await expect.poll(disk).toContain(`
+
+${SENTENCE}<!-- @noa`)
+})
+
 test('resolving deletes the thread from the file and leaves the text as it was', async () => {
   await k.locator('.thread').first().getByRole('button', { name: 'Resolver' }).click()
   await expect.poll(disk).not.toContain('<!--')

@@ -19,7 +19,7 @@
 // threads is shared with the indexer (@thoth/core/comments).
 import { parseComments, parseThreads, type Thread } from '@thoth/core/comments'
 
-export { parseComments, parseThreads, type Comment, type Thread } from '@thoth/core/comments'
+export { anchorChanged, parseComments, parseThreads, type Comment, type Thread } from '@thoth/core/comments'
 
 /** Change to the text: delete [from, to) and insert `insert`. */
 export interface Change {

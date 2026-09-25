@@ -7,7 +7,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { join, posix, sep } from 'node:path'
-import { WORKSPACE_FILE, classifyPath, conflictOriginal, extract, withoutRanges, type Alert, type ErrorCode, type Range } from '@thoth/core'
+import { WORKSPACE_FILE, anchorChanged, classifyPath, conflictOriginal, extract, parseThreads, withoutRanges, type Alert, type ErrorCode, type Range } from '@thoth/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
@@ -217,6 +217,22 @@ export function createApp(deps: AppDeps) {
     notes.read(path) // 404 if it doesn't exist
     const rows = index.prepare('select level, text from headings where path = ? order by ord').all(path)
     return c.json({ headings: rows })
+  })
+
+  // A note's comment threads as the index first saw them (D-031.6): the text
+  // each one was anchored to, and whether the note's text there has changed
+  // since. Only threads the index knows (the note as last saved); the editor
+  // compares the same originals with what is being typed.
+  app.get('/api/note/comments', (c) => {
+    const path = c.req.query('path') ?? ''
+    const { text } = notes.read(path) // 404 if it doesn't exist
+    const originals = new Map((index.prepare('select thread, original from comment_anchors where src_path = ? and orphaned = 0').all(path) as { thread: string; original: string }[])
+      .map((r) => [r.thread, r.original]))
+    const threads = parseThreads(text).flatMap((t) => {
+      const original = originals.get(t.id)
+      return original === undefined ? [] : [{ id: t.id, original, changed: anchorChanged(original, text.slice(t.anchorFrom, t.anchorTo)) }]
+    })
+    return c.json({ threads })
   })
 
   // Folders only exist on disk: these create, move (with every note in them,

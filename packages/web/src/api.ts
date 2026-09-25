@@ -49,6 +49,8 @@ export interface OutgoingLink {
   candidates: string[] | null
 }
 export interface Backlink { path: string; title: string; raw: string; context: string }
+/** A comment thread's text as the index first saw it (D-031.6); `changed` compares it with the saved note. */
+export interface CommentOriginal { id: string; original: string; changed: boolean }
 export interface SearchResult { path: string; title: string; snippet: string }
 /** Search results; the snippet highlight uses control characters, not HTML. */
 export interface SearchResponse { results: SearchResult[]; highlight?: { start: string; end: string } }
@@ -147,6 +149,7 @@ export const api = {
   conflict: (path: string) => request<{ path: string; text: string }>('GET', `/api/conflict?path=${encodeURIComponent(path)}`),
   rescan: (confirmRemoval?: number) => request<{ aborted: string | null }>('POST', '/api/admin/rescan', confirmRemoval === undefined ? {} : { confirmRemoval }),
   links: (path: string) => request<{ outgoing: OutgoingLink[]; backlinks: Backlink[] }>('GET', `/api/note/links?path=${encodeURIComponent(path)}`),
+  commentOriginals: (path: string) => request<{ threads: CommentOriginal[] }>('GET', `/api/note/comments?path=${encodeURIComponent(path)}`).then((r) => r.threads),
   /** Tags in use, most used first (editor suggestions and the tags view). */
   tags: () => request<{ tags: TagCount[] }>('GET', '/api/tags').then((r) => r.tags),
   headings: (path: string) => request<{ headings: { level: number; text: string }[] }>('GET', `/api/note/headings?path=${encodeURIComponent(path)}`).then((r) => r.headings),

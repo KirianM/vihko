@@ -5,7 +5,7 @@ import { startCompletion } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from 'react-aria-components'
-import { api, type MoveJob, type MoveReport, type ServerConfig, type User } from '../api.ts'
+import { api, type CommentOriginal, type MoveJob, type MoveReport, type ServerConfig, type User } from '../api.ts'
 import { INSERT_IMAGE } from '../commands.ts'
 import { useTheme } from '../theme.ts'
 import { userColor } from '../userColor.ts'
@@ -145,6 +145,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMoveStarted
     () => new Map<string, LinkInfo>((linkData?.outgoing ?? []).map((l) => [l.raw, { status: l.status, path: l.dst_path, candidates: l.candidates }])),
     [linkData],
   )
+  const [originals, setOriginals] = useState<CommentOriginal[] | null>(null)
   const panel = usePanel()
   const [view, setView] = useState<EditorView | null>(null)
   const mobile = useMobile()
@@ -177,6 +178,14 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMoveStarted
     return () => { live = false }
   }, [path, c.save])
 
+  // What each comment thread was anchored to, from the index: also on open and after each save.
+  useEffect(() => {
+    if (c.save !== 'saved') return
+    let live = true
+    api.commentOriginals(path).then((r) => { if (live) setOriginals(r) }).catch(() => {})
+    return () => { live = false }
+  }, [path, c.save])
+
   // Moved or trashed from thoth, by you or someone else: the hub tells all its editors.
   useEffect(() => { if (c.moved) onMoved(c.moved) }, [c.moved]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -206,7 +215,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMoveStarted
               externalImages={config.externalImages} onImageFiles={images.onFiles} onImageUrl={images.onUrl} onCreateLink={createLink.onCreateLink} />
           )}
         </div>
-        <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} onNavigate={onNavigate} />
+        <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} originals={originals} onNavigate={onNavigate} />
       </div>
       {mobile && !panel.open && <EditorBar view={view} c={c} onComment={() => panel.showComments(null)} onImage={images.openInsert} daily={daily ?? null} onNavigate={onNavigate} />}
       <ImageInsertUi ins={images} />
