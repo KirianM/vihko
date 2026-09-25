@@ -1,7 +1,7 @@
 // Comments inside the note: HTML comments with author, date and text.
 //
-//   Usaremos Postgres para el índice.<!-- @noa 2026-09-24T08:12Z · esto no, usa SQLite -->
-//   <!-- @claude 2026-09-24T08:15Z · ↳ de acuerdo, lo cambio -->
+//   We'll use Postgres for the index.<!-- @noa 2026-09-24T08:12Z · no, use SQLite -->
+//   <!-- @claude 2026-09-24T08:15Z · ↳ agreed, changing it -->
 //
 // - Thread: consecutive comments (only spaces or a single line break between them).
 //   `↳` marks replies.

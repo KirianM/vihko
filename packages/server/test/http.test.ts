@@ -147,6 +147,19 @@ test('links, backlinks with context, search and alerts', async () => {
   assert.deepEqual(errorOf(await req('POST', '/api/admin/rescan', {})), [403, 'forbidden'], "a member isn't an admin")
 })
 
+test('comments inside a note stay out of backlink contexts and search', async () => {
+  const { auth, req, notesDir, runtime } = await setup()
+  await auth.createUser('noa', 'a-long-password', 'member')
+  await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
+  writeFileSync(join(notesDir, 'hogar/discussed.md'),
+    'Move the VMs to [[Proxy]] this week.<!-- @ana 2026-09-24T08:12Z · which zanahoria host? -->\n')
+  runtime.rescan({})
+  const back = await req('GET', '/api/note/links?path=hogar/Proxy.md')
+  const b = back.body.backlinks.find((x: { path: string }) => x.path === 'hogar/discussed.md')
+  assert.equal(b.context, 'Move the VMs to [[Proxy]] this week.')
+  assert.deepEqual((await req('GET', '/api/search?q=zanahoria')).body.results, [])
+})
+
 test('workspace alerts: codes with their data and actions based on role', async () => {
   const { auth, notesDir, req } = await setup()
   await auth.createUser('noa', 'a-long-password', 'admin')

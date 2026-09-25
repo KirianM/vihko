@@ -6,7 +6,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { classifyPath, conflictOriginal, type Alert, type ErrorCode } from '@thoth/core'
+import { classifyPath, conflictOriginal, extract, withoutRanges, type Alert, type ErrorCode, type Range } from '@thoth/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
@@ -192,13 +192,15 @@ export function createApp(deps: AppDeps) {
     const incoming = index.prepare(`select l.src_path, n.title, l.raw, l.pos_from, l.pos_to
       from links l join notes n on n.path = l.src_path where l.dst_path = ? and l.src_path != ? order by l.src_path, l.ord`)
       .all(path, path) as { src_path: string; title: string; raw: string; pos_from: number; pos_to: number }[]
-    const texts = new Map<string, string>()
+    const sources = new Map<string, { text: string; comments: Range[] }>()
     const backlinks = incoming.map((l) => {
-      if (!texts.has(l.src_path)) {
-        try { texts.set(l.src_path, readFileSync(join(deps.notesDir, l.src_path), 'utf8')) } catch { texts.set(l.src_path, '') }
+      let src = sources.get(l.src_path)
+      if (!src) {
+        let text = ''
+        try { text = readFileSync(join(deps.notesDir, l.src_path), 'utf8') } catch {}
+        sources.set(l.src_path, (src = { text, comments: extract(text).comments }))
       }
-      const t = texts.get(l.src_path)!
-      return { path: l.src_path, title: l.title, raw: l.raw, context: context(t, l.pos_from, l.pos_to) }
+      return { path: l.src_path, title: l.title, raw: l.raw, context: context(src.text, src.comments, l.pos_from, l.pos_to) }
     })
     return c.json({
       outgoing: outgoing.map((l) => ({ ...l, candidates: l.candidates ? JSON.parse(l.candidates) : null })),
@@ -307,10 +309,10 @@ function unquote(etag: string | undefined) {
   return etag?.replace(/^W\//, '').replace(/^"|"$/g, '') || undefined
 }
 
-/** Text fragment around a link, to show backlinks with context. */
-function context(text: string, from: number, to: number, radius = 80) {
+/** Text fragment around a link, to show backlinks with context. Without comments: they're not the note's text. */
+function context(text: string, comments: Range[], from: number, to: number, radius = 80) {
   const start = Math.max(0, text.lastIndexOf('\n', from - 1) + 1, from - radius)
   const nl = text.indexOf('\n', to)
   const end = Math.min(text.length, nl === -1 ? text.length : nl, to + radius)
-  return text.slice(start, end)
+  return withoutRanges(text, comments, start, end).trim()
 }

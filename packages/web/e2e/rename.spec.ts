@@ -1,7 +1,7 @@
 // Rename, move and trash from the UI, with the note open by two people. It
 // creates its own notes at the start so it never touches other specs' notes.
 import { expect, test, type Page } from '@playwright/test'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { E2E_DIR, NOTES, PASSWORD } from './env.ts'
 import { editorText, signIn } from './helpers.ts'
 
@@ -183,4 +183,37 @@ test('screenshots: menu, dialog in dark and on mobile', async ({ browser }) => {
   await shot(m, 'rename-mobile')
   await md.getByRole('button', { name: 'Cancelar' }).click()
   await ctx.close()
+})
+
+test('a link that cannot be rewritten: the notice names the note and the alias that keeps it working', async () => {
+  const target = `${DIR}/Target.md`
+  const locked = `${DIR}/locked`
+  mkdirSync(`${NOTES}/${locked}`, { recursive: true })
+  writeFileSync(`${NOTES}/${target}`, '# Target\n')
+  writeFileSync(`${NOTES}/${locked}/Linker.md`, 'See [[Target]].\n')
+  await k.goto(`/?note=${encodeURIComponent(target)}`)
+  await expect(k.locator('.cm-content')).toBeVisible()
+  await expect.poll(async () => (await (await k.request.get(`/api/note/links?path=${encodeURIComponent(target)}`)).json()).backlinks.length, { timeout: 15_000 }).toBe(1)
+  // A folder thoth cannot write to: the rewrite of Linker fails.
+  chmodSync(`${NOTES}/${locked}`, 0o555)
+  try {
+    // Some network filesystems (NFS with ACLs) ignore the mode bits: then there's no failure to show.
+    let enforced = false
+    try { writeFileSync(`${NOTES}/${locked}/probe`, '') } catch { enforced = true }
+    test.skip(!enforced, 'the notes folder ignores permissions (network filesystem): run with E2E_DIR on a local disk')
+    const dialog = await openRename(k)
+    await dialog.getByLabel('Nuevo nombre').fill('Target renamed')
+    await dialog.getByRole('button', { name: 'Renombrar y actualizar 1 enlace' }).click()
+    await expect(k.locator('.crumbs b')).toHaveText('Target renamed')
+    await expect(k.getByRole('alert').filter({ hasText: 'no se han podido actualizar' })).toHaveText(
+      '«Target renamed» ya está en su sitio, pero no se han podido actualizar los enlaces de estas notas: Linker. ' +
+      'Su nombre anterior, «Target», se queda como alias para que sigan funcionando.')
+    await shot(k, 'move-partial')
+    expect(read(`${locked}/Linker.md`)).toBe('See [[Target]].\n')
+    expect(read(`${DIR}/Target renamed.md`)).toContain('aliases')
+    await k.getByRole('button', { name: 'Cerrar aviso' }).click()
+    await expect(k.getByRole('alert').filter({ hasText: 'no se han podido actualizar' })).toHaveCount(0)
+  } finally {
+    chmodSync(`${NOTES}/${locked}`, 0o755)
+  }
 })

@@ -32,6 +32,12 @@ export interface Heading {
   from: number
 }
 
+/** Span of the note's text, `[from, to)`. */
+export interface Range {
+  from: number
+  to: number
+}
+
 export interface ExtractOptions {
   /** Frontmatter key holding the tags (configurable). */
   tagsKey?: string
@@ -42,11 +48,19 @@ export interface Extracted {
   links: LinkRef[]
   tags: TagRef[]
   headings: Heading[]
+  /**
+   * HTML comments (`<!-- -->`), where thoth keeps the comments between people
+   * and agents. Viewers hide them, so they aren't body text: not searchable, not
+   * part of heading texts or backlink contexts. Never inside code.
+   */
+  comments: Range[]
 }
 
 export const normalizeTag = (t: string) => t.replace(/^#/, '').normalize('NFC').toLowerCase()
 
 const EXTERNAL = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i
+/** A comment inside a raw HTML block; unterminated, it runs to the end of the block. */
+const HTML_COMMENT = /<!--[\s\S]*?(?:-->|$)/g
 
 function parseWikiRaw(raw: string, kind: 'wiki' | 'embed', from: number, to: number): LinkRef {
   const inner = raw.slice(kind === 'embed' ? 3 : 2, -2)
@@ -69,6 +83,25 @@ function safeDecode(s: string) {
   try { return decodeURIComponent(s) } catch { return s }
 }
 
+/**
+ * `text[from, to)` without the given ranges (sorted, not overlapping). Where a
+ * range glued two words together, a space keeps them apart.
+ */
+export function withoutRanges(text: string, ranges: readonly Range[], from = 0, to = text.length): string {
+  let out = ''
+  let pos = from
+  for (const r of ranges) {
+    if (r.to <= pos) continue
+    if (r.from >= to) break
+    out += text.slice(pos, Math.max(pos, r.from))
+    pos = Math.min(r.to, to)
+    const before = out.at(-1)
+    const after = pos < to ? text[pos] : undefined
+    if (before !== undefined && after !== undefined && /\S/.test(before) && /\S/.test(after)) out += ' '
+  }
+  return out + text.slice(pos, to)
+}
+
 function headingText(raw: string, setext: boolean) {
   if (setext) return raw.split('\n')[0]!.trim()
   return raw.replace(/^#{1,6}[ \t]*/, '').replace(/[ \t]+#+[ \t]*$/, '').trim()
@@ -87,7 +120,8 @@ export function extract(text: string, opts: ExtractOptions = {}): Extracted {
   const tree = markdownParser.parse(body)
   const links: LinkRef[] = []
   const tags: TagRef[] = []
-  const headings: Heading[] = []
+  const headingNodes: { level: number; setext: boolean; from: number; to: number }[] = []
+  const comments: Range[] = []
 
   for (const t of frontmatterTags(frontmatter.data[opts.tagsKey ?? 'tags'])) {
     tags.push({ name: t, source: 'frontmatter', from: null, to: null })
@@ -128,13 +162,23 @@ export function extract(text: string, opts: ExtractOptions = {}): Extracted {
           })
           return
         }
+        case 'Comment':
+          comments.push({ from, to })
+          return false
+        case 'CommentBlock':
+        case 'HTMLBlock':
+          // A comment block ends with the line holding `-->`: what follows it on that line is text.
+          for (const m of raw.matchAll(HTML_COMMENT)) comments.push({ from: from + m.index, to: from + m.index + m[0].length })
+          return false
         default: {
           const m = /^(ATX|Setext)Heading(\d)$/.exec(node.name)
-          if (m) headings.push({ level: Number(m[2]), text: headingText(raw, m[1] === 'Setext'), from })
+          if (m) headingNodes.push({ level: Number(m[2]), setext: m[1] === 'Setext', from, to })
         }
       }
     },
   })
 
-  return { frontmatter, links, tags, headings }
+  // After the walk: a heading's comments are its children.
+  const headings = headingNodes.map((h) => ({ level: h.level, text: headingText(withoutRanges(text, comments, h.from, h.to), h.setext), from: h.from }))
+  return { frontmatter, links, tags, headings, comments }
 }

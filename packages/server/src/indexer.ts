@@ -3,7 +3,7 @@
 // content hash as ground truth. Never writes to the notes.
 import { readFileSync, readdirSync, statSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
-import { LinkIndex, classifyPath, contentHash, extract, isIgnoredDir, normKey, pathKeys, type Extracted } from '@thoth/core'
+import { LinkIndex, classifyPath, contentHash, extract, isIgnoredDir, normKey, pathKeys, withoutRanges, type Extracted } from '@thoth/core'
 import type { Db } from './db.ts'
 
 export interface IndexerOptions {
@@ -210,7 +210,7 @@ export class Indexer {
         const aliases = this.aliasesOf(x)
         ins.note.run(u.path, this.uidOf(x), this.titleOf(u.path, x), u.hash, u.stat.mtimeMs, u.stat.size,
           JSON.stringify(x.frontmatter.data), x.frontmatter.error, JSON.stringify(aliases))
-        ins.fts.run(u.path, this.titleOf(u.path, x), aliases.join('\n'), u.text.slice(x.frontmatter.bodyStart))
+        ins.fts.run(u.path, this.titleOf(u.path, x), aliases.join('\n'), withoutRanges(u.text, x.comments, x.frontmatter.bodyStart))
         for (const k of pathKeys(u.path)) ins.key.run(k, u.path, 'path')
         for (const a of aliases) ins.key.run(normKey(a), u.path, 'alias')
         x.links.forEach((l, i) => {

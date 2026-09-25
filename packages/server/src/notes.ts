@@ -3,7 +3,7 @@
 // (fsutil.ts), lazy `uid` and deletion to trash.
 import { mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix } from 'node:path'
-import { addToFrontmatterList, classifyPath, contentHash, newUid, normKey, pathKeys, readFrontmatter, setFrontmatterKey } from '@thoth/core'
+import { addToFrontmatterList, classifyPath, contentHash, newUid, normKey, pathKeys, readFrontmatter, setFrontmatterKey, type ErrorCode } from '@thoth/core'
 import { commitText, readStable, readText } from './fsutil.ts'
 import { applyReplacements, keptLinks, planRelinks, type Replacement } from './relink.ts'
 import type { Indexer } from './indexer.ts'
@@ -70,9 +70,12 @@ export interface MoveReport {
   relinked: { path: string; links: number; changes: { before: string; after: string }[] }[]
   /** Links to the note that keep working untouched: through an alias (`via: 'alias'`) or by name or path. */
   kept: { path: string; raw: string; via: 'path' | 'alias' }[]
-  /** Notes that couldn't be rewritten. */
-  failed: { path: string; reason: string }[]
-  /** The old name was added as an alias because some rewrite failed. */
+  /**
+   * Notes that couldn't be rewritten (or the moved note itself, if the alias
+   * couldn't be added): an error code for the UI and a hint for developers.
+   */
+  failed: { path: string; error: ErrorCode; message: string }[]
+  /** The old name was added as an alias because some rewrite failed: the links left behind still resolve. */
   aliasAdded: string | null
   dryRun: boolean
 }
@@ -281,7 +284,7 @@ export class NoteService {
       try {
         await this.edit(src, (t) => applyReplacements(t, planRelinks(t, src, src, before, after, map)), { actor: system })
       } catch (err) {
-        report.failed.push({ path: src, reason: err instanceof Error ? err.message : String(err) })
+        report.failed.push({ path: src, ...failure(err) })
       }
     }
 
@@ -293,7 +296,8 @@ export class NoteService {
         await this.edit(to, (t) => addToFrontmatterList(t, 'aliases', oldName), { actor: system })
         report.aliasAdded = oldName
       } catch (err) {
-        report.failed.push({ path: to, reason: `could not add the alias: ${err instanceof Error ? err.message : String(err)}` })
+        const f = failure(err)
+        report.failed.push({ path: to, error: f.error, message: `could not add the alias: ${f.message}` })
       }
     }
     return report
@@ -341,4 +345,10 @@ export class NoteService {
 
 function actorLabel(a: Actor): string {
   return a.kind === 'user' ? a.id : a.kind === 'agent' ? `${a.id} (on behalf of ${a.onBehalfOf})` : `system: ${a.reason}`
+}
+
+/** Why a rewrite failed, as the API reports errors: a code and a hint. */
+function failure(err: unknown): { error: ErrorCode; message: string } {
+  if (err instanceof NoteError) return { error: err.code, message: err.message }
+  return { error: 'internal', message: err instanceof Error ? err.message : String(err) }
 }

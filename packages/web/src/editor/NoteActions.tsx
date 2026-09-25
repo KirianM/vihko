@@ -23,7 +23,7 @@ function targetPath(name: string, folder: string): string | null {
 
 type Preview = { kind: 'idle' } | { kind: 'loading' } | { kind: 'ready'; report: MoveReport } | { kind: 'error'; message: string }
 
-function RenameDialog({ path, onClose, onMoved }: { path: string; onClose: () => void; onMoved: (to: string) => void }) {
+function RenameDialog({ path, onClose, onMoved }: { path: string; onClose: () => void; onMoved: (to: string, report: MoveReport) => void }) {
   const t = useT()
   const [name, setName] = useState(noteName(path))
   const [folder, setFolder] = useState(folderOf(path))
@@ -62,7 +62,7 @@ function RenameDialog({ path, onClose, onMoved }: { path: string; onClose: () =>
     setError(null)
     try {
       const r = await api.move(path, report.to)
-      onMoved(r.to)
+      onMoved(r.to, r)
     } catch (err) {
       setError(errorText(t, err))
       setBusy(false)
@@ -146,7 +146,7 @@ function TrashDialog({ path, onClose, onTrashed }: { path: string; onClose: () =
   )
 }
 
-export function NoteActions({ path, onMoved, onTrashed }: { path: string; onMoved: (to: string) => void; onTrashed: (id: string) => void }) {
+export function NoteActions({ path, onMoved, onTrashed }: { path: string; onMoved: (to: string, report: MoveReport) => void; onTrashed: (id: string) => void }) {
   const t = useT()
   const [open, setOpen] = useState<'rename' | 'trash' | null>(null)
   const close = () => setOpen(null)
@@ -163,7 +163,7 @@ export function NoteActions({ path, onMoved, onTrashed }: { path: string; onMove
       </MenuTrigger>
       <ModalOverlay className="modal-overlay" isOpen={open !== null} onOpenChange={(o) => { if (!o) close() }} isDismissable>
         <Modal className="modal">
-          {open === 'rename' && <RenameDialog path={path} onClose={close} onMoved={(to) => { close(); onMoved(to) }} />}
+          {open === 'rename' && <RenameDialog path={path} onClose={close} onMoved={(to, r) => { close(); onMoved(to, r) }} />}
           {open === 'trash' && <TrashDialog path={path} onClose={close} onTrashed={(id) => { close(); onTrashed(id) }} />}
         </Modal>
       </ModalOverlay>

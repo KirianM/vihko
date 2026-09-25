@@ -1,7 +1,7 @@
 // End-to-end co-editing: two people on the same note, the file on disk as
 // the source of truth, changes and deletions made outside thoth.
 import { expect, test, type Page } from '@playwright/test'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { NOTES } from './env.ts'
 import { editorText, signIn } from './helpers.ts'
 
@@ -79,4 +79,38 @@ test('deleted externally with the note open: alert, not recreated, and the copy 
   await expect.poll(disk).toContain('después del borrado')
   expect(disk()).toContain('antes del borrado')
   await expect(a.locator('.banner')).toHaveCount(0)
+})
+
+test('discarding the copy of a note deleted externally: once recreated, it reopens live on the same socket', async () => {
+  const note = 'orphan-tests/Scratch note.md'
+  const file = `${NOTES}/${note}`
+  mkdirSync(`${NOTES}/orphan-tests`, { recursive: true })
+  writeFileSync(file, '# Scratch note\n\nFirst version.\n')
+  await a.goto(`/?note=${encodeURIComponent(note)}`)
+  await expect(a.locator('.cm-content')).toBeVisible()
+  rmSync(file)
+  await expect(a.getByRole('alert')).toContainText('se ha borrado fuera')
+  await a.getByRole('button', { name: 'Descartar' }).click()
+  await expect(a.locator('.banner')).toHaveCount(0)
+  // Leave the note without reloading the page: the WebSocket stays the same.
+  const open = async (query: string, crumb: string) => {
+    await a.keyboard.press('Control+k')
+    const palette = a.getByRole('dialog', { name: 'Buscar o crear' })
+    await palette.getByRole('textbox').fill(query)
+    await expect(palette.getByRole('option').first()).toContainText(crumb)
+    await a.keyboard.press('Enter')
+    await expect(a.locator('.crumbs b')).toHaveText(crumb)
+  }
+  await open('Proxy', 'Proxy')
+  // The note comes back with the same path (restored from a backup, a sync tool…) and is opened again.
+  writeFileSync(file, '# Scratch note\n\nSecond version.\n')
+  await expect.poll(async () => (await (await a.request.get('/api/search?q=Scratch')).json()).results.length, { timeout: 15_000 }).toBe(1)
+  await open('Scratch', 'Scratch note')
+  await expect.poll(() => editorText(a)).toContain('Second version.')
+  await a.waitForTimeout(1000)
+  await a.locator('.cm-h1').click()
+  await a.keyboard.press('Control+End')
+  await a.keyboard.type('\nStill live.')
+  await expect.poll(() => readFileSync(file, 'utf8')).toContain('Still live.')
+  await expect(a.locator('.status')).toHaveText('Guardado en disco')
 })

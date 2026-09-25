@@ -1,13 +1,14 @@
 // Main structure: folder tree and the note open in the editor.
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Button, Collection, Dialog, Modal, ModalOverlay, Tree, TreeItem, TreeItemContent, type Key } from 'react-aria-components'
-import { ApiError, api, type TreeNote, type User } from './api.ts'
+import { ApiError, api, type MoveReport, type TreeNote, type User } from './api.ts'
 import { AlertsPage } from './Alerts.tsx'
 import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
 import { Brand, Crumbs, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
 import { TrashToast, type Trashed } from './TrashToast.tsx'
+import { MoveToast } from './MoveToast.tsx'
 import { OpenPaletteContext, Palette, SearchButton, type PaletteMode } from './Palette.tsx'
 import { rememberNote } from './recent.ts'
 import { useBackClose, useMobile, useVisualViewport } from './mobile.ts'
@@ -109,6 +110,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [ready, setReady] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [trashed, setTrashed] = useState<Trashed | null>(null)
+  /** Your last rename or move, if some link could not be rewritten. */
+  const [moveIssue, setMoveIssue] = useState<MoveReport | null>(null)
   const [palette, setPalette] = useState<PaletteMode | null>(null)
   const mobile = useMobile()
   // On a phone with nothing open, start at the tree: it's the only way in.
@@ -156,6 +159,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     // The tree shows where the note is (it may have been opened by a link or the palette).
     setExpanded((e) => { const add = ancestors(openPath).filter((k) => !e.has(k)); return add.length ? new Set([...e, ...add]) : e })
     setTrashed(null)
+    setMoveIssue((m) => (m?.to === openPath ? m : null))
     setError(null)
     // Check that it exists before opening co-editing: the hub rejects notes that don't exist.
     api.note(openPath).then(() => { setReady(openPath); rememberNote(openPath) }).catch(fail)
@@ -245,7 +249,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               path={openPath}
               user={user}
               onNavigate={setOpenPath}
-              onMoved={(to) => { setOpenPath(to); void loadTree() }}
+              onMoved={(to, report) => { setOpenPath(to); if (report?.failed.length) setMoveIssue(report); void loadTree() }}
               onTrashed={(t) => { setOpenPath(null); setTrashed(t); void loadTree() }}
             />
           </Suspense>
@@ -264,6 +268,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             </div>
           </>
         )}
+        {moveIssue && <MoveToast report={moveIssue} onDismiss={() => setMoveIssue(null)} />}
         {trashed && (
           <TrashToast
             key={trashed.id}
