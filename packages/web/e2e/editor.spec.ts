@@ -65,7 +65,8 @@ test('estados de enlaces y navegación por alias', async () => {
 })
 
 test('borrado fuera con la nota abierta: aviso, no se recrea, y la copia se conserva', async () => {
-  await a.locator('.cm-content').click()
+  // En el título: el centro del texto puede caer en un enlace, que navega al pulsarlo.
+  await a.locator('.cm-h1').click()
   await a.keyboard.press('Control+End')
   await a.keyboard.type('\nlínea antes del borrado')
   await expect.poll(disk).toContain('antes del borrado')
