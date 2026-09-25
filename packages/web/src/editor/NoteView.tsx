@@ -4,7 +4,7 @@
 import type { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from 'react-aria-components'
-import { api, type User } from '../api.ts'
+import { api, type ServerConfig, type User } from '../api.ts'
 import { useTheme } from '../theme.ts'
 import { userColor } from '../userColor.ts'
 import { errorText, useT } from '../i18n.tsx'
@@ -77,6 +77,15 @@ export function NoteView({ path, user, onNavigate, onMoved, onTrashed }: Props) 
   )
   const panel = usePanel()
   const [view, setView] = useState<EditorView | null>(null)
+  const [config, setConfig] = useState<ServerConfig | null>(null)
+
+  // Without the settings the editor can't know whether external images are
+  // blocked; if they can't be read, the server's CSP still enforces it.
+  useEffect(() => {
+    let live = true
+    api.config().then((r) => { if (live) setConfig(r) }, () => { if (live) setConfig({ externalImages: 'allow', maxImageBytes: 0 }) })
+    return () => { live = false }
+  }, [])
 
   // Links (statuses and backlinks) come from the index: requested on open and after each save.
   useEffect(() => {
@@ -107,8 +116,9 @@ export function NoteView({ path, user, onNavigate, onMoved, onTrashed }: Props) 
       {c.orphaned && <OrphanBanner path={path} />}
       <div className="note-body">
         <div className="note">
-          {c.session && c.connection !== 'connecting' && (
-            <Editor session={c.session} user={user} links={links} onNavigate={onNavigate} onView={setView} onComments={panel.showComments} />
+          {c.session && c.connection !== 'connecting' && config && (
+            <Editor path={path} session={c.session} user={user} links={links} onNavigate={onNavigate} onView={setView} onComments={panel.showComments}
+              externalImages={config.externalImages} />
           )}
         </div>
         <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} onNavigate={onNavigate} />

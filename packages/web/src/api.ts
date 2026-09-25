@@ -62,6 +62,10 @@ export interface MoveReport {
   dryRun: boolean
 }
 export interface TrashEntry { id: string; path: string; deletedAt: string }
+/** Installation settings the UI needs. */
+export interface ServerConfig { externalImages: 'allow' | 'block'; maxImageBytes: number }
+
+let config: Promise<ServerConfig> | null = null
 
 export const api = {
   setupNeeded: () => request<{ needed: boolean }>('GET', '/api/setup'),
@@ -80,5 +84,7 @@ export const api = {
   orphan: (path: string, action: 'restore' | 'discard') => request<{ ok: true }>('POST', '/api/note/orphan', { path, action }),
   move: (from: string, to: string, dryRun = false) => request<MoveReport>('POST', '/api/note/move', { from, to, dryRun }),
   trash: (path: string) => request<TrashEntry>('DELETE', `/api/note?path=${encodeURIComponent(path)}`),
+  /** Asked once per page load: it only changes when the server restarts. */
+  config: () => (config ??= request<ServerConfig>('GET', '/api/config').catch((err) => { config = null; throw err })),
   restore: (id: string) => request<{ path: string; etag: string }>('POST', `/api/trash/${encodeURIComponent(id)}/restore`),
 }

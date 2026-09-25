@@ -5,6 +5,7 @@ import { syntaxTree } from '@codemirror/language'
 import { EditorState, Facet, StateEffect, StateField, type Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
+import { isImageRef } from '@thoth/core/images'
 
 // --- Link state (resolved by the server's index) ----------
 
@@ -159,6 +160,8 @@ function inlineDecorations(view: EditorView): DecorationSet {
           case 'WikiLink':
           case 'WikiEmbed': {
             const raw = state.doc.sliceString(node.from, node.to)
+            // `![[image.png]]` is an image, not a link: images.ts shows it.
+            if (name === 'WikiEmbed' && isImageRef(raw.slice(3, -2).split('|')[0]!.replace(/#.*$/, '').trim())) return false
             if (touches(state, node.from, node.to)) {
               out.push(Decoration.mark({ class: 'cm-wikilink-raw' }).range(node.from, node.to))
             } else {
