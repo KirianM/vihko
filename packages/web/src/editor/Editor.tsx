@@ -15,12 +15,15 @@ import type { User } from '../api.ts'
 import { useT } from '../i18n.tsx'
 import type { Session } from './collab.ts'
 import { commentMarks, commentUi } from './commentMarks.ts'
+import { imageHost, images } from './images.ts'
 import { labels, livePreview, navigate, setLinks, type LinkInfo } from './livePreview.ts'
 import { announce } from './presence.ts'
 import { viewUpdates } from './viewUpdates.ts'
 import './editor.css'
 
 interface Props {
+  /** Path of the note: relative image references resolve against its folder. */
+  path: string
   session: Session
   user: User
   links: Map<string, LinkInfo>
@@ -29,9 +32,15 @@ interface Props {
   onView?: (view: EditorView | null) => void
   /** Open comments: a specific thread or, with null, comment on the selection. */
   onComments?: (threadId: string | null) => void
+  /** Images linked from other sites: shown, or blocked by the administrator. */
+  externalImages: 'allow' | 'block'
+  /** Image files pasted or dropped, for the range `from`–`to`. */
+  onImageFiles?: (files: File[], from: number, to: number) => void
+  /** A single image URL pasted over `from`–`to`. */
+  onImageUrl?: (url: string, from: number, to: number) => void
 }
 
-export function Editor({ session, user, links, onNavigate, onView, onComments }: Props) {
+export function Editor({ path, session, user, links, onNavigate, onView, onComments, externalImages, onImageFiles, onImageUrl }: Props) {
   const t = useT()
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -41,6 +50,10 @@ export function Editor({ session, user, links, onNavigate, onView, onComments }:
   comments.current = onComments
   const viewCb = useRef(onView)
   viewCb.current = onView
+  const imageFiles = useRef(onImageFiles)
+  imageFiles.current = onImageFiles
+  const imageUrl = useRef(onImageUrl)
+  imageUrl.current = onImageUrl
 
   useEffect(() => {
     const { text, provider } = session
@@ -58,6 +71,18 @@ export function Editor({ session, user, links, onNavigate, onView, onComments }:
           ambiguous: (n) => t('editor.linkAmbiguous', { n }),
           missing: t('editor.linkMissing'),
           frontmatter: (n) => t(n === 1 ? 'editor.frontmatterOne' : 'editor.frontmatter', { n }),
+        }),
+        images,
+        imageHost.of({
+          note: path,
+          external: externalImages,
+          text: {
+            external: t('editor.imageExternal'),
+            missing: t('editor.imageMissing'),
+            blocked: (domain) => t('editor.imageBlocked', { domain }),
+          },
+          onFiles: (files, from, to) => imageFiles.current?.(files, from, to),
+          onUrl: (url, from, to) => imageUrl.current?.(url, from, to),
         }),
         commentMarks,
         commentUi.of({
@@ -83,7 +108,7 @@ export function Editor({ session, user, links, onNavigate, onView, onComments }:
       view.current = null
     }
     // t only changes with the language; recreating the editor then is acceptable.
-  }, [session, user, t])
+  }, [session, user, t, path, externalImages])
 
   useEffect(() => {
     view.current?.dispatch({ effects: setLinks.of(links) })

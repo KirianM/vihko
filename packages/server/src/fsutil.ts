@@ -42,16 +42,38 @@ function fsyncDir(dir: string) {
 }
 
 /** Writes and syncs a hidden temp file in the same directory (the indexer ignores it). */
-export function writeTmp(file: string, text: string): string {
+export function writeTmp(file: string, data: string | Uint8Array): string {
   const tmp = join(dirname(file), `.${basename(file)}.thoth-${process.pid}-${counter++}`)
   const fd = openSync(tmp, 'wx')
   try {
-    writeSync(fd, text)
+    if (typeof data === 'string') writeSync(fd, data)
+    else for (let at = 0; at < data.byteLength;) at += writeSync(fd, data, at)
     fsyncSync(fd)
   } finally {
     closeSync(fd)
   }
   return tmp
+}
+
+/**
+ * Creates `file` with `data` only if nothing is there: written to a synced temp
+ * file first and then hard-linked into place, so it is never seen half written
+ * and never replaces an existing file. false if the name is taken.
+ */
+export function createFile(file: string, data: Uint8Array): boolean {
+  const tmp = writeTmp(file, data)
+  try {
+    try {
+      linkSync(tmp, file)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false
+      throw err
+    }
+    fsyncDir(dirname(file))
+    return true
+  } finally {
+    rmSync(tmp, { force: true })
+  }
 }
 
 export type CommitResult =

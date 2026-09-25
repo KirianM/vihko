@@ -3,6 +3,9 @@
 import type { MessageKey } from './i18n.tsx'
 import { chooseTheme, type Theme } from './theme.ts'
 
+/** Window event: insert an image in the open note. */
+export const INSERT_IMAGE = 'thoth:insert-image'
+
 export interface CommandContext {
   theme: Theme
   /** Open note, if there is one. */
@@ -26,4 +29,6 @@ export const commands: Command[] = [
     run: (c) => chooseTheme(c.theme === 'dark' ? 'light' : 'dark'),
   },
   { id: 'new-note', label: () => 'cmd.newNote', run: (c) => c.newNote() },
+  // The open note listens for this event and opens its «Insert image» dialog.
+  { id: 'insert-image', label: () => 'cmd.insertImage', available: (c) => c.openPath !== null, run: () => { window.dispatchEvent(new Event(INSERT_IMAGE)) } },
 ]

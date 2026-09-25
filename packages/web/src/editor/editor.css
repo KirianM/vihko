@@ -47,6 +47,13 @@
 .editor .cm-link-missing { color: var(--danger); text-decoration-style: dashed; }
 .editor .cm-bullet { color: var(--muted); display: inline-block; width: 1ch; }
 
+/* Images: the image in place of its source, below it while the cursor is on it */
+.editor .cm-image { display: block; position: relative; width: fit-content; max-width: 100%; margin: var(--space-2) 0; }
+.editor .cm-image img { display: block; max-width: 100%; max-height: 70vh; height: auto; border-radius: var(--radius-md); }
+.editor .cm-image-mark { position: absolute; top: var(--space-2); right: var(--space-2); font-family: var(--font-sans); font-size: 12px; line-height: 18px; padding: 0 6px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--muted); }
+.editor .cm-image-box { display: inline-block; font-family: var(--font-sans); font-size: 13px; line-height: 18px; padding: 10px 14px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); background: var(--panel); color: var(--muted); overflow-wrap: anywhere; }
+.editor .cm-image-missing .cm-image-box { border-color: var(--danger); color: var(--danger); }
+
 /* Folded frontmatter */
 .editor .cm-frontmatter-chip { padding-bottom: 18px; }
 .editor .cm-frontmatter-chip button { font-family: var(--font-mono); font-size: 12px; height: 30px; padding: 0 12px; border: 1px dashed var(--line-strong); border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }

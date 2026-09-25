@@ -4,8 +4,9 @@ import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { serveStatic } from '@hono/node-server/serve-static'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { bodyLimit } from 'hono/body-limit'
+import { readFileSync, realpathSync, statSync } from 'node:fs'
+import { join, posix, sep } from 'node:path'
 import { classifyPath, conflictOriginal, extract, withoutRanges, type Alert, type ErrorCode, type Range } from '@thoth/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
@@ -13,6 +14,7 @@ import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
 import { NoteError, type Actor, type NoteService } from '../notes.ts'
 import { ftsQuery, HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import { applyEdits, type EditOp } from '../edits.ts'
+import { FetchImageError, SERVED_TYPES, fetchImage } from '../attachments.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 
@@ -38,21 +40,40 @@ export interface AppDeps {
   runtime: Runtime
   /** Compiled UI (packages/web/dist). Without it, the server only exposes the API. */
   webDir?: string
+  /**
+   * External images already in notes (`![](https://…)`): loaded by the
+   * browser (`allow`, the default) or blocked for the whole installation (D-028).
+   */
+  externalImages?: ExternalImages
 }
 
-// The UI only talks to its own origin: no CDNs or third parties.
-const UI_HEADERS = {
-  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-  'X-Content-Type-Options': 'nosniff',
-  'Referrer-Policy': 'same-origin',
+export type ExternalImages = 'allow' | 'block'
+
+// The UI only talks to its own origin: no CDNs or third parties. The one
+// exception is images linked in notes, unless the administrator blocks them.
+function uiHeaders(external: ExternalImages) {
+  const img = external === 'allow' ? "img-src 'self' data: blob: https: http:" : "img-src 'self' data: blob:"
+  return {
+    'Content-Security-Policy': `default-src 'self'; ${img}; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'same-origin',
+  }
 }
+
+// Files from the notes folder are served inert: nothing in them runs, even
+// an SVG opened on its own (sandboxed, no scripts).
+const FILE_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
 
 type Env = { Variables: { user: User; token: string } }
 
 const actorOf = (u: User): Actor => ({ kind: 'user', id: u.username })
 
 function noteErrorStatus(e: NoteError) {
-  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409 } as const)[e.code]
+  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415 } as const)[e.code]
+}
+
+function fetchErrorStatus(e: FetchImageError) {
+  return ({ invalid: 400, too_large: 413, unsupported_type: 415, fetch_failed: 502 } as const)[e.code]
 }
 
 /**
@@ -65,6 +86,7 @@ function fail(c: Context, status: ContentfulStatusCode, error: ErrorCode, messag
 
 export function createApp(deps: AppDeps) {
   const { auth, notes, index } = deps
+  const externalImages = deps.externalImages ?? 'allow'
   const app = new Hono<Env>()
 
   app.onError((err, c) => {
@@ -72,6 +94,7 @@ export function createApp(deps: AppDeps) {
       if (err.etag) c.header('ETag', `"${err.etag}"`)
       return fail(c, noteErrorStatus(err), err.code, err.message, { etag: err.etag })
     }
+    if (err instanceof FetchImageError) return fail(c, fetchErrorStatus(err), err.code, err.message)
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400, err.code, err.message)
     // Body that isn't JSON.
     if (err instanceof SyntaxError) return fail(c, 400, 'invalid', err.message)
@@ -138,6 +161,9 @@ export function createApp(deps: AppDeps) {
   })
 
   app.get('/api/auth/me', (c) => c.json({ user: c.get('user') }))
+
+  // What the UI needs to know about this installation's settings.
+  app.get('/api/config', (c) => c.json({ externalImages, maxImageBytes: notes.maxImageBytes }))
 
   app.get('/api/tree', (c) => {
     const rows = index.prepare('select path, title, uid from notes order by path').all()
@@ -206,6 +232,57 @@ export function createApp(deps: AppDeps) {
       outgoing: outgoing.map((l) => ({ ...l, candidates: l.candidates ? JSON.parse(l.candidates) : null })),
       backlinks,
     })
+  })
+
+  // Images (D-028). Upload and paste are the same: the raw bytes of the file
+  // in the body. It is stored next to the note and the editor links it.
+  app.post('/api/attachments',
+    bodyLimit({ maxSize: notes.maxImageBytes, onError: (c) => fail(c, 413, 'too_large', `the limit is ${notes.maxImageBytes} bytes`) }),
+    async (c) => {
+      const bytes = new Uint8Array(await c.req.arrayBuffer())
+      return c.json(await notes.attach(c.req.query('note') ?? '', bytes, actorOf(c.get('user'))), 201)
+    })
+
+  // A copy of an image from a URL, stored like an upload. Only on this explicit
+  // request from a user: the server never fetches URLs written in notes.
+  app.post('/api/attachments/fetch', async (c) => {
+    const { note, url } = await c.req.json<{ note: string; url: string }>()
+    notes.read(note ?? '') // nothing is downloaded for a note that doesn't exist
+    const { bytes } = await fetchImage(String(url ?? ''), { maxBytes: notes.maxImageBytes })
+    return c.json(await notes.attach(note, bytes, actorOf(c.get('user'))), 201)
+  })
+
+  // A file in the notes folder that isn't a note (images and other attachments).
+  // Same path rules as notes: relative, inside the root, no hidden or ignored
+  // segments, and no symlink leading out of the folder.
+  app.get('/api/file', (c) => {
+    const path = c.req.query('path') ?? ''
+    const norm = posix.normalize(path)
+    if (!path || norm !== path || path.startsWith('/') || norm.split('/').includes('..')) return fail(c, 400, 'invalid_path', `invalid file path: ${path}`)
+    if (classifyPath(norm) !== 'other') return fail(c, 404, 'not_found', `not a servable file: ${path}`)
+    let file: string
+    let st: ReturnType<typeof statSync>
+    try {
+      const root = realpathSync(deps.notesDir)
+      file = realpathSync(join(deps.notesDir, norm))
+      if (!file.startsWith(root + sep)) return fail(c, 404, 'not_found', `outside the notes folder: ${path}`)
+      st = statSync(file)
+    } catch {
+      return fail(c, 404, 'not_found', `does not exist: ${path}`)
+    }
+    if (!st.isFile()) return fail(c, 404, 'not_found', `not a file: ${path}`)
+    const etag = `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`
+    const ext = norm.slice(norm.lastIndexOf('.') + 1).toLowerCase()
+    const type = SERVED_TYPES[ext] ?? 'application/octet-stream'
+    c.header('ETag', etag)
+    // Always revalidated: an image replaced in the folder shows up at once, and an unchanged one costs a 304.
+    c.header('Cache-Control', 'private, no-cache')
+    c.header('X-Content-Type-Options', 'nosniff')
+    c.header('Content-Security-Policy', FILE_CSP)
+    if (!type.startsWith('image/')) c.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(posix.basename(norm))}`)
+    if (c.req.header('if-none-match')?.split(/\s*,\s*/).includes(etag)) return c.body(null, 304)
+    c.header('Content-Type', type)
+    return c.body(readFileSync(file))
   })
 
   app.get('/api/search', (c) => {
@@ -284,7 +361,7 @@ export function createApp(deps: AppDeps) {
     const root = deps.webDir
     app.use('*', async (c, next) => {
       await next()
-      for (const [k, v] of Object.entries(UI_HEADERS)) c.header(k, v)
+      for (const [k, v] of Object.entries(uiHeaders(externalImages))) c.header(k, v)
       // index.html uncached, so an update shows up on reload.
       if (c.res.headers.get('content-type')?.startsWith('text/html')) c.header('Cache-Control', 'no-cache')
     })

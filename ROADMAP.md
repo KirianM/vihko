@@ -29,7 +29,7 @@ Goal: a complete notes system from the UI, without integrations.
       links/backlinks and outline, rename/move with preview, trash, workspace
       alerts. Translatable (English and Spanish).
 - [ ] Responsive PWA (no offline mode).
-- [ ] Images: upload, paste and by URL (local copy or link); external images
+- [x] Images: upload, paste and by URL (local copy or link); external images
       can be blocked by the administrator.
 - [x] Server errors and alerts as translatable codes.
 - [x] Local auth: an admin created from the CLI or a one-time token, sessions.

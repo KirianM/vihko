@@ -2,9 +2,10 @@
 // actions), the banner for a note deleted outside thoth, the editor and
 // the side panel.
 import { EditorView } from '@codemirror/view'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from 'react-aria-components'
-import { api, type MoveReport, type User } from '../api.ts'
+import { api, type MoveReport, type ServerConfig, type User } from '../api.ts'
+import { INSERT_IMAGE } from '../commands.ts'
 import { useTheme } from '../theme.ts'
 import { userColor } from '../userColor.ts'
 import { errorText, useT } from '../i18n.tsx'
@@ -15,6 +16,7 @@ import { SearchButton } from '../Palette.tsx'
 import { useCollab, type CollabState } from './collab.ts'
 import type { Trashed } from '../TrashToast.tsx'
 import { Editor } from './Editor.tsx'
+import { ImageInsertUi, useImageInsert } from './ImageInsert.tsx'
 import { NoteActions } from './NoteActions.tsx'
 import type { LinkInfo } from './livePreview.ts'
 import { NotePanel, PanelToggle, usePanel, type LinksData } from './NotePanel.tsx'
@@ -65,7 +67,7 @@ function OrphanBanner({ path }: { path: string }) {
  * Phone editor bar (link, tag, list, comment and save state), under the
  * editor. Its buttons don't take focus: the keyboard stays open.
  */
-function EditorBar({ view, c, onComment }: { view: EditorView | null; c: CollabState; onComment: () => void }) {
+function EditorBar({ view, c, onComment, onImage }: { view: EditorView | null; c: CollabState; onComment: () => void; onImage: () => void }) {
   const t = useT()
   // The keyboard shrinks the visible area: keep the cursor in sight.
   useEffect(() => {
@@ -87,6 +89,7 @@ function EditorBar({ view, c, onComment }: { view: EditorView | null; c: CollabS
       <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertLink')} onPress={() => edit(wikilink)}>[[</Button>
       <Button className="btn btn-icon bar-btn bar-hash" preventFocusOnPress aria-label={t('editor.insertTag')} onPress={() => edit(tag)}>#</Button>
       <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertList')} onPress={() => edit((doc, from) => listItem(doc, from))}>{Icon.list}</Button>
+      <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('image.insertTitle')} onPress={onImage}>{Icon.image}</Button>
       <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.comment')} onPress={onComment}>{Icon.comment}</Button>
       <span className="spacer" />
       <SaveStatus c={c} />
@@ -113,6 +116,25 @@ export function NoteView({ path, user, onNavigate, onMoved, onTrashed }: Props) 
   const panel = usePanel()
   const [view, setView] = useState<EditorView | null>(null)
   const mobile = useMobile()
+  const [config, setConfig] = useState<ServerConfig | null>(null)
+  const images = useImageInsert(path, c.session, view, config?.maxImageBytes ?? 0)
+
+  // Without the settings the editor can't know whether external images are
+  // blocked; if they can't be read, the server's CSP still enforces it.
+  useEffect(() => {
+    let live = true
+    api.config().then((r) => { if (live) setConfig(r) }, () => { if (live) setConfig({ externalImages: 'allow', maxImageBytes: 0 }) })
+    return () => { live = false }
+  }, [])
+
+  // «Insert image» from the palette.
+  const openInsert = useRef(images.openInsert)
+  openInsert.current = images.openInsert
+  useEffect(() => {
+    const open = () => openInsert.current()
+    window.addEventListener(INSERT_IMAGE, open)
+    return () => window.removeEventListener(INSERT_IMAGE, open)
+  }, [])
 
   // Links (statuses and backlinks) come from the index: requested on open and after each save.
   useEffect(() => {
@@ -139,18 +161,20 @@ export function NoteView({ path, user, onNavigate, onMoved, onTrashed }: Props) 
         <SearchButton />
         <ThemeToggle />
         <PanelToggle panel={panel} />
-        <NoteActions path={path} onMoved={onMoved} onTrashed={(id) => onTrashed({ id, path, by: null })} />
+        <NoteActions path={path} onMoved={onMoved} onTrashed={(id) => onTrashed({ id, path, by: null })} onInsertImage={images.openInsert} />
       </header>
       {c.orphaned && <OrphanBanner path={path} />}
       <div className="note-body">
         <div className="note">
-          {c.session && c.connection !== 'connecting' && (
-            <Editor session={c.session} user={user} links={links} onNavigate={onNavigate} onView={setView} onComments={panel.showComments} />
+          {c.session && c.connection !== 'connecting' && config && (
+            <Editor path={path} session={c.session} user={user} links={links} onNavigate={onNavigate} onView={setView} onComments={panel.showComments}
+              externalImages={config.externalImages} onImageFiles={images.onFiles} onImageUrl={images.onUrl} />
           )}
         </div>
         <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} onNavigate={onNavigate} />
       </div>
-      {mobile && !panel.open && <EditorBar view={view} c={c} onComment={() => panel.showComments(null)} />}
+      {mobile && !panel.open && <EditorBar view={view} c={c} onComment={() => panel.showComments(null)} onImage={images.openInsert} />}
+      <ImageInsertUi ins={images} />
     </>
   )
 }

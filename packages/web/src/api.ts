@@ -18,12 +18,13 @@ export class ApiError extends Error {
 
 async function request<T>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
   let res: Response
+  const raw = body instanceof Blob
   try {
     res = await fetch(path, {
       method,
       credentials: 'same-origin',
-      headers: body === undefined ? headers : { 'content-type': 'application/json', ...headers },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: body === undefined || raw ? headers : { 'content-type': 'application/json', ...headers },
+      body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
     })
   } catch {
     throw new ApiError(0, 'network', 'network')
@@ -62,6 +63,12 @@ export interface MoveReport {
   dryRun: boolean
 }
 export interface TrashEntry { id: string; path: string; deletedAt: string }
+/** Installation settings the UI needs. */
+export interface ServerConfig { externalImages: 'allow' | 'block'; maxImageBytes: number }
+/** A stored image: `path` from the notes root, `src` relative to the note (to link it). */
+export interface Attachment { path: string; src: string }
+
+let config: Promise<ServerConfig> | null = null
 
 export const api = {
   setupNeeded: () => request<{ needed: boolean }>('GET', '/api/setup'),
@@ -80,5 +87,10 @@ export const api = {
   orphan: (path: string, action: 'restore' | 'discard') => request<{ ok: true }>('POST', '/api/note/orphan', { path, action }),
   move: (from: string, to: string, dryRun = false) => request<MoveReport>('POST', '/api/note/move', { from, to, dryRun }),
   trash: (path: string) => request<TrashEntry>('DELETE', `/api/note?path=${encodeURIComponent(path)}`),
+  /** Asked once per page load: it only changes when the server restarts. */
+  config: () => (config ??= request<ServerConfig>('GET', '/api/config').catch((err) => { config = null; throw err })),
+  uploadImage: (note: string, file: Blob) =>
+    request<Attachment>('POST', `/api/attachments?note=${encodeURIComponent(note)}`, file, { 'content-type': file.type || 'application/octet-stream' }),
+  fetchImage: (note: string, url: string) => request<Attachment>('POST', '/api/attachments/fetch', { note, url }),
   restore: (id: string) => request<{ path: string; etag: string }>('POST', `/api/trash/${encodeURIComponent(id)}/restore`),
 }

@@ -22,6 +22,9 @@ export type ErrorCode =
   | 'user_exists'
   | 'already_setup'
   | 'invalid_token'
+  | 'too_large' // an image over the size limit
+  | 'unsupported_type' // not an image type thoth stores
+  | 'fetch_failed' // an image URL could not be downloaded
 
 /**
  * Space-level alerts: what thoth has detected in the notes folder that needs
