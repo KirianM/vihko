@@ -50,6 +50,9 @@ export interface OutgoingLink {
   candidates: string[] | null
 }
 export interface Backlink { path: string; title: string; raw: string; context: string }
+export interface SearchResult { path: string; title: string; snippet: string }
+/** Resultados de búsqueda; el resaltado del fragmento va entre caracteres de control, no en HTML. */
+export interface SearchResponse { results: SearchResult[]; highlight?: { start: string; end: string } }
 
 export const api = {
   setupNeeded: () => request<{ needed: boolean }>('GET', '/api/setup'),
@@ -61,6 +64,8 @@ export const api = {
   note: (path: string) => request<Note>('GET', `/api/note?path=${encodeURIComponent(path)}`),
   alerts: () => request<Alerts>('GET', '/api/alerts'),
   links: (path: string) => request<{ outgoing: OutgoingLink[]; backlinks: Backlink[] }>('GET', `/api/note/links?path=${encodeURIComponent(path)}`),
+  search: (q: string) => request<SearchResponse>('GET', `/api/search?q=${encodeURIComponent(q)}`),
+  createNote: (path: string, text: string) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, text }),
   orphan: (path: string, action: 'restore' | 'discard') => request<{ ok: true }>('POST', '/api/note/orphan', { path, action }),
 }
 
