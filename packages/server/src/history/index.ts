@@ -27,10 +27,12 @@ export class History {
   private managed: ManagedReader
   private opts: HistoryOptions
   private mode: HistoryMode
+  private maxFileSize: number
 
   constructor(opts: HistoryOptions) {
     this.opts = opts
     this.mode = opts.config().mode
+    this.maxFileSize = opts.config().maxFileSize
     this.recorder = new Recorder({ ...opts, maxFileBytes: () => Math.floor(opts.config().maxFileSize * 1024 * 1024) })
     this.managed = new ManagedReader(this.recorder.git)
   }
@@ -45,12 +47,15 @@ export class History {
     return this.recorder.start()
   }
 
-  /** thoth.yaml was read again. */
+  /** thoth.yaml was read again: the mode, and a new size limit (a sweep says which files it leaves out now). */
   async configure() {
-    const mode = this.opts.config().mode
-    if (mode === this.mode) return
-    this.mode = mode
-    await this.recorder.configure(mode)
+    const { mode, maxFileSize } = this.opts.config()
+    const limitChanged = maxFileSize !== this.maxFileSize
+    this.maxFileSize = maxFileSize
+    if (mode !== this.mode) {
+      this.mode = mode
+      await this.recorder.configure(mode)
+    } else if (limitChanged && mode === 'managed') await this.recorder.sweep('periodic')
   }
 
   close() {

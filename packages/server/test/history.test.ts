@@ -183,6 +183,11 @@ test('files over the size limit stay out of the history, with an alert', async (
     await h.put(NOTE, (t) => t + 'x'.repeat(3000))
     await h.settle()
     assert.equal((await h.versions(NOTE)).versions.length, 1)
+    // A larger limit in thoth.yaml: the list follows it at once.
+    writeFileSync(join(h.notesDir, 'thoth.yaml'), 'history:\n  maxFileSize: 1\n')
+    h.workspace.reload()
+    await h.history.configure()
+    assert.ok(!(await h.noa('GET', '/api/alerts')).body.alerts.some((x: any) => x.code === 'history_files_too_large'))
   } finally { await h.close() }
 })
 
