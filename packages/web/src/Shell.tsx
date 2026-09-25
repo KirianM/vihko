@@ -9,7 +9,8 @@ import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
 import { Brand, Crumbs, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
 import { TrashToast, type Trashed } from './TrashToast.tsx'
-import { MoveToast } from './MoveToast.tsx'
+import { MoveToast, moveNotice } from './MoveToast.tsx'
+import { shiftedNotice } from './Shifts.tsx'
 import { OpenPaletteContext, Palette, SearchButton, type PaletteMode } from './Palette.tsx'
 import { rememberNote } from './recent.ts'
 import { useBackClose, useMobile, useVisualViewport } from './mobile.ts'
@@ -196,17 +197,20 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setTreeDialog(null)
     setExpanded((e) => new Set([...e, ...ancestors(to)]))
     if (openPath === from) setOpenPath(to)
-    if (report.failed.length || report.images.failed.length) setMoveIssue(report)
+    if (moveNotice(report)) setMoveIssue(report)
+    void loadTree()
+  }
+  const folderPlaced = (from: string, to: string) => {
+    setTreeDialog(null)
+    const map = (p: string) => (inside(p, from) ? to + p.slice(from.length) : p)
+    // Open folders stay open at their new place, and the tree shows where the folder went.
+    setExpanded((e) => new Set([...[...e].map((k) => (String(k).startsWith('d:') ? `d:${map(String(k).slice(2))}` : k)), ...ancestors(to)]))
+    if (openPath && map(openPath) !== openPath) setOpenPath(map(openPath))
     void loadTree()
   }
   const folderMoved = (r: FolderMoveReport) => {
-    setTreeDialog(null)
-    const map = (p: string) => (inside(p, r.from) ? r.to + p.slice(r.from.length) : p)
-    // Open folders stay open at their new place, and the tree shows where the folder went.
-    setExpanded((e) => new Set([...[...e].map((k) => (String(k).startsWith('d:') ? `d:${map(String(k).slice(2))}` : k)), ...ancestors(r.to)]))
-    if (openPath && map(openPath) !== openPath) setOpenPath(map(openPath))
-    setFolderIssue(r.failed.length ? r : null)
-    void loadTree()
+    folderPlaced(r.from, r.to)
+    setFolderIssue(r.failed.length || r.shifted.length ? r : null)
   }
   // A drop moves at once when nothing else changes; if links would be rewritten
   // (or images go along), it goes through the same dialog and preview as the menu.
@@ -216,11 +220,11 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     try {
       if (key.startsWith('n:')) {
         const preview = await api.move(path, to, true)
-        if (preview.relinked.length || preview.images.moved.length || preview.images.stayed.length) return setTreeDialog({ kind: 'moveNote', path, folder })
+        if (preview.relinked.length || preview.shifted.length || preview.images.moved.length || preview.images.stayed.length) return setTreeDialog({ kind: 'moveNote', path, folder })
         noteMoved(path, to, await api.move(path, to))
       } else {
         const preview = await api.moveFolder(path, to, true)
-        if (preview.relinked.length) return setTreeDialog({ kind: 'moveFolder', path, parent: folder })
+        if (preview.relinked.length || preview.shifted.length) return setTreeDialog({ kind: 'moveFolder', path, parent: folder })
         folderMoved(await api.moveFolder(path, to))
       }
     } catch (err) {
@@ -337,7 +341,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               user={user}
               daily={dailyNav}
               onNavigate={setOpenPath}
-              onMoved={(to, report) => { setOpenPath(to); if (report && (report.failed.length || report.images.failed.length)) setMoveIssue(report); void loadTree() }}
+              onMoved={(to, report) => { setOpenPath(to); if (report && moveNotice(report)) setMoveIssue(report); void loadTree() }}
               onTrashed={(t) => { setOpenPath(null); setTrashed(t); void loadTree() }}
               templates={templates}
               onCreated={created}
@@ -362,7 +366,10 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         {folderIssue && (
           <div className="toast toast-warn">
             <span className="toast-icon">{Icon.alert}</span>
-            <span className="toast-text" role="alert">{t('folder.partial', { name: baseName(folderIssue.to), notes: folderIssue.failed.map((f) => baseName(f.path).replace(/\.md$/i, '')).join(', ') })}</span>
+            <span className="toast-text" role="alert">{[
+              folderIssue.failed.length > 0 && t('folder.partial', { name: baseName(folderIssue.to), notes: folderIssue.failed.map((f) => baseName(f.path).replace(/\.md$/i, '')).join(', ') }),
+              shiftedNotice(t, baseName(folderIssue.to), folderIssue.shifted),
+            ].filter(Boolean).join(' ')}</span>
             <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setFolderIssue(null)}>{Icon.close}</Button>
           </div>
         )}

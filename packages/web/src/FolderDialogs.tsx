@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Text, TextField } from 'react-aria-components'
 import { api, type FolderMoveReport } from './api.ts'
+import { ShiftPreview } from './Shifts.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { parentOf } from './FolderTree.tsx'
 import './actions.css'
@@ -142,13 +143,14 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved }: {
           </TextField>
         </div>
         <div className="preview" aria-live="polite">
-          <div className="preview-head">{t('rename.preview')}</div>
+          <div className="preview-head">{t(report?.shifted.length ? 'rename.previewPlain' : 'rename.preview')}</div>
           <div className="preview-body">
             {preview.kind === 'idle' && <span className="preview-note">{t('folder.previewUnchanged')}</span>}
             {preview.kind === 'loading' && <span className="preview-note">{t('rename.previewLoading')}</span>}
             {preview.kind === 'error' && <span className="error-text" role="alert">{preview.message}</span>}
             {report && <span className="preview-note">{t('folder.previewContents', { notes, files })}</span>}
-            {report && report.relinked.length === 0 && <span className="preview-note">{t('folder.previewNone')}</span>}
+            {report && report.relinked.length === 0 && report.shifted.length === 0 && <span className="preview-note">{t('folder.previewNone')}</span>}
+            {report && <ShiftPreview groups={report.shifted} />}
             {report?.relinked.flatMap((r) => r.changes.map((c, i) => (
               <div className="preview-row" key={`${r.path}#${i}`}>
                 <span className="preview-src">{label(r.path)}</span>

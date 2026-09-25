@@ -231,3 +231,33 @@ test('phone: tabs in the drawer, the tags view, and a long press opens a row\'s 
   await expect(m.locator('.crumbs b')).toHaveText('Enlaza')
   await ctx.close()
 })
+
+test('a folder move that would resolve an ambiguous link lists it in the preview and in the notice', async () => {
+  mkdirSync(`${NOTES}/${DIR}/Tema`, { recursive: true })
+  mkdirSync(`${NOTES}/${DIR}/Otro`, { recursive: true })
+  writeFileSync(`${NOTES}/${DIR}/Tema/Pantalla.md`, '# Pantalla de Tema\n')
+  writeFileSync(`${NOTES}/${DIR}/Otro/Pantalla.md`, '# Pantalla de Otro\n')
+  const usa = '# Usa\n\n- [[Pantalla]] ambigua.\n'
+  writeFileSync(`${NOTES}/${DIR}/Usa.md`, usa)
+  const shifted = async () => (await (await k.request.post('/api/folder/move', { data: { from: `${DIR}/Otro`, to: `${DIR}/Tema/Otro`, dryRun: true } })).json()).shifted.length
+  await expect.poll(shifted, { timeout: 15_000 }).toBe(1)
+  await k.reload()
+  await expect(row(k, DIR)).toBeVisible()
+  if ((await row(k, DIR).getAttribute('aria-expanded')) !== 'true') await row(k, DIR).click()
+  await row(k, 'Otro').click({ button: 'right' })
+  await k.getByRole('menuitem', { name: 'Renombrar o mover…' }).click()
+  const dialog = k.getByRole('dialog')
+  await dialog.getByLabel('Dentro de').fill(`${DIR}/Tema`)
+  const shifts = dialog.locator('.shifts')
+  await expect(shifts.locator('strong')).toHaveText('Un enlace no se reescribe pero cambiará adónde lleva')
+  await expect(shifts.locator('.shifts-src')).toHaveText('ft / Usa1 enlace')
+  await expect(shifts.locator('.shifts-row')).toHaveText('[[Pantalla]] era ambiguo; llevará a ft / Tema / Pantalla')
+  await shot(k, 'folder-shifts-light')
+  await dialog.getByRole('button', { name: 'Mover' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(k.getByRole('alert').filter({ hasText: 'lleva ahora a otra parte' })).toHaveText(
+    '«Otro» ya está en su sitio. Un enlace que no se ha reescrito lleva ahora a otra parte, en: Usa.')
+  expect(read(`${DIR}/Usa.md`)).toBe(usa)
+  expect(existsSync(`${NOTES}/${DIR}/Tema/Otro/Pantalla.md`)).toBe(true)
+  await k.getByRole('button', { name: 'Cerrar aviso' }).click()
+})

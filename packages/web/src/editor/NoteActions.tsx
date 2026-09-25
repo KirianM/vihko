@@ -5,6 +5,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, Text, TextField } from 'react-aria-components'
 import { api, type MoveReport } from '../api.ts'
+import { ShiftPreview } from '../Shifts.tsx'
 import { errorText, useT, type MessageKey } from '../i18n.tsx'
 import { Icon, noteName } from '../ui.tsx'
 import '../actions.css'
@@ -59,7 +60,7 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved }: { path: 
   const count = n === 0 ? '' : n === 1 ? 'One' : 'Many'
   const submitKey: MessageKey = `rename.${action}${count}${m ? 'Images' : ''}`
   const images = t(m === 1 ? 'rename.imagesOne' : 'rename.imagesMany', { n: m })
-  const nothing = !!report && report.relinked.length === 0 && report.kept.length === 0 && report.images.moved.length === 0 && report.images.stayed.length === 0
+  const nothing = !!report && report.relinked.length === 0 && report.shifted.length === 0 && report.kept.length === 0 && report.images.moved.length === 0 && report.images.stayed.length === 0
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -91,12 +92,13 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved }: { path: 
           </TextField>
         </div>
         <div className="preview" aria-live="polite">
-          <div className="preview-head">{t('rename.preview')}</div>
+          <div className="preview-head">{t(report?.shifted.length ? 'rename.previewPlain' : 'rename.preview')}</div>
           <div className="preview-body">
             {preview.kind === 'idle' && <span className="preview-note">{t('rename.previewUnchanged')}</span>}
             {preview.kind === 'loading' && <span className="preview-note">{t('rename.previewLoading')}</span>}
             {preview.kind === 'error' && <span className="error-text" role="alert">{preview.message}</span>}
             {nothing && <span className="preview-note">{t('rename.previewNone')}</span>}
+            {report && <ShiftPreview groups={report.shifted} />}
             {report?.relinked.flatMap((r) => r.changes.map((c, i) => (
               <div className="preview-row" key={`${r.path}#${i}`}>
                 <span className="preview-src">{label(r.path)}</span>

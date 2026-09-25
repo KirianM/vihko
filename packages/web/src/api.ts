@@ -53,11 +53,23 @@ export interface SearchResult { path: string; title: string; snippet: string }
 /** Search results; the snippet highlight uses control characters, not HTML. */
 export interface SearchResponse { results: SearchResult[]; highlight?: { start: string; end: string } }
 
+/** A link's resolution in a move report: where it leads, among which notes it is ambiguous, or broken. */
+export type LinkState = { status: 'resolved'; path: string } | { status: 'ambiguous'; candidates: string[] } | { status: 'missing' }
+/**
+ * A link a move leaves as it is but whose resolution changes (D-019):
+ * `resolves` (it was ambiguous or broken), `ambiguous`, `retargets` or `breaks`.
+ * `before` in the paths before the move, `after` in those after it.
+ */
+export interface Shift { raw: string; code: 'resolves' | 'ambiguous' | 'retargets' | 'breaks'; before: LinkState; after: LinkState }
+/** Those links, by source note. */
+export interface ShiftGroup { path: string; links: number; changes: Shift[] }
+
 /** What a rename or move does (or would do, with `dryRun`). */
 export interface MoveReport {
   from: string
   to: string
   relinked: { path: string; links: number; changes: { before: string; after: string }[] }[]
+  shifted: ShiftGroup[]
   kept: { path: string; raw: string; via: 'path' | 'alias' }[]
   failed: { path: string; error: ErrorCode; message: string }[]
   aliasAdded: string | null
@@ -82,6 +94,7 @@ export interface FolderMoveReport {
   /** Other files that go with the folder (images, attachments). */
   files: number
   relinked: MoveReport['relinked']
+  shifted: ShiftGroup[]
   failed: MoveReport['failed']
   dryRun: boolean
 }

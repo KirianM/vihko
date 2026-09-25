@@ -1,13 +1,18 @@
 // Notice after a rename or move that could not do everything: which notes'
 // links were left behind (and whether the old name was kept as an alias for
-// them), and which images could not go with the note.
+// them), which images could not go with the note, and which links that were
+// not rewritten now lead elsewhere (D-019).
 import { Button } from 'react-aria-components'
 import type { MoveReport } from './api.ts'
 import { useT } from './i18n.tsx'
 import { Icon, noteName } from './ui.tsx'
+import { shiftedNotice } from './Shifts.tsx'
 import './actions.css'
 
 const fileName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
+
+/** Whether a finished move has something to tell. */
+export const moveNotice = (r: MoveReport) => r.failed.length > 0 || r.images.failed.length > 0 || r.shifted.length > 0
 
 export function MoveToast({ report, onDismiss }: { report: MoveReport; onDismiss: () => void }) {
   const t = useT()
@@ -21,6 +26,7 @@ export function MoveToast({ report, onDismiss }: { report: MoveReport; onDismiss
     notes && t(report.aliasAdded ? 'move.partialAlias' : 'move.partial', vars),
     stayed && t('move.imagesStayed', { name: vars.name, images: stayed }),
     copied && t('move.imagesCopied', { name: vars.name, images: copied }),
+    shiftedNotice(t, vars.name, report.shifted),
   ].filter(Boolean).join(' ')
   return (
     <div className="toast toast-warn">
