@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,17 +18,17 @@ async function setup(opts: { webDir?: string } = {}) {
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
   const indexer = new Indexer({ notesDir, db: index })
-  const runtime: Runtime = { lastScan: null, rescan(force) { return (this.lastScan = indexer.scan({ force })) } }
-  runtime.rescan(false)
+  const runtime: Runtime = { lastScan: null, rescan(opts) { return (this.lastScan = indexer.scan(opts)) } }
+  runtime.rescan({})
   const notes = new NoteService({ notesDir, stateDir, indexer, db: index })
   const app = createApp({ auth, notes, index, indexer, notesDir, runtime, webDir: opts.webDir })
   let cookie = ''
   const raw = (path: string) => app.request(path, { headers: { cookie } })
-  const req = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
+  const req = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}, rawBody = false) => {
     const res = await app.request(path, {
       method,
       headers: { 'content-type': 'application/json', cookie, ...headers },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : rawBody ? String(body) : JSON.stringify(body),
     })
     const set = res.headers.get('set-cookie')
     if (set?.startsWith(SESSION_COOKIE + '=')) cookie = set.split(';')[0]!
@@ -36,6 +36,9 @@ async function setup(opts: { webDir?: string } = {}) {
   }
   return { dir, notesDir, auth, req, raw, runtime }
 }
+
+/** Estado y código de una respuesta de error: la UI solo necesita el código (D-025). */
+const errorOf = (r: { status: number; body: { error?: string } | null }) => [r.status, r.body?.error]
 
 test('contraseñas: scrypt, verificación y rechazo', async () => {
   const h = await hashPassword('una contraseña larga')
@@ -68,8 +71,11 @@ test('todo exige sesión salvo la salud; login, sesión y logout', async () => {
   for (const p of ['/api/tree', '/api/note?path=Plan.md', '/api/search?q=plan', '/api/alerts', '/api/auth/me']) {
     assert.equal((await req('GET', p)).status, 401, p)
   }
-  assert.equal((await req('POST', '/api/auth/login', { username: 'noa', password: 'mala-contraseña' })).status, 401)
-  assert.equal((await req('POST', '/api/auth/login', { username: 'nadie', password: 'contraseña-larga' })).status, 401)
+  for (const bad of [{ username: 'noa', password: 'mala-contraseña' }, { username: 'nadie', password: 'contraseña-larga' }]) {
+    const r = await req('POST', '/api/auth/login', bad)
+    assert.deepEqual([r.status, r.body.error], [401, 'invalid_credentials'], 'distinto de una sesión caducada')
+  }
+  assert.equal((await req('GET', '/api/auth/me')).body.error, 'unauthorized')
   const login = await req('POST', '/api/auth/login', { username: 'NOA', password: 'contraseña-larga' })
   assert.equal(login.status, 200, 'usuario sin distinguir mayúsculas')
   assert.match(login.headers.get('set-cookie')!, /HttpOnly/)
@@ -92,17 +98,20 @@ test('notas por HTTP: leer, crear, escribir con If-Match, mover y borrar', async
   assert.equal(plan.status, 200)
   assert.equal(plan.headers.get('etag'), `"${plan.body.etag}"`)
 
-  assert.equal((await req('PUT', '/api/note?path=Plan.md', { text: 'x' })).status, 428, 'sin If-Match no se sobrescribe')
+  const noMatch = await req('PUT', '/api/note?path=Plan.md', { text: 'x' })
+  assert.deepEqual([noMatch.status, noMatch.body.error], [428, 'precondition_required'], 'sin If-Match no se sobrescribe')
   const stale = await req('PUT', '/api/note?path=Plan.md', { text: 'x' }, { 'if-match': '"sha256:viejo"' })
-  assert.equal(stale.status, 412)
+  assert.deepEqual([stale.status, stale.body.error], [412, 'precondition_failed'])
   assert.equal(stale.body.etag, plan.body.etag, 'el 412 devuelve el ETag actual')
   const put = await req('PUT', '/api/note?path=Plan.md', { text: '# Plan general\n\nNuevo.\n' }, { 'if-match': `"${plan.body.etag}"` })
   assert.equal(put.status, 200)
 
   assert.equal((await req('POST', '/api/note', { path: 'nueva.md', text: '# Nueva\n' })).status, 201)
-  assert.equal((await req('POST', '/api/note', { path: 'nueva.md', text: '# Otra\n' })).status, 409)
-  assert.equal((await req('GET', '/api/note?path=../fuera.md')).status, 400)
-  assert.equal((await req('GET', '/api/note?path=no-existe.md')).status, 404)
+  assert.deepEqual(errorOf(await req('POST', '/api/note', { path: 'nueva.md', text: '# Otra\n' })), [409, 'exists'])
+  assert.deepEqual(errorOf(await req('GET', '/api/note?path=../fuera.md')), [400, 'invalid_path'])
+  assert.deepEqual(errorOf(await req('GET', '/api/note?path=no-existe.md')), [404, 'not_found'])
+  const notJson = await req('POST', '/api/note', '{no es json', {}, true)
+  assert.deepEqual(errorOf(notJson), [400, 'invalid'], 'un cuerpo que no es JSON no es un error interno')
 
   const dry = await req('POST', '/api/note/move', { from: 'hogar/Proxy.md', to: 'hogar/GW.md', dryRun: true })
   assert.ok(dry.body.relinked.length > 0)
@@ -135,11 +144,53 @@ test('enlaces, backlinks con contexto, búsqueda y alertas', async () => {
   assert.ok(s.body.results[0].snippet.includes('\u0002'), 'resaltado con marcas, no HTML')
   assert.deepEqual((await req('GET', '/api/search?q=' + encodeURIComponent('" OR * NEAR('))).body.results, [], 'la sintaxis FTS5 del usuario no rompe nada')
 
-  const alerts = await req('GET', '/api/alerts')
-  assert.equal(alerts.body.syncConflicts.length, 1)
-  assert.equal(alerts.body.uidConflicts[0].uid, '01J8X4M2K9QZ')
+  assert.deepEqual(errorOf(await req('POST', '/api/admin/rescan', {})), [403, 'forbidden'], 'un member no es admin')
+})
 
-  assert.equal((await req('POST', '/api/admin/rescan', {})).status, 403, 'un member no es admin')
+test('avisos del espacio: códigos con sus datos y acciones según el rol', async () => {
+  const { auth, notesDir, req } = await setup()
+  await auth.createUser('noa', 'contraseña-larga', 'admin')
+  await auth.createUser('ana', 'contraseña-larga', 'member')
+  const as = (username: string) => req('POST', '/api/auth/login', { username, password: 'contraseña-larga' })
+  const alerts = async () => (await req('GET', '/api/alerts')).body.alerts as { code: string; [k: string]: unknown }[]
+
+  await as('noa')
+  const conflict = 'proyectos/thoth/Plan.sync-conflict-20260924-120000-ABCDEFG.md'
+  assert.deepEqual(await alerts(), [
+    { code: 'uid_conflict', uid: '01J8X4M2K9QZ', paths: ['uid/copia.md', 'uid/original.md'], actions: [] },
+    { code: 'sync_conflict', path: conflict, note: 'proyectos/thoth/Plan.md', actions: [] },
+  ])
+  const copy = await req('GET', `/api/conflict?path=${encodeURIComponent(conflict)}`)
+  assert.equal(copy.status, 200)
+  assert.match(copy.body.text, /\S/)
+  for (const p of ['Plan.md', '../fuera.md', 'proyectos/thoth/Otro.sync-conflict-20260924-120000-ABCDEFG.md']) {
+    assert.deepEqual(errorOf(await req('GET', `/api/conflict?path=${encodeURIComponent(p)}`)), [404, 'not_found'], `solo copias detectadas: ${p}`)
+  }
+
+  // Borrado masivo (una carpeta de red sin montar, p. ej.): el escaneo se detiene y avisa.
+  for (const d of ['proyectos', 'hogar', 'recetas', 'frontmatter', 'diario', 'uid', 'privado']) rmSync(join(notesDir, d), { recursive: true })
+  const aborted = (await req('POST', '/api/admin/rescan', {})).body
+  assert.equal(aborted.aborted, 'mass_delete')
+  const [scan] = await alerts()
+  assert.deepEqual(scan, { code: 'scan_aborted_mass_delete', ...aborted.massDelete, actions: ['rescan', 'confirm_removal'] })
+  assert.ok((scan!.removing as number) > 10 && (scan!.total as number) > (scan!.removing as number))
+
+  // Un member ve el aviso, pero sin acciones, y el servidor también se las niega.
+  await as('ana')
+  assert.deepEqual((await alerts())[0], { ...scan, actions: [] })
+  assert.deepEqual(errorOf(await req('POST', '/api/admin/rescan', { confirmRemoval: scan!.removing })), [403, 'forbidden'])
+
+  // Confirmar con una cifra que ya no es la del aviso no borra nada.
+  await as('noa')
+  const stale = (await req('POST', '/api/admin/rescan', { confirmRemoval: (scan!.removing as number) - 1 })).body
+  assert.equal(stale.aborted, 'mass_delete')
+  const done = (await req('POST', '/api/admin/rescan', { confirmRemoval: scan!.removing })).body
+  assert.deepEqual([done.aborted, done.removed.length], [null, scan!.removing])
+  assert.deepEqual(await alerts(), [], 'confirmado, el aviso desaparece (y con las notas, sus conflictos)')
+
+  rmSync(notesDir, { recursive: true })
+  await req('POST', '/api/admin/rescan', {})
+  assert.deepEqual(await alerts(), [{ code: 'scan_aborted_root_unavailable', actions: ['rescan'] }])
 })
 
 test('UI: estáticos, rutas de la aplicación a index.html y la API no cae en la UI', async () => {

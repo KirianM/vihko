@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { classifyPath } from '@thoth/core'
+import { classifyPath, conflictOriginal } from '@thoth/core'
 
 test('clasificación de rutas del vault de casos límite', () => {
   const cases: [string, string][] = [
@@ -20,4 +20,9 @@ test('clasificación de rutas del vault de casos límite', () => {
     ['adjuntos/tablero.canvas', 'other'],
   ]
   for (const [path, kind] of cases) assert.equal(classifyPath(path), kind, path)
+})
+
+test('nota original de una copia de conflicto', () => {
+  assert.equal(conflictOriginal('proyectos/thoth/Plan.sync-conflict-20260924-120000-ABCDEFG.md'), 'proyectos/thoth/Plan.md')
+  assert.equal(conflictOriginal('v1.2/Notas de v1.2.sync-conflict-20260924-120000-ABCDEFG.md'), 'v1.2/Notas de v1.2.md')
 })
