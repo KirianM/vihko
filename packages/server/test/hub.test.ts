@@ -383,3 +383,36 @@ test('killed after a flush replaced the file but before the log recorded it: not
     }
   } finally { closeAll(); await srv.stop() }
 })
+
+// An agent's edit lands exactly where its operation says, even when the text
+// next to it looks like the start of what it inserts: a diff of the whole
+// text took the characters someone was typing as part of the agent's line.
+test("an agent's edit next to someone typing doesn't interleave the two texts", async () => {
+  const { env } = makeDirs()
+  const srv = await startServer(env)
+  try {
+    const cookie = await login(srv)
+    assert.equal((await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'append', text: 'AGENT-MARK\n' }] })).status, 200)
+    const a = await connect(srv, cookie, NOTE)
+    const t = a.doc.getText('md')
+    // Concurrent insertions at the same place are ordered by client id: both orders are tried.
+    for (const [i, clientID] of [1, 2 ** 32 - 2].entries()) {
+      t.insert(t.toString().indexOf('AGENT-MARK\n') + 'AGENT-MARK\n'.length, `T${i}-\n`)
+      await waitFor(() => a.provider.unsyncedChanges === 0, 'synced')
+      // A keystroke the hub hasn't seen yet when the agent's edit arrives: typed on a copy of the document.
+      const typing = new Y.Doc()
+      typing.clientID = clientID
+      Y.applyUpdate(typing, Y.encodeStateAsUpdate(a.doc))
+      const tt = typing.getText('md')
+      tt.insert(tt.toString().indexOf(`T${i}-\n`) + 3, 'typed.')
+      const r = await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'find_replace', find: 'AGENT-MARK\n', replace: `AGENT-MARK\nT${i}-AGENT\n` }] })
+      assert.equal(r.status, 200, JSON.stringify(r.body))
+      await waitFor(() => a.text().includes(`T${i}-AGENT`), "the agent's edit reaches the editor")
+      Y.applyUpdate(a.doc, Y.encodeStateAsUpdate(typing, Y.encodeStateVector(a.doc)))
+      await waitFor(() => a.provider.unsyncedChanges === 0, 'synced')
+      const lines = a.text().split('\n')
+      const at = lines.indexOf('AGENT-MARK')
+      assert.deepEqual(lines.slice(at, at + 3), ['AGENT-MARK', `T${i}-AGENT`, `T${i}-typed.`], `client id ${clientID}`)
+    }
+  } finally { closeAll(); await srv.stop() }
+})

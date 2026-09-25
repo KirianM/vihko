@@ -8,6 +8,7 @@ import { commitText, createFile, linkNew, readStable, readText } from './fsutil.
 import { attachmentPath, sniffImage, suffixedName } from './attachments.ts'
 import { applyReplacements, keptLinks, planImageRelinks, planRelinks, type Replacement } from './relink.ts'
 import type { Indexer } from './indexer.ts'
+import { applySplices, spliceOf, type Splice } from './edits.ts'
 import type { Db } from './db.ts'
 
 /** Who makes a change. Will be recorded in history (M2). */
@@ -35,10 +36,18 @@ export interface NoteRead {
   etag: string
 }
 
+/**
+ * What an edit makes of the current text: the new text, or exact splices
+ * (edits.ts), which on an open note don't disturb what others type next to them.
+ */
+export type Change = string | Splice[]
+
+export const changedText = (text: string, change: Change) => (typeof change === 'string' ? change : applySplices(text, change))
+
 /** Documents open in the collaborative editor. The hub will implement this. */
 export interface HotDocuments {
   has(path: string): boolean
-  edit(path: string, fn: (text: string) => string, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }>
+  edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }>
   /**
    * The note is deleted: flush what is pending, close its sessions and never
    * flush it again. With `trash`, its editors are told the trash entry.
@@ -171,7 +180,7 @@ export class NoteService {
    * hasn't changed since it was read. If the note had no `uid`, it gets one in
    * this same write; if it had one, it's kept even if the new text omits it.
    */
-  async edit(path: string, fn: (text: string) => string, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }> {
+  async edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }> {
     const hot = this.opts.hot
     if (hot?.has(path)) return hot.edit(path, fn, opts)
     const file = this.file(path)
@@ -182,7 +191,7 @@ export class NoteService {
       throw new NoteError('precondition_failed', `the note has changed: ${path}`, currentHash)
     }
     const oldUid = this.uidIn(current)
-    const next = this.ensureUid(fn(current), oldUid).text
+    const next = this.ensureUid(changedText(current, fn(current)), oldUid).text
     if (next === current) return { etag: currentHash }
     const r = await commitText(file, next, currentHash)
     if (!r.ok) {
@@ -333,7 +342,7 @@ export class NoteService {
     const system: Actor = { kind: 'system', reason: `renamed ${from} to ${to} by ${actorLabel(opts.actor)}` }
     for (const src of others) {
       try {
-        await this.edit(src, (t) => applyReplacements(t, planRelinks(t, src, src, before, after, map)), { actor: system })
+        await this.edit(src, (t) => relinkSplices(t, planRelinks(t, src, src, before, after, map)), { actor: system })
       } catch (err) {
         report.failed.push({ path: src, ...failure(err) })
       }
@@ -494,6 +503,10 @@ function firstName(path: string, dir: string, take: (candidate: string) => boole
   }
   return undefined
 }
+
+/** Replacements as splices, from the last one: the earlier positions stay valid. */
+const relinkSplices = (text: string, reps: Replacement[]): Splice[] =>
+  [...reps].sort((a, b) => b.from - a.from).map((r) => spliceOf(text, r.from, r.to, r.text))
 
 /** Each replacement as the preview shows it: the text before and after. */
 const changesOf = (text: string, reps: Replacement[]) => reps.map((r) => ({ before: text.slice(r.from, r.to), after: r.text }))

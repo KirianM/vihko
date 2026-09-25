@@ -13,7 +13,7 @@ import { contentHash, newUid, readFrontmatter, setFrontmatterKey } from '@thoth/
 import type { Auth, User } from './auth.ts'
 import { readStable, readText, replaceText } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
-import { NoteError, NoteService, type Actor, type HotDocuments } from './notes.ts'
+import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
 
 export const TEXT = 'md'
 export const COLLAB_PATH = '/collab'
@@ -249,7 +249,7 @@ export class CollabHub implements HotDocuments {
   }
 
   /** Edit of a hot note: the change is applied as Yjs operations and reaches the open editors. */
-  async edit(path: string, fn: (text: string) => string, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }> {
+  async edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }> {
     const conn = await this.hocuspocus.openDirectConnection(path, { system: opts.actor })
     let result: { etag: string } | NoteError = { etag: '' }
     try {
@@ -261,9 +261,13 @@ export class CollabHub implements HotDocuments {
           result = new NoteError('precondition_failed', `the note has changed: ${path}`, hash)
           return
         }
-        const next = fn(cur)
-        applyTextDiff(ytext, cur, next)
-        result = { etag: contentHash(next) }
+        const change = fn(cur)
+        if (typeof change === 'string') applyTextDiff(ytext, cur, change)
+        else for (const s of change) {
+          if (s.remove) ytext.delete(s.at, s.remove)
+          if (s.insert) ytext.insert(s.at, s.insert)
+        }
+        result = { etag: contentHash(ytext.toString()) }
       })
     } finally {
       await conn.disconnect()
