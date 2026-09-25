@@ -19,3 +19,4 @@ export { SERIES_TOKENS, matchSeries, patternPeriod, patternTokens, seriesNeighbo
 export { hasSearchFilter, parseSearchQuery, type ParsedQuery, type SearchFilter } from './query.ts'
 export { EMPTY_WORKSPACE, WORKSPACE_FILE, parseWorkspaceConfig, type ConfigError, type ConfigErrorCode, type ParseResult, type WorkspaceConfig } from './workspace.ts'
 export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'
+export { parseComments, parseThreads, type Comment, type Thread } from './comments.ts'
