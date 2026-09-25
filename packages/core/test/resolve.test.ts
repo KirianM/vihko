@@ -6,7 +6,7 @@ import { LinkIndex, extract, type Resolution } from '@thoth/core'
 
 const ROOT = fileURLToPath(new URL('../../../testdata/vault/', import.meta.url))
 
-/** Carga las notas del vault. El filtro de ignorados es provisional: lo hará el indexador. */
+/** Loads the vault's notes. The ignore filter is provisional: the indexer will do it. */
 function loadVault() {
   const index = new LinkIndex()
   const texts = new Map<string, string>()
@@ -25,7 +25,7 @@ function loadVault() {
 
 const { index, texts } = loadVault()
 
-/** Resuelve todos los enlaces de una nota, indexados por su texto literal. */
+/** Resolves every link in a note, indexed by its literal text. */
 function resolveAll(source: string): Map<string, Resolution> {
   const out = new Map<string, Resolution>()
   for (const l of extract(texts.get(source)!).links) out.set(l.raw, index.resolve(source, l))
@@ -34,18 +34,18 @@ function resolveAll(source: string): Map<string, Resolution> {
 
 const ok = (path: string, anchor: 'ok' | 'missing' | null = null) => ({ status: 'resolved', path, anchor })
 function assertResolves(r: Resolution | undefined, expected: { status: string; path?: string; anchor?: string | null; candidates?: string[] }) {
-  assert.ok(r, 'enlace no encontrado en la nota')
+  assert.ok(r, 'link not found in the note')
   const { via: _via, ...rest } = r as Resolution & { via?: string }
   assert.deepEqual(rest, expected)
 }
 
-test('misma carpeta, mayúsculas, texto visible, embed y a sí misma', () => {
+test('same folder, uppercase, display text, embed and self-reference', () => {
   const r = resolveAll('proyectos/thoth/notas.md')
   for (const raw of ['[[Plan]]', '[[plan]]', '[[Plan|el plan]]', '![[Plan]]']) assertResolves(r.get(raw), ok('proyectos/thoth/Plan.md'))
   assertResolves(r.get('[[notas]]'), ok('proyectos/thoth/notas.md'))
 })
 
-test('desempate por profundidad y ambigüedad real', () => {
+test('tie-break by depth and real ambiguity', () => {
   const r = resolveAll('diario/2026-09-24.md')
   assertResolves(r.get('[[Plan]]'), ok('Plan.md'))
   assertResolves(r.get('[[Tareas]]'), { status: 'ambiguous', candidates: ['proyectos/blog/Tareas.md', 'proyectos/thoth/Tareas.md'] })
@@ -53,16 +53,16 @@ test('desempate por profundidad y ambigüedad real', () => {
   assertResolves(r.get('[[blog/Plan]]'), ok('proyectos/blog/Plan.md'))
 })
 
-test('unicode NFC contra nombre de archivo en NFD y nombres con espacios', () => {
+test('unicode NFC against an NFD filename, and names with spaces', () => {
   const r = resolveAll('recetas/índice.md')
   const cafe = [...texts.keys()].find((p) => p.normalize('NFC') === 'recetas/Café.md')!
-  assert.notEqual(cafe, 'recetas/Café.md', 'el archivo del vault debe estar en NFD')
+  assert.notEqual(cafe, 'recetas/Café.md', 'the vault file must be in NFD')
   assertResolves(r.get('[[Café]]'), ok(cafe))
   assertResolves(r.get('[[CAFÉ]]'), ok(cafe))
   assertResolves(r.get('[[Notas de reunión (2026)]]'), ok('recetas/Notas de reunión (2026).md'))
 })
 
-test('alias, prioridad del nombre, anclas, rotos y Markdown relativo', () => {
+test('alias, name priority, anchors, broken links and relative Markdown', () => {
   const r = resolveAll('hogar/enlaces.md')
   const gw = r.get('[[gw]]')!
   assertResolves(gw, ok('hogar/Proxy.md'))
@@ -76,18 +76,18 @@ test('alias, prioridad del nombre, anclas, rotos y Markdown relativo', () => {
   assertResolves(r.get('[roto](no-existe.md)'), { status: 'missing' })
 })
 
-test('desde la raíz y desde otra carpeta gana el Plan.md de la raíz', () => {
+test('from the root and from another folder, the root Plan.md wins', () => {
   assertResolves(resolveAll('codigo.md').get('[[Plan]]'), ok('Plan.md'))
   assertResolves(resolveAll('frontmatter/bom-crlf.md').get('[[Plan]]'), ok('Plan.md'))
 })
 
-test('incremental: las claves afectadas permiten re-resolver solo lo necesario', () => {
+test('incremental: affected keys allow re-resolving only what is needed', () => {
   const idx = new LinkIndex()
   idx.set({ path: 'a/Nota.md' })
   const link = { kind: 'wiki' as const, target: 'Nota', anchor: null }
   assertResolves(idx.resolve('b/x.md', link), ok('a/Nota.md'))
   const affected = idx.set({ path: 'c/Nota.md' })
-  assert.ok(affected.has(LinkIndex.keyOf('b/x.md', link)!), 'crear otra "Nota" afecta a los enlaces [[Nota]]')
+  assert.ok(affected.has(LinkIndex.keyOf('b/x.md', link)!), 'creating another "Nota" affects [[Nota]] links')
   assertResolves(idx.resolve('b/x.md', link), { status: 'ambiguous', candidates: ['a/Nota.md', 'c/Nota.md'] })
   idx.delete('a/Nota.md')
   assertResolves(idx.resolve('b/x.md', link), ok('c/Nota.md'))
@@ -95,7 +95,7 @@ test('incremental: las claves afectadas permiten re-resolver solo lo necesario',
   assert.ok(renamed.has('alias'))
 })
 
-test('[[/ruta]] es ruta exacta desde la raíz', () => {
+test('[[/path]] is an exact path from the root', () => {
   const idx = new LinkIndex()
   idx.set({ path: 'Plan.md' })
   idx.set({ path: 'diario/Plan.md' })

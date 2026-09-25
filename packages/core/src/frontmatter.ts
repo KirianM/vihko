@@ -1,32 +1,32 @@
-// Frontmatter YAML: localizarlo, leerlo y modificar una clave sin re-serializar
-// el bloque. Todo lo que no se toca explícitamente se conserva byte a byte
-// (comentarios, orden, comillas, estilo de listas, claves desconocidas).
+// YAML frontmatter: locate it, read it and modify a key without
+// re-serializing the block. Anything not explicitly touched is preserved
+// byte for byte (comments, order, quoting, list style, unknown keys).
 import { isDeepStrictEqual } from 'node:util'
 import { isMap, isScalar, isSeq, parseDocument, stringify, type Document } from 'yaml'
 
 export type Eol = '\n' | '\r\n'
 
 export interface FrontmatterBlock {
-  /** El archivo empieza por BOM (U+FEFF). */
+  /** The file starts with a BOM (U+FEFF). */
   bom: boolean
   eol: Eol
-  /** Offset de la línea `---` de apertura (tras el BOM). */
+  /** Offset of the opening `---` line (after the BOM). */
   start: number
-  /** Offsets del YAML entre los delimitadores. */
+  /** Offsets of the YAML between the delimiters. */
   yamlStart: number
   yamlEnd: number
-  /** Offset justo después de la línea de cierre (inicio del cuerpo). */
+  /** Offset right after the closing line (start of the body). */
   end: number
 }
 
 export interface Frontmatter {
-  /** null si la nota no tiene frontmatter. */
+  /** null if the note has no frontmatter. */
   block: FrontmatterBlock | null
-  /** Datos del YAML; `{}` si no hay frontmatter o si es inválido. */
+  /** YAML data; `{}` if there's no frontmatter or it's invalid. */
   data: Record<string, unknown>
-  /** Mensaje si el YAML no se puede leer o no es un mapa. Una nota así nunca se escribe. */
+  /** Message if the YAML can't be read or isn't a map. A note like that is never written. */
   error: string | null
-  /** Offset donde empieza el cuerpo. */
+  /** Offset where the body starts. */
   bodyStart: number
 }
 
@@ -54,14 +54,14 @@ export function locateFrontmatter(text: string): FrontmatterBlock | null {
     if (nl === -1) break
     lineStart = nl + 1
   }
-  return null // sin cierre: no es frontmatter, todo es cuerpo
+  return null // no closing delimiter: not frontmatter, it's all body
 }
 
 function parseYaml(raw: string): { doc: Document; data: Record<string, unknown> } | { error: string } {
-  // Esquema core de YAML 1.2: sin fechas ni otras conversiones implícitas de YAML 1.1.
+  // YAML 1.2 core schema: no dates or other implicit conversions from YAML 1.1.
   const doc = parseDocument(raw, { schema: 'core', uniqueKeys: true, prettyErrors: false })
   if (doc.errors.length) return { error: doc.errors[0]!.message }
-  if (doc.contents !== null && !isMap(doc.contents)) return { error: 'el frontmatter no es un mapa' }
+  if (doc.contents !== null && !isMap(doc.contents)) return { error: 'the frontmatter is not a map' }
   const data = (doc.toJS({ maxAliasCount: 100 }) ?? {}) as Record<string, unknown>
   return { doc, data }
 }
@@ -78,15 +78,16 @@ export type ScalarValue = string | number | boolean
 
 function scalarText(value: ScalarValue): string {
   if (typeof value === 'string' && /[\r\n]/.test(value)) {
-    throw new FrontmatterError('el parche de frontmatter solo admite valores de una línea')
+    throw new FrontmatterError('a frontmatter patch only accepts single-line values')
   }
   return stringify(value, { lineWidth: 0 }).trimEnd()
 }
 
 /**
- * Devuelve `text` con la clave de primer nivel `key` fijada a `value`, tocando
- * solo los bytes de ese valor (o añadiendo una línea, o creando el bloque).
- * Lanza FrontmatterError si el frontmatter es inválido: una nota así no se escribe.
+ * Returns `text` with the top-level key `key` set to `value`, touching only
+ * the bytes of that value (or adding a line, or creating the block).
+ * Throws FrontmatterError if the frontmatter is invalid: a note like that is
+ * never written.
  */
 export function setFrontmatterKey(text: string, key: string, value: ScalarValue): string {
   const out = setFrontmatterKeyRaw(text, key, scalarText(value))
@@ -94,7 +95,7 @@ export function setFrontmatterKey(text: string, key: string, value: ScalarValue)
   return out
 }
 
-/** Fija `key` a `valueText`, que ya es YAML de una línea. Sin verificar: lo hace quien llama. */
+/** Sets `key` to `valueText`, which is already single-line YAML. Doesn't verify: that's the caller's job. */
 function setFrontmatterKeyRaw(text: string, key: string, valueText: string): string {
   const block = locateFrontmatter(text)
   const keyText = scalarText(key)
@@ -108,7 +109,7 @@ function setFrontmatterKeyRaw(text: string, key: string, valueText: string): str
   } else {
     const raw = text.slice(block.yamlStart, block.yamlEnd)
     const parsed = parseYaml(raw)
-    if ('error' in parsed) throw new FrontmatterError(`frontmatter inválido: ${parsed.error}`)
+    if ('error' in parsed) throw new FrontmatterError(`invalid frontmatter: ${parsed.error}`)
     const map = parsed.doc.contents
     const pair = isMap(map) ? map.items.find((p) => isScalar(p.key) && p.key.value === key) : undefined
     let newRaw: string
@@ -119,11 +120,11 @@ function setFrontmatterKeyRaw(text: string, key: string, valueText: string): str
       const valueNode = pair.value as { range?: [number, number, number] } | null
       const colon = raw.indexOf(':', keyNode.range![1])
       if (!valueNode?.range) {
-        // `clave:` sin valor.
+        // `key:` with no value.
         newRaw = raw.slice(0, colon + 1) + ' ' + valueText + raw.slice(colon + 1)
       } else {
         const [vStart, vEnd] = valueNode.range
-        // Valor en bloque en las líneas siguientes: se sustituye desde los dos puntos.
+        // Block value on the following lines: replace starting from the colon.
         const from = raw.slice(colon + 1, vStart).includes('\n') ? colon + 1 : vStart
         const to = vEnd
         newRaw = raw.slice(0, from) + (from === colon + 1 ? ' ' : '') + valueText + trailingEol(raw, from, to, block.eol) + raw.slice(to)
@@ -134,35 +135,35 @@ function setFrontmatterKeyRaw(text: string, key: string, valueText: string): str
   return out
 }
 
-/** Si lo sustituido abarcaba líneas completas, conserva el salto de línea final. */
+/** If what was replaced spanned whole lines, keep the trailing newline. */
 function trailingEol(raw: string, from: number, to: number, eol: Eol): string {
   const replaced = raw.slice(from, to)
   return replaced.includes('\n') && replaced.endsWith('\n') ? eol : ''
 }
 
-/** Red de seguridad: el resultado debe tener el valor pedido y todo lo demás igual. */
+/** Safety net: the result must have the requested value and everything else unchanged. */
 function verifyPatch(before: string, after: string, key: string, value: ScalarValue) {
   const a = readFrontmatter(before)
   const b = readFrontmatter(after)
-  if (b.error) throw new FrontmatterError(`el parche produjo YAML inválido: ${b.error}`)
-  if (!isDeepStrictEqual(b.data[key], value)) throw new FrontmatterError('el parche no fijó el valor pedido')
+  if (b.error) throw new FrontmatterError(`the patch produced invalid YAML: ${b.error}`)
+  if (!isDeepStrictEqual(b.data[key], value)) throw new FrontmatterError('the patch did not set the requested value')
   const restA = { ...a.data }
   const restB = { ...b.data }
   delete restA[key]
   delete restB[key]
-  if (!isDeepStrictEqual(restA, restB)) throw new FrontmatterError('el parche alteró otras claves')
-  if (before.slice(a.bodyStart) !== after.slice(b.bodyStart)) throw new FrontmatterError('el parche alteró el cuerpo')
+  if (!isDeepStrictEqual(restA, restB)) throw new FrontmatterError('the patch altered other keys')
+  if (before.slice(a.bodyStart) !== after.slice(b.bodyStart)) throw new FrontmatterError('the patch altered the body')
 }
 
 /**
- * Añade `item` a la lista de primer nivel `key` sin re-serializar el bloque:
- * en una lista en flujo se inserta antes del `]`, en una en bloque se añade una
- * línea, un escalar se convierte en lista en flujo y, si la clave no existe, se
- * crea como `key: [item]`. No hace nada si el elemento ya está.
+ * Adds `item` to the top-level list `key` without re-serializing the block:
+ * in a flow list it's inserted before the `]`, in a block list a line is
+ * added, a scalar is turned into a flow list, and if the key doesn't exist
+ * it's created as `key: [item]`. Does nothing if the item is already there.
  */
 export function addToFrontmatterList(text: string, key: string, item: string): string {
   const fm = readFrontmatter(text)
-  if (fm.error) throw new FrontmatterError(`frontmatter inválido: ${fm.error}`)
+  if (fm.error) throw new FrontmatterError(`invalid frontmatter: ${fm.error}`)
   const current = fm.data[key]
   const list = Array.isArray(current) ? current : current == null ? [] : [current]
   if (list.some((x) => String(x) === item)) return text
@@ -182,7 +183,7 @@ export function addToFrontmatterList(text: string, key: string, item: string): s
       const inner = raw.slice(value.start + 1, close).trim()
       newRaw = raw.slice(0, close) + (inner ? `, ${itemText}` : itemText) + raw.slice(close)
     } else if (value && value.kind === 'seq') {
-      // Lista en bloque: nueva línea con la misma sangría que el primer elemento.
+      // Block list: new line with the same indentation as the first item.
       const lineStart = raw.lastIndexOf('\n', value.start - 1) + 1
       const indent = raw.slice(lineStart, value.start)
       const end = value.end
@@ -200,9 +201,9 @@ export function addToFrontmatterList(text: string, key: string, item: string): s
   const after = readFrontmatter(out)
   const rest = (d: Record<string, unknown>) => { const c = { ...d }; delete c[key]; return c }
   if (after.error || !isDeepStrictEqual(after.data[key], [...list, item]) || !isDeepStrictEqual(rest(after.data), rest(fm.data))) {
-    throw new FrontmatterError('el parche de lista no produjo el resultado esperado')
+    throw new FrontmatterError('the list patch did not produce the expected result')
   }
-  if (text.slice(fm.bodyStart) !== out.slice(after.bodyStart)) throw new FrontmatterError('el parche alteró el cuerpo')
+  if (text.slice(fm.bodyStart) !== out.slice(after.bodyStart)) throw new FrontmatterError('the patch altered the body')
   return out
 }
 
