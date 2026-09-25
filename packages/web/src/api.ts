@@ -1,4 +1,7 @@
 // Cliente de la API de thoth. Sesión por cookie (HttpOnly): el navegador la envía sola.
+import type { Alert } from '@thoth/core/codes'
+
+export type { Alert }
 
 export class ApiError extends Error {
   readonly status: number
@@ -35,12 +38,6 @@ async function request<T>(method: string, path: string, body?: unknown, headers:
 export interface User { id: string; username: string; role: 'admin' | 'member' }
 export interface TreeNote { path: string; title: string; uid: string | null }
 export interface Note { path: string; text: string; etag: string; meta: { title: string; uid: string | null; fm_error: string | null } | null }
-export interface Alerts {
-  syncConflicts: { path: string; kind: string }[]
-  uidConflicts: { uid: string; paths: string[] }[]
-  scanAborted: string | null
-  orphanedNotes: string[]
-}
 
 export interface OutgoingLink {
   raw: string
@@ -59,10 +56,9 @@ export const api = {
   me: () => request<{ user: User }>('GET', '/api/auth/me'),
   tree: () => request<{ notes: TreeNote[] }>('GET', '/api/tree'),
   note: (path: string) => request<Note>('GET', `/api/note?path=${encodeURIComponent(path)}`),
-  alerts: () => request<Alerts>('GET', '/api/alerts'),
+  alerts: () => request<{ alerts: Alert[] }>('GET', '/api/alerts').then((r) => r.alerts),
+  conflict: (path: string) => request<{ path: string; text: string }>('GET', `/api/conflict?path=${encodeURIComponent(path)}`),
+  rescan: (confirmRemoval?: number) => request<{ aborted: string | null }>('POST', '/api/admin/rescan', confirmRemoval === undefined ? {} : { confirmRemoval }),
   links: (path: string) => request<{ outgoing: OutgoingLink[]; backlinks: Backlink[] }>('GET', `/api/note/links?path=${encodeURIComponent(path)}`),
   orphan: (path: string, action: 'restore' | 'discard') => request<{ ok: true }>('POST', '/api/note/orphan', { path, action }),
 }
-
-export const alertCount = (a: Alerts) =>
-  a.syncConflicts.length + a.uidConflicts.length + a.orphanedNotes.length + (a.scanAborted ? 1 : 0)

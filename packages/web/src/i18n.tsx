@@ -1,6 +1,7 @@
 // Traducciones (D-025): ningún texto de la UI va escrito en los componentes.
 // Añadir un idioma es añadir un diccionario con las mismas claves (el tipo lo exige).
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import type { ErrorCode } from '@thoth/core/codes'
 
 const es = {
   'app.name': 'thoth',
@@ -65,6 +66,29 @@ const es = {
   'editor.linkMissing': 'no existe',
   'editor.frontmatter': 'frontmatter · {n} claves',
   'editor.frontmatterOne': 'frontmatter · 1 clave',
+  'alerts.title': 'Avisos del espacio',
+  'alerts.intro': 'Cosas que thoth ha detectado en la carpeta de notas y que necesitan una decisión. Nada de esto se resuelve solo.',
+  'alerts.empty': 'No hay avisos: la carpeta de notas y el índice están en orden.',
+  'alerts.adminOnly': 'Lo decide un administrador.',
+  'alerts.massDeleteTitle': 'Escaneo detenido: iba a retirar {removing} notas de {total}',
+  'alerts.massDeleteBody': 'Parece que la carpeta de notas no está disponible o se ha vaciado (¿un NFS sin montar?). No se ha borrado nada del índice.',
+  'alerts.rootUnavailableTitle': 'Escaneo detenido: no se puede leer la carpeta de notas',
+  'alerts.rootUnavailableBody': 'La carpeta no existe o no es accesible (¿un NFS sin montar?). El índice se queda como estaba hasta que vuelva.',
+  'alerts.rescan': 'Volver a comprobar',
+  'alerts.confirmRemoval': 'Sí, las he borrado yo',
+  'alerts.orphanTitle': 'Copia pendiente de «{note}»',
+  'alerts.orphanBody': 'La nota se borró fuera de thoth mientras alguien la editaba. Lo escrito está guardado a la espera de una decisión.',
+  'alerts.keepCopy': 'Conservar la copia',
+  'alerts.discardCopy': 'Descartar',
+  'alerts.uidTitle': 'Mismo identificador en {n} notas',
+  'alerts.uidBody': 'Estas notas comparten el uid {uid} (¿una copia hecha a mano?) y las integraciones no pueden distinguirlas. Para arreglarlo, cambia o borra el uid en el frontmatter de la copia.',
+  'alerts.syncTitle': 'Conflicto de sincronización',
+  'alerts.syncBody': 'Un sincronizador (Syncthing o similar) dejó {file} junto a {note}. No se indexa como nota.',
+  'alerts.syncBodyAlone': 'Un sincronizador (Syncthing o similar) dejó {file}, y la nota original ya no existe. No se indexa como nota.',
+  'alerts.openNote': 'Abrir la nota',
+  'alerts.showCopy': 'Ver la copia',
+  'alerts.hideCopy': 'Ocultar la copia',
+  'alerts.copyLabel': 'Contenido de la copia de conflicto',
   'role.admin': 'admin',
   'role.member': 'miembro',
   'theme.toDark': 'Cambiar a tema oscuro',
@@ -80,6 +104,12 @@ const es = {
   'error.user_exists': 'Ese usuario ya existe.',
   'error.already_setup': 'Esta instalación ya tiene administrador. Entra con tu usuario.',
   'error.invalid_token': 'El token de primer arranque no es válido.',
+  'error.invalid_credentials': 'Usuario o contraseña incorrectos.',
+  'error.precondition_required': 'No se puede guardar sin saber qué versión se editó.',
+  'error.precondition_failed': 'La nota ha cambiado mientras tanto. Vuelve a cargarla.',
+  'error.exists': 'Ya existe una nota con ese nombre.',
+  'error.invalid_path': 'Esa ruta de nota no es válida.',
+  'error.edit_mismatch': 'La nota ha cambiado y la edición ya no encaja.',
 }
 
 const en: Record<keyof typeof es, string> = {
@@ -145,6 +175,29 @@ const en: Record<keyof typeof es, string> = {
   'editor.linkMissing': 'missing',
   'editor.frontmatter': 'frontmatter · {n} keys',
   'editor.frontmatterOne': 'frontmatter · 1 key',
+  'alerts.title': 'Workspace alerts',
+  'alerts.intro': 'Things thoth found in the notes folder that need a decision. None of them resolves on its own.',
+  'alerts.empty': 'No alerts: the notes folder and the index are in order.',
+  'alerts.adminOnly': 'An administrator decides this.',
+  'alerts.massDeleteTitle': 'Scan stopped: it was about to remove {removing} of {total} notes',
+  'alerts.massDeleteBody': 'The notes folder seems unavailable or emptied (an unmounted NFS share?). Nothing has been removed from the index.',
+  'alerts.rootUnavailableTitle': 'Scan stopped: the notes folder cannot be read',
+  'alerts.rootUnavailableBody': 'The folder does not exist or is not accessible (an unmounted NFS share?). The index stays as it was until it is back.',
+  'alerts.rescan': 'Check again',
+  'alerts.confirmRemoval': 'Yes, I deleted them',
+  'alerts.orphanTitle': 'Pending copy of “{note}”',
+  'alerts.orphanBody': 'The note was deleted outside thoth while someone was editing it. What was written is kept until someone decides.',
+  'alerts.keepCopy': 'Keep the copy',
+  'alerts.discardCopy': 'Discard',
+  'alerts.uidTitle': 'Same identifier in {n} notes',
+  'alerts.uidBody': 'These notes share the uid {uid} (a copy made by hand?) and integrations cannot tell them apart. To fix it, change or remove the uid in the copy’s frontmatter.',
+  'alerts.syncTitle': 'Sync conflict',
+  'alerts.syncBody': 'A sync tool (Syncthing or similar) left {file} next to {note}. It is not indexed as a note.',
+  'alerts.syncBodyAlone': 'A sync tool (Syncthing or similar) left {file}, and the original note no longer exists. It is not indexed as a note.',
+  'alerts.openNote': 'Open the note',
+  'alerts.showCopy': 'View the copy',
+  'alerts.hideCopy': 'Hide the copy',
+  'alerts.copyLabel': 'Contents of the conflict copy',
   'role.admin': 'admin',
   'role.member': 'member',
   'theme.toDark': 'Switch to dark theme',
@@ -160,9 +213,20 @@ const en: Record<keyof typeof es, string> = {
   'error.user_exists': 'That user already exists.',
   'error.already_setup': 'This installation already has an administrator. Sign in with your user.',
   'error.invalid_token': 'The first-start token is not valid.',
+  'error.invalid_credentials': 'Wrong username or password.',
+  'error.precondition_required': 'Cannot save without knowing which version was edited.',
+  'error.precondition_failed': 'The note changed in the meantime. Reload it.',
+  'error.exists': 'A note with that name already exists.',
+  'error.invalid_path': 'That note path is not valid.',
+  'error.edit_mismatch': 'The note changed and the edit no longer fits.',
 }
 
 export type MessageKey = keyof typeof es
+
+// Todo código de error del servidor tiene traducción: si falta una, no compila.
+type MissingErrorText = Exclude<`error.${ErrorCode}`, MessageKey>
+const _allErrorsTranslated: [MissingErrorText] extends [never] ? true : MissingErrorText = true
+void _allErrorsTranslated
 export type Lang = 'es' | 'en'
 const dictionaries: Record<Lang, Record<MessageKey, string>> = { es, en }
 

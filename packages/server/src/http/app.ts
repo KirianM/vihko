@@ -1,13 +1,15 @@
 // API HTTP. La usa la UI con sesión (cookie) y siempre está activa; el acceso de
 // integraciones con API keys llegará en M3 y será opcional (D-010).
 import { Hono, type Context } from 'hono'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { classifyPath, conflictOriginal, type Alert, type ErrorCode } from '@thoth/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
-import type { Indexer, ScanReport } from '../indexer.ts'
+import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
 import { NoteError, type Actor, type NoteService } from '../notes.ts'
 import { ftsQuery, HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import { applyEdits, type EditOp } from '../edits.ts'
@@ -16,7 +18,7 @@ export const SESSION_COOKIE = 'thoth_session'
 
 export interface Runtime {
   lastScan: ScanReport | null
-  rescan(force: boolean): ScanReport
+  rescan(opts: ScanOptions): ScanReport
 }
 
 /** Lo que la API necesita del hub de colaboración. */
@@ -53,6 +55,14 @@ function noteErrorStatus(e: NoteError) {
   return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409 } as const)[e.code]
 }
 
+/**
+ * Respuesta de error: `error` es el código estable que traduce la UI (D-025);
+ * `message`, una pista para quien desarrolla, que la UI no muestra.
+ */
+function fail(c: Context, status: ContentfulStatusCode, error: ErrorCode, message: string, extra: Record<string, unknown> = {}) {
+  return c.json({ error, message, ...extra }, status)
+}
+
 export function createApp(deps: AppDeps) {
   const { auth, notes, index } = deps
   const app = new Hono<Env>()
@@ -60,18 +70,20 @@ export function createApp(deps: AppDeps) {
   app.onError((err, c) => {
     if (err instanceof NoteError) {
       if (err.etag) c.header('ETag', `"${err.etag}"`)
-      return c.json({ error: err.code, message: err.message, etag: err.etag }, noteErrorStatus(err))
+      return fail(c, noteErrorStatus(err), err.code, err.message, { etag: err.etag })
     }
-    if (err instanceof AuthError) return c.json({ error: err.code, message: err.message }, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400)
+    if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400, err.code, err.message)
+    // Cuerpo que no es JSON.
+    if (err instanceof SyntaxError) return fail(c, 400, 'invalid', err.message)
     console.error(err)
-    return c.json({ error: 'internal', message: 'error interno' }, 500)
+    return fail(c, 500, 'internal', 'error interno')
   })
 
   // CSRF: una petición que modifica algo y viene de otro origen se rechaza.
   app.use('/api/*', async (c, next) => {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
       const origin = c.req.header('origin')
-      if (origin && new URL(origin).host !== new URL(c.req.url).host) return c.json({ error: 'forbidden', message: 'origen no permitido' }, 403)
+      if (origin && new URL(origin).host !== new URL(c.req.url).host) return fail(c, 403, 'forbidden', 'origen no permitido')
     }
     await next()
   })
@@ -92,7 +104,7 @@ export function createApp(deps: AppDeps) {
   app.post('/api/auth/login', async (c) => {
     const { username, password } = await c.req.json<{ username: string; password: string }>()
     const s = await auth.login(username ?? '', password ?? '')
-    if (!s) return c.json({ error: 'unauthorized', message: 'usuario o contraseña incorrectos' }, 401)
+    if (!s) return fail(c, 401, 'invalid_credentials', 'usuario o contraseña incorrectos')
     setCookie(c, SESSION_COOKIE, s.token, {
       httpOnly: true,
       sameSite: 'Lax',
@@ -108,14 +120,14 @@ export function createApp(deps: AppDeps) {
   app.use('/api/*', async (c, next) => {
     const token = getCookie(c, SESSION_COOKIE)
     const user = auth.session(token)
-    if (!user) return c.json({ error: 'unauthorized', message: 'inicia sesión' }, 401)
+    if (!user) return fail(c, 401, 'unauthorized', 'inicia sesión')
     c.set('user', user)
     c.set('token', token!)
     await next()
   })
 
   const adminOnly = async (c: Context<Env>, next: () => Promise<void>) => {
-    if (c.get('user').role !== 'admin') return c.json({ error: 'forbidden', message: 'solo administradores' }, 403)
+    if (c.get('user').role !== 'admin') return fail(c, 403, 'forbidden', 'solo administradores')
     await next()
   }
 
@@ -147,7 +159,7 @@ export function createApp(deps: AppDeps) {
 
   app.put('/api/note', async (c) => {
     const ifMatch = unquote(c.req.header('if-match'))
-    if (!ifMatch) return c.json({ error: 'precondition_required', message: 'falta If-Match: no se sobrescribe una nota que no se ha leído' }, 428)
+    if (!ifMatch) return fail(c, 428, 'precondition_required', 'falta If-Match: no se sobrescribe una nota que no se ha leído')
     const { text } = await c.req.json<{ text: string }>()
     const r = await notes.write(c.req.query('path') ?? '', text, { ifMatch, actor: actorOf(c.get('user')) })
     c.header('ETag', `"${r.etag}"`)
@@ -210,29 +222,53 @@ export function createApp(deps: AppDeps) {
     return c.json(await notes.restore(c.req.param('id'), actorOf(c.get('user')), to))
   })
 
+  // Avisos del espacio: códigos con sus datos, nunca texto (D-025). Las acciones
+  // de admin solo se ofrecen a quien puede hacerlas; el endpoint lo vuelve a exigir.
   app.get('/api/alerts', (c) => {
-    const conflicts = index.prepare('select path, kind from alerts order by path').all()
+    const admin = c.get('user').role === 'admin'
+    const alerts: Alert[] = []
     const scan = deps.runtime.lastScan
-    return c.json({
-      syncConflicts: conflicts,
-      uidConflicts: deps.indexer.uidConflicts(),
-      scanAborted: scan?.aborted ?? null,
-      orphanedNotes: deps.orphans?.orphans() ?? [],
-    })
+    if (scan?.aborted === 'mass_delete' && scan.massDelete) {
+      alerts.push({ code: 'scan_aborted_mass_delete', ...scan.massDelete, actions: admin ? ['rescan', 'confirm_removal'] : [] })
+    } else if (scan?.aborted === 'root_unavailable') {
+      alerts.push({ code: 'scan_aborted_root_unavailable', actions: admin ? ['rescan'] : [] })
+    }
+    for (const path of deps.orphans?.orphans() ?? []) alerts.push({ code: 'orphaned_note', path, actions: ['keep_copy', 'discard_copy'] })
+    for (const u of deps.indexer.uidConflicts()) alerts.push({ code: 'uid_conflict', uid: u.uid, paths: u.paths, actions: [] })
+    const noteExists = index.prepare('select 1 from notes where path = ?')
+    for (const { path } of index.prepare("select path from alerts where kind = 'sync_conflict' order by path").all() as { path: string }[]) {
+      const note = conflictOriginal(path)
+      alerts.push({ code: 'sync_conflict', path, note: noteExists.get(note) ? note : null, actions: [] })
+    }
+    return c.json({ alerts })
+  })
+
+  // Texto de una copia de conflicto, para compararla con la nota. Solo de las
+  // que el indexador ha detectado: no sirve para leer cualquier archivo.
+  app.get('/api/conflict', (c) => {
+    const path = c.req.query('path') ?? ''
+    const known = classifyPath(path) === 'conflict' && index.prepare("select 1 from alerts where path = ? and kind = 'sync_conflict'").get(path)
+    let text: string | null = null
+    if (known) try { text = readFileSync(join(deps.notesDir, path), 'utf8') } catch { /* ya no existe */ }
+    if (text === null) return fail(c, 404, 'not_found', `no hay ninguna copia de conflicto en ${path}`)
+    return c.json({ path, text })
   })
 
   // Nota borrada desde fuera con una copia abierta: conservarla o darla por borrada.
   app.post('/api/note/orphan', async (c) => {
     const { path, action } = await c.req.json<{ path: string; action: 'restore' | 'discard' }>()
-    if (!deps.orphans) return c.json({ error: 'not_found', message: 'sin hub de colaboración' }, 404)
+    if (!deps.orphans) return fail(c, 404, 'not_found', 'sin hub de colaboración')
     if (action === 'restore') return c.json(await deps.orphans.restoreOrphan(path))
     if (action === 'discard') { await deps.orphans.discardOrphan(path); return c.json({ ok: true }) }
-    return c.json({ error: 'invalid', message: 'action debe ser restore o discard' }, 400)
+    return fail(c, 400, 'invalid', 'action debe ser restore o discard')
   })
 
+  // `confirmRemoval`: el número de notas que el aviso decía que se iban a retirar.
+  // El borrado masivo solo se acepta si sigue siendo ese (Indexer.scan).
   app.post('/api/admin/rescan', adminOnly, async (c) => {
-    const { force } = await c.req.json<{ force?: boolean }>().catch(() => ({ force: false }))
-    return c.json(deps.runtime.rescan(!!force))
+    const body = await c.req.json<{ force?: boolean; confirmRemoval?: number }>().catch(() => ({}) as { force?: boolean; confirmRemoval?: number })
+    const confirmRemoval = Number.isInteger(body.confirmRemoval) ? body.confirmRemoval : undefined
+    return c.json(deps.runtime.rescan({ force: body.force === true, confirmRemoval }))
   })
 
   app.post('/api/admin/users', adminOnly, async (c) => {
@@ -240,7 +276,7 @@ export function createApp(deps: AppDeps) {
     return c.json({ user: await auth.createUser(username, password, role ?? 'member') }, 201)
   })
 
-  app.all('/api/*', (c) => c.json({ error: 'not_found', message: 'no existe' }, 404))
+  app.all('/api/*', (c) => fail(c, 404, 'not_found', 'no existe'))
 
   if (deps.webDir) {
     const root = deps.webDir
