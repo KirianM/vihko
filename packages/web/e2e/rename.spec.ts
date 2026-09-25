@@ -329,3 +329,39 @@ test('the preview lists ambiguous links the move would resolve, by note, and the
   expect(read(`${dir}/Also.md`)).toBe(also)
   await k.getByRole('button', { name: 'Cerrar aviso' }).click()
 })
+
+// A rename that rewrites many notes: the note moves at once and the links follow in the background.
+test('a rename with many backlinks shows its progress, can go to the background, and the UI stays usable', async () => {
+  const dir = `${DIR}/many`
+  const hub = `${dir}/Hub.md`
+  const N = 150
+  mkdirSync(`${NOTES}/${dir}/refs`, { recursive: true })
+  writeFileSync(`${NOTES}/${hub}`, '# Hub\n')
+  for (let i = 0; i < N; i++) writeFileSync(`${NOTES}/${dir}/refs/Ref ${i}.md`, `# Ref ${i}\n\nSee [[Hub]].\n`)
+  await expect.poll(async () => (await (await k.request.get(`/api/note/links?path=${encodeURIComponent(hub)}`)).json()).backlinks.length, { timeout: 30_000 }).toBe(N)
+  await k.goto(`/?note=${encodeURIComponent(hub)}`)
+  await expect(k.locator('.cm-content')).toBeVisible()
+  const dialog = await openRename(k)
+  await dialog.getByLabel('Nuevo nombre').fill('Central hub')
+  await dialog.getByRole('button', { name: `Renombrar y actualizar ${N} enlaces` }).click()
+
+  const progress = k.getByRole('dialog').filter({ hasText: 'Actualizando enlaces' })
+  await expect(progress).toBeVisible()
+  await expect(progress).toContainText('«Central hub» ya está en su sitio.')
+  await expect(progress.getByRole('progressbar')).toHaveAttribute('aria-valuemax', String(N))
+  await expect(k.locator('.crumbs b')).toHaveText('Central hub')
+  await shot(k, 'move-progress')
+  await progress.getByRole('button', { name: 'Seguir en segundo plano' }).click()
+  await expect(progress).toHaveCount(0)
+  const toast = k.getByRole('status').filter({ hasText: 'Actualizando los enlaces a «Central hub»' })
+  await expect(toast).toBeVisible()
+  await shot(k, 'move-progress-toast')
+  // The UI answers meanwhile: another note opens.
+  await k.keyboard.press('Control+k')
+  await k.keyboard.type('Ref 7')
+  await k.getByRole('option', { name: /Ref 7(?!\d)/ }).first().click()
+  await expect(k.locator('.crumbs b')).toHaveText('Ref 7')
+  // At the end the notice goes and every link was rewritten.
+  await expect(toast).toHaveCount(0, { timeout: 60_000 })
+  for (let i = 0; i < N; i++) expect(read(`${dir}/refs/Ref ${i}.md`)).toContain('[[Central hub]]')
+})

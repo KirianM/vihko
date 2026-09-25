@@ -2,7 +2,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, type Key } from 'react-aria-components'
 import { seriesNeighbors } from '@thoth/core/series'
-import { ApiError, api, type FolderMoveReport, type MoveReport, type Profile, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
+import { ApiError, api, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
 import { AlertsPage } from './Alerts.tsx'
 import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
@@ -10,6 +10,7 @@ import { errorText, useT } from './i18n.tsx'
 import { Brand, Crumbs, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
 import { TrashToast, type Trashed } from './TrashToast.tsx'
 import { MoveToast, moveNotice } from './MoveToast.tsx'
+import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
 import { shiftedNotice } from './Shifts.tsx'
 import { OpenPaletteContext, Palette, SearchButton, type PaletteMode } from './Palette.tsx'
 import { rememberNote } from './recent.ts'
@@ -58,6 +59,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [trashed, setTrashed] = useState<Trashed | null>(null)
   /** Your last rename or move, if some link could not be rewritten. */
   const [moveIssue, setMoveIssue] = useState<MoveReport | null>(null)
+  /** Your move whose links are still being rewritten, and what went wrong following it. */
+  const [moveJob, setMoveJob] = useState<MoveJob | null>(null)
+  const [jobIssue, setJobIssue] = useState<string | null>(null)
   const [palette, setPalette] = useState<PaletteMode | null>(null)
   const mobile = useMobile()
   // On a phone with nothing open, start at the tree: it's the only way in.
@@ -193,11 +197,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     else if (action === 'moveNote') setTreeDialog({ kind: 'moveNote', path: node.path })
     else setTreeDialog({ kind: 'trashNote', path: node.path })
   }
-  const noteMoved = (from: string, to: string, report: MoveReport) => {
+  /** A note is in place; the report comes now or, for a move in the background, when it ends. */
+  const noteMoved = (from: string, to: string, report: MoveReport | null) => {
     setTreeDialog(null)
     setExpanded((e) => new Set([...e, ...ancestors(to)]))
     if (openPath === from) setOpenPath(to)
-    if (moveNotice(report)) setMoveIssue(report)
+    if (report && moveNotice(report)) setMoveIssue(report)
     void loadTree()
   }
   const folderPlaced = (from: string, to: string) => {
@@ -211,6 +216,23 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const folderMoved = (r: FolderMoveReport) => {
     folderPlaced(r.from, r.to)
     setFolderIssue(r.failed.length || r.shifted.length ? r : null)
+  }
+  const moveStarted = (job: MoveJob) => {
+    if (job.kind === 'note') noteMoved(job.from, job.to, null)
+    else folderPlaced(job.from, job.to)
+    setJobIssue(null)
+    setMoveJob(job)
+  }
+  const moveEnded = (job: MoveJob, end: JobEnd) => {
+    setMoveJob(null)
+    if (end.kind === 'done') {
+      const r = end.report
+      if ('images' in r) { if (moveNotice(r)) setMoveIssue(r) }
+      else setFolderIssue(r.failed.length || r.shifted.length ? r : null)
+    } else {
+      setJobIssue(end.kind === 'lost' ? t('job.lost', { name: baseName(job.to).replace(/\.md$/i, '') }) : end.message)
+    }
+    void loadTree()
   }
   // A drop moves at once when nothing else changes; if links would be rewritten
   // (or images go along), it goes through the same dialog and preview as the menu.
@@ -342,6 +364,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               daily={dailyNav}
               onNavigate={setOpenPath}
               onMoved={(to, report) => { setOpenPath(to); if (report && moveNotice(report)) setMoveIssue(report); void loadTree() }}
+              onMoveStarted={moveStarted}
               onTrashed={(t) => { setOpenPath(null); setTrashed(t); void loadTree() }}
               templates={templates}
               onCreated={created}
@@ -373,6 +396,14 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setFolderIssue(null)}>{Icon.close}</Button>
           </div>
         )}
+        {jobIssue && (
+          <div className="toast toast-warn">
+            <span className="toast-icon">{Icon.alert}</span>
+            <span className="toast-text" role="alert">{jobIssue}</span>
+            <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setJobIssue(null)}>{Icon.close}</Button>
+          </div>
+        )}
+        {moveJob && <MoveProgress key={moveJob.id} job={moveJob} onFinished={(end) => moveEnded(moveJob, end)} />}
         {trashed && (
           <TrashToast
             key={trashed.id}
@@ -392,10 +423,10 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               void loadTree()
             }} />
           )}
-          {treeDialog?.kind === 'moveFolder' && <FolderMoveDialog path={treeDialog.path} initialParent={treeDialog.parent} onClose={closeTreeDialog} onMoved={folderMoved} />}
+          {treeDialog?.kind === 'moveFolder' && <FolderMoveDialog path={treeDialog.path} initialParent={treeDialog.parent} onClose={closeTreeDialog} onMoved={folderMoved} onStarted={moveStarted} />}
           {treeDialog?.kind === 'deleteFolder' && <DeleteFolderDialog path={treeDialog.path} onClose={closeTreeDialog} onDeleted={() => { closeTreeDialog(); void loadTree() }} />}
           {treeDialog?.kind === 'moveNote' && (
-            <RenameDialog path={treeDialog.path} initialFolder={treeDialog.folder} onClose={closeTreeDialog} onMoved={(to, r) => noteMoved(treeDialog.path, to, r)} />
+            <RenameDialog path={treeDialog.path} initialFolder={treeDialog.folder} onClose={closeTreeDialog} onMoved={(to, r) => noteMoved(treeDialog.path, to, r)} onStarted={moveStarted} />
           )}
           {treeDialog?.kind === 'trashNote' && (
             <TrashDialog path={treeDialog.path} onClose={closeTreeDialog} onTrashed={(id) => {

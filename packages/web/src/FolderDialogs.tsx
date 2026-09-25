@@ -2,7 +2,7 @@
 // rewritten across the notes, as for a note) and delete (only when empty).
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Text, TextField } from 'react-aria-components'
-import { api, type FolderMoveReport } from './api.ts'
+import { api, type FolderMoveReport, type MoveJob } from './api.ts'
 import { ShiftPreview } from './Shifts.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { parentOf } from './FolderTree.tsx'
@@ -79,11 +79,13 @@ type Preview = { kind: 'idle' } | { kind: 'loading' } | { kind: 'ready'; report:
  * destination (a drop in the tree); the live preview says which notes go and
  * which links are rewritten.
  */
-export function FolderMoveDialog({ path, initialParent, onClose, onMoved }: {
+export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStarted }: {
   path: string
   initialParent?: string
   onClose: () => void
   onMoved: (report: FolderMoveReport) => void
+  /** The folder is in place and its links are still being rewritten. */
+  onStarted: (job: MoveJob) => void
 }) {
   const t = useT()
   const [name, setName] = useState(baseName(path))
@@ -120,7 +122,9 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved }: {
     setBusy(true)
     setError(null)
     try {
-      onMoved(await api.moveFolder(path, report.to))
+      const r = await api.startMoveFolder(path, report.to)
+      if ('job' in r) onStarted(r.job)
+      else onMoved(r.report)
     } catch (err) {
       setError(folderError(t, err))
       setBusy(false)

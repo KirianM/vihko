@@ -5,7 +5,7 @@ import { startCompletion } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from 'react-aria-components'
-import { api, type MoveReport, type ServerConfig, type User } from '../api.ts'
+import { api, type MoveJob, type MoveReport, type ServerConfig, type User } from '../api.ts'
 import { INSERT_IMAGE } from '../commands.ts'
 import { useTheme } from '../theme.ts'
 import { userColor } from '../userColor.ts'
@@ -129,6 +129,8 @@ interface Props {
   onNavigate: (p: string) => void
   /** The note changed path (renamed by you or someone else): reopen it there. With the report when you did it. */
   onMoved: (to: string, report?: MoveReport) => void
+  /** You moved it and the links are still being rewritten in the background. */
+  onMoveStarted: (job: MoveJob) => void
   onTrashed: (t: Trashed) => void
   /** Template notes (thoth.yaml), offered when creating a note from a broken link. */
   templates: readonly string[]
@@ -136,7 +138,7 @@ interface Props {
   onCreated: (path: string) => void
 }
 
-export function NoteView({ path, user, daily, onNavigate, onMoved, onTrashed, templates, onCreated }: Props) {
+export function NoteView({ path, user, daily, onNavigate, onMoved, onMoveStarted, onTrashed, templates, onCreated }: Props) {
   const c = useCollab(path)
   const [linkData, setLinkData] = useState<LinksData | null>(null)
   const links = useMemo(
@@ -193,7 +195,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onTrashed, te
         <SearchButton />
         <ThemeToggle />
         <PanelToggle panel={panel} />
-        <NoteActions path={path} onMoved={onMoved} onTrashed={(id) => onTrashed({ id, path, by: null })} onInsertImage={images.openInsert} />
+        <NoteActions path={path} onMoved={onMoved} onMoveStarted={onMoveStarted} onTrashed={(id) => onTrashed({ id, path, by: null })} onInsertImage={images.openInsert} />
       </header>
       {c.orphaned && <OrphanBanner path={path} />}
       <CreateLinkUi state={createLink} />
