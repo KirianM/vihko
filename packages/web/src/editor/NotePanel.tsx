@@ -195,6 +195,8 @@ function ThreadCard({ tv, original, active, color, onSelect, onReply, onResolve 
 }) {
   const t = useT()
   const [replying, setReplying] = useState(false)
+  // Resolving deletes the thread from the note, and until there is history (M2) nothing brings it back: asked first.
+  const [confirming, setConfirming] = useState(false)
   const { thread, quote } = tv
   return (
     <article className={active ? 'thread thread-active' : 'thread'} data-thread={thread.id}>
@@ -216,10 +218,18 @@ function ThreadCard({ tv, original, active, color, onSelect, onReply, onResolve 
       ))}
       {replying ? (
         <Composer label={t('comments.replyPlaceholder')} submit={t('comments.reply')} onSend={(text) => { onReply(text); setReplying(false) }} onCancel={() => setReplying(false)} />
+      ) : confirming ? (
+        <div className="thread-confirm" role="group" aria-label={t('comments.resolve')}>
+          <p>{t('comments.resolveConfirm')}</p>
+          <div className="thread-actions">
+            <Button className="btn btn-sm" autoFocus onPress={() => setConfirming(false)}>{t('common.cancel')}</Button>
+            <Button className="btn btn-sm btn-danger" onPress={() => { setConfirming(false); onResolve() }}>{t('comments.resolveYes')}</Button>
+          </div>
+        </div>
       ) : (
         <div className="thread-actions">
           <Button className="btn btn-sm" onPress={() => setReplying(true)}>{t('comments.reply')}</Button>
-          <Button className="btn btn-sm" onPress={onResolve}>{t('comments.resolve')}</Button>
+          <Button className="btn btn-sm" onPress={() => setConfirming(true)}>{t('comments.resolve')}</Button>
         </div>
       )}
     </article>
