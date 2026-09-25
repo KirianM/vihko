@@ -73,6 +73,13 @@ export interface ScanOptions {
   confirmRemoval?: number
 }
 
+/** What a scan or a batch changed in the index (`Indexer.onApplied`). */
+export interface AppliedChanges {
+  upserts: { path: string; text: string; mtimeMs: number }[]
+  removed: string[]
+  moved: { from: string; to: string }[]
+}
+
 interface Row { path: string; uid: string | null; hash: string; mtime_ms: number; size: number }
 interface Upsert { path: string; text: string; hash: string; stat: Stats }
 
@@ -100,6 +107,14 @@ export class Indexer {
 
   /** Called with the moves made outside thoth that a scan or a watcher batch detects. */
   onMoves: ((moves: DetectedMove[]) => void) | null
+
+  /**
+   * Called with what a scan or a batch applied, before its moves are
+   * announced: notes indexed with their text, notes removed and notes moved
+   * (whose new path is among the indexed ones). The history compares them
+   * with what it knows.
+   */
+  onApplied: ((applied: AppliedChanges) => void) | null = null
 
   /** Notes that left or entered the index in recent batches without a pair yet (moves.ts). */
   private recent: { removed: (MoveCandidate & { at: number })[]; added: (MoveCandidate & { at: number })[] } = { removed: [], added: [] }
@@ -174,6 +189,7 @@ export class Indexer {
     }
 
     this.apply(upserts, touch, report.aborted ? [] : gone, conflicts)
+    this.applied(upserts, report)
     this.announce(report)
     // Like notes, folders aren't dropped by a scan that stopped (an unmounted share looks empty).
     if (!report.aborted) this.db.transaction(() => {
@@ -236,6 +252,7 @@ export class Indexer {
     const removed = [...report.removed]
     if (detectMoves) this.commitMoves(this.pairMoves(gone, upserts, report), report)
     this.apply(upserts, touch, removed, null, conflictsNow, conflictsGone)
+    this.applied(upserts, report)
     if (detectMoves) this.announce(report)
     // A note in a folder the index hadn't seen yet (created by thoth or from outside).
     if (report.added.length) {
@@ -288,6 +305,15 @@ export class Indexer {
     const strip = ({ recent: _r, ...c }: MoveCandidate) => c
     this.recent.removed = [...this.recent.removed.filter((c) => !from.has(c.path)), ...m.removed.map((c) => ({ ...strip(c), at: m.now }))]
     this.recent.added = [...this.recent.added.filter((c) => !to.has(c.path)), ...m.added.map((c) => ({ ...strip(c), at: m.now }))]
+  }
+
+  private applied(upserts: Upsert[], report: ScanReport) {
+    if (!this.onApplied || (upserts.length === 0 && report.removed.length === 0 && report.moved.length === 0)) return
+    this.onApplied({
+      upserts: upserts.map((u) => ({ path: u.path, text: u.text, mtimeMs: u.stat.mtimeMs })),
+      removed: report.removed,
+      moved: report.moved.map((m) => ({ from: m.from, to: m.to })),
+    })
   }
 
   private announce(report: ScanReport) {

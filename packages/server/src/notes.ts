@@ -1,7 +1,7 @@
 // Note service: the system's only write point (UI, API and MCP all go
 // through here). Optimistic concurrency by hash, safe writes
 // (fsutil.ts), lazy `uid` and deletion to trash.
-import { existsSync, mkdirSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix } from 'node:path'
 import { addToFrontmatterList, classifyPath, contentHash, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@thoth/core'
 import { commitText, createFile, linkNew, readStable, readText } from './fsutil.ts'
@@ -10,9 +10,25 @@ import { applyReplacements, beforeMoves, keptLinks, planImageRelinks, planLinks,
 import type { Indexer } from './indexer.ts'
 import { applySplices, spliceOf, type Splice } from './edits.ts'
 import type { Db } from './db.ts'
-import type { Actor } from './actor.ts'
+import type { Actor, Reason } from './actor.ts'
+import type { FileChange, WriteHandle } from './history/recorder.ts'
 
 export type { Actor, Reason } from './actor.ts'
+
+/**
+ * What the note service tells the history (history/recorder.ts): each write
+ * right before it happens, `done` once it's on disk (or `abort`), and
+ * operations whose writes are one commit.
+ */
+export interface NoteHistory {
+  prepare(changes: FileChange[], opts: { actor: Actor; reason?: Reason; immediate?: boolean }): WriteHandle
+  operation<T>(actor: Actor, reason: Reason | null, fn: () => Promise<T>): Promise<T>
+}
+
+const NO_HISTORY: NoteHistory = {
+  prepare: () => ({ done() {}, abort() {} }),
+  operation: (_a, _r, fn) => fn(),
+}
 
 export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'edit_mismatch' | 'too_large' | 'unsupported_type' | 'not_configured' | 'not_empty'
 
@@ -73,6 +89,8 @@ export interface NoteServiceOptions {
    * folder of images moves with it).
    */
   attachments?: () => AttachmentsConfig
+  /** The history: every write is recorded with its actor (M2). */
+  history?: NoteHistory
 }
 
 export const DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -178,6 +196,16 @@ export interface MoveHooks {
   onProgress?: (done: number, total: number) => void
 }
 
+/**
+ * What restoring a version did: the note's new ETag, the images it brought
+ * back, and those it couldn't: not in that version's commit, or a different
+ * file already at that path (never overwritten).
+ */
+export interface RestoreReport {
+  etag: string
+  images: { restored: string[]; missing: { path: string; reason: 'not_in_history' | 'exists' }[] }
+}
+
 export interface TrashEntry {
   id: string
   path: string
@@ -189,6 +217,7 @@ export interface TrashEntry {
 export class NoteService {
   private opts: NoteServiceOptions
   private uidKey: string
+  private history: NoteHistory
 
   readonly maxImageBytes: number
 
@@ -196,6 +225,7 @@ export class NoteService {
     this.opts = opts
     this.uidKey = opts.uidKey ?? 'uid'
     this.maxImageBytes = opts.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES
+    this.history = opts.history ?? NO_HISTORY
   }
 
   /** Validates a note path: relative, no `..`, no hidden segments, ending in `.md`. */
@@ -231,13 +261,18 @@ export class NoteService {
    * (a copy of another note, such as a template) a `uid` already in the text
    * is replaced, so the copy doesn't share its identity.
    */
-  async create(path: string, text: string, _actor: Actor, opts: { freshUid?: boolean } = {}): Promise<{ path: string; etag: string; uid: string | null }> {
+  async create(path: string, text: string, actor: Actor, opts: { freshUid?: boolean; reason?: Reason } = {}): Promise<{ path: string; etag: string; uid: string | null }> {
     const file = this.file(path)
     mkdirSync(dirname(file), { recursive: true })
     if (opts.freshUid && this.uidIn(text)) text = setFrontmatterKey(text, this.uidKey, newUid())
     const withUid = this.ensureUid(text, null)
-    const r = await commitText(file, withUid.text, null)
-    if (!r.ok) throw new NoteError('exists', `already exists: ${path}`, r.current === null ? null : contentHash(r.current))
+    const w = this.history.prepare([{ path, after: withUid.text }], { actor, reason: opts.reason, immediate: true })
+    const r = await commitText(file, withUid.text, null).catch((err) => { w.abort(); throw err })
+    if (!r.ok) {
+      w.abort()
+      throw new NoteError('exists', `already exists: ${path}`, r.current === null ? null : contentHash(r.current))
+    }
+    w.done()
     this.opts.indexer.indexPaths([path])
     return { path, etag: contentHash(withUid.text), uid: withUid.uid }
   }
@@ -265,10 +300,13 @@ export class NoteService {
     const oldUid = this.uidIn(current)
     const next = this.ensureUid(changedText(current, fn(current)), oldUid).text
     if (next === current) return { etag: currentHash }
-    const r = await commitText(file, next, currentHash)
+    const w = this.history.prepare([{ path, before: current, after: next }], { actor: opts.actor })
+    const r = await commitText(file, next, currentHash).catch((err) => { w.abort(); throw err })
     if (!r.ok) {
+      w.abort()
       throw new NoteError('precondition_failed', `the note changed during the write: ${path}`, r.current === null ? null : contentHash(r.current))
     }
+    w.done()
     this.opts.indexer.indexPaths([path])
     return { etag: contentHash(next) }
   }
@@ -287,12 +325,20 @@ export class NoteService {
     // First it's set aside within the same filesystem (atomic rename), then we
     // check that what was set aside is what was meant to be deleted.
     const aside = join(dirname(file), `.${posix.basename(path)}.thoth-del-${process.pid}-${Date.now()}`)
-    renameSync(file, aside)
+    const w = this.history.prepare([{ path, before: current, after: null }], { actor: opts.actor, immediate: true })
+    try {
+      renameSync(file, aside)
+    } catch (err) {
+      w.abort()
+      throw err
+    }
     const moved = readText(aside)
     if (moved === null || contentHash(moved) !== hash) {
       renameSync(aside, file)
+      w.abort()
       throw new NoteError('precondition_failed', `the note changed during deletion: ${path}`, moved === null ? null : contentHash(moved))
     }
+    w.done()
     const entry: TrashEntry = { id, path, deletedAt: new Date().toISOString(), actor: opts.actor, etag: hash }
     const dir = join(this.opts.stateDir, 'trash', entry.id)
     mkdirSync(dir, { recursive: true })
@@ -332,7 +378,8 @@ export class NoteService {
       // The rest of the notes, as the system. The plan is recalculated over the
       // current text: links to the note, and references to images in its folder of images.
       const system: Actor = { kind: 'system', reason: { code: 'note_moved', from, to, by: opts.actor } }
-      await this.rewriteAll(others.map((src) => ({ path: src, change: (t: string) => movedNotePlan(t, src, src, before, after, map, place).splices })), system, report.failed, opts.onProgress)
+      await this.history.operation(system, null, () =>
+        this.rewriteAll(others.map((src) => ({ path: src, change: (t: string) => movedNotePlan(t, src, src, before, after, map, place).splices })), system, report.failed, opts.onProgress))
 
       // Safety net: if something couldn't be rewritten, the old name stays as an alias.
       // Not when aliases don't resolve links (thoth.yaml): it would save nothing.
@@ -441,6 +488,14 @@ export class NoteService {
     // placed are removed again: everything stays as it was.
     const newText = this.ensureUid(final.text, this.uidIn(text)).text
     const aside = join(dirname(fromFile), `.${posix.basename(from)}.thoth-mv-${process.pid}-${Date.now()}`)
+    // One version by whoever moves it: the note renamed (with its own links
+    // rewritten), and its images and folder of images renamed with it.
+    const moved: FileChange[] = [
+      { path: to, from, before: text, after: newText },
+      ...placed.map((p) => ({ path: p.to, from: p.from })),
+      ...(folder ? [{ path: folder.to, from: folder.from, folder: true }] : []),
+    ]
+    const w = this.history.prepare(moved, { actor: opts.actor, immediate: true })
     try {
       mkdirSync(dirname(toFile), { recursive: true })
       const created = await commitText(toFile, newText, null)
@@ -460,6 +515,7 @@ export class NoteService {
       }
     } catch (err) {
       unplace()
+      w.abort()
       throw err
     }
     rmSync(aside)
@@ -467,13 +523,17 @@ export class NoteService {
     if (folder) this.opts.indexer.indexFolders([folder.from, folder.to])
 
     // 3. The note links its images at their new names: the originals go.
+    const copied = new Set<string>()
     for (const p of placed) {
       try {
         this.removeOriginal(p.from, p.to)
       } catch (err) {
         report.images.failed.push({ path: p.from, to: p.to, outcome: 'copied', ...failure(err) })
+        copied.add(p.to)
       }
     }
+    // An image whose original couldn't be removed is a copy, not a rename.
+    w.done(moved.map((c) => (copied.has(c.path) ? { path: c.path, after: readFileSync(join(this.opts.notesDir, c.path)) } : c)))
 
     return result
   }
@@ -557,7 +617,7 @@ export class NoteService {
       if (opts.dryRun) return report
       opts.onMoved?.(plan.items.length)
       const system: Actor = { kind: 'system', reason: { code: 'links_after_external_move', moves: plan.moves, by: opts.actor } }
-      await this.rewriteAll(plan.items, system, report.failed, opts.onProgress)
+      await this.history.operation(system, null, () => this.rewriteAll(plan.items, system, report.failed, opts.onProgress))
       return report
     }
     return opts.dryRun ? run() : this.oneMoveAtATime(run)
@@ -736,14 +796,17 @@ export class NoteService {
         if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw new NoteError('exists', `already exists: ${to}`)
         throw err
       }
+      const w = this.history.prepare([{ path: to, from, folder: true }], { actor: opts.actor, immediate: true })
       try {
         renameSync(fromDir, toDir)
       } catch (err) {
+        w.abort()
         try { rmdirSync(toDir) } catch { /* not ours any more: left as it is */ }
         const code = (err as NodeJS.ErrnoException).code
         if (code === 'ENOTEMPTY' || code === 'EEXIST') throw new NoteError('exists', `already exists: ${to}`)
         throw err
       }
+      w.done()
       // Recorded as thoth's own change before anything else runs: the watcher and
       // the rescan find the index already in step (no mass removal, no external change).
       this.opts.indexer.indexPaths([...inside.map((p) => `${from}/${p}`), ...inside.map((p) => `${to}/${p}`)])
@@ -762,10 +825,10 @@ export class NoteService {
 
     // 2. The moved notes' own links and image references, then the rest of the
     // notes, as the system, recalculated over the current text.
-    await this.rewriteAll([
+    await this.history.operation(system, null, () => this.rewriteAll([
       ...own.map(([f, t]) => ({ path: t, change: (x: string) => movedNotePlan(x, f, t, before, after, map, place).splices })),
       ...others.map((src) => ({ path: src, change: (x: string) => movedNotePlan(x, src, src, before, after, map, place).splices })),
-    ], system, report.failed, opts.onProgress)
+    ], system, report.failed, opts.onProgress))
     return report
   }
 
@@ -897,7 +960,7 @@ export class NoteService {
    * touched; the editor inserts the link. Writing next to a note needs the same
    * access as writing the note: per-folder permissions (D-014) apply here.
    */
-  async attach(notePath: string, bytes: Uint8Array, _actor: Actor, now = new Date()): Promise<{ path: string; src: string }> {
+  async attach(notePath: string, bytes: Uint8Array, actor: Actor, now = new Date()): Promise<{ path: string; src: string }> {
     this.read(notePath) // the note must exist (404 otherwise)
     if (bytes.byteLength > this.maxImageBytes) throw new NoteError('too_large', `${bytes.byteLength} bytes, the limit is ${this.maxImageBytes}`)
     const type = sniffImage(bytes)
@@ -907,9 +970,24 @@ export class NoteService {
       const path = attachmentPath(notePath, type.ext, now, n, config)
       const file = join(this.opts.notesDir, path)
       mkdirSync(dirname(file), { recursive: true })
-      if (createFile(file, bytes)) return { path, src: posix.relative(posix.dirname(notePath), path) }
+      if (this.createNewFile(path, bytes, actor)) return { path, src: posix.relative(posix.dirname(notePath), path) }
     }
     throw new NoteError('exists', `no free name for an image of ${notePath}`)
+  }
+
+  /** Creates a file that isn't a note, never over another; false if the name is taken. */
+  private createNewFile(path: string, bytes: Uint8Array, actor: Actor): boolean {
+    const w = this.history.prepare([{ path, after: bytes }], { actor, immediate: true })
+    let created: boolean
+    try {
+      created = createFile(join(this.opts.notesDir, path), bytes)
+    } catch (err) {
+      w.abort()
+      throw err
+    }
+    if (created) w.done()
+    else w.abort()
+    return created
   }
 
   trash(): TrashEntry[] {
@@ -920,7 +998,7 @@ export class NoteService {
   }
 
   /** Restores from the trash to its original path (or to `to`). Never overwrites. */
-  async restore(id: string, _actor: Actor, to?: string): Promise<{ path: string; etag: string }> {
+  async restore(id: string, actor: Actor, to?: string): Promise<{ path: string; etag: string }> {
     const dir = join(this.opts.stateDir, 'trash', id)
     const meta = readText(join(dir, 'meta.json'))
     if (meta === null) throw new NoteError('not_found', `not in the trash: ${id}`)
@@ -929,11 +1007,58 @@ export class NoteService {
     const path = to ?? entry.path
     const file = this.file(path)
     mkdirSync(dirname(file), { recursive: true })
-    const r = await commitText(file, text, null)
-    if (!r.ok) throw new NoteError('exists', `already exists: ${path}`)
+    const w = this.history.prepare([{ path, after: text }], { actor, reason: { code: 'trash_restored', id }, immediate: true })
+    const r = await commitText(file, text, null).catch((err) => { w.abort(); throw err })
+    if (!r.ok) {
+      w.abort()
+      throw new NoteError('exists', `already exists: ${path}`)
+    }
+    w.done()
     rmSync(dir, { recursive: true })
     this.opts.indexer.indexPaths([path])
     return { path, etag: contentHash(text) }
+  }
+
+  /**
+   * Brings back a version of a note from the history (D-016): its text is
+   * written like any edit (an open note changes live for its editors), and
+   * the images it linked that no longer exist come back from the same commit
+   * (`file`), never over an existing file. One commit, by `actor`, with the
+   * reason `restored`. A note that no longer exists is created again.
+   */
+  async restoreVersion(path: string, version: { id: string; at: string; path: string; text: string }, opts: { ifMatch?: string; actor: Actor; file: (path: string) => Promise<Uint8Array | null> }): Promise<RestoreReport> {
+    const file = this.file(path)
+    const reason: Reason = { code: 'restored', id: version.id, at: version.at }
+    return this.history.operation(opts.actor, reason, async () => {
+      let etag: string
+      if (this.opts.hot?.has(path) || readText(file) !== null) {
+        etag = (await this.edit(path, () => version.text, { ifMatch: opts.ifMatch, actor: opts.actor })).etag
+      } else {
+        if (opts.ifMatch !== undefined) throw new NoteError('precondition_failed', `the note doesn't exist: ${path}`)
+        etag = (await this.create(path, version.text, opts.actor)).etag
+      }
+      const images: RestoreReport['images'] = { restored: [], missing: [] }
+      const seen = new Set<string>()
+      for (const img of extract(version.text).images) {
+        const embed = img.kind === 'embed' || img.kind === 'wiki'
+        // Where the restored note looks for it, and where it was in that version (the note may have moved since).
+        const target = resolveImageRef(path, img.dest, { embed })
+        const source = resolveImageRef(version.path, img.dest, { embed })
+        if (target === null || source === null || seen.has(target) || classifyPath(target) !== 'other') continue
+        seen.add(target)
+        const bytes = await opts.file(source)
+        const abs = join(this.opts.notesDir, target)
+        if (this.isFile(target)) {
+          if (bytes !== null && !Buffer.from(bytes).equals(readFileSync(abs))) images.missing.push({ path: target, reason: 'exists' })
+          continue
+        }
+        if (bytes === null) { images.missing.push({ path: target, reason: 'not_in_history' }); continue }
+        mkdirSync(dirname(abs), { recursive: true })
+        if (this.createNewFile(target, bytes, opts.actor)) images.restored.push(target)
+        else images.missing.push({ path: target, reason: 'exists' })
+      }
+      return { etag, images }
+    })
   }
 
   private uidIn(text: string): string | null {
