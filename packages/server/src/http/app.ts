@@ -185,6 +185,24 @@ export function createApp(deps: AppDeps) {
     return c.json({ notes: rows, folders })
   })
 
+  // Tags with how many notes carry each one (D-019: case-insensitive, nested
+  // with `/`). A parent that nobody writes on its own (`hogar` when only
+  // `hogar/red` exists) is listed too: `count` is the notes with exactly that
+  // tag and `total` those with it or any nested under it.
+  app.get('/api/tags', (c) => {
+    const exact = new Map<string, Set<string>>()
+    const total = new Map<string, Set<string>>()
+    const add = (m: Map<string, Set<string>>, tag: string, path: string) => { let s = m.get(tag); if (!s) m.set(tag, (s = new Set())); s.add(path) }
+    for (const r of index.prepare('select distinct path, tag from tags').all() as { path: string; tag: string }[]) {
+      add(exact, r.tag, r.path)
+      const parts = r.tag.split('/')
+      for (let i = 1; i <= parts.length; i++) add(total, parts.slice(0, i).join('/'), r.path)
+    }
+    const tags = [...total].map(([tag, paths]) => ({ tag, count: exact.get(tag)?.size ?? 0, total: paths.size }))
+    tags.sort((a, b) => (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0))
+    return c.json({ tags })
+  })
+
   // Folders only exist on disk: these create, move (with every note in them,
   // links kept as in a note move) and delete them (only when empty).
   app.post('/api/folder', async (c) => {
