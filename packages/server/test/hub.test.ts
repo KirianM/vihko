@@ -88,7 +88,7 @@ test('server crash with unflushed edits: they recover on startup', async () => {
     srv = await startServer(env)
     await waitFor(() => readFileSync(file, 'utf8').includes('UNFLUSHED-9'), 'recovery')
     for (let i = 0; i < 10; i++) assert.ok(readFileSync(file, 'utf8').includes(`UNFLUSHED-${i}\n`))
-    await waitFor(() => readdirSync(join(env.THOTH_STATE_DIR!, 'collab')).length === 0, 'log recovered and removed')
+    await waitFor(() => readdirSync(join(env.THOTH_STATE_DIR!, 'collab')).every((f) => !f.endsWith('.ylog')), 'log recovered and removed')
   } finally { closeAll(); await srv.stop() }
 })
 
@@ -306,5 +306,38 @@ test('trashing an open note tells its editors the entry, and restoring it reopen
     a.close()
     const c = await connect(srv, cookie, NOTE)
     assert.equal(c.text(), back)
+  } finally { closeAll(); await srv.stop() }
+})
+
+// An open tab keeps its document when the connection drops. Reopened from
+// the file alone, the hub's document would have a new Yjs identity and the
+// tab's resync would add a second copy of the whole text.
+test('an editor that lost its connection resyncs without duplicating the note', async () => {
+  const { notes, env } = makeDirs()
+  let srv = await startServer(env)
+  const file = join(notes, NOTE)
+  try {
+    let cookie = await login(srv)
+    const a = await connect(srv, cookie, NOTE)
+    typeLine(a, 'BEFORE-DROP')
+    await waitFor(() => readFileSync(file, 'utf8').includes('BEFORE-DROP'), 'flush')
+    // 1. Network drop: the hub closes the document when its last editor leaves.
+    ;(a.provider.configuration.websocketProvider as unknown as { webSocket: WebSocket }).webSocket.close()
+    await waitFor(() => !a.provider.isSynced, 'disconnected')
+    typeLine(a, 'OFFLINE-1')
+    await waitFor(() => a.provider.isSynced && a.provider.unsyncedChanges === 0, 'resync', 15000)
+    // 2. Server restart, with a change made to the closed note meanwhile.
+    await srv.stop()
+    writeFileSync(file, readFileSync(file, 'utf8') + 'EDITED-WHILE-DOWN\n')
+    typeLine(a, 'OFFLINE-2')
+    srv = await startServer(env)
+    cookie = await login(srv)
+    await waitFor(() => a.provider.isSynced && a.provider.unsyncedChanges === 0 && a.text().includes('EDITED-WHILE-DOWN'), 'resync after the restart', 15000)
+    const b = await connect(srv, cookie, NOTE)
+    await waitFor(() => b.text() === a.text() && readFileSync(file, 'utf8') === a.text(), 'convergence')
+    const text = a.text()
+    for (const line of ['# Proxy', '## Red', 'BEFORE-DROP', 'OFFLINE-1', 'OFFLINE-2', 'EDITED-WHILE-DOWN']) {
+      assert.equal(text.split('\n').filter((l) => l === line).length, 1, `${line} exactly once in:\n${text}`)
+    }
   } finally { closeAll(); await srv.stop() }
 })
