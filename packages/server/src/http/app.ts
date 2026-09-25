@@ -2,6 +2,7 @@
 // integraciones con API keys llegará en M3 y será opcional (D-010).
 import { Hono, type Context } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
+import { serveStatic } from '@hono/node-server/serve-static'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AuthError, type Auth, type User } from '../auth.ts'
@@ -33,6 +34,15 @@ export interface AppDeps {
   indexer: Indexer
   notesDir: string
   runtime: Runtime
+  /** UI compilada (packages/web/dist). Sin ella, el servidor solo expone la API. */
+  webDir?: string
+}
+
+// La UI solo habla con su propio origen: ni CDNs ni terceros (regla 4).
+const UI_HEADERS = {
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'same-origin',
 }
 
 type Env = { Variables: { user: User; token: string } }
@@ -229,6 +239,26 @@ export function createApp(deps: AppDeps) {
     const { username, password, role } = await c.req.json<{ username: string; password: string; role?: 'admin' | 'member' }>()
     return c.json({ user: await auth.createUser(username, password, role ?? 'member') }, 201)
   })
+
+  app.all('/api/*', (c) => c.json({ error: 'not_found', message: 'no existe' }, 404))
+
+  if (deps.webDir) {
+    const root = deps.webDir
+    app.use('*', async (c, next) => {
+      await next()
+      for (const [k, v] of Object.entries(UI_HEADERS)) c.header(k, v)
+      // index.html sin caché, para que una actualización se vea al recargar.
+      if (c.res.headers.get('content-type')?.startsWith('text/html')) c.header('Cache-Control', 'no-cache')
+    })
+    // Los assets llevan hash en el nombre: se pueden cachear para siempre.
+    app.use('/assets/*', async (c, next) => {
+      await next()
+      if (c.res.ok) c.header('Cache-Control', 'public, max-age=31536000, immutable')
+    })
+    app.get('*', serveStatic({ root }))
+    // Cualquier otra ruta es de la aplicación (SPA): index.html.
+    app.get('*', serveStatic({ root, path: 'index.html' }))
+  }
 
   return app
 }
