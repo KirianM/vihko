@@ -5,7 +5,7 @@ import { mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:
 import { dirname, join, posix } from 'node:path'
 import { addToFrontmatterList, classifyPath, contentHash, newUid, normKey, pathKeys, readFrontmatter, setFrontmatterKey } from '@thoth/core'
 import { commitText, readStable, readText } from './fsutil.ts'
-import { applyReplacements, planRelinks } from './relink.ts'
+import { applyReplacements, keptLinks, planRelinks, type Replacement } from './relink.ts'
 import type { Indexer } from './indexer.ts'
 import type { Db } from './db.ts'
 
@@ -55,8 +55,13 @@ export interface NoteServiceOptions {
 export interface MoveReport {
   from: string
   to: string
-  /** Notas cuyos enlaces se reescriben (o se reescribirían, en dryRun), con el número de enlaces. */
-  relinked: { path: string; links: number }[]
+  /**
+   * Notes whose links are rewritten (or would be, in dryRun): number of links and
+   * each change, text before and after.
+   */
+  relinked: { path: string; links: number; changes: { before: string; after: string }[] }[]
+  /** Links to the note that keep working untouched: through an alias (`via: 'alias'`) or by name or path. */
+  kept: { path: string; raw: string; via: 'path' | 'alias' }[]
   /** Notas que no se pudieron reescribir. */
   failed: { path: string; reason: string }[]
   /** Se añadió el nombre antiguo como alias porque alguna reescritura falló (D-018). */
@@ -83,6 +88,7 @@ export class NoteService {
 
   /** Valida una ruta de nota: relativa, sin `..`, sin segmentos ocultos, terminada en `.md`. */
   static checkPath(path: string): string {
+    if (typeof path !== 'string' || path === '') throw new NoteError('invalid_path', `invalid note path: ${String(path)}`)
     const norm = posix.normalize(path)
     if (path !== norm || path.startsWith('/') || norm.split('/').includes('..') || classifyPath(norm) !== 'note') {
       throw new NoteError('invalid_path', `ruta de nota no válida: ${path}`)
@@ -211,15 +217,17 @@ export class NoteService {
     const byKey = this.opts.db.prepare('select distinct src_path from links where key = ?')
     for (const k of affected) for (const r of byKey.all(k) as { src_path: string }[]) sources.add(r.src_path)
 
-    const report: MoveReport = { from, to, relinked: [], failed: [], aliasAdded: null, dryRun: !!opts.dryRun }
+    const report: MoveReport = { from, to, relinked: [], kept: [], failed: [], aliasAdded: null, dryRun: !!opts.dryRun }
+    const changes = (t: string, reps: Replacement[]) => reps.map((r) => ({ before: t.slice(r.from, r.to), after: r.text }))
     const movedReps = planRelinks(text, from, to, before, after, map)
-    if (movedReps.length) report.relinked.push({ path: to, links: movedReps.length })
+    if (movedReps.length) report.relinked.push({ path: to, links: movedReps.length, changes: changes(text, movedReps) })
     const others: string[] = []
     for (const src of [...sources].filter((p) => p !== from).sort()) {
       const t = readText(this.file(src))
       if (t === null) continue
       const reps = planRelinks(t, src, src, before, after, map)
-      if (reps.length) { report.relinked.push({ path: src, links: reps.length }); others.push(src) }
+      if (reps.length) { report.relinked.push({ path: src, links: reps.length, changes: changes(t, reps) }); others.push(src) }
+      for (const k of keptLinks(t, src, before, after, from, to)) report.kept.push({ path: src, ...k })
     }
     if (opts.dryRun) return report
 
