@@ -266,7 +266,7 @@ export function createApp(deps: AppDeps) {
   // The workspace settings the UI needs from thoth.yaml (reloaded when it changes).
   app.get('/api/workspace', (c) => {
     const w = workspace.config
-    return c.json({ daily: w.daily, templates: w.templates })
+    return c.json({ daily: w.daily, templates: w.templates, links: w.links })
   })
 
   app.get('/api/profile', (c) => c.json(profiles.get(c.get('user').id)))

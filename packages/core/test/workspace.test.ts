@@ -47,6 +47,18 @@ attachments:
   ])
 })
 
+test('thoth.yaml: links.aliases turns alias resolution off; on by default', () => {
+  assert.equal(EMPTY_WORKSPACE.links.aliases, true)
+  const off = parseWorkspaceConfig('links:\n  aliases: false\n')
+  assert.ok(off.ok)
+  assert.deepEqual(off.config.links, { aliases: false })
+  const on = parseWorkspaceConfig('links:\n  aliases: true\n')
+  assert.ok(on.ok && on.config.links.aliases)
+  assert.deepEqual(errors('links:\n  aliases: "no"\n'), [['not_boolean', 'links.aliases', 2]])
+  assert.deepEqual(errors('links: false\n'), [['not_a_map', 'links', 1]])
+  assert.deepEqual(warnings('links:\n  alias: false\n'), [['unknown_key', 'links.alias', 2]])
+})
+
 test('thoth.yaml: YAML errors carry their line', () => {
   assert.deepEqual(errors('daily:\n  diario:\n    folder: [unclosed\n'), [['yaml', null, 4]])
   assert.deepEqual(errors('templates: a\ntemplates: b\n'), [['yaml', null, 2]], 'duplicate keys')

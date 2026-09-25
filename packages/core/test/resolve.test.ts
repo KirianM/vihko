@@ -131,3 +131,14 @@ test('shortestTarget: the name, a longer suffix if ambiguous, the absolute path 
   idx.set({ path: 'b/Otra.md' })
   assert.equal(shortestTarget(idx, 'x.md', 'b/Otra.md'), 'Otra')
 })
+
+test('with aliases off, an alias resolves nothing; names, paths and anchors still do', () => {
+  const index = new LinkIndex({ aliases: false })
+  index.set({ path: 'hogar/Proxy.md', aliases: ['gw'], headings: ['Red'] })
+  const r = (target: string, anchor: string | null = null) => index.resolve('hogar/enlaces.md', { kind: 'wiki', target, anchor })
+  assert.deepEqual(r('gw'), { status: 'missing' })
+  assert.deepEqual(r('proxy', 'red'), { status: 'resolved', path: 'hogar/Proxy.md', anchor: 'ok', via: 'path' })
+  assert.equal(index.clone().aliases, false, 'a copy keeps the setting')
+  index.aliases = true
+  assert.deepEqual(r('gw'), { status: 'resolved', path: 'hogar/Proxy.md', anchor: null, via: 'alias' })
+})

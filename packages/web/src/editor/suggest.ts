@@ -91,10 +91,12 @@ interface Prepared { note: NoteEntry; title: string; name: string; path: string;
  */
 export class NoteCatalog {
   private readonly prepared: Prepared[]
-  private readonly index = new LinkIndex()
+  private readonly index: LinkIndex
   private readonly collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
-  constructor(notes: readonly NoteEntry[]) {
+  /** `aliases`: whether aliases resolve links (thoth.yaml). Either way they're suggested, and inserted as `[[Note|alias]]`. */
+  constructor(notes: readonly NoteEntry[], opts: { aliases?: boolean } = {}) {
+    this.index = new LinkIndex({ aliases: opts.aliases ?? true })
     this.prepared = notes.map((note) => ({
       note,
       title: fold(note.title || baseName(note.path)),

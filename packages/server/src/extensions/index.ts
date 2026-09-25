@@ -6,8 +6,8 @@ import { images } from './images.ts'
 import { linksExtension, type LinksExtension } from './links.ts'
 import { tags } from './tags.ts'
 
-export function builtinExtensions(): { all: Extension[]; links: LinksExtension } {
-  const links = linksExtension()
+export function builtinExtensions(opts: { linkAliases?: boolean } = {}): { all: Extension[]; links: LinksExtension } {
+  const links = linksExtension({ aliases: opts.linkAliases })
   return { all: [fts, links, images, tags, headings] as Extension[], links }
 }
 

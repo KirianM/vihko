@@ -26,9 +26,15 @@ export interface WorkspaceConfig {
   daily: Series[]
   /** Fixed folder for new images, or null to keep them next to their note (D-028). */
   attachments: { folder: string | null }
+  /**
+   * How links resolve. `aliases`: whether a note's frontmatter aliases
+   * resolve `[[links]]` (D-019, D-031.1). Off, `[[alias]]` is broken, as in
+   * Obsidian, and the editor inserts `[[Note|alias]]`.
+   */
+  links: { aliases: boolean }
 }
 
-export const EMPTY_WORKSPACE: WorkspaceConfig = { templates: null, daily: [], attachments: { folder: null } }
+export const EMPTY_WORKSPACE: WorkspaceConfig = { templates: null, daily: [], attachments: { folder: null }, links: { aliases: true } }
 
 /**
  * A problem in thoth.yaml. Stable codes; the UI words them.
@@ -38,6 +44,7 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = { templates: null, daily: [], at
  * - `not_a_map`: the file (or a section) isn't a set of `key: value`.
  * - `invalid_version`: `version` isn't a whole number from 1 up.
  * - `invalid_type`: a value of the wrong kind (`detail`: what was expected).
+ * - `not_boolean`: a switch that isn't `true` or `false`.
  * - `invalid_path`: a folder or note path that isn't relative to the notes
  *   root, climbs out of it or goes through a hidden folder.
  * - `invalid_id`: a series key that isn't letters, digits, `-` or `_`.
@@ -59,7 +66,7 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = { templates: null, daily: [], at
  * that comes with `section_rejected`.
  */
 export type ConfigErrorCode =
-  | 'yaml' | 'not_a_map' | 'invalid_version' | 'invalid_type'
+  | 'yaml' | 'not_a_map' | 'invalid_version' | 'invalid_type' | 'not_boolean'
   | 'invalid_path' | 'invalid_id' | 'pattern_token' | 'pattern_period' | 'unreadable'
   | 'unknown_key' | 'newer_version' | 'not_supported' | 'section_rejected'
 
@@ -109,7 +116,8 @@ const PERMISSIONS: StrictSection<null> = {
 
 export const STRICT_SECTIONS: readonly StrictSection[] = [PERMISSIONS]
 
-const TOP_KEYS = ['version', 'templates', 'daily', 'attachments']
+const TOP_KEYS = ['version', 'templates', 'daily', 'attachments', 'links']
+const LINKS_KEYS = ['aliases']
 const SERIES_KEYS = ['folder', 'name', 'template', 'label']
 const ATTACHMENT_KEYS = ['folder']
 const DEFAULT_NAME = '{YYYY}-{MM}-{DD}'
@@ -139,7 +147,7 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
   if (data === null || data === undefined) return { ok: true, config: EMPTY_WORKSPACE, warnings, sections }
   if (!isRecord(data)) return { ok: false, errors: [{ code: 'not_a_map', at: null, line: 1, detail: null }], warnings }
 
-  const config: WorkspaceConfig = { templates: null, daily: [], attachments: { folder: null } }
+  const config: WorkspaceConfig = { templates: null, daily: [], attachments: { folder: null }, links: { aliases: true } }
   const strictKeys = new Set(strict.map((s) => s.key))
   for (const key of Object.keys(data)) if (!TOP_KEYS.includes(key) && !strictKeys.has(key)) warn('unknown_key', [key])
 
@@ -164,6 +172,16 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
       for (const k of Object.keys(data.attachments)) if (!ATTACHMENT_KEYS.includes(k)) warn('unknown_key', ['attachments', k])
       const f = data.attachments.folder
       if (f !== undefined && f !== null) config.attachments.folder = folder(f, ['attachments', 'folder'])
+    }
+  }
+
+  if (data.links !== undefined && data.links !== null) {
+    if (!isRecord(data.links)) fail('not_a_map', ['links'])
+    else {
+      for (const k of Object.keys(data.links)) if (!LINKS_KEYS.includes(k)) warn('unknown_key', ['links', k])
+      const a = data.links.aliases
+      if (typeof a === 'boolean') config.links.aliases = a
+      else if (a !== undefined && a !== null) fail('not_boolean', ['links', 'aliases'])
     }
   }
 

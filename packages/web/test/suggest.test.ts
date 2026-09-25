@@ -89,6 +89,15 @@ test('linkTarget: the shortest link that resolves from the current note', () => 
   assert.deepEqual(catalog.displays('hogar/Proxy.md'), ['Proxy', 'gw', 'Hipervisor'])
 })
 
+test('with aliases off (thoth.yaml), aliases are still suggested but only resolve as visible text', () => {
+  const off = new NoteCatalog(NOTES, { aliases: false })
+  const gw = off.rank('hiper', 'x.md')[0]!
+  assert.deepEqual([gw.path, gw.alias], ['hogar/Proxy.md', 'Hipervisor'], 'still suggested, inserted as [[Proxy|Hipervisor]]')
+  assert.equal(off.linkTarget('hogar/enlaces.md', 'hogar/Proxy.md'), 'Proxy')
+  assert.equal(off.resolve('hogar/enlaces.md', 'gw'), null, '[[gw#… has no headings to offer')
+  assert.equal(off.resolve('hogar/enlaces.md', 'proxy'), 'hogar/Proxy.md')
+})
+
 test('headings and tags: filtered and ordered', () => {
   const hs = [{ level: 1, text: 'Proxy' }, { level: 2, text: 'Red' }, { level: 2, text: 'Almacenamiento' }, { level: 3, text: 'Red de gestión' }]
   assert.deepEqual(rankHeadings(hs, ''), hs)

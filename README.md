@@ -105,6 +105,8 @@ daily:                      # daily-note series; the first one is the default
     name: "{GGGG}-W{WW}"    # ISO week and its year
 attachments:
   folder: Attachments       # optional: new images go here instead of next to their note
+links:
+  aliases: true             # optional; false: frontmatter aliases don't resolve [[links]]
 ```
 
 - **Series patterns** take `{YYYY}`, `{MM}`, `{DD}`, `{GGGG}` (ISO week year),
@@ -120,6 +122,12 @@ attachments:
   `YYYY`, `YY`, `MM`, `M`, `DD`, `D`, `GGGG`, `WW`, `W`, `HH` and `mm`; text in
   `[brackets]` is literal (`{{date:[Week] W}}`). Anything else in `{{…}}` is
   left as is. The date is the person's, in their timezone.
+- **Aliases** in a note's frontmatter resolve `[[links]]` as a last resort,
+  after names and paths. Set `links.aliases: false` if the folder is shared
+  with a tool where they don't (Obsidian): `[[alias]]` is then a broken link,
+  autocomplete still offers aliases but inserts `[[Note|alias]]`, and a
+  rename that couldn't rewrite some link no longer adds the old name as an
+  alias. Changing it re-resolves every link without reindexing the notes.
 - **Versions and unknown keys:** `version` (1 if missing) says which format
   the file follows. A key thoth doesn't know (a typo, or a setting from a
   newer thoth) is ignored and listed in a workspace alert with its line; the

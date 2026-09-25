@@ -22,6 +22,8 @@ export interface IndexerOptions {
   keys?: Partial<FrontmatterKeys>
   /** Extensions besides the built-in ones. */
   extensions?: readonly Extension[]
+  /** Whether aliases resolve links (thoth.yaml `links.aliases`; on by default). `setLinkAliases` changes it. */
+  linkAliases?: boolean
 }
 
 /** Names of the frontmatter keys thoth understands (configurable). */
@@ -73,7 +75,7 @@ export class Indexer {
   constructor(opts: IndexerOptions) {
     this.opts = opts
     this.keys = { ...DEFAULT_KEYS, ...opts.keys }
-    const builtin = builtinExtensions()
+    const builtin = builtinExtensions({ linkAliases: opts.linkAliases })
     this.linkExt = builtin.links
     this.host = new ExtensionHost(opts.db, [...builtin.all, ...(opts.extensions ?? [])])
     this.pending = this.host.install()
@@ -86,6 +88,21 @@ export class Indexer {
 
   private get db() {
     return this.opts.db
+  }
+
+  /** Whether aliases resolve links. */
+  get linkAliases(): boolean {
+    return this.linkExt.aliases
+  }
+
+  /**
+   * Turns alias resolution on or off (thoth.yaml changed) and resolves every
+   * link again with the keys already indexed: no note is read or reindexed.
+   */
+  setLinkAliases(on: boolean) {
+    if (!this.linkExt.setAliases(on)) return
+    this.catchUp()
+    this.db.transaction(() => this.host.finalize({ indexed: new Set(), removed: new Set() }, new Set([this.linkExt.name])))()
   }
 
   /** Full scan of the folder. */

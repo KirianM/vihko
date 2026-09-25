@@ -9,7 +9,7 @@ export {
 } from './markdown.ts'
 export { markdownParser, thothSyntax } from './syntax.ts'
 export { caseFold } from './casefold.ts'
-export { LinkIndex, joinPath, normKey, pathKeys, shortestTarget, type NoteKeys, type Resolution } from './resolve.ts'
+export { LinkIndex, joinPath, normKey, pathKeys, shortestTarget, type LinkIndexOptions, type NoteKeys, type Resolution } from './resolve.ts'
 export { classifyPath, conflictOriginal, isIgnoredDir, type PathKind } from './paths.ts'
 export type { Alert, AlertAction, AlertCode, ErrorCode } from './codes.ts'
 export { newUid } from './uid.ts'

@@ -209,6 +209,36 @@ test('with templates configured, «create» asks which one', async () => {
   rmSync(`${NOTES}/thoth.yaml`, { force: true })
 })
 
+test('with links.aliases off in thoth.yaml, [[alias]] is broken and an alias is inserted as [[Note|alias]]', async () => {
+  const NOTE = `${DIR}/Apodos.md`
+  const status = async () => {
+    const links = await (await k.request.get(`/api/note/links?path=${encodeURIComponent(NOTE)}`)).json() as { outgoing: { raw: string; status: string }[] }
+    return links.outgoing.find((l) => l.raw === '[[Alias destino]]')?.status
+  }
+  writeFileSync(`${NOTES}/${NOTE}`, '# Apodos\n\nVer [[Alias destino]].\n')
+  await expect.poll(status).toBe('resolved')
+
+  writeFileSync(`${NOTES}/thoth.yaml`, 'links:\n  aliases: false\n')
+  await expect.poll(async () => (await (await k.request.get('/api/workspace')).json() as { links: { aliases: boolean } }).links.aliases).toBe(false)
+  await expect.poll(status).toBe('missing')
+  await k.goto(`/?note=${encodeURIComponent(NOTE)}`)
+  await expect(k.locator('.cm-wikilink-missing', { hasText: 'Alias destino' })).toBeVisible()
+
+  // Still suggested by its alias, inserted so it resolves by name.
+  await k.locator('.cm-line', { hasText: 'Ver' }).click({ position: { x: 2, y: 8 } })
+  await k.keyboard.press('End')
+  await k.keyboard.type(' [[alias dest')
+  await accept(k, /^Alias destino/)
+  await expect.poll(() => disk(NOTE)).toContain('[[Alias destino]]. [[Destino|Alias destino]]')
+  await k.locator('.cm-h1').first().click()
+  await expect(k.locator('.cm-wikilink-resolved', { hasText: 'Alias destino' })).toHaveCount(1)
+  await k.screenshot({ path: `${SHOTS}/aliases-off-light.png`, animations: 'disabled' })
+
+  // Back on: the alias resolves again, without touching the note.
+  rmSync(`${NOTES}/thoth.yaml`, { force: true })
+  await expect.poll(status).toBe('resolved')
+})
+
 test('dark theme: the suggestion list', async () => {
   await k.goto(`/?note=${encodeURIComponent(SOURCE)}`)
   await expect(k.locator('.cm-content')).toBeVisible()
