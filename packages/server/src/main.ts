@@ -66,8 +66,13 @@ export function openStores(config: Config) {
 export async function start(config: Config) {
   const { state, index } = openStores(config)
   const auth = new Auth(state)
-  const indexer = new Indexer({ notesDir: config.notesDir, db: index })
   const log = (msg: string) => console.log(`[thoth] ${msg}`)
+  const workspace = new Workspace({ notesDir: config.notesDir, log })
+  const indexer = new Indexer({ notesDir: config.notesDir, db: index, linkAliases: workspace.config.links.aliases })
+  /** Rereads thoth.yaml and applies what the index depends on. */
+  const reloadWorkspace = () => {
+    if (workspace.reload()) indexer.setLinkAliases(workspace.config.links.aliases)
+  }
 
   const runtime: Runtime = {
     lastScan: null,
@@ -81,8 +86,6 @@ export async function start(config: Config) {
   const first = runtime.rescan({})
   log(`index ready: ${first.added.length} added, ${first.changed.length} changed, ${first.removed.length} removed, ${first.unchanged} unchanged`)
 
-  const workspace = new Workspace({ notesDir: config.notesDir, log })
-
   const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log })
   await hub.recoverAll()
 
@@ -92,10 +95,10 @@ export async function start(config: Config) {
     db: index,
     rescanMs: config.rescanSeconds * 1000,
     // The rescan also rereads thoth.yaml: its events can be lost like any other (NFS).
-    onReport: (kind, r) => { if (kind === 'rescan') { runtime.lastScan = r; workspace.reload() } },
+    onReport: (kind, r) => { if (kind === 'rescan') { runtime.lastScan = r; reloadWorkspace() } },
     onError: (err) => log(`watcher: ${err instanceof Error ? err.message : String(err)}`),
     onChange: (paths) => {
-      if (paths.includes(WORKSPACE_FILE)) workspace.reload()
+      if (paths.includes(WORKSPACE_FILE)) reloadWorkspace()
       for (const p of paths) if (hub.has(p)) hub.checkExternal(p).catch(() => {})
     },
   })

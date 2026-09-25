@@ -2,6 +2,7 @@
 // suffixes of its path without the extension, plus its aliases, normalized.
 // It's the model for the indexer's `link_keys` table and also serves the editor.
 // Browser-safe entry point (@thoth/core/resolve): no Node modules here.
+import { caseFold } from './casefold.ts'
 import type { LinkRef } from './markdown.ts'
 
 export interface NoteKeys {
@@ -17,8 +18,8 @@ export type Resolution =
   | { status: 'ambiguous'; candidates: string[] }
   | { status: 'missing' }
 
-/** Key normalization: NFC, lowercase, no extra whitespace. */
-export const normKey = (s: string) => s.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ')
+/** Key normalization: NFC, full Unicode case folding (D-019), no extra whitespace. */
+export const normKey = (s: string) => caseFold(s).trim().replace(/\s+/g, ' ')
 
 const stripMd = (p: string) => (/\.md$/i.test(p) ? p.slice(0, -3) : p)
 const dirOf = (p: string) => {
@@ -44,10 +45,21 @@ export function pathKeys(path: string): string[] {
   return parts.map((_, i) => parts.slice(i).join('/'))
 }
 
+export interface LinkIndexOptions {
+  /** Whether aliases resolve links (thoth.yaml `links.aliases`, on by default). They're kept either way. */
+  aliases?: boolean
+}
+
 export class LinkIndex {
   private byPath = new Map<string, Set<string>>()
   private byAlias = new Map<string, Set<string>>()
   private notes = new Map<string, NoteKeys>()
+  /** Whether aliases resolve links, as a last resort after names and paths. */
+  aliases: boolean
+
+  constructor(opts: LinkIndexOptions = {}) {
+    this.aliases = opts.aliases ?? true
+  }
 
   has(path: string) {
     return this.notes.has(path)
@@ -59,7 +71,7 @@ export class LinkIndex {
 
   /** An independent copy, to simulate a change (e.g. a rename) without touching the original. */
   clone(): LinkIndex {
-    const c = new LinkIndex()
+    const c = new LinkIndex({ aliases: this.aliases })
     for (const n of this.notes.values()) c.set(n)
     return c
   }
@@ -103,7 +115,7 @@ export class LinkIndex {
 
     const byPath = this.pick(source, this.byPath.get(key))
     if (byPath) return byPath.status === 'resolved' ? this.withAnchor(byPath.path, link.anchor, 'path') : byPath
-    const byAlias = this.pick(source, this.byAlias.get(key))
+    const byAlias = this.aliases ? this.pick(source, this.byAlias.get(key)) : null
     if (byAlias) return byAlias.status === 'resolved' ? this.withAnchor(byAlias.path, link.anchor, 'alias') : byAlias
     return { status: 'missing' }
   }

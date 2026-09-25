@@ -11,7 +11,8 @@
     "./resolve": "./src/resolve.ts",
     "./dates": "./src/dates.ts",
     "./series": "./src/series.ts",
-    "./query": "./src/query.ts"
+    "./query": "./src/query.ts",
+    "./casefold": "./src/casefold.ts"
   },
   "dependencies": {
     "@lezer/common": "^1.5.3",
