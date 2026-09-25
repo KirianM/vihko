@@ -5,8 +5,8 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync, realpathSync, statSync } from 'node:fs'
+import { join, posix, sep } from 'node:path'
 import { classifyPath, conflictOriginal, type Alert, type ErrorCode } from '@thoth/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
@@ -14,6 +14,7 @@ import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
 import { NoteError, type Actor, type NoteService } from '../notes.ts'
 import { ftsQuery, HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import { applyEdits, type EditOp } from '../edits.ts'
+import { SERVED_TYPES } from '../attachments.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 
@@ -47,6 +48,10 @@ const UI_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'same-origin',
 }
+
+// Files from the notes folder are served inert: nothing in them runs, even
+// an SVG opened on its own (sandboxed, no scripts).
+const FILE_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
 
 type Env = { Variables: { user: User; token: string } }
 
@@ -215,6 +220,39 @@ export function createApp(deps: AppDeps) {
       const bytes = new Uint8Array(await c.req.arrayBuffer())
       return c.json(await notes.attach(c.req.query('note') ?? '', bytes, actorOf(c.get('user'))), 201)
     })
+
+  // A file in the notes folder that isn't a note (images and other attachments).
+  // Same path rules as notes: relative, inside the root, no hidden or ignored
+  // segments, and no symlink leading out of the folder.
+  app.get('/api/file', (c) => {
+    const path = c.req.query('path') ?? ''
+    const norm = posix.normalize(path)
+    if (!path || norm !== path || path.startsWith('/') || norm.split('/').includes('..')) return fail(c, 400, 'invalid_path', `invalid file path: ${path}`)
+    if (classifyPath(norm) !== 'other') return fail(c, 404, 'not_found', `not a servable file: ${path}`)
+    let file: string
+    let st: ReturnType<typeof statSync>
+    try {
+      const root = realpathSync(deps.notesDir)
+      file = realpathSync(join(deps.notesDir, norm))
+      if (!file.startsWith(root + sep)) return fail(c, 404, 'not_found', `outside the notes folder: ${path}`)
+      st = statSync(file)
+    } catch {
+      return fail(c, 404, 'not_found', `does not exist: ${path}`)
+    }
+    if (!st.isFile()) return fail(c, 404, 'not_found', `not a file: ${path}`)
+    const etag = `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`
+    const ext = norm.slice(norm.lastIndexOf('.') + 1).toLowerCase()
+    const type = SERVED_TYPES[ext] ?? 'application/octet-stream'
+    c.header('ETag', etag)
+    // Always revalidated: an image replaced in the folder shows up at once, and an unchanged one costs a 304.
+    c.header('Cache-Control', 'private, no-cache')
+    c.header('X-Content-Type-Options', 'nosniff')
+    c.header('Content-Security-Policy', FILE_CSP)
+    if (!type.startsWith('image/')) c.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(posix.basename(norm))}`)
+    if (c.req.header('if-none-match')?.split(/\s*,\s*/).includes(etag)) return c.body(null, 304)
+    c.header('Content-Type', type)
+    return c.body(readFileSync(file))
+  })
 
   app.get('/api/search', (c) => {
     const q = ftsQuery(c.req.query('q') ?? '')

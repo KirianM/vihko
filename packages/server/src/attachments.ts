@@ -10,7 +10,8 @@ const STORED: { mime: string; ext: string; test: (b: Uint8Array) => boolean }[] 
   { mime: 'image/webp', ext: 'webp', test: (b) => ascii(b, 0, 4) === 'RIFF' && ascii(b, 8, 12) === 'WEBP' },
   { mime: 'image/avif', ext: 'avif', test: isAvif },
 ]
-// SVG is not stored: it is a document that can carry scripts.
+// SVG is not stored: it is a document that can carry scripts. An SVG already in
+// the folder is still served, sandboxed (see SERVED_TYPES and the file endpoint).
 
 function starts(b: Uint8Array, sig: number[]) {
   return b.length >= sig.length && sig.every((v, i) => b[i] === v)
@@ -34,6 +35,20 @@ function isAvif(b: Uint8Array) {
 export function sniffImage(bytes: Uint8Array): { mime: string; ext: string } | null {
   const t = STORED.find((s) => s.test(bytes))
   return t ? { mime: t.mime, ext: t.ext } : null
+}
+
+/** Content type when serving a file from the notes folder, by extension. */
+export const SERVED_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  svg: 'image/svg+xml',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+  pdf: 'application/pdf',
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')

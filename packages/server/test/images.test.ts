@@ -1,7 +1,8 @@
-// Images in notes (D-028): storage next to the note and limits.
+// Images in notes (D-028): storage next to the note, limits and serving files
+// from the notes folder.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,7 +21,7 @@ const WEBP = new TextEncoder().encode('RIFF\x10\x00\x00\x00WEBPVP8 ')
 const AVIF = Uint8Array.from([0, 0, 0, 0x1c, ...new TextEncoder().encode('ftypmif1\0\0\0\0mif1avifmiaf')])
 const SVG = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
 
-async function setup(opts: { maxImageBytes?: number } = {}) {
+async function setup(opts: { maxImageBytes?: number; webDir?: string } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'thoth-images-'))
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
@@ -30,7 +31,7 @@ async function setup(opts: { maxImageBytes?: number } = {}) {
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
   runtime.rescan({})
   const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db: index, maxImageBytes: opts.maxImageBytes })
-  const app = createApp({ auth, notes, index, indexer, notesDir, runtime })
+  const app = createApp({ auth, notes, index, indexer, notesDir, runtime, webDir: opts.webDir })
   await auth.createUser('noa', 'a-long-password', 'member')
   const login = await app.request('/api/auth/login', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'noa', password: 'a-long-password' }),
@@ -41,7 +42,8 @@ async function setup(opts: { maxImageBytes?: number } = {}) {
     const res = await app.request(`/api/attachments?note=${encodeURIComponent(note)}`, { method: 'POST', headers: { cookie, 'content-type': 'application/octet-stream' }, body: bytes })
     return { status: res.status, body: await res.json() as any }
   }
-  return { notesDir, upload }
+  const get = (path: string, headers: Record<string, string> = {}) => app.request(path, { headers: { cookie, ...headers } })
+  return { notesDir, app, upload, get }
 }
 
 test('names: next to the note, from its name and the UTC time, with a suffix for taken names', () => {
@@ -95,4 +97,36 @@ test('upload limits: type, size, note that exists and a valid path', async () =>
     assert.deepEqual([r.status, r.body.error], [400, 'invalid_path'], bad)
   }
   assert.ok(!existsSync(join(notesDir, '..', 'fuera.md')))
+})
+
+test('serving files: type, nosniff, revalidation, and the same path rules as notes', async () => {
+  const { notesDir, app, get, upload } = await setup()
+  const up = await upload('Plan.md', PNG)
+  const res = await get(`/api/file?path=${encodeURIComponent(up.body.path)}`)
+  assert.equal(res.status, 200)
+  assert.equal(res.headers.get('content-type'), 'image/png')
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff')
+  assert.equal(res.headers.get('cache-control'), 'private, no-cache')
+  assert.match(res.headers.get('content-security-policy')!, /sandbox/)
+  assert.deepEqual(new Uint8Array(await res.arrayBuffer()), PNG)
+  const etag = res.headers.get('etag')!
+  assert.equal((await get(`/api/file?path=${encodeURIComponent(up.body.path)}`, { 'if-none-match': etag })).status, 304)
+
+  writeFileSync(join(notesDir, 'dibujo.svg'), SVG)
+  const svg = await get('/api/file?path=dibujo.svg')
+  assert.equal(svg.headers.get('content-type'), 'image/svg+xml')
+  assert.match(svg.headers.get('content-security-policy')!, /default-src 'none'.*sandbox/, 'an SVG opened on its own runs nothing')
+  const canvas = await get('/api/file?path=adjuntos/tablero.canvas')
+  assert.equal(canvas.headers.get('content-type'), 'application/octet-stream')
+  assert.match(canvas.headers.get('content-disposition')!, /^attachment/)
+
+  mkdirSync(join(notesDir, '.oculta'))
+  writeFileSync(join(notesDir, '.oculta/x.png'), PNG)
+  const outside = mkdtempSync(join(tmpdir(), 'thoth-outside-'))
+  writeFileSync(join(outside, 'secret.png'), PNG)
+  symlinkSync(outside, join(notesDir, 'enlace'))
+  const status = async (p: string) => (await get(`/api/file?path=${encodeURIComponent(p)}`)).status
+  for (const p of ['../x.png', '/etc/passwd', 'a/../../x.png', 'a//b.png', '']) assert.equal(await status(p), 400, p)
+  for (const p of ['Plan.md', '.oculta/x.png', 'enlace/secret.png', 'no-existe.png', 'adjuntos']) assert.equal(await status(p), 404, p)
+  assert.equal((await app.request(`/api/file?path=${encodeURIComponent(up.body.path)}`)).status, 401, 'needs a session')
 })
