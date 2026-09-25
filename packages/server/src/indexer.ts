@@ -7,10 +7,11 @@
 // (extension.ts), run in the order of their dependencies.
 import { readFileSync, readdirSync, statSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
-import { classifyPath, contentHash, extract, isIgnoredDir, type Extracted, type LinkIndex } from '@thoth/core'
+import { classifyPath, contentHash, extract, isIgnoredDir, readFrontmatter, type Extracted, type LinkIndex } from '@thoth/core'
 import type { Db } from './db.ts'
 import { ExtensionHost, type Extension, type NoteSnapshot } from './extension.ts'
 import { builtinExtensions, type LinksExtension } from './extensions/index.ts'
+import { matchMoves, type DetectedMove, type MoveCandidate } from './moves.ts'
 
 export interface IndexerOptions {
   notesDir: string
@@ -22,6 +23,15 @@ export interface IndexerOptions {
   keys?: Partial<FrontmatterKeys>
   /** Extensions besides the built-in ones. */
   extensions?: readonly Extension[]
+  /**
+   * How long a note that left (or entered) the index in one watcher batch can
+   * still pair with one in a later batch as a move made outside thoth (5 s).
+   */
+  moveWindowMs?: number
+  /** The clock (tests). */
+  now?: () => number
+  /** Moves made outside thoth, as a scan or a watcher batch detects them. */
+  onMoves?: (moves: DetectedMove[]) => void
 }
 
 /** Names of the frontmatter keys thoth understands (configurable). */
@@ -38,6 +48,12 @@ export interface ScanReport {
   added: string[]
   changed: string[]
   removed: string[]
+  /**
+   * Notes that moved outside thoth (moves.ts): the index keeps them as the
+   * same note at a new path, not as a removal and an addition, so they are
+   * in neither of those lists.
+   */
+  moved: DetectedMove[]
   unchanged: number
   /** Reason if the scan wasn't applied (entirely or in part). */
   aborted: 'root_unavailable' | 'mass_delete' | null
@@ -55,7 +71,7 @@ export interface ScanOptions {
   confirmRemoval?: number
 }
 
-interface Row { path: string; hash: string; mtime_ms: number; size: number }
+interface Row { path: string; uid: string | null; hash: string; mtime_ms: number; size: number }
 interface Upsert { path: string; text: string; hash: string; stat: Stats }
 
 export class Indexer {
@@ -77,7 +93,14 @@ export class Indexer {
     this.linkExt = builtin.links
     this.host = new ExtensionHost(opts.db, [...builtin.all, ...(opts.extensions ?? [])])
     this.pending = this.host.install()
+    this.onMoves = opts.onMoves ?? null
   }
+
+  /** Called with the moves made outside thoth that a scan or a watcher batch detects. */
+  onMoves: ((moves: DetectedMove[]) => void) | null
+
+  /** Notes that left or entered the index in recent batches without a pair yet (moves.ts). */
+  private recent: { removed: (MoveCandidate & { at: number })[]; added: (MoveCandidate & { at: number })[] } = { removed: [], added: [] }
 
   /** Link resolution keys of every indexed note (kept by the links extension). */
   get links(): LinkIndex {
@@ -90,7 +113,7 @@ export class Indexer {
 
   /** Full scan of the folder. */
   scan({ force = false, confirmRemoval }: ScanOptions = {}): ScanReport {
-    const report: ScanReport = { added: [], changed: [], removed: [], unchanged: 0, aborted: null, massDelete: null }
+    const report: ScanReport = { added: [], changed: [], removed: [], moved: [], unchanged: 0, aborted: null, massDelete: null }
     try {
       if (!statSync(this.opts.notesDir).isDirectory()) throw new Error('not a directory')
     } catch {
@@ -103,7 +126,7 @@ export class Indexer {
     const conflicts: string[] = []
     const upserts: Upsert[] = []
     const touch: { path: string; stat: Stats }[] = []
-    const known = new Map((this.db.prepare('select path, hash, mtime_ms, size from notes').all() as Row[]).map((r) => [r.path, r]))
+    const known = new Map((this.db.prepare('select path, uid, hash, mtime_ms, size from notes').all() as Row[]).map((r) => [r.path, r]))
 
     const unreadable: string[] = []
     const dirs: string[] = []
@@ -117,16 +140,24 @@ export class Indexer {
 
     // Anything under a directory that couldn't be read is not treated as deleted.
     const underUnreadable = (p: string) => unreadable.some((d) => p.startsWith(d + '/'))
-    const removed = [...known.keys()].filter((p) => !seen.has(p) && !underUnreadable(p))
+    const gone = [...known.keys()].filter((p) => !seen.has(p) && !underUnreadable(p))
+    // A note that moved (a folder renamed with another tool) is not gone: it doesn't count towards the guard.
+    const moves = this.pairMoves(gone.map((p) => known.get(p)!), upserts, report)
+    const movedFrom = new Set(moves.moved.map((m) => m.from))
+    const removed = gone.filter((p) => !movedFrom.has(p))
     const min = this.opts.massDeleteMin ?? 10
     const ratio = this.opts.massDeleteRatio ?? 0.5
     const massive = removed.length > min && removed.length > ratio * known.size
     if (massive && !force && confirmRemoval !== removed.length) {
       report.aborted = 'mass_delete'
       report.massDelete = { removing: removed.length, total: known.size }
-    } else report.removed = removed
+    } else {
+      report.removed = removed
+      this.commitMoves(moves, report)
+    }
 
-    this.apply(upserts, touch, report.removed, conflicts)
+    this.apply(upserts, touch, report.aborted ? [] : gone, conflicts)
+    this.announce(report)
     // Like notes, folders aren't dropped by a scan that stopped (an unmounted share looks empty).
     if (!report.aborted) this.db.transaction(() => {
       this.db.prepare('delete from folders').run()
@@ -159,33 +190,97 @@ export class Indexer {
     })()
   }
 
-  /** Reindexes specific paths (watcher events). Doesn't apply the mass-deletion guard. */
-  indexPaths(paths: Iterable<string>): ScanReport {
-    const report: ScanReport = { added: [], changed: [], removed: [], unchanged: 0, aborted: null, massDelete: null }
+  /**
+   * Reindexes specific paths. Doesn't apply the mass-deletion guard. With
+   * `detectMoves` (watcher events, which may be someone else's rename), a
+   * note leaving one path and entering another is paired as a move; thoth's
+   * own writes leave it off: its moves are its own.
+   */
+  indexPaths(paths: Iterable<string>, { detectMoves = false }: { detectMoves?: boolean } = {}): ScanReport {
+    const report: ScanReport = { added: [], changed: [], removed: [], moved: [], unchanged: 0, aborted: null, massDelete: null }
     this.catchUp()
     const upserts: Upsert[] = []
     const touch: { path: string; stat: Stats }[] = []
     const conflictsNow: string[] = []
     const conflictsGone: string[] = []
-    const getRow = this.db.prepare('select path, hash, mtime_ms, size from notes where path = ?')
+    const gone: Row[] = []
+    const getRow = this.db.prepare('select path, uid, hash, mtime_ms, size from notes where path = ?')
     for (const rel of new Set(paths)) {
       const kind = classifyPath(rel)
       if (kind === 'conflict') (exists(join(this.opts.notesDir, rel)) ? conflictsNow : conflictsGone).push(rel)
       if (kind !== 'note') continue
       const row = getRow.get(rel) as Row | undefined
       if (!exists(join(this.opts.notesDir, rel))) {
-        if (row) report.removed.push(rel)
+        if (row) { report.removed.push(rel); gone.push(row) }
         continue
       }
       this.detect(rel, row, upserts, touch, report)
     }
-    this.apply(upserts, touch, report.removed, null, conflictsNow, conflictsGone)
+    const removed = [...report.removed]
+    if (detectMoves) this.commitMoves(this.pairMoves(gone, upserts, report), report)
+    this.apply(upserts, touch, removed, null, conflictsNow, conflictsGone)
+    if (detectMoves) this.announce(report)
     // A note in a folder the index hadn't seen yet (created by thoth or from outside).
     if (report.added.length) {
       const ins = this.db.prepare('insert or ignore into folders (path) values (?)')
       this.db.transaction(() => { for (const p of report.added) for (const a of ancestorsOf(p)) ins.run(a) })()
     }
     return report
+  }
+
+  /**
+   * Pairs the notes leaving the index with those entering it (moves.ts),
+   * counting those of recent batches still in the window. Nothing is recorded
+   * yet: `commitMoves` does, once the batch is to be applied.
+   */
+  private pairMoves(gone: Row[], upserts: Upsert[], report: ScanReport) {
+    const now = this.opts.now?.() ?? Date.now()
+    const window = this.opts.moveWindowMs ?? 5000
+    const indexed = this.db.prepare('select hash from notes where path = ?')
+    const hashAt = (p: string) => (indexed.get(p) as { hash: string } | undefined)?.hash
+    // The recent ones still as they were: an added note still indexed with that content, a removed one still gone.
+    this.recent.removed = this.recent.removed.filter((c) => now - c.at <= window && hashAt(c.path) === undefined)
+    this.recent.added = this.recent.added.filter((c) => now - c.at <= window && hashAt(c.path) === c.hash)
+    const goneNow = new Set(gone.map((r) => r.path))
+    const newly = new Set(report.added)
+    const removed: MoveCandidate[] = [
+      ...gone.map((r) => ({ path: r.path, uid: r.uid, hash: r.hash })),
+      ...this.recent.removed.filter((c) => !newly.has(c.path)).map((c) => ({ ...c, recent: true })),
+    ]
+    const added: MoveCandidate[] = [
+      ...upserts.filter((u) => newly.has(u.path)).map((u) => ({ path: u.path, uid: this.uidInText(u.text), hash: u.hash, blank: u.text.trim() === '' })),
+      ...this.recent.added.filter((c) => !goneNow.has(c.path)).map((c) => ({ ...c, recent: true })),
+    ]
+    const pairs = matchMoves(removed, added)
+    return {
+      moved: pairs.map((p) => ({ from: p.from.path, to: p.to.path, by: p.by })),
+      now,
+      // What stays unpaired, to pair with later batches.
+      removed: removed.filter((c) => !c.recent && !pairs.some((p) => p.from === c)),
+      added: added.filter((c) => !c.recent && !pairs.some((p) => p.to === c)),
+    }
+  }
+
+  /** Records the batch's moves in the report (out of added and removed) and keeps the unpaired for the window. */
+  private commitMoves(m: ReturnType<Indexer['pairMoves']>, report: ScanReport) {
+    const from = new Set(m.moved.map((x) => x.from))
+    const to = new Set(m.moved.map((x) => x.to))
+    report.moved = m.moved
+    report.removed = report.removed.filter((p) => !from.has(p))
+    report.added = report.added.filter((p) => !to.has(p))
+    const strip = ({ recent: _r, ...c }: MoveCandidate) => c
+    this.recent.removed = [...this.recent.removed.filter((c) => !from.has(c.path)), ...m.removed.map((c) => ({ ...strip(c), at: m.now }))]
+    this.recent.added = [...this.recent.added.filter((c) => !to.has(c.path)), ...m.added.map((c) => ({ ...strip(c), at: m.now }))]
+  }
+
+  private announce(report: ScanReport) {
+    if (report.moved.length) this.onMoves?.(report.moved)
+  }
+
+  private uidInText(text: string): string | null {
+    const fm = readFrontmatter(text)
+    const v = fm.error ? null : fm.data[this.keys.uid]
+    return typeof v === 'string' || typeof v === 'number' ? String(v) : null
   }
 
   private detect(rel: string, row: Row | undefined, upserts: Upsert[], touch: { path: string; stat: Stats }[], report: ScanReport) {
