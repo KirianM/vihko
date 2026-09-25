@@ -3,6 +3,7 @@
 // rescue in-place writes that land in the window, and stable reads against
 // editors that truncate and rewrite.
 import { closeSync, fsyncSync, linkSync, openSync, readFileSync, renameSync, rmSync, writeSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
 import { contentHash } from '@thoth/core'
 
@@ -43,7 +44,9 @@ function fsyncDir(dir: string) {
 
 /** Writes and syncs a hidden temp file in the same directory (the indexer ignores it). */
 export function writeTmp(file: string, data: string | Uint8Array): string {
-  const tmp = join(dirname(file), `.${basename(file)}.thoth-${process.pid}-${counter++}`)
+  // pid + counter alone repeat after a crash in a container (always pid 1, counter
+  // back at 0) and meet the leftovers of the killed process: the random part avoids it.
+  const tmp = join(dirname(file), `.${basename(file)}.thoth-${process.pid}-${counter++}-${randomBytes(4).toString('hex')}`)
   const fd = openSync(tmp, 'wx')
   try {
     if (typeof data === 'string') writeSync(fd, data)
