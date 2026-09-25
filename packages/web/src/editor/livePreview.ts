@@ -31,6 +31,9 @@ export const notePath = Facet.define<string, string>({ combine: (v) => v[0] ?? '
 export const navigate = Facet.define<(path: string) => void, (path: string) => void>({
   combine: (fns) => fns[0] ?? (() => {}),
 })
+/** An ambiguous link was clicked: its text, where it starts, its candidates and the element to anchor a picker to. */
+export type PickAmbiguous = (link: { raw: string; at: number; candidates: string[] }, anchor: HTMLElement) => void
+export const pickAmbiguous = Facet.define<PickAmbiguous, PickAmbiguous | null>({ combine: (fns) => fns[0] ?? null })
 export const labels = Facet.define<LinkLabels, LinkLabels>({
   combine: (v) => v[0] ?? { ambiguous: (n) => `ambiguous · ${n}`, missing: 'missing', frontmatter: (n) => `frontmatter · ${n}` },
 })
@@ -91,7 +94,8 @@ class WikiWidget extends WidgetType {
     this.text = text
   }
   eq(o: WikiWidget) {
-    return o.raw === this.raw && o.label === this.label && o.info?.status === this.info?.status && o.info?.path === this.info?.path && o.text === this.text
+    return o.raw === this.raw && o.label === this.label && o.info?.status === this.info?.status && o.info?.path === this.info?.path && o.text === this.text &&
+      (o.info?.candidates ?? []).join('\n') === (this.info?.candidates ?? []).join('\n')
   }
   toDOM(view: EditorView) {
     const status = this.info?.status ?? 'pending'
@@ -103,14 +107,22 @@ class WikiWidget extends WidgetType {
     if (this.info?.status === 'ambiguous') a.title = (this.info.candidates ?? []).join('\n')
     // A resolved link navigates on click (on mousedown: otherwise the editor first
     // moves the cursor to the link, reveals its text for editing, and the click never
-    // arrives). Broken or ambiguous links let the click through: the cursor enters
-    // and they can be fixed.
+    // arrives). An ambiguous one opens the picker of its candidates (D-031.2). Broken
+    // links let the click through: the cursor enters and they can be fixed.
     const target = this.info?.status === 'resolved' ? this.info.path : null
     if (target) {
       a.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return
         e.preventDefault()
         view.state.facet(navigate)(target)
+      })
+    }
+    const pick = this.info?.status === 'ambiguous' ? view.state.facet(pickAmbiguous) : null
+    if (pick) {
+      wrap.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return
+        e.preventDefault()
+        pick({ raw: this.raw, at: view.posAtDOM(wrap), candidates: [...this.info?.candidates ?? []] }, a)
       })
     }
     a.addEventListener('click', (e) => e.preventDefault())
@@ -125,7 +137,7 @@ class WikiWidget extends WidgetType {
     }
     return wrap
   }
-  ignoreEvent(e: Event) { return (this.info?.status === 'resolved' && e.type === 'mousedown') || onCreateButton(e) }
+  ignoreEvent(e: Event) { return ((this.info?.status === 'resolved' || this.info?.status === 'ambiguous') && e.type === 'mousedown') || onCreateButton(e) }
 }
 
 class BulletWidget extends WidgetType {

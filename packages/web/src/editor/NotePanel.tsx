@@ -8,7 +8,7 @@ import { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Button, Tab, TabList, TabPanel, Tabs, TextArea, TextField, type Key } from 'react-aria-components'
 import * as Y from 'yjs'
-import type { Backlink, OutgoingLink, User } from '../api.ts'
+import type { NoteLinks, OutgoingLink, User } from '../api.ts'
 import { useT } from '../i18n.tsx'
 import { useTheme } from '../theme.ts'
 import { baseHue, userColor } from '../userColor.ts'
@@ -18,10 +18,11 @@ import { setCommentStyle, threadsField } from './commentMarks.ts'
 import { usePresence } from './presence.ts'
 import { useViewState } from './viewUpdates.ts'
 import { useBackClose } from '../mobile.ts'
+import type { AmbiguousLink } from './AmbiguousPicker.tsx'
 import './panel.css'
 
 export type PanelTab = 'comments' | 'links' | 'toc'
-export interface LinksData { outgoing: OutgoingLink[]; backlinks: Backlink[] }
+export type LinksData = NoteLinks
 
 // --- Panel state ----------------------------------------------------------
 
@@ -332,7 +333,15 @@ function Context({ text, raw }: { text: string; raw: string }) {
   return <span className="backlink-context">{text.slice(0, i)}<mark>{raw}</mark>{text.slice(i + raw.length)}</span>
 }
 
-function LinksTab({ links, onNavigate }: { links: LinksData | null; onNavigate: (p: string) => void }) {
+/** The panel's view of an ambiguous link: where it is (as indexed) and its candidates. */
+const ambiguous = (l: OutgoingLink): AmbiguousLink => ({ raw: l.raw, at: l.pos_from, candidates: l.candidates ?? [] })
+
+function LinksTab({ links, onNavigate, onPickAmbiguous, onOpenCandidate }: {
+  links: LinksData | null
+  onNavigate: (p: string) => void
+  onPickAmbiguous: (link: AmbiguousLink, anchor: HTMLElement) => void
+  onOpenCandidate: (link: AmbiguousLink, target: string) => void
+}) {
   const t = useT()
   if (!links) return <div className="panel-scroll"><p className="panel-empty">{t('common.loading')}</p></div>
   const seen = new Set<string>()
@@ -349,16 +358,22 @@ function LinksTab({ links, onNavigate }: { links: LinksData | null; onNavigate: 
                 <span className="link-name">{linkLabel(l)}</span>
                 <span className="link-path">{l.dst_path}</span>
               </Button>
+            ) : l.status === 'ambiguous' ? (
+              // Opens the picker: open one of the candidates, or pin the link to it.
+              <Button className="link-btn link-static link-pick" aria-haspopup="dialog" onPress={(e) => onPickAmbiguous(ambiguous(l), e.target as HTMLElement)}>
+                <span className="link-name">{linkLabel(l)}</span>
+                <span className="link-badge">{t('editor.linkAmbiguous', { n: l.candidates?.length ?? 0 })}</span>
+              </Button>
             ) : (
               <div className="link-btn link-static">
                 <span className="link-name">{linkLabel(l)}</span>
-                <span className="link-badge">{l.status === 'missing' ? t('editor.linkMissing') : t('editor.linkAmbiguous', { n: l.candidates?.length ?? 0 })}</span>
+                <span className="link-badge">{t('editor.linkMissing')}</span>
               </div>
             )}
             {l.status === 'ambiguous' && (
               <ul className="link-candidates">
                 {(l.candidates ?? []).map((c) => (
-                  <li key={c}><Button className="link-btn link-candidate" onPress={() => onNavigate(c)}>{c}</Button></li>
+                  <li key={c}><Button className="link-btn link-candidate" onPress={() => onOpenCandidate(ambiguous(l), c)}>{c}</Button></li>
                 ))}
               </ul>
             )}
@@ -433,13 +448,17 @@ function TocTab({ view }: { view: EditorView | null }) {
 
 // --- Panel ---------------------------------------------------------------------------
 
-export function NotePanel({ panel, view, session, user, links, onNavigate }: {
+export function NotePanel({ panel, view, session, user, links, onNavigate, onPickAmbiguous, onOpenCandidate }: {
   panel: Panel
   view: EditorView | null
   session: Session | null
   user: User
   links: LinksData | null
   onNavigate: (p: string) => void
+  /** An ambiguous link was pressed: the picker of its candidates. */
+  onPickAmbiguous: (link: AmbiguousLink, anchor: HTMLElement) => void
+  /** One of its candidates was pressed: open it and offer to pin the link there. */
+  onOpenCandidate: (link: AmbiguousLink, target: string) => void
 }) {
   const t = useT()
   const count = useViewState(view, (s) => s.field(threadsField).length, 0)
@@ -475,7 +494,7 @@ export function NotePanel({ panel, view, session, user, links, onNavigate }: {
           )}
         </div>
         <TabPanel id="comments" className="panel-body"><CommentsTab view={view} session={session} user={user} request={panel.request} done={panel.done} /></TabPanel>
-        <TabPanel id="links" className="panel-body"><LinksTab links={links} onNavigate={onNavigate} /></TabPanel>
+        <TabPanel id="links" className="panel-body"><LinksTab links={links} onNavigate={onNavigate} onPickAmbiguous={onPickAmbiguous} onOpenCandidate={onOpenCandidate} /></TabPanel>
         <TabPanel id="toc" className="panel-body"><TocTab view={view} /></TabPanel>
       </Tabs>
     </aside>

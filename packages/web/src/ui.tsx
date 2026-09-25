@@ -59,6 +59,9 @@ export function ThemeToggle() {
   )
 }
 
+/** `[[Tareas#Hoy|las tareas]]` → `Tareas#Hoy`: what a wikilink names, without its visible text. */
+export const linkName = (raw: string) => raw.replace(/^!?\[\[/, '').replace(/\]\]$/, '').split('|')[0]!.trim()
+
 /** A note's name: the file name without the extension. */
 export const noteName = (path: string) => path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/i, '')
 

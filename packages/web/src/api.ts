@@ -47,7 +47,11 @@ export interface OutgoingLink {
   status: 'resolved' | 'ambiguous' | 'missing'
   dst_path: string | null
   candidates: string[] | null
+  /** Where the link starts in the note as indexed (a hint to find that occurrence). */
+  pos_from: number
 }
+/** A note's links: outgoing, backlinks and the titles of ambiguous links' candidates. */
+export interface NoteLinks { outgoing: OutgoingLink[]; backlinks: Backlink[]; titles: Record<string, string> }
 export interface Backlink { path: string; title: string; raw: string; context: string }
 export interface SearchResult { path: string; title: string; snippet: string }
 /** Search results; the snippet highlight uses control characters, not HTML. */
@@ -144,7 +148,10 @@ export const api = {
   alerts: () => request<{ alerts: Alert[] }>('GET', '/api/alerts').then((r) => r.alerts),
   conflict: (path: string) => request<{ path: string; text: string }>('GET', `/api/conflict?path=${encodeURIComponent(path)}`),
   rescan: (confirmRemoval?: number) => request<{ aborted: string | null }>('POST', '/api/admin/rescan', confirmRemoval === undefined ? {} : { confirmRemoval }),
-  links: (path: string) => request<{ outgoing: OutgoingLink[]; backlinks: Backlink[] }>('GET', `/api/note/links?path=${encodeURIComponent(path)}`),
+  links: (path: string) => request<NoteLinks>('GET', `/api/note/links?path=${encodeURIComponent(path)}`),
+  /** Fixes where an ambiguous link leads: that occurrence (`raw` nearest to `at`) is rewritten to reach `target`. */
+  pinLink: (path: string, raw: string, at: number | undefined, target: string) =>
+    request<{ etag: string; raw: string }>('POST', '/api/note/link/pin', { path, raw, at, target }),
   /** Tags in use, most used first (editor suggestions and the tags view). */
   tags: () => request<{ tags: TagCount[] }>('GET', '/api/tags').then((r) => r.tags),
   headings: (path: string) => request<{ headings: { level: number; text: string }[] }>('GET', `/api/note/headings?path=${encodeURIComponent(path)}`).then((r) => r.headings),

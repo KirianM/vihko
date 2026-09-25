@@ -42,6 +42,8 @@
 .editor .cm-wikilink-missing a { color: var(--danger); text-decoration-style: dashed; }
 .editor .cm-wikilink-badge { font-family: var(--font-sans); font-size: 12px; border-radius: 4px; padding: 1px 6px; margin-left: 4px; white-space: nowrap; }
 .editor .cm-wikilink-ambiguous .cm-wikilink-badge { background: var(--warn-soft); color: var(--warn-ink); }
+/* Opens the picker of its candidates. */
+.editor .cm-wikilink-ambiguous { cursor: pointer; }
 .editor .cm-wikilink-missing .cm-wikilink-badge { color: var(--danger); }
 .editor .cm-wikilink-create { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .editor .cm-wikilink-create:hover { color: var(--ink); }
