@@ -27,6 +27,33 @@ bug reports, questions and ideas.
     mcr.microsoft.com/playwright:v1.63.0-noble npx playwright test
   ```
 
+## Acceptance
+
+The milestone's «Done when» as tests, over a generated vault of 1,000
+realistic notes (seeded, with `testdata/vault` inside as the edge cases;
+`node packages/server/test/acceptance/_vault.ts <dir>` writes one):
+
+- `npm run acceptance` (`packages/server/test/acceptance`): cold and warm
+  start, memory, search latency and correctness, opening notes; renaming
+  heavily linked notes with every link of the vault compared before and after;
+  changes made with another editor reaching open editors; deleting `index.db`
+  and comparing the rebuilt dump; kill -9 rounds while two people type and an
+  agent edits; and the same startup, search and kill -9 against the Docker
+  image with `compose.yaml` (skipped without Docker; builds `thoth:acceptance`
+  unless `ACCEPTANCE_IMAGE` names an image). It prints the numbers.
+- `npm run acceptance:ui -w @thoth/web` (after `npm run build`): search, edit,
+  a change from another editor and a rename from the UI, in a browser. Without
+  Chromium on the machine, as with `e2e`: `npm run acceptance:serve -w
+  @thoth/web` and the Playwright image with `ACC_BASE_URL`.
+
+CI runs both on every pull request. Before closing a milestone, run them on a
+real machine with more rounds and write the numbers down:
+`ACCEPTANCE_ROUNDS=20 ACCEPTANCE_REPORT=acceptance.jsonl npm run acceptance`.
+Other variables: `ACCEPTANCE_NOTES`, `ACCEPTANCE_SEED`, `ACCEPTANCE_DIR`
+(where the notes go, e.g. an NFS mount, to measure it), `ACCEPTANCE_STATE_DIR`
+(always local disk), `ACCEPTANCE_DOCKER=0`, `ACCEPTANCE_DOCKER_ROUNDS` and
+`ACCEPTANCE_KEEP` (leave the folders behind).
+
 ## Conventions
 
 - Everything in the code is in English: identifiers, comments, test names, log

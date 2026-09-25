@@ -36,6 +36,8 @@ jobs:
         run: npx -w @thoth/web playwright install --with-deps chromium
       - name: Browser tests
         run: npm run e2e -w @thoth/web
+      - name: Browser acceptance (generated 1,000-note vault)
+        run: npm run acceptance:ui -w @thoth/web
       - name: Report on failure
         if: failure()
         uses: actions/upload-artifact@v7
@@ -46,10 +48,28 @@ jobs:
             packages/web/test-results
           retention-days: 7
 
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: M1 acceptance (generated 1,000-note vault)
+        run: npm run acceptance
+        env:
+          ACCEPTANCE_DOCKER: '0' # the docker job runs that part against the image it builds
+
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
       - name: Build the image
         run: docker build -t thoth:ci .
       - name: Starts and answers the healthcheck
@@ -63,3 +83,8 @@ jobs:
           curl -fs http://127.0.0.1:8080/api/health
       - name: Serves the UI
         run: curl -fs http://127.0.0.1:8080/ | grep -q 'id="root"'
+      - run: npm ci
+      - name: Acceptance with docker compose (startup, search, kill -9)
+        run: node --test --test-force-exit packages/server/test/acceptance/docker.acceptance.ts
+        env:
+          ACCEPTANCE_IMAGE: thoth:ci
