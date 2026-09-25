@@ -1,12 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import WebSocket from 'ws'
 import * as Y from 'yjs'
 import { contentHash, readFrontmatter } from '@thoth/core'
-import { api, closeAll, connect, login, makeDirs, open, sleep, socket, startServer, typeLine, waitFor } from './_collab.ts'
+import { NoteLink, type Lineage } from '../../web/src/editor/lineage.ts'
+import { api, closeAll, connect, login, makeDirs, open, sleep, socket, startServer, typeLine, waitFor, type Srv } from './_collab.ts'
 
 const NOTE = 'hogar/Proxy.md'
 
@@ -150,7 +151,6 @@ test('external deletion with the note open: live notice, not recreated, and the 
     typeLine(a, 'BEFORE')
     const file = join(notes, NOTE)
     await waitFor(() => readFileSync(file, 'utf8').includes('BEFORE\n'), 'flush')
-    const { rmSync } = await import('node:fs')
     rmSync(file) // someone deletes it with the file explorer
     await waitFor(() => messages.includes('thoth:deleted-externally'), 'live notice')
     typeLine(a, 'AFTER-DELETE')
@@ -177,7 +177,6 @@ test('external deletion with the note open: discarding accepts the deletion as f
     typeLine(a, 'X')
     const file = join(notes, NOTE)
     await waitFor(() => readFileSync(file, 'utf8').includes('X\n'), 'flush')
-    const { rmSync } = await import('node:fs')
     rmSync(file)
     await waitFor(async () => (await orphaned(srv, cookie)).length === 1, 'alert')
     assert.equal((await api(srv, cookie, 'POST', '/api/note/orphan', { path: NOTE, action: 'discard' })).status, 200)
@@ -198,7 +197,6 @@ test('discarding the copy of a note deleted outside: once recreated, it reopens 
     const resolved: string[] = []
     a.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'thoth:orphan-resolved') resolved.push(m.action) })
     const file = join(notes, NOTE)
-    const { rmSync } = await import('node:fs')
     rmSync(file)
     await waitFor(async () => (await orphaned(srv, cookie)).length === 1, 'alert')
     assert.equal((await api(srv, cookie, 'POST', '/api/note/orphan', { path: NOTE, action: 'discard' })).status, 200)
@@ -207,7 +205,7 @@ test('discarding the copy of a note deleted outside: once recreated, it reopens 
     // the provider from the socket then (collab.ts): destroying it while still
     // attached would send a close that Hocuspocus queues and applies to the next
     // opening of this path on the socket, killing it on arrival.
-    ws.configuration.providerMap.delete(NOTE)
+    ws.configuration.providerMap.delete(a.provider.effectiveName)
     a.close() // the user leaves the note
     await sleep(500)
     writeFileSync(file, '# Proxy\n\nBACK\n') // the note comes back with the same path
@@ -232,7 +230,6 @@ test("deleted with the server down and pending edits: it isn't emptied or recrea
     await sleep(100)
     a.close()
     await srv.stop('SIGKILL')
-    const { rmSync } = await import('node:fs')
     rmSync(file) // deleted while the server is down
     srv = await startServer(env)
     await sleep(1500)
@@ -309,35 +306,135 @@ test('trashing an open note tells its editors the entry, and restoring it reopen
   } finally { closeAll(); await srv.stop() }
 })
 
-// An open tab keeps its document when the connection drops. Reopened from
-// the file alone, the hub's document would have a new Yjs identity and the
-// tab's resync would add a second copy of the whole text.
-test('an editor that lost its connection resyncs without duplicating the note', async () => {
+/** A note open as the web UI keeps it: it follows the hub to a new generation and reports what it sets aside. */
+function follow(srv: Srv, cookie: string, name: string) {
+  const ws = socket(srv, cookie)
+  const aside: string[] = []
+  const lineages: Lineage[] = []
+  const link = new NoteLink(ws, name, {
+    onLineage: (l) => { lineages.push(l); open.unshift(l.provider) },
+    onSetAside: (s) => aside.push(s.text),
+  })
+  return {
+    link, aside, lineages,
+    text: () => link.lineage.text.toString(),
+    type(token: string) {
+      const t = link.lineage.text
+      const s = t.toString()
+      t.insert(s.lastIndexOf('\n', s.length - 2) + 1, token + '\n')
+    },
+    /** A network drop: the socket closes and the provider reconnects on its own. */
+    cut() { (ws as unknown as { webSocket: WebSocket }).webSocket.close() },
+    settled: () => link.lineage.provider.isSynced && link.lineage.provider.unsyncedChanges === 0,
+  }
+}
+
+const once = (text: string, line: string) => text.split('\n').filter((l) => l === line).length === 1
+
+// An open tab keeps its document when the connection drops. Within the same
+// generation of the hub's document, what it typed offline merges as usual.
+test('same generation: offline typing survives network drops and server restarts, without duplicating', async () => {
   const { notes, env } = makeDirs()
   let srv = await startServer(env)
   const file = join(notes, NOTE)
   try {
-    let cookie = await login(srv)
-    const a = await connect(srv, cookie, NOTE)
-    typeLine(a, 'BEFORE-DROP')
+    const a = follow(srv, await login(srv), NOTE)
+    await waitFor(a.settled, 'sync')
+    a.type('BEFORE-DROP')
     await waitFor(() => readFileSync(file, 'utf8').includes('BEFORE-DROP'), 'flush')
-    // 1. Network drop: the hub closes the document when its last editor leaves.
-    ;(a.provider.configuration.websocketProvider as unknown as { webSocket: WebSocket }).webSocket.close()
-    await waitFor(() => !a.provider.isSynced, 'disconnected')
-    typeLine(a, 'OFFLINE-1')
-    await waitFor(() => a.provider.isSynced && a.provider.unsyncedChanges === 0, 'resync', 15000)
-    // 2. Server restart, with a change made to the closed note meanwhile.
-    await srv.stop()
-    writeFileSync(file, readFileSync(file, 'utf8') + 'EDITED-WHILE-DOWN\n')
-    typeLine(a, 'OFFLINE-2')
-    srv = await startServer(env)
-    cookie = await login(srv)
-    await waitFor(() => a.provider.isSynced && a.provider.unsyncedChanges === 0 && a.text().includes('EDITED-WHILE-DOWN'), 'resync after the restart', 15000)
-    const b = await connect(srv, cookie, NOTE)
+    const lines = ['# Proxy', '## Red', 'BEFORE-DROP']
+    for (let i = 0; i < 3; i++) {
+      // 1. Network drop: the hub closes the document when its last editor
+      // leaves, and reopens it from its saved state.
+      a.cut()
+      await waitFor(() => !a.link.lineage.provider.isSynced, 'disconnected')
+      a.type(`OFFLINE-CUT-${i}`)
+      await waitFor(() => a.settled() && readFileSync(file, 'utf8').includes(`OFFLINE-CUT-${i}\n`), 'resync', 15000)
+      // 2. Server restart while the tab types.
+      await srv.stop()
+      a.type(`OFFLINE-RESTART-${i}`)
+      srv = await startServer(env)
+      await waitFor(() => a.settled() && readFileSync(file, 'utf8').includes(`OFFLINE-RESTART-${i}\n`), 'resync after the restart', 15000)
+      lines.push(`OFFLINE-CUT-${i}`, `OFFLINE-RESTART-${i}`)
+    }
+    assert.equal(a.lineages.length, 1, 'the copy was never refused')
+    assert.deepEqual(a.aside, [])
+    const b = await connect(srv, await login(srv), NOTE)
     await waitFor(() => b.text() === a.text() && readFileSync(file, 'utf8') === a.text(), 'convergence')
-    const text = a.text()
-    for (const line of ['# Proxy', '## Red', 'BEFORE-DROP', 'OFFLINE-1', 'OFFLINE-2', 'EDITED-WHILE-DOWN']) {
-      assert.equal(text.split('\n').filter((l) => l === line).length, 1, `${line} exactly once in:\n${text}`)
+    for (const line of lines) assert.ok(once(a.text(), line), `${line} exactly once in:\n${a.text()}`)
+  } finally { closeAll(); await srv.stop() }
+})
+
+// If the hub has to start the document again without a saved state that
+// continues it (lost, or no longer matching the file), a tab's old copy would
+// add its text a second time. The hub refuses it; the tab reopens the note and
+// sets aside what it hadn't sent.
+test('a copy from another generation is refused: no duplication, and what was not sent is set aside', async () => {
+  const { notes, env } = makeDirs()
+  let srv = await startServer(env)
+  const file = join(notes, NOTE)
+  // The hub's saved state: the document as it was left (.ystate) or, if the
+  // process ended before unloading it, its recovery log (.ylog).
+  const saved = ['.ystate', '.ylog'].map((ext) => join(env.THOTH_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + ext))
+  const takeState = () => new Map(saved.filter((f) => existsSync(f)).map((f) => [f, readFileSync(f)]))
+  const putState = (files: Map<string, Buffer>) => {
+    for (const f of saved) rmSync(f, { force: true })
+    for (const [f, data] of files) writeFileSync(f, data)
+  }
+  try {
+    const a = follow(srv, await login(srv), NOTE)
+    await waitFor(a.settled, 'sync')
+    const lines = ['# Proxy', '## Red']
+    /** Stops the server (the hub saves the document's state on the way out), runs `meanwhile` and starts it again. */
+    const restart = async (meanwhile: () => void) => {
+      await srv.stop()
+      assert.ok(saved.some((f) => existsSync(f)), 'the state was saved')
+      meanwhile()
+      srv = await startServer(env)
+    }
+    const scenarios = ['state deleted', 'old state restored', 'file changed while closed', 'nothing unsent'] as const
+    for (let round = 0; round < 2; round++) {
+      for (const scenario of scenarios) {
+        const tag = `${round}-${scenarios.indexOf(scenario)}`
+        let backup: Map<string, Buffer> | null = null
+        if (scenario === 'old state restored') {
+          // A backup of the state volume, then more typing that reaches the file.
+          await restart(() => { backup = takeState() })
+          await waitFor(a.settled, 'resync', 15000)
+          a.type(`NEWER-${tag}`)
+          await waitFor(() => readFileSync(file, 'utf8').includes(`NEWER-${tag}\n`), 'flush')
+          lines.push(`NEWER-${tag}`)
+        }
+        const lineages = a.lineages.length
+        const aside = a.aside.length
+        await restart(() => {
+          if (scenario === 'state deleted' || scenario === 'nothing unsent') putState(new Map())
+          if (backup) putState(backup)
+          if (scenario === 'file changed while closed') {
+            writeFileSync(file, readFileSync(file, 'utf8') + `EXTERNAL-${tag}\n`)
+            lines.push(`EXTERNAL-${tag}`)
+          }
+          if (scenario !== 'nothing unsent') a.type(`UNSENT-${tag}`) // typed while the server is down
+        })
+        await waitFor(a.settled, `${scenario}: in sync again`, 15000)
+        await sleep(1500) // flushed
+        const text = a.text()
+        assert.equal(readFileSync(file, 'utf8'), text, `${scenario}: the file is the hub's document`)
+        for (const line of lines) assert.ok(once(text, line), `${scenario}: ${line} exactly once in:\n${text}`)
+        assert.ok(!text.includes(`UNSENT-${tag}`), `${scenario}: the refused copy isn't merged`)
+        assert.equal(a.lineages.length, lineages + 1, `${scenario}: the old copy was replaced`)
+        if (scenario === 'nothing unsent') {
+          await sleep(500)
+          assert.equal(a.aside.length, aside, `${scenario}: nothing to set aside`)
+        } else {
+          await waitFor(() => a.aside.length === aside + 1, `${scenario}: set aside`)
+          assert.ok(a.aside.at(-1)!.includes(`UNSENT-${tag}\n`), `${scenario}: the unsent line is what's set aside`)
+        }
+        // Editing goes on in the new document.
+        a.type(`AFTER-${tag}`)
+        await waitFor(() => readFileSync(file, 'utf8').includes(`AFTER-${tag}\n`), 'flush')
+        lines.push(`AFTER-${tag}`)
+      }
     }
   } finally { closeAll(); await srv.stop() }
 })

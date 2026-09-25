@@ -3,6 +3,7 @@
 // someone has the note open.
 import { Hocuspocus } from '@hocuspocus/server'
 import diff from 'fast-diff'
+import { randomUUID } from 'node:crypto'
 import { closeSync, constants, existsSync, fsyncSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
@@ -16,6 +17,8 @@ import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
 
 export const TEXT = 'md'
+/** Map in the document with the hub's metadata: `generation` (see `load`). */
+export const META = 'thoth'
 export const COLLAB_PATH = '/collab'
 const HISTORY = 20
 
@@ -52,6 +55,11 @@ export const SAVED_MESSAGE = 'thoth:saved'
 export const MOVED_MESSAGE = 'thoth:moved'
 /** The note was moved to the trash from thoth: `id` is the entry, to restore it. */
 export const TRASHED_MESSAGE = 'thoth:trashed'
+/**
+ * To an editor whose copy belongs to another generation of the document: it's
+ * refused before anything is synced, and the editor opens the note again.
+ */
+export const STALE_MESSAGE = 'thoth:stale-generation'
 
 export interface HubOptions {
   notesDir: string
@@ -65,7 +73,8 @@ export interface HubOptions {
   log?: (msg: string) => void
 }
 
-type Ctx = { user?: User; system?: Actor }
+/** `generation`: the one the editor's copy belongs to (null: an empty copy, it claims none). */
+type Ctx = { user?: User; system?: Actor; generation?: string | null }
 
 // --- Utilities ---------------------------------------------------------------
 
@@ -76,6 +85,11 @@ function applyTextDiff(ytext: Y.Text, from: string, to: string) {
     else if (op === diff.DELETE) ytext.delete(pos, chunk.length)
     else { ytext.insert(pos, chunk); pos += chunk.length }
   }
+}
+
+export function generationOf(doc: Y.Doc): string | null {
+  const g = doc.getMap(META).get('generation')
+  return typeof g === 'string' ? g : null
 }
 
 function diffCost(a: string, b: string) {
@@ -181,6 +195,20 @@ export class CollabHub implements HotDocuments {
         if (!this.hot.has(documentName) && readText(this.file(documentName)) === null) {
           throw new NoteError('not_found', `does not exist: ${documentName}`)
         }
+      },
+      // The session was checked on the upgrade; the token only says which
+      // generation the editor's copy belongs to. It's sent on every reconnection.
+      onAuthenticate: async ({ token }) => ({ generation: parseGeneration(token) }),
+      // Before anything is synced, in both directions: a copy of another
+      // generation would add its whole text a second time.
+      beforeSync: async ({ context, document, documentName, connection }) => {
+        if (!context.generation) return
+        const current = generationOf(document)
+        if (context.generation === current) return
+        connection.sendStateless(JSON.stringify({ type: STALE_MESSAGE, path: documentName }))
+        this.log(`${documentName}: an editor's copy from another generation was refused`)
+        // Without `message`, so the hook chain doesn't log it again. Hocuspocus closes the connection.
+        throw { code: 4409, reason: STALE_MESSAGE }
       },
       onLoadDocument: async ({ documentName, document }) => { await this.load(documentName, document) },
       onStoreDocument: async ({ documentName }) => { await this.flush(documentName) },
@@ -364,6 +392,16 @@ export class CollabHub implements HotDocuments {
       let flushedText: string
       let flushedHash: string
       let history: Base[] = []
+      // Generation: editors whose copy comes from another one are refused (see
+      // `beforeSync`). A saved document carries its generation on only while it
+      // continues as it was left: the file is still the text it matched (or was
+      // deleted, and the document is kept as its copy). Otherwise it gets from
+      // the file, as a diff, text that an editor's old copy may already hold in
+      // its own operations (the file changed while nobody had the note open, or
+      // the saved state is older than the file: restored from a backup), and
+      // merging that copy would repeat it.
+      let newGeneration = true
+      const setGeneration = () => doc.transact(() => doc.getMap(META).set('generation', randomUUID()), 'generation')
       if (previous) {
         for (const u of previous.updates) Y.applyUpdate(doc, u, 'recovery')
         const base = new Y.Doc()
@@ -378,8 +416,13 @@ export class CollabHub implements HotDocuments {
         const own = history.find((b) => b.hash === diskHash)
         if (own) ({ snapshot, text: flushedText, hash: flushedHash } = own)
         if (recovered) this.log(`recovered ${path} from the log (${recovered.updates.length} records)`)
+        const matches = diskOrNull === null || diskHash === flushedHash
+        newGeneration = !matches || generationOf(doc) === null // none: saved before generations existed
+        if (!matches) this.log(`${path}: the saved document doesn't match the file; new generation`)
+        if (newGeneration) setGeneration()
       } else {
         doc.getText(TEXT).insert(0, disk)
+        setGeneration()
         snapshot = Y.encodeStateAsUpdate(doc)
         flushedText = disk
         flushedHash = diskHash
@@ -387,7 +430,7 @@ export class CollabHub implements HotDocuments {
       const { O_WRONLY, O_CREAT, O_TRUNC, O_APPEND } = constants
       const logFd = openSync(logFile, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND)
       writeSync(logFd, snapshotRecord(flushedHash, snapshot))
-      if (recovered) writeSync(logFd, record('U', Y.encodeStateAsUpdate(doc)))
+      if (recovered || (previous && newGeneration)) writeSync(logFd, record('U', Y.encodeStateAsUpdate(doc)))
       fsyncSync(logFd)
       const h: Hot = {
         doc, file, logFile, logFd, snapshot, flushedText, flushedHash,
@@ -623,6 +666,16 @@ export class CollabHub implements HotDocuments {
 
 function actorName(a: Actor): string {
   return a.kind === 'user' ? a.id : a.kind === 'agent' ? a.id : 'system'
+}
+
+/** The generation in an editor's token (`{"generation": …}`); anything else claims none. */
+function parseGeneration(token: string): string | null {
+  try {
+    const g = (JSON.parse(token) as { generation?: unknown } | null)?.generation
+    return typeof g === 'string' && g ? g : null
+  } catch {
+    return null
+  }
 }
 
 function parseCookie(header: string, name: string): string | undefined {

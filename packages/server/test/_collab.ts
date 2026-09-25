@@ -7,7 +7,8 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import WebSocket from 'ws'
-import * as Y from 'yjs'
+import type * as Y from 'yjs'
+import { openLineage } from '../../web/src/editor/lineage.ts'
 
 export const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 export const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
@@ -70,12 +71,14 @@ export function socket(srv: Srv, cookie: string): HocuspocusProviderWebsocket {
   return ws
 }
 
-/** Opens `name` on its own socket, or on `shared` (then `close` leaves the socket open). */
+/**
+ * Opens `name` on its own socket, or on `shared` (then `close` leaves the
+ * socket open), as the web UI does: claiming its copy's generation on every
+ * reconnection, with its own session address on the socket.
+ */
 export async function connect(srv: Srv, cookie: string, name: string, shared?: HocuspocusProviderWebsocket): Promise<Client> {
-  const doc = new Y.Doc()
   const websocketProvider = shared ?? socket(srv, cookie)
-  const provider = new HocuspocusProvider({ websocketProvider, name, document: doc })
-  provider.attach() // with its own websocketProvider, the provider doesn't connect on its own (v4)
+  const { doc, provider } = openLineage(websocketProvider, name)
   open.unshift(provider) // providers before their socket
   await waitFor(() => provider.isSynced, `sync of ${name}`)
   return { doc, provider, text: () => doc.getText('md').toString(), close: () => { provider.destroy(); if (!shared) websocketProvider.destroy() } }
