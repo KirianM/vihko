@@ -284,6 +284,12 @@ test('versions come in pages', async () => {
     assert.equal(all.length, 6)
     assert.equal(new Set(all).size, 6)
     assert.equal((await h.noa('GET', '/api/history/versions?path=tags.md&cursor=nonsense')).status, 400)
+    // A cursor is data, never a git option.
+    const out = join(h.dir, 'written-by-git')
+    const cursor = (v: unknown) => Buffer.from(JSON.stringify(v), 'utf8').toString('base64url')
+    assert.equal((await h.noa('GET', `/api/history/versions?path=tags.md&cursor=${cursor({ rev: `--output=${out}`, path: 'tags.md' })}`)).status, 400)
+    assert.equal((await h.noa('GET', `/api/history/changes?cursor=${cursor({ rev: `--output=${out}` })}`)).status, 400)
+    assert.ok(!existsSync(out))
   } finally { await h.close() }
 })
 

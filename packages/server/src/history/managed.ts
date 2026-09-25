@@ -22,8 +22,10 @@ interface Step {
 
 interface Resume { rev: string; path: string }
 
-const isResume = (v: unknown): v is Resume => typeof v === 'object' && v !== null && typeof (v as Resume).rev === 'string' && typeof (v as Resume).path === 'string'
-const isRev = (v: unknown): v is { rev: string } => typeof v === 'object' && v !== null && typeof (v as { rev: unknown }).rev === 'string'
+// A cursor comes from the client: its `rev` goes to git, so it must be a commit id and never an option (`--output=…`).
+const isCommitId = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{40}$/.test(v)
+const isResume = (v: unknown): v is Resume => typeof v === 'object' && v !== null && isCommitId((v as Resume).rev) && typeof (v as Resume).path === 'string'
+const isRev = (v: unknown): v is { rev: string } => typeof v === 'object' && v !== null && isCommitId((v as { rev: unknown }).rev)
 
 /** Commits looked at for one page of «Recent changes» before answering with what was found. */
 const MAX_SCAN = 2000
