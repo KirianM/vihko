@@ -27,7 +27,7 @@ mejora obvia ya se descartó por una razón concreta.
   `enum` ni `namespace`).
 - `npm ci`, `npm run typecheck`, `npm run build` (UI), `npm test`.
 - UI en desarrollo: el servidor en una terminal
-  (`THOTH_NOTES_DIR=… THOTH_STATE_DIR=… node packages/server/src/cli.ts serve`)
+  (`THOTH_NOTES_DIR=… THOTH_STATE_DIR=… packages/server/src/cli.ts serve`)
   y `npm run dev -w @thoth/web` en otra; Vite reenvía `/api` y `/collab` al
   puerto 8080 (`THOTH_DEV_SERVER` para otro).
 

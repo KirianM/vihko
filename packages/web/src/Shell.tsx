@@ -1,10 +1,13 @@
-// Estructura principal: árbol de carpetas, cabecera y la nota abierta.
-// El editor con coedición llega en la siguiente entrega; aquí la nota se muestra en lectura.
-import { useEffect, useMemo, useState } from 'react'
+// Estructura principal: árbol de carpetas y la nota abierta en el editor.
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Button, Collection, Tree, TreeItem, TreeItemContent, type Key } from 'react-aria-components'
-import { ApiError, alertCount, api, type Note, type TreeNote, type User } from './api.ts'
+import { ApiError, alertCount, api, type TreeNote, type User } from './api.ts'
+import { userToken } from './editor/presence.ts'
 import { errorText, useT } from './i18n.tsx'
-import { Brand, Icon, ThemeToggle } from './ui.tsx'
+import { Brand, Crumbs, Icon, ThemeToggle } from './ui.tsx'
+
+// El editor (CodeMirror, Yjs) se descarga aparte, al abrir la primera nota.
+const NoteView = lazy(() => import('./editor/NoteView.tsx').then((m) => ({ default: m.NoteView })))
 
 interface Node { id: string; name: string; path: string; children: Node[] | null }
 
@@ -74,7 +77,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [notes, setNotes] = useState<TreeNote[] | null>(null)
   const [alerts, setAlerts] = useState(0)
   const [openPath, setOpenPath] = useState<string | null>(() => new URLSearchParams(location.search).get('note'))
-  const [note, setNote] = useState<Note | null>(null)
+  const [ready, setReady] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const fail = (err: unknown) => {
@@ -89,17 +92,18 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   }, [])
 
   useEffect(() => {
-    if (!openPath) { setNote(null); return }
+    setReady(null)
+    if (!openPath) return
     const url = new URL(location.href)
     url.searchParams.set('note', openPath)
     history.replaceState(null, '', url)
     setError(null)
-    api.note(openPath).then(setNote).catch(fail)
+    // Se comprueba que existe antes de abrir la coedición: el hub rechaza notas inexistentes.
+    api.note(openPath).then(() => setReady(openPath)).catch(fail)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openPath])
 
   const tree = useMemo(() => (notes ? buildTree(notes) : []), [notes])
-  const crumbs = openPath ? openPath.split('/') : []
 
   return (
     <div className="shell">
@@ -117,31 +121,30 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         </div>
         {alerts > 0 && <a className="sidebar-alerts" href="#avisos">{Icon.alert}<span>{t('shell.alerts', { n: alerts })}</span></a>}
         <div className="sidebar-user">
-          <span className="avatar" aria-hidden="true">{user.username.slice(0, 1).toUpperCase()}</span>
+          <span className="avatar" aria-hidden="true" style={{ background: `var(${userToken(user.username)})` }}>{user.username.slice(0, 1).toUpperCase()}</span>
           <span className="name">{user.username}</span>
           <span className="role">{t(user.role === 'admin' ? 'role.admin' : 'role.member')}</span>
           <Button className="btn btn-icon" aria-label={t('shell.logout')} onPress={onLogout}>{Icon.logout}</Button>
         </div>
       </nav>
       <main className="main">
-        <header className="main-head">
-          <span className="crumbs">
-            {crumbs.slice(0, -1).map((c) => `${c} / `).join('')}
-            {crumbs.length > 0 && <b>{crumbs[crumbs.length - 1]!.replace(/\.md$/i, '')}</b>}
-          </span>
-          <span className="spacer" />
-          <ThemeToggle />
-        </header>
-        <div className="note">
-          {error && <p className="error-text" role="alert">{error}</p>}
-          {!openPath && !error && <p className="empty">{t('shell.empty')}</p>}
-          {note && (
-            <>
-              <p className="note-hint">{t('shell.readOnlyPreview')}</p>
-              <div className="note-body">{note.text}</div>
-            </>
-          )}
-        </div>
+        {openPath && ready === openPath ? (
+          <Suspense fallback={<div className="empty">{t('common.loading')}</div>}>
+            <NoteView key={openPath} path={openPath} username={user.username} onNavigate={setOpenPath} />
+          </Suspense>
+        ) : (
+          <>
+            <header className="main-head">
+              <Crumbs path={openPath} />
+              <span className="spacer" />
+              <ThemeToggle />
+            </header>
+            <div className="note">
+              {error && <p className="error-text" role="alert">{error}</p>}
+              {!openPath && !error && <p className="empty">{t('shell.empty')}</p>}
+            </div>
+          </>
+        )}
       </main>
     </div>
   )

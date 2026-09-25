@@ -24,6 +24,7 @@ export function Brand({ size }: { size?: number }) {
 }
 
 export const Icon = {
+  check: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>,
   plus: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>,
   search: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>,
   chevron: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>,
@@ -41,5 +42,15 @@ export function ThemeToggle() {
     <Button className="btn btn-icon" aria-label={t(dark ? 'theme.toLight' : 'theme.toDark')} onPress={toggle}>
       {dark ? Icon.sun : Icon.moon}
     </Button>
+  )
+}
+
+export function Crumbs({ path }: { path: string | null }) {
+  const parts = path ? path.split('/') : []
+  return (
+    <span className="crumbs">
+      {parts.slice(0, -1).map((c) => `${c} / `).join('')}
+      {parts.length > 0 && <b>{parts[parts.length - 1]!.replace(/\.md$/i, '')}</b>}
+    </span>
   )
 }

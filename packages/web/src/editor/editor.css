@@ -1,0 +1,60 @@
+/* Editor (CodeMirror). Los colores salen de los tokens del sistema de diseño. */
+.editor { height: 100%; }
+.editor .cm-editor { height: 100%; background: transparent; color: var(--ink); }
+.editor .cm-editor.cm-focused { outline: none; }
+.editor .cm-scroller { font-family: var(--font-serif); font-size: 17px; line-height: 1.65; padding: 36px 56px 48px var(--space-18); }
+.editor .cm-content { max-width: 72ch; padding: 0; caret-color: var(--ink); }
+.editor .cm-line { padding: 0; }
+.editor .cm-cursor { border-left-color: var(--ink); }
+.editor .cm-selectionBackground, .editor .cm-focused .cm-selectionBackground { background: var(--accent-soft) !important; }
+.editor .cm-content ::selection { background: var(--accent-soft); }
+
+/* Encabezados */
+.editor .cm-h { font-weight: 600; }
+.editor .cm-h1 { font-size: 38px; line-height: 1.15; letter-spacing: -0.3px; padding-bottom: 10px; }
+.editor .cm-h2 { font-size: 24px; line-height: 1.3; padding-top: 14px; }
+.editor .cm-h3 { font-size: 20px; line-height: 1.35; padding-top: 8px; }
+.editor .cm-h4, .editor .cm-h5, .editor .cm-h6 { font-size: 17px; }
+.editor .cm-h .tok-heading { font-weight: 600; }
+
+/* Resaltado de sintaxis (clases de @lezer/highlight) */
+.editor .tok-emphasis { font-style: italic; }
+.editor .tok-strong { font-weight: 600; }
+.editor .tok-strikethrough { text-decoration: line-through; }
+.editor .tok-link, .editor .cm-link { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.editor .tok-url { color: var(--muted); }
+.editor .tok-monospace { font-family: var(--font-mono); font-size: 0.88em; }
+.editor .tok-meta, .editor .tok-processingInstruction { color: var(--faint); }
+.editor .tok-comment { color: var(--faint); }
+.editor .tok-propertyName { color: var(--ink-2); }
+.editor .tok-string, .editor .tok-number, .editor .tok-bool { color: var(--accent-strong); }
+.editor .cm-line:not(.cm-codeblock) .tok-monospace { background: var(--chip); border-radius: 4px; padding: 1px 4px; }
+.editor .cm-codeblock { font-family: var(--font-mono); font-size: 14px; line-height: 1.6; background: var(--panel); padding: 0 12px; }
+.editor .cm-quote { border-left: 3px solid var(--line-strong); padding-left: 14px; color: var(--ink-2); }
+.editor .cm-hr { color: var(--faint); }
+
+/* Tags y wikilinks (D-019) */
+.editor .cm-tag { font-family: var(--font-sans); font-size: 13px; background: var(--chip); color: var(--ink-2); border-radius: 12px; padding: 2px 8px; }
+.editor .cm-wikilink-raw { color: var(--accent); }
+.editor .cm-wikilink a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.editor .cm-wikilink-pending a { color: var(--accent); }
+.editor .cm-wikilink-ambiguous a { color: var(--warn-strong); text-decoration-style: dotted; }
+.editor .cm-wikilink-missing a { color: var(--danger); text-decoration-style: dashed; }
+.editor .cm-wikilink-badge { font-family: var(--font-sans); font-size: 12px; border-radius: 4px; padding: 1px 6px; margin-left: 4px; white-space: nowrap; }
+.editor .cm-wikilink-ambiguous .cm-wikilink-badge { background: var(--warn-soft); color: var(--warn-ink); }
+.editor .cm-wikilink-missing .cm-wikilink-badge { color: var(--danger); }
+
+.editor .cm-link-missing { color: var(--danger); text-decoration-style: dashed; }
+.editor .cm-bullet { color: var(--muted); display: inline-block; width: 1ch; }
+
+/* Frontmatter plegado */
+.editor .cm-frontmatter-chip { padding-bottom: 18px; }
+.editor .cm-frontmatter-chip button { font-family: var(--font-mono); font-size: 12px; height: 30px; padding: 0 12px; border: 1px dashed var(--line-strong); border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+
+/* Cursores de otros usuarios (y-codemirror) */
+.editor .cm-ySelectionInfo { font-family: var(--font-sans); font-size: 11px; font-weight: 500; border-radius: 4px; padding: 1px 6px; color: var(--on-user); opacity: 1; }
+
+@media (max-width: 760px) {
+  .editor .cm-scroller { padding: var(--space-6) var(--space-4); font-size: 17px; }
+  .editor .cm-h1 { font-size: 30px; }
+}

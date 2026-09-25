@@ -121,8 +121,20 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .crumbs b { color: var(--ink); font-weight: 500; font-size: 14px; }
 .spacer { flex-grow: 1; }
 .note { flex-grow: 1; overflow: auto; padding: 36px 56px 48px var(--space-18); }
-.note-body { max-width: 72ch; font-family: var(--font-serif); font-size: 17px; line-height: 28px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.note-hint { font-size: 12px; color: var(--faint); margin-bottom: var(--space-4); }
+.note:has(.editor) { padding: 0; }
+
+/* Cabecera de la nota: estado de guardado y presencia */
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.status-ok { color: var(--ok); }
+.status-warn { color: var(--warn-strong); }
+.presence { display: flex; align-items: center; }
+.avatar-stack { width: 30px; height: 30px; border: 2px solid var(--bg); }
+.avatar-stack + .avatar-stack { margin-left: -8px; }
+
+/* Aviso de nota borrada fuera (D-022) */
+.banner { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; padding: 14px 28px; background: var(--warn-soft-2); border-bottom: 1px solid var(--warn-line); color: var(--warn-ink); }
+.banner-text { flex: 1 1 320px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; line-height: 1.45; }
+.banner-text b { font-size: 14px; }
 .empty { color: var(--muted); padding: var(--space-8); }
 
 @media (max-width: 760px) {

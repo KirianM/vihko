@@ -47,6 +47,8 @@ interface Hot {
 
 /** Mensaje en vivo para los editores de una nota borrada desde fuera. */
 export const ORPHAN_MESSAGE = 'thoth:deleted-externally'
+/** Tras cada volcado: `etag` es el hash del texto que ya está en el archivo. La UI lo usa para decir "guardado". */
+export const SAVED_MESSAGE = 'thoth:saved'
 
 export interface HubOptions {
   notesDir: string
@@ -305,13 +307,15 @@ export class CollabHub implements HotDocuments {
     h.snapshot = Y.encodeStateAsUpdate(fork)
     h.flushedText = newText
     h.flushedHash = newHash
-    this.remember(h)
+    this.remember(path, h)
     writeSync(h.logFd, snapshotRecord(newHash, h.snapshot))
   }
 
-  private remember(h: Hot) {
+  /** Registra el nuevo estado del archivo y avisa a los editores abiertos de que ya está en disco. */
+  private remember(path: string, h: Hot) {
     h.history.push({ snapshot: h.snapshot, text: h.flushedText, hash: h.flushedHash })
     if (h.history.length > HISTORY) h.history.shift()
+    this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: SAVED_MESSAGE, path, etag: h.flushedHash }))
   }
 
   /** Comprueba si el archivo de una nota caliente cambió desde fuera (watcher o comprobación periódica). */
@@ -372,7 +376,7 @@ export class CollabHub implements HotDocuments {
         h.snapshot = snap
         h.flushedText = text
         h.flushedHash = hash
-        this.remember(h)
+        this.remember(path, h)
         ftruncateSync(h.logFd, 0)
         writeSync(h.logFd, snapshotRecord(hash, snap))
         if (text !== h.doc.getText(TEXT).toString()) {
@@ -431,7 +435,7 @@ export class CollabHub implements HotDocuments {
         h.snapshot = Y.encodeStateAsUpdate(h.doc)
         h.flushedText = text
         h.flushedHash = contentHash(text)
-        this.remember(h)
+        this.remember(path, h)
         this.opts.indexer.indexPaths([path])
         this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: 'thoth:orphan-resolved', path, action: 'restore' }))
         this.log(`${path}: se conserva la copia abierta`)
