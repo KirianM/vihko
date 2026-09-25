@@ -28,6 +28,11 @@
 // The index stays derived and disposable (D-011): every extension's rows must
 // come from the files alone, so deleting index.db and rescanning rebuilds
 // exactly the same thing.
+//
+// Everything runs inside the indexer's write transaction today. A heavy
+// extension (embeddings) would keep `extract` cheap (chunking) and have its
+// writer queue `(path, hash)` in its own table, for a worker thread to fill
+// later and drop when the hash no longer matches. That mode isn't built yet.
 import type { Extracted } from '@thoth/core'
 import type { Db } from './db.ts'
 
