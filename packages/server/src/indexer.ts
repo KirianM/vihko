@@ -1,10 +1,16 @@
 // Indexer: brings the contents of the notes folder into index.db.
 // Change detection by (mtime, size) equality as a fast filter, and the
 // content hash as ground truth. Never writes to the notes.
+//
+// The indexer keeps the note registry (`notes`), the folders and the alerts;
+// what else is derived from a note's content comes from extensions
+// (extension.ts), run in the order of their dependencies.
 import { readFileSync, readdirSync, statSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
-import { LinkIndex, classifyPath, contentHash, extract, isIgnoredDir, normKey, pathKeys, resolveImageRef, withoutRanges, type Extracted } from '@thoth/core'
+import { LinkIndex, classifyPath, contentHash, extract, isIgnoredDir, normKey, pathKeys, resolveImageRef, type Extracted } from '@thoth/core'
 import type { Db } from './db.ts'
+import { ExtensionHost, type Extension, type NoteSnapshot } from './extension.ts'
+import { fts } from './extensions/fts.ts'
 
 export interface IndexerOptions {
   notesDir: string
@@ -14,6 +20,8 @@ export interface IndexerOptions {
   /** …and more than this number of notes. */
   massDeleteMin?: number
   keys?: Partial<FrontmatterKeys>
+  /** Extensions besides the built-in ones. */
+  extensions?: readonly Extension[]
 }
 
 /** Names of the frontmatter keys thoth understands (configurable). */
@@ -54,10 +62,13 @@ export class Indexer {
   readonly links = new LinkIndex()
   private keys: FrontmatterKeys
   private opts: IndexerOptions
+  private host: ExtensionHost
 
   constructor(opts: IndexerOptions) {
     this.opts = opts
     this.keys = { ...DEFAULT_KEYS, ...opts.keys }
+    this.host = new ExtensionHost(opts.db, [fts, ...(opts.extensions ?? [])])
+    this.host.markCurrent(this.host.install())
     this.loadLinkIndex()
   }
 
@@ -208,10 +219,11 @@ export class Indexer {
     const db = this.db
     const affectedKeys = new Set<string>()
     const changedPaths = new Set<string>()
+    const indexedPaths = new Set<string>()
+    const removedPaths = new Set<string>()
 
     const del = {
       notes: db.prepare('delete from notes where path = ?'),
-      fts: db.prepare('delete from notes_fts where path = ?'),
       keys: db.prepare('delete from link_keys where path = ?'),
       links: db.prepare('delete from links where src_path = ?'),
       images: db.prepare('delete from images where src_path = ?'),
@@ -224,7 +236,6 @@ export class Indexer {
 
     const ins = {
       note: db.prepare('insert into notes (path, uid, title, hash, mtime_ms, size, fm_json, fm_error, aliases) values (?, ?, ?, ?, ?, ?, ?, ?, ?)'),
-      fts: db.prepare('insert into notes_fts (path, title, aliases, body) values (?, ?, ?, ?)'),
       key: db.prepare('insert or ignore into link_keys (key, path, kind) values (?, ?, ?)'),
       link: db.prepare(`insert into links (src_path, ord, kind, raw, target, anchor, display, pos_from, pos_to, key, status)
                         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'missing')`),
@@ -237,17 +248,20 @@ export class Indexer {
     db.transaction(() => {
       for (const path of removed) {
         removeRows(path)
+        this.host.remove(path)
         for (const k of this.links.delete(path)) affectedKeys.add(k)
         changedPaths.add(path)
+        removedPaths.add(path)
       }
       for (const t of touch) touchStmt.run(t.stat.mtimeMs, t.stat.size, t.path)
       for (const u of upserts) {
         removeRows(u.path)
-        const x = extract(u.text, { tagsKey: this.keys.tags })
-        const aliases = this.aliasesOf(x)
-        ins.note.run(u.path, this.uidOf(x), this.titleOf(u.path, x), u.hash, u.stat.mtimeMs, u.stat.size,
+        const note = this.snapshot(u.path, u.text, u.hash)
+        const x = note.parsed
+        const aliases = note.aliases
+        ins.note.run(u.path, note.uid, note.title, u.hash, u.stat.mtimeMs, u.stat.size,
           JSON.stringify(x.frontmatter.data), x.frontmatter.error, JSON.stringify(aliases))
-        ins.fts.run(u.path, this.titleOf(u.path, x), aliases.join('\n'), withoutRanges(u.text, x.comments, x.frontmatter.bodyStart))
+        this.host.index(note)
         for (const k of pathKeys(u.path)) ins.key.run(k, u.path, 'path')
         for (const a of aliases) ins.key.run(normKey(a), u.path, 'alias')
         x.links.forEach((l, i) => {
@@ -261,10 +275,18 @@ export class Indexer {
         x.headings.forEach((h, i) => ins.heading.run(u.path, i, h.level, h.text, h.from))
         for (const k of this.links.set({ path: u.path, aliases, headings: x.headings.map((h) => h.text) })) affectedKeys.add(k)
         changedPaths.add(u.path)
+        indexedPaths.add(u.path)
       }
       this.syncConflicts(allConflicts, conflictsNow, conflictsGone)
       this.resolveLinks(changedPaths, affectedKeys)
+      this.host.finalize({ indexed: indexedPaths, removed: removedPaths })
     })()
+  }
+
+  /** The note as extensions see it: parsed once, with the registry's own facts. */
+  private snapshot(path: string, text: string, hash: string): NoteSnapshot {
+    const parsed = extract(text, { tagsKey: this.keys.tags })
+    return { path, text, hash, parsed, uid: this.uidOf(parsed), title: this.titleOf(path, parsed), aliases: this.aliasesOf(parsed) }
   }
 
   /** Re-resolves affected links: those in changed notes, those that look up an affected key, and those that pointed to a changed note. */

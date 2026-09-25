@@ -1,12 +1,18 @@
 // index.db: derived and disposable. Everything here is rebuilt from the
-// files. If the schema changes, it's deleted and reindexed.
+// files. This file holds the framework's tables; extensions (extension.ts)
+// declare and version their own. If the framework's schema changes, the whole
+// index is deleted and reindexed.
 import Database from 'better-sqlite3'
 import { rmSync } from 'node:fs'
 
 export type Db = Database.Database
 
-/** Bumping this number forces a full rebuild of the index. */
-export const SCHEMA_VERSION = 6 // 6: folders, so empty ones show in the tree
+/**
+ * Version of the framework's tables and of how extensions are recorded.
+ * Bumping it forces a full rebuild; an extension's own changes bump only its
+ * version.
+ */
+export const SCHEMA_VERSION = 7 // 7: tables split into versioned extensions
 
 const SCHEMA = `
 create table meta (
@@ -27,11 +33,6 @@ create table notes (
   aliases   text not null   -- JSON: list of aliases
 );
 create index notes_uid on notes(uid) where uid is not null;
-
-create virtual table notes_fts using fts5(
-  path unindexed, title, aliases, body,
-  tokenize = 'unicode61 remove_diacritics 2'
-);
 
 -- Link resolution keys: path suffixes and normalised aliases.
 create table link_keys (
