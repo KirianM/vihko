@@ -4,6 +4,7 @@ export { ExtensionError, ExtensionHost, FRAMEWORK_TABLES, plan, type ChangeSet, 
 export { Watcher, type WatcherOptions } from './watcher.ts'
 export { matchMoves, type DetectedMove, type MoveCandidate } from './moves.ts'
 export { ExternalMoves, type ExternalMoveGroup, type ExternalMovesOptions, type PendingExternalMove } from './externalMoves.ts'
+export { authorKey, authorOf, parseAuthorKey, type Author, type Reason, type ReasonCode } from './actor.ts'
 export { DEFAULT_MAX_IMAGE_BYTES, NoteError, NoteService, type Actor, type Change, type HotDocuments, type NoteErrorCode, type FolderMoveReport, type MoveHooks, type MoveReport, type MovedRelinkReport, type NoteRead, type NoteServiceOptions, type ShiftGroup, type TrashEntry } from './notes.ts'
 export { commitText, createFile, readStable, readText, replaceText, writeTmp, type CommitResult, type ReplaceResult } from './fsutil.ts'
 export { applyReplacements, beforeMoves, planLinks, planRelinks, rewriteLink, type LinkState, type Replacement, type Shift, type ShiftCode } from './relink.ts'

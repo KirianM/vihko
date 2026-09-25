@@ -362,7 +362,7 @@ export class CollabHub implements HotDocuments {
       }
       h.discarded = true
       if (opts.trash) {
-        const msg = { type: TRASHED_MESSAGE, path, id: opts.trash.id, by: actorName(opts.trash.actor) }
+        const msg = { type: TRASHED_MESSAGE, path, id: opts.trash.id, by: this.actorName(opts.trash.actor) }
         this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify(msg))
       }
     })
@@ -444,7 +444,7 @@ export class CollabHub implements HotDocuments {
    */
   async followMove(from: string, to: string): Promise<boolean> {
     // Only in the recovery log (its editors left, or the server restarted): loaded to follow it.
-    const conn = this.hot.has(from) ? null : await this.hocuspocus.openDirectConnection(from, { system: { kind: 'system', reason: 'follow a note moved outside thoth' } })
+    const conn = this.hot.has(from) ? null : await this.hocuspocus.openDirectConnection(from, { system: { kind: 'system', reason: { code: 'follow_external_move' } } })
     try {
       return await withLock(from, async () => {
         const h = this.hot.get(from)
@@ -761,7 +761,7 @@ export class CollabHub implements HotDocuments {
   /** Keeps the copy: recreates the file with what was being written. */
   async restoreOrphan(path: string): Promise<{ etag: string }> {
     if (!this.orphans().includes(path)) throw new NoteError('not_found', `no pending copy for ${path}`)
-    const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: 'keep the copy of a note deleted outside' } })
+    const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: { code: 'keep_copy' } } })
     try {
       return await withLock(path, async () => {
         const h = this.hot.get(path)!
@@ -802,7 +802,7 @@ export class CollabHub implements HotDocuments {
     for (const f of readdirSync(this.logDir).filter((x) => x.endsWith('.ylog'))) {
       const path = decodeURIComponent(f.slice(0, -'.ylog'.length))
       try {
-        const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: 'recovery after a crash' } })
+        const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: { code: 'crash_recovery' } } })
         await conn.disconnect()
       } catch (err) {
         this.log(`could not recover ${path}: ${err instanceof Error ? err.message : String(err)}`)
@@ -826,11 +826,14 @@ export class CollabHub implements HotDocuments {
     const next = setFrontmatterKey(cur, this.uidKey, h.uid)
     h.doc.transact(() => applyTextDiff(ytext, cur, next), 'uid')
   }
+
+  /** How editors are told who did something: the user's current name (actors carry ids). */
+  private actorName(a: Actor): string {
+    if (a.kind === 'user') return this.opts.auth.username(a.id) ?? a.id
+    return a.kind === 'agent' ? a.id : 'system'
+  }
 }
 
-function actorName(a: Actor): string {
-  return a.kind === 'user' ? a.id : a.kind === 'agent' ? a.id : 'system'
-}
 
 /** The generation in an editor's token (`{"generation": …}`); anything else claims none. */
 function parseGeneration(token: string): string | null {

@@ -10,12 +10,9 @@ import { applyReplacements, beforeMoves, keptLinks, planImageRelinks, planLinks,
 import type { Indexer } from './indexer.ts'
 import { applySplices, spliceOf, type Splice } from './edits.ts'
 import type { Db } from './db.ts'
+import type { Actor } from './actor.ts'
 
-/** Who makes a change. Will be recorded in history (M2). */
-export type Actor =
-  | { kind: 'user'; id: string }
-  | { kind: 'agent'; id: string; onBehalfOf: string }
-  | { kind: 'system'; reason: string }
+export type { Actor, Reason } from './actor.ts'
 
 export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'edit_mismatch' | 'too_large' | 'unsupported_type' | 'not_configured' | 'not_empty'
 
@@ -334,7 +331,7 @@ export class NoteService {
 
       // The rest of the notes, as the system. The plan is recalculated over the
       // current text: links to the note, and references to images in its folder of images.
-      const system: Actor = { kind: 'system', reason: `renamed ${from} to ${to} by ${actorLabel(opts.actor)}` }
+      const system: Actor = { kind: 'system', reason: { code: 'note_moved', from, to, by: opts.actor } }
       await this.rewriteAll(others.map((src) => ({ path: src, change: (t: string) => movedNotePlan(t, src, src, before, after, map, place).splices })), system, report.failed, opts.onProgress)
 
       // Safety net: if something couldn't be rewritten, the old name stays as an alias.
@@ -343,7 +340,8 @@ export class NoteService {
       const newName = posix.basename(to).replace(/\.md$/i, '')
       if (report.failed.length && oldName !== newName && this.opts.indexer.linkAliases) {
         try {
-          await this.edit(to, (t) => addToFrontmatterList(t, 'aliases', oldName), { actor: system })
+          const aliasActor: Actor = { kind: 'system', reason: { code: 'alias_added', alias: oldName, from, to, by: opts.actor } }
+          await this.edit(to, (t) => addToFrontmatterList(t, 'aliases', oldName), { actor: aliasActor })
           report.aliasAdded = oldName
         } catch (err) {
           const f = failure(err)
@@ -558,8 +556,7 @@ export class NoteService {
       const report: MovedRelinkReport = { moves: plan.moves, relinked: plan.relinked, shifted: plan.shifted, failed: [], dryRun: !!opts.dryRun }
       if (opts.dryRun) return report
       opts.onMoved?.(plan.items.length)
-      const what = plan.moves.length === 1 ? `${plan.moves[0]!.from} to ${plan.moves[0]!.to}` : `${plan.moves.length} notes`
-      const system: Actor = { kind: 'system', reason: `links updated after moving ${what} outside thoth, by ${actorLabel(opts.actor)}` }
+      const system: Actor = { kind: 'system', reason: { code: 'links_after_external_move', moves: plan.moves, by: opts.actor } }
       await this.rewriteAll(plan.items, system, report.failed, opts.onProgress)
       return report
     }
@@ -727,7 +724,7 @@ export class NoteService {
     report.shifted.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
     if (opts.dryRun) return report
 
-    const system: Actor = { kind: 'system', reason: `moved folder ${from} to ${to} by ${actorLabel(opts.actor)}` }
+    const system: Actor = { kind: 'system', reason: { code: 'folder_moved', from, to, by: opts.actor } }
     // 1. One rename moves everything. The destination is claimed first with an
     // empty folder (mkdir never reuses one), which the rename then replaces:
     // anything that lands there meanwhile makes the rename fail, never overwritten.
@@ -1041,10 +1038,6 @@ async function inPool<T>(items: readonly T[], fn: (item: T) => Promise<void>): P
     for (let item = queue.shift(); item !== undefined; item = queue.shift()) await fn(item)
   }
   await Promise.all(Array.from({ length: Math.min(RELINK_CONCURRENCY, queue.length) }, worker))
-}
-
-function actorLabel(a: Actor): string {
-  return a.kind === 'user' ? a.id : a.kind === 'agent' ? `${a.id} (on behalf of ${a.onBehalfOf})` : `system: ${a.reason}`
 }
 
 /** Why a rewrite failed, as the API reports errors: a code and a hint. */

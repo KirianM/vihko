@@ -85,7 +85,7 @@ const FILE_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-in
 
 type Env = { Variables: { user: User; token: string } }
 
-const actorOf = (u: User): Actor => ({ kind: 'user', id: u.username })
+const actorOf = (u: User): Actor => ({ kind: 'user', id: u.id })
 
 function noteErrorStatus(e: NoteError) {
   return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409 } as const)[e.code]
