@@ -45,13 +45,23 @@ interface Hot {
    * meanwhile, what was written stays in the recovery log.
    */
   orphaned: boolean
+  /**
+   * Its editors were told it was deleted and it's listed for a decision. Not
+   * at once: the file may have been moved, and the indexer needs a moment to
+   * see where it went (see `followMove`).
+   */
+  announced: boolean
+  orphanTimer: NodeJS.Timeout | null
 }
 
 /** Live message for editors of a note deleted from outside. */
 export const ORPHAN_MESSAGE = 'thoth:deleted-externally'
 /** After every flush: `etag` is the hash of the text already on the file. The UI uses it to say "saved". */
 export const SAVED_MESSAGE = 'thoth:saved'
-/** The note was moved or renamed: editors reopen it at `to`. */
+/**
+ * The note was moved or renamed: editors reopen it at `to`. `external`: it
+ * was moved outside thoth, and the hub followed it (`followMove`).
+ */
 export const MOVED_MESSAGE = 'thoth:moved'
 /** The note was moved to the trash from thoth: `id` is the entry, to restore it. */
 export const TRASHED_MESSAGE = 'thoth:trashed'
@@ -70,6 +80,13 @@ export interface HubOptions {
   /** How often hot notes' files are checked. */
   checkMs?: number
   uidKey?: string
+  /**
+   * How long the file of an open note can be missing before its editors are
+   * told it was deleted (6 s): longer than the indexer's window to pair a
+   * disappearance with an appearance as a move made outside thoth, which the
+   * note follows instead.
+   */
+  orphanGraceMs?: number
   log?: (msg: string) => void
 }
 
@@ -401,6 +418,104 @@ export class CollabHub implements HotDocuments {
     return result
   }
 
+  // --- Moves made outside thoth (D-031.4) ---------------------------------------
+
+  /**
+   * Moves the indexer detected outside thoth. A note open in an editor (or
+   * whose copy waits in its recovery log) follows its file instead of being
+   * taken as deleted (D-022).
+   */
+  followMoves(moves: readonly { from: string; to: string }[]) {
+    for (const { from, to } of moves) {
+      if (!this.hot.has(from) && !existsSync(this.logPath(from))) continue
+      this.followMove(from, to).catch((e) => this.log(`${from}: could not follow its move to ${to}: ${e instanceof Error ? e.message : String(e)}`))
+    }
+  }
+
+  /**
+   * The note at `from` was moved outside thoth to `to`: as for a move from
+   * thoth, the document is closed and its editors reopen it at `to`. What was
+   * typed and hadn't reached the file (while it was missing, nothing was
+   * written) is written at `to`, merged with whatever the other tool changed on
+   * the way; the old path is never written again. Only when the hub can tell
+   * it's the same note: `to` has the note's `uid` or, without one, exactly the
+   * text last written. Otherwise the note stays as deleted outside thoth, with
+   * its copy (D-022). Resolves to whether it followed.
+   */
+  async followMove(from: string, to: string): Promise<boolean> {
+    // Only in the recovery log (its editors left, or the server restarted): loaded to follow it.
+    const conn = this.hot.has(from) ? null : await this.hocuspocus.openDirectConnection(from, { system: { kind: 'system', reason: 'follow a note moved outside thoth' } })
+    try {
+      return await withLock(from, async () => {
+        const h = this.hot.get(from)
+        if (!h || h.discarded) return false
+        if ((await readStable(h.file)) !== null) return false // still there (or back): not moved
+        const target = this.file(to)
+        const found = await readStable(target)
+        if (found === null || !this.sameNote(h, found)) {
+          this.log(`${from}: ${to} doesn't look like the same note; it stays as deleted outside thoth`)
+          return false
+        }
+        h.orphaned = true // written nowhere until it's decided where
+        // The other tool may have changed it on the way (it had the uid): like an external change.
+        if (contentHash(found) !== h.flushedHash) this.mergeExternal(from, h, found, contentHash(found))
+        let disk: string = found
+        /** Writes the document at `to` until the file holds it, merging what others write there meanwhile. */
+        const writeAt = async () => {
+          for (let attempt = 0; ; attempt++) {
+            this.ensureUid(h)
+            const text = h.doc.getText(TEXT).toString()
+            if (text === disk) return
+            const r = await replaceText(target, text, contentHash(disk))
+            if (r.replaced) {
+              this.opts.indexer.indexPaths([to])
+              disk = text
+              if (r.rescued === null) return
+              // Someone wrote in place during the rename: merged, and written again.
+              this.mergeExternal(from, h, r.rescued, contentHash(r.rescued), false)
+              continue
+            }
+            const now: string | null = r.current === null ? null : await readStable(target, disk)
+            if (now === null || attempt >= 5) throw new Error(now === null ? `${to} disappeared` : `too many races in a row on ${to}`)
+            this.mergeExternal(from, h, now, contentHash(now))
+            disk = now
+          }
+        }
+        // First with its editors still there: when they reopen it at `to`, what they typed is in the file.
+        try {
+          await writeAt()
+        } catch (err) {
+          this.announceOrphan(from, h) // it can't be written there: the copy is kept (D-022)
+          throw err
+        }
+        h.discarded = true
+        this.hocuspocus.documents.get(from)?.broadcastStateless(JSON.stringify({ type: MOVED_MESSAGE, from, to, external: true }))
+        this.hocuspocus.closeConnections(from)
+        // Closed: nothing else can arrive. What came in between is written
+        // before the lock is released, so the log (which unloading removes)
+        // outlives the text it holds.
+        try {
+          await writeAt()
+        } catch (err) {
+          h.discarded = false
+          this.announceOrphan(from, h)
+          throw err
+        }
+        this.log(`${from} was moved outside thoth to ${to} while open: the note follows it`)
+        return true
+      })
+    } finally {
+      await conn?.disconnect()
+    }
+  }
+
+  /** Whether `text` is the note `h` holds: the same `uid` or, without one, the text last written. */
+  private sameNote(h: Hot, text: string): boolean {
+    const uid = this.uidIn(text)
+    if (uid !== null) return uid === (this.uidIn(h.flushedText) ?? h.uid)
+    return contentHash(text) === h.flushedHash
+  }
+
   // --- Lifecycle ------------------------------------------------------------
 
   private load(path: string, doc: Y.Doc) {
@@ -459,12 +574,14 @@ export class CollabHub implements HotDocuments {
       const h: Hot = {
         doc, file, logFile, logFd, snapshot, flushedText, flushedHash,
         history: [...history.filter((b) => b.hash !== flushedHash), { snapshot, text: flushedText, hash: flushedHash }].slice(-HISTORY),
-        uid: this.uidIn(flushedText), discarded: false, orphaned: false,
+        uid: this.uidIn(flushedText), discarded: false, orphaned: false, announced: false, orphanTimer: null,
       }
       this.hot.set(path, h)
       doc.on('update', (update: Uint8Array) => writeSync(h.logFd, record('U', update)))
-      // A missing file isn't "empty": it was deleted (server down, or before reopening).
-      if (diskOrNull === null) this.markOrphan(path, h)
+      // A missing file isn't "empty": it was deleted (server down, or before
+      // reopening). Announced at once: a move made meanwhile was already seen
+      // by the scan, and is followed when it's reported (`followMoves`).
+      if (diskOrNull === null) this.markOrphan(path, h, true)
       else if (previous && diskHash !== flushedHash) this.mergeExternal(path, h, disk, diskHash)
     })
   }
@@ -589,6 +706,7 @@ export class CollabHub implements HotDocuments {
     return withLock(path, () => {
       const h = this.hot.get(path)
       if (!h) return
+      if (h.orphanTimer) clearTimeout(h.orphanTimer)
       closeSync(h.logFd)
       const clean = !h.discarded && !h.orphaned && h.doc.getText(TEXT).toString() === h.flushedText
       const state = this.statePath(path)
@@ -604,9 +722,27 @@ export class CollabHub implements HotDocuments {
     })
   }
 
-  private markOrphan(path: string, h: Hot) {
+  /**
+   * The file is gone: nothing is written to it any more. Its editors are told
+   * after a grace period (or at once, with `now`), unless the indexer reports
+   * meanwhile that it moved, and the note follows it (`followMove`).
+   */
+  private markOrphan(path: string, h: Hot, now = false) {
     if (h.orphaned) return
     h.orphaned = true
+    if (now) return this.announceOrphan(path, h)
+    this.log(`${path}: the file is gone while the note is open; nothing is written to it (waiting to see whether it moved)`)
+    h.orphanTimer = setTimeout(() => {
+      h.orphanTimer = null
+      withLock(path, () => { if (this.hot.get(path) === h && h.orphaned && !h.discarded) this.announceOrphan(path, h) })
+        .catch((e) => this.log(`orphan notice for ${path}: ${e}`))
+    }, this.opts.orphanGraceMs ?? 6000)
+    h.orphanTimer.unref()
+  }
+
+  private announceOrphan(path: string, h: Hot) {
+    if (h.announced) return
+    h.announced = true
     this.log(`${path} was deleted outside thoth while the note was open: nothing is written until someone decides`)
     this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: ORPHAN_MESSAGE, path }))
   }
@@ -614,7 +750,7 @@ export class CollabHub implements HotDocuments {
   /** Notes deleted from outside with a copy pending a decision (open, or only in the log). */
   orphans(): string[] {
     const out = new Set<string>()
-    for (const [path, h] of this.hot) if (h.orphaned && !h.discarded) out.add(path)
+    for (const [path, h] of this.hot) if (h.orphaned && h.announced && !h.discarded) out.add(path)
     for (const f of readdirSync(this.logDir).filter((x) => x.endsWith('.ylog'))) {
       const path = decodeURIComponent(f.slice(0, -'.ylog'.length))
       if (!this.hot.has(path) && readText(this.file(path)) === null) out.add(path)
@@ -634,6 +770,7 @@ export class CollabHub implements HotDocuments {
         const r = await replaceText(h.file, text, null)
         if (!r.replaced) throw new NoteError('exists', `another note already exists at ${path}`)
         h.orphaned = false
+        h.announced = false
         h.snapshot = Y.encodeStateAsUpdate(h.doc)
         h.flushedText = text
         h.flushedHash = contentHash(text)

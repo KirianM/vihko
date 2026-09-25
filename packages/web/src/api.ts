@@ -17,7 +17,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
   let res: Response
   const raw = body instanceof Blob
   try {
@@ -26,6 +26,7 @@ async function request<T>(method: string, path: string, body?: unknown, headers:
       credentials: 'same-origin',
       headers: body === undefined || raw ? headers : { 'content-type': 'application/json', ...headers },
       body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
+      signal,
     })
   } catch {
     throw new ApiError(0, 'network', 'network')
@@ -163,7 +164,8 @@ export const api = {
   moveFolder: (from: string, to: string, dryRun = false) => request<FolderMoveReport>('POST', '/api/folder/move', { from, to, dryRun }),
   /** Moves a folder; if rewriting the links takes long, they go on in the background (a job). */
   startMoveFolder: (from: string, to: string) => request<FolderMoveReport | { job: MoveJob }>('POST', '/api/folder/move', { from, to, background: true }).then(started<FolderMoveReport>),
-  moveJob: (id: string) => request<MoveJob>('GET', `/api/move-jobs/${encodeURIComponent(id)}`),
+  /** A job's state; `timeoutMs`: give up on a request that doesn't answer (it's asked again). */
+  moveJob: (id: string, timeoutMs?: number) => request<MoveJob>('GET', `/api/move-jobs/${encodeURIComponent(id)}`, undefined, {}, timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined),
   note: (path: string) => request<Note>('GET', `/api/note?path=${encodeURIComponent(path)}`),
   alerts: () => request<{ alerts: Alert[] }>('GET', '/api/alerts').then((r) => r.alerts),
   conflict: (path: string) => request<{ path: string; text: string }>('GET', `/api/conflict?path=${encodeURIComponent(path)}`),

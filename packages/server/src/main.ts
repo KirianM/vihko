@@ -72,9 +72,13 @@ export async function start(config: Config) {
   const indexer = new Indexer({ notesDir: config.notesDir, db: index, linkAliases: workspace.config.links.aliases })
   // Before the first scan: a note moved while the server was stopped is detected too.
   const externalMoves = new ExternalMoves({ stateDir: config.stateDir, db: index, indexer, log })
+  // Open notes follow their file (the hub exists after the first scan, which
+  // hands it its moves once the recovery logs are loaded).
+  let follow: CollabHub | null = null
   indexer.onMoves = (moves) => {
     externalMoves.record(moves)
     log(`moved outside thoth: ${moves.map((m) => `${m.from} → ${m.to} (${m.by})`).join(', ')}`)
+    follow?.followMoves(moves)
   }
   /** Rereads thoth.yaml and applies what the index depends on. */
   const reloadWorkspace = () => {
@@ -95,6 +99,9 @@ export async function start(config: Config) {
 
   const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log })
   await hub.recoverAll()
+  // A note with pending edits moved while the server was stopped: its copy goes where the file is.
+  hub.followMoves(first.moved)
+  follow = hub
 
   const watcher = new Watcher({
     notesDir: config.notesDir,

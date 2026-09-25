@@ -335,7 +335,7 @@ test('a rename with many backlinks shows its progress, can go to the background,
   // Enough notes that the rewrites outlast the second the server waits before
   // answering with a job, even on a fast disk: each takes at least two stable
   // reads (120 ms), 16 at a time, so 400 notes take 3 s or more.
-  test.setTimeout(180_000)
+  test.setTimeout(300_000)
   const dir = `${DIR}/many`
   const hub = `${dir}/Hub.md`
   const N = 400
@@ -345,9 +345,23 @@ test('a rename with many backlinks shows its progress, can go to the background,
   await expect.poll(async () => (await (await k.request.get(`/api/note/links?path=${encodeURIComponent(hub)}`)).json()).backlinks.length, { timeout: 60_000 }).toBe(N)
   await k.goto(`/?note=${encodeURIComponent(hub)}`)
   await expect(k.locator('.cm-content')).toBeVisible()
+  // The job as the server has it, asked apart from the page.
+  let jobId = ''
+  const jobState = async () => (await (await k.request.get(`/api/move-jobs/${jobId}`)).json()).state as string
+  // One of the page's status requests gets no answer until well after the job
+  // ends (a stalled connection): the notice must not wait for it.
+  let polls = 0
+  await k.route('**/api/move-jobs/**', async (route) => {
+    if (++polls !== 3) return route.continue()
+    await expect.poll(jobState, { timeout: 150_000, intervals: [1000] }).toBe('done')
+    await new Promise((r) => setTimeout(r, 20_000))
+    await route.continue().catch(() => {}) // the page may have given up on it
+  })
   const dialog = await openRename(k)
   await dialog.getByLabel('Nuevo nombre').fill('Central hub')
+  const started = k.waitForResponse((r) => r.url().endsWith('/api/note/move') && r.request().postDataJSON()?.background === true)
   await dialog.getByRole('button', { name: `Renombrar y actualizar ${N} enlaces` }).click()
+  jobId = ((await (await started).json()) as { job: { id: string } }).job.id
 
   const progress = k.getByRole('dialog').filter({ hasText: 'Actualizando enlaces' })
   await expect(progress).toBeVisible()
@@ -365,7 +379,12 @@ test('a rename with many backlinks shows its progress, can go to the background,
   await k.keyboard.type('Ref 7')
   await k.getByRole('option', { name: /Ref 7(?!\d)/ }).first().click()
   await expect(k.locator('.crumbs b')).toHaveText('Ref 7')
-  // At the end the notice goes and every link was rewritten.
-  await expect(toast).toHaveCount(0, { timeout: 120_000 })
+  // At the end the notice goes and every link was rewritten. The server's end
+  // and the notice's are told apart: a slow disk makes the first late, while
+  // the second must follow it (at worst, once the stalled request is dropped).
+  await expect.poll(jobState, { timeout: 150_000, intervals: [1000] }).toBe('done')
+  await expect(toast, 'the notice follows the end of the job').toHaveCount(0, { timeout: 15_000 })
+  expect(polls, 'the stalled request was among them').toBeGreaterThanOrEqual(3)
+  await k.unrouteAll({ behavior: 'ignoreErrors' })
   for (let i = 0; i < N; i++) expect(read(`${dir}/refs/Ref ${i}.md`)).toContain('[[Central hub]]')
 })

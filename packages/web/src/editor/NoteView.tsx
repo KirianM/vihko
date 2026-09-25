@@ -187,6 +187,8 @@ interface Props {
   onNavigate: (p: string) => void
   /** The note changed path (renamed by you or someone else): reopen it there. With the report when you did it. */
   onMoved: (to: string, report?: MoveReport) => void
+  /** Another tool moved the note's file and the note followed it: reopen it there. */
+  onMovedOutside: (from: string, to: string) => void
   /** You moved it and the links are still being rewritten in the background. */
   onMoveStarted: (job: MoveJob) => void
   onTrashed: (t: Trashed) => void
@@ -198,7 +200,7 @@ interface Props {
   onPickCandidate: (offer: PinOffer) => void
 }
 
-export function NoteView({ path, user, daily, onNavigate, onMoved, onMoveStarted, onTrashed, templates, onCreated, onPickCandidate }: Props) {
+export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutside, onMoveStarted, onTrashed, templates, onCreated, onPickCandidate }: Props) {
   const t = useT()
   const c = useCollab(path)
   const [linkData, setLinkData] = useState<LinksData | null>(null)
@@ -257,8 +259,12 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMoveStarted
     return () => { live = false }
   }, [path, c.save])
 
-  // Moved or trashed from thoth, by you or someone else: the hub tells all its editors.
-  useEffect(() => { if (c.moved) onMoved(c.moved) }, [c.moved]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Moved or trashed from thoth, by you or someone else, or moved by another tool: the hub tells all its editors.
+  useEffect(() => {
+    if (!c.moved) return
+    if (c.moved.outside) onMovedOutside(path, c.moved.to)
+    else onMoved(c.moved.to)
+  }, [c.moved]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (c.trashed) onTrashed({ id: c.trashed.id, path, by: c.trashed.by === user.username ? null : c.trashed.by })
   }, [c.trashed]) // eslint-disable-line react-hooks/exhaustive-deps

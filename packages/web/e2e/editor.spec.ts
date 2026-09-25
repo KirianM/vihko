@@ -71,7 +71,7 @@ test('deleted externally with the note open: alert, not recreated, and the copy 
   await a.keyboard.type('\nlínea antes del borrado')
   await expect.poll(disk).toContain('antes del borrado')
   rmSync(FILE)
-  await expect(a.getByRole('alert')).toContainText('se ha borrado fuera')
+  await expect(a.getByRole('alert')).toContainText('se ha borrado fuera', { timeout: 15_000 }) // after the grace for a move (6 s)
   await a.keyboard.type('\nlínea después del borrado')
   await a.waitForTimeout(2000)
   expect(existsSync(FILE)).toBe(false)
@@ -89,7 +89,7 @@ test('discarding the copy of a note deleted externally: once recreated, it reope
   await a.goto(`/?note=${encodeURIComponent(note)}`)
   await expect(a.locator('.cm-content')).toBeVisible()
   rmSync(file)
-  await expect(a.getByRole('alert')).toContainText('se ha borrado fuera')
+  await expect(a.getByRole('alert')).toContainText('se ha borrado fuera', { timeout: 15_000 }) // after the grace for a move (6 s)
   await a.getByRole('button', { name: 'Descartar' }).click()
   await expect(a.locator('.banner')).toHaveCount(0)
   // Leave the note without reloading the page: the WebSocket stays the same.
