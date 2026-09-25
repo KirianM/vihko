@@ -5,7 +5,9 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      # Puerto del host: 8080 si no dices otro. Si ya está ocupado,
+      # THOTH_HOST_PORT=8098 docker compose up -d (o en un archivo .env).
+      - "${THOTH_HOST_PORT:-8080}:8080"
     volumes:
       # Notas: cualquier carpeta de Markdown (disco local o NFS).
       - ./notas:/data/notes
