@@ -23,4 +23,5 @@ export {
   type ConfigError, type ConfigErrorCode, type ParseResult, type StrictSection, type WorkspaceConfig,
 } from './workspace.ts'
 export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'
+export { DEFAULT_HISTORY_MAX_FILE_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode } from './workspace.ts'
 export { anchorChanged, normalizeAnchor, parseComments, parseThreads, type Comment, type Thread } from './comments.ts'

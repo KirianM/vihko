@@ -59,6 +59,21 @@ test('thoth.yaml: links.aliases turns alias resolution off; on by default', () =
   assert.deepEqual(warnings('links:\n  alias: false\n'), [['unknown_key', 'links.alias', 2]])
 })
 
+test('thoth.yaml: history is managed with a 20 MB limit unless it says otherwise', () => {
+  assert.deepEqual(EMPTY_WORKSPACE.history, { mode: 'managed', maxFileSize: 20 })
+  const r = parseWorkspaceConfig('history:\n  mode: off\n  maxFileSize: 2.5\n')
+  assert.ok(r.ok)
+  assert.deepEqual(r.config.history, { mode: 'off', maxFileSize: 2.5 })
+  const only = parseWorkspaceConfig('history:\n  mode: unmanaged\n')
+  assert.ok(only.ok)
+  assert.deepEqual(only.config.history, { mode: 'unmanaged', maxFileSize: 20 })
+  assert.deepEqual(errors('history:\n  mode: git\n'), [['invalid_value', 'history.mode', 2]])
+  assert.deepEqual(errors('history:\n  maxFileSize: 0\n'), [['invalid_value', 'history.maxFileSize', 2]])
+  assert.deepEqual(errors('history:\n  maxFileSize: "20 MB"\n'), [['invalid_value', 'history.maxFileSize', 2]])
+  assert.deepEqual(errors('history: off\n'), [['not_a_map', 'history', 1]])
+  assert.deepEqual(warnings('history:\n  retention: forever\n'), [['unknown_key', 'history.retention', 2]])
+})
+
 test('thoth.yaml: YAML errors carry their line', () => {
   assert.deepEqual(errors('daily:\n  diario:\n    folder: [unclosed\n'), [['yaml', null, 4]])
   assert.deepEqual(errors('templates: a\ntemplates: b\n'), [['yaml', null, 2]], 'duplicate keys')
