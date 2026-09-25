@@ -311,9 +311,10 @@ export class NoteService {
       await this.rewriteAll(others.map((src) => ({ path: src, change: (t: string) => relinkSplices(t, planRelinks(t, src, src, before, after, map)) })), system, report.failed, opts.onProgress)
 
       // Safety net: if something couldn't be rewritten, the old name stays as an alias.
+      // Not when aliases don't resolve links (thoth.yaml): it would save nothing.
       const oldName = posix.basename(from).replace(/\.md$/i, '')
       const newName = posix.basename(to).replace(/\.md$/i, '')
-      if (report.failed.length && oldName !== newName) {
+      if (report.failed.length && oldName !== newName && this.opts.indexer.linkAliases) {
         try {
           await this.edit(to, (t) => addToFrontmatterList(t, 'aliases', oldName), { actor: system })
           report.aliasAdded = oldName

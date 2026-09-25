@@ -121,6 +121,27 @@ test('if a rewrite fails, the old name is kept as an alias', { skip: process.get
   }
 })
 
+test('with links.aliases off, a failed rewrite adds no alias: it would save nothing', { skip: process.getuid?.() === 0 }, async () => {
+  const { notesDir, indexer, notes, dst } = setup()
+  const { mkdirSync, writeFileSync } = await import('node:fs')
+  mkdirSync(join(notesDir, 'otra'))
+  mkdirSync(join(notesDir, 'bloqueada'))
+  writeFileSync(join(notesDir, 'otra/Destino.md'), '# Destino\n')
+  writeFileSync(join(notesDir, 'bloqueada/enlaza.md'), '[[Destino]]\n')
+  indexer.scan()
+  indexer.setLinkAliases(false)
+  chmodSync(join(notesDir, 'bloqueada'), 0o555)
+  try {
+    const r = await notes.move('otra/Destino.md', 'otra/Nuevo nombre.md', { actor: me })
+    assert.deepEqual(r.failed.map((f) => [f.path, f.error]), [['bloqueada/enlaza.md', 'internal']], 'the failure is still reported')
+    assert.equal(r.aliasAdded, null)
+    assert.equal(readFrontmatter(readFileSync(join(notesDir, 'otra/Nuevo nombre.md'), 'utf8')).data.aliases, undefined, 'no alias added')
+    assert.equal(dst('bloqueada/enlaza.md', '[[Destino]]'), null, 'the link left behind is broken')
+  } finally {
+    chmodSync(join(notesDir, 'bloqueada'), 0o755)
+  }
+})
+
 test("if the source can't be removed, the note isn't left duplicated", { skip: process.getuid?.() === 0 }, async () => {
   const { notesDir, notes } = setup()
   chmodSync(join(notesDir, 'recetas'), 0o555)

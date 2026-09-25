@@ -1,6 +1,8 @@
 // Local users, passwords and sessions. No external provider required.
-// Passwords with scrypt (bundled with Node); only the hash of session
-// tokens is stored.
+// Passwords with argon2id, bundled with Node (D-031.8); older scrypt hashes
+// still verify and are replaced on the next successful login. Only the hash
+// of session tokens is stored.
+import * as crypto from 'node:crypto'
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 import { newUid } from '@thoth/core'
@@ -8,7 +10,19 @@ import type { Db } from './db.ts'
 
 const scryptAsync = promisify(scrypt) as (pw: string, salt: Buffer, len: number, opts: object) => Promise<Buffer>
 
-// scrypt parameters: N=2^15, r=8, p=1 (~32 MiB, on the order of 100 ms).
+interface Argon2Params { message: string | Buffer; nonce: Buffer; parallelism: number; tagLength: number; memory: number; passes: number }
+type Argon2 = (algorithm: 'argon2id', params: Argon2Params, cb: (err: Error | null, key: Buffer) => void) => void
+// Stable in Node 26 (added in 24.7). A Node built against an OpenSSL without
+// Argon2 (older than 3.2) doesn't have it: then new hashes stay on scrypt.
+const argon2 = (crypto as unknown as { argon2?: Argon2 }).argon2
+const argon2Async = argon2 && ((params: Argon2Params) =>
+  new Promise<Buffer>((resolve, reject) => argon2('argon2id', params, (err, key) => (err ? reject(err) : resolve(key)))))
+
+// argon2id with OWASP's parameters: 19 MiB, 2 passes, 1 lane.
+const ARGON2 = { m: 19 * 1024, t: 2, p: 1 }
+const ARGON2_VERSION = 19
+
+// scrypt parameters: N=2^15, r=8, p=1 (~32 MiB, on the order of 100 ms). Only for hashes made before argon2id.
 const N = 2 ** 15
 const R = 8
 const P = 1
@@ -38,13 +52,37 @@ export class AuthError extends Error {
   }
 }
 
+const b64 = (b: Buffer) => b.toString('base64').replace(/=+$/, '')
+
+/**
+ * A new password hash, as a PHC string with its algorithm and parameters:
+ * `$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>` (base64 without padding).
+ * Without Argon2 in this Node, `scrypt$N$r$p$<salt>$<hash>`.
+ */
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16)
-  const hash = await scryptAsync(password.normalize('NFC'), salt, KEYLEN, { N, r: R, p: P, maxmem: MAXMEM })
-  return `scrypt$${N}$${R}$${P}$${salt.toString('base64')}$${hash.toString('base64')}`
+  if (!argon2Async) {
+    const hash = await scryptAsync(password.normalize('NFC'), salt, KEYLEN, { N, r: R, p: P, maxmem: MAXMEM })
+    return `scrypt$${N}$${R}$${P}$${salt.toString('base64')}$${hash.toString('base64')}`
+  }
+  const hash = await argon2Async({ message: password.normalize('NFC'), nonce: salt, parallelism: ARGON2.p, tagLength: KEYLEN, memory: ARGON2.m, passes: ARGON2.t })
+  return `$argon2id$v=${ARGON2_VERSION}$m=${ARGON2.m},t=${ARGON2.t},p=${ARGON2.p}$${b64(salt)}$${b64(hash)}`
 }
 
+const ARGON2_HASH = /^\$argon2id\$v=(\d+)\$m=(\d+),t=(\d+),p=(\d+)\$([A-Za-z0-9+/]+)\$([A-Za-z0-9+/]+)$/
+
+/** Whether `password` matches a stored hash of either kind. An unknown or malformed hash never matches. */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  const a = ARGON2_HASH.exec(stored)
+  if (a) {
+    const [, v, m, t, p, salt, hash] = a
+    if (!argon2Async || Number(v) !== ARGON2_VERSION) return false
+    const expected = Buffer.from(hash!, 'base64')
+    const actual = await argon2Async({
+      message: password.normalize('NFC'), nonce: Buffer.from(salt!, 'base64'), parallelism: Number(p), tagLength: expected.length, memory: Number(m), passes: Number(t),
+    })
+    return timingSafeEqual(actual, expected)
+  }
   const [alg, n, r, p, salt, hash] = stored.split('$')
   if (alg !== 'scrypt' || !salt || !hash) return false
   const expected = Buffer.from(hash, 'base64')
@@ -52,6 +90,13 @@ export async function verifyPassword(password: string, stored: string): Promise<
     N: Number(n), r: Number(r), p: Number(p), maxmem: MAXMEM,
   })
   return timingSafeEqual(actual, expected)
+}
+
+/** Whether a stored hash (already verified) should be replaced: an older algorithm or weaker parameters. */
+export function needsRehash(stored: string): boolean {
+  if (!argon2Async) return false
+  const a = ARGON2_HASH.exec(stored)
+  return !a || Number(a[1]) !== ARGON2_VERSION || Number(a[2]) < ARGON2.m || Number(a[3]) < ARGON2.t || Number(a[4]) < ARGON2.p
 }
 
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex')
@@ -111,6 +156,10 @@ export class Auth {
     // Verified against a dummy hash either way, so response time doesn't reveal which users exist.
     const ok = await verifyPassword(password, row?.password_hash ?? DUMMY_HASH)
     if (!row || !ok || row.disabled) return null
+    // A hash from before argon2id (or with weaker parameters) is replaced now that the password is known.
+    if (needsRehash(row.password_hash)) {
+      this.db.prepare('update users set password_hash = ? where id = ? and password_hash = ?').run(await hashPassword(password), row.id, row.password_hash)
+    }
     const token = newToken()
     const now = new Date()
     const expiresAt = new Date(now.getTime() + SESSION_DAYS * 86_400_000)
@@ -145,4 +194,7 @@ export class Auth {
   }
 }
 
-const DUMMY_HASH = `scrypt$${N}$${R}$${P}$${Buffer.alloc(16).toString('base64')}$${Buffer.alloc(KEYLEN).toString('base64')}`
+// Same algorithm and cost as a real hash, so an unknown user takes as long as a known one.
+const DUMMY_HASH = argon2Async
+  ? `$argon2id$v=${ARGON2_VERSION}$m=${ARGON2.m},t=${ARGON2.t},p=${ARGON2.p}$${b64(Buffer.alloc(16))}$${b64(Buffer.alloc(KEYLEN))}`
+  : `scrypt$${N}$${R}$${P}$${Buffer.alloc(16).toString('base64')}$${Buffer.alloc(KEYLEN).toString('base64')}`

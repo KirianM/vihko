@@ -2,6 +2,7 @@
 // cursor asks for, how notes, headings and tags rank against what was typed,
 // and the shortest link that reaches a note from the current one (D-019).
 // Plain data in and out, so it can be tested on its own.
+import { caseFold } from '@thoth/core/casefold'
 import { LinkIndex, shortestTarget } from '@thoth/core/resolve'
 
 /** A note as the tree lists it. */
@@ -37,8 +38,8 @@ export function completionContext(before: string): Context | null {
   return { kind: 'tag', query }
 }
 
-/** Case- and accent-insensitive form, like search (`unicode61 remove_diacritics`). */
-export const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
+/** Case- and accent-insensitive form, like search (`unicode61 remove_diacritics`), with the case folding of links and tags. */
+export const fold = (s: string) => caseFold(s).normalize('NFD').replace(/\p{M}/gu, '').replace(/\s+/g, ' ').trim()
 
 const WORD_START = /[\s\-_/.(),:;[\]]/
 
@@ -90,10 +91,12 @@ interface Prepared { note: NoteEntry; title: string; name: string; path: string;
  */
 export class NoteCatalog {
   private readonly prepared: Prepared[]
-  private readonly index = new LinkIndex()
+  private readonly index: LinkIndex
   private readonly collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
-  constructor(notes: readonly NoteEntry[]) {
+  /** `aliases`: whether aliases resolve links (thoth.yaml). Either way they're suggested, and inserted as `[[Note|alias]]`. */
+  constructor(notes: readonly NoteEntry[], opts: { aliases?: boolean } = {}) {
+    this.index = new LinkIndex({ aliases: opts.aliases ?? true })
     this.prepared = notes.map((note) => ({
       note,
       title: fold(note.title || baseName(note.path)),

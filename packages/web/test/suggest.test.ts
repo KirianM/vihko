@@ -89,6 +89,15 @@ test('linkTarget: the shortest link that resolves from the current note', () => 
   assert.deepEqual(catalog.displays('hogar/Proxy.md'), ['Proxy', 'gw', 'Hipervisor'])
 })
 
+test('with aliases off (thoth.yaml), aliases are still suggested but only resolve as visible text', () => {
+  const off = new NoteCatalog(NOTES, { aliases: false })
+  const gw = off.rank('hiper', 'x.md')[0]!
+  assert.deepEqual([gw.path, gw.alias], ['hogar/Proxy.md', 'Hipervisor'], 'still suggested, inserted as [[Proxy|Hipervisor]]')
+  assert.equal(off.linkTarget('hogar/enlaces.md', 'hogar/Proxy.md'), 'Proxy')
+  assert.equal(off.resolve('hogar/enlaces.md', 'gw'), null, '[[gw#… has no headings to offer')
+  assert.equal(off.resolve('hogar/enlaces.md', 'proxy'), 'hogar/Proxy.md')
+})
+
 test('headings and tags: filtered and ordered', () => {
   const hs = [{ level: 1, text: 'Proxy' }, { level: 2, text: 'Red' }, { level: 2, text: 'Almacenamiento' }, { level: 3, text: 'Red de gestión' }]
   assert.deepEqual(rankHeadings(hs, ''), hs)
@@ -129,4 +138,11 @@ test('a broken Markdown link creates the .md it points to, relative to the note'
   assert.equal(markdownLinkNote('a/b.md', '[x](foto.png)', 'foto.png'), null)
   assert.equal(markdownLinkNote('a/b.md', '[x](https://ejemplo.org/a.md)', 'https://ejemplo.org/a.md'), null)
   assert.equal(markdownLinkNote('a/b.md', '[x](../../fuera.md)', '../../fuera.md'), null)
+})
+
+test('suggestions fold case like links and tags: «Straße» and «STRASSE»', () => {
+  const c = new NoteCatalog([{ path: 'Straße.md', title: 'Straße' }])
+  assert.equal(c.rank('STRASSE', 'x.md')[0]?.path, 'Straße.md')
+  assert.equal(c.resolve('x.md', 'strasse'), 'Straße.md')
+  assert.deepEqual(rankTags([{ tag: 'strasse', count: 1 }], 'Straß').map((t) => t.tag), ['strasse'])
 })

@@ -1,13 +1,23 @@
 // thoth.yaml: the workspace configuration, at the root of the notes folder so
 // it travels (and is versioned) with the notes (D-011, D-014). thoth only reads
-// it. Parsing is strict: an unknown or misspelt key is an error, not something
-// silently ignored, so a setting that looks active always is.
+// it. Parsing is tolerant where it can be and strict where it must (D-031.9):
+// - An unknown key (a typo, or a newer thoth's setting) is reported and
+//   ignored; the rest applies. So is a `version` newer than this thoth's.
+// - A wrong value in a known key makes the file unusable: thoth keeps the last
+//   valid configuration, so a mistyped setting never silently turns into
+//   another one.
+// - Security-relevant sections (`permissions`, M4) are strict sections: any
+//   doubt about one invalidates that section alone, which then applies its most
+//   restrictive setting.
 import { LineCounter, isMap, isScalar, parseDocument, type Document } from 'yaml'
 import { patternPeriod, patternTokens, seriesPath, type Series } from './series.ts'
 import { classifyPath } from './paths.ts'
 
 /** Name of the file at the root of the notes folder. */
 export const WORKSPACE_FILE = 'thoth.yaml'
+
+/** The newest `version` of thoth.yaml this thoth understands. A missing `version` is 1. */
+export const WORKSPACE_VERSION = 1
 
 export interface WorkspaceConfig {
   /** Folder holding the templates offered when creating a note, or null. */
@@ -16,20 +26,25 @@ export interface WorkspaceConfig {
   daily: Series[]
   /** Fixed folder for new images, or null to keep them next to their note (D-028). */
   attachments: { folder: string | null }
+  /**
+   * How links resolve. `aliases`: whether a note's frontmatter aliases
+   * resolve `[[links]]` (D-019, D-031.1). Off, `[[alias]]` is broken, as in
+   * Obsidian, and the editor inserts `[[Note|alias]]`.
+   */
+  links: { aliases: boolean }
 }
 
-export const EMPTY_WORKSPACE: WorkspaceConfig = { templates: null, daily: [], attachments: { folder: null } }
+export const EMPTY_WORKSPACE: WorkspaceConfig = { templates: null, daily: [], attachments: { folder: null }, links: { aliases: true } }
 
 /**
- * Why thoth.yaml can't be used. Stable codes; the UI words them.
+ * A problem in thoth.yaml. Stable codes; the UI words them.
+ *
+ * Errors (the file can't be used; the last valid configuration stays):
  * - `yaml`: not valid YAML (`detail` is the parser's message, for developers).
  * - `not_a_map`: the file (or a section) isn't a set of `key: value`.
- * - `unknown_key`: a key thoth doesn't know (a typo, or a newer version's).
- * - `not_supported`: a key this version reserves but doesn't implement yet
- *   (`permissions`). Refused rather than ignored: ignoring it would look like
- *   the setting works.
- * - `unsupported_version`: `version` isn't 1.
+ * - `invalid_version`: `version` isn't a whole number from 1 up.
  * - `invalid_type`: a value of the wrong kind (`detail`: what was expected).
+ * - `not_boolean`: a switch that isn't `true` or `false`.
  * - `invalid_path`: a folder or note path that isn't relative to the notes
  *   root, climbs out of it or goes through a hidden folder.
  * - `invalid_id`: a series key that isn't letters, digits, `-` or `_`.
@@ -37,10 +52,23 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = { templates: null, daily: [], at
  * - `pattern_period`: a series pattern that doesn't name one note per day,
  *   ISO week, month or year.
  * - `unreadable`: the file exists but can't be read (permissions).
+ *
+ * Warnings (the file applies without that part):
+ * - `unknown_key`: a key thoth doesn't know (a typo, or a newer version's):
+ *   ignored.
+ * - `newer_version`: `version` is newer than this thoth's (`detail`); what it
+ *   understands applies.
+ * - `not_supported`: a section this version reserves but doesn't implement
+ *   yet (`permissions`): not applied.
+ * - `section_rejected`: a strict section with a problem (listed next to it):
+ *   the whole section is left out and its most restrictive setting applies.
+ * Inside a strict section, any code (an unknown key included) is a warning
+ * that comes with `section_rejected`.
  */
 export type ConfigErrorCode =
-  | 'yaml' | 'not_a_map' | 'unknown_key' | 'not_supported' | 'unsupported_version' | 'invalid_type'
+  | 'yaml' | 'not_a_map' | 'invalid_version' | 'invalid_type' | 'not_boolean'
   | 'invalid_path' | 'invalid_id' | 'pattern_token' | 'pattern_period' | 'unreadable'
+  | 'unknown_key' | 'newer_version' | 'not_supported' | 'section_rejected'
 
 export interface ConfigError {
   code: ConfigErrorCode
@@ -51,10 +79,45 @@ export interface ConfigError {
   detail: string | null
 }
 
-export type ParseResult = { ok: true; config: WorkspaceConfig } | { ok: false; errors: ConfigError[] }
+/**
+ * `ok`: the configuration applies, without what `warnings` lists. Otherwise
+ * `errors` say why the file can't be used. `sections` holds what each strict
+ * section resolved to (its most restrictive setting when rejected or missing).
+ */
+export type ParseResult =
+  | { ok: true; config: WorkspaceConfig; warnings: ConfigError[]; sections: Record<string, unknown> }
+  | { ok: false; errors: ConfigError[]; warnings: ConfigError[] }
 
-const TOP_KEYS = ['version', 'templates', 'daily', 'attachments']
-const RESERVED = ['permissions']
+type Report = (code: ConfigErrorCode, path: string[], detail?: string | null) => void
+
+/**
+ * A security-relevant section: parsed strictly and failing closed. Any
+ * problem it reports rejects the section alone (never the rest of the file),
+ * and then `closed` applies, as when the section is missing.
+ */
+export interface StrictSection<T = unknown> {
+  key: string
+  /** The most restrictive setting: what applies when the section is missing or rejected. */
+  closed: T
+  /** Reads the section; reporting anything rejects it. `at` is `[key]`. */
+  parse(raw: unknown, at: string[], report: Report): T
+}
+
+/**
+ * Per-folder permissions (M4) will be a strict section. Until they exist the
+ * section is reported and never applied, so it can't look like it protects
+ * anything.
+ */
+const PERMISSIONS: StrictSection<null> = {
+  key: 'permissions',
+  closed: null,
+  parse: (_raw, at, report) => { report('not_supported', at); return null },
+}
+
+export const STRICT_SECTIONS: readonly StrictSection[] = [PERMISSIONS]
+
+const TOP_KEYS = ['version', 'templates', 'daily', 'attachments', 'links']
+const LINKS_KEYS = ['aliases']
 const SERIES_KEYS = ['folder', 'name', 'template', 'label']
 const ATTACHMENT_KEYS = ['folder']
 const DEFAULT_NAME = '{YYYY}-{MM}-{DD}'
@@ -66,29 +129,33 @@ function isFolder(path: string): boolean {
   return !/[\\\u0000-\u001f]/.test(path) && path.split('/').every((s) => s !== '' && !s.startsWith('.') && s.trim() === s)
 }
 
-export function parseWorkspaceConfig(text: string): ParseResult {
+export function parseWorkspaceConfig(text: string, strict: readonly StrictSection[] = STRICT_SECTIONS): ParseResult {
   const lines = new LineCounter()
   const doc = parseDocument(text, { schema: 'core', uniqueKeys: true, prettyErrors: false, lineCounter: lines })
   if (doc.errors.length) {
     const e = doc.errors[0]!
-    return { ok: false, errors: [{ code: 'yaml', at: null, line: lines.linePos(e.pos[0]).line, detail: e.message }] }
+    return { ok: false, errors: [{ code: 'yaml', at: null, line: lines.linePos(e.pos[0]).line, detail: e.message }], warnings: [] }
   }
   const errors: ConfigError[] = []
-  const lineOf = (path: string[]) => nodeLine(doc, lines, path)
-  const fail = (code: ConfigErrorCode, path: string[], detail: string | null = null) => {
-    errors.push({ code, at: path.length ? path.join('.') : null, line: lineOf(path), detail })
-  }
+  const warnings: ConfigError[] = []
+  const issue = (code: ConfigErrorCode, path: string[], detail: string | null = null): ConfigError =>
+    ({ code, at: path.length ? path.join('.') : null, line: nodeLine(doc, lines, path), detail })
+  const fail: Report = (code, path, detail = null) => { errors.push(issue(code, path, detail)) }
+  const warn: Report = (code, path, detail = null) => { warnings.push(issue(code, path, detail)) }
+  const sections: Record<string, unknown> = Object.fromEntries(strict.map((s) => [s.key, s.closed]))
   const data = doc.toJS({ maxAliasCount: 100 }) as unknown
-  if (data === null || data === undefined) return { ok: true, config: EMPTY_WORKSPACE }
-  if (!isRecord(data)) return { ok: false, errors: [{ code: 'not_a_map', at: null, line: 1, detail: null }] }
+  if (data === null || data === undefined) return { ok: true, config: EMPTY_WORKSPACE, warnings, sections }
+  if (!isRecord(data)) return { ok: false, errors: [{ code: 'not_a_map', at: null, line: 1, detail: null }], warnings }
 
-  const config: WorkspaceConfig = { templates: null, daily: [], attachments: { folder: null } }
-  for (const key of Object.keys(data)) {
-    if (RESERVED.includes(key)) fail('not_supported', [key])
-    else if (!TOP_KEYS.includes(key)) fail('unknown_key', [key])
+  const config: WorkspaceConfig = { templates: null, daily: [], attachments: { folder: null }, links: { aliases: true } }
+  const strictKeys = new Set(strict.map((s) => s.key))
+  for (const key of Object.keys(data)) if (!TOP_KEYS.includes(key) && !strictKeys.has(key)) warn('unknown_key', [key])
+
+  if ('version' in data) {
+    const v = data.version
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) fail('invalid_version', ['version'], String(v))
+    else if (v > WORKSPACE_VERSION) warn('newer_version', ['version'], String(v))
   }
-
-  if ('version' in data && data.version !== 1) fail('unsupported_version', ['version'], String(data.version))
 
   const folder = (value: unknown, at: string[]): string | null => {
     if (typeof value !== 'string') { fail('invalid_type', at, 'string'); return null }
@@ -102,9 +169,19 @@ export function parseWorkspaceConfig(text: string): ParseResult {
   if (data.attachments !== undefined && data.attachments !== null) {
     if (!isRecord(data.attachments)) fail('not_a_map', ['attachments'])
     else {
-      for (const k of Object.keys(data.attachments)) if (!ATTACHMENT_KEYS.includes(k)) fail('unknown_key', ['attachments', k])
+      for (const k of Object.keys(data.attachments)) if (!ATTACHMENT_KEYS.includes(k)) warn('unknown_key', ['attachments', k])
       const f = data.attachments.folder
       if (f !== undefined && f !== null) config.attachments.folder = folder(f, ['attachments', 'folder'])
+    }
+  }
+
+  if (data.links !== undefined && data.links !== null) {
+    if (!isRecord(data.links)) fail('not_a_map', ['links'])
+    else {
+      for (const k of Object.keys(data.links)) if (!LINKS_KEYS.includes(k)) warn('unknown_key', ['links', k])
+      const a = data.links.aliases
+      if (typeof a === 'boolean') config.links.aliases = a
+      else if (a !== undefined && a !== null) fail('not_boolean', ['links', 'aliases'])
     }
   }
 
@@ -114,16 +191,28 @@ export function parseWorkspaceConfig(text: string): ParseResult {
       const at = ['daily', id]
       if (!SERIES_ID.test(id)) { fail('invalid_id', at); continue }
       if (!isRecord(raw)) { fail('not_a_map', at); continue }
-      for (const k of Object.keys(raw)) if (!SERIES_KEYS.includes(k)) fail('unknown_key', [...at, k])
+      for (const k of Object.keys(raw)) if (!SERIES_KEYS.includes(k)) warn('unknown_key', [...at, k])
       const s = parseSeries(id, raw, at, fail)
       if (s) config.daily.push(s)
     }
   }
 
-  return errors.length ? { ok: false, errors } : { ok: true, config }
+  // Strict sections: whatever they report rejects them alone, failing closed.
+  for (const section of strict) {
+    if (!(section.key in data)) continue
+    const found: ConfigError[] = []
+    const value = section.parse(data[section.key], [section.key], (code, path, detail = null) => { found.push(issue(code, path, detail)) })
+    if (found.length === 0) { sections[section.key] = value; continue }
+    warnings.push(...found)
+    if (!found.some((f) => f.code === 'not_supported' && f.at === section.key)) warn('section_rejected', [section.key])
+  }
+
+  // Reported in the order of the file.
+  warnings.sort((a, b) => (a.line ?? 0) - (b.line ?? 0))
+  return errors.length ? { ok: false, errors, warnings } : { ok: true, config, warnings, sections }
 }
 
-function parseSeries(id: string, raw: Record<string, unknown>, at: string[], fail: (code: ConfigErrorCode, path: string[], detail?: string | null) => void): Series | null {
+function parseSeries(id: string, raw: Record<string, unknown>, at: string[], fail: Report): Series | null {
   let failed = false
   const bad = (code: ConfigErrorCode, key: string, detail: string | null = null) => { failed = true; fail(code, [...at, key], detail) }
   const str = (key: string): string | null | undefined => {

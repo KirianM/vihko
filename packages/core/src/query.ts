@@ -3,15 +3,17 @@
 // (a folder, with its subfolders, or one note's path), quoted values for
 // spaces (`path:"my notes/"`) and `-` in front to exclude (`-tag:done`).
 // Shared by the server (it applies them) and the UI (it knows a query with a
-// filter is a search, never the name of a new note). No imports: the UI's main
-// bundle takes this file, and the Markdown parser stays in the editor's chunk.
+// filter is a search, never the name of a new note). The UI's main bundle takes
+// this file: it imports nothing but case folding, so the Markdown parser stays
+// in the editor's chunk.
+import { caseFold } from './casefold.ts'
 
-/** The same normalisation as `normalizeTag` in markdown.ts (D-019: case-insensitive). */
-const normalizeTag = (t: string) => t.replace(/^#/, '').normalize('NFC').toLowerCase()
+/** The same normalisation as `normalizeTag` in markdown.ts (D-019: case-insensitive, full case folding). */
+const normalizeTag = (t: string) => caseFold(t.replace(/^#/, ''))
 
 export interface SearchFilter {
   kind: 'tag' | 'path'
-  /** Tags as the index keeps them (lowercase, no `#`); paths without leading or trailing `/`. */
+  /** Tags as the index keeps them (case-folded, no `#`); paths without leading or trailing `/`. */
   value: string
   negate: boolean
 }
