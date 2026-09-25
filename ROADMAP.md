@@ -33,9 +33,9 @@ Goal: a complete notes system from the UI, without integrations.
 - [x] Images: upload, paste and by URL (local copy or link); they travel with
       their note when it moves to another folder; external images can be
       blocked by the administrator.
-- [ ] Autocomplete in the editor: `[[` suggests notes and aliases, `#`
+- [x] Autocomplete in the editor: `[[` suggests notes and aliases, `#`
       suggests existing tags.
-- [ ] A broken `[[link]]` offers to create the note (in the current note's
+- [x] A broken `[[link]]` offers to create the note (in the current note's
       folder).
 - [ ] Tasks and tables in the editor: `- [ ]` toggles with a click; Markdown
       tables render as tables outside the cursor.
