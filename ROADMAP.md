@@ -39,7 +39,7 @@ Goal: a complete notes system from the UI, without integrations.
       folder).
 - [x] Tasks and tables in the editor: `- [ ]` toggles with a click; Markdown
       tables render as tables outside the cursor.
-- [ ] Folders and tags in the tree: create, rename and move folders (also by
+- [x] Folders and tags in the tree: create, rename and move folders (also by
       dragging notes), a tags view, and `tag:`/`path:` filters in search.
 - [x] Server errors and alerts as translatable codes.
 - [x] Local auth: an admin created from the CLI or a one-time token, sessions.
