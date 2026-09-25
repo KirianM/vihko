@@ -14,9 +14,10 @@ Goal: a complete notes system from the UI, without integrations.
       sync-conflict files, temporary files).
 - [x] Indexer: watcher + periodic rescan, exclusion list, guard against mass
       deletions.
-- [ ] Split the indexer into extensions (a DAG). Today it is a single module
-      with fixed tables; this has to happen before the first real extension
-      (embeddings, M7).
+- [x] Split the indexer into extensions (a DAG): each set of derived tables
+      is an extension with its own version, run in dependency order; bumping
+      one rebuilds only it and its dependents. Ground for the first real
+      extension (embeddings, M7).
 - [x] `index.db`: FTS5 (`unicode61 remove_diacritics 2`), links with states,
       tags, headings. Deterministic rebuild test.
 - [x] Write core: hot/cold notes, `if_match`, trash, lazy `uid`, move/rename
