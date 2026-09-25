@@ -4,7 +4,7 @@
 import { Hocuspocus } from '@hocuspocus/server'
 import diff from 'fast-diff'
 import { randomUUID } from 'node:crypto'
-import { closeSync, constants, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
+import { closeSync, constants, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { dirname, join } from 'node:path'
@@ -185,6 +185,24 @@ function readLog(file: string): Log | null {
   return lastSnapshot ? { updates, lastSnapshot, lastHash, flushes } : null
 }
 
+/** The hash of the text a saved state (`.ystate`) holds, from its first record alone; null if it isn't one. */
+function savedHash(file: string): string | null {
+  const head = Buffer.alloc(5 + HASH_LEN)
+  let fd: number
+  try {
+    fd = openSync(file, 'r')
+  } catch {
+    return null
+  }
+  try {
+    if (readSync(fd, head, 0, head.length, 0) < head.length) return null
+    if (head.toString('latin1', 0, 1) !== 'S' || head.readUInt32BE(1) < HASH_LEN) return null
+    return head.toString('latin1', 5)
+  } finally {
+    closeSync(fd)
+  }
+}
+
 /** The states the log's flushes wrote to the file, oldest first. */
 function flushedStates(log: Log): Base[] {
   const out: Base[] = []
@@ -212,6 +230,19 @@ export class CollabHub implements HotDocuments {
   readonly hocuspocus: Hocuspocus<Ctx>
   private hot = new Map<string, Hot>()
   private expected = new Map<string, Set<string>>()
+  /**
+   * Saved states (`.ystate`) this run trusts, by note, with the hash of the
+   * text each one holds (D-032.4): the ones it wrote, and the ones that still
+   * matched their file after the first scan (`trustSavedStates`). Either way,
+   * at that moment the file held nothing that the state lacks and an editor's
+   * copy may hold, and from then on thoth is running: a backup of the state
+   * volume is only restored with thoth stopped (and an older state no longer
+   * matches its file on startup). So whatever the file gets afterwards comes
+   * from another tool, and merging it into the state (see `load`) repeats
+   * nothing an editor holds. The hash also leaves out a state put back from
+   * outside while running.
+   */
+  private trusted = new Map<string, string>()
   private opts: HubOptions
   private uidKey: string
   private logDir: string
@@ -273,7 +304,8 @@ export class CollabHub implements HotDocuments {
    * the text it matched. Only a cache: it's used when the note is reopened so
    * the document keeps its Yjs identity. An editor that lost its connection
    * (network, server restart) and resyncs its old copy then merges into the
-   * same document instead of adding a second copy of the whole text.
+   * same document instead of adding a second copy of the whole text, also
+   * when the file changed meanwhile if the state is trusted (`trusted`).
    */
   private statePath(path: string) {
     return join(this.logDir, encodeURIComponent(path) + '.ystate')
@@ -534,13 +566,20 @@ export class CollabHub implements HotDocuments {
       let flushedHash: string
       let history: Base[] = []
       // Generation: editors whose copy comes from another one are refused (see
-      // `beforeSync`). A saved document carries its generation on only while it
-      // continues as it was left: the file is still the text it matched (or was
-      // deleted, and the document is kept as its copy). Otherwise it gets from
-      // the file, as a diff, text that an editor's old copy may already hold in
-      // its own operations (the file changed while nobody had the note open, or
-      // the saved state is older than the file: restored from a backup), and
-      // merging that copy would repeat it.
+      // `beforeSync`). A saved document carries its generation on while every
+      // copy of it can merge without repeating text:
+      // - it continues as it was left: the file is still the text it matched,
+      //   or was deleted and the document is kept as its copy (D-022);
+      // - or it's a trusted state (`trusted`) and the file changed after it was
+      //   saved, with thoth running. The change is merged below as another
+      //   tool's, and an editor's unsent typing merges with it (D-032.4). Only
+      //   while the file is still the same note (the same `uid`, or none in
+      //   either): another note put at that path isn't what those copies hold.
+      // Otherwise the diff from the saved text to the file may add again text
+      // that an editor's copy already holds in its own operations (the state is
+      // older than the file: restored from a backup), and merging that copy
+      // would repeat it. A file changed with thoth stopped can't be told apart
+      // from that. A state saved before generations existed gets one too.
       let newGeneration = true
       const setGeneration = () => doc.transact(() => doc.getMap(META).set('generation', randomUUID()), 'generation')
       if (previous) {
@@ -558,8 +597,13 @@ export class CollabHub implements HotDocuments {
         if (own) ({ snapshot, text: flushedText, hash: flushedHash } = own)
         if (recovered) this.log(`recovered ${path} from the log (${recovered.updates.length} records)`)
         const matches = diskOrNull === null || diskHash === flushedHash
-        newGeneration = !matches || generationOf(doc) === null // none: saved before generations existed
-        if (!matches) this.log(`${path}: the saved document doesn't match the file; new generation`)
+        const trusted = !recovered && this.trusted.get(path) === previous.lastHash && this.uidIn(disk) === this.uidIn(flushedText)
+        newGeneration = !(matches || trusted) || generationOf(doc) === null // none: saved before generations existed
+        if (!matches) {
+          this.log(newGeneration
+            ? `${path}: the saved document doesn't match the file; new generation`
+            : `${path}: the file changed after the note was closed, with thoth running; merged into its saved document`)
+        }
         if (newGeneration) setGeneration()
       } else {
         doc.getText(TEXT).insert(0, disk)
@@ -714,7 +758,11 @@ export class CollabHub implements HotDocuments {
         // Kept before the log goes: at every moment one of the two is on disk.
         writeFileSync(state + '.tmp', snapshotRecord(h.flushedHash, Y.encodeStateAsUpdate(h.doc)))
         renameSync(state + '.tmp', state)
-      } else rmSync(state, { force: true })
+        this.trusted.set(path, h.flushedHash)
+      } else {
+        rmSync(state, { force: true })
+        this.trusted.delete(path)
+      }
       // An undecided orphan keeps its log: it's the copy of what was being written.
       if (h.discarded || clean) rmSync(h.logFile, { force: true })
       this.hot.delete(path)
@@ -793,8 +841,34 @@ export class CollabHub implements HotDocuments {
     else {
       rmSync(this.logPath(path), { force: true })
       rmSync(this.statePath(path), { force: true })
+      this.trusted.delete(path)
     }
     this.log(`${path}: copy discarded; the external deletion is accepted as final`)
+  }
+
+  /**
+   * On startup, once the first scan has brought the index up to date and
+   * before any note is loaded: the saved states that still match their file
+   * are trusted (see `trusted`). The index has each file's hash, so no note is
+   * read. One that doesn't match (the file changed with thoth stopped, or the
+   * state was restored from a backup) is loaded as before, with a new
+   * generation.
+   */
+  trustSavedStates() {
+    let states = 0
+    for (const f of readdirSync(this.logDir)) {
+      if (!f.endsWith('.ystate')) continue
+      states++
+      let path: string
+      try {
+        path = decodeURIComponent(f.slice(0, -'.ystate'.length))
+      } catch {
+        continue // not one of the hub's
+      }
+      const hash = savedHash(join(this.logDir, f))
+      if (hash !== null && hash === this.opts.indexer.hashOf(path)) this.trusted.set(path, hash)
+    }
+    if (states) this.log(`saved editor states: ${this.trusted.size} of ${states} match their file`)
   }
 
   /** On startup: every pending log is a note with unflushed edits. */

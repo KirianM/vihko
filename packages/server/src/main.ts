@@ -98,6 +98,9 @@ export async function start(config: Config) {
   log(`index ready: ${first.added.length} added, ${first.changed.length} changed, ${first.removed.length} removed, ${first.unchanged} unchanged`)
 
   const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log })
+  // Checked against the index as the first scan left it. One that stopped may
+  // have left the index behind the files: then no saved state is trusted.
+  if (!first.aborted) hub.trustSavedStates()
   await hub.recoverAll()
   // A note with pending edits moved while the server was stopped: its copy goes where the file is.
   hub.followMoves(first.moved)
