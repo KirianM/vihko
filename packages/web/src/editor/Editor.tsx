@@ -16,8 +16,12 @@ import { useT } from '../i18n.tsx'
 import type { Session } from './collab.ts'
 import { commentMarks, commentUi } from './commentMarks.ts'
 import { imageHost, images } from './images.ts'
-import { labels, livePreview, navigate, setLinks, type LinkInfo } from './livePreview.ts'
+import { linkAutocomplete } from './autocomplete.ts'
+import { createLinkUi, type NewLinkedNote } from './createLink.ts'
+import { labels, livePreview, navigate, notePath, setLinks, type LinkInfo } from './livePreview.ts'
 import { announce } from './presence.ts'
+import { tables } from './tables.ts'
+import { taskLabel, tasks } from './tasks.ts'
 import { viewUpdates } from './viewUpdates.ts'
 import './editor.css'
 
@@ -38,9 +42,11 @@ interface Props {
   onImageFiles?: (files: File[], from: number, to: number) => void
   /** A single image URL pasted over `from`–`to`. */
   onImageUrl?: (url: string, from: number, to: number) => void
+  /** «create» on a broken link: the note to create and the button pressed (to anchor a menu). */
+  onCreateLink?: (note: NewLinkedNote, anchor: HTMLElement) => void
 }
 
-export function Editor({ path, session, user, links, onNavigate, onView, onComments, externalImages, onImageFiles, onImageUrl }: Props) {
+export function Editor({ path, session, user, links, onNavigate, onView, onComments, externalImages, onImageFiles, onImageUrl, onCreateLink }: Props) {
   const t = useT()
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -54,6 +60,8 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
   imageFiles.current = onImageFiles
   const imageUrl = useRef(onImageUrl)
   imageUrl.current = onImageUrl
+  const createLink = useRef(onCreateLink)
+  createLink.current = onCreateLink
 
   useEffect(() => {
     const { text, provider } = session
@@ -62,16 +70,30 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
     const state = EditorState.create({
       doc: text.toString(),
       extensions: [
-        yamlFrontmatter({ content: markdown({ base: markdownLanguage, extensions: thothSyntax }) }),
+        yamlFrontmatter({ content: markdown({ base: markdownLanguage, extensions: thothSyntax, addKeymap: false }) }),
         syntaxHighlighting(classHighlighter),
         EditorView.lineWrapping,
         livePreview,
         navigate.of((p) => nav.current(p)),
+        notePath.of(path),
+        createLinkUi.of({
+          label: t('editor.linkCreate'),
+          where: (note) => {
+            const folder = note.path.includes('/') ? note.path.slice(0, note.path.lastIndexOf('/')).split('/').join(' / ') : t('palette.root')
+            return t('palette.createIn', { name: note.title, folder })
+          },
+          create: (note, anchor) => createLink.current?.(note, anchor),
+        }),
+        linkAutocomplete(path, { tagCount: (n) => t(n === 1 ? 'editor.tagCountOne' : 'editor.tagCount', { n }) }),
         labels.of({
           ambiguous: (n) => t('editor.linkAmbiguous', { n }),
           missing: t('editor.linkMissing'),
           frontmatter: (n) => t(n === 1 ? 'editor.frontmatterOne' : 'editor.frontmatter', { n }),
         }),
+        // tasks brings lang-markdown's keymap (Enter continues a task as a task).
+        tasks,
+        taskLabel.of(t('editor.task')),
+        tables,
         images,
         imageHost.of({
           note: path,

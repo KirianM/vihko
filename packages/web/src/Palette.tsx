@@ -85,13 +85,17 @@ interface Props {
   folder: string
   openPath: string | null
   notes: TreeNote[] | null
+  /** Template notes (from the templates folder in thoth.yaml), offered when creating. */
+  templates: string[]
+  /** Opens today's note; null while daily notes are off. */
+  onToday: (() => void) | null
   onClose: () => void
   onMode: (mode: PaletteMode) => void
   onOpen: (path: string) => void
   onCreated: (path: string) => void
 }
 
-export function Palette({ mode, folder, openPath, notes, onClose, onMode, onOpen, onCreated }: Props) {
+export function Palette({ mode, folder, openPath, notes, templates, onToday, onClose, onMode, onOpen, onCreated }: Props) {
   const t = useT()
   const { effective } = useTheme()
   const [query, setQuery] = useState('')
@@ -118,7 +122,7 @@ export function Palette({ mode, folder, openPath, notes, onClose, onMode, onOpen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text, mode, commandMode])
 
-  const ctx: CommandContext = { theme: effective, openPath, newNote: () => onMode('create') }
+  const ctx: CommandContext = { theme: effective, openPath, newNote: () => onMode('create'), today: onToday }
   const needle = fold(query.slice(1).trim())
   const matching = commandMode ? commands.filter((c) => (c.available?.(ctx) ?? true) && fold(t(c.label(ctx))).includes(needle)) : []
 
@@ -128,12 +132,12 @@ export function Palette({ mode, folder, openPath, notes, onClose, onMode, onOpen
   // quick ↵ opens the matching note instead of creating another with the same name.
   const fileName = commandMode || (mode === 'search' && found?.q !== text) ? null : noteFileName(query)
 
-  async function create(name: string) {
+  async function create(name: string, template?: string) {
     const path = folder ? `${folder}/${name}` : name
     setBusy(true)
     setError(null)
     try {
-      const r = await api.createNote(path, `# ${query.trim()}\n`)
+      const r = template ? await api.createFromTemplate(path, template) : await api.createNote(path, `# ${query.trim()}\n`)
       onCreated(r.path)
     } catch (e) {
       setError(errorText(t, e))
@@ -146,6 +150,7 @@ export function Palette({ mode, folder, openPath, notes, onClose, onMode, onOpen
     const k = String(key)
     if (k.startsWith('n:')) { onClose(); onOpen(k.slice(2)) }
     else if (k === 'create' && fileName && !busy) void create(fileName)
+    else if (k.startsWith('t:') && fileName && !busy) void create(fileName, k.slice(2))
     else if (k.startsWith('c:')) {
       const c = commands.find((x) => `c:${x.id}` === k)
       if (!c) return
@@ -207,6 +212,21 @@ export function Palette({ mode, folder, openPath, notes, onClose, onMode, onOpen
                     <span className="palette-grow">{before}<b>{where}</b>{after}</span>
                     <span className="palette-meta">{t('palette.currentFolder')}</span>
                   </ListBoxItem>
+                </ListBoxSection>
+              )}
+              {fileName && templates.length > 0 && (
+                <ListBoxSection className="palette-section">
+                  <Header className="palette-header">{t('palette.fromTemplate')}</Header>
+                  {templates.map((tpl) => {
+                    const label = t('palette.createWith', { name: baseName(fileName), template: baseName(tpl) })
+                    const [pre, post] = t('palette.createWith', { name: baseName(fileName) }).split('{template}')
+                    return (
+                      <ListBoxItem key={tpl} id={`t:${tpl}`} textValue={label} className="palette-item">
+                        <span className="palette-icon">{noteIcon}</span>
+                        <span className="palette-grow">{pre}<b>{baseName(tpl)}</b>{post}</span>
+                      </ListBoxItem>
+                    )
+                  })}
                 </ListBoxSection>
               )}
               {matching.length > 0 && (

@@ -16,6 +16,7 @@ const icons = {
   copy: svg(<><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6" /><path d="M9 15h6" /></>),
   twin: svg(<><rect x="3" y="4" width="8" height="16" rx="1" /><rect x="13" y="4" width="8" height="16" rx="1" /></>),
   sync: svg(<path d="M16 3h5v5M8 21H3v-5M21 3l-7 7M3 21l7-7" />),
+  config: svg(<><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></>),
 }
 
 /** `hogar/Proxy.md` → `hogar / Proxy`, like in the breadcrumbs. */
@@ -71,8 +72,8 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
 
   function card(a: Alert, i: number) {
     const id = `alert-${i}`
-    const key = `${a.code}:${'path' in a ? a.path : 'uid' in a ? a.uid : ''}`
-    const frame = (o: { icon: ReactNode; tone?: 'warn' | 'accent'; title: string; body: ReactNode; extra?: ReactNode; actions: ReactNode }) => (
+    const key = `${a.code}:${'path' in a ? a.path : 'uid' in a ? a.uid : 'series' in a ? a.series : ''}`
+    const frame = (o: { icon: ReactNode; tone?: 'warn' | 'accent'; title: ReactNode; body: ReactNode; extra?: ReactNode; actions: ReactNode }) => (
       <section key={key} className={`alert-card${o.tone === 'warn' ? ' alert-card-warn' : ''}`} aria-labelledby={id}>
         <span className={`alert-icon alert-icon-${o.tone ?? 'muted'}`}>{o.icon}</span>
         <div className="alert-text">
@@ -121,6 +122,33 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           title: t('alerts.uidTitle', { n: a.paths.length }),
           body: rich(t('alerts.uidBody'), { uid: <span className="mono">{a.uid}</span> }),
           extra: <ul className="alert-paths">{a.paths.map((p) => <li key={p}>{noteLink(p)}</li>)}</ul>,
+          actions: null,
+        })
+      case 'config_invalid':
+        return frame({
+          icon: icons.config,
+          tone: 'warn',
+          title: rich(t('alerts.configTitle'), { file: <span className="mono">{a.file}</span> }),
+          body: t(a.fallback === 'last_good' ? 'alerts.configLastGood' : 'alerts.configNone'),
+          extra: (
+            <ul className="alert-paths alert-config">
+              {a.errors.map((e, j) => (
+                <li key={j}>
+                  {(e.line !== null || e.at) && (
+                    <span className="mono">{[e.line !== null ? t('alerts.configLine', { line: e.line }) : null, e.at].filter(Boolean).join(' · ')}</span>
+                  )}
+                  {' '}{t(`config.${e.code}`, { detail: e.detail ?? '' })}
+                </li>
+              ))}
+            </ul>
+          ),
+          actions: null,
+        })
+      case 'config_template_missing':
+        return frame({
+          icon: icons.config,
+          title: t('alerts.templateTitle', { series: a.series }),
+          body: rich(t('alerts.templateBody'), { template: <span className="mono">{a.template}</span> }),
           actions: null,
         })
       case 'sync_conflict': {

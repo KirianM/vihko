@@ -1,5 +1,6 @@
 // thoth API client. Cookie-based session (HttpOnly): the browser sends it on its own.
 import type { Alert, ErrorCode } from '@thoth/core/codes'
+import type { Series } from '@thoth/core/series'
 
 export type { Alert }
 
@@ -37,7 +38,7 @@ async function request<T>(method: string, path: string, body?: unknown, headers:
 }
 
 export interface User { id: string; username: string; role: 'admin' | 'member' }
-export interface TreeNote { path: string; title: string; uid: string | null }
+export interface TreeNote { path: string; title: string; uid: string | null; aliases: string[] }
 export interface Note { path: string; text: string; etag: string; meta: { title: string; uid: string | null; fm_error: string | null } | null }
 
 export interface OutgoingLink {
@@ -78,6 +79,10 @@ export interface TrashEntry { id: string; path: string; deletedAt: string }
 export interface ServerConfig { externalImages: 'allow' | 'block'; maxImageBytes: number }
 /** A stored image: `path` from the notes root, `src` relative to the note (to link it). */
 export interface Attachment { path: string; src: string }
+/** What the UI needs from thoth.yaml: daily-note series and the templates folder. */
+export interface WorkspaceInfo { daily: Series[]; templates: string | null }
+/** The person's own settings (state.db). */
+export interface Profile { timezone: string | null; dailySeries: string | null; openDailyOnStart: boolean }
 
 let config: Promise<ServerConfig> | null = null
 
@@ -93,8 +98,20 @@ export const api = {
   conflict: (path: string) => request<{ path: string; text: string }>('GET', `/api/conflict?path=${encodeURIComponent(path)}`),
   rescan: (confirmRemoval?: number) => request<{ aborted: string | null }>('POST', '/api/admin/rescan', confirmRemoval === undefined ? {} : { confirmRemoval }),
   links: (path: string) => request<{ outgoing: OutgoingLink[]; backlinks: Backlink[] }>('GET', `/api/note/links?path=${encodeURIComponent(path)}`),
+  /** Tags in use, most used first. */
+  tags: () => request<{ tags: { tag: string; count: number }[] }>('GET', '/api/tags').then((r) => r.tags),
+  headings: (path: string) => request<{ headings: { level: number; text: string }[] }>('GET', `/api/note/headings?path=${encodeURIComponent(path)}`).then((r) => r.headings),
   search: (q: string) => request<SearchResponse>('GET', `/api/search?q=${encodeURIComponent(q)}`),
   createNote: (path: string, text: string) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, text }),
+  /** A new note with the text of the template note, its variables filled in by the server. */
+  createFromTemplate: (path: string, template: string) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, template }),
+  workspace: () => request<WorkspaceInfo>('GET', '/api/workspace'),
+  profile: () => request<Profile>('GET', '/api/profile'),
+  updateProfile: (patch: Partial<Profile>) => request<Profile>('PUT', '/api/profile', patch),
+  /** Where today's note is and whether it exists; creates nothing. */
+  today: () => request<{ series: string; path: string; exists: boolean }>('GET', '/api/daily'),
+  /** Opens today's note, creating it from its template if it doesn't exist. */
+  openToday: () => request<{ series: string; path: string; created: boolean }>('POST', '/api/daily', {}),
   orphan: (path: string, action: 'restore' | 'discard') => request<{ ok: true }>('POST', '/api/note/orphan', { path, action }),
   move: (from: string, to: string, dryRun = false) => request<MoveReport>('POST', '/api/note/move', { from, to, dryRun }),
   trash: (path: string) => request<TrashEntry>('DELETE', `/api/note?path=${encodeURIComponent(path)}`),

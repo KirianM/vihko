@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  Auth, Indexer, NoteService, SESSION_COOKIE, attachmentPath, createApp, fetchImage, openIndex, openState, sniffImage,
+  Auth, Indexer, NoteService, Profiles, SESSION_COOKIE, Workspace, attachmentPath, createApp, fetchImage, openIndex, openState, sniffImage,
   type ExternalImages, type Runtime,
 } from '@thoth/server'
 
@@ -28,12 +28,13 @@ async function setup(opts: { maxImageBytes?: number; webDir?: string; externalIm
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
   const index = openIndex(join(dir, 'index.db'))
-  const auth = new Auth(openState(join(dir, 'state.db')))
+  const state = openState(join(dir, 'state.db'))
+  const auth = new Auth(state)
   const indexer = new Indexer({ notesDir, db: index })
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
   runtime.rescan({})
   const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db: index, maxImageBytes: opts.maxImageBytes })
-  const app = createApp({ auth, notes, index, indexer, notesDir, runtime, webDir: opts.webDir, externalImages: opts.externalImages })
+  const app = createApp({ auth, profiles: new Profiles(state), workspace: new Workspace({ notesDir }), notes, index, indexer, notesDir, runtime, webDir: opts.webDir, externalImages: opts.externalImages })
   await auth.createUser('noa', 'a-long-password', 'member')
   const login = await app.request('/api/auth/login', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'noa', password: 'a-long-password' }),
@@ -69,6 +70,7 @@ test('names: next to the note, from its name and the UTC time, with a suffix for
   assert.equal(attachmentPath('Plan.md', 'jpg', now), 'Plan-2026-09-25-1012.jpg')
   assert.equal(attachmentPath('a/Mi nota.md', 'webp', now, 3), 'a/Mi nota-2026-09-25-1012-3.webp')
   assert.equal(attachmentPath('x.md', 'png', new Date('2026-01-02T23:05:00+02:00')), 'x-2026-01-02-2105.png', 'UTC, not local time')
+  assert.equal(attachmentPath('a/Mi nota.md', 'png', now, 2, 'Adjuntos/img'), 'Adjuntos/img/Mi nota-2026-09-25-1012-2.png', 'a fixed folder from thoth.yaml')
 })
 
 test('types are detected from the bytes; SVG and anything else is refused', () => {

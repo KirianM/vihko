@@ -33,17 +33,25 @@ Goal: a complete notes system from the UI, without integrations.
 - [x] Images: upload, paste and by URL (local copy or link); they travel with
       their note when it moves to another folder; external images can be
       blocked by the administrator.
+- [x] Autocomplete in the editor: `[[` suggests notes and aliases, `#`
+      suggests existing tags.
+- [x] A broken `[[link]]` offers to create the note (in the current note's
+      folder).
+- [x] Tasks and tables in the editor: `- [ ]` toggles with a click; Markdown
+      tables render as tables outside the cursor.
+- [ ] Folders and tags in the tree: create, rename and move folders (also by
+      dragging notes), a tags view, and `tag:`/`path:` filters in search.
 - [x] Server errors and alerts as translatable codes.
 - [x] Local auth: an admin created from the CLI or a one-time token, sessions.
       A principal on every query from day one.
 - [x] Docker image and example compose file with the two volumes.
-- [ ] `thoth.yaml`: the workspace configuration file, read at start and
+- [x] `thoth.yaml`: the workspace configuration file, read at start and
       reloaded on change (first users: daily-note series and templates).
-- [ ] User profile with a timezone (defaults to the browser's).
-- [ ] Templates: plain `.md` notes with fixed variables (`{{date}}`,
+- [x] User profile with a timezone (defaults to the browser's).
+- [x] Templates: plain `.md` notes with fixed variables (`{{date}}`,
       `{{date:format}}`, `{{user}}`, `{{title}}`), copied only on creation; no
       code.
-- [ ] Daily note, optional: series declared in `thoth.yaml` (folder and name
+- [x] Daily note, optional: series declared in `thoth.yaml` (folder and name
       pattern, `{user}` for personal ones, optional template); each person picks
       theirs. «Today» opens it or creates it (never overwriting), in the
       person's timezone; previous/next in the header.

@@ -2,7 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { LinkIndex, extract, type Resolution } from '@thoth/core'
+import { posix } from 'node:path'
+import { LinkIndex, extract, joinPath, shortestTarget, type Resolution } from '@thoth/core'
 
 const ROOT = fileURLToPath(new URL('../../../testdata/vault/', import.meta.url))
 
@@ -105,4 +106,28 @@ test('[[/path]] is an exact path from the root', () => {
   assertResolves(r('/diario/Plan'), ok('diario/Plan.md'))
   assertResolves(r('/Plan/x'), { status: 'missing' })
   assertResolves(r('/iario/Plan'), { status: 'missing' }, )
+})
+
+test('joinPath matches posix.join for relative note paths', () => {
+  const cases: [string, string][] = [
+    ['', 'Nota.md'], ['a', 'Nota.md'], ['a/b', '../Nota.md'], ['a', '../../Nota.md'], ['', '../x.md'],
+    ['a/b', './c/../d.md'], ['a', '/x.md'], ['a//b', 'c.md'], ['a/b', '../../..'],
+  ]
+  for (const [dir, rel] of cases) assert.equal(joinPath(dir, rel), posix.join(dir, rel), `${dir} + ${rel}`)
+})
+
+test('shortestTarget: the name, a longer suffix if ambiguous, the absolute path if unreachable', () => {
+  // From the vault: three Plan.md (root, proyectos/blog, proyectos/thoth).
+  assert.equal(shortestTarget(index, 'hogar/enlaces.md', 'Plan.md'), 'Plan')
+  assert.equal(shortestTarget(index, 'hogar/enlaces.md', 'proyectos/blog/Plan.md'), 'blog/Plan')
+  assert.equal(shortestTarget(index, 'proyectos/blog/Tareas.md', 'proyectos/blog/Plan.md'), 'Plan')
+  assert.equal(shortestTarget(index, 'proyectos/blog/Tareas.md', 'proyectos/thoth/Plan.md'), 'thoth/Plan')
+  // The root Plan.md loses by proximity to blog/Plan.md and has no longer suffix.
+  assert.equal(shortestTarget(index, 'proyectos/blog/Tareas.md', 'Plan.md'), '/Plan')
+  assert.equal(shortestTarget(index, 'Plan.md', 'hogar/Proxy.md'), 'Proxy')
+  // An alias with the same text as another note's name does not shadow the name.
+  const idx = new LinkIndex()
+  idx.set({ path: 'a/Nota.md', aliases: ['Otra'] })
+  idx.set({ path: 'b/Otra.md' })
+  assert.equal(shortestTarget(idx, 'x.md', 'b/Otra.md'), 'Otra')
 })
