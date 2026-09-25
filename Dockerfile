@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
-# thoth: un contenedor, dos volúmenes, ninguna variable obligatoria.
-#   /data/notes  carpeta de notas (fuente de verdad; puede estar en NFS)
-#   /data/state  estado local: state.db, index.db, papelera, logs de colaboración
-#                (disco local, nunca NFS: ver docs/infra.md)
+# thoth: one container, two volumes, no required variables.
+#   /data/notes  notes folder (source of truth; may be on NFS)
+#   /data/state  local state: state.db, index.db, trash, collaboration logs
+#                (local disk, never NFS: SQLite locking over NFS is unreliable)
 
 FROM node:26-trixie-slim AS deps
-# better-sqlite3 se compila al instalar: herramientas solo en esta etapa.
+# better-sqlite3 compiles on install: build tools only in this stage.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 make g++ \
  && rm -rf /var/lib/apt/lists/*
@@ -13,13 +13,13 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/core/package.json packages/core/
 COPY packages/server/package.json packages/server/
-# Solo dependencias de producción del servidor. Sin paso de compilación:
-# Node ejecuta el TypeScript directamente.
+# Server production dependencies only. No build step: Node runs the
+# TypeScript directly.
 RUN npm ci --omit=dev --workspace @thoth/server --include-workspace-root=false \
  && npm cache clean --force
 
 FROM node:26-trixie-slim AS web
-# La UI se compila aquí y a la imagen final solo llegan los estáticos.
+# The UI is built here; only the static files reach the final image.
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/core/package.json packages/core/

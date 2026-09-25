@@ -5,3 +5,8 @@ packages/web/dist/
 packages/web/src/theme/tokens.css
 packages/web/playwright-report/
 packages/web/test-results/
+docs/
+CLAUDE.local.md
+.claude/worktrees/
+/notes/
+/state/

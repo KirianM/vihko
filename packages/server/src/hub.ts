@@ -1,7 +1,6 @@
-// Hub de colaboración (D-012): notas calientes como documentos Yjs sobre el
-// texto del archivo. El archivo sigue siendo la fuente de verdad; el documento
-// es una caché que existe mientras alguien tiene la nota abierta. Diseño y
-// casos límite validados en poc/crdt-bridge (ver su README).
+// Collaboration hub: hot notes as Yjs documents over the file's text. The file
+// is still the source of truth; the document is a cache that exists while
+// someone has the note open.
 import { Hocuspocus } from '@hocuspocus/server'
 import diff from 'fast-diff'
 import { closeSync, constants, existsSync, fsyncSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeSync } from 'node:fs'

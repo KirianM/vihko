@@ -1,9 +1,8 @@
-# Revisión semanal de versiones: npm, acciones de GitHub e imagen base de Docker.
-# Ver docs/dependencias.md para la política.
+# Weekly version checks: npm, GitHub Actions and the Docker base image.
 #
-# Los saltos de versión mayor de Node (runtime, imagen y @types/node) NO los
-# propone Dependabot: se deciden a mano siguiendo el calendario de LTS, porque
-# las versiones impares de Node no tienen LTS y no se usan.
+# Node major upgrades (runtime, image and @types/node) are NOT proposed by
+# Dependabot: they are decided by hand following the LTS schedule, because odd
+# Node versions have no LTS and are not used.
 version: 2
 updates:
   - package-ecosystem: npm

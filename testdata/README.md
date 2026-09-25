@@ -1,76 +1,75 @@
-# Vault de casos límite
+# Edge-case vault
 
-`vault/` reúne los casos difíciles detectados en el análisis de referencias
-(`docs/analisis/`). Los tests del indexador, la resolución de enlaces y la
-escritura lo usan como entrada. Si se añade un caso, se documenta aquí su
-comportamiento esperado y la decisión o el informe del que sale.
+`vault/` gathers the hard cases found while studying other notes tools. The
+tests for the indexer, link resolution and writes use it as input. When a case
+is added, document its expected behaviour here.
 
-Los bytes importan: `recetas/Café.md` está en NFD, `frontmatter/bom-crlf.md`
-tiene BOM y finales CRLF, `frontmatter/vacia.md` tiene 0 bytes. No editar estos
-archivos con un editor que normalice.
+Bytes matter: `recetas/Café.md` is NFD, `frontmatter/bom-crlf.md` has a BOM and
+CRLF line endings, `frontmatter/vacia.md` has 0 bytes. Don't edit these files
+with an editor that normalises them.
 
-## Resolución de enlaces (D-019)
+## Link resolution
 
-| Desde | Enlace | Esperado |
+| From | Link | Expected |
 |---|---|---|
-| `proyectos/thoth/notas.md` | `[[Plan]]`, `[[plan]]`, `[[Plan\|el plan]]` | `proyectos/thoth/Plan.md` (misma carpeta; sin distinguir mayúsculas) |
-| `proyectos/thoth/notas.md` | `![[Plan]]` | Igual: el embed se indexa como enlace (su render queda fuera de alcance) |
-| `proyectos/thoth/notas.md` | `[[notas]]` | Resuelve a sí misma |
-| `diario/2026-09-24.md` | `[[Plan]]` | `Plan.md`: los tres candidatos comparten la raíz, y el de la raíz está 0 niveles por debajo frente a 2 |
-| `diario/2026-09-24.md` | `[[Tareas]]` | **Ambiguo** con dos candidatos a la misma distancia: `proyectos/thoth/Tareas.md` y `proyectos/blog/Tareas.md` |
-| `diario/2026-09-24.md` | `[[proyectos/blog/Plan]]`, `[[blog/Plan]]` | `proyectos/blog/Plan.md` (ruta y sufijo de ruta) |
-| `recetas/índice.md` | `[[Café]]`, `[[CAFÉ]]` | `recetas/Café.md`, cuyo nombre está en NFD |
+| `proyectos/thoth/notas.md` | `[[Plan]]`, `[[plan]]`, `[[Plan\|el plan]]` | `proyectos/thoth/Plan.md` (same folder; case-insensitive) |
+| `proyectos/thoth/notas.md` | `![[Plan]]` | Same: the embed is indexed as a link (rendering it is out of scope) |
+| `proyectos/thoth/notas.md` | `[[notas]]` | Resolves to itself |
+| `diario/2026-09-24.md` | `[[Plan]]` | `Plan.md`: all three candidates share the root, and the root one is 0 levels below it versus 2 |
+| `diario/2026-09-24.md` | `[[Tareas]]` | **Ambiguous** with two candidates at the same distance: `proyectos/thoth/Tareas.md` and `proyectos/blog/Tareas.md` |
+| `diario/2026-09-24.md` | `[[proyectos/blog/Plan]]`, `[[blog/Plan]]` | `proyectos/blog/Plan.md` (path and path suffix) |
+| `recetas/índice.md` | `[[Café]]`, `[[CAFÉ]]` | `recetas/Café.md`, whose name is NFD |
 | `recetas/índice.md` | `[[Notas de reunión (2026)]]` | `recetas/Notas de reunión (2026).md` |
-| `hogar/enlaces.md` | `[[gw]]` | `hogar/Proxy.md` por alias |
-| `hogar/enlaces.md` | `[[Red]]` | `hogar/Red.md`: el nombre gana al alias `Red` de `Firewall.md` |
-| `hogar/enlaces.md` | `[[Proxy#Red]]` | Resuelto, ancla existente |
-| `hogar/enlaces.md` | `[[Proxy#No existe]]` | Resuelto con **ancla rota** |
-| `hogar/enlaces.md` | `[[Nota que no existe]]` | **Roto**; se conserva el texto literal |
-| `hogar/enlaces.md` | `[…](Proxy.md)`, `[…](../proyectos/thoth/Plan.md)` | Resueltos (enlaces Markdown relativos) |
-| `hogar/enlaces.md` | `[roto](no-existe.md)` | Roto |
-| `hogar/enlaces.md` | `[externo](https://example.com/#ancla)` | Enlace externo: ni enlace entre notas ni tag |
-| `codigo.md` | Todo lo que está en código en línea, bloques cercados o indentados | Ni enlaces ni tags. Fuera del código, `[[Plan]]` resuelve a `Plan.md` (misma carpeta) y `#hogar` es tag |
-| `frontmatter/sin-frontmatter.md`, `frontmatter/bom-crlf.md` | `[[Plan]]` | `Plan.md` (el menos profundo bajo la raíz común) |
+| `hogar/enlaces.md` | `[[gw]]` | `hogar/Proxy.md` by alias |
+| `hogar/enlaces.md` | `[[Red]]` | `hogar/Red.md`: the name wins over `Firewall.md`'s `Red` alias |
+| `hogar/enlaces.md` | `[[Proxy#Red]]` | Resolved, existing anchor |
+| `hogar/enlaces.md` | `[[Proxy#No existe]]` | Resolved with a **broken anchor** |
+| `hogar/enlaces.md` | `[[Nota que no existe]]` | **Broken**; the literal text is kept |
+| `hogar/enlaces.md` | `[…](Proxy.md)`, `[…](../proyectos/thoth/Plan.md)` | Resolved (relative Markdown links) |
+| `hogar/enlaces.md` | `[roto](no-existe.md)` | Broken |
+| `hogar/enlaces.md` | `[externo](https://example.com/#ancla)` | External link: neither a note link nor a tag |
+| `codigo.md` | Everything in inline code, fenced or indented blocks | Neither links nor tags. Outside code, `[[Plan]]` resolves to `Plan.md` (same folder) and `#hogar` is a tag |
+| `frontmatter/sin-frontmatter.md`, `frontmatter/bom-crlf.md` | `[[Plan]]` | `Plan.md` (the shallowest under the common root) |
 
-## Tags (D-019)
+## Tags
 
-| Archivo | Esperado |
+| File | Expected |
 |---|---|
-| `tags.md` | Tags: `hogar` (frontmatter, `#hogar` y `#Hogar` son el mismo), `proyectos` (frontmatter, en minúsculas), `hogar/red` (anidado) |
-| `tags.md` | `#123` no es tag. `# Título` es un encabezado, no un tag |
-| `codigo.md` | `#notag` y `#tampoco` no son tags |
+| `tags.md` | Tags: `hogar` (frontmatter; `#hogar` and `#Hogar` are the same), `proyectos` (frontmatter, lowercased), `hogar/red` (nested) |
+| `tags.md` | `#123` is not a tag. `# Título` is a heading, not a tag |
+| `codigo.md` | `#notag` and `#tampoco` are not tags |
 
 ## Frontmatter
 
-| Archivo | Esperado |
+| File | Expected |
 |---|---|
-| `frontmatter/exotico.md` | Comentarios, lista en flujo, comillas, texto multilínea, anclas YAML y claves desconocidas. Añadir `uid` con un parche textual deja **todos los demás bytes intactos** |
-| `frontmatter/invalido.md` | `frontmatter_error`. Se indexa como cuerpo, se trata como la nota más restringida (D-014) y thoth **nunca** escribe en ella |
-| `frontmatter/sin-frontmatter.md` | Nota válida sin metadatos. Añadir `uid` crea el bloque sin tocar el cuerpo |
-| `frontmatter/solo-frontmatter.md` | Nota válida con cuerpo vacío |
-| `frontmatter/vacia.md` | Nota válida vacía (0 bytes) |
-| `frontmatter/bom-crlf.md` | El BOM no impide detectar el frontmatter. Un parche conserva BOM y CRLF |
+| `frontmatter/exotico.md` | Comments, flow list, quotes, multi-line text, YAML anchors and unknown keys. Adding `uid` with a textual patch leaves **every other byte intact** |
+| `frontmatter/invalido.md` | `frontmatter_error`. Indexed as body, treated as the most restricted note, and thoth **never** writes to it |
+| `frontmatter/sin-frontmatter.md` | Valid note without metadata. Adding `uid` creates the block without touching the body |
+| `frontmatter/solo-frontmatter.md` | Valid note with an empty body |
+| `frontmatter/vacia.md` | Valid empty note (0 bytes) |
+| `frontmatter/bom-crlf.md` | The BOM doesn't prevent detecting the frontmatter. A patch keeps the BOM and CRLF |
 
-## Identidad (D-015)
+## Identity
 
-| Archivo | Esperado |
+| File | Expected |
 |---|---|
-| `uid/original.md`, `uid/copia.md` | Mismo `uid` en dos archivos (copiar y pegar). Se detecta y se señala como **conflicto de identidad**; ninguno se fusiona con el otro ni se elige en silencio |
-| El resto | Sin `uid`: se identifican por su ruta y el indexador **no** escribe en ellos |
+| `uid/original.md`, `uid/copia.md` | Same `uid` in two files (copy and paste). Detected and reported as an **identity conflict**; neither is merged into the other nor picked silently |
+| The rest | No `uid`: identified by their path, and the indexer does **not** write to them |
 
-## Restricciones (D-014)
+## Restrictions
 
-| Archivo | Esperado |
+| File | Expected |
 |---|---|
-| `privado/sin-ia.md` | `ai: false`: invisible para cualquier credencial de agente |
+| `privado/sin-ia.md` | `ai: false`: invisible to any agent credential |
 
-## Lo que el indexador ignora
+## What the indexer ignores
 
-| Archivo | Motivo |
+| File | Reason |
 |---|---|
-| `.obsidian/`, `.trash/`, `.stfolder/` | Directorios de otras herramientas |
-| `hogar/.Proxy.md.swp`, `hogar/Proxy.md~` | Temporales y copias de editores |
-| `hogar/.nfs00000000000268f3000008ac` | Silly rename de NFS (`docs/infra.md`) |
-| `hogar/.Proxy.md.thoth-1234-0` | Temporal propio de thoth |
-| `proyectos/thoth/Plan.sync-conflict-….md` | Conflicto de Syncthing: se muestra como **alerta**, no se indexa como nota |
-| `adjuntos/imagen.png`, `adjuntos/tablero.canvas` | No son notas |
+| `.obsidian/`, `.trash/`, `.stfolder/` | Other tools' folders |
+| `hogar/.Proxy.md.swp`, `hogar/Proxy.md~` | Editor temp files and backups |
+| `hogar/.nfs00000000000268f3000008ac` | NFS silly rename |
+| `hogar/.Proxy.md.thoth-1234-0` | thoth's own temp file |
+| `proyectos/thoth/Plan.sync-conflict-….md` | Syncthing conflict: shown as an **alert**, not indexed as a note |
+| `adjuntos/imagen.png`, `adjuntos/tablero.canvas` | Not notes |

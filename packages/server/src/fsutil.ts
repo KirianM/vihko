@@ -1,8 +1,7 @@
-// Protocolo de escritura segura sobre la carpeta de notas, validado en
-// poc/crdt-bridge (ver su README): temporal sincronizado fuera de la ventana de
-// carrera, recomprobación del hash justo antes del rename, enlace duro para
-// rescatar escrituras "in situ" que caigan en la ventana, y lecturas estables
-// frente a editores que truncan y reescriben.
+// Safe write protocol for the notes folder: a synced temp file written outside
+// the race window, a hash re-check right before the rename, a hard link to
+// rescue in-place writes that land in the window, and stable reads against
+// editors that truncate and rewrite.
 import { closeSync, fsyncSync, linkSync, openSync, readFileSync, renameSync, rmSync, writeSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { contentHash } from '@thoth/core'
