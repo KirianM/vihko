@@ -10,6 +10,11 @@ import { api, closeAll, connect, login, makeDirs, open, sleep, startServer, type
 
 const NOTE = 'hogar/Proxy.md'
 
+/** Rutas de los avisos de copia pendiente (D-022). */
+const orphaned = async (srv: Parameters<typeof api>[0], cookie: string) =>
+  ((await api(srv, cookie, 'GET', '/api/alerts')).body.alerts as { code: string; path: string }[])
+    .filter((a) => a.code === 'orphaned_note').map((a) => a.path)
+
 test('dos clientes, API y editor externo sobre una nota abierta; el archivo converge y recibe uid', async () => {
   const { notes, env } = makeDirs()
   const srv = await startServer(env)
@@ -151,7 +156,7 @@ test('borrado externo con la nota abierta: aviso en vivo, no se recrea, y se con
     typeLine(a, 'DESPUES-DEL-BORRADO')
     await sleep(2500)
     assert.ok(!existsSync(file), 'thoth no deshace el borrado por su cuenta')
-    assert.deepEqual((await api(srv, cookie, 'GET', '/api/alerts')).body.orphanedNotes, [NOTE])
+    assert.deepEqual(await orphaned(srv, cookie), [NOTE])
     const r = await api(srv, cookie, 'POST', '/api/note/orphan', { path: NOTE, action: 'restore' })
     assert.equal(r.status, 200)
     const back = readFileSync(file, 'utf8')
@@ -159,7 +164,7 @@ test('borrado externo con la nota abierta: aviso en vivo, no se recrea, y se con
     await waitFor(() => messages.includes('thoth:orphan-resolved'), 'aviso de resolución')
     typeLine(a, 'SIGUE-EDITANDO')
     await waitFor(() => readFileSync(file, 'utf8').includes('SIGUE-EDITANDO'), 'vuelve a volcar con normalidad')
-    assert.deepEqual((await api(srv, cookie, 'GET', '/api/alerts')).body.orphanedNotes, [])
+    assert.deepEqual(await orphaned(srv, cookie), [])
   } finally { closeAll(); await srv.stop() }
 })
 
@@ -174,11 +179,11 @@ test('borrado externo con la nota abierta: descartar da el borrado por bueno', a
     await waitFor(() => readFileSync(file, 'utf8').includes('X\n'), 'volcado')
     const { rmSync } = await import('node:fs')
     rmSync(file)
-    await waitFor(async () => (await api(srv, cookie, 'GET', '/api/alerts')).body.orphanedNotes.length === 1, 'alerta')
+    await waitFor(async () => (await orphaned(srv, cookie)).length === 1, 'alerta')
     assert.equal((await api(srv, cookie, 'POST', '/api/note/orphan', { path: NOTE, action: 'discard' })).status, 200)
     await sleep(1500)
     assert.ok(!existsSync(file))
-    assert.deepEqual((await api(srv, cookie, 'GET', '/api/alerts')).body.orphanedNotes, [])
+    assert.deepEqual(await orphaned(srv, cookie), [])
     await waitFor(() => readdirSync(join(env.THOTH_STATE_DIR!, 'collab')).length === 0, 'log eliminado')
   } finally { closeAll(); await srv.stop() }
 })
@@ -201,7 +206,7 @@ test('borrada con el servidor caído y ediciones pendientes: no se vacía ni se 
     await sleep(1500)
     assert.ok(!existsSync(file), 'la recuperación no la recrea')
     const cookie2 = await login(srv)
-    assert.deepEqual((await api(srv, cookie2, 'GET', '/api/alerts')).body.orphanedNotes, [NOTE])
+    assert.deepEqual(await orphaned(srv, cookie2), [NOTE])
     assert.equal((await api(srv, cookie2, 'POST', '/api/note/orphan', { path: NOTE, action: 'restore' })).status, 200)
     const back = readFileSync(file, 'utf8')
     for (let i = 0; i < 5; i++) assert.ok(back.includes(`PENDIENTE-${i}\n`), `falta PENDIENTE-${i}`)
