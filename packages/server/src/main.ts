@@ -10,10 +10,12 @@ import { createApp, type ExternalImages, type Runtime } from './http/app.ts'
 import { Indexer } from './indexer.ts'
 import { DEFAULT_MAX_IMAGE_BYTES, NoteService } from './notes.ts'
 import { openState } from './state.ts'
+import { Workspace } from './workspace.ts'
 import { Watcher } from './watcher.ts'
 import { CollabHub } from './hub.ts'
 import { SESSION_COOKIE } from './http/app.ts'
 import type { Server } from 'node:http'
+import { WORKSPACE_FILE } from '@thoth/core'
 
 export interface Config {
   notesDir: string
@@ -78,6 +80,8 @@ export async function start(config: Config) {
   const first = runtime.rescan({})
   log(`index ready: ${first.added.length} added, ${first.changed.length} changed, ${first.removed.length} removed, ${first.unchanged} unchanged`)
 
+  const workspace = new Workspace({ notesDir: config.notesDir, log })
+
   const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log })
   await hub.recoverAll()
 
@@ -86,16 +90,23 @@ export async function start(config: Config) {
     indexer,
     db: index,
     rescanMs: config.rescanSeconds * 1000,
-    onReport: (kind, r) => { if (kind === 'rescan') runtime.lastScan = r },
+    // The rescan also rereads thoth.yaml: its events can be lost like any other (NFS).
+    onReport: (kind, r) => { if (kind === 'rescan') { runtime.lastScan = r; workspace.reload() } },
     onError: (err) => log(`watcher: ${err instanceof Error ? err.message : String(err)}`),
-    onChange: (paths) => { for (const p of paths) if (hub.has(p)) hub.checkExternal(p).catch(() => {}) },
+    onChange: (paths) => {
+      if (paths.includes(WORKSPACE_FILE)) workspace.reload()
+      for (const p of paths) if (hub.has(p)) hub.checkExternal(p).catch(() => {})
+    },
   })
   watcher.start()
 
-  const notes = new NoteService({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes })
+  const notes = new NoteService({
+    notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes,
+    attachmentsFolder: () => workspace.config.attachments.folder,
+  })
   const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
-  const app = createApp({ auth, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages })
+  const app = createApp({ auth, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages })
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   hub.attach(server, SESSION_COOKIE)
   // serve() opens the port asynchronously: only announced once it's actually listening.
@@ -116,5 +127,5 @@ export async function start(config: Config) {
     index.close()
     state.close()
   }
-  return { app, stop, auth, hub, notes, server }
+  return { app, stop, auth, hub, notes, server, workspace }
 }

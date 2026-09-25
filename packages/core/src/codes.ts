@@ -1,5 +1,8 @@
 // Stable codes the server returns instead of text: the UI translates them.
 // Renaming a code breaks clients; adding a new one doesn't.
+import type { ConfigError } from './workspace.ts'
+
+export type { ConfigError, ConfigErrorCode } from './workspace.ts'
 
 /**
  * The `error` field of every API error response. The accompanying `message`
@@ -42,6 +45,11 @@ export type Alert =
   | { code: 'uid_conflict'; uid: string; paths: string[]; actions: never[] }
   /** A sync tool's conflict copy; `note` is the original note if it exists. */
   | { code: 'sync_conflict'; path: string; note: string | null; actions: never[] }
+  /**
+   * The workspace configuration file can't be used. thoth goes on with the
+   * last valid one it read (`fallback: 'last_good'`) or with none (`'none'`).
+   */
+  | { code: 'config_invalid'; file: string; errors: ConfigError[]; fallback: 'last_good' | 'none'; actions: never[] }
 
 export type AlertCode = Alert['code']
 export type AlertAction = Alert['actions'][number]

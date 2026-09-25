@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
-import { Auth, Indexer, NoteService, SESSION_COOKIE, STATE_VERSION, createApp, ftsQuery, hashPassword, openIndex, openState, verifyPassword, type Runtime } from '@thoth/server'
+import { Auth, Indexer, NoteService, Workspace, SESSION_COOKIE, STATE_VERSION, createApp, ftsQuery, hashPassword, openIndex, openState, verifyPassword, type Runtime } from '@thoth/server'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
@@ -21,7 +21,7 @@ async function setup(opts: { webDir?: string } = {}) {
   const runtime: Runtime = { lastScan: null, rescan(opts) { return (this.lastScan = indexer.scan(opts)) } }
   runtime.rescan({})
   const notes = new NoteService({ notesDir, stateDir, indexer, db: index })
-  const app = createApp({ auth, notes, index, indexer, notesDir, runtime, webDir: opts.webDir })
+  const app = createApp({ auth, workspace: new Workspace({ notesDir }), notes, index, indexer, notesDir, runtime, webDir: opts.webDir })
   let cookie = ''
   const raw = (path: string) => app.request(path, { headers: { cookie } })
   const req = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}, rawBody = false) => {

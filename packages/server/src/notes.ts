@@ -61,6 +61,8 @@ export interface NoteServiceOptions {
   hot?: HotDocuments
   /** Largest image accepted, in bytes (20 MB by default). */
   maxImageBytes?: number
+  /** Fixed folder for new images (thoth.yaml), or null to store them next to their note. Asked on each upload. */
+  attachmentsFolder?: () => string | null
 }
 
 export const DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -430,8 +432,9 @@ export class NoteService {
     if (bytes.byteLength > this.maxImageBytes) throw new NoteError('too_large', `${bytes.byteLength} bytes, the limit is ${this.maxImageBytes}`)
     const type = sniffImage(bytes)
     if (!type) throw new NoteError('unsupported_type', 'only PNG, JPEG, GIF, WebP and AVIF images are stored')
+    const folder = this.opts.attachmentsFolder?.() ?? null
     for (let n = 1; n <= 1000; n++) {
-      const path = attachmentPath(notePath, type.ext, now, n)
+      const path = attachmentPath(notePath, type.ext, now, n, folder)
       const file = join(this.opts.notesDir, path)
       mkdirSync(dirname(file), { recursive: true })
       if (createFile(file, bytes)) return { path, src: posix.relative(posix.dirname(notePath), path) }

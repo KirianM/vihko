@@ -7,7 +7,9 @@
     ".": "./src/index.ts",
     "./syntax": "./src/syntax.ts",
     "./codes": "./src/codes.ts",
-    "./images": "./src/images.ts"
+    "./images": "./src/images.ts",
+    "./dates": "./src/dates.ts",
+    "./series": "./src/series.ts"
   },
   "dependencies": {
     "@lezer/common": "^1.5.3",

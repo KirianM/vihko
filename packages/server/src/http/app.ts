@@ -7,7 +7,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { join, posix, sep } from 'node:path'
-import { classifyPath, conflictOriginal, extract, withoutRanges, type Alert, type ErrorCode, type Range } from '@thoth/core'
+import { WORKSPACE_FILE, classifyPath, conflictOriginal, extract, withoutRanges, type Alert, type ErrorCode, type Range } from '@thoth/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
@@ -15,6 +15,7 @@ import { NoteError, type Actor, type NoteService } from '../notes.ts'
 import { ftsQuery, HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import { applyEdits, type EditOp } from '../edits.ts'
 import { FetchImageError, SERVED_TYPES, fetchImage } from '../attachments.ts'
+import type { Workspace } from '../workspace.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 
@@ -33,6 +34,8 @@ export interface Orphans {
 export interface AppDeps {
   orphans?: Orphans
   auth: Auth
+  /** thoth.yaml, as currently in force. */
+  workspace: Workspace
   notes: NoteService
   index: Db
   indexer: Indexer
@@ -85,7 +88,7 @@ function fail(c: Context, status: ContentfulStatusCode, error: ErrorCode, messag
 }
 
 export function createApp(deps: AppDeps) {
-  const { auth, notes, index } = deps
+  const { auth, notes, index, workspace } = deps
   const externalImages = deps.externalImages ?? 'allow'
   const app = new Hono<Env>()
 
@@ -183,6 +186,12 @@ export function createApp(deps: AppDeps) {
     return c.json(await notes.create(path, text ?? '', actorOf(c.get('user'))), 201)
   })
 
+  // The workspace settings the UI needs from thoth.yaml (reloaded when it changes).
+  app.get('/api/workspace', (c) => {
+    const w = workspace.config
+    return c.json({ daily: w.daily, templates: w.templates })
+  })
+
   app.put('/api/note', async (c) => {
     const ifMatch = unquote(c.req.header('if-match'))
     if (!ifMatch) return fail(c, 428, 'precondition_required', 'missing If-Match: a note that hasn\'t been read won\'t be overwritten')
@@ -259,7 +268,8 @@ export function createApp(deps: AppDeps) {
     const path = c.req.query('path') ?? ''
     const norm = posix.normalize(path)
     if (!path || norm !== path || path.startsWith('/') || norm.split('/').includes('..')) return fail(c, 400, 'invalid_path', `invalid file path: ${path}`)
-    if (classifyPath(norm) !== 'other') return fail(c, 404, 'not_found', `not a servable file: ${path}`)
+    // thoth.yaml isn't content: once it holds permissions (M4), it's not for every reader.
+    if (classifyPath(norm) !== 'other' || norm === WORKSPACE_FILE) return fail(c, 404, 'not_found', `not a servable file: ${path}`)
     let file: string
     let st: ReturnType<typeof statSync>
     try {
@@ -315,6 +325,8 @@ export function createApp(deps: AppDeps) {
     for (const path of deps.orphans?.orphans() ?? []) alerts.push({ code: 'orphaned_note', path, actions: ['keep_copy', 'discard_copy'] })
     for (const u of deps.indexer.uidConflicts()) alerts.push({ code: 'uid_conflict', uid: u.uid, paths: u.paths, actions: [] })
     const noteExists = index.prepare('select 1 from notes where path = ?')
+    const ws = workspace.status
+    if (ws.errors.length) alerts.push({ code: 'config_invalid', file: WORKSPACE_FILE, errors: ws.errors, fallback: ws.fallback, actions: [] })
     for (const { path } of index.prepare("select path from alerts where kind = 'sync_conflict' order by path").all() as { path: string }[]) {
       const note = conflictOriginal(path)
       alerts.push({ code: 'sync_conflict', path, note: noteExists.get(note) ? note : null, actions: [] })
