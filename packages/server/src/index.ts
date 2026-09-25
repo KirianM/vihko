@@ -7,7 +7,7 @@ export { ExternalMoves, type ExternalMoveGroup, type ExternalMovesOptions, type 
 export { DEFAULT_MAX_IMAGE_BYTES, NoteError, NoteService, type Actor, type Change, type HotDocuments, type NoteErrorCode, type FolderMoveReport, type MoveHooks, type MoveReport, type MovedRelinkReport, type NoteRead, type NoteServiceOptions, type ShiftGroup, type TrashEntry } from './notes.ts'
 export { commitText, createFile, readStable, readText, replaceText, writeTmp, type CommitResult, type ReplaceResult } from './fsutil.ts'
 export { applyReplacements, beforeMoves, planLinks, planRelinks, rewriteLink, type LinkState, type Replacement, type Shift, type ShiftCode } from './relink.ts'
-export { Auth, AuthError, hashPassword, verifyPassword, type Role, type User } from './auth.ts'
+export { Auth, AuthError, hashPassword, needsRehash, verifyPassword, type Role, type User } from './auth.ts'
 export { STATE_VERSION, openState } from './state.ts'
 export { MoveJobs, type MoveJob } from './http/jobs.ts'
 export { SESSION_COOKIE, createApp, type AppDeps, type ExternalImages, type Orphans, type Runtime } from './http/app.ts'

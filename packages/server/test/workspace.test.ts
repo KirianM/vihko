@@ -12,16 +12,29 @@ test('workspace: read at start, reloaded on change; an invalid file keeps the la
   assert.deepEqual((await noa('GET', '/api/workspace')).body.templates, 'Plantillas')
   assert.equal(workspace.reload(), false, 'unchanged file: nothing to do')
 
+  const configAlerts = async () => (await noa('GET', '/api/alerts')).body.alerts.filter((a: { code: string }) => a.code === 'config_invalid' || a.code === 'config_warnings')
+
+  // An unknown key is left out with a warning; the rest applies.
   writeFileSync(join(notesDir, 'thoth.yaml'), CONFIG.replace('templates:', 'templtes:'))
   assert.equal(workspace.reload(), true)
+  assert.equal(workspace.config.templates, null, 'the misspelt setting is not applied')
+  assert.deepEqual(workspace.config.daily.map((s) => s.id), ['diario', 'equipo'], 'the rest is')
+  assert.deepEqual(await configAlerts(), [{ code: 'config_warnings', file: 'thoth.yaml', actions: [], warnings: [{ code: 'unknown_key', at: 'templtes', line: 2, detail: null }] }])
+
+  // A wrong value in a known key: the last good config stays in force.
+  writeFileSync(join(notesDir, 'thoth.yaml'), CONFIG.replace('folder: Equipo', 'folder: ../Equipo'))
+  assert.equal(workspace.reload(), true)
+  assert.equal(workspace.config.templates, null)
   assert.deepEqual(workspace.config.daily.map((s) => s.id), ['diario', 'equipo'], 'the last good config stays in force')
-  const alerts = (await noa('GET', '/api/alerts')).body.alerts.filter((a: { code: string }) => a.code === 'config_invalid')
-  assert.deepEqual(alerts, [{ code: 'config_invalid', file: 'thoth.yaml', fallback: 'last_good', actions: [], errors: [{ code: 'unknown_key', at: 'templtes', line: 2, detail: null }] }])
+  assert.deepEqual(await configAlerts(), [
+    { code: 'config_invalid', file: 'thoth.yaml', fallback: 'last_good', actions: [], errors: [{ code: 'invalid_path', at: 'daily.equipo.folder', line: 9, detail: null }] },
+    { code: 'config_warnings', file: 'thoth.yaml', actions: [], warnings: [{ code: 'unknown_key', at: 'templtes', line: 2, detail: null }] },
+  ], 'the warnings are those of the configuration in force')
 
   writeFileSync(join(notesDir, 'thoth.yaml'), 'daily:\n  otra:\n    folder: Otra\n')
   assert.equal(workspace.reload(), true)
   assert.deepEqual(workspace.config.daily.map((s) => s.id), ['otra'])
-  assert.equal((await noa('GET', '/api/alerts')).body.alerts.some((a: { code: string }) => a.code === 'config_invalid'), false, 'fixed: the alert goes away')
+  assert.deepEqual(await configAlerts(), [], 'fixed: the alerts go away')
 
   rmSync(join(notesDir, 'thoth.yaml'))
   workspace.reload()

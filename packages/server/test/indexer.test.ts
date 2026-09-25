@@ -222,3 +222,40 @@ test('a schema version change rebuilds the index', () => {
   assert.equal((db.prepare("select value from meta where key = 'schema_version'").get() as { value: string }).value, String(SCHEMA_VERSION))
   assert.equal(db.prepare("select name from sqlite_master where name = 'basura'").get(), undefined)
 })
+
+test('links.aliases: off, aliases resolve nothing; switching re-resolves without reindexing notes', () => {
+  const { notes, db, indexer } = setup('aliases')
+  indexer.scan()
+  assert.deepEqual(link(db, 'hogar/enlaces.md', '[[gw]]'), { status: 'resolved', dst_path: 'hogar/Proxy.md', via: 'alias', anchor_ok: null, candidates: null })
+  assert.equal(indexer.linkAliases, true, 'on by default')
+  const byName = link(db, 'hogar/enlaces.md', '[[Proxy#Red]]')
+
+  const notesBefore = db.prepare('select * from notes order by path').all()
+  indexer.setLinkAliases(false)
+  assert.deepEqual(link(db, 'hogar/enlaces.md', '[[gw]]'), { status: 'missing', dst_path: null, via: null, anchor_ok: null, candidates: null })
+  assert.deepEqual(link(db, 'hogar/enlaces.md', '[[Proxy#Red]]'), byName, 'names and paths are unaffected')
+  assert.deepEqual(db.prepare('select * from notes order by path').all(), notesBefore, 'no note reindexed')
+  assert.equal(indexer.links.resolve('hogar/enlaces.md', { kind: 'wiki', target: 'gw', anchor: null }).status, 'missing', 'the in-memory index agrees')
+
+  // Same as building the index from scratch with aliases off.
+  const off = openIndex(join(tmp('aliases-off'), 'index.db'))
+  new Indexer({ notesDir: notes, db: off, linkAliases: false }).scan()
+  assert.equal(dumpIndex(db), dumpIndex(off))
+
+  indexer.setLinkAliases(true)
+  assert.equal(link(db, 'hogar/enlaces.md', '[[gw]]').via, 'alias')
+  assert.equal(dumpIndex(db), freshDump(notes))
+})
+
+test('links.aliases: changed while thoth was stopped, the links follow on the next start', () => {
+  const { dir, notes, db, indexer } = setup('aliases-restart')
+  indexer.scan()
+  db.close()
+  const again = openIndex(join(dir, 'index.db'))
+  new Indexer({ notesDir: notes, db: again, linkAliases: false }).scan()
+  assert.equal(link(again, 'hogar/enlaces.md', '[[gw]]').status, 'missing')
+  again.close()
+  const third = openIndex(join(dir, 'index.db'))
+  new Indexer({ notesDir: notes, db: third }).scan()
+  assert.equal(link(third, 'hogar/enlaces.md', '[[gw]]').via, 'alias')
+})

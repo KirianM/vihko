@@ -7,6 +7,7 @@ import { ApiError, api, type Alert, type MoveJob, type MovedRelinkReport } from 
 import { errorText, useT } from './i18n.tsx'
 import { MenuButton, ThemeToggle, noteName as fileName } from './ui.tsx'
 import { SearchButton } from './Palette.tsx'
+import type { ConfigError } from '@thoth/core/codes'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
 import { ShiftPreview } from './Shifts.tsx'
 import './actions.css'
@@ -168,6 +169,20 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
   )
   const adminOnly = <span className="alert-hint">{t('alerts.adminOnly')}</span>
 
+  /** thoth.yaml problems: line and key path, then what's wrong. */
+  const configList = (list: ConfigError[]) => (
+    <ul className="alert-paths alert-config">
+      {list.map((e, j) => (
+        <li key={j}>
+          {(e.line !== null || e.at) && (
+            <span className="mono">{[e.line !== null ? t('alerts.configLine', { line: e.line }) : null, e.at].filter(Boolean).join(' · ')}</span>
+          )}
+          {' '}{t(`config.${e.code}`, { detail: e.detail ?? '' })}
+        </li>
+      ))}
+    </ul>
+  )
+
   function card(a: Alert, i: number) {
     const id = `alert-${i}`
     const key = `${a.code}:${'path' in a ? a.path : 'uid' in a ? a.uid : 'series' in a ? a.series : 'id' in a ? a.id : ''}`
@@ -253,18 +268,15 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           tone: 'warn',
           title: rich(t('alerts.configTitle'), { file: <span className="mono">{a.file}</span> }),
           body: t(a.fallback === 'last_good' ? 'alerts.configLastGood' : 'alerts.configNone'),
-          extra: (
-            <ul className="alert-paths alert-config">
-              {a.errors.map((e, j) => (
-                <li key={j}>
-                  {(e.line !== null || e.at) && (
-                    <span className="mono">{[e.line !== null ? t('alerts.configLine', { line: e.line }) : null, e.at].filter(Boolean).join(' · ')}</span>
-                  )}
-                  {' '}{t(`config.${e.code}`, { detail: e.detail ?? '' })}
-                </li>
-              ))}
-            </ul>
-          ),
+          extra: configList(a.errors),
+          actions: null,
+        })
+      case 'config_warnings':
+        return frame({
+          icon: icons.config,
+          title: rich(t('alerts.configWarningsTitle'), { file: <span className="mono">{a.file}</span> }),
+          body: t('alerts.configWarningsBody'),
+          extra: configList(a.warnings),
           actions: null,
         })
       case 'config_template_missing':

@@ -1,6 +1,11 @@
 // Links between notes and their resolution (D-019). Each link records the
 // key it looks up; the in-memory LinkIndex says which keys a batch touched,
 // so `finalize` re-resolves only the links that may have changed state.
+//
+// Whether aliases resolve links comes from thoth.yaml (`links.aliases`,
+// D-031.1). The tables record the setting they were resolved with: when it
+// changes (live, or while thoth was stopped) every link is resolved again,
+// without reindexing a single note.
 import { LinkIndex, normKey, pathKeys, type Heading, type LinkRef } from '@thoth/core'
 import type { Extension } from '../extension.ts'
 
@@ -13,19 +18,43 @@ interface LinkFacts {
 export interface LinksExtension extends Extension<LinkFacts> {
   /** Resolution keys of every indexed note. Replaced whenever the extension's tables are (re)opened. */
   readonly index: LinkIndex
+  /** Whether aliases resolve links. */
+  readonly aliases: boolean
+  /**
+   * Changes whether aliases resolve links. true if it changed: the next
+   * `finalize` resolves every link again.
+   */
+  setAliases(on: boolean): boolean
 }
 
 interface Row { src_path: string; ord: number; kind: LinkRef['kind']; target: string; anchor: string | null }
 
-export function linksExtension(): LinksExtension {
-  let index = new LinkIndex()
+export function linksExtension(opts: { aliases?: boolean } = {}): LinksExtension {
+  let aliases = opts.aliases ?? true
+  let index = new LinkIndex({ aliases })
+  /** Set when every link must be resolved again at the next `finalize`. */
+  let resolveAll = false
   return {
     name: 'links',
-    version: 1,
+    // 2: keys with full Unicode case folding. 3: the alias setting links were resolved with.
+    version: 3,
     // Anchors are checked against the headings, and the index is loaded from them.
     requires: ['headings'],
     get index() { return index },
+    get aliases() { return aliases },
+    setAliases(on) {
+      if (on === aliases) return false
+      aliases = on
+      index.aliases = on
+      resolveAll = true
+      return true
+    },
     tables: {
+      // Settings the links were resolved with (`aliases`: '1' or '0'), derived from thoth.yaml.
+      link_settings: `create table link_settings (
+        key   text primary key,
+        value text not null
+      )`,
       // Resolution keys: path suffixes and normalised aliases.
       link_keys: `create table link_keys (
         key  text not null,
@@ -60,7 +89,7 @@ export function linksExtension(): LinksExtension {
       headings: inputs.get<readonly Heading[]>('headings').map((h) => h.text),
     }),
     open(db) {
-      index = new LinkIndex()
+      index = new LinkIndex({ aliases })
       const headings = new Map<string, string[]>()
       for (const h of db.prepare('select path, text from headings order by path, ord').all() as { path: string; text: string }[]) {
         let list = headings.get(h.path)
@@ -77,6 +106,12 @@ export function linksExtension(): LinksExtension {
       const insLink = db.prepare(`insert into links (src_path, ord, kind, raw, target, anchor, display, pos_from, pos_to, key, status)
                                   values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'missing')`)
       const update = db.prepare('update links set status = ?, dst_path = ?, via = ?, anchor_ok = ?, candidates = ? where src_path = ? and ord = ?')
+      const allLinks = db.prepare('select src_path, ord, kind, target, anchor from links')
+      const putSetting = db.prepare('insert or replace into link_settings (key, value) values (?, ?)')
+      const setting = () => (aliases ? '1' : '0')
+      // Resolved with another setting (or never): everything again at the next finalize.
+      let resolvedWith = (db.prepare("select value from link_settings where key = 'aliases'").get() as { value: string } | undefined)?.value ?? null
+      if (resolvedWith !== setting()) resolveAll = true
       const statements = new Map<number, ReturnType<typeof db.prepare>[]>()
       /** The three lookups of `finalize`, for a chunk of `n` values. */
       const lookups = (n: number) => {
@@ -111,8 +146,11 @@ export function linksExtension(): LinksExtension {
           const changed = [...changes.indexed, ...changes.removed]
           const keys = [...affected]
           affected.clear()
-          if (changed.length === 0 && keys.length === 0) return
-          const rows: Row[] = []
+          const all = resolveAll
+          resolveAll = false
+          if (!all && changed.length === 0 && keys.length === 0) return
+          if (resolvedWith !== setting()) putSetting.run('aliases', (resolvedWith = setting()))
+          const rows: Row[] = all ? allLinks.all() as Row[] : []
           const seen = new Set<string>()
           const collect = (which: 0 | 1 | 2, values: string[]) => {
             for (let i = 0; i < values.length; i += 500) {
@@ -123,9 +161,11 @@ export function linksExtension(): LinksExtension {
               }
             }
           }
-          collect(0, changed)
-          collect(1, keys)
-          collect(2, changed)
+          if (!all) {
+            collect(0, changed)
+            collect(1, keys)
+            collect(2, changed)
+          }
           for (const r of rows) {
             if (!index.has(r.src_path)) continue // source note deleted
             const res = index.resolve(r.src_path, r)

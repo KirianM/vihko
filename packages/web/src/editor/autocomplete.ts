@@ -42,7 +42,8 @@ class Cached<T> {
   forget() { this.at = 0 }
 }
 
-const notes = new Cached(() => api.tree().then((r) => new NoteCatalog(r.notes)))
+const notes = new Cached(() => Promise.all([api.tree(), api.workspace().catch(() => null)])
+  .then(([r, w]) => new NoteCatalog(r.notes, { aliases: w?.links.aliases ?? true })))
 const tags = new Cached<TagEntry[]>(() => api.tags())
 const headings = new Map<string, Cached<HeadingEntry[]>>()
 const headingsOf = (path: string) => {
