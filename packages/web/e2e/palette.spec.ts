@@ -1,5 +1,5 @@
-// Paleta «Buscar o crear»: búsqueda en el índice, notas recientes, crear una
-// nota en la carpeta actual, comandos y la versión móvil.
+// "Search or create" palette: searching the index, recent notes, creating a
+// note in the current folder, commands, and the mobile version.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, readFileSync } from 'node:fs'
 import { NOTES } from './env.ts'
@@ -15,7 +15,7 @@ test.beforeAll(async ({ browser }) => {
 const palette = () => k.getByRole('dialog', { name: 'Buscar o crear' })
 const field = () => palette().getByRole('textbox')
 
-test('⌘K busca sin tildes, resalta y abre la nota con ↵', async () => {
+test('⌘K searches ignoring accents, highlights, and opens the note with ↵', async () => {
   await k.keyboard.press('Control+k')
   await expect(field()).toBeFocused()
   await field().fill('cafe')
@@ -25,12 +25,12 @@ test('⌘K busca sin tildes, resalta y abre la nota con ↵', async () => {
   await expect(first.locator('mark').first()).toBeVisible()
   await k.keyboard.press('Enter')
   await expect(palette()).toHaveCount(0)
-  // El archivo de prueba está en NFD a propósito: se compara normalizado.
+  // The test file is in NFD on purpose: it's compared normalized.
   await expect.poll(async () => (await k.locator('.crumbs b').innerText()).normalize('NFC')).toBe('Café')
   await expect(k.locator('.cm-content')).toBeVisible()
 })
 
-test('con la consulta vacía muestra las recientes; esc cierra', async () => {
+test('with an empty query shows recents; esc closes', async () => {
   await k.goto('/?note=hogar/Red.md')
   await expect(k.locator('.cm-content')).toBeVisible()
   await k.getByRole('button', { name: 'Buscar o crear…' }).click()
@@ -39,7 +39,7 @@ test('con la consulta vacía muestra las recientes; esc cierra', async () => {
   await expect(palette()).toHaveCount(0)
 })
 
-test('crea la nota en la carpeta actual, refresca el árbol y la abre', async () => {
+test('creates the note in the current folder, refreshes the tree, and opens it', async () => {
   await k.keyboard.press('Control+k')
   await field().fill('Nota de prueba/e2e')
   const create = palette().getByRole('option', { name: 'Crear «Nota de prueba-e2e» en hogar' })
@@ -55,7 +55,7 @@ test('crea la nota en la carpeta actual, refresca el árbol y la abre', async ()
   await expect(k.getByRole('row', { name: 'Nota de prueba-e2e' })).toBeVisible()
 })
 
-test('crear una que ya existe muestra el error traducido', async () => {
+test('creating one that already exists shows the translated error', async () => {
   await k.keyboard.press('Control+k')
   await field().fill('Red')
   await palette().getByRole('option', { name: /^Crear «Red»/ }).click()
@@ -63,7 +63,7 @@ test('crear una que ya existe muestra el error traducido', async () => {
   await k.keyboard.press('Escape')
 })
 
-test('el botón «+» pide el nombre y crea en la carpeta actual', async () => {
+test('the "+" button asks for the name and creates in the current folder', async () => {
   await k.getByRole('button', { name: 'Nueva nota' }).click()
   const dialog = k.getByRole('dialog', { name: 'Nueva nota' })
   await dialog.getByRole('textbox').fill('Desde el más')
@@ -72,7 +72,7 @@ test('el botón «+» pide el nombre y crea en la carpeta actual', async () => {
   expect(existsSync(`${NOTES}/hogar/Desde el más.md`)).toBe(true)
 })
 
-test('modo comandos con «>»: tema oscuro y nueva nota', async () => {
+test('command mode with ">": dark theme and new note', async () => {
   await k.keyboard.press('Control+k')
   await field().fill('>tema')
   await expect(palette().getByRole('option')).toHaveCount(1)
@@ -89,7 +89,7 @@ test('modo comandos con «>»: tema oscuro y nueva nota', async () => {
   await expect(k.locator('html')).toHaveAttribute('data-theme', 'light')
 })
 
-test('móvil: la paleta ocupa la pantalla y se abre desde la cabecera', async ({ browser }) => {
+test('mobile: the palette fills the screen and opens from the header', async ({ browser }) => {
   const m = await signIn(browser, 'ana', 'hogar/Red.md')
   await m.setViewportSize({ width: 390, height: 844 })
   await m.getByRole('button', { name: 'Buscar', exact: true }).click()

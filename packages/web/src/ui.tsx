@@ -1,4 +1,4 @@
-// Piezas pequeñas compartidas: marca, iconos y el botón de tema.
+// Small shared pieces: brand mark, icons and the theme button.
 import { Button } from 'react-aria-components'
 import { useT } from './i18n.tsx'
 import { useTheme } from './theme.ts'

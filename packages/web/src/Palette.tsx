@@ -1,6 +1,6 @@
-// Paleta «Buscar o crear» (⌘K): notas del índice, crear una nota en la carpeta
-// actual y comandos (escribiendo «>»). Combobox de React Aria: el foco se queda
-// en el campo y las flechas mueven la opción activa.
+// "Search or create" palette (⌘K): notes from the index, creating a note in the
+// current folder, and commands (by typing ">"). React Aria combobox: focus stays
+// in the field and the arrow keys move the active option.
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import {
   Autocomplete, Button, Dialog, Header, Input, ListBox, ListBoxItem, ListBoxSection, Modal, ModalOverlay, TextField, type Key,
@@ -14,10 +14,10 @@ import { Icon } from './ui.tsx'
 
 export type PaletteMode = 'search' | 'create'
 
-/** Abre la paleta desde cualquier cabecera (en móvil no hay barra lateral). */
+/** Opens the palette from any header (there's no sidebar on mobile). */
 export const OpenPaletteContext = createContext<(() => void) | null>(null)
 
-/** Botón de búsqueda de la cabecera; solo se ve en móvil. */
+/** Header search button; only visible on mobile. */
 export function SearchButton() {
   const t = useT()
   const open = useContext(OpenPaletteContext)
@@ -25,7 +25,7 @@ export function SearchButton() {
   return <Button className="btn btn-icon mobile-only" aria-label={t('palette.input')} onPress={open}>{Icon.search}</Button>
 }
 
-/** Nombre de archivo para una nota nueva: sin barras ni caracteres de control, sin punto inicial (sería oculta), con `.md`. */
+/** File name for a new note: no slashes or control characters, no leading dot (would be hidden), with `.md`. */
 export function noteFileName(input: string): string | null {
   const name = input.normalize('NFC')
     .replace(/[\u0000-\u001f\u007f]/g, '')
@@ -41,10 +41,10 @@ export function noteFileName(input: string): string | null {
 const folderOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/i, '')
 const folderLabel = (folder: string) => folder.split('/').join(' / ')
-/** Para comparar comandos sin mayúsculas ni tildes. */
+/** To compare commands ignoring case and accents. */
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
 
-/** Fragmento con las marcas de resaltado del servidor convertidas en <mark>. */
+/** Snippet with the server's highlight markers turned into <mark>. */
 function Snippet({ text, start, end }: { text: string; start: string; end: string }) {
   const parts: ReactNode[] = []
   let rest = text
@@ -80,7 +80,7 @@ function NoteOption({ path, title, snippet }: { path: string; title: string; sni
 
 interface Props {
   mode: PaletteMode
-  /** Carpeta de la nota abierta ('' = raíz): ahí se crea la nota nueva. */
+  /** Folder of the open note ('' = root): the new note is created there. */
   folder: string
   openPath: string | null
   notes: TreeNote[] | null
@@ -105,7 +105,7 @@ export function Palette({ mode, folder, openPath, notes, onClose, onMode, onOpen
     setError(null)
     if (mode !== 'search' || commandMode || !text) return setFound(null)
     let live = true
-    // Una petición por pausa al escribir, y solo cuenta la respuesta de la última.
+    // One request per typing pause, and only the last one's response counts.
     const timer = setTimeout(() => {
       api.search(text).then((r) => {
         if (live) setFound({ q: text, results: r.results, start: r.highlight?.start ?? '\u0002', end: r.highlight?.end ?? '\u0003' })
@@ -121,8 +121,8 @@ export function Palette({ mode, folder, openPath, notes, onClose, onMode, onOpen
 
   const titles = new Map((notes ?? []).map((n) => [n.path, n.title]))
   const recent = mode === 'search' && !text ? recentNotes().filter((p) => titles.has(p) && p !== openPath) : []
-  // Crear aparece cuando ya han llegado los resultados de lo escrito: así un ↵
-  // rápido abre la nota que coincide en vez de crear otra con el mismo nombre.
+  // Create shows up once the results for what was typed have arrived: this way a
+  // quick ↵ opens the matching note instead of creating another with the same name.
   const fileName = commandMode || (mode === 'search' && found?.q !== text) ? null : noteFileName(query)
 
   async function create(name: string) {

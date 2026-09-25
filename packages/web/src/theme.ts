@@ -1,7 +1,7 @@
-// Tema: por defecto sigue al sistema operativo; la persona puede fijar claro u
-// oscuro (data-theme en <html>, que es lo que leen los tokens). Estado único para
-// toda la aplicación: lo que no sale de los tokens (colores de usuario generados)
-// también tiene que enterarse del cambio.
+// Theme: follows the OS by default; the person can pin light or dark
+// (data-theme on <html>, which is what the tokens read). Single state for the
+// whole application: whatever doesn't come from the tokens (generated user
+// colors) also needs to hear about the change.
 import { useSyncExternalStore } from 'react'
 
 export type ThemePref = 'system' | 'light' | 'dark'
@@ -13,7 +13,7 @@ function readPref(): ThemePref {
   try {
     const v = localStorage.getItem(KEY)
     if (v === 'light' || v === 'dark') return v
-  } catch { /* sin almacenamiento: sistema */ }
+  } catch { /* no storage: fall back to system */ }
   return 'system'
 }
 
@@ -27,7 +27,7 @@ function apply(p: ThemePref) {
   else root.setAttribute('data-theme', p)
 }
 
-// Aplicar antes del primer render evita un parpadeo del tema equivocado.
+// Applying before the first render avoids a flash of the wrong theme.
 apply(pref)
 media.addEventListener('change', notify)
 
@@ -44,7 +44,7 @@ export function chooseTheme(next: ThemePref) {
   try {
     if (next === 'system') localStorage.removeItem(KEY)
     else localStorage.setItem(KEY, next)
-  } catch { /* sin persistencia */ }
+  } catch { /* no persistence */ }
   pref = next
   apply(next)
   notify()

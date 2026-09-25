@@ -1,32 +1,34 @@
-// Color de cada persona: generado, sin paleta fija ni límite de usuarios.
+// Each person's color: generated, with no fixed palette or user limit.
 //
-// - El tono sale de un hash del id del usuario, en OKLCH (tonos distintos se
-//   perciben igual de claros, cosa que HSL no garantiza).
-// - Se salta la franja del lapislázuli (accent): en thoth ese color es de los
-//   agentes, y una persona no debe confundirse con uno.
-// - La luminosidad se ajusta por tema hasta cumplir AA (4,5:1) con la inicial del
-//   avatar (token on-user), lo que además lo hace visible sobre el fondo.
-// - En una nota, si dos personas caen en tonos cercanos, quien llega después
-//   desplaza el suyo (distinctHue).
+// - The hue comes from a hash of the user's id, in OKLCH (different hues are
+//   perceived as equally light, which HSL doesn't guarantee).
+// - It skips the lapis lazuli band (accent): in thoth that color belongs to
+//   agents, and a person shouldn't be mistaken for one.
+// - Lightness is adjusted per theme until it meets AA (4.5:1) against the
+//   avatar's initial (on-user token), which also makes it visible against the
+//   background.
+// - In a note, if two people land on close hues, whoever arrives later shifts
+//   theirs (distinctHue).
 //
-// Por la red viaja el tono; cada navegador lo pinta con su tema.
-// Sin dependencias del DOM: se prueba en Node.
+// Only the hue travels over the network; each browser paints it with its own
+// theme.
+// No DOM dependencies: tested in Node.
 
 export type Theme = 'light' | 'dark'
 
-/** Franja reservada a los agentes (tono del accent #1E4A86 ≈ 258°). */
+/** Band reserved for agents (accent hue #1E4A86 ≈ 258°). */
 const RESERVED_FROM = 230
 const RESERVED_TO = 290
 const FREE = 360 - (RESERVED_TO - RESERVED_FROM)
 
-/** Distancia mínima entre tonos de personas presentes en la misma nota. */
+/** Minimum distance between hues of people present in the same note. */
 export const MIN_HUE_DISTANCE = 40
 
-/** Texto sobre el color (token on-user), en sRGB lineal → luminancia relativa. */
+/** Text over the color (on-user token), in linear sRGB → relative luminance. */
 const ON_USER: Record<Theme, number> = { light: 1, dark: luminance('#15130F') }
 const START: Record<Theme, { l: number; c: number }> = { light: { l: 0.55, c: 0.13 }, dark: { l: 0.74, c: 0.12 } }
 
-/** FNV-1a de 32 bits: estable entre navegadores y versiones. */
+/** 32-bit FNV-1a: stable across browsers and versions. */
 function fnv1a(s: string) {
   let h = 0x811c9dc5
   for (const ch of new TextEncoder().encode(s)) {
@@ -36,7 +38,7 @@ function fnv1a(s: string) {
   return h >>> 0
 }
 
-/** Lleva un tono cualquiera a la zona libre (fuera de la franja de los agentes). */
+/** Maps any hue into the free zone (outside the agents' band). */
 export function freeHue(h: number) {
   const x = ((h % FREE) + FREE) % FREE
   return (RESERVED_TO + x) % 360
@@ -52,8 +54,9 @@ export function hueDistance(a: number, b: number) {
 }
 
 /**
- * Tono para `key` que se separe de los ya presentes: el más cercano a su tono de
- * siempre que respete la distancia mínima; si no cabe nadie más, el más alejado.
+ * Hue for `key` that separates from the ones already present: the closest to its
+ * usual hue that still respects the minimum distance; if there's no room left,
+ * the farthest one.
  */
 export function distinctHue(key: string, taken: number[]) {
   const base = baseHue(key)
@@ -118,7 +121,7 @@ export function contrast(a: number, b: number) {
 
 const cache = new Map<string, string>()
 
-/** Color hex de un tono en un tema: dentro de sRGB y con AA frente a la inicial. */
+/** Hex color for a hue in a theme: within sRGB and AA-compliant against the initial. */
 export function userColor(hue: number, theme: Theme): string {
   const key = `${theme}:${Math.round(hue * 10)}`
   const hit = cache.get(key)

@@ -1,7 +1,7 @@
-// Co-editing session for a note (D-012): a Yjs document synced with the hub over
+// Co-editing session for a note: a Yjs document synced with the hub over
 // /collab. The file is still the source of truth; the hub says whenever the text
 // reaches the disk (`thoth:saved`), when the note is deleted outside thoth
-// (D-022) and when anyone moves or trashes it from thoth.
+// and when anyone moves or trashes it from thoth.
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import { useEffect, useState } from 'react'
 import * as Y from 'yjs'
@@ -13,7 +13,7 @@ const ORPHAN_RESOLVED = 'thoth:orphan-resolved'
 const MOVED = 'thoth:moved'
 const TRASHED = 'thoth:trashed'
 
-/** Un único WebSocket para toda la aplicación; cada nota abierta es un documento sobre él. */
+/** A single WebSocket for the whole application; each open note is a document over it. */
 let socket: HocuspocusProviderWebsocket | null = null
 function sharedSocket() {
   socket ??= new HocuspocusProviderWebsocket({
@@ -23,7 +23,7 @@ function sharedSocket() {
 }
 
 export type Connection = 'connecting' | 'online' | 'offline'
-/** `saved`: lo que ves es lo que hay en el archivo. `saving`: hay cambios aún no volcados. */
+/** `saved`: what you see is what's in the file. `saving`: there are changes not yet flushed. */
 export type SaveState = 'saved' | 'saving'
 
 export interface Session {
@@ -43,7 +43,7 @@ export interface CollabState {
   trashed: { id: string; by: string } | null
 }
 
-/** `sha256:<hex>`, igual que `contentHash` del servidor. */
+/** `sha256:<hex>`, same as the server's `contentHash`. */
 async function contentHash(text: string) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
   return 'sha256:' + Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
@@ -60,8 +60,8 @@ export function useCollab(path: string): CollabState {
     const set = (patch: Partial<CollabState>) => setState((s) => ({ ...s, ...patch }))
     set({ session: { doc, text, provider }, connection: 'connecting', save: 'saved', orphaned: false, moved: null, trashed: null })
 
-    // Estado de guardado: al abrir, lo que llega del hub es lo del disco. Tras cualquier
-    // cambio (tuyo o de otro), "guardado" solo cuando el hub anuncia el hash del texto actual.
+    // Save state: on open, what arrives from the hub is what's on disk. After any
+    // change (yours or someone else's), "saved" only once the hub announces the hash of the current text.
     let savedHash: string | null = null
     let synced = false
     let dirty = false

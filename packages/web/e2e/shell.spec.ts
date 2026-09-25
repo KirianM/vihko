@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { signIn } from './helpers.ts'
 
-test('login fallido, entrar, árbol, tema y salir', async ({ page, browser }) => {
+test('failed login, sign in, tree, theme and sign out', async ({ page, browser }) => {
   await page.goto('/')
   await page.getByLabel('Nombre de usuario').fill('noa')
   await page.getByLabel('Contraseña').fill('mala-contraseña')
