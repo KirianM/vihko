@@ -106,11 +106,22 @@ export interface FolderMoveReport {
  * A move whose link rewrites go on in the background: the note (or folder) is
  * already in place; `done` of `total` notes rewritten, and the report at the end.
  */
-export type MoveJob = { id: string; kind: 'note' | 'folder'; from: string; to: string; done: number; total: number } & (
+export type MoveJob = { id: string; kind: 'note' | 'folder' | 'relink'; from: string; to: string; done: number; total: number } & (
   | { state: 'running' }
-  | { state: 'done'; report: MoveReport | FolderMoveReport }
+  | { state: 'done'; report: MoveReport | FolderMoveReport | MovedRelinkReport }
   | { state: 'failed'; error: ErrorCode; message: string }
 )
+/**
+ * Updating the links after notes moved outside thoth (or its preview): the
+ * rewrites a move of those notes from thoth would have made.
+ */
+export interface MovedRelinkReport {
+  moves: { from: string; to: string }[]
+  relinked: MoveReport['relinked']
+  shifted: ShiftGroup[]
+  failed: MoveReport['failed']
+  dryRun: boolean
+}
 /** A move asked for in the background: its report if it ended quickly, or its job. */
 export type MoveStart<R> = { report: R } | { job: MoveJob }
 /** A tag in use, with the notes that carry it (`count`) and it or any tag nested under it (`total`). */
@@ -152,6 +163,10 @@ export const api = {
   /** Fixes where an ambiguous link leads: that occurrence (`raw` nearest to `at`) is rewritten to reach `target`. */
   pinLink: (path: string, raw: string, at: number | undefined, target: string) =>
     request<{ etag: string; raw: string }>('POST', '/api/note/link/pin', { path, raw, at, target }),
+  /** What updating the links after an external move would do. */
+  relinkPreview: (id: string) => request<MovedRelinkReport>('POST', `/api/external-moves/${encodeURIComponent(id)}/relink`, { dryRun: true }),
+  /** Updates them; if it takes long, it goes on in the background (a job). */
+  startRelink: (id: string) => request<MovedRelinkReport | { job: MoveJob }>('POST', `/api/external-moves/${encodeURIComponent(id)}/relink`, { background: true }).then(started<MovedRelinkReport>),
   /** Tags in use, most used first (editor suggestions and the tags view). */
   tags: () => request<{ tags: TagCount[] }>('GET', '/api/tags').then((r) => r.tags),
   headings: (path: string) => request<{ headings: { level: number; text: string }[] }>('GET', `/api/note/headings?path=${encodeURIComponent(path)}`).then((r) => r.headings),

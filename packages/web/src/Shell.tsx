@@ -232,7 +232,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     if (end.kind === 'done') {
       const r = end.report
       if ('images' in r) { if (moveNotice(r)) setMoveIssue(r) }
-      else setFolderIssue(r.failed.length || r.shifted.length ? r : null)
+      else if ('notes' in r) setFolderIssue(r.failed.length || r.shifted.length ? r : null)
     } else {
       setJobIssue(end.kind === 'lost' ? t('job.lost', { name: baseName(job.to).replace(/\.md$/i, '') }) : end.message)
     }
