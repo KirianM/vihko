@@ -1,0 +1,52 @@
+/* Note actions: the "More actions" menu, the rename and trash dialogs, and the
+   notice with "Restore". Design system tokens only. */
+
+/* --- Menu (React Aria Menu) --------------------------------------------- */
+.menu-popover { background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-md); min-width: 220px; padding: var(--space-1); }
+.menu { outline: none; display: flex; flex-direction: column; }
+.menu-item { display: flex; align-items: center; gap: 10px; height: var(--control-md); padding: 0 var(--space-3); border-radius: 6px; cursor: pointer; outline: none; color: var(--ink); }
+.menu-item svg { color: var(--muted); flex-shrink: 0; }
+.menu-item[data-focused] { background: var(--chip); }
+.menu-item-danger, .menu-item-danger svg { color: var(--danger); }
+@media (pointer: coarse) { .menu-item { min-height: var(--touch); } }
+
+/* --- Dialogs (React Aria Modal) ---------------------------------------- */
+.modal-overlay { position: fixed; inset: 0; z-index: 10; background: var(--scrim); display: flex; align-items: flex-start; justify-content: center; padding: 90px var(--space-4) var(--space-4); overflow: auto; }
+.modal { width: 100%; max-width: 720px; outline: none; }
+.dialog { background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-xl); box-shadow: var(--shadow-dialog); outline: none; display: flex; flex-direction: column; }
+.modal:has(.dialog-narrow) { max-width: 480px; }
+.dialog-fields { padding: 22px var(--space-6) var(--space-2); display: flex; flex-direction: column; gap: 14px; }
+.dialog-title { margin: 0; font-family: var(--font-serif); font-size: 24px; line-height: 30px; font-weight: 600; overflow-wrap: anywhere; }
+.dialog-text { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.dialog-error { margin: 0 var(--space-6); }
+.dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; padding: var(--space-3) var(--space-6) 22px; }
+.dialog .field { color: var(--muted); }
+.dialog .field input { height: var(--control-lg); font-size: 16px; border-radius: var(--radius-md); }
+.dialog .field input:focus-visible, .dialog .field input[data-focused] { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* Preview of the links that change: before (struck through) → after */
+.preview { margin: var(--space-3) var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }
+.preview-head { padding: 10px 14px; background: var(--side); font-size: 13px; font-weight: 600; }
+.preview-body { padding: var(--space-3) 14px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; line-height: 18px; max-height: 40vh; overflow: auto; }
+.preview-row { display: flex; gap: 10px; align-items: baseline; }
+.preview-src { width: 170px; flex-shrink: 0; color: var(--muted); overflow-wrap: anywhere; }
+.preview-change, .preview-row code { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+.preview-change del { color: var(--danger); }
+.preview-change ins { color: var(--ok); text-decoration: none; }
+.preview-kept { color: var(--muted); }
+.preview-note { color: var(--muted); }
+
+/* --- Trash notice with "Restore" ---------------------------------- */
+.toast { position: fixed; z-index: 5; left: 50%; bottom: var(--space-6); transform: translateX(-50%); width: max-content; max-width: calc(100vw - 2 * var(--space-4)); display: flex; align-items: center; gap: var(--space-3); padding: 10px 10px 10px var(--space-4); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); color: var(--ink); }
+.toast-icon { color: var(--muted); display: inline-flex; }
+.toast-text { display: flex; flex-direction: column; gap: 2px; font-size: 14px; line-height: 20px; }
+.btn-quiet { border-color: transparent; color: var(--muted); }
+
+@media (max-width: 760px) {
+  .modal-overlay { padding-top: var(--space-6); }
+  .preview-row { flex-direction: column; gap: 2px; }
+  .preview-src { width: auto; }
+  .dialog-actions .btn { flex-grow: 1; }
+  .toast { bottom: var(--space-4); flex-wrap: wrap; }
+  .toast-text { flex: 1 1 200px; }
+}

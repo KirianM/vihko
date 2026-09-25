@@ -1,0 +1,43 @@
+// Notice after a note goes to the trash, with "Restore" as undo. Shown to whoever
+// trashed it and to whoever had it open (naming who trashed it).
+import { useState } from 'react'
+import { Button } from 'react-aria-components'
+import { ApiError, api } from './api.ts'
+import { errorText, useT } from './i18n.tsx'
+import { Icon, noteName } from './ui.tsx'
+import './actions.css'
+
+/** A note moved to the trash: `by` is who did it, null if it was you. */
+export interface Trashed { id: string; path: string; by: string | null }
+
+export function TrashToast({ trashed, onRestored, onDismiss }: { trashed: Trashed; onRestored: (path: string) => void; onDismiss: () => void }) {
+  const t = useT()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const name = noteName(trashed.path)
+
+  const restore = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      onRestored((await api.restore(trashed.id)).path)
+    } catch (err) {
+      // Someone else already restored it: just open it again.
+      if (err instanceof ApiError && err.code === 'not_found' && (await api.note(trashed.path).then(() => true, () => false))) return onRestored(trashed.path)
+      setError(errorText(t, err))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="toast">
+      <span className="toast-icon">{Icon.trash}</span>
+      <span className="toast-text" role={trashed.by ? 'alert' : 'status'}>
+        {trashed.by ? t('trash.doneBy', { user: trashed.by, name }) : t('trash.done', { name })}
+        {error && <span className="error-text">{error}</span>}
+      </span>
+      <Button className="btn" onPress={() => void restore()} isDisabled={busy}>{t('trash.restore')}</Button>
+      <Button className="btn btn-icon btn-quiet" aria-label={t('trash.dismiss')} onPress={onDismiss}>{Icon.close}</Button>
+    </div>
+  )
+}

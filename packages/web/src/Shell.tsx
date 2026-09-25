@@ -7,6 +7,7 @@ import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
 import { Brand, Crumbs, Icon, ThemeToggle } from './ui.tsx'
+import { TrashToast, type Trashed } from './TrashToast.tsx'
 
 // El editor (CodeMirror, Yjs) se descarga aparte, al abrir la primera nota.
 const NoteView = lazy(() => import('./editor/NoteView.tsx').then((m) => ({ default: m.NoteView })))
@@ -86,6 +87,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const showAlerts = () => { setOpenPathState(null); setView('avisos') }
   const [ready, setReady] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [trashed, setTrashed] = useState<Trashed | null>(null)
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -109,6 +111,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   useEffect(() => {
     setReady(null)
     if (!openPath) return
+    setTrashed(null)
     setError(null)
     // Se comprueba que existe antes de abrir la coedición: el hub rechaza notas inexistentes.
     api.note(openPath).then(() => setReady(openPath)).catch(fail)
@@ -152,7 +155,14 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           />
         ) : openPath && ready === openPath ? (
           <Suspense fallback={<div className="empty">{t('common.loading')}</div>}>
-            <NoteView key={openPath} path={openPath} user={user} onNavigate={setOpenPath} />
+            <NoteView
+              key={openPath}
+              path={openPath}
+              user={user}
+              onNavigate={setOpenPath}
+              onMoved={(to) => { setOpenPath(to); void loadTree() }}
+              onTrashed={(t) => { setOpenPath(null); setTrashed(t); void loadTree() }}
+            />
           </Suspense>
         ) : (
           <>
@@ -166,6 +176,14 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               {!openPath && !error && <p className="empty">{t('shell.empty')}</p>}
             </div>
           </>
+        )}
+        {trashed && (
+          <TrashToast
+            key={trashed.id}
+            trashed={trashed}
+            onRestored={(path) => { setOpenPath(path); void loadTree() }}
+            onDismiss={() => setTrashed(null)}
+          />
         )}
       </main>
     </div>

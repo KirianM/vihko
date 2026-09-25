@@ -48,6 +48,18 @@ export interface OutgoingLink {
 }
 export interface Backlink { path: string; title: string; raw: string; context: string }
 
+/** What a rename or move does (or would do, with `dryRun`). */
+export interface MoveReport {
+  from: string
+  to: string
+  relinked: { path: string; links: number; changes: { before: string; after: string }[] }[]
+  kept: { path: string; raw: string; via: 'path' | 'alias' }[]
+  failed: { path: string; reason: string }[]
+  aliasAdded: string | null
+  dryRun: boolean
+}
+export interface TrashEntry { id: string; path: string; deletedAt: string }
+
 export const api = {
   setupNeeded: () => request<{ needed: boolean }>('GET', '/api/setup'),
   setup: (token: string, username: string, password: string) => request<{ user: User }>('POST', '/api/setup', { token, username, password }),
@@ -61,4 +73,7 @@ export const api = {
   rescan: (confirmRemoval?: number) => request<{ aborted: string | null }>('POST', '/api/admin/rescan', confirmRemoval === undefined ? {} : { confirmRemoval }),
   links: (path: string) => request<{ outgoing: OutgoingLink[]; backlinks: Backlink[] }>('GET', `/api/note/links?path=${encodeURIComponent(path)}`),
   orphan: (path: string, action: 'restore' | 'discard') => request<{ ok: true }>('POST', '/api/note/orphan', { path, action }),
+  move: (from: string, to: string, dryRun = false) => request<MoveReport>('POST', '/api/note/move', { from, to, dryRun }),
+  trash: (path: string) => request<TrashEntry>('DELETE', `/api/note?path=${encodeURIComponent(path)}`),
+  restore: (id: string) => request<{ path: string; etag: string }>('POST', `/api/trash/${encodeURIComponent(id)}/restore`),
 }
