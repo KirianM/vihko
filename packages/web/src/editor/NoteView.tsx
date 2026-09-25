@@ -4,7 +4,7 @@
 import type { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from 'react-aria-components'
-import { api, type User } from '../api.ts'
+import { api, type MoveReport, type User } from '../api.ts'
 import { useTheme } from '../theme.ts'
 import { userColor } from '../userColor.ts'
 import { errorText, useT } from '../i18n.tsx'
@@ -63,8 +63,8 @@ interface Props {
   path: string
   user: User
   onNavigate: (p: string) => void
-  /** The note changed path (renamed by you or someone else): reopen it there. */
-  onMoved: (to: string) => void
+  /** The note changed path (renamed by you or someone else): reopen it there. With the report when you did it. */
+  onMoved: (to: string, report?: MoveReport) => void
   onTrashed: (t: Trashed) => void
 }
 

@@ -111,7 +111,7 @@ test('if a rewrite fails, the old name is kept as an alias', { skip: process.get
   chmodSync(join(notesDir, 'bloqueada'), 0o555)
   try {
     const r = await notes.move('otra/Destino.md', 'otra/Nuevo nombre.md', { actor: me })
-    assert.deepEqual(r.failed.map((f) => f.path), ['bloqueada/enlaza.md'])
+    assert.deepEqual(r.failed.map((f) => [f.path, f.error]), [['bloqueada/enlaza.md', 'internal']])
     assert.equal(r.aliasAdded, 'Destino')
     assert.deepEqual(readFrontmatter(readFileSync(join(notesDir, 'otra/Nuevo nombre.md'), 'utf8')).data.aliases, ['Destino'])
     assert.equal(readFileSync(join(notesDir, 'bloqueada/enlaza.md'), 'utf8'), '[[Destino]]\n')
