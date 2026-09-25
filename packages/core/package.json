@@ -5,7 +5,8 @@
   "license": "AGPL-3.0-only",
   "exports": {
     ".": "./src/index.ts",
-    "./syntax": "./src/syntax.ts"
+    "./syntax": "./src/syntax.ts",
+    "./codes": "./src/codes.ts"
   },
   "dependencies": {
     "@lezer/common": "^1.5.3",

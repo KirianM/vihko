@@ -1,0 +1,163 @@
+// Avisos del espacio: lo que thoth ha detectado en la carpeta de notas y necesita
+// una decisión. El servidor da códigos, datos y las acciones permitidas a quien
+// mira (D-025); aquí se redactan y se ofrecen solo esas acciones.
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Button } from 'react-aria-components'
+import { ApiError, api, type Alert } from './api.ts'
+import { errorText, useT } from './i18n.tsx'
+import { ThemeToggle } from './ui.tsx'
+
+const svg = (children: ReactNode) => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">{children}</svg>
+)
+const icons = {
+  warn: svg(<><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></>),
+  copy: svg(<><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6" /><path d="M9 15h6" /></>),
+  twin: svg(<><rect x="3" y="4" width="8" height="16" rx="1" /><rect x="13" y="4" width="8" height="16" rx="1" /></>),
+  sync: svg(<path d="M16 3h5v5M8 21H3v-5M21 3l-7 7M3 21l7-7" />),
+}
+
+/** `hogar/Proxy.md` → `hogar / Proxy`, como en las migas. */
+const noteName = (path: string) => path.replace(/\.md$/i, '').split('/').join(' / ')
+const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
+
+/** Sustituye `{clave}` de un texto traducido por elementos (rutas en monoespaciada, nombres en negrita). */
+function rich(text: string, parts: Record<string, ReactNode>): ReactNode[] {
+  return text.split(/\{(\w+)\}/).map((chunk, i) => (i % 2 ? <Fragment key={i}>{parts[chunk] ?? `{${chunk}}`}</Fragment> : chunk))
+}
+
+export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
+  onOpen: (path: string) => void
+  /** Tras cargar o después de una acción: el número de avisos, para la barra lateral. */
+  onChanged: (count: number) => void
+  onUnauthorized: () => void
+}) {
+  const t = useT()
+  const [alerts, setAlerts] = useState<Alert[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [copies, setCopies] = useState<Record<string, string>>({})
+
+  const fail = (err: unknown) => {
+    if (err instanceof ApiError && err.status === 401) return onUnauthorized()
+    setError(errorText(t, err))
+  }
+  const load = () => api.alerts().then((list) => { setAlerts(list); onChanged(list.length) }).catch(fail)
+
+  useEffect(() => {
+    void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /** Ejecuta una acción y recarga los avisos, haya ido bien o no. */
+  const act = async (fn: () => Promise<unknown>) => {
+    setBusy(true)
+    setError(null)
+    try { await fn() } catch (err) { fail(err) }
+    await load()
+    setBusy(false)
+  }
+
+  const toggleCopy = (path: string) => {
+    if (path in copies) return setCopies(({ [path]: _, ...rest }) => rest)
+    api.conflict(path).then((r) => setCopies((c) => ({ ...c, [path]: r.text }))).catch(fail)
+  }
+
+  const noteLink = (path: string) => (
+    <a className="mono" href={`?note=${encodeURIComponent(path)}`} onClick={(e) => { e.preventDefault(); onOpen(path) }}>{path}</a>
+  )
+  const adminOnly = <span className="alert-hint">{t('alerts.adminOnly')}</span>
+
+  function card(a: Alert, i: number) {
+    const id = `alert-${i}`
+    const key = `${a.code}:${'path' in a ? a.path : 'uid' in a ? a.uid : ''}`
+    const frame = (o: { icon: ReactNode; tone?: 'warn' | 'accent'; title: string; body: ReactNode; extra?: ReactNode; actions: ReactNode }) => (
+      <section key={key} className={`alert-card${o.tone === 'warn' ? ' alert-card-warn' : ''}`} aria-labelledby={id}>
+        <span className={`alert-icon alert-icon-${o.tone ?? 'muted'}`}>{o.icon}</span>
+        <div className="alert-text">
+          <h2 id={id}>{o.title}</h2>
+          <p>{o.body}</p>
+          {o.extra}
+        </div>
+        {o.actions && <div className="alert-actions">{o.actions}</div>}
+      </section>
+    )
+    switch (a.code) {
+      case 'scan_aborted_mass_delete':
+      case 'scan_aborted_root_unavailable': {
+        const mass = a.code === 'scan_aborted_mass_delete'
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: mass ? t('alerts.massDeleteTitle', { removing: a.removing, total: a.total }) : t('alerts.rootUnavailableTitle'),
+          body: t(mass ? 'alerts.massDeleteBody' : 'alerts.rootUnavailableBody'),
+          actions: a.actions.length === 0 ? adminOnly : (
+            <>
+              {a.actions.includes('rescan') && <Button className="btn" isDisabled={busy} onPress={() => act(() => api.rescan())}>{t('alerts.rescan')}</Button>}
+              {mass && a.actions.includes('confirm_removal') && (
+                <Button className="btn btn-danger" isDisabled={busy} onPress={() => act(() => api.rescan(a.removing))}>{t('alerts.confirmRemoval')}</Button>
+              )}
+            </>
+          ),
+        })
+      }
+      case 'orphaned_note':
+        return frame({
+          icon: icons.copy,
+          tone: 'accent',
+          title: t('alerts.orphanTitle', { note: noteName(a.path) }),
+          body: t('alerts.orphanBody'),
+          actions: a.actions.length === 0 ? adminOnly : (
+            <>
+              {a.actions.includes('keep_copy') && <Button className="btn btn-primary" isDisabled={busy} onPress={() => act(() => api.orphan(a.path, 'restore'))}>{t('alerts.keepCopy')}</Button>}
+              {a.actions.includes('discard_copy') && <Button className="btn" isDisabled={busy} onPress={() => act(() => api.orphan(a.path, 'discard'))}>{t('alerts.discardCopy')}</Button>}
+            </>
+          ),
+        })
+      case 'uid_conflict':
+        return frame({
+          icon: icons.twin,
+          title: t('alerts.uidTitle', { n: a.paths.length }),
+          body: rich(t('alerts.uidBody'), { uid: <span className="mono">{a.uid}</span> }),
+          extra: <ul className="alert-paths">{a.paths.map((p) => <li key={p}>{noteLink(p)}</li>)}</ul>,
+          actions: null,
+        })
+      case 'sync_conflict': {
+        const shown = a.path in copies
+        return frame({
+          icon: icons.sync,
+          title: t('alerts.syncTitle'),
+          body: a.note
+            ? rich(t('alerts.syncBody'), { file: <span className="mono">{baseName(a.path)}</span>, note: <b>{noteName(a.note)}</b> })
+            : rich(t('alerts.syncBodyAlone'), { file: <span className="mono">{a.path}</span> }),
+          extra: shown && <pre className="alert-copy" aria-label={t('alerts.copyLabel')} tabIndex={0}>{copies[a.path]}</pre>,
+          actions: (
+            <>
+              {a.note && <Button className="btn" onPress={() => onOpen(a.note!)}>{t('alerts.openNote')}</Button>}
+              <Button className="btn" aria-expanded={shown} onPress={() => toggleCopy(a.path)}>{t(shown ? 'alerts.hideCopy' : 'alerts.showCopy')}</Button>
+            </>
+          ),
+        })
+      }
+    }
+  }
+
+  return (
+    <>
+      <header className="main-head">
+        <span className="spacer" />
+        <ThemeToggle />
+      </header>
+      <div className="alerts-page">
+        <h1>{t('alerts.title')}</h1>
+        <p className="alerts-intro">{t('alerts.intro')}</p>
+        {error && <p className="error-text" role="alert">{error}</p>}
+        {alerts === null
+          ? !error && <p className="alerts-empty">{t('common.loading')}</p>
+          : alerts.length === 0
+            ? <p className="alerts-empty">{t('alerts.empty')}</p>
+            : alerts.map(card)}
+      </div>
+    </>
+  )
+}

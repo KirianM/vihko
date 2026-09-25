@@ -1,6 +1,7 @@
 // Nota abierta: cabecera (ruta, estado de guardado, presencia), aviso de nota
-// borrada fuera (D-022) y el editor.
-import { useEffect, useState } from 'react'
+// borrada fuera (D-022), el editor y el panel lateral.
+import type { EditorView } from '@codemirror/view'
+import { useEffect, useMemo, useState } from 'react'
 import { Button } from 'react-aria-components'
 import { api, type User } from '../api.ts'
 import { useTheme } from '../theme.ts'
@@ -11,6 +12,7 @@ import { SearchButton } from '../Palette.tsx'
 import { useCollab, type CollabState } from './collab.ts'
 import { Editor } from './Editor.tsx'
 import type { LinkInfo } from './livePreview.ts'
+import { NotePanel, PanelToggle, usePanel, type LinksData } from './NotePanel.tsx'
 import { usePresence } from './presence.ts'
 
 function SaveStatus({ c }: { c: CollabState }) {
@@ -56,16 +58,19 @@ function OrphanBanner({ path }: { path: string }) {
 
 export function NoteView({ path, user, onNavigate }: { path: string; user: User; onNavigate: (p: string) => void }) {
   const c = useCollab(path)
-  const [links, setLinks] = useState<Map<string, LinkInfo>>(new Map())
+  const [linkData, setLinkData] = useState<LinksData | null>(null)
+  const links = useMemo(
+    () => new Map<string, LinkInfo>((linkData?.outgoing ?? []).map((l) => [l.raw, { status: l.status, path: l.dst_path, candidates: l.candidates }])),
+    [linkData],
+  )
+  const panel = usePanel()
+  const [view, setView] = useState<EditorView | null>(null)
 
-  // Los estados de los enlaces salen del índice: se piden al abrir y tras cada guardado.
+  // Los enlaces (estados y entrantes) salen del índice: se piden al abrir y tras cada guardado.
   useEffect(() => {
     if (c.save !== 'saved') return
     let live = true
-    api.links(path).then((r) => {
-      if (!live) return
-      setLinks(new Map(r.outgoing.map((l) => [l.raw, { status: l.status, path: l.dst_path, candidates: l.candidates }])))
-    }).catch(() => {})
+    api.links(path).then((r) => { if (live) setLinkData(r) }).catch(() => {})
     return () => { live = false }
   }, [path, c.save])
 
@@ -78,10 +83,16 @@ export function NoteView({ path, user, onNavigate }: { path: string; user: User;
         <Presence c={c} />
         <SearchButton />
         <ThemeToggle />
+        <PanelToggle panel={panel} />
       </header>
       {c.orphaned && <OrphanBanner path={path} />}
-      <div className="note">
-        {c.session && c.connection !== 'connecting' && <Editor session={c.session} user={user} links={links} onNavigate={onNavigate} />}
+      <div className="note-body">
+        <div className="note">
+          {c.session && c.connection !== 'connecting' && (
+            <Editor session={c.session} user={user} links={links} onNavigate={onNavigate} onView={setView} onComments={panel.showComments} />
+          )}
+        </div>
+        <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} onNavigate={onNavigate} />
       </div>
     </>
   )

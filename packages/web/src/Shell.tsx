@@ -1,7 +1,8 @@
 // Estructura principal: árbol de carpetas y la nota abierta en el editor.
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Button, Collection, Tree, TreeItem, TreeItemContent, type Key } from 'react-aria-components'
-import { ApiError, alertCount, api, type TreeNote, type User } from './api.ts'
+import { ApiError, api, type TreeNote, type User } from './api.ts'
+import { AlertsPage } from './Alerts.tsx'
 import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
@@ -80,7 +81,11 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const { effective } = useTheme()
   const [notes, setNotes] = useState<TreeNote[] | null>(null)
   const [alerts, setAlerts] = useState(0)
-  const [openPath, setOpenPath] = useState<string | null>(() => new URLSearchParams(location.search).get('note'))
+  const [openPath, setOpenPathState] = useState<string | null>(() => new URLSearchParams(location.search).get('note'))
+  // Vistas que no son una nota, en la URL como `?view=` (sin router: solo hay esta).
+  const [view, setView] = useState<'avisos' | null>(() => (new URLSearchParams(location.search).get('view') === 'avisos' ? 'avisos' : null))
+  const setOpenPath = (path: string | null) => { setView(null); setOpenPathState(path) }
+  const showAlerts = () => { setOpenPathState(null); setView('avisos') }
   const [ready, setReady] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [palette, setPalette] = useState<PaletteMode | null>(null)
@@ -90,9 +95,11 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setError(errorText(t, err))
   }
 
+  const loadTree = () => api.tree().then((r) => setNotes(r.notes)).catch(fail)
+
   useEffect(() => {
-    api.tree().then((r) => setNotes(r.notes)).catch(fail)
-    api.alerts().then((a) => setAlerts(alertCount(a))).catch(() => {})
+    void loadTree()
+    api.alerts().then((a) => setAlerts(a.length)).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -111,11 +118,14 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   }, [])
 
   useEffect(() => {
+    const url = new URL(location.href)
+    for (const [k, v] of [['note', openPath], ['view', view]] as const) v ? url.searchParams.set(k, v) : url.searchParams.delete(k)
+    history.replaceState(null, '', url)
+  }, [openPath, view])
+
+  useEffect(() => {
     setReady(null)
     if (!openPath) return
-    const url = new URL(location.href)
-    url.searchParams.set('note', openPath)
-    history.replaceState(null, '', url)
     setError(null)
     // Se comprueba que existe antes de abrir la coedición: el hub rechaza notas inexistentes.
     api.note(openPath).then(() => { setReady(openPath); rememberNote(openPath) }).catch(fail)
@@ -145,7 +155,11 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         <div className="sidebar-tree">
           {notes === null ? <div className="empty">{t('common.loading')}</div> : <NoteTree nodes={tree} selected={openPath} onOpen={setOpenPath} />}
         </div>
-        {alerts > 0 && <a className="sidebar-alerts" href="#avisos">{Icon.alert}<span>{t('shell.alerts', { n: alerts })}</span></a>}
+        {alerts > 0 && (
+          <a className="sidebar-alerts" href="?view=avisos" aria-current={view === 'avisos' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); showAlerts() }}>
+            {Icon.alert}<span>{t('shell.alerts', { n: alerts })}</span>
+          </a>
+        )}
         <div className="sidebar-user">
           <span className="avatar" aria-hidden="true" style={{ background: userColor(baseHue(user.id), effective) }}>{user.username.slice(0, 1).toUpperCase()}</span>
           <span className="name">{user.username}</span>
@@ -154,7 +168,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         </div>
       </nav>
       <main className="main">
-        {openPath && ready === openPath ? (
+        {view === 'avisos' ? (
+          <AlertsPage
+            onOpen={setOpenPath}
+            onChanged={(n) => { setAlerts(n); void loadTree() }}
+            onUnauthorized={onUnauthorized}
+          />
+        ) : openPath && ready === openPath ? (
           <Suspense fallback={<div className="empty">{t('common.loading')}</div>}>
             <NoteView key={openPath} path={openPath} user={user} onNavigate={setOpenPath} />
           </Suspense>

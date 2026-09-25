@@ -14,8 +14,10 @@ import * as Y from 'yjs'
 import type { User } from '../api.ts'
 import { useT } from '../i18n.tsx'
 import type { Session } from './collab.ts'
+import { commentMarks, commentUi } from './commentMarks.ts'
 import { labels, livePreview, navigate, setLinks, type LinkInfo } from './livePreview.ts'
 import { announce } from './presence.ts'
+import { viewUpdates } from './viewUpdates.ts'
 import './editor.css'
 
 interface Props {
@@ -23,14 +25,22 @@ interface Props {
   user: User
   links: Map<string, LinkInfo>
   onNavigate: (path: string) => void
+  /** El EditorView, para el panel lateral (null al destruirlo). */
+  onView?: (view: EditorView | null) => void
+  /** Abrir los comentarios: un hilo concreto o, con null, comentar la selección. */
+  onComments?: (threadId: string | null) => void
 }
 
-export function Editor({ session, user, links, onNavigate }: Props) {
+export function Editor({ session, user, links, onNavigate, onView, onComments }: Props) {
   const t = useT()
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   const nav = useRef(onNavigate)
   nav.current = onNavigate
+  const comments = useRef(onComments)
+  comments.current = onComments
+  const viewCb = useRef(onView)
+  viewCb.current = onView
 
   useEffect(() => {
     const { text, provider } = session
@@ -49,6 +59,14 @@ export function Editor({ session, user, links, onNavigate }: Props) {
           missing: t('editor.linkMissing'),
           frontmatter: (n) => t(n === 1 ? 'editor.frontmatterOne' : 'editor.frontmatter', { n }),
         }),
+        commentMarks,
+        commentUi.of({
+          count: (n) => t(n === 1 ? 'comments.inParagraphOne' : 'comments.inParagraph', { n }),
+          show: t('comments.view'),
+          open: (id) => comments.current?.(id),
+        }),
+        viewUpdates,
+        keymap.of([{ key: 'Mod-Alt-m', run: () => { comments.current?.(null); return true } }]),
         keymap.of([...yUndoManagerKeymap, ...defaultKeymap, ...searchKeymap, indentWithTab]),
         yCollab(text, provider.awareness, { undoManager }),
         EditorView.contentAttributes.of({ 'aria-label': t('editor.label'), spellcheck: 'true' }),
@@ -56,7 +74,9 @@ export function Editor({ session, user, links, onNavigate }: Props) {
     })
     const v = new EditorView({ state, parent: host.current! })
     view.current = v
+    viewCb.current?.(v)
     return () => {
+      viewCb.current?.(null)
       unannounce()
       v.destroy()
       undoManager.destroy()

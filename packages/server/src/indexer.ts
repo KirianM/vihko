@@ -33,6 +33,18 @@ export interface ScanReport {
   unchanged: number
   /** Motivo si el escaneo no se aplicó (entero o en parte). */
   aborted: 'root_unavailable' | 'mass_delete' | null
+  /** Con `mass_delete`: cuántas notas iba a retirar y cuántas había en el índice. */
+  massDelete: { removing: number; total: number } | null
+}
+
+export interface ScanOptions {
+  /** Salta la guarda de borrados masivos sin mirar qué se retira. */
+  force?: boolean
+  /**
+   * Salta la guarda solo si se retiran exactamente estas notas: es lo que alguien
+   * vio en el aviso y confirmó. Si entretanto cambió, el escaneo vuelve a detenerse.
+   */
+  confirmRemoval?: number
 }
 
 interface Row { path: string; hash: string; mtime_ms: number; size: number }
@@ -65,9 +77,9 @@ export class Indexer {
     }
   }
 
-  /** Escaneo completo de la carpeta. `force` salta la guarda de borrados masivos. */
-  scan({ force = false } = {}): ScanReport {
-    const report: ScanReport = { added: [], changed: [], removed: [], unchanged: 0, aborted: null }
+  /** Escaneo completo de la carpeta. */
+  scan({ force = false, confirmRemoval }: ScanOptions = {}): ScanReport {
+    const report: ScanReport = { added: [], changed: [], removed: [], unchanged: 0, aborted: null, massDelete: null }
     try {
       if (!statSync(this.opts.notesDir).isDirectory()) throw new Error('no es un directorio')
     } catch {
@@ -96,8 +108,10 @@ export class Indexer {
     const min = this.opts.massDeleteMin ?? 10
     const ratio = this.opts.massDeleteRatio ?? 0.5
     const massive = removed.length > min && removed.length > ratio * known.size
-    if (massive && !force) report.aborted = 'mass_delete'
-    else report.removed = removed
+    if (massive && !force && confirmRemoval !== removed.length) {
+      report.aborted = 'mass_delete'
+      report.massDelete = { removing: removed.length, total: known.size }
+    } else report.removed = removed
 
     this.apply(upserts, touch, report.removed, conflicts)
     return report
@@ -105,7 +119,7 @@ export class Indexer {
 
   /** Reindexa rutas concretas (eventos del watcher). No aplica la guarda de borrados masivos. */
   indexPaths(paths: Iterable<string>): ScanReport {
-    const report: ScanReport = { added: [], changed: [], removed: [], unchanged: 0, aborted: null }
+    const report: ScanReport = { added: [], changed: [], removed: [], unchanged: 0, aborted: null, massDelete: null }
     const upserts: Upsert[] = []
     const touch: { path: string; stat: Stats }[] = []
     const conflictsNow: string[] = []

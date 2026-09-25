@@ -131,10 +131,25 @@ test('guarda contra borrados masivos y raíz no disponible', () => {
   const r = indexer.scan()
   assert.equal(r.aborted, 'mass_delete')
   assert.equal(count(), before, 'no se borra nada sin confirmación')
-  assert.ok(indexer.scan({ force: true }).removed.length > 10)
+  assert.deepEqual(r.massDelete, { removing: r.massDelete!.removing, total: before })
+  assert.ok(r.massDelete!.removing > 10)
+  // La confirmación vale para lo que se vio en el aviso: si cambió, se vuelve a detener.
+  const stale = indexer.scan({ confirmRemoval: r.massDelete!.removing + 1 })
+  assert.equal(stale.aborted, 'mass_delete')
+  assert.equal(count(), before)
+  const ok = indexer.scan({ confirmRemoval: r.massDelete!.removing })
+  assert.deepEqual([ok.aborted, ok.massDelete, ok.removed.length], [null, null, r.massDelete!.removing])
+  assert.equal(count(), before - r.massDelete!.removing)
 
   const gone = new Indexer({ notesDir: join(notes, 'no-existe'), db })
   assert.equal(gone.scan().aborted, 'root_unavailable')
+})
+
+test('force salta la guarda de borrados masivos', () => {
+  const { notes, indexer } = setup('massdelete-force')
+  indexer.scan()
+  for (const d of ['proyectos', 'hogar', 'recetas', 'frontmatter', 'diario', 'uid', 'privado']) rmSync(join(notes, d), { recursive: true })
+  assert.ok(indexer.scan({ force: true }).removed.length > 10)
 })
 
 test('un subdirectorio ilegible no da por borradas sus notas', { skip: process.getuid?.() === 0 }, () => {

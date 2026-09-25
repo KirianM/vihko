@@ -21,5 +21,10 @@ export function classifyPath(rel: string): PathKind {
   return isMd ? 'note' : 'other'
 }
 
+/** Ruta de la nota de la que salió una copia de conflicto (`Plan.sync-conflict-….md` → `Plan.md`). */
+export function conflictOriginal(rel: string): string {
+  return rel.replace(/\.sync-conflict-\d{8}-\d{6}-[A-Z0-9]{7}(?=\.[^/.]*$|$)/, '')
+}
+
 /** true si un directorio no debe recorrerse (ahorra entrar en `.git/` y similares). */
 export const isIgnoredDir = (name: string) => name.startsWith('.')

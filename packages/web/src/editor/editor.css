@@ -51,8 +51,22 @@
 .editor .cm-frontmatter-chip { padding-bottom: 18px; }
 .editor .cm-frontmatter-chip button { font-family: var(--font-mono); font-size: 12px; height: 30px; padding: 0 12px; border: 1px dashed var(--line-strong); border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
 
+/* Comentarios (D-023): texto comentado con el color de quien abrió el hilo */
+.editor .cm-commented { background: var(--warn-soft); border-bottom: 2px solid var(--comment-color, var(--warn-strong)); }
+.editor .cm-commented-active { background: var(--warn-line); }
+.editor .cm-comment-raw { font-family: var(--font-mono); font-size: 0.8em; color: var(--faint); }
+.editor .cm-comment-loose { display: inline-flex; vertical-align: middle; margin: 0 2px; }
+.editor .cm-comment-notice { display: none; }
+
 /* Cursores de otros usuarios (y-codemirror) */
 .editor .cm-ySelectionInfo { font-family: var(--font-sans); font-size: 11px; font-weight: 500; border-radius: 4px; padding: 1px 6px; color: var(--on-user); opacity: 1; }
+
+/* Sin panel a la vista, un aviso bajo cada párrafo con comentarios (lo abre). */
+@media (max-width: 1099px) {
+  .editor .cm-comment-notice { font: inherit; font-family: var(--font-sans); font-size: 13px; display: flex; align-items: center; gap: 8px; width: 100%; max-width: 72ch; min-height: var(--touch); margin: 4px 0 12px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .editor .cm-comment-notice span { flex-grow: 1; text-align: left; }
+  .editor .cm-comment-notice b { color: var(--accent); font-weight: 500; }
+}
 
 @media (max-width: 760px) {
   .editor .cm-scroller { padding: var(--space-6) var(--space-4); font-size: 17px; }

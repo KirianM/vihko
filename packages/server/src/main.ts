@@ -50,14 +50,14 @@ export async function start(config: Config) {
 
   const runtime: Runtime = {
     lastScan: null,
-    rescan(force) {
-      const r = indexer.scan({ force })
+    rescan(opts) {
+      const r = indexer.scan(opts)
       this.lastScan = r
       if (r.aborted) log(`escaneo abortado: ${r.aborted}`)
       return r
     },
   }
-  const first = runtime.rescan(false)
+  const first = runtime.rescan({})
   log(`índice listo: ${first.added.length} nuevas, ${first.changed.length} cambiadas, ${first.removed.length} retiradas, ${first.unchanged} sin cambios`)
 
   const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log })
