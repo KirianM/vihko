@@ -63,6 +63,12 @@ export class Indexer {
   private opts: IndexerOptions
   private host: ExtensionHost
   private linkExt: LinksExtension
+  /**
+   * Extensions that don't hold every note yet: new ones, or a new version of
+   * one (and what depends on it). They are filled from the files before the
+   * next scan or batch; the rest of the index is left alone.
+   */
+  private pending: Set<string>
 
   constructor(opts: IndexerOptions) {
     this.opts = opts
@@ -70,7 +76,7 @@ export class Indexer {
     const builtin = builtinExtensions()
     this.linkExt = builtin.links
     this.host = new ExtensionHost(opts.db, [...builtin.all, ...(opts.extensions ?? [])])
-    this.host.markCurrent(this.host.install())
+    this.pending = this.host.install()
   }
 
   /** Link resolution keys of every indexed note (kept by the links extension). */
@@ -91,6 +97,7 @@ export class Indexer {
       report.aborted = 'root_unavailable'
       return report
     }
+    this.catchUp()
 
     const seen = new Set<string>()
     const conflicts: string[] = []
@@ -155,6 +162,7 @@ export class Indexer {
   /** Reindexes specific paths (watcher events). Doesn't apply the mass-deletion guard. */
   indexPaths(paths: Iterable<string>): ScanReport {
     const report: ScanReport = { added: [], changed: [], removed: [], unchanged: 0, aborted: null, massDelete: null }
+    this.catchUp()
     const upserts: Upsert[] = []
     const touch: { path: string; stat: Stats }[] = []
     const conflictsNow: string[] = []
@@ -235,6 +243,45 @@ export class Indexer {
       this.syncConflicts(allConflicts, conflictsNow, conflictsGone)
       this.host.finalize({ indexed, removed: gone })
     })()
+  }
+
+  /**
+   * Runs the pending extensions over every registered note, in one
+   * transaction, and records them as current. A note whose file changed since
+   * it was indexed is left for the scan, which reindexes it with every
+   * extension. Without the notes folder (an unmounted share) they keep waiting.
+   */
+  private catchUp() {
+    if (this.pending.size === 0) return
+    try {
+      if (!statSync(this.opts.notesDir).isDirectory()) return
+    } catch {
+      return
+    }
+    const only = this.pending
+    const db = this.db
+    const rows = db.prepare('select path, hash from notes order by path').all() as { path: string; hash: string }[]
+    const stale = db.prepare('update notes set mtime_ms = -1 where path = ?')
+    const indexed = new Set<string>()
+    db.transaction(() => {
+      for (const r of rows) {
+        let text: string
+        try {
+          text = readFileSync(join(this.opts.notesDir, r.path), 'utf8')
+        } catch {
+          continue // gone: the scan removes it
+        }
+        if (contentHash(text) !== r.hash) {
+          stale.run(r.path) // so the next scan sees it changed, whatever its mtime
+          continue
+        }
+        this.host.index(this.snapshot(r.path, text, r.hash), only)
+        indexed.add(r.path)
+      }
+      this.host.finalize({ indexed, removed: new Set() }, only)
+      this.host.markCurrent(only)
+    })()
+    this.pending = new Set()
   }
 
   /** The note as extensions see it: parsed once, with the registry's own facts. */
