@@ -28,7 +28,8 @@ Goal: a complete notes system from the UI, without integrations.
 - [x] UI: folder tree, ⌘K search-or-create, side panel with comments,
       links/backlinks and outline, rename/move with preview, trash, workspace
       alerts. Translatable (English and Spanish).
-- [ ] Responsive PWA (no offline mode).
+- [x] Responsive layout for phones and an installable PWA (no offline mode;
+      installing needs HTTPS).
 - [x] Images: upload, paste and by URL (local copy or link); they travel with
       their note when it moves to another folder; external images can be
       blocked by the administrator.
@@ -36,6 +37,16 @@ Goal: a complete notes system from the UI, without integrations.
 - [x] Local auth: an admin created from the CLI or a one-time token, sessions.
       A principal on every query from day one.
 - [x] Docker image and example compose file with the two volumes.
+- [ ] `thoth.yaml`: the workspace configuration file, read at start and
+      reloaded on change (first users: daily-note series and templates).
+- [ ] User profile with a timezone (defaults to the browser's).
+- [ ] Templates: plain `.md` notes with fixed variables (`{{date}}`,
+      `{{date:format}}`, `{{user}}`, `{{title}}`), copied only on creation; no
+      code.
+- [ ] Daily note, optional: series declared in `thoth.yaml` (folder and name
+      pattern, `{user}` for personal ones, optional template); each person picks
+      theirs. «Today» opens it or creates it (never overwriting), in the
+      person's timezone; previous/next in the header.
 
 **Done when:** with `docker compose up` over an existing folder of 1,000 notes
 you can search, edit and rename without breaking links; a change made with
@@ -59,7 +70,9 @@ the UI with its author.
       URL; tools registered according to scopes.
 - [ ] Tools: `search`, `get_note`, `related`/backlinks, `resolve_link`,
       `create_note`, `edit_note` (flat operations with `if_match` and
-      `dry_run`), `changes_since`, `move`, `delete` to trash.
+      `dry_run`), `changes_since`, `move`, `delete` to trash, `daily_note`
+      (today's note of the represented person, created if needed) and
+      appending at the end or under a heading.
 - [ ] `ai: false` restriction enforced at the single filtering point.
 - [ ] Handshake tests with real MCP clients in CI.
 - [ ] Privacy page: what leaves, where to and when.
