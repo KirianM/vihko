@@ -4,7 +4,7 @@ import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Auth, Indexer, NoteService, Workspace, createApp, openIndex, openState, type Runtime } from '@thoth/server'
+import { Auth, Indexer, NoteService, Profiles, Workspace, createApp, openIndex, openState, type Runtime } from '@thoth/server'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
@@ -31,12 +31,13 @@ export async function setup(opts: { config?: string; clock?: { now: Date } } = {
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
+  const profiles = new Profiles(state)
   const workspace = new Workspace({ notesDir })
   const indexer = new Indexer({ notesDir, db: index })
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
   const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db: index, attachmentsFolder: () => workspace.config.attachments.folder })
   const clock = opts.clock ?? { now: new Date('2026-09-24T23:30:00Z') }
-  const app = createApp({ auth, workspace, notes, index, indexer, notesDir, runtime })
+  const app = createApp({ auth, profiles, workspace, notes, index, indexer, notesDir, runtime })
   const users = { noa: await auth.createUser('noa', 'a-long-password', 'admin'), ana: await auth.createUser('ana', 'a-long-password', 'member') }
   runtime.rescan({})
   const cookies: Record<string, string> = {}
@@ -48,6 +49,6 @@ export async function setup(opts: { config?: string; clock?: { now: Date } } = {
     const res = await app.request(path, { method, headers: { 'content-type': 'application/json', cookie: cookies[user]! }, body: body === undefined ? undefined : JSON.stringify(body) })
     return { status: res.status, body: await res.json().catch(() => null) as any }
   }
-  return { dir, notesDir, app, workspace, users, clock, runtime, noa: as('noa'), ana: as('ana') }
+  return { dir, notesDir, app, workspace, profiles, users, clock, runtime, noa: as('noa'), ana: as('ana') }
 }
 

@@ -13,3 +13,4 @@ export { COLLAB_PATH, CollabHub, ORPHAN_MESSAGE, SAVED_MESSAGE, TEXT, type HubOp
 export { applyEdits, type EditOp } from './edits.ts'
 export { FetchImageError, SERVED_TYPES, attachmentPath, fetchImage, sniffImage, type FetchErrorCode, type FetchImageOptions } from './attachments.ts'
 export { Workspace, type WorkspaceOptions } from './workspace.ts'
+export { FALLBACK_TIMEZONE, ProfileError, Profiles, type Profile } from './profiles.ts'

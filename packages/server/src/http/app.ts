@@ -15,6 +15,7 @@ import { NoteError, type Actor, type NoteService } from '../notes.ts'
 import { ftsQuery, HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import { applyEdits, type EditOp } from '../edits.ts'
 import { FetchImageError, SERVED_TYPES, fetchImage } from '../attachments.ts'
+import { ProfileError, type Profile, type Profiles } from '../profiles.ts'
 import type { Workspace } from '../workspace.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
@@ -34,6 +35,8 @@ export interface Orphans {
 export interface AppDeps {
   orphans?: Orphans
   auth: Auth
+  /** Each person's timezone and preferences (state.db). */
+  profiles: Profiles
   /** thoth.yaml, as currently in force. */
   workspace: Workspace
   notes: NoteService
@@ -88,7 +91,7 @@ function fail(c: Context, status: ContentfulStatusCode, error: ErrorCode, messag
 }
 
 export function createApp(deps: AppDeps) {
-  const { auth, notes, index, workspace } = deps
+  const { auth, notes, index, profiles, workspace } = deps
   const externalImages = deps.externalImages ?? 'allow'
   const app = new Hono<Env>()
 
@@ -98,6 +101,7 @@ export function createApp(deps: AppDeps) {
       return fail(c, noteErrorStatus(err), err.code, err.message, { etag: err.etag })
     }
     if (err instanceof FetchImageError) return fail(c, fetchErrorStatus(err), err.code, err.message)
+    if (err instanceof ProfileError) return fail(c, 400, err.code, err.message)
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400, err.code, err.message)
     // Body that isn't JSON.
     if (err instanceof SyntaxError) return fail(c, 400, 'invalid', err.message)
@@ -190,6 +194,16 @@ export function createApp(deps: AppDeps) {
   app.get('/api/workspace', (c) => {
     const w = workspace.config
     return c.json({ daily: w.daily, templates: w.templates })
+  })
+
+  app.get('/api/profile', (c) => c.json(profiles.get(c.get('user').id)))
+
+  app.put('/api/profile', async (c) => {
+    const body = await c.req.json<Record<string, unknown>>()
+    if (typeof body !== 'object' || body === null) return fail(c, 400, 'invalid', 'expected an object')
+    const patch: Partial<Profile> = {}
+    for (const k of ['timezone', 'dailySeries', 'openDailyOnStart'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
+    return c.json(profiles.update(c.get('user').id, patch))
   })
 
   app.put('/api/note', async (c) => {
