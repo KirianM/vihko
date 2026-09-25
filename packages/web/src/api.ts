@@ -181,7 +181,8 @@ export const api = {
   tags: () => request<{ tags: TagCount[] }>('GET', '/api/tags').then((r) => r.tags),
   headings: (path: string) => request<{ headings: { level: number; text: string }[] }>('GET', `/api/note/headings?path=${encodeURIComponent(path)}`).then((r) => r.headings),
   search: (q: string) => request<SearchResponse>('GET', `/api/search?q=${encodeURIComponent(q)}`),
-  createNote: (path: string, text: string) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, text }),
+  /** `freshUid`: the text may carry another note's uid (a copy): it gets a new one. */
+  createNote: (path: string, text: string, opts: { freshUid?: boolean } = {}) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, text, ...opts }),
   /** A new note with the text of the template note, its variables filled in by the server. */
   createFromTemplate: (path: string, template: string) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, template }),
   workspace: () => request<WorkspaceInfo>('GET', '/api/workspace'),

@@ -5,7 +5,7 @@ import { startCompletion } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from 'react-aria-components'
-import { api, type CommentOriginal, type MoveJob, type MoveReport, type ServerConfig, type User } from '../api.ts'
+import { ApiError, api, type CommentOriginal, type MoveJob, type MoveReport, type ServerConfig, type User } from '../api.ts'
 import { INSERT_IMAGE } from '../commands.ts'
 import { useTheme } from '../theme.ts'
 import { userColor } from '../userColor.ts'
@@ -63,6 +63,62 @@ function OrphanBanner({ path }: { path: string }) {
       </div>
       <Button className="btn btn-primary" onPress={() => decide('restore')}>{t('editor.orphanKeep')}</Button>
       <Button className="btn" onPress={() => decide('discard')}>{t('editor.orphanDiscard')}</Button>
+    </div>
+  )
+}
+
+/** «Name (unsent 2026-09-25 10.12).md» next to the note; never overwrites one that exists. */
+async function saveAsideCopy(path: string, text: string, name: (note: string, date: string) => string) {
+  const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : ''
+  const note = path.slice(dir.length).replace(/\.md$/i, '')
+  const d = new Date()
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  const date = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}.${p2(d.getMinutes())}`
+  for (let n = 1; ; n++) {
+    const copy = `${dir}${name(note, date)}${n > 1 ? ` ${n}` : ''}.md`
+    try {
+      // A new uid: two notes with the same one would be the same note for the integrations.
+      return (await api.createNote(copy, text, { freshUid: true })).path
+    } catch (e) {
+      if (!(e instanceof ApiError && e.code === 'exists') || n >= 20) throw e
+    }
+  }
+}
+
+/**
+ * The hub started this note again without the document this tab had (its saved
+ * state was lost, or the file no longer matched it), so the tab's copy couldn't
+ * be merged without repeating text. It had changes that never arrived: keep them
+ * as a copy of the note, or discard them.
+ */
+function SetAsideBanner({ path, c, onCreated }: { path: string; c: CollabState; onCreated: (p: string) => void }) {
+  const t = useT()
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  if (!c.setAside) return null
+  const text = c.setAside.text
+  const keep = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const copy = await saveAsideCopy(path, text, (note, date) => t('editor.setAsideName', { note, date }))
+      c.clearSetAside()
+      onCreated(copy)
+    } catch (e) {
+      setError(errorText(t, e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="banner" role="alert">
+      <div className="banner-text">
+        <b>{t('editor.setAsideTitle')}</b>
+        <span>{t('editor.setAsideBody')}</span>
+        {error && <span className="error-text">{error}</span>}
+      </div>
+      <Button className="btn btn-primary" isDisabled={busy} onPress={keep}>{t('editor.setAsideKeep')}</Button>
+      <Button className="btn" isDisabled={busy} onPress={c.clearSetAside}>{t('editor.setAsideDiscard')}</Button>
     </div>
   )
 }
@@ -222,6 +278,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMoveStarted
         <NoteActions path={path} onMoved={onMoved} onMoveStarted={onMoveStarted} onTrashed={(id) => onTrashed({ id, path, by: null })} onInsertImage={images.openInsert} />
       </header>
       {c.orphaned && <OrphanBanner path={path} />}
+      <SetAsideBanner path={path} c={c} onCreated={onCreated} />
       <CreateLinkUi state={createLink} />
       <div className="note-body">
         <div className="note">

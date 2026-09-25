@@ -273,13 +273,13 @@ export function createApp(deps: AppDeps) {
   // A new note, with the given text or from a template note (its variables
   // filled in with the person's date and name, D-030). Never overwrites.
   app.post('/api/note', async (c) => {
-    const { path, text, template } = await c.req.json<{ path: string; text?: string; template?: string }>()
+    const { path, text, template, freshUid } = await c.req.json<{ path: string; text?: string; template?: string; freshUid?: boolean }>()
     const user = c.get('user')
     if (template !== undefined) {
       if (typeof template !== 'string') return fail(c, 400, 'invalid', 'template must be a note path')
       return c.json(await createFromTemplate(notes, { path, template, user, now: profiles.now(user.id, now()) }), 201)
     }
-    return c.json(await notes.create(path, text ?? '', actorOf(user)), 201)
+    return c.json(await notes.create(path, text ?? '', actorOf(user), { freshUid: freshUid === true }), 201)
   })
 
   // The workspace settings the UI needs from thoth.yaml (reloaded when it changes).
