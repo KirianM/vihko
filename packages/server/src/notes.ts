@@ -152,10 +152,15 @@ export class NoteService {
     return { path, text, etag: contentHash(text) }
   }
 
-  /** Creates a new note; never overwrites. Born with a `uid`. */
-  async create(path: string, text: string, _actor: Actor): Promise<{ path: string; etag: string; uid: string | null }> {
+  /**
+   * Creates a new note; never overwrites. Born with a `uid`. With `freshUid`
+   * (a copy of another note, such as a template) a `uid` already in the text
+   * is replaced, so the copy doesn't share its identity.
+   */
+  async create(path: string, text: string, _actor: Actor, opts: { freshUid?: boolean } = {}): Promise<{ path: string; etag: string; uid: string | null }> {
     const file = this.file(path)
     mkdirSync(dirname(file), { recursive: true })
+    if (opts.freshUid && this.uidIn(text)) text = setFrontmatterKey(text, this.uidKey, newUid())
     const withUid = this.ensureUid(text, null)
     const r = await commitText(file, withUid.text, null)
     if (!r.ok) throw new NoteError('exists', `already exists: ${path}`, r.current === null ? null : contentHash(r.current))

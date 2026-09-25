@@ -15,6 +15,7 @@ import { NoteError, type Actor, type NoteService } from '../notes.ts'
 import { ftsQuery, HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import { applyEdits, type EditOp } from '../edits.ts'
 import { FetchImageError, SERVED_TYPES, fetchImage } from '../attachments.ts'
+import { createFromTemplate } from '../templates.ts'
 import { ProfileError, type Profile, type Profiles } from '../profiles.ts'
 import type { Workspace } from '../workspace.ts'
 
@@ -51,6 +52,8 @@ export interface AppDeps {
    * browser (`allow`, the default) or blocked for the whole installation (D-028).
    */
   externalImages?: ExternalImages
+  /** The clock (tests). */
+  now?: () => Date
 }
 
 export type ExternalImages = 'allow' | 'block'
@@ -93,6 +96,7 @@ function fail(c: Context, status: ContentfulStatusCode, error: ErrorCode, messag
 export function createApp(deps: AppDeps) {
   const { auth, notes, index, profiles, workspace } = deps
   const externalImages = deps.externalImages ?? 'allow'
+  const now = deps.now ?? (() => new Date())
   const app = new Hono<Env>()
 
   app.onError((err, c) => {
@@ -185,9 +189,16 @@ export function createApp(deps: AppDeps) {
     return c.json({ ...r, meta })
   })
 
+  // A new note, with the given text or from a template note (its variables
+  // filled in with the person's date and name, D-030). Never overwrites.
   app.post('/api/note', async (c) => {
-    const { path, text } = await c.req.json<{ path: string; text: string }>()
-    return c.json(await notes.create(path, text ?? '', actorOf(c.get('user'))), 201)
+    const { path, text, template } = await c.req.json<{ path: string; text?: string; template?: string }>()
+    const user = c.get('user')
+    if (template !== undefined) {
+      if (typeof template !== 'string') return fail(c, 400, 'invalid', 'template must be a note path')
+      return c.json(await createFromTemplate(notes, { path, template, user, now: profiles.now(user.id, now()) }), 201)
+    }
+    return c.json(await notes.create(path, text ?? '', actorOf(user)), 201)
   })
 
   // The workspace settings the UI needs from thoth.yaml (reloaded when it changes).
