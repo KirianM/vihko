@@ -46,6 +46,18 @@ const focused = StateField.define<boolean>({
   update: (v, tr) => tr.effects.reduce((acc, e) => (e.is(focusEffect) ? e.value : acc), v),
 })
 const trackFocus = EditorView.focusChangeEffect.of((_state, focusing) => focusEffect.of(focusing))
+// CodeMirror drops its focus-change transaction if another one lands first (a
+// click that moves the cursor while co-editing, say), and never retries: the
+// editor has focus but `focused` says it doesn't, and nothing is revealed.
+// This puts them back in step after any update.
+const focusSync = ViewPlugin.define((view) => ({
+  update() {
+    if (view.hasFocus === view.state.field(focused)) return
+    queueMicrotask(() => {
+      if (view.hasFocus !== view.state.field(focused)) view.dispatch({ effects: focusEffect.of(view.hasFocus) })
+    })
+  },
+}))
 export const focusChanged = (tr: { effects: readonly StateEffect<unknown>[] }) => tr.effects.some((e) => e.is(focusEffect))
 
 /** The cursor (or a selection) touches the range and the editor has focus: the marks show there. */
@@ -179,7 +191,8 @@ function inlineDecorations(view: EditorView): DecorationSet {
             return false
           }
           case 'ListMark':
-            if (node.parent?.parent?.name === 'BulletList' && !touchesLines(state, node.from, node.to)) out.push(bullet.range(node.from, node.to))
+            // A task's checkbox (tasks.ts) stands in for its bullet.
+            if (node.parent?.parent?.name === 'BulletList' && node.nextSibling?.name !== 'Task' && !touchesLines(state, node.from, node.to)) out.push(bullet.range(node.from, node.to))
             return
           case 'Tag':
             out.push(Decoration.mark({ class: 'cm-tag' }).range(node.from, node.to))
@@ -314,4 +327,4 @@ const frontmatterFold = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 })
 
-export const livePreview = [focused, trackFocus, links, inlinePreview, frontmatterFold]
+export const livePreview = [focused, trackFocus, focusSync, links, inlinePreview, frontmatterFold]

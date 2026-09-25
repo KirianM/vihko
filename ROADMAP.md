@@ -37,7 +37,7 @@ Goal: a complete notes system from the UI, without integrations.
       suggests existing tags.
 - [x] A broken `[[link]]` offers to create the note (in the current note's
       folder).
-- [ ] Tasks and tables in the editor: `- [ ]` toggles with a click; Markdown
+- [x] Tasks and tables in the editor: `- [ ]` toggles with a click; Markdown
       tables render as tables outside the cursor.
 - [ ] Folders and tags in the tree: create, rename and move folders (also by
       dragging notes), a tags view, and `tag:`/`path:` filters in search.

@@ -58,6 +58,26 @@
 .editor .cm-image-box { display: inline-block; font-family: var(--font-sans); font-size: 13px; line-height: 18px; padding: 10px 14px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); background: var(--panel); color: var(--muted); overflow-wrap: anywhere; }
 .editor .cm-image-missing .cm-image-box { border-color: var(--danger); color: var(--danger); }
 
+/* Tasks: a checkbox in place of `- [ ]`; done ones muted and struck through */
+.editor .cm-task { position: relative; display: inline-flex; align-items: center; vertical-align: -0.12em; margin-right: var(--space-1); cursor: pointer; }
+.editor .cm-task input { width: 1em; height: 1em; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.editor .cm-task-done { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--faint); }
+/* A finger needs a larger target than the box: an invisible area around it, and
+   task lines at least that far apart so neighbouring areas don't overlap. */
+@media (pointer: coarse) {
+  .editor .cm-task::after { content: ''; position: absolute; left: 50%; top: 50%; width: var(--touch); height: var(--touch); transform: translate(-50%, -50%); }
+  .editor .cm-task-line { padding-block: max(0px, calc((var(--touch) - 1.65em) / 2)); }
+}
+
+/* Tables: drawn outside the cursor; wide ones scroll sideways */
+/* width 0 + min-width 100%: the table's width never widens the editor, the wrapper scrolls instead. */
+.editor .cm-table-wrap { width: 0; min-width: 100%; overflow-x: auto; margin: var(--space-2) 0; }
+/* As wide as its content (long cells wrap at a readable width), never squeezed into the column. */
+.editor .cm-table { width: max-content; border-collapse: collapse; line-height: 1.5; }
+.editor .cm-table th, .editor .cm-table td { max-width: 40ch; border: 1px solid var(--line); padding: var(--space-1) var(--space-3); text-align: left; vertical-align: top; white-space: normal; overflow-wrap: normal; word-break: normal; cursor: text; }
+.editor .cm-table th { background: var(--panel); font-weight: 600; }
+.editor .cm-table code { font-family: var(--font-mono); font-size: 0.88em; background: var(--chip); border-radius: var(--radius-sm); padding: 1px 4px; }
+
 /* Folded frontmatter */
 .editor .cm-frontmatter-chip { padding-bottom: 18px; }
 .editor .cm-frontmatter-chip button { font-family: var(--font-mono); font-size: 12px; height: 30px; padding: 0 12px; border: 1px dashed var(--line-strong); border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }

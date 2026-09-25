@@ -20,6 +20,8 @@ import { linkAutocomplete } from './autocomplete.ts'
 import { createLinkUi, type NewLinkedNote } from './createLink.ts'
 import { labels, livePreview, navigate, notePath, setLinks, type LinkInfo } from './livePreview.ts'
 import { announce } from './presence.ts'
+import { tables } from './tables.ts'
+import { taskLabel, tasks } from './tasks.ts'
 import { viewUpdates } from './viewUpdates.ts'
 import './editor.css'
 
@@ -68,7 +70,7 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
     const state = EditorState.create({
       doc: text.toString(),
       extensions: [
-        yamlFrontmatter({ content: markdown({ base: markdownLanguage, extensions: thothSyntax }) }),
+        yamlFrontmatter({ content: markdown({ base: markdownLanguage, extensions: thothSyntax, addKeymap: false }) }),
         syntaxHighlighting(classHighlighter),
         EditorView.lineWrapping,
         livePreview,
@@ -88,6 +90,10 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
           missing: t('editor.linkMissing'),
           frontmatter: (n) => t(n === 1 ? 'editor.frontmatterOne' : 'editor.frontmatter', { n }),
         }),
+        // tasks brings lang-markdown's keymap (Enter continues a task as a task).
+        tasks,
+        taskLabel.of(t('editor.task')),
+        tables,
         images,
         imageHost.of({
           note: path,
