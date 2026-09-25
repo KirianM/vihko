@@ -13,6 +13,7 @@
     "typecheck": "tsc -p . && tsc -p packages/web",
     "test": "node --test \"packages/*/test/**/*.test.ts\"",
     "load": "node --test --test-concurrency=1 \"packages/*/test/**/*.collab.ts\"",
+    "acceptance": "node --test --test-concurrency=1 --test-force-exit \"packages/server/test/acceptance/*.acceptance.ts\"",
     "build": "npm run build -w @thoth/web"
   },
   "devDependencies": {
