@@ -1,8 +1,8 @@
 // Main structure: folder tree and the note open in the editor.
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Collection, Dialog, Modal, ModalOverlay, Tree, TreeItem, TreeItemContent, type Key } from 'react-aria-components'
+import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, type Key } from 'react-aria-components'
 import { seriesNeighbors } from '@thoth/core/series'
-import { ApiError, api, type MoveReport, type Profile, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
+import { ApiError, api, type FolderMoveReport, type MoveReport, type Profile, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
 import { AlertsPage } from './Alerts.tsx'
 import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
@@ -14,95 +14,38 @@ import { OpenPaletteContext, Palette, SearchButton, type PaletteMode } from './P
 import { rememberNote } from './recent.ts'
 import { useBackClose, useMobile, useVisualViewport } from './mobile.ts'
 import { PreferencesDialog, browserTimeZone } from './Preferences.tsx'
+import { FolderTree, ancestors, buildTree, type Node, type TreeAction } from './FolderTree.tsx'
+import { DeleteFolderDialog, FolderMoveDialog, NewFolderDialog } from './FolderDialogs.tsx'
+import { RenameDialog, TrashDialog } from './editor/NoteActions.tsx'
+import { TagsView } from './TagsView.tsx'
+
+/** A dialog opened from the tree: its context menu or a drop. */
+type TreeDialog =
+  | { kind: 'newFolder'; parent: string }
+  | { kind: 'moveFolder'; path: string; parent?: string }
+  | { kind: 'deleteFolder'; path: string }
+  | { kind: 'moveNote'; path: string; folder?: string }
+  | { kind: 'trashNote'; path: string }
+
+const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
+const inside = (path: string, folder: string) => path === folder || path.startsWith(folder + '/')
 
 // The editor (CodeMirror, Yjs) is downloaded separately, when the first note is opened.
 const NoteView = lazy(() => import('./editor/NoteView.tsx').then((m) => ({ default: m.NoteView })))
-
-interface Node { id: string; name: string; path: string; children: Node[] | null }
-
-/** Converts the flat list of paths into a tree: folders first, then notes, alphabetically. */
-export function buildTree(notes: TreeNote[]): Node[] {
-  const root: Node = { id: 'd:', name: '', path: '', children: [] }
-  const folders = new Map<string, Node>([['', root]])
-  const folder = (path: string): Node => {
-    let f = folders.get(path)
-    if (f) return f
-    const i = path.lastIndexOf('/')
-    const parent = folder(i === -1 ? '' : path.slice(0, i))
-    f = { id: `d:${path}`, name: path.slice(i + 1), path, children: [] }
-    parent.children!.push(f)
-    folders.set(path, f)
-    return f
-  }
-  for (const n of notes) {
-    const i = n.path.lastIndexOf('/')
-    const parent = folder(i === -1 ? '' : n.path.slice(0, i))
-    parent.children!.push({ id: `n:${n.path}`, name: n.path.slice(i + 1).replace(/\.md$/i, ''), path: n.path, children: null })
-  }
-  const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
-  const sort = (list: Node[]) => {
-    list.sort((a, b) => (a.children === null) === (b.children === null) ? collator.compare(a.name, b.name) : a.children === null ? 1 : -1)
-    for (const x of list) if (x.children) sort(x.children)
-  }
-  sort(root.children!)
-  return root.children!
-}
-
-/** Folder keys that contain a note, so it shows in the tree. */
-const ancestors = (path: string) => path.split('/').slice(0, -1).map((_, i, a) => `d:${a.slice(0, i + 1).join('/')}`)
-
-function NoteTree({ nodes, selected, expanded, onExpanded, onOpen }: {
-  nodes: Node[]
-  selected: string | null
-  expanded: Set<Key>
-  onExpanded: (keys: Set<Key>) => void
-  onOpen: (path: string) => void
-}) {
-  const t = useT()
-  return (
-    <Tree
-      className="tree"
-      aria-label={t('shell.folders')}
-      items={nodes}
-      selectionMode="single"
-      selectedKeys={selected ? [`n:${selected}`] : []}
-      expandedKeys={expanded}
-      onExpandedChange={onExpanded}
-      onAction={(key: Key) => {
-        const k = String(key)
-        if (k.startsWith('n:')) return onOpen(k.slice(2))
-        // A folder row opens or closes (on a phone the chevron alone is too small a target).
-        const next = new Set(expanded)
-        if (!next.delete(key)) next.add(key)
-        onExpanded(next)
-      }}
-      renderEmptyState={() => <div className="empty">{t('shell.noNotes')}</div>}
-    >
-      {function render(node: Node) {
-        return (
-          <TreeItem id={node.id} textValue={node.name} className="tree-item">
-            <TreeItemContent>
-              {({ level, hasChildItems }) => (
-                <div className="tree-row" style={{ paddingLeft: 8 + (level - 1) * 18 }}>
-                  {hasChildItems
-                    ? <Button slot="chevron" className="tree-chevron">{Icon.chevron}</Button>
-                    : <span style={{ width: 20, flexShrink: 0 }} />}
-                  <span className="tree-label">{node.name}</span>
-                </div>
-              )}
-            </TreeItemContent>
-            {node.children && <Collection items={node.children}>{render}</Collection>}
-          </TreeItem>
-        )
-      }}
-    </Tree>
-  )
-}
 
 export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout: () => void; onUnauthorized: () => void }) {
   const t = useT()
   const { effective } = useTheme()
   const [notes, setNotes] = useState<TreeNote[] | null>(null)
+  const [folders, setFolders] = useState<string[]>([])
+  /** Sidebar: the folder tree or the tags; a picked tag lists its notes. */
+  const [sideTab, setSideTab] = useState<'folders' | 'tags'>('folders')
+  const [tag, setTag] = useState<string | null>(null)
+  const [treeDialog, setTreeDialog] = useState<TreeDialog | null>(null)
+  /** Where «New note here» creates the note; null = the open note's folder. */
+  const [createIn, setCreateIn] = useState<string | null>(null)
+  /** Your last folder move, if some link could not be rewritten. */
+  const [folderIssue, setFolderIssue] = useState<FolderMoveReport | null>(null)
   const [alerts, setAlerts] = useState(0)
   const [openPath, setOpenPathState] = useState<string | null>(() => new URLSearchParams(location.search).get('note'))
   // Views that aren't a note, in the URL as `?view=` (no router: this is the only one).
@@ -131,7 +74,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setError(errorText(t, err))
   }
 
-  const loadTree = () => api.tree().then((r) => setNotes(r.notes)).catch(fail)
+  const loadTree = () => api.tree().then((r) => { setNotes(r.notes); setFolders(r.folders) }).catch(fail)
   const loadWorkspace = () => api.workspace().then(setWorkspace).catch(() => {})
   const loadAlerts = () => api.alerts().then((a) => setAlerts(a.length)).catch(() => {})
 
@@ -213,7 +156,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openPath])
 
-  const tree = useMemo(() => (notes ? buildTree(notes) : []), [notes])
+  const tree = useMemo(() => (notes ? buildTree(notes, folders) : []), [notes, folders])
   // Template notes: those in the templates folder of thoth.yaml, subfolders included.
   const templates = useMemo(() => {
     const dir = workspace?.templates
@@ -234,18 +177,94 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const folder = openPath?.includes('/') ? openPath.slice(0, openPath.lastIndexOf('/')) : ''
   const created = (path: string) => {
     setPalette(null)
-    api.tree().then((r) => setNotes(r.notes)).catch(fail)
+    void loadTree()
     setOpenPath(path)
+  }
+
+  // --- The tree's context menu, drops and dialogs ---------------------------
+  const closeTreeDialog = () => setTreeDialog(null)
+  const onTreeAction = (action: TreeAction, node: Node) => {
+    setNavOpen(false)
+    if (action === 'newNote') { setCreateIn(node.path); setPalette('create') }
+    else if (action === 'newFolder') setTreeDialog({ kind: 'newFolder', parent: node.path })
+    else if (action === 'moveFolder') setTreeDialog({ kind: 'moveFolder', path: node.path })
+    else if (action === 'deleteFolder') setTreeDialog({ kind: 'deleteFolder', path: node.path })
+    else if (action === 'moveNote') setTreeDialog({ kind: 'moveNote', path: node.path })
+    else setTreeDialog({ kind: 'trashNote', path: node.path })
+  }
+  const noteMoved = (from: string, to: string, report: MoveReport) => {
+    setTreeDialog(null)
+    setExpanded((e) => new Set([...e, ...ancestors(to)]))
+    if (openPath === from) setOpenPath(to)
+    if (report.failed.length || report.images.failed.length) setMoveIssue(report)
+    void loadTree()
+  }
+  const folderMoved = (r: FolderMoveReport) => {
+    setTreeDialog(null)
+    const map = (p: string) => (inside(p, r.from) ? r.to + p.slice(r.from.length) : p)
+    // Open folders stay open at their new place, and the tree shows where the folder went.
+    setExpanded((e) => new Set([...[...e].map((k) => (String(k).startsWith('d:') ? `d:${map(String(k).slice(2))}` : k)), ...ancestors(r.to)]))
+    if (openPath && map(openPath) !== openPath) setOpenPath(map(openPath))
+    setFolderIssue(r.failed.length ? r : null)
+    void loadTree()
+  }
+  // A drop moves at once when nothing else changes; if links would be rewritten
+  // (or images go along), it goes through the same dialog and preview as the menu.
+  const onDrop = async (key: string, folder: string) => {
+    const path = key.slice(2)
+    const to = folder ? `${folder}/${baseName(path)}` : baseName(path)
+    try {
+      if (key.startsWith('n:')) {
+        const preview = await api.move(path, to, true)
+        if (preview.relinked.length || preview.images.moved.length || preview.images.stayed.length) return setTreeDialog({ kind: 'moveNote', path, folder })
+        noteMoved(path, to, await api.move(path, to))
+      } else {
+        const preview = await api.moveFolder(path, to, true)
+        if (preview.relinked.length) return setTreeDialog({ kind: 'moveFolder', path, parent: folder })
+        folderMoved(await api.moveFolder(path, to))
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return onUnauthorized()
+      // The dialog shows why (a name already taken…) and lets it be changed.
+      setTreeDialog(key.startsWith('n:') ? { kind: 'moveNote', path, folder } : { kind: 'moveFolder', path, parent: folder })
+    }
   }
 
   // In the drawer, whatever you pick closes it.
   const pick = <A extends unknown[]>(fn: (...a: A) => void) => (...a: A) => { setNavOpen(false); fn(...a) }
   const treeView = (
-    <div className="sidebar-tree">
-      {notes === null
-        ? <div className="empty">{t('common.loading')}</div>
-        : <NoteTree nodes={tree} selected={openPath} expanded={expanded} onExpanded={setExpanded} onOpen={mobile ? pick(setOpenPath) : setOpenPath} />}
-    </div>
+    <Tabs className="side-tabs" selectedKey={sideTab} onSelectionChange={(k) => setSideTab(k === 'tags' ? 'tags' : 'folders')}>
+      <div className="side-tabs-head">
+        <TabList className="side-tablist" aria-label={t('sidebar.views')}>
+          <Tab id="folders" className="side-tab">{t('shell.folders')}</Tab>
+          <Tab id="tags" className="side-tab">{t('sidebar.tags')}</Tab>
+        </TabList>
+        <span className="spacer" />
+        {sideTab === 'folders' && (
+          <Button className="btn btn-icon btn-quiet" aria-label={t('folder.new')} onPress={pick(() => setTreeDialog({ kind: 'newFolder', parent: '' }))}>{Icon.folderPlus}</Button>
+        )}
+      </div>
+      <TabPanel id="folders" className="sidebar-tree">
+        {notes === null
+          ? <div className="empty">{t('common.loading')}</div>
+          : (
+            <FolderTree
+              nodes={tree}
+              selected={openPath}
+              expanded={expanded}
+              onExpanded={setExpanded}
+              onOpen={mobile ? pick(setOpenPath) : setOpenPath}
+              onAction={onTreeAction}
+              onDrop={(key, folder) => void onDrop(key, folder)}
+              draggable={!mobile}
+              emptyText={t('shell.noNotes')}
+            />
+          )}
+      </TabPanel>
+      <TabPanel id="tags" className="sidebar-tree">
+        <TagsView selected={tag} onSelect={setTag} openPath={openPath} onOpen={mobile ? pick(setOpenPath) : setOpenPath} refresh={notes} />
+      </TabPanel>
+    </Tabs>
   )
   const alertsLink = alerts > 0 && (
     <a className="sidebar-alerts" href="?view=avisos" aria-current={view === 'avisos' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); setNavOpen(false); showAlerts() }}>
@@ -338,6 +357,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           </>
         )}
         {moveIssue && <MoveToast report={moveIssue} onDismiss={() => setMoveIssue(null)} />}
+        {folderIssue && (
+          <div className="toast toast-warn">
+            <span className="toast-icon">{Icon.alert}</span>
+            <span className="toast-text" role="alert">{t('folder.partial', { name: baseName(folderIssue.to), notes: folderIssue.failed.map((f) => baseName(f.path).replace(/\.md$/i, '')).join(', ') })}</span>
+            <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setFolderIssue(null)}>{Icon.close}</Button>
+          </div>
+        )}
         {trashed && (
           <TrashToast
             key={trashed.id}
@@ -347,19 +373,45 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           />
         )}
       </main>
+      <ModalOverlay className="modal-overlay" isOpen={treeDialog !== null} onOpenChange={(o) => { if (!o) closeTreeDialog() }} isDismissable>
+        <Modal className="modal">
+          {treeDialog?.kind === 'newFolder' && (
+            <NewFolderDialog parent={treeDialog.parent} onClose={closeTreeDialog} onCreated={(p) => {
+              closeTreeDialog()
+              setSideTab('folders')
+              setExpanded((e) => new Set([...e, ...ancestors(p)]))
+              void loadTree()
+            }} />
+          )}
+          {treeDialog?.kind === 'moveFolder' && <FolderMoveDialog path={treeDialog.path} initialParent={treeDialog.parent} onClose={closeTreeDialog} onMoved={folderMoved} />}
+          {treeDialog?.kind === 'deleteFolder' && <DeleteFolderDialog path={treeDialog.path} onClose={closeTreeDialog} onDeleted={() => { closeTreeDialog(); void loadTree() }} />}
+          {treeDialog?.kind === 'moveNote' && (
+            <RenameDialog path={treeDialog.path} initialFolder={treeDialog.folder} onClose={closeTreeDialog} onMoved={(to, r) => noteMoved(treeDialog.path, to, r)} />
+          )}
+          {treeDialog?.kind === 'trashNote' && (
+            <TrashDialog path={treeDialog.path} onClose={closeTreeDialog} onTrashed={(id) => {
+              const path = treeDialog.path
+              closeTreeDialog()
+              if (openPath === path) setOpenPath(null)
+              setTrashed({ id, path, by: null })
+              void loadTree()
+            }} />
+          )}
+        </Modal>
+      </ModalOverlay>
       {palette && (
         <Palette
           key={palette}
           mode={palette}
-          folder={folder}
+          folder={createIn ?? folder}
           openPath={openPath}
           notes={notes}
           templates={templates}
           onToday={dailyOn ? () => void openToday() : null}
-          onClose={() => setPalette(null)}
+          onClose={() => { setPalette(null); setCreateIn(null) }}
           onMode={setPalette}
           onOpen={setOpenPath}
-          onCreated={created}
+          onCreated={(p) => { setCreateIn(null); created(p) }}
         />
       )}
       {prefsOpen && profile && (

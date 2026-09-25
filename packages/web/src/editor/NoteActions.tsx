@@ -24,10 +24,11 @@ function targetPath(name: string, folder: string): string | null {
 
 type Preview = { kind: 'idle' } | { kind: 'loading' } | { kind: 'ready'; report: MoveReport } | { kind: 'error'; message: string }
 
-function RenameDialog({ path, onClose, onMoved }: { path: string; onClose: () => void; onMoved: (to: string, report: MoveReport) => void }) {
+/** Also used from the folder tree; `initialFolder` presets the destination (a drop onto a folder). */
+export function RenameDialog({ path, initialFolder, onClose, onMoved }: { path: string; initialFolder?: string; onClose: () => void; onMoved: (to: string, report: MoveReport) => void }) {
   const t = useT()
   const [name, setName] = useState(noteName(path))
-  const [folder, setFolder] = useState(folderOf(path))
+  const [folder, setFolder] = useState(initialFolder ?? folderOf(path))
   const [preview, setPreview] = useState<Preview>({ kind: 'idle' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -134,7 +135,7 @@ function RenameDialog({ path, onClose, onMoved }: { path: string; onClose: () =>
   )
 }
 
-function TrashDialog({ path, onClose, onTrashed }: { path: string; onClose: () => void; onTrashed: (id: string) => void }) {
+export function TrashDialog({ path, onClose, onTrashed }: { path: string; onClose: () => void; onTrashed: (id: string) => void }) {
   const t = useT()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
