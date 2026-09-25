@@ -46,3 +46,37 @@ test('tag: matches case-insensitively and includes nested tags; path: a folder o
   // LIKE wildcards in a value are literal.
   assert.deepEqual(paths(await q('path:homel_b')), [])
 })
+
+test('the tree lists folders, the empty ones too; folders are created, moved and deleted over HTTP', async () => {
+  const { notesDir, noa } = await setup()
+  mkdirSync(join(notesDir, 'vacia'))
+  writeFileSync(join(notesDir, 'enlaza.md'), '[[hogar/Proxy]] y [otra](hogar/Red.md)\n')
+  await noa('POST', '/api/admin/rescan', {})
+  let tree = await noa('GET', '/api/tree')
+  assert.ok(tree.body.folders.includes('vacia') && tree.body.folders.includes('hogar'))
+  assert.ok(!tree.body.folders.some((f: string) => f.startsWith('.')), 'hidden folders are not listed')
+
+  assert.equal((await noa('POST', '/api/folder', { path: 'nueva' })).status, 201)
+  assert.equal((await noa('POST', '/api/folder', { path: 'nueva' })).body.error, 'exists')
+  assert.equal((await noa('POST', '/api/folder', { path: '.oculta' })).body.error, 'invalid_path')
+
+  const preview = await noa('POST', '/api/folder/move', { from: 'hogar', to: 'infra/hogar', dryRun: true })
+  assert.equal(preview.status, 200)
+  assert.equal(preview.body.notes.length, 4)
+  assert.ok(preview.body.relinked.some((x: { path: string }) => x.path === 'enlaza.md'))
+  assert.ok(existsSync(join(notesDir, 'hogar/Proxy.md')))
+  const moved = await noa('POST', '/api/folder/move', { from: 'hogar', to: 'infra/hogar' })
+  assert.equal(moved.status, 200)
+  assert.deepEqual(moved.body.failed, [])
+  tree = await noa('GET', '/api/tree')
+  assert.ok(tree.body.notes.some((n: { path: string }) => n.path === 'infra/hogar/Proxy.md'))
+  assert.ok(!tree.body.folders.includes('hogar') && tree.body.folders.includes('infra/hogar'))
+  const links = await noa('GET', `/api/note/links?path=${encodeURIComponent('enlaza.md')}`)
+  assert.deepEqual(links.body.outgoing.map((l: { dst_path: string }) => l.dst_path), ['infra/hogar/Proxy.md', 'infra/hogar/Red.md'])
+
+  assert.equal((await noa('POST', '/api/folder/move', { from: 'recetas', to: 'infra' })).status, 409)
+  assert.equal((await noa('DELETE', '/api/folder?path=infra')).status, 409)
+  assert.equal((await noa('DELETE', '/api/folder?path=infra')).body.error, 'not_empty')
+  assert.equal((await noa('DELETE', '/api/folder?path=vacia')).status, 200)
+  assert.ok(!(await noa('GET', '/api/tree')).body.folders.includes('vacia'))
+})

@@ -79,7 +79,7 @@ type Env = { Variables: { user: User; token: string } }
 const actorOf = (u: User): Actor => ({ kind: 'user', id: u.username })
 
 function noteErrorStatus(e: NoteError) {
-  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409 } as const)[e.code]
+  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409 } as const)[e.code]
 }
 
 function fetchErrorStatus(e: FetchImageError) {
@@ -178,9 +178,25 @@ export function createApp(deps: AppDeps) {
   // What the UI needs to know about this installation's settings.
   app.get('/api/config', (c) => c.json({ externalImages, maxImageBytes: notes.maxImageBytes }))
 
+  // Notes and folders: a folder with no notes (just created, or emptied) still shows.
   app.get('/api/tree', (c) => {
     const rows = index.prepare('select path, title, uid from notes order by path').all()
-    return c.json({ notes: rows })
+    const folders = (index.prepare('select path from folders order by path').all() as { path: string }[]).map((r) => r.path)
+    return c.json({ notes: rows, folders })
+  })
+
+  // Folders only exist on disk: these create, move (with every note in them,
+  // links kept as in a note move) and delete them (only when empty).
+  app.post('/api/folder', async (c) => {
+    const { path } = await c.req.json<{ path: string }>()
+    return c.json(notes.createFolder(path, actorOf(c.get('user'))), 201)
+  })
+
+  app.delete('/api/folder', (c) => c.json(notes.deleteFolder(c.req.query('path') ?? '', actorOf(c.get('user')))))
+
+  app.post('/api/folder/move', async (c) => {
+    const { from, to, dryRun } = await c.req.json<{ from: string; to: string; dryRun?: boolean }>()
+    return c.json(await notes.moveFolder(from, to, { actor: actorOf(c.get('user')), dryRun }))
   })
 
   app.get('/api/note', (c) => {

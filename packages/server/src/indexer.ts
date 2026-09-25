@@ -94,7 +94,8 @@ export class Indexer {
     const known = new Map((this.db.prepare('select path, hash, mtime_ms, size from notes').all() as Row[]).map((r) => [r.path, r]))
 
     const unreadable: string[] = []
-    for (const rel of walk(this.opts.notesDir, '', unreadable)) {
+    const dirs: string[] = []
+    for (const rel of walk(this.opts.notesDir, '', unreadable, dirs)) {
       const kind = classifyPath(rel)
       if (kind === 'conflict') conflicts.push(rel)
       if (kind !== 'note') continue
@@ -114,7 +115,36 @@ export class Indexer {
     } else report.removed = removed
 
     this.apply(upserts, touch, report.removed, conflicts)
+    // Like notes, folders aren't dropped by a scan that stopped (an unmounted share looks empty).
+    if (!report.aborted) this.db.transaction(() => {
+      this.db.prepare('delete from folders').run()
+      const ins = this.db.prepare('insert into folders (path) values (?)')
+      for (const d of dirs) ins.run(d)
+    })()
     return report
+  }
+
+  /**
+   * Brings specific folders up to date (thoth's own folder operations): one
+   * that exists is recorded with its ancestors and its subfolders; one that no
+   * longer does goes, with everything recorded under it. A full scan does the
+   * same for all.
+   */
+  indexFolders(paths: Iterable<string>) {
+    const ins = this.db.prepare('insert or ignore into folders (path) values (?)')
+    const del = this.db.prepare("delete from folders where path = ? or path like ? escape '\\'")
+    this.db.transaction(() => {
+      for (const p of new Set(paths)) {
+        if (!p || classifyPath(p) === 'ignored') continue
+        let dir = false
+        try { dir = statSync(join(this.opts.notesDir, p)).isDirectory() } catch { /* gone */ }
+        del.run(p, likePrefix(p))
+        if (!dir) continue
+        const sub: string[] = []
+        for (const _ of walk(this.opts.notesDir, p, [], sub)) { /* only the folders are wanted */ }
+        for (const a of [...ancestorsOf(p), p, ...sub]) ins.run(a)
+      }
+    })()
   }
 
   /** Reindexes specific paths (watcher events). Doesn't apply the mass-deletion guard. */
@@ -137,6 +167,11 @@ export class Indexer {
       this.detect(rel, row, upserts, touch, report)
     }
     this.apply(upserts, touch, report.removed, null, conflictsNow, conflictsGone)
+    // A note in a folder the index hadn't seen yet (created by thoth or from outside).
+    if (report.added.length) {
+      const ins = this.db.prepare('insert or ignore into folders (path) values (?)')
+      this.db.transaction(() => { for (const p of report.added) for (const a of ancestorsOf(p)) ins.run(a) })()
+    }
     return report
   }
 
@@ -302,8 +337,8 @@ export class Indexer {
   }
 }
 
-/** Walks the folder without entering ignored directories. Returns relative paths with `/`. */
-function* walk(root: string, rel: string, unreadable: string[]): Generator<string> {
+/** Walks the folder without entering ignored directories. Returns relative paths with `/`; the directories go to `dirs`. */
+function* walk(root: string, rel: string, unreadable: string[], dirs: string[]): Generator<string> {
   let entries
   try {
     entries = readdirSync(join(root, rel), { withFileTypes: true })
@@ -315,7 +350,7 @@ function* walk(root: string, rel: string, unreadable: string[]): Generator<strin
   for (const e of entries) {
     const r = rel ? `${rel}/${e.name}` : e.name
     if (e.isDirectory()) {
-      if (!isIgnoredDir(e.name)) yield* walk(root, r, unreadable)
+      if (!isIgnoredDir(e.name)) { dirs.push(r); yield* walk(root, r, unreadable, dirs) }
     } else if (e.isFile()) {
       yield r
     }
@@ -330,6 +365,14 @@ function exists(file: string) {
     return false
   }
 }
+
+/** `a/b/c.md` → `a`, `a/b`. */
+function ancestorsOf(path: string): string[] {
+  const parts = path.split('/')
+  return parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/'))
+}
+
+const likePrefix = (dir: string) => dir.replace(/[\\%_]/g, (c) => '\\' + c) + '/%'
 
 function* chunks<T>(list: T[], size: number) {
   for (let i = 0; i < list.length; i += size) yield list.slice(i, i + size)

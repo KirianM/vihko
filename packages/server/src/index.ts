@@ -1,7 +1,7 @@
 export { SCHEMA_VERSION, dumpIndex, openIndex, type Db } from './db.ts'
 export { Indexer, type FrontmatterKeys, type IndexerOptions, type ScanOptions, type ScanReport } from './indexer.ts'
 export { Watcher, type WatcherOptions } from './watcher.ts'
-export { DEFAULT_MAX_IMAGE_BYTES, NoteError, NoteService, type Actor, type HotDocuments, type NoteErrorCode, type MoveReport, type NoteRead, type NoteServiceOptions, type TrashEntry } from './notes.ts'
+export { DEFAULT_MAX_IMAGE_BYTES, NoteError, NoteService, type Actor, type HotDocuments, type NoteErrorCode, type FolderMoveReport, type MoveReport, type NoteRead, type NoteServiceOptions, type TrashEntry } from './notes.ts'
 export { commitText, createFile, readStable, readText, replaceText, writeTmp, type CommitResult, type ReplaceResult } from './fsutil.ts'
 export { applyReplacements, planRelinks, type Replacement } from './relink.ts'
 export { Auth, AuthError, hashPassword, verifyPassword, type Role, type User } from './auth.ts'
