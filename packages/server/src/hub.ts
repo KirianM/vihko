@@ -4,7 +4,7 @@
 import { Hocuspocus } from '@hocuspocus/server'
 import diff from 'fast-diff'
 import { randomUUID } from 'node:crypto'
-import { closeSync, constants, existsSync, fsyncSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
+import { closeSync, constants, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { dirname, join } from 'node:path'
@@ -108,6 +108,32 @@ function record(type: 'S' | 'U' | 'F', payload: Uint8Array): Buffer {
   return Buffer.concat([head, payload])
 }
 const HASH_LEN = contentHash('').length
+
+/**
+ * Tests only: `THOTH_TEST_CRASH_AT=<point>` kills the process there, as a
+ * `kill -9` landing at that exact moment would.
+ */
+function crashPoint(point: string) {
+  if (process.env.THOTH_TEST_CRASH_AT === point) process.kill(process.pid, 'SIGKILL')
+}
+
+/**
+ * Replaces a recovery log with `records` in one step (temporary file, fsync,
+ * rename): whenever the process dies, the old log or the new one is whole on
+ * disk. Truncating it in place and writing it again lost, on a kill in
+ * between, what the hub had already acknowledged. Returns the new log's
+ * descriptor, to append to it.
+ */
+function replaceLog(file: string, records: Buffer[], crashAt: string | null = null): number {
+  const tmp = file + '.tmp'
+  const { O_WRONLY, O_CREAT, O_TRUNC, O_APPEND } = constants
+  const fd = openSync(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND)
+  for (const r of records) writeSync(fd, r)
+  fsyncSync(fd)
+  if (crashAt) crashPoint(crashAt)
+  renameSync(tmp, file)
+  return fd
+}
 const snapshotRecord = (hash: string, update: Uint8Array) => record('S', Buffer.concat([Buffer.from(hash, 'latin1'), update]))
 
 interface Log {
@@ -427,11 +453,9 @@ export class CollabHub implements HotDocuments {
         flushedText = disk
         flushedHash = diskHash
       }
-      const { O_WRONLY, O_CREAT, O_TRUNC, O_APPEND } = constants
-      const logFd = openSync(logFile, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND)
-      writeSync(logFd, snapshotRecord(flushedHash, snapshot))
-      if (recovered || (previous && newGeneration)) writeSync(logFd, record('U', Y.encodeStateAsUpdate(doc)))
-      fsyncSync(logFd)
+      const records = [snapshotRecord(flushedHash, snapshot)]
+      if (recovered || (previous && newGeneration)) records.push(record('U', Y.encodeStateAsUpdate(doc)))
+      const logFd = replaceLog(logFile, records)
       const h: Hot = {
         doc, file, logFile, logFd, snapshot, flushedText, flushedHash,
         history: [...history.filter((b) => b.hash !== flushedHash), { snapshot, text: flushedText, hash: flushedHash }].slice(-HISTORY),
@@ -546,12 +570,15 @@ export class CollabHub implements HotDocuments {
       h.flushedText = text
       h.flushedHash = hash
       this.remember(path, h)
-      ftruncateSync(h.logFd, 0)
-      writeSync(h.logFd, snapshotRecord(hash, snap))
+      // The log starts again from what the file now holds, followed by what
+      // arrived while it was being written.
+      const records = [snapshotRecord(hash, snap)]
       if (text !== h.doc.getText(TEXT).toString()) {
-        writeSync(h.logFd, record('U', Y.encodeStateAsUpdate(h.doc, Y.encodeStateVectorFromUpdate(snap))))
+        records.push(record('U', Y.encodeStateAsUpdate(h.doc, Y.encodeStateVectorFromUpdate(snap))))
       }
-      fsyncSync(h.logFd)
+      const old = h.logFd
+      h.logFd = replaceLog(h.logFile, records, records.length > 1 ? 'log-rewrite' : null)
+      closeSync(old)
       this.opts.indexer.indexPaths([path])
       if (r.rescued === null) return
       this.mergeExternal(path, h, r.rescued, contentHash(r.rescued), false)

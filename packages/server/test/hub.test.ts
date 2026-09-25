@@ -439,6 +439,52 @@ test('a copy from another generation is refused: no duplication, and what was no
   } finally { closeAll(); await srv.stop() }
 })
 
+// A flush rewrites the recovery log once the file is replaced: a snapshot of
+// what it wrote, then what arrived while it was writing. A kill between the
+// two lost that last part, although the hub had already acknowledged it.
+test('killed while a flush rewrites the recovery log: nothing acknowledged is lost', async () => {
+  const { notes, env } = makeDirs()
+  const file = join(notes, NOTE)
+  let srv = await startServer({ ...env, THOTH_TEST_CRASH_AT: 'log-rewrite' })
+  const alive = () => srv.proc.exitCode === null && srv.proc.signalCode === null
+  try {
+    const cookie = await login(srv)
+    const a = await connect(srv, cookie, NOTE)
+    await waitFor(() => a.provider.unsyncedChanges === 0, 'synced')
+    // Every acknowledgement confirms the oldest update still unconfirmed: one line each.
+    let acks = 0
+    const decrement = a.provider.decrementUnsyncedChanges.bind(a.provider)
+    a.provider.decrementUnsyncedChanges = () => { acks++; decrement() }
+    const typed: string[] = []
+    // Someone types without pause while an agent's edits make the hub flush again and again.
+    let typing = true
+    const agent = (async () => {
+      for (let k = 0; typing && alive(); k++) {
+        await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'append', text: `AGENT-${k}\n` }] }).catch(() => {})
+        await sleep(20)
+      }
+    })()
+    const start = Date.now()
+    for (let n = 0; alive() && Date.now() - start < 60_000; n++) {
+      typeLine(a, `LINE-${n}.`)
+      typed.push(`LINE-${n}.`)
+      await sleep(2)
+    }
+    typing = false
+    await agent
+    assert.equal(srv.proc.signalCode, 'SIGKILL', 'the crash point was reached')
+    const acked = typed.slice(0, acks)
+    // Read as soon as the server is back: the tab would bring its lines back
+    // when it reconnects, but that takes a retry and a flush.
+    srv = await startServer(env)
+    const disk = readFileSync(file, 'utf8')
+    const lost = acked.filter((l) => !once(disk, l))
+    assert.deepEqual(lost, [], `${lost.length} of ${acked.length} acknowledged lines missing or repeated`)
+    // Closed once connected again: a socket destroyed while retrying keeps the process alive.
+    await waitFor(() => a.provider.isSynced, 'reconnected', 30000)
+  } finally { closeAll(); await srv.stop() }
+})
+
 // The hub's recovery log, as it is when the process dies in the middle of a
 // flush: the file already replaced (rename done), the log not yet rewritten.
 test('killed after a flush replaced the file but before the log recorded it: nothing is duplicated', async () => {
