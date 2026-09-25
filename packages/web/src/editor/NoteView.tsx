@@ -1,6 +1,7 @@
 // The open note: header (path, save state, presence, panel toggle, more
 // actions), the banner for a note deleted outside thoth, the editor and
 // the side panel.
+import { startCompletion } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from 'react-aria-components'
@@ -96,17 +97,19 @@ function EditorBar({ view, c, onComment, onImage, daily, onNavigate }: {
     vv.addEventListener('resize', on)
     return () => vv.removeEventListener('resize', on)
   }, [view])
-  const edit = (make: (doc: string, from: number, to: number) => Edit) => {
+  const edit = (make: (doc: string, from: number, to: number) => Edit, suggest = false) => {
     if (!view) return
     const { from, to } = view.state.selection.main
     const e = make(view.state.doc.toString(), from, to)
     view.dispatch({ changes: { from: e.from, to: e.to, insert: e.insert }, selection: { anchor: e.cursor }, scrollIntoView: true, userEvent: 'input' })
     view.focus()
+    // An empty `[[]]` or `#` opens the suggestions, as typing them would.
+    if (suggest && e.from === e.to) startCompletion(view)
   }
   return (
     <div className="editor-bar" role="toolbar" aria-label={t('editor.bar')}>
-      <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertLink')} onPress={() => edit(wikilink)}>[[</Button>
-      <Button className="btn btn-icon bar-btn bar-hash" preventFocusOnPress aria-label={t('editor.insertTag')} onPress={() => edit(tag)}>#</Button>
+      <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertLink')} onPress={() => edit(wikilink, true)}>[[</Button>
+      <Button className="btn btn-icon bar-btn bar-hash" preventFocusOnPress aria-label={t('editor.insertTag')} onPress={() => edit(tag, true)}>#</Button>
       <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertList')} onPress={() => edit((doc, from) => listItem(doc, from))}>{Icon.list}</Button>
       <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('image.insertTitle')} onPress={onImage}>{Icon.image}</Button>
       <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.comment')} onPress={onComment}>{Icon.comment}</Button>

@@ -16,6 +16,7 @@ import { useT } from '../i18n.tsx'
 import type { Session } from './collab.ts'
 import { commentMarks, commentUi } from './commentMarks.ts'
 import { imageHost, images } from './images.ts'
+import { linkAutocomplete } from './autocomplete.ts'
 import { labels, livePreview, navigate, setLinks, type LinkInfo } from './livePreview.ts'
 import { announce } from './presence.ts'
 import { viewUpdates } from './viewUpdates.ts'
@@ -67,6 +68,7 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
         EditorView.lineWrapping,
         livePreview,
         navigate.of((p) => nav.current(p)),
+        linkAutocomplete(path, { tagCount: (n) => t(n === 1 ? 'editor.tagCountOne' : 'editor.tagCount', { n }) }),
         labels.of({
           ambiguous: (n) => t('editor.linkAmbiguous', { n }),
           missing: t('editor.linkMissing'),
