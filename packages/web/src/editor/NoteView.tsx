@@ -1,14 +1,16 @@
 // The open note: header (path, save state, presence, panel toggle, more
 // actions), the banner for a note deleted outside thoth, the editor and
 // the side panel.
-import type { EditorView } from '@codemirror/view'
+import { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from 'react-aria-components'
 import { api, type MoveReport, type User } from '../api.ts'
 import { useTheme } from '../theme.ts'
 import { userColor } from '../userColor.ts'
 import { errorText, useT } from '../i18n.tsx'
-import { Crumbs, Icon, ThemeToggle } from '../ui.tsx'
+import { Crumbs, Icon, MenuButton, ThemeToggle } from '../ui.tsx'
+import { useMobile } from '../mobile.ts'
+import { listItem, tag, wikilink, type Edit } from './insert.ts'
 import { SearchButton } from '../Palette.tsx'
 import { useCollab, type CollabState } from './collab.ts'
 import type { Trashed } from '../TrashToast.tsx'
@@ -59,6 +61,39 @@ function OrphanBanner({ path }: { path: string }) {
   )
 }
 
+/**
+ * Phone editor bar (link, tag, list, comment and save state), under the
+ * editor. Its buttons don't take focus: the keyboard stays open.
+ */
+function EditorBar({ view, c, onComment }: { view: EditorView | null; c: CollabState; onComment: () => void }) {
+  const t = useT()
+  // The keyboard shrinks the visible area: keep the cursor in sight.
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv || !view) return
+    const on = () => { if (view.hasFocus) view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: 'nearest' }) }) }
+    vv.addEventListener('resize', on)
+    return () => vv.removeEventListener('resize', on)
+  }, [view])
+  const edit = (make: (doc: string, from: number, to: number) => Edit) => {
+    if (!view) return
+    const { from, to } = view.state.selection.main
+    const e = make(view.state.doc.toString(), from, to)
+    view.dispatch({ changes: { from: e.from, to: e.to, insert: e.insert }, selection: { anchor: e.cursor }, scrollIntoView: true, userEvent: 'input' })
+    view.focus()
+  }
+  return (
+    <div className="editor-bar" role="toolbar" aria-label={t('editor.bar')}>
+      <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertLink')} onPress={() => edit(wikilink)}>[[</Button>
+      <Button className="btn btn-icon bar-btn bar-hash" preventFocusOnPress aria-label={t('editor.insertTag')} onPress={() => edit(tag)}>#</Button>
+      <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertList')} onPress={() => edit((doc, from) => listItem(doc, from))}>{Icon.list}</Button>
+      <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.comment')} onPress={onComment}>{Icon.comment}</Button>
+      <span className="spacer" />
+      <SaveStatus c={c} />
+    </div>
+  )
+}
+
 interface Props {
   path: string
   user: User
@@ -77,6 +112,7 @@ export function NoteView({ path, user, onNavigate, onMoved, onTrashed }: Props) 
   )
   const panel = usePanel()
   const [view, setView] = useState<EditorView | null>(null)
+  const mobile = useMobile()
 
   // Links (statuses and backlinks) come from the index: requested on open and after each save.
   useEffect(() => {
@@ -95,9 +131,10 @@ export function NoteView({ path, user, onNavigate, onMoved, onTrashed }: Props) 
   return (
     <>
       <header className="main-head">
+        <MenuButton />
         <Crumbs path={path} />
         <span className="spacer" />
-        <SaveStatus c={c} />
+        {!mobile && <SaveStatus c={c} />}
         <Presence c={c} />
         <SearchButton />
         <ThemeToggle />
@@ -113,6 +150,7 @@ export function NoteView({ path, user, onNavigate, onMoved, onTrashed }: Props) 
         </div>
         <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} onNavigate={onNavigate} />
       </div>
+      {mobile && !panel.open && <EditorBar view={view} c={c} onComment={() => panel.showComments(null)} />}
     </>
   )
 }

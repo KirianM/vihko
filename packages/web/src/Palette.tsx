@@ -10,6 +10,7 @@ import { commands, type CommandContext } from './commands.ts'
 import { errorText, useT } from './i18n.tsx'
 import { recentNotes } from './recent.ts'
 import { useTheme } from './theme.ts'
+import { useBackClose, useMobile } from './mobile.ts'
 import { Icon } from './ui.tsx'
 
 export type PaletteMode = 'search' | 'create'
@@ -97,6 +98,8 @@ export function Palette({ mode, folder, openPath, notes, onClose, onMode, onOpen
   const [found, setFound] = useState<{ q: string; results: SearchResult[]; start: string; end: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Full screen on a phone: the back button closes it, like any other screen.
+  useBackClose(useMobile(), onClose)
 
   const commandMode = mode === 'search' && query.startsWith('>')
   const text = query.trim()
