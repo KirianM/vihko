@@ -84,6 +84,8 @@ async function renamedWhileTyping(uid: boolean) {
     const acked = typed.slice(0, acks)
     assert.ok(acked.length > 10, `typing went on after the rename (${acked.length} acknowledged)`)
     if (uid) lines.push('OTHER-TOOL')
+    // What arrived just before the editors were closed is written right after telling them.
+    await waitFor(() => { const t = readFileSync(to, 'utf8'); return [...lines, ...acked].every((l) => t.includes(`${l}\n`)) }, 'everything acknowledged reaches the new path')
     const text = readFileSync(to, 'utf8')
     for (const line of [...lines, ...acked]) assert.ok(once(text, line), `${line} exactly once at the new path:\n${text}`)
     for (const line of typed) assert.ok(text.split('\n').filter((l) => l === line).length <= 1, `${line} repeated`)

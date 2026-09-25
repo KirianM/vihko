@@ -460,34 +460,46 @@ export class CollabHub implements HotDocuments {
         // The other tool may have changed it on the way (it had the uid): like an external change.
         if (contentHash(found) !== h.flushedHash) this.mergeExternal(from, h, found, contentHash(found))
         let disk: string = found
+        /** Writes the document at `to` until the file holds it, merging what others write there meanwhile. */
+        const writeAt = async () => {
+          for (let attempt = 0; ; attempt++) {
+            this.ensureUid(h)
+            const text = h.doc.getText(TEXT).toString()
+            if (text === disk) return
+            const r = await replaceText(target, text, contentHash(disk))
+            if (r.replaced) {
+              this.opts.indexer.indexPaths([to])
+              disk = text
+              if (r.rescued === null) return
+              // Someone wrote in place during the rename: merged, and written again.
+              this.mergeExternal(from, h, r.rescued, contentHash(r.rescued), false)
+              continue
+            }
+            const now: string | null = r.current === null ? null : await readStable(target, disk)
+            if (now === null || attempt >= 5) throw new Error(now === null ? `${to} disappeared` : `too many races in a row on ${to}`)
+            this.mergeExternal(from, h, now, contentHash(now))
+            disk = now
+          }
+        }
+        // First with its editors still there: when they reopen it at `to`, what they typed is in the file.
+        try {
+          await writeAt()
+        } catch (err) {
+          this.announceOrphan(from, h) // it can't be written there: the copy is kept (D-022)
+          throw err
+        }
         h.discarded = true
         this.hocuspocus.documents.get(from)?.broadcastStateless(JSON.stringify({ type: MOVED_MESSAGE, from, to, external: true }))
         this.hocuspocus.closeConnections(from)
-        // Closed: nothing else can arrive. Written before the lock is released,
-        // so the log (which unloading removes) outlives the text it holds.
-        for (let attempt = 0; ; attempt++) {
-          this.ensureUid(h)
-          const text = h.doc.getText(TEXT).toString()
-          if (text === disk) break
-          const hash = contentHash(disk)
-          const r = await replaceText(target, text, hash)
-          if (r.replaced) {
-            this.opts.indexer.indexPaths([to])
-            if (r.rescued === null) break
-            // Someone wrote in place during the rename: merged, and written again.
-            this.mergeExternal(from, h, r.rescued, contentHash(r.rescued), false)
-            disk = text
-            continue
-          }
-          const now: string | null = r.current === null ? null : await readStable(target, disk)
-          if (now === null || attempt >= 5) {
-            // It can't be written there: the copy is kept as a note deleted outside thoth.
-            h.discarded = false
-            this.announceOrphan(from, h)
-            throw new Error(now === null ? `${to} disappeared` : `too many races in a row on ${to}`)
-          }
-          this.mergeExternal(from, h, now, contentHash(now))
-          disk = now
+        // Closed: nothing else can arrive. What came in between is written
+        // before the lock is released, so the log (which unloading removes)
+        // outlives the text it holds.
+        try {
+          await writeAt()
+        } catch (err) {
+          h.discarded = false
+          this.announceOrphan(from, h)
+          throw err
         }
         this.log(`${from} was moved outside thoth to ${to} while open: the note follows it`)
         return true
