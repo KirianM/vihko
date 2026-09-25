@@ -53,6 +53,8 @@ export interface OutgoingLink {
 /** A note's links: outgoing, backlinks and the titles of ambiguous links' candidates. */
 export interface NoteLinks { outgoing: OutgoingLink[]; backlinks: Backlink[]; titles: Record<string, string> }
 export interface Backlink { path: string; title: string; raw: string; context: string }
+/** A comment thread's text as the index first saw it (D-031.6); `changed` compares it with the saved note. */
+export interface CommentOriginal { id: string; original: string; changed: boolean }
 export interface SearchResult { path: string; title: string; snippet: string }
 /** Search results; the snippet highlight uses control characters, not HTML. */
 export interface SearchResponse { results: SearchResult[]; highlight?: { start: string; end: string } }
@@ -86,6 +88,8 @@ export interface MoveReport {
   images: {
     moved: { from: string; to: string }[]
     stayed: { path: string; reason: 'shared' | 'elsewhere' }[]
+    /** In per-note mode (thoth.yaml), the note's folder of images, which moves with it whole. */
+    folder: { from: string; to: string; files: number } | null
     failed: { path: string; to: string | null; outcome: 'stayed' | 'copied'; error: ErrorCode; message: string }[]
   }
   dryRun: boolean
@@ -172,6 +176,7 @@ export const api = {
   relinkPreview: (id: string) => request<MovedRelinkReport>('POST', `/api/external-moves/${encodeURIComponent(id)}/relink`, { dryRun: true }),
   /** Updates them; if it takes long, it goes on in the background (a job). */
   startRelink: (id: string) => request<MovedRelinkReport | { job: MoveJob }>('POST', `/api/external-moves/${encodeURIComponent(id)}/relink`, { background: true }).then(started<MovedRelinkReport>),
+  commentOriginals: (path: string) => request<{ threads: CommentOriginal[] }>('GET', `/api/note/comments?path=${encodeURIComponent(path)}`).then((r) => r.threads),
   /** Tags in use, most used first (editor suggestions and the tags view). */
   tags: () => request<{ tags: TagCount[] }>('GET', '/api/tags').then((r) => r.tags),
   headings: (path: string) => request<{ headings: { level: number; text: string }[] }>('GET', `/api/note/headings?path=${encodeURIComponent(path)}`).then((r) => r.headings),

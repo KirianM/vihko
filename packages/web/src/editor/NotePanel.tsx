@@ -8,12 +8,12 @@ import { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Button, Tab, TabList, TabPanel, Tabs, TextArea, TextField, type Key } from 'react-aria-components'
 import * as Y from 'yjs'
-import type { NoteLinks, OutgoingLink, User } from '../api.ts'
+import type { CommentOriginal, NoteLinks, OutgoingLink, User } from '../api.ts'
 import { useT } from '../i18n.tsx'
 import { useTheme } from '../theme.ts'
 import { baseHue, userColor } from '../userColor.ts'
 import type { Session } from './collab.ts'
-import { displayDate, formatComment, parseThreads, commentPosition, replyTo, resolveThread, type Change, type Thread } from './comments.ts'
+import { anchorChanged, displayDate, formatComment, parseThreads, commentPosition, replyTo, resolveThread, type Change, type Thread } from './comments.ts'
 import { setCommentStyle, threadsField } from './commentMarks.ts'
 import { usePresence } from './presence.ts'
 import { useViewState } from './viewUpdates.ts'
@@ -184,8 +184,10 @@ function Composer({ label, submit, onSend, onCancel }: { label: string; submit: 
   )
 }
 
-function ThreadCard({ tv, active, color, onSelect, onReply, onResolve }: {
+function ThreadCard({ tv, original, active, color, onSelect, onReply, onResolve }: {
   tv: ThreadView
+  /** The commented text as the index first saw it, when it differs from the text now. */
+  original: string | null
   active: boolean
   color: (author: string) => string
   onSelect: () => void
@@ -194,10 +196,18 @@ function ThreadCard({ tv, active, color, onSelect, onReply, onResolve }: {
 }) {
   const t = useT()
   const [replying, setReplying] = useState(false)
+  // Resolving deletes the thread from the note, and until there is history (M2) nothing brings it back: asked first.
+  const [confirming, setConfirming] = useState(false)
   const { thread, quote } = tv
   return (
     <article className={active ? 'thread thread-active' : 'thread'} data-thread={thread.id}>
       <Button className="thread-quote" onPress={onSelect}>{quote ? `«${shortQuote(quote)}»` : t('comments.general')}</Button>
+      {original !== null && (
+        <div className="thread-changed">
+          <span className="thread-changed-badge">{t('comments.changed')}</span>
+          <span className="thread-original">{t('comments.original', { text: shortQuote(original) })}</span>
+        </div>
+      )}
       {thread.comments.map((c, i) => (
         <div key={i} className={c.reply ? 'comment comment-reply' : 'comment'}>
           <span className="avatar avatar-sm" aria-hidden="true" style={{ background: color(c.author) }}>{c.author.slice(0, 1).toUpperCase()}</span>
@@ -209,10 +219,18 @@ function ThreadCard({ tv, active, color, onSelect, onReply, onResolve }: {
       ))}
       {replying ? (
         <Composer label={t('comments.replyPlaceholder')} submit={t('comments.reply')} onSend={(text) => { onReply(text); setReplying(false) }} onCancel={() => setReplying(false)} />
+      ) : confirming ? (
+        <div className="thread-confirm" role="group" aria-label={t('comments.resolve')}>
+          <p>{t('comments.resolveConfirm')}</p>
+          <div className="thread-actions">
+            <Button className="btn btn-sm" autoFocus onPress={() => setConfirming(false)}>{t('common.cancel')}</Button>
+            <Button className="btn btn-sm btn-danger" onPress={() => { setConfirming(false); onResolve() }}>{t('comments.resolveYes')}</Button>
+          </div>
+        </div>
       ) : (
         <div className="thread-actions">
           <Button className="btn btn-sm" onPress={() => setReplying(true)}>{t('comments.reply')}</Button>
-          <Button className="btn btn-sm" onPress={onResolve}>{t('comments.resolve')}</Button>
+          <Button className="btn btn-sm" onPress={() => setConfirming(true)}>{t('comments.resolve')}</Button>
         </div>
       )}
     </article>
@@ -221,10 +239,23 @@ function ThreadCard({ tv, active, color, onSelect, onReply, onResolve }: {
 
 interface Draft { at: Y.RelativePosition; newline: boolean; quote: string }
 
-function CommentsTab({ view, session, user, request, done }: { view: EditorView | null; session: Session; user: User; request: Request | null; done: () => void }) {
+function CommentsTab({ view, session, user, originals, request, done }: {
+  view: EditorView | null
+  session: Session
+  user: User
+  originals: CommentOriginal[] | null
+  request: Request | null
+  done: () => void
+}) {
   const t = useT()
   const color = useAuthorColor(session)
   const { threads, head } = useViewState(view, readThreads, { threads: [], head: 0 })
+  // Compared with the live text, so the mark follows what is being typed.
+  const originalOf = useMemo(() => new Map((originals ?? []).map((o) => [o.id, o.original])), [originals])
+  const changedFrom = (tv: ThreadView) => {
+    const was = originalOf.get(tv.thread.id)
+    return was !== undefined && anchorChanged(was, tv.quote) ? was : null
+  }
   const [picked, setPicked] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const list = useRef<HTMLDivElement>(null)
@@ -304,6 +335,7 @@ function CommentsTab({ view, session, user, request, done }: { view: EditorView 
         <ThreadCard
           key={tv.thread.id}
           tv={tv}
+          original={changedFrom(tv)}
           active={tv.thread.id === active}
           color={color}
           onSelect={() => select(tv.thread)}
@@ -448,12 +480,14 @@ function TocTab({ view }: { view: EditorView | null }) {
 
 // --- Panel ---------------------------------------------------------------------------
 
-export function NotePanel({ panel, view, session, user, links, onNavigate, onPickAmbiguous, onOpenCandidate }: {
+export function NotePanel({ panel, view, session, user, links, originals, onNavigate, onPickAmbiguous, onOpenCandidate }: {
   panel: Panel
   view: EditorView | null
   session: Session | null
   user: User
   links: LinksData | null
+  /** Comment threads' text as the index first saw it (null until loaded). */
+  originals: CommentOriginal[] | null
   onNavigate: (p: string) => void
   /** An ambiguous link was pressed: the picker of its candidates. */
   onPickAmbiguous: (link: AmbiguousLink, anchor: HTMLElement) => void
@@ -493,7 +527,7 @@ export function NotePanel({ panel, view, session, user, links, onNavigate, onPic
             </Button>
           )}
         </div>
-        <TabPanel id="comments" className="panel-body"><CommentsTab view={view} session={session} user={user} request={panel.request} done={panel.done} /></TabPanel>
+        <TabPanel id="comments" className="panel-body"><CommentsTab view={view} session={session} user={user} originals={originals} request={panel.request} done={panel.done} /></TabPanel>
         <TabPanel id="links" className="panel-body"><LinksTab links={links} onNavigate={onNavigate} onPickAmbiguous={onPickAmbiguous} onOpenCandidate={onOpenCandidate} /></TabPanel>
         <TabPanel id="toc" className="panel-body"><TocTab view={view} /></TabPanel>
       </Tabs>

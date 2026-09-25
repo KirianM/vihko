@@ -24,8 +24,8 @@ export interface WorkspaceConfig {
   templates: string | null
   /** Daily-note series, in the order declared (the first is the default). */
   daily: Series[]
-  /** Fixed folder for new images, or null to keep them next to their note (D-028). */
-  attachments: { folder: string | null }
+  /** Where new images go (D-028, D-031.5). */
+  attachments: AttachmentsConfig
   /**
    * How links resolve. `aliases`: whether a note's frontmatter aliases
    * resolve `[[links]]` (D-019, D-031.1). Off, `[[alias]]` is broken, as in
@@ -33,6 +33,22 @@ export interface WorkspaceConfig {
    */
   links: { aliases: boolean }
 }
+
+/**
+ * Where new images go. Three modes, chosen with `attachments.mode`:
+ * - next to the note (the default: `folder` null, no `perNote`);
+ * - a fixed folder (`folder`; `mode: folder`, implied when only `folder` is given);
+ * - a folder per note (`perNote`, the suffix of its name: `plan.md` →
+ *   `plan.assets/` with the default `.assets`), which moves with the note.
+ */
+export interface AttachmentsConfig {
+  folder: string | null
+  /** `mode: per-note`: the suffix of each note's own folder (`suffix`, `.assets` by default). */
+  perNote?: string
+}
+
+/** Suffix of a note's attachments folder in `per-note` mode, unless `attachments.suffix` says otherwise. */
+export const DEFAULT_ATTACHMENTS_SUFFIX = '.assets'
 
 export const EMPTY_WORKSPACE: WorkspaceConfig = { templates: null, daily: [], attachments: { folder: null }, links: { aliases: true } }
 
@@ -52,6 +68,8 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = { templates: null, daily: [], at
  * - `pattern_period`: a series pattern that doesn't name one note per day,
  *   ISO week, month or year.
  * - `unreadable`: the file exists but can't be read (permissions).
+ * - `invalid_value`: a value thoth doesn't accept there (`detail`: what it
+ *   accepts, or the key it needs), such as an unknown attachments `mode`.
  *
  * Warnings (the file applies without that part):
  * - `unknown_key`: a key thoth doesn't know (a typo, or a newer version's):
@@ -68,6 +86,7 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = { templates: null, daily: [], at
 export type ConfigErrorCode =
   | 'yaml' | 'not_a_map' | 'invalid_version' | 'invalid_type' | 'not_boolean'
   | 'invalid_path' | 'invalid_id' | 'pattern_token' | 'pattern_period' | 'unreadable'
+  | 'invalid_value'
   | 'unknown_key' | 'newer_version' | 'not_supported' | 'section_rejected'
 
 export interface ConfigError {
@@ -119,7 +138,8 @@ export const STRICT_SECTIONS: readonly StrictSection[] = [PERMISSIONS]
 const TOP_KEYS = ['version', 'templates', 'daily', 'attachments', 'links']
 const LINKS_KEYS = ['aliases']
 const SERIES_KEYS = ['folder', 'name', 'template', 'label']
-const ATTACHMENT_KEYS = ['folder']
+const ATTACHMENT_KEYS = ['mode', 'folder', 'suffix']
+const ATTACHMENT_MODES = ['next-to-note', 'folder', 'per-note']
 const DEFAULT_NAME = '{YYYY}-{MM}-{DD}'
 const SERIES_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
 
@@ -164,14 +184,33 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
     return f
   }
 
+  /** What goes after a note's name to name its attachments folder: `.assets`, `_files`… Never a path, never `.md`. */
+  const suffix = (value: unknown, at: string[]): string | null => {
+    if (typeof value !== 'string') { fail('invalid_type', at, 'string'); return null }
+    if (!value || value.length > 32 || value.trim() !== value || /[/\\\u0000-\u001f]/.test(value) || /\.md$/i.test(value)) { fail('invalid_path', at); return null }
+    return value
+  }
+
   if (data.templates !== undefined && data.templates !== null) config.templates = folder(data.templates, ['templates'])
 
   if (data.attachments !== undefined && data.attachments !== null) {
     if (!isRecord(data.attachments)) fail('not_a_map', ['attachments'])
     else {
-      for (const k of Object.keys(data.attachments)) if (!ATTACHMENT_KEYS.includes(k)) warn('unknown_key', ['attachments', k])
-      const f = data.attachments.folder
-      if (f !== undefined && f !== null) config.attachments.folder = folder(f, ['attachments', 'folder'])
+      const a = data.attachments
+      for (const k of Object.keys(a)) if (!ATTACHMENT_KEYS.includes(k)) warn('unknown_key', ['attachments', k])
+      const given = (k: string) => a[k] !== undefined && a[k] !== null
+      let mode = given('folder') ? 'folder' : 'next-to-note'
+      if (given('mode')) {
+        if (typeof a.mode === 'string' && ATTACHMENT_MODES.includes(a.mode)) mode = a.mode
+        else fail('invalid_value', ['attachments', 'mode'], ATTACHMENT_MODES.join(', '))
+      }
+      // A key that only another mode uses would look active without being so: a wrong value, not an unknown key.
+      if (mode === 'folder') {
+        if (given('folder')) config.attachments.folder = folder(a.folder, ['attachments', 'folder'])
+        else fail('invalid_value', ['attachments', 'mode'], 'folder')
+      } else if (given('folder')) fail('invalid_value', ['attachments', 'folder'], 'mode: folder')
+      if (mode === 'per-note') config.attachments.perNote = given('suffix') ? suffix(a.suffix, ['attachments', 'suffix']) ?? '' : DEFAULT_ATTACHMENTS_SUFFIX
+      else if (given('suffix')) fail('invalid_value', ['attachments', 'suffix'], 'mode: per-note')
     }
   }
 
