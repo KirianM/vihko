@@ -43,3 +43,32 @@ test('moving a folder with open notes: each editor follows its note, nothing typ
     assert.ok(tree.folders.includes('infra/red de casa') && !tree.folders.includes('hogar'))
   } finally { closeAll(); await srv.stop() }
 })
+
+test('moving a folder while someone types in a note that links into it: link rewritten, typing intact', async () => {
+  const { notes, env } = makeDirs()
+  const srv = await startServer(env)
+  try {
+    const cookie = await login(srv)
+    const created = await api(srv, cookie, 'POST', '/api/note', { path: 'outside.md', text: '# Outside\n\nSee [[hogar/Proxy]] for the network.\n' })
+    assert.equal(created.status, 201, JSON.stringify(created.body))
+    const a = await connect(srv, cookie, 'outside.md')
+    let typing = true
+    const typed: string[] = []
+    const typer = (async () => {
+      for (let i = 0; typing; i++) { const t = `TYPED-${i}-END`; typed.push(t); typeLine(a, t); await sleep(3) }
+    })()
+    await sleep(50)
+    const r = await api(srv, cookie, 'POST', '/api/folder/move', { from: 'hogar', to: 'infra' })
+    await sleep(50)
+    typing = false
+    await typer
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    assert.deepEqual(r.body.failed, [])
+    const file = join(notes, 'outside.md')
+    await waitFor(() => a.provider.unsyncedChanges === 0 && readFileSync(file, 'utf8') === a.text(), 'converged on disk')
+    const text = readFileSync(file, 'utf8')
+    assert.ok(!text.includes('hogar/Proxy'), 'the link into the moved folder is rewritten')
+    assert.match(text, /\[\[[^\]]*Proxy\]\] for the network\./, 'only the link target changed')
+    for (const t of typed) assert.equal(text.split('\n').filter((l) => l === t).length, 1, `${t} typed once and intact`)
+  } finally { closeAll(); await srv.stop() }
+})

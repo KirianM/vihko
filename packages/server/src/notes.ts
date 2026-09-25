@@ -539,13 +539,13 @@ export class NoteService {
       this.opts.indexer.indexPaths([...inside.map((p) => `${from}/${p}`), ...inside.map((p) => `${to}/${p}`)])
       this.opts.indexer.indexFolders([from, to])
       // 2. The moved notes' own links and image references, on their current text.
-      for (const [f, t] of own) {
+      await inPool(own, async ([f, t]) => {
         try {
-          await this.edit(t, (x) => movedNotePlan(x, f, t, before, after, map, place).text, { actor: system })
+          await this.edit(t, (x) => movedNotePlan(x, f, t, before, after, map, place).splices, { actor: system })
         } catch (err) {
           report.failed.push({ path: t, ...failure(err) })
         }
-      }
+      })
     }
     // Notes open in an editor: the hub flushes and locks each one during the
     // move, and their editors follow them to the new path.
@@ -558,13 +558,14 @@ export class NoteService {
     await locked()
 
     // 3. The rest of the notes, as the system, recalculated over the current text.
-    for (const src of others) {
+    await inPool(others, async (src) => {
       try {
-        await this.edit(src, (x) => movedNotePlan(x, src, src, before, after, map, place).text, { actor: system })
+        await this.edit(src, (x) => movedNotePlan(x, src, src, before, after, map, place).splices, { actor: system })
       } catch (err) {
         report.failed.push({ path: src, ...failure(err) })
       }
-    }
+    })
+    report.failed.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
     return report
   }
 
@@ -748,14 +749,25 @@ const placeOf = (moves: { from: string; to: string }[]) => {
  * links to notes, over the text with the images already rewritten.
  */
 function movedNotePlan(text: string, from: string, to: string, before: LinkIndex, after: LinkIndex, map: (p: string) => string, place: (p: string) => string) {
+  // Image references and note links never overlap, so both are planned over the
+  // same text and applied as exact splices: a hot note merges them with live typing.
   const imageReps = planImageRelinks(text, from, to, place)
-  const withImages = applyReplacements(text, imageReps)
-  const linkReps: Replacement[] = planRelinks(withImages, from, to, before, after, map)
+  const linkReps: Replacement[] = planRelinks(text, from, to, before, after, map)
   const changes = [
-    ...changesOf(withImages, linkReps),
+    ...changesOf(text, linkReps),
     ...imageReps.map((r) => ({ before: r.before, after: r.after })),
   ]
-  return { text: applyReplacements(withImages, linkReps), changes }
+  const reps = [...imageReps, ...linkReps]
+  return { text: applyReplacements(text, reps), splices: relinkSplices(text, reps), changes }
+}
+
+/** Runs `fn` over `items`, RELINK_CONCURRENCY at a time. */
+async function inPool<T>(items: readonly T[], fn: (item: T) => Promise<void>): Promise<void> {
+  const queue = [...items]
+  const worker = async () => {
+    for (let item = queue.shift(); item !== undefined; item = queue.shift()) await fn(item)
+  }
+  await Promise.all(Array.from({ length: Math.min(RELINK_CONCURRENCY, queue.length) }, worker))
 }
 
 function actorLabel(a: Actor): string {
