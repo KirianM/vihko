@@ -10,12 +10,12 @@ import { api, closeAll, connect, login, makeDirs, open, sleep, startServer, type
 
 const NOTE = 'hogar/Proxy.md'
 
-/** Rutas de los avisos de copia pendiente (D-022). */
+/** Paths from the pending-copy alerts. */
 const orphaned = async (srv: Parameters<typeof api>[0], cookie: string) =>
   ((await api(srv, cookie, 'GET', '/api/alerts')).body.alerts as { code: string; path: string }[])
     .filter((a) => a.code === 'orphaned_note').map((a) => a.path)
 
-test('dos clientes, API y editor externo sobre una nota abierta; el archivo converge y recibe uid', async () => {
+test('two clients, the API and an external editor on an open note; the file converges and gets a uid', async () => {
   const { notes, env } = makeDirs()
   const srv = await startServer(env)
   try {
@@ -25,53 +25,53 @@ test('dos clientes, API y editor externo sobre una nota abierta; el archivo conv
     const saved: string[] = []
     a.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'thoth:saved') saved.push(m.etag) })
     for (let i = 0; i < 20; i++) { typeLine(a, `A-${i}`); typeLine(b, `B-${i}`); await sleep(5) }
-    // Edición por la API con la nota caliente: pasa por el documento vivo. Mientras
-    // los clientes escriben, el ETag cambia: se reintenta como haría un cliente real.
+    // Editing via the API with the note hot: goes through the live document. While
+    // the clients are writing, the ETag keeps changing: it's retried like a real client would.
     let put = { status: 0, body: null as any }
     for (let i = 0; i < 20 && put.status !== 200; i++) {
       const cur = await api(srv, cookie, 'GET', `/api/note?path=${encodeURIComponent(NOTE)}`)
-      put = await api(srv, cookie, 'PUT', `/api/note?path=${encodeURIComponent(NOTE)}`, { text: cur.body.text.replace('## Red', '## Red (editado por API)') }, { 'if-match': `"${cur.body.etag}"` })
-      assert.ok([200, 412].includes(put.status), `estado ${put.status}`)
+      put = await api(srv, cookie, 'PUT', `/api/note?path=${encodeURIComponent(NOTE)}`, { text: cur.body.text.replace('## Red', '## Red (edited via API)') }, { 'if-match': `"${cur.body.etag}"` })
+      assert.ok([200, 412].includes(put.status), `status ${put.status}`)
     }
     assert.equal(put.status, 200)
-    // Editor externo.
+    // External editor.
     const file = join(notes, NOTE)
-    await waitFor(() => readFileSync(file, 'utf8').includes('A-0'), 'primer volcado')
-    writeFileSync(file, readFileSync(file, 'utf8').replace('## Almacenamiento', '## Almacenamiento (editado fuera)'))
-    await waitFor(() => a.text().includes('(editado fuera)') && b.text().includes('(editado fuera)'), 'cambio externo en los clientes')
-    await waitFor(() => a.text() === b.text() && a.text().includes('(editado por API)'), 'convergencia')
+    await waitFor(() => readFileSync(file, 'utf8').includes('A-0'), 'first flush')
+    writeFileSync(file, readFileSync(file, 'utf8').replace('## Almacenamiento', '## Almacenamiento (edited outside)'))
+    await waitFor(() => a.text().includes('(edited outside)') && b.text().includes('(edited outside)'), 'external change reaches the clients')
+    await waitFor(() => a.text() === b.text() && a.text().includes('(edited via API)'), 'convergence')
     const final = a.text()
-    await waitFor(() => saved.includes(contentHash(final)), 'aviso de guardado con el hash del texto volcado')
-    for (let i = 0; i < 20; i++) assert.ok(final.includes(`A-${i}\n`) && final.includes(`B-${i}\n`), `falta A-${i}/B-${i}`)
+    await waitFor(() => saved.includes(contentHash(final)), 'saved notice with the hash of the flushed text')
+    for (let i = 0; i < 20; i++) assert.ok(final.includes(`A-${i}\n`) && final.includes(`B-${i}\n`), `missing A-${i}/B-${i}`)
     a.close(); b.close()
-    await waitFor(() => readFileSync(file, 'utf8') === final, 'volcado final')
+    await waitFor(() => readFileSync(file, 'utf8') === final, 'final flush')
     const fm = readFrontmatter(final)
-    assert.deepEqual(fm.data.aliases, ['gw', 'Hipervisor'], 'el frontmatter original se conserva')
-    assert.match(String(fm.data.uid), /^[0-9A-Z]{26}$/, 'recibe uid al escribirla thoth (D-015)')
+    assert.deepEqual(fm.data.aliases, ['gw', 'Hipervisor'], 'the original frontmatter is kept')
+    assert.match(String(fm.data.uid), /^[0-9A-Z]{26}$/, 'gets a uid when thoth writes it')
   } finally { closeAll(); await srv.stop() }
 })
 
-test('un editor externo que guarda sobre una versión vieja no borra lo escrito en la UI', async () => {
+test("an external editor saving over an old version doesn't erase what was typed in the UI", async () => {
   const { notes, env } = makeDirs()
   const srv = await startServer(env)
   try {
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
     const file = join(notes, NOTE)
-    typeLine(a, 'ANTES')
-    await waitFor(() => readFileSync(file, 'utf8').includes('ANTES\n'), 'volcado')
-    const opened = readFileSync(file, 'utf8') // el editor externo abre aquí…
+    typeLine(a, 'BEFORE')
+    await waitFor(() => readFileSync(file, 'utf8').includes('BEFORE\n'), 'flush')
+    const opened = readFileSync(file, 'utf8') // the external editor opens it here…
     for (let i = 0; i < 3; i++) {
       typeLine(a, `UI-${i}`)
-      await waitFor(() => readFileSync(file, 'utf8').includes(`UI-${i}\n`), 'volcado')
+      await waitFor(() => readFileSync(file, 'utf8').includes(`UI-${i}\n`), 'flush')
     }
-    writeFileSync(file, opened.replace('## Red', '## Red (editor lento)')) // …y guarda mucho después
-    await waitFor(() => a.text().includes('(editor lento)'), 'fusión')
-    for (let i = 0; i < 3; i++) assert.ok(a.text().includes(`UI-${i}\n`), `se perdió UI-${i}`)
+    writeFileSync(file, opened.replace('## Red', '## Red (slow editor)')) // …and saves much later
+    await waitFor(() => a.text().includes('(slow editor)'), 'merge')
+    for (let i = 0; i < 3; i++) assert.ok(a.text().includes(`UI-${i}\n`), `lost UI-${i}`)
   } finally { closeAll(); await srv.stop() }
 })
 
-test('caída del servidor con ediciones sin volcar: se recuperan al arrancar', async () => {
+test('server crash with unflushed edits: they recover on startup', async () => {
   const { notes, env } = makeDirs()
   let srv = await startServer(env)
   const file = join(notes, NOTE)
@@ -79,37 +79,37 @@ test('caída del servidor con ediciones sin volcar: se recuperan al arrancar', a
   try {
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
-    for (let i = 0; i < 10; i++) typeLine(a, `SIN-VOLCAR-${i}`)
-    await waitFor(() => a.provider.unsyncedChanges === 0, 'envío al servidor')
+    for (let i = 0; i < 10; i++) typeLine(a, `UNFLUSHED-${i}`)
+    await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
     await sleep(100)
     a.close()
-    await srv.stop('SIGKILL') // antes del volcado (debounce de 1 s)
-    assert.equal(readFileSync(file, 'utf8'), before, 'aún no se había volcado')
+    await srv.stop('SIGKILL') // before the flush (1 s debounce)
+    assert.equal(readFileSync(file, 'utf8'), before, "hadn't been flushed yet")
     srv = await startServer(env)
-    await waitFor(() => readFileSync(file, 'utf8').includes('SIN-VOLCAR-9'), 'recuperación')
-    for (let i = 0; i < 10; i++) assert.ok(readFileSync(file, 'utf8').includes(`SIN-VOLCAR-${i}\n`))
-    await waitFor(() => readdirSync(join(env.THOTH_STATE_DIR!, 'collab')).length === 0, 'log recuperado y eliminado')
+    await waitFor(() => readFileSync(file, 'utf8').includes('UNFLUSHED-9'), 'recovery')
+    for (let i = 0; i < 10; i++) assert.ok(readFileSync(file, 'utf8').includes(`UNFLUSHED-${i}\n`))
+    await waitFor(() => readdirSync(join(env.THOTH_STATE_DIR!, 'collab')).length === 0, 'log recovered and removed')
   } finally { closeAll(); await srv.stop() }
 })
 
-test('borrar una nota abierta la cierra y no la resucita', async () => {
+test("deleting an open note closes it and doesn't resurrect it", async () => {
   const { notes, env } = makeDirs()
   const srv = await startServer(env)
   try {
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
-    typeLine(a, 'ANTES-DE-BORRAR')
-    await waitFor(() => readFileSync(join(notes, NOTE), 'utf8').includes('ANTES-DE-BORRAR'), 'volcado')
+    typeLine(a, 'BEFORE-DELETE')
+    await waitFor(() => readFileSync(join(notes, NOTE), 'utf8').includes('BEFORE-DELETE'), 'flush')
     const del = await api(srv, cookie, 'DELETE', `/api/note?path=${encodeURIComponent(NOTE)}`)
     assert.equal(del.status, 200)
     await sleep(1500)
-    assert.ok(!existsSync(join(notes, NOTE)), 'no se vuelve a crear')
+    assert.ok(!existsSync(join(notes, NOTE)), "isn't recreated")
     const trash = await api(srv, cookie, 'GET', '/api/trash')
     assert.equal(trash.body.entries[0].path, NOTE)
   } finally { closeAll(); await srv.stop() }
 })
 
-test('WebSocket: sin sesión, desde otro origen o a una nota inexistente, se rechaza', async () => {
+test('WebSocket: rejected without a session, from another origin, or for a nonexistent note', async () => {
   const { env } = makeDirs()
   const srv = await startServer(env)
   try {
@@ -122,9 +122,9 @@ test('WebSocket: sin sesión, desde otro origen o a una nota inexistente, se rec
       ws.on('error', () => {})
     })
     assert.equal(await status({}), 401)
-    assert.equal(await status({ cookie, origin: 'https://malicioso.example' }), 403)
+    assert.equal(await status({ cookie, origin: 'https://malicious.example' }), 403)
     assert.equal(await status({ cookie }), 101)
-    // Nota inexistente: la conexión se acepta pero el documento no se carga.
+    // Nonexistent note: the connection is accepted but the document never loads.
     const doc = new Y.Doc()
     class AuthedWS extends WebSocket { constructor(u: string, p?: string | string[]) { super(u, p, { headers: { cookie } }) } }
     const wsp = new HocuspocusProviderWebsocket({ url, WebSocketPolyfill: AuthedWS })
@@ -139,7 +139,7 @@ test('WebSocket: sin sesión, desde otro origen o a una nota inexistente, se rec
 })
 
 
-test('borrado externo con la nota abierta: aviso en vivo, no se recrea, y se conserva la copia si se pide', async () => {
+test('external deletion with the note open: live notice, not recreated, and the copy is kept on request', async () => {
   const { notes, env } = makeDirs()
   const srv = await startServer(env)
   try {
@@ -147,28 +147,28 @@ test('borrado externo con la nota abierta: aviso en vivo, no se recrea, y se con
     const a = await connect(srv, cookie, NOTE)
     const messages: string[] = []
     a.provider.on('stateless', ({ payload }: { payload: string }) => messages.push(JSON.parse(payload).type))
-    typeLine(a, 'ANTES')
+    typeLine(a, 'BEFORE')
     const file = join(notes, NOTE)
-    await waitFor(() => readFileSync(file, 'utf8').includes('ANTES\n'), 'volcado')
+    await waitFor(() => readFileSync(file, 'utf8').includes('BEFORE\n'), 'flush')
     const { rmSync } = await import('node:fs')
-    rmSync(file) // alguien la borra con el explorador de archivos
-    await waitFor(() => messages.includes('thoth:deleted-externally'), 'aviso en vivo')
-    typeLine(a, 'DESPUES-DEL-BORRADO')
+    rmSync(file) // someone deletes it with the file explorer
+    await waitFor(() => messages.includes('thoth:deleted-externally'), 'live notice')
+    typeLine(a, 'AFTER-DELETE')
     await sleep(2500)
-    assert.ok(!existsSync(file), 'thoth no deshace el borrado por su cuenta')
+    assert.ok(!existsSync(file), "thoth doesn't undo the deletion on its own")
     assert.deepEqual(await orphaned(srv, cookie), [NOTE])
     const r = await api(srv, cookie, 'POST', '/api/note/orphan', { path: NOTE, action: 'restore' })
     assert.equal(r.status, 200)
     const back = readFileSync(file, 'utf8')
-    assert.ok(back.includes('ANTES\n') && back.includes('DESPUES-DEL-BORRADO\n'), 'la copia conserva todo lo escrito')
-    await waitFor(() => messages.includes('thoth:orphan-resolved'), 'aviso de resolución')
-    typeLine(a, 'SIGUE-EDITANDO')
-    await waitFor(() => readFileSync(file, 'utf8').includes('SIGUE-EDITANDO'), 'vuelve a volcar con normalidad')
+    assert.ok(back.includes('BEFORE\n') && back.includes('AFTER-DELETE\n'), 'the copy keeps everything that was written')
+    await waitFor(() => messages.includes('thoth:orphan-resolved'), 'resolution notice')
+    typeLine(a, 'STILL-EDITING')
+    await waitFor(() => readFileSync(file, 'utf8').includes('STILL-EDITING'), 'flushes normally again')
     assert.deepEqual(await orphaned(srv, cookie), [])
   } finally { closeAll(); await srv.stop() }
 })
 
-test('borrado externo con la nota abierta: descartar da el borrado por bueno', async () => {
+test('external deletion with the note open: discarding accepts the deletion as final', async () => {
   const { notes, env } = makeDirs()
   const srv = await startServer(env)
   try {
@@ -176,41 +176,41 @@ test('borrado externo con la nota abierta: descartar da el borrado por bueno', a
     const a = await connect(srv, cookie, NOTE)
     typeLine(a, 'X')
     const file = join(notes, NOTE)
-    await waitFor(() => readFileSync(file, 'utf8').includes('X\n'), 'volcado')
+    await waitFor(() => readFileSync(file, 'utf8').includes('X\n'), 'flush')
     const { rmSync } = await import('node:fs')
     rmSync(file)
-    await waitFor(async () => (await orphaned(srv, cookie)).length === 1, 'alerta')
+    await waitFor(async () => (await orphaned(srv, cookie)).length === 1, 'alert')
     assert.equal((await api(srv, cookie, 'POST', '/api/note/orphan', { path: NOTE, action: 'discard' })).status, 200)
     await sleep(1500)
     assert.ok(!existsSync(file))
     assert.deepEqual(await orphaned(srv, cookie), [])
-    await waitFor(() => readdirSync(join(env.THOTH_STATE_DIR!, 'collab')).length === 0, 'log eliminado')
+    await waitFor(() => readdirSync(join(env.THOTH_STATE_DIR!, 'collab')).length === 0, 'log removed')
   } finally { closeAll(); await srv.stop() }
 })
 
-test('borrada con el servidor caído y ediciones pendientes: no se vacía ni se recrea; la copia espera decisión', async () => {
+test("deleted with the server down and pending edits: it isn't emptied or recreated; the copy awaits a decision", async () => {
   const { notes, env } = makeDirs()
   let srv = await startServer(env)
   const file = join(notes, NOTE)
   try {
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
-    for (let i = 0; i < 5; i++) typeLine(a, `PENDIENTE-${i}`)
-    await waitFor(() => a.provider.unsyncedChanges === 0, 'envío al servidor')
+    for (let i = 0; i < 5; i++) typeLine(a, `PENDING-${i}`)
+    await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
     await sleep(100)
     a.close()
     await srv.stop('SIGKILL')
     const { rmSync } = await import('node:fs')
-    rmSync(file) // se borra mientras el servidor está caído
+    rmSync(file) // deleted while the server is down
     srv = await startServer(env)
     await sleep(1500)
-    assert.ok(!existsSync(file), 'la recuperación no la recrea')
+    assert.ok(!existsSync(file), "recovery doesn't recreate it")
     const cookie2 = await login(srv)
     assert.deepEqual(await orphaned(srv, cookie2), [NOTE])
     assert.equal((await api(srv, cookie2, 'POST', '/api/note/orphan', { path: NOTE, action: 'restore' })).status, 200)
     const back = readFileSync(file, 'utf8')
-    for (let i = 0; i < 5; i++) assert.ok(back.includes(`PENDIENTE-${i}\n`), `falta PENDIENTE-${i}`)
-    assert.ok(back.includes('# Proxy'), 'el documento no se vació')
+    for (let i = 0; i < 5; i++) assert.ok(back.includes(`PENDING-${i}\n`), `missing PENDING-${i}`)
+    assert.ok(back.includes('# Proxy'), "the document wasn't emptied")
   } finally { closeAll(); await srv.stop() }
 })
 

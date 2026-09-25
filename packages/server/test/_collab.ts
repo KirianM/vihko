@@ -1,4 +1,4 @@
-// Utilidades compartidas por los tests de colaboración (servidor real como proceso aparte).
+// Utilities shared by the collaboration tests (real server as a separate process).
 import assert from 'node:assert/strict'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { cpSync, mkdtempSync } from 'node:fs'
@@ -29,7 +29,7 @@ export function makeDirs() {
   const notes = join(dir, 'notes')
   cpSync(VAULT, notes, { recursive: true })
   const env = { THOTH_NOTES_DIR: notes, THOTH_STATE_DIR: join(dir, 'state'), THOTH_HOST: '127.0.0.1', THOTH_PORT: String(nextPort++) }
-  spawnSync(process.execPath, [CLI, 'user', 'create', 'noa', '--admin'], { env: { ...process.env, ...env }, input: 'contraseña-larga' })
+  spawnSync(process.execPath, [CLI, 'user', 'create', 'noa', '--admin'], { env: { ...process.env, ...env }, input: 'a-long-password' })
   return { notes, env }
 }
 
@@ -38,7 +38,7 @@ export async function startServer(env: Record<string, string>): Promise<Srv> {
   const out: string[] = []
   proc.stdout!.on('data', (d) => out.push(d.toString()))
   proc.stderr!.on('data', (d) => out.push(d.toString()))
-  await waitFor(() => out.join('').includes('escuchando'), 'arranque del servidor')
+  await waitFor(() => out.join('').includes('listening'), 'server startup')
   return {
     proc, out, env,
     base: `http://127.0.0.1:${env.THOTH_PORT}`,
@@ -52,7 +52,7 @@ export async function startServer(env: Record<string, string>): Promise<Srv> {
 }
 
 export async function login(srv: Srv): Promise<string> {
-  const r = await fetch(srv.base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'noa', password: 'contraseña-larga' }) })
+  const r = await fetch(srv.base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'noa', password: 'a-long-password' }) })
   assert.equal(r.status, 200)
   return r.headers.get('set-cookie')!.split(';')[0]!
 }
@@ -67,9 +67,9 @@ export async function connect(srv: Srv, cookie: string, name: string): Promise<C
   const doc = new Y.Doc()
   const websocketProvider = new HocuspocusProviderWebsocket({ url: srv.base.replace('http', 'ws') + '/collab', WebSocketPolyfill: AuthedWS })
   const provider = new HocuspocusProvider({ websocketProvider, name, document: doc })
-  provider.attach() // con un websocketProvider propio, el proveedor no se conecta solo (v4)
-  open.push(provider, websocketProvider) // el websocket también: si no, reintenta y deja vivo el proceso
-  await waitFor(() => provider.isSynced, `sincronización de ${name}`)
+  provider.attach() // with its own websocketProvider, the provider doesn't connect on its own (v4)
+  open.push(provider, websocketProvider) // the websocket too: otherwise it retries and keeps the process alive
+  await waitFor(() => provider.isSynced, `sync of ${name}`)
   return { doc, provider, text: () => doc.getText('md').toString(), close: () => { provider.destroy(); websocketProvider.destroy() } }
 }
 export const closeAll = () => { for (const p of open.splice(0)) p.destroy() }
