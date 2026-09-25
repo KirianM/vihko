@@ -77,14 +77,6 @@ create table images (
 );
 create index images_path on images(path);
 
-create table tags (
-  path   text not null,
-  tag    text not null,
-  source text not null check (source in ('inline', 'frontmatter')),
-  primary key (path, tag, source)
-);
-create index tags_tag on tags(tag);
-
 create table headings (
   path  text not null,
   ord   integer not null,

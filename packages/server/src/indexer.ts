@@ -11,6 +11,7 @@ import { LinkIndex, classifyPath, contentHash, extract, isIgnoredDir, normKey, p
 import type { Db } from './db.ts'
 import { ExtensionHost, type Extension, type NoteSnapshot } from './extension.ts'
 import { fts } from './extensions/fts.ts'
+import { tags } from './extensions/tags.ts'
 
 export interface IndexerOptions {
   notesDir: string
@@ -67,7 +68,7 @@ export class Indexer {
   constructor(opts: IndexerOptions) {
     this.opts = opts
     this.keys = { ...DEFAULT_KEYS, ...opts.keys }
-    this.host = new ExtensionHost(opts.db, [fts, ...(opts.extensions ?? [])])
+    this.host = new ExtensionHost(opts.db, [fts, tags, ...(opts.extensions ?? [])])
     this.host.markCurrent(this.host.install())
     this.loadLinkIndex()
   }
@@ -227,7 +228,6 @@ export class Indexer {
       keys: db.prepare('delete from link_keys where path = ?'),
       links: db.prepare('delete from links where src_path = ?'),
       images: db.prepare('delete from images where src_path = ?'),
-      tags: db.prepare('delete from tags where path = ?'),
       headings: db.prepare('delete from headings where path = ?'),
     }
     const removeRows = (path: string) => {
@@ -240,7 +240,6 @@ export class Indexer {
       link: db.prepare(`insert into links (src_path, ord, kind, raw, target, anchor, display, pos_from, pos_to, key, status)
                         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'missing')`),
       image: db.prepare('insert into images (src_path, ord, kind, raw, path) values (?, ?, ?, ?, ?)'),
-      tag: db.prepare('insert or ignore into tags (path, tag, source) values (?, ?, ?)'),
       heading: db.prepare('insert into headings (path, ord, level, text, pos) values (?, ?, ?, ?, ?)'),
     }
     const touchStmt = db.prepare('update notes set mtime_ms = ?, size = ? where path = ?')
@@ -271,7 +270,6 @@ export class Indexer {
           const path = resolveImageRef(u.path, img.dest, { embed: img.kind === 'embed' || img.kind === 'wiki' })
           if (path !== null) ins.image.run(u.path, i, img.kind, img.raw, path)
         })
-        for (const t of x.tags) ins.tag.run(u.path, t.name, t.source)
         x.headings.forEach((h, i) => ins.heading.run(u.path, i, h.level, h.text, h.from))
         for (const k of this.links.set({ path: u.path, aliases, headings: x.headings.map((h) => h.text) })) affectedKeys.add(k)
         changedPaths.add(u.path)
