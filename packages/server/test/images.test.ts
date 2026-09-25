@@ -70,7 +70,9 @@ test('names: next to the note, from its name and the UTC time, with a suffix for
   assert.equal(attachmentPath('Plan.md', 'jpg', now), 'Plan-2026-09-25-1012.jpg')
   assert.equal(attachmentPath('a/Mi nota.md', 'webp', now, 3), 'a/Mi nota-2026-09-25-1012-3.webp')
   assert.equal(attachmentPath('x.md', 'png', new Date('2026-01-02T23:05:00+02:00')), 'x-2026-01-02-2105.png', 'UTC, not local time')
-  assert.equal(attachmentPath('a/Mi nota.md', 'png', now, 2, 'Adjuntos/img'), 'Adjuntos/img/Mi nota-2026-09-25-1012-2.png', 'a fixed folder from thoth.yaml')
+  assert.equal(attachmentPath('a/Mi nota.md', 'png', now, 2, { folder: 'Adjuntos/img' }), 'Adjuntos/img/Mi nota-2026-09-25-1012-2.png', 'a fixed folder from thoth.yaml')
+  assert.equal(attachmentPath('a/Mi nota.md', 'png', now, 1, { folder: null, perNote: '.assets' }), 'a/Mi nota.assets/2026-09-25-1012.png', 'the note\'s own folder')
+  assert.equal(attachmentPath('Plan.md', 'png', now, 2, { folder: null, perNote: '_files' }), 'Plan_files/2026-09-25-1012-2.png')
 })
 
 test('types are detected from the bytes; SVG and anything else is refused', () => {

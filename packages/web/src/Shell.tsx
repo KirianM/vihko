@@ -9,6 +9,7 @@ import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
 import { Brand, Crumbs, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
 import { TrashToast, type Trashed } from './TrashToast.tsx'
+import { PinOfferToast, type PinOffer } from './PinOffer.tsx'
 import { MoveToast, moveNotice } from './MoveToast.tsx'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
 import { shiftedNotice } from './Shifts.tsx'
@@ -57,6 +58,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [ready, setReady] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [trashed, setTrashed] = useState<Trashed | null>(null)
+  /** You opened one of an ambiguous link's candidates: pin the link there? */
+  const [pinOffer, setPinOffer] = useState<PinOffer | null>(null)
   /** Your last rename or move, if some link could not be rewritten. */
   const [moveIssue, setMoveIssue] = useState<MoveReport | null>(null)
   /** Your move whose links are still being rewritten, and what went wrong following it. */
@@ -154,6 +157,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     // The tree shows where the note is (it may have been opened by a link or the palette).
     setExpanded((e) => { const add = ancestors(openPath).filter((k) => !e.has(k)); return add.length ? new Set([...e, ...add]) : e })
     setTrashed(null)
+    setPinOffer((o) => (o?.target === openPath ? o : null))
     setMoveIssue((m) => (m?.to === openPath ? m : null))
     setError(null)
     // Check that it exists before opening co-editing: the hub rejects notes that don't exist.
@@ -228,7 +232,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     if (end.kind === 'done') {
       const r = end.report
       if ('images' in r) { if (moveNotice(r)) setMoveIssue(r) }
-      else setFolderIssue(r.failed.length || r.shifted.length ? r : null)
+      else if ('notes' in r) setFolderIssue(r.failed.length || r.shifted.length ? r : null)
     } else {
       setJobIssue(end.kind === 'lost' ? t('job.lost', { name: baseName(job.to).replace(/\.md$/i, '') }) : end.message)
     }
@@ -242,7 +246,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     try {
       if (key.startsWith('n:')) {
         const preview = await api.move(path, to, true)
-        if (preview.relinked.length || preview.shifted.length || preview.images.moved.length || preview.images.stayed.length) return setTreeDialog({ kind: 'moveNote', path, folder })
+        if (preview.relinked.length || preview.shifted.length || preview.images.moved.length || preview.images.stayed.length || preview.images.folder || preview.images.failed.length) return setTreeDialog({ kind: 'moveNote', path, folder })
         noteMoved(path, to, await api.move(path, to))
       } else {
         const preview = await api.moveFolder(path, to, true)
@@ -368,6 +372,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               onTrashed={(t) => { setOpenPath(null); setTrashed(t); void loadTree() }}
               templates={templates}
               onCreated={created}
+              onPickCandidate={(offer) => { setPinOffer(offer); setOpenPath(offer.target) }}
             />
           </Suspense>
         ) : (
@@ -404,6 +409,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           </div>
         )}
         {moveJob && <MoveProgress key={moveJob.id} job={moveJob} onFinished={(end) => moveEnded(moveJob, end)} />}
+        {pinOffer && pinOffer.target === openPath && (
+          <PinOfferToast key={`${pinOffer.source}#${pinOffer.raw}#${pinOffer.target}`} offer={pinOffer} onDismiss={() => setPinOffer(null)} />
+        )}
         {trashed && (
           <TrashToast
             key={trashed.id}

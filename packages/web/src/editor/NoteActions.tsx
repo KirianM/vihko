@@ -70,7 +70,7 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
   const count = n === 0 ? '' : n === 1 ? 'One' : 'Many'
   const submitKey: MessageKey = `rename.${action}${count}${m ? 'Images' : ''}`
   const images = t(m === 1 ? 'rename.imagesOne' : 'rename.imagesMany', { n: m })
-  const nothing = !!report && report.relinked.length === 0 && report.shifted.length === 0 && report.kept.length === 0 && report.images.moved.length === 0 && report.images.stayed.length === 0
+  const nothing = !!report && report.relinked.length === 0 && report.shifted.length === 0 && report.kept.length === 0 && report.images.moved.length === 0 && report.images.stayed.length === 0 && !report.images.folder && report.images.failed.length === 0
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -122,6 +122,18 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
               <div className="preview-row preview-image" key={`m:${img.from}`}>
                 <span className="preview-src">{label(img.from)}</span>
                 <span>{t('rename.imageMoves')} <code>{label(img.to)}</code></span>
+              </div>
+            ))}
+            {report?.images.folder && (
+              <div className="preview-row preview-image">
+                <span className="preview-src">{label(report.images.folder.from)} /</span>
+                <span>{t(report.images.folder.files === 1 ? 'rename.folderMovesOne' : 'rename.folderMoves', { n: report.images.folder.files })} <code>{label(report.images.folder.to)} /</code></span>
+              </div>
+            )}
+            {report?.images.failed.map((f) => (
+              <div className="preview-row preview-image preview-kept" key={`f:${f.path}`}>
+                <span className="preview-src">{label(f.path)}</span>
+                <span>{t(f.error === 'not_empty' ? 'rename.folderHasNotes' : 'rename.imageTaken')}</span>
               </div>
             ))}
             {report?.images.stayed.map((img) => (

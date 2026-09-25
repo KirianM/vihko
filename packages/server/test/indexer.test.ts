@@ -112,7 +112,9 @@ test('incremental = rebuild from scratch', () => {
   writeFileSync(join(notes, 'hogar/Proxy.md'), '---\naliases: [gw]\n---\n# Proxy\n\n## No existe\n') // the broken anchor now exists
   renameSync(join(notes, 'proyectos/blog/Plan.md'), join(notes, 'proyectos/blog/Plan antiguo.md')) // [[blog/Plan]] breaks
   const r = indexer.scan()
-  assert.deepEqual(r.removed.sort(), ['hogar/Red.md', 'proyectos/blog/Plan.md'])
+  assert.deepEqual(r.removed.sort(), ['hogar/Red.md'])
+  // The same content under another name: a move made outside thoth, not a removal (D-031.4).
+  assert.deepEqual(r.moved, [{ from: 'proyectos/blog/Plan.md', to: 'proyectos/blog/Plan antiguo.md', by: 'hash' }])
   assert.equal(link(db, 'hogar/enlaces.md', '[[Red]]').dst_path, 'hogar/Firewall.md')
   assert.equal(link(db, 'diario/2026-09-24.md', '[[Tareas]]').dst_path, 'proyectos/Tareas.md')
   assert.equal(link(db, 'hogar/enlaces.md', '[[Proxy#No existe]]').anchor_ok, 1)

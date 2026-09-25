@@ -2,6 +2,7 @@
 // new one goes and what it is called, and downloading one from a URL when a
 // user explicitly asks for a copy.
 import { posix } from 'node:path'
+import type { AttachmentsConfig } from '@thoth/core'
 
 /** Types thoth stores, detected from the bytes (never from the name or the declared type). */
 const STORED: { mime: string; ext: string; test: (b: Uint8Array) => boolean }[] = [
@@ -55,21 +56,29 @@ export const SERVED_TYPES: Record<string, string> = {
 const pad = (n: number) => String(n).padStart(2, '0')
 
 /**
- * Where a new image for `notePath` goes, relative to the notes root: next to
- * the note, named after it and the time in UTC (`projects/plan.md` →
- * `projects/plan-2026-09-25-1012.png`). `n` > 1 adds a suffix for a name
- * that is taken (`…-1012-2.png`).
- *
- * This is the single place that decides it: `folder` (`attachments.folder` in
- * thoth.yaml) puts every new image in that fixed folder instead, with the
- * same name.
+ * Where a new image for `notePath` goes, relative to the notes root. This is
+ * the single place that decides it, by the `attachments` mode of thoth.yaml:
+ * - next to the note (default), named after it and the time in UTC
+ *   (`projects/plan.md` → `projects/plan-2026-09-25-1012.png`);
+ * - in a fixed folder (`folder`), with the same name;
+ * - in the note's own folder (`perNote`, see `noteAttachmentsDir`), named only
+ *   after the time: the folder already says whose it is, and the names stay
+ *   right when the folder is renamed with its note
+ *   (`projects/plan.assets/2026-09-25-1012.png`).
+ * `n` > 1 adds a suffix for a name that is taken (`…-1012-2.png`).
  */
-export function attachmentPath(notePath: string, ext: string, now: Date, n = 1, folder: string | null = null): string {
-  const dir = folder ?? posix.dirname(notePath)
+export function attachmentPath(notePath: string, ext: string, now: Date, n = 1, config: AttachmentsConfig = { folder: null }): string {
   const stem = posix.basename(notePath).replace(/\.md$/i, '')
   const stamp = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`
-  const name = `${stem}-${stamp}${n > 1 ? `-${n}` : ''}.${ext}`
+  const perNote = config.perNote
+  const dir = perNote !== undefined ? noteAttachmentsDir(notePath, perNote) : config.folder ?? posix.dirname(notePath)
+  const name = `${perNote !== undefined ? '' : `${stem}-`}${stamp}${n > 1 ? `-${n}` : ''}.${ext}`
   return dir === '.' ? name : `${dir}/${name}`
+}
+
+/** In `per-note` mode, the folder holding a note's images: next to it, named after it (`a/plan.md` → `a/plan.assets`). */
+export function noteAttachmentsDir(notePath: string, suffix: string): string {
+  return notePath.replace(/\.md$/i, '') + suffix
 }
 
 /** `name` with a suffix for a taken name: `plan.png` → `plan-2.png` (n = 2). n = 1 is the name itself. */

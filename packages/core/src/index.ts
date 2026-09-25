@@ -22,3 +22,5 @@ export {
   EMPTY_WORKSPACE, STRICT_SECTIONS, WORKSPACE_FILE, WORKSPACE_VERSION, parseWorkspaceConfig,
   type ConfigError, type ConfigErrorCode, type ParseResult, type StrictSection, type WorkspaceConfig,
 } from './workspace.ts'
+export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'
+export { anchorChanged, normalizeAnchor, parseComments, parseThreads, type Comment, type Thread } from './comments.ts'

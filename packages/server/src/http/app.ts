@@ -7,11 +7,11 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { join, posix, sep } from 'node:path'
-import { WORKSPACE_FILE, classifyPath, conflictOriginal, extract, withoutRanges, type Alert, type ErrorCode, type Range } from '@thoth/core'
+import { WORKSPACE_FILE, anchorChanged, classifyPath, conflictOriginal, extract, parseThreads, withoutRanges, type Alert, type ErrorCode, type Range } from '@thoth/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
-import { NoteError, type Actor, type NoteService } from '../notes.ts'
+import { NoteError, type Actor, type MoveHooks, type NoteService } from '../notes.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START, search } from './search.ts'
 import { planEdits, type EditOp } from '../edits.ts'
 import { FetchImageError, SERVED_TYPES, fetchImage } from '../attachments.ts'
@@ -20,6 +20,7 @@ import { createFromTemplate } from '../templates.ts'
 import { ProfileError, type Profile, type Profiles } from '../profiles.ts'
 import type { Workspace } from '../workspace.ts'
 import { MoveJobs } from './jobs.ts'
+import type { ExternalMoves } from '../externalMoves.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 
@@ -61,6 +62,8 @@ export interface AppDeps {
    * answers with a job instead of the report (1 s by default).
    */
   moveWaitMs?: number
+  /** Notes moved outside thoth, pending a link update (D-031.4). */
+  externalMoves?: ExternalMoves
 }
 
 export type ExternalImages = 'allow' | 'block'
@@ -219,6 +222,22 @@ export function createApp(deps: AppDeps) {
     return c.json({ headings: rows })
   })
 
+  // A note's comment threads as the index first saw them (D-031.6): the text
+  // each one was anchored to, and whether the note's text there has changed
+  // since. Only threads the index knows (the note as last saved); the editor
+  // compares the same originals with what is being typed.
+  app.get('/api/note/comments', (c) => {
+    const path = c.req.query('path') ?? ''
+    const { text } = notes.read(path) // 404 if it doesn't exist
+    const originals = new Map((index.prepare('select thread, original from comment_anchors where src_path = ? and orphaned = 0').all(path) as { thread: string; original: string }[])
+      .map((r) => [r.thread, r.original]))
+    const threads = parseThreads(text).flatMap((t) => {
+      const original = originals.get(t.id)
+      return original === undefined ? [] : [{ id: t.id, original, changed: anchorChanged(original, text.slice(t.anchorFrom, t.anchorTo)) }]
+    })
+    return c.json({ threads })
+  })
+
   // Folders only exist on disk: these create, move (with every note in them,
   // links kept as in a note move) and delete them (only when empty).
   app.post('/api/folder', async (c) => {
@@ -323,7 +342,7 @@ export function createApp(deps: AppDeps) {
   app.get('/api/note/links', (c) => {
     const path = c.req.query('path') ?? ''
     notes.read(path) // 404 if it doesn't exist
-    const outgoing = index.prepare(`select raw, kind, target, anchor, status, dst_path, anchor_ok, candidates
+    const outgoing = index.prepare(`select raw, kind, target, anchor, status, dst_path, anchor_ok, candidates, pos_from
       from links where src_path = ? order by ord`).all(path) as { candidates: string | null }[]
     const incoming = index.prepare(`select l.src_path, n.title, l.raw, l.pos_from, l.pos_to
       from links l join notes n on n.path = l.src_path where l.dst_path = ? and l.src_path != ? order by l.src_path, l.ord`)
@@ -338,10 +357,45 @@ export function createApp(deps: AppDeps) {
       }
       return { path: l.src_path, title: l.title, raw: l.raw, context: context(src.text, src.comments, l.pos_from, l.pos_to) }
     })
-    return c.json({
-      outgoing: outgoing.map((l) => ({ ...l, candidates: l.candidates ? JSON.parse(l.candidates) : null })),
-      backlinks,
+    // The titles of an ambiguous link's candidates, for the picker.
+    const titles: Record<string, string> = {}
+    const titleOf = index.prepare('select title from notes where path = ?')
+    const out = outgoing.map((l) => {
+      const candidates = l.candidates ? JSON.parse(l.candidates) as string[] : null
+      for (const p of candidates ?? []) titles[p] ??= (titleOf.get(p) as { title: string } | undefined)?.title ?? p
+      return { ...l, candidates }
     })
+    return c.json({ outgoing: out, backlinks, titles })
+  })
+
+  // Fixes where one ambiguous link leads (D-031.2): that occurrence (`raw`,
+  // nearest to `at`) is rewritten to the shortest form that reaches `target`.
+  app.post('/api/note/link/pin', async (c) => {
+    const { path, raw, at, target } = await c.req.json<{ path: string; raw: string; at?: number; target: string }>()
+    if (typeof raw !== 'string' || typeof target !== 'string' || (at !== undefined && typeof at !== 'number')) return fail(c, 400, 'invalid', 'expected path, raw, target and an optional numeric at')
+    const r = await notes.pinLink(path, { raw, at }, target, { actor: actorOf(c.get('user')) })
+    c.header('ETag', `"${r.etag}"`)
+    return c.json(r)
+  })
+
+  // Updates the links after notes moved outside thoth (D-031.4), as a move
+  // would; with `dryRun`, only what it would do. With `background`, as a move job.
+  app.post('/api/external-moves/:id/relink', async (c) => {
+    const group = deps.externalMoves?.get(c.req.param('id'))
+    if (!group) return fail(c, 404, 'not_found', 'no such external move')
+    const { dryRun, background } = await c.req.json<{ dryRun?: boolean; background?: boolean }>().catch(() => ({}) as { dryRun?: boolean; background?: boolean })
+    const actor = actorOf(c.get('user'))
+    if (dryRun) return c.json(await notes.relinkMoved(group.moves, { actor, dryRun: true }))
+    // Done once every rewrite went through; with failures it stays, to try again.
+    const run = async (hooks: MoveHooks) => {
+      const report = await notes.relinkMoved(group.moves, { actor, ...hooks })
+      if (report.failed.length === 0) deps.externalMoves?.drop(group.id)
+      return report
+    }
+    if (!background) return c.json(await run({}))
+    const first = group.moves[0]!
+    const r = await jobs.start(c.get('user').username, 'relink', first.from, first.to, run, moveWaitMs)
+    return 'job' in r ? c.json(r, 202) : c.json(r.report)
   })
 
   // Images (D-028). Upload and paste are the same: the raw bytes of the file
@@ -420,6 +474,7 @@ export function createApp(deps: AppDeps) {
       alerts.push({ code: 'scan_aborted_root_unavailable', actions: admin ? ['rescan'] : [] })
     }
     for (const path of deps.orphans?.orphans() ?? []) alerts.push({ code: 'orphaned_note', path, actions: ['keep_copy', 'discard_copy'] })
+    for (const m of deps.externalMoves?.pending() ?? []) alerts.push({ code: 'external_move', ...m, actions: ['update_links'] })
     for (const u of deps.indexer.uidConflicts()) alerts.push({ code: 'uid_conflict', uid: u.uid, paths: u.paths, actions: [] })
     const noteExists = index.prepare('select 1 from notes where path = ?')
     const ws = workspace.status

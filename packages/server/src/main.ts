@@ -13,6 +13,7 @@ import { openState } from './state.ts'
 import { Profiles } from './profiles.ts'
 import { Workspace } from './workspace.ts'
 import { Watcher } from './watcher.ts'
+import { ExternalMoves } from './externalMoves.ts'
 import { CollabHub } from './hub.ts'
 import { SESSION_COOKIE } from './http/app.ts'
 import type { Server } from 'node:http'
@@ -69,6 +70,12 @@ export async function start(config: Config) {
   const log = (msg: string) => console.log(`[thoth] ${msg}`)
   const workspace = new Workspace({ notesDir: config.notesDir, log })
   const indexer = new Indexer({ notesDir: config.notesDir, db: index, linkAliases: workspace.config.links.aliases })
+  // Before the first scan: a note moved while the server was stopped is detected too.
+  const externalMoves = new ExternalMoves({ stateDir: config.stateDir, db: index, indexer, log })
+  indexer.onMoves = (moves) => {
+    externalMoves.record(moves)
+    log(`moved outside thoth: ${moves.map((m) => `${m.from} → ${m.to} (${m.by})`).join(', ')}`)
+  }
   /** Rereads thoth.yaml and applies what the index depends on. */
   const reloadWorkspace = () => {
     if (workspace.reload()) indexer.setLinkAliases(workspace.config.links.aliases)
@@ -106,12 +113,12 @@ export async function start(config: Config) {
 
   const notes = new NoteService({
     notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes,
-    attachmentsFolder: () => workspace.config.attachments.folder,
+    attachments: () => workspace.config.attachments,
   })
   const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const profiles = new Profiles(state)
-  const app = createApp({ auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages })
+  const app = createApp({ auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves })
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   hub.attach(server, SESSION_COOKIE)
   // serve() opens the port asynchronously: only announced once it's actually listening.

@@ -45,6 +45,13 @@ export type Alert =
   | { code: 'orphaned_note'; path: string; actions: ('keep_copy' | 'discard_copy')[] }
   /** Several notes share the same `uid`. Fixed by editing the frontmatter, never automatically. */
   | { code: 'uid_conflict'; uid: string; paths: string[]; actions: never[] }
+  /**
+   * Notes moved outside thoth (same `uid`, or the same content without one),
+   * detected together: `links` written for their old paths no longer reach
+   * them. `update_links` rewrites them as a thoth move would have; nothing is
+   * rewritten on its own. Goes away when no such link is left.
+   */
+  | { code: 'external_move'; id: string; moves: { from: string; to: string }[]; links: number; actions: 'update_links'[] }
   /** A sync tool's conflict copy; `note` is the original note if it exists. */
   | { code: 'sync_conflict'; path: string; note: string | null; actions: never[] }
   /**

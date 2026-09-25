@@ -35,7 +35,7 @@ export async function setup(opts: { config?: string; clock?: { now: Date }; move
   const workspace = new Workspace({ notesDir })
   const indexer = new Indexer({ notesDir, db: index })
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
-  const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db: index, attachmentsFolder: () => workspace.config.attachments.folder })
+  const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db: index, attachments: () => workspace.config.attachments })
   const clock = opts.clock ?? { now: new Date('2026-09-24T23:30:00Z') }
   const app = createApp({ auth, profiles, workspace, notes, index, indexer, notesDir, runtime, now: () => clock.now, moveWaitMs: opts.moveWaitMs })
   const users = { noa: await auth.createUser('noa', 'a-long-password', 'admin'), ana: await auth.createUser('ana', 'a-long-password', 'member') }
