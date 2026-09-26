@@ -289,7 +289,8 @@ export class Recorder {
   private saveTimer: NodeJS.Immediate | null = null
   private writes = new Serial()
   private sinceGc = 0
-  private gcRunning = false
+  /** The `git gc` running now: stopped on close. */
+  private gc: { stop: AbortController; done: Promise<void> } | null = null
   /** After git was unavailable: the first sweep records what changed meanwhile, unattributed. */
   private resumeOnReady = false
   /** Commits merged at the queue's cap, until the queue is in git again. */
@@ -402,6 +403,11 @@ export class Recorder {
     for (const t of [this.tickTimer, this.sweepTimer, this.retryTimer]) if (t) clearInterval(t)
     if (this.saveTimer) clearImmediate(this.saveTimer)
     await this.draining
+    // A gc stopped with SIGTERM removes its own locks; it's done again later.
+    if (this.gc) {
+      this.gc.stop.abort()
+      await this.gc.done
+    }
     if (existsSync(this.dir)) this.saveJournal()
   }
 
@@ -1563,14 +1569,18 @@ export class Recorder {
 
   private gcMaybe(commits: number) {
     this.sinceGc += commits
-    if (this.sinceGc < (this.opts.gcEvery ?? 200) || this.gcRunning) return
+    if (this.sinceGc < (this.opts.gcEvery ?? 200) || this.gc || this.closed) return
     this.sinceGc = 0
-    this.gcRunning = true
-    // Outside the write queue: git takes its own lock, and fast-import can run meanwhile.
-    new Git({ gitDir: this.git.gitDir, binary: this.opts.git, config: { 'gc.auto': '6700', 'gc.autoPackLimit': '50' } })
-      .run(['gc', '--auto', '--quiet'], { timeoutMs: 600_000 })
-      .catch((e) => this.log(`history: git gc: ${e instanceof Error ? e.message : String(e)}`))
-      .finally(() => { this.gcRunning = false })
+    const stop = new AbortController()
+    // Outside the write queue: git takes its own locks, and fast-import can run
+    // meanwhile. In the foreground (`gc --auto` detaches by default), so it
+    // ends with thoth: no git outlives the state volume's lock, and the next
+    // holder can take whatever lock is left as a crash's (leftovers.ts).
+    const done = new Git({ gitDir: this.git.gitDir, binary: this.opts.git, config: { 'gc.auto': '6700', 'gc.autoPackLimit': '50', 'gc.autoDetach': 'false' } })
+      .run(['gc', '--auto', '--quiet'], { timeoutMs: 600_000, signal: stop.signal })
+      .then(() => {}, (e) => { if (!stop.signal.aborted) this.log(`history: git gc: ${e instanceof Error ? e.message : String(e)}`) })
+      .finally(() => { if (this.gc?.stop === stop) this.gc = null })
+    this.gc = { stop, done }
   }
 
   private fail(err: unknown) {
