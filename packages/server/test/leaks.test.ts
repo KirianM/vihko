@@ -12,73 +12,14 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { ROUTES } from '@thoth/server'
 import { PNG, setup } from './_agents.ts'
-
-const FILES: Record<string, string | Uint8Array> = {
-  'proyectos/visible.md': '---\ntitle: Plan visible\ntags: [compartida]\n---\n# Plan visible\n\nEnlaza a [[secreto]], a [[otra]] y a [[dup]]. Palabra: turquesa.\n\n![foto](foto.png)\n',
-  'proyectos/secreto.md': '---\nai: false\ntags: [compartida, clave-oculta]\n---\n# Título Zafiro\n\nZafiro escondido. Enlaza a [[visible]].\n\n![](oculta.png)\n',
-  'proyectos/roto.md': '---\ntitle: [roto\n---\n# Rubí\n\nrubí junto a [[visible]]\n',
-  'proyectos/a/dup.md': '# Dup A\n',
-  'proyectos/b/dup.md': '# Dup B\n',
-  'proyectos/solo-oculta/escondida.md': '---\nai: no\n---\n# Escondida\n',
-  'proyectos/revelada.md': '---\nai: false\n---\n# Revelada\n\nÁmbar guardado.\n',
-  'proyectos/foto.png': PNG,
-  'proyectos/oculta.png': PNG,
-  'fuera/otra.md': '---\ntags: [compartida, clave-oculta]\n---\n# Otra Esmeralda\n\nEsmeralda. Sabe de zafiro. Enlaza a [[visible]] y a [[secreto]].\n\n![](imagen.png)\n',
-  'fuera/dup.md': '# Dup de fuera\n',
-  'fuera/mudanza.md': '# Mudanza\n\nCuarzo de antes.\n',
-  'fuera/plantilla.md': '# Plantilla\n\nÓpalo en la plantilla.\n',
-  'fuera/imagen.png': PNG,
-}
-
-const CONFIG = `daily:
-  agenda:
-    folder: proyectos/diario
-    template: fuera/plantilla
-  ajena:
-    folder: fuera/diario
-`
-
-/**
- * What must never reach the key: the hidden notes' paths, titles and words,
- * the tag only they carry, the folder outside and whatever is in it.
- */
-const MARKERS = [
-  'proyectos/secreto.md', 'Zafiro', 'zafiro', 'clave-oculta', 'oculta.png',
-  'proyectos/roto.md', 'Rubí', 'rubí',
-  'solo-oculta', 'Escondida',
-  'Ámbar', 'ámbar',
-  'fuera', 'Esmeralda', 'esmeralda', 'Dup de fuera', 'imagen.png', 'Cuarzo', 'Ópalo',
-]
+import { CONFIG, FILES, historyToHide, leaked } from './_leaks.ts'
 
 interface Call { method: string; path: string; body?: unknown; headers?: Record<string, string>; expect?: number }
 
 test('a key limited to proyectos/ sees nothing of what it can\'t read, through any route', async () => {
   const h = await setup({ files: FILES, config: CONFIG })
   try {
-    // History with something to hide: edits to hidden notes and outside,
-    // a note that was hidden and isn't any more, one that came from outside.
-    const put = async (path: string, edit: (t: string) => string) => {
-      const cur = await h.noa('GET', h.url('/api/note', { path }))
-      const r = await h.noa('PUT', h.url('/api/note', { path }), { text: edit(cur.body.text) }, { 'if-match': `"${cur.body.etag}"` })
-      assert.equal(r.status, 200, `${path}: ${r.text}`)
-      await h.settle()
-    }
-    await put('proyectos/secreto.md', (t) => t + 'Más zafiro.\n')
-    await put('fuera/otra.md', (t) => t + 'Más esmeralda.\n')
-    await put('proyectos/revelada.md', () => '---\nai: true\n---\n# Revelada\n\nYa es pública.\n')
-    await put('proyectos/visible.md', (t) => t + 'Otra línea.\n')
-    // Written outside, then brought in: what it said outside stays there.
-    await put('fuera/mudanza.md', (t) => t.replace('Cuarzo de antes.', 'Texto de ahora.'))
-    assert.equal((await h.noa('POST', '/api/note/move', { from: 'fuera/mudanza.md', to: 'proyectos/mudanza.md' })).status, 200)
-    // A note outside, renamed: the system rewrites the visible note's link to it.
-    assert.equal((await h.noa('POST', '/api/note/move', { from: 'fuera/otra.md', to: 'fuera/otra-nueva.md' })).status, 200)
-    await h.settle()
-    assert.match(readFileSync(join(h.notesDir, 'proyectos/visible.md'), 'utf8'), /\[\[otra-nueva\]\]/)
-    const idsOf = async (path: string) => ((await h.noa('GET', h.url('/api/history/versions', { path }))).body.versions as { id: string }[]).map((v) => v.id)
-    const secretIds = await idsOf('proyectos/secreto.md')
-    const revealed = await idsOf('proyectos/revelada.md')
-    const visibleIds = await idsOf('proyectos/visible.md')
-    assert.ok(secretIds.length >= 2 && revealed.length >= 2 && visibleIds.length >= 2)
+    const { secret: secretIds, revealed, visible: visibleIds } = await historyToHide(h)
 
     await h.enableApi()
     const { token } = await h.newKey({ name: 'Leak test', canWrite: true, folders: ['proyectos'] })
@@ -178,8 +119,7 @@ test('a key limited to proyectos/ sees nothing of what it can\'t read, through a
         const r = await key(call.method, call.path, call.body, call.headers)
         const asked = decodeURIComponent(call.path) + JSON.stringify(call.body ?? '')
         const shown = r.text + JSON.stringify([...r.headers.entries()])
-        const leaked = MARKERS.filter((m) => shown.includes(m) && !asked.includes(m))
-        assert.deepEqual(leaked, [], `${route} ${call.path} ${JSON.stringify(call.body ?? '')} → ${r.status} ${r.text.slice(0, 400)}`)
+        assert.deepEqual(leaked(shown, asked), [], `${route} ${call.path} ${JSON.stringify(call.body ?? '')} → ${r.status} ${r.text.slice(0, 400)}`)
         if (call.expect !== undefined) assert.equal(r.status, call.expect, `${route} ${call.path} ${JSON.stringify(call.body ?? '')}: ${r.text.slice(0, 300)}`)
         // What can't be seen is `not_found`, never `forbidden`.
         if (r.status === 404) assert.equal(r.body?.error, 'not_found', r.text)

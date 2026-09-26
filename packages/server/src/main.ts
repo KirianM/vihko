@@ -18,6 +18,7 @@ import { CollabHub } from './hub.ts'
 import { History } from './history/index.ts'
 import { lockState, type StateLock } from './lock.ts'
 import { ApiKeys } from './keys.ts'
+import { mountMcp } from './mcp/server.ts'
 import { Integrations, integrationsLockedFrom } from './integrations.ts'
 import { SESSION_COOKIE } from './http/app.ts'
 import type { Server } from 'node:http'
@@ -187,7 +188,11 @@ async function run(config: Config, lock: StateLock) {
   const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const profiles = new Profiles(state)
-  const app = createApp({ auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations })
+  const app = createApp({
+    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations,
+    // The MCP server, at /mcp (off until the admin turns it on).
+    routes: (app, services) => { mountMcp(app, services, { auth, workspace, log }) },
+  })
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   hub.attach(server, SESSION_COOKIE)
   // serve() opens the port asynchronously: only announced once it's actually listening.

@@ -26,6 +26,8 @@ export { ApiKeys, KEY_PREFIX, KeyError, LAST_USED_EVERY_MS, keyIdOf, type KeyErr
 export { Integrations, IntegrationsError, integrationsLockedFrom, type IntegrationSettings, type IntegrationsView } from './integrations.ts'
 export { RequestError, SUBSTITUTIONS, ScopedNotes, type EditPreview, type OutgoingLink, type ResolvedLink, type ScopedDeps, type ScopedMoveReport } from './scoped.ts'
 export { historyFor } from './agentHistory.ts'
+export { MCP_PATH, mountMcp, type McpOptions } from './mcp/server.ts'
+export { TextCache } from './mcp/texts.ts'
 export { ROUTES, keyRouteClass, type RouteClass } from './http/routes.ts'
 export { authenticateKey, bearerToken, type KeyAuth } from './http/keyAuth.ts'
 export { keyRoutes, type KeyRoutesDeps } from './http/keys.ts'
