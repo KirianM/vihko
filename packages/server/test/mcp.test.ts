@@ -4,7 +4,7 @@
 // the network in mcp-clients.test.ts.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setup } from './_agents.ts'
 
@@ -431,6 +431,28 @@ test('daily_note: the person\'s note for today, created from its template if nee
     assert.equal((await c.call('edit_note', { path: d.data.path, operations: [{ op: 'append_under_heading', heading: 'Registro', text: '- 10:00 algo' }] })).error, false)
     assert.match(readFileSync(join(h.notesDir, d.data.path), 'utf8'), /## Registro\n- 10:00 algo\n$/)
     assert.equal((await c.call('daily_note', { series: 'nada' })).data.error, 'not_found')
+    await c.close()
+  } finally { await h.close() }
+})
+
+test('daily_note with create: false only looks: today\'s note if it exists, or where it will be, and nothing is created', async () => {
+  const h = await setup({ files: FILES, config: 'daily:\n  diario:\n    folder: proyectos/diario\n  fuera:\n    folder: otros/diario\n' })
+  try {
+    await h.enableMcp()
+    const c = await h.mcp((await h.newKey({ name: 'Claude Code', canWrite: true, folders: ['proyectos'] })).token)
+    const file = join(h.notesDir, 'proyectos/diario/2026-09-26.md')
+    const look = await c.call('daily_note', { create: false })
+    assert.equal(look.error, false, look.raw)
+    assert.deepEqual(look.data, { series: 'diario', path: 'proyectos/diario/2026-09-26.md', exists: false })
+    assert.equal(existsSync(file), false, 'not created')
+    // Out of the key's folders: it doesn't exist, without its path.
+    const out = await c.call('daily_note', { create: false, series: 'fuera' })
+    assert.deepEqual([out.data.error, out.raw.includes('otros')], ['not_found', false])
+    // Created (the default), then found.
+    assert.equal((await c.call('daily_note')).data.created, true)
+    const found = await c.call('daily_note', { create: false })
+    assert.deepEqual([found.data.exists, found.data.etag], [true, (await c.call('get_note', { path: 'proyectos/diario/2026-09-26.md' })).data.etag])
+    assert.equal(found.texts.length, 1)
     await c.close()
   } finally { await h.close() }
 })

@@ -526,18 +526,27 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     })
   }))
 
+  /**
+   * Today's note if it exists, without creating it: its text and ETag, or
+   * `exists: false` with the path it will have (only if the key reaches that
+   * folder: `not_found` otherwise, without it).
+   */
+  const dailyLook = (series: string | undefined) => {
+    const t = scoped.dailyToday(series ?? null)
+    if (!t.exists) return reply({ series: t.series, path: t.path, exists: false })
+    const r = read(t.path)
+    return reply({ series: t.series, path: r.path, exists: true, etag: r.etag }, noteText(`The text of ${r.path}`, r.text))
+  }
+  const DAILY = 'The daily note for today of the person you act for (their series and time zone, from thoth.yaml and their profile)'
+  const series = z.string().optional().describe('Another series than the person\'s own, by its id in thoth.yaml.')
+
   if (!access.mayWrite) {
     server.registerTool('daily_note', {
       title: 'Today\'s note',
-      description: 'The daily note for today of the person you act for (their series and time zone, from thoth.yaml and their profile), with its text and ETag if it exists. This key can\'t write, so it doesn\'t create it. If it exists but is not available to you, `agent_denied`: ' + LEAVE_IT,
-      inputSchema: input(z.object({ series: z.string().optional().describe('Another series than the person\'s own, by its id in thoth.yaml.') })),
+      description: `${DAILY}, with its text and ETag if it exists; if it doesn't, \`exists: false\` and the path it will have. This key can't write, so it never creates it. If it exists but is not available to you, \`agent_denied\`: ` + LEAVE_IT,
+      inputSchema: input(z.object({ series })),
       annotations: READ,
-    }, run(({ series }) => {
-      const t = scoped.dailyToday(series ?? null)
-      if (!t.exists) return reply({ series: t.series, path: t.path, exists: false })
-      const r = read(t.path)
-      return reply({ series: t.series, path: r.path, exists: true, etag: r.etag }, noteText(`The text of ${r.path}`, r.text))
-    }))
+    }, run(({ series }) => dailyLook(series)))
     return
   }
 
@@ -545,10 +554,15 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('daily_note', {
     title: 'Today\'s note',
-    description: 'The daily note for today of the person you act for (their series and time zone, from thoth.yaml and their profile), created from its template if it doesn\'t exist yet. With its text and ETag. To add to it, use edit_note (append, or append_under_heading). If it exists but is not available to you, `agent_denied`: ' + LEAVE_IT,
-    inputSchema: input(z.object({ series: z.string().optional().describe('Another series than the person\'s own, by its id in thoth.yaml.') })),
+    description: `${DAILY}, with its text and ETag, created from its template if it doesn't exist yet. With create: false it only looks: the note if it exists, or \`exists: false\` and the path it will have, creating nothing. `
+      + 'To add to it, use edit_note (append, or append_under_heading). If it exists but is not available to you, `agent_denied`: ' + LEAVE_IT,
+    inputSchema: input(z.object({
+      series,
+      create: z.boolean().default(true).describe('false: don\'t create it if it doesn\'t exist yet, only say so.'),
+    })),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  }, run(async ({ series }) => {
+  }, run(async ({ series, create }) => {
+    if (!create) return dailyLook(series)
     const o = await scoped.dailyOpen(series ?? null)
     const r = read(o.path)
     return reply({ series: o.series, path: r.path, created: o.created, etag: r.etag }, noteText(`The text of ${r.path}`, r.text))
