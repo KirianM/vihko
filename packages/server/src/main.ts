@@ -17,6 +17,8 @@ import { ExternalMoves } from './externalMoves.ts'
 import { CollabHub } from './hub.ts'
 import { History } from './history/index.ts'
 import { lockState, type StateLock } from './lock.ts'
+import { ApiKeys } from './keys.ts'
+import { Integrations, integrationsLockedFrom } from './integrations.ts'
 import { SESSION_COOKIE } from './http/app.ts'
 import type { Server } from 'node:http'
 import { WORKSPACE_FILE } from '@thoth/core'
@@ -40,6 +42,11 @@ export interface Config {
    * sweep of the folder (3600). THOTH_GIT: the git binary.
    */
   history: { quietMs: number; maxOpenMs: number; sweepMs: number; git: string }
+  /**
+   * THOTH_INTEGRATIONS=off: the API with keys and the MCP server stay off,
+   * whatever the switches in the UI say (D-035.1).
+   */
+  integrationsLocked: boolean
 }
 
 export function configFromEnv(env = process.env): Config {
@@ -58,6 +65,7 @@ export function configFromEnv(env = process.env): Config {
       sweepMs: seconds(env.THOTH_HISTORY_SWEEP_SECONDS, 3600),
       git: env.THOTH_GIT || 'git',
     },
+    integrationsLocked: integrationsLockedFrom(env.THOTH_INTEGRATIONS),
   }
 }
 
@@ -101,6 +109,8 @@ export async function start(config: Config) {
 async function run(config: Config, lock: StateLock) {
   const { state, index } = openStores(config)
   const auth = new Auth(state)
+  const keys = new ApiKeys(state)
+  const integrations = new Integrations(state, { locked: config.integrationsLocked })
   const log = (msg: string) => console.log(`[thoth] ${msg}`)
   const workspace = new Workspace({ notesDir: config.notesDir, log })
   const indexer = new Indexer({ notesDir: config.notesDir, db: index, linkAliases: workspace.config.links.aliases })
@@ -119,7 +129,7 @@ async function run(config: Config, lock: StateLock) {
   const history = new History({
     notesDir: config.notesDir, stateDir: config.stateDir, config: () => workspace.config.history, log,
     git: config.history.git, quietMs: config.history.quietMs, maxOpenMs: config.history.maxOpenMs, sweepMs: config.history.sweepMs,
-    nameOf: (a) => (a.kind === 'user' ? auth.username(a.id) ?? a.id : a.kind === 'agent' ? a.id : a.kind),
+    nameOf: (a) => (a.kind === 'user' ? auth.username(a.id) ?? a.id : a.kind === 'agent' ? keys.nameOf(a.id) ?? a.id : a.kind),
   })
   /** Rereads thoth.yaml and applies what the index and the history depend on. */
   const reloadWorkspace = () => {
@@ -177,12 +187,13 @@ async function run(config: Config, lock: StateLock) {
   const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const profiles = new Profiles(state)
-  const app = createApp({ auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history })
+  const app = createApp({ auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations })
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   hub.attach(server, SESSION_COOKIE)
   // serve() opens the port asynchronously: only announced once it's actually listening.
   if (!server.listening) await new Promise<void>((resolve, reject) => { server.once('listening', resolve); server.once('error', reject) })
   log(`listening on http://${config.host}:${config.port}`)
+  if (config.integrationsLocked) log('THOTH_INTEGRATIONS=off: the API with keys and the MCP server stay off')
 
   const setup = auth.setupToken()
   if (setup) {

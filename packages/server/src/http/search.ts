@@ -26,7 +26,7 @@ const like = (s: string) => s.replace(/[\\%_]/g, (c) => '\\' + c)
  * nested under it (`tag:hogar` → `hogar/red`, D-019); a path, that folder
  * with its subfolders or that exact note. Both ignore case.
  */
-function condition(f: SearchFilter): { sql: string; params: string[] } {
+function condition(f: SearchFilter): { sql: string; params: unknown[] } {
   const c = f.kind === 'tag'
     ? { sql: "exists (select 1 from tags t where t.path = n.path and (t.tag = ? or t.tag like ? escape '\\'))", params: [f.value, like(f.value) + '/%'] }
     : { sql: "(n.path like ? escape '\\' or n.path like ? escape '\\')", params: [like(f.value), like(f.value) + '/%'] }
@@ -35,11 +35,16 @@ function condition(f: SearchFilter): { sql: string; params: string[] } {
 
 export interface SearchResult { path: string; title: string; snippet: string }
 
-export function search(db: Db, input: string): SearchResult[] {
+/**
+ * `visible`: the notes the principal may read (Access.notesWhere, on `n`),
+ * applied in the query so the limit, the ranking and the snippets only ever
+ * see those.
+ */
+export function search(db: Db, input: string, visible: { sql: string; params: unknown[] } = { sql: '1', params: [] }): SearchResult[] {
   const { text, filters } = parseSearchQuery(input)
   const fts = ftsQuery(text)
   if (!fts && filters.length === 0) return []
-  const conds = filters.map(condition)
+  const conds = [...filters.map(condition), visible]
   const where = conds.map((c) => ` and ${c.sql}`).join('')
   const params = conds.flatMap((c) => c.params)
   if (fts) {

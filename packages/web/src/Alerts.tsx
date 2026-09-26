@@ -330,6 +330,14 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           body: t('alerts.historyNoRepoBody'),
           actions: null,
         })
+      case 'integrations_unversioned':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t(a.api && a.mcp ? 'alerts.unversionedTitleBoth' : a.api ? 'alerts.unversionedTitleApi' : 'alerts.unversionedTitleMcp'),
+          body: t(a.mode === 'off' ? 'alerts.unversionedBodyOff' : 'alerts.unversionedBodyUnmanaged'),
+          actions: null,
+        })
       case 'sync_conflict': {
         const shown = a.path in copies
         return frame({

@@ -154,6 +154,26 @@ test('history alerts: git failing (with its detail), versions merged at the cap,
   await k.context().close()
 })
 
+test('agents without a managed history: which door is open and what it means', async ({ browser }) => {
+  const k = await signIn(browser, 'noa')
+  await mockAlerts(k, [{ code: 'integrations_unversioned', mode: 'unmanaged', api: true, mcp: true, actions: [] }])
+  await k.goto('/?view=avisos')
+  const both = card(k, 'sin historial gestionado')
+  await expect(both.getByRole('heading')).toHaveText('La API y el MCP están activos sin historial gestionado')
+  await expect(both).toContainText('history.mode: unmanaged')
+  await expect(both).toContainText('cambia el modo a managed')
+  await expect(both.getByRole('button')).toHaveCount(0)
+  await k.setViewportSize({ width: 1440, height: 900 })
+  await k.screenshot({ path: `${SHOTS}/avisos-agentes.png`, fullPage: true, animations: 'disabled' })
+  await k.unrouteAll({ behavior: 'ignoreErrors' })
+  await mockAlerts(k, [{ code: 'integrations_unversioned', mode: 'off', api: false, mcp: true, actions: [] }])
+  await k.reload()
+  const mcp = card(k, 'sin historial gestionado')
+  await expect(mcp.getByRole('heading')).toHaveText('El MCP está activo sin historial gestionado')
+  await expect(mcp).toContainText('history.mode: off')
+  await k.context().close()
+})
+
 test('empty state', async ({ browser }) => {
   const k = await signIn(browser, 'noa')
   await mockAlerts(k, [])

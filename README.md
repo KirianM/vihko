@@ -75,6 +75,7 @@ All optional:
 | `THOTH_WEB_DIR` | `packages/web/dist` | Built UI; without it the server only exposes the API |
 | `THOTH_MAX_IMAGE_MB` | `20` | Largest image stored from an upload, a paste or a URL |
 | `THOTH_EXTERNAL_IMAGES` | `allow` | `block` stops the browser loading images that notes link from other sites; a box with the domain is shown instead |
+| `THOTH_INTEGRATIONS` | unset | `off` keeps the API with keys and the MCP server off whatever the admin turns on in the UI |
 
 ### Command line
 

@@ -1,0 +1,82 @@
+// Agent keys and the integration switches, for the UI (session only: a key
+// never reaches these, http/routes.ts).
+//
+//   GET    /api/integrations            the switches, the lock, and whether this user may create keys
+//   PUT    /api/admin/integrations      { api?, mcp?, membersCanCreateKeys? }   the thoth admin only
+//   GET    /api/keys[?all=1]            this user's keys; with all=1, the admin gets everyone's
+//   POST   /api/keys                    { name, canWrite?, folders?, expiresAt? } → { key, token } (the token, once)
+//   PATCH  /api/keys/:id                { name?, canWrite?, folders?, expiresAt? } its owner
+//   DELETE /api/keys/:id                revokes it: its owner or the admin
+import type { Context, Hono } from 'hono'
+import type { User } from '../auth.ts'
+import type { Access } from '../access.ts'
+import { KeyError, type ApiKeys, type KeyInput } from '../keys.ts'
+import type { Integrations } from '../integrations.ts'
+
+type Env = { Variables: { user: User; token: string; access: Access } }
+
+export interface KeyRoutesDeps {
+  keys: ApiKeys
+  integrations: Integrations
+}
+
+export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
+  const { keys, integrations } = deps
+  const isAdmin = (c: Context<Env>) => !c.get('access').isAgent && c.get('user').role === 'admin'
+  /** An admin always may; a member, if the admin allows it. */
+  const mayCreate = (c: Context<Env>) => isAdmin(c) || integrations.view().membersCanCreateKeys
+  const body = async (c: Context<Env>) => {
+    const b = await c.req.json<unknown>()
+    if (typeof b !== 'object' || b === null || Array.isArray(b)) throw new KeyError('invalid', 'expected an object')
+    return b as Record<string, unknown>
+  }
+
+  app.get('/api/integrations', (c) => c.json({ ...integrations.view(), canCreateKeys: mayCreate(c) }))
+
+  app.put('/api/admin/integrations', async (c) => {
+    if (!isAdmin(c)) return c.json({ error: 'forbidden', message: 'admins only' }, 403)
+    const b = await body(c)
+    const view = integrations.set({ api: b.api as boolean | undefined, mcp: b.mcp as boolean | undefined, membersCanCreateKeys: b.membersCanCreateKeys as boolean | undefined })
+    return c.json({ ...view, canCreateKeys: mayCreate(c) })
+  })
+
+  app.get('/api/keys', (c) => {
+    if (c.req.query('all') === '1') {
+      if (!isAdmin(c)) return c.json({ error: 'forbidden', message: 'admins only' }, 403)
+      return c.json({ keys: keys.listAll() })
+    }
+    return c.json({ keys: keys.list(c.get('user').id) })
+  })
+
+  app.post('/api/keys', async (c) => {
+    if (!mayCreate(c)) return c.json({ error: 'forbidden', message: 'members may not create keys here' }, 403)
+    const b = await body(c)
+    const input: KeyInput = { name: b.name, canWrite: b.canWrite, folders: b.folders, expiresAt: b.expiresAt }
+    return c.json(keys.create(c.get('user'), input), 201)
+  })
+
+  /** A key of this user's; someone else's doesn't exist for them. */
+  const own = (c: Context<Env>) => {
+    const key = keys.get(c.req.param('id') ?? '')
+    if (!key || key.userId !== c.get('user').id) throw new KeyError('not_found', 'no such key')
+    return key
+  }
+
+  app.patch('/api/keys/:id', async (c) => {
+    const key = own(c)
+    if (!mayCreate(c)) return c.json({ error: 'forbidden', message: 'members may not change keys here' }, 403)
+    const b = await body(c)
+    return c.json({ key: keys.update(key.id, { name: b.name, canWrite: b.canWrite, folders: b.folders, expiresAt: b.expiresAt }) })
+  })
+
+  app.delete('/api/keys/:id', (c) => {
+    const key = isAdmin(c) ? keys.get(c.req.param('id') ?? '') : own(c)
+    if (!key) throw new KeyError('not_found', 'no such key')
+    return c.json({ key: keys.revoke(key.id) })
+  })
+}
+
+/** HTTP status for each key error code. */
+export function keyErrorStatus(e: KeyError) {
+  return ({ invalid: 400, invalid_path: 400, not_found: 404, forbidden: 403 } as const)[e.code]
+}
