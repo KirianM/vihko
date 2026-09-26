@@ -92,7 +92,7 @@ const SAFE = ['-c', `safe.directory=${TREE}`]
 
 type Status = 'OK' | 'FAILED' | 'CANCELLED' | 'SKIPPED'
 interface Result { stage: Stage; status: Status; ms: number; why?: string; log: string }
-interface Ctx { stage: Stage; fd: number; env: NodeJS.ProcessEnv; deadline: number; procs: Set<ChildProcess> }
+interface Ctx { stage: Stage; log: string; fd: number; env: NodeJS.ProcessEnv; deadline: number; procs: Set<ChildProcess> }
 
 /** A step that failed; the message says which and why. */
 class Failure extends Error {}
@@ -317,7 +317,7 @@ function playwright(c: Ctx, env: Record<string, string>, script: string) {
 async function stage(name: Stage, ports: Record<string, number>, body: (c: Ctx) => Promise<void>): Promise<Result> {
   const log = join(LOGS, `${name}.log`)
   const fd = openSync(log, 'a')
-  const c: Ctx = { stage: name, fd, env: environment(name, ports), deadline: Date.now() + LIMIT[name] * 60_000, procs: new Set() }
+  const c: Ctx = { stage: name, log, fd, env: environment(name, ports), deadline: Date.now() + LIMIT[name] * 60_000, procs: new Set() }
   const t0 = Date.now()
   if (tty && !parallel) process.stdout.write(`  ${name.padEnd(11)}`)
   note(c, `[${time()}] ${name} (at most ${LIMIT[name]} min) in ${TREE}`)
@@ -377,7 +377,27 @@ async function run(c: Ctx, cmd: string, args: string[], o: RunOpts = {}): Promis
   c.procs.delete(child)
   if (end === 'aborted') throw new Failure(`cancelled during \`${label}\``)
   if (end === 'timeout') throw new Failure(`timed out (${o.limitMs && Date.now() < c.deadline ? `${Math.round(o.limitMs / 1000)} s` : `${LIMIT[c.stage]} min`}) in \`${label}\``)
-  if (end !== 0) throw new Failure(`\`${label}\` failed (${end})`)
+  if (end !== 0) {
+    const first = firstFailingTest(c.log)
+    throw new Failure(`\`${label}\` failed (${end})${first ? `: ${first}` : ''}`)
+  }
+}
+
+/** The first failing test in the log's last summary: node --test (✖ failing tests) or Playwright (N failed). */
+function firstFailingTest(log: string): string | null {
+  let lines: string[]
+  try { lines = readFileSync(log, 'utf8').replace(/\x1b\[[0-9;]*m/g, '').split('\n') } catch { return null }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i]!
+    if (l.startsWith('✖ failing tests:') || /^\s+\d+ failed$/.test(l)) {
+      for (const next of lines.slice(i + 1, i + 6)) {
+        const name = /^✖ (.+?)(?: \([\d.]+m?s\))?$/.exec(next)?.[1] ?? /^\s+(\S.* › .+)$/.exec(next)?.[1]
+        if (name) return name.trim()
+      }
+      return null
+    }
+  }
+  return null
 }
 
 /** Starts a command in a process group of its own (so it can be stopped whole), its output into the stage's log. */
