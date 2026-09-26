@@ -67,6 +67,14 @@ export interface OutgoingLink {
   candidates: string[] | null
   pos_from: number
   others_no_access?: boolean
+  /** `no_access`: why, when every note it may lead to is hidden for the same reason. */
+  reason?: DenyReason
+  /**
+   * It leads to the note it is written in (`[[#Heading]]`, or its own name).
+   * Kept for the editor, which shows every link's state; lists of links
+   * between notes leave it out (see `links`).
+   */
+  self?: true
 }
 
 /**
@@ -285,6 +293,11 @@ export class ScopedNotes {
    * keeps the candidates it can see, with `others_no_access` if there are
    * others, and is `no_access` if it can see none. Backlinks from notes it
    * can't see aren't there at all.
+   *
+   * A link from a note to itself (`[[#Heading]]`, or its own name) is not a
+   * link between notes: it is never a backlink, and among the outgoing ones
+   * it is marked `self` (the editor still shows its state), so lists leave it
+   * out on both sides (the UI's panel, the MCP tools).
    */
   links(path: string): { outgoing: OutgoingLink[]; backlinks: { path: string; title: string; raw: string; context: string }[]; titles: Record<string, string> } {
     const { path: p } = this.visible(path)
@@ -311,19 +324,27 @@ export class ScopedNotes {
     const titleOf = index.prepare('select title from notes where path = ?')
     const out = outgoing.map((l): OutgoingLink => {
       const candidates = l.candidates ? JSON.parse(l.candidates) as string[] : null
-      const link = this.access.isAgent ? this.maskedLink({ ...l, candidates }) : { ...l, candidates }
+      const row: OutgoingLink = { ...l, candidates, ...(l.status === 'resolved' && l.dst_path === p ? { self: true as const } : {}) }
+      const link = this.access.isAgent ? this.maskedLink(row) : row
       for (const c of link.candidates ?? []) titles[c] ??= (titleOf.get(c) as { title: string } | undefined)?.title ?? c
       return link
     })
     return { outgoing: out, backlinks, titles }
   }
 
-  /** A link as an agent sees it (see `links`). */
+  /**
+   * A link as an agent sees it (see `links`). `no_access` carries the reason
+   * when every note it may lead to is hidden for the same one (the agent has
+   * the link, so it names them, as `resolveLink` does).
+   */
   private maskedLink(l: OutgoingLink): OutgoingLink {
-    if (l.dst_path !== null && !this.access.canRead(l.dst_path)) return noAccess(l)
+    if (l.dst_path !== null && !this.access.canRead(l.dst_path)) return noAccess(l, this.access.reasonFor(l.dst_path))
     if (!l.candidates) return l
     const visible = l.candidates.filter((c) => this.access.canRead(c))
-    if (visible.length === 0) return noAccess(l)
+    if (visible.length === 0) {
+      const reasons = new Set(l.candidates.map((c) => this.access.reasonFor(c)))
+      return noAccess(l, reasons.size === 1 ? [...reasons][0]! : null)
+    }
     return visible.length === l.candidates.length ? l : { ...l, candidates: visible, others_no_access: true }
   }
 
@@ -346,7 +367,7 @@ export class ScopedNotes {
       candidates: r.status === 'ambiguous' ? r.candidates : null,
     }
     const shown = this.access.isAgent ? this.maskedLink(row) : row
-    const reason = shown.status === 'no_access' && row.dst_path !== null ? this.access.reasonFor(row.dst_path) : null
+    const reason = shown.status === 'no_access' ? shown.reason ?? null : null
     const titleOf = this.deps.index.prepare('select title from notes where path = ?')
     const titles: Record<string, string> = {}
     for (const p of [shown.dst_path, ...(shown.candidates ?? [])]) if (p) titles[p] = (titleOf.get(p) as { title: string } | undefined)?.title ?? p
@@ -652,9 +673,9 @@ function parseLink(link: string): Pick<LinkRef, 'kind' | 'target' | 'anchor'> | 
   return { kind: 'wiki', target, anchor }
 }
 
-/** A link to a note hidden from the principal: its own text, and nothing of where it leads. */
-function noAccess(l: { raw: string; kind: string; target: string; anchor: string | null; pos_from: number }): OutgoingLink {
-  return { raw: l.raw, kind: l.kind, target: l.target, anchor: l.anchor, status: 'no_access', dst_path: null, anchor_ok: null, candidates: null, pos_from: l.pos_from }
+/** A link to a note hidden from the principal: its own text and why (if one reason), nothing of where it leads. */
+function noAccess(l: { raw: string; kind: string; target: string; anchor: string | null; pos_from: number }, reason: DenyReason | null): OutgoingLink {
+  return { raw: l.raw, kind: l.kind, target: l.target, anchor: l.anchor, status: 'no_access', dst_path: null, anchor_ok: null, candidates: null, pos_from: l.pos_from, ...(reason ? { reason } : {}) }
 }
 
 /** `a/b/c.md` → `a`, `a/b`. */

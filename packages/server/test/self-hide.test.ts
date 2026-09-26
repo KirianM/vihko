@@ -67,7 +67,7 @@ test('MCP: edit_note that sets ai: false succeeds with now_hidden, and from then
     }
     assert.equal(disk(h, NOTE), text, 'nothing more was written')
     const link = (await c.call('get_note', { path: 'p/otra.md' })).data.links.outgoing[0]
-    assert.deepEqual([link.status, link.path], ['no_access', null])
+    assert.deepEqual([link.status, link.reason, link.path], ['no_access', 'ai_false', null])
     await c.close()
   } finally { await h.close() }
 })

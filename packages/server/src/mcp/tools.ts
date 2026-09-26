@@ -239,6 +239,19 @@ function revertResult(r: ScopedRevertReport) {
   }
 }
 
+interface Backlink { path: string; title: string; raw: string; context: string }
+
+/** Backlinks one entry per note, in order: how many of its links lead here, and the first one with the text around it. */
+function bySource(backlinks: readonly Backlink[]) {
+  const out = new Map<string, { path: string; title: string; count: number; link: string; context: string }>()
+  for (const b of backlinks) {
+    const e = out.get(b.path)
+    if (e) e.count++
+    else out.set(b.path, { path: b.path, title: b.title, count: 1, link: b.raw, context: b.context })
+  }
+  return [...out.values()]
+}
+
 // --- The tools -----------------------------------------------------------------
 
 /** The server's tools for this key: the ones that write only if it may write. */
@@ -305,7 +318,11 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('get_note', {
     title: 'Read a note',
-    description: 'A note, by its path or its uid: its text with its ETag (needed as if_match to replace text in it), frontmatter, title, and its links: outgoing (where each leads; `no_access` when it leads to a note that exists but is not available to you) and incoming (backlinks). A note that exists but is not available to agents answers `agent_denied`: ' + LEAVE_IT + ' A long note comes in pieces: pass next_offset back as offset.',
+    description: 'A note, by its path or its uid: its text with its ETag (needed as if_match to replace text in it), frontmatter, title, and its links. '
+      + '`outgoing`: the links written in it, each with where it leads (status resolved, ambiguous with its candidates, missing, or `no_access` with a `reason` when it leads to a note that exists but is not available to you). '
+      + '`incoming`: the notes that link to it, one entry per note with `count`, how many of its links lead here. '
+      + 'Links from the note to itself (`[[#Heading]]`, or its own name) are in neither list. For the text around each incoming link and the titles of where links lead, use related. '
+      + 'A note that exists but is not available to agents answers `agent_denied`: ' + LEAVE_IT + ' A long note comes in pieces: pass next_offset back as offset.',
     inputSchema: input(z.object({
       path: path.optional(),
       uid: z.string().min(1).optional().describe('The note\'s uid (its frontmatter identity), instead of its path.'),
@@ -318,6 +335,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     const r = read(p ?? scoped.pathOfUid(uid!))
     const meta = r.meta as { title?: string; uid?: string | null } | null
     const links = scoped.links(r.path)
+    const outgoing = links.outgoing.filter((l) => !l.self)
+    const incoming = bySource(links.backlinks)
     const fm = readFrontmatter(r.text)
     const piece = r.text.slice(offset, offset + max_chars)
     const end = offset + piece.length
@@ -325,12 +344,13 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       path: r.path, etag: r.etag, title: meta?.title ?? null, uid: meta?.uid ?? null,
       frontmatter: fm.error ? null : fm.data,
       links: {
-        outgoing: links.outgoing.slice(0, 200).map((l) => ({
+        outgoing: outgoing.slice(0, 200).map((l) => ({
           link: l.raw, target: l.target, anchor: l.anchor, status: l.status, path: l.dst_path, candidates: l.candidates,
           ...(l.others_no_access ? { others_no_access: true } : {}),
+          ...(l.reason ? { reason: l.reason } : {}),
         })),
-        incoming: links.backlinks.slice(0, 200).map((b) => ({ path: b.path, title: b.title })),
-        more: links.outgoing.length > 200 || links.backlinks.length > 200,
+        incoming: incoming.slice(0, 200).map((b) => ({ path: b.path, title: b.title, count: b.count })),
+        more: outgoing.length > 200 || incoming.length > 200,
       },
       text: { offset, length: piece.length, total: r.text.length, next_offset: end < r.text.length ? end : null },
     }, noteText(`The text of ${r.path}${offset || end < r.text.length ? ` (characters ${offset} to ${end} of ${r.text.length})` : ''}`, piece))
@@ -364,7 +384,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('related', {
     title: 'Related notes',
-    description: 'The notes a note links to and the notes that link to it, each backlink with the text around it. A link with status `no_access` leads to a note that exists but is not available to you: ' + LEAVE_IT + ' Paged: pass next_offset back as offset.',
+    description: 'How a note connects to others: `links_to`, the links written in it with the title of the note each leads to; `linked_from`, the notes that link to it, one entry per note with `count` (how many of its links lead here) and its first such link with the text around it. '
+      + 'Use it to explore around a note or to see how others refer to it; get_note gives the same links, without titles or context, next to the note\'s text, which is enough before editing it. '
+      + 'Links from the note to itself (`[[#Heading]]`, or its own name) are in neither list. '
+      + 'A link with status `no_access` (with its `reason`) leads to a note that exists but is not available to you: ' + LEAVE_IT + ' Paged: pass next_offset back as offset.',
     inputSchema: input(z.object({
       path,
       limit: z.number().int().min(1).max(200).default(50).describe('Links of each kind per page (at most 200).'),
@@ -373,15 +396,18 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     annotations: READ,
   }, run(({ path: p, limit, offset }) => {
     const l = scoped.links(p)
+    const outgoing = l.outgoing.filter((o) => !o.self)
+    const incoming = bySource(l.backlinks)
     const titles = new Map(scoped.tree().notes.map((n) => [n.path, n.title]))
-    const out = l.outgoing.slice(offset, offset + limit).map((o) => ({
+    const out = outgoing.slice(offset, offset + limit).map((o) => ({
       link: o.raw, target: o.target, anchor: o.anchor, status: o.status, path: o.dst_path,
       title: o.dst_path ? titles.get(o.dst_path) ?? null : null,
       candidates: o.candidates?.map((c) => ({ path: c, title: l.titles[c] ?? c })) ?? null,
       ...(o.others_no_access ? { others_no_access: true } : {}),
+      ...(o.reason ? { reason: o.reason } : {}),
     }))
-    const back = l.backlinks.slice(offset, offset + limit)
-    const more = offset + limit < Math.max(l.outgoing.length, l.backlinks.length)
+    const back = incoming.slice(offset, offset + limit)
+    const more = offset + limit < Math.max(outgoing.length, incoming.length)
     return reply({ path: p, links_to: out, linked_from: back, next_offset: more ? offset + limit : null })
   }))
 

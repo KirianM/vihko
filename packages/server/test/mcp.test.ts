@@ -157,7 +157,7 @@ test('reading: search, get_note, list_folder, related and resolve_link', async (
     assert.equal(n.data.title, 'El plan')
     assert.deepEqual(n.data.frontmatter, { title: 'El plan', tags: ['trabajo'] })
     assert.deepEqual(n.data.links.outgoing.map((l: any) => [l.link, l.status, l.path]), [['[[notas]]', 'resolved', 'proyectos/notas.md'], ['[[Nadie]]', 'missing', null]])
-    assert.deepEqual(n.data.links.incoming, [{ path: 'proyectos/notas.md', title: 'Notas' }])
+    assert.deepEqual(n.data.links.incoming, [{ path: 'proyectos/notas.md', title: 'Notas', count: 1 }])
     // The text as data, between markers only this response has.
     assert.equal(n.texts.length, 1)
     const m = /<note-([0-9a-f]{8})>\n([\s\S]*)\n<\/note-\1>$/.exec(n.texts[0]!)
@@ -432,5 +432,45 @@ test('daily_note: the person\'s note for today, created from its template if nee
     assert.match(readFileSync(join(h.notesDir, d.data.path), 'utf8'), /## Registro\n- 10:00 algo\n$/)
     assert.equal((await c.call('daily_note', { series: 'nada' })).data.error, 'not_found')
     await c.close()
+  } finally { await h.close() }
+})
+
+test('links in get_note and related: one incoming entry per note with its count; links to itself on neither side; no_access with its reason', async () => {
+  const h = await setup({ files: {
+    'p/notas.md': '# Notas\n\n## Índice\n\nVer [[#Índice]] y [[notas]]. Luego [[plan]].\n',
+    'p/plan.md': '# Plan\n\nPrimero [[notas]], luego [[notas#Índice]] otra vez.\n\nY al final [[notas]].\n',
+    'p/otra.md': '# Otra\n\nSolo [[notas]] y [[oculta]].\n',
+    'p/oculta.md': '---\nai: false\n---\n# Oculta\n',
+    'fuera/lejos.md': '# Lejos\n',
+    'p/lejos-link.md': '# Enlace\n\n[[lejos]]\n',
+  } })
+  try {
+    await h.enableMcp()
+    const c = await h.mcp((await h.newKey({ name: 'Claude Code', folders: ['p'] })).token)
+    const n = await c.call('get_note', { path: 'p/notas.md' })
+    assert.equal(n.error, false, n.raw)
+    // Its own [[#Índice]] and [[notas]] are neither outgoing nor incoming.
+    assert.deepEqual(n.data.links.outgoing.map((l: any) => [l.link, l.path]), [['[[plan]]', 'p/plan.md']])
+    assert.deepEqual(n.data.links.incoming, [{ path: 'p/otra.md', title: 'Otra', count: 1 }, { path: 'p/plan.md', title: 'Plan', count: 3 }])
+    const r = await c.call('related', { path: 'p/notas.md' })
+    assert.deepEqual(r.data.links_to.map((l: any) => [l.link, l.path, l.title]), [['[[plan]]', 'p/plan.md', 'Plan']])
+    assert.deepEqual(r.data.linked_from, [
+      { path: 'p/otra.md', title: 'Otra', count: 1, link: '[[notas]]', context: 'Solo [[notas]] y [[oculta]].' },
+      { path: 'p/plan.md', title: 'Plan', count: 3, link: '[[notas]]', context: 'Primero [[notas]], luego [[notas#Índice]] otra vez.' },
+    ])
+    // resolve_link still resolves a link to itself.
+    assert.deepEqual((await c.call('resolve_link', { from: 'p/notas.md', link: '[[notas]]' })).data.path, 'p/notas.md')
+    // To a hidden note: no_access with why, as resolve_link says it.
+    const o = await c.call('get_note', { path: 'p/otra.md' })
+    assert.deepEqual(o.data.links.outgoing.find((l: any) => l.link === '[[oculta]]'), { link: '[[oculta]]', target: 'oculta', anchor: null, status: 'no_access', path: null, candidates: null, reason: 'ai_false' })
+    assert.equal((await c.call('related', { path: 'p/otra.md' })).data.links_to[1].reason, 'ai_false')
+    const far = await c.call('related', { path: 'p/lejos-link.md' })
+    assert.deepEqual([far.data.links_to[0].status, far.data.links_to[0].reason, far.data.links_to[0].path], ['no_access', 'outside_key_folders', null])
+    assert.doesNotMatch(far.raw, /fuera|Lejos/)
+    await c.close()
+    // The UI's API keeps the self links for the editor, marked; never as backlinks.
+    const api = await h.noa('GET', h.url('/api/note/links', { path: 'p/notas.md' }))
+    assert.deepEqual(api.body.outgoing.map((l: any) => [l.raw, l.self ?? false]), [['[[#Índice]]', true], ['[[notas]]', true], ['[[plan]]', false]])
+    assert.deepEqual(api.body.backlinks.map((b: any) => b.path), ['p/otra.md', 'p/plan.md', 'p/plan.md', 'p/plan.md'])
   } finally { await h.close() }
 })

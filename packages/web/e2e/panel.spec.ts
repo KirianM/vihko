@@ -56,6 +56,21 @@ test('links: backlinks with context', async () => {
   await expect(k.locator('.crumbs b')).toHaveText('notas')
 })
 
+test('links: a note\'s links to itself are neither outgoing nor backlinks, and still show as working links in the editor', async () => {
+  writeFileSync(`${NOTES}/panel/propia.md`, '# Propia\n\n## Índice\n\nVer [[#Índice]] y [[propia]]. También [[comentarios]].\n')
+  await k.goto('/?note=panel/propia.md')
+  await k.getByRole('tab', { name: /Enlaces/ }).click()
+  const panel = k.getByRole('complementary', { name: 'Comentarios y contexto' })
+  await expect(panel.getByRole('heading', { name: 'Salientes · 1' })).toBeVisible()
+  await expect(panel.getByRole('heading', { name: 'Entrantes · 0' })).toBeVisible()
+  await expect(panel.locator('.link-list').first().locator(':scope > li')).toHaveCount(1)
+  await expect(panel.getByRole('button', { name: /comentarios/ })).toBeVisible()
+  await expect(k.getByRole('tab', { name: /Enlaces/ })).toHaveText('Enlaces · 1')
+  // In the text, [[propia]] still leads somewhere: not shown as missing.
+  await expect(k.locator('.cm-wikilink-resolved', { hasText: 'propia' })).toHaveCount(1)
+  await expect(k.locator('.cm-wikilink-missing')).toHaveCount(0)
+})
+
 test('outline: live headings; clicking one moves the cursor there', async () => {
   await k.goto(`/?note=${NOTE}`)
   await k.getByRole('tab', { name: 'Índice' }).click()
