@@ -22,6 +22,9 @@
 //   versions that close together are one commit. Moves and deletions made
 //   outside, and what thoth finds at startup, are versions at once. thoth's
 //   own writes are expected before anything can see them on disk.
+// - What `thoth history purge` took out of the history and the folder still
+//   holds is known by its content (the journal's `baseline`), not recorded
+//   again at startup; it enters with the file's next version.
 // - Paths excluded in thoth.yaml (`history.exclude`) aren't there for the
 //   recorder: nothing about them is recorded (a file moved into one leaves
 //   the history, one moved out of it enters), and what is stored stays.
@@ -110,7 +113,7 @@ export interface IndexedChanges {
 type ReasonData = Record<string, unknown> | null
 
 /** One file in a commit waiting for git. */
-interface QChange {
+export interface QChange {
   path: string
   /** Renamed from (a folder, with `folder`). */
   from?: string
@@ -123,7 +126,7 @@ interface QChange {
   file?: boolean
 }
 
-interface QCommit {
+export interface QCommit {
   authors: string[]
   reason: ReasonData
   /** Author time, ms. */
@@ -133,7 +136,7 @@ interface QCommit {
 }
 
 /** A version still open on one path. */
-interface Pending {
+export interface Pending {
   /** `typed`: from the editor; `write`: writes of one user or agent with one reason; `external`: changes made outside thoth. */
   kind: 'typed' | 'write' | 'external'
   key: string
@@ -160,7 +163,7 @@ interface Group {
   changes: Map<string, QChange>
 }
 
-interface Journal {
+export interface Journal {
   version: 1
   mode: HistoryMode
   typing: Record<string, string[]>
@@ -174,7 +177,20 @@ interface Journal {
   writes: { authors: string[]; reason: ReasonData; changes: QChange[] }[]
   /** The queue reached its cap: how many commits were merged into later ones, and since when (ms). */
   merged: { count: number; since: number } | null
+  /**
+   * What the files hold now for paths `thoth history purge` rewrote (path →
+   * blob id): known without being in git, so what the purge took out of the
+   * history and is still on disk isn't recorded again as a change made with
+   * thoth stopped. It enters with the file's next version.
+   */
+  baseline?: Record<string, string>
 }
+
+/** Where the recorder keeps its journal and its cache of the sweep's `stat`s, in the state volume. */
+export const journalFile = (stateDir: string) => join(stateDir, 'history', 'journal.json')
+export const cacheFile = (stateDir: string) => join(stateDir, 'history', 'files.json')
+/** The managed repository. */
+export const repositoryDir = (stateDir: string) => join(stateDir, 'history.git')
 
 interface CacheEntry { size: number; mtimeMs: number; ctimeMs: number; ino: number; oid: string; checkedAt: number }
 
@@ -190,7 +206,7 @@ const BLOB_CACHE_BYTES = 64 * 1024 * 1024
 const CONCURRENCY = 16
 
 /** Tests only: `THOTH_TEST_CRASH_AT=<point>` kills the process there, like a kill -9 landing at that moment. */
-function crashPoint(point: string) {
+export function crashPoint(point: string) {
   if (process.env.THOTH_TEST_CRASH_AT === point) process.kill(process.pid, 'SIGKILL')
 }
 
@@ -278,14 +294,16 @@ export class Recorder {
   private resumeOnReady = false
   /** Commits merged at the queue's cap, until the queue is in git again. */
   private merged: Journal['merged'] = null
+  /** Contents known without being in git (see `Journal.baseline`), until the path's next version. */
+  private baseline = new Map<string, string>()
   private closed = false
 
   constructor(opts: RecorderOptions) {
     this.opts = opts
     this.dir = join(opts.stateDir, 'history')
-    this.journalFile = join(this.dir, 'journal.json')
-    this.cacheFile = join(this.dir, 'files.json')
-    this.git = new Git({ gitDir: join(opts.stateDir, 'history.git'), binary: opts.git })
+    this.journalFile = journalFile(opts.stateDir)
+    this.cacheFile = cacheFile(opts.stateDir)
+    this.git = new Git({ gitDir: repositoryDir(opts.stateDir), binary: opts.git })
     this.log = opts.log ?? (() => {})
     this.now = opts.now ?? Date.now
     this.retryDelay = opts.retryMs ?? 5000
@@ -310,6 +328,7 @@ export class Recorder {
       this.leftoverGroups = j.groups
       this.leftoverWrites = j.writes
       this.merged = j.merged
+      this.baseline = new Map(Object.entries(j.baseline ?? {}))
     }
     this.readCache()
     this.mode = mode
@@ -1107,11 +1126,11 @@ export class Recorder {
       const c = g.changes.get(path)
       if (c && c.oid !== undefined) return c.oid
     }
-    return this.tree.get(path) ?? null
+    return this.baseline.get(path) ?? this.tree.get(path) ?? null
   }
 
   private knownPaths(): string[] {
-    const out = new Set(this.tree.keys())
+    const out = new Set([...this.tree.keys(), ...this.baseline.keys()])
     for (const [p, v] of this.pending) if (v.oids.length) out.add(p)
     for (const g of this.groups.values()) for (const [p, c] of g.changes) if (c.oid) out.add(p)
     return [...out]
@@ -1259,7 +1278,16 @@ export class Recorder {
     if (q.changes.length === 0) return
     this.queue.push(q)
     this.applyToTree(q)
-    for (const c of q.changes) this.touch(c.path)
+    for (const c of q.changes) {
+      this.touch(c.path)
+      // A new version of a path the purge left known only by its content: from now on, the queue and git know it.
+      if (this.baseline.size === 0) continue
+      this.baseline.delete(c.path)
+      if (c.from !== undefined) {
+        this.baseline.delete(c.from)
+        if (c.folder) for (const p of [...this.baseline.keys()]) if (under(p, c.from)) this.baseline.delete(p)
+      }
+    }
     this.compact()
     this.saveJournal()
     crashPoint('history-queued')
@@ -1572,7 +1600,7 @@ export class Recorder {
     try {
       const j = JSON.parse(text) as Journal
       if (j.version !== 1) throw new Error(`version ${String(j.version)}`)
-      return { version: 1, mode: j.mode ?? 'managed', typing: j.typing ?? {}, pending: j.pending ?? {}, queue: j.queue ?? [], inflight: j.inflight ?? null, groups: j.groups ?? [], writes: j.writes ?? [], merged: j.merged ?? null }
+      return { version: 1, mode: j.mode ?? 'managed', typing: j.typing ?? {}, pending: j.pending ?? {}, queue: j.queue ?? [], inflight: j.inflight ?? null, groups: j.groups ?? [], writes: j.writes ?? [], merged: j.merged ?? null, baseline: j.baseline ?? {} }
     } catch (err) {
       this.log(`history: the journal can't be read (${err instanceof Error ? err.message : String(err)}); starting without it`)
       return null
@@ -1594,6 +1622,7 @@ export class Recorder {
       })),
       writes: [...this.leftoverWrites, ...this.writesInFlight.values()],
       merged: this.merged,
+      ...(this.baseline.size ? { baseline: Object.fromEntries(this.baseline) } : {}),
     }
     try {
       mkdirSync(this.dir, { recursive: true })

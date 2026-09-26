@@ -50,7 +50,7 @@ The UI is at `http://<server>:8080`. If that port is taken,
 | Volume | Contents | Local disk | Network filesystem (NFS, SMB) |
 |---|---|---|---|
 | `/data/notes` | Your `.md` files, the source of truth. Back it up | Supported | **Supported** (a periodic rescan catches missed events) |
-| `/data/state` | `state.db` (users, sessions; back it up), `index.db` (disposable), trash, collaboration logs | Supported | **Not supported**: SQLite locking over NFS is not reliable |
+| `/data/state` | `state.db` (users, sessions; back it up), the managed history (`history.git`; back it up), `index.db` (disposable), trash, collaboration logs | Supported | **Not supported**: SQLite locking over NFS is not reliable |
 
 A Docker bind mount of a host directory that lives on NFS is NFS for all
 purposes.
@@ -75,6 +75,44 @@ All optional:
 | `THOTH_WEB_DIR` | `packages/web/dist` | Built UI; without it the server only exposes the API |
 | `THOTH_MAX_IMAGE_MB` | `20` | Largest image stored from an upload, a paste or a URL |
 | `THOTH_EXTERNAL_IMAGES` | `allow` | `block` stops the browser loading images that notes link from other sites; a box with the domain is shown instead |
+
+### Command line
+
+The image's `thoth` command, run inside the container (`docker compose exec
+thoth thoth …` while it runs, `docker compose run --rm thoth thoth …` while
+it's stopped):
+
+| Command | What it does |
+|---|---|
+| `thoth serve` | Starts the server (what the container runs) |
+| `thoth user create <name> [--admin]` | Creates a user; the password is read from standard input |
+| `thoth history purge <path> [--version <id>] [--dry-run]` | Rewrites the managed history without a file or folder, or without one version of a file |
+
+**`thoth history purge`** is for something that should never have been kept,
+such as a secret pasted into a note by mistake:
+
+- `<path>` is a file or a folder, relative to the notes folder: it goes from
+  every version. With `--version <id>` (the version's id, as in the address of
+  a version: `?version=<id>`; 7 characters are enough), only the content that
+  file has in that version goes: wherever the file held it, it holds what it
+  had right before. `--dry-run` lists the commits and files it would change,
+  and changes nothing.
+- thoth must be stopped: the server and the command take the same lock in the
+  state volume (`thoth.lock`), which is released however a process ends, so
+  it refuses while thoth runs (and a second server refuses to start on the
+  same state volume). `--dry-run` only reads, and works with thoth running.
+- Only the managed history: in unmanaged mode the repository is yours and it
+  refuses. Everything else keeps its authors, dates and moves; a commit left
+  with no change is dropped, and the versions after the first rewritten one
+  get new ids.
+- The repository is left compacted: the purged content is in no commit,
+  reflog or pack, unless the same content is also stored under another path,
+  which it reports. If it is stopped half way, the history stays as it was;
+  running it again finishes the work.
+- It never touches the notes folder. If the file is still there, its content
+  enters the history again with its next version: delete it, or add it to
+  `history.exclude` first (the command warns). Nor does it touch the trash or
+  the editors' recovery files in the state volume.
 
 No reverse proxy is required: it works over plain HTTP on a LAN. HTTPS and
 public exposure only matter if you enable remote MCP for external clients, or
@@ -154,7 +192,7 @@ history:
   `*.pdf` only matches at the root, `**/*.pdf` everywhere. Excluded files
   aren't hidden from thoth, only their changes aren't saved as versions, and
   the note's history tab says so. Changing the list applies at once; what
-  the history already holds stays. A note
+  the history already holds stays (`thoth history purge` removes it). A note
   moved into an excluded folder leaves the history; moved out, it enters.
 - **Versions and unknown keys:** `version` (1 if missing) says which format
   the file follows. A key thoth doesn't know (a typo, or a setting from a
