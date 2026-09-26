@@ -83,14 +83,22 @@ function scalarText(value: ScalarValue): string {
   return stringify(value, { lineWidth: 0 }).trimEnd()
 }
 
+/** A list of scalars as a one-line flow list (`[a, "b, c"]`), quoted where the flow context needs it. */
+function listText(values: readonly ScalarValue[]): string {
+  if (values.some((v) => typeof v === 'string' && /[\r\n]/.test(v))) {
+    throw new FrontmatterError('a frontmatter patch only accepts single-line values')
+  }
+  return stringify(values, { lineWidth: 0, collectionStyle: 'flow', flowCollectionPadding: false }).trimEnd()
+}
+
 /**
- * Returns `text` with the top-level key `key` set to `value`, touching only
- * the bytes of that value (or adding a line, or creating the block).
- * Throws FrontmatterError if the frontmatter is invalid: a note like that is
- * never written.
+ * Returns `text` with the top-level key `key` set to `value` (a scalar, or a
+ * list of them written as a flow list), touching only the bytes of that
+ * value (or adding a line, or creating the block). Throws FrontmatterError
+ * if the frontmatter is invalid: a note like that is never written.
  */
-export function setFrontmatterKey(text: string, key: string, value: ScalarValue): string {
-  const out = setFrontmatterKeyRaw(text, key, scalarText(value))
+export function setFrontmatterKey(text: string, key: string, value: ScalarValue | readonly ScalarValue[]): string {
+  const out = setFrontmatterKeyRaw(text, key, Array.isArray(value) ? listText(value) : scalarText(value as ScalarValue))
   verifyPatch(text, out, key, value)
   return out
 }
@@ -142,7 +150,7 @@ function trailingEol(raw: string, from: number, to: number, eol: Eol): string {
 }
 
 /** Safety net: the result must have the requested value and everything else unchanged. */
-function verifyPatch(before: string, after: string, key: string, value: ScalarValue) {
+function verifyPatch(before: string, after: string, key: string, value: ScalarValue | readonly ScalarValue[]) {
   const a = readFrontmatter(before)
   const b = readFrontmatter(after)
   if (b.error) throw new FrontmatterError(`the patch produced invalid YAML: ${b.error}`)
