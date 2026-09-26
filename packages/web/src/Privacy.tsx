@@ -2,8 +2,12 @@
 // Trilium's AI/Privacy.md). First how things stand on this server right now
 // (the switches, the keys that can read, external images); then what always
 // holds. Every sentence here is checked against the code: without
-// integrations nothing gets in or out; a key reads what its user sees within
-// its folders and never a note hidden from agents; no telemetry, updates or
+// integrations nothing gets in or out (the OAuth addresses don't exist
+// either); a key, or an OAuth authorization, reads what its user sees within
+// its folders and never anything of a note hidden from agents, which it only
+// learns exists if it already has its name (`no_access`, `agent_denied`);
+// with OAuth, the person who signs in authorizes, and the addresses anyone
+// may call (metadata, registration) give access to nothing; no telemetry, updates or
 // CDNs (the page's CSP only lets the browser talk to this server, images
 // linked from other sites aside); images are downloaded by URL only when a
 // person asks (a key can't); external images as the server's administrator
@@ -45,6 +49,7 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
   const on = integ && !integ.locked ? [integ.api && 'API', integ.mcp && 'MCP'].filter(Boolean).join(' · ') : ''
   const via = (k: KeyInfo) => (k.lastVia === 'mcp' ? t('keys.viaMcp') : k.lastVia === 'oauth' ? t('keys.viaOauth') : t('keys.viaApi'))
   const reach = (k: KeyInfo) => [
+    ...(k.client ? [t('privacy.keyOauth')] : []),
     t(k.canWrite ? 'privacy.keyWrites' : 'privacy.keyReads'),
     k.folders.length ? t('privacy.keyFolders', { folders: k.folders.map((f) => `${f}/`).join(', ') }) : t('privacy.keyAll'),
     k.lastUsedAt ? t('privacy.keyUsed', { date: dates.dateTime(k.lastUsedAt), via: via(k) }) : t('privacy.keyUnused'),
@@ -67,6 +72,10 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
       </ul>
     </>)
   }
+  // OAuth, when this server offers it: where, and whether apps may register themselves.
+  const oauth = integ && integ.publicUrl && integ.mcp && !integ.locked
+    ? <p>{withCode(t(integ.oauthRegistration ? 'privacy.nowOauth' : 'privacy.nowOauthClosed'), { url: `${integ.publicUrl}/mcp` })}</p>
+    : null
 
   return (
     <>
@@ -84,6 +93,7 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
         <section className="settings-section privacy-now" aria-labelledby="privacy-now">
           <h2 id="privacy-now">{t('privacy.now')}</h2>
           {now}
+          {oauth}
           <p><a href="?view=agents" onClick={(e) => { e.preventDefault(); onAgents() }}>{t('privacy.manage')}</a></p>
         </section>
 
@@ -99,6 +109,7 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
             <li>{withCode(t('privacy.keysHidden'), { ai: 'ai: false' })}</li>
             <li>{t('privacy.keysWrite')}</li>
             <li>{withCode(t('privacy.keysVia'), { api: '/api/…', mcp: '/mcp' })}</li>
+            <li>{t('privacy.keysOauth')}</li>
             <li>{t('privacy.keysLeave')}</li>
             <li>{t('privacy.keysAsk')}</li>
             <li>{t('privacy.keysStored')}</li>

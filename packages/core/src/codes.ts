@@ -35,6 +35,8 @@ export type ErrorCode =
   | 'integrations_locked' // THOTH_INTEGRATIONS=off: the API and MCP switches can't be turned on
   | 'not_revertible' // a version that creates or deletes the note has no change of its text to revert
   | 'agent_denied' // an agent named a note that exists but isn't for agents (`ai: false`, or outside its key's folders)
+  | 'invalid_client' // an OAuth authorization request from a client this thoth doesn't know
+  | 'invalid_redirect_uri' // an OAuth authorization request whose redirect URI the client didn't register
 
 /**
  * Space-level alerts: what thoth has detected in the notes folder that needs

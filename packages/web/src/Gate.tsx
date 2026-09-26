@@ -71,7 +71,8 @@ export function Setup({ onDone }: { onDone: (u: User) => void }) {
   )
 }
 
-export function Login({ onDone, notice }: { onDone: (u: User) => void; notice?: string | null }) {
+/** `intro`: why signing in is asked for, when it isn't just to open thoth (an OAuth authorization). */
+export function Login({ onDone, notice, intro }: { onDone: (u: User) => void; notice?: string | null; intro?: string }) {
   const t = useT()
   const [error, setError] = useState<string | null>(notice ?? null)
   const [busy, setBusy] = useState(false)
@@ -94,6 +95,7 @@ export function Login({ onDone, notice }: { onDone: (u: User) => void; notice?: 
   return (
     <Frame>
       <h1>{t('login.title')}</h1>
+      {intro && <p>{intro}</p>}
       <Form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         <TextField className="field" name="username" isRequired autoComplete="username">
           <Label>{t('field.username')}</Label>
