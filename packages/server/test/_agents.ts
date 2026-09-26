@@ -2,7 +2,7 @@
 // leak tests): a small vault built for them, the history (managed, short
 // timings), the API with keys, and two users signed in: noa (admin) and
 // ana (member).
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, openIndex, openState, type Runtime } from '@thoth/server'
@@ -103,10 +103,12 @@ export async function setup(opts: AgentSetup = {}) {
     const s = q.toString()
     return s ? `${path}?${s}` : path
   }
+  /** Stops everything and removes the folder (a test run shouldn't leave its vault in /tmp). */
   const close = async () => {
     await history.close()
     index.close()
     state.close()
+    rmSync(dir, { recursive: true, force: true })
   }
   return { dir, notesDir, index, app, services, cookies, auth, keys, integrations, history, notes, indexer, runtime, workspace, users, clock, as, noa, ana: as('ana'), withKey, newKey, enableApi, settle, url, close }
 }

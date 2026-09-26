@@ -1,13 +1,19 @@
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ApiKeys, Auth, Integrations, LAST_USED_EVERY_MS, integrationsLockedFrom, keyIdOf, openState } from '@thoth/server'
 
+/** Each test's folder, removed at the end. */
+const dirs: string[] = []
+after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }) })
+
 async function setup() {
-  const state = openState(join(mkdtempSync(join(tmpdir(), 'thoth-keys-')), 'state.db'))
+  const dir = mkdtempSync(join(tmpdir(), 'thoth-keys-'))
+  dirs.push(dir)
+  const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
   const clock = { now: new Date('2026-09-26T10:00:00Z') }
   const keys = new ApiKeys(state, { now: () => clock.now })
