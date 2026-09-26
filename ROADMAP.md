@@ -98,9 +98,9 @@ the UI with its author.
 
 From the review after comparing M2 with other systems.
 
-- [ ] External changes in a row to a file are one version (30 s quiet, 5 min
+- [x] External changes in a row to a file are one version (30 s quiet, 5 min
       at most), closed by any thoth write, as typing is.
-- [ ] A long git outage never drops a version silently: past the queue's cap,
+- [x] A long git outage never drops a version silently: past the queue's cap,
       versions merge into the next one, with an alert.
 - [ ] `history.exclude` in `thoth.yaml`: patterns kept out of the history
       without hiding them from thoth.
