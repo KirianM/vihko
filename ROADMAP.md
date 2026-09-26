@@ -114,22 +114,25 @@ From the review after comparing M2 with other systems.
       ETag + `If-Match` → 412, `If-None-Match: *`. Off by default: the
       thoth admin turns it on, `THOTH_INTEGRATIONS=off` locks it off; only
       the routes classified for keys, through the single filtering point.
-      (The UI to manage keys comes with the rest of «Agents and API».)
-- [ ] Remote MCP: bearer token on the LAN, OAuth 2.1 when there is a public
-      URL; tools registered according to scopes.
-- [ ] Tools: `search`, `get_note`, `related`/backlinks, `resolve_link`,
+      Keys are managed in «Agents and API».
+- [x] Remote MCP: bearer token on the LAN, OAuth 2.1 when there is a public
+      URL (`THOTH_PUBLIC_URL`: dynamic registration, PKCE, consent in the UI,
+      the authorization as a revocable key); tools registered according to
+      scopes.
+- [x] Tools: `search`, `get_note`, `related`/backlinks, `resolve_link`,
       `create_note`, `edit_note` (flat operations with `if_match` and
       `dry_run`), `changes_since`, `move`, `delete` to trash, `daily_note`
       (today's note of the represented person, created if needed) and
       appending at the end or under a heading.
-- [ ] Revert this change: undo only what one version changed (an agent's),
+- [x] Revert this change: undo only what one version changed (an agent's),
       applied to the current text, keeping what was written after; what can't
       be reverted is reported. A content-only view of a version, to copy from.
 - [x] An alert when the API or MCP is on while the history is unmanaged
       (writes from thoth have no version of their own there), or off.
-- [ ] `ai: false` restriction enforced at the single filtering point.
-- [ ] Handshake tests with real MCP clients in CI.
-- [ ] Privacy page: what leaves, where to and when.
+- [x] `ai: false` restriction enforced at the single filtering point.
+- [x] Handshake tests with real MCP clients in CI (the SDK, MCP Inspector and
+      `mcp-remote`, with a key and with OAuth).
+- [x] Privacy page: what leaves, where to and when.
 
 **Done when:** an agent writes a plan, the user edits it in the UI and the
 agent sees those changes, with safeguards and everything in the history.

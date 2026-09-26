@@ -3,7 +3,11 @@
 // THOTH_INTEGRATIONS=off) and whether members may create keys; everyone's own
 // keys, created read-only and for every folder unless they say otherwise, the
 // key shown once with ready-made MCP configurations; and, for the admin,
-// everyone else's keys, which they may revoke.
+// everyone else's keys, which they may revoke. With a public URL
+// (THOTH_PUBLIC_URL), OAuth: where remote clients connect, the admin's switch
+// for their registration, and each authorization among the keys (named after
+// its client, with where it goes back to). And, in plain words, what an agent
+// knows of a note hidden from it.
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, Switch, Tab, TabList, TabPanel, Tabs, Text, TextField } from 'react-aria-components'
 import { ApiError, api, type Integrations, type KeyInfo, type KeyWithUser, type User } from './api.ts'
@@ -31,7 +35,7 @@ const viaLabel = (t: Translate, via: KeyInfo['lastVia']) => (via === 'mcp' ? t('
  * Every folder in the notes, those that only hold notes too, in tree order.
  * In NFC, as keys store them (a disk may hold NFD).
  */
-function allFolders(notes: { path: string }[], folders: string[]): string[] {
+export function allFolders(notes: { path: string }[], folders: string[]): string[] {
   const set = new Set<string>()
   const add = (raw: string) => {
     const f = raw.normalize('NFC')
@@ -55,7 +59,7 @@ function allFolders(notes: { path: string }[], folders: string[]): string[] {
 const within = (folder: string, chosen: readonly string[]) => chosen.some((c) => folder !== c && folder.startsWith(c + '/'))
 
 /** The folders a key reaches, chosen from the tree: every folder, or only some (with what's inside them). */
-function FolderPicker({ all, chosen, onChange }: { all: string[] | null; chosen: string[]; onChange: (f: string[]) => void }) {
+export function FolderPicker({ all, chosen, onChange }: { all: string[] | null; chosen: string[]; onChange: (f: string[]) => void }) {
   const t = useT()
   const [filter, setFilter] = useState('')
   if (all === null) return <p className="hint">{t('common.loading')}</p>
@@ -208,10 +212,12 @@ const mcpUrl = () => `${location.origin}/mcp`
 
 /**
  * Ready-made configurations for the key: Claude Code, Claude Desktop
- * (through mcp-remote, which it needs for a server with a header; on plain
- * http it has to be allowed), a generic `mcpServers` JSON and the HTTP API.
+ * (through mcp-remote, which it needs for a server with a header; the key
+ * goes in a file, `header`, whose path replaces `headerPath`, so it never
+ * shows in the process list, as mcp-remote advises; on plain http it has to
+ * be allowed), a generic `mcpServers` JSON and the HTTP API.
  */
-export function mcpConfigs(token: string, origin = location.origin) {
+export function mcpConfigs(token: string, origin = location.origin, headerPath = '/path/to/thoth-mcp.txt') {
   const url = `${origin}/mcp`
   const http = origin.startsWith('http:')
   const json = (v: unknown) => JSON.stringify(v, null, 2)
@@ -221,11 +227,11 @@ export function mcpConfigs(token: string, origin = location.origin) {
       mcpServers: {
         thoth: {
           command: 'npx',
-          args: ['-y', 'mcp-remote', url, '--header', 'Authorization:${THOTH_AUTH}', ...(http ? ['--allow-http'] : [])],
-          env: { THOTH_AUTH: `Bearer ${token}` },
+          args: ['-y', 'mcp-remote', url, '--header-file', headerPath, ...(http ? ['--allow-http'] : [])],
         },
       },
     }),
+    header: `Authorization: Bearer ${token}`,
     json: json({ mcpServers: { thoth: { type: 'http', url, headers: { Authorization: `Bearer ${token}` } } } }),
     api: `curl -H "Authorization: Bearer ${token}" ${origin}/api/tree`,
   }
@@ -236,7 +242,8 @@ type ConfigTab = 'code' | 'desktop' | 'json' | 'api'
 /** The new key, shown this once: copy it, or copy it into an MCP configuration. */
 function TokenDialog({ keyInfo, token, integrations, onClose }: { keyInfo: KeyInfo; token: string; integrations: Integrations | null; onClose: () => void }) {
   const t = useT()
-  const configs = useMemo(() => mcpConfigs(token), [token])
+  const headerPath = t('keys.headerPath')
+  const configs = useMemo(() => mcpConfigs(token, location.origin, headerPath), [token, headerPath])
   const [tab, setTab] = useState<ConfigTab>('code')
   const tabs: { id: ConfigTab; label: MessageKey; hint: MessageKey }[] = [
     { id: 'code', label: 'keys.cfgCode', hint: 'keys.cfgCodeHint' },
@@ -267,7 +274,11 @@ function TokenDialog({ keyInfo, token, integrations, onClose }: { keyInfo: KeyIn
             </TabList>
             {tabs.map((x) => (
               <TabPanel key={x.id} id={x.id} className="cfg-panel">
-                <p className="hint">{t(x.hint, { url: mcpUrl() })}</p>
+                <p className="hint">{t(x.hint, { url: mcpUrl(), path: headerPath })}</p>
+                {x.id === 'desktop' && (<>
+                  <pre className="cfg-block cfg-header" tabIndex={0} aria-label={t('keys.headerLabel')}>{configs.header}</pre>
+                  <CopyButton text={configs.header} label={t('keys.copyHeader')} />
+                </>)}
                 <pre className="cfg-block" tabIndex={0}>{configs[x.id]}</pre>
               </TabPanel>
             ))}
@@ -303,12 +314,12 @@ function RevokeDialog({ keyInfo, owner, onClose, onRevoked }: { keyInfo: KeyInfo
       <div className="dialog-fields">
         <Heading slot="title" className="dialog-title">{t('keys.revokeTitle', { name: keyInfo.name })}</Heading>
         {owner && <p className="dialog-text">{t('keys.revokeOwner', { user: owner })}</p>}
-        <p className="dialog-text">{t('keys.revokeBody')}</p>
+        <p className="dialog-text">{t(keyInfo.client ? 'keys.revokeOauthBody' : 'keys.revokeBody')}</p>
         {error && <p className="error-text" role="alert">{error}</p>}
       </div>
       <div className="dialog-actions">
         <Button className="btn" onPress={onClose} autoFocus>{t('common.cancel')}</Button>
-        <Button className="btn btn-danger" onPress={() => void revoke()} isDisabled={busy}>{t('keys.revokeConfirm')}</Button>
+        <Button className="btn btn-danger" onPress={() => void revoke()} isDisabled={busy}>{t(keyInfo.client ? 'keys.revokeConfirmOauth' : 'keys.revokeConfirm')}</Button>
       </div>
     </Dialog>
   )
@@ -326,6 +337,7 @@ function KeyCard({ k, owner, actions }: { k: KeyInfo; owner?: string; actions: R
         <Diamond />
         <h3 className="key-name">{k.name}</h3>
         {owner && <span className="key-owner">{t('keys.of', { user: owner })}</span>}
+        {k.client && <span className="key-badge" title={t('keys.oauthBadgeHint')}>{t('keys.oauthBadge')}</span>}
         <span className={`key-status key-status-${k.status}`}>{t(k.status === 'active' ? 'keys.active' : k.status === 'expired' ? 'keys.statusExpired' : 'keys.revoked')}</span>
       </div>
       <dl className="key-meta">
@@ -334,7 +346,9 @@ function KeyCard({ k, owner, actions }: { k: KeyInfo; owner?: string; actions: R
         {row('keys.expiry', expiry)}
         {row('keys.lastUsed', k.lastUsedAt ? t('keys.lastUsedAt', { date: dates.dateTime(k.lastUsedAt), via: viaLabel(t, k.lastVia) }) : t('keys.neverUsed'))}
         {k.revokedAt && row('keys.revokedAt', dates.dateTime(k.revokedAt))}
-        {row('keys.key', <span className="mono">thoth_…{k.last4}</span>)}
+        {k.client
+          ? row('keys.returnsTo', <span className="key-folders">{k.client.redirectUris.map((u) => <span key={u} className="mono">{u}</span>)}</span>)
+          : row('keys.key', <span className="mono">thoth_…{k.last4}</span>)}
       </dl>
       {actions && <div className="key-actions">{actions}</div>}
     </li>
@@ -433,6 +447,9 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
                 <Toggle label={t('agents.api')} hint={t('agents.apiHint')} value={integ.api && !integ.locked} disabled={integ.locked || saving} onChange={(v) => void change({ api: v })} />
                 <Toggle label={t('agents.mcp')} hint={t('agents.mcpHint', { url: mcpUrl() })} value={integ.mcp && !integ.locked} disabled={integ.locked || saving} onChange={(v) => void change({ mcp: v })} />
                 <Toggle label={t('agents.members')} hint={t('agents.membersHint')} value={integ.membersCanCreateKeys} disabled={saving} onChange={(v) => void change({ membersCanCreateKeys: v })} />
+                {integ.publicUrl && (
+                  <Toggle label={t('agents.oauthRegistration')} hint={t('agents.oauthRegistrationHint')} value={integ.oauthRegistration} disabled={saving} onChange={(v) => void change({ oauthRegistration: v })} />
+                )}
               </div>
             ) : (
               <p className="settings-state">
@@ -442,6 +459,20 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
             )}
           </>)}
         </section>
+
+        {integ && (integ.publicUrl || admin) && (
+          <section className="settings-section" aria-labelledby="agents-oauth">
+            <h2 id="agents-oauth">{t('agents.oauthTitle')}</h2>
+            {integ.publicUrl ? (<>
+              <p className="hint">{t('agents.oauthBody')}</p>
+              <div className="token-row">
+                <code className="token" aria-label={t('agents.oauthUrl')} tabIndex={0}>{`${integ.publicUrl}/mcp`}</code>
+                <CopyButton text={`${integ.publicUrl}/mcp`} label={t('keys.copy')} />
+              </div>
+              {(integ.locked || !integ.mcp) && <p className="hint">{t('agents.oauthNeedsMcp')}</p>}
+            </>) : <p className="hint">{t('agents.oauthNone')}</p>}
+          </section>
+        )}
 
         <section className="settings-section" aria-labelledby="agents-mine">
           <div className="settings-head">
@@ -465,6 +496,11 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
             {revoked(gone(others), theirs)}
           </section>
         )}
+
+        <section className="settings-section" aria-labelledby="agents-hidden">
+          <h2 id="agents-hidden">{t('agents.hiddenTitle')}</h2>
+          <p className="hint">{t('agents.hiddenBody')}</p>
+        </section>
       </div>
       <ModalOverlay className="modal-overlay" isOpen={open !== null} isDismissable={open?.kind !== 'token'} isKeyboardDismissDisabled={open?.kind === 'token'}
         onOpenChange={(o) => { if (!o) close() }}>

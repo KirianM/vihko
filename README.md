@@ -76,6 +76,7 @@ All optional:
 | `THOTH_MAX_IMAGE_MB` | `20` | Largest image stored from an upload, a paste or a URL |
 | `THOTH_EXTERNAL_IMAGES` | `allow` | `block` stops the browser loading images that notes link from other sites; a box with the domain is shown instead |
 | `THOTH_INTEGRATIONS` | unset | `off` keeps the API with keys and the MCP server off whatever the admin turns on in the UI |
+| `THOTH_PUBLIC_URL` | unset | The `https://` address thoth is reached at from outside, behind a reverse proxy (origin only). Turns on OAuth for the MCP server while it's on, for remote assistants such as claude.ai; see [Remote MCP](#remote-mcp-with-a-public-url-oauth) |
 
 ### Command line
 
@@ -121,6 +122,56 @@ to install thoth as an app: browsers only offer to install a web app served
 over HTTPS (or from `localhost`). Over plain HTTP the UI works the same in the
 browser, including on a phone, and a home-screen shortcut opens it in a
 browser tab. There is no offline mode either way.
+
+## Remote MCP with a public URL (OAuth)
+
+On your network, an agent connects to `http://<server>:8080/mcp` with a key
+made in Settings → Agents and API (it shows ready-made configurations for
+Claude Code, Claude Desktop and others). A remote assistant such as
+claude.ai (web, desktop or mobile) is different: it connects from its own
+servers, not from your computer, and signs in with OAuth instead of a key.
+For that, thoth needs a public HTTPS address:
+
+1. **Put thoth behind a reverse proxy with HTTPS**, on a name the internet can
+   reach. The whole application goes through it: the authorization page is
+   the UI, with its login. With [Caddy](https://caddyserver.com), which gets
+   the certificate and passes WebSockets and `X-Forwarded-Proto` on its own:
+
+   ```
+   notes.example.com {
+       reverse_proxy 127.0.0.1:8080
+   }
+   ```
+
+   With another proxy: keep the `Host` header, set `X-Forwarded-Proto: https`
+   (thoth marks its session cookie `Secure` from it), allow WebSocket upgrades
+   (`/collab`, the live editor) and keep request timeouts above 60 seconds
+   (`/mcp` may wait up to 30 seconds for a change).
+2. **Give thoth that address**: `THOTH_PUBLIC_URL=https://notes.example.com`
+   (the origin only, `https`), and restart it. In `compose.yaml`, under
+   `environment:`.
+3. **Turn on the MCP server**, as the thoth admin, in Settings → Agents and
+   API. OAuth only exists while both hold: without `THOTH_PUBLIC_URL`, or with
+   the MCP server off (or `THOTH_INTEGRATIONS=off`), every OAuth address
+   answers 404 and `/mcp` takes keys only.
+4. **Add it to claude.ai** as a custom connector (Settings → Connectors → Add
+   custom connector) with the URL `https://notes.example.com/mcp`. Claude
+   registers itself and sends you to thoth: sign in, check what it may do
+   (read-only and every folder unless you choose otherwise) and authorize it.
+   Other clients that speak MCP with OAuth, such as `mcp-remote`, work the
+   same way.
+
+The authorization is one more key in Agents and API, named after the app,
+used "via MCP (OAuth)" in the history and the editor: change what it may do
+there, or revoke it, which stops its tokens at once. Access tokens last an
+hour; refresh tokens change on every use and expire after 30 days unused.
+
+What a public address exposes, besides the UI and its login (use strong
+passwords): the OAuth metadata (`/.well-known/oauth-*`), client registration
+(`/oauth/register`), and the token and revocation endpoints. None of them
+gives access to any note without a person approving it. Registration is open
+by default, as claude.ai needs it; once your clients are connected, the thoth
+admin can turn it off in Agents and API, and those clients keep working.
 
 ## Workspace configuration: `thoth.yaml`
 

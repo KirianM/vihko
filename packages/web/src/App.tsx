@@ -1,9 +1,14 @@
-// UI boot: first start → login → application.
+// UI boot: first start → login → application. At /oauth/authorize, the
+// application is the OAuth consent page (Consent.tsx), after signing in.
 import { useEffect, useState } from 'react'
 import { ApiError, api, type User } from './api.ts'
 import { useT } from './i18n.tsx'
 import { Login, Setup } from './Gate.tsx'
 import { Shell } from './Shell.tsx'
+import { Consent } from './Consent.tsx'
+
+/** The OAuth authorization page: the server checked the request and serves the UI there. */
+const consent = location.pathname === '/oauth/authorize'
 
 type State =
   | { kind: 'loading' }
@@ -43,8 +48,9 @@ export function App() {
     case 'setup':
       return <Setup onDone={(user) => setState({ kind: 'app', user })} />
     case 'login':
-      return <Login notice={state.notice} onDone={(user) => setState({ kind: 'app', user })} />
+      return <Login notice={state.notice} intro={consent ? t('consent.signIn') : undefined} onDone={(user) => setState({ kind: 'app', user })} />
     case 'app':
+      if (consent) return <Consent user={state.user} onSignOut={() => { void api.logout().finally(() => setState({ kind: 'login', notice: null })) }} />
       return (
         <Shell
           user={state.user}

@@ -1,6 +1,6 @@
 // The integration switches (D-035.1): the HTTP API with keys and the MCP
-// server, off by default, and whether members may create their own keys (on
-// by default). They live in state.db and only the thoth admin changes them,
+// server, off by default, whether members may create their own keys and
+// whether OAuth clients may register themselves (both on by default). They live in state.db and only the thoth admin changes them,
 // from the UI; they apply at once. The server's administrator can lock them
 // all off with THOTH_INTEGRATIONS=off, whatever state.db says.
 import type { Db } from './db.ts'
@@ -12,6 +12,12 @@ export interface IntegrationSettings {
   mcp: boolean
   /** Members may create and change their own keys (an admin always can). */
   membersCanCreateKeys: boolean
+  /**
+   * OAuth clients may register themselves (RFC 7591), when OAuth exists at
+   * all (THOTH_PUBLIC_URL and the MCP server on; oauth.ts). On by default.
+   * Off, clients already registered keep working.
+   */
+  oauthRegistration: boolean
 }
 
 /** What the UI shows: the stored switches and whether the server locks them off. */
@@ -20,12 +26,13 @@ export interface IntegrationsView extends IntegrationSettings {
   locked: boolean
 }
 
-const DEFAULTS: IntegrationSettings = { api: false, mcp: false, membersCanCreateKeys: true }
+const DEFAULTS: IntegrationSettings = { api: false, mcp: false, membersCanCreateKeys: true, oauthRegistration: true }
 
 const KEYS: Record<keyof IntegrationSettings, string> = {
   api: 'integrations.api',
   mcp: 'integrations.mcp',
   membersCanCreateKeys: 'integrations.membersCanCreateKeys',
+  oauthRegistration: 'integrations.oauthRegistration',
 }
 
 export class IntegrationsError extends Error {

@@ -55,6 +55,9 @@ test('the admin turns on the API and the MCP server', async ({ browser }) => {
   await expect(apiSwitch).not.toBeChecked()
   // Where the MCP server answers, with this server's address.
   await expect(page.getByText(`${BASE_URL}/mcp`)).toBeVisible()
+  // What an agent knows of a note hidden from it, in plain words.
+  const hidden = page.locator('section', { has: page.getByRole('heading', { name: 'Notas ocultas a los agentes' }) })
+  await expect(hidden).toContainText('Solo sabe que una existe si ya tiene su nombre')
   await flip(page, 'Servidor MCP')
   await expect(mcp).toBeChecked()
   await flip(page, 'API HTTP con claves')
@@ -99,12 +102,16 @@ test('a read-only key for one folder: shown once, with its MCP configurations', 
   const block = shown.locator('.cfg-panel:not([hidden]) .cfg-block')
   await expect(block).toHaveText(`claude mcp add --transport http thoth ${BASE_URL}/mcp --header "Authorization: Bearer ${token}"`)
   await shown.getByRole('tab', { name: 'Claude Desktop' }).click()
-  const desktop = JSON.parse(await block.innerText())
+  // The key goes in a file (never in the process list): its line, to copy, and the configuration naming the file.
+  const desktop = JSON.parse(await shown.locator('.cfg-panel:not([hidden]) .cfg-block:not(.cfg-header)').innerText())
   expect(desktop.mcpServers.thoth).toEqual({
     command: 'npx',
-    args: ['-y', 'mcp-remote', `${BASE_URL}/mcp`, '--header', 'Authorization:${THOTH_AUTH}', '--allow-http'],
-    env: { THOTH_AUTH: `Bearer ${token}` },
+    args: ['-y', 'mcp-remote', `${BASE_URL}/mcp`, '--header-file', '/ruta/completa/a/thoth-mcp.txt', '--allow-http'],
   })
+  expect(JSON.stringify(desktop)).not.toContain(token)
+  await expect(shown.getByLabel('La línea del archivo')).toHaveText(`Authorization: Bearer ${token}`)
+  await shown.getByRole('button', { name: 'Copiar la línea del archivo' }).click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`Authorization: Bearer ${token}`)
   await shown.getByRole('tab', { name: 'JSON genérico' }).click()
   const generic = JSON.parse(await block.innerText())
   expect(generic.mcpServers.thoth).toEqual({ type: 'http', url: `${BASE_URL}/mcp`, headers: { Authorization: `Bearer ${token}` } })

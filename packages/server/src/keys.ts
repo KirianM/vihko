@@ -3,6 +3,8 @@
 // base64url) proves it. Only the secret's sha256 and its last 4 characters are
 // stored, compared in constant time; the key itself is shown once, when it is
 // created. A new key is read-only and reaches every folder its user sees.
+// An OAuth authorization (oauth.ts) is a key too, listed and revoked like the
+// others, which only its client's tokens reach.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { newUid } from '@thoth/core'
 import type { Db } from './db.ts'
@@ -36,10 +38,15 @@ export interface KeyInfo {
   /** How it was last used. */
   lastVia: Via | null
   revokedAt: string | null
-  /** The last 4 characters of the key, to tell keys apart. */
+  /** The last 4 characters of the key, to tell keys apart (empty for an OAuth authorization, which has no key to show). */
   last4: string
   /** `active`, or why it no longer works. */
   status: 'active' | 'expired' | 'revoked'
+  /**
+   * An OAuth authorization (oauth.ts): the client it was given to and where
+   * that client goes back to. Null for a key made in «Agents and API».
+   */
+  client: { id: string; redirectUris: string[] } | null
 }
 
 /** A key in the admin's list of everyone's keys: with its user. */
@@ -77,7 +84,13 @@ interface Row {
   last_used_at: string | null
   last_via: Via | null
   revoked_at: string | null
+  oauth_client: string | null
+  /** From oauth_clients, joined: the client's redirect URIs (JSON). */
+  redirect_uris?: string | null
 }
+
+/** A key's row joined with its OAuth client, if any. */
+const SELECT = 'select k.*, c.redirect_uris from api_keys k left join oauth_clients c on c.id = k.oauth_client'
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest()
 
@@ -113,14 +126,39 @@ export class ApiKeys {
     return { key: this.info(this.row(id)!), token }
   }
 
+  /**
+   * What a user grants an OAuth client (oauth.ts): a key of theirs named
+   * after the client, whose secret is random and never shown (only the
+   * client's tokens reach it). One per client and user: authorizing the same
+   * client again changes what that key may do, so the history keeps naming
+   * one author. Returns the key's id.
+   */
+  authorizeClient(userId: string, client: { id: string; name: string }, grant: { canWrite: boolean; folders: string[] }): string {
+    const folders = checkFolders(grant.folders) ?? []
+    const now = this.now().toISOString()
+    const current = this.db.prepare(`select id from api_keys where user_id = ? and oauth_client = ? and revoked_at is null
+      and (expires_at is null or expires_at > ?) order by created_at desc limit 1`).get(userId, client.id, now) as { id: string } | undefined
+    if (current) {
+      // Its name stays: the person may have renamed it in «Agents and API».
+      this.db.prepare('update api_keys set can_write = ?, folders = ? where id = ?').run(grant.canWrite ? 1 : 0, JSON.stringify(folders), current.id)
+      return current.id
+    }
+    const id = newUid()
+    this.db.prepare(`insert into api_keys (id, user_id, name, secret_hash, last4, can_write, folders, created_at, oauth_client)
+      values (?, ?, ?, ?, '', ?, ?, ?, ?)`)
+      .run(id, userId, client.name, sha256(randomBytes(32).toString('base64url')).toString('hex'), grant.canWrite ? 1 : 0, JSON.stringify(folders), now, client.id)
+    return id
+  }
+
   /** A user's keys, newest first (revoked ones too: the history still names them). */
   list(userId: string): KeyInfo[] {
-    return (this.db.prepare('select * from api_keys where user_id = ? order by created_at desc, id desc').all(userId) as Row[]).map((r) => this.info(r))
+    return (this.db.prepare(`${SELECT} where k.user_id = ? order by k.created_at desc, k.id desc`).all(userId) as Row[]).map((r) => this.info(r))
   }
 
   /** Everyone's keys, for the admin. */
   listAll(): KeyWithUser[] {
-    const rows = this.db.prepare(`select k.*, u.username from api_keys k join users u on u.id = k.user_id
+    const rows = this.db.prepare(`select k.*, c.redirect_uris, u.username from api_keys k join users u on u.id = k.user_id
+      left join oauth_clients c on c.id = k.oauth_client
       order by u.username, k.created_at desc, k.id desc`).all() as (Row & { username: string })[]
     return rows.map((r) => ({ ...this.info(r), user: { id: r.user_id, username: r.username } }))
   }
@@ -153,28 +191,46 @@ export class ApiKeys {
     return this.info(this.row(id)!)
   }
 
-  /** Revokes a key for good. Revoking it again changes nothing. */
+  /**
+   * Revokes a key for good. Revoking it again changes nothing. An OAuth
+   * authorization's tokens go with it.
+   */
   revoke(id: string): KeyInfo {
     const r = this.row(id)
     if (!r) throw new KeyError('not_found', `no key ${id}`)
-    if (!r.revoked_at) this.db.prepare('update api_keys set revoked_at = ? where id = ?').run(this.now().toISOString(), id)
+    this.db.transaction(() => {
+      if (!r.revoked_at) this.db.prepare('update api_keys set revoked_at = ? where id = ?').run(this.now().toISOString(), id)
+      this.db.prepare('delete from oauth_tokens where key_id = ?').run(id)
+    })()
     return this.info(this.row(id)!)
   }
 
   /**
    * The agent a key acts as, or null: not a key, unknown, wrong secret,
-   * revoked, expired, or its user disabled. Records when it was last used
-   * (at most every 5 minutes) and how (`via`).
+   * revoked, expired, its user disabled, or an OAuth authorization (only its
+   * tokens reach it). Records when it was last used (at most every 5
+   * minutes) and how (`via`).
    */
   authenticate(token: string, via: Via): AgentPrincipal | null {
     if (!VIAS.includes(via)) return null
     const m = KEY_FORMAT.exec(token)
-    const r = m ? this.db.prepare(`select k.*, u.username, u.role, u.disabled from api_keys k join users u on u.id = k.user_id where k.id = ?`)
-      .get(m[1]) as (Row & { username: string; role: Role; disabled: number }) | undefined : undefined
+    const r = m ? this.db.prepare('select secret_hash, oauth_client from api_keys where id = ?').get(m[1]) as Pick<Row, 'secret_hash' | 'oauth_client'> | undefined : undefined
     // Compared in constant time, and against a dummy when there's no such key.
     const expected = r ? Buffer.from(r.secret_hash, 'hex') : DUMMY
     const ok = timingSafeEqual(sha256(m?.[2] ?? ''), expected.length === 32 ? expected : DUMMY) && r !== undefined
-    if (!ok || !r) return null
+    if (!ok || !r || r.oauth_client !== null) return null
+    return this.principal(m![1]!, via)
+  }
+
+  /**
+   * The agent a key acts as, once whoever asks has proved they hold it (its
+   * secret, or an OAuth token for it); null if it's revoked, expired or its
+   * user disabled. Records when and how (`via`) it was last used.
+   */
+  principal(id: string, via: Via): AgentPrincipal | null {
+    const r = this.db.prepare('select k.*, u.username, u.role, u.disabled from api_keys k join users u on u.id = k.user_id where k.id = ?')
+      .get(id) as (Row & { username: string; role: Role; disabled: number }) | undefined
+    if (!r) return null
     const now = this.now()
     if (r.revoked_at || r.disabled || (r.expires_at && Date.parse(r.expires_at) <= now.getTime())) return null
     if (!r.last_used_at || now.getTime() - Date.parse(r.last_used_at) >= LAST_USED_EVERY_MS || r.last_via !== via) {
@@ -185,7 +241,7 @@ export class ApiKeys {
   }
 
   private row(id: string): Row | null {
-    return (this.db.prepare('select * from api_keys where id = ?').get(id) as Row | undefined) ?? null
+    return (this.db.prepare(`${SELECT} where k.id = ?`).get(id) as Row | undefined) ?? null
   }
 
   private info(r: Row): KeyInfo {
@@ -194,6 +250,7 @@ export class ApiKeys {
       id: r.id, userId: r.user_id, name: r.name, canWrite: !!r.can_write, folders: JSON.parse(r.folders) as string[],
       expiresAt: r.expires_at, createdAt: r.created_at, lastUsedAt: r.last_used_at, lastVia: r.last_via, revokedAt: r.revoked_at,
       last4: r.last4, status: r.revoked_at ? 'revoked' : expired ? 'expired' : 'active',
+      client: r.oauth_client ? { id: r.oauth_client, redirectUris: JSON.parse(r.redirect_uris ?? '[]') as string[] } : null,
     }
   }
 }
@@ -214,7 +271,7 @@ function checkBool(v: unknown, what: string): boolean | undefined {
 }
 
 /** Folders as the notes root names them: relative, no `..`, nothing hidden; stored in NFC, without repeats. */
-function checkFolders(v: unknown): string[] | undefined {
+export function checkFolders(v: unknown): string[] | undefined {
   if (v === undefined) return undefined
   if (!Array.isArray(v) || v.length > MAX_FOLDERS) throw new KeyError('invalid', `folders must be a list of at most ${MAX_FOLDERS} folders`)
   const out = new Set<string>()

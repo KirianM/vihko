@@ -39,6 +39,8 @@
 .key-card-revoked .key-name { color: var(--muted); text-decoration: line-through; }
 .key-card-revoked .diamond { background: var(--faint); }
 .key-owner { font-size: 13px; color: var(--muted); }
+/* An OAuth authorization, among the keys */
+.key-badge { font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
 .key-status { margin-left: auto; font-size: 12px; line-height: 18px; padding: 0 8px; border-radius: var(--radius-pill); white-space: nowrap; }
 .key-status-active { color: var(--ok); border: 1px solid var(--line); }
 .key-status-expired { background: var(--warn-soft); color: var(--warn-ink); }

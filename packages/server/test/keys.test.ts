@@ -37,7 +37,7 @@ test('a key: thoth_<id>_<secret>, shown once; only the sha256 of the secret and 
   // New keys: read-only, every folder, no expiry.
   assert.deepEqual({ ...key, id: '', createdAt: '' }, {
     id: '', userId: noa.id, name: 'Claude Code', canWrite: false, folders: [], expiresAt: null, createdAt: '',
-    lastUsedAt: null, lastVia: null, revokedAt: null, last4: token.slice(-4), status: 'active',
+    lastUsedAt: null, lastVia: null, revokedAt: null, last4: token.slice(-4), status: 'active', client: null,
   })
 })
 
@@ -114,20 +114,23 @@ test('the admin sees everyone\'s keys with their user; names stay for the histor
 test('integration switches: off by default, members may create keys; THOTH_INTEGRATIONS=off locks the API and MCP off', async () => {
   const { state } = await setup()
   const open = new Integrations(state)
-  assert.deepEqual(open.view(), { api: false, mcp: false, membersCanCreateKeys: true, locked: false })
+  assert.deepEqual(open.view(), { api: false, mcp: false, membersCanCreateKeys: true, oauthRegistration: true, locked: false })
   assert.deepEqual([open.apiEnabled(), open.mcpEnabled()], [false, false])
   open.set({ api: true, membersCanCreateKeys: false })
-  assert.deepEqual(open.view(), { api: true, mcp: false, membersCanCreateKeys: false, locked: false })
+  assert.deepEqual(open.view(), { api: true, mcp: false, membersCanCreateKeys: false, oauthRegistration: true, locked: false })
   assert.equal(open.apiEnabled(), true)
   assert.throws(() => open.set({ api: 'yes' as unknown as boolean }), { code: 'invalid' })
   assert.throws(() => open.set({ nope: true } as never), { code: 'invalid' })
 
   const locked = new Integrations(state, { locked: true })
-  assert.deepEqual(locked.view(), { api: true, mcp: false, membersCanCreateKeys: false, locked: true })
+  assert.deepEqual(locked.view(), { api: true, mcp: false, membersCanCreateKeys: false, oauthRegistration: true, locked: true })
   assert.equal(locked.apiEnabled(), false, 'whatever state.db says')
   assert.throws(() => locked.set({ mcp: true }), { code: 'integrations_locked' })
   assert.equal(locked.set({ api: false }).api, false, 'turning off is still stored')
   assert.equal(locked.set({ membersCanCreateKeys: true }).membersCanCreateKeys, true)
+  // OAuth registration is its own switch (it only matters while the MCP server is on).
+  assert.equal(locked.set({ oauthRegistration: false }).oauthRegistration, false)
+  assert.throws(() => open.set({ oauthRegistration: 'no' as unknown as boolean }), { code: 'invalid' })
 
   assert.equal(integrationsLockedFrom(undefined), false)
   assert.equal(integrationsLockedFrom(''), false)

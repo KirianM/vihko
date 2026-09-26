@@ -15,3 +15,7 @@ services:
       - ./state:/data/state
     # User that writes your notes (1000:1000 by default).
     # user: "1000:1000"
+    # environment:
+    #   # Only behind a reverse proxy with HTTPS: the public address, for remote
+    #   # MCP clients such as claude.ai (OAuth). See the README.
+    #   THOTH_PUBLIC_URL: https://notes.example.com

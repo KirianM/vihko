@@ -155,11 +155,20 @@ export interface Profile { timezone: string | null; dailySeries: string | null; 
 
 /**
  * The integration switches (D-035.1): the API with keys and the MCP server,
- * whether members may create keys, whether the server's administrator locks
- * the API and MCP off (THOTH_INTEGRATIONS=off), and whether this person may
- * create or change keys.
+ * whether members may create keys, whether OAuth clients may register
+ * themselves, whether the server's administrator locks the API and MCP off
+ * (THOTH_INTEGRATIONS=off), whether this person may create or change keys,
+ * and the public URL (THOTH_PUBLIC_URL) OAuth is offered at, if any.
  */
-export interface Integrations { api: boolean; mcp: boolean; membersCanCreateKeys: boolean; locked: boolean; canCreateKeys: boolean }
+export interface Integrations {
+  api: boolean
+  mcp: boolean
+  membersCanCreateKeys: boolean
+  oauthRegistration: boolean
+  locked: boolean
+  canCreateKeys: boolean
+  publicUrl: string | null
+}
 /** An agent key as its owner (or the admin) sees it: never the secret. `folders` empty = every folder. */
 export interface KeyInfo {
   id: string
@@ -174,11 +183,15 @@ export interface KeyInfo {
   revokedAt: string | null
   last4: string
   status: 'active' | 'expired' | 'revoked'
+  /** An OAuth authorization: the client it was given to and where it goes back to. Null for a key. */
+  client: { id: string; redirectUris: string[] } | null
 }
 /** In the admin's list of everyone's keys, each one with its user. */
 export interface KeyWithUser extends KeyInfo { user: { id: string; username: string } }
 /** What a key is created or changed with; `expiresAt: null` takes the expiry away. */
 export interface KeyInput { name?: string; canWrite?: boolean; folders?: string[]; expiresAt?: string | null }
+/** An OAuth client asking for access (the consent page): its name, where it goes back to, and whether this person may authorize it. */
+export interface OAuthRequest { client: { id: string; name: string; redirectUri: string }; canAuthorize: boolean }
 
 let config: Promise<ServerConfig> | null = null
 
@@ -241,7 +254,7 @@ export const api = {
   restore: (id: string) => request<{ path: string; etag: string }>('POST', `/api/trash/${encodeURIComponent(id)}/restore`),
   integrations: () => request<Integrations>('GET', '/api/integrations'),
   /** The thoth admin only; turning the API or MCP on while the server locks them gives `integrations_locked`. */
-  setIntegrations: (patch: Partial<Pick<Integrations, 'api' | 'mcp' | 'membersCanCreateKeys'>>) => request<Integrations>('PUT', '/api/admin/integrations', patch),
+  setIntegrations: (patch: Partial<Pick<Integrations, 'api' | 'mcp' | 'membersCanCreateKeys' | 'oauthRegistration'>>) => request<Integrations>('PUT', '/api/admin/integrations', patch),
   /** This person's keys, newest first (revoked ones too). */
   keys: () => request<{ keys: KeyInfo[] }>('GET', '/api/keys').then((r) => r.keys),
   /** Everyone's keys, with their user: the thoth admin only. */
@@ -251,4 +264,9 @@ export const api = {
   updateKey: (id: string, patch: KeyInput) => request<{ key: KeyInfo }>('PATCH', `/api/keys/${encodeURIComponent(id)}`, patch).then((r) => r.key),
   /** Its owner, or the thoth admin for anyone's. */
   revokeKey: (id: string) => request<{ key: KeyInfo }>('DELETE', `/api/keys/${encodeURIComponent(id)}`).then((r) => r.key),
+  /** The OAuth authorization request in `query` (the page's own query string, without `?`): who asks, and whether this person may say yes. */
+  oauthRequest: (query: string) => request<OAuthRequest>('GET', `/api/oauth/authorize?${query}`),
+  /** The person's answer: where the browser goes next (back to the client, with a code or `access_denied`). */
+  oauthDecide: (query: string, decision: { approve: boolean; canWrite?: boolean; folders?: string[] }) =>
+    request<{ redirect: string }>('POST', '/api/oauth/authorize', { query, ...decision }),
 }

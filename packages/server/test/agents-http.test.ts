@@ -69,7 +69,7 @@ test('THOTH_INTEGRATIONS=off: keys get 404 whatever state.db says, and the switc
   try {
     h.integrations.set({ api: false })
     const view = await h.noa('GET', '/api/integrations')
-    assert.deepEqual(view.body, { api: false, mcp: false, membersCanCreateKeys: true, locked: true, canCreateKeys: true })
+    assert.deepEqual(view.body, { api: false, mcp: false, membersCanCreateKeys: true, oauthRegistration: true, locked: true, canCreateKeys: true, publicUrl: null })
     const on = await h.noa('PUT', '/api/admin/integrations', { api: true })
     assert.deepEqual([on.status, on.body.error], [409, 'integrations_locked'])
     const { token } = await h.newKey({ name: 'x' })

@@ -17,6 +17,10 @@ export interface AgentSetup {
   /** Locked off by the server's administrator (THOTH_INTEGRATIONS=off). */
   locked?: boolean
   now?: Date
+  /** THOTH_PUBLIC_URL: with it, OAuth for the MCP server (while it's on). */
+  publicUrl?: string
+  /** A stand-in for the built UI (one index.html), for the pages the UI serves. */
+  ui?: boolean
 }
 
 export async function setup(opts: AgentSetup = {}) {
@@ -53,8 +57,14 @@ export async function setup(opts: AgentSetup = {}) {
   indexer.onApplied = (a) => history.recorder.observeIndexed(a)
   const notes = new NoteService({ notesDir, stateDir, indexer, db: index, history: history.recorder, attachments: () => workspace.config.attachments })
   const clock = { now: opts.now ?? new Date('2026-09-26T10:00:00Z') }
+  let webDir: string | undefined
+  if (opts.ui) {
+    webDir = join(dir, 'web')
+    mkdirSync(webDir)
+    writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
+  }
   const { app, services } = createServer({
-    auth, profiles, workspace, notes, index, indexer, notesDir, runtime, history, keys, integrations, now: () => clock.now,
+    auth, profiles, workspace, notes, index, indexer, notesDir, runtime, history, keys, integrations, now: () => clock.now, publicUrl: opts.publicUrl ?? null, webDir,
     routes: (a, s) => { mountMcp(a, s, { auth, workspace, pollMs: 25 }) },
   })
 

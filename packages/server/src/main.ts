@@ -21,6 +21,7 @@ import { ApiKeys } from './keys.ts'
 import { mountMcp } from './mcp/server.ts'
 import { Integrations, integrationsLockedFrom } from './integrations.ts'
 import { SESSION_COOKIE } from './http/app.ts'
+import { publicUrlFrom } from './oauth.ts'
 import type { Server } from 'node:http'
 import { WORKSPACE_FILE } from '@thoth/core'
 
@@ -48,6 +49,12 @@ export interface Config {
    * whatever the switches in the UI say (D-035.1).
    */
   integrationsLocked: boolean
+  /**
+   * THOTH_PUBLIC_URL: the HTTPS origin where thoth is reached from outside
+   * (behind a reverse proxy). With it, OAuth exists for the MCP server while
+   * the MCP switch is on (oauth.ts); without it, `/mcp` takes keys only.
+   */
+  publicUrl: string | null
 }
 
 export function configFromEnv(env = process.env): Config {
@@ -67,6 +74,7 @@ export function configFromEnv(env = process.env): Config {
       git: env.THOTH_GIT || 'git',
     },
     integrationsLocked: integrationsLockedFrom(env.THOTH_INTEGRATIONS),
+    publicUrl: publicUrlFrom(env.THOTH_PUBLIC_URL),
   }
 }
 
@@ -189,7 +197,7 @@ async function run(config: Config, lock: StateLock) {
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const profiles = new Profiles(state)
   const app = createApp({
-    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations,
+    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl,
     // The MCP server, at /mcp (off until the admin turns it on).
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log }) },
   })
@@ -199,6 +207,7 @@ async function run(config: Config, lock: StateLock) {
   if (!server.listening) await new Promise<void>((resolve, reject) => { server.once('listening', resolve); server.once('error', reject) })
   log(`listening on http://${config.host}:${config.port}`)
   if (config.integrationsLocked) log('THOTH_INTEGRATIONS=off: the API with keys and the MCP server stay off')
+  if (config.publicUrl) log(`public URL ${config.publicUrl}: OAuth for ${config.publicUrl}/mcp while the MCP server is on`)
 
   const setup = auth.setupToken()
   if (setup) {

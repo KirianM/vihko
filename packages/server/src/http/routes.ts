@@ -7,7 +7,7 @@
 // - `read`: any key.
 // - `write`: a key with `canWrite` (a read-only key gets 403).
 // - `session`: the UI only, with its cookie: administration, profile,
-//   session, keys, switches, alerts, trash, folders, move jobs…
+//   session, keys, switches, alerts, trash, folders, move jobs, OAuth consent…
 // - `public`: no session at all (health, first boot, login). Never with a key.
 
 export type RouteClass = 'read' | 'write' | 'session' | 'public'
@@ -70,6 +70,8 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'POST /api/keys': 'session',
   'PATCH /api/keys/:id': 'session',
   'DELETE /api/keys/:id': 'session',
+  'GET /api/oauth/authorize': 'session',
+  'POST /api/oauth/authorize': 'session',
 }
 
 /**
