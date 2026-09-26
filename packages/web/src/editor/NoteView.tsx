@@ -1,6 +1,6 @@
 // The open note: header (path, save state, presence, panel toggle, more
-// actions), the banner for a note deleted outside thoth, the editor and
-// the side panel.
+// actions), the banner for a note deleted outside thoth, the editor (or one
+// of its versions, from the history) and the side panel.
 import { startCompletion } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -25,6 +25,10 @@ import { NoteActions } from './NoteActions.tsx'
 import type { LinkInfo } from './livePreview.ts'
 import { NotePanel, PanelToggle, usePanel, type LinksData } from './NotePanel.tsx'
 import { usePresence } from './presence.ts'
+import type { HistoryStatus, RestoreReport } from '../history/api.ts'
+import { HistoryTab } from '../history/HistoryTab.tsx'
+import { useVersions } from '../history/ui.tsx'
+import { VersionView } from '../history/VersionView.tsx'
 
 function SaveStatus({ c }: { c: CollabState }) {
   const t = useT()
@@ -198,9 +202,16 @@ interface Props {
   onCreated: (path: string) => void
   /** One of an ambiguous link's candidates was chosen: open it and offer to pin the link there. */
   onPickCandidate: (offer: PinOffer) => void
+  /** The history's mode (null until known): the «History» tab is there unless it's off. */
+  history: HistoryStatus | null
+  /** The version shown instead of the editor (`?version=`), or null. */
+  version: string | null
+  onVersion: (id: string | null) => void
+  /** A version was restored: the notice, with what happened to its images. */
+  onRestored: (report: RestoreReport) => void
 }
 
-export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutside, onMoveStarted, onTrashed, templates, onCreated, onPickCandidate }: Props) {
+export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutside, onMoveStarted, onTrashed, templates, onCreated, onPickCandidate, history, version, onVersion, onRestored }: Props) {
   const t = useT()
   const c = useCollab(path)
   const [linkData, setLinkData] = useState<LinksData | null>(null)
@@ -269,6 +280,29 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
     if (c.trashed) onTrashed({ id: c.trashed.id, path, by: c.trashed.by === user.username ? null : c.trashed.by })
   }, [c.trashed]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // History: the note's versions, kept fresh while the tab or a version is on screen.
+  const historyOn = history !== null && history.mode !== 'off'
+  const versions = useVersions(historyOn || version !== null ? path : null, version !== null || (historyOn && panel.open && panel.tab === 'history'))
+  // Whatever is written into the note, by anyone, may open or extend a version.
+  const activity = versions.activity
+  useEffect(() => {
+    const doc = c.session?.doc
+    if (!doc) return
+    const on = () => activity()
+    doc.on('update', on)
+    return () => doc.off('update', on)
+  }, [c.session, activity])
+  const { setTab } = panel
+  // The tab goes away if thoth.yaml turns the history off; a version opened
+  // from a link or «Recent changes» shows the list alongside.
+  useEffect(() => { if (history?.mode === 'off' && panel.tab === 'history') setTab('comments') }, [history?.mode, panel.tab, setTab])
+  useEffect(() => { if (version !== null && historyOn) setTab('history') }, [version !== null, historyOn, setTab]) // eslint-disable-line react-hooks/exhaustive-deps
+  const openVersion = (id: string) => {
+    onVersion(id)
+    // Overlaid, the panel would cover the version.
+    if (panel.narrow) panel.setOpen(false)
+  }
+
   return (
     <>
       <header className="main-head">
@@ -287,17 +321,24 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
       <SetAsideBanner path={path} c={c} onCreated={onCreated} />
       <CreateLinkUi state={createLink} />
       <div className="note-body">
-        <div className="note">
+        <div className="note" hidden={version !== null}>
           {c.session && c.connection !== 'connecting' && config && (
             <Editor path={path} session={c.session} user={user} links={links} onNavigate={onNavigate} onView={setView} onComments={panel.showComments}
               externalImages={config.externalImages} onImageFiles={images.onFiles} onImageUrl={images.onUrl} onCreateLink={createLink.onCreateLink}
               onPickAmbiguous={openPicker} />
           )}
         </div>
+        {version !== null && (
+          // Not keyed by the version: going from one to another keeps «Compare with».
+          <VersionView path={path} id={version} store={versions} exists session={c.session} closeLabel={t('version.back')}
+            onClose={() => { onVersion(null); requestAnimationFrame(() => view?.focus()) }}
+            onRestored={(r) => { versions.refresh(); onRestored(r) }} />
+        )}
         <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} originals={originals} onNavigate={onNavigate}
-          onPickAmbiguous={openPicker} onOpenCandidate={openCandidate} />
+          onPickAmbiguous={openPicker} onOpenCandidate={openCandidate}
+          history={historyOn ? <HistoryTab store={versions} status={history} current={version} onOpen={openVersion} /> : null} />
       </div>
-      {mobile && !panel.open && <EditorBar view={view} c={c} onComment={() => panel.showComments(null)} onImage={images.openInsert} daily={daily ?? null} onNavigate={onNavigate} />}
+      {mobile && !panel.open && version === null && <EditorBar view={view} c={c} onComment={() => panel.showComments(null)} onImage={images.openInsert} daily={daily ?? null} onNavigate={onNavigate} />}
       <ImageInsertUi ins={images} />
       {picker && (
         <AmbiguousPicker source={path} state={picker} titles={linkData?.titles ?? {}} onClose={() => setPicker(null)}

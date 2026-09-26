@@ -21,6 +21,10 @@ import { FolderTree, ancestors, buildTree, type Node, type TreeAction } from './
 import { DeleteFolderDialog, FolderMoveDialog, NewFolderDialog } from './FolderDialogs.tsx'
 import { RenameDialog, TrashDialog } from './editor/NoteActions.tsx'
 import { TagsView } from './TagsView.tsx'
+import type { RestoreReport } from './history/api.ts'
+import { ChangesPage } from './history/Changes.tsx'
+import { HistoryIcon, RestoreToast, TimeZoneContext, useHistoryStatus, useVersions } from './history/ui.tsx'
+import { VersionView } from './history/VersionView.tsx'
 
 /** A dialog opened from the tree: its context menu or a drop. */
 type TreeDialog =
@@ -51,10 +55,26 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [folderIssue, setFolderIssue] = useState<FolderMoveReport | null>(null)
   const [alerts, setAlerts] = useState(0)
   const [openPath, setOpenPathState] = useState<string | null>(() => new URLSearchParams(location.search).get('note'))
-  // Views that aren't a note, in the URL as `?view=` (no router: this is the only one).
-  const [view, setView] = useState<'avisos' | null>(() => (new URLSearchParams(location.search).get('view') === 'avisos' ? 'avisos' : null))
-  const setOpenPath = (path: string | null) => { setView(null); setOpenPathState(path) }
-  const showAlerts = () => { setOpenPathState(null); setView('avisos') }
+  // Views that aren't a note, in the URL as `?view=` (no router).
+  const [view, setView] = useState<'avisos' | 'changes' | null>(() => {
+    const v = new URLSearchParams(location.search).get('view')
+    return v === 'avisos' || v === 'changes' ? v : null
+  })
+  /** A version of the open note shown instead of the editor (`?version=`, from the history). */
+  const [version, setVersion] = useState<string | null>(() => new URLSearchParams(location.search).get('version'))
+  const versionRef = useRef(version)
+  versionRef.current = version
+  const setOpenPath = (path: string | null) => { setView(null); setVersion(null); setOpenPathState(path) }
+  const openVersion = (path: string, id: string) => { setView(null); setOpenPathState(path); setVersion(id) }
+  const showAlerts = () => { setOpenPathState(null); setVersion(null); setView('avisos') }
+  const showChanges = () => { setOpenPathState(null); setVersion(null); setView('changes') }
+  const historyStatus = useHistoryStatus()
+  const historyOn = historyStatus !== null && historyStatus.mode !== 'off'
+  /** The note at `?note=` doesn't exist, but its version was asked for: shown on its own (restoring creates it again). */
+  const [missing, setMissing] = useState<string | null>(null)
+  const missingVersions = useVersions(missing, false)
+  const [restored, setRestored] = useState<{ seq: number; report: RestoreReport } | null>(null)
+  const restoredDone = (report: RestoreReport) => { setVersion(null); setRestored((r) => ({ seq: (r?.seq ?? 0) + 1, report })) }
   const [ready, setReady] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [trashed, setTrashed] = useState<Trashed | null>(null)
@@ -149,9 +169,11 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
 
   useEffect(() => {
     const url = new URL(location.href)
-    for (const [k, v] of [['note', openPath], ['view', view]] as const) v ? url.searchParams.set(k, v) : url.searchParams.delete(k)
+    for (const [k, v] of [['note', openPath], ['version', openPath && version], ['view', view]] as const) v ? url.searchParams.set(k, v) : url.searchParams.delete(k)
     history.replaceState(null, '', url)
-  }, [openPath, view])
+  }, [openPath, version, view])
+  // A version is a screen over its note: the back button goes back to the note.
+  useBackClose(openPath !== null && version !== null, () => setVersion(null))
 
   useEffect(() => {
     setReady(null)
@@ -163,8 +185,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setMoveIssue((m) => (m?.to === openPath ? m : null))
     setOutsideMove((m) => (m?.to === openPath ? m : null))
     setError(null)
+    setMissing(null)
     // Check that it exists before opening co-editing: the hub rejects notes that don't exist.
-    api.note(openPath).then(() => { setReady(openPath); rememberNote(openPath) }).catch(fail)
+    api.note(openPath).then(() => { setReady(openPath); rememberNote(openPath) }).catch((err) => {
+      if (versionRef.current && err instanceof ApiError && err.code === 'not_found') setMissing(openPath)
+      else fail(err)
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openPath])
 
@@ -312,6 +338,11 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       </TabPanel>
     </Tabs>
   )
+  const changesLink = historyOn && (
+    <a className="sidebar-link" href="?view=changes" aria-current={view === 'changes' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); setNavOpen(false); showChanges() }}>
+      {HistoryIcon.history}<span>{t('changes.link')}</span>
+    </a>
+  )
   const alertsLink = alerts > 0 && (
     <a className="sidebar-alerts" href="?view=avisos" aria-current={view === 'avisos' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); setNavOpen(false); showAlerts() }}>
       {Icon.alert}<span>{t('shell.alerts', { n: alerts })}</span>
@@ -329,6 +360,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   )
 
   return (
+    <TimeZoneContext.Provider value={profile?.timezone ?? browserTimeZone()}>
     <OpenPaletteContext.Provider value={() => setPalette('search')}>
     <OpenNavContext.Provider value={mobile ? () => setNavOpen(true) : null}>
     <div className="shell">
@@ -346,6 +378,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               <div className="drawer-foot">
                 <Button className="btn btn-primary btn-xl" onPress={pick(() => setPalette('create'))}>{t('shell.newNote')}</Button>
                 {dailyOn && <Button className="btn btn-xl" onPress={pick(() => void openToday())}>{Icon.calendar}{t('shell.today')}</Button>}
+                {changesLink}
                 {alertsLink}
               </div>
               {userRow}
@@ -364,6 +397,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             {Icon.search}<span>{t('shell.search')}</span><kbd>⌘K</kbd>
           </Button>
           {treeView}
+          {changesLink}
           {alertsLink}
           {userRow}
         </nav>
@@ -375,6 +409,21 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             onChanged={(n) => { setAlerts(n); void loadTree() }}
             onUnauthorized={onUnauthorized}
           />
+        ) : view === 'changes' ? (
+          <ChangesPage status={historyStatus} notes={notes} onOpenVersion={openVersion} onUnauthorized={onUnauthorized} />
+        ) : openPath && version && missing === openPath ? (
+          <>
+            <header className="main-head">
+              <MenuButton />
+              <Crumbs path={openPath} />
+              <span className="spacer" />
+              <SearchButton />
+              <ThemeToggle />
+            </header>
+            <VersionView key={version} path={openPath} id={version} store={missingVersions} exists={false} closeLabel={t('version.close')}
+              onClose={showChanges}
+              onRestored={(report) => { restoredDone(report); setMissing(null); setReady(openPath); rememberNote(openPath); void loadTree() }} />
+          </>
         ) : openPath && ready === openPath ? (
           <Suspense fallback={<div className="empty">{t('common.loading')}</div>}>
             <NoteView
@@ -390,6 +439,10 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               templates={templates}
               onCreated={created}
               onPickCandidate={(offer) => { setPinOffer(offer); setOpenPath(offer.target) }}
+              history={historyStatus}
+              version={version}
+              onVersion={setVersion}
+              onRestored={restoredDone}
             />
           </Suspense>
         ) : (
@@ -440,6 +493,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         {pinOffer && pinOffer.target === openPath && (
           <PinOfferToast key={`${pinOffer.source}#${pinOffer.raw}#${pinOffer.target}`} offer={pinOffer} onDismiss={() => setPinOffer(null)} />
         )}
+        {restored && <RestoreToast key={restored.seq} report={restored.report} onDismiss={() => setRestored(null)} />}
         {trashed && (
           <TrashToast
             key={trashed.id}
@@ -501,5 +555,6 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     </div>
     </OpenNavContext.Provider>
     </OpenPaletteContext.Provider>
+    </TimeZoneContext.Provider>
   )
 }
