@@ -259,6 +259,17 @@ export class Access {
     return this.inScope(path) ? 'ai_false' : 'outside_key_folders'
   }
 
+  /**
+   * Why a note's text hides it from every agent, whoever asks (the UI shows
+   * it): `ai` (`ai: false`, or any doubt), `frontmatter` (it can't be read),
+   * or null.
+   */
+  agentHiding(text: string): 'ai' | 'frontmatter' | null {
+    const fm = readFrontmatter(text)
+    if (fm.error) return 'frontmatter'
+    return hiddenFromAgents(fm, this.policy.aiKey) ? 'ai' : null
+  }
+
   /** Unless it may read `path`: `agent_denied` for a note that exists and is hidden from it, `not_found` otherwise. */
   assertRead(path: string): void {
     if (this.canRead(path)) return

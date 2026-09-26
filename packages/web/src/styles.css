@@ -180,11 +180,23 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .status-warn { color: var(--warn-strong); }
 .presence { display: flex; align-items: center; }
 .avatar-stack { width: 30px; height: 30px; border: 2px solid var(--bg); }
+/* A note hidden from agents (ai: false): discreet, next to its name; why on hover, focus or press */
+.ai-hidden { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; flex-shrink: 0; border: 1px solid var(--line); border-radius: var(--radius-pill); background: transparent; color: var(--muted); font: inherit; font-size: 12px; white-space: nowrap; cursor: help; outline: none; }
+.ai-hidden[data-hovered], .ai-hidden[data-pressed] { color: var(--ink-2); border-color: var(--line-strong); }
+.ai-hidden[data-focus-visible] { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ai-tip { max-width: min(320px, calc(100vw - 2 * var(--space-4))); padding: var(--space-2) var(--space-3); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-md); color: var(--ink); font-size: 13px; line-height: 1.45; }
+.ai-tip-dialog { outline: none; }
 /* Previous / next note of a daily-note series, next to the note name */
 .daily-nav { display: inline-flex; gap: 2px; flex-shrink: 0; }
 .daily-nav .btn-icon { border-color: transparent; color: var(--muted); }
 .daily-nav .btn-icon[data-disabled] { opacity: 0.35; }
 .avatar-stack + .avatar-stack { margin-left: -8px; }
+/* An agent: a diamond in accent, never a circle nor colour alone (ui.tsx Diamond) */
+.diamond { display: inline-block; width: 8px; height: 8px; flex-shrink: 0; background: var(--accent); transform: rotate(45deg); }
+/* An agent in the note: a pill with the diamond and who it acts for */
+.agent-pill { display: inline-flex; align-items: center; gap: 6px; height: 30px; min-width: 0; max-width: 260px; padding: 0 12px; margin-left: var(--space-2); border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-strong); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.agent-pill-text { overflow: hidden; text-overflow: ellipsis; }
+.presence-agents { display: inline-flex; align-items: center; }
 
 /* Notice for a note deleted from outside thoth */
 .banner { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; padding: 14px 28px; background: var(--warn-soft-2); border-bottom: 1px solid var(--warn-line); color: var(--warn-ink); }
@@ -303,6 +315,11 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
   .main-head .crumbs-sep { display: none; }
   .main-head .crumbs b { font-size: 15px; line-height: 20px; font-weight: 600; }
   .main-head .presence { margin: 0 var(--space-1); }
+  /* An agent is the diamond alone: the note's name keeps the room. Its name stays for screen readers and on hover. */
+  .agent-pill { width: 40px; padding: 0; justify-content: center; margin-left: var(--space-1); }
+  .ai-hidden { width: var(--touch); height: var(--touch); justify-content: center; padding: 0; border: none; }
+  .ai-hidden-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .agent-pill-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .main-head .btn-icon { border: none; }
   .palette-overlay { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
   /* Full-screen palette (mobile search) */

@@ -159,10 +159,15 @@ export class ScopedNotes {
 
   // --- Reading ----------------------------------------------------------------
 
-  read(path: string): NoteRead & { meta: unknown } {
+  /**
+   * The note, with what the index knows of it and whether its text hides it
+   * from agents (`hiddenFromAgents`, access.ts: null for any note an agent
+   * reads, since it can't read the others).
+   */
+  read(path: string): NoteRead & { meta: unknown; hiddenFromAgents: 'ai' | 'frontmatter' | null } {
     const r = this.visible(path)
     const meta = this.deps.index.prepare('select title, uid, fm_error from notes where path = ?').get(r.path) ?? null
-    return { ...r, meta }
+    return { ...r, meta, hiddenFromAgents: this.access.agentHiding(r.text) }
   }
 
   /**
