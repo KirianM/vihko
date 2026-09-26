@@ -16,17 +16,14 @@
 //
 // Pure module (no DOM, no CodeMirror): tested by the Node test runner. Whoever
 // uses it applies the changes it returns to the session's Y.Text. Reading the
-// threads is shared with the indexer (@thoth/core/comments).
-import { parseComments, parseThreads, type Thread } from '@thoth/core/comments'
+// threads, resolving and reopening are shared with the indexer and the history
+// (@thoth/core/comments).
+import { parseComments, parseThreads, type Change, type Thread } from '@thoth/core/comments'
 
-export { anchorChanged, parseComments, parseThreads, type Comment, type Thread } from '@thoth/core/comments'
-
-/** Change to the text: delete [from, to) and insert `insert`. */
-export interface Change {
-  from: number
-  to: number
-  insert: string
-}
+export {
+  anchorChanged, commentKey, parseComments, parseThreads, removedThread, reopener, resolveThread,
+  type Change, type Comment, type RemovedThread, type Thread,
+} from '@thoth/core/comments'
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -106,16 +103,4 @@ export function replyTo(doc: string, thread: Thread, author: string, date: Date,
   const nextBlank = lineEnd >= doc.length || doc.slice(lineEnd + 1, nextEnd).trim() === ''
   if (restBlank && nextBlank) return { from: lineEnd, to: lineEnd, insert: '\n' + comment }
   return { from: thread.to, to: thread.to, insert: comment }
-}
-
-/** Resolving deletes the thread. If it took up the whole line, the line goes too. */
-export function resolveThread(doc: string, thread: Thread): Change {
-  const lineStart = doc.lastIndexOf('\n', thread.from - 1) + 1
-  const lineEnd = doc.indexOf('\n', thread.to) === -1 ? doc.length : doc.indexOf('\n', thread.to)
-  if (doc.slice(lineStart, thread.from).trim() === '' && doc.slice(thread.to, lineEnd).trim() === '') {
-    if (lineEnd < doc.length) return { from: lineStart, to: lineEnd + 1, insert: '' }
-    if (lineStart > 0) return { from: lineStart - 1, to: lineEnd, insert: '' }
-    return { from: lineStart, to: lineEnd, insert: '' }
-  }
-  return { from: thread.from, to: thread.to, insert: '' }
 }

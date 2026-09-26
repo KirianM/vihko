@@ -24,4 +24,7 @@ export {
 } from './workspace.ts'
 export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'
 export { DEFAULT_HISTORY_MAX_FILE_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode } from './workspace.ts'
-export { anchorChanged, normalizeAnchor, parseComments, parseThreads, type Comment, type Thread } from './comments.ts'
+export {
+  anchorChanged, commentKey, goneThreads, normalizeAnchor, parseComments, parseThreads, removedThread, reopener, resolveThread,
+  type Change, type Comment, type RemovedThread, type Thread,
+} from './comments.ts'

@@ -13,9 +13,10 @@ import { useT } from '../i18n.tsx'
 import { useTheme } from '../theme.ts'
 import { baseHue, userColor } from '../userColor.ts'
 import type { Session } from './collab.ts'
-import { anchorChanged, displayDate, formatComment, parseThreads, commentPosition, replyTo, resolveThread, type Change, type Thread } from './comments.ts'
+import { anchorChanged, commentKey, displayDate, formatComment, parseThreads, commentPosition, removedThread, replyTo, resolveThread, type Change, type Thread } from './comments.ts'
 import { setCommentStyle, threadsField } from './commentMarks.ts'
 import { usePresence } from './presence.ts'
+import { ResolvedSection, useHistoryState, useResolved } from './ResolvedThreads.tsx'
 import { useViewState } from './viewUpdates.ts'
 import { useBackClose } from '../mobile.ts'
 import type { AmbiguousLink } from './AmbiguousPicker.tsx'
@@ -184,19 +185,20 @@ function Composer({ label, submit, onSend, onCancel }: { label: string; submit: 
   )
 }
 
-function ThreadCard({ tv, original, active, color, onSelect, onReply, onResolve }: {
+function ThreadCard({ tv, original, active, color, confirm, onSelect, onReply, onResolve }: {
   tv: ThreadView
   /** The commented text as the index first saw it, when it differs from the text now. */
   original: string | null
   active: boolean
   color: (author: string) => string
+  /** What to ask before resolving; null: nothing (the history keeps it, D-032.5). */
+  confirm: string | null
   onSelect: () => void
   onReply: (text: string) => void
   onResolve: () => void
 }) {
   const t = useT()
   const [replying, setReplying] = useState(false)
-  // Resolving deletes the thread from the note, and until there is history (M2) nothing brings it back: asked first.
   const [confirming, setConfirming] = useState(false)
   const { thread, quote } = tv
   return (
@@ -219,9 +221,9 @@ function ThreadCard({ tv, original, active, color, onSelect, onReply, onResolve 
       ))}
       {replying ? (
         <Composer label={t('comments.replyPlaceholder')} submit={t('comments.reply')} onSend={(text) => { onReply(text); setReplying(false) }} onCancel={() => setReplying(false)} />
-      ) : confirming ? (
+      ) : confirming && confirm !== null ? (
         <div className="thread-confirm" role="group" aria-label={t('comments.resolve')}>
-          <p>{t('comments.resolveConfirm')}</p>
+          <p>{confirm}</p>
           <div className="thread-actions">
             <Button className="btn btn-sm" autoFocus onPress={() => setConfirming(false)}>{t('common.cancel')}</Button>
             <Button className="btn btn-sm btn-danger" onPress={() => { setConfirming(false); onResolve() }}>{t('comments.resolveYes')}</Button>
@@ -230,7 +232,7 @@ function ThreadCard({ tv, original, active, color, onSelect, onReply, onResolve 
       ) : (
         <div className="thread-actions">
           <Button className="btn btn-sm" onPress={() => setReplying(true)}>{t('comments.reply')}</Button>
-          <Button className="btn btn-sm" onPress={() => setConfirming(true)}>{t('comments.resolve')}</Button>
+          <Button className="btn btn-sm" onPress={() => (confirm === null ? onResolve() : setConfirming(true))}>{t('comments.resolve')}</Button>
         </div>
       )}
     </article>
@@ -259,6 +261,16 @@ function CommentsTab({ view, session, user, originals, request, done }: {
   const [picked, setPicked] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const list = useRef<HTMLDivElement>(null)
+
+  // With history, resolving can be undone from «Resolved» (D-032.5): managed,
+  // no need to ask; unmanaged, only what reaches a commit; off or unavailable, asked as before.
+  const history = useHistoryState(session.path)
+  const mode = history?.available ? history.mode : 'off'
+  const confirm = mode === 'managed' ? null : mode === 'unmanaged' ? t('comments.resolved.confirmUnmanaged') : t('comments.resolveConfirm')
+  const live = useMemo(() => threads.map((tv) => tv.thread), [threads])
+  const resolved = useResolved(session, live, history !== null && history.mode !== 'off')
+  // A thread reopened from «Resolved» becomes the active one once it is back in the text.
+  const [reopened, setReopened] = useState<string | null>(null)
 
   // Active thread: the one picked in the panel or, failing that, the one whose text holds the cursor.
   const underCursor = threads.find(({ thread: th }) => head >= Math.min(th.anchorFrom, th.from) && head <= th.to)?.thread.id ?? null
@@ -312,13 +324,30 @@ function CommentsTab({ view, session, user, originals, request, done }: {
   }
   const resolve = (id: string) => {
     const c = current(id)
-    if (c) apply(session, resolveThread(c.doc, c.th))
+    if (c) {
+      // Listed at once as resolved by you; the history lists it once the text is saved.
+      if (mode === 'managed') {
+        resolved.add({ ...removedThread(c.doc, c.th), resolvedAt: new Date().toISOString(), resolvedBy: [{ kind: 'user', id: user.id, name: user.username }], version: null, reopenable: true })
+      }
+      apply(session, resolveThread(c.doc, c.th))
+    }
     if (picked === id) setPicked(null)
   }
   const select = (th: Thread) => {
     setPicked(th.id)
     if (view) scrollTo(view, th.anchorTo > th.anchorFrom ? th.anchorFrom : th.from, false)
   }
+
+  useEffect(() => {
+    if (!reopened) return
+    const back = threads.find((tv) => commentKey(tv.thread.comments[0]!) === reopened)
+    if (!back) return
+    setReopened(null)
+    select(back.thread)
+    list.current?.querySelector(`[data-thread="${CSS.escape(back.thread.id)}"]`)?.scrollIntoView({ block: 'nearest' })
+    // Only when the reopened thread shows up.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threads, reopened])
 
   return (
     <div className="panel-scroll" ref={list}>
@@ -338,12 +367,14 @@ function CommentsTab({ view, session, user, originals, request, done }: {
           original={changedFrom(tv)}
           active={tv.thread.id === active}
           color={color}
+          confirm={confirm}
           onSelect={() => select(tv.thread)}
           onReply={(text) => reply(tv.thread.id, text)}
           onResolve={() => resolve(tv.thread.id)}
         />
       ))}
-      <p className="panel-note">{t('comments.note')}</p>
+      <ResolvedSection items={resolved.list} view={view} session={session} color={color} onReopened={setReopened} />
+      <p className="panel-note">{t(mode === 'managed' ? 'comments.resolved.noteManaged' : mode === 'unmanaged' ? 'comments.resolved.noteUnmanaged' : 'comments.note')}</p>
     </div>
   )
 }
