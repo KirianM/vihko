@@ -23,8 +23,8 @@ export interface HistoryAuthor {
 }
 
 /**
- * Why the system made a change (or, for `restored` and `trash_restored`, why
- * a person did). `by` is who asked for the operation; unknown codes are shown
+ * Why the system made a change (or, for `restored`, `trash_restored` and
+ * `reverted`, why a person did). `by` is who asked for the operation; unknown codes are shown
  * as a plain system change.
  */
 export interface Reason {
@@ -76,6 +76,21 @@ export interface RestoreReport {
   images: { restored: string[]; missing: { path: string; reason: 'not_in_history' | 'exists' }[] }
 }
 
+/** A piece that is undone: `removed` (what the version wrote) goes and `restored` comes back, with a bit of the note around it. */
+export interface RevertedPiece { before: string; removed: string; restored: string; after: string }
+/** A piece left as it is because it was changed after the version: what the version wrote, what was there before, what is there now. */
+export interface SkippedPiece { before: string; version: string; previous: string; current: string; after: string }
+/** What reverting a version's change does (`dryRun`) or did. The lists hold the first pieces; `counts`, all of them. */
+export interface RevertReport {
+  dryRun: boolean
+  changed: boolean
+  etag: string
+  reverted: RevertedPiece[]
+  skipped: SkippedPiece[]
+  /** `already`: pieces the note already has as they were before the version. */
+  counts: { reverted: number; skipped: number; already: number }
+}
+
 export interface ChangeFile { path: string; change: ChangeKind; from?: string; added: number; removed: number }
 export interface Change {
   id: string
@@ -105,6 +120,8 @@ export const historyApi = {
   version: (path: string, id: string) =>
     request<{ path: string; id: string; at: string; text: string | null }>('GET', `/api/history/version?${query({ path, id })}`),
   restore: (path: string, id: string) => request<RestoreReport>('POST', '/api/history/restore', { path, id }),
+  revert: (path: string, id: string, opts: { dryRun?: boolean } = {}) =>
+    request<RevertReport>('POST', '/api/history/revert', { path, id, dryRun: opts.dryRun === true }),
   changes: (opts: { cursor?: string | null; author?: string | null } = {}) =>
     request<ChangesPage>('GET', `/api/history/changes?${query({ cursor: opts.cursor, author: opts.author })}`, undefined, {}, AbortSignal.timeout(POLL_TIMEOUT)),
 }

@@ -1,14 +1,14 @@
 // Shared pieces of the history screens: the person's timezone, the history
 // status, a note's versions (kept fresh while they're on screen), authors
-// (always with an icon and text, never by colour alone) and the notice after
-// restoring a version.
+// (always with an icon and text, never by colour alone) and the notices after
+// restoring a version or reverting a change.
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useSyncExternalStore, type ReactNode } from 'react'
 import { Button } from 'react-aria-components'
 import { useLang, useT } from '../i18n.tsx'
 import { useTheme } from '../theme.ts'
 import { Icon, Mark } from '../ui.tsx'
 import { baseHue, userColor } from '../userColor.ts'
-import { historyApi, type HistoryAuthor, type HistoryStatus, type Pending, type Reason, type RestoreReport, type Version } from './api.ts'
+import { historyApi, type HistoryAuthor, type HistoryStatus, type Pending, type Reason, type RestoreReport, type RevertReport, type Version } from './api.ts'
 import { dateTimeOf, dayKey, dayLabel, groupByDay, reasonText, safeZone, timeOf } from './format.ts'
 import '../actions.css'
 import './history.css'
@@ -286,7 +286,33 @@ export function RestoreToast({ report, onDismiss }: { report: RestoreReport; onD
     gone && t('version.imagesNotInHistory', { images: gone }),
     taken && t('version.imagesExist', { images: taken }),
   ].filter(Boolean).join(' ')
-  // A plain «done» goes away on its own; one that tells about images waits to be read.
+  // One that tells about images waits to be read.
+  return <Toast text={text} warn={warn} onDismiss={onDismiss} />
+}
+
+/** A piece of a note on one line, not too long, for a sentence. */
+export function snippet(text: string, max = 48): string {
+  const one = text.replace(/\s+/g, ' ').trim()
+  return one.length <= max ? one : `${one.slice(0, max - 1)}…`
+}
+
+/** «Change reverted», and the pieces that weren't undone because they were changed afterwards. */
+export function RevertToast({ report, onDismiss }: { report: RevertReport; onDismiss: () => void }) {
+  const t = useT()
+  const n = report.counts.skipped
+  const texts = report.skipped.slice(0, 3).map((s) => t('version.quote', { text: snippet(s.current || s.previous || s.version) })).join(', ') + (n > 3 ? ', …' : '')
+  const warn = n > 0 || !report.changed
+  const text = [
+    t(report.changed ? 'version.reverted' : 'version.revertedNothing'),
+    n === 1 && t('version.revertedSkippedOne', { texts }),
+    n > 1 && t('version.revertedSkipped', { n, texts }),
+  ].filter(Boolean).join(' ')
+  return <Toast text={text} warn={warn} onDismiss={onDismiss} />
+}
+
+/** A notice at the bottom: a plain «done» goes away on its own; one with a warning waits to be read. */
+function Toast({ text, warn, onDismiss }: { text: string; warn: boolean; onDismiss: () => void }) {
+  const t = useT()
   const dismiss = useRef(onDismiss)
   dismiss.current = onDismiss
   useEffect(() => {
