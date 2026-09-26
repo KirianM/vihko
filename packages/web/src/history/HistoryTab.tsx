@@ -14,7 +14,6 @@ export function HistoryNotice({ status }: { status: HistoryStatus }) {
   if (status.mode === 'unmanaged' && status.available) return <p className="h-note">{t('history.unmanagedNote')}</p>
   if (status.available) return null
   if (code === 'history_no_repository') return <p className="h-problem" role="status">{t('history.noRepository')}</p>
-  if (code === 'history_unmanaged_unavailable') return <p className="h-problem" role="status">{t('history.unmanagedUnavailable')}</p>
   if (status.mode === 'managed') return <p className="h-problem" role="status">{t('history.notRecording')}</p>
   return <p className="h-problem" role="status">{t('history.unavailable')}</p>
 }
