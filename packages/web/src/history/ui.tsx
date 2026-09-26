@@ -252,17 +252,22 @@ export function Authors({ authors, reason, foundAtStartup }: { authors: readonly
   )
 }
 
-/** `+12 −3`, read out as words by screen readers; nothing when neither changed. */
+/**
+ * `+12 −3`: words and punctuation marks added and removed (spaces don't
+ * count). Said in full to screen readers and as a tooltip on the numbers;
+ * nothing when neither changed.
+ */
 export function Counts({ added, removed }: { added: number; removed: number }) {
   const t = useT()
   if (!added && !removed) return null
+  const said = t(!removed ? 'history.countsAdded' : !added ? 'history.countsRemoved' : 'history.counts', { added, removed })
   return (
     <span className="h-counts">
-      <span aria-hidden="true">
+      <span aria-hidden="true" title={said}>
         {added > 0 && <span className="h-add">+{added}</span>}
         {removed > 0 && <span className="h-del">−{removed}</span>}
       </span>
-      <span className="visually-hidden">{t(!removed ? 'history.countsAdded' : !added ? 'history.countsRemoved' : 'history.counts', { added, removed })}</span>
+      <span className="visually-hidden">{said}</span>
     </span>
   )
 }

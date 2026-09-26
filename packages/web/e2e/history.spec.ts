@@ -80,7 +80,9 @@ test('typing in the editor: «In progress», then a version by whoever typed it'
   // The person's dot and name, and what the version added.
   await expect(mine.locator('.h-dot')).toBeVisible()
   await expect(mine.locator('.h-add')).toHaveText(/^\+\d+$/)
-  await expect(mine).toHaveAccessibleName(/palabras añadidas/)
+  // What +N counts, said in full: to screen readers and as a tooltip on the numbers.
+  await expect(mine).toHaveAccessibleName(/\d+ palabras y signos añadidos/)
+  await expect(mine.locator('.h-counts > [aria-hidden]')).toHaveAttribute('title', /^\d+ palabras y signos añadidos/)
 })
 
 test('a change made with another editor shows up as «Outside thoth»', async () => {
