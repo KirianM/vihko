@@ -1,0 +1,121 @@
+/* History: the panel tab, a version with its diff and «Recent changes».
+   Design system tokens only; the soft backgrounds of the diff are the
+   state tokens mixed with transparency. */
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* --- Authors: a shape and words for each, never colour alone ----------------- */
+.h-authors { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 2px var(--space-3); min-width: 0; }
+.h-author { display: inline-flex; align-items: flex-start; gap: 6px; min-width: 0; color: var(--ink); overflow-wrap: anywhere; }
+.h-dot { width: 10px; height: 10px; margin-top: 4px; border-radius: 50%; flex-shrink: 0; }
+.h-diamond { width: 8px; height: 8px; margin: 5px 1px 0; flex-shrink: 0; background: var(--accent); transform: rotate(45deg); }
+.h-agent { color: var(--accent-strong); }
+.h-icon { display: inline-flex; flex-shrink: 0; padding-top: 2px; color: var(--muted); }
+.h-system, .h-external { color: var(--ink-2); }
+.h-counts { display: inline-flex; flex-shrink: 0; margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.h-counts > span[aria-hidden] { display: inline-flex; gap: 6px; }
+.h-add { color: var(--ok); }
+.h-del { color: var(--danger); }
+.h-time { flex-shrink: 0; font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.h-mark { font-size: 12px; line-height: 16px; color: var(--muted); overflow-wrap: anywhere; }
+
+/* --- The panel tab ------------------------------------------------------------ */
+.h-scroll { gap: var(--space-2); }
+.h-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--faint); }
+.h-problem { margin: 0; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); padding: 10px var(--space-3); border: 1px solid var(--warn-line); border-radius: var(--radius-md); background: var(--warn-soft); color: var(--warn-ink); font-size: 13px; line-height: 1.45; }
+.h-pending { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); font-size: 13px; line-height: 18px; }
+.h-pending-label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.h-pending-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.h-day { display: flex; flex-direction: column; }
+.h-day .panel-h { margin: var(--space-2) 0 var(--space-1); }
+.h-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.h-row { font: inherit; width: 100%; display: flex; flex-direction: column; align-items: stretch; gap: 3px; text-align: left; padding: 8px 10px; border: none; border-radius: var(--radius-md); background: transparent; color: var(--ink); cursor: pointer; font-size: 13px; line-height: 18px; outline: none; }
+.h-row[data-hovered] { background: var(--chip); }
+.h-row[data-focus-visible] { outline: 2px solid var(--accent); outline-offset: -2px; }
+.h-row[aria-current] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+/* faint doesn't reach 4.5:1 on accent-soft */
+.h-row[aria-current] .h-time { color: var(--accent-strong); }
+.h-row-head { display: flex; align-items: baseline; gap: var(--space-2); }
+.h-more { align-self: flex-start; }
+@media (pointer: coarse) { .h-row { min-height: var(--touch); } }
+
+/* --- A version in the main area ------------------------------------------------ */
+.version { flex-grow: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.v-band { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) 20px var(--space-3) 28px; border-bottom: 1px solid var(--line); background: var(--side); }
+.v-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-1) var(--space-3); font-size: 13px; line-height: 18px; }
+.v-title { margin: 0; font-size: 14px; line-height: 18px; font-weight: 600; color: var(--ink); }
+.v-head .h-mark { font-size: 13px; line-height: 18px; }
+.v-notice { margin: 0; font-size: 13px; line-height: 1.45; color: var(--warn-ink); }
+.v-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); }
+.v-tools .h-counts { margin-left: 0; font-size: 13px; }
+.v-compare { display: inline-flex; align-items: center; gap: var(--space-2); font-size: 13px; color: var(--muted); }
+.v-seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius-md); overflow: hidden; }
+.v-seg-btn { font: inherit; font-size: 13px; height: var(--control-sm); padding: 0 12px; border: none; background: transparent; color: var(--ink); cursor: pointer; outline: none; white-space: nowrap; }
+.v-seg-btn + .v-seg-btn { border-left: 1px solid var(--line-strong); }
+.v-seg-btn[data-hovered]:not([data-selected]) { background: var(--chip); }
+.v-seg-btn[data-selected] { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+.v-seg-btn[data-focus-visible] { outline: 2px solid var(--accent); outline-offset: -2px; }
+.v-nav { display: inline-flex; align-items: center; gap: 2px; }
+.v-nav .btn-icon { width: var(--control-sm); height: var(--control-sm); }
+.v-nav-label { font-size: 13px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.v-actions { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); }
+.v-actions .btn { height: var(--control-md); }
+.v-scroll { position: relative; flex-grow: 1; min-height: 0; overflow: auto; padding: 36px 56px 48px var(--space-18); outline: none; }
+.v-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.v-loading { margin: 0; color: var(--muted); }
+/* The source text, in the editor's fonts */
+.v-text { max-width: 72ch; font-family: var(--font-serif); font-size: 17px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+.v-text ins { color: inherit; background: color-mix(in srgb, var(--ok) 18%, transparent); text-decoration: underline; text-decoration-color: var(--ok); text-underline-offset: 3px; border-radius: 2px; }
+.v-text del { color: var(--danger); text-decoration: line-through; }
+.v-text .v-cur { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
+.v-nl { color: var(--faint); font-family: var(--font-sans); font-size: 13px; }
+/* Where an edit starts and ends, for screen readers only (generated text isn't copied with the text) */
+.v-text ins::before, .v-text ins::after, .v-text del::before, .v-text del::after { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.v-text ins::before, .v-text del::before { content: attr(data-start); }
+.v-text ins::after, .v-text del::after { content: attr(data-end); }
+
+/* --- «Recent changes» ----------------------------------------------------------- */
+.sidebar-link { margin: 4px 12px; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; border-radius: var(--radius-md); color: var(--muted); font-size: 13px; text-decoration: none; }
+.sidebar-link:hover { background: var(--chip); color: var(--ink); }
+.sidebar-link[aria-current] { background: var(--accent-soft); color: var(--accent-strong); }
+.drawer-foot .sidebar-link { margin: 0; min-height: var(--touch); font-size: 14px; border-radius: 10px; }
+.changes-page { flex-grow: 1; overflow: auto; padding: 40px var(--space-18) var(--space-12); display: flex; flex-direction: column; gap: 18px; }
+.changes-page h1 { margin: 0; font-family: var(--font-serif); font-size: 34px; line-height: 40px; font-weight: 600; }
+.changes-intro { margin: 0; max-width: 760px; font-size: 15px; line-height: 1.5; color: var(--muted); }
+.changes-filter { display: flex; align-items: center; gap: var(--space-3); font-size: 13px; color: var(--muted); }
+.changes-filter .select { min-width: 220px; max-width: 100%; }
+.changes-empty { margin: 0; color: var(--muted); }
+.changes-day { display: flex; flex-direction: column; gap: var(--space-2); max-width: 900px; }
+.changes-day h2 { margin: var(--space-2) 0 0; font-size: 13px; line-height: 18px; font-weight: 600; color: var(--muted); }
+.changes-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.c-change { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.c-head { display: flex; align-items: flex-start; gap: var(--space-3); font-size: 13px; line-height: 18px; }
+.c-head .h-time { padding-top: 1px; }
+.c-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.c-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.c-file { display: flex; align-items: flex-start; gap: var(--space-2); font-size: 14px; line-height: 20px; }
+.c-kind { display: inline-flex; flex-shrink: 0; padding-top: 3px; color: var(--muted); }
+.c-created .c-kind, .c-restored .c-kind { color: var(--ok); }
+.c-deleted .c-kind { color: var(--danger); }
+.c-name { min-width: 0; overflow-wrap: anywhere; }
+.c-from { color: var(--muted); }
+.c-file-path { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
+.c-file .h-counts { padding-top: 1px; }
+.c-toggle { align-self: flex-start; height: auto; min-height: 0; padding: 2px 0; color: var(--accent); }
+.changes-more { align-self: flex-start; }
+
+@media (max-width: 760px) {
+  .v-band { padding: var(--space-3) var(--space-4); }
+  .v-tools { gap: var(--space-2); }
+  .v-tools > .spacer { display: none; }
+  /* The group keeps its name for screen readers; on screen it's clear enough, and it leaves room. */
+  .v-compare-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .v-actions { width: 100%; }
+  .v-actions .btn { flex: 1 1 0; height: var(--touch); }
+  .v-seg-btn { height: var(--touch); padding: 0 12px; }
+  .v-nav .btn-icon { width: var(--touch); height: var(--touch); }
+  .v-scroll { padding: var(--space-6) var(--space-4); }
+  .changes-page { padding: var(--space-6) var(--space-4); }
+  .changes-page h1 { font-size: 28px; line-height: 34px; }
+  .changes-filter { flex-wrap: wrap; }
+  .changes-filter .select { flex: 1 1 200px; min-width: 0; }
+}

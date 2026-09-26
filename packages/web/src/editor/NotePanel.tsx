@@ -1,11 +1,11 @@
-// Note side panel: comments, links and outline.
+// Note side panel: comments, links, outline and history.
 // Everything it writes (commenting, replying, resolving) goes to the open
 // session's Y.Text, like any other edit: it merges with what others write at
 // the same time.
 import { syntaxTree } from '@codemirror/language'
 import type { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Button, Tab, TabList, TabPanel, Tabs, TextArea, TextField, type Key } from 'react-aria-components'
 import * as Y from 'yjs'
 import type { CommentOriginal, NoteLinks, OutgoingLink, User } from '../api.ts'
@@ -22,7 +22,7 @@ import { useBackClose } from '../mobile.ts'
 import type { AmbiguousLink } from './AmbiguousPicker.tsx'
 import './panel.css'
 
-export type PanelTab = 'comments' | 'links' | 'toc'
+export type PanelTab = 'comments' | 'links' | 'toc' | 'history'
 export type LinksData = NoteLinks
 
 // --- Panel state ----------------------------------------------------------
@@ -264,7 +264,7 @@ function CommentsTab({ view, session, user, originals, request, done }: {
 
   // With history, resolving can be undone from «Resolved» (D-032.5): managed,
   // no need to ask; unmanaged, only what reaches a commit; off or unavailable, asked as before.
-  const history = useHistoryState(session.path)
+  const history = useHistoryState()
   const mode = history?.available ? history.mode : 'off'
   const confirm = mode === 'managed' ? null : mode === 'unmanaged' ? t('comments.resolved.confirmUnmanaged') : t('comments.resolveConfirm')
   const live = useMemo(() => threads.map((tv) => tv.thread), [threads])
@@ -511,7 +511,7 @@ function TocTab({ view }: { view: EditorView | null }) {
 
 // --- Panel ---------------------------------------------------------------------------
 
-export function NotePanel({ panel, view, session, user, links, originals, onNavigate, onPickAmbiguous, onOpenCandidate }: {
+export function NotePanel({ panel, view, session, user, links, originals, history, onNavigate, onPickAmbiguous, onOpenCandidate }: {
   panel: Panel
   view: EditorView | null
   session: Session | null
@@ -519,6 +519,8 @@ export function NotePanel({ panel, view, session, user, links, originals, onNavi
   links: LinksData | null
   /** Comment threads' text as the index first saw it (null until loaded). */
   originals: CommentOriginal[] | null
+  /** The «History» tab's content; null when the history is off (no tab). */
+  history: ReactNode | null
   onNavigate: (p: string) => void
   /** An ambiguous link was pressed: the picker of its candidates. */
   onPickAmbiguous: (link: AmbiguousLink, anchor: HTMLElement) => void
@@ -528,6 +530,7 @@ export function NotePanel({ panel, view, session, user, links, originals, onNavi
   const t = useT()
   const count = useViewState(view, (s) => s.field(threadsField).length, 0)
   const aside = useRef<HTMLElement>(null)
+  const head = useRef<HTMLDivElement>(null)
   const linkCount = links ? new Set(links.outgoing.map((l) => l.raw)).size + links.backlinks.length : 0
   // Overlaid, it's a screen of its own: the back button closes it.
   useBackClose(panel.narrow && panel.open, () => panel.setOpen(false))
@@ -542,15 +545,21 @@ export function NotePanel({ panel, view, session, user, links, originals, onNavi
     return () => removeEventListener('keydown', onKey)
   }, [panel, view])
 
+  // Not every tab fits once they carry counts (the list scrolls): the chosen one is always in sight.
+  useEffect(() => {
+    head.current?.querySelector('.panel-tab[data-selected]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [panel.tab, panel.open, session])
+
   if (!panel.open || !session) return null
   return (
     <aside ref={aside} className={panel.narrow ? 'panel panel-overlay' : 'panel'} aria-label={t('panel.label')}>
       <Tabs selectedKey={panel.tab} onSelectionChange={(k: Key) => panel.setTab(k as PanelTab)} className="panel-tabs">
-        <div className="panel-head">
+        <div className="panel-head" ref={head}>
           <TabList aria-label={t('panel.label')} className="panel-tablist">
             <Tab id="comments" className="panel-tab">{count ? t('panel.commentsN', { n: count }) : t('panel.comments')}</Tab>
             <Tab id="links" className="panel-tab">{linkCount ? t('panel.linksN', { n: linkCount }) : t('panel.links')}</Tab>
             <Tab id="toc" className="panel-tab">{t('panel.toc')}</Tab>
+            {history && <Tab id="history" className="panel-tab">{t('history.tab')}</Tab>}
           </TabList>
           {panel.narrow && (
             <Button className="btn btn-icon panel-close" aria-label={t('panel.hide')} onPress={() => panel.setOpen(false)}>
@@ -561,6 +570,7 @@ export function NotePanel({ panel, view, session, user, links, originals, onNavi
         <TabPanel id="comments" className="panel-body"><CommentsTab view={view} session={session} user={user} originals={originals} request={panel.request} done={panel.done} /></TabPanel>
         <TabPanel id="links" className="panel-body"><LinksTab links={links} onNavigate={onNavigate} onPickAmbiguous={onPickAmbiguous} onOpenCandidate={onOpenCandidate} /></TabPanel>
         <TabPanel id="toc" className="panel-body"><TocTab view={view} /></TabPanel>
+        {history && <TabPanel id="history" className="panel-body">{history}</TabPanel>}
       </Tabs>
     </aside>
   )

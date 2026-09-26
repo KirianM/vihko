@@ -32,7 +32,6 @@ export type ErrorCode =
   | 'not_empty' // a folder that still holds files can't be deleted
   | 'history_off' // thoth.yaml turns the history off
   | 'history_unavailable' // the history can't be read right now (see /api/history/status)
-  | 'history_unmanaged_unavailable' // reading the notes folder's own repository isn't available yet
 
 /**
  * Space-level alerts: what thoth has detected in the notes folder that needs
