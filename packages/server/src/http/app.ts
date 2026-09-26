@@ -159,7 +159,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const keys = deps.keys ?? new ApiKeys(auth.state)
   const integrations = deps.integrations ?? new Integrations(auth.state)
   const policy = new AccessPolicy({ index })
-  const scopedDeps: ScopedDeps = { notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now }
+  const scopedDeps: ScopedDeps = { notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links }
   const services: Services = { keys, integrations, policy, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history }
   const app = new Hono<Env>()
   /** The request's operations, as whoever is asking. */

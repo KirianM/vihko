@@ -4,7 +4,7 @@
 // A user sees everything (until M4); an agent only what its key allows, and
 // nothing it can't see leaks through a list, a count, a link, a preview or an
 // error: it doesn't exist (`not_found`).
-import { anchorChanged, contentHash, extract, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type Range } from '@thoth/core'
+import { LinkIndex, anchorChanged, contentHash, extract, normKey, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type LinkRef, type Range } from '@thoth/core'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, type Access } from './access.ts'
@@ -17,6 +17,9 @@ import { NoteError, NoteService, type MoveHooks, type MoveReport, type NoteRead 
 import type { Profiles } from './profiles.ts'
 import type { LinkState } from './relink.ts'
 import { createFromTemplate } from './templates.ts'
+import type { HistoryReader } from './history/reader.ts'
+import type { Recorder } from './history/recorder.ts'
+import { revertVersion, type RevertReport } from './history/revert.ts'
 
 export { HIGHLIGHT_END, HIGHLIGHT_START }
 
@@ -29,6 +32,8 @@ export interface ScopedDeps {
   /** Where new images go (thoth.yaml), to know whether an agent may put one there. */
   attachments: () => AttachmentsConfig
   now: () => Date
+  /** How links resolve over every indexed note (the indexer's), for `resolveLink`. */
+  links?: () => LinkIndex
 }
 
 /** A request that can't be served as it is: the status and the code the API answers with. */
@@ -64,6 +69,23 @@ export interface EditPreview {
 
 /** A move report as an agent gets it: `hidden` says there are links in notes it can't see, never which or how many (D-018). */
 export type ScopedMoveReport = MoveReport & { hidden?: boolean }
+
+/**
+ * Where a link leads, written in a note (`resolveLink`). `status` null: it
+ * doesn't lead to a note the principal can see (as in `links`). `anchorOk`:
+ * whether the heading after `#` is in the note it leads to (null without one).
+ */
+export interface ResolvedLink {
+  kind: LinkRef['kind']
+  target: string
+  anchor: string | null
+  status: 'resolved' | 'ambiguous' | 'missing' | null
+  path: string | null
+  anchorOk: boolean | null
+  candidates: string[] | null
+  /** Titles of `path` and the candidates. */
+  titles: Record<string, string>
+}
 
 class DryRun extends Error {
   readonly preview: EditPreview
@@ -187,6 +209,50 @@ export class ScopedNotes {
       return link
     })
     return { outgoing: out, backlinks, titles }
+  }
+
+  /**
+   * Where `link` leads, written in `from`: `[[Note#Heading]]`, `[text](path.md)`
+   * or a bare target (`Note#Heading`). A link the note has is answered as
+   * `links` gives it. Any other, for an agent, is resolved over only the notes
+   * it can read: asking about names never tells whether something exists out
+   * of its sight (which `null` would, next to `missing`).
+   */
+  resolveLink(from: string, link: string): ResolvedLink {
+    const { path: src } = this.visible(from)
+    const parsed = parseLink(link)
+    if (!parsed) throw new RequestError(400, 'invalid', 'not a link')
+    const { index } = this.deps
+    const titleOf = index.prepare('select title from notes where path = ?')
+    const withTitles = (r: Omit<ResolvedLink, 'titles'>): ResolvedLink => {
+      const titles: Record<string, string> = {}
+      for (const p of [r.path, ...(r.candidates ?? [])]) if (p) titles[p] = (titleOf.get(p) as { title: string } | undefined)?.title ?? p
+      return { ...r, titles }
+    }
+    const same = (a: string | null, b: string | null) => normKey(a ?? '') === normKey(b ?? '')
+    const own = this.links(src).outgoing.find((l) => l.kind === parsed.kind && same(l.target, parsed.target) && same(l.anchor, parsed.anchor))
+    if (own) {
+      return withTitles({
+        kind: parsed.kind, target: own.target, anchor: own.anchor, status: own.status, path: own.dst_path,
+        anchorOk: own.anchor_ok === null ? null : own.anchor_ok === 1, candidates: own.candidates,
+      })
+    }
+    if (!this.deps.links) throw new Error('link resolution is not available')
+    let links = this.deps.links()
+    if (this.access.isAgent) {
+      const full = links
+      links = new LinkIndex({ aliases: full.aliases })
+      const w = this.access.notesWhere('n')
+      for (const { path } of index.prepare(`select path from notes n where ${w.sql}`).all(...w.params) as { path: string }[]) {
+        const keys = full.get(path)
+        if (keys) links.set(keys)
+      }
+    }
+    const r = links.resolve(src, parsed)
+    const base = { kind: parsed.kind, target: parsed.target, anchor: parsed.anchor }
+    if (r.status === 'resolved') return withTitles({ ...base, status: 'resolved', path: r.path, anchorOk: r.anchor === null ? null : r.anchor === 'ok', candidates: null })
+    if (r.status === 'ambiguous') return withTitles({ ...base, status: 'ambiguous', path: null, anchorOk: null, candidates: r.candidates })
+    return withTitles({ ...base, status: 'missing', path: null, anchorOk: null, candidates: null })
   }
 
   /**
@@ -378,6 +444,18 @@ export class ScopedNotes {
     return this.guardAsync(p, () => this.deps.notes.attach(p, bytes, this.access.actor))
   }
 
+  /**
+   * Undoes what version `id` of a note changed (history/revert.ts), as the
+   * principal: on a note it can read and write now (for an agent, by its
+   * text too; a note deleted since can't be reverted, it has no text), and
+   * only a version `reader` shows it (`historyFor`).
+   */
+  async revert(history: { reader: HistoryReader; recorder: Pick<Recorder, 'operation'> }, path: string, id: string, opts: { ifMatch?: string; dryRun?: boolean }): Promise<RevertReport> {
+    const p = this.writable(path)
+    if (this.access.isAgent) this.visible(p)
+    return this.guardAsync(p, () => revertVersion({ reader: history.reader, notes: this.deps.notes, recorder: history.recorder }, p, id, { actor: this.access.actor, ...opts }))
+  }
+
   // --- The daily note (D-030) --------------------------------------------------
 
   /**
@@ -426,6 +504,24 @@ export class ScopedNotes {
   private readable(path: string): boolean {
     try { this.visible(path); return true } catch { return false }
   }
+}
+
+/**
+ * A link as written: `[[Note#Heading|text]]`, `![[…]]`, `[text](path.md#h)`,
+ * or a bare target (`Note#Heading`), taken as a wikilink. Null if it's none.
+ */
+function parseLink(link: string): Pick<LinkRef, 'kind' | 'target' | 'anchor'> | null {
+  const s = typeof link === 'string' ? link.trim() : ''
+  if (!s) return null
+  if (/^!?\[\[[\s\S]*\]\]$|^\[[\s\S]*\]\([\s\S]*\)$/.test(s)) {
+    const l = extract(s).links[0]
+    return l ? { kind: l.kind, target: l.target, anchor: l.anchor } : null
+  }
+  const bare = s.split('|')[0]!
+  const hash = bare.indexOf('#')
+  const target = (hash === -1 ? bare : bare.slice(0, hash)).trim()
+  const anchor = hash === -1 ? null : bare.slice(hash + 1).trim() || null
+  return { kind: 'wiki', target, anchor }
 }
 
 function unknownLink(l: { raw: string; kind: string; target: string; anchor: string | null; pos_from: number }): OutgoingLink {

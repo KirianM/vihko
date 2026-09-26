@@ -24,7 +24,7 @@ export { SESSION_COOKIE, createApp, createServer, type ApiEnv, type AppDeps, typ
 export { Access, AccessError, AccessPolicy, DEFAULT_AI_KEY, hiddenFromAgents, type AccessPolicyOptions, type AgentPrincipal, type KeyGrant, type Principal, type UserPrincipal } from './access.ts'
 export { ApiKeys, KEY_PREFIX, KeyError, LAST_USED_EVERY_MS, keyIdOf, type KeyErrorCode, type KeyInfo, type KeyInput, type KeyWithUser } from './keys.ts'
 export { Integrations, IntegrationsError, integrationsLockedFrom, type IntegrationSettings, type IntegrationsView } from './integrations.ts'
-export { RequestError, ScopedNotes, type EditPreview, type OutgoingLink, type ScopedDeps, type ScopedMoveReport } from './scoped.ts'
+export { RequestError, SUBSTITUTIONS, ScopedNotes, type EditPreview, type OutgoingLink, type ResolvedLink, type ScopedDeps, type ScopedMoveReport } from './scoped.ts'
 export { historyFor } from './agentHistory.ts'
 export { ROUTES, keyRouteClass, type RouteClass } from './http/routes.ts'
 export { authenticateKey, bearerToken, type KeyAuth } from './http/keyAuth.ts'
