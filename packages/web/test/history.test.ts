@@ -79,6 +79,8 @@ test('what happened to the file: created, renamed or moved, deleted, restored (f
   assert.equal(changeText(t, { change: 'restored', path: 'a.md', reason: { code: 'restored', id: 'c', at: 'T' } }, date), 'history.change.restoredFrom{"date":"<T>"}')
   assert.equal(changeText(t, { change: 'restored', path: 'a.md', reason: { code: 'trash_restored', id: 'x' } }, date), 'history.change.trashRestored')
   assert.equal(changeText(t, { change: 'deleted', path: 'a.md', reason: null }, date), 'history.change.deleted')
+  // A revert is an edit that says which change it undid.
+  assert.equal(changeText(t, { change: 'modified', path: 'a.md', reason: { code: 'reverted', id: 'c', at: 'T' } }, date), 'history.change.revertedFrom{"date":"<T>"}')
 })
 
 test('the author filter: people, agents (all of them too, when there are several), outside thoth, the system', () => {
