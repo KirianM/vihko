@@ -1,6 +1,6 @@
 // Reading a history. The HTTP API (http/history.ts) only talks to this
 // interface, so each mode brings its own: the managed repository in the state
-// volume (managed.ts), or the notes folder's own git (unmanaged mode).
+// volume (managed.ts), or the notes folder's own git (unmanaged.ts).
 //
 // Implementing one: pages are always bounded (never walk the whole history to
 // answer one page), cursors are opaque strings, and `canRead` is asked for
@@ -76,7 +76,7 @@ export interface HistoryReader {
 
 /** Why a history can't be read: a code the API returns (and the UI words). */
 export class HistoryError extends Error {
-  readonly code: 'history_off' | 'history_unavailable' | 'history_unmanaged_unavailable' | 'not_found' | 'invalid'
+  readonly code: 'history_off' | 'history_unavailable' | 'not_found' | 'invalid'
   constructor(code: HistoryError['code'], message: string) {
     super(message)
     this.code = code

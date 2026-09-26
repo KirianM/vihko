@@ -22,20 +22,32 @@ interface Step {
 
 interface Resume { rev: string; path: string }
 
-const isResume = (v: unknown): v is Resume => typeof v === 'object' && v !== null && typeof (v as Resume).rev === 'string' && typeof (v as Resume).path === 'string'
-const isRev = (v: unknown): v is { rev: string } => typeof v === 'object' && v !== null && typeof (v as { rev: unknown }).rev === 'string'
+// A cursor comes from the client: its `rev` goes to git, so it must be a commit id and never an option (`--output=…`).
+const isCommitId = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{40}$/.test(v)
+const isResume = (v: unknown): v is Resume => typeof v === 'object' && v !== null && isCommitId((v as Resume).rev) && typeof (v as Resume).path === 'string'
+const isRev = (v: unknown): v is { rev: string } => typeof v === 'object' && v !== null && isCommitId((v as { rev: unknown }).rev)
 
 /** Commits looked at for one page of «Recent changes» before answering with what was found. */
 const MAX_SCAN = 2000
 /** Versions walked to find one version of a note. */
 const MAX_WALK = 20_000
 const STATS_CACHE = 5000
+/** Notes whose versions are remembered (a list, then its versions one by one: the UI's diffs, resolved comments). */
+const KNOWN_NOTES = 32
+/** Versions remembered from one walk. */
+const KNOWN_STEPS = 1000
 
 export class ManagedReader implements HistoryReader {
   private git: Git
   private reads = new Serial()
   private stats = new Map<string, { added: number; removed: number }>()
   private authorsSeen: { head: string | null; list: Map<string, AuthorRef> } = { head: null, list: new Map() }
+  /**
+   * A note's versions as a walk from the history's head found them, by id:
+   * `${head}\0${path}`. The same head and path always walk the same way, so
+   * `version` only reads the contents of one it has seen.
+   */
+  private known = new Map<string, Map<string, Step>>()
 
   constructor(git: Git) {
     this.git = git
@@ -50,11 +62,10 @@ export class ManagedReader implements HistoryReader {
     return parseLog(stdout)
   }
 
-  /** The note's commits from `start` (or HEAD) back, following its moves. */
-  private async *walk(path: string, start: Resume | null, batch: number): AsyncGenerator<{ step: Step; resume: Resume }> {
-    let rev = start?.rev ?? HISTORY_REF
-    let cur = start?.path ?? path
-    if (!start && (await resolveRef(this.git, HISTORY_REF)) === null) return
+  /** The note's commits from `from` back, following its moves. */
+  private async *walk(from: Resume, batch: number): AsyncGenerator<{ step: Step; resume: Resume }> {
+    let rev = from.rev
+    let cur = from.path
     for (;;) {
       const commits = await this.log(['-n', String(batch), rev, '--', cur])
       if (commits.length === 0) return
@@ -79,15 +90,28 @@ export class ManagedReader implements HistoryReader {
     }
   }
 
+  private remember(head: string, path: string, steps: Step[]) {
+    const key = `${head}\0${path}`
+    const known = this.known.get(key) ?? new Map<string, Step>()
+    this.known.delete(key)
+    this.known.set(key, known)
+    for (const s of steps.slice(0, KNOWN_STEPS)) known.set(s.commit.id, s)
+    while (this.known.size > KNOWN_NOTES) this.known.delete(this.known.keys().next().value!)
+  }
+
   versions(path: string, page: { cursor?: string | null; limit: number }) {
     return this.run(async () => {
       const start = decodeCursor(page.cursor, isResume)
+      const head = start ? null : await resolveRef(this.git, HISTORY_REF)
+      if (!start && head === null) return { versions: [], next: null }
       const steps: Step[] = []
       let next: string | null = null
-      for await (const { step, resume } of this.walk(path, start, page.limit + 1)) {
+      for await (const { step, resume } of this.walk(start ?? { rev: head!, path }, page.limit + 1)) {
         if (steps.length === page.limit) { next = encodeCursor(resume); break }
         steps.push(step)
       }
+      // A first page walked from the head: its versions are asked for next.
+      if (head) this.remember(head, path, steps)
       const counts = await this.countAll(steps.map((s) => ({ path: s.path, before: beforeSpec(s), after: s.file.newOid })))
       const versions: RawVersion[] = steps.map((s, i) => ({
         id: s.commit.id,
@@ -106,11 +130,17 @@ export class ManagedReader implements HistoryReader {
 
   version(path: string, id: string) {
     return this.run(async (): Promise<VersionText | null> => {
-      let found: Step | null = null
-      let walked = 0
-      for await (const { step } of this.walk(path, null, 200)) {
-        if (step.commit.id === id) { found = step; break }
-        if (++walked >= MAX_WALK) break
+      const head = await resolveRef(this.git, HISTORY_REF)
+      if (head === null) return null
+      let found = this.known.get(`${head}\0${path}`)?.get(id) ?? null
+      if (!found) {
+        const seen: Step[] = []
+        for await (const { step } of this.walk({ rev: head, path }, 200)) {
+          seen.push(step)
+          if (step.commit.id === id) { found = step; break }
+          if (seen.length >= MAX_WALK) break
+        }
+        this.remember(head, path, seen)
       }
       if (!found) return null
       const before = beforeSpec(found)
