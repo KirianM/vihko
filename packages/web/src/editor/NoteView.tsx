@@ -25,9 +25,9 @@ import { NoteActions } from './NoteActions.tsx'
 import type { LinkInfo } from './livePreview.ts'
 import { NotePanel, PanelToggle, usePanel, type LinksData } from './NotePanel.tsx'
 import { usePresence } from './presence.ts'
-import type { HistoryStatus, RestoreReport } from '../history/api.ts'
+import type { HistoryStatus, RestoreReport, RevertReport } from '../history/api.ts'
 import { HistoryTab } from '../history/HistoryTab.tsx'
-import { useVersions } from '../history/ui.tsx'
+import { RevertToast, useVersions } from '../history/ui.tsx'
 import { VersionView } from '../history/VersionView.tsx'
 
 function SaveStatus({ c }: { c: CollabState }) {
@@ -297,6 +297,8 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
   // from a link or «Recent changes» shows the list alongside.
   useEffect(() => { if (history?.mode === 'off' && panel.tab === 'history') setTab('comments') }, [history?.mode, panel.tab, setTab])
   useEffect(() => { if (version !== null && historyOn) setTab('history') }, [version !== null, historyOn, setTab]) // eslint-disable-line react-hooks/exhaustive-deps
+  // After «Revert this change»: back to the note, with what was and wasn't undone.
+  const [reverted, setReverted] = useState<{ seq: number; report: RevertReport } | null>(null)
   const openVersion = (id: string) => {
     onVersion(id)
     // Overlaid, the panel would cover the version.
@@ -332,7 +334,8 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
           // Not keyed by the version: going from one to another keeps «Compare with».
           <VersionView path={path} id={version} store={versions} exists session={c.session} closeLabel={t('version.back')}
             onClose={() => { onVersion(null); requestAnimationFrame(() => view?.focus()) }}
-            onRestored={(r) => { versions.refresh(); onRestored(r) }} />
+            onRestored={(r) => { versions.refresh(); onRestored(r) }}
+            onReverted={(r) => { versions.refresh(); onVersion(null); setReverted((p) => ({ seq: (p?.seq ?? 0) + 1, report: r })) }} />
         )}
         <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} originals={originals} onNavigate={onNavigate}
           onPickAmbiguous={openPicker} onOpenCandidate={openCandidate}
@@ -352,6 +355,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
           <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setPinned(null)}>{Icon.close}</Button>
         </div>
       )}
+      {reverted && <RevertToast key={reverted.seq} report={reverted.report} onDismiss={() => setReverted(null)} />}
     </>
   )
 }
