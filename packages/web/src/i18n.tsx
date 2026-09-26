@@ -392,7 +392,6 @@ const es = {
   'error.not_empty': 'La carpeta no está vacía: mueve sus notas y archivos o mándalos a la papelera antes.',
   'error.history_off': 'El historial está apagado en thoth.yaml.',
   'error.history_unavailable': 'El historial no está disponible ahora mismo. Mira los avisos del espacio.',
-  'error.history_unmanaged_unavailable': 'Leer el historial del repositorio git de la carpeta aún no está disponible.',
   // --- History (M2): the panel tab, a version, restoring it, «Recent changes» ---
   'history.tab': 'Historial',
   'history.pending': 'En curso · se guarda en unos segundos',
@@ -870,7 +869,6 @@ const en: Record<keyof typeof es, string> = {
   'error.not_empty': 'The folder is not empty: move its notes and files out or send them to the trash first.',
   'error.history_off': 'History is turned off in thoth.yaml.',
   'error.history_unavailable': 'History isn’t available right now. See the workspace alerts.',
-  'error.history_unmanaged_unavailable': 'Reading history from the notes folder’s own git repository isn’t available yet.',
   // --- History (M2): the panel tab, a version, restoring it, «Recent changes» ---
   'history.tab': 'History',
   'history.pending': 'In progress · saved in a few seconds',
