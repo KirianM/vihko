@@ -1,7 +1,7 @@
 // The person's own preferences (state.db): their timezone, which decides what
 // day "today" is, and the daily note (which series «Today» opens and whether
 // it opens when thoth does). Reached from the user row of the sidebar, and the
-// way to the other settings pages («Agents and API»).
+// way to the other settings pages («Agents and API», privacy).
 import { useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Modal, ModalOverlay } from 'react-aria-components'
 import { api, type Profile, type WorkspaceInfo } from './api.ts'
@@ -19,13 +19,14 @@ function zones(current: string): string[] {
   return [...new Set([current, browserTimeZone(), 'UTC', ...all])].sort((a, b) => a.localeCompare(b))
 }
 
-export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgents }: {
+export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgents, onPrivacy }: {
   profile: Profile
   workspace: WorkspaceInfo | null
   onClose: () => void
   onSaved: (p: Profile) => void
-  /** Opens «Agents and API» (and closes this). */
+  /** Open «Agents and API» or the privacy page (and close this). */
   onAgents: () => void
+  onPrivacy: () => void
 }) {
   const t = useT()
   useBackClose(useMobile(), onClose)
@@ -88,6 +89,7 @@ export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgen
               )}
               <div className="prefs-links">
                 <Button className="btn btn-quiet prefs-link" onPress={onAgents}>{t('prefs.agents')}{Icon.chevron}</Button>
+                <Button className="btn btn-quiet prefs-link" onPress={onPrivacy}>{t('prefs.privacy')}{Icon.chevron}</Button>
               </div>
             </div>
             {error && <p className="error-text dialog-error" role="alert">{error}</p>}

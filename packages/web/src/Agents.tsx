@@ -351,7 +351,7 @@ type Open =
   | { kind: 'token'; key: KeyInfo; token: string }
   | { kind: 'revoke'; key: KeyInfo; owner: string | null }
 
-export function AgentsPage({ user, onUnauthorized }: { user: User; onUnauthorized: () => void }) {
+export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; onUnauthorized: () => void; onPrivacy: () => void }) {
   const t = useT()
   const admin = user.role === 'admin'
   const [integ, setInteg] = useState<Integrations | null>(null)
@@ -412,7 +412,10 @@ export function AgentsPage({ user, onUnauthorized }: { user: User; onUnauthorize
       </header>
       <div className="alerts-page settings-page">
         <h1>{t('agents.title')}</h1>
-        <p className="alerts-intro">{t('agents.intro')}</p>
+        <p className="alerts-intro">
+          {t('agents.intro')}{' '}
+          <a href="?view=privacy" onClick={(e) => { e.preventDefault(); onPrivacy() }}>{t('agents.privacyLink')}</a>
+        </p>
         {error && <p className="error-text" role="alert">{error}</p>}
 
         <section className="settings-section" aria-labelledby="agents-switches">
