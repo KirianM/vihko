@@ -3,6 +3,7 @@
 // base64url) proves it. Only the secret's sha256 and its last 4 characters are
 // stored, compared in constant time; the key itself is shown once, when it is
 // created. A new key is read-only and reaches every folder its user sees.
+// A key can be rotated: a new secret, the old one still valid for 10 minutes.
 // An OAuth authorization (oauth.ts) is a key too, listed and revoked like the
 // others, which only its client's tokens reach.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
@@ -17,6 +18,9 @@ export const KEY_PREFIX = 'thoth_'
 
 /** `lastUsedAt` is written at most this often (a key in use doesn't write on every request). */
 export const LAST_USED_EVERY_MS = 5 * 60_000
+
+/** After a rotation, the secret it replaced keeps working this long: time to change the configurations that use it. */
+export const ROTATION_GRACE_MS = 10 * 60_000
 
 const MAX_NAME = 100
 const MAX_FOLDERS = 100
@@ -40,6 +44,8 @@ export interface KeyInfo {
   revokedAt: string | null
   /** The last 4 characters of the key, to tell keys apart (empty for an OAuth authorization, which has no key to show). */
   last4: string
+  /** Rotated a moment ago: until when the secret it replaced still works; null otherwise. */
+  previousUntil: string | null
   /** `active`, or why it no longer works. */
   status: 'active' | 'expired' | 'revoked'
   /**
@@ -85,6 +91,8 @@ interface Row {
   last_via: Via | null
   revoked_at: string | null
   oauth_client: string | null
+  previous_secret_hash: string | null
+  previous_until: string | null
   /** From oauth_clients, joined: the client's redirect URIs (JSON). */
   redirect_uris?: string | null
 }
@@ -206,19 +214,45 @@ export class ApiKeys {
   }
 
   /**
-   * The agent a key acts as, or null: not a key, unknown, wrong secret,
-   * revoked, expired, its user disabled, or an OAuth authorization (only its
-   * tokens reach it). Records when it was last used (at most every 5
-   * minutes) and how (`via`).
+   * A new secret for a key (not an OAuth authorization, which is revoked
+   * instead), shown this once, as when it was created: same id, name,
+   * permissions, folders and history. The secret it replaces keeps working
+   * for ROTATION_GRACE_MS, then stops; rotating again ends that at once (the
+   * one being replaced gets the grace).
+   */
+  rotate(id: string): { key: KeyInfo; token: string } {
+    const r = this.row(id)
+    if (!r) throw new KeyError('not_found', `no key ${id}`)
+    if (r.oauth_client) throw new KeyError('invalid', 'an OAuth authorization has no key to rotate: revoke it, and authorize the app again')
+    if (r.revoked_at) throw new KeyError('invalid', 'a revoked key cannot be rotated')
+    if (r.expires_at && Date.parse(r.expires_at) <= this.now().getTime()) throw new KeyError('invalid', 'an expired key cannot be rotated')
+    const secret = randomBytes(32).toString('base64url')
+    const token = `${KEY_PREFIX}${id}_${secret}`
+    this.db.prepare('update api_keys set secret_hash = ?, last4 = ?, previous_secret_hash = ?, previous_until = ? where id = ?')
+      .run(sha256(secret).toString('hex'), token.slice(-4), r.secret_hash, new Date(this.now().getTime() + ROTATION_GRACE_MS).toISOString(), id)
+    return { key: this.info(this.row(id)!), token }
+  }
+
+  /**
+   * The agent a key acts as, or null: not a key, unknown, wrong secret (or
+   * one rotated out more than ROTATION_GRACE_MS ago), revoked, expired, its
+   * user disabled, or an OAuth authorization (only its tokens reach it).
+   * Records when it was last used (at most every 5 minutes) and how (`via`).
    */
   authenticate(token: string, via: Via): AgentPrincipal | null {
     if (!VIAS.includes(via)) return null
     const m = KEY_FORMAT.exec(token)
-    const r = m ? this.db.prepare('select secret_hash, oauth_client from api_keys where id = ?').get(m[1]) as Pick<Row, 'secret_hash' | 'oauth_client'> | undefined : undefined
-    // Compared in constant time, and against a dummy when there's no such key.
-    const expected = r ? Buffer.from(r.secret_hash, 'hex') : DUMMY
-    const ok = timingSafeEqual(sha256(m?.[2] ?? ''), expected.length === 32 ? expected : DUMMY) && r !== undefined
-    if (!ok || !r || r.oauth_client !== null) return null
+    const r = m ? this.db.prepare('select secret_hash, previous_secret_hash, previous_until, oauth_client from api_keys where id = ?').get(m[1]) as
+      Pick<Row, 'secret_hash' | 'previous_secret_hash' | 'previous_until' | 'oauth_client'> | undefined : undefined
+    // Compared in constant time, both secrets always, and against a dummy when there's no such key.
+    const given = sha256(m?.[2] ?? '')
+    const same = (hex: string | null | undefined) => {
+      const expected = hex ? Buffer.from(hex, 'hex') : DUMMY
+      return timingSafeEqual(given, expected.length === 32 ? expected : DUMMY) && !!hex
+    }
+    const current = same(r?.secret_hash)
+    const previous = same(r?.previous_secret_hash) && !!r?.previous_until && Date.parse(r.previous_until) > this.now().getTime()
+    if (!(current || previous) || !r || r.oauth_client !== null) return null
     return this.principal(m![1]!, via)
   }
 
@@ -250,6 +284,7 @@ export class ApiKeys {
       id: r.id, userId: r.user_id, name: r.name, canWrite: !!r.can_write, folders: JSON.parse(r.folders) as string[],
       expiresAt: r.expires_at, createdAt: r.created_at, lastUsedAt: r.last_used_at, lastVia: r.last_via, revokedAt: r.revoked_at,
       last4: r.last4, status: r.revoked_at ? 'revoked' : expired ? 'expired' : 'active',
+      previousUntil: !r.revoked_at && r.previous_until && Date.parse(r.previous_until) > this.now().getTime() ? r.previous_until : null,
       client: r.oauth_client ? { id: r.oauth_client, redirectUris: JSON.parse(r.redirect_uris ?? '[]') as string[] } : null,
     }
   }

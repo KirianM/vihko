@@ -15,7 +15,7 @@ export type HistoryText =
   | 'history.change.created' | 'history.change.modified' | 'history.change.deleted' | 'history.change.movedPlain'
   | 'history.change.renamed' | 'history.change.moved' | 'history.change.restored' | 'history.change.restoredFrom' | 'history.change.trashRestored'
   | 'history.change.revertedFrom'
-  | 'changes.system' | 'changes.agents'
+  | 'changes.system' | 'changes.agents' | 'keys.viaApi' | 'keys.viaMcp' | 'keys.viaOauth'
 type T = (key: HistoryText, vars?: Record<string, string | number>) => string
 
 /** A timezone Intl accepts: the profile's, or UTC if it is unknown to this browser. */
@@ -102,12 +102,26 @@ export function uidOf(text: string | null): string | null {
 
 // --- Authors, reasons and changes -------------------------------------------------
 
+/** How an agent came in, in words («via MCP»); null if the version doesn't say. */
+export function viaText(t: T, via: HistoryAuthor['via']): string | null {
+  return via === 'api' ? t('keys.viaApi') : via === 'mcp' ? t('keys.viaMcp') : via === 'oauth' ? t('keys.viaOauth') : null
+}
+
+/** An agent as the history shows it: «Claude Code · on behalf of Noa · via MCP». */
+export function agentLabel(t: T, a: HistoryAuthor): string {
+  const via = viaText(t, a.via)
+  return [a.onBehalfOf ? t('history.agent', { name: a.name, user: a.onBehalfOf.name }) : a.name, ...(via ? [via] : [])].join(' · ')
+}
+
 /** An author as plain text, for «…, by Noa». */
 export function authorName(t: T, a: HistoryAuthor): string {
   switch (a.kind) {
     case 'user':
     case 'git': return a.name
-    case 'agent': return a.onBehalfOf ? t('history.agentPlain', { name: a.name, user: a.onBehalfOf.name }) : a.name
+    case 'agent': {
+      const via = viaText(t, a.via)
+      return (a.onBehalfOf ? t('history.agentPlain', { name: a.name, user: a.onBehalfOf.name }) : a.name) + (via ? ` ${via}` : '')
+    }
     case 'external': return t('history.external')
     case 'system': return t('history.system')
   }

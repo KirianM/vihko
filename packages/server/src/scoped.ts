@@ -481,9 +481,13 @@ export class ScopedNotes {
   // --- The daily note (D-030) --------------------------------------------------
 
   /**
-   * Where the user's note for today is and whether it exists. An agent gets
-   * `not_found` for one it can't see, without its path (thoth.yaml made it,
-   * not the agent).
+   * Where the user's note for today is and whether it exists. For an agent,
+   * asking for today's note names it, as reading it by its path would: if it
+   * exists but is hidden from the agent (`ai: false`, a frontmatter that
+   * can't be read, or outside the key's folders), `agent_denied` with the
+   * reason (D-035, D-037), never its path or anything of it. If it doesn't
+   * exist and falls outside the key's folders, `not_found`, without its path
+   * either (thoth.yaml made it, not the agent).
    */
   dailyToday(series?: string | null) {
     const r = this.deps.daily.today(this.access.user, series)
@@ -496,7 +500,10 @@ export class ScopedNotes {
     return r
   }
 
-  /** Today's note: opened if it exists, created (from the series template) if not, as the principal. */
+  /**
+   * Today's note: opened if it exists, created (from the series template) if
+   * not, as the principal. For an agent, the same answers as `dailyToday`.
+   */
   async dailyOpen(series?: string | null) {
     const user = this.access.user
     if (this.access.isAgent) {
@@ -512,7 +519,7 @@ export class ScopedNotes {
     })
   }
 
-  /** Runs a check about a path the principal didn't name: a `not_found` doesn't name it either. */
+  /** Runs a check about a path the principal didn't write: a `not_found` doesn't name it (an `agent_denied` never does). */
   private unnamed(fn: () => void) {
     try {
       fn()

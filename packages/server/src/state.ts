@@ -92,6 +92,10 @@ const MIGRATIONS: string[] = [
    );
    create index oauth_tokens_key on oauth_tokens(key_id);
    create index oauth_tokens_family on oauth_tokens(family);`,
+  // Rotating a key (keys.ts): the secret it replaced (only its sha256) keeps
+  // working until `previous_until`, so that whatever used it can be changed.
+  `alter table api_keys add column previous_secret_hash text;
+   alter table api_keys add column previous_until text;`,
 ]
 
 export const STATE_VERSION = MIGRATIONS.length

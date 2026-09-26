@@ -4,7 +4,7 @@
 // ana (member).
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, mountMcp, openIndex, openState, type Runtime } from '@thoth/server'
+import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, mountMcp, openIndex, openState, toolData, type ClientMetadataFetcher, type Runtime } from '@thoth/server'
 import { Client, StreamableHTTPClientTransport, type VersionNegotiationMode } from '@modelcontextprotocol/client'
 import { tempDir } from './_tmp.ts'
 
@@ -21,6 +21,8 @@ export interface AgentSetup {
   publicUrl?: string
   /** A stand-in for the built UI (one index.html), for the pages the UI serves. */
   ui?: boolean
+  /** Fetches OAuth clients' metadata documents (tests that reach a local HTTPS server). */
+  clientMetadata?: ClientMetadataFetcher
 }
 
 export async function setup(opts: AgentSetup = {}) {
@@ -64,7 +66,7 @@ export async function setup(opts: AgentSetup = {}) {
     writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
   }
   const { app, services } = createServer({
-    auth, profiles, workspace, notes, index, indexer, notesDir, runtime, history, keys, integrations, now: () => clock.now, publicUrl: opts.publicUrl ?? null, webDir,
+    auth, profiles, workspace, notes, index, indexer, notesDir, runtime, history, keys, integrations, now: () => clock.now, publicUrl: opts.publicUrl ?? null, webDir, clientMetadata: opts.clientMetadata,
     routes: (a, s) => { mountMcp(a, s, { auth, workspace, pollMs: 25 }) },
   })
 
@@ -121,13 +123,13 @@ export async function setup(opts: AgentSetup = {}) {
       requestInit: { headers: { authorization: `Bearer ${token}` } },
     })
     await client.connect(transport)
-    /** A tool's result: its JSON data (the first block), the note texts after it, and whether it's an error. */
+    /** A tool's result: its JSON data (the first block, `head` as it came), the note texts after it, and whether it's an error. */
     const call = async (name: string, args: Record<string, unknown> = {}) => {
       const r = await client.callTool({ name, arguments: args }) as { content: { type: string; text: string }[]; isError?: boolean }
       const [first, ...rest] = r.content
       let data: any = null
-      try { data = JSON.parse(first?.text ?? 'null') } catch { data = first?.text }
-      return { data, texts: rest.map((c) => c.text), error: r.isError === true, raw: JSON.stringify(r) }
+      try { data = toolData(first?.text ?? 'null') } catch { data = first?.text }
+      return { data, head: first?.text ?? '', texts: rest.map((c) => c.text), error: r.isError === true, raw: JSON.stringify(r) }
     }
     return { client, call, close: () => client.close() }
   }

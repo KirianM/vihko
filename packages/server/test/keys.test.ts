@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { ApiKeys, Auth, Integrations, LAST_USED_EVERY_MS, integrationsLockedFrom, keyIdOf, openState } from '@thoth/server'
+import { ApiKeys, Auth, Integrations, LAST_USED_EVERY_MS, ROTATION_GRACE_MS, integrationsLockedFrom, keyIdOf, openState } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
 
 /** Each test's folder, removed at the end. */
@@ -37,7 +37,7 @@ test('a key: thoth_<id>_<secret>, shown once; only the sha256 of the secret and 
   // New keys: read-only, every folder, no expiry.
   assert.deepEqual({ ...key, id: '', createdAt: '' }, {
     id: '', userId: noa.id, name: 'Claude Code', canWrite: false, folders: [], expiresAt: null, createdAt: '',
-    lastUsedAt: null, lastVia: null, revokedAt: null, last4: token.slice(-4), status: 'active', client: null,
+    lastUsedAt: null, lastVia: null, revokedAt: null, last4: token.slice(-4), status: 'active', client: null, previousUntil: null,
   })
 })
 
@@ -66,6 +66,50 @@ test('authenticating: the right secret of a live key of an enabled user, and not
   assert.equal(keys.revoke(key.id).status, 'revoked')
   assert.equal(keys.authenticate(token, 'api'), null)
   assert.throws(() => keys.update(key.id, { canWrite: false }), { code: 'invalid' })
+})
+
+test('rotating: a new secret shown once, the same key otherwise; the old one works 10 more minutes and then never', async () => {
+  const { state, keys, noa, clock } = await setup()
+  const { key, token: old } = keys.create(noa, { name: 'Blog', canWrite: true, folders: ['proyectos'] })
+  keys.authenticate(old, 'mcp')
+  const start = clock.now.getTime()
+  const { key: rotated, token } = keys.rotate(key.id)
+  assert.notEqual(token, old)
+  assert.equal(keyIdOf(token), key.id, 'the same key: same id, and so the same name in the history')
+  assert.deepEqual({ ...rotated, last4: '', previousUntil: '' }, { ...keys.get(key.id)!, last4: '', previousUntil: '' })
+  assert.deepEqual([rotated.name, rotated.canWrite, rotated.folders, rotated.lastVia, rotated.last4], ['Blog', true, ['proyectos'], 'mcp', token.slice(-4)])
+  assert.equal(rotated.previousUntil, new Date(start + ROTATION_GRACE_MS).toISOString())
+  const secret = (t: string) => t.slice(-43)
+  const row = state.prepare('select * from api_keys where id = ?').get(key.id) as Record<string, unknown>
+  assert.equal(row.previous_secret_hash, createHash('sha256').update(secret(old)).digest('hex'))
+  assert.ok(!JSON.stringify(row).includes(secret(token)) && !JSON.stringify(row).includes(secret(old)), 'no secret stored, old or new')
+  // Both work during the grace.
+  assert.ok(keys.authenticate(token, 'api'))
+  clock.now = new Date(start + ROTATION_GRACE_MS - 1000)
+  assert.ok(keys.authenticate(old, 'api'))
+  // Then only the new one.
+  clock.now = new Date(start + ROTATION_GRACE_MS)
+  assert.equal(keys.authenticate(old, 'api'), null)
+  assert.ok(keys.authenticate(token, 'api'))
+  assert.equal(keys.get(key.id)!.previousUntil, null)
+  // Rotating again: the one replaced gets the grace, the one before it stops at once.
+  const third = keys.rotate(key.id).token
+  assert.equal(keys.authenticate(old, 'api'), null)
+  assert.ok(keys.authenticate(token, 'api'))
+  assert.ok(keys.authenticate(third, 'api'))
+  // Revoking ends the grace too; a revoked key can't rotate.
+  keys.revoke(key.id)
+  assert.equal(keys.authenticate(token, 'api'), null)
+  assert.equal(keys.get(key.id)!.previousUntil, null)
+  assert.throws(() => keys.rotate(key.id), { code: 'invalid' })
+  // Nor an expired one, nor an OAuth authorization (revoked instead), nor one that doesn't exist.
+  const exp = keys.create(noa, { name: 'Corta', expiresAt: new Date(clock.now.getTime() + 60_000).toISOString() })
+  clock.now = new Date(clock.now.getTime() + 60_000)
+  assert.throws(() => keys.rotate(exp.key.id), { code: 'invalid' })
+  state.prepare(`insert into oauth_clients (id, name, redirect_uris, auth_method, created_at) values ('c1', 'Claude', '["https://c.example/cb"]', 'none', ?)`).run(clock.now.toISOString())
+  const auth = keys.authorizeClient(noa.id, { id: 'c1', name: 'Claude' }, { canWrite: false, folders: [] })
+  assert.throws(() => keys.rotate(auth), { code: 'invalid' })
+  assert.throws(() => keys.rotate('nope'), { code: 'not_found' })
 })
 
 test('last use: written at most every 5 minutes, or when the way in changes', async () => {

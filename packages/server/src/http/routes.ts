@@ -70,6 +70,7 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'POST /api/keys': 'session',
   'PATCH /api/keys/:id': 'session',
   'DELETE /api/keys/:id': 'session',
+  'POST /api/keys/:id/rotate': 'session',
   'GET /api/oauth/authorize': 'session',
   'POST /api/oauth/authorize': 'session',
 }

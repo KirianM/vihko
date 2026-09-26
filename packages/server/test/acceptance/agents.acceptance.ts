@@ -1,8 +1,9 @@
-// M3 «done when» (m3 §9, points 1 to 4 and 6) against the real server over
+// M3 «done when» (m3 §9, points 1 to 6) against the real server over
 // the generated vault: an agent writes a plan over MCP, a person edits it in
 // the editor, the agent sees the change and folds it in while the note is
 // open (the editor gets it live, with the agent's presence), the history
-// shows both, and nothing hidden from the key reaches it (_m3.ts). The same
+// shows both, reverting the agent's version leaves the person's, and nothing
+// hidden from the key reaches it (_m3.ts). The same
 // runs against the Docker image in docker.acceptance.ts.
 import { test } from 'node:test'
 import { login } from '../_collab.ts'

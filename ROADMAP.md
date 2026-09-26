@@ -110,20 +110,30 @@ From the review after comparing M2 with other systems.
 
 ## M3 · Agents
 
-- [x] HTTP API with API keys (prefix, hash, expiry, scopes, per-folder scope).
-      ETag + `If-Match` → 412, `If-None-Match: *`. Off by default: the
-      thoth admin turns it on, `THOTH_INTEGRATIONS=off` locks it off; only
-      the routes classified for keys, through the single filtering point.
-      Keys are managed in «Agents and API».
+- [x] HTTP API with API keys (`thoth_<id>_<secret>`, only the secret's
+      hash kept, optional expiry). What a key may do: read, or read and
+      write, in every folder its user sees or only in some. Rotation with 10
+      minutes of grace for the old secret. ETag + `If-Match` → 412,
+      `If-None-Match: *`. Off by default: the thoth admin turns it on,
+      `THOTH_INTEGRATIONS=off` locks it off; only the routes classified for
+      keys, through the single filtering point. Keys are managed in «Agents
+      and API».
 - [x] Remote MCP: bearer token on the LAN, OAuth 2.1 when there is a public
-      URL (`THOTH_PUBLIC_URL`: dynamic registration, PKCE, consent in the UI,
-      the authorization as a revocable key); tools registered according to
-      scopes.
-- [x] Tools: `search`, `get_note`, `related`/backlinks, `resolve_link`,
-      `create_note`, `edit_note` (flat operations with `if_match` and
-      `dry_run`), `changes_since`, `move`, `delete` to trash, `daily_note`
-      (today's note of the represented person, created if needed) and
-      appending at the end or under a heading.
+      URL (`THOTH_PUBLIC_URL`: Client ID Metadata Documents, fetched with SSRF
+      protections, and dynamic registration, 5 an hour per address; PKCE;
+      consent in the UI, showing the client's domain; the authorization as a
+      revocable key); the tools that write only for a key that may write.
+- [x] Tools: `search`, `get_note`, `list_folder`, `related`/backlinks,
+      `resolve_link`, `create_note`, `edit_note` (flat operations with
+      `if_match` and `dry_run`), `changes_since`, `move`, `delete` to trash,
+      `daily_note` (today's note of the represented person, created if
+      needed), `history` and `revert_change`, and appending at the end or
+      under a heading. Everything that comes from notes (text, titles,
+      frontmatter, paths, snippets) is framed as data, not instructions.
+- [x] The history says who wrote a version and how: «Claude Code · on behalf
+      of Noa · via MCP» (the API, MCP, or MCP with OAuth).
+- [x] Login limits (exponential waits per client, account and address),
+      before exposing thoth with a public URL.
 - [x] Revert this change: undo only what one version changed (an agent's),
       applied to the current text, keeping what was written after; what can't
       be reverted is reported. A content-only view of a version, to copy from.
@@ -150,6 +160,9 @@ agent sees those changes, with safeguards and everything in the history.
       changes) needs edit permission, and so does restoring: sharing a note to
       read doesn't share its past.
 - [ ] An open version closes when someone who wasn't in it starts typing.
+- [ ] Second factor for users: TOTP with recovery codes; the admin makes it
+      required, optional or disabled, and can reset a user's; asked again
+      before OAuth consent and before creating a key.
 
 **Done when:** two users with different permissions work at the same time and
 the tests prove neither sees anything they shouldn't.
@@ -191,7 +204,7 @@ related projects.
 
 - E-reader: EPUB per collection and OPDS, with highlights flowing back.
 - Graph view.
-- OIDC, TOTP, passkeys.
+- OIDC, passkeys.
 - Suggestion mode for agents.
 - Quotes with a text selector in the UI.
 

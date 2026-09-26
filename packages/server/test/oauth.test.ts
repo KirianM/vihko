@@ -7,7 +7,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash, randomBytes } from 'node:crypto'
-import { OAuthServer, publicUrlFrom, sameRedirect } from '@thoth/server'
+import { OAuthServer, REGISTRATIONS_PER_HOUR, REGISTRATION_ADDRESSES, WindowLimit, publicUrlFrom, sameRedirect } from '@thoth/server'
 import { setup } from './_agents.ts'
 
 const PUBLIC = 'https://notas.example.org'
@@ -177,7 +177,7 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     // Without a session, the page asks to sign in first (its API needs one).
     assert.equal((await raw(h, 'GET', `/api/oauth/authorize?${query}`)).status, 401)
     const asked = await h.noa('GET', `/api/oauth/authorize?${query}`)
-    assert.deepEqual(asked.body, { client: { id: client.client_id, name: 'Claude', redirectUri: REDIRECT }, canAuthorize: true })
+    assert.deepEqual(asked.body, { client: { id: client.client_id, name: 'Claude', redirectUri: REDIRECT, host: null }, canAuthorize: true })
 
     // Approved as it comes: read-only, every folder.
     const ok = await consent(h, query)
@@ -407,6 +407,55 @@ test('registration: checked, confidential clients need their secret, and the adm
     // One that was authorized stays.
     assert.equal((await h.noa('GET', `/api/oauth/authorize?${authorizeQuery(conf.body.client_id, challenge)}`)).status, 200)
   } finally { await h.close() }
+})
+
+test('registration is limited per address: 5 an hour, then 429 with Retry-After; other addresses go on', async () => {
+  const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
+  try {
+    await h.enableMcp()
+    /** A registration from `ip` (the socket's address, as @hono/node-server gives it). */
+    const from = async (ip: string, meta: Record<string, unknown> = {}) => {
+      const res = await h.app.request('/oauth/register', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ client_name: 'Claude', redirect_uris: [REDIRECT], token_endpoint_auth_method: 'none', ...meta }),
+      }, { incoming: { socket: { remoteAddress: ip } } })
+      return { status: res.status, retryAfter: res.headers.get('retry-after'), body: await res.json() as Record<string, unknown> }
+    }
+    // A refused request doesn't count: only registrations fill the table.
+    for (let i = 0; i < 8; i++) assert.equal((await from('203.0.113.5', { redirect_uris: ['javascript:x'] })).status, 400)
+    for (let i = 0; i < REGISTRATIONS_PER_HOUR; i++) assert.equal((await from('203.0.113.5')).status, 201, `registration ${i + 1}`)
+    const sixth = await from('203.0.113.5')
+    assert.equal(sixth.status, 429)
+    assert.equal(sixth.body.error, 'temporarily_unavailable')
+    assert.equal(sixth.retryAfter, '3600')
+    // IPv4-mapped is the same address; an IPv6 client counts by its /64.
+    assert.equal((await from('::ffff:203.0.113.5')).status, 429)
+    assert.equal((await from('198.51.100.7')).status, 201)
+    for (let i = 0; i < REGISTRATIONS_PER_HOUR; i++) assert.equal((await from(`2001:db8:1:2::${i + 1}`)).status, 201)
+    assert.equal((await from('2001:db8:1:2:ffff::9')).status, 429)
+    assert.equal((await from('2001:db8:1:3::1')).status, 201)
+    // Half an hour later, still waiting (and told how long); an hour after the first, free again.
+    h.clock.now = new Date(h.clock.now.getTime() + 30 * 60_000)
+    const later = await from('203.0.113.5')
+    assert.equal(later.status, 429)
+    assert.ok(Number(later.retryAfter) > 1700 && Number(later.retryAfter) <= 1800, String(later.retryAfter))
+    h.clock.now = new Date(h.clock.now.getTime() + 31 * 60_000)
+    assert.equal((await from('203.0.113.5')).status, 201)
+  } finally { await h.close() }
+})
+
+test('the registration limit remembers a bounded number of addresses, forgetting the one seen longest ago', () => {
+  const limit = new WindowLimit({ max: 2, windowMs: 1000, addresses: 3 })
+  for (const ip of ['a', 'a', 'b', 'c']) limit.record(ip, 0)
+  assert.equal(limit.wait('a', 10), 1)
+  limit.record('d', 10)
+  assert.equal(limit.size, 3)
+  assert.equal(limit.wait('a', 10), 0, 'a was seen longest ago: forgotten')
+  // Past the window, whatever expired goes first.
+  limit.record('e', 2000)
+  assert.equal(limit.size, 1)
+  assert.equal(limit.wait('e', 2000), 0)
+  assert.equal(REGISTRATION_ADDRESSES, 10_000)
 })
 
 test('who may authorize: a member only while members may create keys; an agent never', async () => {

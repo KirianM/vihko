@@ -109,6 +109,9 @@ test('a client asks: the person signs in, sees who asks, and approves it read-on
   const who = page.locator('.consent-who')
   await expect(who).toContainText(NAME)
   await expect(who).toContainText(CALLBACK)
+  // It registered itself: its name is only what it says, and it goes back to this computer.
+  await expect(who).toContainText('Sin comprobar: la aplicación se registró sola')
+  await expect(page.getByRole('note').filter({ hasText: 'Volverá a un programa de este mismo ordenador' })).toBeVisible()
   // As a new key: read-only, every folder.
   await expect(page.getByRole('checkbox', { name: /Puede escribir/ })).not.toBeChecked()
   await expect(page.getByRole('radio', { name: 'Todas las carpetas que ves' })).toBeChecked()
@@ -135,6 +138,9 @@ test('a client asks: the person signs in, sees who asks, and approves it read-on
   await expect(k).toContainText(CALLBACK)
   await expect(k).toContainText('por MCP (OAuth)')
   await expect(k).not.toContainText('thoth_…')
+  // An authorization is revoked, never rotated: it has no key to rotate.
+  await expect(k.getByRole('button', { name: 'Rotar' })).toHaveCount(0)
+  await expect(k.getByRole('button', { name: 'Revocar' })).toBeVisible()
   // Where remote clients connect, to copy.
   await expect(page.getByLabel('Dirección del servidor MCP para asistentes remotos')).toHaveText(`${PUBLIC_URL}/mcp`)
   await expect(page.getByRole('switch', { name: /Las aplicaciones OAuth pueden registrarse solas/ })).toBeChecked()
@@ -204,6 +210,35 @@ test('on a phone, in dark mode: the question fits and works', async ({ browser, 
   const tokens = await exchange(request, (await back()).searchParams.get('code')!, verifier)
   expect((await initialize(request, tokens.access_token)).status()).toBe(200)
   await ctx.close()
+})
+
+test('a client named by its metadata document: the page shows the domain that describes it', async ({ browser }) => {
+  const page = await signIn(browser, 'noa')
+  const id = 'https://claude.example/oauth/client.json'
+  // What the server answers once it fetched the document (the fetch itself is tested on the server, against a local HTTPS site).
+  await page.route((url) => url.pathname === '/api/oauth/authorize', (route) => route.request().method() === 'GET'
+    ? route.fulfill({ json: { client: { id, name: 'Claude', redirectUri: 'https://claude.example/api/mcp/auth_callback', host: 'claude.example' }, canAuthorize: true } })
+    : route.continue())
+  await page.goto(authorizePath(id, pkce().challenge, 'st-6'))
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('«Claude» quiere acceder a tus notas')
+  const who = page.locator('.consent-who')
+  await expect(who.locator('dt', { hasText: 'Dominio' })).toBeVisible()
+  await expect(who).toContainText('claude.example')
+  await expect(who).toContainText('thoth ha leído la descripción de la aplicación en este dominio')
+  await expect(who).not.toContainText('Sin comprobar')
+  await expect(page.getByText('Volverá a un programa de este mismo ordenador')).toHaveCount(0)
+  await page.screenshot({ path: `${SHOTS}/consent-cimd-light.png`, fullPage: true, animations: 'disabled' })
+  await page.context().close()
+})
+
+test('a metadata document thoth won\'t fetch (its host is this machine): the page says so and sends the browser nowhere', async ({ browser }) => {
+  const page = await signIn(browser, 'noa')
+  // `localhost` resolves to a loopback address, so the real server refuses to fetch it.
+  await page.goto(authorizePath('https://localhost/oauth/client.json', pkce().challenge, 'st-7'))
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('No se puede autorizar esta aplicación')
+  await expect(page.getByRole('alert')).toContainText('no ha podido leer una descripción válida de esta aplicación en localhost')
+  await expect(page).toHaveURL(/\/oauth\/authorize\?/)
+  await page.context().close()
 })
 
 test('a client this thoth doesn\'t know: the page says so and sends the browser nowhere', async ({ browser }) => {

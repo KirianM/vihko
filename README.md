@@ -25,7 +25,7 @@ server**, giving up full offline mode.
 ## What it is and isn't
 
 - A complete notes system on its own, with its own web UI and real-time
-  co-editing between people (and, later, agents).
+  co-editing between people and the agents they allow in.
 - API, MCP and webhooks built in but **optional and off by default**. Without
   them, nothing gets in or out except through the user.
 - Designed for anyone to self-host with Docker: no reverse proxy, Postgres or
@@ -161,10 +161,11 @@ For that, thoth needs a public HTTPS address:
    answers 404 and `/mcp` takes keys only.
 4. **Add it to claude.ai** as a custom connector (Settings → Connectors → Add
    custom connector) with the URL `https://notes.example.com/mcp`. Claude
-   registers itself and sends you to thoth: sign in, check what it may do
-   (read-only and every folder unless you choose otherwise) and authorize it.
-   Other clients that speak MCP with OAuth, such as `mcp-remote`, work the
-   same way.
+   introduces itself (it registers, or names itself by the address of its
+   description) and sends you to thoth: sign in, check who asks (the app's
+   domain, when it has one) and what it may do (read-only and every folder
+   unless you choose otherwise), and authorize it. Other clients that speak
+   MCP with OAuth, such as `mcp-remote`, work the same way.
 
 The authorization is one more key in Agents and API, named after the app,
 used "via MCP (OAuth)" in the history and the editor: change what it may do
@@ -175,8 +176,20 @@ What a public address exposes, besides the UI and its login (use strong
 passwords): the OAuth metadata (`/.well-known/oauth-*`), client registration
 (`/oauth/register`), and the token and revocation endpoints. None of them
 gives access to any note without a person approving it. Registration is open
-by default, as claude.ai needs it; once your clients are connected, the thoth
+by default, as claude.ai needs it, and limited to 5 clients an hour from each
+address (then `429` with `Retry-After`; with a proxy, see
+`THOTH_TRUSTED_PROXIES` above); once your clients are connected, the thoth
 admin can turn it off in Agents and API, and those clients keep working.
+
+An app can also name itself by an `https` address that describes it (a
+*Client ID Metadata Document*, which the MCP authorization specification of
+2026-07-28 prefers to registration). Then thoth fetches that address, and
+it's the only request thoth ever makes on its own: only when someone signed
+in starts authorizing that app, only over `https` on port 443, never to an
+address that isn't public (private, loopback, link-local and the like,
+checked after resolving the name, and the connection goes to the address
+that was checked), without following redirects, 5 KB and 5 seconds at most,
+and kept in memory for a few minutes. The consent page shows that domain.
 
 ### Login limits
 

@@ -1,16 +1,18 @@
-// The M3 «done when» (m3 §9, points 1 to 4 and 6), against a running server
+// The M3 «done when» (m3 §9, points 1 to 6), against a running server
 // (a process, or the Docker image): an agent with a key that writes in
 // `proyectos/` creates `proyectos/plan.md` over MCP; a person opens it in the
 // editor and adds to it; the agent sees that with changes_since and folds it
 // in with edit_note and if_match while the note is still open, and the editor
 // gets it live, with the agent's presence; the history shows the agent's
-// versions and the person's; and nothing hidden from the key (`ai: false`,
+// versions and the person's; «Revert this change» on the agent's version
+// leaves what the person wrote; and nothing hidden from the key (`ai: false`,
 // or outside its folders) shows in any answer, except the denial when the
 // agent names such a note itself.
 import assert from 'node:assert/strict'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { toolData } from '@thoth/server'
 import type * as Y from 'yjs'
 import { api, closeAll, connect, waitFor, type Srv } from '../_collab.ts'
 
@@ -54,7 +56,7 @@ export async function m3DoneWhen(opts: { srv: Srv; cookie: string; notesDir: str
   const call = async (name: string, args: Record<string, unknown>) => {
     const r = await client.callTool({ name, arguments: args }) as { content: { text: string }[]; isError?: boolean }
     answers.push(JSON.stringify(r))
-    return { data: JSON.parse(r.content[0]!.text), texts: r.content.slice(1).map((c) => c.text), error: r.isError === true }
+    return { data: toolData(r.content[0]!.text) as any, texts: r.content.slice(1).map((c) => c.text), error: r.isError === true }
   }
 
   // 1. The agent writes a plan.
@@ -97,6 +99,24 @@ export async function m3DoneWhen(opts: { srv: Srv; cookie: string; notesDir: str
   assert.deepEqual(who.slice(0, 3), ['Claude Code/mcp', 'noa', 'Claude Code/mcp'])
   const ui = await api(srv, cookie, 'GET', `/api/history/versions?path=${encodeURIComponent(PLAN)}`)
   assert.deepEqual(ui.body.versions[0].authors[0], { kind: 'agent', id: created.body.key.id, name: 'Claude Code', onBehalfOf: { id: ui.body.versions[0].authors[0].onBehalfOf.id, name: 'noa' }, via: 'mcp', key: `agent:${created.body.key.id}` })
+
+  // 5. «Revert this change» on the agent's version leaves what the person wrote.
+  const agentVersion = ui.body.versions[0].id as string
+  const preview = await api(srv, cookie, 'POST', '/api/history/revert', { path: PLAN, id: agentVersion, dryRun: true })
+  assert.equal(preview.status, 200, JSON.stringify(preview.body))
+  assert.deepEqual([preview.body.counts.reverted > 0, preview.body.counts.skipped], [true, 0], JSON.stringify(preview.body))
+  const reverted = await api(srv, cookie, 'POST', '/api/history/revert', { path: PLAN, id: agentVersion })
+  assert.equal(reverted.status, 200, JSON.stringify(reverted.body))
+  assert.equal(reverted.body.changed, true)
+  const after = (await api(srv, cookie, 'GET', `/api/note?path=${encodeURIComponent(PLAN)}`)).body.text as string
+  assert.ok(!after.includes('(hecho: fase 1'), `the agent's change is undone: ${after}`)
+  assert.ok(after.includes('- PERSONA: primero la base de datos\n- revisar copias\n'), `the person's line stays: ${after}`)
+  assert.ok(after.includes('- migrar el servidor\n'), `the agent's first version stays: ${after}`)
+  // A version of its own, by the person, saying which change it undid.
+  await waitFor(async () => {
+    const v = (await api(srv, cookie, 'GET', `/api/history/versions?path=${encodeURIComponent(PLAN)}`)).body.versions[0]
+    return v.id !== agentVersion && v.authors[0].name === 'noa' && v.reason?.code === 'reverted' && v.reason.id === agentVersion
+  }, 'the revert is a version by the person', 60_000)
 
   // 6. Nothing hidden from the key, in any tool: not listed, not found, only denied when it names one.
   assert.deepEqual((await call('search', { query: 'ZAFIRO' })).data.results, [])

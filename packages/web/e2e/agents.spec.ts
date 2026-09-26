@@ -179,6 +179,38 @@ test('the key works over HTTP: read-only in its folder; edited, it writes there 
   await page.context().close()
 })
 
+test('rotating asks first, shows the new key once, and the old one keeps working for a while', async ({ browser, request }) => {
+  const page = await signIn(browser, 'noa')
+  await page.goto('/?view=agents')
+  const before = await card(page, 'Claude Code e2e').locator('.key-meta').innerText()
+  await card(page, 'Claude Code e2e').getByRole('button', { name: 'Rotar' }).click()
+  const ask = page.getByRole('alertdialog', { name: '¿Rotar «Claude Code e2e»?' })
+  await expect(ask).toContainText('con sus permisos, sus carpetas y su nombre en el historial')
+  await expect(ask).toContainText('seguirá funcionando 10 minutos')
+  await ask.getByRole('button', { name: 'Cancelar' }).click()
+  await expect(ask).toHaveCount(0)
+  await card(page, 'Claude Code e2e').getByRole('button', { name: 'Rotar' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Rotar la clave' }).click()
+  // The new key, once, as when it was created; and until when the old one works.
+  const shown = page.getByRole('dialog', { name: 'Clave para «Claude Code e2e»' })
+  await expect(shown.getByText('no se volverá a mostrar', { exact: false })).toBeVisible()
+  await expect(shown.getByText(/La clave anterior sigue valiendo hasta las \d\d:\d\d; después, solo esta\./)).toBeVisible()
+  const rotated = (await shown.locator('.token').innerText()).trim()
+  expect(rotated).toMatch(TOKEN)
+  expect(rotated).not.toBe(token)
+  expect(rotated.slice(6, 32), 'the same key').toBe(token.slice(6, 32))
+  await page.screenshot({ path: `${SHOTS}/keys-rotated-light.png`, animations: 'disabled' })
+  await shown.getByRole('button', { name: 'Ya la he guardado' }).click()
+  // Both work for now; the card says until when the old one does, and ends in the new one.
+  for (const t of [token, rotated]) expect((await request.get(`${BASE_URL}/api/tree`, { headers: bearer(t) })).status()).toBe(200)
+  const k = card(page, 'Claude Code e2e')
+  await expect(k).toContainText(/Clave anterior\s*vale hasta las \d\d:\d\d/)
+  await expect(k).toContainText(`thoth_…${rotated.slice(-4)}`)
+  expect(before).not.toContain('Clave anterior')
+  await page.context().close()
+  token = rotated
+})
+
 test('revoking asks first, and the key stops working at once', async ({ browser, request }) => {
   const page = await signIn(browser, 'noa')
   await page.goto('/?view=agents')

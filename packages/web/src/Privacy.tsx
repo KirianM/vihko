@@ -7,7 +7,9 @@
 // its folders and never anything of a note hidden from agents, which it only
 // learns exists if it already has its name (`no_access`, `agent_denied`);
 // with OAuth, the person who signs in authorizes, and the addresses anyone
-// may call (metadata, registration) give access to nothing; no telemetry, updates or
+// may call (metadata, registration) give access to nothing; the one request
+// thoth makes on its own is a client's metadata document, only when someone
+// signed in starts authorizing it, fenced as cimd.ts says; no telemetry, updates or
 // CDNs (the page's CSP only lets the browser talk to this server, images
 // linked from other sites aside); images are downloaded by URL only when a
 // person asks (a key can't); external images as the server's administrator
@@ -112,6 +114,7 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
             <li>{t('privacy.keysOauth')}</li>
             <li>{t('privacy.keysLeave')}</li>
             <li>{t('privacy.keysAsk')}</li>
+            <li>{t('privacy.keysCimd')}</li>
             <li>{t('privacy.keysStored')}</li>
           </ul>
         </section>

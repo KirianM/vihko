@@ -117,6 +117,33 @@ test('keys over the UI: created once with their token, listed without it, change
   } finally { await h.close() }
 })
 
+test('rotating a key over the UI: its owner only, a new token once, both working meanwhile; never a key, never an OAuth authorization', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    await h.enableApi()
+    const { key, token } = await h.newKey({ name: 'Claude Code', canWrite: true })
+    const r = await h.noa('POST', `/api/keys/${key.id}/rotate`)
+    assert.equal(r.status, 200, r.text)
+    assert.match(r.body.token, /^thoth_[0-9A-Z]{26}_[A-Za-z0-9_-]{43}$/)
+    assert.notEqual(r.body.token, token)
+    assert.deepEqual([r.body.key.id, r.body.key.name, r.body.key.last4, typeof r.body.key.previousUntil], [key.id, 'Claude Code', r.body.token.slice(-4), 'string'])
+    assert.ok(!(await h.noa('GET', '/api/keys')).text.includes(r.body.token.slice(33)), 'the new token is shown once')
+    // Both keys work while the old one's grace lasts (the grace itself: keys.test.ts).
+    for (const t of [token, r.body.token]) assert.equal((await h.withKey(t)('GET', '/api/tree')).status, 200)
+    // Someone else's key: not theirs to rotate, admin or not; a key can't rotate itself.
+    const anas = (await h.newKey({ name: 'Ana bot' }, 'ana')).key
+    assert.equal((await h.noa('POST', `/api/keys/${anas.id}/rotate`)).status, 404)
+    assert.equal((await h.ana('POST', `/api/keys/${key.id}/rotate`)).status, 404)
+    assert.equal((await h.withKey(r.body.token)('POST', `/api/keys/${key.id}/rotate`)).status, 404)
+    // A member while members may not create keys: no.
+    await h.noa('PUT', '/api/admin/integrations', { membersCanCreateKeys: false })
+    assert.equal((await h.ana('POST', `/api/keys/${anas.id}/rotate`)).status, 403)
+    // Revoked: invalid.
+    await h.noa('DELETE', `/api/keys/${key.id}`)
+    assert.deepEqual([(await h.noa('POST', `/api/keys/${key.id}/rotate`)).status, (await h.withKey(token)('GET', '/api/tree')).status], [400, 401])
+  } finally { await h.close() }
+})
+
 test('writing with a key: If-Match (412 with the current ETag), If-None-Match: *, edits that need the ETag, dry runs; the history says who, for whom and how', async () => {
   const h = await setup({ files: FILES })
   try {
