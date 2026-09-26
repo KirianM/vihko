@@ -31,6 +31,10 @@
 .check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); flex-shrink: 0; }
 .check-text { display: flex; flex-direction: column; gap: 2px; }
 .btn.prefs-browser { align-self: flex-start; margin-top: -6px; height: auto; min-height: 0; padding: 2px 0; color: var(--accent-strong); }
+/* The other settings pages, from the preferences */
+.prefs-links { display: flex; flex-direction: column; gap: 2px; padding-top: var(--space-2); border-top: 1px solid var(--line); }
+.btn.prefs-link { justify-content: space-between; margin: 0 calc(-1 * var(--space-2)); padding: 0 var(--space-2); color: var(--ink); }
+.btn.prefs-link[data-hovered] { background: var(--chip); }
 
 /* Preview of the links that change: before (struck through) → after */
 .preview { margin: var(--space-3) var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }

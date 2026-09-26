@@ -20,6 +20,7 @@ import { linkAutocomplete } from './autocomplete.ts'
 import { createLinkUi, type NewLinkedNote } from './createLink.ts'
 import { labels, livePreview, navigate, notePath, pickAmbiguous, setLinks, type LinkInfo, type PickAmbiguous } from './livePreview.ts'
 import { announce } from './presence.ts'
+import { agentLabel, agentMarks } from './agents.ts'
 import { tables } from './tables.ts'
 import { taskLabel, tasks } from './tasks.ts'
 import { viewUpdates } from './viewUpdates.ts'
@@ -121,6 +122,7 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
         keymap.of([{ key: 'Mod-Alt-m', run: () => { comments.current?.(null); return true } }]),
         keymap.of([...yUndoManagerKeymap, ...defaultKeymap, ...searchKeymap, indentWithTab]),
         yCollab(text, provider.awareness, { undoManager }),
+        agentMarks(text, provider.awareness, (a) => t('presence.agentWrote', { agent: agentLabel(t, a) })),
         EditorView.contentAttributes.of({ 'aria-label': t('editor.label'), spellcheck: 'true' }),
       ],
     })

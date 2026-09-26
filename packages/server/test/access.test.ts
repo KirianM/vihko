@@ -14,6 +14,31 @@ test('ai: false hides a note from agents, and so does any doubt: no, off, "false
   assert.equal(hiddenFromAgents(fm({ ai: false }), 'privado'), false)
 })
 
+test('a note says whether it is hidden from agents, and why: the UI shows it', async () => {
+  const h = await setup({ files: {
+    'a/oculta.md': '---\nai: "no"\n---\n# Oculta\n',
+    'a/rota.md': '---\nai: [false\n---\n# Rota\n',
+    'a/visible.md': '---\nai: true\n---\n# Visible\n',
+    'a/sin.md': '# Sin frontmatter\n',
+  } })
+  try {
+    const hiding = async (path: string) => (await h.noa('GET', h.url('/api/note', { path }))).body.hiddenFromAgents
+    assert.equal(await hiding('a/oculta.md'), 'ai')
+    assert.equal(await hiding('a/rota.md'), 'frontmatter')
+    assert.equal(await hiding('a/visible.md'), null)
+    assert.equal(await hiding('a/sin.md'), null)
+    // Its text decides, not the index: written a moment ago, it says so at once.
+    writeFileSync(join(h.notesDir, 'a', 'sin.md'), '---\nai: false\n---\n# Sin frontmatter\n')
+    assert.equal(await hiding('a/sin.md'), 'ai')
+    // A key only reads notes it may see: for them, always null.
+    await h.enableApi()
+    const { token } = await h.newKey({ name: 'x' })
+    const r = await h.withKey(token)('GET', h.url('/api/note', { path: 'a/visible.md' }))
+    assert.equal(r.status, 200)
+    assert.equal(r.body.hiddenFromAgents, null)
+  } finally { await h.close() }
+})
+
 test('a key\'s folders match paths as the disk holds them (NFD), and a note hidden since it was indexed is hidden by its text', async () => {
   const nfd = 'Café'
   const h = await setup({ files: { [`${nfd}/receta.md`]: '# Receta\n', 'otra/nota.md': '# Nota\n' } })

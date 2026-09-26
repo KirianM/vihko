@@ -214,6 +214,17 @@ export class Access {
     return this.principal.kind === 'agent' && hiddenFromAgents(readFrontmatter(text), this.policy.aiKey)
   }
 
+  /**
+   * Why a note's text hides it from every agent, whoever asks (the UI shows
+   * it): `ai` (`ai: false`, or any doubt), `frontmatter` (it can't be read),
+   * or null.
+   */
+  agentHiding(text: string): 'ai' | 'frontmatter' | null {
+    const fm = readFrontmatter(text)
+    if (fm.error) return 'frontmatter'
+    return hiddenFromAgents(fm, this.policy.aiKey) ? 'ai' : null
+  }
+
   /** `not_found` unless it may read `path`: what it can't see doesn't exist. */
   assertRead(path: string): void {
     if (!this.canRead(path)) throw new NoteError('not_found', `does not exist: ${path}`)
