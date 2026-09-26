@@ -236,6 +236,96 @@ test('files over the size limit stay out of the history, with an alert', async (
   } finally { await h.close() }
 })
 
+test('history.exclude keeps files out of the history without hiding them; a move across it leaves or enters the history', async () => {
+  const config = 'history:\n  exclude:\n    - biblioteca/**\n    - "**/*.pdf"\n'
+  const h = await setup({ config, files: { 'biblioteca/libro.md': '# Libro\n', 'adjuntos/doc.pdf': 'PDF1', 'borradores/secreto.md': '# Secreto\n' } })
+  try {
+    const first = (await h.changes()).changes.at(-1)
+    const paths = first.files.map((f: any) => f.path)
+    assert.ok(paths.includes('borradores/secreto.md') && paths.includes(NOTE))
+    assert.ok(!paths.includes('biblioteca/libro.md') && !paths.includes('adjuntos/doc.pdf'), 'excluded files never enter')
+    // Not hidden from thoth: read, edited and indexed as ever.
+    assert.equal((await h.noa('GET', '/api/note?path=biblioteca%2Flibro.md')).status, 200)
+    await h.put('biblioteca/libro.md', (t) => t + 'más\n')
+    writeFileSync(join(h.notesDir, 'adjuntos/doc.pdf'), 'PDF2')
+    await h.history.recorder.observePaths(['adjuntos/doc.pdf'])
+    writeFileSync(join(h.notesDir, 'biblioteca/libro.md'), '# Libro\nde fuera\n')
+    h.indexer.indexPaths(['biblioteca/libro.md'], { detectMoves: true })
+    await h.settle()
+    assert.equal((await h.changes()).changes.length, 1, 'nothing recorded for excluded files')
+    const excluded = await h.versions('biblioteca/libro.md')
+    assert.deepEqual([excluded.versions.length, excluded.pending, excluded.excluded], [0, null, true])
+    assert.equal((await h.versions(NOTE)).excluded, false)
+
+    // A note moved into an excluded folder leaves the history; moved out, it enters with its content.
+    assert.equal((await h.noa('POST', '/api/note/move', { from: NOTE, to: 'biblioteca/Proxy.md' })).status, 200)
+    await h.settle()
+    let { changes } = await h.changes()
+    const left = changes.find((c: any) => c.files.some((f: any) => f.path === NOTE))
+    assert.deepEqual(left.files.map((f: any) => [f.path, f.change]), [[NOTE, 'deleted']])
+    assert.equal(who(left), 'user:noa')
+    assert.equal((await h.noa('POST', '/api/note/move', { from: 'biblioteca/Proxy.md', to: 'hogar/GW.md' })).status, 200)
+    await h.settle()
+    changes = (await h.changes()).changes
+    const entered = changes.find((c: any) => c.files.some((f: any) => f.path === 'hogar/GW.md'))
+    assert.deepEqual(entered.files.map((f: any) => [f.path, f.change]), [['hogar/GW.md', 'created']])
+    assert.equal(who(entered), 'user:noa')
+    const v = (await h.versions('hogar/GW.md')).versions[0]
+    assert.ok((await h.noa('GET', `/api/history/version?path=${h.q('hogar/GW.md')}&id=${v.id}`)).body.text.includes('Proxy'))
+    // A folder moved into an excluded one: its files leave the history, by whoever moved it.
+    const inFolder = [...(await h.history.recorder.git.run(['ls-tree', '-r', '--name-only', 'HEAD', '--', 'recetas'])).stdout.toString().trim().split('\n')]
+    assert.equal((await h.noa('POST', '/api/folder/move', { from: 'recetas', to: 'biblioteca/recetas' })).status, 200)
+    await h.settle()
+    changes = (await h.changes()).changes
+    const folder = changes.find((c: any) => c.files.some((f: any) => f.path.startsWith('recetas/')))
+    assert.deepEqual(folder.files.map((f: any) => [f.path, f.change]).sort(), inFolder.map((p) => [p, 'deleted']).sort())
+    assert.equal(who(folder), 'user:noa')
+
+    // A new pattern applies at once; what the history holds stays.
+    writeFileSync(join(h.notesDir, 'thoth.yaml'), config + '    - borradores\n')
+    h.workspace.reload()
+    await h.history.configure()
+    const before = (await h.versions('borradores/secreto.md')).versions.length
+    await h.put('borradores/secreto.md', (t) => t + 'clave\n')
+    await h.settle()
+    const secret = await h.versions('borradores/secreto.md')
+    assert.equal(secret.versions.length, before, 'no new version, the old ones stay')
+    assert.equal(secret.excluded, true)
+
+    // An invalid pattern is a configuration error: the last valid list stays in force.
+    writeFileSync(join(h.notesDir, 'thoth.yaml'), 'history:\n  exclude:\n    - /borradores\n')
+    h.workspace.reload()
+    await h.history.configure()
+    assert.deepEqual(h.workspace.status.errors.map((e) => [e.code, e.at, e.detail]), [['invalid_pattern', 'history.exclude.0', '/borradores']])
+    assert.equal((await h.versions('borradores/secreto.md')).excluded, true)
+
+    // Without the patterns, what is on disk enters the history at once.
+    writeFileSync(join(h.notesDir, 'thoth.yaml'), '')
+    h.workspace.reload()
+    await h.history.configure()
+    await h.settle()
+    const now = (await h.changes()).changes[0]
+    assert.equal(who(now), 'external')
+    assert.deepEqual(now.files.map((f: any) => [f.path, f.change]).sort(), [
+      ['adjuntos/doc.pdf', 'created'], ['biblioteca/libro.md', 'created'], ['borradores/secreto.md', 'modified'], ['thoth.yaml', 'modified'],
+      ...inFolder.map((p) => [`biblioteca/${p}`, 'created']),
+    ].sort())
+  } finally { await h.close() }
+})
+
+test('history.exclude at startup: an excluded file changed while thoth was stopped is not recorded', async () => {
+  const config = 'history:\n  exclude: privado\n'
+  const h = await setup({ config, files: { 'privado/diario.md': '# Diario\n' } })
+  const n = (await h.changes()).changes.length
+  await h.close()
+  writeFileSync(join(h.notesDir, 'privado/diario.md'), '# Diario\ncon thoth parado\n')
+  writeFileSync(join(h.notesDir, 'privado/nuevo.md'), '# Nuevo\n')
+  const again = await setup({ dir: h.dir })
+  try {
+    assert.equal((await again.changes()).changes.length, n)
+  } finally { await again.close() }
+})
+
 test('restoring a version brings back the images it linked that are gone, never over another file', async () => {
   const text = '# Con imágenes\n\n![](a.png) ![](b.png) ![](c.png) ![](https://example.com/x.png)\n'
   const h = await setup({ files: { 'fotos/nota.md': text, 'fotos/a.png': 'AAAA', 'fotos/b.png': 'BBBB' } })

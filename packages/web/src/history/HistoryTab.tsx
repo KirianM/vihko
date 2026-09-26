@@ -35,6 +35,7 @@ export function HistoryTab({ store, status, current, onOpen }: {
       <HistoryNotice status={status} />
       {readable && (
         <>
+          {store.excluded && <p className="h-note" role="status">{t(store.versions.length ? 'history.excludedBefore' : 'history.excluded')}</p>}
           {store.pending && (
             <div className="h-pending" role="status">
               <span className="h-pending-label"><span className="h-pending-dot" aria-hidden="true" />{t('history.pending')}</span>
@@ -48,7 +49,7 @@ export function HistoryTab({ store, status, current, onOpen }: {
             </div>
           )}
           {!store.loaded && store.error === null && <p className="panel-empty">{t('common.loading')}</p>}
-          {store.loaded && store.error === null && store.versions.length === 0 && !store.pending && <p className="panel-empty">{t('history.empty')}</p>}
+          {store.loaded && store.error === null && store.versions.length === 0 && !store.pending && !store.excluded && <p className="panel-empty">{t('history.empty')}</p>}
           {groups.map((g) => (
             <section key={g.key} className="h-day" aria-label={dates.day(g.key)}>
               <h3 className="panel-h">{dates.day(g.key)}</h3>

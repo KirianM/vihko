@@ -62,7 +62,8 @@ export interface Version {
 /** What is still being written into the note and isn't a version yet. */
 export interface Pending { authors: HistoryAuthor[]; since: string }
 
-export interface VersionPage { versions: Version[]; next: string | null; pending: Pending | null }
+/** `excluded`: thoth.yaml keeps the file out of the history (`history.exclude`); what is listed is from before. */
+export interface VersionPage { versions: Version[]; next: string | null; pending: Pending | null; excluded: boolean }
 
 export type DiffOp = [-1 | 0 | 1, string]
 /** `ops` turn the compared text into the version: what the version adds is an insertion. */

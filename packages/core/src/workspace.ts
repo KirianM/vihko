@@ -9,9 +9,10 @@
 // - Security-relevant sections (`permissions`, M4) are strict sections: any
 //   doubt about one invalidates that section alone, which then applies its most
 //   restrictive setting.
-import { LineCounter, isMap, isScalar, parseDocument, type Document } from 'yaml'
+import { LineCounter, isMap, isScalar, isSeq, parseDocument, type Document } from 'yaml'
 import { patternPeriod, patternTokens, seriesPath, type Series } from './series.ts'
 import { classifyPath } from './paths.ts'
+import { globProblem } from './glob.ts'
 
 /** Name of the file at the root of the notes folder. */
 export const WORKSPACE_FILE = 'thoth.yaml'
@@ -42,10 +43,15 @@ export interface WorkspaceConfig {
  *   state volume), `unmanaged` (thoth only reads the repository the notes
  *   folder already has) or `off`.
  * - `maxFileSize`: in MB; a larger file doesn't enter the history.
+ * - `exclude`: path patterns (glob.ts) kept out of the managed history. thoth
+ *   still indexes, shows and edits those files; their changes just aren't
+ *   versions. What the history already holds stays (`thoth history purge`
+ *   removes it).
  */
 export interface HistoryConfig {
   mode: HistoryMode
   maxFileSize: number
+  exclude: string[]
 }
 
 export type HistoryMode = 'managed' | 'unmanaged' | 'off'
@@ -73,7 +79,7 @@ export const DEFAULT_ATTACHMENTS_SUFFIX = '.assets'
 
 export const EMPTY_WORKSPACE: WorkspaceConfig = {
   templates: null, daily: [], attachments: { folder: null }, links: { aliases: true },
-  history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB },
+  history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB, exclude: [] },
 }
 
 /**
@@ -94,6 +100,8 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = {
  * - `unreadable`: the file exists but can't be read (permissions).
  * - `invalid_value`: a value thoth doesn't accept there (`detail`: what it
  *   accepts, or the key it needs), such as an unknown attachments `mode`.
+ * - `invalid_pattern`: a path pattern that isn't relative to the notes root
+ *   or uses what thoth's globs don't (`detail`: the pattern).
  *
  * Warnings (the file applies without that part):
  * - `unknown_key`: a key thoth doesn't know (a typo, or a newer version's):
@@ -110,7 +118,7 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = {
 export type ConfigErrorCode =
   | 'yaml' | 'not_a_map' | 'invalid_version' | 'invalid_type' | 'not_boolean'
   | 'invalid_path' | 'invalid_id' | 'pattern_token' | 'pattern_period' | 'unreadable'
-  | 'invalid_value'
+  | 'invalid_value' | 'invalid_pattern'
   | 'unknown_key' | 'newer_version' | 'not_supported' | 'section_rejected'
 
 export interface ConfigError {
@@ -161,7 +169,7 @@ export const STRICT_SECTIONS: readonly StrictSection[] = [PERMISSIONS]
 
 const TOP_KEYS = ['version', 'templates', 'daily', 'attachments', 'links', 'history']
 const LINKS_KEYS = ['aliases']
-const HISTORY_KEYS = ['mode', 'maxFileSize']
+const HISTORY_KEYS = ['mode', 'maxFileSize', 'exclude']
 const SERIES_KEYS = ['folder', 'name', 'template', 'label']
 const ATTACHMENT_KEYS = ['mode', 'folder', 'suffix']
 const ATTACHMENT_MODES = ['next-to-note', 'folder', 'per-note']
@@ -194,7 +202,7 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
 
   const config: WorkspaceConfig = {
     templates: null, daily: [], attachments: { folder: null }, links: { aliases: true },
-    history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB },
+    history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB, exclude: [] },
   }
   const strictKeys = new Set(strict.map((s) => s.key))
   for (const key of Object.keys(data)) if (!TOP_KEYS.includes(key) && !strictKeys.has(key)) warn('unknown_key', [key])
@@ -264,6 +272,19 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
       if (h.maxFileSize !== undefined && h.maxFileSize !== null) {
         if (typeof h.maxFileSize === 'number' && Number.isFinite(h.maxFileSize) && h.maxFileSize > 0) config.history.maxFileSize = h.maxFileSize
         else fail('invalid_value', ['history', 'maxFileSize'], 'MB > 0')
+      }
+      if (h.exclude !== undefined && h.exclude !== null) {
+        // One pattern alone is a list of one.
+        const list = typeof h.exclude === 'string' ? [h.exclude] : h.exclude
+        if (!Array.isArray(list)) fail('invalid_type', ['history', 'exclude'], 'list')
+        else {
+          const at = (i: number) => ['history', 'exclude', ...(typeof h.exclude === 'string' ? [] : [String(i)])]
+          list.forEach((p: unknown, i) => {
+            if (typeof p !== 'string') fail('invalid_type', at(i), 'string')
+            else if (globProblem(p) !== null) fail('invalid_pattern', at(i), p)
+            else config.history.exclude.push(p)
+          })
+        }
       }
     }
   }
@@ -340,6 +361,14 @@ function nodeLine(doc: Document, lines: LineCounter, path: string[]): number | n
   let node: unknown = doc.contents
   let offset: number | undefined
   for (const seg of path) {
+    if (isSeq(node)) {
+      // An item of a list: its own line.
+      const item = node.items[Number(seg)]
+      if (!item || typeof item !== 'object' || !('range' in item)) break
+      offset = (item as { range?: [number, number, number] | null }).range?.[0]
+      node = item
+      continue
+    }
     if (!isMap(node)) break
     const pair = node.items.find((p) => isScalar(p.key) && String(p.key.value) === seg)
     if (!pair) break

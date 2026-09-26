@@ -16,6 +16,7 @@ import { Watcher } from './watcher.ts'
 import { ExternalMoves } from './externalMoves.ts'
 import { CollabHub } from './hub.ts'
 import { History } from './history/index.ts'
+import { lockState, type StateLock } from './lock.ts'
 import { SESSION_COOKIE } from './http/app.ts'
 import type { Server } from 'node:http'
 import { WORKSPACE_FILE } from '@thoth/core'
@@ -86,6 +87,18 @@ export function openStores(config: Config) {
 }
 
 export async function start(config: Config) {
+  // One process at a time on the state volume (a second server, or `thoth history purge`).
+  mkdirSync(config.stateDir, { recursive: true })
+  const lock = lockState(config.stateDir)
+  try {
+    return await run(config, lock)
+  } catch (err) {
+    lock.release()
+    throw err
+  }
+}
+
+async function run(config: Config, lock: StateLock) {
   const { state, index } = openStores(config)
   const auth = new Auth(state)
   const log = (msg: string) => console.log(`[thoth] ${msg}`)
@@ -185,6 +198,7 @@ export async function start(config: Config) {
     server.close()
     index.close()
     state.close()
+    lock.release()
   }
   return { app, stop, auth, hub, notes, server, workspace, history }
 }

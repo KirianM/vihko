@@ -5,7 +5,7 @@
 // codes with their data, which the UI words (D-025).
 //
 //   GET  /api/history/status
-//   GET  /api/history/versions?path=&cursor=&limit=
+//   GET  /api/history/versions?path=&cursor=&limit=   (`excluded`: history.exclude keeps it out)
 //   GET  /api/history/version?path=&id=
 //   GET  /api/history/diff?path=&id=&against=previous|current|<id>
 //   POST /api/history/restore { path, id, ifMatch? }
@@ -95,6 +95,8 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
       versions: page.versions.map((v) => ({ ...v, authors: v.authors.map(author), reason: reason(v.reason) })),
       next: page.next,
       pending: open ? { authors: open.authors.map(author), since: new Date(open.since).toISOString() } : null,
+      // Kept out of the managed history by thoth.yaml: what is listed is from before.
+      excluded: history.excluded(path),
     })
   })
 
