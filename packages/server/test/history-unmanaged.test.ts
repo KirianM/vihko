@@ -3,12 +3,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseThreads, resolveThread } from '@thoth/core'
 import { setup, sleep } from './_history.ts'
 import { ANA, BEA, gitEnv, snapshot, userGit } from './_userGit.ts'
+import { tempDir } from './_tmp.ts'
 
 const UNMANAGED = 'history:\n  mode: unmanaged\n'
 
@@ -378,7 +378,7 @@ test('unmanaged mode: submodules are left out, files in Git LFS show their point
 })
 
 test('unmanaged mode reads a repository another user owns, naming only its path; a git that fails is reported', async () => {
-  const tools = mkdtempSync(join(tmpdir(), 'thoth-git-'))
+  const tools = tempDir('thoth-git-')
   const flag = join(tools, 'git-broken')
   const git = join(tools, 'git-foreign-owner.sh')
   // Every repository looks owned by someone else (as on an NFS export mapped to `nobody`).

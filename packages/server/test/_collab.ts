@@ -1,14 +1,14 @@
 // Utilities shared by the collaboration tests (real server as a separate process).
 import assert from 'node:assert/strict'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { cpSync, mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import WebSocket from 'ws'
 import type * as Y from 'yjs'
 import { openLineage } from '../../web/src/editor/lineage.ts'
+import { tempDir } from './_tmp.ts'
 
 export const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 export const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
@@ -26,7 +26,7 @@ export async function waitFor(cond: () => boolean | Promise<boolean>, what: stri
 export interface Srv { proc: ChildProcess; base: string; out: string[]; env: Record<string, string>; stop(signal?: NodeJS.Signals): Promise<void> }
 
 export function makeDirs() {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-hub-'))
+  const dir = tempDir('thoth-hub-')
   const notes = join(dir, 'notes')
   cpSync(VAULT, notes, { recursive: true })
   const env = { THOTH_NOTES_DIR: notes, THOTH_STATE_DIR: join(dir, 'state'), THOTH_HOST: '127.0.0.1', THOTH_PORT: String(nextPort++) }

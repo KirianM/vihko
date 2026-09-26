@@ -2,16 +2,16 @@
 // go with it; the rest stay and its links to them are rewritten.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Indexer, NoteService, dumpIndex, openIndex, type Actor } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
 const me: Actor = { kind: 'user', id: 'noa' }
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
 
 function setup(files: Record<string, string | Uint8Array>) {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-move-images-'))
+  const dir = tempDir('thoth-move-images-')
   const notesDir = join(dir, 'notes')
   for (const [p, content] of Object.entries(files)) {
     mkdirSync(dirname(join(notesDir, p)), { recursive: true })

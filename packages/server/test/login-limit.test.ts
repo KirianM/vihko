@@ -1,17 +1,14 @@
 // Login limits (loginLimit.ts, http/clientIp.ts): the counters on their own,
 // then over HTTP with the socket's address given as @hono/node-server would.
-import { after, test } from 'node:test'
+import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   Auth, DEVICE_COOKIE, Indexer, LoginLimiter, NoteService, Profiles, SESSION_COOKIE, Workspace, clientIp, createApp, ipKey, openIndex, openState,
   trustedProxiesFrom, type LimitRules, type Runtime,
 } from '@thoth/server'
-
-const dirs: string[] = []
-after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }) })
+import { tempDir } from './_tmp.ts'
 
 /** A limiter on a clock the test moves. */
 function limiter(rules: Partial<LimitRules> = {}) {
@@ -156,8 +153,7 @@ test('client address: the socket, X-Forwarded-For only from trusted proxies', ()
 // --- Over HTTP ---------------------------------------------------------------
 
 async function server(opts: { proxies?: string; rules?: Partial<LimitRules> } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-login-limit-'))
-  dirs.push(dir)
+  const dir = tempDir('thoth-login-limit-')
   const notesDir = join(dir, 'notes')
   mkdirSync(notesDir)
   const index = openIndex(join(dir, 'index.db'))

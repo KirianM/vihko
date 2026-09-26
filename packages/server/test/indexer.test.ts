@@ -1,16 +1,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { Indexer, SCHEMA_VERSION, dumpIndex, openIndex, type Db } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
 function tmp(name: string) {
-  return mkdtempSync(join(tmpdir(), `thoth-${name}-`))
+  return tempDir(`thoth-${name}-`)
 }
 
 /** Copy of the vault in a temp directory, with its index. */

@@ -3,11 +3,11 @@
 // the same content without one, is the same note. Never a guess.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, mkdirSync, mkdtempSync, renameSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Indexer, NoteService, matchMoves, openIndex, type DetectedMove, type MoveCandidate } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 const UID = '01J8Z6S6ZK3R2V4TQ9WQ4M3N7B'
@@ -40,7 +40,7 @@ test('pairing: never a guess when several notes could be the one', () => {
 // --- The indexer ---------------------------------------------------------------
 
 function indexed(opts: { now?: () => number } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-xmove-'))
+  const dir = tempDir('thoth-xmove-')
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
   const db = openIndex(join(dir, 'index.db'))
@@ -124,7 +124,7 @@ test("thoth's own writes are not someone else's move", async () => {
 })
 
 test('a folder renamed with another tool is a move of its notes, not a mass deletion', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-xmove-mass-'))
+  const dir = tempDir('thoth-xmove-mass-')
   const notesDir = join(dir, 'notes')
   mkdirSync(join(notesDir, 'todo'), { recursive: true })
   for (let i = 0; i < 30; i++) writeFileSync(join(notesDir, `todo/nota-${i}.md`), `# Nota ${i}\n`)

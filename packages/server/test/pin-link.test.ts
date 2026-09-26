@@ -3,19 +3,19 @@
 // and only when asked.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { LinkIndex, extract, readFrontmatter } from '@thoth/core'
 import { Indexer, NoteError, NoteService, openIndex, rewriteLink, type Actor } from '@thoth/server'
 import { setup as appSetup } from './_app.ts'
+import { tempDir } from './_tmp.ts'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 const me: Actor = { kind: 'user', id: 'noa' }
 
 function setup() {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-pin-'))
+  const dir = tempDir('thoth-pin-')
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
   const db = openIndex(join(dir, 'index.db'))

@@ -1,10 +1,10 @@
 // Shared setup for the thoth.yaml, profile and daily-note tests: a copy of the
 // test vault, two users signed in and an adjustable clock.
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Auth, Indexer, NoteService, Profiles, Workspace, createApp, openIndex, openState, type Runtime } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
@@ -23,7 +23,7 @@ attachments:
 
 
 export async function setup(opts: { config?: string; clock?: { now: Date }; moveWaitMs?: number } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-daily-'))
+  const dir = tempDir('thoth-daily-')
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
   mkdirSync(join(notesDir, 'Plantillas'))

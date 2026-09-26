@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Actor } from '@thoth/server'
 import { flakyGit, setup, sleep, who } from './_history.ts'
+import { tempDir } from './_tmp.ts'
 
 const NOTE = 'hogar/Proxy.md'
 
@@ -460,7 +460,7 @@ test('«Recent changes» filters file by file with the permission check, and by 
 })
 
 test('a failing git never blocks a write: it is reported, and the history catches up when git is back', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-git-'))
+  const dir = tempDir('thoth-git-')
   const { git, flag } = flakyGit(dir)
   const h = await setup({ git })
   try {
@@ -484,7 +484,7 @@ test('a failing git never blocks a write: it is reported, and the history catche
 })
 
 test('git failing so long that the queue reaches its cap: the oldest versions merge into later ones, keeping contents and authors, with an alert while it lasts', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-git-'))
+  const dir = tempDir('thoth-git-')
   const { git, flag } = flakyGit(dir)
   const h = await setup({ git, queueMax: 2 })
   const until = async (cond: () => Promise<boolean>, what: string) => {

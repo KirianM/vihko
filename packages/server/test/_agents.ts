@@ -2,11 +2,11 @@
 // leak tests): a small vault built for them, the history (managed, short
 // timings), the API with keys, and two users signed in: noa (admin) and
 // ana (member).
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, mountMcp, openIndex, openState, type Runtime } from '@thoth/server'
 import { Client, StreamableHTTPClientTransport, type VersionNegotiationMode } from '@modelcontextprotocol/client'
+import { tempDir } from './_tmp.ts'
 
 /** A 1×1 PNG. */
 export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
@@ -24,7 +24,7 @@ export interface AgentSetup {
 }
 
 export async function setup(opts: AgentSetup = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-agents-'))
+  const dir = tempDir('thoth-agents-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
   mkdirSync(notesDir, { recursive: true })

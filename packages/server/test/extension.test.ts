@@ -1,13 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync, renameSync, statSync, utimesSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, renameSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { ExtensionError, ExtensionHost, Indexer, SCHEMA_VERSION, dumpIndex, openIndex, plan, type Extension, type Db, type ExtensionDb } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
-const openDb = () => openIndex(join(mkdtempSync(join(tmpdir(), 'thoth-ext-')), 'index.db'))
+const openDb = () => openIndex(join(tempDir('thoth-ext-'), 'index.db'))
 const count = (db: Db, table: string) => (db.prepare(`select count(*) n from ${table}`).get() as { n: number }).n
 
 /** A do-nothing extension with one table named after it. */
@@ -181,7 +181,7 @@ function density(calls: Map<string, number>): Extension<number> {
 }
 
 function vault() {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-ext-vault-'))
+  const dir = tempDir('thoth-ext-vault-')
   const notes = join(dir, 'notes')
   cpSync(VAULT, notes, { recursive: true })
   return { dir, notes, file: join(dir, 'index.db') }

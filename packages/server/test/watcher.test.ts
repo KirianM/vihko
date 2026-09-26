@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Indexer, Watcher, openIndex } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 async function waitFor(cond: () => boolean, what: string, timeout = 5000) {
@@ -15,7 +15,7 @@ async function waitFor(cond: () => boolean, what: string, timeout = 5000) {
 }
 
 test('the watcher indexes additions, changes, removals and renamed folders', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-watch-'))
+  const dir = tempDir('thoth-watch-')
   const notes = join(dir, 'notes')
   mkdirSync(join(notes, 'a'), { recursive: true })
   const db = openIndex(join(dir, 'index.db'))
@@ -44,7 +44,7 @@ test('the watcher indexes additions, changes, removals and renamed folders', asy
 })
 
 test('the periodic rescan picks up changes the watcher misses', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-rescan-'))
+  const dir = tempDir('thoth-rescan-')
   const notes = join(dir, 'notes')
   mkdirSync(notes)
   const db = openIndex(join(dir, 'index.db'))

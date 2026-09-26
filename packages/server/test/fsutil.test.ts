@@ -1,12 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { contentHash } from '@thoth/core'
 import { commitText } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
-const dir = () => mkdtempSync(join(tmpdir(), 'thoth-fs-'))
+const dir = () => tempDir('thoth-fs-')
 
 test('commitText: creates without overwriting, replaces with the correct hash and leaves no temp files', async () => {
   const d = dir()

@@ -8,16 +8,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer as createHttpServer, request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createServer as createHttpsServer, request as httpsRequest } from 'node:https'
 import type { AddressInfo } from 'node:net'
-import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { makeDirs, startServer, waitFor } from './_collab.ts'
+import { tempDir } from './_tmp.ts'
 
 const MODULES = fileURLToPath(new URL('../../../node_modules/', import.meta.url))
 const MCP_REMOTE = join(MODULES, 'mcp-remote/dist/proxy.js')
@@ -57,7 +57,7 @@ async function freePort(): Promise<number> {
 }
 
 test('mcp-remote: discovery, registration, consent, tokens and the tools of a read-only authorization, over HTTPS', { timeout: 240_000 }, async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'thoth-oauth-remote-'))
+  const home = tempDir('thoth-oauth-remote-')
   const tls = certificate(home)
   if (!tls) { rmSync(home, { recursive: true, force: true }); return t.skip('no openssl to make a certificate') }
   const { notes, env } = makeDirs()

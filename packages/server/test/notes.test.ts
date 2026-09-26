@@ -1,17 +1,17 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { contentHash, readFrontmatter } from '@thoth/core'
 import { Indexer, NoteError, NoteService, openIndex, type Actor } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 const me: Actor = { kind: 'user', id: 'noa' }
 
 function setup() {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-notes-'))
+  const dir = tempDir('thoth-notes-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
   cpSync(VAULT, notesDir, { recursive: true })

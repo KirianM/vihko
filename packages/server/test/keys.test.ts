@@ -1,17 +1,17 @@
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { ApiKeys, Auth, Integrations, LAST_USED_EVERY_MS, integrationsLockedFrom, keyIdOf, openState } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
 /** Each test's folder, removed at the end. */
 const dirs: string[] = []
 after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }) })
 
 async function setup() {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-keys-'))
+  const dir = tempDir('thoth-keys-')
   dirs.push(dir)
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
