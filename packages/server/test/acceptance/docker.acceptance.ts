@@ -1,7 +1,8 @@
 // The M1 definition of done says `docker compose up`: the same checks against
 // the image, with the example compose file and its two volumes. Startup over
 // the generated vault, the admin created with the CLI inside the container,
-// search, and kill -9 rounds of the server process with the container's
+// search, the M3 «done when» (an agent over MCP and a person in the editor,
+// _m3.ts), and kill -9 rounds of the server process with the container's
 // restart policy bringing it back.
 //
 // Needs Docker with Compose. ACCEPTANCE_IMAGE: an image already built (CI
@@ -16,6 +17,7 @@ import { fileURLToPath } from 'node:url'
 import { api, closeAll, login, type Srv } from '../_collab.ts'
 import { NOTES, PASSWORD, USER, cleanup, freePort, metric, percentile, sleep, timed, waitFor, workspace } from './_harness.ts'
 import { AGENT_MARK, killRound } from './_crash.ts'
+import { m3DoneWhen } from './_m3.ts'
 
 const REPO = fileURLToPath(new URL('../../../../', import.meta.url))
 const ROUNDS = Number(process.env.ACCEPTANCE_DOCKER_ROUNDS ?? 2)
@@ -63,6 +65,9 @@ test(`docker compose up over ${NOTES} notes: startup, search and kill -9`, { ski
       lat.push(ms)
     }
     metric('docker search latency p50', percentile(lat, 50), 'ms', { p95: Math.round(percentile(lat, 95) * 10) / 10 })
+
+    // M3 done when, against the image: an agent over MCP and a person in the editor on the same plan.
+    await m3DoneWhen({ srv, cookie, notesDir: ws.notesDir })
 
     const [hot, cold] = ws.vault.editable as [string, string]
     assert.equal((await api(srv, cookie, 'POST', '/api/note/edit', { path: hot, ops: [{ op: 'append', text: `${AGENT_MARK}\n` }] })).status, 200)
