@@ -9,7 +9,7 @@
 //   npm run ci -- --jobs check,e2e   some jobs only
 //   npm run ci -- --keep             keep the run's folder (worktree, data) to debug
 //   npm run ci -- --pr 72 --post     pending, then success or failure, on the PR's head commit
-//   npm run ci -- --serial           one job after another (the default runs them at once)
+//   npm run ci -- --parallel         the jobs at the same time (faster, but see CONTRIBUTING.md)
 //   npm run ci -- --clean            remove the folders and logs of earlier runs
 //
 // Each run has its own folder (THOTH_CI_DIR, /var/tmp/thoth-ci by default:
@@ -32,19 +32,19 @@ type Job = (typeof JOBS)[number]
 type Stage = 'setup' | Job
 /** Minutes: the workflow's timeout-minutes. Setup is the `npm ci` and build every job there starts with. */
 const LIMIT: Record<Stage, number> = { setup: 15, check: 20, acceptance: 30, docker: 30, e2e: 45 }
-const USAGE = `Usage: npm run ci -- [--pr N | --ref COMMIT] [--jobs ${JOBS.join(',')}] [--keep] [--post] [--serial] | --clean`
+const USAGE = `Usage: npm run ci -- [--pr N | --ref COMMIT] [--jobs ${JOBS.join(',')}] [--keep] [--post] [--parallel] | --clean`
 
 const REPO = dirname(fileURLToPath(new URL('.', import.meta.url)))
 const BASE = process.env.THOTH_CI_DIR ?? '/var/tmp/thoth-ci'
 /** Logs of finished runs are kept this long. */
 const LOG_DAYS = 7
 
-let opt: { pr?: string; ref?: string; jobs?: string; keep?: boolean; post?: boolean; serial?: boolean; clean?: boolean; help?: boolean }
+let opt: { pr?: string; ref?: string; jobs?: string; keep?: boolean; post?: boolean; parallel?: boolean; clean?: boolean; help?: boolean }
 try {
   opt = parseArgs({
     options: {
       pr: { type: 'string' }, ref: { type: 'string' }, jobs: { type: 'string' }, keep: { type: 'boolean' }, post: { type: 'boolean' },
-      serial: { type: 'boolean' }, clean: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
+      parallel: { type: 'boolean' }, clean: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
     },
   }).values
 } catch (err) {
@@ -64,12 +64,13 @@ if (opt.pr !== undefined && opt.ref !== undefined) usage('--pr or --ref, not bot
 if (opt.post && selected.length !== JOBS.length) usage('--post reports the whole CI: run every job')
 const jobs = JOBS.filter((j) => selected.includes(j))
 /**
- * Measured on the 6-CPU machine the CI runs on: 12m30s one after another, 8m
- * at once, with every job green and the acceptance's timings within a few per
- * cent (e2e, the longest, runs alone after the first three minutes). --serial
- * when the machine is busy with something else.
+ * One after another unless --parallel. Measured on the 6-CPU machine the CI
+ * runs on: 12m30s one after another, 8m at once; but at once, one run in three
+ * failed a timing-dependent unit test (two writes more than 150 ms apart), which
+ * never failed one after another. A CI that fails from its own load is worse
+ * than a slower one.
  */
-const parallel = !opt.serial && jobs.length > 1
+const parallel = opt.parallel === true && jobs.length > 1
 
 function usage(message: string): never {
   console.error(`${message}\n${USAGE}`)

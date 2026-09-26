@@ -75,7 +75,7 @@ npm run ci -- --pr 72             # pull request 72 merged onto its base, as Git
 npm run ci -- --pr 72 --post      # …and pending, then success or failure, as ci/local on its head commit
 npm run ci -- --ref origin/main   # a commit (after git fetch, the latest main)
 npm run ci -- --jobs check,e2e    # some jobs only (--post needs all of them)
-npm run ci -- --serial            # one job after another
+npm run ci -- --parallel          # the jobs at the same time (faster, see below)
 npm run ci -- --keep              # keep the run's folder to debug
 npm run ci -- --clean             # remove the folders and logs of earlier runs
 ```
@@ -108,13 +108,14 @@ containers, networks, image and worktree, and keeps only the logs (for 7 days).
 `--keep` keeps the folder, never the processes. A run killed outright is
 cleaned up by the next one.
 
-The jobs run at the same time. On the 6-CPU machine the CI runs on, a full run
-takes about 8 minutes (setup 5 s, check 2m45s, acceptance 2m15s, docker 30 s
-with the image layers cached, e2e 7m55s), against 12m30s one after another;
-e2e, the longest, runs alone after the first three minutes, and the
-acceptance's timings moved by a few per cent. The acceptance has time
-thresholds and the browser tests are sensitive to load: when the machine is
-busy with something else, `--serial` runs the jobs one after another.
+The jobs run one after another. On the 6-CPU machine the CI runs on, a full
+run takes about 12m30s: setup 5 s, check 2m30s, acceptance 1m50s, docker 25 s
+(with the image layers cached) and e2e 7m40s. `--parallel` runs them at the
+same time in about 8 minutes, but the load is theirs: in one of three such runs
+a unit test that depends on two writes landing within 150 ms failed, which
+never happened one after another. The acceptance has time thresholds and the
+browser tests are sensitive to load too; a CI that fails from its own load is
+worse than a slower one.
 
 ## Conventions
 
