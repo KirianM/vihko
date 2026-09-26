@@ -60,18 +60,37 @@ test('thoth.yaml: links.aliases turns alias resolution off; on by default', () =
 })
 
 test('thoth.yaml: history is managed with a 20 MB limit unless it says otherwise', () => {
-  assert.deepEqual(EMPTY_WORKSPACE.history, { mode: 'managed', maxFileSize: 20 })
+  assert.deepEqual(EMPTY_WORKSPACE.history, { mode: 'managed', maxFileSize: 20, exclude: [] })
   const r = parseWorkspaceConfig('history:\n  mode: off\n  maxFileSize: 2.5\n')
   assert.ok(r.ok)
-  assert.deepEqual(r.config.history, { mode: 'off', maxFileSize: 2.5 })
+  assert.deepEqual(r.config.history, { mode: 'off', maxFileSize: 2.5, exclude: [] })
   const only = parseWorkspaceConfig('history:\n  mode: unmanaged\n')
   assert.ok(only.ok)
-  assert.deepEqual(only.config.history, { mode: 'unmanaged', maxFileSize: 20 })
+  assert.deepEqual(only.config.history, { mode: 'unmanaged', maxFileSize: 20, exclude: [] })
   assert.deepEqual(errors('history:\n  mode: git\n'), [['invalid_value', 'history.mode', 2]])
   assert.deepEqual(errors('history:\n  maxFileSize: 0\n'), [['invalid_value', 'history.maxFileSize', 2]])
   assert.deepEqual(errors('history:\n  maxFileSize: "20 MB"\n'), [['invalid_value', 'history.maxFileSize', 2]])
   assert.deepEqual(errors('history: off\n'), [['not_a_map', 'history', 1]])
   assert.deepEqual(warnings('history:\n  retention: forever\n'), [['unknown_key', 'history.retention', 2]])
+})
+
+test('thoth.yaml: history.exclude is a list of path patterns; a bad one is an error on its own line', () => {
+  const r = parseWorkspaceConfig('history:\n  exclude:\n    - biblioteca/**\n    - "**/*.pdf"\n    - borradores/secreto.md\n')
+  assert.ok(r.ok)
+  assert.deepEqual(r.config.history.exclude, ['biblioteca/**', '**/*.pdf', 'borradores/secreto.md'])
+  const one = parseWorkspaceConfig('history:\n  exclude: Archivo/\n')
+  assert.ok(one.ok)
+  assert.deepEqual(one.config.history.exclude, ['Archivo/'], 'one pattern alone is a list of one')
+  assert.deepEqual(errors('history:\n  exclude:\n    - ok/**\n    - /etc/**\n    - "a/../b"\n'), [
+    ['invalid_pattern', 'history.exclude.1', 4],
+    ['invalid_pattern', 'history.exclude.2', 5],
+  ])
+  const bad = parseWorkspaceConfig('history:\n  exclude:\n    - "*.{pdf,epub}"\n')
+  assert.ok(!bad.ok)
+  assert.deepEqual(bad.errors[0], { code: 'invalid_pattern', at: 'history.exclude.0', line: 3, detail: '*.{pdf,epub}' })
+  assert.deepEqual(errors('history:\n  exclude: /secret\n'), [['invalid_pattern', 'history.exclude', 2]])
+  assert.deepEqual(errors('history:\n  exclude:\n    - 3\n'), [['invalid_type', 'history.exclude.0', 3]])
+  assert.deepEqual(errors('history:\n  exclude:\n    a: b\n'), [['invalid_type', 'history.exclude', 2]])
 })
 
 test('thoth.yaml: YAML errors carry their line', () => {

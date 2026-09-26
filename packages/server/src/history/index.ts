@@ -3,7 +3,7 @@
 // the mode in force: the managed repository, or the user's own git
 // (unmanaged). The two are never mixed: switching modes keeps the managed
 // repository as it is, and nothing is ever written to the user's.
-import type { Alert, HistoryConfig, HistoryMode } from '@thoth/core'
+import { pathMatcher, type Alert, type HistoryConfig, type HistoryMode } from '@thoth/core'
 import type { Author } from '../actor.ts'
 import { Recorder, type RecorderOptions } from './recorder.ts'
 import { ManagedReader } from './managed.ts'
@@ -30,12 +30,20 @@ export class History {
   private opts: HistoryOptions
   private mode: HistoryMode
   private maxFileSize: number
+  /** `history.exclude` as last compiled, and what it was compiled from. */
+  private exclude: { key: string; match: (path: string) => boolean } = { key: '', match: () => false }
+  private excludeKey: string
 
   constructor(opts: HistoryOptions) {
     this.opts = opts
     this.mode = opts.config().mode
     this.maxFileSize = opts.config().maxFileSize
-    this.recorder = new Recorder({ ...opts, maxFileBytes: () => Math.floor(opts.config().maxFileSize * 1024 * 1024) })
+    this.excludeKey = keyOf(opts.config().exclude)
+    this.recorder = new Recorder({
+      ...opts,
+      maxFileBytes: () => Math.floor(opts.config().maxFileSize * 1024 * 1024),
+      excluded: (path) => this.excludedNow(path),
+    })
     this.managed = new ManagedReader(this.recorder.git)
     this.unmanaged = new UnmanagedReader({ notesDir: opts.notesDir, binary: opts.git, log: opts.log, now: opts.now })
   }
@@ -51,17 +59,34 @@ export class History {
     return this.recorder.start()
   }
 
-  /** thoth.yaml was read again: the mode, and a new size limit (a sweep says which files it leaves out now). */
+  /**
+   * thoth.yaml was read again: the mode, and a new size limit or exclusion
+   * list, which apply at once (a sweep records what enters the history now).
+   */
   async configure() {
-    const { mode, maxFileSize } = this.opts.config()
+    const { mode, maxFileSize, exclude } = this.opts.config()
     const limitChanged = maxFileSize !== this.maxFileSize
     this.maxFileSize = maxFileSize
+    const excludeChanged = keyOf(exclude) !== this.excludeKey
+    this.excludeKey = keyOf(exclude)
     if (mode !== this.mode) {
       this.mode = mode
       // Looked for right away, so the status says at once whether there is one.
       if (mode === 'unmanaged') await this.unmanaged.refresh()
       await this.recorder.configure(mode)
-    } else if (limitChanged && mode === 'managed') await this.recorder.sweep('periodic')
+    } else if ((limitChanged || excludeChanged) && mode === 'managed') await this.recorder.sweep('periodic')
+  }
+
+  /** Whether `history.exclude` keeps this path out of the managed history. */
+  excluded(path: string): boolean {
+    return this.mode === 'managed' && this.excludedNow(path)
+  }
+
+  private excludedNow(path: string): boolean {
+    const list = this.opts.config().exclude
+    const key = keyOf(list)
+    if (key !== this.exclude.key) this.exclude = { key, match: pathMatcher(list) }
+    return this.exclude.match(path)
   }
 
   close() {
@@ -91,6 +116,8 @@ export class History {
     return this.recorder.alerts()
   }
 }
+
+const keyOf = (patterns: readonly string[]) => patterns.join('\n')
 
 export { repositoryOf } from './unmanaged.ts'
 export { HistoryError, type HistoryReader } from './reader.ts'

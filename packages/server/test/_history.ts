@@ -84,7 +84,7 @@ export async function setup(opts: HistorySetup = {}) {
   const versions = async (path: string, extra = '') => {
     const r = await noa('GET', `/api/history/versions?path=${q(path)}${extra}`)
     if (r.status !== 200) throw new Error(`versions of ${path}: ${r.status} ${JSON.stringify(r.body)}`)
-    return r.body as { versions: any[]; next: string | null; pending: any }
+    return r.body as { versions: any[]; next: string | null; pending: any; excluded: boolean }
   }
   const changes = async (extra = '', who: 'noa' | 'ana' = 'noa') => {
     const r = await as(who)('GET', `/api/history/changes?limit=100${extra}`)

@@ -22,6 +22,9 @@
 //   versions that close together are one commit. Moves and deletions made
 //   outside, and what thoth finds at startup, are versions at once. thoth's
 //   own writes are expected before anything can see them on disk.
+// - Paths excluded in thoth.yaml (`history.exclude`) aren't there for the
+//   recorder: nothing about them is recorded (a file moved into one leaves
+//   the history, one moved out of it enters), and what is stored stays.
 // - A kill -9 loses no authorship: what is pending, and the commits not yet
 //   in git, live in a journal in the state volume (temporary file, fsync,
 //   rename), confirmed against the files when thoth starts.
@@ -47,6 +50,12 @@ export interface RecorderOptions {
   stateDir: string
   /** Largest file that enters the history, in bytes (asked every time: thoth.yaml can change it). */
   maxFileBytes: () => number
+  /**
+   * Paths kept out of the history (`history.exclude`; asked every time). The
+   * recorder sees the folder as if they weren't there: nothing about them is
+   * recorded, and what is already stored stays.
+   */
+  excluded?: (path: string) => boolean
   /** The git binary. */
   git?: string
   /** An open version closes after this long without changes (30 s)… */
@@ -478,7 +487,7 @@ export class Recorder {
 
   /** Someone typed in the editor of `path` since its last flush (the first keystroke per flush and person). */
   typing(path: string, actor: Actor) {
-    if (!this.live || !historyPath(path)) return
+    if (!this.live || !this.takes(path)) return
     const key = authorKey(authorOf(actor))
     let set = this.typists.get(path)
     if (!set) this.typists.set(path, (set = new Set()))
@@ -493,7 +502,7 @@ export class Recorder {
    * when nobody is known to have typed it.
    */
   flushing(path: string, text: string, fallback?: Actor) {
-    if (!this.live || !historyPath(path)) return
+    if (!this.live || !this.takes(path)) return
     const oid = blobOid(text)
     this.expect(path, oid)
     this.touch(path)
@@ -531,7 +540,7 @@ export class Recorder {
    * is the write's own version.
    */
   write(path: string, w: { typed: string; after: string; actor: Actor }) {
-    if (!this.live || !historyPath(path)) return
+    if (!this.live || !this.takes(path)) return
     this.flushing(path, w.typed)
     this.prepare([{ path, after: w.after }], { actor: w.actor, inMemory: true }).done()
   }
@@ -554,8 +563,7 @@ export class Recorder {
   prepare(changes: FileChange[], opts: { actor: Actor; reason?: Reason; immediate?: boolean; inMemory?: boolean }): WriteHandle {
     if (!this.live) return NOOP
     const max = this.opts.maxFileBytes()
-    changes = changes.filter((c) => {
-      if (!historyPath(c.path) || (c.from !== undefined && !historyPath(c.from))) return false
+    changes = this.admit(changes).filter((c) => {
       if (c.after === undefined || c.after === null || byteLength(c.after) <= max) return true
       this.tooLarge.set(c.path, byteLength(c.after))
       return false
@@ -602,7 +610,7 @@ export class Recorder {
         if (this.writesInFlight.has(id)) crashPoint('history-written')
         const journaled = this.writesInFlight.delete(id)
         if (!this.live) { if (journaled) this.saveJournal(); return }
-        final = final.filter((c) => historyPath(c.path))
+        final = this.admit(final)
         const g = this.groups.get(opts.actor)
         if (g) this.addToGroup(g, final)
         else if (accumulate) this.accumulate(final, authors, reason, key)
@@ -668,7 +676,7 @@ export class Recorder {
    */
   observePaths(paths: readonly string[]): Promise<void> {
     if (!this.live || !this.started) return this.observing
-    const wanted = paths.filter((p) => historyPath(p) && classifyPath(p) !== 'note')
+    const wanted = paths.filter((p) => this.takes(p) && classifyPath(p) !== 'note')
     if (wanted.length === 0) return this.observing
     this.observing = this.observing.then(() => this.readPaths(wanted)).catch((e) => this.log(`history: reading changed files: ${e}`))
     return this.observing
@@ -678,7 +686,7 @@ export class Recorder {
     const obs: Observation[] = []
     const seen = new Set<string>()
     const add = async (rel: string) => {
-      if (seen.has(rel) || !historyPath(rel) || classifyPath(rel) === 'note') return
+      if (seen.has(rel) || !this.takes(rel) || classifyPath(rel) === 'note') return
       seen.add(rel)
       const abs = join(this.opts.notesDir, rel)
       let st
@@ -712,8 +720,9 @@ export class Recorder {
   private observe(list: Observation[], opts: { foundAtStartup?: boolean } = {}) {
     if (!this.live) return
     const ext: Observation[] = []
-    for (const o of list) {
-      if (!historyPath(o.path)) continue
+    for (const seen of list) {
+      const o = this.admitSeen(seen)
+      if (!o) continue
       if (o.content !== undefined && o.content !== null && byteLength(o.content) > this.opts.maxFileBytes()) {
         this.tooLarge.set(o.path, byteLength(o.content))
         continue
@@ -844,8 +853,11 @@ export class Recorder {
     const seen = new Map<string, { oid: string; mtimeMs: number }>()
     const tooLarge = new Map<string, number>()
     const unreadable: string[] = []
-    const files: string[] = []
-    await walk(this.opts.notesDir, '', files, unreadable)
+    const all: string[] = []
+    await walk(this.opts.notesDir, '', all, unreadable)
+    // Excluded files aren't there for the history: neither read nor missed.
+    const excluded = this.opts.excluded ?? (() => false)
+    const files = all.filter((p) => !excluded(p))
     const contents = new Map<string, string | Uint8Array>()
     let kept = 0
     await pool(files, async (rel) => {
@@ -877,7 +889,7 @@ export class Recorder {
       obs.push({ path: rel, oid: s.oid, mtimeMs: s.mtimeMs, content, fileRef: content === undefined })
     }
     const inUnreadable = (p: string) => unreadable.some((d) => d === '' || under(p, d))
-    const gone = this.knownPaths().filter((p) => !seen.has(p) && !tooLarge.has(p) && !touched.has(p) && !inUnreadable(p))
+    const gone = this.knownPaths().filter((p) => !seen.has(p) && !tooLarge.has(p) && !touched.has(p) && !inUnreadable(p) && !excluded(p))
     const total = this.knownPaths().length
     if (gone.length > 10 && gone.length > 0.5 * total) {
       // Like the indexer's guard: an unmounted share looks empty. Nothing is recorded as deleted.
@@ -1103,6 +1115,71 @@ export class Recorder {
     for (const [p, v] of this.pending) if (v.oids.length) out.add(p)
     for (const g of this.groups.values()) for (const [p, c] of g.changes) if (c.oid) out.add(p)
     return [...out]
+  }
+
+  /** Whether a path's changes are recorded: a name the history can hold, and not excluded in thoth.yaml. */
+  private takes(path: string): boolean {
+    return historyPath(path) && !this.opts.excluded?.(path)
+  }
+
+  /**
+   * A writer's changes as the history sees them: paths it can't hold are
+   * left out, and excluded ones (`history.exclude`) aren't there. A file moved
+   * into an excluded path leaves the history (a deletion by whoever moved it);
+   * one moved out of it enters as a new file, with its content. A folder
+   * moved out of an excluded path isn't known file by file: its files enter
+   * when the indexer or the watcher sees them.
+   */
+  private admit(changes: FileChange[]): FileChange[] {
+    const ex = this.opts.excluded
+    const out: FileChange[] = []
+    for (const c of changes) {
+      if (!historyPath(c.path) || (c.from !== undefined && !historyPath(c.from))) continue
+      if (!ex) { out.push(c); continue }
+      if (c.from === undefined) { if (!ex(c.path)) out.push(c); continue }
+      const from = c.from
+      const inFrom = !ex(from)
+      const inTo = !ex(c.path)
+      if (c.folder) {
+        if (!inFrom) continue
+        const known = this.knownPaths().filter((p) => under(p, from) && !ex(p))
+        const dest = (p: string) => c.path + p.slice(from.length)
+        if (inTo && !known.some((p) => ex(dest(p)))) { out.push(c); continue }
+        for (const p of known) out.push(ex(dest(p)) ? { path: p, after: null } : { path: dest(p), from: p })
+        continue
+      }
+      if (inFrom && inTo) out.push(c)
+      else if (inFrom) out.push({ path: from, ...(c.before !== undefined ? { before: c.before } : {}), after: null })
+      else if (inTo) {
+        const after = c.after !== undefined ? c.after : this.readNow(from) ?? this.readNow(c.path)
+        if (after !== null) out.push({ path: c.path, after })
+      }
+    }
+    return out
+  }
+
+  /** What was seen, as the history sees it (see `admit`); null: nothing it records. */
+  private admitSeen(o: Observation): Observation | null {
+    if (!historyPath(o.path)) return null
+    const ex = this.opts.excluded
+    if (!ex) return o
+    if (o.from === undefined) return ex(o.path) ? null : o
+    const inFrom = !ex(o.from)
+    const inTo = !ex(o.path)
+    if (inFrom && inTo) return o
+    if (inFrom) return { path: o.from, content: null }
+    if (!inTo) return null
+    if (o.content !== undefined || o.oid !== undefined) return { ...o, from: undefined }
+    const content = this.readNow(o.path)
+    return content === null ? null : { ...o, from: undefined, content }
+  }
+
+  /** A file's content now (text for notes), or null if it can't be read. */
+  private readNow(path: string): string | Uint8Array | null {
+    try {
+      const bytes = readFileSync(join(this.opts.notesDir, path))
+      return isTextPath(path) ? bytes.toString('utf8') : bytes
+    } catch { return null }
   }
 
   /** The paths a change affects: itself, where it comes from, and for a folder every known path under it. */

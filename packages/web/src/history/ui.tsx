@@ -68,6 +68,8 @@ export interface VersionsStore {
   versions: Version[]
   next: string | null
   pending: Pending | null
+  /** thoth.yaml keeps this file out of the history (`history.exclude`). */
+  excluded: boolean
   loaded: boolean
   error: unknown
   loadingMore: boolean
@@ -93,8 +95,8 @@ const ACTIVE_FOR = 60_000
  */
 export function useVersions(path: string | null, active: boolean): VersionsStore {
   const [, rerender] = useReducer((n: number) => n + 1, 0)
-  const data = useRef<{ versions: Version[]; next: string | null; pending: Pending | null; loaded: boolean; error: unknown; loadingMore: boolean }>(
-    { versions: [], next: null, pending: null, loaded: false, error: null, loadingMore: false },
+  const data = useRef<{ versions: Version[]; next: string | null; pending: Pending | null; excluded: boolean; loaded: boolean; error: unknown; loadingMore: boolean }>(
+    { versions: [], next: null, pending: null, excluded: false, loaded: false, error: null, loadingMore: false },
   )
   const seq = useRef(0)
   const lastActivity = useRef(0)
@@ -116,7 +118,7 @@ export function useVersions(path: string | null, active: boolean): VersionsStore
       const last = r.versions.at(-1)
       const j = last ? old.findIndex((v) => v.id === last.id) : -1
       const keep = j !== -1 && j + 1 < old.length
-      set({ versions: keep ? [...r.versions, ...old.slice(j + 1)] : r.versions, next: keep ? data.current.next : r.next, pending: r.pending, loaded: true, error: null })
+      set({ versions: keep ? [...r.versions, ...old.slice(j + 1)] : r.versions, next: keep ? data.current.next : r.next, pending: r.pending, excluded: r.excluded === true, loaded: true, error: null })
     } catch (err) {
       if (mine === seq.current) set({ loaded: true, error: err })
     }
@@ -167,7 +169,7 @@ export function useVersions(path: string | null, active: boolean): VersionsStore
   }, [refresh])
 
   useEffect(() => {
-    data.current = { versions: [], next: null, pending: null, loaded: false, error: null, loadingMore: false }
+    data.current = { versions: [], next: null, pending: null, excluded: false, loaded: false, error: null, loadingMore: false }
     rerender()
   }, [path])
 

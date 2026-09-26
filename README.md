@@ -109,6 +109,13 @@ attachments:                # where new images go (uploads, pastes, copies from 
   # suffix: .assets         # with mode: per-note, plan.md keeps its images in plan.assets/
 links:
   aliases: true             # optional; false: frontmatter aliases don't resolve [[links]]
+history:
+  mode: managed             # managed (default), unmanaged (read the folder's own git) or off
+  maxFileSize: 20           # MB; larger files don't enter the history
+  exclude:                  # kept out of the history (still indexed, shown and edited)
+    - Library/**
+    - "**/*.pdf"
+    - Drafts/private.md
 ```
 
 - **Images** go next to their note by default (`plan-2026-09-25-1012.png`).
@@ -141,6 +148,14 @@ links:
   autocomplete still offers aliases but inserts `[[Note|alias]]`, and a
   rename that couldn't rewrite some link no longer adds the old name as an
   alias. Changing it re-resolves every link without reindexing the notes.
+- **History exclusions** are path patterns from the notes root: `*` and `?`
+  within one name, `**` for any number of folders. A pattern covers what is
+  under it, so `Library`, `Library/` and `Library/**` all exclude that folder;
+  `*.pdf` only matches at the root, `**/*.pdf` everywhere. Excluded files
+  aren't hidden from thoth, only their changes aren't saved as versions, and
+  the note's history tab says so. Changing the list applies at once; what
+  the history already holds stays. A note
+  moved into an excluded folder leaves the history; moved out, it enters.
 - **Versions and unknown keys:** `version` (1 if missing) says which format
   the file follows. A key thoth doesn't know (a typo, or a setting from a
   newer thoth) is ignored and listed in a workspace alert with its line; the
