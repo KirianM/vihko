@@ -23,7 +23,7 @@ export {
   type ConfigError, type ConfigErrorCode, type ParseResult, type StrictSection, type WorkspaceConfig,
 } from './workspace.ts'
 export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'
-export { DEFAULT_HISTORY_MAX_FILE_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode } from './workspace.ts'
+export { DEFAULT_HISTORY_MAX_FILE_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode, type McpConfig } from './workspace.ts'
 export { globProblem, pathMatcher, type GlobProblem } from './glob.ts'
 export {
   anchorChanged, commentKey, goneThreads, normalizeAnchor, parseComments, parseThreads, removedThread, reopener, resolveThread,
