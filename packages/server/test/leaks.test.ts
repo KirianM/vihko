@@ -45,7 +45,7 @@ test('a key limited to proyectos/ sees nothing of what it can\'t read, through a
         .map((s) => ({ method: 'GET', path: q('/api/search', { q: s }), expect: 200 })),
       'GET /api/tree': [{ method: 'GET', path: '/api/tree', expect: 200 }],
       'GET /api/tags': [{ method: 'GET', path: '/api/tags', expect: 200 }],
-      // The daily note's path comes from thoth.yaml, not from the key: not named, not denied.
+      // The daily note's path comes from thoth.yaml, not from the key: one that doesn't exist outside its folders is not_found, without the path (a hidden one that exists: daily-agents.test.ts).
       'GET /api/daily': [{ method: 'GET', path: '/api/daily', expect: 200 }, { method: 'GET', path: q('/api/daily', { series: 'ajena' }), expect: 404 }],
       // Files that aren't notes stay not_found.
       'GET /api/file': [['proyectos/foto.png', 200], ['proyectos/oculta.png', 404], ['fuera/imagen.png', 404], ['proyectos/nada.png', 404]]

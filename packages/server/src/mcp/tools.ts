@@ -463,7 +463,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   if (!access.mayWrite) {
     server.registerTool('daily_note', {
       title: 'Today\'s note',
-      description: 'The daily note for today of the person you act for (their series and time zone, from thoth.yaml and their profile), with its text and ETag if it exists. This key can\'t write, so it doesn\'t create it.',
+      description: 'The daily note for today of the person you act for (their series and time zone, from thoth.yaml and their profile), with its text and ETag if it exists. This key can\'t write, so it doesn\'t create it. If it exists but is not available to you, `agent_denied`: ' + LEAVE_IT,
       inputSchema: input(z.object({ series: z.string().optional().describe('Another series than the person\'s own, by its id in thoth.yaml.') })),
       annotations: READ,
     }, run(({ series }) => {
@@ -479,7 +479,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('daily_note', {
     title: 'Today\'s note',
-    description: 'The daily note for today of the person you act for (their series and time zone, from thoth.yaml and their profile), created from its template if it doesn\'t exist yet. With its text and ETag. To add to it, use edit_note (append, or append_under_heading).',
+    description: 'The daily note for today of the person you act for (their series and time zone, from thoth.yaml and their profile), created from its template if it doesn\'t exist yet. With its text and ETag. To add to it, use edit_note (append, or append_under_heading). If it exists but is not available to you, `agent_denied`: ' + LEAVE_IT,
     inputSchema: input(z.object({ series: z.string().optional().describe('Another series than the person\'s own, by its id in thoth.yaml.') })),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, run(async ({ series }) => {

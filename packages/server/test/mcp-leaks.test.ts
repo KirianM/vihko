@@ -73,7 +73,7 @@ test('a key limited to proyectos/ sees nothing of what it can\'t read, through a
         { args: { path: 'proyectos/secreto.md' }, ...AI },
         { args: { path: 'fuera/otra-nueva.md' }, ...OUT },
       ],
-      // The daily note's path comes from thoth.yaml, not from the agent.
+      // The daily note's path comes from thoth.yaml, not from the agent (a hidden one that exists: daily-agents.test.ts).
       daily_note: [{ args: {}, ok: true }, { args: { series: 'ajena' }, ...NONE }],
       create_note: [
         { args: { path: 'proyectos/secreto.md', text: 'x' }, ...AI },
