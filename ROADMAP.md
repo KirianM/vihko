@@ -102,9 +102,9 @@ From the review after comparing M2 with other systems.
       at most), closed by any thoth write, as typing is.
 - [x] A long git outage never drops a version silently: past the queue's cap,
       versions merge into the next one, with an alert.
-- [ ] `history.exclude` in `thoth.yaml`: patterns kept out of the history
+- [x] `history.exclude` in `thoth.yaml`: patterns kept out of the history
       without hiding them from thoth.
-- [ ] `thoth history purge <path or version>` from the command line (thoth
+- [x] `thoth history purge <path or version>` from the command line (thoth
       stopped): rewrites the managed history without it, for a secret an agent
       or a person pasted by mistake.
 
