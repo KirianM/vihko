@@ -152,9 +152,10 @@ test('the text has changed: rewriting the commented sentence marks the thread fo
     await expect(thread(p).locator('.thread-changed-badge')).toHaveText('El texto ha cambiado')
     await expect(thread(p).locator('.thread-original')).toHaveText(/^Texto original: «La propuesta inicial era usar Postgres con una .*…»$/)
   }
-  // Once saved, the server says the same; the note file holds nothing of it.
+  // The server says the same (it reads an open note as its editors have it);
+  // once saved, the note file holds nothing of it.
   await expect.poll(() => originals(k)).toEqual([[SENTENCE, true]])
-  expect(disk()).toContain(`Al final no: ${SENTENCE}<!-- @noa`)
+  await expect.poll(disk).toContain(`Al final no: ${SENTENCE}<!-- @noa`)
   expect(disk()).not.toContain('Texto original')
 
   await k.screenshot({ path: `${SHOTS}/comment-changed-light.png` })

@@ -35,6 +35,18 @@ export interface WorkspaceConfig {
   links: { aliases: boolean }
   /** Note history (D-016, D-032): how it's kept and the largest file it takes. */
   history: HistoryConfig
+  /** The MCP server (M3): what it tells the agents that connect. */
+  mcp: McpConfig
+}
+
+/**
+ * The MCP server (`mcp` in thoth.yaml):
+ * - `instructions`: a note of the workspace served to agents as the server's
+ *   instructions (how this workspace is organised, what to write where), to
+ *   an agent that can read it. Null: only thoth's own.
+ */
+export interface McpConfig {
+  instructions: string | null
 }
 
 /**
@@ -80,6 +92,7 @@ export const DEFAULT_ATTACHMENTS_SUFFIX = '.assets'
 export const EMPTY_WORKSPACE: WorkspaceConfig = {
   templates: null, daily: [], attachments: { folder: null }, links: { aliases: true },
   history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB, exclude: [] },
+  mcp: { instructions: null },
 }
 
 /**
@@ -167,9 +180,10 @@ const PERMISSIONS: StrictSection<null> = {
 
 export const STRICT_SECTIONS: readonly StrictSection[] = [PERMISSIONS]
 
-const TOP_KEYS = ['version', 'templates', 'daily', 'attachments', 'links', 'history']
+const TOP_KEYS = ['version', 'templates', 'daily', 'attachments', 'links', 'history', 'mcp']
 const LINKS_KEYS = ['aliases']
 const HISTORY_KEYS = ['mode', 'maxFileSize', 'exclude']
+const MCP_KEYS = ['instructions']
 const SERIES_KEYS = ['folder', 'name', 'template', 'label']
 const ATTACHMENT_KEYS = ['mode', 'folder', 'suffix']
 const ATTACHMENT_MODES = ['next-to-note', 'folder', 'per-note']
@@ -203,6 +217,7 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
   const config: WorkspaceConfig = {
     templates: null, daily: [], attachments: { folder: null }, links: { aliases: true },
     history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB, exclude: [] },
+    mcp: { instructions: null },
   }
   const strictKeys = new Set(strict.map((s) => s.key))
   for (const key of Object.keys(data)) if (!TOP_KEYS.includes(key) && !strictKeys.has(key)) warn('unknown_key', [key])
@@ -289,6 +304,18 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
     }
   }
 
+  if (data.mcp !== undefined && data.mcp !== null) {
+    if (!isRecord(data.mcp)) fail('not_a_map', ['mcp'])
+    else {
+      for (const k of Object.keys(data.mcp)) if (!MCP_KEYS.includes(k)) warn('unknown_key', ['mcp', k])
+      const i = data.mcp.instructions
+      if (i !== undefined && i !== null) {
+        if (typeof i !== 'string') fail('invalid_type', ['mcp', 'instructions'], 'string')
+        else config.mcp.instructions = notePath(i, ['mcp', 'instructions'], fail)
+      }
+    }
+  }
+
   if (data.daily !== undefined && data.daily !== null) {
     if (!isRecord(data.daily)) fail('not_a_map', ['daily'])
     else for (const [id, raw] of Object.entries(data.daily)) {
@@ -314,6 +341,14 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
   // Reported in the order of the file.
   warnings.sort((a, b) => (a.line ?? 0) - (b.line ?? 0))
   return errors.length ? { ok: false, errors, warnings } : { ok: true, config, warnings, sections }
+}
+
+/** A note's path relative to the notes root (`.md` added if missing), or null with the problem reported. */
+function notePath(value: string, at: string[], fail: Report): string | null {
+  let p = value.trim()
+  if (p && !/\.md$/i.test(p)) p += '.md'
+  if (!p || !isFolder(p) || classifyPath(p) !== 'note') { fail('invalid_path', at); return null }
+  return p
 }
 
 function parseSeries(id: string, raw: Record<string, unknown>, at: string[], fail: Report): Series | null {

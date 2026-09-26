@@ -5,7 +5,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, openIndex, openState, type Runtime } from '@thoth/server'
+import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, mountMcp, openIndex, openState, type Runtime } from '@thoth/server'
+import { Client, StreamableHTTPClientTransport, type VersionNegotiationMode } from '@modelcontextprotocol/client'
 
 /** A 1×1 PNG. */
 export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
@@ -52,7 +53,10 @@ export async function setup(opts: AgentSetup = {}) {
   indexer.onApplied = (a) => history.recorder.observeIndexed(a)
   const notes = new NoteService({ notesDir, stateDir, indexer, db: index, history: history.recorder, attachments: () => workspace.config.attachments })
   const clock = { now: opts.now ?? new Date('2026-09-26T10:00:00Z') }
-  const { app, services } = createServer({ auth, profiles, workspace, notes, index, indexer, notesDir, runtime, history, keys, integrations, now: () => clock.now })
+  const { app, services } = createServer({
+    auth, profiles, workspace, notes, index, indexer, notesDir, runtime, history, keys, integrations, now: () => clock.now,
+    routes: (a, s) => { mountMcp(a, s, { auth, workspace, pollMs: 25 }) },
+  })
 
   const cookies: Record<string, string> = {}
   for (const name of Object.keys(users)) {
@@ -92,6 +96,31 @@ export async function setup(opts: AgentSetup = {}) {
     const r = await noa('PUT', '/api/admin/integrations', { api: true })
     if (r.status !== 200) throw new Error(`switch: ${r.status} ${r.text}`)
   }
+  const enableMcp = async (on = true) => {
+    const r = await noa('PUT', '/api/admin/integrations', { mcp: on })
+    if (r.status !== 200) throw new Error(`switch: ${r.status} ${r.text}`)
+  }
+  /**
+   * The SDK's client, connected with a key to this app's /mcp (in process:
+   * its requests go to the app, not the network). `mode`: the protocol era.
+   */
+  const mcp = async (token: string, mode: VersionNegotiationMode = 'auto') => {
+    const client = new Client({ name: 'thoth-tests', version: '1' }, { versionNegotiation: { mode } })
+    const transport = new StreamableHTTPClientTransport(new URL('http://thoth.test/mcp'), {
+      fetch: (u, init) => Promise.resolve(app.request(String(u), init)),
+      requestInit: { headers: { authorization: `Bearer ${token}` } },
+    })
+    await client.connect(transport)
+    /** A tool's result: its JSON data (the first block), the note texts after it, and whether it's an error. */
+    const call = async (name: string, args: Record<string, unknown> = {}) => {
+      const r = await client.callTool({ name, arguments: args }) as { content: { type: string; text: string }[]; isError?: boolean }
+      const [first, ...rest] = r.content
+      let data: any = null
+      try { data = JSON.parse(first?.text ?? 'null') } catch { data = first?.text }
+      return { data, texts: rest.map((c) => c.text), error: r.isError === true, raw: JSON.stringify(r) }
+    }
+    return { client, call, close: () => client.close() }
+  }
   /** Everything open becomes a version and reaches git. */
   const settle = async () => {
     history.recorder.closeAll()
@@ -110,5 +139,5 @@ export async function setup(opts: AgentSetup = {}) {
     state.close()
     rmSync(dir, { recursive: true, force: true })
   }
-  return { dir, notesDir, index, app, services, cookies, auth, keys, integrations, history, notes, indexer, runtime, workspace, users, clock, as, noa, ana: as('ana'), withKey, newKey, enableApi, settle, url, close }
+  return { dir, notesDir, index, app, services, cookies, auth, keys, integrations, history, notes, indexer, runtime, workspace, users, clock, as, noa, ana: as('ana'), withKey, newKey, enableApi, enableMcp, mcp, settle, url, close }
 }

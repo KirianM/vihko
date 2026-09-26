@@ -74,6 +74,20 @@ test('thoth.yaml: history is managed with a 20 MB limit unless it says otherwise
   assert.deepEqual(warnings('history:\n  retention: forever\n'), [['unknown_key', 'history.retention', 2]])
 })
 
+test('thoth.yaml: mcp.instructions names a note of the workspace, none by default', () => {
+  assert.deepEqual(EMPTY_WORKSPACE.mcp, { instructions: null })
+  const r = parseWorkspaceConfig('mcp:\n  instructions: Agentes/Instrucciones\n')
+  assert.ok(r.ok)
+  assert.deepEqual(r.config.mcp, { instructions: 'Agentes/Instrucciones.md' })
+  const md = parseWorkspaceConfig('mcp:\n  instructions: Guía.md\n')
+  assert.ok(md.ok && md.config.mcp.instructions === 'Guía.md')
+  assert.deepEqual(errors('mcp:\n  instructions: ../fuera\n'), [['invalid_path', 'mcp.instructions', 2]])
+  assert.deepEqual(errors('mcp:\n  instructions: .ocultas/guia\n'), [['invalid_path', 'mcp.instructions', 2]])
+  assert.deepEqual(errors('mcp:\n  instructions: [a]\n'), [['invalid_type', 'mcp.instructions', 2]])
+  assert.deepEqual(errors('mcp: yes\n'), [['not_a_map', 'mcp', 1]])
+  assert.deepEqual(warnings('mcp:\n  instruction: x\n'), [['unknown_key', 'mcp.instruction', 2]])
+})
+
 test('thoth.yaml: history.exclude is a list of path patterns; a bad one is an error on its own line', () => {
   const r = parseWorkspaceConfig('history:\n  exclude:\n    - biblioteca/**\n    - "**/*.pdf"\n    - borradores/secreto.md\n')
   assert.ok(r.ok)

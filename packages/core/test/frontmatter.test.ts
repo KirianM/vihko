@@ -77,6 +77,14 @@ test('values that need it get quoted and read back the same', () => {
   assert.equal(readFrontmatter(num).data.title, '123', 'a numeric-looking string stays text')
 })
 
+test('a list is written as a one-line flow list, quoted where a flow list needs it', () => {
+  const after = setFrontmatterKey('---\ntags: [a] # mine\ntitle: x\n---\ncuerpo\n', 'tags', ['uno', 'dos, tres', 'a: b', 4, true])
+  assert.equal(after, '---\ntags: [uno, "dos, tres", "a: b", 4, true] # mine\ntitle: x\n---\ncuerpo\n')
+  assert.deepEqual(readFrontmatter(after).data.tags, ['uno', 'dos, tres', 'a: b', 4, true])
+  assert.equal(setFrontmatterKey('---\ntitle: x\n---\n', 'tags', []), '---\ntitle: x\ntags: []\n---\n')
+  assert.throws(() => setFrontmatterKey('---\na: 1\n---\n', 'a', ['x\ny']), FrontmatterError)
+})
+
 test('multiline values are rejected', () => {
   assert.throws(() => setFrontmatterKey('---\na: 1\n---\n', 'a', 'x\ny'), FrontmatterError)
 })

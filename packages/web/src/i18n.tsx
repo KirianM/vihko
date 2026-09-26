@@ -403,6 +403,7 @@ const es = {
   'error.history_unavailable': 'El historial no está disponible ahora mismo. Mira los avisos del espacio.',
   'error.integrations_locked': 'Quien administra el servidor ha bloqueado las integraciones (THOTH_INTEGRATIONS=off): la API y el MCP no se pueden activar.',
   'error.not_revertible': 'Esta versión crea o borra la nota: no hay un cambio del texto que deshacer.',
+  'error.agent_denied': 'Esta nota existe, pero no está disponible para los agentes.',
   // --- History (M2): the panel tab, a version, restoring it, «Recent changes» ---
   'history.tab': 'Historial',
   'history.pending': 'En curso · se guarda en unos segundos',
@@ -1057,6 +1058,7 @@ const en: Record<keyof typeof es, string> = {
   'error.history_unavailable': 'History isn’t available right now. See the workspace alerts.',
   'error.integrations_locked': 'Whoever runs the server has locked integrations off (THOTH_INTEGRATIONS=off): the API and MCP can’t be turned on.',
   'error.not_revertible': 'This version creates or deletes the note: there is no change to its text to undo.',
+  'error.agent_denied': 'This note exists, but it isn’t available to agents.',
   // --- History (M2): the panel tab, a version, restoring it, «Recent changes» ---
   'history.tab': 'History',
   'history.pending': 'In progress · saved in a few seconds',

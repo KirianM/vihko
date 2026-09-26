@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "typecheck": "tsc -p . && tsc -p packages/web",
-    "test": "node --test \"packages/*/test/**/*.test.ts\"",
+    "test": "node --test --test-force-exit \"packages/*/test/**/*.test.ts\"",
     "load": "node --test --test-concurrency=1 \"packages/*/test/**/*.collab.ts\"",
     "acceptance": "node --test --test-concurrency=1 --test-force-exit \"packages/server/test/acceptance/*.acceptance.ts\"",
     "build": "npm run build -w @thoth/web"
@@ -21,6 +21,7 @@
     "typescript": "^7.0.2"
   },
   "allowScripts": {
-    "better-sqlite3": true
+    "better-sqlite3": true,
+    "@modelcontextprotocol/inspector": false
   }
 }

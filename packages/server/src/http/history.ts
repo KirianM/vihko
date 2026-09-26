@@ -16,7 +16,7 @@
 import type { Context, Hono } from 'hono'
 import { parseAuthorKey, type Via } from '../actor.ts'
 import type { Auth, User } from '../auth.ts'
-import type { Access } from '../access.ts'
+import { AgentDenied, type Access } from '../access.ts'
 import { historyFor } from '../agentHistory.ts'
 import { History, HistoryError, type AuthorRef, type HistoryReader } from '../history/index.ts'
 import { wordDiff } from '../history/diff.ts'
@@ -87,10 +87,15 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
   /** Whether whoever asks may read `path` now. */
   const readable = (c: Context<Env>, path: string) => c.get('access').canRead(path) && deps.canRead(c.get('user'), path)
 
-  /** The note in the request, if whoever asks can read it now; otherwise it doesn't exist for them. */
+  /**
+   * The note in the request, if whoever asks can read it now; otherwise it
+   * doesn't exist for them, except for an agent naming a note that exists
+   * but is hidden from it (`agent_denied`, access.ts).
+   */
   const notePath = (c: Context<Env>, raw: string | undefined): string => {
     const path = NoteService.checkPath(raw ?? '')
-    if (!readable(c, path)) throw new NoteError('not_found', `no history for ${path}`)
+    if (!deps.canRead(c.get('user'), path)) throw new NoteError('not_found', `no history for ${path}`)
+    c.get('access').assertRead(path)
     return path
   }
 
@@ -110,7 +115,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
       // A note deleted since has no text now, and can be restored.
       let text: string | null = null
       try { text = notes.read(path).text } catch (err) { if (!(err instanceof NoteError && err.code === 'not_found')) throw err }
-      if (text !== null && access.hides(text)) throw new NoteError('not_found', `no history for ${path}`)
+      if (text !== null && access.hides(text)) throw new AgentDenied(access.reasonFor(path))
     }
     return path
   }
@@ -154,7 +159,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     if (against === 'previous') base = v.before
     else if (against === 'current') {
       try { base = notes.read(path).text } catch (err) { if (err instanceof NoteError && err.code === 'not_found') base = null; else throw err }
-      if (base !== null && c.get('access').hides(base)) throw new NoteError('not_found', 'no such version')
+      if (base !== null && c.get('access').hides(base)) throw new AgentDenied(c.get('access').reasonFor(path))
     } else base = (await versionOf(reader, path, against)).text
     return c.json(wordDiff(base ?? '', v.text ?? ''))
   })

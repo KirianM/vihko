@@ -1,7 +1,7 @@
 // Collaboration hub: hot notes as Yjs documents over the file's text. The file
 // is still the source of truth; the document is a cache that exists while
 // someone has the note open.
-import { Hocuspocus } from '@hocuspocus/server'
+import { Hocuspocus, type Document } from '@hocuspocus/server'
 import diff from 'fast-diff'
 import { randomUUID } from 'node:crypto'
 import { closeSync, constants, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
@@ -9,12 +9,14 @@ import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { dirname, join } from 'node:path'
 import { WebSocketServer } from 'ws'
+import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { contentHash, newUid, readFrontmatter, setFrontmatterKey } from '@thoth/core'
 import type { Auth, User } from './auth.ts'
 import { readStable, readText, replaceText } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
+import type { Via } from './actor.ts'
 
 export const TEXT = 'md'
 /** Map in the document with the hub's metadata: `generation` (see `load`). */
@@ -45,6 +47,8 @@ interface Hot {
    * meanwhile, what was written stays in the recovery log.
    */
   orphaned: boolean
+  /** Agents writing to it now, by key: their presence (see `agentWriting`). */
+  agents: Map<string, AgentPresence>
   /**
    * Its editors were told it was deleted and it's listed for a decision. Not
    * at once: the file may have been moved, and the indexer needs a moment to
@@ -52,6 +56,43 @@ interface Hot {
    */
   announced: boolean
   orphanTimer: NodeJS.Timeout | null
+}
+
+/**
+ * An agent writing to an open note, as its editors see it (m3 §6). While it
+ * writes, and `agentPresenceMs` after its last write, the document's
+ * awareness holds, under the agent's own Yjs client id:
+ *
+ *   { agent: { name, onBehalfOf, via } }
+ *
+ * `name`: its key's name («Claude Code»); `onBehalfOf`: its user's name;
+ * `via`: how it came (`mcp`, `api`, `oauth`). Everything it writes meanwhile
+ * is made by that same client id, so an editor can tell its text apart
+ * (`item.id.client`) and highlight it. The state is published before the
+ * text it announces reaches the editors, and removed when it ends (a later
+ * write starts a new presence, with a new client id). There is no `user`
+ * field: it isn't a person, and it has no cursor.
+ */
+export interface AgentPresenceState {
+  agent: { name: string; onBehalfOf: string; via: Via | null }
+}
+
+interface AgentPresence {
+  clientID: number
+  /** The agent's own awareness, whose updates are applied to the document's. */
+  awareness: Awareness
+  /** When it ends, `agentPresenceMs` after the last write. */
+  timer: NodeJS.Timeout | null
+}
+
+/** A Yjs client id nobody in the document has used or announced. */
+function freshClientId(doc: Document): number {
+  const used = Y.encodeStateVector(doc)
+  const known = new Set([...Y.decodeStateVector(used).keys(), ...doc.awareness.getStates().keys(), doc.clientID])
+  for (;;) {
+    const id = Math.floor(Math.random() * 0xffffffff)
+    if (!known.has(id)) return id
+  }
 }
 
 /** Live message for editors of a note deleted from outside. */
@@ -90,6 +131,10 @@ export interface HubOptions {
   log?: (msg: string) => void
   /** The history: who types, what the hub writes and what changed outside (history/recorder.ts). */
   history?: HubHistory
+  /** An agent's name as its editors see it: its key's name («Claude Code»); null if unknown. */
+  agentName?: (keyId: string) => string | null
+  /** How long an agent's presence stays after its last write to an open note (5 s). */
+  agentPresenceMs?: number
 }
 
 /**
@@ -361,6 +406,7 @@ export class CollabHub implements HotDocuments {
 
   async close() {
     if (this.checkTimer) clearInterval(this.checkTimer)
+    for (const [path, h] of this.hot) this.agentsDone(path, h)
     this.hocuspocus.flushPendingStores()
     for (const path of [...this.hot.keys()]) await this.flush(path)
     this.hocuspocus.closeConnections()
@@ -375,7 +421,17 @@ export class CollabHub implements HotDocuments {
     return !!h && !h.discarded
   }
 
-  /** Edit of a hot note: the change is applied as Yjs operations and reaches the open editors. */
+  /** The text its editors have now; null if it isn't open, or its file is gone (a copy pending a decision isn't the note). */
+  text(path: string): string | null {
+    const h = this.hot.get(path)
+    return h && !h.discarded && !h.orphaned ? h.doc.getText(TEXT).toString() : null
+  }
+
+  /**
+   * Edit of a hot note: the change is applied as Yjs operations and reaches
+   * the open editors. An agent's change is made by its own Yjs client, which
+   * its presence names (`AgentPresenceState`), announced first.
+   */
   async edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }> {
     const conn = await this.hocuspocus.openDirectConnection(path, { system: opts.actor })
     let result: { etag: string } | NoteError = { etag: '' }
@@ -389,10 +445,27 @@ export class CollabHub implements HotDocuments {
           return
         }
         const change = fn(cur)
-        if (typeof change === 'string') applyTextDiff(ytext, cur, change)
-        else for (const s of change) {
-          if (s.remove) ytext.delete(s.at, s.remove)
-          if (s.insert) ytext.insert(s.at, s.insert)
+        const apply = (t: Y.Text) => {
+          if (typeof change === 'string') applyTextDiff(t, cur, change)
+          else for (const s of change) {
+            if (s.remove) t.delete(s.at, s.remove)
+            if (s.insert) t.insert(s.at, s.insert)
+          }
+        }
+        const agent = opts.actor.kind === 'agent' && (typeof change === 'string' ? change !== cur : change.length > 0)
+          ? this.agentWriting(path, doc, opts.actor)
+          : null
+        if (agent === null) apply(ytext)
+        else {
+          // Made on a copy by the agent's client, then merged: the same operations, carrying its id.
+          const fork = new Y.Doc()
+          Y.applyUpdate(fork, Y.encodeStateAsUpdate(doc))
+          // After loading the state: a copy that receives its own id's operations takes a new one.
+          fork.clientID = agent
+          const sv = Y.encodeStateVector(fork)
+          fork.transact(() => apply(fork.getText(TEXT)))
+          Y.applyUpdate(doc, Y.encodeStateAsUpdate(fork, sv))
+          fork.destroy()
         }
         const after = ytext.toString()
         if (after !== cur) this.opts.history?.write(path, { typed: cur, after, actor: opts.actor })
@@ -403,6 +476,53 @@ export class CollabHub implements HotDocuments {
     }
     if (result instanceof NoteError) throw result
     return result
+  }
+
+  // --- Agents in open notes (m3 §6) ---------------------------------------------
+
+  /**
+   * An agent is about to write to an open note: its presence is published (or
+   * renewed) and sent to the editors right away, ahead of the text. Returns
+   * the Yjs client id its text is made by.
+   */
+  private agentWriting(path: string, doc: Document, actor: Extract<Actor, { kind: 'agent' }>): number {
+    const h = this.hot.get(path)
+    let p = h?.agents.get(actor.id)
+    if (!p) {
+      const presence = new Y.Doc()
+      presence.clientID = freshClientId(doc)
+      const awareness = new Awareness(presence)
+      // Only its state travels: the timer that renews it isn't needed (it ends within seconds).
+      clearInterval((awareness as unknown as { _checkInterval: NodeJS.Timeout })._checkInterval)
+      p = { clientID: presence.clientID, awareness, timer: null }
+      h?.agents.set(actor.id, p)
+    }
+    const state: AgentPresenceState = {
+      agent: { name: this.opts.agentName?.(actor.id) ?? actor.id, onBehalfOf: this.opts.auth.username(actor.onBehalfOf) ?? actor.onBehalfOf, via: actor.via ?? null },
+    }
+    p.awareness.setLocalState(state)
+    applyAwarenessUpdate(doc.awareness, encodeAwarenessUpdate(p.awareness, [p.clientID]), 'agent')
+    doc.flush()
+    if (p.timer) clearTimeout(p.timer)
+    const presence = p
+    p.timer = setTimeout(() => this.agentDone(path, actor.id, presence), this.opts.agentPresenceMs ?? 5000)
+    p.timer.unref()
+    return p.clientID
+  }
+
+  /** The agent's presence ends: removed from the document's awareness (its editors see it go). */
+  private agentDone(path: string, keyId: string, p: AgentPresence) {
+    if (p.timer) clearTimeout(p.timer)
+    const h = this.hot.get(path)
+    if (h?.agents.get(keyId) === p) h.agents.delete(keyId)
+    const doc = this.hocuspocus.documents.get(path)
+    if (doc && doc.awareness.getStates().has(p.clientID)) removeAwarenessStates(doc.awareness, [p.clientID], 'agent')
+    p.awareness.destroy()
+  }
+
+  /** Ends every agent presence in a note (it closes). */
+  private agentsDone(path: string, h: Hot) {
+    for (const [keyId, p] of [...h.agents]) this.agentDone(path, keyId, p)
   }
 
   /**
@@ -646,7 +766,7 @@ export class CollabHub implements HotDocuments {
       const h: Hot = {
         doc, file, logFile, logFd, snapshot, flushedText, flushedHash,
         history: [...history.filter((b) => b.hash !== flushedHash), { snapshot, text: flushedText, hash: flushedHash }].slice(-HISTORY),
-        uid: this.uidIn(flushedText), discarded: false, orphaned: false, announced: false, orphanTimer: null,
+        uid: this.uidIn(flushedText), discarded: false, orphaned: false, agents: new Map(), announced: false, orphanTimer: null,
       }
       this.hot.set(path, h)
       doc.on('update', (update: Uint8Array) => writeSync(h.logFd, record('U', update)))
@@ -781,6 +901,7 @@ export class CollabHub implements HotDocuments {
       const h = this.hot.get(path)
       if (!h) return
       if (h.orphanTimer) clearTimeout(h.orphanTimer)
+      this.agentsDone(path, h)
       closeSync(h.logFd)
       const clean = !h.discarded && !h.orphaned && h.doc.getText(TEXT).toString() === h.flushedText
       const state = this.statePath(path)
@@ -932,10 +1053,10 @@ export class CollabHub implements HotDocuments {
     h.doc.transact(() => applyTextDiff(ytext, cur, next), 'uid')
   }
 
-  /** How editors are told who did something: the user's current name (actors carry ids). */
+  /** How editors are told who did something: the user's current name, or the agent's key's name (actors carry ids). */
   private actorName(a: Actor): string {
     if (a.kind === 'user') return this.opts.auth.username(a.id) ?? a.id
-    return a.kind === 'agent' ? a.id : 'system'
+    return a.kind === 'agent' ? this.opts.agentName?.(a.id) ?? a.id : 'system'
   }
 }
 

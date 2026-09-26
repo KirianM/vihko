@@ -60,6 +60,12 @@ export const changedText = (text: string, change: Change) => (typeof change === 
 /** Documents open in the collaborative editor. The hub will implement this. */
 export interface HotDocuments {
   has(path: string): boolean
+  /**
+   * The text its editors have now (what an edit is checked against), which
+   * may be ahead of the file by what they typed since the last flush; null if
+   * it isn't open, or its file is gone.
+   */
+  text?(path: string): string | null
   edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }>
   /**
    * The note is deleted: flush what is pending, close its sessions and never
@@ -254,6 +260,16 @@ export class NoteService {
     const text = readText(this.file(path))
     if (text === null) throw new NoteError('not_found', `does not exist: ${path}`)
     return { path, text, etag: contentHash(text) }
+  }
+
+  /**
+   * The note as whoever writes next will find it: an open note's text is its
+   * editors' (ahead of the file by what they typed since the last flush), so
+   * its ETag is the one an edit is checked against; otherwise, the file.
+   */
+  readCurrent(path: string): NoteRead {
+    const live = this.opts.hot?.text?.(path) ?? null
+    return live === null ? this.read(path) : { path, text: live, etag: contentHash(live) }
   }
 
   /**

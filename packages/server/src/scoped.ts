@@ -4,10 +4,10 @@
 // A user sees everything (until M4); an agent only what its key allows, and
 // nothing it can't see leaks through a list, a count, a link, a preview or an
 // error: it doesn't exist (`not_found`).
-import { anchorChanged, contentHash, extract, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type Range } from '@thoth/core'
+import { anchorChanged, contentHash, extract, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type LinkIndex, type LinkRef, type Range } from '@thoth/core'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { AccessError, type Access } from './access.ts'
+import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
 import { attachmentPath } from './attachments.ts'
 import type { Db } from './db.ts'
 import type { DailyNotes } from './daily.ts'
@@ -17,6 +17,9 @@ import { NoteError, NoteService, type MoveHooks, type MoveReport, type NoteRead 
 import type { Profiles } from './profiles.ts'
 import type { LinkState } from './relink.ts'
 import { createFromTemplate } from './templates.ts'
+import type { HistoryReader } from './history/reader.ts'
+import type { Recorder } from './history/recorder.ts'
+import { revertVersion, type RevertReport } from './history/revert.ts'
 
 export { HIGHLIGHT_END, HIGHLIGHT_START }
 
@@ -29,6 +32,8 @@ export interface ScopedDeps {
   /** Where new images go (thoth.yaml), to know whether an agent may put one there. */
   attachments: () => AttachmentsConfig
   now: () => Date
+  /** How links resolve over every indexed note (the indexer's), for `resolveLink`. */
+  links?: () => LinkIndex
 }
 
 /** A request that can't be served as it is: the status and the code the API answers with. */
@@ -42,17 +47,23 @@ export class RequestError extends Error {
   }
 }
 
-/** An outgoing link as the API gives it. `status` null: it leads to a note the principal can't see. */
+/**
+ * An outgoing link as the API gives it. For an agent, `no_access`: it leads
+ * to a note that exists but is hidden from it (or every candidate of an
+ * ambiguous one is), without saying which; an ambiguous one keeps the
+ * candidates it can see, with `others_no_access` if there are others.
+ */
 export interface OutgoingLink {
   raw: string
   kind: string
   target: string
   anchor: string | null
-  status: 'resolved' | 'ambiguous' | 'missing' | null
+  status: 'resolved' | 'ambiguous' | 'missing' | 'no_access'
   dst_path: string | null
   anchor_ok: number | null
   candidates: string[] | null
   pos_from: number
+  others_no_access?: boolean
 }
 
 /** What an edit by operations would do (`dryRun`): each change on the note as it is now, in order. */
@@ -65,6 +76,26 @@ export interface EditPreview {
 /** A move report as an agent gets it: `hidden` says there are links in notes it can't see, never which or how many (D-018). */
 export type ScopedMoveReport = MoveReport & { hidden?: boolean }
 
+/**
+ * Where a link leads, written in a note (`resolveLink`), as in `links`.
+ * `no_access`: to a note that exists but is hidden from the principal, with
+ * `reason` when it is one note. `anchorOk`: whether the heading after `#`
+ * is in the note it leads to (null without one).
+ */
+export interface ResolvedLink {
+  kind: LinkRef['kind']
+  target: string
+  anchor: string | null
+  status: 'resolved' | 'ambiguous' | 'missing' | 'no_access'
+  path: string | null
+  anchorOk: boolean | null
+  candidates: string[] | null
+  othersNoAccess: boolean
+  reason: DenyReason | null
+  /** Titles of `path` and the candidates. */
+  titles: Record<string, string>
+}
+
 class DryRun extends Error {
   readonly preview: EditPreview
   constructor(preview: EditPreview) {
@@ -73,8 +104,12 @@ class DryRun extends Error {
   }
 }
 
-/** Substitutions need the ETag of the text they were planned on (D-017); appends don't. */
-const SUBSTITUTIONS: readonly string[] = ['find_replace']
+/**
+ * Substitutions need the ETag of the text they were planned on (D-017):
+ * they replace text (or a frontmatter value) the agent must have seen.
+ * Appends don't.
+ */
+export const SUBSTITUTIONS: readonly string[] = ['find_replace', 'replace_section', 'set_frontmatter']
 
 export class ScopedNotes {
   private deps: ScopedDeps
@@ -85,12 +120,17 @@ export class ScopedNotes {
     this.access = access
   }
 
-  /** The note, if the principal may read it; `not_found` otherwise, whether it exists or not. */
+  /**
+   * The note, if the principal may read it; otherwise `agent_denied` if it
+   * exists but is hidden from it, `not_found` if it doesn't exist. An open
+   * note as its editors have it now: its ETag is the one a write is checked
+   * against (notes.ts `readCurrent`).
+   */
   private visible(path: string): NoteRead {
     const p = NoteService.checkPath(path)
     this.access.assertRead(p)
-    const r = this.deps.notes.read(p)
-    if (this.access.hides(r.text)) throw new NoteError('not_found', `does not exist: ${p}`)
+    const r = this.deps.notes.readCurrent(p)
+    if (this.access.hides(r.text)) throw new AgentDenied(this.access.reasonFor(p))
     return r
   }
 
@@ -104,8 +144,10 @@ export class ScopedNotes {
   }
 
   private masked(err: unknown, path: string): unknown {
-    if (err instanceof NoteError && err.etag && this.access.isAgent && !this.readable(path)) return new NoteError(err.code, err.message)
-    return err
+    if (!(err instanceof NoteError) || !this.access.isAgent || this.readable(path)) return err
+    // A note there that it can't read (not indexed yet): it named it, so it's told, and nothing else.
+    if (err.code === 'exists') return new AgentDenied(this.access.reasonFor(path))
+    return err.etag ? new NoteError(err.code, err.message) : err
   }
 
   /** A write the principal may make: `not_found` for what it can't see, `forbidden` for a read-only key. */
@@ -128,6 +170,17 @@ export class ScopedNotes {
     return { ...r, meta, hiddenFromAgents: this.access.agentHiding(r.text) }
   }
 
+  /**
+   * The path of the note with this `uid` (D-015), if the principal may read
+   * it: `agent_denied` if it's hidden from it (without its path), `not_found`
+   * if there's none.
+   */
+  pathOfUid(uid: string): string {
+    const r = this.deps.index.prepare('select path from notes where uid = ? order by path limit 1').get(uid) as { path: string } | undefined
+    if (!r) throw new NoteError('not_found', 'there is no note with that uid')
+    return this.visible(r.path).path
+  }
+
   /** A note's headings, in order (link anchors). */
   headings(path: string): { level: number; text: string }[] {
     const r = this.visible(path)
@@ -147,9 +200,11 @@ export class ScopedNotes {
 
   /**
    * A note's outgoing links and backlinks (with their context), and the
-   * titles of an ambiguous link's candidates. A link to a note the principal
-   * can't see is just its text, with no status; an ambiguous one keeps the
-   * candidates it can see (without status if fewer than two remain).
+   * titles of an ambiguous link's candidates. For an agent, a link to a note
+   * hidden from it is `no_access` (the note isn't named); an ambiguous one
+   * keeps the candidates it can see, with `others_no_access` if there are
+   * others, and is `no_access` if it can see none. Backlinks from notes it
+   * can't see aren't there at all.
    */
   links(path: string): { outgoing: OutgoingLink[]; backlinks: { path: string; title: string; raw: string; context: string }[]; titles: Record<string, string> } {
     const { path: p } = this.visible(path)
@@ -175,19 +230,51 @@ export class ScopedNotes {
     const titles: Record<string, string> = {}
     const titleOf = index.prepare('select title from notes where path = ?')
     const out = outgoing.map((l): OutgoingLink => {
-      let candidates = l.candidates ? JSON.parse(l.candidates) as string[] : null
-      let link: OutgoingLink = { ...l, candidates }
-      if (this.access.isAgent) {
-        if (l.dst_path !== null && !this.access.canRead(l.dst_path)) link = unknownLink(l)
-        else if (candidates) {
-          candidates = candidates.filter((c) => this.access.canRead(c))
-          link = candidates.length >= 2 ? { ...l, candidates } : unknownLink(l)
-        }
-      }
+      const candidates = l.candidates ? JSON.parse(l.candidates) as string[] : null
+      const link = this.access.isAgent ? this.maskedLink({ ...l, candidates }) : { ...l, candidates }
       for (const c of link.candidates ?? []) titles[c] ??= (titleOf.get(c) as { title: string } | undefined)?.title ?? c
       return link
     })
     return { outgoing: out, backlinks, titles }
+  }
+
+  /** A link as an agent sees it (see `links`). */
+  private maskedLink(l: OutgoingLink): OutgoingLink {
+    if (l.dst_path !== null && !this.access.canRead(l.dst_path)) return noAccess(l)
+    if (!l.candidates) return l
+    const visible = l.candidates.filter((c) => this.access.canRead(c))
+    if (visible.length === 0) return noAccess(l)
+    return visible.length === l.candidates.length ? l : { ...l, candidates: visible, others_no_access: true }
+  }
+
+  /**
+   * Where `link` leads, written in `from`: `[[Note#Heading]]`, `[text](path.md)`
+   * or a bare target (`Note#Heading`), by the same rules as `links`. A note
+   * hidden from an agent is `no_access`, with its reason when the link leads
+   * to that one note (the agent named it); never its path or title.
+   */
+  resolveLink(from: string, link: string): ResolvedLink {
+    const { path: src } = this.visible(from)
+    const parsed = parseLink(link)
+    if (!parsed) throw new RequestError(400, 'invalid', 'not a link')
+    if (!this.deps.links) throw new Error('link resolution is not available')
+    const r = this.deps.links().resolve(src, parsed)
+    const row: OutgoingLink = {
+      raw: link, kind: parsed.kind, target: parsed.target, anchor: parsed.anchor, pos_from: 0,
+      status: r.status, dst_path: r.status === 'resolved' ? r.path : null,
+      anchor_ok: r.status === 'resolved' && r.anchor !== null ? (r.anchor === 'ok' ? 1 : 0) : null,
+      candidates: r.status === 'ambiguous' ? r.candidates : null,
+    }
+    const shown = this.access.isAgent ? this.maskedLink(row) : row
+    const reason = shown.status === 'no_access' && row.dst_path !== null ? this.access.reasonFor(row.dst_path) : null
+    const titleOf = this.deps.index.prepare('select title from notes where path = ?')
+    const titles: Record<string, string> = {}
+    for (const p of [shown.dst_path, ...(shown.candidates ?? [])]) if (p) titles[p] = (titleOf.get(p) as { title: string } | undefined)?.title ?? p
+    return {
+      kind: parsed.kind, target: parsed.target, anchor: parsed.anchor, status: shown.status, path: shown.dst_path,
+      anchorOk: shown.anchor_ok === null ? null : shown.anchor_ok === 1, candidates: shown.candidates,
+      othersNoAccess: shown.others_no_access === true, reason, titles,
+    }
   }
 
   /**
@@ -285,7 +372,7 @@ export class ScopedNotes {
   private edit(path: string, fn: (text: string) => string | ReturnType<typeof planEdits>, opts: { ifMatch?: string }) {
     const p = this.writable(path)
     return this.guardAsync(p, () => this.deps.notes.edit(p, (t) => {
-      if (this.access.hides(t)) throw new NoteError('not_found', `does not exist: ${p}`)
+      if (this.access.hides(t)) throw new AgentDenied(this.access.reasonFor(p))
       return fn(t)
     }, { ifMatch: opts.ifMatch, actor: this.access.actor }))
   }
@@ -379,6 +466,18 @@ export class ScopedNotes {
     return this.guardAsync(p, () => this.deps.notes.attach(p, bytes, this.access.actor))
   }
 
+  /**
+   * Undoes what version `id` of a note changed (history/revert.ts), as the
+   * principal: on a note it can read and write now (for an agent, by its
+   * text too; a note deleted since can't be reverted, it has no text), and
+   * only a version `reader` shows it (`historyFor`).
+   */
+  async revert(history: { reader: HistoryReader; recorder: Pick<Recorder, 'operation'> }, path: string, id: string, opts: { ifMatch?: string; dryRun?: boolean }): Promise<RevertReport> {
+    const p = this.writable(path)
+    if (this.access.isAgent) this.visible(p)
+    return this.guardAsync(p, () => revertVersion({ reader: history.reader, notes: this.deps.notes, recorder: history.recorder }, p, id, { actor: this.access.actor, ...opts }))
+  }
+
   // --- The daily note (D-030) --------------------------------------------------
 
   /**
@@ -429,8 +528,27 @@ export class ScopedNotes {
   }
 }
 
-function unknownLink(l: { raw: string; kind: string; target: string; anchor: string | null; pos_from: number }): OutgoingLink {
-  return { raw: l.raw, kind: l.kind, target: l.target, anchor: l.anchor, status: null, dst_path: null, anchor_ok: null, candidates: null, pos_from: l.pos_from }
+/**
+ * A link as written: `[[Note#Heading|text]]`, `![[…]]`, `[text](path.md#h)`,
+ * or a bare target (`Note#Heading`), taken as a wikilink. Null if it's none.
+ */
+function parseLink(link: string): Pick<LinkRef, 'kind' | 'target' | 'anchor'> | null {
+  const s = typeof link === 'string' ? link.trim() : ''
+  if (!s) return null
+  if (/^!?\[\[[\s\S]*\]\]$|^\[[\s\S]*\]\([\s\S]*\)$/.test(s)) {
+    const l = extract(s).links[0]
+    return l ? { kind: l.kind, target: l.target, anchor: l.anchor } : null
+  }
+  const bare = s.split('|')[0]!
+  const hash = bare.indexOf('#')
+  const target = (hash === -1 ? bare : bare.slice(0, hash)).trim()
+  const anchor = hash === -1 ? null : bare.slice(hash + 1).trim() || null
+  return { kind: 'wiki', target, anchor }
+}
+
+/** A link to a note hidden from the principal: its own text, and nothing of where it leads. */
+function noAccess(l: { raw: string; kind: string; target: string; anchor: string | null; pos_from: number }): OutgoingLink {
+  return { raw: l.raw, kind: l.kind, target: l.target, anchor: l.anchor, status: 'no_access', dst_path: null, anchor_ok: null, candidates: null, pos_from: l.pos_from }
 }
 
 /** `a/b/c.md` → `a`, `a/b`. */

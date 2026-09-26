@@ -45,16 +45,24 @@ test('ai: false and an unreadable frontmatter show it, with why; other notes don
   await expect(page.locator('.cm-content')).toContainText('Plan')
   await expect(badge(page)).toHaveCount(0)
 
-  // What it says holds: a key doesn't find the note.
+  // What it says holds: a key that names the note is told it exists and is not for agents (agent_denied), and gets nothing of it.
   await page.request.put('/api/admin/integrations', { data: { api: true } })
   const { key, token } = await (await page.request.post('/api/keys', { data: { name: 'Oculta e2e' } })).json() as { key: { id: string }; token: string }
-  const auth = { Authorization: `Bearer ${token}` }
-  expect((await request.get(`${BASE_URL}/api/note?path=${encodeURIComponent('privado/sin-ia.md')}`, { headers: auth })).status()).toBe(404)
-  expect((await request.get(`${BASE_URL}/api/note?path=${encodeURIComponent('frontmatter/invalido.md')}`, { headers: auth })).status()).toBe(404)
-  expect((await request.get(`${BASE_URL}/api/note?path=Plan.md`, { headers: auth })).status()).toBe(200)
-  await page.request.delete(`/api/keys/${key.id}`)
-  await page.request.put('/api/admin/integrations', { data: { api: false } })
-  await page.context().close()
+  try {
+    const auth = { Authorization: `Bearer ${token}` }
+    for (const path of ['privado/sin-ia.md', 'frontmatter/invalido.md']) {
+      const r = await request.get(`${BASE_URL}/api/note?path=${encodeURIComponent(path)}`, { headers: auth })
+      expect(r.status()).toBe(403)
+      const body = await r.json() as Record<string, unknown>
+      expect([body.error, body.reason]).toEqual(['agent_denied', 'ai_false'])
+      expect(Object.keys(body).sort()).toEqual(['error', 'message', 'reason'])
+    }
+    expect((await request.get(`${BASE_URL}/api/note?path=Plan.md`, { headers: auth })).status()).toBe(200)
+  } finally {
+    await page.request.delete(`/api/keys/${key.id}`)
+    await page.request.put('/api/admin/integrations', { data: { api: false } })
+    await page.context().close()
+  }
 })
 
 test('it follows the frontmatter: shown once ai: false is saved, gone once it isn’t', async ({ browser }) => {
