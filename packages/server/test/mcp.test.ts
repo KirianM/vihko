@@ -18,6 +18,13 @@ const FILES = {
 
 const CONFIG = 'daily:\n  diario:\n    folder: proyectos/diario\n'
 
+/** Keys in camelCase anywhere in a result (the tools answer in snake_case). */
+function camelKeys(v: unknown): string[] {
+  if (Array.isArray(v)) return v.flatMap(camelKeys)
+  if (typeof v !== 'object' || v === null) return []
+  return Object.entries(v).flatMap(([k, x]) => [...(/[a-z][A-Z]/.test(k) ? [k] : []), ...camelKeys(x)])
+}
+
 const READ_TOOLS = ['changes_since', 'daily_note', 'get_note', 'history', 'list_folder', 'related', 'resolve_link', 'search']
 const WRITE_TOOLS = ['create_note', 'delete', 'edit_note', 'move', 'revert_change']
 
@@ -260,12 +267,19 @@ test('writing: create_note, edit_note with its operations and if_match, move, de
 
     const mv = await c.call('move', { from: 'proyectos/notas.md', to: 'proyectos/sub/notas.md', dry_run: true })
     assert.equal(mv.error, false, mv.raw)
-    // [[notas]] still leads there by name: kept, not rewritten.
-    assert.deepEqual([mv.data.dryRun, mv.data.relinked, mv.data.kept.map((r: any) => r.path)], [true, [], ['proyectos/plan.md']])
+    // [[notas]] still leads there by name: kept, not rewritten. The report in snake_case, like every other.
+    assert.deepEqual([mv.data.dry_run, mv.data.relinked, mv.data.kept.map((r: any) => r.path), mv.data.alias_added, mv.data.hidden, mv.data.etag], [true, [], ['proyectos/plan.md'], null, false, undefined])
+    assert.deepEqual(camelKeys(mv.data), [])
     assert.equal((await c.call('move', { from: 'proyectos/notas.md', to: 'otros/notas.md' })).data.error, 'not_found')
+    // camelCase parameters are aliases.
+    assert.equal((await c.call('move', { from: 'proyectos/notas.md', to: 'proyectos/x.md', dryRun: true })).data.dry_run, true)
     const moved = await c.call('move', { from: 'proyectos/notas.md', to: 'proyectos/archivo/notas.md' })
     assert.equal(moved.error, false, moved.raw)
     assert.match(readFileSync(join(h.notesDir, 'proyectos/plan.md'), 'utf8'), /\[\[notas\]\]/)
+    // Its new ETag, as a read gives it: ready for the next edit.
+    assert.equal(moved.data.dry_run, false)
+    assert.equal(moved.data.etag, (await c.call('get_note', { path: 'proyectos/archivo/notas.md' })).data.etag)
+    assert.equal((await c.call('edit_note', { path: 'proyectos/archivo/notas.md', operations: [{ op: 'find_replace', find: 'de siempre', replace: 'de hoy' }], if_match: moved.data.etag })).error, false)
 
     const del = await c.call('delete', { path: 'proyectos/Acta.md' })
     assert.deepEqual([del.error, del.data.trashed], [false, true])
@@ -381,11 +395,18 @@ test('changes_since: from an ETag it was given or a version, waiting for a chang
     assert.deepEqual(since.data.changes.map((x: any) => x.added).filter((a: string) => !a.startsWith('uid:')), ['- PERSONA: añadir fechas (hecho: 1 de octubre)\n'])
 
     // Revert the agent's own change: the person's line stays as they wrote it.
-    const dry = await c.call('revert_change', { path: 'proyectos/plan.md', version: versions[0].version, dry_run: true })
-    assert.deepEqual([dry.error, dry.data.dryRun, dry.data.counts.reverted], [false, true, 1])
-    const rev = await c.call('revert_change', { path: 'proyectos/plan.md', version: versions[0].version })
+    const dry = await c.call('revert_change', { path: 'proyectos/plan.md', version: versions[0].version, dryRun: true })
+    assert.deepEqual([dry.error, dry.data.dry_run, dry.data.changed, dry.data.counts.reverted], [false, true, false, 1])
+    assert.deepEqual(camelKeys(dry.data), [])
+    const before = (await c.call('get_note', { path: 'proyectos/plan.md' })).data.etag
+    assert.equal(dry.data.etag, before, 'a dry run gives the ETag it would apply to')
+    const rev = await c.call('revert_change', { path: 'proyectos/plan.md', version: versions[0].version, if_match: before })
     assert.equal(rev.error, false, rev.raw)
+    assert.deepEqual([rev.data.dry_run, rev.data.changed], [false, true])
     assert.match(readFileSync(join(h.notesDir, 'proyectos/plan.md'), 'utf8'), /- PERSONA: añadir fechas\n/)
+    // The pieces come with the text around them, and the new ETag is the note's.
+    assert.deepEqual(rev.data.reverted.map((p: any) => [p.before, p.removed, p.restored]), [['- PERSONA: añadir fechas', ' (hecho: 1 de octubre)', '']])
+    assert.equal(rev.data.etag, (await c.call('get_note', { path: 'proyectos/plan.md' })).data.etag)
     assert.equal((await c.call('revert_change', { path: 'proyectos/plan.md', version: versions.at(-1).version })).data.error, 'not_revertible')
     assert.equal((await c.call('changes_since', { path: 'proyectos/plan.md', since: 'not a version' })).data.error, 'invalid')
     await c.close()

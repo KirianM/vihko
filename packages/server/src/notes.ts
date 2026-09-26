@@ -151,6 +151,8 @@ export interface MoveReport {
     failed: { path: string; to: string | null; outcome: 'stayed' | 'copied'; error: ErrorCode; message: string }[]
   }
   dryRun: boolean
+  /** The moved note's ETag at its new path, as the move left it (its own links rewritten, the alias added); null in a dry run. */
+  etag: string | null
 }
 
 /** What a folder move does (or would do, with `dryRun`). */
@@ -404,7 +406,7 @@ export class NoteService {
       if (report.failed.length && oldName !== newName && this.opts.indexer.linkAliases) {
         try {
           const aliasActor: Actor = { kind: 'system', reason: { code: 'alias_added', alias: oldName, from, to, by: opts.actor } }
-          await this.edit(to, (t) => addToFrontmatterList(t, 'aliases', oldName), { actor: aliasActor })
+          report.etag = (await this.edit(to, (t) => addToFrontmatterList(t, 'aliases', oldName), { actor: aliasActor })).etag
           report.aliasAdded = oldName
         } catch (err) {
           const f = failure(err)
@@ -455,7 +457,7 @@ export class NoteService {
     const assets = this.planAssets(from, to)
     const { before, after, map, sources } = this.relinkContext(new Map([[from, to]]), assets.folder?.from ?? null)
 
-    const report: MoveReport = { from, to, relinked: [], shifted: [], kept: [], failed: [], aliasAdded: null, images: { moved: [], stayed: [], folder: null, failed: [] }, dryRun: !!opts.dryRun }
+    const report: MoveReport = { from, to, relinked: [], shifted: [], kept: [], failed: [], aliasAdded: null, images: { moved: [], stayed: [], folder: null, failed: [] }, dryRun: !!opts.dryRun, etag: null }
     const imagePlan = this.planImages(text, from, to, assets.folder?.from ?? null)
     report.images = { moved: imagePlan.moved, stayed: imagePlan.stayed, folder: assets.folder, failed: [...assets.failed, ...imagePlan.unplaceable] }
     const planned = movedNotePlan(text, from, to, before, after, map, placeOf(imagePlan.moved, assets.folder))
@@ -535,6 +537,7 @@ export class NoteService {
       throw err
     }
     rmSync(aside)
+    report.etag = contentHash(newText)
     this.opts.indexer.indexPaths([from, to])
     if (folder) this.opts.indexer.indexFolders([folder.from, folder.to])
 
