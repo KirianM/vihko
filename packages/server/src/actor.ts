@@ -22,6 +22,8 @@ export type Actor =
  *   couldn't be rewritten.
  * - `restored`: a version of the note (`id`, from `at`) brought back from the
  *   history. `trash_restored`: a note brought back from the trash.
+ * - `reverted`: what version `id` (from `at`) changed, undone on the note as
+ *   it was (history/revert.ts).
  * - `history_enabled`, `history_resumed`: what was in the folder when the
  *   history started, or changed while it was off.
  * - `recovered`: text thoth wrote back from its own copy (the collaboration
@@ -36,6 +38,7 @@ export type Reason =
   | { code: 'alias_added'; alias: string; from: string; to: string; by: Actor }
   | { code: 'restored'; id: string; at: string }
   | { code: 'trash_restored'; id: string }
+  | { code: 'reverted'; id: string; at: string }
   | { code: 'history_enabled' }
   | { code: 'history_resumed' }
   | { code: 'recovered' }

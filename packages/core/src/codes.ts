@@ -32,6 +32,7 @@ export type ErrorCode =
   | 'not_empty' // a folder that still holds files can't be deleted
   | 'history_off' // thoth.yaml turns the history off
   | 'history_unavailable' // the history can't be read right now (see /api/history/status)
+  | 'not_revertible' // a version that creates or deletes the note has no change of its text to revert
 
 /**
  * Space-level alerts: what thoth has detected in the notes folder that needs

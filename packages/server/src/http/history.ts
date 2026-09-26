@@ -9,6 +9,7 @@
 //   GET  /api/history/version?path=&id=
 //   GET  /api/history/diff?path=&id=&against=previous|current|<id>
 //   POST /api/history/restore { path, id, ifMatch? }
+//   POST /api/history/revert { path, id, ifMatch?, dryRun? }
 //   GET  /api/history/changes?cursor=&limit=&author=
 //   GET  /api/history/resolved?path=
 import type { Context, Hono } from 'hono'
@@ -18,7 +19,8 @@ import { History, HistoryError, type AuthorRef, type HistoryReader } from '../hi
 import { wordDiff } from '../history/diff.ts'
 import { authorFilter } from '../history/reader.ts'
 import { ResolvedThreads } from '../history/resolved.ts'
-import { NoteError, NoteService } from '../notes.ts'
+import { revertVersion } from '../history/revert.ts'
+import { NoteError, NoteService, type Actor } from '../notes.ts'
 
 export interface HistoryRoutesDeps {
   history: History
@@ -135,6 +137,22 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     return c.json(r)
   })
 
+  // Undoes what one version changed, on the note as it is now (history/revert.ts):
+  // what was changed later and clashes is left and reported (`skipped`). With
+  // `dryRun`, only what it would do. One write through the core, as the user,
+  // with the reason `reverted`.
+  app.post('/api/history/revert', async (c) => {
+    const body = await c.req.json<{ path?: string; id?: string; ifMatch?: string; dryRun?: boolean }>()
+    const path = notePath(c, body.path)
+    if (typeof body.id !== 'string' || !body.id) throw new HistoryError('invalid', 'missing id')
+    const actor: Actor = { kind: 'user', id: c.get('user').id }
+    const r = await revertVersion({ reader: history.reader(), notes, recorder: history.recorder }, path, body.id, {
+      actor, ifMatch: body.ifMatch ?? unquote(c.req.header('if-match')), dryRun: body.dryRun === true,
+    })
+    c.header('ETag', `"${r.etag}"`)
+    return c.json(r)
+  })
+
   app.get('/api/history/changes', async (c) => {
     const user = c.get('user')
     const reader = history.reader()
@@ -171,5 +189,5 @@ function unquote(etag: string | undefined) {
 
 /** HTTP status for each history error code. */
 export function historyErrorStatus(e: HistoryError) {
-  return ({ history_off: 409, history_unavailable: 503, not_found: 404, invalid: 400 } as const)[e.code]
+  return ({ history_off: 409, history_unavailable: 503, not_found: 404, invalid: 400, not_revertible: 409 } as const)[e.code]
 }

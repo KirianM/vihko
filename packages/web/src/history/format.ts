@@ -14,6 +14,7 @@ export type HistoryText =
   | 'history.reason.historyEnabled' | 'history.reason.historyResumed' | 'history.reason.recovered'
   | 'history.change.created' | 'history.change.modified' | 'history.change.deleted' | 'history.change.movedPlain'
   | 'history.change.renamed' | 'history.change.moved' | 'history.change.restored' | 'history.change.restoredFrom' | 'history.change.trashRestored'
+  | 'history.change.revertedFrom'
   | 'changes.system' | 'changes.agents'
 type T = (key: HistoryText, vars?: Record<string, string | number>) => string
 
@@ -139,8 +140,9 @@ export function reasonText(t: T, r: Reason | null): string | null {
   }
 }
 
-/** What happened to the file, when it isn't a plain edit: created, moved (from → to), deleted, restored. */
+/** What happened to the file, when it isn't a plain edit: created, moved (from → to), deleted, restored, or an edit that reverted a change. */
 export function changeText(t: T, v: { change: ChangeKind; path: string; from?: string; reason: Reason | null }, date: (at: string) => string): string | null {
+  if (v.change === 'modified' && v.reason?.code === 'reverted' && v.reason.at) return t('history.change.revertedFrom', { date: date(v.reason.at) })
   switch (v.change) {
     case 'created': return t('history.change.created')
     case 'deleted': return t('history.change.deleted')

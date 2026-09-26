@@ -23,7 +23,9 @@ function ChangeCard({ change, onOpen }: { change: Change; onOpen: (file: ChangeF
   const files = all ? change.files : change.files.slice(0, FEW)
   // What a person did that isn't an edit (the system's reasons are worded with its mark).
   const r = change.reason
-  const why = r?.code === 'restored' && r.at ? t('changes.restoredFrom', { date: dates.dateTime(r.at) }) : r?.code === 'trash_restored' ? t('changes.trashRestored') : null
+  const why = r?.code === 'restored' && r.at ? t('changes.restoredFrom', { date: dates.dateTime(r.at) })
+    : r?.code === 'reverted' && r.at ? t('changes.revertedFrom', { date: dates.dateTime(r.at) })
+    : r?.code === 'trash_restored' ? t('changes.trashRestored') : null
   return (
     <li className="c-change">
       <div className="c-head">
