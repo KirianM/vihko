@@ -94,6 +94,20 @@ identical dump; a `kill -9` loses no edits.
 **Done when:** any change, wherever it came from, can be seen and undone from
 the UI with its author.
 
+## M2.1 · History follow-ups (before agents)
+
+From the review after comparing M2 with other systems.
+
+- [ ] External changes in a row to a file are one version (30 s quiet, 5 min
+      at most), closed by any thoth write, as typing is.
+- [ ] A long git outage never drops a version silently: past the queue's cap,
+      versions merge into the next one, with an alert.
+- [ ] `history.exclude` in `thoth.yaml`: patterns kept out of the history
+      without hiding them from thoth.
+- [ ] `thoth history purge <path or version>` from the command line (thoth
+      stopped): rewrites the managed history without it, for a secret an agent
+      or a person pasted by mistake.
+
 ## M3 · Agents
 
 - [ ] HTTP API with API keys (prefix, hash, expiry, scopes, per-folder scope).
@@ -105,6 +119,11 @@ the UI with its author.
       `dry_run`), `changes_since`, `move`, `delete` to trash, `daily_note`
       (today's note of the represented person, created if needed) and
       appending at the end or under a heading.
+- [ ] Revert this change: undo only what one version changed (an agent's),
+      applied to the current text, keeping what was written after; what can't
+      be reverted is reported. A content-only view of a version, to copy from.
+- [ ] An alert when the API or MCP is on while the history is unmanaged
+      (writes from thoth have no version of their own there).
 - [ ] `ai: false` restriction enforced at the single filtering point.
 - [ ] Handshake tests with real MCP clients in CI.
 - [ ] Privacy page: what leaves, where to and when.
@@ -120,8 +139,11 @@ agent sees those changes, with safeguards and everything in the history.
       (titles, backlinks, counts, candidates, errors).
 - [ ] Link rewriting as the system across permissions.
 - [ ] Presence and cursors across users in the editor.
-- [ ] Purge from history (admin): remove a version or a file from the managed
-      history, for a secret pasted by mistake.
+- [ ] Purge from history in the UI (admin), on top of the M2.1 command.
+- [ ] A note's history (versions, diffs, resolved comments, its part of recent
+      changes) needs edit permission, and so does restoring: sharing a note to
+      read doesn't share its past.
+- [ ] An open version closes when someone who wasn't in it starts typing.
 
 **Done when:** two users with different permissions work at the same time and
 the tests prove neither sees anything they shouldn't.
@@ -131,7 +153,8 @@ the tests prove neither sees anything they shouldn't.
 - [ ] Release policy: semver, changelog, Docker tags, migrations of `state.db`
       and `thoth.yaml`.
 - [ ] Final name.
-- [ ] Installation and operations documentation (volumes, backups, NFS).
+- [ ] Installation and operations documentation (volumes, backups including
+      the history in the state volume, NFS).
 - [ ] Security review.
 - [ ] Public repository.
 
