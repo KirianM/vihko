@@ -21,6 +21,7 @@
     "typescript": "^7.0.2"
   },
   "allowScripts": {
-    "better-sqlite3": true
+    "better-sqlite3": true,
+    "@modelcontextprotocol/inspector": false
   }
 }
