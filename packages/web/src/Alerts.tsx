@@ -338,6 +338,14 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           body: t(a.mode === 'off' ? 'alerts.unversionedBodyOff' : 'alerts.unversionedBodyUnmanaged'),
           actions: null,
         })
+      case 'login_attempts_blocked':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.loginBlockedTitle', { n: a.attempts, since: dates.dateTime(a.since) }),
+          body: t('alerts.loginBlockedBody'),
+          actions: null,
+        })
       case 'sync_conflict': {
         const shown = a.path in copies
         return frame({
