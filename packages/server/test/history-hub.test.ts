@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { CLI, api, closeAll, connect, login, makeDirs, sleep, startServer, typeLine, waitFor, type Srv } from './_collab.ts'
 
@@ -164,8 +164,11 @@ test('a rename rewrites the links of an open note in the same system commit, and
   } finally { closeAll(); await srv.stop() }
 })
 
-/** The server, killed at a history crash point while it does `act`, and started again without it. */
-async function crashAt(point: string, act: (srv: Srv, cookie: string) => Promise<void>) {
+/**
+ * The server, killed at a history crash point while it does `act`, and
+ * started again without it. `dead` looks at the state volume in between.
+ */
+async function crashAt(point: string, act: (srv: Srv, cookie: string) => Promise<void>, dead?: (stateDir: string) => void) {
   const { notes, env } = makeDirs()
   // First start: the history begins (its own commit), with no crash point.
   let srv = await startServer({ ...env, ...FAST })
@@ -176,8 +179,9 @@ async function crashAt(point: string, act: (srv: Srv, cookie: string) => Promise
   await waitFor(() => srv.proc.signalCode !== null || srv.proc.exitCode !== null, `killed at ${point}`, 15_000)
   assert.equal(srv.proc.signalCode, 'SIGKILL')
   closeAll()
+  dead?.(env.THOTH_STATE_DIR)
   srv = await startServer({ ...env, ...FAST })
-  return { srv, cookie: await login(srv), notes }
+  return { srv, cookie: await login(srv), notes, stateDir: env.THOTH_STATE_DIR }
 }
 
 test('kill -9 after a version is journaled and before git has it: the version keeps its author', async () => {
@@ -217,6 +221,34 @@ test('kill -9 after git has a commit and before the journal knows: it is not rep
     assert.deepEqual(versions.map(who), ['noa', 'system'])
     const changes = (await api(srv, cookie, 'GET', '/api/history/changes')).body.changes
     assert.equal(changes.filter((c: any) => c.files.some((f: any) => f.path === 'tags.md')).length, 2)
+  } finally { closeAll(); await srv.stop() }
+})
+
+test('kill -9 while git commits a version, holding its locks: the restart removes what git left, and the version reaches git once', async () => {
+  const LOCKS = ['refs/heads/main.lock', 'HEAD.lock']
+  let left: string[] = []
+  let head = ''
+  const { srv, cookie, stateDir } = await crashAt('history-importing', async (s, c) => {
+    const cur = await api(s, c, 'GET', `/api/note?path=${q('tags.md')}`)
+    await api(s, c, 'PUT', `/api/note?path=${q('tags.md')}`, { text: cur.body.text + 'EN-MITAD-DE-GIT\n' }, { 'if-match': `"${cur.body.etag}"` })
+  }, (state) => {
+    left = LOCKS.filter((f) => existsSync(join(state, 'history.git', f)))
+    head = readFileSync(join(state, 'history.git', 'refs/heads/main'), 'utf8').trim()
+  })
+  try {
+    assert.deepEqual(left, LOCKS, 'git died holding its locks')
+    await waitFor(async () => (await versionsOf(srv, cookie, 'tags.md')).versions.length === 2, 'the version is committed after the restart')
+    assert.deepEqual((await api(srv, cookie, 'GET', '/api/history/status')).body, { mode: 'managed', available: true, error: null })
+    const { versions } = await versionsOf(srv, cookie, 'tags.md')
+    assert.deepEqual(versions.map(who), ['noa', 'system'])
+    assert.ok((await textOf(srv, cookie, 'tags.md', versions[0].id)).includes('EN-MITAD-DE-GIT'))
+    // On top of the commit git had before the kill, once.
+    const changes = (await api(srv, cookie, 'GET', '/api/history/changes')).body.changes
+    assert.equal(changes[1].id, head)
+    assert.equal(changes.filter((c: any) => c.files.some((f: any) => f.path === 'tags.md')).length, 2)
+    assert.deepEqual(LOCKS.filter((f) => existsSync(join(stateDir, 'history.git', f))), [])
+    const log = srv.out.join('')
+    for (const f of LOCKS) assert.ok(log.includes(`removed a stale git lock left by a crash: ${f}`), log)
   } finally { closeAll(); await srv.stop() }
 })
 
