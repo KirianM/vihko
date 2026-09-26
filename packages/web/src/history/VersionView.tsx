@@ -11,6 +11,7 @@
 import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Modal, ModalOverlay, ToggleButton, ToggleButtonGroup } from 'react-aria-components'
 import type { Doc } from 'yjs'
+import { copyText } from '../copy.ts'
 import { errorText, useT } from '../i18n.tsx'
 import { historyApi, type Against, type Diff, type RestoreReport, type RevertReport, type SkippedPiece, type Version } from './api.ts'
 import { changeGroups, changeText, pathLabel } from './format.ts'
@@ -266,7 +267,7 @@ export function VersionView({ path, id, store, exists, session, closeLabel, onCl
   )
 }
 
-/** Copies the version's text: the clipboard API where the page may use it, a selection and `copy` otherwise (plain http). */
+/** Copies the version's text (copy.ts: also on plain http). */
 function CopyButton({ text }: { text: string }) {
   const t = useT()
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
@@ -275,15 +276,7 @@ function CopyButton({ text }: { text: string }) {
     const timer = setTimeout(() => setState('idle'), 4000)
     return () => clearTimeout(timer)
   }, [state])
-  const copy = async () => {
-    try {
-      if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(text)
-      else if (!copyBySelection(text)) throw new Error('copy refused')
-      setState('copied')
-    } catch {
-      setState('failed')
-    }
-  }
+  const copy = async () => setState((await copyText(text)) ? 'copied' : 'failed')
   return (
     <span className="v-copy">
       <Button className="btn btn-sm" onPress={() => void copy()}>{t('version.copy')}</Button>
@@ -292,20 +285,6 @@ function CopyButton({ text }: { text: string }) {
       </span>
     </span>
   )
-}
-
-function copyBySelection(text: string): boolean {
-  const area = document.createElement('textarea')
-  area.value = text
-  area.setAttribute('readonly', '')
-  area.className = 'visually-hidden'
-  document.body.append(area)
-  area.select()
-  try {
-    return document.execCommand('copy')
-  } finally {
-    area.remove()
-  }
 }
 
 /**

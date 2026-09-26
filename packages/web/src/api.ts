@@ -146,6 +146,33 @@ export interface WorkspaceInfo {
 /** The person's own settings (state.db). */
 export interface Profile { timezone: string | null; dailySeries: string | null; openDailyOnStart: boolean }
 
+/**
+ * The integration switches (D-035.1): the API with keys and the MCP server,
+ * whether members may create keys, whether the server's administrator locks
+ * the API and MCP off (THOTH_INTEGRATIONS=off), and whether this person may
+ * create or change keys.
+ */
+export interface Integrations { api: boolean; mcp: boolean; membersCanCreateKeys: boolean; locked: boolean; canCreateKeys: boolean }
+/** An agent key as its owner (or the admin) sees it: never the secret. `folders` empty = every folder. */
+export interface KeyInfo {
+  id: string
+  userId: string
+  name: string
+  canWrite: boolean
+  folders: string[]
+  expiresAt: string | null
+  createdAt: string
+  lastUsedAt: string | null
+  lastVia: 'api' | 'mcp' | 'oauth' | null
+  revokedAt: string | null
+  last4: string
+  status: 'active' | 'expired' | 'revoked'
+}
+/** In the admin's list of everyone's keys, each one with its user. */
+export interface KeyWithUser extends KeyInfo { user: { id: string; username: string } }
+/** What a key is created or changed with; `expiresAt: null` takes the expiry away. */
+export interface KeyInput { name?: string; canWrite?: boolean; folders?: string[]; expiresAt?: string | null }
+
 let config: Promise<ServerConfig> | null = null
 
 const started = <R>(r: R | { job: MoveJob }): MoveStart<R> => (r !== null && typeof r === 'object' && 'job' in r ? { job: r.job } : { report: r as R })
@@ -205,4 +232,16 @@ export const api = {
     request<Attachment>('POST', `/api/attachments?note=${encodeURIComponent(note)}`, file, { 'content-type': file.type || 'application/octet-stream' }),
   fetchImage: (note: string, url: string) => request<Attachment>('POST', '/api/attachments/fetch', { note, url }),
   restore: (id: string) => request<{ path: string; etag: string }>('POST', `/api/trash/${encodeURIComponent(id)}/restore`),
+  integrations: () => request<Integrations>('GET', '/api/integrations'),
+  /** The thoth admin only; turning the API or MCP on while the server locks them gives `integrations_locked`. */
+  setIntegrations: (patch: Partial<Pick<Integrations, 'api' | 'mcp' | 'membersCanCreateKeys'>>) => request<Integrations>('PUT', '/api/admin/integrations', patch),
+  /** This person's keys, newest first (revoked ones too). */
+  keys: () => request<{ keys: KeyInfo[] }>('GET', '/api/keys').then((r) => r.keys),
+  /** Everyone's keys, with their user: the thoth admin only. */
+  allKeys: () => request<{ keys: KeyWithUser[] }>('GET', '/api/keys?all=1').then((r) => r.keys),
+  /** A new key: the token comes back this once and never again. */
+  createKey: (input: KeyInput & { name: string }) => request<{ key: KeyInfo; token: string }>('POST', '/api/keys', input),
+  updateKey: (id: string, patch: KeyInput) => request<{ key: KeyInfo }>('PATCH', `/api/keys/${encodeURIComponent(id)}`, patch).then((r) => r.key),
+  /** Its owner, or the thoth admin for anyone's. */
+  revokeKey: (id: string) => request<{ key: KeyInfo }>('DELETE', `/api/keys/${encodeURIComponent(id)}`).then((r) => r.key),
 }

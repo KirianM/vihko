@@ -4,6 +4,7 @@ import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, type
 import { seriesNeighbors } from '@thoth/core/series'
 import { ApiError, api, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
 import { AlertsPage } from './Alerts.tsx'
+import { AgentsPage } from './Agents.tsx'
 import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
@@ -35,6 +36,9 @@ type TreeDialog =
   | { kind: 'trashNote'; path: string }
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
+/** Views that aren't a note, in the URL as `?view=` (no router). */
+const VIEWS = ['avisos', 'changes', 'agents'] as const
+type View = (typeof VIEWS)[number]
 const inside = (path: string, folder: string) => path === folder || path.startsWith(folder + '/')
 
 // The editor (CodeMirror, Yjs) is downloaded separately, when the first note is opened.
@@ -55,10 +59,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [folderIssue, setFolderIssue] = useState<FolderMoveReport | null>(null)
   const [alerts, setAlerts] = useState(0)
   const [openPath, setOpenPathState] = useState<string | null>(() => new URLSearchParams(location.search).get('note'))
-  // Views that aren't a note, in the URL as `?view=` (no router).
-  const [view, setView] = useState<'avisos' | 'changes' | null>(() => {
+  const [view, setView] = useState<View | null>(() => {
     const v = new URLSearchParams(location.search).get('view')
-    return v === 'avisos' || v === 'changes' ? v : null
+    return VIEWS.find((x) => x === v) ?? null
   })
   /** A version of the open note shown instead of the editor (`?version=`, from the history). */
   const [version, setVersion] = useState<string | null>(() => new URLSearchParams(location.search).get('version'))
@@ -68,6 +71,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const openVersion = (path: string, id: string) => { setView(null); setOpenPathState(path); setVersion(id) }
   const showAlerts = () => { setOpenPathState(null); setVersion(null); setView('avisos') }
   const showChanges = () => { setOpenPathState(null); setVersion(null); setView('changes') }
+  const showAgents = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('agents') }
   const historyStatus = useHistoryStatus()
   const historyOn = historyStatus !== null && historyStatus.mode !== 'off'
   /** The note at `?note=` doesn't exist, but its version was asked for: shown on its own (restoring creates it again). */
@@ -409,6 +413,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             onChanged={(n) => { setAlerts(n); void loadTree() }}
             onUnauthorized={onUnauthorized}
           />
+        ) : view === 'agents' ? (
+          <AgentsPage user={user} onUnauthorized={onUnauthorized} />
         ) : view === 'changes' ? (
           <ChangesPage status={historyStatus} notes={notes} onOpenVersion={openVersion} onUnauthorized={onUnauthorized} />
         ) : openPath && version && missing === openPath ? (
@@ -550,6 +556,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           workspace={workspace}
           onClose={() => setPrefsOpen(false)}
           onSaved={(p) => { setProfile(p); setPrefsOpen(false) }}
+          onAgents={showAgents}
         />
       )}
     </div>
