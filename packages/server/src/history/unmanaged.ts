@@ -164,7 +164,7 @@ export class UnmanagedReader implements HistoryReader {
 
   /** What `status` and `alerts` show is the last look; an old one is renewed in the background. */
   private renew() {
-    if (this.located === null || this.stale()) void this.refresh()
+    if (this.located === null || this.stale()) this.refresh().catch((err) => this.log(`history: ${err instanceof Error ? err.message : String(err)}`))
   }
 
   private adopt(l: Located) {
