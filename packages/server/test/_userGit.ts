@@ -17,11 +17,12 @@ export function gitEnv(extra: Record<string, string> = {}): Record<string, strin
 }
 
 /**
- * A new repository at `top`, and commits a minute apart by whoever. On NFS
- * its files belong to another user (`nobody`): the user trusts it by its path.
+ * A new repository at `top`, and commits a minute apart by whoever, from
+ * `since` (ms). On NFS its files belong to another user (`nobody`): the user
+ * trusts it by its path.
  */
-export function userGit(top: string) {
-  let clock = Date.parse('2026-03-01T09:00:00Z') / 1000
+export function userGit(top: string, opts: { since?: number } = {}) {
+  let clock = Math.floor((opts.since ?? Date.parse('2026-03-01T09:00:00Z')) / 1000)
   const run = (args: string[], env: Record<string, string> = {}, input?: string | Buffer) =>
     execFileSync('git', ['-c', `safe.directory=${top}`, ...args], { cwd: top, env: gitEnv(env), encoding: 'utf8', input, maxBuffer: 1 << 28 })
   const repo = {

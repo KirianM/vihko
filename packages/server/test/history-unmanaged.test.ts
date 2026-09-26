@@ -6,10 +6,17 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { parseThreads, resolveThread } from '@thoth/core'
 import { setup, sleep } from './_history.ts'
 import { ANA, BEA, gitEnv, snapshot, userGit } from './_userGit.ts'
 
 const UNMANAGED = 'history:\n  mode: unmanaged\n'
+
+/** The text without its first comment thread, as resolving it in the editor leaves it. */
+function resolveIn(text: string): string {
+  const c = resolveThread(text, parseThreads(text)[0]!)
+  return text.slice(0, c.from) + c.insert + text.slice(c.to)
+}
 
 const cursorOf = (value: unknown) => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
 
@@ -234,6 +241,38 @@ test('unmanaged mode: a repository without commits, then a detached HEAD', async
     repo.run(['checkout', '-q', '--detach', 'HEAD~1'])
     assert.deepEqual((await h.versions('tags.md')).versions.map((v: any) => v.id), [first.id], 'what HEAD reaches')
     assert.deepEqual((await h.changes()).changes.map((ch: any) => ch.id), [first.id])
+  } finally { await h.close() }
+})
+
+test('resolved comments in unmanaged mode: a commit of the user that removes a thread, by that commit\'s author', async () => {
+  const NOTE = 'hilos/Decisiones.md'
+  const K = '<!-- @noa 2026-09-24T08:12Z · esto no, usa SQLite -->'
+  const TEXT = `# Decisiones\n\nUsaremos Postgres para el índice.${K}\n\nEl índice vive en disco local.\n`
+  let repo!: ReturnType<typeof userGit>
+  const h = await setup({
+    config: UNMANAGED,
+    files: { [NOTE]: TEXT },
+    prepare: ({ notesDir }) => {
+      repo = userGit(notesDir, { since: Date.now() - 3_600_000 })
+      repo.commit('Initial')
+    },
+  })
+  const resolved = async () => {
+    const q = new URLSearchParams()
+    q.set('path', NOTE)
+    const r = await h.noa('GET', `/api/history/resolved?${q}`)
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    return r.body as { threads: any[]; complete: boolean }
+  }
+  try {
+    // Resolved in the file (as the editor leaves it), not committed: nothing to recover from yet.
+    writeFileSync(join(h.notesDir, NOTE), resolveIn(TEXT))
+    assert.deepEqual(await resolved(), { threads: [], complete: true })
+    const c = repo.commit('Resolve the thread', BEA)
+    const { threads, complete } = await resolved()
+    assert.equal(complete, true)
+    assert.deepEqual(threads.map((t) => [t.id, t.version, t.resolvedAt, t.reopenable]), [['noa|2026-09-24T08:12Z|esto no, usa SQLite', c.id, c.at, true]])
+    assert.deepEqual(threads[0].resolvedBy, [{ kind: 'git', id: 'bea@example.com', name: 'Bea', key: 'git:bea@example.com' }])
   } finally { await h.close() }
 })
 
