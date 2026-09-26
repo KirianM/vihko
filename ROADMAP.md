@@ -110,8 +110,11 @@ From the review after comparing M2 with other systems.
 
 ## M3 · Agents
 
-- [ ] HTTP API with API keys (prefix, hash, expiry, scopes, per-folder scope).
-      ETag + `If-Match` → 412, `If-None-Match: *`.
+- [x] HTTP API with API keys (prefix, hash, expiry, scopes, per-folder scope).
+      ETag + `If-Match` → 412, `If-None-Match: *`. Off by default: the
+      thoth admin turns it on, `THOTH_INTEGRATIONS=off` locks it off; only
+      the routes classified for keys, through the single filtering point.
+      (The UI to manage keys comes with the rest of «Agents and API».)
 - [ ] Remote MCP: bearer token on the LAN, OAuth 2.1 when there is a public
       URL; tools registered according to scopes.
 - [ ] Tools: `search`, `get_note`, `related`/backlinks, `resolve_link`,
@@ -122,8 +125,8 @@ From the review after comparing M2 with other systems.
 - [ ] Revert this change: undo only what one version changed (an agent's),
       applied to the current text, keeping what was written after; what can't
       be reverted is reported. A content-only view of a version, to copy from.
-- [ ] An alert when the API or MCP is on while the history is unmanaged
-      (writes from thoth have no version of their own there).
+- [x] An alert when the API or MCP is on while the history is unmanaged
+      (writes from thoth have no version of their own there), or off.
 - [ ] `ai: false` restriction enforced at the single filtering point.
 - [ ] Handshake tests with real MCP clients in CI.
 - [ ] Privacy page: what leaves, where to and when.
