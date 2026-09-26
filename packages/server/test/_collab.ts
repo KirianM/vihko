@@ -36,6 +36,8 @@ export function makeDirs() {
 
 export async function startServer(env: Record<string, string>): Promise<Srv> {
   const proc = spawn(process.execPath, [CLI, 'serve'], { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
+  // A test that times out never reaches its cleanup: the server dies with the test process anyway.
+  process.once('exit', () => { if (proc.exitCode === null) proc.kill('SIGKILL') })
   const out: string[] = []
   proc.stdout!.on('data', (d) => out.push(d.toString()))
   proc.stderr!.on('data', (d) => out.push(d.toString()))

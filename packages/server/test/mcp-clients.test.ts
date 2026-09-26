@@ -138,7 +138,11 @@ function inspector(home: string, url: string, token: string, era: 'legacy' | 'mo
     let err = ''
     p.stdout.on('data', (d) => { out += d })
     p.stderr.on('data', (d) => { err += d })
+    // A call that hangs fails on its own: a test that times out never reaches its cleanup,
+    // and a live child would keep the test file (and npm test) from ever exiting.
+    const timer = setTimeout(() => { err += '\n[killed after 60 s]'; p.kill('SIGKILL') }, 60_000)
     p.on('close', (code) => {
+      clearTimeout(timer)
       let parsed: any = null
       try { parsed = JSON.parse(out) } catch { parsed = out }
       resolve({ code, out: parsed, err })
