@@ -4,7 +4,7 @@
 import { startCompletion } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button } from 'react-aria-components'
+import { Button, Dialog, DialogTrigger, Popover, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { ApiError, api, type CommentOriginal, type MoveJob, type MoveReport, type ServerConfig, type User } from '../api.ts'
 import { INSERT_IMAGE } from '../commands.ts'
 import { useTheme } from '../theme.ts'
@@ -67,6 +67,59 @@ function Presence({ c }: { c: CollabState }) {
         })}
       </span>
     </span>
+  )
+}
+
+/**
+ * The frontmatter block at the start of the text, as it is now: only to tell
+ * when it may have changed (the server reads it for real).
+ */
+function frontmatterBlock(text: string): string {
+  const m = /^\uFEFF?---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(text)
+  return m ? m[0] : /^\uFEFF?---/.test(text) ? text.slice(0, 4096) : ''
+}
+
+/**
+ * Whether the note is hidden from agents (`ai: false`, or a frontmatter that
+ * can't be read), as the server reads its text: asked on opening and again
+ * once a change to the frontmatter is saved.
+ */
+function useAgentHiding(path: string, c: CollabState): 'ai' | 'frontmatter' | null {
+  const [hiding, setHiding] = useState<'ai' | 'frontmatter' | null>(null)
+  const [block, setBlock] = useState<string | null>(null)
+  const asked = useRef<string | null>(null)
+  const text = c.session?.text
+  useEffect(() => {
+    if (!text) return
+    const read = () => setBlock(frontmatterBlock(text.toString()))
+    read()
+    text.observe(read)
+    return () => text.unobserve(read)
+  }, [text])
+  useEffect(() => {
+    if (c.save !== 'saved' || block === null || block === asked.current) return
+    asked.current = block
+    let live = true
+    api.note(path).then((n) => { if (live) setHiding(n.hiddenFromAgents ?? null) }, () => { if (live) asked.current = null })
+    return () => { live = false }
+  }, [path, c.save, block])
+  return hiding
+}
+
+/** «Hidden from agents», discreet in the header: why, on hover or focus, and on a press (a phone has no hover). */
+function HiddenFromAgents({ why }: { why: 'ai' | 'frontmatter' }) {
+  const t = useT()
+  const text = t(why === 'ai' ? 'note.aiHiddenWhy' : 'note.aiHiddenFrontmatter')
+  return (
+    <TooltipTrigger delay={300}>
+      <DialogTrigger>
+        <Button className="ai-hidden">{Icon.eyeOff}<span className="ai-hidden-label">{t('note.aiHidden')}</span></Button>
+        <Popover className="ai-tip" placement="bottom">
+          <Dialog className="ai-tip-dialog" aria-label={t('note.aiHidden')}>{text}</Dialog>
+        </Popover>
+      </DialogTrigger>
+      <Tooltip className="ai-tip" placement="bottom">{text}</Tooltip>
+    </TooltipTrigger>
   )
 }
 
@@ -230,6 +283,7 @@ interface Props {
 export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutside, onMoveStarted, onTrashed, templates, onCreated, onPickCandidate, history, version, onVersion, onRestored }: Props) {
   const t = useT()
   const c = useCollab(path)
+  const hiding = useAgentHiding(path, c)
   const [linkData, setLinkData] = useState<LinksData | null>(null)
   const links = useMemo(
     () => new Map<string, LinkInfo>((linkData?.outgoing ?? []).map((l) => [l.raw, { status: l.status, path: l.dst_path, candidates: l.candidates }])),
@@ -327,6 +381,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
         <MenuButton />
         <Crumbs path={path} />
         {daily && !mobile && <DailyNav daily={daily} onNavigate={onNavigate} />}
+        {hiding && <HiddenFromAgents why={hiding} />}
         <span className="spacer" />
         {!mobile && <SaveStatus c={c} />}
         <Presence c={c} />

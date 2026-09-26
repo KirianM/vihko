@@ -40,7 +40,14 @@ export async function request<T>(method: string, path: string, body?: unknown, h
 
 export interface User { id: string; username: string; role: 'admin' | 'member' }
 export interface TreeNote { path: string; title: string; uid: string | null; aliases: string[] }
-export interface Note { path: string; text: string; etag: string; meta: { title: string; uid: string | null; fm_error: string | null } | null }
+export interface Note {
+  path: string
+  text: string
+  etag: string
+  meta: { title: string; uid: string | null; fm_error: string | null } | null
+  /** Whether its text hides it from every agent: `ai: false` (or any doubt), or a frontmatter that can't be read. */
+  hiddenFromAgents: 'ai' | 'frontmatter' | null
+}
 
 export interface OutgoingLink {
   raw: string

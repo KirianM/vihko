@@ -652,6 +652,9 @@ const es = {
   'privacy.imagesBlocked': 'Quien administra el servidor ha bloqueado las imágenes enlazadas desde otras webs: en su lugar ves un recuadro con el dominio, y el navegador no les pide nada.',
   'presence.agent': '{name} · en nombre de {user}',
   'presence.agentWrote': 'Lo acaba de escribir {agent}',
+  'note.aiHidden': 'Oculta a los agentes',
+  'note.aiHiddenWhy': 'Esta nota tiene ai: false en el frontmatter: ninguna clave, ni por la API ni por el MCP, puede verla ni escribir en ella. Para los agentes no existe.',
+  'note.aiHiddenFrontmatter': 'El frontmatter de esta nota no se puede leer, así que se trata como la más restringida: ningún agente puede verla ni escribir en ella hasta que se arregle.',
 }
 
 const en: Record<keyof typeof es, string> = {
@@ -1303,6 +1306,9 @@ const en: Record<keyof typeof es, string> = {
   'privacy.imagesBlocked': 'Whoever runs the server has blocked images linked from other sites: you see a box with the domain instead, and the browser asks them for nothing.',
   'presence.agent': '{name} · on behalf of {user}',
   'presence.agentWrote': 'Just written by {agent}',
+  'note.aiHidden': 'Hidden from agents',
+  'note.aiHiddenWhy': 'This note has ai: false in its frontmatter: no key, over the API or MCP, can see it or write to it. For agents it doesn’t exist.',
+  'note.aiHiddenFrontmatter': 'This note’s frontmatter can’t be read, so it is treated as the most restricted: no agent can see it or write to it until it’s fixed.',
 }
 
 export type MessageKey = keyof typeof es
