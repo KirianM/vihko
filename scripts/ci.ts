@@ -176,7 +176,7 @@ async function main(): Promise<number> {
       `total ${clock(total)} · ${outcome}`,
       ...failed.map((r) => `\n${r.stage} FAILED: ${r.why}\n  log: ${r.log}`),
       ...notes,
-      ...(s.target ? [`tested: ${s.target.what}`] : []),
+      ...(s.target ? [`target: ${s.target.what}`] : []),
     ]
     say(['', ...tail].join('\n'))
     try { writeFileSync(join(LOGS, 'summary.txt'), [...results.map(line), ...tail].join('\n') + '\n') } catch {}
@@ -217,7 +217,7 @@ async function resolve(c: Ctx, notes: string[]): Promise<Target> {
   if (head !== pr.headRefOid) notes.push(`note: #${pr.number} moved while the run started; it tested ${head.slice(0, 7)}`)
   const base = must(git(['rev-parse', `refs/remotes/origin/${pr.baseRefName}`]), 'git rev-parse')
   return {
-    what: `#${pr.number} "${pr.title}": ${head.slice(0, 7)} merged onto ${pr.baseRefName} ${base.slice(0, 7)}`,
+    what: `#${pr.number} "${pr.title}": its head ${head.slice(0, 7)} merged onto ${pr.baseRefName} ${base.slice(0, 7)}`,
     sha: head,
     merge: { number: pr.number, base, baseName: pr.baseRefName },
   }
