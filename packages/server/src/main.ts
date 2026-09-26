@@ -151,7 +151,7 @@ async function run(config: Config, lock: StateLock) {
   log(`index ready: ${first.added.length} added, ${first.changed.length} changed, ${first.removed.length} removed, ${first.unchanged} unchanged`)
 
   await history.open()
-  const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log, history: history.recorder })
+  const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log, history: history.recorder, agentName: (id) => keys.nameOf(id) })
   // Checked against the index as the first scan left it. One that stopped may
   // have left the index behind the files: then no saved state is trusted.
   if (!first.aborted) hub.trustSavedStates()
