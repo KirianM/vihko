@@ -111,11 +111,15 @@ export class ScopedNotes {
     this.access = access
   }
 
-  /** The note, if the principal may read it; `not_found` otherwise, whether it exists or not. */
+  /**
+   * The note, if the principal may read it; `not_found` otherwise, whether it
+   * exists or not. An open note as its editors have it now: its ETag is the
+   * one a write is checked against (notes.ts `readCurrent`).
+   */
   private visible(path: string): NoteRead {
     const p = NoteService.checkPath(path)
     this.access.assertRead(p)
-    const r = this.deps.notes.read(p)
+    const r = this.deps.notes.readCurrent(p)
     if (this.access.hides(r.text)) throw new NoteError('not_found', `does not exist: ${p}`)
     return r
   }

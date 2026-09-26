@@ -421,6 +421,12 @@ export class CollabHub implements HotDocuments {
     return !!h && !h.discarded
   }
 
+  /** The text its editors have now; null if it isn't open, or its file is gone (a copy pending a decision isn't the note). */
+  text(path: string): string | null {
+    const h = this.hot.get(path)
+    return h && !h.discarded && !h.orphaned ? h.doc.getText(TEXT).toString() : null
+  }
+
   /**
    * Edit of a hot note: the change is applied as Yjs operations and reaches
    * the open editors. An agent's change is made by its own Yjs client, which

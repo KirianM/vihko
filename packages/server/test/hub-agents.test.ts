@@ -5,8 +5,10 @@
 // through the same core).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type * as Y from 'yjs'
-import { api, closeAll, connect, login, makeDirs, startServer, waitFor } from './_collab.ts'
+import { api, closeAll, connect, login, makeDirs, startServer, typeLine, waitFor } from './_collab.ts'
 
 const NOTE = 'hogar/Proxy.md'
 
@@ -78,5 +80,22 @@ test('an agent writing to an open note shows up in its awareness, and its text c
     assert.equal(del.status, 200, JSON.stringify(del.body))
     await waitFor(() => trashed.some((m) => (m as { type: string }).type === 'thoth:trashed'), 'the editor is told')
     assert.equal((trashed.find((m) => (m as { type: string }).type === 'thoth:trashed') as { by: string }).by, 'Claude Code')
+  } finally { closeAll(); await srv.stop() }
+})
+
+test('an open note reads as its editors have it: what they typed before it reaches the file, with the ETag a write is checked against', async () => {
+  const { notes, env } = makeDirs()
+  const srv = await startServer(env)
+  try {
+    const cookie = await login(srv)
+    const editor = await connect(srv, cookie, NOTE)
+    typeLine(editor, 'LIVE-TYPING')
+    const at = `/api/note?path=${encodeURIComponent(NOTE)}`
+    let read: { text: string; etag: string } | null = null
+    await waitFor(async () => { const r = await api(srv, cookie, 'GET', at); read = r.body; return r.body.text.includes('LIVE-TYPING') }, 'the typing is read')
+    assert.ok(!readFileSync(join(notes, NOTE), 'utf8').includes('LIVE-TYPING'), 'not flushed yet: read from the editors\' document')
+    const put = await api(srv, cookie, 'PUT', at, { text: read!.text + 'WRITTEN-OVER-IT\n' }, { 'if-match': `"${read!.etag}"` })
+    assert.equal(put.status, 200, JSON.stringify(put.body))
+    await waitFor(() => editor.text().includes('LIVE-TYPING') && editor.text().includes('WRITTEN-OVER-IT'), 'both in the editor')
   } finally { closeAll(); await srv.stop() }
 })
