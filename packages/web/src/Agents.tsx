@@ -208,10 +208,12 @@ const mcpUrl = () => `${location.origin}/mcp`
 
 /**
  * Ready-made configurations for the key: Claude Code, Claude Desktop
- * (through mcp-remote, which it needs for a server with a header; on plain
- * http it has to be allowed), a generic `mcpServers` JSON and the HTTP API.
+ * (through mcp-remote, which it needs for a server with a header; the key
+ * goes in a file, `header`, whose path replaces `headerPath`, so it never
+ * shows in the process list, as mcp-remote advises; on plain http it has to
+ * be allowed), a generic `mcpServers` JSON and the HTTP API.
  */
-export function mcpConfigs(token: string, origin = location.origin) {
+export function mcpConfigs(token: string, origin = location.origin, headerPath = '/path/to/thoth-mcp.txt') {
   const url = `${origin}/mcp`
   const http = origin.startsWith('http:')
   const json = (v: unknown) => JSON.stringify(v, null, 2)
@@ -221,11 +223,11 @@ export function mcpConfigs(token: string, origin = location.origin) {
       mcpServers: {
         thoth: {
           command: 'npx',
-          args: ['-y', 'mcp-remote', url, '--header', 'Authorization:${THOTH_AUTH}', ...(http ? ['--allow-http'] : [])],
-          env: { THOTH_AUTH: `Bearer ${token}` },
+          args: ['-y', 'mcp-remote', url, '--header-file', headerPath, ...(http ? ['--allow-http'] : [])],
         },
       },
     }),
+    header: `Authorization: Bearer ${token}`,
     json: json({ mcpServers: { thoth: { type: 'http', url, headers: { Authorization: `Bearer ${token}` } } } }),
     api: `curl -H "Authorization: Bearer ${token}" ${origin}/api/tree`,
   }
@@ -236,7 +238,8 @@ type ConfigTab = 'code' | 'desktop' | 'json' | 'api'
 /** The new key, shown this once: copy it, or copy it into an MCP configuration. */
 function TokenDialog({ keyInfo, token, integrations, onClose }: { keyInfo: KeyInfo; token: string; integrations: Integrations | null; onClose: () => void }) {
   const t = useT()
-  const configs = useMemo(() => mcpConfigs(token), [token])
+  const headerPath = t('keys.headerPath')
+  const configs = useMemo(() => mcpConfigs(token, location.origin, headerPath), [token, headerPath])
   const [tab, setTab] = useState<ConfigTab>('code')
   const tabs: { id: ConfigTab; label: MessageKey; hint: MessageKey }[] = [
     { id: 'code', label: 'keys.cfgCode', hint: 'keys.cfgCodeHint' },
@@ -267,7 +270,11 @@ function TokenDialog({ keyInfo, token, integrations, onClose }: { keyInfo: KeyIn
             </TabList>
             {tabs.map((x) => (
               <TabPanel key={x.id} id={x.id} className="cfg-panel">
-                <p className="hint">{t(x.hint, { url: mcpUrl() })}</p>
+                <p className="hint">{t(x.hint, { url: mcpUrl(), path: headerPath })}</p>
+                {x.id === 'desktop' && (<>
+                  <pre className="cfg-block cfg-header" tabIndex={0} aria-label={t('keys.headerLabel')}>{configs.header}</pre>
+                  <CopyButton text={configs.header} label={t('keys.copyHeader')} />
+                </>)}
                 <pre className="cfg-block" tabIndex={0}>{configs[x.id]}</pre>
               </TabPanel>
             ))}
