@@ -1,15 +1,18 @@
 name: CI
 
+# The full CI runs locally (npm run ci), which posts its result to the commit as
+# the ci/local status: GitHub-hosted minutes are limited. Here it runs only for
+# Dependabot's pull requests, which nobody runs locally, and by hand if needed.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   check:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -24,6 +27,7 @@ jobs:
       - run: npm test
 
   e2e:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -51,6 +55,7 @@ jobs:
           retention-days: 7
 
   acceptance:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -66,6 +71,7 @@ jobs:
           ACCEPTANCE_DOCKER: '0' # the docker job runs that part against the image it builds
 
   docker:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
