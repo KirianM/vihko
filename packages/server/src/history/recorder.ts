@@ -15,8 +15,13 @@
 // - System operations (moves with their link rewrites, restores…) are one
 //   commit at once with everything they touched (`operation`).
 // - A content that isn't the last one thoth knows for a path is an external
-//   change: pending closes first, and it is its own version by `external`.
-//   thoth's own writes are expected before anything can see them on disk.
+//   change, by `external`: whatever else was pending on the path closes
+//   first. External changes in a row to one file accumulate in one open
+//   version with the same 30 s / 5 min rule (an editor that saves on every
+//   pause), and any write of thoth's to that file closes it first. External
+//   versions that close together are one commit. Moves and deletions made
+//   outside, and what thoth finds at startup, are versions at once. thoth's
+//   own writes are expected before anything can see them on disk.
 // - A kill -9 loses no authorship: what is pending, and the commits not yet
 //   in git, live in a journal in the state volume (temporary file, fsync,
 //   rename), confirmed against the files when thoth starts.
@@ -115,18 +120,23 @@ interface QCommit {
 
 /** A version still open on one path. */
 interface Pending {
-  /** `typed`: from the editor; `write`: writes of one user or agent with one reason. */
-  kind: 'typed' | 'write'
+  /** `typed`: from the editor; `write`: writes of one user or agent with one reason; `external`: changes made outside thoth. */
+  kind: 'typed' | 'write' | 'external'
   key: string
   authors: string[]
   reason: ReasonData
   since: number
   last: number
+  /** An external version's author time: its last change's mtime, bounded by the version before it and by when it was seen. */
+  at?: number
   /** What the history knew for the path before it opened. */
   base: string | null
-  /** Contents thoth wrote for it, in order (the last one is the version's). */
+  /** Contents thoth wrote (or saw, external) for it, in order (the last one is the version's). */
   oids: string[]
+  /** The last content, for text files. */
   text: string
+  /** Bytes, not text (an external change to an image): not in the journal, read from the file when committed. */
+  file?: boolean
 }
 
 /** An operation that commits everything it touched at once. */
@@ -342,7 +352,7 @@ export class Recorder {
 
   /** What was recorded goes to git; nothing more is recorded. The repository stays. */
   private async stopRecording() {
-    for (const path of [...this.pending.keys()]) this.closePending(path)
+    this.closeMany([...this.pending.keys()])
     this.typists.clear()
     this.recording = false
     this.saveJournal()
@@ -449,7 +459,7 @@ export class Recorder {
 
   /** Closes every open version now (tests; the timers do it otherwise). */
   closeAll() {
-    for (const path of [...this.pending.keys()]) this.closePending(path)
+    this.closeMany([...this.pending.keys()])
     this.scheduleDrain(0)
   }
 
@@ -480,8 +490,9 @@ export class Recorder {
     this.typists.delete(path)
     const p = this.pending.get(path)
     // What people typed goes on in their version; with nobody typing since the
-    // last flush (the hub adding a uid after an agent's write), in whatever is open.
-    if (p?.kind === 'typed' || (p && typing.size === 0)) {
+    // last flush (the hub adding a uid after an agent's write), in whatever is
+    // open, unless it's an external version: thoth writing closes that one.
+    if (p?.kind === 'typed' || (p && p.kind !== 'external' && typing.size === 0)) {
       if (oid !== p.oids.at(-1)) {
         p.oids.push(oid)
         p.text = text
@@ -514,7 +525,7 @@ export class Recorder {
     this.prepare([{ path, after: w.after }], { actor: w.actor, inMemory: true }).done()
   }
 
-  /** The hub integrated a change made outside thoth (what is now on disk). */
+  /** The hub integrated a change made outside thoth (what is now on disk): it joins the note's open external version. */
   external(path: string, text: string) {
     this.observe([{ path, content: text }])
   }
@@ -686,7 +697,7 @@ export class Recorder {
     this.observe(pairMoves(obs, (p) => this.known(p)))
   }
 
-  /** Compares what was seen with what the history knows; the differences are one external commit. */
+  /** Compares what was seen with what the history knows; the differences are external changes. */
   private observe(list: Observation[], opts: { foundAtStartup?: boolean } = {}) {
     if (!this.live) return
     const ext: Observation[] = []
@@ -715,8 +726,57 @@ export class Recorder {
     if (ext.length) this.recordExternal(ext, opts)
   }
 
+  /**
+   * External changes: a new content for a file joins its open external
+   * version (or opens one, closing what else was pending on it); a move or a
+   * deletion, and anything found at startup, is one commit at once, after
+   * closing what was pending on those paths.
+   */
   private recordExternal(ext: Observation[], opts: { foundAtStartup?: boolean }) {
     const now = this.now()
+    const joining = opts.foundAtStartup ? [] : ext.filter(joinsVersion)
+    const commit = joining.length ? ext.filter((o) => !joining.includes(o)) : ext
+    if (commit.length) this.commitExternal(commit, opts, now)
+    if (joining.length) this.openExternal(joining, now)
+  }
+
+  private openExternal(list: Observation[], now: number) {
+    for (const o of list) {
+      const oid = o.oid ?? blobOid(o.content as string | Uint8Array)
+      if (o.content instanceof Uint8Array) this.cacheBlob(oid, o.content)
+      let p = this.pending.get(o.path)
+      if (p && p.kind !== 'external') { this.closePending(o.path); p = undefined }
+      this.flushGroupsTouching(o.path)
+      this.own.delete(o.path)
+      this.touch(o.path)
+      // The last change's time, bounded by the version before it and by now.
+      const floor = Math.max(this.lastAt.get(o.path) ?? this.headTime, p?.at ?? 0)
+      const at = o.mtimeMs === undefined ? now : Math.min(now, Math.max(floor, o.mtimeMs))
+      const text = typeof o.content === 'string' ? o.content : null
+      if (p) {
+        const prev = p.oids.at(-1)!
+        if (oid !== prev) {
+          p.oids.push(oid)
+          // An in-between content of an image never reaches git: its cached bytes can go.
+          if (p.file) this.releaseBlob(prev)
+        }
+        p.text = text ?? ''
+        if (text === null) p.file = true
+        else delete p.file
+        p.last = now
+        p.at = at
+      } else {
+        this.pending.set(o.path, {
+          kind: 'external', key: 'external', authors: ['external'], reason: null, since: now, last: now, at,
+          base: this.known(o.path), oids: [oid], text: text ?? '', ...(text === null ? { file: true } : {}),
+        })
+      }
+    }
+    this.saveJournal()
+    crashPoint('history-external')
+  }
+
+  private commitExternal(ext: Observation[], opts: { foundAtStartup?: boolean }, now: number) {
     let at = 0
     for (const o of ext) {
       for (const p of [o.path, ...(o.from !== undefined ? [o.from] : [])]) {
@@ -815,10 +875,7 @@ export class Recorder {
     this.saveCache()
     const list = pairMoves(obs, (p) => this.known(p))
     if (list.length === 0) return
-    for (const o of list) {
-      this.closePending(o.path)
-      if (o.from !== undefined) this.closePending(o.from)
-    }
+    this.closeMany(list.flatMap((o) => (o.from !== undefined ? [o.path, o.from] : [o.path])))
     const system = kind === 'enabled' || kind === 'resumed'
     const now = this.now()
     let at = 0
@@ -850,18 +907,27 @@ export class Recorder {
    * content of the same version means the later writes never reached disk;
    * the content from before it, that none did. Anything else means the file
    * changed afterwards: the version is kept as it was (its text is in the
-   * journal) and the sweep records the rest as external.
+   * journal) and the sweep records the rest as external. An external version
+   * was all on disk already, seen while thoth ran: it stays open if the file
+   * still has its last content, and otherwise closes as it was (an image's,
+   * whose bytes aren't in the journal, is left to the sweep).
    */
   private confirmJournal() {
     for (const [path, p] of [...this.pending]) {
-      let text: string | null = null
-      try { text = readFileSync(join(this.opts.notesDir, path), 'utf8') } catch { /* gone */ }
-      const oid = text === null ? null : blobOid(text)
+      let bytes: Buffer | null = null
+      try { bytes = readFileSync(join(this.opts.notesDir, path)) } catch { /* gone */ }
+      const content = bytes === null ? null : isTextPath(path) ? bytes.toString('utf8') : bytes
+      const oid = content === null ? null : blobOid(content)
       if (oid === p.oids.at(-1)) continue
+      if (p.kind === 'external') {
+        if (p.file) this.pending.delete(path)
+        else this.closePending(path)
+        continue
+      }
       const i = oid === null ? -1 : p.oids.indexOf(oid)
       if (i >= 0) {
         p.oids = p.oids.slice(0, i + 1)
-        p.text = text!
+        p.text = content as string
         continue
       }
       if (oid === p.base) { this.pending.delete(path); continue }
@@ -913,7 +979,14 @@ export class Recorder {
     const now = this.now()
     const quiet = this.opts.quietMs ?? 30_000
     const max = this.opts.maxOpenMs ?? 300_000
-    for (const [path, p] of [...this.pending]) if (now - p.last >= quiet || now - p.since >= max) this.closePending(path)
+    const due = [...this.pending].filter(([, p]) => now - p.last >= quiet || now - p.since >= max).map(([path]) => path)
+    // External versions closing together are one commit: when one closes, those
+    // of other files that are nearly as quiet close with it (a sync tool writes
+    // a batch of files over a few seconds).
+    if (due.some((path) => this.pending.get(path)!.kind === 'external')) {
+      for (const [path, p] of this.pending) if (p.kind === 'external' && now - p.last >= quiet * 0.8 && !due.includes(path)) due.push(path)
+    }
+    if (due.length) this.closeMany(due)
     if (now - this.lastPrune > 60_000) {
       this.lastPrune = now
       for (const [path, list] of [...this.own]) {
@@ -929,9 +1002,29 @@ export class Recorder {
     if (!p) return
     this.pending.delete(path)
     this.flushGroupsTouching(path)
+    if (p.kind === 'external') return this.enqueue({ authors: ['external'], reason: null, at: p.at ?? p.last, changes: [pendingChange(path, p)] })
     const authors = p.authors.length ? p.authors : ['system']
     const reason = p.authors.length ? p.reason : { code: 'recovered' }
     this.enqueue({ authors, reason, at: p.last, changes: [{ path, oid: p.oids.at(-1)!, text: p.text }] })
+  }
+
+  /** Closes these open versions; the external ones among them are one commit, as their author is one. */
+  private closeMany(paths: readonly string[]) {
+    const external: [string, Pending][] = []
+    for (const path of paths) {
+      const p = this.pending.get(path)
+      if (!p) continue
+      if (p.kind !== 'external') { this.closePending(path); continue }
+      this.pending.delete(path)
+      this.flushGroupsTouching(path)
+      external.push([path, p])
+    }
+    if (external.length === 0) return
+    this.enqueue({
+      authors: ['external'], reason: null,
+      at: Math.max(...external.map(([, p]) => p.at ?? p.last)),
+      changes: external.map(([path, p]) => pendingChange(path, p)),
+    })
   }
 
   private accumulate(changes: FileChange[], authors: string[], reason: ReasonData, key: string) {
@@ -1171,6 +1264,11 @@ export class Recorder {
     this.blobBytes -= b.byteLength
   }
 
+  /** Cached bytes that no commit waiting for git needs any more. */
+  private releaseBlob(oid: string) {
+    if (this.blobs.has(oid) && !this.queue.some((q) => q.changes.some((c) => c.oid === oid))) this.dropBlob(oid)
+  }
+
   /**
    * The commits for a batch of the queue, over the files at `head`: changes
    * that change nothing are left out, and a commit left with nothing isn't
@@ -1351,6 +1449,21 @@ interface Observation {
 }
 
 const byteLength = (c: string | Uint8Array) => (typeof c === 'string' ? Buffer.byteLength(c, 'utf8') : c.byteLength)
+
+/**
+ * An external change that joins its file's open version: a new content (not
+ * a move or a deletion) that thoth holds, or can read again from the file.
+ */
+function joinsVersion(o: Observation): boolean {
+  if (o.from !== undefined || o.content === null || o.oid === null) return false
+  if (typeof o.content === 'string' || o.content instanceof Uint8Array) return true
+  return typeof o.oid === 'string' && !isTextPath(o.path)
+}
+
+/** The change an open version commits: its text, or its bytes read again (an external change to an image). */
+function pendingChange(path: string, p: Pending): QChange {
+  return p.file ? { path, oid: p.oids.at(-1)!, file: true } : { path, oid: p.oids.at(-1)!, text: p.text }
+}
 
 /**
  * Among missing and new files, those with the same content and no other

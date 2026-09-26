@@ -116,6 +116,31 @@ test('an external change to an open note is its own version, after what was type
   } finally { closeAll(); await srv.stop() }
 })
 
+test('external changes in a row to an open note are one version; typing in it closes that version first', async () => {
+  const { notes, env } = makeDirs()
+  // A quiet time long enough for both external saves to fall in one version.
+  const srv = await startServer({ ...env, ...FAST, THOTH_HISTORY_QUIET_SECONDS: '4' })
+  try {
+    const k = await login(srv)
+    const ck = await connect(srv, k, NOTE)
+    const file = join(notes, NOTE)
+    writeFileSync(file, readFileSync(file, 'utf8').replace('## Red', '## Red (OUTSIDE-1)'))
+    await waitFor(() => ck.text().includes('OUTSIDE-1'), 'the first save reaches the editor')
+    writeFileSync(file, readFileSync(file, 'utf8').replace('## Red (OUTSIDE-1)', '## Red (OUTSIDE-1) (OUTSIDE-2)'))
+    await waitFor(() => ck.text().includes('OUTSIDE-2'), 'the second save reaches the editor')
+    const open = await versionsOf(srv, k, NOTE)
+    assert.deepEqual(open.versions.map(who), ['system'])
+    assert.deepEqual(open.pending.authors.map((a: any) => a.kind), ['external'])
+    typeLine(ck, 'TYPED-AFTER')
+    await waitFor(() => readFileSync(file, 'utf8').includes('TYPED-AFTER'), 'flush')
+    await waitFor(async () => (await versionsOf(srv, k, NOTE)).versions.length >= 3, 'the typed version closes too', 15_000)
+    const { versions } = await versionsOf(srv, k, NOTE)
+    assert.deepEqual(versions.map(who), ['noa', 'external', 'system'])
+    const ext = await textOf(srv, k, NOTE, versions[1].id)
+    assert.ok(ext.includes('(OUTSIDE-1) (OUTSIDE-2)') && !ext.includes('TYPED-AFTER'), 'both saves, and nothing typed after them')
+  } finally { closeAll(); await srv.stop() }
+})
+
 test('a rename rewrites the links of an open note in the same system commit, and restoring an open note changes it for its editors at once', async () => {
   const { env } = makeDirs()
   const srv = await startServer({ ...env, ...FAST })
@@ -192,6 +217,19 @@ test('kill -9 after git has a commit and before the journal knows: it is not rep
     assert.deepEqual(versions.map(who), ['noa', 'system'])
     const changes = (await api(srv, cookie, 'GET', '/api/history/changes')).body.changes
     assert.equal(changes.filter((c: any) => c.files.some((f: any) => f.path === 'tags.md')).length, 2)
+  } finally { closeAll(); await srv.stop() }
+})
+
+test('kill -9 while an external version is open: it comes back as seen while thoth ran, not as found at startup', async () => {
+  const { srv, cookie } = await crashAt('history-external', async (s) => {
+    // Another editor saves; the watcher sees it and the version opens (journaled) before the kill.
+    writeFileSync(join(s.env.THOTH_NOTES_DIR!, 'tags.md'), 'GUARDADO-FUERA-ANTES-DEL-KILL\n')
+  })
+  try {
+    await waitFor(async () => (await versionsOf(srv, cookie, 'tags.md')).versions.length === 2, 'the external version closes after the restart')
+    const { versions } = await versionsOf(srv, cookie, 'tags.md')
+    assert.deepEqual(versions.map((v: any) => [who(v), v.foundAtStartup]), [['external', false], ['system', false]])
+    assert.equal(await textOf(srv, cookie, 'tags.md', versions[0].id), 'GUARDADO-FUERA-ANTES-DEL-KILL\n')
   } finally { closeAll(); await srv.stop() }
 })
 

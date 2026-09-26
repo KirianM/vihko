@@ -59,8 +59,9 @@ test('an open version closes after the quiet time, or at the maximum time while 
   } finally { await h.close() }
 })
 
-test('an external change closes what was pending and is its own version; thoth\'s own writes never look external', async () => {
-  const h = await setup()
+test('an external change closes what was pending; external changes in a row are one version, which a write of thoth\'s closes first; thoth\'s own writes never look external', async () => {
+  // A long quiet time: the external version must still be open when it's looked at.
+  const h = await setup({ quietMs: 10_000 })
   try {
     await h.put(NOTE, (t) => t + '\nde noa\n')
     // The indexer sees thoth's own write, as the watcher and the rescan would.
@@ -69,17 +70,61 @@ test('an external change closes what was pending and is its own version; thoth\'
     const file = join(h.notesDir, NOTE)
     writeFileSync(file, readFileSync(file, 'utf8') + 'de fuera\n')
     h.indexer.indexPaths([NOTE], { detectMoves: true })
-    await h.settle()
-    const { versions } = await h.versions(NOTE)
-    assert.deepEqual(versions.map(who), ['external', 'user:noa', 'system'])
-    assert.equal(versions[0].foundAtStartup, false)
-    const mine = await h.noa('GET', `/api/history/version?path=${h.q(NOTE)}&id=${versions[1].id}`)
+    // An editor that saves on every pause: the next save joins the same version.
+    writeFileSync(file, readFileSync(file, 'utf8') + 'y más de fuera\n')
+    h.indexer.indexPaths([NOTE], { detectMoves: true })
+    await h.history.recorder.settle()
+    const open = await h.versions(NOTE)
+    assert.deepEqual(open.versions.map(who), ['user:noa', 'system'], 'what noa had pending closed before the external change')
+    assert.deepEqual(open.pending.authors.map((a: any) => a.kind), ['external'])
+    const mine = await h.noa('GET', `/api/history/version?path=${h.q(NOTE)}&id=${open.versions[0].id}`)
     assert.ok(mine.body.text.endsWith('de noa\n'), 'the pending version keeps its own text')
-    // A cold write that reads a content the history doesn't know records it first as external.
-    writeFileSync(file, readFileSync(file, 'utf8') + 'otra vez de fuera\n')
+    // thoth writing the file closes the external version first, with both saves in it.
     await h.put(NOTE, (t) => t + 'y noa\n')
     await h.settle()
-    assert.deepEqual((await h.versions(NOTE)).versions.slice(0, 3).map(who), ['user:noa', 'external', 'external'])
+    let { versions } = await h.versions(NOTE)
+    assert.deepEqual(versions.map(who), ['user:noa', 'external', 'user:noa', 'system'])
+    assert.equal(versions[1].foundAtStartup, false)
+    const ext = await h.noa('GET', `/api/history/version?path=${h.q(NOTE)}&id=${versions[1].id}`)
+    assert.ok(ext.body.text.endsWith('de fuera\ny más de fuera\n'), 'the external version is the text right before thoth\'s write')
+    // A cold write that reads a content the history doesn't know records it first as external.
+    writeFileSync(file, readFileSync(file, 'utf8') + 'otra vez de fuera\n')
+    await h.put(NOTE, (t) => t + 'y noa otra vez\n')
+    await h.settle()
+    versions = (await h.versions(NOTE)).versions
+    assert.deepEqual(versions.slice(0, 3).map(who), ['user:noa', 'external', 'user:noa'])
+    const read = await h.noa('GET', `/api/history/version?path=${h.q(NOTE)}&id=${versions[1].id}`)
+    assert.ok(read.body.text.endsWith('otra vez de fuera\n') && !read.body.text.includes('y noa otra vez'))
+  } finally { await h.close() }
+})
+
+test('external versions close after the quiet time; several files closing together are one commit, dated at their last change', async () => {
+  const h = await setup()
+  try {
+    // Whole seconds after the history's first commit (the floor of these dates) and before now.
+    const first = Math.ceil(Date.now() / 1000)
+    while (Date.now() < (first + 1) * 1000 + 50) await sleep(50)
+    const tags = join(h.notesDir, 'tags.md')
+    const code = join(h.notesDir, 'codigo.md')
+    writeFileSync(tags, 'primer guardado\n')
+    utimesSync(tags, first, first)
+    writeFileSync(code, 'código cambiado fuera\n')
+    utimesSync(code, first, first)
+    h.indexer.indexPaths(['tags.md', 'codigo.md'], { detectMoves: true })
+    writeFileSync(tags, 'segundo guardado\n')
+    utimesSync(tags, first + 1, first + 1)
+    h.indexer.indexPaths(['tags.md'], { detectMoves: true })
+    // No closeAll: the quiet time (150 ms here) closes them.
+    await sleep(400)
+    await h.history.recorder.settle()
+    const { changes } = await h.changes()
+    assert.equal(who(changes[0]), 'external')
+    assert.deepEqual(changes[0].files.map((f: any) => f.path).sort(), ['codigo.md', 'tags.md'], 'one commit for both files')
+    assert.equal(changes[0].at, new Date((first + 1) * 1000).toISOString(), 'the last change\'s mtime')
+    const { versions } = await h.versions('tags.md')
+    assert.deepEqual(versions.map(who), ['external', 'system'], 'both saves are one version')
+    const v = await h.noa('GET', `/api/history/version?path=tags.md&id=${versions[0].id}`)
+    assert.equal(v.body.text, 'segundo guardado\n')
   } finally { await h.close() }
 })
 
