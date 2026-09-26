@@ -34,8 +34,16 @@ import { authenticateKey, bearerToken } from './keyAuth.ts'
 import { keyRouteClass } from './routes.ts'
 import { OAuthServer } from '../oauth.ts'
 import { oauthRoutes } from './oauth.ts'
+import type { BlockList } from 'node:net'
+import { LoginLimiter, SETUP_ACCOUNT, type AttemptResult } from '../loginLimit.ts'
+import { clientIp, ipKey } from './clientIp.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
+/** A browser that signed in before, for the login limits (loginLimit.ts). */
+export const DEVICE_COOKIE = 'thoth_device'
+const DEVICE_DAYS = 365
+/** Login and first-boot bodies: a name, a password and a token fit well within this. */
+const AUTH_BODY = 16 * 1024
 
 export interface Runtime {
   lastScan: ScanReport | null
@@ -95,6 +103,13 @@ export interface AppDeps {
    * it (and the MCP server on), OAuth exists for `/mcp` (oauth.ts).
    */
   publicUrl?: string | null
+  /**
+   * THOTH_TRUSTED_PROXIES: the reverse proxies whose X-Forwarded-For is
+   * believed, for the login limits (clientIp.ts). Without them, the socket's address.
+   */
+  trustedProxies?: BlockList | null
+  /** The login limits (tests: other rules or clock). One of its own by default. */
+  loginLimiter?: LoginLimiter
 }
 
 /**
@@ -231,22 +246,63 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   app.get('/api/setup', (c) => c.json({ needed: auth.userCount() === 0 }))
 
-  app.post('/api/setup', async (c) => {
-    const { token, username, password } = await c.req.json<{ token: string; username: string; password: string }>()
-    const user = await auth.setup(token, username, password)
-    return c.json({ user })
+  // Guessing the first-boot token or a password is limited (loginLimit.ts):
+  // while a wait is in force, 429 with Retry-After, before anything is checked.
+  const limiter = deps.loginLimiter ?? new LoginLimiter()
+  const authBody = bodyLimit({ maxSize: AUTH_BODY, onError: (c) => fail(c, 413, 'invalid', `the limit is ${AUTH_BODY} bytes`) })
+  const ipOf = (c: Context) => ipKey(clientIp(socketAddress(c), c.req.header('x-forwarded-for'), deps.trustedProxies ?? null))
+  const tooMany = (c: Context, retryAfter: number) => {
+    c.header('Retry-After', String(retryAfter))
+    return fail(c, 429, 'too_many_attempts', `too many failed attempts: try again in ${retryAfter} s`, { retryAfter })
+  }
+  const text = (v: unknown) => (typeof v === 'string' ? v : '')
+
+  app.post('/api/setup', authBody, async (c) => {
+    const { token, username, password } = await c.req.json<{ token?: unknown; username?: unknown; password?: unknown }>()
+    const attempt: AttemptResult = limiter.begin({ ip: ipOf(c), account: SETUP_ACCOUNT })
+    if (!attempt.ok) return tooMany(c, attempt.retryAfter)
+    try {
+      const user = await auth.setup(text(token), text(username), text(password))
+      attempt.passed()
+      return c.json({ user })
+    } catch (err) {
+      // Only a wrong token is a guess; a weak password came with the right one.
+      if (!(err instanceof AuthError) || err.code !== 'invalid_token') attempt.passed()
+      else {
+        const wait = attempt.failed()
+        if (wait > 0) return tooMany(c, wait)
+      }
+      throw err
+    }
   })
 
-  app.post('/api/auth/login', async (c) => {
-    const { username, password } = await c.req.json<{ username: string; password: string }>()
-    const s = await auth.login(username ?? '', password ?? '')
-    if (!s) return fail(c, 401, 'invalid_credentials', 'incorrect username or password')
+  app.post('/api/auth/login', authBody, async (c) => {
+    const body = await c.req.json<{ username?: unknown; password?: unknown }>()
+    const username = text(body?.username)
+    const device = limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username)
+    const attempt = limiter.begin({ ip: ipOf(c), account: username, device })
+    if (!attempt.ok) return tooMany(c, attempt.retryAfter)
+    const s = await auth.login(username, text(body?.password))
+    if (!s) {
+      // The failure that starts a wait says so at once.
+      const wait = attempt.failed()
+      return wait > 0 ? tooMany(c, wait) : fail(c, 401, 'invalid_credentials', 'incorrect username or password')
+    }
+    attempt.passed()
     setCookie(c, SESSION_COOKIE, s.token, {
       httpOnly: true,
       sameSite: 'Lax',
       path: '/',
       secure: isHttps(c),
       expires: s.expiresAt,
+    })
+    // This browser is known for this account from now on: other people's failures don't hold it back.
+    setCookie(c, DEVICE_COOKIE, limiter.deviceToken(username), {
+      httpOnly: true,
+      sameSite: 'Lax',
+      path: '/api/auth',
+      secure: isHttps(c),
+      maxAge: DEVICE_DAYS * 86_400,
     })
     return c.json({ user: s.user })
   })
@@ -536,6 +592,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const api = integrations.apiEnabled()
     const mcp = integrations.mcpEnabled()
     if ((api || mcp) && mode !== 'managed') alerts.push({ code: 'integrations_unversioned', mode, api, mcp, actions: [] })
+    // Someone may be guessing passwords: only for admins, who can do something about it.
+    const guessing = admin ? limiter.summary() : null
+    if (guessing) alerts.push({ code: 'login_attempts_blocked', ...guessing, actions: [] })
     return c.json({ alerts })
   })
 
@@ -604,6 +663,13 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   return { app, services }
 }
+
+/** The socket's address under @hono/node-server; undefined for a request made in-process. */
+function socketAddress(c: Context): string | undefined {
+  const env = c.env as { server?: Bindings; incoming?: Bindings['incoming'] } | undefined
+  return (env?.server?.incoming ?? env?.incoming)?.socket?.remoteAddress
+}
+type Bindings = { incoming?: { socket?: { remoteAddress?: string } } }
 
 function isHttps(c: Context) {
   return new URL(c.req.url).protocol === 'https:' || c.req.header('x-forwarded-proto') === 'https'

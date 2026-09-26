@@ -9,11 +9,14 @@ export class ApiError extends Error {
   /** Server error code (`not_found`, `precondition_failed`…) or `network`. */
   readonly code: string
   readonly etag: string | null
-  constructor(status: number, code: string, message: string, etag: string | null = null) {
+  /** Seconds to wait before trying again (429, from Retry-After), or null. */
+  readonly retryAfter: number | null
+  constructor(status: number, code: string, message: string, etag: string | null = null, retryAfter: number | null = null) {
     super(message)
     this.status = status
     this.code = code
     this.etag = etag
+    this.retryAfter = retryAfter
   }
 }
 
@@ -33,7 +36,9 @@ export async function request<T>(method: string, path: string, body?: unknown, h
   }
   const data = (await res.json().catch(() => null)) as Record<string, unknown> | null
   if (!res.ok) {
-    throw new ApiError(res.status, String(data?.error ?? 'internal'), String(data?.message ?? res.statusText), (data?.etag as string | null) ?? null)
+    const wait = Number(res.headers.get('retry-after'))
+    throw new ApiError(res.status, String(data?.error ?? 'internal'), String(data?.message ?? res.statusText), (data?.etag as string | null) ?? null,
+      Number.isFinite(wait) && wait > 0 ? Math.ceil(wait) : null)
   }
   return data as T
 }

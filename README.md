@@ -77,6 +77,7 @@ All optional:
 | `THOTH_EXTERNAL_IMAGES` | `allow` | `block` stops the browser loading images that notes link from other sites; a box with the domain is shown instead |
 | `THOTH_INTEGRATIONS` | unset | `off` keeps the API with keys and the MCP server off whatever the admin turns on in the UI |
 | `THOTH_PUBLIC_URL` | unset | The `https://` address thoth is reached at from outside, behind a reverse proxy (origin only). Turns on OAuth for the MCP server while it's on, for remote assistants such as claude.ai; see [Remote MCP](#remote-mcp-with-a-public-url-oauth) |
+| `THOTH_TRUSTED_PROXIES` | unset | Addresses or CIDR ranges of your reverse proxies (`172.16.0.0/12, 10.0.0.5`). Only from them is `X-Forwarded-For` believed, to tell clients apart for the [login limits](#login-limits); unset, the connection's address counts and the header is ignored |
 
 ### Command line
 
@@ -146,7 +147,11 @@ For that, thoth needs a public HTTPS address:
    With another proxy: keep the `Host` header, set `X-Forwarded-Proto: https`
    (thoth marks its session cookie `Secure` from it), allow WebSocket upgrades
    (`/collab`, the live editor) and keep request timeouts above 60 seconds
-   (`/mcp` may wait up to 30 seconds for a change).
+   (`/mcp` may wait up to 30 seconds for a change). Declare the proxy's
+   address in `THOTH_TRUSTED_PROXIES` (as thoth sees it: `127.0.0.1` on the
+   same host, the Docker network's range such as `172.16.0.0/12` in a
+   container), so the [login limits](#login-limits) count each client apart
+   and not everyone as the proxy.
 2. **Give thoth that address**: `THOTH_PUBLIC_URL=https://notes.example.com`
    (the origin only, `https`), and restart it. In `compose.yaml`, under
    `environment:`.
@@ -172,6 +177,33 @@ passwords): the OAuth metadata (`/.well-known/oauth-*`), client registration
 gives access to any note without a person approving it. Registration is open
 by default, as claude.ai needs it; once your clients are connected, the thoth
 admin can turn it off in Agents and API, and those clients keep working.
+
+### Login limits
+
+Signing in and the first-boot token are limited, so that a password can't be
+guessed by trying (OWASP's exponential lockout and device cookies). After a
+few failures, whoever keeps failing has to wait before trying again, and the
+wait doubles with each failure, from one second up to a cap:
+
+| Counter | Free failures | Longest wait |
+|---|---|---|
+| One client (address or browser) and one username | 5 | 15 minutes |
+| One username, from anywhere | 10 | 1 minute |
+| One address, any username | 20 | 15 minutes |
+
+While a wait is in force the answer is `429 too_many_attempts` with
+`Retry-After`, and the password isn't even checked. A successful sign-in
+clears that username's counters and leaves a cookie in the browser: from a
+browser that has signed in before, only its own failures count, so nobody can
+lock you out by failing with your name. From a new browser, while someone keeps
+guessing your name, you wait the username's part: a minute at most. A counter
+is forgotten an hour after its last failure. With many failures in the past
+day, the thoth admin gets an alert.
+
+The counters live in memory: restarting thoth forgets them (and browsers sign
+in as new ones once). Their number is capped, so made-up usernames can't fill
+the memory. Behind a reverse proxy, set `THOTH_TRUSTED_PROXIES`, or every
+client counts as the proxy's address.
 
 ## Workspace configuration: `thoth.yaml`
 

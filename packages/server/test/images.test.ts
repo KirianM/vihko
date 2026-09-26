@@ -2,16 +2,16 @@
 // from the notes folder and downloading a copy from a URL.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   Auth, Indexer, NoteService, Profiles, SESSION_COOKIE, Workspace, attachmentPath, createApp, fetchImage, openIndex, openState, sniffImage,
   type ExternalImages, type Runtime,
 } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
@@ -24,7 +24,7 @@ const AVIF = Uint8Array.from([0, 0, 0, 0x1c, ...new TextEncoder().encode('ftypmi
 const SVG = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
 
 async function setup(opts: { maxImageBytes?: number; webDir?: string; externalImages?: ExternalImages } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-images-'))
+  const dir = tempDir('thoth-images-')
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
   const index = openIndex(join(dir, 'index.db'))
@@ -143,7 +143,7 @@ test('serving files: type, nosniff, revalidation, and the same path rules as not
 
   mkdirSync(join(notesDir, '.oculta'))
   writeFileSync(join(notesDir, '.oculta/x.png'), PNG)
-  const outside = mkdtempSync(join(tmpdir(), 'thoth-outside-'))
+  const outside = tempDir('thoth-outside-')
   writeFileSync(join(outside, 'secret.png'), PNG)
   symlinkSync(outside, join(notesDir, 'enlace'))
   const status = async (p: string) => (await get(`/api/file?path=${encodeURIComponent(p)}`)).status
@@ -192,7 +192,7 @@ test('by URL: a copy is downloaded and stored like an upload, following a few re
 })
 
 test('external images: exposed to the UI, and the UI CSP follows the setting', async () => {
-  const webDir = mkdtempSync(join(tmpdir(), 'thoth-web-'))
+  const webDir = tempDir('thoth-web-')
   writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
   for (const [setting, allowed] of [['allow', true], ['block', false]] as const) {
     const { get } = await setup({ webDir, externalImages: setting, maxImageBytes: 1234 })

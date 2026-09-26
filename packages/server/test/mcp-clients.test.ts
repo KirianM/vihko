@@ -7,13 +7,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Client, StreamableHTTPClientTransport, type VersionNegotiationMode } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { api, login, makeDirs, startServer, waitFor } from './_collab.ts'
+import { tempDir } from './_tmp.ts'
 
 const MODULES = fileURLToPath(new URL('../../../node_modules/', import.meta.url))
 const INSPECTOR = join(MODULES, '@modelcontextprotocol/inspector/clients/launcher/build/index.js')
@@ -152,7 +152,7 @@ function inspector(home: string, url: string, token: string, era: 'legacy' | 'mo
 
 test('MCP Inspector in CLI mode, in both protocol eras', { timeout: 300_000 }, async () => {
   const s = await server()
-  const home = mkdtempSync(join(tmpdir(), 'thoth-inspector-'))
+  const home = tempDir('thoth-inspector-')
   try {
     for (const era of ['legacy', 'modern'] as const) {
       const list = async (token: string) => {
@@ -184,7 +184,7 @@ test('MCP Inspector in CLI mode, in both protocol eras', { timeout: 300_000 }, a
 
 test('mcp-remote, the stdio bridge to a remote server', { timeout: 180_000 }, async () => {
   const s = await server()
-  const home = mkdtempSync(join(tmpdir(), 'thoth-mcp-remote-'))
+  const home = tempDir('thoth-mcp-remote-')
   const connect = async (token: string) => {
     // The key in a file, as its docs advise: never in the process list.
     const headers = join(home, `headers-${token.slice(-6)}.txt`)

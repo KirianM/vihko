@@ -2,11 +2,11 @@
 // vault, the recorder with short timings, the note service and the API, two
 // users signed in. The collaboration hub isn't here (history-hub.test.ts runs
 // a real server for what the editor does).
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { chmodSync, cpSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Auth, History, Indexer, NoteService, Profiles, Workspace, createApp, openIndex, openState, type Runtime, type User } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
 export const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -29,7 +29,7 @@ export interface HistorySetup {
 
 export async function setup(opts: HistorySetup = {}) {
   const fresh = opts.dir === undefined
-  const dir = opts.dir ?? mkdtempSync(join(tmpdir(), 'thoth-history-'))
+  const dir = opts.dir ?? tempDir('thoth-history-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
   if (fresh) {

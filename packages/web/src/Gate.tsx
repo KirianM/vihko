@@ -1,8 +1,8 @@
 // Screens without a session: first start (create the admin) and login.
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Button, FieldError, Form, Input, Label, TextField } from 'react-aria-components'
 import { ApiError, api, type User } from './api.ts'
-import { errorText, useT } from './i18n.tsx'
+import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { Brand, ThemeToggle } from './ui.tsx'
 
 function Frame({ children }: { children: React.ReactNode }) {
@@ -17,10 +17,56 @@ function Frame({ children }: { children: React.ReactNode }) {
   )
 }
 
+type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string
+
+/** `42 s`, `2 min`, `14 min 5 s`. */
+function waitText(t: Translate, seconds: number): string {
+  if (seconds < 60) return t('wait.seconds', { n: seconds })
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return s ? t('wait.minutesSeconds', { m, s }) : t('wait.minutes', { m })
+}
+
+/**
+ * A wait the server asked for (429 too_many_attempts, after too many failed
+ * attempts): what to say, fixed when it arrives, and the seconds left,
+ * counted down for the button, which stays off until then.
+ */
+function useWait() {
+  const t = useT()
+  const [wait, setWait] = useState<{ until: number; message: string } | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!wait) return
+    const tick = setInterval(() => {
+      const at = Date.now()
+      setNow(at)
+      if (at >= wait.until) setWait(null)
+    }, 1000)
+    return () => clearInterval(tick)
+  }, [wait])
+  const left = wait ? Math.max(0, Math.ceil((wait.until - now) / 1000)) : 0
+  return {
+    left,
+    message: left > 0 ? wait!.message : null,
+    button: left > 0 ? t('login.retryIn', { wait: waitText(t, left) }) : null,
+    /** Whether `err` asks to wait; if so, the wait starts. */
+    caught(err: unknown): boolean {
+      if (!(err instanceof ApiError) || err.code !== 'too_many_attempts') return false
+      const seconds = err.retryAfter ?? 1
+      const at = Date.now()
+      setNow(at)
+      setWait({ until: at + seconds * 1000, message: t('login.tooMany', { wait: waitText(t, seconds) }) })
+      return true
+    },
+  }
+}
+
 export function Setup({ onDone }: { onDone: (u: User) => void }) {
   const t = useT()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const wait = useWait()
   const tokenFromUrl = new URLSearchParams(location.search).get('token') ?? ''
 
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -36,7 +82,7 @@ export function Setup({ onDone }: { onDone: (u: User) => void }) {
       history.replaceState(null, '', '/')
       onDone(user)
     } catch (err) {
-      setError(errorText(t, err))
+      setError(wait.caught(err) ? null : errorText(t, err))
     } finally {
       setBusy(false)
     }
@@ -63,8 +109,8 @@ export function Setup({ onDone }: { onDone: (u: User) => void }) {
           <span className="hint">{t('field.passwordHint')}</span>
           <FieldError className="error-text" />
         </TextField>
-        {error && <p className="error-text" role="alert">{error}</p>}
-        <Button type="submit" className="btn btn-primary btn-xl" isDisabled={busy}>{t('setup.submit')}</Button>
+        {(wait.message ?? error) && <p className="error-text" role="alert">{wait.message ?? error}</p>}
+        <Button type="submit" className="btn btn-primary btn-xl" isDisabled={busy || wait.left > 0}>{wait.button ?? t('setup.submit')}</Button>
       </Form>
       <p className="small">{t('setup.closed')}</p>
     </Frame>
@@ -76,6 +122,7 @@ export function Login({ onDone, notice, intro }: { onDone: (u: User) => void; no
   const t = useT()
   const [error, setError] = useState<string | null>(notice ?? null)
   const [busy, setBusy] = useState(false)
+  const wait = useWait()
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -86,7 +133,7 @@ export function Login({ onDone, notice, intro }: { onDone: (u: User) => void; no
       const { user } = await api.login(String(f.get('username')), String(f.get('password')))
       onDone(user)
     } catch (err) {
-      setError(err instanceof ApiError && err.status === 401 ? t('login.failed') : errorText(t, err))
+      setError(wait.caught(err) ? null : err instanceof ApiError && err.status === 401 ? t('login.failed') : errorText(t, err))
     } finally {
       setBusy(false)
     }
@@ -105,8 +152,8 @@ export function Login({ onDone, notice, intro }: { onDone: (u: User) => void; no
           <Label>{t('field.password')}</Label>
           <Input />
         </TextField>
-        {error && <p className="error-text" role="alert">{error}</p>}
-        <Button type="submit" className="btn btn-primary btn-xl" isDisabled={busy}>{t('login.submit')}</Button>
+        {(wait.message ?? error) && <p className="error-text" role="alert">{wait.message ?? error}</p>}
+        <Button type="submit" className="btn btn-primary btn-xl" isDisabled={busy || wait.left > 0}>{wait.button ?? t('login.submit')}</Button>
       </Form>
     </Frame>
   )

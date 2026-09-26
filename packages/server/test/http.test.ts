@@ -1,17 +1,17 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { scryptSync } from 'node:crypto'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { Auth, Indexer, NoteService, Profiles, Workspace, SESSION_COOKIE, STATE_VERSION, createApp, ftsQuery, hashPassword, needsRehash, openIndex, openState, verifyPassword, type Runtime } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
 async function setup(opts: { webDir?: string } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-http-'))
+  const dir = tempDir('thoth-http-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
   cpSync(VAULT, notesDir, { recursive: true })
@@ -67,7 +67,7 @@ test('passwords: scrypt hashes still verify and become argon2id on the next logi
   assert.ok(!(await verifyPassword('otra', legacy)))
   assert.equal(needsRehash(legacy), true)
 
-  const state = openState(join(mkdtempSync(join(tmpdir(), 'thoth-auth-')), 'state.db'))
+  const state = openState(join(tempDir('thoth-auth-'), 'state.db'))
   const auth = new Auth(state)
   const user = await auth.createUser('noa', 'a long password', 'admin')
   const stored = () => (state.prepare('select password_hash from users where id = ?').get(user.id) as { password_hash: string }).password_hash
@@ -263,7 +263,7 @@ test('workspace alerts: codes with their data and actions based on role', async 
 })
 
 test("UI: static files, app routes serve index.html, and the API doesn't fall through to the UI", async () => {
-  const webDir = mkdtempSync(join(tmpdir(), 'thoth-web-'))
+  const webDir = tempDir('thoth-web-')
   mkdirSync(join(webDir, 'assets'))
   writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
   writeFileSync(join(webDir, 'assets', 'app-abc123.js'), 'console.log(1)')
@@ -303,7 +303,7 @@ test('ftsQuery: quoted terms and a prefix on the last one', () => {
 })
 
 test('state.db: migrations, a copy before migrating, and rejecting future versions', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-state-'))
+  const dir = tempDir('thoth-state-')
   const file = join(dir, 'state.db')
   openState(file).close()
   const raw = new Database(file)

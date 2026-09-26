@@ -3,11 +3,11 @@
 // text differs now. A rebuild forgets it: the text then becomes the baseline.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Indexer, NoteService, openIndex, type Actor } from '@thoth/server'
 import { setup as appSetup } from './_app.ts'
+import { tempDir } from './_tmp.ts'
 
 const me: Actor = { kind: 'user', id: 'noa' }
 const C1 = '<!-- @noa 2026-09-24T08:12Z · no, use SQLite -->'
@@ -15,7 +15,7 @@ const C2 = '<!-- @ana 2026-09-24T09:00Z · ↳ agreed -->'
 const C3 = '<!-- @ana 2026-09-24T09:30Z · which one? -->'
 
 function setup() {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-comment-anchors-'))
+  const dir = tempDir('thoth-comment-anchors-')
   const notesDir = join(dir, 'notes')
   mkdirSync(notesDir, { recursive: true })
   let n = 0

@@ -3,18 +3,18 @@
 // is rewritten on its own.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Auth, ExternalMoves, Indexer, NoteService, Profiles, Watcher, Workspace, createApp, openIndex, openState, type Runtime } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
 // --- The alert and «Update links» ------------------------------------------------
 
 async function app(opts: { moveWaitMs?: number } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-xmove-app-'))
+  const dir = tempDir('thoth-xmove-app-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
   cpSync(VAULT, notesDir, { recursive: true })

@@ -3,11 +3,11 @@
 // lists the ones whose resolution it changes, by source note.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Indexer, NoteService, openIndex, type Actor } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 const me: Actor = { kind: 'user', id: 'noa' }
@@ -15,7 +15,7 @@ const DIARY = 'diario/2026-09-24.md'
 const BOTH = ['proyectos/blog/Tareas.md', 'proyectos/thoth/Tareas.md']
 
 function setup(extra: Record<string, string> = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-shifts-'))
+  const dir = tempDir('thoth-shifts-')
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
   for (const [p, text] of Object.entries(extra)) writeFileSync(join(notesDir, p), text)

@@ -3,17 +3,17 @@
 // whole, renamed to match, and every link into it keeps working.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Indexer, NoteError, NoteService, openIndex, type Actor, type HotDocuments } from '@thoth/server'
+import { tempDir } from './_tmp.ts'
 
 const me: Actor = { kind: 'user', id: 'noa' }
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
 const body = (t: string) => t.replace(/^---\n[\s\S]*?\n---\n/, '')
 
 function setup(files: Record<string, string | Uint8Array>, opts: { suffix?: string; hot?: HotDocuments } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-move-assets-'))
+  const dir = tempDir('thoth-move-assets-')
   const notesDir = join(dir, 'notes')
   for (const [p, content] of Object.entries(files)) {
     mkdirSync(dirname(join(notesDir, p)), { recursive: true })
@@ -152,7 +152,7 @@ test('if the note can\'t move, its folder goes back', async () => {
 })
 
 test('in the other modes a folder named like one is left alone', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'thoth-move-assets-'))
+  const dir = tempDir('thoth-move-assets-')
   const notesDir = join(dir, 'notes')
   mkdirSync(join(notesDir, 'plan.assets'), { recursive: true })
   writeFileSync(join(notesDir, 'plan.md'), '![](plan.assets/a.png)\n')
