@@ -4,15 +4,13 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
-import { E2E_DIR, NOTES } from './env.ts'
+import { E2E_DIR, EXTERNAL_PORT, NOTES } from './env.ts'
 import { png, sendFiles, signIn } from './helpers.ts'
 
 const DIR = 'imagenes'
 const NOTE = `${DIR}/galeria.md`
 const FILE = `${NOTES}/${NOTE}`
 const SHOTS = `${E2E_DIR}/shots`
-// Another origin for "external" images: a server in the test process.
-const EXTERNAL_PORT = 8132
 const EXTERNAL = `http://localhost:${EXTERNAL_PORT}`
 const disk = () => readFileSync(FILE, 'utf8')
 const stored = () => readdirSync(`${NOTES}/${DIR}`).filter((f) => /^galeria-\d{4}-\d{2}-\d{2}-\d{4}(-\d+)?\.png$/.test(f)).sort()
