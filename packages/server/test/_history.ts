@@ -57,6 +57,8 @@ export async function setup(opts: HistorySetup = {}) {
   })
   await history.open()
   await history.start()
+  // The first commit (or the startup sweep) leaves start() queued: a test reading the history right away must find it.
+  await history.recorder.settle()
   indexer.onApplied = (a) => history.recorder.observeIndexed(a)
   const notes = new NoteService({ notesDir, stateDir, indexer, db: index, history: history.recorder, attachments: () => workspace.config.attachments })
   const app = createApp({ auth, profiles: new Profiles(state), workspace, notes, index, indexer, notesDir, runtime, history, canRead: opts.canRead })

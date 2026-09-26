@@ -102,8 +102,14 @@ export async function killRound(o: RoundOptions): Promise<RoundResult & { srv: S
   ]
   let srv = o.srv
   try {
-    // Kill at a random moment, mid-activity.
-    await sleep(1500 + Math.random() * 2500)
+    // Kill at a random moment, mid-activity, once there is enough acknowledged
+    // load to prove anything: a slow machine (a busy CI runner) takes longer
+    // to get there, and a fixed delay then ends the round with too little.
+    const loaded = () => a.acked.size + b.acked.size >= 20 && agentHot.filter((e) => e.acked).length >= 3 && agentCold.filter((e) => e.acked).length >= 3
+    const deadline = performance.now() + 30_000
+    await sleep(1500)
+    while (!loaded() && performance.now() < deadline) await sleep(100)
+    await sleep(Math.random() * 2500)
     await o.kill()
     agentStop = true
     await Promise.all(agents)
