@@ -81,7 +81,15 @@ test('an edit with a key over the API reaches the open editors live', async () =
   expect(r.status()).toBe(200)
   await expect(lineOf(noa, 'Escrito por la API con la clave.')).toBeVisible()
   await expect(lineOf(ana, 'Escrito por la API con la clave.')).toBeVisible()
+  // The hub's real presence for the key (not a simulated client): who and how, and its text marked.
+  await expect(pill(noa)).toHaveText('Claude Code · en nombre de noa, por la API')
+  await expect(fresh(noa)).toHaveText('Escrito por la API con la clave.')
+  await expect(fresh(ana)).toHaveText('Escrito por la API con la clave.')
   await noa.request.delete(`/api/keys/${key.id}`)
+  // Both go after a few seconds, before the next test brings its own agent.
+  await expect(fresh(noa)).toHaveCount(0, { timeout: 10_000 })
+  await expect(pill(noa)).toHaveCount(0, { timeout: 20_000 })
+  await expect(pill(ana)).toHaveCount(0, { timeout: 20_000 })
 })
 
 test('the agent shows as presence and what it writes is marked for a few seconds, in both sessions', async () => {
