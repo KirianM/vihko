@@ -177,7 +177,7 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     // Without a session, the page asks to sign in first (its API needs one).
     assert.equal((await raw(h, 'GET', `/api/oauth/authorize?${query}`)).status, 401)
     const asked = await h.noa('GET', `/api/oauth/authorize?${query}`)
-    assert.deepEqual(asked.body, { client: { id: client.client_id, name: 'Claude', redirectUri: REDIRECT }, canAuthorize: true })
+    assert.deepEqual(asked.body, { client: { id: client.client_id, name: 'Claude', redirectUri: REDIRECT, host: null }, canAuthorize: true })
 
     // Approved as it comes: read-only, every folder.
     const ok = await consent(h, query)

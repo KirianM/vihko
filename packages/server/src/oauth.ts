@@ -9,7 +9,12 @@
 //   resource, `<public>/mcp`, named in the `WWW-Authenticate` of its 401).
 // - Dynamic client registration (RFC 7591), which the thoth admin may turn
 //   off (clients already registered keep working). Public clients (`none`)
-//   and clients with a secret (`client_secret_post`/`_basic`).
+//   and clients with a secret (`client_secret_post`/`_basic`). Registrations
+//   are limited per address (http/oauth.ts).
+// - Client ID Metadata Documents (cimd.ts): a `client_id` that is an https
+//   URL describes the client there. It is fetched only when someone signed in
+//   starts an authorization with it; approving keeps the client (as a public
+//   one, `none`) so that the token endpoint knows it without fetching again.
 // - Authorization code with PKCE S256, always; the redirect URI must be one
 //   the client registered, exactly (a loopback one on any port, RFC 8252);
 //   the `resource` (RFC 8707), if given, must be `<public>/mcp`.
@@ -26,6 +31,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { OAuthClientInformationFull, OAuthMetadata, OAuthProtectedResourceMetadata, OAuthTokens } from '@modelcontextprotocol/server'
 import type { AgentPrincipal } from './access.ts'
+import { CimdError, ClientMetadataFetcher, isMetadataClientId, type CimdErrorCode } from './cimd.ts'
 import type { Db } from './db.ts'
 import type { Integrations } from './integrations.ts'
 import { checkFolders, type ApiKeys } from './keys.ts'
@@ -81,6 +87,12 @@ export interface OAuthClient {
   name: string
   redirectUris: string[]
   authMethod: AuthMethod
+  /**
+   * For a client described by a metadata document: the host that served it
+   * (its `client_id`'s), which the consent screen shows. Null for one that
+   * registered itself: its name is only what it declared.
+   */
+  host: string | null
 }
 
 /** An authorization request that passed every check, waiting for the person's decision. */
@@ -101,6 +113,8 @@ export interface AuthorizeRequest {
 export type AuthorizeCheck =
   | { ok: true; req: AuthorizeRequest }
   | { ok: false; error: 'invalid_client' | 'invalid_redirect_uri'; redirect: null }
+  // A metadata document that couldn't be fetched or used: why (never anything of its content), and from which host.
+  | { ok: false; error: 'invalid_client_metadata'; redirect: null; reason: CimdErrorCode | 'invalid_redirect_uri' | 'invalid_client_metadata'; host: string }
   | { ok: false; error: OAuthErrorCode; redirect: string }
 
 /** What the person decided on the consent screen. */
@@ -138,6 +152,8 @@ export interface OAuthOptions {
   /** THOTH_PUBLIC_URL (publicUrlFrom); null: OAuth doesn't exist. */
   publicUrl: string | null
   now?: () => Date
+  /** Fetches clients' metadata documents (cimd.ts). One of its own by default; tests pass one that may reach a local server. */
+  clientMetadata?: ClientMetadataFetcher
 }
 
 export class OAuthServer {
@@ -146,6 +162,7 @@ export class OAuthServer {
   private keys: ApiKeys
   private integrations: Integrations
   private now: () => Date
+  private clientMetadata: ClientMetadataFetcher
 
   constructor(opts: OAuthOptions) {
     this.db = opts.state
@@ -153,6 +170,7 @@ export class OAuthServer {
     this.integrations = opts.integrations
     this.publicUrl = opts.publicUrl
     this.now = opts.now ?? (() => new Date())
+    this.clientMetadata = opts.clientMetadata ?? new ClientMetadataFetcher()
   }
 
   /** Whether OAuth exists now: a public URL, and the MCP server on. */
@@ -181,7 +199,7 @@ export class OAuthServer {
   }
 
   /** RFC 8414. */
-  metadata(): OAuthMetadata & { authorization_response_iss_parameter_supported: boolean } {
+  metadata(): OAuthMetadata & { authorization_response_iss_parameter_supported: boolean; client_id_metadata_document_supported: boolean } {
     const base = this.issuer
     return {
       issuer: base,
@@ -196,6 +214,9 @@ export class OAuthServer {
       token_endpoint_auth_methods_supported: [...AUTH_METHODS],
       revocation_endpoint_auth_methods_supported: [...AUTH_METHODS],
       authorization_response_iss_parameter_supported: true,
+      // MCP authorization 2026-07-28, "Client Registration", section "Advertising CIMD Support":
+      // https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration
+      client_id_metadata_document_supported: true,
     }
   }
 
@@ -218,13 +239,7 @@ export class OAuthServer {
     const redirectUris = checkRedirectUris(b.redirect_uris)
     const method = b.token_endpoint_auth_method ?? 'client_secret_basic'
     if (!AUTH_METHODS.includes(method as AuthMethod)) throw new OAuthRequestError('invalid_client_metadata', `token_endpoint_auth_method must be one of ${AUTH_METHODS.join(', ')}`)
-    for (const [field, allowed] of [['grant_types', ['authorization_code', 'refresh_token']], ['response_types', ['code']]] as const) {
-      const v = b[field]
-      if (v === undefined) continue
-      if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !(allowed as readonly string[]).includes(x))) {
-        throw new OAuthRequestError('invalid_client_metadata', `${field} may only hold ${allowed.join(', ')}`)
-      }
-    }
+    checkTypes(b.grant_types, b.response_types)
     const name = clientName(b.client_name, redirectUris[0]!)
     this.prune()
     const waiting = (this.db.prepare('select count(*) n from oauth_clients c where not exists (select 1 from api_keys k where k.oauth_client = c.id)').get() as { n: number }).n
@@ -246,9 +261,35 @@ export class OAuthServer {
     }
   }
 
+  /** A client that registered itself (a metadata document's client is looked up with `checkAuthorize`). */
   client(id: string): OAuthClient | null {
-    const r = this.clientRow(id)
-    return r ? { id: r.id, name: r.name, redirectUris: JSON.parse(r.redirect_uris) as string[], authMethod: r.auth_method } : null
+    const r = isMetadataClientId(id) ? null : this.clientRow(id)
+    return r ? { id: r.id, name: r.name, redirectUris: JSON.parse(r.redirect_uris) as string[], authMethod: r.auth_method, host: null } : null
+  }
+
+  /**
+   * A client described by its metadata document (cimd.ts), fetched now or
+   * from the short cache: always from the document, never from what an
+   * earlier approval kept, so that what the person sees is what it says now.
+   */
+  private async metadataClient(id: string): Promise<OAuthClient | Extract<AuthorizeCheck, { error: 'invalid_client_metadata' }>> {
+    const host = hostOf(id)
+    const refused = (reason: CimdErrorCode | 'invalid_redirect_uri' | 'invalid_client_metadata') => ({ ok: false as const, error: 'invalid_client_metadata' as const, redirect: null, reason, host })
+    try {
+      const doc = await this.clientMetadata.get(id)
+      let redirectUris: string[]
+      try {
+        redirectUris = checkRedirectUris(doc.redirectUris)
+        checkTypes(doc.grantTypes, doc.responseTypes)
+      } catch (err) {
+        if (err instanceof OAuthRequestError) return refused(err.code === 'invalid_redirect_uri' ? 'invalid_redirect_uri' : 'invalid_client_metadata')
+        throw err
+      }
+      return { id, name: clientName(doc.name, redirectUris[0]!), redirectUris, authMethod: 'none', host: doc.host }
+    } catch (err) {
+      if (err instanceof CimdError) return refused(err.code)
+      throw err
+    }
   }
 
   private clientRow(id: string): ClientRow | null {
@@ -258,9 +299,37 @@ export class OAuthServer {
 
   // --- Authorization --------------------------------------------------------
 
-  /** An authorization request (its query parameters), checked in the order RFC 6749 §4.1.2.1 asks. */
-  checkAuthorize(param: (name: string) => string | null | undefined): AuthorizeCheck {
-    const client = this.client(param('client_id') ?? '')
+  /**
+   * An authorization request (its query parameters), checked in the order
+   * RFC 6749 §4.1.2.1 asks. A client named by a metadata document's URL is
+   * fetched here (cimd.ts): only call it for someone signed in (the consent
+   * page's requests); before that, `precheckAuthorize`.
+   */
+  async checkAuthorize(param: (name: string) => string | null | undefined): Promise<AuthorizeCheck> {
+    const id = param('client_id') ?? ''
+    if (!isMetadataClientId(id)) return this.checkWith(this.client(id), param)
+    const client = await this.metadataClient(id)
+    return 'ok' in client ? client : this.checkWith(client, param)
+  }
+
+  /**
+   * The same checks before anyone signed in, which never fetch anything: a
+   * client named by a URL is only checked to be one thoth would fetch
+   * (`later`: the rest waits for the consent page, with a session).
+   */
+  precheckAuthorize(param: (name: string) => string | null | undefined): AuthorizeCheck | { ok: 'later' } {
+    const id = param('client_id') ?? ''
+    if (!isMetadataClientId(id)) return this.checkWith(this.client(id), param)
+    try {
+      this.clientMetadata.checkUrl(id)
+      return { ok: 'later' }
+    } catch (err) {
+      if (err instanceof CimdError) return { ok: false, error: 'invalid_client_metadata', redirect: null, reason: err.code, host: hostOf(id) }
+      throw err
+    }
+  }
+
+  private checkWith(client: OAuthClient | null, param: (name: string) => string | null | undefined): AuthorizeCheck {
     if (!client) return { ok: false, error: 'invalid_client', redirect: null }
     const redirectUri = param('redirect_uri') ?? ''
     if (!redirectUri || !client.redirectUris.some((r) => sameRedirect(r, redirectUri))) return { ok: false, error: 'invalid_redirect_uri', redirect: null }
@@ -285,6 +354,12 @@ export class OAuthServer {
     const folders = checkFolders(grant.folders) ?? []
     const code = random()
     this.prune()
+    if (req.client.host !== null) {
+      // A metadata document's client, kept as it is now: the token endpoint knows it by this, without fetching.
+      this.db.prepare(`insert into oauth_clients (id, name, redirect_uris, auth_method, secret_hash, created_at) values (?, ?, ?, 'none', null, ?)
+        on conflict(id) do update set name = excluded.name, redirect_uris = excluded.redirect_uris, auth_method = 'none', secret_hash = null`)
+        .run(req.client.id, req.client.name, JSON.stringify(req.client.redirectUris), this.now().toISOString())
+    }
     this.db.prepare(`insert into oauth_codes (code_hash, client_id, user_id, redirect_uri, code_challenge, resource, can_write, folders, expires_at)
       values (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(sha256hex(code), req.client.id, userId, req.redirectUri, req.codeChallenge, req.resource, grant.canWrite ? 1 : 0, JSON.stringify(folders), new Date(this.now().getTime() + CODE_TTL_MS).toISOString())
@@ -496,6 +571,21 @@ function checkRedirectUris(v: unknown): string[] {
     if (!out.includes(raw)) out.push(raw)
   }
   return out
+}
+
+/** `grant_types` and `response_types`, when given, only with what thoth does. */
+function checkTypes(grantTypes: unknown, responseTypes: unknown) {
+  for (const [field, v, allowed] of [['grant_types', grantTypes, ['authorization_code', 'refresh_token']], ['response_types', responseTypes, ['code']]] as const) {
+    if (v === undefined) continue
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !(allowed as readonly string[]).includes(x))) {
+      throw new OAuthRequestError('invalid_client_metadata', `${field} may only hold ${allowed.join(', ')}`)
+    }
+  }
+}
+
+/** A URL's host, or '' if it isn't one. */
+function hostOf(url: string): string {
+  try { return new URL(url).hostname } catch { return '' }
 }
 
 /** The client's name as people will see it: its `client_name`, or its redirect URI's host. One line, 100 characters at most. */

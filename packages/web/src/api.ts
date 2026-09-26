@@ -196,7 +196,8 @@ export interface KeyWithUser extends KeyInfo { user: { id: string; username: str
 /** What a key is created or changed with; `expiresAt: null` takes the expiry away. */
 export interface KeyInput { name?: string; canWrite?: boolean; folders?: string[]; expiresAt?: string | null }
 /** An OAuth client asking for access (the consent page): its name, where it goes back to, and whether this person may authorize it. */
-export interface OAuthRequest { client: { id: string; name: string; redirectUri: string }; canAuthorize: boolean }
+/** An authorization request: who asks (`host`: the domain that described it, for a client named by its metadata document; null if it registered itself) and whether this person may authorize. */
+export interface OAuthRequest { client: { id: string; name: string; redirectUri: string; host: string | null }; canAuthorize: boolean }
 
 let config: Promise<ServerConfig> | null = null
 

@@ -22,8 +22,19 @@ const query = () => location.search.replace(/^\?/, '')
 const PROBLEMS: Record<string, MessageKey> = {
   invalid_client: 'consent.invalidClient',
   invalid_redirect_uri: 'consent.invalidRedirect',
+  invalid_client_metadata: 'consent.clientMetadata',
   not_found: 'consent.unavailable',
   invalid: 'consent.invalidRequest',
+}
+
+/** The host of the request's `client_id`, when it's a URL (a client described by its metadata document). */
+function clientIdHost(): string {
+  try { return new URL(new URLSearchParams(query()).get('client_id') ?? '').hostname } catch { return '' }
+}
+
+/** Whether the answer goes back to a program on this same computer (a loopback address). */
+function toLoopback(uri: string): boolean {
+  try { return ['127.0.0.1', '[::1]', 'localhost'].includes(new URL(uri).hostname) } catch { return false }
 }
 
 function Frame({ children }: { children: React.ReactNode }) {
@@ -55,7 +66,7 @@ export function Consent({ user, onSignOut }: { user: User; onSignOut: () => void
     api.oauthRequest(query()).then((r) => { if (live) setReq(r) }, (err: unknown) => {
       if (!live) return
       const code = err instanceof ApiError ? err.code : 'internal'
-      setProblem(code in PROBLEMS ? t(PROBLEMS[code]!) : errorText(t, err))
+      setProblem(code in PROBLEMS ? t(PROBLEMS[code]!, { host: clientIdHost() }) : errorText(t, err))
     })
     api.tree().then((r) => { if (live) setAll(allFolders(r.notes, r.folders)) }, () => { if (live) setAll([]) })
     return () => { live = false }
@@ -95,8 +106,12 @@ export function Consent({ user, onSignOut }: { user: User; onSignOut: () => void
       <p>{t('consent.intro', { user: user.username })}</p>
       <dl className="consent-who">
         <div><dt>{t('consent.client')}</dt><dd>{req.client.name}</dd></div>
+        {req.client.host
+          ? <div><dt>{t('consent.domain')}</dt><dd><b className="mono">{req.client.host}</b><span className="hint">{t('consent.domainHint')}</span></dd></div>
+          : <div><dt>{t('consent.domain')}</dt><dd><span className="hint">{t('consent.selfRegistered')}</span></dd></div>}
         <div><dt>{t('consent.returnsTo')}</dt><dd className="mono">{req.client.redirectUri}</dd></div>
       </dl>
+      {toLoopback(req.client.redirectUri) && <p className="hint" role="note">{t('consent.loopback')}</p>}
       {!req.canAuthorize ? (
         <>
           <p className="key-locked" role="note">{Icon.alert}<span>{t('consent.membersOff')}</span></p>

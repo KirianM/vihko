@@ -11,7 +11,8 @@
 //   POST /oauth/token                                  code (PKCE) or refresh token
 //   POST /oauth/revoke                                 RFC 7009
 // For the consent page, with the person's session (http/routes.ts: `session`):
-//   GET  /api/oauth/authorize?<the request's query>    who is asking, and whether this person may authorize
+//   GET  /api/oauth/authorize?<the request's query>    who is asking (fetching a client's metadata document
+//                                                      if its client_id is one's URL), and whether this person may authorize
 //   POST /api/oauth/authorize { query, approve, canWrite?, folders? } → { redirect }
 import type { Context, Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
@@ -73,9 +74,15 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
   // page says so (or, asked for JSON, as mcp-remote does to find a stale
   // registration, a 400). A good one gets the page, which signs in if needed
   // and asks.
+  // A client named by its metadata document's URL isn't fetched here, before
+  // anyone signed in: the page asks for it with the person's session.
   app.get('/oauth/authorize', async (c, next) => {
     if (!oauth.available()) return none(c)
-    const check = oauth.checkAuthorize((name) => c.req.query(name))
+    const check = oauth.precheckAuthorize((name) => c.req.query(name))
+    if (check.ok === 'later') {
+      c.header('Cache-Control', 'no-store')
+      return next()
+    }
     if (!check.ok && check.redirect !== null) return c.redirect(check.redirect, 302)
     const wantsJson = /application\/json/i.test(c.req.header('accept') ?? '') && !/text\/html/i.test(c.req.header('accept') ?? '')
     if (!check.ok && (wantsJson || !deps.ui)) return c.json({ error: check.error, error_description: 'unknown client or redirect_uri' }, 400)
@@ -112,14 +119,20 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
   /** An admin always may; a member, if the admin lets members create keys (an authorization is one). */
   const mayAuthorize = (c: Context<Env>) => c.get('user').role === 'admin' || integrations.view().membersCanCreateKeys
   const refused = (c: Context, check: Extract<AuthorizeCheck, { ok: false }>) =>
-    c.json({ error: check.redirect === null ? check.error : 'invalid', message: 'not a valid authorization request', ...(check.redirect === null ? {} : { redirect: check.redirect }) }, 400)
+    c.json({
+      error: check.redirect === null ? check.error : 'invalid', message: 'not a valid authorization request',
+      ...(check.redirect === null ? {} : { redirect: check.redirect }),
+      // A metadata document that can't be used: why, and whose (the page names the host).
+      ...(check.error === 'invalid_client_metadata' && 'reason' in check ? { reason: check.reason, host: check.host } : {}),
+    }, 400)
 
-  app.get('/api/oauth/authorize', (c) => {
+  // Whoever asks here is signed in: a client named by a URL is fetched now (cimd.ts).
+  app.get('/api/oauth/authorize', async (c) => {
     if (!oauth.available() || c.get('access').isAgent) return none(c)
-    const check = oauth.checkAuthorize((name) => c.req.query(name))
+    const check = await oauth.checkAuthorize((name) => c.req.query(name))
     if (!check.ok) return refused(c, check)
     const { client, redirectUri } = check.req
-    return c.json({ client: { id: client.id, name: client.name, redirectUri }, canAuthorize: mayAuthorize(c) })
+    return c.json({ client: { id: client.id, name: client.name, redirectUri, host: client.host }, canAuthorize: mayAuthorize(c) })
   })
 
   app.post('/api/oauth/authorize', async (c) => {
@@ -129,7 +142,7 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
       return c.json({ error: 'invalid', message: 'expected { query, approve, canWrite?, folders? }' }, 400)
     }
     const query = new URLSearchParams(b.query)
-    const check = oauth.checkAuthorize((name) => query.get(name))
+    const check = await oauth.checkAuthorize((name) => query.get(name))
     if (!check.ok) return refused(c, check)
     if (!b.approve) return c.json({ redirect: oauth.deny(check.req) })
     if (!mayAuthorize(c)) return c.json({ error: 'forbidden', message: 'members may not authorize clients here' }, 403)

@@ -6,6 +6,8 @@
 .consent-who dt { color: var(--muted); }
 .consent-who dd { margin: 0; color: var(--ink); min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
 .consent-who dd.mono { font-size: 13px; font-weight: 400; color: var(--ink-2); }
+.consent-who dd .hint { display: block; font-weight: 400; }
+.consent-who dd b.mono { font-weight: 600; color: var(--ink); }
 .consent-form { display: flex; flex-direction: column; gap: 18px; }
 .consent-card .hint { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
 .consent-actions { display: flex; gap: var(--space-3); justify-content: flex-end; flex-wrap: wrap; }

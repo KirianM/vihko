@@ -4,7 +4,7 @@
 // ana (member).
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, mountMcp, openIndex, openState, type Runtime } from '@thoth/server'
+import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, mountMcp, openIndex, openState, type ClientMetadataFetcher, type Runtime } from '@thoth/server'
 import { Client, StreamableHTTPClientTransport, type VersionNegotiationMode } from '@modelcontextprotocol/client'
 import { tempDir } from './_tmp.ts'
 
@@ -21,6 +21,8 @@ export interface AgentSetup {
   publicUrl?: string
   /** A stand-in for the built UI (one index.html), for the pages the UI serves. */
   ui?: boolean
+  /** Fetches OAuth clients' metadata documents (tests that reach a local HTTPS server). */
+  clientMetadata?: ClientMetadataFetcher
 }
 
 export async function setup(opts: AgentSetup = {}) {
@@ -64,7 +66,7 @@ export async function setup(opts: AgentSetup = {}) {
     writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
   }
   const { app, services } = createServer({
-    auth, profiles, workspace, notes, index, indexer, notesDir, runtime, history, keys, integrations, now: () => clock.now, publicUrl: opts.publicUrl ?? null, webDir,
+    auth, profiles, workspace, notes, index, indexer, notesDir, runtime, history, keys, integrations, now: () => clock.now, publicUrl: opts.publicUrl ?? null, webDir, clientMetadata: opts.clientMetadata,
     routes: (a, s) => { mountMcp(a, s, { auth, workspace, pollMs: 25 }) },
   })
 

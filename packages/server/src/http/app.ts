@@ -33,6 +33,7 @@ import { keyErrorStatus, keyRoutes } from './keys.ts'
 import { authenticateKey, bearerToken } from './keyAuth.ts'
 import { keyRouteClass } from './routes.ts'
 import { OAuthServer } from '../oauth.ts'
+import type { ClientMetadataFetcher } from '../cimd.ts'
 import { oauthRoutes } from './oauth.ts'
 import type { BlockList } from 'node:net'
 import { LoginLimiter, SETUP_ACCOUNT, type AttemptResult } from '../loginLimit.ts'
@@ -110,6 +111,11 @@ export interface AppDeps {
   trustedProxies?: BlockList | null
   /** The login limits (tests: other rules or clock). One of its own by default. */
   loginLimiter?: LoginLimiter
+  /**
+   * Fetches OAuth clients' metadata documents (cimd.ts). One of its own by
+   * default; only tests pass one (that may reach a local server).
+   */
+  clientMetadata?: ClientMetadataFetcher
 }
 
 /**
@@ -183,7 +189,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const keys = deps.keys ?? new ApiKeys(auth.state)
   const integrations = deps.integrations ?? new Integrations(auth.state)
   const policy = new AccessPolicy({ index })
-  const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now })
+  const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
   const scopedDeps: ScopedDeps = { notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links }
   const services: Services = { keys, integrations, policy, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth }
   const app = new Hono<Env>()
