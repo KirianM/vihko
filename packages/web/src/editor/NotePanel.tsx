@@ -264,7 +264,7 @@ function CommentsTab({ view, session, user, originals, request, done }: {
 
   // With history, resolving can be undone from «Resolved» (D-032.5): managed,
   // no need to ask; unmanaged, only what reaches a commit; off or unavailable, asked as before.
-  const history = useHistoryState(session.path)
+  const history = useHistoryState()
   const mode = history?.available ? history.mode : 'off'
   const confirm = mode === 'managed' ? null : mode === 'unmanaged' ? t('comments.resolved.confirmUnmanaged') : t('comments.resolveConfirm')
   const live = useMemo(() => threads.map((tv) => tv.thread), [threads])

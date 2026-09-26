@@ -12,6 +12,7 @@ import type { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from 'react-aria-components'
 import { request } from '../api.ts'
+import { useHistoryStatus } from '../history/ui.tsx'
 import { useT } from '../i18n.tsx'
 import type { Session } from './collab.ts'
 import { commentKey, displayDate, reopener, type Change, type Comment, type RemovedThread, type Thread } from './comments.ts'
@@ -35,18 +36,13 @@ export interface ResolvedThread extends RemovedThread {
   reopenable: boolean
 }
 
-/** The history's state, asked when a note opens: null until known, or if it can't be asked. */
-export function useHistoryState(path: string): HistoryState | null {
-  const [state, setState] = useState<HistoryState | null>(null)
-  useEffect(() => {
-    let live = true
-    setState(null)
-    request<HistoryState>('GET', '/api/history/status')
-      .then((s) => { if (live) setState({ mode: s.mode, available: s.available }) })
-      .catch(() => {})
-    return () => { live = false }
-  }, [path])
-  return state
+/**
+ * The history's state: null until known, or if it can't be asked. The same
+ * one the «History» tab and «Recent changes» use, asked again when a note
+ * opens (unless it just was) and on coming back to the page.
+ */
+export function useHistoryState(): HistoryState | null {
+  return useHistoryStatus()
 }
 
 /** Requests in a row while the server is still reading a long history. */
