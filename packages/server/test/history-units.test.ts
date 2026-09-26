@@ -82,6 +82,28 @@ test('trailers: written and read back; moves by file and by folder', () => {
   assert.deepEqual(parseAuthorKey('external'), { kind: 'external' })
 })
 
+test('trailers: an agent\'s via goes in its own Thoth-Via, and the Thoth-Actor keeps the form older versions read', () => {
+  const msg = formatMessage('Edit plan', {
+    authors: ['agent K1 U1 mcp', 'user U1', 'agent K2 U1', 'agent K1 U1 api'],
+    reason: null, foundAtStartup: false, moves: [], restoredFrom: null,
+  })
+  const lines = msg.split('\n').filter((l) => l.startsWith('Thoth-'))
+  assert.deepEqual(lines, [
+    'Thoth-Actor: agent K1 U1', 'Thoth-Via: K1 mcp', 'Thoth-Actor: user U1', 'Thoth-Actor: agent K2 U1', 'Thoth-Actor: agent K1 U1', 'Thoth-Via: K1 api',
+  ])
+  const p = parseMessage(msg)
+  assert.deepEqual(p.authors, ['agent K1 U1 mcp', 'user U1', 'agent K2 U1', 'agent K1 U1 api'])
+  assert.deepEqual(p.parsedAuthors, [
+    { kind: 'agent', id: 'K1', onBehalfOf: 'U1', via: 'mcp' }, { kind: 'user', id: 'U1' },
+    { kind: 'agent', id: 'K2', onBehalfOf: 'U1' }, { kind: 'agent', id: 'K1', onBehalfOf: 'U1', via: 'api' },
+  ])
+  // A via for no agent, or an unknown one, is ignored.
+  const odd = parseMessage('x\n\nThoth-Via: K9 api\nThoth-Actor: agent K1 U1\nThoth-Via: K1 telnet\n')
+  assert.deepEqual(odd.parsedAuthors, [{ kind: 'agent', id: 'K1', onBehalfOf: 'U1' }])
+  assert.deepEqual(parseAuthorKey('agent K1 U1 oauth'), { kind: 'agent', id: 'K1', onBehalfOf: 'U1', via: 'oauth' })
+  assert.equal(parseAuthorKey('agent K1 U1 telnet'), null)
+})
+
 test('fast-import paths are quoted', () => {
   assert.equal(quotePath('a b/c.md'), '"a b/c.md"')
   assert.equal(quotePath('say "hi"\\.md'), '"say \\"hi\\"\\\\.md"')

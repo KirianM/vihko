@@ -3,12 +3,21 @@
 // data, never text: the UI words them (D-025).
 
 /**
+ * How an agent reached thoth: the HTTP API with a key, the MCP server with a
+ * key, or an OAuth token (M3). The history keeps it with each agent author.
+ */
+export type Via = 'api' | 'mcp' | 'oauth'
+
+export const VIAS: readonly Via[] = ['api', 'mcp', 'oauth']
+
+/**
  * Who makes a change. `id` is the stable id of the user (state.db), never the
  * name: names change, and the history resolves the current one when asked.
+ * An agent's `id` is its key's id; `onBehalfOf`, the key's user.
  */
 export type Actor =
   | { kind: 'user'; id: string }
-  | { kind: 'agent'; id: string; onBehalfOf: string }
+  | { kind: 'agent'; id: string; onBehalfOf: string; via?: Via }
   | { kind: 'system'; reason: Reason }
 
 /**
@@ -47,34 +56,36 @@ export type ReasonCode = Reason['code']
 
 /**
  * An author as the history keeps it: an actor without its reason, or
- * `external` (a change made outside thoth). As text (`authorKey`) it is what
- * the `Thoth-Actor` trailer holds: `user <id>`, `agent <keyId> <userId>`,
- * `system`, `external`.
+ * `external` (a change made outside thoth). As text (`authorKey`) it is:
+ * `user <id>`, `agent <keyId> <userId>` (with ` <via>` when known),
+ * `system`, `external`. In a commit, the via of an agent goes in its own
+ * trailer (history/trailers.ts), so `Thoth-Actor` keeps the M2 form.
  */
 export type Author =
   | { kind: 'user'; id: string }
-  | { kind: 'agent'; id: string; onBehalfOf: string }
+  | { kind: 'agent'; id: string; onBehalfOf: string; via?: Via }
   | { kind: 'system' }
   | { kind: 'external' }
 
 export function authorOf(a: Actor): Author {
   if (a.kind === 'user') return { kind: 'user', id: a.id }
-  if (a.kind === 'agent') return { kind: 'agent', id: a.id, onBehalfOf: a.onBehalfOf }
+  if (a.kind === 'agent') return { kind: 'agent', id: a.id, onBehalfOf: a.onBehalfOf, ...(a.via ? { via: a.via } : {}) }
   return { kind: 'system' }
 }
 
 export function authorKey(a: Author): string {
   if (a.kind === 'user') return `user ${a.id}`
-  if (a.kind === 'agent') return `agent ${a.id} ${a.onBehalfOf}`
+  if (a.kind === 'agent') return `agent ${a.id} ${a.onBehalfOf}${a.via ? ` ${a.via}` : ''}`
   return a.kind
 }
 
-/** The author in a `Thoth-Actor` trailer; null if it isn't one. */
+/** The author an author key names (`authorKey`); null if it isn't one. */
 export function parseAuthorKey(key: string): Author | null {
-  const [kind, id, onBehalfOf, ...rest] = key.trim().split(' ')
+  const [kind, id, onBehalfOf, via, ...rest] = key.trim().split(' ')
   if (rest.length) return null
   if (kind === 'user' && id && !onBehalfOf) return { kind, id }
-  if (kind === 'agent' && id && onBehalfOf) return { kind, id, onBehalfOf }
+  if (kind === 'agent' && id && onBehalfOf && !via) return { kind, id, onBehalfOf }
+  if (kind === 'agent' && id && onBehalfOf && (VIAS as readonly string[]).includes(via!)) return { kind, id, onBehalfOf, via: via as Via }
   if ((kind === 'system' || kind === 'external') && !id) return { kind }
   return null
 }
