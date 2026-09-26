@@ -150,6 +150,44 @@ export function wordDiff(a: string, b: string, opts: { merge?: boolean } = {}): 
   return { ops, added, removed }
 }
 
+/**
+ * Up to `max` characters of `text` right before `at`, to show where a change
+ * is: from its own line; or, when the change starts its line (nothing but
+ * spaces before it there), from the end of the nearest line above with
+ * something on it, line breaks included, so a whole line added or removed
+ * still comes with the line it follows. Always a stretch of `text` that ends
+ * at `at`; empty only when there is nothing above within reach.
+ */
+export function contextBefore(text: string, at: number, max: number): string {
+  const lineStart = text.lastIndexOf('\n', at - 1) + 1
+  const same = Math.max(lineStart, at - max)
+  if (/\S/.test(text.slice(same, at)) || lineStart === 0) return text.slice(same, at)
+  // Back over the blank stretch above, never further than `max`.
+  let i = lineStart
+  while (i > 0 && at - i <= max && /\s/.test(text[i - 1]!)) i--
+  if (i === 0 || at - i > max) return text.slice(same, at)
+  const start = text.lastIndexOf('\n', i - 1) + 1
+  return text.slice(Math.max(start, i - max), at)
+}
+
+/**
+ * Up to `max` characters of `text` right after `at`: the rest of its line;
+ * or, when that is blank (the change ends its line), the start of the
+ * nearest line below with something on it, line breaks included. Always a
+ * stretch of `text` that starts at `at`.
+ */
+export function contextAfter(text: string, at: number, max: number): string {
+  const nl = text.indexOf('\n', at)
+  const lineEnd = nl === -1 ? text.length : nl
+  const same = Math.min(lineEnd, at + max)
+  if (/\S/.test(text.slice(at, same)) || lineEnd === text.length) return text.slice(at, same)
+  let i = lineEnd
+  while (i < text.length && i - at <= max && /\s/.test(text[i]!)) i++
+  if (i === text.length || i - at > max) return text.slice(at, same)
+  const next = text.indexOf('\n', i)
+  return text.slice(at, Math.min(next === -1 ? text.length : next, i + max))
+}
+
 /** Only the counts (the version lists show them). */
 export function wordStats(a: string, b: string): { added: number; removed: number } {
   if (a === b) return { added: 0, removed: 0 }

@@ -9,6 +9,7 @@ import { setFrontmatterKey } from '@thoth/core'
 import type { Actor } from '@thoth/server'
 import { applySplices } from '../src/edits.ts'
 import { planRevert } from '../src/history/revert.ts'
+import { contextAfter, contextBefore } from '../src/history/diff.ts'
 import { setup, who } from './_history.ts'
 
 /** Reverts on `current` what `version` changed from `before`. */
@@ -28,6 +29,29 @@ test('what the version changed goes; a paragraph written after it, right below, 
   assert.deepEqual(plan.reverted.map((p) => [p.removed, p.restored]), [['Postgres tables', 'files'], ['Postgres too', 'SQLite']])
   assert.equal(plan.reverted[0]!.before, 'We keep notes in ')
   assert.equal(plan.reverted[0]!.after, '.')
+})
+
+test('a whole line reverted comes with the lines around it that have text, never with nothing', () => {
+  const version = BEFORE.replace('None yet.\n', 'None yet.\n\nAGENT: use Syncthing.\n')
+  const { text, plan } = revert(BEFORE, version, version)
+  assert.equal(text, BEFORE)
+  assert.deepEqual(plan.reverted.map((p) => [p.before, p.removed, p.after]), [['None yet.\n', '\nAGENT: use Syncthing.\n', '']])
+  // A line added in the middle: the line above and the one below.
+  const middle = BEFORE.replace('We keep notes in files.\n', 'We keep notes in files.\nAGENT: in git too.\n')
+  assert.deepEqual(revert(BEFORE, middle, middle).plan.reverted.map((p) => [p.before, p.after]), [['We keep notes in files.\n', 'The index is SQLite.']])
+})
+
+test('the text around a change: its own line, else the nearest line with something on it, within reach', () => {
+  const t = 'Title\n\n\nBody line here.\nEnd'
+  const at = t.indexOf('Body')
+  assert.equal(contextBefore(t, at, 40), 'Title\n\n\n')
+  assert.equal(contextBefore(t, at + 5, 40), 'Body ')
+  assert.equal(contextBefore(t, at, 2), '', 'nothing with text within 2 characters')
+  assert.equal(contextBefore(t, at, 3), 'tle\n\n\n')
+  assert.equal(contextAfter(t, 5, 40), '\n\n\nBody line here.')
+  assert.equal(contextAfter(t, at, 4), 'Body')
+  assert.equal(contextAfter(t, t.length, 40), '')
+  assert.equal(contextBefore(t, 0, 40), '')
 })
 
 test('a piece changed later is not reverted and is reported with its text; the rest is', () => {

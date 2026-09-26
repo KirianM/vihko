@@ -353,7 +353,9 @@ test('changes_since: from an ETag it was given or a version, waiting for a chang
     assert.notEqual(waited.data.etag, etag)
     // The person's line, and the uid thoth gave the note on its first write.
     assert.deepEqual(waited.data.changes.map((x: any) => [x.line, x.removed, x.added.replace(/uid: \w+/, 'uid: X')]), [[4, '', 'uid: X\n'], [13, '', '- PERSONA: añadir fechas\n']])
-    assert.deepEqual([waited.data.changes[1].before, waited.data.changes[1].after], ['', ''])
+    // A whole line added: the text around it comes from the nearest lines with something on them.
+    assert.deepEqual([waited.data.changes[1].before, waited.data.changes[1].after], ['- revisar\n', '\n## Notas'])
+    assert.deepEqual([waited.data.changes[0].before, waited.data.changes[0].after], ['tags: [trabajo]\n', '---'])
     // Nothing more since then: after waiting a little, unchanged.
     const quiet = await c.call('changes_since', { path: 'proyectos/plan.md', since: waited.data.etag, wait_seconds: 0.2 })
     assert.deepEqual([quiet.data.changed, quiet.data.etag], [false, waited.data.etag])
@@ -362,7 +364,7 @@ test('changes_since: from an ETag it was given or a version, waiting for a chang
     const edit = await c.call('edit_note', { path: 'proyectos/plan.md', operations: [{ op: 'find_replace', find: '- PERSONA: añadir fechas', replace: '- PERSONA: añadir fechas (hecho: 1 de octubre)' }], if_match: waited.data.etag })
     assert.equal(edit.error, false, edit.raw)
     const own = await c.call('changes_since', { path: 'proyectos/plan.md', since: waited.data.etag, include_text: true })
-    assert.deepEqual(own.data.changes.map((x: any) => x.added), [' (hecho: 1 de octubre)'])
+    assert.deepEqual(own.data.changes.map((x: any) => [x.before, x.added, x.after]), [['- PERSONA: añadir fechas', ' (hecho: 1 de octubre)', '\n\n## Notas']])
     assert.match(own.texts[0]!, /PERSONA: añadir fechas \(hecho/)
     // An ETag it was never given: the whole text.
     const unknown = await c.call('changes_since', { path: 'proyectos/plan.md', since: 'sha256:0000' })

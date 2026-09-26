@@ -24,7 +24,7 @@ import { parseAuthorKey } from '../actor.ts'
 import { historyFor } from '../agentHistory.ts'
 import type { EditOp } from '../edits.ts'
 import { GitError } from '../history/git.ts'
-import { wordDiff } from '../history/diff.ts'
+import { contextAfter, contextBefore, wordDiff } from '../history/diff.ts'
 import { HistoryError, type AuthorRef, type HistoryReader } from '../history/reader.ts'
 import type { History } from '../history/index.ts'
 import { NoteError, NoteService } from '../notes.ts'
@@ -171,12 +171,16 @@ const snippet = (s: string) => s.split(HIGHLIGHT_START).join('**').split(HIGHLIG
 
 const MAX_CHANGES = 100
 const MAX_CHANGE_CHARS = 4000
+/** Characters of the text around a change, on each side. */
+const CONTEXT_CHARS = 80
 
 interface TextChange { line: number; removed: string; added: string; before: string; after: string }
 
 /**
  * What turns `a` into `b`, as changes an agent can read: where (the line in
- * `b`, from 1), what went and what came, with the text around it on that line.
+ * `b`, from 1), what went and what came, with some of `b` around it: from its
+ * line, or, for a change of whole lines, from the nearest line with text
+ * (diff.ts `contextBefore`). Only ever text of `b`, which the agent may read.
  */
 function changesOf(a: string, b: string): { changes: TextChange[]; words: { added: number; removed: number }; truncated: boolean } {
   const d = wordDiff(a, b)
@@ -199,13 +203,11 @@ function changesOf(a: string, b: string): { changes: TextChange[]; words: { adde
       else { added += d.ops[i]![1]; pos += d.ops[i]![1].length }
     }
     if (changes.length === MAX_CHANGES) { truncated = true; continue }
-    const lineStart = b.lastIndexOf('\n', start - 1) + 1
-    const nl = b.indexOf('\n', pos)
     changes.push({
       line: b.slice(0, start).split('\n').length,
       removed: clip(removed), added: clip(added),
-      before: b.slice(Math.max(lineStart, start - 80), start),
-      after: b.slice(pos, Math.min(nl === -1 ? b.length : nl, pos + 80)),
+      before: contextBefore(b, start, CONTEXT_CHARS),
+      after: contextAfter(b, pos, CONTEXT_CHARS),
     })
   }
   return { changes, words: { added: d.added, removed: d.removed }, truncated }
