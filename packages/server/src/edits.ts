@@ -2,6 +2,7 @@
 // requiring that the rest of the note hasn't changed. This is what lets an
 // agent write to a note while someone else is editing it (the ETag changes
 // on every keystroke, so a full replacement with If-Match would never match).
+import { FrontmatterError, extract, normKey, setFrontmatterKey, type ScalarValue } from '@thoth/core'
 import { NoteError } from './notes.ts'
 
 export type EditOp =
@@ -9,6 +10,19 @@ export type EditOp =
   | { op: 'find_replace'; find: string; replace: string; expectedCount?: number }
   /** Appends text to the end of the note (with a newline if needed). */
   | { op: 'append'; text: string }
+  /**
+   * Adds text at the end of a section: after its last non-blank line, before
+   * the next heading of the same level or above. `heading`: its text, or with
+   * its level (`## Tasks`) when the same text appears at several levels.
+   */
+  | { op: 'append_under_heading'; heading: string; text: string }
+  /** Replaces what is under a heading (its section, subsections included), keeping the heading line. */
+  | { op: 'replace_section'; heading: string; text: string }
+  /**
+   * Sets a top-level frontmatter key to a scalar or a list of them, touching
+   * only that value's bytes (the block is created if the note has none).
+   */
+  | { op: 'set_frontmatter'; key: string; value: ScalarValue | ScalarValue[] }
 
 /**
  * A change at an exact place: `remove` characters at `at`, then `insert`.
@@ -64,11 +78,81 @@ export function planEdits(text: string, ops: EditOp[]): Splice[] {
       for (const k of at.reverse()) push(spliceOf(out, k, k + e.find.length, e.replace))
     } else if (e.op === 'append') {
       push({ at: out.length, remove: 0, insert: (out === '' || out.endsWith('\n') ? '' : '\n') + e.text })
+    } else if ((e.op === 'append_under_heading' || e.op === 'replace_section') && typeof e.text !== 'string') {
+      throw new NoteError('edit_mismatch', `operation ${i}: text must be text`)
+    } else if (e.op === 'append_under_heading') {
+      const s = section(out, e.heading, i)
+      // After the last line with something on it before any subheading: blank lines stay between it and what follows.
+      let at = s.ownEnd
+      while (at > s.bodyStart) {
+        const prev = out.lastIndexOf('\n', at - 2) + 1
+        if (out.slice(prev, at).trim() !== '') break
+        at = prev
+      }
+      const lead = at > 0 && out[at - 1] !== '\n' ? '\n' : ''
+      push({ at, remove: 0, insert: lead + e.text + (e.text.endsWith('\n') ? '' : '\n') })
+    } else if (e.op === 'replace_section') {
+      const s = section(out, e.heading, i)
+      let body = e.text === '' || e.text.endsWith('\n') ? e.text : e.text + '\n'
+      // A blank line before the heading that follows, as the section had it.
+      if (s.end < out.length && body !== '' && !body.endsWith('\n\n')) body += '\n'
+      const lead = s.bodyStart > 0 && out[s.bodyStart - 1] !== '\n' ? '\n' : ''
+      push(spliceOf(out, s.bodyStart, s.end, lead + body))
+    } else if (e.op === 'set_frontmatter') {
+      if (typeof e.key !== 'string' || !e.key.trim()) throw new NoteError('edit_mismatch', `operation ${i}: empty key`)
+      const scalar = (v: unknown) => typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))
+      if (!(scalar(e.value) || (Array.isArray(e.value) && e.value.every(scalar)))) {
+        throw new NoteError('edit_mismatch', `operation ${i}: the value must be text, a number, true/false or a list of them`)
+      }
+      let next: string
+      try {
+        next = setFrontmatterKey(out, e.key, e.value)
+      } catch (err) {
+        if (err instanceof FrontmatterError) throw new NoteError('edit_mismatch', `operation ${i}: ${err.message}`)
+        throw err
+      }
+      push(spliceOf(out, 0, out.length, next))
     } else {
       throw new NoteError('edit_mismatch', `operation ${i}: unknown type`)
     }
   }
   return splices
+}
+
+/**
+ * The section under a heading: `bodyStart` right after the heading's line
+ * (both lines of a setext heading), `end` where the next heading of the same
+ * level or above starts, or the end of the note; `ownEnd`, where its own text
+ * ends (the first subheading, or `end`). The heading is found by its text
+ * (case and spacing aside); `## Text` also asks for its level. None or
+ * several: `edit_mismatch`.
+ */
+function section(text: string, heading: string, i: number): { bodyStart: number; end: number; ownEnd: number } {
+  if (typeof heading !== 'string' || !heading.trim()) throw new NoteError('edit_mismatch', `operation ${i}: empty heading`)
+  const m = /^\s*(#{1,6})\s+(.*)$/.exec(heading)
+  const level = m ? m[1]!.length : null
+  const want = normKey((m ? m[2]! : heading).replace(/\s+#+\s*$/, ''))
+  const headings = extract(text).headings
+  const found = headings.filter((h) => normKey(h.text) === want && (level === null || h.level === level))
+  if (found.length !== 1) {
+    throw new NoteError('edit_mismatch', `operation ${i}: expected 1 heading "${heading}", found ${found.length}`)
+  }
+  const h = found[0]!
+  let bodyStart = lineEnd(text, h.from)
+  // A setext heading is underlined on the next line.
+  if (!/^\s{0,3}#/.test(text.slice(h.from, bodyStart)) && /^\s{0,3}(=+|-+)\s*$/.test(text.slice(bodyStart, lineEnd(text, bodyStart)).replace(/\n$/, ''))) {
+    bodyStart = lineEnd(text, bodyStart)
+  }
+  const next = headings.find((x) => x.from > h.from && x.level <= h.level)
+  const end = next ? next.from : text.length
+  const sub = headings.find((x) => x.from > h.from)
+  return { bodyStart, end, ownEnd: sub && sub.from < end ? sub.from : end }
+}
+
+/** Offset right after the line that holds `at` (its `\n` included), or the end of the text. */
+function lineEnd(text: string, at: number): number {
+  const nl = text.indexOf('\n', at)
+  return nl === -1 ? text.length : nl + 1
 }
 
 export function applyEdits(text: string, ops: EditOp[]): string {

@@ -73,8 +73,12 @@ class DryRun extends Error {
   }
 }
 
-/** Substitutions need the ETag of the text they were planned on (D-017); appends don't. */
-const SUBSTITUTIONS: readonly string[] = ['find_replace']
+/**
+ * Substitutions need the ETag of the text they were planned on (D-017):
+ * they replace text (or a frontmatter value) the agent must have seen.
+ * Appends don't.
+ */
+export const SUBSTITUTIONS: readonly string[] = ['find_replace', 'replace_section', 'set_frontmatter']
 
 export class ScopedNotes {
   private deps: ScopedDeps
