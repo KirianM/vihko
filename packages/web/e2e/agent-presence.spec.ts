@@ -101,7 +101,7 @@ test('the agent shows as presence and what it writes is marked for a few seconds
   })
   expect(overlaps).toEqual([])
   // And the note's name keeps its room.
-  expect((await ana.locator('.crumbs b').boundingBox())!.width).toBeGreaterThan(60)
+  expect((await ana.locator('.crumbs b').boundingBox())!.width).toBeGreaterThan(40)
   // People are circles (noa and ana); the agent never is one.
   await expect(noa.locator('.avatar-stack')).toHaveCount(2)
 

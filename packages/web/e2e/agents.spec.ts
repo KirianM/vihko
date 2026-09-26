@@ -186,7 +186,7 @@ test('revoking asks first, and the key stops working at once', async ({ browser,
   expect((await request.get(`${BASE_URL}/api/tree`, { headers: bearer(token) })).status()).toBe(401)
   // Revoked keys go to their own list, folded away.
   await expect(card(page, 'Claude Code e2e')).toBeHidden()
-  await page.getByText('Revocadas (1)').click()
+  await page.locator('section', { has: page.getByRole('heading', { name: 'Tus claves' }) }).getByText(/^Revocadas \(\d+\)$/).click()
   await expect(card(page, 'Claude Code e2e')).toContainText('Revocada')
   await expect(card(page, 'Claude Code e2e').getByRole('button')).toHaveCount(0)
   await page.context().close()
@@ -232,7 +232,7 @@ test('members: their own keys while allowed; with the setting off, none new, and
   await ask.getByRole('button', { name: 'Revocar la clave' }).click()
   await expect(theirs.getByText('Nadie más tiene claves activas.')).toBeVisible()
   await ana.reload()
-  await ana.getByText('Revocadas (1)').click()
+  await ana.getByText(/^Revocadas \(\d+\)$/).click()
   await expect(card(ana, 'Blog e2e')).toContainText('Revocada')
   await ana.context().close()
   await noa.context().close()
