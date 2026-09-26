@@ -79,6 +79,13 @@ export type Alert =
    * `limitMb`): they don't enter the history, and restoring can't bring them back.
    */
   | { code: 'history_files_too_large'; paths: string[]; limitMb: number; actions: never[] }
+  /**
+   * git has failed for so long that the commits waiting for it reached their
+   * cap: since `since`, `versions` of them were merged into later ones. Their
+   * contents and authors are kept; the history has fewer, coarser versions.
+   * Goes away once everything waiting is in git.
+   */
+  | { code: 'history_versions_merged'; versions: number; since: string; actions: never[] }
   /** `history.mode: unmanaged`, but the notes folder isn't inside a git repository: there is no history to show. */
   | { code: 'history_no_repository'; actions: never[] }
 

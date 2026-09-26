@@ -27,7 +27,10 @@
 //   rename), confirmed against the files when thoth starts.
 // - The history never blocks or fails a note write: if git fails, the note is
 //   written, the commit waits in the journal and is retried, and there is an
-//   alert (`history_unavailable`).
+//   alert (`history_unavailable`). If it fails for so long that 5,000 commits
+//   wait, the oldest are merged into later ones: versions lose granularity,
+//   never content or authors, and there is an alert while it lasts
+//   (`history_versions_merged`).
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -58,6 +61,8 @@ export interface RecorderOptions {
   retryMs?: number
   /** Commits between two background `git gc --auto`. */
   gcEvery?: number
+  /** Commits that wait for git (it keeps failing) before the oldest are merged into later ones (5,000). */
+  queueMax?: number
   /** The name git shows for an author (the user's current name). */
   nameOf?: (author: Author) => string
   log?: (msg: string) => void
@@ -158,6 +163,8 @@ interface Journal {
   groups: { authors: string[]; reason: ReasonData; refs: { path: string; oid: string | null }[] }[]
   /** Writes to disk under way: who, why and what each file will hold (without contents). */
   writes: { authors: string[]; reason: ReasonData; changes: QChange[] }[]
+  /** The queue reached its cap: how many commits were merged into later ones, and since when (ms). */
+  merged: { count: number; since: number } | null
 }
 
 interface CacheEntry { size: number; mtimeMs: number; ctimeMs: number; ino: number; oid: string; checkedAt: number }
@@ -260,6 +267,8 @@ export class Recorder {
   private gcRunning = false
   /** After git was unavailable: the first sweep records what changed meanwhile, unattributed. */
   private resumeOnReady = false
+  /** Commits merged at the queue's cap, until the queue is in git again. */
+  private merged: Journal['merged'] = null
   private closed = false
 
   constructor(opts: RecorderOptions) {
@@ -291,6 +300,7 @@ export class Recorder {
       this.inflight = j.inflight
       this.leftoverGroups = j.groups
       this.leftoverWrites = j.writes
+      this.merged = j.merged
     }
     this.readCache()
     this.mode = mode
@@ -432,6 +442,7 @@ export class Recorder {
     if (this.mode === 'managed' && this.tooLarge.size) {
       out.push({ code: 'history_files_too_large', paths: [...this.tooLarge.keys()].sort(), limitMb: Math.round((this.opts.maxFileBytes() / 1048576) * 100) / 100, actions: [] })
     }
+    if (this.mode === 'managed' && this.merged) out.push({ code: 'history_versions_merged', versions: this.merged.count, since: new Date(this.merged.since).toISOString(), actions: [] })
     return out
   }
 
@@ -1169,16 +1180,105 @@ export class Recorder {
 
   private enqueue(q: QCommit) {
     if (q.changes.length === 0) return
-    if (this.queue.length >= QUEUE_MAX) {
-      this.log(`history: ${QUEUE_MAX} commits waiting for git; this one is dropped`)
-      return
-    }
     this.queue.push(q)
     this.applyToTree(q)
     for (const c of q.changes) this.touch(c.path)
+    this.compact()
     this.saveJournal()
     crashPoint('history-queued')
     this.scheduleDrain()
+  }
+
+  /** Keeps the queue at its cap, merging commits (never dropping one). */
+  private compact() {
+    const max = this.opts.queueMax ?? QUEUE_MAX
+    while (this.queue.length > max && this.mergeOldest()) {
+      if (this.merged?.count === 1) this.log(`history: ${max} commits waiting for git; merging the oldest into later ones (fewer versions, the same contents and authors)`)
+    }
+  }
+
+  /**
+   * The queue is at its cap (git has failed for a long time): one commit
+   * fewer, losing granularity and never content or authors. In order:
+   * 1. The oldest commit whose files a later commit writes again goes into
+   *    that later commit, as if its version had stayed open longer: the later
+   *    content wins, and the version has the authors of both.
+   * 2. Otherwise (no waiting commit's files are written again), the oldest one
+   *    that has a later commit with the same authors and reason goes into it:
+   *    every file keeps its content and exact authors; only its date moves.
+   * 3. Otherwise, the oldest goes into the next commit, with both authors.
+   * Moves are never merged away (the history of a note follows them), nor
+   * anything already on its way to git. False if nothing could be merged.
+   */
+  private mergeOldest(): boolean {
+    const q = this.queue
+    const start = this.inflight?.count ?? 0
+    const plain = (i: number) => q[i]!.changes.every((c) => c.from === undefined && !c.folder)
+    // Where each path is written (or moved from) from `start` on, in queue order.
+    const at = new Map<string, number[]>()
+    const inFolder = new Map<string, number[]>()
+    for (let j = start; j < q.length; j++) {
+      for (const c of q[j]!.changes) {
+        for (const p of c.from !== undefined ? [c.path, c.from] : [c.path]) {
+          const map = c.folder ? inFolder : at
+          const list = map.get(p)
+          if (list) { if (list.at(-1) !== j) list.push(j) } else map.set(p, [j])
+        }
+      }
+    }
+    const firstAfter = (list: number[] | undefined, i: number) => {
+      if (!list) return -1
+      let lo = 0, hi = list.length
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid]! <= i) lo = mid + 1; else hi = mid }
+      return lo < list.length ? list[lo]! : -1
+    }
+    const nextWriting = (i: number) => {
+      let best = -1
+      const take = (k: number) => { if (k >= 0 && (best < 0 || k < best)) best = k }
+      for (const c of q[i]!.changes) {
+        take(firstAfter(at.get(c.path), i))
+        for (let s = c.path.lastIndexOf('/'); s > 0; s = c.path.lastIndexOf('/', s - 1)) take(firstAfter(inFolder.get(c.path.slice(0, s)), i))
+      }
+      return best
+    }
+    for (let i = start; i < q.length - 1; i++) {
+      if (!plain(i)) continue
+      const k = nextWriting(i)
+      if (k >= 0) return this.fold(i, k), true
+    }
+    // No waiting commit's files are written again: any of them can go into any later commit.
+    const sig = (c: QCommit) => JSON.stringify([[...c.authors].sort(), c.reason, !!c.foundAtStartup])
+    const nextSame = new Map<string, number>()
+    const same: number[] = []
+    for (let j = q.length - 1; j >= start; j--) {
+      const s = sig(q[j]!)
+      same[j] = nextSame.get(s) ?? -1
+      nextSame.set(s, j)
+    }
+    for (let i = start; i < q.length - 1; i++) if (plain(i) && same[i]! >= 0) return this.fold(i, same[i]!), true
+    for (let i = start; i < q.length - 1; i++) if (plain(i)) return this.fold(i, i + 1), true
+    return false
+  }
+
+  /**
+   * Commit `i` goes into the later commit `k`, which no commit in between
+   * writes any of its files: its changes first (a file that `k` writes again
+   * keeps `k`'s content), then `k`'s, with the authors of both.
+   */
+  private fold(i: number, k: number) {
+    const a = this.queue[i]!
+    const b = this.queue[k]!
+    const rewritten = (c: QChange) => b.changes.some((d) => d.path === c.path && d.from === undefined && !d.folder && d.oid !== undefined)
+      && !b.changes.some((d) => d.from !== undefined && (d.from === c.path || (!!d.folder && under(c.path, d.from))))
+    const gone = a.changes.filter(rewritten)
+    b.changes = [...a.changes.filter((c) => !gone.includes(c)), ...b.changes]
+    for (const x of a.authors) if (!b.authors.includes(x)) b.authors.push(x)
+    // A reason explains the system as an author; a person's (restored…) was about the content that is now gone.
+    if (!b.reason && a.authors.includes('system')) b.reason = a.reason
+    if (a.foundAtStartup) b.foundAtStartup = true
+    this.queue.splice(i, 1)
+    for (const c of gone) if (c.file && c.oid) this.releaseBlob(c.oid)
+    this.merged = { count: (this.merged?.count ?? 0) + 1, since: this.merged?.since ?? this.now() }
   }
 
   private applyToTree(q: QCommit) {
@@ -1234,6 +1334,8 @@ export class Recorder {
           ids = await this.writes.run(() => fastImport(this.git, HISTORY_REF, this.head, commits, 300_000 + bytes / 1000))
         } catch (err) {
           this.inflight = null
+          // What came in while this batch was on its way couldn't be merged into it: now it can.
+          this.compact()
           this.saveJournal()
           this.fail(err)
           return this.retryLater()
@@ -1251,6 +1353,10 @@ export class Recorder {
       this.inflight = null
       if (skipped.length) this.rebuildTree()
       for (const q of batch) for (const c of q.changes) if (c.file && c.oid) this.dropBlob(c.oid)
+      if (this.merged && this.queue.length === 0) {
+        this.log(`history: the ${this.merged.count} merged commits are in git`)
+        this.merged = null
+      }
       this.saveJournal()
       this.clearError()
       this.gcMaybe(commits.length)
@@ -1389,7 +1495,7 @@ export class Recorder {
     try {
       const j = JSON.parse(text) as Journal
       if (j.version !== 1) throw new Error(`version ${String(j.version)}`)
-      return { version: 1, mode: j.mode ?? 'managed', typing: j.typing ?? {}, pending: j.pending ?? {}, queue: j.queue ?? [], inflight: j.inflight ?? null, groups: j.groups ?? [], writes: j.writes ?? [] }
+      return { version: 1, mode: j.mode ?? 'managed', typing: j.typing ?? {}, pending: j.pending ?? {}, queue: j.queue ?? [], inflight: j.inflight ?? null, groups: j.groups ?? [], writes: j.writes ?? [], merged: j.merged ?? null }
     } catch (err) {
       this.log(`history: the journal can't be read (${err instanceof Error ? err.message : String(err)}); starting without it`)
       return null
@@ -1410,6 +1516,7 @@ export class Recorder {
         authors: g.authors, reason: g.reason, refs: [...g.changes.values()].filter((c) => c.oid !== undefined && !c.folder && c.from === undefined).map((c) => ({ path: c.path, oid: c.oid! })),
       })),
       writes: [...this.leftoverWrites, ...this.writesInFlight.values()],
+      merged: this.merged,
     }
     try {
       mkdirSync(this.dir, { recursive: true })

@@ -393,6 +393,66 @@ test('a failing git never blocks a write: it is reported, and the history catche
   } finally { await h.close(); rmSync(dir, { recursive: true, force: true }) }
 })
 
+test('git failing so long that the queue reaches its cap: the oldest versions merge into later ones, keeping contents and authors, with an alert while it lasts', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thoth-git-'))
+  const { git, flag } = flakyGit(dir)
+  const h = await setup({ git, queueMax: 2 })
+  const until = async (cond: () => Promise<boolean>, what: string) => {
+    const t0 = Date.now()
+    while (!(await cond())) { if (Date.now() - t0 > 15_000) throw new Error(`timeout: ${what}`); await sleep(50) }
+  }
+  const merged = async () => (await h.noa('GET', '/api/alerts')).body.alerts.find((a: any) => a.code === 'history_versions_merged') ?? null
+  const gitBack = async () => {
+    rmSync(flag)
+    await until(async () => (await h.noa('GET', '/api/history/status')).body.available, 'git back')
+    await h.history.recorder.settle()
+  }
+  const version = async (path: string) => {
+    const [v] = (await h.versions(path)).versions
+    return { who: who(v), text: (await h.noa('GET', `/api/history/version?path=${h.q(path)}&id=${v.id}`)).body.text as string, id: v.id }
+  }
+  try {
+    const t0 = Date.now()
+    writeFileSync(flag, '')
+    // Three versions for a queue of two: noa's of the note goes into ana's next one of the same note.
+    await h.put(NOTE, (t) => t + '\nDE-NOA\n')
+    h.history.recorder.closeAll()
+    await h.put('tags.md', (t) => t + 'DE-ANA\n', 'ana')
+    h.history.recorder.closeAll()
+    await h.put(NOTE, (t) => t + 'DE-ANA-DESPUÉS\n', 'ana')
+    h.history.recorder.closeAll()
+    await until(async () => (await merged()) !== null, 'the alert')
+    const alert = await merged()
+    assert.deepEqual(alert, { code: 'history_versions_merged', versions: 1, since: alert.since, actions: [] })
+    assert.ok(Date.parse(alert.since) >= t0 - 1000 && Date.parse(alert.since) <= Date.now())
+    assert.ok(readFileSync(join(h.notesDir, NOTE), 'utf8').includes('DE-ANA-DESPUÉS'), 'notes are written all the same')
+    await gitBack()
+    assert.equal(await merged(), null, 'gone once everything is in git')
+    assert.deepEqual((await h.versions(NOTE)).versions.map(who), ['user:ana,user:noa', 'system'], 'one version with both authors')
+    assert.ok((await version(NOTE)).text.endsWith('DE-NOA\nDE-ANA-DESPUÉS\n'))
+    assert.deepEqual((await h.versions('tags.md')).versions.map(who), ['user:ana', 'system'], 'another file keeps its own author')
+
+    // Nothing written again: a version goes into a later one by the same author, with its own content.
+    writeFileSync(flag, '')
+    await h.put('codigo.md', (t) => t + 'K1\n')
+    h.history.recorder.closeAll()
+    await h.put('Plan.md', (t) => t + 'A1\n', 'ana')
+    h.history.recorder.closeAll()
+    await h.put('tags.md', (t) => t + 'K2\n')
+    h.history.recorder.closeAll()
+    await until(async () => (await merged())?.versions === 1, 'the alert again')
+    await gitBack()
+    const { changes } = await h.changes()
+    assert.deepEqual(changes.slice(0, 2).map((c: any) => [who(c), c.files.map((f: any) => f.path).sort()]), [
+      ['user:noa', ['codigo.md', 'tags.md']],
+      ['user:ana', ['Plan.md']],
+    ])
+    assert.ok((await version('codigo.md')).text.endsWith('K1\n'))
+    assert.ok(h.logs.some((l) => /merging the oldest/.test(l)))
+    assert.ok(!h.logs.some((l) => /dropped/.test(l)))
+  } finally { await h.close(); rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('thoth.yaml turns the history off and on: nothing recorded meanwhile is attributed', async () => {
   const h = await setup()
   try {

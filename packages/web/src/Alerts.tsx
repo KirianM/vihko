@@ -10,6 +10,7 @@ import { SearchButton } from './Palette.tsx'
 import type { ConfigError } from '@thoth/core/codes'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
 import { ShiftPreview } from './Shifts.tsx'
+import { useDates } from './history/ui.tsx'
 import './actions.css'
 
 type ExternalMove = Extract<Alert, { code: 'external_move' }>
@@ -115,6 +116,7 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
   onUnauthorized: () => void
 }) {
   const t = useT()
+  const dates = useDates()
   const [alerts, setAlerts] = useState<Alert[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -311,6 +313,14 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
               {a.paths.length > 10 && <li>{t('alerts.movedMore', { n: a.paths.length - 10 })}</li>}
             </ul>
           ),
+          actions: null,
+        })
+      case 'history_versions_merged':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: a.versions === 1 ? t('alerts.historyMergedTitleOne') : t('alerts.historyMergedTitle', { n: a.versions }),
+          body: t('alerts.historyMergedBody', { since: dates.dateTime(a.since) }),
           actions: null,
         })
       case 'history_no_repository':

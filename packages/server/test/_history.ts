@@ -21,6 +21,8 @@ export interface HistorySetup {
   dir?: string
   quietMs?: number
   maxOpenMs?: number
+  /** Commits waiting for git before the oldest are merged. */
+  queueMax?: number
   /** Before anything starts, once the files are there (the user's own git repository, say). */
   prepare?: (dirs: { dir: string; notesDir: string }) => void
 }
@@ -52,7 +54,7 @@ export async function setup(opts: HistorySetup = {}) {
   const logs: string[] = []
   const history = new History({
     notesDir, stateDir, config: () => workspace.config.history, git: opts.git,
-    quietMs: opts.quietMs ?? 150, maxOpenMs: opts.maxOpenMs ?? 60_000, tickMs: 20, retryMs: 50,
+    quietMs: opts.quietMs ?? 150, maxOpenMs: opts.maxOpenMs ?? 60_000, tickMs: 20, retryMs: 50, queueMax: opts.queueMax,
     nameOf: (a) => (a.kind === 'user' ? auth.username(a.id) ?? a.id : a.kind), log: (m) => logs.push(m),
   })
   await history.open()
