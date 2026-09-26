@@ -246,22 +246,29 @@ export function planRevert(version: string, previous: string, current: string, o
  * `reverted`, which can be reverted in turn. A version that creates or
  * deletes the note has nothing to undo on its text (`not_revertible`):
  * deleting is what undoes a creation, and restoring the version before is
- * what undoes a deletion. With `ifMatch`, only if the note is still that one.
+ * what undoes a deletion. With `ifMatch`, only if the note is still that one
+ * (an open note as its editors have it, as every read gives it). `guard`
+ * sees every text the revert is planned on, the one the write finds too, and
+ * may refuse it by throwing (an agent never reverts on a note hidden from it).
  */
 export async function revertVersion(
   deps: { reader: HistoryReader; notes: NoteService; recorder: Pick<Recorder, 'operation'>; uidKey?: string },
   path: string,
   id: string,
-  opts: { actor: Actor; ifMatch?: string; dryRun?: boolean },
+  opts: { actor: Actor; ifMatch?: string; dryRun?: boolean; guard?: (text: string) => void },
 ): Promise<RevertReport> {
   const v = await deps.reader.version(path, id)
   if (!v) throw new HistoryError('not_found', `${id} is not a version of ${path}`)
   const { text, before } = v
   if (text === null) throw new HistoryError('not_revertible', 'that version deletes the note: restore the version before it instead')
   if (before === null) throw new HistoryError('not_revertible', 'that version creates the note: there is nothing before it to go back to')
-  const now = deps.notes.read(path)
+  const now = deps.notes.readCurrent(path)
+  opts.guard?.(now.text)
   if (opts.ifMatch !== undefined && opts.ifMatch !== now.etag) throw new NoteError('precondition_failed', `the note has changed: ${path}`, now.etag)
-  const plan = (current: string) => planRevert(text, before, current, { uidKey: deps.uidKey })
+  const plan = (current: string) => {
+    opts.guard?.(current)
+    return planRevert(text, before, current, { uidKey: deps.uidKey })
+  }
   const preview = plan(now.text)
   const report = (p: RevertPlan, extra: { dryRun: boolean; changed: boolean; etag: string }): RevertReport =>
     ({ ...extra, reverted: p.reverted, skipped: p.skipped, counts: p.counts })
