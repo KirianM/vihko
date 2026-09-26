@@ -13,7 +13,14 @@
 //   with `canWrite`, where it can read (or, for a new file, in its folders).
 //
 // What an agent can't read doesn't exist for it: callers answer `not_found`,
-// never `forbidden`, and name nothing it can't see (D-030, D-024).
+// never `forbidden`, and name nothing it can't see (D-030, D-024). With one
+// exception, as D-024 is for people: a note the agent names itself (its
+// path, its uid, a link to it) that exists but is hidden from it gets an
+// explicit denial, `agent_denied` with the reason, so that it doesn't take it
+// for a broken link and delete, redirect or duplicate it. The denial carries
+// nothing of the note: no text, title, frontmatter, links or other paths.
+// Lists still never show it: the agent only learns it exists if it already
+// has its name.
 import { classifyPath, readFrontmatter } from '@thoth/core'
 import type { Actor, Via } from './actor.ts'
 import type { User } from './auth.ts'
@@ -48,9 +55,26 @@ export function hiddenFromAgents(fm: { data: Record<string, unknown>; error: str
   return typeof v === 'string' && /^(false|no|off|0)$/i.test(v.trim())
 }
 
-/** A request the principal may make in general but not here (never about a note it can't see: that is `not_found`). */
+/** A request the principal may make in general but not here (never about a note it can't see: see `AgentDenied`). */
 export class AccessError extends Error {
   readonly code = 'forbidden'
+}
+
+/** Why a note an agent named isn't for it: `ai: false` (or a frontmatter that can't be read), or out of its key's folders. */
+export type DenyReason = 'ai_false' | 'outside_key_folders'
+
+/**
+ * An agent named a note that exists but is hidden from it (403
+ * `agent_denied`). Only the reason: nothing of the note.
+ */
+export class AgentDenied extends Error {
+  readonly code = 'agent_denied'
+  readonly reason: DenyReason
+  constructor(reason: DenyReason) {
+    super(`This note exists but is not available to agents (${reason === 'ai_false' ? 'it is marked as hidden from them' : 'it is outside the folders of this key'}). `
+      + 'Do not delete, rewrite or replace links to it, and do not create a note to replace it.')
+    this.reason = reason
+  }
 }
 
 export interface AccessPolicyOptions {
@@ -118,6 +142,11 @@ export class AccessPolicy {
   hiddenIndexed(path: string): boolean {
     const r = this.statement('select fm_json, fm_error from notes where path = ?').get(path) as { fm_json: string; fm_error: string | null } | undefined
     return r ? this.hiddenRow(r.fm_json, r.fm_error) : false
+  }
+
+  /** @internal Whether the index has a note at `path`. */
+  indexed(path: string): boolean {
+    return this.statement('select 1 from notes where path = ?').get(path) !== undefined
   }
 
   /** @internal Whether a file that isn't a note is used by a note the grant can read. */
@@ -214,18 +243,41 @@ export class Access {
     return this.principal.kind === 'agent' && hiddenFromAgents(readFrontmatter(text), this.policy.aiKey)
   }
 
-  /** `not_found` unless it may read `path`: what it can't see doesn't exist. */
+  /**
+   * Why a note it named is hidden from it, if the note exists (as indexed)
+   * and it can't read it; null otherwise (it can, it isn't a note, or there
+   * is no such note). `hides` judges its text now.
+   */
+  denial(path: string): DenyReason | null {
+    if (this.principal.kind === 'user' || classifyPath(path) !== 'note' || this.canRead(path)) return null
+    if (!this.policy.indexed(path)) return null
+    return this.inScope(path) ? 'ai_false' : 'outside_key_folders'
+  }
+
+  /** Why a note is hidden from it, known to exist and to be hidden (by its text, say). */
+  reasonFor(path: string): DenyReason {
+    return this.inScope(path) ? 'ai_false' : 'outside_key_folders'
+  }
+
+  /** Unless it may read `path`: `agent_denied` for a note that exists and is hidden from it, `not_found` otherwise. */
   assertRead(path: string): void {
-    if (!this.canRead(path)) throw new NoteError('not_found', `does not exist: ${path}`)
+    if (this.canRead(path)) return
+    const d = this.denial(path)
+    if (d) throw new AgentDenied(d)
+    throw new NoteError('not_found', `does not exist: ${path}`)
   }
 
   /**
-   * `not_found` unless it may write `path`; `forbidden` for a read-only key
+   * Unless it may write `path`: `agent_denied` for a note that exists and is
+   * hidden from it, `not_found` otherwise; `forbidden` for a read-only key
    * (the key's own limit, never about a note).
    */
   assertWrite(path: string): void {
     if (!this.mayWrite) throw new AccessError('this key is read-only')
-    if (!this.canWrite(path)) throw new NoteError('not_found', `does not exist: ${path}`)
+    if (this.canWrite(path)) return
+    const d = this.denial(path)
+    if (d) throw new AgentDenied(d)
+    throw new NoteError('not_found', `does not exist: ${path}`)
   }
 
   /**

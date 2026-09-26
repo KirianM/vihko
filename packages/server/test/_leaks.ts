@@ -45,6 +45,15 @@ export const MARKERS = [
   'fuera', 'Esmeralda', 'esmeralda', 'Dup de fuera', 'imagen.png', 'Cuarzo', 'Ópalo',
 ]
 
+/**
+ * The notes that exist and are hidden from the key, once `historyToHide`
+ * has run: a request naming one of them is told so (`agent_denied`).
+ */
+export const HIDDEN = [
+  'proyectos/secreto.md', 'proyectos/roto.md', 'proyectos/solo-oculta/escondida.md',
+  'fuera/otra-nueva.md', 'fuera/dup.md', 'fuera/plantilla.md',
+]
+
 /** The markers in `shown` that the request (`asked`) didn't name itself. */
 export const leaked = (shown: string, asked: string) => MARKERS.filter((m) => shown.includes(m) && !asked.includes(m))
 

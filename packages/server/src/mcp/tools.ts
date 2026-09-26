@@ -5,6 +5,10 @@
 // never naming it. A key that can't write doesn't get the tools that write
 // (and a call to one is refused as an unknown tool).
 //
+// The one exception (access.ts): a note the agent names itself that exists
+// but is hidden from it is `agent_denied`, with the reason and nothing else,
+// and a link to one is `no_access`: so that it isn't taken for a broken link.
+//
 // Conventions for agents: paths are relative to the notes root, with `.md`;
 // every read gives the ETag a substitution needs as `if_match` (D-017);
 // lists are paged, with a bound; the text of notes comes as data, between
@@ -15,7 +19,7 @@ import { randomBytes } from 'node:crypto'
 import { contentHash, readFrontmatter } from '@thoth/core'
 import type { CallToolResult, McpServer, StandardSchemaWithJSON, ToolAnnotations } from '@modelcontextprotocol/server'
 import { z } from 'zod'
-import { AccessError, type Access } from '../access.ts'
+import { AccessError, AgentDenied, type Access } from '../access.ts'
 import { parseAuthorKey } from '../actor.ts'
 import { historyFor } from '../agentHistory.ts'
 import type { EditOp } from '../edits.ts'
@@ -85,7 +89,10 @@ function input<T extends z.ZodObject>(schema: T, aliases: Record<string, string>
   return { '~standard': { ...std, validate: (v: unknown, o?: unknown) => std.validate(renamed(v, top), o as never) } } as unknown as StandardSchemaWithJSON<z.input<T>, z.output<T>>
 }
 
-const NAME_ALIASES = { note: 'path', file: 'path', note_path: 'path', etag: 'if_match', q: 'query', source: 'from', destination: 'to', id: 'version' }
+/** What an agent must do about a note it can't access (the same words in the instructions). */
+export const LEAVE_IT = 'do not delete, rewrite or replace links to notes you cannot access, and do not create notes to replace them.'
+
+const NAME_ALIASES ={ note: 'path', file: 'path', note_path: 'path', etag: 'if_match', q: 'query', source: 'from', destination: 'to', id: 'version' }
 
 const path = z.string().min(1).describe('Path of the note from the notes root, with its .md extension, e.g. "projects/plan.md".')
 const ifMatch = z.string().describe('The ETag ("sha256:…") of the text the change was planned on, as get_note or the last edit returned it.')
@@ -120,7 +127,8 @@ function failure(err: unknown, log: (m: string) => void): CallToolResult {
     if (err.code === 'precondition_failed') body.hint = 'the note changed since that ETag: read it again (get_note, or changes_since) and plan the change on its current text'
     // Whatever the reason (missing, out of the key's folders, hidden from agents), the same words.
     if (err.code === 'not_found') body.message = 'does not exist'
-  } else if (err instanceof RequestError) body = { error: err.code, message: err.message }
+  } else if (err instanceof AgentDenied) body = { error: 'agent_denied', reason: err.reason, message: err.message }
+  else if (err instanceof RequestError) body = { error: err.code, message: err.message }
   else if (err instanceof AccessError) body = { error: 'forbidden', message: err.message }
   else if (err instanceof HistoryError) body = { error: err.code, message: err.message }
   else if (err instanceof GitError) body = { error: 'history_unavailable', message: 'the history can\'t be read right now' }
@@ -233,15 +241,17 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('get_note', {
     title: 'Read a note',
-    description: 'A note\'s text with its ETag (needed as if_match to replace text in it), frontmatter, title, and its links: outgoing (with where each leads, `status` null when it doesn\'t lead to a note you can see) and incoming (backlinks). A long note comes in pieces: pass next_offset back as offset.',
+    description: 'A note, by its path or its uid: its text with its ETag (needed as if_match to replace text in it), frontmatter, title, and its links: outgoing (where each leads; `no_access` when it leads to a note that exists but is not available to you) and incoming (backlinks). A note that exists but is not available to agents answers `agent_denied`: ' + LEAVE_IT + ' A long note comes in pieces: pass next_offset back as offset.',
     inputSchema: input(z.object({
-      path,
+      path: path.optional(),
+      uid: z.string().min(1).optional().describe('The note\'s uid (its frontmatter identity), instead of its path.'),
       offset: z.number().int().min(0).default(0).describe('First character of the text to return.'),
       max_chars: z.number().int().min(1000).max(200_000).default(100_000).describe('Most characters of text to return.'),
     }), NAME_ALIASES),
     annotations: READ,
-  }, run(({ path: p, offset, max_chars }) => {
-    const r = read(p)
+  }, run(({ path: p, uid, offset, max_chars }) => {
+    if ((p === undefined) === (uid === undefined)) throw new ToolError('invalid', 'give the note\'s path or its uid')
+    const r = read(p ?? scoped.pathOfUid(uid!))
     const meta = r.meta as { title?: string; uid?: string | null } | null
     const links = scoped.links(r.path)
     const fm = readFrontmatter(r.text)
@@ -251,7 +261,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       path: r.path, etag: r.etag, title: meta?.title ?? null, uid: meta?.uid ?? null,
       frontmatter: fm.error ? null : fm.data,
       links: {
-        outgoing: links.outgoing.slice(0, 200).map((l) => ({ link: l.raw, target: l.target, anchor: l.anchor, status: l.status, path: l.dst_path, candidates: l.candidates })),
+        outgoing: links.outgoing.slice(0, 200).map((l) => ({
+          link: l.raw, target: l.target, anchor: l.anchor, status: l.status, path: l.dst_path, candidates: l.candidates,
+          ...(l.others_no_access ? { others_no_access: true } : {}),
+        })),
         incoming: links.backlinks.slice(0, 200).map((b) => ({ path: b.path, title: b.title })),
         more: links.outgoing.length > 200 || links.backlinks.length > 200,
       },
@@ -287,7 +300,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('related', {
     title: 'Related notes',
-    description: 'The notes a note links to and the notes that link to it, each backlink with the text around it. Paged: pass next_offset back as offset.',
+    description: 'The notes a note links to and the notes that link to it, each backlink with the text around it. A link with status `no_access` leads to a note that exists but is not available to you: ' + LEAVE_IT + ' Paged: pass next_offset back as offset.',
     inputSchema: input(z.object({
       path,
       limit: z.number().int().min(1).max(200).default(50).describe('Links of each kind per page (at most 200).'),
@@ -301,6 +314,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       link: o.raw, target: o.target, anchor: o.anchor, status: o.status, path: o.dst_path,
       title: o.dst_path ? titles.get(o.dst_path) ?? null : null,
       candidates: o.candidates?.map((c) => ({ path: c, title: l.titles[c] ?? c })) ?? null,
+      ...(o.others_no_access ? { others_no_access: true } : {}),
     }))
     const back = l.backlinks.slice(offset, offset + limit)
     const more = offset + limit < Math.max(l.outgoing.length, l.backlinks.length)
@@ -309,7 +323,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('resolve_link', {
     title: 'Resolve a link',
-    description: 'Which note a link leads to when written in a given note: `[[Note]]`, `[[Note#Heading]]`, `[text](path.md)`, or just the name. `status`: resolved (with its path), ambiguous (with the candidates), missing, or null (a link in that note that doesn\'t lead to a note you can see).',
+    description: 'Which note a link leads to when written in a given note: `[[Note]]`, `[[Note#Heading]]`, `[text](path.md)`, or just the name. `status`: resolved (with its path), ambiguous (with the candidates you can see; `others_no_access` if there are more), missing (no such note), or no_access (a note that exists but is not available to you, with the reason: `ai_false` or `outside_key_folders`): ' + LEAVE_IT,
     inputSchema: input(z.object({
       from: path.describe('The note the link is written in.'),
       link: z.string().min(1).describe('The link, e.g. "[[Plan#Tasks]]" or "Plan".'),
@@ -321,6 +335,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       from, link, target: r.target, anchor: r.anchor, status: r.status, path: r.path,
       title: r.path ? r.titles[r.path] ?? null : null, anchor_found: r.anchorOk,
       candidates: r.candidates?.map((c) => ({ path: c, title: r.titles[c] ?? c })) ?? null,
+      ...(r.othersNoAccess ? { others_no_access: true } : {}),
+      ...(r.reason ? { reason: r.reason } : {}),
     })
   }))
 
@@ -395,6 +411,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   }, run(async ({ path: p, version, include_text, cursor, limit }) => {
     const note = NoteService.checkPath(p)
     access.assertRead(note)
+    // Hidden by its text now (not yet by the index): denied too. A note deleted since keeps its history.
+    try { scoped.read(note) } catch (err) { if (err instanceof AgentDenied) throw err }
     const r = reader()
     if (version) {
       const v = await r.version(note, version)
@@ -448,7 +466,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('create_note', {
     title: 'Create a note',
-    description: 'A new note with the given text, or from a template note (its {{date}}, {{title}}… filled in). Never overwrites: if the note exists, it fails with `exists`. Returns its ETag.',
+    description: 'A new note with the given text, or from a template note (its {{date}}, {{title}}… filled in). Never overwrites: if the note exists, it fails with `exists`; if a note that is not available to you is there, with `agent_denied`: ' + LEAVE_IT + ' Returns its ETag.',
     inputSchema: input(z.object({
       path,
       text: z.string().optional().describe('The note\'s Markdown text (frontmatter included, if any).'),

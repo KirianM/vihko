@@ -152,9 +152,10 @@ test('writing with a key: If-Match (412 with the current ETag), If-None-Match: *
     assert.equal(done.status, 200)
     assert.equal((await key('POST', '/api/note/edit', { path, ops: [{ op: 'append', text: 'Tres.\n' }] })).status, 200)
     assert.equal((await key('POST', '/api/note/edit', { ...replace, ifMatch: now.etag })).status, 412)
-    // Outside its folders, nothing: not even a 403.
+    // Outside its folders: where there's no note, nothing; a note it names, denied with the reason.
     assert.equal((await key('POST', '/api/note', { path: 'otros/x.md', text: 'x' })).status, 404)
-    assert.equal((await key('GET', h.url('/api/note', { path: 'otros/nota.md' }))).status, 404)
+    const outside = await key('GET', h.url('/api/note', { path: 'otros/nota.md' }))
+    assert.deepEqual([outside.status, outside.body.error, outside.body.reason], [403, 'agent_denied', 'outside_key_folders'])
 
     await h.settle()
     const versions = (await h.noa('GET', h.url('/api/history/versions', { path }))).body.versions
@@ -260,7 +261,8 @@ test('restoring and reverting with a key: as the agent on its user\'s behalf, wi
       assert.deepEqual([r.status, r.body.error], [403, 'forbidden'], route)
     }
     assert.equal((await key('GET', at)).body.etag, etag)
-    // Outside the key's folders, nothing.
-    assert.equal((await key('POST', '/api/history/revert', { path: 'otros/nota.md', id: first.id })).status, 404)
+    // Outside the key's folders: denied, with the reason.
+    const outside = await key('POST', '/api/history/revert', { path: 'otros/nota.md', id: first.id })
+    assert.deepEqual([outside.status, outside.body.error, outside.body.reason], [403, 'agent_denied', 'outside_key_folders'])
   } finally { await h.close() }
 })

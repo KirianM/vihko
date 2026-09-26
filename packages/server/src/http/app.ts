@@ -25,7 +25,7 @@ import type { ExternalMoves } from '../externalMoves.ts'
 import { HistoryError, type History } from '../history/index.ts'
 import { GitError } from '../history/git.ts'
 import { historyErrorStatus, historyRoutes } from './history.ts'
-import { AccessError, AccessPolicy, type Access } from '../access.ts'
+import { AccessError, AccessPolicy, AgentDenied, type Access } from '../access.ts'
 import { ApiKeys, KeyError } from '../keys.ts'
 import { Integrations, IntegrationsError } from '../integrations.ts'
 import { RequestError, ScopedNotes, type ScopedDeps } from '../scoped.ts'
@@ -172,6 +172,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     }
     if (err instanceof RequestError) return fail(c, err.status, err.code, err.message)
     if (err instanceof AccessError) return fail(c, 403, 'forbidden', err.message)
+    if (err instanceof AgentDenied) return fail(c, 403, 'agent_denied', err.message, { reason: err.reason })
     if (err instanceof FetchImageError) return fail(c, fetchErrorStatus(err), err.code, err.message)
     if (err instanceof ProfileError) return fail(c, 400, err.code, err.message)
     if (err instanceof HistoryError) return fail(c, historyErrorStatus(err), err.code, err.message)

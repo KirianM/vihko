@@ -27,11 +27,14 @@ test('a key\'s folders match paths as the disk holds them (NFD), and a note hidd
     assert.equal((await key('GET', h.url('/api/note', { path: `${nfd}/receta.md` }))).status, 200)
 
     // Written outside thoth a moment ago, not indexed yet: its text decides.
+    // It names the note: told it exists and isn't for agents, and nothing else.
     writeFileSync(join(h.notesDir, nfd, 'receta.md'), '---\nai: false\n---\n# Receta\n')
-    assert.equal((await key('GET', h.url('/api/note', { path: `${nfd}/receta.md` }))).status, 404)
+    const read = await key('GET', h.url('/api/note', { path: `${nfd}/receta.md` }))
+    assert.deepEqual([read.status, read.body.error, read.body.reason], [403, 'agent_denied', 'ai_false'])
     const edit = await key('POST', '/api/note/edit', { path: `${nfd}/receta.md`, ops: [{ op: 'append', text: 'x' }] })
-    assert.equal(edit.status, 404)
+    assert.deepEqual([edit.status, edit.body.error], [403, 'agent_denied'])
     const create = await key('POST', '/api/note', { path: `${nfd}/receta.md`, text: 'x' })
+    assert.deepEqual([create.status, create.body.error], [403, 'agent_denied'])
     assert.equal(create.body.etag ?? null, null, 'no ETag of a note it can\'t see')
     assert.equal(create.headers.get('etag'), null)
   } finally { await h.close() }

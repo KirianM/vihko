@@ -34,6 +34,7 @@ export type ErrorCode =
   | 'history_unavailable' // the history can't be read right now (see /api/history/status)
   | 'integrations_locked' // THOTH_INTEGRATIONS=off: the API and MCP switches can't be turned on
   | 'not_revertible' // a version that creates or deletes the note has no change of its text to revert
+  | 'agent_denied' // an agent named a note that exists but isn't for agents (`ai: false`, or outside its key's folders)
 
 /**
  * Space-level alerts: what thoth has detected in the notes folder that needs
