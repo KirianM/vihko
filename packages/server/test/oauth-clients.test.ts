@@ -137,8 +137,10 @@ test('mcp-remote: discovery, registration, consent, tokens and the tools of a re
     assert.equal(asked.body.client.redirectUri, `http://localhost:${port}/oauth/callback`)
     const approved = await browser('POST', '/api/oauth/authorize', { query: url.search.slice(1), approve: true }, { cookie, origin: publicUrl })
     assert.equal(approved.status, 200, JSON.stringify(approved.body))
-    // Back to mcp-remote, as the browser follows the redirect.
-    const back = await fetch(approved.body.redirect)
+    // Back to mcp-remote, as the browser follows the redirect. mcp-remote prints the address
+    // before it opens its callback server: a person's browser is never that fast, this test can be.
+    await waitFor(() => /OAuth callback server running/.test(first.err.join('')), `mcp-remote's callback server\n${first.err.join('')}`, 30_000)
+    const back = await fetch(approved.body.redirect).catch((e: unknown) => { throw new Error(`${approved.body.redirect}: ${e}\n${first.err.join('')}`) })
     assert.equal(back.status, 200, await back.text())
     const failed = await first.connected
     assert.equal(failed, null, `${failed}\n${first.err.join('')}`)
