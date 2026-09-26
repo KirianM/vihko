@@ -3,7 +3,7 @@
 // of looking empty. At the end the folder goes back to having no thoth.yaml.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { NOTES } from './env.ts'
+import { E2E_DIR, NOTES } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const DIR = 'fuera-del-historial'
@@ -47,6 +47,8 @@ test('an excluded note: its history tab says it is kept out, and typing makes no
   const notice = panel.getByText('Este archivo está fuera del historial (history.exclude en thoth.yaml): sus cambios no se guardan como versiones.')
   await expect(notice).toBeVisible()
   await expect(panel.getByText('Esta nota aún no tiene versiones.')).toHaveCount(0)
+  mkdirSync(`${E2E_DIR}/shots`, { recursive: true })
+  await panel.screenshot({ path: `${E2E_DIR}/shots/history-tab-excluded.png`, animations: 'disabled' })
 
   // Still a note like any other: it is edited and saved.
   await k.locator('.cm-line', { hasText: 'Nada que guardar aquí.' }).click()
