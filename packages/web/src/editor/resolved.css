@@ -1,0 +1,16 @@
+/* Resolved comment threads, at the end of the Comments tab. Design system tokens only. */
+.resolved { display: flex; flex-direction: column; gap: var(--space-3); border-top: 1px solid var(--line); padding-top: var(--space-3); }
+.resolved-toggle { font: inherit; display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; min-height: var(--control-md); padding: 0 8px 0 4px; font-size: 13px; font-weight: 600; color: var(--muted); background: transparent; border: none; border-radius: var(--radius-sm); cursor: pointer; }
+.resolved-toggle[data-hovered] { color: var(--ink); background: var(--chip); }
+.resolved-toggle[data-focus-visible] { outline: 2px solid var(--accent); outline-offset: 2px; }
+.resolved-chevron { transition: transform 120ms; }
+.resolved-toggle[aria-expanded="true"] .resolved-chevron { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .resolved-chevron { transition: none; } }
+.resolved-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.resolved-thread { background: var(--panel); border: 1px dashed var(--line-strong); border-radius: var(--radius-lg); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.resolved-quote { font-family: var(--font-serif); font-size: 13px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.resolved-replies { font: inherit; align-self: flex-start; padding: 2px 0 2px 32px; font-size: 12px; color: var(--accent); background: transparent; border: none; cursor: pointer; }
+.resolved-replies[data-hovered] { text-decoration: underline; }
+.resolved-replies[data-focus-visible] { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+.resolved-by, .resolved-gone { margin: 0; font-size: 12px; line-height: 1.45; color: var(--faint); }
+.resolved-gone { font-style: italic; }

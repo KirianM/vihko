@@ -10,12 +10,14 @@
 //   GET  /api/history/diff?path=&id=&against=previous|current|<id>
 //   POST /api/history/restore { path, id, ifMatch? }
 //   GET  /api/history/changes?cursor=&limit=&author=
+//   GET  /api/history/resolved?path=
 import type { Context, Hono } from 'hono'
 import { parseAuthorKey } from '../actor.ts'
 import type { Auth, User } from '../auth.ts'
 import { History, HistoryError, type AuthorRef, type HistoryReader } from '../history/index.ts'
 import { wordDiff } from '../history/diff.ts'
 import { authorFilter } from '../history/reader.ts'
+import { ResolvedThreads } from '../history/resolved.ts'
 import { NoteError, NoteService } from '../notes.ts'
 
 export interface HistoryRoutesDeps {
@@ -140,6 +142,23 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
       changes: page.changes.map((ch) => ({ ...ch, authors: ch.authors.map(author), reason: reason(ch.reason) })),
       next: page.next,
       authors,
+    })
+  })
+
+  // Comment threads that left the note in the last 30 days (D-032.5): each one
+  // whole, with what it takes to put it back (`place`), who resolved it and
+  // whether its text is still there. Reopening is an edit in the editor
+  // session, like resolving: there is no endpoint that writes it.
+  const resolved = new ResolvedThreads()
+  app.get('/api/history/resolved', async (c) => {
+    const path = notePath(c, c.req.query('path'))
+    const reader = history.reader()
+    let current: string | null
+    try { current = notes.read(path).text } catch (err) { if (err instanceof NoteError && err.code === 'not_found') current = null; else throw err }
+    const r = await resolved.list(reader, path, { current, pending: history.pendingOf(path)?.authors ?? null })
+    return c.json({
+      threads: r.threads.map((t) => ({ ...t, resolvedBy: t.resolvedBy.map(author) })),
+      complete: r.complete,
     })
   })
 }
