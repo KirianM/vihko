@@ -4,7 +4,7 @@
 // never overwriting.
 import { seriesPath, type Series } from '@thoth/core'
 import type { User } from './auth.ts'
-import { NoteError, type NoteService } from './notes.ts'
+import { NoteError, type Actor, type NoteService } from './notes.ts'
 import { createFromTemplate } from './templates.ts'
 import type { Profiles } from './profiles.ts'
 import type { Workspace } from './workspace.ts'
@@ -67,9 +67,11 @@ export class DailyNotes {
   /**
    * Today's note: opened if it exists, otherwise created from the series
    * template. Never overwrites: if someone creates it at the same moment,
-   * the one that is there wins and both open it.
+   * the one that is there wins and both open it. `actor`: who creates it
+   * (an agent on the user's behalf); `template`: whether the series
+   * template may be used (an agent that can't read it gets an empty note).
    */
-  async open(user: User, requested?: string | null): Promise<{ series: string; path: string; created: boolean }> {
+  async open(user: User, requested?: string | null, opts: { actor?: Actor; template?: (path: string) => boolean } = {}): Promise<{ series: string; path: string; created: boolean }> {
     const series = this.seriesFor(user, requested)
     const now = this.opts.profiles.now(user.id, this.instant())
     const path = seriesPath(series, now, user.username)
@@ -80,7 +82,8 @@ export class DailyNotes {
       if (!(err instanceof NoteError) || err.code !== 'not_found') throw err
     }
     try {
-      await createFromTemplate(this.opts.notes, { path, template: series.template, user, now, missing: 'empty' })
+      const template = series.template && (opts.template?.(series.template) ?? true) ? series.template : null
+      await createFromTemplate(this.opts.notes, { path, template, user, now, missing: 'empty', actor: opts.actor })
       return { series: series.id, path, created: true }
     } catch (err) {
       if (err instanceof NoteError && err.code === 'exists') return { series: series.id, path, created: false }

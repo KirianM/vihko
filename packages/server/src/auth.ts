@@ -115,6 +115,11 @@ export class Auth {
     this.db = stateDb
   }
 
+  /** state.db, which other application state (keys, settings) shares. */
+  get state(): Db {
+    return this.db
+  }
+
   /** A user's current name, or null if there's no such user (ids are stable; names may change). */
   username(id: string): string | null {
     return (this.db.prepare('select username from users where id = ?').get(id) as { username: string } | undefined)?.username ?? null

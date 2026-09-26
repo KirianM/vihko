@@ -1,5 +1,5 @@
 // state.db: application state that is NOT derived from the files: users,
-// sessions, profiles and, later, API keys and webhooks. It's not disposable: it's
+// sessions, profiles, settings, agent keys and, later, webhooks. It's not disposable: it's
 // backed up, and its schema evolves through migrations, never by deleting it.
 import Database from 'better-sqlite3'
 import { copyFileSync, existsSync } from 'node:fs'
@@ -31,6 +31,29 @@ const MIGRATIONS: string[] = [
      daily_series text,
      open_daily   integer not null default 0
    );`,
+  // Installation settings set from the UI by the thoth admin (the integration
+  // switches, D-035.1): no row = the default. And agent keys (D-035.2): only
+  // the sha256 of the secret and its last 4 characters; `folders` is a JSON
+  // list (empty = every folder the user sees).
+  `create table settings (
+     key   text primary key,
+     value text not null
+   );
+   create table api_keys (
+     id           text primary key,
+     user_id      text not null references users(id) on delete cascade,
+     name         text not null,
+     secret_hash  text not null,
+     last4        text not null,
+     can_write    integer not null default 0,
+     folders      text not null default '[]',
+     expires_at   text,
+     created_at   text not null,
+     last_used_at text,
+     last_via     text check (last_via in ('api', 'mcp', 'oauth')),
+     revoked_at   text
+   );
+   create index api_keys_user on api_keys(user_id);`,
 ]
 
 export const STATE_VERSION = MIGRATIONS.length

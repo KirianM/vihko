@@ -19,6 +19,8 @@ export async function createFromTemplate(notes: NoteService, o: {
   user: User
   now: CivilDateTime
   missing?: 'fail' | 'empty'
+  /** Who creates it: the user, or an agent on their behalf. */
+  actor?: Actor
 }): Promise<{ path: string; etag: string; uid: string | null }> {
   let text = ''
   if (o.template) {
@@ -30,5 +32,5 @@ export async function createFromTemplate(notes: NoteService, o: {
   }
   const title = posix.basename(o.path).replace(/\.md$/i, '')
   const rendered = renderTemplate(text, { now: o.now, user: o.user.username, title })
-  return notes.create(o.path, rendered, actorOf(o.user), { freshUid: true })
+  return notes.create(o.path, rendered, o.actor ?? actorOf(o.user), { freshUid: true })
 }
