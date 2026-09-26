@@ -37,6 +37,7 @@ export type ErrorCode =
   | 'agent_denied' // an agent named a note that exists but isn't for agents (`ai: false`, or outside its key's folders)
   | 'invalid_client' // an OAuth authorization request from a client this thoth doesn't know
   | 'invalid_redirect_uri' // an OAuth authorization request whose redirect URI the client didn't register
+  | 'too_many_attempts' // too many failed sign-ins (or first-boot tokens): wait `retryAfter` seconds (also Retry-After)
 
 /**
  * Space-level alerts: what thoth has detected in the notes folder that needs
@@ -99,6 +100,13 @@ export type Alert =
    * version of its own to undo it by (D-034 3.8).
    */
   | { code: 'integrations_unversioned'; mode: 'unmanaged' | 'off'; api: boolean; mcp: boolean; actions: never[] }
+  /**
+   * Many failed or refused sign-ins (`attempts`) since `since` (ISO), the
+   * last of them in the past day: someone may be guessing passwords. The
+   * login limits are holding them back; only admins see it. Kept in memory:
+   * a restart forgets it.
+   */
+  | { code: 'login_attempts_blocked'; attempts: number; since: string; actions: never[] }
 
 export type AlertCode = Alert['code']
 export type AlertAction = Alert['actions'][number]

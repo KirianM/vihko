@@ -23,6 +23,8 @@ import { Integrations, integrationsLockedFrom } from './integrations.ts'
 import { SESSION_COOKIE } from './http/app.ts'
 import { publicUrlFrom } from './oauth.ts'
 import type { Server } from 'node:http'
+import type { BlockList } from 'node:net'
+import { trustedProxiesFrom } from './http/clientIp.ts'
 import { WORKSPACE_FILE } from '@thoth/core'
 
 export interface Config {
@@ -55,6 +57,12 @@ export interface Config {
    * the MCP switch is on (oauth.ts); without it, `/mcp` takes keys only.
    */
   publicUrl: string | null
+  /**
+   * THOTH_TRUSTED_PROXIES: the reverse proxies (addresses or CIDR ranges)
+   * whose X-Forwarded-For says who the client is, for the login limits.
+   * Unset: the socket's address, and the header is ignored.
+   */
+  trustedProxies: BlockList | null
 }
 
 export function configFromEnv(env = process.env): Config {
@@ -75,6 +83,7 @@ export function configFromEnv(env = process.env): Config {
     },
     integrationsLocked: integrationsLockedFrom(env.THOTH_INTEGRATIONS),
     publicUrl: publicUrlFrom(env.THOTH_PUBLIC_URL),
+    trustedProxies: trustedProxiesFrom(env.THOTH_TRUSTED_PROXIES),
   }
 }
 
@@ -197,7 +206,7 @@ async function run(config: Config, lock: StateLock) {
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const profiles = new Profiles(state)
   const app = createApp({
-    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl,
+    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies,
     // The MCP server, at /mcp (off until the admin turns it on).
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log }) },
   })
@@ -208,6 +217,8 @@ async function run(config: Config, lock: StateLock) {
   log(`listening on http://${config.host}:${config.port}`)
   if (config.integrationsLocked) log('THOTH_INTEGRATIONS=off: the API with keys and the MCP server stay off')
   if (config.publicUrl) log(`public URL ${config.publicUrl}: OAuth for ${config.publicUrl}/mcp while the MCP server is on`)
+  // Behind a proxy without it, every client is the proxy to the login limits: one guesser holds everyone back.
+  if (config.publicUrl && !config.trustedProxies) log('THOTH_TRUSTED_PROXIES is unset: the login limits count every client by the connection\'s address (a reverse proxy\'s, if there is one). Set it to the proxy\'s address; see the README')
 
   const setup = auth.setupToken()
   if (setup) {

@@ -19,3 +19,6 @@ services:
     #   # Only behind a reverse proxy with HTTPS: the public address, for remote
     #   # MCP clients such as claude.ai (OAuth). See the README.
     #   THOTH_PUBLIC_URL: https://notes.example.com
+    #   # The reverse proxy's address as thoth sees it, so the login limits
+    #   # count each client apart (X-Forwarded-For is believed only from it).
+    #   THOTH_TRUSTED_PROXIES: 172.16.0.0/12

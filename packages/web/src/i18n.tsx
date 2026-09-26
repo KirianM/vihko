@@ -406,6 +406,7 @@ const es = {
   'error.agent_denied': 'Esta nota existe, pero no está disponible para los agentes.',
   'error.invalid_client': 'Esta aplicación no está registrada en este thoth.',
   'error.invalid_redirect_uri': 'La dirección a la que quiere volver esta aplicación no es la que registró.',
+  'error.too_many_attempts': 'Demasiados intentos fallidos. Espera un poco antes de volver a intentarlo.',
   // --- History (M2): the panel tab, a version, restoring it, «Recent changes» ---
   'history.tab': 'Historial',
   'history.pending': 'En curso · se guarda en unos segundos',
@@ -1102,6 +1103,7 @@ const en: Record<keyof typeof es, string> = {
   'error.agent_denied': 'This note exists, but it isn’t available to agents.',
   'error.invalid_client': 'This app isn’t registered with this thoth.',
   'error.invalid_redirect_uri': 'The address this app wants to go back to isn’t the one it registered.',
+  'error.too_many_attempts': 'Too many failed attempts. Wait a little before trying again.',
   // --- History (M2): the panel tab, a version, restoring it, «Recent changes» ---
   'history.tab': 'History',
   'history.pending': 'In progress · saved in a few seconds',
