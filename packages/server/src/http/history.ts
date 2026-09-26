@@ -24,6 +24,8 @@ import { authorFilter } from '../history/reader.ts'
 import { ResolvedThreads } from '../history/resolved.ts'
 import { revertVersion } from '../history/revert.ts'
 import { NoteError, NoteService, type Actor } from '../notes.ts'
+import { agentGuard, hiddenAfterWrite, revertWritten } from '../scoped.ts'
+import { written } from './written.ts'
 
 export interface HistoryRoutesDeps {
   history: History
@@ -189,12 +191,17 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     const body = await c.req.json<{ path?: string; id?: string; ifMatch?: string; dryRun?: boolean }>()
     const path = writableNote(c, body.path)
     if (typeof body.id !== 'string' || !body.id) throw new HistoryError('invalid', 'missing id')
-    const actor: Actor = c.get('access').actor
+    const access = c.get('access')
+    const actor: Actor = access.actor
+    const ifMatch = body.ifMatch ?? unquote(c.req.header('if-match'))
     const r = await revertVersion({ reader: readerOf(c), notes, recorder: history.recorder }, path, body.id, {
-      actor, ifMatch: body.ifMatch ?? unquote(c.req.header('if-match')), dryRun: body.dryRun === true,
+      actor, ifMatch, dryRun: body.dryRun === true, guard: agentGuard(access, path),
     })
-    c.header('ETag', `"${r.etag}"`)
-    return c.json(r)
+    // A revert that leaves the note hidden from the agent that made it stands, with `nowHidden` (scoped.ts).
+    return c.json(written(c, revertWritten(r, () => {
+      const nowHidden = hiddenAfterWrite(access, notes, path)
+      return nowHidden ? { ...(ifMatch !== undefined ? { etag: r.etag } : {}), nowHidden } : { etag: r.etag }
+    })))
   })
 
   app.get('/api/history/changes', async (c) => {

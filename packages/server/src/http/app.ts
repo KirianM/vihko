@@ -38,6 +38,7 @@ import { oauthRoutes } from './oauth.ts'
 import type { BlockList } from 'node:net'
 import { LoginLimiter, SETUP_ACCOUNT, type AttemptResult } from '../loginLimit.ts'
 import { clientIp, ipKey } from './clientIp.ts'
+import { written } from './written.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
@@ -398,9 +399,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const { path, text, template, freshUid } = await c.req.json<{ path: string; text?: string; template?: string; freshUid?: boolean }>()
     if (template !== undefined && typeof template !== 'string') return fail(c, 400, 'invalid', 'template must be a note path')
     if (text !== undefined && typeof text !== 'string') return fail(c, 400, 'invalid', 'text must be text')
-    const r = await scoped(c).create(path, { text, template, freshUid })
-    c.header('ETag', `"${r.etag}"`)
-    return c.json(r, 201)
+    return c.json(written(c, await scoped(c).create(path, { text, template, freshUid })), 201)
   })
 
   // The workspace settings the UI needs from thoth.yaml (reloaded when it changes).
@@ -439,19 +438,18 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (!ifMatch && ifNoneMatch !== '*') return fail(c, 428, 'precondition_required', 'missing If-Match: a note that hasn\'t been read won\'t be overwritten')
     const { text } = await c.req.json<{ text: string }>()
     if (typeof text !== 'string') return fail(c, 400, 'invalid', 'text must be text')
-    const r = await scoped(c).write(c.req.query('path') ?? '', text, { ifMatch, ifNoneMatch })
-    c.header('ETag', `"${r.etag}"`)
-    return c.json({ etag: r.etag }, r.created ? 201 : 200)
+    const { created, ...r } = await scoped(c).write(c.req.query('path') ?? '', text, { ifMatch, ifNoneMatch })
+    return c.json(written(c, r), created ? 201 : 200)
   })
 
   // Edits by operation: atomic on the current text, even with the note open.
   // `ifMatch` (or If-Match): only over that text; an agent must give it for
   // substitutions (D-017). `dryRun`: what it would change, without writing.
+  // An edit that hides the note from the agent making it answers `nowHidden`.
   app.post('/api/note/edit', async (c) => {
     const { path, ops, ifMatch, dryRun } = await c.req.json<{ path: string; ops: EditOp[]; ifMatch?: string; dryRun?: boolean }>()
     const r = await scoped(c).editOps(path, ops, { ifMatch: unquote(ifMatch ?? c.req.header('if-match')), dryRun: dryRun === true })
-    if (!('dryRun' in r)) c.header('ETag', `"${r.etag}"`)
-    return c.json(r)
+    return c.json('dryRun' in r ? r : written(c, r))
   })
 
   app.delete('/api/note', async (c) => {
@@ -464,7 +462,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const { from, to, dryRun, background } = await c.req.json<{ from: string; to: string; dryRun?: boolean; background?: boolean }>()
     const s = scoped(c)
     const opts = { ifMatch: unquote(c.req.header('if-match')) }
-    if (!background || dryRun || s.access.isAgent) return c.json(await s.move(from, to, { ...opts, dryRun }))
+    if (!background || dryRun || s.access.isAgent) return c.json(written(c, await s.move(from, to, { ...opts, dryRun })))
     const r = await jobs.start(c.get('user').username, 'note', from, to, (hooks) => s.move(from, to, { ...opts, ...hooks }), moveWaitMs)
     return 'job' in r ? c.json(r, 202) : c.json(r.report)
   })

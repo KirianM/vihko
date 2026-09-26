@@ -3,7 +3,10 @@
 // each one reading and writing through the note service as that principal.
 // A user sees everything (until M4); an agent only what its key allows, and
 // nothing it can't see leaks through a list, a count, a link, a preview or an
-// error: it doesn't exist (`not_found`).
+// error: it doesn't exist (`not_found`), or, when it names a note that exists,
+// `agent_denied` (access.ts). A write that leaves the note hidden from the
+// agent that made it succeeds and says so (`nowHidden`); nothing of the note
+// reaches it after that.
 import { anchorChanged, contentHash, extract, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type LinkIndex, type LinkRef, type Range } from '@thoth/core'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -64,6 +67,33 @@ export interface OutgoingLink {
   candidates: string[] | null
   pos_from: number
   others_no_access?: boolean
+  /** `no_access`: why, when every note it may lead to is hidden for the same reason. */
+  reason?: DenyReason
+  /**
+   * It leads to the note it is written in (`[[#Heading]]`, or its own name).
+   * Kept for the editor, which shows every link's state; lists of links
+   * between notes leave it out (see `links`).
+   */
+  self?: true
+}
+
+/**
+ * A write by an agent that left the note hidden from it: `ai: false` (or a
+ * frontmatter that can't be read) in what it wrote, or, in principle, a path
+ * out of its key's folders. The write stands; from then on the note is like
+ * any other hidden one (`agent_denied` when named, absent from every list),
+ * and only a person can make it visible again (D-035).
+ */
+export interface NowHidden { reason: DenyReason; message: string }
+
+/** What an agent is told when its own write hides the note from it. */
+export function nowHiddenMessage(reason: DenyReason): string {
+  const why = reason === 'ai_false'
+    ? 'it is now marked as hidden from agents (`ai: false`, or a frontmatter that can\'t be read)'
+    : 'it is now outside the folders of this key'
+  return `The change was written. The note is no longer available to agents: ${why}. `
+    + 'From now on you can\'t read or change it, and an agent can\'t undo this: only a person can, from thoth\'s interface. '
+    + 'Don\'t write it again or create a note to replace it, and leave the links to it as they are.'
 }
 
 /** What an edit by operations would do (`dryRun`): each change on the note as it is now, in order. */
@@ -73,8 +103,59 @@ export interface EditPreview {
   changes: { at: number; removed: string; inserted: string }[]
 }
 
-/** A move report as an agent gets it: `hidden` says there are links in notes it can't see, never which or how many (D-018). */
-export type ScopedMoveReport = MoveReport & { hidden?: boolean }
+/**
+ * A move report as an agent gets it: `hidden` says there are links in notes
+ * it can't see, never which or how many (D-018); `nowHidden`, that the note
+ * moved is hidden from it at its new path (then without its ETag).
+ */
+export type ScopedMoveReport = MoveReport & { hidden?: boolean; nowHidden?: NowHidden }
+
+/**
+ * What a write answers besides its own data: the note's ETag after it, and
+ * `nowHidden` if it left the note hidden from the agent that wrote it. Then
+ * the ETag only when it is the hash of a text the agent had whole (it wrote
+ * all of it, or planned its change on it with an ETag), which tells it
+ * nothing it didn't know.
+ */
+export interface Written { etag?: string; nowHidden?: NowHidden }
+
+/** A revert's report (history/revert.ts) with what its write left (`Written`). */
+export type ScopedRevertReport = Omit<RevertReport, 'etag'> & Written
+
+/** For an agent, what refuses a text of the note hidden from it (`agent_denied`); nothing for a user. */
+export function agentGuard(access: Access, path: string): ((text: string) => void) | undefined {
+  if (!access.isAgent) return undefined
+  return (text) => { if (access.hides(text)) throw new AgentDenied(access.reasonFor(path)) }
+}
+
+/** A revert's report, with `nowHidden` (and its ETag only if known) when the note it changed is hidden now. */
+export function revertWritten(r: RevertReport, written: () => Written): ScopedRevertReport {
+  if (!r.changed) return r
+  const w = written()
+  if (!w.nowHidden) return r
+  const out: ScopedRevertReport = { ...r, nowHidden: w.nowHidden }
+  if (w.etag === undefined) delete out.etag
+  return out
+}
+
+/**
+ * After a write as `access`: whether the note at `path` is now hidden from
+ * it, judged as a read would be (by the index, and by its text now). Null for
+ * a user, while it still sees it, or if the note is gone.
+ */
+export function hiddenAfterWrite(access: Access, notes: Pick<NoteService, 'readCurrent'>, path: string): NowHidden | null {
+  if (!access.isAgent) return null
+  let reason: DenyReason
+  try {
+    access.assertRead(path)
+    if (!access.hides(notes.readCurrent(path).text)) return null
+    reason = access.reasonFor(path)
+  } catch (err) {
+    if (!(err instanceof AgentDenied)) return null
+    reason = err.reason
+  }
+  return { reason, message: nowHiddenMessage(reason) }
+}
 
 /**
  * Where a link leads, written in a note (`resolveLink`), as in `links`.
@@ -150,6 +231,13 @@ export class ScopedNotes {
     return err.etag ? new NoteError(err.code, err.message) : err
   }
 
+  /** A write's answer (`Written`): `known`, whether the agent had the whole text that `etag` is the hash of. */
+  private written(path: string, etag: string, known: boolean): Written {
+    const nowHidden = hiddenAfterWrite(this.access, this.deps.notes, path)
+    if (!nowHidden) return { etag }
+    return known ? { etag, nowHidden } : { nowHidden }
+  }
+
   /** A write the principal may make: `not_found` for what it can't see, `forbidden` for a read-only key. */
   private writable(path: string): string {
     const p = NoteService.checkPath(path)
@@ -205,6 +293,11 @@ export class ScopedNotes {
    * keeps the candidates it can see, with `others_no_access` if there are
    * others, and is `no_access` if it can see none. Backlinks from notes it
    * can't see aren't there at all.
+   *
+   * A link from a note to itself (`[[#Heading]]`, or its own name) is not a
+   * link between notes: it is never a backlink, and among the outgoing ones
+   * it is marked `self` (the editor still shows its state), so lists leave it
+   * out on both sides (the UI's panel, the MCP tools).
    */
   links(path: string): { outgoing: OutgoingLink[]; backlinks: { path: string; title: string; raw: string; context: string }[]; titles: Record<string, string> } {
     const { path: p } = this.visible(path)
@@ -231,19 +324,27 @@ export class ScopedNotes {
     const titleOf = index.prepare('select title from notes where path = ?')
     const out = outgoing.map((l): OutgoingLink => {
       const candidates = l.candidates ? JSON.parse(l.candidates) as string[] : null
-      const link = this.access.isAgent ? this.maskedLink({ ...l, candidates }) : { ...l, candidates }
+      const row: OutgoingLink = { ...l, candidates, ...(l.status === 'resolved' && l.dst_path === p ? { self: true as const } : {}) }
+      const link = this.access.isAgent ? this.maskedLink(row) : row
       for (const c of link.candidates ?? []) titles[c] ??= (titleOf.get(c) as { title: string } | undefined)?.title ?? c
       return link
     })
     return { outgoing: out, backlinks, titles }
   }
 
-  /** A link as an agent sees it (see `links`). */
+  /**
+   * A link as an agent sees it (see `links`). `no_access` carries the reason
+   * when every note it may lead to is hidden for the same one (the agent has
+   * the link, so it names them, as `resolveLink` does).
+   */
   private maskedLink(l: OutgoingLink): OutgoingLink {
-    if (l.dst_path !== null && !this.access.canRead(l.dst_path)) return noAccess(l)
+    if (l.dst_path !== null && !this.access.canRead(l.dst_path)) return noAccess(l, this.access.reasonFor(l.dst_path))
     if (!l.candidates) return l
     const visible = l.candidates.filter((c) => this.access.canRead(c))
-    if (visible.length === 0) return noAccess(l)
+    if (visible.length === 0) {
+      const reasons = new Set(l.candidates.map((c) => this.access.reasonFor(c)))
+      return noAccess(l, reasons.size === 1 ? [...reasons][0]! : null)
+    }
     return visible.length === l.candidates.length ? l : { ...l, candidates: visible, others_no_access: true }
   }
 
@@ -266,7 +367,7 @@ export class ScopedNotes {
       candidates: r.status === 'ambiguous' ? r.candidates : null,
     }
     const shown = this.access.isAgent ? this.maskedLink(row) : row
-    const reason = shown.status === 'no_access' && row.dst_path !== null ? this.access.reasonFor(row.dst_path) : null
+    const reason = shown.status === 'no_access' ? shown.reason ?? null : null
     const titleOf = this.deps.index.prepare('select title from notes where path = ?')
     const titles: Record<string, string> = {}
     for (const p of [shown.dst_path, ...(shown.candidates ?? [])]) if (p) titles[p] = (titleOf.get(p) as { title: string } | undefined)?.title ?? p
@@ -335,29 +436,34 @@ export class ScopedNotes {
 
   /**
    * A new note, with the given text or from a template note (D-030). Never
-   * overwrites. An agent needs to be able to read the template.
+   * overwrites. An agent needs to be able to read the template. If what it
+   * created is hidden from it (`ai: false` in its text), `nowHidden`.
    */
-  async create(path: string, opts: { text?: string; template?: string; freshUid?: boolean }) {
+  async create(path: string, opts: { text?: string; template?: string; freshUid?: boolean }): Promise<{ path: string; uid: string | null } & Written> {
     const p = this.writable(path)
     const actor = this.access.actor
+    let r: { path: string; etag: string; uid: string | null }
     if (opts.template !== undefined) {
       if (this.access.isAgent) this.visible(opts.template)
       const user = this.access.user
-      return this.guardAsync(p, () => createFromTemplate(this.deps.notes, { path: p, template: opts.template!, user, now: this.deps.profiles.now(user.id, this.deps.now()), actor }))
+      r = await this.guardAsync(p, () => createFromTemplate(this.deps.notes, { path: p, template: opts.template!, user, now: this.deps.profiles.now(user.id, this.deps.now()), actor }))
+    } else {
+      r = await this.guardAsync(p, () => this.deps.notes.create(p, opts.text ?? '', actor, { freshUid: opts.freshUid === true }))
     }
-    return this.guardAsync(p, () => this.deps.notes.create(p, opts.text ?? '', actor, { freshUid: opts.freshUid === true }))
+    // Its own text (and the uid it is told) is known to it; a template's filling isn't.
+    return { path: r.path, uid: r.uid, ...this.written(r.path, r.etag, opts.template === undefined) }
   }
 
   /**
    * Replaces the whole text. With `ifMatch`, only over that ETag; with
    * `ifNoneMatch: '*'`, only if the note doesn't exist (412 if it does).
    */
-  async write(path: string, text: string, opts: { ifMatch?: string; ifNoneMatch?: string }): Promise<{ etag: string; created: boolean }> {
+  async write(path: string, text: string, opts: { ifMatch?: string; ifNoneMatch?: string }): Promise<{ created: boolean } & Written> {
     const p = this.writable(path)
     if (opts.ifNoneMatch === '*') {
       try {
         const r = await this.guardAsync(p, () => this.deps.notes.create(p, text, this.access.actor))
-        return { etag: r.etag, created: true }
+        return { created: true, ...this.written(p, r.etag, true) }
       } catch (err) {
         if (err instanceof NoteError && err.code === 'exists') throw new NoteError('precondition_failed', `already exists: ${p}`, err.etag)
         throw err
@@ -365,7 +471,7 @@ export class ScopedNotes {
     }
     if (!opts.ifMatch) throw new RequestError(428, 'precondition_required', "missing If-Match: a note that hasn't been read won't be overwritten")
     const r = await this.edit(p, () => text, { ifMatch: opts.ifMatch })
-    return { etag: r.etag, created: false }
+    return { created: false, ...this.written(p, r.etag, true) }
   }
 
   /** Applies `fn` to the current text as the principal; an agent never edits a note it can't see. */
@@ -380,14 +486,20 @@ export class ScopedNotes {
   /**
    * Edits by operation (edits.ts), atomic on the current text, even with the
    * note open. An agent must give `ifMatch` for substitutions (D-017).
-   * `dryRun`: what it would change, without writing.
+   * `dryRun`: what it would change, without writing. An edit that hides the
+   * note from the agent that makes it (`set_frontmatter ai false`) stands,
+   * with `nowHidden`.
    */
-  async editOps(path: string, ops: EditOp[], opts: { ifMatch?: string; dryRun?: boolean }): Promise<{ etag: string } | EditPreview> {
+  async editOps(path: string, ops: EditOp[], opts: { ifMatch?: string; dryRun?: boolean }): Promise<Written | EditPreview> {
     if (!Array.isArray(ops)) throw new RequestError(400, 'invalid', 'ops must be a list of operations')
     if (this.access.isAgent && !opts.ifMatch && ops.some((o) => SUBSTITUTIONS.includes((o as { op?: string })?.op ?? ''))) {
       throw new RequestError(428, 'precondition_required', 'a substitution needs the ETag of the text it was planned on (If-Match or ifMatch)')
     }
-    if (!opts.dryRun) return this.edit(path, (t) => planEdits(t, ops), opts)
+    if (!opts.dryRun) {
+      const r = await this.edit(path, (t) => planEdits(t, ops), opts)
+      // Planned on an ETag, the text it changed was the one it had read; appends alone may land on a text it hasn't seen.
+      return this.written(NoteService.checkPath(path), r.etag, opts.ifMatch !== undefined)
+    }
     try {
       await this.edit(path, (t) => {
         const splices = planEdits(t, ops)
@@ -423,7 +535,12 @@ export class ScopedNotes {
     if (this.access.isAgent) this.visible(f)
     const t = this.writable(to)
     const report = await this.guardAsync(f, () => this.deps.notes.move(f, t, { ...opts, actor: this.access.actor }))
-    return this.access.isAgent ? this.maskReport(report) : report
+    if (!this.access.isAgent) return report
+    const masked = this.maskReport(report)
+    if (report.dryRun || report.etag === null) return masked
+    // Its folders only take it where it can see it, but whatever the reason: hidden now, no ETag (the move rewrote its text).
+    const w = this.written(t, report.etag, false)
+    return w.nowHidden ? { ...masked, etag: null, nowHidden: w.nowHidden } : masked
   }
 
   private maskReport(report: MoveReport): ScopedMoveReport {
@@ -472,10 +589,13 @@ export class ScopedNotes {
    * text too; a note deleted since can't be reverted, it has no text), and
    * only a version `reader` shows it (`historyFor`).
    */
-  async revert(history: { reader: HistoryReader; recorder: Pick<Recorder, 'operation'> }, path: string, id: string, opts: { ifMatch?: string; dryRun?: boolean }): Promise<RevertReport> {
+  async revert(history: { reader: HistoryReader; recorder: Pick<Recorder, 'operation'> }, path: string, id: string, opts: { ifMatch?: string; dryRun?: boolean }): Promise<ScopedRevertReport> {
     const p = this.writable(path)
     if (this.access.isAgent) this.visible(p)
-    return this.guardAsync(p, () => revertVersion({ reader: history.reader, notes: this.deps.notes, recorder: history.recorder }, p, id, { actor: this.access.actor, ...opts }))
+    const r = await this.guardAsync(p, () => revertVersion({ reader: history.reader, notes: this.deps.notes, recorder: history.recorder }, p, id, {
+      actor: this.access.actor, ...opts, guard: agentGuard(this.access, p),
+    }))
+    return revertWritten(r, () => this.written(p, r.etag, opts.ifMatch !== undefined))
   }
 
   // --- The daily note (D-030) --------------------------------------------------
@@ -553,9 +673,9 @@ function parseLink(link: string): Pick<LinkRef, 'kind' | 'target' | 'anchor'> | 
   return { kind: 'wiki', target, anchor }
 }
 
-/** A link to a note hidden from the principal: its own text, and nothing of where it leads. */
-function noAccess(l: { raw: string; kind: string; target: string; anchor: string | null; pos_from: number }): OutgoingLink {
-  return { raw: l.raw, kind: l.kind, target: l.target, anchor: l.anchor, status: 'no_access', dst_path: null, anchor_ok: null, candidates: null, pos_from: l.pos_from }
+/** A link to a note hidden from the principal: its own text and why (if one reason), nothing of where it leads. */
+function noAccess(l: { raw: string; kind: string; target: string; anchor: string | null; pos_from: number }, reason: DenyReason | null): OutgoingLink {
+  return { raw: l.raw, kind: l.kind, target: l.target, anchor: l.anchor, status: 'no_access', dst_path: null, anchor_ok: null, candidates: null, pos_from: l.pos_from, ...(reason ? { reason } : {}) }
 }
 
 /** `a/b/c.md` → `a`, `a/b`. */

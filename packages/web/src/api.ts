@@ -62,6 +62,8 @@ export interface OutgoingLink {
   candidates: string[] | null
   /** Where the link starts in the note as indexed (a hint to find that occurrence). */
   pos_from: number
+  /** It leads to the note it is in (`[[#Heading]]`, its own name): the editor shows its state, the links panel leaves it out. */
+  self?: true
 }
 /** A note's links: outgoing, backlinks and the titles of ambiguous links' candidates. */
 export interface NoteLinks { outgoing: OutgoingLink[]; backlinks: Backlink[]; titles: Record<string, string> }

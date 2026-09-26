@@ -20,7 +20,7 @@ import { readFrontmatter, setFrontmatterKey } from '@thoth/core'
 import { spliceOf, type Splice } from '../edits.ts'
 import type { Actor } from '../actor.ts'
 import { NoteError, type NoteService } from '../notes.ts'
-import { wordDiff } from './diff.ts'
+import { contextAfter, contextBefore, wordDiff } from './diff.ts'
 import { HistoryError, type HistoryReader } from './reader.ts'
 import type { Recorder } from './recorder.ts'
 
@@ -60,7 +60,7 @@ const WORD_CHAR = /[\p{L}\p{M}\p{N}_]/u
 
 /** Pieces listed in a report (the counts are always whole). */
 const MAX_PIECES = 100
-/** Characters of the note shown on each side of a piece, never past its line. */
+/** Characters of the note shown on each side of a piece: from its line, or the nearest one with text when the piece is a whole line. */
 const CONTEXT = 40
 /** A piece's text longer than this is shortened in the middle. */
 const MAX_PIECE_TEXT = 1_000
@@ -123,18 +123,6 @@ function firstEndingFrom(list: readonly Hunk[], x: number): number {
 }
 
 const shorten = (s: string) => (s.length <= MAX_PIECE_TEXT ? s : `${s.slice(0, MAX_PIECE_TEXT / 2)}…${s.slice(-MAX_PIECE_TEXT / 2)}`)
-
-/** Up to CONTEXT characters before `at`, from the same line. */
-function contextBefore(text: string, at: number): string {
-  const start = Math.max(text.lastIndexOf('\n', at - 1) + 1, at - CONTEXT)
-  return text.slice(start, at)
-}
-
-/** Up to CONTEXT characters after `at`, from the same line. */
-function contextAfter(text: string, at: number): string {
-  const nl = text.indexOf('\n', at)
-  return text.slice(at, Math.min(nl === -1 ? text.length : nl, at + CONTEXT))
-}
 
 /**
  * The note's `uid` is its identity (D-005): if the version gave the note its
@@ -230,10 +218,10 @@ export function planRevert(version: string, previous: string, current: string, o
   // From the last one: the earlier positions stay valid.
   const splices = [...applied].reverse().map(({ from, to, r }) => spliceOf(current, from, to, r.ins)).filter((s) => s.remove || s.insert)
   const reverted = applied.slice(0, MAX_PIECES).map(({ from, to, r }) => ({
-    before: contextBefore(current, from),
+    before: contextBefore(current, from, CONTEXT),
     removed: shorten(version.slice(r.a, r.b)),
     restored: shorten(r.ins),
-    after: contextAfter(current, to),
+    after: contextAfter(current, to, CONTEXT),
   }))
   const skipped = clusters.slice(0, MAX_PIECES).map((c) => {
     let previousText = ''
@@ -241,11 +229,11 @@ export function planRevert(version: string, previous: string, current: string, o
     for (const r of c.rs) { previousText += version.slice(at, r.a) + r.ins; at = r.b }
     previousText += version.slice(at, c.b)
     return {
-      before: contextBefore(current, c.from),
+      before: contextBefore(current, c.from, CONTEXT),
       version: shorten(version.slice(c.a, c.b)),
       previous: shorten(previousText),
       current: shorten(current.slice(c.from, c.to)),
-      after: contextAfter(current, c.to),
+      after: contextAfter(current, c.to, CONTEXT),
     }
   })
   return { splices, reverted, skipped, counts: { reverted: applied.length, skipped: clusters.length, already } }
@@ -258,22 +246,29 @@ export function planRevert(version: string, previous: string, current: string, o
  * `reverted`, which can be reverted in turn. A version that creates or
  * deletes the note has nothing to undo on its text (`not_revertible`):
  * deleting is what undoes a creation, and restoring the version before is
- * what undoes a deletion. With `ifMatch`, only if the note is still that one.
+ * what undoes a deletion. With `ifMatch`, only if the note is still that one
+ * (an open note as its editors have it, as every read gives it). `guard`
+ * sees every text the revert is planned on, the one the write finds too, and
+ * may refuse it by throwing (an agent never reverts on a note hidden from it).
  */
 export async function revertVersion(
   deps: { reader: HistoryReader; notes: NoteService; recorder: Pick<Recorder, 'operation'>; uidKey?: string },
   path: string,
   id: string,
-  opts: { actor: Actor; ifMatch?: string; dryRun?: boolean },
+  opts: { actor: Actor; ifMatch?: string; dryRun?: boolean; guard?: (text: string) => void },
 ): Promise<RevertReport> {
   const v = await deps.reader.version(path, id)
   if (!v) throw new HistoryError('not_found', `${id} is not a version of ${path}`)
   const { text, before } = v
   if (text === null) throw new HistoryError('not_revertible', 'that version deletes the note: restore the version before it instead')
   if (before === null) throw new HistoryError('not_revertible', 'that version creates the note: there is nothing before it to go back to')
-  const now = deps.notes.read(path)
+  const now = deps.notes.readCurrent(path)
+  opts.guard?.(now.text)
   if (opts.ifMatch !== undefined && opts.ifMatch !== now.etag) throw new NoteError('precondition_failed', `the note has changed: ${path}`, now.etag)
-  const plan = (current: string) => planRevert(text, before, current, { uidKey: deps.uidKey })
+  const plan = (current: string) => {
+    opts.guard?.(current)
+    return planRevert(text, before, current, { uidKey: deps.uidKey })
+  }
   const preview = plan(now.text)
   const report = (p: RevertPlan, extra: { dryRun: boolean; changed: boolean; etag: string }): RevertReport =>
     ({ ...extra, reverted: p.reverted, skipped: p.skipped, counts: p.counts })

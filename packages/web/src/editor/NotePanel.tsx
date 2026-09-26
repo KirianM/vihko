@@ -396,6 +396,16 @@ function Context({ text, raw }: { text: string; raw: string }) {
   return <span className="backlink-context">{text.slice(0, i)}<mark>{raw}</mark>{text.slice(i + raw.length)}</span>
 }
 
+/**
+ * The outgoing links the panel lists: each written form once, and none that
+ * leads to the note itself (`[[#Heading]]`, its own name), which isn't a link
+ * between notes and is never a backlink either (the same rule as the MCP tools).
+ */
+function listedOutgoing(links: LinksData): OutgoingLink[] {
+  const seen = new Set<string>()
+  return links.outgoing.filter((l) => !l.self && !seen.has(l.raw) && seen.add(l.raw))
+}
+
 /** The panel's view of an ambiguous link: where it is (as indexed) and its candidates. */
 const ambiguous = (l: OutgoingLink): AmbiguousLink => ({ raw: l.raw, at: l.pos_from, candidates: l.candidates ?? [] })
 
@@ -407,8 +417,7 @@ function LinksTab({ links, onNavigate, onPickAmbiguous, onOpenCandidate }: {
 }) {
   const t = useT()
   if (!links) return <div className="panel-scroll"><p className="panel-empty">{t('common.loading')}</p></div>
-  const seen = new Set<string>()
-  const outgoing = links.outgoing.filter((l) => !seen.has(l.raw) && seen.add(l.raw))
+  const outgoing = listedOutgoing(links)
   return (
     <div className="panel-scroll">
       <h3 className="panel-h">{t('links.outgoing', { n: outgoing.length })}</h3>
@@ -531,7 +540,7 @@ export function NotePanel({ panel, view, session, user, links, originals, histor
   const count = useViewState(view, (s) => s.field(threadsField).length, 0)
   const aside = useRef<HTMLElement>(null)
   const head = useRef<HTMLDivElement>(null)
-  const linkCount = links ? new Set(links.outgoing.map((l) => l.raw)).size + links.backlinks.length : 0
+  const linkCount = links ? listedOutgoing(links).length + links.backlinks.length : 0
   // Overlaid, it's a screen of its own: the back button closes it.
   useBackClose(panel.narrow && panel.open, () => panel.setOpen(false))
 
