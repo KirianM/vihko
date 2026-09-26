@@ -2,7 +2,8 @@
 // with keys and the MCP server (locked when the server's administrator sets
 // THOTH_INTEGRATIONS=off) and whether members may create keys; everyone's own
 // keys, created read-only and for every folder unless they say otherwise, the
-// key shown once with ready-made MCP configurations; and, for the admin,
+// key shown once with ready-made MCP configurations, and rotated (a new
+// secret, the old one still valid for 10 minutes); and, for the admin,
 // everyone else's keys, which they may revoke. With a public URL
 // (THOTH_PUBLIC_URL), OAuth: where remote clients connect, the admin's switch
 // for their registration, and each authorization among the keys (named after
@@ -239,9 +240,10 @@ export function mcpConfigs(token: string, origin = location.origin, headerPath =
 
 type ConfigTab = 'code' | 'desktop' | 'json' | 'api'
 
-/** The new key, shown this once: copy it, or copy it into an MCP configuration. */
+/** The new key, shown this once: copy it, or copy it into an MCP configuration. After a rotation, until when the old one works. */
 function TokenDialog({ keyInfo, token, integrations, onClose }: { keyInfo: KeyInfo; token: string; integrations: Integrations | null; onClose: () => void }) {
   const t = useT()
+  const dates = useDates()
   const headerPath = t('keys.headerPath')
   const configs = useMemo(() => mcpConfigs(token, location.origin, headerPath), [token, headerPath])
   const [tab, setTab] = useState<ConfigTab>('code')
@@ -261,6 +263,7 @@ function TokenDialog({ keyInfo, token, integrations, onClose }: { keyInfo: KeyIn
       <div className="dialog-fields">
         <Heading slot="title" className="dialog-title">{t('keys.tokenTitle', { name: keyInfo.name })}</Heading>
         <p className="key-once" role="note">{Icon.alert}<span>{t('keys.tokenOnce')}</span></p>
+        {keyInfo.previousUntil && <p className="hint">{t('keys.rotatedOld', { time: dates.time(keyInfo.previousUntil) })}</p>}
         <div className="token-row">
           <code className="token" aria-label={t('keys.tokenLabel')} tabIndex={0}>{token}</code>
           <CopyButton text={token} label={t('keys.copy')} primary />
@@ -325,6 +328,38 @@ function RevokeDialog({ keyInfo, owner, onClose, onRevoked }: { keyInfo: KeyInfo
   )
 }
 
+/** Rotating: asked first; then the new key, shown once (TokenDialog). */
+function RotateDialog({ keyInfo, onClose, onRotated }: { keyInfo: KeyInfo; onClose: () => void; onRotated: (key: KeyInfo, token: string) => void }) {
+  const t = useT()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const rotate = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await api.rotateKey(keyInfo.id)
+      onRotated(r.key, r.token)
+    } catch (err) {
+      setError(errorText(t, err))
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog className="dialog dialog-narrow" role="alertdialog">
+      <div className="dialog-fields">
+        <Heading slot="title" className="dialog-title">{t('keys.rotateTitle', { name: keyInfo.name })}</Heading>
+        <p className="dialog-text">{t('keys.rotateBody')}</p>
+        <p className="dialog-text">{t('keys.rotateGrace')}</p>
+        {error && <p className="error-text" role="alert">{error}</p>}
+      </div>
+      <div className="dialog-actions">
+        <Button className="btn" onPress={onClose} autoFocus>{t('common.cancel')}</Button>
+        <Button className="btn btn-primary" onPress={() => void rotate()} isDisabled={busy}>{t('keys.rotateConfirm')}</Button>
+      </div>
+    </Dialog>
+  )
+}
+
 /** One key: what it may do and where, when it expires, when and how it was last used. */
 function KeyCard({ k, owner, actions }: { k: KeyInfo; owner?: string; actions: ReactNode }) {
   const t = useT()
@@ -349,6 +384,7 @@ function KeyCard({ k, owner, actions }: { k: KeyInfo; owner?: string; actions: R
         {k.client
           ? row('keys.returnsTo', <span className="key-folders">{k.client.redirectUris.map((u) => <span key={u} className="mono">{u}</span>)}</span>)
           : row('keys.key', <span className="mono">thoth_…{k.last4}</span>)}
+        {k.previousUntil && row('keys.previous', t('keys.previousUntil', { time: dates.time(k.previousUntil) }))}
       </dl>
       {actions && <div className="key-actions">{actions}</div>}
     </li>
@@ -370,6 +406,7 @@ type Open =
   | { kind: 'edit'; key: KeyInfo }
   | { kind: 'token'; key: KeyInfo; token: string }
   | { kind: 'revoke'; key: KeyInfo; owner: string | null }
+  | { kind: 'rotate'; key: KeyInfo }
 
 export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; onUnauthorized: () => void; onPrivacy: () => void }) {
   const t = useT()
@@ -407,6 +444,8 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
   const own = (k: KeyInfo) => (
     <KeyCard key={k.id} k={k} actions={k.status === 'revoked' ? null : (<>
       {canCreate && k.status === 'active' && <Button className="btn" onPress={() => setOpen({ kind: 'edit', key: k })}>{t('keys.edit')}</Button>}
+      {/* An OAuth authorization has no key to rotate: it is revoked, and authorized again. */}
+      {canCreate && k.status === 'active' && !k.client && <Button className="btn" onPress={() => setOpen({ kind: 'rotate', key: k })}>{t('keys.rotate')}</Button>}
       <Button className="btn btn-danger" onPress={() => setOpen({ kind: 'revoke', key: k, owner: null })}>{t('keys.revoke')}</Button>
     </>)} />
   )
@@ -512,6 +551,7 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
           )}
           {open?.kind === 'token' && <TokenDialog keyInfo={open.key} token={open.token} integrations={integ} onClose={close} />}
           {open?.kind === 'revoke' && <RevokeDialog keyInfo={open.key} owner={open.owner} onClose={close} onRevoked={done} />}
+          {open?.kind === 'rotate' && <RotateDialog keyInfo={open.key} onClose={close} onRotated={(key, token) => { setOpen({ kind: 'token', key, token }); void load() }} />}
         </Modal>
       </ModalOverlay>
     </>

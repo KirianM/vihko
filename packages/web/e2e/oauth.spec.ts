@@ -138,6 +138,9 @@ test('a client asks: the person signs in, sees who asks, and approves it read-on
   await expect(k).toContainText(CALLBACK)
   await expect(k).toContainText('por MCP (OAuth)')
   await expect(k).not.toContainText('thoth_…')
+  // An authorization is revoked, never rotated: it has no key to rotate.
+  await expect(k.getByRole('button', { name: 'Rotar' })).toHaveCount(0)
+  await expect(k.getByRole('button', { name: 'Revocar' })).toBeVisible()
   // Where remote clients connect, to copy.
   await expect(page.getByLabel('Dirección del servidor MCP para asistentes remotos')).toHaveText(`${PUBLIC_URL}/mcp`)
   await expect(page.getByRole('switch', { name: /Las aplicaciones OAuth pueden registrarse solas/ })).toBeChecked()

@@ -190,6 +190,8 @@ export interface KeyInfo {
   status: 'active' | 'expired' | 'revoked'
   /** An OAuth authorization: the client it was given to and where it goes back to. Null for a key. */
   client: { id: string; redirectUris: string[] } | null
+  /** Rotated a moment ago: until when the key it replaced still works. */
+  previousUntil: string | null
 }
 /** In the admin's list of everyone's keys, each one with its user. */
 export interface KeyWithUser extends KeyInfo { user: { id: string; username: string } }
@@ -269,6 +271,7 @@ export const api = {
   createKey: (input: KeyInput & { name: string }) => request<{ key: KeyInfo; token: string }>('POST', '/api/keys', input),
   updateKey: (id: string, patch: KeyInput) => request<{ key: KeyInfo }>('PATCH', `/api/keys/${encodeURIComponent(id)}`, patch).then((r) => r.key),
   /** Its owner, or the thoth admin for anyone's. */
+  rotateKey: (id: string) => request<{ key: KeyInfo; token: string }>('POST', `/api/keys/${encodeURIComponent(id)}/rotate`),
   revokeKey: (id: string) => request<{ key: KeyInfo }>('DELETE', `/api/keys/${encodeURIComponent(id)}`).then((r) => r.key),
   /** The OAuth authorization request in `query` (the page's own query string, without `?`): who asks, and whether this person may say yes. */
   oauthRequest: (query: string) => request<OAuthRequest>('GET', `/api/oauth/authorize?${query}`),
