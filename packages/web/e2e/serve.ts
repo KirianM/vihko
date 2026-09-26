@@ -17,8 +17,9 @@ cpSync(root + 'testdata/vault', env.THOTH_NOTES_DIR, { recursive: true })
 for (const [name, admin] of USERS) {
   execFileSync(process.execPath, ['--no-experimental-webstorage', cli, 'user', 'create', name, ...(admin ? ['--admin'] : [])], { env, input: PASSWORD })
 }
+// An open version of what's typed closes after 3 s of calm instead of 30: the history specs don't wait half a minute.
 const server = spawn(process.execPath, ['--no-experimental-webstorage', cli, 'serve'], {
-  env: { ...env, THOTH_HOST: '127.0.0.1', THOTH_PORT: String(E2E_PORT), THOTH_RESCAN_SECONDS: '5' },
+  env: { ...env, THOTH_HOST: '127.0.0.1', THOTH_PORT: String(E2E_PORT), THOTH_RESCAN_SECONDS: '5', THOTH_HISTORY_QUIET_SECONDS: '3' },
   stdio: 'inherit',
 })
 for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => server.kill(sig))
