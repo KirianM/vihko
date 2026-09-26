@@ -19,6 +19,8 @@ export interface HistoryAuthor {
   id?: string
   name: string
   onBehalfOf?: { id: string; name: string }
+  /** For an agent: how it came in (`api`, `mcp`, or `oauth` for MCP with OAuth). */
+  via?: 'api' | 'mcp' | 'oauth'
   key: string
 }
 

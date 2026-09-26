@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { HistoryAuthor } from '../src/history/api.ts'
-import { changeGroups, changeText, dayKey, dayLabel, filterOptions, groupByDay, reasonText, safeZone, shiftDay, uidOf } from '../src/history/format.ts'
+import { agentLabel, authorName, changeGroups, changeText, dayKey, dayLabel, filterOptions, groupByDay, reasonText, safeZone, shiftDay, uidOf } from '../src/history/format.ts'
 
 /** The key and its values, so each test sees which text was asked for and with what. */
 const t = (key: string, vars?: Record<string, string | number>) => (vars ? `${key}${JSON.stringify(vars)}` : key)
@@ -98,4 +98,14 @@ test('the author filter: people, agents (all of them too, when there are several
   assert.deepEqual(options.map((o) => o.key), ['user:U2', 'user:U1', 'agent:K1', 'agent:K2', 'agent', 'external', 'system'])
   assert.equal(options.find((o) => o.key === 'agent:K1')!.label, 'history.agent{"name":"Claude","user":"noa"}')
   assert.equal(options.find((o) => o.key === 'external')!.label, 'history.external')
+})
+
+test('an agent shows how it came in: the API, MCP, or MCP with OAuth; nothing when the version doesn\'t say', () => {
+  const agent = (via?: HistoryAuthor['via']): HistoryAuthor => ({ kind: 'agent', id: 'K1', name: 'Claude', onBehalfOf: { id: 'U1', name: 'noa' }, ...(via ? { via } : {}), key: 'agent:K1' })
+  const who = 'history.agent{"name":"Claude","user":"noa"}'
+  assert.equal(agentLabel(t, agent('mcp')), `${who} · keys.viaMcp`)
+  assert.equal(agentLabel(t, agent('api')), `${who} · keys.viaApi`)
+  assert.equal(agentLabel(t, agent('oauth')), `${who} · keys.viaOauth`)
+  assert.equal(agentLabel(t, agent()), who)
+  assert.equal(authorName(t, agent('oauth')), 'history.agentPlain{"name":"Claude","user":"noa"} keys.viaOauth')
 })

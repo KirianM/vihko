@@ -9,7 +9,7 @@ import { useTheme } from '../theme.ts'
 import { Icon, Mark } from '../ui.tsx'
 import { baseHue, userColor } from '../userColor.ts'
 import { historyApi, type HistoryAuthor, type HistoryStatus, type Pending, type Reason, type RestoreReport, type RevertReport, type Version } from './api.ts'
-import { dateTimeOf, dayKey, dayLabel, groupByDay, reasonText, safeZone, timeOf } from './format.ts'
+import { agentLabel, dateTimeOf, dayKey, dayLabel, groupByDay, reasonText, safeZone, timeOf } from './format.ts'
 import '../actions.css'
 import './history.css'
 
@@ -225,7 +225,7 @@ export const HistoryIcon = {
 /**
  * Who made a change, each with its shape and words: a person, their presence
  * colour's dot and name; an agent, the diamond in accent and «Claude · on
- * behalf of Noa»; the system, thoth's mark and what it did; outside
+ * behalf of Noa · via MCP»; the system, thoth's mark and what it did; outside
  * thoth, its icon (and «while thoth was stopped»); a git author, their name.
  */
 export function Authors({ authors, reason, foundAtStartup }: { authors: readonly HistoryAuthor[]; reason?: Reason | null; foundAtStartup?: boolean }) {
@@ -239,7 +239,7 @@ export function Authors({ authors, reason, foundAtStartup }: { authors: readonly
           case 'user':
             return <span key={key} className="h-author"><span className="h-dot" aria-hidden="true" style={{ background: userColor(baseHue(a.id ?? a.name), effective) }} />{a.name}</span>
           case 'agent':
-            return <span key={key} className="h-author h-agent"><span className="h-diamond" aria-hidden="true" />{a.onBehalfOf ? t('history.agent', { name: a.name, user: a.onBehalfOf.name }) : a.name}</span>
+            return <span key={key} className="h-author h-agent"><span className="h-diamond" aria-hidden="true" />{agentLabel(t, a)}</span>
           case 'system':
             return <span key={key} className="h-author h-system"><span className="h-icon"><Mark size={14} /></span>{reasonText(t, reason ?? null) ?? t('history.system')}</span>
           case 'external':
