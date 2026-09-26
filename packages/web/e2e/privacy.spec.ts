@@ -37,6 +37,8 @@ test('with the integrations off, nothing gets in or out; and the UI talks only t
   const now = page.locator('section', { has: page.getByRole('heading', { name: 'Ahora mismo, en este servidor' }) })
   await expect(now).toContainText('La API y el MCP están apagados: ninguna clave funciona')
   await expect(page.getByText('thoth no envía estadísticas ni informes de errores, y no busca actualizaciones.')).toBeVisible()
+  // What an agent knows of a note hidden from it, in plain words.
+  await expect(page.getByText('Solo sabe que una existe si ya tiene su nombre', { exact: false })).toBeVisible()
   // External images are allowed on the test server, and the page says how to block them.
   await expect(page.getByText('THOTH_EXTERNAL_IMAGES=block')).toBeVisible()
   await page.reload()

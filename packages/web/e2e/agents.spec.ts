@@ -55,6 +55,9 @@ test('the admin turns on the API and the MCP server', async ({ browser }) => {
   await expect(apiSwitch).not.toBeChecked()
   // Where the MCP server answers, with this server's address.
   await expect(page.getByText(`${BASE_URL}/mcp`)).toBeVisible()
+  // What an agent knows of a note hidden from it, in plain words.
+  const hidden = page.locator('section', { has: page.getByRole('heading', { name: 'Notas ocultas a los agentes' }) })
+  await expect(hidden).toContainText('Solo sabe que una existe si ya tiene su nombre')
   await flip(page, 'Servidor MCP')
   await expect(mcp).toBeChecked()
   await flip(page, 'API HTTP con claves')

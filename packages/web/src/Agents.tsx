@@ -6,7 +6,8 @@
 // everyone else's keys, which they may revoke. With a public URL
 // (THOTH_PUBLIC_URL), OAuth: where remote clients connect, the admin's switch
 // for their registration, and each authorization among the keys (named after
-// its client, with where it goes back to).
+// its client, with where it goes back to). And, in plain words, what an agent
+// knows of a note hidden from it.
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, Switch, Tab, TabList, TabPanel, Tabs, Text, TextField } from 'react-aria-components'
 import { ApiError, api, type Integrations, type KeyInfo, type KeyWithUser, type User } from './api.ts'
@@ -495,6 +496,11 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
             {revoked(gone(others), theirs)}
           </section>
         )}
+
+        <section className="settings-section" aria-labelledby="agents-hidden">
+          <h2 id="agents-hidden">{t('agents.hiddenTitle')}</h2>
+          <p className="hint">{t('agents.hiddenBody')}</p>
+        </section>
       </div>
       <ModalOverlay className="modal-overlay" isOpen={open !== null} isDismissable={open?.kind !== 'token'} isKeyboardDismissDisabled={open?.kind === 'token'}
         onOpenChange={(o) => { if (!o) close() }}>
