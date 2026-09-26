@@ -1,5 +1,5 @@
 // state.db: application state that is NOT derived from the files: users,
-// sessions, profiles, settings, agent keys and, later, webhooks. It's not disposable: it's
+// sessions, profiles, settings, agent keys, OAuth clients and tokens and, later, webhooks. It's not disposable: it's
 // backed up, and its schema evolves through migrations, never by deleting it.
 import Database from 'better-sqlite3'
 import { copyFileSync, existsSync } from 'node:fs'
@@ -54,6 +54,44 @@ const MIGRATIONS: string[] = [
      revoked_at   text
    );
    create index api_keys_user on api_keys(user_id);`,
+  // OAuth 2.1 for the MCP server with a public URL (oauth.ts). An
+  // authorization is a key like any other (`oauth_client` says which client
+  // it was given to; its secret is random and never shown). Clients come from
+  // dynamic registration; codes and tokens are kept only as their sha256.
+  // `used_family`/`used_at`: a code or refresh token already exchanged, kept
+  // until it expires so that a second use revokes what came from it.
+  `alter table api_keys add column oauth_client text;
+   create table oauth_clients (
+     id            text primary key,
+     name          text not null,
+     redirect_uris text not null,
+     auth_method   text not null check (auth_method in ('none', 'client_secret_post', 'client_secret_basic')),
+     secret_hash   text,
+     created_at    text not null
+   );
+   create table oauth_codes (
+     code_hash      text primary key,
+     client_id      text not null references oauth_clients(id) on delete cascade,
+     user_id        text not null references users(id) on delete cascade,
+     redirect_uri   text not null,
+     code_challenge text not null,
+     resource       text not null,
+     can_write      integer not null,
+     folders        text not null,
+     expires_at     text not null,
+     used_family    text
+   );
+   create table oauth_tokens (
+     token_hash text primary key,
+     kind       text not null check (kind in ('access', 'refresh')),
+     key_id     text not null references api_keys(id) on delete cascade,
+     family     text not null,
+     resource   text not null,
+     expires_at text not null,
+     used_at    text
+   );
+   create index oauth_tokens_key on oauth_tokens(key_id);
+   create index oauth_tokens_family on oauth_tokens(family);`,
 ]
 
 export const STATE_VERSION = MIGRATIONS.length

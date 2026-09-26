@@ -1,8 +1,8 @@
 // Agent keys and the integration switches, for the UI (session only: a key
 // never reaches these, http/routes.ts).
 //
-//   GET    /api/integrations            the switches, the lock, and whether this user may create keys
-//   PUT    /api/admin/integrations      { api?, mcp?, membersCanCreateKeys? }   the thoth admin only
+//   GET    /api/integrations            the switches, the lock, whether this user may create keys, and the public URL (OAuth)
+//   PUT    /api/admin/integrations      { api?, mcp?, membersCanCreateKeys?, oauthRegistration? }   the thoth admin only
 //   GET    /api/keys[?all=1]            this user's keys; with all=1, the admin gets everyone's
 //   POST   /api/keys                    { name, canWrite?, folders?, expiresAt? } → { key, token } (the token, once)
 //   PATCH  /api/keys/:id                { name?, canWrite?, folders?, expiresAt? } its owner
@@ -18,6 +18,8 @@ type Env = { Variables: { user: User; token: string; access: Access } }
 export interface KeyRoutesDeps {
   keys: ApiKeys
   integrations: Integrations
+  /** THOTH_PUBLIC_URL, if set: OAuth is offered there while the MCP server is on. */
+  publicUrl?: string | null
 }
 
 export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
@@ -31,13 +33,18 @@ export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
     return b as Record<string, unknown>
   }
 
-  app.get('/api/integrations', (c) => c.json({ ...integrations.view(), canCreateKeys: mayCreate(c) }))
+  const view = (c: Context<Env>) => ({ ...integrations.view(), canCreateKeys: mayCreate(c), publicUrl: deps.publicUrl ?? null })
+
+  app.get('/api/integrations', (c) => c.json(view(c)))
 
   app.put('/api/admin/integrations', async (c) => {
     if (!isAdmin(c)) return c.json({ error: 'forbidden', message: 'admins only' }, 403)
     const b = await body(c)
-    const view = integrations.set({ api: b.api as boolean | undefined, mcp: b.mcp as boolean | undefined, membersCanCreateKeys: b.membersCanCreateKeys as boolean | undefined })
-    return c.json({ ...view, canCreateKeys: mayCreate(c) })
+    integrations.set({
+      api: b.api as boolean | undefined, mcp: b.mcp as boolean | undefined,
+      membersCanCreateKeys: b.membersCanCreateKeys as boolean | undefined, oauthRegistration: b.oauthRegistration as boolean | undefined,
+    })
+    return c.json(view(c))
   })
 
   app.get('/api/keys', (c) => {

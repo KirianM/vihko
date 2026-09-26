@@ -1,18 +1,20 @@
 // The MCP server (m3 §5, D-021): Streamable HTTP without sessions at
 // `POST /mcp`, with the official TypeScript SDK. Off (the switch in state.db
 // or THOTH_INTEGRATIONS=off), `/mcp` doesn't exist: 404, as for any route
-// that doesn't. On, it takes an agent key (`Authorization: Bearer thoth_…`);
-// the session cookie never authenticates it. Each request builds its own
+// that doesn't. On, it takes an agent key (`Authorization: Bearer thoth_…`)
+// or, with a public URL, an OAuth access token (oauth.ts; via `oauth`); the
+// session cookie never authenticates it. Each request builds its own
 // server for the key that sent it: the tools it may use (tools.ts) and the
 // instructions it may read. The 2026-07-28 revision and 2025-era clients are
 // both served, statelessly. `GET` (an event stream) and `DELETE` (a session)
 // don't exist here: 405. Nothing under `/mcp` ever falls through to the UI.
 import { McpServer, createMcpHandler, type McpHttpHandler } from '@modelcontextprotocol/server'
 import type { Context, Hono } from 'hono'
-import type { Access } from '../access.ts'
+import type { Access, AgentPrincipal } from '../access.ts'
 import type { Auth } from '../auth.ts'
 import type { Services } from '../http/app.ts'
 import { authenticateKey, bearerToken } from '../http/keyAuth.ts'
+import { OAuthServer } from '../oauth.ts'
 import type { Workspace } from '../workspace.ts'
 import { TextCache } from './texts.ts'
 import { LEAVE_IT, registerTools } from './tools.ts'
@@ -95,6 +97,19 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
   const fail = (c: Context, status: 400 | 401 | 403 | 404 | 405, error: string, message: string, headers: Record<string, string> = {}) =>
     c.json({ error, message }, status, headers)
 
+  /**
+   * The challenge of a 401. With OAuth available, it names where the
+   * resource's metadata is (RFC 9728 §5.1), which is how a client finds out
+   * how to get a token.
+   */
+  const challenge = (error?: string) => {
+    const params = [
+      ...(error ? [`error="${error}"`] : []),
+      ...(services.oauth.available() ? [`resource_metadata="${services.oauth.resourceMetadataUrl}"`] : []),
+    ]
+    return params.length ? `Bearer ${params.join(', ')}` : 'Bearer'
+  }
+
   app.all(MCP_PATH, async (c) => {
     // Off: nothing is here, whatever is asked and however.
     if (!services.integrations.mcpEnabled()) return fail(c, 404, 'not_found', 'does not exist')
@@ -103,16 +118,26 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
     const origin = c.req.header('origin')
     if (origin) {
       let same = false
-      try { same = new URL(origin).host === new URL(c.req.url).host } catch { /* not a URL */ }
+      try {
+        const o = new URL(origin)
+        same = o.host === new URL(c.req.url).host || o.origin === services.oauth.publicUrl
+      } catch { /* not a URL */ }
       if (!same) return fail(c, 403, 'forbidden', 'origin not allowed')
     }
     const token = bearerToken(c.req.header('authorization'))
-    if (token === null) return fail(c, 401, 'unauthorized', 'an agent key is needed: Authorization: Bearer thoth_…', { 'WWW-Authenticate': 'Bearer' })
-    const r = authenticateKey({ keys: services.keys, integrations: services.integrations }, token, 'mcp')
-    if (!r.ok) return r.status === 404 ? fail(c, 404, 'not_found', 'does not exist') : fail(c, 401, 'unauthorized', 'invalid key', { 'WWW-Authenticate': 'Bearer error="invalid_token"' })
-    const access = services.policy.for(r.principal)
+    if (token === null) return fail(c, 401, 'unauthorized', 'an agent key (Authorization: Bearer thoth_…) or an OAuth token is needed', { 'WWW-Authenticate': challenge() })
+    // An OAuth access token (only while OAuth is available), or a key.
+    let principal: AgentPrincipal | null
+    if (OAuthServer.isAccessToken(token)) principal = services.oauth.authenticate(token)
+    else {
+      const r = authenticateKey({ keys: services.keys, integrations: services.integrations }, token, 'mcp')
+      if (!r.ok && r.status === 404) return fail(c, 404, 'not_found', 'does not exist')
+      principal = r.ok ? r.principal : null
+    }
+    if (!principal) return fail(c, 401, 'unauthorized', 'invalid key or token', { 'WWW-Authenticate': challenge('invalid_token') })
+    const access = services.policy.for(principal)
     return handler.fetch(c.req.raw, {
-      authInfo: { token: r.principal.key.id, clientId: r.principal.key.id, scopes: r.principal.key.canWrite ? ['read', 'write'] : ['read'], extra: { access } },
+      authInfo: { token: principal.key.id, clientId: principal.key.id, scopes: principal.key.canWrite ? ['read', 'write'] : ['read'], extra: { access } },
     })
   })
   // Nothing under /mcp is the UI's.

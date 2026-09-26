@@ -32,6 +32,8 @@ import { RequestError, ScopedNotes, type ScopedDeps } from '../scoped.ts'
 import { keyErrorStatus, keyRoutes } from './keys.ts'
 import { authenticateKey, bearerToken } from './keyAuth.ts'
 import { keyRouteClass } from './routes.ts'
+import { OAuthServer } from '../oauth.ts'
+import { oauthRoutes } from './oauth.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 
@@ -88,6 +90,11 @@ export interface AppDeps {
   integrations?: Integrations
   /** More routes outside /api (the MCP server), mounted before the UI's catch-all. */
   routes?: (app: Hono<Env>, services: Services) => void
+  /**
+   * THOTH_PUBLIC_URL: the HTTPS origin thoth is reached at from outside. With
+   * it (and the MCP server on), OAuth exists for `/mcp` (oauth.ts).
+   */
+  publicUrl?: string | null
 }
 
 /**
@@ -101,6 +108,8 @@ export interface Services {
   policy: AccessPolicy
   scoped(access: Access): ScopedNotes
   history?: History
+  /** OAuth for the MCP server (it says whether it exists: `available()`). */
+  oauth: OAuthServer
 }
 
 export type ExternalImages = 'allow' | 'block'
@@ -159,8 +168,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const keys = deps.keys ?? new ApiKeys(auth.state)
   const integrations = deps.integrations ?? new Integrations(auth.state)
   const policy = new AccessPolicy({ index })
+  const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now })
   const scopedDeps: ScopedDeps = { notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links }
-  const services: Services = { keys, integrations, policy, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history }
+  const services: Services = { keys, integrations, policy, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth }
   const app = new Hono<Env>()
   /** The request's operations, as whoever is asking. */
   const scoped = (c: Context<Env>) => services.scoped(c.get('access'))
@@ -564,7 +574,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, keyName: (id) => keys.nameOf(id), canRead: deps.canRead ?? (() => true) })
 
-  keyRoutes(app, { keys, integrations })
+  keyRoutes(app, { keys, integrations, publicUrl: oauth.publicUrl })
+
+  // OAuth for the MCP server: its addresses for clients, and the consent page's (session).
+  oauthRoutes(app, { oauth, integrations, ui: deps.webDir !== undefined })
 
   app.all('/api/*', (c) => fail(c, 404, 'not_found', 'does not exist'))
 
