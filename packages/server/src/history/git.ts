@@ -26,6 +26,10 @@ export class GitError extends Error {
 export interface GitOptions {
   /** The repository (bare): `--git-dir`. */
   gitDir: string
+  /** Its work tree, for a repository that has one: `--work-tree`, and where git runs. */
+  workTree?: string
+  /** Options before the command (`--no-optional-locks`). */
+  flags?: string[]
   /** The binary (`git` from the PATH by default). */
   binary?: string
   /** Settings passed with `-c` besides the fixed ones. */
@@ -40,8 +44,15 @@ export interface RunOptions {
   timeoutMs?: number
   /** Exit codes that aren't an error (0 always is). */
   ok?: number[]
-  /** Without `--git-dir` (to create the repository). */
+  /** Without `--git-dir` (to create the repository, or to let git find it from `cwd`). */
   bare?: boolean
+  /** Where git runs for this call (the work tree by default). */
+  cwd?: string
+  /**
+   * Takes the output as it arrives instead of collecting it (`stdout` is then
+   * empty). Returning true stops git there: a reader that has what it needs.
+   */
+  onStdout?: (chunk: Buffer) => boolean | void
 }
 
 const DEFAULT_TIMEOUT = 60_000
@@ -58,12 +69,14 @@ export class Serial {
 
 export class Git {
   readonly gitDir: string
+  readonly workTree: string | undefined
   private binary: string
   private prefix: string[]
   private env: Record<string, string>
 
   constructor(opts: GitOptions) {
     this.gitDir = opts.gitDir
+    this.workTree = opts.workTree
     this.binary = opts.binary ?? 'git'
     const config: Record<string, string> = {
       'core.hooksPath': '/dev/null',
@@ -75,7 +88,7 @@ export class Git {
       'core.fsyncMethod': 'fsync',
       ...opts.config,
     }
-    this.prefix = Object.entries(config).flatMap(([k, v]) => ['-c', `${k}=${v}`])
+    this.prefix = [...Object.entries(config).flatMap(([k, v]) => ['-c', `${k}=${v}`]), ...(opts.flags ?? [])]
     // Nothing inherited that could point git elsewhere (GIT_DIR, GIT_INDEX_FILE…).
     this.env = {
       PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
@@ -91,21 +104,32 @@ export class Git {
 
   /** Runs one git command and resolves with its output. Rejects with a GitError. */
   run(args: string[], opts: RunOptions = {}): Promise<{ code: number; stdout: Buffer }> {
-    const full = opts.bare ? [...this.prefix, ...args] : [...this.prefix, '--literal-pathspecs', `--git-dir=${this.gitDir}`, ...args]
+    const repo = opts.bare ? [] : ['--literal-pathspecs', `--git-dir=${this.gitDir}`, ...(this.workTree ? [`--work-tree=${this.workTree}`] : [])]
+    const full = [...this.prefix, ...repo, ...args]
     return new Promise((resolve, reject) => {
       let settled = false
-      const done = (err: GitError | null, value?: { code: number; stdout: Buffer }) => {
+      const done = (err: Error | null, value?: { code: number; stdout: Buffer }) => {
         if (settled) return
         settled = true
         clearTimeout(timer)
         if (err) reject(err)
         else resolve(value!)
       }
-      const child = spawn(this.binary, full, { env: this.env, stdio: ['pipe', 'pipe', 'pipe'] })
+      const child = spawn(this.binary, full, { env: this.env, stdio: ['pipe', 'pipe', 'pipe'], cwd: opts.cwd ?? this.workTree })
       const out: Buffer[] = []
       const err: Buffer[] = []
       let errBytes = 0
-      child.stdout.on('data', (d: Buffer) => out.push(d))
+      /** The reader had enough (or failed taking the output): git is stopped, and that isn't git failing. */
+      let stopped: { error: unknown } | null = null
+      const take = opts.onStdout
+      child.stdout.on('data', (d: Buffer) => {
+        if (stopped) return
+        if (!take) { out.push(d); return }
+        let enough: boolean | void = false
+        try { enough = take(d) } catch (e) { stopped = { error: e } }
+        if (enough === true) stopped = { error: null }
+        if (stopped) child.kill('SIGKILL')
+      })
       child.stderr.on('data', (d: Buffer) => { if (errBytes < 16_384) { err.push(d); errBytes += d.length } })
       const timer = setTimeout(() => {
         child.kill('SIGKILL')
@@ -116,6 +140,10 @@ export class Git {
       })
       let inputError: unknown = null
       child.on('close', (code, signal) => {
+        if (stopped) {
+          const e = stopped.error
+          return e === null ? done(null, { code: 0, stdout: Buffer.alloc(0) }) : done(e instanceof Error ? e : new Error(String(e)))
+        }
         const c = code ?? -1
         if ((c === 0 || opts.ok?.includes(c)) && inputError === null) return done(null, { code: c, stdout: Buffer.concat(out) })
         const msg = Buffer.concat(err).toString('utf8').trim()
@@ -307,7 +335,7 @@ export async function readObjects(git: Git, specs: readonly string[], timeoutMs 
     if (nl < 0) throw new GitError('failed', 'cat-file: truncated output')
     const line = stdout.toString('utf8', p, nl)
     p = nl + 1
-    const m = /^([0-9a-f]{40}) (\w+) (\d+)$/.exec(line)
+    const m = /^([0-9a-f]{40}(?:[0-9a-f]{24})?) (\w+) (\d+)$/.exec(line) // SHA-1 or SHA-256 ids
     if (!m) { out.push(null); continue } // `<spec> missing` (or ambiguous)
     const size = Number(m[3])
     out.push(m[2] === 'blob' ? stdout.subarray(p, p + size) : null)
