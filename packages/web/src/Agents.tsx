@@ -27,10 +27,17 @@ const expiryFrom = (preset: Exclude<Preset, 'keep'>, now = Date.now()) => (prese
 
 const viaLabel = (t: Translate, via: KeyInfo['lastVia']) => (via === 'mcp' ? t('keys.viaMcp') : via === 'oauth' ? t('keys.viaOauth') : t('keys.viaApi'))
 
-/** Every folder in the notes, those that only hold notes too, in tree order. */
+/**
+ * Every folder in the notes, those that only hold notes too, in tree order.
+ * In NFC, as keys store them (a disk may hold NFD).
+ */
 function allFolders(notes: { path: string }[], folders: string[]): string[] {
   const set = new Set<string>()
-  const add = (f: string) => { for (let i = f.indexOf('/'); i !== -1; i = f.indexOf('/', i + 1)) set.add(f.slice(0, i)); set.add(f) }
+  const add = (raw: string) => {
+    const f = raw.normalize('NFC')
+    for (let i = f.indexOf('/'); i !== -1; i = f.indexOf('/', i + 1)) set.add(f.slice(0, i))
+    set.add(f)
+  }
   for (const f of folders) if (f) add(f)
   for (const n of notes) if (n.path.includes('/')) add(n.path.slice(0, n.path.lastIndexOf('/')))
   const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
@@ -102,7 +109,9 @@ function KeyDialog({ edit, onClose, onCreated, onSaved }: {
 
   useEffect(() => {
     let live = true
-    api.tree().then((r) => { if (live) setAll(allFolders(r.notes, r.folders)) }, () => { if (live) setAll([]) })
+    // A key's folder that is no longer there is still listed: it can be unchecked.
+    const own = edit?.folders ?? []
+    api.tree().then((r) => { if (live) setAll(allFolders(r.notes, [...r.folders, ...own])) }, () => { if (live) setAll(allFolders([], own)) })
     return () => { live = false }
   }, [])
 

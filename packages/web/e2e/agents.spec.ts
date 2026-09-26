@@ -140,7 +140,7 @@ test('a read-only key for one folder: shown once, with its MCP configurations', 
   await page.context().close()
 })
 
-test('the key works over HTTP: it reads its folder and can’t write; the list shows its use', async ({ browser, request }) => {
+test('the key works over HTTP: read-only in its folder; edited, it writes there and nowhere else', async ({ browser, request }) => {
   const tree = await request.get(`${BASE_URL}/api/tree`, { headers: bearer(token) })
   expect(tree.status()).toBe(200)
   const { notes } = await tree.json() as { notes: { path: string }[] }
@@ -152,6 +152,23 @@ test('the key works over HTTP: it reads its folder and can’t write; the list s
   const page = await signIn(browser, 'noa')
   await page.goto('/?view=agents')
   await expect(card(page, 'Claude Code e2e')).toContainText('por la API')
+
+  // Edited: it may write now, still only in its folder, and an expiry.
+  await card(page, 'Claude Code e2e').getByRole('button', { name: 'Editar' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Editar «Claude Code e2e»' })
+  await expect(dialog.getByRole('radio', { name: /Solo estas carpetas/ })).toBeChecked()
+  await expect(dialog.getByRole('checkbox', { name: 'proyectos', exact: true })).toBeChecked()
+  await expect(dialog.getByRole('combobox', { name: 'Caducidad' })).toHaveValue('keep')
+  await dialog.getByRole('checkbox', { name: /Puede escribir/ }).check()
+  await dialog.getByRole('combobox', { name: 'Caducidad' }).selectOption('7')
+  await dialog.getByRole('button', { name: 'Guardar cambios' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(card(page, 'Claude Code e2e')).toContainText('Lee y escribe')
+  await expect(card(page, 'Claude Code e2e')).toContainText('Caduca el')
+  const written = await request.post(`${BASE_URL}/api/note`, { headers: bearer(token), data: { path: 'proyectos/de-la-clave.md', text: 'Escrita con la clave.\n' } })
+  expect(written.status()).toBe(201)
+  const outside = await request.post(`${BASE_URL}/api/note`, { headers: bearer(token), data: { path: 'hogar/de-la-clave.md', text: 'no\n' } })
+  expect(outside.status()).toBe(404)
   await page.context().close()
 })
 
