@@ -76,7 +76,8 @@ export interface HistoryReader {
 
 /** Why a history can't be read: a code the API returns (and the UI words). */
 export class HistoryError extends Error {
-  readonly code: 'history_off' | 'history_unavailable' | 'not_found' | 'invalid'
+  /** `not_revertible`: a version that creates or deletes the note has no change of its text to revert. */
+  readonly code: 'history_off' | 'history_unavailable' | 'not_found' | 'invalid' | 'not_revertible'
   constructor(code: HistoryError['code'], message: string) {
     super(message)
     this.code = code

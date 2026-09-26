@@ -21,6 +21,11 @@ export interface WordDiff {
 }
 
 const WORD = /[\p{L}\p{M}\p{N}_]+|\s+|[^\p{L}\p{M}\p{N}_\s]/gu
+/**
+ * For a merge: each word or mark with the spaces after it (a lone space never
+ * pairs two unrelated texts), and every line break on its own.
+ */
+const MERGE_WORD = /[\p{L}\p{M}\p{N}_]+[^\S\n]*|\n|[^\S\n]+|[^\p{L}\p{M}\p{N}_\s][^\S\n]*/gu
 /** Code units for tokens: everything but the surrogate range. */
 const MAX_TOKENS = 0xd800 + (0x10000 - 0xe000)
 /** Lines (both texts, once their common start and end are left out) diffed line by line… */
@@ -40,8 +45,12 @@ export function countWords(text: string): number {
   return n
 }
 
-/** The diff of two token lists, each token as one character; null if there are too many different tokens. */
-function tokenDiff(a: readonly string[], b: readonly string[]): DiffOp[] | null {
+/**
+ * The diff of two token lists, each token as one character; null if there are
+ * too many different tokens. `cleanup`: short unchanged stretches between
+ * changes join them.
+ */
+function tokenDiff(a: readonly string[], b: readonly string[], cleanup: boolean): DiffOp[] | null {
   const ids = new Map<string, number>()
   const tokens: string[] = []
   const encode = (list: readonly string[]): string | null => {
@@ -61,7 +70,7 @@ function tokenDiff(a: readonly string[], b: readonly string[]): DiffOp[] | null 
   const ea = encode(a)
   const eb = ea === null ? null : encode(b)
   if (ea === null || eb === null) return null
-  return (diff(ea, eb, undefined, true) as DiffOp[]).map(([op, s]) => {
+  return (diff(ea, eb, undefined, cleanup) as DiffOp[]).map(([op, s]) => {
     let text = ''
     for (let i = 0; i < s.length; i++) text += tokens[index(s.charCodeAt(i))]
     return [op, text] as DiffOp
@@ -73,8 +82,17 @@ function lines(text: string): string[] {
   return text.match(/[^\n]*\n|[^\n]+$/g) ?? []
 }
 
-/** The diff that turns `a` into `b`, word by word. */
-export function wordDiff(a: string, b: string): WordDiff {
+/**
+ * The diff that turns `a` into `b`, word by word. By default a short
+ * unchanged stretch joins the changes around it, which reads better. `merge`
+ * keeps the smallest diff instead, over words that carry their spaces and
+ * line breaks on their own (history/revert.ts: what changed on one line must
+ * stay apart from what changed on another, even the next one). Same bounds
+ * either way.
+ */
+export function wordDiff(a: string, b: string, opts: { merge?: boolean } = {}): WordDiff {
+  const cleanup = !opts.merge
+  const WORDS = opts.merge ? MERGE_WORD : WORD
   const ops: DiffOp[] = []
   const push = (op: -1 | 0 | 1, s: string) => {
     if (!s) return
@@ -86,10 +104,10 @@ export function wordDiff(a: string, b: string): WordDiff {
   /** A changed block: by words if it is small enough, whole otherwise. */
   const refine = (del: string, ins: string) => {
     if (!del || !ins) { push(-1, del); push(1, ins); return }
-    const wa = del.match(WORD) ?? []
-    const wb = ins.match(WORD) ?? []
+    const wa = del.match(WORDS) ?? []
+    const wb = ins.match(WORDS) ?? []
     const n = wa.length + wb.length
-    const words = n <= MAX_BLOCK_WORDS && n * n <= budget ? tokenDiff(wa, wb) : null
+    const words = n <= MAX_BLOCK_WORDS && n * n <= budget ? tokenDiff(wa, wb, cleanup) : null
     if (words) budget -= n * n
     if (words) for (const [op, s] of words) push(op, s)
     else { push(-1, del); push(1, ins) }
@@ -105,7 +123,7 @@ export function wordDiff(a: string, b: string): WordDiff {
     push(0, la.slice(0, p).join(''))
     const ma = la.slice(p, la.length - s)
     const mb = lb.slice(p, lb.length - s)
-    const byLines = ma.length + mb.length <= MAX_LINES ? tokenDiff(ma, mb) : null
+    const byLines = ma.length + mb.length <= MAX_LINES ? tokenDiff(ma, mb, cleanup) : null
     if (byLines) {
       let del = ''
       let ins = ''

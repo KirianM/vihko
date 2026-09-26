@@ -1719,6 +1719,7 @@ function subjectOf(q: QCommit, ops: FastOp[], created: Set<string>): string {
     case 'alias_added': return `Add alias ${s('alias')} to ${s('to')}`
     case 'restored': return `Restore ${target} from ${s('id').slice(0, 10)}`
     case 'trash_restored': return `Restore ${target} from the trash`
+    case 'reverted': return `Revert ${s('id').slice(0, 10)} in ${target}`
     case 'history_enabled': return 'Start history'
     case 'history_resumed': return 'Resume history'
     case 'recovered': return `Recover ${target}`
