@@ -27,6 +27,10 @@ bug reports, questions and ideas.
     mcr.microsoft.com/playwright:v1.63.0-noble npx playwright test
   ```
 
+  Ports: `E2E_PORT` (8094), the locked server `E2E_LOCKED_PORT` (`E2E_PORT`
+  + 2), the images spec's external server `E2E_EXTERNAL_PORT` (8132) and the
+  browser acceptance server `ACC_PORT` (8095).
+
 ## Acceptance
 
 The milestone's «Done when» as tests, over a generated vault of 1,000
@@ -49,13 +53,68 @@ realistic notes (seeded, with `testdata/vault` inside as the edge cases;
   Chromium on the machine, as with `e2e`: `npm run acceptance:serve -w
   @thoth/web` and the Playwright image with `ACC_BASE_URL`.
 
-CI runs both on every pull request. Before closing a milestone, run them on a
-real machine with more rounds and write the numbers down:
+CI runs both on every pull request (see below). Before closing a milestone,
+run them on a real machine with more rounds and write the numbers down:
 `ACCEPTANCE_ROUNDS=20 ACCEPTANCE_REPORT=acceptance.jsonl npm run acceptance`.
 Other variables: `ACCEPTANCE_NOTES`, `ACCEPTANCE_SEED`, `ACCEPTANCE_DIR`
 (where the notes go, e.g. an NFS mount, to measure it), `ACCEPTANCE_STATE_DIR`
 (always local disk), `ACCEPTANCE_DOCKER=0`, `ACCEPTANCE_DOCKER_ROUNDS` and
 `ACCEPTANCE_KEEP` (leave the folders behind).
+
+## CI
+
+The CI runs on a machine of the maintainer, not on GitHub: `npm run ci` runs
+the four jobs of `.github/workflows/ci.yml` and reports the result on the
+commit as the `ci/local` status, which costs no GitHub Actions minutes. GitHub
+Actions runs the workflow only for Dependabot's pull requests (nobody runs
+those locally) and when started by hand.
+
+```sh
+npm run ci                        # the last commit of this checkout
+npm run ci -- --pr 72             # pull request 72 merged onto its base, as GitHub tests it
+npm run ci -- --pr 72 --post      # …and pending, then success or failure, as ci/local on its head commit
+npm run ci -- --ref origin/main   # a commit (after git fetch, the latest main)
+npm run ci -- --jobs check,e2e    # some jobs only (--post needs all of them)
+npm run ci -- --serial            # one job after another
+npm run ci -- --keep              # keep the run's folder to debug
+npm run ci -- --clean             # remove the folders and logs of earlier runs
+```
+
+- **check**: `npm ci`, typecheck, build, `npm test`.
+- **acceptance**: `npm run acceptance` with `ACCEPTANCE_DOCKER=0`.
+- **docker**: builds the image (`thoth-ci:<run>`), starts it, waits for its
+  `HEALTHCHECK` and checks it serves the UI, then the Docker acceptance with
+  `ACCEPTANCE_IMAGE`.
+- **e2e**: `npm run e2e` and `npm run acceptance:ui` of `@thoth/web`, with the
+  servers on the host and the browser in the Playwright image of the installed
+  `@playwright/test` (`--network host`).
+
+Each run works in its own folder on local disk (`/var/tmp/thoth-ci/<run>`, or
+`THOTH_CI_DIR`; never NFS, and not a tmpfs `/tmp`): a git worktree of the
+commit (with `--pr`, the pull request's head merged onto its base, fetched
+first; a conflict fails the run), its own `TMPDIR` and test data. It never
+writes into your checkout. It picks free ports of its own, and names its
+containers and image after itself, so runs, agents and other services on the
+machine don't collide. The dependencies are installed and the UI built once,
+in a `setup` stage every job starts from.
+
+Each job has the workflow's `timeout-minutes`: a hang is a failure that names
+the step. Its output goes to `logs/<job>.log` in the run's folder; the summary
+prints OK or FAILED with the time of each job, and the log of the one that
+failed (for e2e, also Playwright's report and traces). Whatever happens, a
+failure, a timeout or Ctrl-C, the run stops its processes (by their working
+directory, since killing `npm run` leaves its grandchildren alive), removes its
+containers, networks, image and worktree, and keeps only the logs (for 7 days).
+`--keep` keeps the folder, never the processes. A run killed outright is
+cleaned up by the next one.
+
+The jobs run at the same time. On the 6-CPU machine the CI runs on, a full run
+takes about 8 minutes (setup 5 s, check 2m45s, acceptance 2m15s, docker 30 s
+with the image layers cached, e2e 7m55s), against 12m30s one after another;
+e2e, the longest, runs alone after the first three minutes, and the
+acceptance's timings moved by a few per cent. The acceptance has time
+thresholds and the browser tests are sensitive to load: when the machine is
+busy with something else, `--serial` runs the jobs one after another.
 
 ## Conventions
 
