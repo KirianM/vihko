@@ -25,7 +25,7 @@ server**, giving up full offline mode.
 ## What it is and isn't
 
 - A complete notes system on its own, with its own web UI and real-time
-  co-editing between people (and, later, agents).
+  co-editing between people and the agents they allow in.
 - API, MCP and webhooks built in but **optional and off by default**. Without
   them, nothing gets in or out except through the user.
 - Designed for anyone to self-host with Docker: no reverse proxy, Postgres or
