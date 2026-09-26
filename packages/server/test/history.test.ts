@@ -59,8 +59,9 @@ test('an open version closes after the quiet time, or at the maximum time while 
   } finally { await h.close() }
 })
 
-test('an external change closes what was pending and is its own version; thoth\'s own writes never look external', async () => {
-  const h = await setup()
+test('an external change closes what was pending; external changes in a row are one version, which a write of thoth\'s closes first; thoth\'s own writes never look external', async () => {
+  // A long quiet time: the external version must still be open when it's looked at.
+  const h = await setup({ quietMs: 10_000 })
   try {
     await h.put(NOTE, (t) => t + '\nde noa\n')
     // The indexer sees thoth's own write, as the watcher and the rescan would.
@@ -69,17 +70,61 @@ test('an external change closes what was pending and is its own version; thoth\'
     const file = join(h.notesDir, NOTE)
     writeFileSync(file, readFileSync(file, 'utf8') + 'de fuera\n')
     h.indexer.indexPaths([NOTE], { detectMoves: true })
-    await h.settle()
-    const { versions } = await h.versions(NOTE)
-    assert.deepEqual(versions.map(who), ['external', 'user:noa', 'system'])
-    assert.equal(versions[0].foundAtStartup, false)
-    const mine = await h.noa('GET', `/api/history/version?path=${h.q(NOTE)}&id=${versions[1].id}`)
+    // An editor that saves on every pause: the next save joins the same version.
+    writeFileSync(file, readFileSync(file, 'utf8') + 'y más de fuera\n')
+    h.indexer.indexPaths([NOTE], { detectMoves: true })
+    await h.history.recorder.settle()
+    const open = await h.versions(NOTE)
+    assert.deepEqual(open.versions.map(who), ['user:noa', 'system'], 'what noa had pending closed before the external change')
+    assert.deepEqual(open.pending.authors.map((a: any) => a.kind), ['external'])
+    const mine = await h.noa('GET', `/api/history/version?path=${h.q(NOTE)}&id=${open.versions[0].id}`)
     assert.ok(mine.body.text.endsWith('de noa\n'), 'the pending version keeps its own text')
-    // A cold write that reads a content the history doesn't know records it first as external.
-    writeFileSync(file, readFileSync(file, 'utf8') + 'otra vez de fuera\n')
+    // thoth writing the file closes the external version first, with both saves in it.
     await h.put(NOTE, (t) => t + 'y noa\n')
     await h.settle()
-    assert.deepEqual((await h.versions(NOTE)).versions.slice(0, 3).map(who), ['user:noa', 'external', 'external'])
+    let { versions } = await h.versions(NOTE)
+    assert.deepEqual(versions.map(who), ['user:noa', 'external', 'user:noa', 'system'])
+    assert.equal(versions[1].foundAtStartup, false)
+    const ext = await h.noa('GET', `/api/history/version?path=${h.q(NOTE)}&id=${versions[1].id}`)
+    assert.ok(ext.body.text.endsWith('de fuera\ny más de fuera\n'), 'the external version is the text right before thoth\'s write')
+    // A cold write that reads a content the history doesn't know records it first as external.
+    writeFileSync(file, readFileSync(file, 'utf8') + 'otra vez de fuera\n')
+    await h.put(NOTE, (t) => t + 'y noa otra vez\n')
+    await h.settle()
+    versions = (await h.versions(NOTE)).versions
+    assert.deepEqual(versions.slice(0, 3).map(who), ['user:noa', 'external', 'user:noa'])
+    const read = await h.noa('GET', `/api/history/version?path=${h.q(NOTE)}&id=${versions[1].id}`)
+    assert.ok(read.body.text.endsWith('otra vez de fuera\n') && !read.body.text.includes('y noa otra vez'))
+  } finally { await h.close() }
+})
+
+test('external versions close after the quiet time; several files closing together are one commit, dated at their last change', async () => {
+  const h = await setup()
+  try {
+    // Whole seconds after the history's first commit (the floor of these dates) and before now.
+    const first = Math.ceil(Date.now() / 1000)
+    while (Date.now() < (first + 1) * 1000 + 50) await sleep(50)
+    const tags = join(h.notesDir, 'tags.md')
+    const code = join(h.notesDir, 'codigo.md')
+    writeFileSync(tags, 'primer guardado\n')
+    utimesSync(tags, first, first)
+    writeFileSync(code, 'código cambiado fuera\n')
+    utimesSync(code, first, first)
+    h.indexer.indexPaths(['tags.md', 'codigo.md'], { detectMoves: true })
+    writeFileSync(tags, 'segundo guardado\n')
+    utimesSync(tags, first + 1, first + 1)
+    h.indexer.indexPaths(['tags.md'], { detectMoves: true })
+    // No closeAll: the quiet time (150 ms here) closes them.
+    await sleep(400)
+    await h.history.recorder.settle()
+    const { changes } = await h.changes()
+    assert.equal(who(changes[0]), 'external')
+    assert.deepEqual(changes[0].files.map((f: any) => f.path).sort(), ['codigo.md', 'tags.md'], 'one commit for both files')
+    assert.equal(changes[0].at, new Date((first + 1) * 1000).toISOString(), 'the last change\'s mtime')
+    const { versions } = await h.versions('tags.md')
+    assert.deepEqual(versions.map(who), ['external', 'system'], 'both saves are one version')
+    const v = await h.noa('GET', `/api/history/version?path=tags.md&id=${versions[0].id}`)
+    assert.equal(v.body.text, 'segundo guardado\n')
   } finally { await h.close() }
 })
 
@@ -345,6 +390,66 @@ test('a failing git never blocks a write: it is reported, and the history catche
     assert.equal((await h.noa('GET', '/api/history/status')).body.available, true)
     assert.deepEqual((await h.versions(NOTE)).versions.map(who), ['user:noa', 'system'])
     assert.ok(!(await h.noa('GET', '/api/alerts')).body.alerts.some((a: any) => a.code === 'history_unavailable'))
+  } finally { await h.close(); rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('git failing so long that the queue reaches its cap: the oldest versions merge into later ones, keeping contents and authors, with an alert while it lasts', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thoth-git-'))
+  const { git, flag } = flakyGit(dir)
+  const h = await setup({ git, queueMax: 2 })
+  const until = async (cond: () => Promise<boolean>, what: string) => {
+    const t0 = Date.now()
+    while (!(await cond())) { if (Date.now() - t0 > 15_000) throw new Error(`timeout: ${what}`); await sleep(50) }
+  }
+  const merged = async () => (await h.noa('GET', '/api/alerts')).body.alerts.find((a: any) => a.code === 'history_versions_merged') ?? null
+  const gitBack = async () => {
+    rmSync(flag)
+    await until(async () => (await h.noa('GET', '/api/history/status')).body.available, 'git back')
+    await h.history.recorder.settle()
+  }
+  const version = async (path: string) => {
+    const [v] = (await h.versions(path)).versions
+    return { who: who(v), text: (await h.noa('GET', `/api/history/version?path=${h.q(path)}&id=${v.id}`)).body.text as string, id: v.id }
+  }
+  try {
+    const t0 = Date.now()
+    writeFileSync(flag, '')
+    // Three versions for a queue of two: noa's of the note goes into ana's next one of the same note.
+    await h.put(NOTE, (t) => t + '\nDE-NOA\n')
+    h.history.recorder.closeAll()
+    await h.put('tags.md', (t) => t + 'DE-ANA\n', 'ana')
+    h.history.recorder.closeAll()
+    await h.put(NOTE, (t) => t + 'DE-ANA-DESPUÉS\n', 'ana')
+    h.history.recorder.closeAll()
+    await until(async () => (await merged()) !== null, 'the alert')
+    const alert = await merged()
+    assert.deepEqual(alert, { code: 'history_versions_merged', versions: 1, since: alert.since, actions: [] })
+    assert.ok(Date.parse(alert.since) >= t0 - 1000 && Date.parse(alert.since) <= Date.now())
+    assert.ok(readFileSync(join(h.notesDir, NOTE), 'utf8').includes('DE-ANA-DESPUÉS'), 'notes are written all the same')
+    await gitBack()
+    assert.equal(await merged(), null, 'gone once everything is in git')
+    assert.deepEqual((await h.versions(NOTE)).versions.map(who), ['user:ana,user:noa', 'system'], 'one version with both authors')
+    assert.ok((await version(NOTE)).text.endsWith('DE-NOA\nDE-ANA-DESPUÉS\n'))
+    assert.deepEqual((await h.versions('tags.md')).versions.map(who), ['user:ana', 'system'], 'another file keeps its own author')
+
+    // Nothing written again: a version goes into a later one by the same author, with its own content.
+    writeFileSync(flag, '')
+    await h.put('codigo.md', (t) => t + 'K1\n')
+    h.history.recorder.closeAll()
+    await h.put('Plan.md', (t) => t + 'A1\n', 'ana')
+    h.history.recorder.closeAll()
+    await h.put('tags.md', (t) => t + 'K2\n')
+    h.history.recorder.closeAll()
+    await until(async () => (await merged())?.versions === 1, 'the alert again')
+    await gitBack()
+    const { changes } = await h.changes()
+    assert.deepEqual(changes.slice(0, 2).map((c: any) => [who(c), c.files.map((f: any) => f.path).sort()]), [
+      ['user:noa', ['codigo.md', 'tags.md']],
+      ['user:ana', ['Plan.md']],
+    ])
+    assert.ok((await version('codigo.md')).text.endsWith('K1\n'))
+    assert.ok(h.logs.some((l) => /merging the oldest/.test(l)))
+    assert.ok(!h.logs.some((l) => /dropped/.test(l)))
   } finally { await h.close(); rmSync(dir, { recursive: true, force: true }) }
 })
 

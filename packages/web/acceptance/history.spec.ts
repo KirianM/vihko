@@ -35,15 +35,21 @@ test('typed in the browser, then changed with another editor: each version with 
   await expect.poll(() => read(note), { timeout: 10_000 }).toContain('Escrito para el historial.')
   writeFileSync(`${NOTES}/${note}`, read(note) + '\nCambio de otro editor para el historial.\n')
   await expect.poll(() => editorText(k)).toContain('Cambio de otro editor para el historial.')
-  // The external change closes what was typed: both are versions now, each by its author.
-  await expect.poll(async () => (await versions(note)).slice(0, 2).map(who).join(' | '), { timeout: 15_000 }).toBe('external | noa')
-  const [, typed] = await versions(note)
+  // The external change closes what was typed, a version by its author; the
+  // external one stays open for a while (that editor may save again).
+  const state = async () => {
+    const r = await (await k.request.get(`/api/history/versions?path=${q(note)}`)).json() as { versions: Version[]; pending: { authors: { kind: string }[] } | null }
+    return `${r.versions[0] ? who(r.versions[0]) : ''} | ${r.pending?.authors.map((a) => a.kind).join(',') ?? ''}`
+  }
+  await expect.poll(state, { timeout: 15_000 }).toBe('noa | external')
+  const [typed] = await versions(note)
   const r = await k.request.post('/api/history/restore', { data: { path: note, id: typed!.id } })
   expect(r.status()).toBe(200)
   await expect.poll(() => editorText(k)).not.toContain('Cambio de otro editor para el historial.')
   expect(await editorText(k)).toContain('Escrito para el historial.')
   await expect.poll(() => read(note), { timeout: 10_000 }).not.toContain('Cambio de otro editor para el historial.')
-  await expect.poll(async () => { const [v] = await versions(note); return v ? `${v.change} ${who(v)}` : '' }).toBe('restored noa')
+  // Restoring closed the external version first: each change is still there with its author.
+  await expect.poll(async () => (await versions(note)).slice(0, 3).map((v) => `${v.change} ${who(v)}`).join(' | ')).toBe('restored noa | modified external | modified noa')
 })
 
 test('a rename from the UI: the move by whoever did it, the links rewritten by the system for them, and restoring a backlink brings its link back', async () => {

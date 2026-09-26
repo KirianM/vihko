@@ -123,11 +123,12 @@ test('scan stopped: the admin confirms with the figure they see; a member has no
   await a.context().close()
 })
 
-test('history alerts: git failing (with its detail), files over the limit, no repository in unmanaged mode', async ({ browser }) => {
+test('history alerts: git failing (with its detail), versions merged at the cap, files over the limit, no repository in unmanaged mode', async ({ browser }) => {
   const k = await signIn(browser, 'noa')
   const big = Array.from({ length: 12 }, (_, i) => `videos/clip-${i}.mp4`)
   await mockAlerts(k, [
     { code: 'history_unavailable', detail: 'git fast-import exited with 128: fatal: write error: No space left on device', actions: [] },
+    { code: 'history_versions_merged', versions: 37, since: '2026-03-14T09:30:00Z', actions: [] },
     { code: 'history_files_too_large', paths: big, limitMb: 20, actions: [] },
     { code: 'history_no_repository', actions: [] },
   ])
@@ -137,6 +138,11 @@ test('history alerts: git failing (with its detail), files over the limit, no re
   await expect(git.locator('.alert-copy')).toBeHidden()
   await git.getByText('Detalle para quien administra thoth').click()
   await expect(git.locator('.alert-copy')).toContainText('No space left on device')
+  const merged = card(k, 'ha juntado')
+  await expect(merged.getByRole('heading')).toHaveText('El historial ha juntado 37 versiones')
+  // The date in the person's timezone: 14 March, whatever the hour there.
+  await expect(merged).toContainText(/Desde el 14 mar/)
+  await expect(merged).toContainText('no se pierde texto ni autores')
   const large = card(k, 'no entran en el historial')
   await expect(large.getByRole('heading')).toHaveText('12 archivos no entran en el historial')
   await expect(large).toContainText('límite de 20 MB')

@@ -15,14 +15,22 @@
 // - System operations (moves with their link rewrites, restores…) are one
 //   commit at once with everything they touched (`operation`).
 // - A content that isn't the last one thoth knows for a path is an external
-//   change: pending closes first, and it is its own version by `external`.
-//   thoth's own writes are expected before anything can see them on disk.
+//   change, by `external`: whatever else was pending on the path closes
+//   first. External changes in a row to one file accumulate in one open
+//   version with the same 30 s / 5 min rule (an editor that saves on every
+//   pause), and any write of thoth's to that file closes it first. External
+//   versions that close together are one commit. Moves and deletions made
+//   outside, and what thoth finds at startup, are versions at once. thoth's
+//   own writes are expected before anything can see them on disk.
 // - A kill -9 loses no authorship: what is pending, and the commits not yet
 //   in git, live in a journal in the state volume (temporary file, fsync,
 //   rename), confirmed against the files when thoth starts.
 // - The history never blocks or fails a note write: if git fails, the note is
 //   written, the commit waits in the journal and is retried, and there is an
-//   alert (`history_unavailable`).
+//   alert (`history_unavailable`). If it fails for so long that 5,000 commits
+//   wait, the oldest are merged into later ones: versions lose granularity,
+//   never content or authors, and there is an alert while it lasts
+//   (`history_versions_merged`).
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -53,6 +61,8 @@ export interface RecorderOptions {
   retryMs?: number
   /** Commits between two background `git gc --auto`. */
   gcEvery?: number
+  /** Commits that wait for git (it keeps failing) before the oldest are merged into later ones (5,000). */
+  queueMax?: number
   /** The name git shows for an author (the user's current name). */
   nameOf?: (author: Author) => string
   log?: (msg: string) => void
@@ -115,18 +125,23 @@ interface QCommit {
 
 /** A version still open on one path. */
 interface Pending {
-  /** `typed`: from the editor; `write`: writes of one user or agent with one reason. */
-  kind: 'typed' | 'write'
+  /** `typed`: from the editor; `write`: writes of one user or agent with one reason; `external`: changes made outside thoth. */
+  kind: 'typed' | 'write' | 'external'
   key: string
   authors: string[]
   reason: ReasonData
   since: number
   last: number
+  /** An external version's author time: its last change's mtime, bounded by the version before it and by when it was seen. */
+  at?: number
   /** What the history knew for the path before it opened. */
   base: string | null
-  /** Contents thoth wrote for it, in order (the last one is the version's). */
+  /** Contents thoth wrote (or saw, external) for it, in order (the last one is the version's). */
   oids: string[]
+  /** The last content, for text files. */
   text: string
+  /** Bytes, not text (an external change to an image): not in the journal, read from the file when committed. */
+  file?: boolean
 }
 
 /** An operation that commits everything it touched at once. */
@@ -148,6 +163,8 @@ interface Journal {
   groups: { authors: string[]; reason: ReasonData; refs: { path: string; oid: string | null }[] }[]
   /** Writes to disk under way: who, why and what each file will hold (without contents). */
   writes: { authors: string[]; reason: ReasonData; changes: QChange[] }[]
+  /** The queue reached its cap: how many commits were merged into later ones, and since when (ms). */
+  merged: { count: number; since: number } | null
 }
 
 interface CacheEntry { size: number; mtimeMs: number; ctimeMs: number; ino: number; oid: string; checkedAt: number }
@@ -250,6 +267,8 @@ export class Recorder {
   private gcRunning = false
   /** After git was unavailable: the first sweep records what changed meanwhile, unattributed. */
   private resumeOnReady = false
+  /** Commits merged at the queue's cap, until the queue is in git again. */
+  private merged: Journal['merged'] = null
   private closed = false
 
   constructor(opts: RecorderOptions) {
@@ -281,6 +300,7 @@ export class Recorder {
       this.inflight = j.inflight
       this.leftoverGroups = j.groups
       this.leftoverWrites = j.writes
+      this.merged = j.merged
     }
     this.readCache()
     this.mode = mode
@@ -342,7 +362,7 @@ export class Recorder {
 
   /** What was recorded goes to git; nothing more is recorded. The repository stays. */
   private async stopRecording() {
-    for (const path of [...this.pending.keys()]) this.closePending(path)
+    this.closeMany([...this.pending.keys()])
     this.typists.clear()
     this.recording = false
     this.saveJournal()
@@ -422,6 +442,7 @@ export class Recorder {
     if (this.mode === 'managed' && this.tooLarge.size) {
       out.push({ code: 'history_files_too_large', paths: [...this.tooLarge.keys()].sort(), limitMb: Math.round((this.opts.maxFileBytes() / 1048576) * 100) / 100, actions: [] })
     }
+    if (this.mode === 'managed' && this.merged) out.push({ code: 'history_versions_merged', versions: this.merged.count, since: new Date(this.merged.since).toISOString(), actions: [] })
     return out
   }
 
@@ -449,7 +470,7 @@ export class Recorder {
 
   /** Closes every open version now (tests; the timers do it otherwise). */
   closeAll() {
-    for (const path of [...this.pending.keys()]) this.closePending(path)
+    this.closeMany([...this.pending.keys()])
     this.scheduleDrain(0)
   }
 
@@ -480,8 +501,9 @@ export class Recorder {
     this.typists.delete(path)
     const p = this.pending.get(path)
     // What people typed goes on in their version; with nobody typing since the
-    // last flush (the hub adding a uid after an agent's write), in whatever is open.
-    if (p?.kind === 'typed' || (p && typing.size === 0)) {
+    // last flush (the hub adding a uid after an agent's write), in whatever is
+    // open, unless it's an external version: thoth writing closes that one.
+    if (p?.kind === 'typed' || (p && p.kind !== 'external' && typing.size === 0)) {
       if (oid !== p.oids.at(-1)) {
         p.oids.push(oid)
         p.text = text
@@ -514,7 +536,7 @@ export class Recorder {
     this.prepare([{ path, after: w.after }], { actor: w.actor, inMemory: true }).done()
   }
 
-  /** The hub integrated a change made outside thoth (what is now on disk). */
+  /** The hub integrated a change made outside thoth (what is now on disk): it joins the note's open external version. */
   external(path: string, text: string) {
     this.observe([{ path, content: text }])
   }
@@ -686,7 +708,7 @@ export class Recorder {
     this.observe(pairMoves(obs, (p) => this.known(p)))
   }
 
-  /** Compares what was seen with what the history knows; the differences are one external commit. */
+  /** Compares what was seen with what the history knows; the differences are external changes. */
   private observe(list: Observation[], opts: { foundAtStartup?: boolean } = {}) {
     if (!this.live) return
     const ext: Observation[] = []
@@ -715,8 +737,57 @@ export class Recorder {
     if (ext.length) this.recordExternal(ext, opts)
   }
 
+  /**
+   * External changes: a new content for a file joins its open external
+   * version (or opens one, closing what else was pending on it); a move or a
+   * deletion, and anything found at startup, is one commit at once, after
+   * closing what was pending on those paths.
+   */
   private recordExternal(ext: Observation[], opts: { foundAtStartup?: boolean }) {
     const now = this.now()
+    const joining = opts.foundAtStartup ? [] : ext.filter(joinsVersion)
+    const commit = joining.length ? ext.filter((o) => !joining.includes(o)) : ext
+    if (commit.length) this.commitExternal(commit, opts, now)
+    if (joining.length) this.openExternal(joining, now)
+  }
+
+  private openExternal(list: Observation[], now: number) {
+    for (const o of list) {
+      const oid = o.oid ?? blobOid(o.content as string | Uint8Array)
+      if (o.content instanceof Uint8Array) this.cacheBlob(oid, o.content)
+      let p = this.pending.get(o.path)
+      if (p && p.kind !== 'external') { this.closePending(o.path); p = undefined }
+      this.flushGroupsTouching(o.path)
+      this.own.delete(o.path)
+      this.touch(o.path)
+      // The last change's time, bounded by the version before it and by now.
+      const floor = Math.max(this.lastAt.get(o.path) ?? this.headTime, p?.at ?? 0)
+      const at = o.mtimeMs === undefined ? now : Math.min(now, Math.max(floor, o.mtimeMs))
+      const text = typeof o.content === 'string' ? o.content : null
+      if (p) {
+        const prev = p.oids.at(-1)!
+        if (oid !== prev) {
+          p.oids.push(oid)
+          // An in-between content of an image never reaches git: its cached bytes can go.
+          if (p.file) this.releaseBlob(prev)
+        }
+        p.text = text ?? ''
+        if (text === null) p.file = true
+        else delete p.file
+        p.last = now
+        p.at = at
+      } else {
+        this.pending.set(o.path, {
+          kind: 'external', key: 'external', authors: ['external'], reason: null, since: now, last: now, at,
+          base: this.known(o.path), oids: [oid], text: text ?? '', ...(text === null ? { file: true } : {}),
+        })
+      }
+    }
+    this.saveJournal()
+    crashPoint('history-external')
+  }
+
+  private commitExternal(ext: Observation[], opts: { foundAtStartup?: boolean }, now: number) {
     let at = 0
     for (const o of ext) {
       for (const p of [o.path, ...(o.from !== undefined ? [o.from] : [])]) {
@@ -815,10 +886,7 @@ export class Recorder {
     this.saveCache()
     const list = pairMoves(obs, (p) => this.known(p))
     if (list.length === 0) return
-    for (const o of list) {
-      this.closePending(o.path)
-      if (o.from !== undefined) this.closePending(o.from)
-    }
+    this.closeMany(list.flatMap((o) => (o.from !== undefined ? [o.path, o.from] : [o.path])))
     const system = kind === 'enabled' || kind === 'resumed'
     const now = this.now()
     let at = 0
@@ -850,18 +918,27 @@ export class Recorder {
    * content of the same version means the later writes never reached disk;
    * the content from before it, that none did. Anything else means the file
    * changed afterwards: the version is kept as it was (its text is in the
-   * journal) and the sweep records the rest as external.
+   * journal) and the sweep records the rest as external. An external version
+   * was all on disk already, seen while thoth ran: it stays open if the file
+   * still has its last content, and otherwise closes as it was (an image's,
+   * whose bytes aren't in the journal, is left to the sweep).
    */
   private confirmJournal() {
     for (const [path, p] of [...this.pending]) {
-      let text: string | null = null
-      try { text = readFileSync(join(this.opts.notesDir, path), 'utf8') } catch { /* gone */ }
-      const oid = text === null ? null : blobOid(text)
+      let bytes: Buffer | null = null
+      try { bytes = readFileSync(join(this.opts.notesDir, path)) } catch { /* gone */ }
+      const content = bytes === null ? null : isTextPath(path) ? bytes.toString('utf8') : bytes
+      const oid = content === null ? null : blobOid(content)
       if (oid === p.oids.at(-1)) continue
+      if (p.kind === 'external') {
+        if (p.file) this.pending.delete(path)
+        else this.closePending(path)
+        continue
+      }
       const i = oid === null ? -1 : p.oids.indexOf(oid)
       if (i >= 0) {
         p.oids = p.oids.slice(0, i + 1)
-        p.text = text!
+        p.text = content as string
         continue
       }
       if (oid === p.base) { this.pending.delete(path); continue }
@@ -913,7 +990,14 @@ export class Recorder {
     const now = this.now()
     const quiet = this.opts.quietMs ?? 30_000
     const max = this.opts.maxOpenMs ?? 300_000
-    for (const [path, p] of [...this.pending]) if (now - p.last >= quiet || now - p.since >= max) this.closePending(path)
+    const due = [...this.pending].filter(([, p]) => now - p.last >= quiet || now - p.since >= max).map(([path]) => path)
+    // External versions closing together are one commit: when one closes, those
+    // of other files that are nearly as quiet close with it (a sync tool writes
+    // a batch of files over a few seconds).
+    if (due.some((path) => this.pending.get(path)!.kind === 'external')) {
+      for (const [path, p] of this.pending) if (p.kind === 'external' && now - p.last >= quiet * 0.8 && !due.includes(path)) due.push(path)
+    }
+    if (due.length) this.closeMany(due)
     if (now - this.lastPrune > 60_000) {
       this.lastPrune = now
       for (const [path, list] of [...this.own]) {
@@ -929,9 +1013,29 @@ export class Recorder {
     if (!p) return
     this.pending.delete(path)
     this.flushGroupsTouching(path)
+    if (p.kind === 'external') return this.enqueue({ authors: ['external'], reason: null, at: p.at ?? p.last, changes: [pendingChange(path, p)] })
     const authors = p.authors.length ? p.authors : ['system']
     const reason = p.authors.length ? p.reason : { code: 'recovered' }
     this.enqueue({ authors, reason, at: p.last, changes: [{ path, oid: p.oids.at(-1)!, text: p.text }] })
+  }
+
+  /** Closes these open versions; the external ones among them are one commit, as their author is one. */
+  private closeMany(paths: readonly string[]) {
+    const external: [string, Pending][] = []
+    for (const path of paths) {
+      const p = this.pending.get(path)
+      if (!p) continue
+      if (p.kind !== 'external') { this.closePending(path); continue }
+      this.pending.delete(path)
+      this.flushGroupsTouching(path)
+      external.push([path, p])
+    }
+    if (external.length === 0) return
+    this.enqueue({
+      authors: ['external'], reason: null,
+      at: Math.max(...external.map(([, p]) => p.at ?? p.last)),
+      changes: external.map(([path, p]) => pendingChange(path, p)),
+    })
   }
 
   private accumulate(changes: FileChange[], authors: string[], reason: ReasonData, key: string) {
@@ -1076,16 +1180,105 @@ export class Recorder {
 
   private enqueue(q: QCommit) {
     if (q.changes.length === 0) return
-    if (this.queue.length >= QUEUE_MAX) {
-      this.log(`history: ${QUEUE_MAX} commits waiting for git; this one is dropped`)
-      return
-    }
     this.queue.push(q)
     this.applyToTree(q)
     for (const c of q.changes) this.touch(c.path)
+    this.compact()
     this.saveJournal()
     crashPoint('history-queued')
     this.scheduleDrain()
+  }
+
+  /** Keeps the queue at its cap, merging commits (never dropping one). */
+  private compact() {
+    const max = this.opts.queueMax ?? QUEUE_MAX
+    while (this.queue.length > max && this.mergeOldest()) {
+      if (this.merged?.count === 1) this.log(`history: ${max} commits waiting for git; merging the oldest into later ones (fewer versions, the same contents and authors)`)
+    }
+  }
+
+  /**
+   * The queue is at its cap (git has failed for a long time): one commit
+   * fewer, losing granularity and never content or authors. In order:
+   * 1. The oldest commit whose files a later commit writes again goes into
+   *    that later commit, as if its version had stayed open longer: the later
+   *    content wins, and the version has the authors of both.
+   * 2. Otherwise (no waiting commit's files are written again), the oldest one
+   *    that has a later commit with the same authors and reason goes into it:
+   *    every file keeps its content and exact authors; only its date moves.
+   * 3. Otherwise, the oldest goes into the next commit, with both authors.
+   * Moves are never merged away (the history of a note follows them), nor
+   * anything already on its way to git. False if nothing could be merged.
+   */
+  private mergeOldest(): boolean {
+    const q = this.queue
+    const start = this.inflight?.count ?? 0
+    const plain = (i: number) => q[i]!.changes.every((c) => c.from === undefined && !c.folder)
+    // Where each path is written (or moved from) from `start` on, in queue order.
+    const at = new Map<string, number[]>()
+    const inFolder = new Map<string, number[]>()
+    for (let j = start; j < q.length; j++) {
+      for (const c of q[j]!.changes) {
+        for (const p of c.from !== undefined ? [c.path, c.from] : [c.path]) {
+          const map = c.folder ? inFolder : at
+          const list = map.get(p)
+          if (list) { if (list.at(-1) !== j) list.push(j) } else map.set(p, [j])
+        }
+      }
+    }
+    const firstAfter = (list: number[] | undefined, i: number) => {
+      if (!list) return -1
+      let lo = 0, hi = list.length
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid]! <= i) lo = mid + 1; else hi = mid }
+      return lo < list.length ? list[lo]! : -1
+    }
+    const nextWriting = (i: number) => {
+      let best = -1
+      const take = (k: number) => { if (k >= 0 && (best < 0 || k < best)) best = k }
+      for (const c of q[i]!.changes) {
+        take(firstAfter(at.get(c.path), i))
+        for (let s = c.path.lastIndexOf('/'); s > 0; s = c.path.lastIndexOf('/', s - 1)) take(firstAfter(inFolder.get(c.path.slice(0, s)), i))
+      }
+      return best
+    }
+    for (let i = start; i < q.length - 1; i++) {
+      if (!plain(i)) continue
+      const k = nextWriting(i)
+      if (k >= 0) return this.fold(i, k), true
+    }
+    // No waiting commit's files are written again: any of them can go into any later commit.
+    const sig = (c: QCommit) => JSON.stringify([[...c.authors].sort(), c.reason, !!c.foundAtStartup])
+    const nextSame = new Map<string, number>()
+    const same: number[] = []
+    for (let j = q.length - 1; j >= start; j--) {
+      const s = sig(q[j]!)
+      same[j] = nextSame.get(s) ?? -1
+      nextSame.set(s, j)
+    }
+    for (let i = start; i < q.length - 1; i++) if (plain(i) && same[i]! >= 0) return this.fold(i, same[i]!), true
+    for (let i = start; i < q.length - 1; i++) if (plain(i)) return this.fold(i, i + 1), true
+    return false
+  }
+
+  /**
+   * Commit `i` goes into the later commit `k`, which no commit in between
+   * writes any of its files: its changes first (a file that `k` writes again
+   * keeps `k`'s content), then `k`'s, with the authors of both.
+   */
+  private fold(i: number, k: number) {
+    const a = this.queue[i]!
+    const b = this.queue[k]!
+    const rewritten = (c: QChange) => b.changes.some((d) => d.path === c.path && d.from === undefined && !d.folder && d.oid !== undefined)
+      && !b.changes.some((d) => d.from !== undefined && (d.from === c.path || (!!d.folder && under(c.path, d.from))))
+    const gone = a.changes.filter(rewritten)
+    b.changes = [...a.changes.filter((c) => !gone.includes(c)), ...b.changes]
+    for (const x of a.authors) if (!b.authors.includes(x)) b.authors.push(x)
+    // A reason explains the system as an author; a person's (restored…) was about the content that is now gone.
+    if (!b.reason && a.authors.includes('system')) b.reason = a.reason
+    if (a.foundAtStartup) b.foundAtStartup = true
+    this.queue.splice(i, 1)
+    for (const c of gone) if (c.file && c.oid) this.releaseBlob(c.oid)
+    this.merged = { count: (this.merged?.count ?? 0) + 1, since: this.merged?.since ?? this.now() }
   }
 
   private applyToTree(q: QCommit) {
@@ -1141,6 +1334,8 @@ export class Recorder {
           ids = await this.writes.run(() => fastImport(this.git, HISTORY_REF, this.head, commits, 300_000 + bytes / 1000))
         } catch (err) {
           this.inflight = null
+          // What came in while this batch was on its way couldn't be merged into it: now it can.
+          this.compact()
           this.saveJournal()
           this.fail(err)
           return this.retryLater()
@@ -1158,6 +1353,10 @@ export class Recorder {
       this.inflight = null
       if (skipped.length) this.rebuildTree()
       for (const q of batch) for (const c of q.changes) if (c.file && c.oid) this.dropBlob(c.oid)
+      if (this.merged && this.queue.length === 0) {
+        this.log(`history: the ${this.merged.count} merged commits are in git`)
+        this.merged = null
+      }
       this.saveJournal()
       this.clearError()
       this.gcMaybe(commits.length)
@@ -1169,6 +1368,11 @@ export class Recorder {
     if (!b) return
     this.blobs.delete(oid)
     this.blobBytes -= b.byteLength
+  }
+
+  /** Cached bytes that no commit waiting for git needs any more. */
+  private releaseBlob(oid: string) {
+    if (this.blobs.has(oid) && !this.queue.some((q) => q.changes.some((c) => c.oid === oid))) this.dropBlob(oid)
   }
 
   /**
@@ -1291,7 +1495,7 @@ export class Recorder {
     try {
       const j = JSON.parse(text) as Journal
       if (j.version !== 1) throw new Error(`version ${String(j.version)}`)
-      return { version: 1, mode: j.mode ?? 'managed', typing: j.typing ?? {}, pending: j.pending ?? {}, queue: j.queue ?? [], inflight: j.inflight ?? null, groups: j.groups ?? [], writes: j.writes ?? [] }
+      return { version: 1, mode: j.mode ?? 'managed', typing: j.typing ?? {}, pending: j.pending ?? {}, queue: j.queue ?? [], inflight: j.inflight ?? null, groups: j.groups ?? [], writes: j.writes ?? [], merged: j.merged ?? null }
     } catch (err) {
       this.log(`history: the journal can't be read (${err instanceof Error ? err.message : String(err)}); starting without it`)
       return null
@@ -1312,6 +1516,7 @@ export class Recorder {
         authors: g.authors, reason: g.reason, refs: [...g.changes.values()].filter((c) => c.oid !== undefined && !c.folder && c.from === undefined).map((c) => ({ path: c.path, oid: c.oid! })),
       })),
       writes: [...this.leftoverWrites, ...this.writesInFlight.values()],
+      merged: this.merged,
     }
     try {
       mkdirSync(this.dir, { recursive: true })
@@ -1351,6 +1556,21 @@ interface Observation {
 }
 
 const byteLength = (c: string | Uint8Array) => (typeof c === 'string' ? Buffer.byteLength(c, 'utf8') : c.byteLength)
+
+/**
+ * An external change that joins its file's open version: a new content (not
+ * a move or a deletion) that thoth holds, or can read again from the file.
+ */
+function joinsVersion(o: Observation): boolean {
+  if (o.from !== undefined || o.content === null || o.oid === null) return false
+  if (typeof o.content === 'string' || o.content instanceof Uint8Array) return true
+  return typeof o.oid === 'string' && !isTextPath(o.path)
+}
+
+/** The change an open version commits: its text, or its bytes read again (an external change to an image). */
+function pendingChange(path: string, p: Pending): QChange {
+  return p.file ? { path, oid: p.oids.at(-1)!, file: true } : { path, oid: p.oids.at(-1)!, text: p.text }
+}
 
 /**
  * Among missing and new files, those with the same content and no other
