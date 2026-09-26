@@ -520,6 +520,11 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       alerts.push({ code: 'sync_conflict', path, note: noteExists.get(note) ? note : null, actions: [] })
     }
     alerts.push(...(deps.history?.alerts() ?? []))
+    // Agents writing with no version of their own to undo them by (D-034 3.8).
+    const mode = workspace.config.history.mode
+    const api = integrations.apiEnabled()
+    const mcp = integrations.mcpEnabled()
+    if ((api || mcp) && mode !== 'managed') alerts.push({ code: 'integrations_unversioned', mode, api, mcp, actions: [] })
     return c.json({ alerts })
   })
 

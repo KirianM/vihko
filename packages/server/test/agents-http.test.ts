@@ -200,3 +200,18 @@ test('images: an agent stores them next to its notes, never outside its folders'
     assert.ok(!out.text.includes('Adjuntos'))
   } finally { await h.close() }
 })
+
+test('an alert while the API or MCP is on and the history is not managed: what agents write has no version of its own', async () => {
+  const h = await setup({ files: FILES, config: 'history:\n  mode: off\n' })
+  try {
+    const ours = async () => ((await h.ana('GET', '/api/alerts')).body.alerts as { code: string }[]).filter((a) => a.code === 'integrations_unversioned')
+    assert.deepEqual(await ours(), [], 'off: nothing to warn about')
+    await h.noa('PUT', '/api/admin/integrations', { mcp: true })
+    assert.deepEqual(await ours(), [{ code: 'integrations_unversioned', mode: 'off', api: false, mcp: true, actions: [] }])
+    await h.enableApi()
+    assert.deepEqual(await ours(), [{ code: 'integrations_unversioned', mode: 'off', api: true, mcp: true, actions: [] }])
+    writeFileSync(join(h.notesDir, 'thoth.yaml'), 'history:\n  mode: managed\n')
+    h.workspace.reload()
+    assert.deepEqual(await ours(), [], 'managed: every agent write is a version')
+  } finally { await h.close() }
+})

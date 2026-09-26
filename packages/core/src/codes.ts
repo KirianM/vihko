@@ -89,6 +89,12 @@ export type Alert =
   | { code: 'history_versions_merged'; versions: number; since: string; actions: never[] }
   /** `history.mode: unmanaged`, but the notes folder isn't inside a git repository: there is no history to show. */
   | { code: 'history_no_repository'; actions: never[] }
+  /**
+   * The API or the MCP server is on (`api`, `mcp`) while thoth.yaml keeps
+   * the history unmanaged or off (`mode`): what an agent writes gets no
+   * version of its own to undo it by (D-034 3.8).
+   */
+  | { code: 'integrations_unversioned'; mode: 'unmanaged' | 'off'; api: boolean; mcp: boolean; actions: never[] }
 
 export type AlertCode = Alert['code']
 export type AlertAction = Alert['actions'][number]
