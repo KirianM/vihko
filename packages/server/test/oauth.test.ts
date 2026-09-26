@@ -222,7 +222,8 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     assert.deepEqual(key.client, { id: client.client_id, redirectUris: [REDIRECT] })
     assert.equal((await h.noa('GET', '/api/keys')).body.keys.length, 1, 'the replayed code\'s authorization is the same key')
 
-    // Authorized again with write, in one folder: the same authorization changes.
+    // Renamed by its person, then authorized again with write, in one folder: the same authorization changes, and keeps its name.
+    assert.equal((await h.noa('PATCH', `/api/keys/${key.id}`, { name: 'Claude web' })).status, 200)
     const rw = await authorize(h, client.client_id, { canWrite: true, folders: ['proyectos'] })
     assert.equal(rw.scope, 'read write')
     const writer = await h.mcp(rw.access_token)
@@ -234,11 +235,11 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     const keys = (await h.noa('GET', '/api/keys')).body.keys
     assert.equal(keys.length, 1)
     assert.equal(keys[0].id, key.id)
-    assert.deepEqual([keys[0].canWrite, keys[0].folders], [true, ['proyectos']])
-    // The history names the client, on noa's behalf, via OAuth.
+    assert.deepEqual([keys[0].name, keys[0].canWrite, keys[0].folders], ['Claude web', true, ['proyectos']])
+    // The history names the authorization, on noa's behalf, via OAuth.
     await h.settle()
     const versions = (await h.noa('GET', h.url('/api/history/versions', { path: 'proyectos/de-claude.md' }))).body.versions
-    assert.deepEqual(versions[0].authors[0], { kind: 'agent', id: key.id, name: 'Claude', onBehalfOf: { id: h.users.noa.id, name: 'noa' }, via: 'oauth', key: `agent:${key.id}` })
+    assert.deepEqual(versions[0].authors[0], { kind: 'agent', id: key.id, name: 'Claude web', onBehalfOf: { id: h.users.noa.id, name: 'noa' }, via: 'oauth', key: `agent:${key.id}` })
 
     // An access token is only for /mcp: the HTTP API never takes it.
     await h.enableApi()

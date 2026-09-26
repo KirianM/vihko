@@ -139,7 +139,8 @@ export class ApiKeys {
     const current = this.db.prepare(`select id from api_keys where user_id = ? and oauth_client = ? and revoked_at is null
       and (expires_at is null or expires_at > ?) order by created_at desc limit 1`).get(userId, client.id, now) as { id: string } | undefined
     if (current) {
-      this.db.prepare('update api_keys set name = ?, can_write = ?, folders = ? where id = ?').run(client.name, grant.canWrite ? 1 : 0, JSON.stringify(folders), current.id)
+      // Its name stays: the person may have renamed it in «Agents and API».
+      this.db.prepare('update api_keys set can_write = ?, folders = ? where id = ?').run(grant.canWrite ? 1 : 0, JSON.stringify(folders), current.id)
       return current.id
     }
     const id = newUid()
