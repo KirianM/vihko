@@ -38,9 +38,12 @@ realistic notes (seeded, with `testdata/vault` inside as the edge cases;
   heavily linked notes with every link of the vault compared before and after;
   changes made with another editor reaching open editors; deleting `index.db`
   and comparing the rebuilt dump; kill -9 rounds while two people type and an
-  agent edits; and the same startup, search and kill -9 against the Docker
-  image with `compose.yaml` (skipped without Docker; builds `thoth:acceptance`
-  unless `ACCEPTANCE_IMAGE` names an image). It prints the numbers.
+  agent edits; the unmanaged history over the vault as its own git repository
+  (`ACCEPTANCE_GIT_COMMITS` commits, 2,000 by default), which must stay byte
+  for byte the same; and the same startup, search and kill -9 against the
+  Docker image with `compose.yaml` (skipped without Docker; builds
+  `thoth:acceptance` unless `ACCEPTANCE_IMAGE` names an image). It prints the
+  numbers.
 - `npm run acceptance:ui -w @thoth/web` (after `npm run build`): search, edit,
   a change from another editor and a rename from the UI, in a browser. Without
   Chromium on the machine, as with `e2e`: `npm run acceptance:serve -w
