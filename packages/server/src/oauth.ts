@@ -48,6 +48,10 @@ export const REFRESH_IDLE_MS = 30 * 86_400_000
 export const UNUSED_CLIENT_MS = 86_400_000
 /** At most this many clients waiting for an authorization at once (registration is open to anyone). */
 export const MAX_UNUSED_CLIENTS = 500
+/** Registrations per client address and hour (as Outline): the 6th within the hour gets 429. */
+export const REGISTRATIONS_PER_HOUR = 5
+/** Addresses whose registrations are remembered at most (the oldest is forgotten first). */
+export const REGISTRATION_ADDRESSES = 10_000
 
 const MAX_NAME = 100
 const MAX_REDIRECT_URIS = 10
@@ -67,14 +71,66 @@ export type OAuthErrorCode =
 export class OAuthRequestError extends Error {
   readonly code: OAuthErrorCode
   readonly status: 400 | 401 | 429
-  constructor(code: OAuthErrorCode, message: string, status: 400 | 401 | 429 = 400) {
+  /** With a 429: seconds until trying again may work (Retry-After). */
+  readonly retryAfter: number | null
+  constructor(code: OAuthErrorCode, message: string, status: 400 | 401 | 429 = 400, retryAfter: number | null = null) {
     super(message)
     this.code = code
     this.status = status
+    this.retryAfter = retryAfter
   }
 
   body() {
     return { error: this.code, error_description: this.message }
+  }
+}
+
+/**
+ * How many times each address did something within a sliding window, in
+ * memory: at most `max` per `windowMs`, for at most `addresses` addresses
+ * (past that, the one seen longest ago is forgotten). Lost on a restart,
+ * which is fine for a limit on registrations.
+ */
+export class WindowLimit {
+  private seen = new Map<string, number[]>()
+  private max: number
+  private windowMs: number
+  private addresses: number
+
+  constructor(opts: { max: number; windowMs: number; addresses: number }) {
+    this.max = opts.max
+    this.windowMs = opts.windowMs
+    this.addresses = opts.addresses
+  }
+
+  /** Seconds until `key` may act again; 0 if it may now. */
+  wait(key: string, now: number): number {
+    const times = this.recent(key, now)
+    if (times.length < this.max) return 0
+    return Math.max(1, Math.ceil((times[0]! + this.windowMs - now) / 1000))
+  }
+
+  /** `key` acted now. */
+  record(key: string, now: number) {
+    const times = this.recent(key, now)
+    this.seen.delete(key)
+    if (this.seen.size >= this.addresses) {
+      for (const [k, t] of this.seen) if (t[t.length - 1]! <= now - this.windowMs) this.seen.delete(k)
+      // Still full: the one seen longest ago goes (the map keeps the order of the last use).
+      while (this.seen.size >= this.addresses) this.seen.delete(this.seen.keys().next().value!)
+    }
+    this.seen.set(key, [...times, now].slice(-this.max))
+  }
+
+  /** How many addresses are remembered now (for tests). */
+  get size() {
+    return this.seen.size
+  }
+
+  private recent(key: string, now: number): number[] {
+    const times = (this.seen.get(key) ?? []).filter((t) => t > now - this.windowMs)
+    if (times.length === 0) this.seen.delete(key)
+    return times
   }
 }
 
@@ -163,6 +219,7 @@ export class OAuthServer {
   private integrations: Integrations
   private now: () => Date
   private clientMetadata: ClientMetadataFetcher
+  private registrations = new WindowLimit({ max: REGISTRATIONS_PER_HOUR, windowMs: 3_600_000, addresses: REGISTRATION_ADDRESSES })
 
   constructor(opts: OAuthOptions) {
     this.db = opts.state
@@ -232,8 +289,13 @@ export class OAuthServer {
    * its name (what the person sees and the history names), its redirect
    * URIs and how it authenticates at the token endpoint (a secret is made
    * for `client_secret_*`, the default of RFC 7591, and shown this once).
+   * `from`: the client's address (http/clientIp.ts), which may register 5
+   * clients an hour: past that, 429 with how long to wait. Only
+   * registrations count (they fill the table), not refused requests.
    */
-  register(body: unknown): OAuthClientInformationFull {
+  register(body: unknown, from: string): OAuthClientInformationFull {
+    const wait = this.registrations.wait(from, this.now().getTime())
+    if (wait > 0) throw new OAuthRequestError('temporarily_unavailable', `too many registrations from this address; try again in ${wait} s`, 429, wait)
     if (typeof body !== 'object' || body === null || Array.isArray(body)) throw new OAuthRequestError('invalid_client_metadata', 'expected a JSON object')
     const b = body as Record<string, unknown>
     const redirectUris = checkRedirectUris(b.redirect_uris)
@@ -249,6 +311,7 @@ export class OAuthServer {
     const issuedAt = this.now()
     this.db.prepare('insert into oauth_clients (id, name, redirect_uris, auth_method, secret_hash, created_at) values (?, ?, ?, ?, ?, ?)')
       .run(id, name, JSON.stringify(redirectUris), method, secret === null ? null : sha256hex(secret), issuedAt.toISOString())
+    this.registrations.record(from, issuedAt.getTime())
     return {
       client_id: id,
       client_id_issued_at: Math.floor(issuedAt.getTime() / 1000),

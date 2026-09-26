@@ -642,7 +642,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   keyRoutes(app, { keys, integrations, publicUrl: oauth.publicUrl })
 
   // OAuth for the MCP server: its addresses for clients, and the consent page's (session).
-  oauthRoutes(app, { oauth, integrations, ui: deps.webDir !== undefined })
+  oauthRoutes(app, { oauth, integrations, ui: deps.webDir !== undefined, clientAddress: ipOf })
 
   app.all('/api/*', (c) => fail(c, 404, 'not_found', 'does not exist'))
 

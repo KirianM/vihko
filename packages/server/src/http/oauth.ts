@@ -6,7 +6,7 @@
 // For clients, no session (their own credentials, or none):
 //   GET  /.well-known/oauth-protected-resource[/mcp]   RFC 9728
 //   GET  /.well-known/oauth-authorization-server       RFC 8414
-//   POST /oauth/register                               RFC 7591 (unless the admin turned it off)
+//   POST /oauth/register                               RFC 7591 (unless the admin turned it off); 5 an hour per address
 //   GET  /oauth/authorize                              checked here, then the UI's consent page
 //   POST /oauth/token                                  code (PKCE) or refresh token
 //   POST /oauth/revoke                                 RFC 7009
@@ -28,6 +28,8 @@ export interface OAuthRoutesDeps {
   integrations: Integrations
   /** Whether the UI is served (the consent page); without it, a bad request is answered in JSON only. */
   ui: boolean
+  /** Who is asking, by address (http/clientIp.ts), for the limit on registrations. */
+  clientAddress: (c: Context) => string
 }
 
 const MAX_BODY = 64 * 1024
@@ -35,7 +37,8 @@ const MAX_BODY = 64 * 1024
 export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
   const { oauth, integrations } = deps
   const none = (c: Context) => c.json({ error: 'not_found', message: 'does not exist' }, 404)
-  const oauthFail = (c: Context, err: OAuthRequestError) => c.json(err.body(), err.status, { 'Cache-Control': 'no-store' })
+  const oauthFail = (c: Context, err: OAuthRequestError) =>
+    c.json(err.body(), err.status, { 'Cache-Control': 'no-store', ...(err.retryAfter === null ? {} : { 'Retry-After': String(err.retryAfter) }) })
   const limit = bodyLimit({ maxSize: MAX_BODY, onError: (c) => c.json({ error: 'invalid_request', error_description: 'body too large' }, 413) })
 
   // --- Discovery ----------------------------------------------------------------
@@ -61,7 +64,7 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
     let body: unknown
     try { body = await c.req.json() } catch { return oauthFail(c, new OAuthRequestError('invalid_client_metadata', 'expected a JSON object')) }
     try {
-      return c.json(oauth.register(body), 201, { 'Cache-Control': 'no-store' })
+      return c.json(oauth.register(body, deps.clientAddress(c)), 201, { 'Cache-Control': 'no-store' })
     } catch (err) {
       if (err instanceof OAuthRequestError) return oauthFail(c, err)
       throw err

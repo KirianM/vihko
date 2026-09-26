@@ -176,7 +176,9 @@ What a public address exposes, besides the UI and its login (use strong
 passwords): the OAuth metadata (`/.well-known/oauth-*`), client registration
 (`/oauth/register`), and the token and revocation endpoints. None of them
 gives access to any note without a person approving it. Registration is open
-by default, as claude.ai needs it; once your clients are connected, the thoth
+by default, as claude.ai needs it, and limited to 5 clients an hour from each
+address (then `429` with `Retry-After`; with a proxy, see
+`THOTH_TRUSTED_PROXIES` above); once your clients are connected, the thoth
 admin can turn it off in Agents and API, and those clients keep working.
 
 An app can also name itself by an `https` address that describes it (a
