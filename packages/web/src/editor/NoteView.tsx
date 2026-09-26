@@ -10,7 +10,7 @@ import { INSERT_IMAGE } from '../commands.ts'
 import { useTheme } from '../theme.ts'
 import { userColor } from '../userColor.ts'
 import { errorText, useT } from '../i18n.tsx'
-import { Crumbs, Icon, MenuButton, ThemeToggle, noteName } from '../ui.tsx'
+import { Crumbs, Diamond, Icon, MenuButton, ThemeToggle, noteName } from '../ui.tsx'
 import { useMobile } from '../mobile.ts'
 import { listItem, tag, wikilink, type Edit } from './insert.ts'
 import { SearchButton } from '../Palette.tsx'
@@ -25,6 +25,7 @@ import { NoteActions } from './NoteActions.tsx'
 import type { LinkInfo } from './livePreview.ts'
 import { NotePanel, PanelToggle, usePanel, type LinksData } from './NotePanel.tsx'
 import { usePresence } from './presence.ts'
+import { agentLabel, useAgents } from './agents.ts'
 import type { HistoryStatus, RestoreReport, RevertReport } from '../history/api.ts'
 import { HistoryTab } from '../history/HistoryTab.tsx'
 import { RevertToast, useVersions } from '../history/ui.tsx'
@@ -39,10 +40,13 @@ function SaveStatus({ c }: { c: CollabState }) {
   return <span className="status status-ok">{Icon.check}<span className="status-label">{t('editor.saved')}</span></span>
 }
 
+/** Who is in the note: people as circles with their initial, agents as a pill with the diamond and who they act for. */
 function Presence({ c }: { c: CollabState }) {
+  const t = useT()
   const peers = usePresence(c.session?.provider)
+  const agents = useAgents(c.session?.provider)
   const { effective } = useTheme()
-  if (peers.length === 0) return null
+  if (peers.length === 0 && agents.length === 0) return null
   return (
     <span className="presence">
       {peers.map((p) => (
@@ -50,6 +54,18 @@ function Presence({ c }: { c: CollabState }) {
           {p.name.slice(0, 1).toUpperCase()}
         </span>
       ))}
+      {/* Announced as it arrives: an agent writing in the note you have open. */}
+      <span className="presence-agents" role="status">
+        {agents.map((a) => {
+          const label = agentLabel(t, a)
+          const via = a.via && t(a.via === 'mcp' ? 'keys.viaMcp' : a.via === 'oauth' ? 'keys.viaOauth' : 'keys.viaApi')
+          return (
+            <span key={`${a.name}\u0000${a.onBehalfOf}`} className="agent-pill" title={via ? `${label}, ${via}` : label}>
+              <Diamond /><span className="agent-pill-text">{label}</span>{via && <span className="visually-hidden">, {via}</span>}
+            </span>
+          )
+        })}
+      </span>
     </span>
   )
 }

@@ -10,11 +10,10 @@
 // says (THOTH_EXTERNAL_IMAGES), with no referrer.
 import { useEffect, useState, type ReactNode } from 'react'
 import { ApiError, api, type Integrations, type KeyInfo, type KeyWithUser, type ServerConfig, type User } from './api.ts'
-import { Diamond } from './Agents.tsx'
 import { errorText, useT } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import { SearchButton } from './Palette.tsx'
-import { MenuButton, ThemeToggle } from './ui.tsx'
+import { Diamond, MenuButton, ThemeToggle } from './ui.tsx'
 import './agents.css'
 import './privacy.css'
 

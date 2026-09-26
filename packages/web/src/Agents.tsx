@@ -11,14 +11,11 @@ import { copyText } from './copy.ts'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import { SearchButton } from './Palette.tsx'
-import { Icon, MenuButton, ThemeToggle } from './ui.tsx'
+import { Diamond, Icon, MenuButton, ThemeToggle } from './ui.tsx'
 import './actions.css'
 import './agents.css'
 
 type Translate = ReturnType<typeof useT>
-
-/** The agent's mark, as in the history and the editor: a diamond in accent, never colour alone. */
-export const Diamond = () => <span className="diamond" aria-hidden="true" />
 
 /** Expiry presets, in days; `none`: it never expires. */
 const PRESETS = ['none', '7', '30', '90', '365'] as const

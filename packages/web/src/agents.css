@@ -1,9 +1,6 @@
 /* «Agents and API»: the switches, the keys and the key shown once. Design
    system tokens only. */
 
-/* The agent's diamond, as in the history: accent, never colour alone. */
-.diamond { display: inline-block; width: 8px; height: 8px; flex-shrink: 0; background: var(--accent); transform: rotate(45deg); }
-
 /* --- Settings pages (on top of .alerts-page) ---------------------------------- */
 .settings-page { gap: var(--space-8); }
 .settings-page > h1 { margin-bottom: calc(-1 * var(--space-4)); }

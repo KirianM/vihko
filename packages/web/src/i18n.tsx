@@ -650,6 +650,8 @@ const es = {
   'privacy.imagesFetch': 'Guardar una copia de una imagen a partir de su dirección lo hace tu servidor, y solo cuando tú lo pides: esa web ve la petición llegar desde tu servidor. Nunca pasa con las direcciones que ya están en una nota, y una clave no puede pedirlo.',
   'privacy.imagesAllowed': 'Las imágenes enlazadas desde otras webs se cargan: tu navegador se las pide a esa web al abrir la nota, y esa web ve tu dirección IP y cuándo, pero no la dirección de thoth ni qué nota es. Quien administra el servidor puede bloquearlas con {setting}.',
   'privacy.imagesBlocked': 'Quien administra el servidor ha bloqueado las imágenes enlazadas desde otras webs: en su lugar ves un recuadro con el dominio, y el navegador no les pide nada.',
+  'presence.agent': '{name} · en nombre de {user}',
+  'presence.agentWrote': 'Lo acaba de escribir {agent}',
 }
 
 const en: Record<keyof typeof es, string> = {
@@ -1299,6 +1301,8 @@ const en: Record<keyof typeof es, string> = {
   'privacy.imagesFetch': 'Saving a copy of an image from its address is done by your server, and only when you ask: that site sees the request come from your server. It never happens for addresses already in a note, and a key can’t ask for it.',
   'privacy.imagesAllowed': 'Images linked from other sites are loaded: your browser asks that site for them when you open the note, and the site sees your IP address and when, but not thoth’s address or which note it is. Whoever runs the server can block them with {setting}.',
   'privacy.imagesBlocked': 'Whoever runs the server has blocked images linked from other sites: you see a box with the domain instead, and the browser asks them for nothing.',
+  'presence.agent': '{name} · on behalf of {user}',
+  'presence.agentWrote': 'Just written by {agent}',
 }
 
 export type MessageKey = keyof typeof es
