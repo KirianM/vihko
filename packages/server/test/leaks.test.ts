@@ -163,6 +163,9 @@ test('a key limited to proyectos/ sees nothing of what it can\'t read, through a
       ],
       'POST /api/history/revert': [
         { method: 'POST', path: '/api/history/revert', body: { path: 'proyectos/secreto.md', id: secretIds[0] }, expect: 404 },
+        // A version it can't see can't be reverted; the one where the note became visible reads as its creation.
+        { method: 'POST', path: '/api/history/revert', body: { path: 'proyectos/revelada.md', id: revealed.at(-1) }, expect: 404 },
+        { method: 'POST', path: '/api/history/revert', body: { path: 'proyectos/revelada.md', id: revealed[0], dryRun: true }, expect: 409 },
       ],
     }
 

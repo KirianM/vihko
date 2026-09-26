@@ -97,6 +97,24 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
   /** The history reader, as whoever asks may see it. */
   const readerOf = (c: Context<Env>) => historyFor(c.get('access'), history.reader())
 
+  /**
+   * The note of a request that writes it (restore, revert): one whoever asks
+   * can read and write now; for an agent, its text too (a note hidden since
+   * it was indexed doesn't exist for it either). `forbidden` for a read-only key.
+   */
+  const writableNote = (c: Context<Env>, raw: string | undefined): string => {
+    const path = notePath(c, raw)
+    const access = c.get('access')
+    access.assertWrite(path)
+    if (access.isAgent) {
+      // A note deleted since has no text now, and can be restored.
+      let text: string | null = null
+      try { text = notes.read(path).text } catch (err) { if (!(err instanceof NoteError && err.code === 'not_found')) throw err }
+      if (text !== null && access.hides(text)) throw new NoteError('not_found', `no history for ${path}`)
+    }
+    return path
+  }
+
   const versionOf = async (reader: HistoryReader, path: string, id: string | undefined) => {
     if (!id) throw new HistoryError('invalid', 'missing id')
     const v = await reader.version(path, id)
@@ -141,11 +159,11 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     return c.json(wordDiff(base ?? '', v.text ?? ''))
   })
 
-  // Writes through the core like any edit, as the user, with the reason `restored`.
+  // Writes through the core like any edit, as whoever asks (the user, or an
+  // agent on their behalf), with the reason `restored`.
   app.post('/api/history/restore', async (c) => {
     const body = await c.req.json<{ path?: string; id?: string; ifMatch?: string }>()
-    const path = notePath(c, body.path)
-    c.get('access').assertWrite(path)
+    const path = writableNote(c, body.path)
     const reader = readerOf(c)
     const v = await versionOf(reader, path, body.id)
     if (v.text === null) throw new HistoryError('invalid', 'that version deletes the note: there is no text to restore')
@@ -159,14 +177,15 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
 
   // Undoes what one version changed, on the note as it is now (history/revert.ts):
   // what was changed later and clashes is left and reported (`skipped`). With
-  // `dryRun`, only what it would do. One write through the core, as the user,
-  // with the reason `reverted`.
+  // `dryRun`, only what it would do. One write through the core, as whoever
+  // asks (the user, or an agent on their behalf), with the reason `reverted`.
+  // An agent reverts only a version it can see (agentHistory.ts).
   app.post('/api/history/revert', async (c) => {
     const body = await c.req.json<{ path?: string; id?: string; ifMatch?: string; dryRun?: boolean }>()
-    const path = notePath(c, body.path)
+    const path = writableNote(c, body.path)
     if (typeof body.id !== 'string' || !body.id) throw new HistoryError('invalid', 'missing id')
-    const actor: Actor = { kind: 'user', id: c.get('user').id }
-    const r = await revertVersion({ reader: history.reader(), notes, recorder: history.recorder }, path, body.id, {
+    const actor: Actor = c.get('access').actor
+    const r = await revertVersion({ reader: readerOf(c), notes, recorder: history.recorder }, path, body.id, {
       actor, ifMatch: body.ifMatch ?? unquote(c.req.header('if-match')), dryRun: body.dryRun === true,
     })
     c.header('ETag', `"${r.etag}"`)

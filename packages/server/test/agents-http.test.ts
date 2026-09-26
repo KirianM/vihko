@@ -175,8 +175,7 @@ test('every /api route is classified for keys, and the registry names no route t
     }
     const unclassified = [...routes].filter((r) => !(r in ROUTES))
     assert.deepEqual(unclassified, [], 'a new route must be classified in http/routes.ts')
-    // «Revert this change» (m3 §8) is classified ahead of its route.
-    const missing = Object.keys(ROUTES).filter((r) => !routes.has(r) && r !== 'POST /api/history/revert')
+    const missing = Object.keys(ROUTES).filter((r) => !routes.has(r))
     assert.deepEqual(missing, [])
   } finally { await h.close() }
 })
@@ -213,5 +212,55 @@ test('an alert while the API or MCP is on and the history is not managed: what a
     writeFileSync(join(h.notesDir, 'thoth.yaml'), 'history:\n  mode: managed\n')
     h.workspace.reload()
     assert.deepEqual(await ours(), [], 'managed: every agent write is a version')
+  } finally { await h.close() }
+})
+
+test('restoring and reverting with a key: as the agent on its user\'s behalf, with how it came; a read-only key can\'t', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    await h.enableApi()
+    const { key: info, token } = await h.newKey({ name: 'Claude Code', canWrite: true, folders: ['proyectos'] })
+    const key = h.withKey(token)
+    const path = 'proyectos/plan.md'
+    const at = h.url('/api/note', { path })
+    const put = async (text: (t: string) => string, who = h.noa) => {
+      const cur = (await who('GET', at)).body
+      const r = await who('PUT', at, { text: text(cur.text) }, { 'if-match': `"${cur.etag}"` })
+      assert.equal(r.status, 200, r.text)
+      await h.settle()
+    }
+    await put((t) => t + 'Paso dos.\n')
+    await put((t) => t.replace('Paso dos.', 'Paso dos, del agente.'), key)
+    const versions = async () => (await h.noa('GET', h.url('/api/history/versions', { path }))).body.versions as { id: string; authors: { kind: string; via?: string; name: string }[]; reason: { code: string } | null }[]
+    const byAgent = (await versions())[0]!
+    assert.equal(byAgent.authors[0]!.kind, 'agent')
+
+    // Revert the agent's own change, as the agent.
+    const reverted = await key('POST', '/api/history/revert', { path, id: byAgent.id })
+    assert.equal(reverted.status, 200, reverted.text)
+    assert.doesNotMatch((await key('GET', at)).body.text, /del agente/)
+    await h.settle()
+    const rv = (await versions())[0]!
+    assert.deepEqual([rv.reason?.code, rv.authors[0]!.kind, rv.authors[0]!.name, rv.authors[0]!.via], ['reverted', 'agent', 'Claude Code', 'api'])
+
+    // Restore the first version, as the agent.
+    const first = (await versions()).at(-1)!
+    const restored = await key('POST', '/api/history/restore', { path, id: first.id })
+    assert.equal(restored.status, 200, restored.text)
+    await h.settle()
+    const rs = (await versions())[0]!
+    assert.deepEqual([rs.reason?.code, rs.authors[0]!.kind, rs.authors[0]!.via], ['restored', 'agent', 'api'])
+    assert.equal((await h.noa('GET', h.url('/api/history/versions', { path }))).body.versions[0].authors[0].id, info.id)
+
+    // A read-only key: 403 on both (the key's limit), and nothing written.
+    const { token: ro } = await h.newKey({ name: 'solo lectura', folders: ['proyectos'] })
+    const etag = (await key('GET', at)).body.etag
+    for (const route of ['/api/history/revert', '/api/history/restore']) {
+      const r = await h.withKey(ro)('POST', route, { path, id: first.id })
+      assert.deepEqual([r.status, r.body.error], [403, 'forbidden'], route)
+    }
+    assert.equal((await key('GET', at)).body.etag, etag)
+    // Outside the key's folders, nothing.
+    assert.equal((await key('POST', '/api/history/revert', { path: 'otros/nota.md', id: first.id })).status, 404)
   } finally { await h.close() }
 })
