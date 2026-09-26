@@ -300,9 +300,12 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('search', {
     title: 'Search notes',
-    description: 'Full-text search over the notes you can read, best matches first. Filters go in the query: `tag:name` (and its nested tags), `path:folder`, and `-` before one to exclude it. Snippets mark the hits with **. Paged: pass next_offset back as offset.',
+    description: 'Full-text search over the notes you can read, best matches first. The words are looked for in each note\'s title, aliases and text; not in its path or file name (unless it is the title), its frontmatter or its comments. '
+      + 'To search within a folder, add a `path:` filter to the query: `budget path:projects/2026` finds "budget" in the notes under projects/2026 (quote a folder with spaces: `path:"my notes"`; a note\'s path also works). '
+      + '`tag:name` keeps the notes with that tag or one nested under it, and `-` before a filter excludes it (`-path:archive`). Filters alone, without words, list every note they match. '
+      + 'Snippets mark the hits with **. Paged: pass next_offset back as offset.',
     inputSchema: input(z.object({
-      query: z.string().min(1).describe('Words to find (the last one also as a prefix), with optional tag: and path: filters.'),
+      query: z.string().min(1).describe('Words to find (the last one also as a prefix), with optional path: and tag: filters, e.g. "budget path:projects/2026 -tag:done".'),
       limit: z.number().int().min(1).max(50).default(20).describe('Results per page (at most 50).'),
       offset: z.number().int().min(0).default(0).describe('Where the page starts.'),
     }), NAME_ALIASES),
@@ -433,7 +436,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   const maxWait = ctx.maxWaitSeconds ?? 30
   server.registerTool('changes_since', {
     title: 'What changed in a note',
-    description: `What changed in a note since an ETag you were given (by get_note or an edit) or since a version (from history), as changes with their line and surrounding text, and its current ETag. With wait_seconds, if nothing has changed yet, it waits up to that long for a change (at most ${maxWait}): this is how you follow what a person edits. If the ETag is one it doesn't know, you get the whole text instead.`,
+    description: `What changed in a note since an ETag you were given (by get_note or an edit) or since a version (from history), and its current ETag. `
+      + 'Each change has its `line` in the current text (from 1), what was `removed` and `added`, and some of the current text `before` and `after` it: from its own line, or from the nearest line with text when whole lines changed. '
+      + '`words.added` and `words.removed` count words and punctuation marks (not spaces). '
+      + `With wait_seconds, if nothing has changed yet, it waits up to that long for a change (at most ${maxWait}): this is how you follow what a person edits. If the ETag is one it doesn't know, you get the whole text instead.`,
     inputSchema: input(z.object({
       path,
       since: z.string().min(1).describe('An ETag ("sha256:…") or a version id from history.'),
@@ -489,7 +495,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('history', {
     title: 'A note\'s history',
-    description: 'The versions of a note you can see, newest first, each with who made it (a person, or an agent on their behalf), when, why and how much changed. With a version id, what that version changed (against the one before), and its text with include_text. Paged: pass next back as cursor.',
+    description: 'The versions of a note you can see, newest first, each with who made it (a person, or an agent on their behalf), when, why and how much changed (`words`: words and punctuation marks added and removed, not spaces). '
+      + 'With a version id, what that version changed against the one before, in the same form as changes_since (lines and surrounding text from that version\'s text), and its text with include_text. Paged: pass next back as cursor.',
     inputSchema: input(z.object({
       path,
       version: z.string().optional().describe('A version id, to see what it changed.'),
@@ -648,7 +655,15 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('move', {
     title: 'Move or rename a note',
-    description: 'Moves or renames a note within your folders; thoth rewrites the links to it in every note, and the note\'s own relative links. With dry_run, what it would do: which links would be rewritten (in notes you can see; `hidden` says there are some elsewhere too). Never overwrites.',
+    description: 'Moves or renames a note within your folders, never overwriting. thoth rewrites every link that would otherwise lead elsewhere, in every note, and the moved note\'s own relative links. With dry_run, only what it would do. The report: '
+      + '`relinked`, the notes whose links were rewritten (or would be), each change with its text before and after; '
+      + '`shifted`, links it doesn\'t rewrite whose destination changes all the same (`code`: resolves, ambiguous, retargets or breaks), for you to check; '
+      + '`kept`, links to it that keep working untouched (`via`: its name or path, or an alias); '
+      + '`failed`, notes that couldn\'t be rewritten; '
+      + '`alias_added`, the old name, added to the note\'s aliases when a rewrite failed, so that the links left behind still lead to it (null otherwise); '
+      + '`hidden`, true when notes you can\'t see link to it too (thoth rewrites them as well, without naming them); '
+      + '`images`, what happened to the note\'s images. '
+      + 'Returns the note\'s ETag at its new path.',
     inputSchema: input(z.object({
       from: path.describe('The note to move.'),
       to: path.describe('Its new path.'),
@@ -674,7 +689,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('revert_change', {
     title: 'Revert a change',
-    description: 'Undoes what one version of a note changed (see history), on the note as it is now: what was changed again later and clashes is left as it is and reported in `skipped`. A new version, which can be reverted in turn. With dry_run, what it would undo and what not.',
+    description: 'Undoes what one version of a note changed (see history), on the note as it is now: what was changed again later and clashes is left as it is and reported in `skipped`; `reverted` is what it undid; each piece with some of the note before and after it. '
+      + 'A new version, which can be reverted in turn. Returns the note\'s new ETag. With dry_run, what it would undo and what not, and the ETag it would apply to.',
     inputSchema: input(z.object({
       path,
       version: z.string().min(1).describe('The id of the version whose change to undo.'),

@@ -496,3 +496,21 @@ test('links in get_note and related: one incoming entry per note with its count;
     assert.deepEqual(api.body.backlinks.map((b: any) => b.path), ['p/otra.md', 'p/plan.md', 'p/plan.md', 'p/plan.md'])
   } finally { await h.close() }
 })
+
+test('the descriptions say what agents asked about: move\'s report, search in paths, related or get_note, what added/removed count, ai: false', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    await h.enableMcp()
+    const c = await h.mcp((await h.newKey({ name: 'Claude Code', canWrite: true })).token)
+    const d = Object.fromEntries((await c.client.listTools()).tools.map((t) => [t.name, t.description ?? '']))
+    for (const field of ['relinked', 'shifted', 'kept', 'alias_added', 'hidden']) assert.match(d.move!, new RegExp(`\`${field}\`, `), `move: ${field}`)
+    assert.match(d.search!, /title, aliases and text; not in its path/)
+    assert.match(d.search!, /`budget path:projects\/2026`/)
+    assert.match(d.related!, /get_note gives the same links/)
+    assert.match(d.get_note!, /For the text around each incoming link.*use related/)
+    for (const t of ['changes_since', 'history']) assert.match(d[t]!, /words and punctuation marks/, t)
+    for (const t of ['edit_note', 'create_note']) assert.match(d[t]!, /no agent can undo that; only a person can/, t)
+    assert.match(c.client.getInstructions() ?? '', /only a person can undo it/)
+    await c.close()
+  } finally { await h.close() }
+})
