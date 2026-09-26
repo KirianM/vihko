@@ -6,8 +6,8 @@
 .panel-overlay { position: absolute; top: 0; right: 0; bottom: 0; z-index: 5; box-shadow: var(--shadow-dialog); }
 .panel-tabs { display: flex; flex-direction: column; min-height: 0; flex-grow: 1; }
 .panel-head { display: flex; align-items: flex-end; border-bottom: 1px solid var(--line); padding: 12px 8px 0 12px; }
-.panel-tablist { display: flex; gap: 2px; flex-grow: 1; font-size: 13px; }
-.panel-tab { height: 36px; display: inline-flex; align-items: center; padding: 0 10px; color: var(--muted); border-bottom: 2px solid transparent; cursor: pointer; outline: none; white-space: nowrap; }
+.panel-tablist { display: flex; gap: 2px; flex-grow: 1; min-width: 0; font-size: 13px; overflow-x: auto; scrollbar-width: none; }
+.panel-tab { height: 36px; flex-shrink: 0; display: inline-flex; align-items: center; padding: 0 8px; color: var(--muted); border-bottom: 2px solid transparent; cursor: pointer; outline: none; white-space: nowrap; }
 .panel-tab[data-selected] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
 .panel-tab[data-hovered]:not([data-selected]) { color: var(--ink); }
 .panel-tab[data-focus-visible] { outline: 2px solid var(--accent); outline-offset: -2px; }

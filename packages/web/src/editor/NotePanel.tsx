@@ -497,6 +497,7 @@ export function NotePanel({ panel, view, session, user, links, originals, onNavi
   const t = useT()
   const count = useViewState(view, (s) => s.field(threadsField).length, 0)
   const aside = useRef<HTMLElement>(null)
+  const head = useRef<HTMLDivElement>(null)
   const linkCount = links ? new Set(links.outgoing.map((l) => l.raw)).size + links.backlinks.length : 0
   // Overlaid, it's a screen of its own: the back button closes it.
   useBackClose(panel.narrow && panel.open, () => panel.setOpen(false))
@@ -511,11 +512,16 @@ export function NotePanel({ panel, view, session, user, links, originals, onNavi
     return () => removeEventListener('keydown', onKey)
   }, [panel, view])
 
+  // Not every tab fits once they carry counts (the list scrolls): the chosen one is always in sight.
+  useEffect(() => {
+    head.current?.querySelector('.panel-tab[data-selected]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [panel.tab, panel.open, session])
+
   if (!panel.open || !session) return null
   return (
     <aside ref={aside} className={panel.narrow ? 'panel panel-overlay' : 'panel'} aria-label={t('panel.label')}>
       <Tabs selectedKey={panel.tab} onSelectionChange={(k: Key) => panel.setTab(k as PanelTab)} className="panel-tabs">
-        <div className="panel-head">
+        <div className="panel-head" ref={head}>
           <TabList aria-label={t('panel.label')} className="panel-tablist">
             <Tab id="comments" className="panel-tab">{count ? t('panel.commentsN', { n: count }) : t('panel.comments')}</Tab>
             <Tab id="links" className="panel-tab">{linkCount ? t('panel.linksN', { n: linkCount }) : t('panel.links')}</Tab>
