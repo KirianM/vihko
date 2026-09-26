@@ -14,6 +14,7 @@ import { Auth, AuthError } from './auth.ts'
 import { configFromEnv, start } from './main.ts'
 import { openState } from './state.ts'
 import { PurgeError, purgeHistory, type PurgeReport } from './history/purge.ts'
+import { describeLeftover } from './history/leftovers.ts'
 import { StateInUseError } from './lock.ts'
 import { Workspace } from './workspace.ts'
 
@@ -85,6 +86,7 @@ function parsePurge(args: string[]): { path: string; version?: string; dryRun: b
 function printReport(r: PurgeReport) {
   const what = r.version ? `the content of ${r.path} in ${r.version.slice(0, 10)}` : r.path
   const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+  for (const l of r.leftovers) console.log(`note: ${describeLeftover(l)}`)
   if (r.dryRun) console.log('Dry run: nothing is changed.')
   if (r.commits.length === 0) console.log(`Nothing of ${what} is in the history.`)
   for (const c of r.commits) {

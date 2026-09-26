@@ -53,9 +53,13 @@ export interface RunOptions {
    * empty). Returning true stops git there: a reader that has what it needs.
    */
   onStdout?: (chunk: Buffer) => boolean | void
+  /** Stops git (as a timeout does), and the call fails. */
+  signal?: AbortSignal
 }
 
 const DEFAULT_TIMEOUT = 60_000
+/** A git asked to stop (SIGTERM, so it removes its lock files) gets this long before a SIGKILL. */
+const STOP_GRACE = 5000
 
 /** One operation at a time: each runs when the previous one has finished, whatever its outcome. */
 export class Serial {
@@ -131,10 +135,24 @@ export class Git {
         if (stopped) child.kill('SIGKILL')
       })
       child.stderr.on('data', (d: Buffer) => { if (errBytes < 16_384) { err.push(d); errBytes += d.length } })
+      // SIGTERM first: git removes its lock files on it, and a SIGKILL would leave them behind.
+      const stop = () => {
+        child.kill('SIGTERM')
+        setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL') }, STOP_GRACE).unref()
+      }
       const timer = setTimeout(() => {
-        child.kill('SIGKILL')
+        stop()
         done(new GitError('timeout', `git ${args[0]} took longer than ${opts.timeoutMs ?? DEFAULT_TIMEOUT} ms`))
       }, opts.timeoutMs ?? DEFAULT_TIMEOUT)
+      // The call ends when git has: whoever stops it can wait until no git is left.
+      if (opts.signal) {
+        const signal = opts.signal
+        if (signal.aborted) stop()
+        else {
+          signal.addEventListener('abort', stop, { once: true })
+          child.once('close', () => signal.removeEventListener('abort', stop))
+        }
+      }
       child.on('error', (e: NodeJS.ErrnoException) => {
         done(new GitError(e.code === 'ENOENT' ? 'missing' : 'failed', e.code === 'ENOENT' ? `${this.binary} not found` : `git ${args[0]}: ${e.message}`))
       })

@@ -56,6 +56,39 @@ function typist(client: Client, id: string): Typist {
 
 export const countLine = (s: string, l: string) => s.split(/\r?\n/).filter((x) => x === l).length
 
+/**
+ * The history after the kill rounds (M2: «a kill -9 loses nothing»): it is
+ * available (a kill in the middle of a commit leaves git's locks, which the
+ * restart must remove), and once the open versions close, the newest version
+ * of each note is what its file holds, with no version repeated. Needs a
+ * short quiet time (THOTH_HISTORY_QUIET_SECONDS). Failures, not thrown.
+ */
+export async function historyAfterKills(srv: Srv, cookie: string, notesDir: string, paths: string[]): Promise<string[]> {
+  const failures: string[] = []
+  const status = (await api(srv, cookie, 'GET', '/api/history/status')).body
+  if (status.mode !== 'managed' || status.available !== true) failures.push(`the history after the kills: ${JSON.stringify(status)}`)
+  for (const path of paths) {
+    const q = encodeURIComponent(path)
+    const newest = async () => {
+      const { versions, pending } = (await api(srv, cookie, 'GET', `/api/history/versions?path=${q}`)).body as { versions: { id: string }[]; pending: unknown }
+      if (pending || !versions?.length) return null
+      return { versions, text: (await api(srv, cookie, 'GET', `/api/history/version?path=${q}&id=${versions[0]!.id}`)).body.text as string }
+    }
+    try {
+      await waitFor(async () => (await newest())?.text === readFileSync(join(notesDir, path), 'utf8'), `the newest version of ${path} is its file`, 30_000)
+    } catch (err) {
+      failures.push(`${(err as Error).message}: ${JSON.stringify(status)}`)
+      continue
+    }
+    const { versions } = (await newest())!
+    const texts: string[] = []
+    for (const v of versions) texts.push((await api(srv, cookie, 'GET', `/api/history/version?path=${q}&id=${v.id}`)).body.text)
+    const repeated = texts.findIndex((t, i) => i > 0 && t === texts[i - 1])
+    if (repeated > 0) failures.push(`${path}: versions ${versions[repeated - 1]!.id} and ${versions[repeated]!.id} hold the same text`)
+  }
+  return failures
+}
+
 export interface RoundResult { typed: number; acked: number; agentHot: number; agentCold: number; recoveryMs: number; failures: string[] }
 
 export interface RoundOptions {

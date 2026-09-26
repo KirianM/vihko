@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Actor } from '@thoth/server'
 import { flakyGit, setup, sleep, who } from './_history.ts'
@@ -481,6 +481,30 @@ test('a failing git never blocks a write: it is reported, and the history catche
     assert.deepEqual((await h.versions(NOTE)).versions.map(who), ['user:noa', 'system'])
     assert.ok(!(await h.noa('GET', '/api/alerts')).body.alerts.some((a: any) => a.code === 'history_unavailable'))
   } finally { await h.close(); rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('the history\'s git gc runs in the foreground and ends with thoth: closing stops it, so no git outlives the state volume\'s lock', async () => {
+  const dir = tempDir('thoth-git-')
+  const git = join(dir, 'git-gc.sh')
+  const seen = join(dir, 'gc-args')
+  // A gc that would run for a minute (the wrapper becomes it: its PID is the child's).
+  writeFileSync(git, `#!/bin/sh\ncase " $* " in *" gc "*) echo "$$ $*" > '${seen}'; exec sleep 60;; esac\nexec git "$@"\n`)
+  chmodSync(git, 0o755)
+  // The first commit is enough for a gc.
+  const h = await setup({ git, gcEvery: 1 })
+  let pid = 0
+  try {
+    const t0 = Date.now()
+    while (!existsSync(seen)) { if (Date.now() - t0 > 10_000) throw new Error('timeout: the gc'); await sleep(20) }
+    const [first, ...args] = readFileSync(seen, 'utf8').trim().split(' ')
+    pid = Number(first)
+    assert.ok(args.includes('gc.autoDetach=false'), args.join(' '))
+  } finally {
+    const t0 = Date.now()
+    await h.close()
+    assert.ok(Date.now() - t0 < 4000, `closing took ${Date.now() - t0} ms`)
+  }
+  assert.throws(() => process.kill(pid, 0), 'the gc is gone once closing is done')
 })
 
 test('git failing so long that the queue reaches its cap: the oldest versions merge into later ones, keeping contents and authors, with an alert while it lasts', async () => {

@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { Git } from '@thoth/server'
 import { CLI, makeDirs, startServer } from './_collab.ts'
@@ -226,6 +226,35 @@ test('the purge refuses while thoth runs (and a second server refuses too), in u
   // After the kill -9 the lock is free: the purge runs.
   const ok = purge(env, [NOTE])
   assert.equal(ok.status, 0, ok.out)
+})
+
+test('what a crash left in the repository goes before a purge: fast-import\'s keep mark would keep what it purges, and a stale lock would fail it', async () => {
+  const h = await setup({ files: { 'secretos/clave.md': `# Clave\n${SECRET}\n`, 'otro/clave.md': '# Otra\nSECRET-OTHER-5d2b\n' } })
+  await h.close()
+  const env = envOf(h)
+  const gitDir = join(h.stateDir, 'history.git')
+  // Everything in one pack, with the mark fast-import leaves when it is killed before moving the refs.
+  await repo(h.stateDir).run(['repack', '-a', '-d', '-q'])
+  const pack = readdirSync(join(gitDir, 'objects/pack')).find((f) => f.endsWith('.pack'))!
+  const keep = `objects/pack/${pack.replace(/\.pack$/, '.keep')}`
+  writeFileSync(join(gitDir, keep), 'fast-import\n')
+  const first = purge(env, ['secretos'])
+  assert.equal(first.status, 0, first.out)
+  assert.ok(!(await objects(h.stateDir)).includes(SECRET), 'no pack keeps what was purged')
+  assert.ok(first.out.includes(`note: removed the keep mark of a fast-import left by a crash: ${keep}\n`), first.out)
+
+  // The locks a kill -9 leaves in the middle of a commit.
+  writeFileSync(join(gitDir, 'refs/heads/main.lock'), `${await head(h.stateDir)}\n`)
+  writeFileSync(join(gitDir, 'HEAD.lock'), 'ref: refs/heads/main\n')
+  const second = purge(env, ['otro'])
+  assert.equal(second.status, 0, second.out)
+  assert.match(second.out, /^note: removed a stale git lock left by a crash: refs\/heads\/main\.lock$/m)
+  assert.match(second.out, /^note: removed a stale git lock left by a crash: HEAD\.lock$/m)
+  assert.ok(!(await objects(h.stateDir)).includes('SECRET-OTHER-5d2b'))
+  // A dry run may run next to thoth: it touches nothing.
+  writeFileSync(join(gitDir, 'packed-refs.lock'), '')
+  assert.equal(purge(env, [NOTE, '--dry-run']).status, 0)
+  assert.ok(existsSync(join(gitDir, 'packed-refs.lock')))
 })
 
 test('a purge killed half way leaves the history as it was, or finished but not compacted; running it again completes it', async () => {

@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { api, closeAll, login, type Srv } from '../_collab.ts'
 import { NOTES, PASSWORD, USER, cleanup, freePort, metric, percentile, sleep, timed, waitFor, workspace } from './_harness.ts'
-import { AGENT_MARK, killRound } from './_crash.ts'
+import { AGENT_MARK, historyAfterKills, killRound } from './_crash.ts'
 import { m3DoneWhen } from './_m3.ts'
 
 const REPO = fileURLToPath(new URL('../../../../', import.meta.url))
@@ -92,13 +92,12 @@ test(`docker compose up over ${NOTES} notes: startup, search and kill -9`, { ski
       failures.push(...r.failures)
       metric(`docker kill -9 round ${round}`, r.recoveryMs, 'ms', { typed: r.typed, acked: r.acked, agentHot: r.agentHot, agentCold: r.agentCold })
     }
-    assert.deepEqual(failures, [])
-
     // The history works in the container (git in the image, the repository in the
-    // state volume, written by the container's user), through the kills: what was
-    // typed and edited has versions by the user.
-    const status = (await api(srv, cookie, 'GET', '/api/history/status')).body
-    assert.deepEqual([status.mode, status.available], ['managed', true], JSON.stringify(status))
+    // state volume, written by the container's user), through the kills: available,
+    // what was typed and edited has versions by the user, and each note's newest
+    // version is its file.
+    failures.push(...await historyAfterKills(srv, cookie, ws.notesDir, [hot, cold]))
+    assert.deepEqual(failures, [])
     assert.ok(existsSync(join(ws.stateDir, 'history.git', 'HEAD')), 'the repository is in the state volume')
     const byUser = async (path: string) => ((await api(srv, cookie, 'GET', `/api/history/versions?path=${encodeURIComponent(path)}`)).body.versions as { authors: { kind: string; name: string }[] }[])
       .some((v) => v.authors.some((a) => a.kind === 'user' && a.name === USER))

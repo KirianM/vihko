@@ -30,19 +30,22 @@
 //   the history, one moved out of it enters), and what is stored stays.
 // - A kill -9 loses no authorship: what is pending, and the commits not yet
 //   in git, live in a journal in the state volume (temporary file, fsync,
-//   rename), confirmed against the files when thoth starts.
+//   rename), confirmed against the files when thoth starts. What git itself
+//   was writing when the kill came (its lock files, a pack half done) is
+//   removed before anything else runs on the repository (leftovers.ts).
 // - The history never blocks or fails a note write: if git fails, the note is
 //   written, the commit waits in the journal and is retried, and there is an
 //   alert (`history_unavailable`). If it fails for so long that 5,000 commits
 //   wait, the oldest are merged into later ones: versions lose granularity,
 //   never content or authors, and there is an alert while it lasts
 //   (`history_versions_merged`).
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from 'node:fs'
+import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync, writeSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { WORKSPACE_FILE, classifyPath, isIgnoredDir, type Alert, type HistoryMode } from '@thoth/core'
 import { authorKey, authorOf, parseAuthorKey, reasonJson, type Actor, type Author, type Reason } from '../actor.ts'
 import { Git, GitError, Serial, blobOid, fastImport, readTree, resolveRef, type FastCommit, type FastOp } from './git.ts'
+import { removeCrashLeftovers } from './leftovers.ts'
 import { formatMessage } from './trailers.ts'
 
 export const HISTORY_REF = 'refs/heads/main'
@@ -210,6 +213,23 @@ export function crashPoint(point: string) {
   if (process.env.THOTH_TEST_CRASH_AT === point) process.kill(process.pid, 'SIGKILL')
 }
 
+/**
+ * Tests only: `THOTH_TEST_CRASH_AT=history-importing` kills git in the middle
+ * of a commit, holding the history's ref lock, and thoth with it (a kill -9 of
+ * the whole container at the worst moment). git's reference-transaction hook
+ * runs once the locks are taken and before the ref moves; the history's git
+ * runs no other hook.
+ */
+function crashHooks(dir: string): Record<string, string> {
+  if (process.env.THOTH_TEST_CRASH_AT !== 'history-importing') return {}
+  const hooks = join(dir, 'test-hooks')
+  mkdirSync(hooks, { recursive: true })
+  const hook = join(hooks, 'reference-transaction')
+  writeFileSync(hook, `#!/bin/sh\n[ "$1" = prepared ] || exit 0\nkill -9 ${process.pid} "$PPID"\n`)
+  chmodSync(hook, 0o755)
+  return { 'core.hooksPath': hooks }
+}
+
 /** Whether a path of the notes folder can have a history: not ignored by the indexer, and a name git and the trailers can hold. */
 export function historyPath(path: string): boolean {
   return path !== '' && !/[\u0000-\u001f\u007f]/.test(path) && classifyPath(path) !== 'ignored'
@@ -289,7 +309,8 @@ export class Recorder {
   private saveTimer: NodeJS.Immediate | null = null
   private writes = new Serial()
   private sinceGc = 0
-  private gcRunning = false
+  /** The `git gc` running now: stopped on close. */
+  private gc: { stop: AbortController; done: Promise<void> } | null = null
   /** After git was unavailable: the first sweep records what changed meanwhile, unattributed. */
   private resumeOnReady = false
   /** Commits merged at the queue's cap, until the queue is in git again. */
@@ -303,7 +324,7 @@ export class Recorder {
     this.dir = join(opts.stateDir, 'history')
     this.journalFile = journalFile(opts.stateDir)
     this.cacheFile = cacheFile(opts.stateDir)
-    this.git = new Git({ gitDir: repositoryDir(opts.stateDir), binary: opts.git })
+    this.git = new Git({ gitDir: repositoryDir(opts.stateDir), binary: opts.git, config: crashHooks(this.dir) })
     this.log = opts.log ?? (() => {})
     this.now = opts.now ?? Date.now
     this.retryDelay = opts.retryMs ?? 5000
@@ -318,6 +339,11 @@ export class Recorder {
    */
   async open(mode: HistoryMode) {
     mkdirSync(this.dir, { recursive: true })
+    // Before any git command, whatever the mode: what a crash left in thoth's
+    // own repository (a stale lock would fail every commit). Whoever opens the
+    // recorder holds the state volume's lock (main.ts), so no other thoth
+    // process is using it.
+    removeCrashLeftovers(this.git.gitDir, this.log)
     const j = this.readJournal()
     const lastMode = j?.mode ?? null
     if (j) {
@@ -402,6 +428,11 @@ export class Recorder {
     for (const t of [this.tickTimer, this.sweepTimer, this.retryTimer]) if (t) clearInterval(t)
     if (this.saveTimer) clearImmediate(this.saveTimer)
     await this.draining
+    // A gc stopped with SIGTERM removes its own locks; it's done again later.
+    if (this.gc) {
+      this.gc.stop.abort()
+      await this.gc.done
+    }
     if (existsSync(this.dir)) this.saveJournal()
   }
 
@@ -409,7 +440,8 @@ export class Recorder {
   private async ensureReady(): Promise<boolean> {
     if (this.ready) return true
     try {
-      if (!existsSync(join(this.git.gitDir, 'HEAD'))) {
+      // `git init` writes HEAD before it creates `objects/`: one cut short in between is finished by running it again.
+      if (!['HEAD', 'objects', 'refs'].every((f) => existsSync(join(this.git.gitDir, f)))) {
         await this.git.run(['init', '--bare', '-q', '--initial-branch=main', this.git.gitDir], { bare: true })
       }
       await this.reload()
@@ -1563,14 +1595,18 @@ export class Recorder {
 
   private gcMaybe(commits: number) {
     this.sinceGc += commits
-    if (this.sinceGc < (this.opts.gcEvery ?? 200) || this.gcRunning) return
+    if (this.sinceGc < (this.opts.gcEvery ?? 200) || this.gc || this.closed) return
     this.sinceGc = 0
-    this.gcRunning = true
-    // Outside the write queue: git takes its own lock, and fast-import can run meanwhile.
-    new Git({ gitDir: this.git.gitDir, binary: this.opts.git, config: { 'gc.auto': '6700', 'gc.autoPackLimit': '50' } })
-      .run(['gc', '--auto', '--quiet'], { timeoutMs: 600_000 })
-      .catch((e) => this.log(`history: git gc: ${e instanceof Error ? e.message : String(e)}`))
-      .finally(() => { this.gcRunning = false })
+    const stop = new AbortController()
+    // Outside the write queue: git takes its own locks, and fast-import can run
+    // meanwhile. In the foreground (`gc --auto` detaches by default), so it
+    // ends with thoth: no git outlives the state volume's lock, and the next
+    // holder can take whatever lock is left as a crash's (leftovers.ts).
+    const done = new Git({ gitDir: this.git.gitDir, binary: this.opts.git, config: { 'gc.auto': '6700', 'gc.autoPackLimit': '50', 'gc.autoDetach': 'false' } })
+      .run(['gc', '--auto', '--quiet'], { timeoutMs: 600_000, signal: stop.signal })
+      .then(() => {}, (e) => { if (!stop.signal.aborted) this.log(`history: git gc: ${e instanceof Error ? e.message : String(e)}`) })
+      .finally(() => { if (this.gc?.stop === stop) this.gc = null })
+    this.gc = { stop, done }
   }
 
   private fail(err: unknown) {

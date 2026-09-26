@@ -1,18 +1,21 @@
 // M1 «done when»: a `kill -9` loses no edits. Several rounds of _crash.ts
 // against the server process (one green pass in concurrency proves nothing),
-// and then the index must still equal a rebuild from the files.
+// and then the index must still equal a rebuild from the files, and the
+// history (M2) must be available with every note's newest version as its file.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { api, closeAll, login } from '../_collab.ts'
 import { Indexer, dumpIndex, openIndex } from '@thoth/server'
 import { ROUNDS, cleanup, metric, startServer, workspace, type Server } from './_harness.ts'
-import { AGENT_MARK, killRound } from './_crash.ts'
+import { AGENT_MARK, historyAfterKills, killRound } from './_crash.ts'
 
 test(`kill -9 while two people type and an agent edits: ${ROUNDS} rounds`, { timeout: ROUNDS * 90_000 + 60_000 }, async () => {
   const ws = workspace('crash')
   const [hot, cold] = ws.vault.editable as [string, string]
-  let srv: Server = await startServer(ws.env)
+  // Versions that close after 1 s without changes: more commits for a kill to land in, and the history checked without waiting.
+  const env = { ...ws.env, THOTH_HISTORY_QUIET_SECONDS: '1' }
+  let srv: Server = await startServer(env)
   const failures: string[] = []
   try {
     const cookie = await login(srv)
@@ -23,7 +26,7 @@ test(`kill -9 while two people type and an agent edits: ${ROUNDS} rounds`, { tim
       const r = await killRound({
         round, srv, cookie, notesDir: ws.notesDir, hot, cold,
         kill: () => srv.stop('SIGKILL'),
-        restart: async () => (srv = await startServer(ws.env)),
+        restart: async () => (srv = await startServer(env)),
       })
       failures.push(...r.failures)
       totals.typed += r.typed
@@ -33,6 +36,7 @@ test(`kill -9 while two people type and an agent edits: ${ROUNDS} rounds`, { tim
       totals.recoveryMs.push(Math.round(r.recoveryMs))
     }
     metric('kill -9 rounds', ROUNDS, 'rounds', totals)
+    failures.push(...await historyAfterKills(srv, cookie, ws.notesDir, [hot, cold]))
 
     // The index after the kills: the same as rebuilding it from the files.
     await srv.stop()

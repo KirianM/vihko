@@ -110,6 +110,8 @@ test('unmanaged mode never writes to the user\'s repository: .git is byte for by
       writeFileSync(join(notesDir, 'fotos/nota.md'), '# Sin imagen\n')
       rmSync(join(notesDir, 'fotos/a.png'))
       c.second = repo.commit('Drop the image', BEA)
+      // A lock of the user's own git (their editor is committing): never taken for a crash's, as in thoth's own repository.
+      writeFileSync(join(notesDir, '.git/index.lock'), '')
       // Before thoth starts: looking for the repository mustn't write to it either.
       before = snapshot(join(notesDir, '.git'))
     },

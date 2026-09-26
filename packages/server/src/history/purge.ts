@@ -13,7 +13,9 @@
 // - The new commits go to a ref of their own; `refs/heads/main` moves only at
 //   the end, in one step that checks it didn't move meanwhile. A process
 //   killed half way leaves the history as it was, and running the command
-//   again finishes the work.
+//   again finishes the work. What git itself left in the repository when the
+//   kill came (its lock files, fast-import's keep mark…) is removed before
+//   anything else, as the server does at startup (leftovers.ts).
 // - Afterwards nothing of what was purged is left in the repository: no
 //   reflog, no pack, no loose object (`reflog expire`, `gc --prune=now`),
 //   unless the same content is also stored under another path, which the
@@ -28,6 +30,7 @@ import { dirname, join } from 'node:path'
 import { isIgnoredDir, type HistoryMode } from '@thoth/core'
 import { lockState, type StateLock } from '../lock.ts'
 import { Git, GitError, blobOid, quotePath, readTree, resolveRef, write } from './git.ts'
+import { removeCrashLeftovers, type Leftover } from './leftovers.ts'
 import {
   HISTORY_REF, cacheFile, crashPoint, historyPath, isTextPath, journalFile, repositoryDir, writeAtomic,
   type Journal, type QChange,
@@ -104,6 +107,8 @@ export interface PurgeReport {
   movedFrom: string[]
   /** What the recorder's journal still had pending or queued for the purged paths, dropped. */
   journal: { pending: number; queued: number }
+  /** What a crash had left in the repository, removed before starting. */
+  leftovers: Leftover[]
 }
 
 /** A commit as the purge reads it: its identities and dates exactly as stored, and its files against its parent. */
@@ -141,17 +146,22 @@ export async function purgeHistory(opts: PurgeOptions): Promise<PurgeReport> {
   // A dry run only reads: it can look while thoth runs. Anything else needs thoth stopped.
   const lock: StateLock | null = opts.dryRun ? null : lockState(opts.stateDir)
   try {
-    return await purge(opts, target, new Git({ gitDir, binary: opts.git }))
+    // With the lock, before any git command: what a crash left there (of the
+    // server, or of a purge cut short) would fail the rewrite, or keep what it
+    // takes out in a pack (leftovers.ts). A dry run only reads, and thoth may
+    // be running: nothing there is a crash's.
+    const leftovers = lock ? removeCrashLeftovers(gitDir) : []
+    return { ...(await purge(opts, target, new Git({ gitDir, binary: opts.git }))), leftovers }
   } finally {
     lock?.release()
   }
 }
 
-async function purge(opts: PurgeOptions, target: string, git: Git): Promise<PurgeReport> {
+async function purge(opts: PurgeOptions, target: string, git: Git): Promise<Omit<PurgeReport, 'leftovers'>> {
   const head = await resolveRef(git, HISTORY_REF)
   const commits = head ? await readHistory(git) : []
   const plan = opts.version === undefined ? planPath(commits, target) : await planVersion(git, commits, target, opts.version)
-  const report: PurgeReport = {
+  const report: Omit<PurgeReport, 'leftovers'> = {
     path: target, version: plan.version, dryRun: !!opts.dryRun, commits: plan.affected,
     rewritten: 0, dropped: 0, filesRemoved: plan.removed, head,
     stillOnDisk: [], sharedWith: plan.sharedWith, movedFrom: plan.movedFrom, journal: { pending: 0, queued: 0 },
