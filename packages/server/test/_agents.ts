@@ -4,7 +4,7 @@
 // ana (member).
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, mountMcp, openIndex, openState, type ClientMetadataFetcher, type Runtime } from '@thoth/server'
+import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, mountMcp, openIndex, openState, toolData, type ClientMetadataFetcher, type Runtime } from '@thoth/server'
 import { Client, StreamableHTTPClientTransport, type VersionNegotiationMode } from '@modelcontextprotocol/client'
 import { tempDir } from './_tmp.ts'
 
@@ -123,13 +123,13 @@ export async function setup(opts: AgentSetup = {}) {
       requestInit: { headers: { authorization: `Bearer ${token}` } },
     })
     await client.connect(transport)
-    /** A tool's result: its JSON data (the first block), the note texts after it, and whether it's an error. */
+    /** A tool's result: its JSON data (the first block, `head` as it came), the note texts after it, and whether it's an error. */
     const call = async (name: string, args: Record<string, unknown> = {}) => {
       const r = await client.callTool({ name, arguments: args }) as { content: { type: string; text: string }[]; isError?: boolean }
       const [first, ...rest] = r.content
       let data: any = null
-      try { data = JSON.parse(first?.text ?? 'null') } catch { data = first?.text }
-      return { data, texts: rest.map((c) => c.text), error: r.isError === true, raw: JSON.stringify(r) }
+      try { data = toolData(first?.text ?? 'null') } catch { data = first?.text }
+      return { data, head: first?.text ?? '', texts: rest.map((c) => c.text), error: r.isError === true, raw: JSON.stringify(r) }
     }
     return { client, call, close: () => client.close() }
   }

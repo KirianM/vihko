@@ -28,6 +28,7 @@ export { RequestError, SUBSTITUTIONS, ScopedNotes, type EditPreview, type Outgoi
 export { historyFor } from './agentHistory.ts'
 export { MCP_PATH, mountMcp, type McpOptions } from './mcp/server.ts'
 export { TextCache } from './mcp/texts.ts'
+export { toolData } from './mcp/tools.ts'
 export { ROUTES, keyRouteClass, type RouteClass } from './http/routes.ts'
 export { authenticateKey, bearerToken, type KeyAuth } from './http/keyAuth.ts'
 export { keyRoutes, type KeyRoutesDeps } from './http/keys.ts'

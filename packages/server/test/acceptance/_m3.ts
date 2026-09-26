@@ -11,6 +11,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { toolData } from '@thoth/server'
 import type * as Y from 'yjs'
 import { api, closeAll, connect, waitFor, type Srv } from '../_collab.ts'
 
@@ -54,7 +55,7 @@ export async function m3DoneWhen(opts: { srv: Srv; cookie: string; notesDir: str
   const call = async (name: string, args: Record<string, unknown>) => {
     const r = await client.callTool({ name, arguments: args }) as { content: { text: string }[]; isError?: boolean }
     answers.push(JSON.stringify(r))
-    return { data: JSON.parse(r.content[0]!.text), texts: r.content.slice(1).map((c) => c.text), error: r.isError === true }
+    return { data: toolData(r.content[0]!.text) as any, texts: r.content.slice(1).map((c) => c.text), error: r.isError === true }
   }
 
   // 1. The agent writes a plan.

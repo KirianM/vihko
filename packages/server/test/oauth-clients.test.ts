@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
+import { toolData } from '@thoth/server'
 import { makeDirs, startServer, waitFor } from './_collab.ts'
 import { tempDir } from './_tmp.ts'
 
@@ -147,7 +148,7 @@ test('mcp-remote: discovery, registration, consent, tokens and the tools of a re
     assert.deepEqual((await first.client.listTools()).tools.map((x) => x.name).sort(), READ, 'a read-only authorization sees no tool that writes')
     const found = await first.client.callTool({ name: 'search', arguments: { query: 'Proxy' } }) as { content: { text: string }[]; isError?: boolean }
     assert.notEqual(found.isError, true)
-    assert.ok(JSON.parse(found.content[0]!.text).results.length > 0)
+    assert.ok((toolData(found.content[0]!.text) as { results: unknown[] }).results.length > 0)
     await first.client.close()
 
     // It's an authorization in «Agents and API»: named after the client, used via OAuth.

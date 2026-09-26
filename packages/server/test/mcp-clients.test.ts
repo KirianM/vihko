@@ -12,6 +12,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Client, StreamableHTTPClientTransport, type VersionNegotiationMode } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
+import { toolData } from '@thoth/server'
 import { api, login, makeDirs, startServer, waitFor } from './_collab.ts'
 import { tempDir } from './_tmp.ts'
 
@@ -28,7 +29,7 @@ type Call = (name: string, args: Record<string, unknown>) => Promise<Result>
 
 const parse = (r: { content?: { type: string; text?: string }[]; isError?: boolean }): Result => {
   let data: any = null
-  try { data = JSON.parse(r.content?.[0]?.text ?? 'null') } catch { data = r.content?.[0]?.text }
+  try { data = toolData(r.content?.[0]?.text ?? 'null') } catch { data = r.content?.[0]?.text }
   return { data, error: r.isError === true }
 }
 
