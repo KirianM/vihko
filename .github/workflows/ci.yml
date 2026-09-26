@@ -3,6 +3,8 @@ name: CI
 # The full CI runs locally (npm run ci), which posts its result to the commit as
 # the ci/local status: GitHub-hosted minutes are limited. Here it runs only for
 # Dependabot's pull requests, which nobody runs locally, and by hand if needed.
+# scripts/ci.ts runs these same four jobs, steps and timeout-minutes: a change
+# to one goes to the other too (see CONTRIBUTING.md, CI).
 on:
   pull_request:
   workflow_dispatch:
