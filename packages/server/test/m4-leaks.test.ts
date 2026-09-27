@@ -177,6 +177,12 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         ...[shared, theirs].map((p) => ({ route: 'GET /api/history/resolved', method: 'GET', path: q('/api/history/resolved', { path: p }) })),
         { route: 'POST /api/history/restore', method: 'POST', path: '/api/history/restore', body: { path: theirs, id: lauraVersion } },
         { route: 'POST /api/history/revert', method: 'POST', path: '/api/history/revert', body: { path: theirs, id: lauraVersion, dryRun: true } },
+        // Purging (D-038.9): what they can't see, by name, as a note, a version or a folder.
+        { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: theirs, dryRun: true }, expect: 404 },
+        { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: theirs, version: lauraVersion, dryRun: true }, expect: 404 },
+        { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: `${folder}/nada.md`, dryRun: true }, expect: 404 },
+        { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: folder, dryRun: true }, expect: who === 'agent' ? 404 : 400 },
+        { route: 'DELETE /api/history/purges/:id', method: 'DELETE', path: '/api/history/purges/nope', expect: who === 'agent' ? 404 : 403 },
         // Commenting (D-038.5): on what they can't see, and a thread that isn't there.
         { route: 'POST /api/note/comment', method: 'POST', path: '/api/note/comment', body: { path: theirs, op: 'add', at: 0, context: '', text: 'x' }, expect: 404 },
         { route: 'POST /api/note/comment', method: 'POST', path: '/api/note/comment', body: { path: theirs, op: 'resolve', thread: 'x|y|z|0' }, expect: 404 },

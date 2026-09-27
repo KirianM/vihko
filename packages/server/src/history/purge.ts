@@ -1,7 +1,8 @@
 // `thoth history purge`: rewrites the managed history without a path (a file,
 // or a folder with everything in it), or without the content a path has in
 // one version. For a secret pasted by mistake (D-034.6). With thoth stopped:
-// it takes the state volume's lock, as the server does.
+// it takes the state volume's lock, as the server does. The server runs the
+// same purge from the UI (D-038.9, `purgeRunning`), with its recorder paused.
 //
 // - Only the managed history (`<state>/history.git`, thoth's own). The user's
 //   repository (unmanaged mode) is never rewritten, and the notes folder is
@@ -62,6 +63,8 @@ export interface PurgeOptions {
   version?: string
   /** Says what would change, and changes nothing. It doesn't need thoth stopped. */
   dryRun?: boolean
+  /** `path` is one file: nothing under it goes (a note purged by whoever manages its folder, D-038.9). */
+  exact?: boolean
   /** thoth.yaml's `history.mode`: the purge refuses to run in unmanaged mode. */
   mode: HistoryMode
   /** thoth.yaml's `history.exclude`. */
@@ -134,15 +137,7 @@ export function purgeTarget(raw: string): string {
 }
 
 export async function purgeHistory(opts: PurgeOptions): Promise<PurgeReport> {
-  if (opts.mode === 'unmanaged') {
-    throw new PurgeError('history_unmanaged', 'the history is unmanaged in thoth.yaml: it is the notes folder\'s own git repository, which thoth never rewrites')
-  }
-  const target = purgeTarget(opts.path)
-  if (opts.version !== undefined && !/^[0-9a-f]{7,40}$/.test(opts.version)) {
-    throw new PurgeError('invalid_version', `not a version id (7 to 40 hexadecimal digits): ${JSON.stringify(opts.version)}`)
-  }
-  const gitDir = repositoryDir(opts.stateDir)
-  if (!existsSync(join(gitDir, 'HEAD'))) throw new PurgeError('history_no_repository', `there is no managed history at ${gitDir}`)
+  const { target, gitDir } = checked(opts)
   // A dry run only reads: it can look while thoth runs. Anything else needs thoth stopped.
   const lock: StateLock | null = opts.dryRun ? null : lockState(opts.stateDir)
   try {
@@ -157,39 +152,107 @@ export async function purgeHistory(opts: PurgeOptions): Promise<PurgeReport> {
   }
 }
 
-async function purge(opts: PurgeOptions, target: string, git: Git): Promise<Omit<PurgeReport, 'leftovers'>> {
+/** What the recorder of a running thoth does around a purge (recorder.ts `purging`). */
+export interface RunningRecorder {
+  purging<T>(rewrite: () => Promise<{ result: T; forget: (path: string) => boolean; pathsOnDisk: string[] }>): Promise<{ result: T; stillOnDisk: string[]; counts: { pending: number; queued: number } }>
+}
+
+/**
+ * The same purge from the running server (D-038.9: from the UI), which holds
+ * the state volume's lock: the recorder is paused while the repository is
+ * rewritten, and forgets what was purged in memory instead of in the
+ * journal's file (recorder.ts `purging`). Notes are written meanwhile, and
+ * their versions wait for it. A dry run reads, as from the command line.
+ * Nothing a crash left in the repository is there to remove: the server
+ * removed it when it started, and its own git never runs during a purge.
+ */
+export async function purgeRunning(opts: PurgeOptions, recorder: RunningRecorder): Promise<PurgeReport> {
+  const { target, gitDir } = checked(opts)
+  const git = new Git({ gitDir, binary: opts.git })
+  if (opts.dryRun) return { ...(await purge(opts, target, git)), leftovers: [] }
+  const excluded = opts.excluded ?? (() => false)
+  const r = await recorder.purging(async () => {
+    const p = await planned(opts, target, git)
+    if (p.first < 0) await compact(git)
+    else await rewrite(git, p, () => {})
+    const pathsOnDisk = filesUnder(opts.notesDir, p.plan.pathsOnDisk).filter((f) => historyPath(f) && !excluded(f))
+    return { result: p.report, forget: p.plan.forget, pathsOnDisk }
+  })
+  return { ...r.result, stillOnDisk: r.stillOnDisk, journal: r.counts, leftovers: [] }
+}
+
+/** The request, checked: the mode, the path, the version's form and the repository. */
+function checked(opts: PurgeOptions): { target: string; gitDir: string } {
+  if (opts.mode === 'unmanaged') {
+    throw new PurgeError('history_unmanaged', 'the history is unmanaged in thoth.yaml: it is the notes folder\'s own git repository, which thoth never rewrites')
+  }
+  const target = purgeTarget(opts.path)
+  if (opts.version !== undefined && !/^[0-9a-f]{7,40}$/.test(opts.version)) {
+    throw new PurgeError('invalid_version', `not a version id (7 to 40 hexadecimal digits): ${JSON.stringify(opts.version)}`)
+  }
+  const gitDir = repositoryDir(opts.stateDir)
+  if (!existsSync(join(gitDir, 'HEAD'))) throw new PurgeError('history_no_repository', `there is no managed history at ${gitDir}`)
+  return { target, gitDir }
+}
+
+interface Planned {
+  head: string | null
+  commits: Commit[]
+  plan: Plan
+  /** The first commit it rewrites (-1: none). */
+  first: number
+  report: Omit<PurgeReport, 'leftovers'>
+}
+
+/** What the purge takes out of the history as it is now, and the report of it (without the recorder's part). */
+async function planned(opts: PurgeOptions, target: string, git: Git): Promise<Planned> {
   const head = await resolveRef(git, HISTORY_REF)
   const commits = head ? await readHistory(git) : []
-  const plan = opts.version === undefined ? planPath(commits, target) : await planVersion(git, commits, target, opts.version)
+  const plan = opts.version === undefined ? planPath(commits, target, opts.exact) : await planVersion(git, commits, target, opts.version)
   const report: Omit<PurgeReport, 'leftovers'> = {
     path: target, version: plan.version, dryRun: !!opts.dryRun, commits: plan.affected,
     rewritten: 0, dropped: 0, filesRemoved: plan.removed, head,
     stillOnDisk: [], sharedWith: plan.sharedWith, movedFrom: plan.movedFrom, journal: { pending: 0, queued: 0 },
   }
   const first = commits.findIndex((c) => plan.touches(c))
-  const recorder = await recorderAfter(opts, git, head, plan)
-  report.stillOnDisk = recorder.stillOnDisk
-  report.journal = recorder.counts
   if (first >= 0) {
     const built = commits.slice(first).map((c) => plan.rewrite(c))
     report.rewritten = built.length
     report.dropped = built.filter((b) => b.ops.length === 0).length
     for (const a of report.commits) a.dropped = built[commits.indexOf(commits.find((c) => c.id === a.id)!) - first]?.ops.length === 0
   }
-  if (opts.dryRun) return report
+  return { head, commits, plan, first, report }
+}
 
-  if (first < 0) {
+async function purge(opts: PurgeOptions, target: string, git: Git): Promise<Omit<PurgeReport, 'leftovers'>> {
+  const p = await planned(opts, target, git)
+  const { report } = p
+  const recorder = await recorderAfter(opts, git, p.head, p.plan)
+  report.stillOnDisk = recorder.stillOnDisk
+  report.journal = recorder.counts
+  if (opts.dryRun) return report
+  if (p.first < 0) {
     // Nothing in git (a run cut short before may have left it rewritten but not compacted).
     recorder.save()
     await compact(git)
     return report
   }
+  await rewrite(git, p, () => recorder.save())
+  return report
+}
+
+/**
+ * Writes the rewritten history and moves `main` to it, in the one step that
+ * checks nothing moved it meanwhile; `saved` runs in between (the journal,
+ * with thoth stopped). Then nothing unreachable is left.
+ */
+async function rewrite(git: Git, p: Planned, saved: () => void) {
+  const { commits, first, plan, head, report } = p
   const parent = first === 0 ? null : commits[first - 1]!.id
   const newHead = await importRewritten(git, parent, commits.slice(first), commits.slice(first).map((c) => plan.rewrite(c)))
   crashPoint('purge-imported')
   report.head = newHead
-  recorder.save()
-  // The one step that changes the history: only if nothing moved it meanwhile.
+  saved()
   try {
     if (newHead) await git.run(['update-ref', '-m', 'thoth history purge', HISTORY_REF, newHead, head!])
     else await git.run(['update-ref', '-d', HISTORY_REF, head!])
@@ -198,7 +261,6 @@ async function purge(opts: PurgeOptions, target: string, git: Git): Promise<Omit
   }
   crashPoint('purge-moved')
   await compact(git)
-  return report
 }
 
 // --- Reading ----------------------------------------------------------------------
@@ -264,38 +326,42 @@ function opOf(f: Commit['files'][number]): Op {
   return f.newOid === null ? { op: 'D', path: f.path } : { op: 'M', mode: f.mode, oid: f.newOid, path: f.path }
 }
 
-/** The whole path: gone from every version, and every move trailer that names it. */
-function planPath(commits: Commit[], raw: string): Plan {
+/**
+ * The whole path: gone from every version, and every move trailer that names
+ * it. `exact`: that path alone, never what is under it (a file).
+ */
+function planPath(commits: Commit[], raw: string, exact = false): Plan {
   const target = nfc(raw)
+  const inside = (p: string) => (exact ? nfc(p) === target : within(p, target))
   const affected: PurgedCommit[] = []
   const purged = new Set<string>()
   const paths = new Set<string>()
   const movedFrom = new Set<string>()
   let removed = 0
   for (const c of commits) {
-    const files = c.files.filter((f) => within(f.path, target))
+    const files = c.files.filter((f) => inside(f.path))
     for (const f of files) {
       paths.add(f.path)
       if (f.newOid) { purged.add(f.newOid); removed++ }
     }
     for (const m of parseMessage(c.message).moves) {
       // A file moved here, or a folder moved with the purged path in it.
-      if (within(m.to, target) && !within(m.from, target)) movedFrom.add(m.from)
+      if (inside(m.to) && !inside(m.from)) movedFrom.add(m.from)
       else if (target.startsWith(nfc(m.to) + '/')) movedFrom.add(m.from + target.slice(nfc(m.to).length))
     }
     if (files.length) affected.push({ id: c.id, at: iso(c.author), subject: subjectOf(c.message), files: files.map((f) => ({ path: f.path, change: changeOf(f.status) })), dropped: false })
   }
   return {
     version: null, affected, removed, movedFrom: [...movedFrom].sort(),
-    sharedWith: sharedWith(commits, purged, (p) => within(p, target)),
+    sharedWith: sharedWith(commits, purged, (p) => inside(p)),
     pathsOnDisk: [...new Set([raw, ...paths])],
-    touches: (c) => c.files.some((f) => within(f.path, target)) || parseMessage(c.message).moves.some((m) => within(m.from, target) || within(m.to, target)),
+    touches: (c) => c.files.some((f) => inside(f.path)) || parseMessage(c.message).moves.some((m) => inside(m.from) || inside(m.to)),
     rewrite: (c) => ({
-      ops: c.files.filter((f) => !within(f.path, target)).map(opOf),
-      keepMove: (from, to) => !within(from, target) && !within(to, target),
+      ops: c.files.filter((f) => !inside(f.path)).map(opOf),
+      keepMove: (from, to) => !inside(from) && !inside(to),
     }),
-    forget: (p) => within(p, target),
-    headAfter: (p, now) => (within(p, target) ? null : now.get(p) ?? null),
+    forget: (p) => inside(p),
+    headAfter: (p, now) => (inside(p) ? null : now.get(p) ?? null),
   }
 }
 

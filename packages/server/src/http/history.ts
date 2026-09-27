@@ -16,7 +16,11 @@
 //   POST /api/history/revert { path, id, ifMatch?, dryRun? }
 //   GET  /api/history/changes?cursor=&limit=&author=
 //   GET  /api/history/resolved?path=
+//   POST /api/history/purge { path, version?, dryRun? }   (`manage`, or the admin by name)
+//   DELETE /api/history/purges/:id                      (the admin: a purge's notice, dismissed)
 import type { Context, Hono } from 'hono'
+import { WORKSPACE_FILE, folderOf } from '@thoth/core'
+import { PurgeError, purgeTarget } from '../history/purge.ts'
 import { parseAuthorKey, type Via } from '../actor.ts'
 import type { Auth, User } from '../auth.ts'
 import { AccessError, AgentDenied, type Access } from '../access.ts'
@@ -220,6 +224,52 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     })
   })
 
+  // Purging from the UI (D-038.9): a note or one of its versions, by whoever
+  // manages the folder it is in (a note deleted since, too: its history is
+  // still there), never anything else (with `path` alone, that file only,
+  // not what is under it; with `version`, only that note's content in that
+  // version, whatever else the version changed); or any path by its name
+  // (a file or a folder) by the thoth admin, who needn't read it. With
+  // `dryRun`, what it would take out, for the confirmation. The history
+  // pauses while it's rewritten; the admin gets a notice (who and what,
+  // never the content). The answer names no other path the person can't
+  // read, and nothing of the content.
+  app.post('/api/history/purge', async (c) => {
+    const body = await c.req.json<{ path?: unknown; version?: unknown; dryRun?: unknown }>()
+    if (typeof body.path !== 'string' || (body.version !== undefined && typeof body.version !== 'string')) throw new HistoryError('invalid', 'expected a path and, optionally, a version')
+    const access = c.get('access')
+    const user = c.get('user')
+    const admin = !access.isAgent && user.role === 'admin'
+    // Whoever manages a folder purges notes (their path); the admin, any path.
+    const path = admin ? purgeTarget(body.path) : NoteService.checkPath(body.path)
+    const manages = !access.isAgent && path !== WORKSPACE_FILE && access.canManage(folderOf(path))
+    if (!admin && !manages) {
+      if (!access.isAgent && access.canRead(path)) throw new AccessError('purging a note\'s history is for whoever manages its folder')
+      throw new NoteError('not_found', `does not exist: ${path}`)
+    }
+    const r = await history.purge({ path, version: body.version as string | undefined, dryRun: body.dryRun === true, exact: !admin, by: user.id })
+    const shown = (list: string[]) => list.filter((p) => access.canRead(p))
+    return c.json({
+      path: r.path,
+      version: r.version,
+      dryRun: r.dryRun,
+      // The versions whose change it takes out, oldest first: when, and how many files (never their content).
+      versions: r.commits.map((v) => ({ id: v.id, at: v.at, files: v.files.length, dropped: v.dropped })),
+      filesRemoved: r.filesRemoved,
+      // Files still in the folder: they enter the history again with their next version.
+      onDisk: r.stillOnDisk.length,
+      sharedWith: shown(r.sharedWith),
+      movedFrom: shown(r.movedFrom),
+    })
+  })
+
+  // The admin's notice of a purge, dismissed.
+  app.delete('/api/history/purges/:id', (c) => {
+    if (c.get('access').isAgent || c.get('user').role !== 'admin') throw new AccessError('admins only')
+    if (!history.notices.dismiss(c.req.param('id'))) throw new HistoryError('not_found', 'no such notice')
+    return c.json({ ok: true })
+  })
+
   // Comment threads that left the note in the last 30 days (D-032.5): each one
   // whole, with what it takes to put it back (`place`), who resolved it and
   // whether its text is still there. Reopening is an edit in the editor
@@ -251,4 +301,9 @@ function unquote(etag: string | undefined) {
 /** HTTP status for each history error code. */
 export function historyErrorStatus(e: HistoryError) {
   return ({ history_off: 409, history_unavailable: 503, not_found: 404, invalid: 400, not_revertible: 409 } as const)[e.code]
+}
+
+/** HTTP status for each purge error code. */
+export function purgeErrorStatus(e: PurgeError) {
+  return ({ history_unmanaged: 409, history_no_repository: 409, invalid_path: 400, invalid_version: 400, not_found: 404, not_a_version: 404, history_moved: 409 } as const)[e.code]
 }

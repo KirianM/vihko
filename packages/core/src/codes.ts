@@ -47,6 +47,11 @@ export type ErrorCode =
   | 'group_exists'
   | 'invalid_group_name'
   | 'private_address' // «Save a copy»: a member may only download from public addresses (D-038.6)
+  | 'history_unmanaged' // purging: the history is the notes folder's own git repository, which thoth never rewrites
+  | 'history_no_repository' // purging: there is no managed history yet
+  | 'invalid_version' // purging: not a version id
+  | 'not_a_version' // purging: that version doesn't write that note
+  | 'history_moved' // purging: the history changed while it was being rewritten; nothing changed
 
 /**
  * Space-level alerts: what thoth has detected in the notes folder that needs
@@ -101,6 +106,13 @@ export type Alert =
    * Goes away once everything waiting is in git.
    */
   | { code: 'history_versions_merged'; versions: number; since: string; actions: never[] }
+  /**
+   * Someone purged a path (a note, or a folder with everything in it) or one
+   * version of a note from the history while thoth ran (D-038.9): which,
+   * who (`by`, their name) and when (`at`, ISO). Never anything of the
+   * content. Only admins see it, until they dismiss it.
+   */
+  | { code: 'history_purged'; id: string; path: string; version: string | null; by: string; at: string; actions: 'dismiss'[] }
   /** `history.mode: unmanaged`, but the notes folder isn't inside a git repository: there is no history to show. */
   | { code: 'history_no_repository'; actions: never[] }
   /**

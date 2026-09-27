@@ -58,6 +58,8 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'GET /api/move-jobs/:id': 'session',
   'POST /api/note/link/pin': 'session',
   'POST /api/note/comment': 'session',
+  'POST /api/history/purge': 'session',
+  'DELETE /api/history/purges/:id': 'session',
   'POST /api/note/orphan': 'session',
   'POST /api/external-moves/:id/relink': 'session',
   'POST /api/attachments/fetch': 'session',
@@ -210,6 +212,9 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'GET /api/history/resolved': 'history',
   'POST /api/history/restore': 'history',
   'POST /api/history/revert': 'history',
+  // Or the thoth admin, any path by its name, without reading it (D-038.9).
+  'POST /api/history/purge': 'manage',
+  'DELETE /api/history/purges/:id': 'admin',
 
   'GET /api/permissions': 'permissions',
   'PUT /api/permissions': 'permissions',

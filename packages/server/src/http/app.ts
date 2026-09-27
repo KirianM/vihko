@@ -27,7 +27,8 @@ import { MoveJobs } from './jobs.ts'
 import type { ExternalMoves } from '../externalMoves.ts'
 import { HistoryError, type History } from '../history/index.ts'
 import { GitError } from '../history/git.ts'
-import { historyErrorStatus, historyRoutes } from './history.ts'
+import { historyErrorStatus, historyRoutes, purgeErrorStatus } from './history.ts'
+import { PurgeError } from '../history/purge.ts'
 import { AccessError, AccessPolicy, AgentDenied, type Access } from '../access.ts'
 import { PermissionsEngine, groupSource, stateDirectory, type GroupSource } from '../permissions.ts'
 import { ConfigInvalidError, PermissionsFile } from '../permissionsFile.ts'
@@ -255,6 +256,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof FetchImageError) return fail(c, fetchErrorStatus(err), err.code, err.message)
     if (err instanceof ProfileError) return fail(c, 400, err.code, err.message)
     if (err instanceof HistoryError) return fail(c, historyErrorStatus(err), err.code, err.message)
+    if (err instanceof PurgeError) return fail(c, purgeErrorStatus(err), err.code, err.message)
     if (err instanceof GitError) return fail(c, 503, 'history_unavailable', err.message)
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400, err.code, err.message)
     if (err instanceof KeyError) return fail(c, keyErrorStatus(err), err.code, err.message)
