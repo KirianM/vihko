@@ -25,7 +25,8 @@ test('the history starts with the whole folder as one system version', async () 
 })
 
 test('writes in a row by the same user are one version; another actor closes it first, with the text from before', async () => {
-  const h = await setup()
+  // A quiet time no pause under load reaches: only the agent's write (and `settle`) closes what is open.
+  const h = await setup({ quietMs: 600_000 })
   try {
     await h.put(NOTE, (t) => t + '\nuno\n')
     await h.put(NOTE, (t) => t + 'dos\n')
