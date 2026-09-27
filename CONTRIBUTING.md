@@ -31,6 +31,15 @@ bug reports, questions and ideas.
   + 2), the images spec's external server `E2E_EXTERNAL_PORT` (8132) and the
   browser acceptance server `ACC_PORT` (8095).
 
+  Every spec runs on that one server, one after another, so a spec never
+  depends on another one: grants beyond the baseline (noa manages the root,
+  ana edits it) go through `usePermissions()` of `e2e/helpers.ts`, which
+  waits until thoth has read them and is called again at the end to put the
+  baseline back; people and groups a spec creates are named with `unique()` of
+  `e2e/env.ts` (a deleted user's name stays reserved, and a retry runs on the
+  same server); and lists other specs add to (users, keys, groups) are checked
+  for what the spec made, never as a whole.
+
 ## Acceptance
 
 The milestone's «Done when» as tests, over a generated vault of 1,000
@@ -74,7 +83,8 @@ npm run ci                        # the last commit of this checkout
 npm run ci -- --pr 72             # pull request 72 merged onto its base, as GitHub tests it
 npm run ci -- --pr 72 --post      # …and pending, then success or failure, as ci/local on its head commit
 npm run ci -- --ref origin/main   # a commit (after git fetch, the latest main)
-npm run ci -- --jobs check,e2e    # some jobs only (--post needs all of them)
+npm run ci -- --jobs check,e2e    # some jobs only
+npm run ci -- --jobs e2e --grep 'two-factor\.spec'   # only the tests matching a pattern
 npm run ci -- --parallel          # the jobs at the same time (faster, see below)
 npm run ci -- --keep              # keep the run's folder to debug
 npm run ci -- --clean             # remove the folders and logs of earlier runs
@@ -88,6 +98,21 @@ npm run ci -- --clean             # remove the folders and logs of earlier runs
 - **e2e**: `npm run e2e` and `npm run acceptance:ui` of `@thoth/web`, with the
   servers on the host and the browser in the Playwright image of the installed
   `@playwright/test` (`--network host`).
+
+To run again only what failed, a failed run prints the command: the same
+target, the failed jobs and, for browser tests, `--grep` with their spec
+files. `--grep` is a regular expression; Playwright matches it against the
+file name and the titles, `node --test` against the test names only
+(`--test-name-pattern`), and a browser suite none of whose tests match is
+skipped, server included. A run with `--jobs` or `--grep` is not the CI: with
+`--post` it reports as `ci/local-partial`, never as `ci/local`, so a pull
+request is still merged only on a full run.
+
+A browser test that fails runs once more, with a Playwright trace (traces are
+recorded only then: recording every test slowed them all and could fail a
+passing test at its teardown). If it passes then, it is flaky: the job passes,
+but its line, the summary and the posted status name it. A flaky test is a bug
+to look at, in the test or in thoth, not noise.
 
 Each run works in its own folder on local disk (`/var/tmp/thoth-ci/<run>`, or
 `THOTH_CI_DIR`; never NFS, and not a tmpfs `/tmp`): a git worktree of the
@@ -109,8 +134,9 @@ containers, networks, image and worktree, and keeps only the logs (for 7 days).
 cleaned up by the next one.
 
 The jobs run one after another. On the 6-CPU machine the CI runs on, a full
-run takes about 12m30s: setup 5 s, check 2m30s, acceptance 1m50s, docker 25 s
-(with the image layers cached) and e2e 7m40s. `--parallel` runs them at the
+run takes about 14 minutes: setup 5 s, check 2m45s, acceptance 1m55s, docker
+30 s (with the image layers cached) and e2e 8m30s; `--jobs e2e --grep` with one
+spec file, one or two. `--parallel` runs them at the
 same time in about 8 minutes, but the load is theirs: in one of three such runs
 a unit test that depends on two writes landing within 150 ms failed, which
 never happened one after another. The acceptance has time thresholds and the

@@ -7,16 +7,15 @@
 // optional: the other specs sign in with a password alone.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { createHmac } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES, PASSWORD, PERMISSIONS, PUBLIC_URL } from './env.ts'
-import { signIn, writeWorkspace } from './helpers.ts'
+import { mkdirSync } from 'node:fs'
+import { E2E_DIR, PASSWORD, PUBLIC_URL, unique } from './env.ts'
+import { signIn, usePermissions } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
-const LUCIA = 'tfa-lucia'
-const PABLO = 'tfa-pablo'
+const LUCIA = unique('tfa-lucia')
+const PABLO = unique('tfa-pablo')
 
-// A code works once per 30-second step: some tests wait for the app's next one.
-test.describe.configure({ mode: 'serial', timeout: 120_000 })
+test.describe.configure({ mode: 'serial' })
 /**
  * The admin's session from before any policy: it stays open when the policy
  * becomes required (the admin has no second factor), so the end can always
@@ -27,7 +26,7 @@ let keeper: Page
 test.beforeAll(async ({ browser }) => {
   mkdirSync(SHOTS, { recursive: true })
   // A member sees nothing until something is granted (D-038): the two of them read everything.
-  writeFileSync(`${NOTES}/thoth.yaml`, PERMISSIONS.replace('ana: edit }', `ana: edit, ${LUCIA}: read, ${PABLO}: read }`))
+  await usePermissions({ grants: { [LUCIA]: 'read', [PABLO]: 'read' } })
   keeper = await signIn(browser, 'noa')
 })
 
@@ -40,7 +39,7 @@ test.afterAll(async () => {
     await admin.request.delete(`/api/admin/users/${u.id}`)
   }
   await admin.context().close()
-  writeWorkspace()
+  await usePermissions()
 })
 
 // --- TOTP, as the authenticator app computes it (RFC 6238) -------------------
@@ -66,28 +65,32 @@ function codeAt(secret: Buffer, step: number): string {
   return String((((h[o]! & 0x7f) << 24) | (h[o + 1]! << 16) | (h[o + 2]! << 8) | h[o + 3]!) % 1_000_000).padStart(6, '0')
 }
 
-const stepNow = () => Math.floor(Date.now() / 30_000)
+const STEP_MS = 30_000
 
 /**
- * The app on a phone: a code the server takes, never one already used (it
- * accepts one step either side, and each step once). Waits for the clock only
- * when every step in the window is spent.
+ * The app on a phone: a code the server takes, never one already used. The
+ * server accepts one step either side of now, each once and only after the
+ * last one it took: the previous step's code first, then the current one's,
+ * then the next one's. Three codes without waiting for the clock, which is
+ * all this spec needs; a fourth would wait for the next step.
  */
 function authenticator(secretText: string) {
   const secret = base32(secretText)
-  let used = -1
+  let used = -Infinity
   return {
     async next(): Promise<string> {
-      let step = Math.max(used + 1, stepNow())
-      while (step > stepNow() + 1) await new Promise((r) => setTimeout(r, 500))
-      step = Math.max(step, stepNow() - 1)
-      used = step
-      return codeAt(secret, step)
-    },
-    /** The code the setup was verified with (the server spent its step). */
-    first(): string {
-      used = stepNow()
-      return codeAt(secret, used)
+      for (;;) {
+        const now = Date.now()
+        const current = Math.floor(now / STEP_MS)
+        const step = Math.max(used + 1, current - 1)
+        // The previous step's code stops working when this step ends: not in its last seconds.
+        const lasts = step >= current || now % STEP_MS < STEP_MS - 3000
+        if (step <= current + 1 && lasts) {
+          used = step
+          return codeAt(secret, step)
+        }
+        await new Promise((r) => setTimeout(r, 250))
+      }
     },
   }
 }
@@ -101,9 +104,9 @@ async function openSettings(page: Page, link: string, view: string) {
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(link)
 }
 
-/** The password step of signing in, in a browser of its own. */
-async function password(browser: Browser, user: string, pw: string) {
-  const page = await (await browser.newContext()).newPage()
+/** The password step of signing in, in a browser of its own (or again in `page`'s). */
+async function password(browser: Browser | Page, user: string, pw: string) {
+  const page = 'newContext' in browser ? await (await browser.newContext()).newPage() : browser
   await page.goto('/')
   await page.getByLabel('Nombre de usuario').fill(user)
   await page.getByLabel('Contraseña').fill(pw)
@@ -115,6 +118,8 @@ const row = (page: Page, name: string) => page.getByRole('row', { name: new RegE
 
 let lucia: ReturnType<typeof authenticator>
 let recovery: string[] = []
+/** Lucia's session from a recovery code, for the next test: a new key asks for the app's code even with one. */
+let session: Page
 
 test('a member sets it up from «Account»: nothing is on until a code from the app is verified; then the recovery codes, once', async ({ browser }) => {
   const admin = await signIn(browser, 'noa')
@@ -151,7 +156,7 @@ test('a member sets it up from «Account»: nothing is on until a code from the 
   expect((await (await page.request.get('/api/account/2fa')).json()).enabled).toBe(false)
 
   lucia = authenticator(secret)
-  await dialog.getByLabel('Código de verificación').fill(lucia.first())
+  await dialog.getByLabel('Código de verificación').fill(await lucia.next())
   await dialog.getByRole('button', { name: 'Verificar y activar' }).click()
   const codes = page.getByRole('dialog', { name: 'Guarda tus códigos de recuperación' })
   await expect(codes.getByRole('note')).toContainText('Solo se muestran ahora')
@@ -166,7 +171,7 @@ test('a member sets it up from «Account»: nothing is on until a code from the 
   await page.context().close()
 })
 
-test('signing in: the password, then the app\'s code; or a recovery code, which says how many are left', async ({ browser }) => {
+test('signing in: the password, then the app\'s code, which works once; or a recovery code, which says how many are left', async ({ browser }) => {
   const page = await password(browser, LUCIA, 'lucia-contraseña-larga')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Verificación en dos pasos')
   await expect(page.getByText(`Escribe el código de 6 cifras que muestra tu app de autenticación, ${LUCIA}.`)).toBeVisible()
@@ -174,9 +179,18 @@ test('signing in: the password, then the app\'s code; or a recovery code, which 
   await page.getByRole('button', { name: 'Verificar' }).click()
   await expect(page.getByRole('alert')).toContainText('El código no es correcto')
   await page.screenshot({ path: `${SHOTS}/twofa-login-light.png`, animations: 'disabled' })
-  await page.getByLabel('Código de verificación').fill(await lucia.next())
+  const code = await lucia.next()
+  await page.getByLabel('Código de verificación').fill(code)
   await page.getByRole('button', { name: 'Verificar' }).click()
   await expect(page.getByRole('treegrid')).toBeVisible()
+  // The same code again, still within its window: refused. In the same browser,
+  // whose failures count for this account there and not for the whole address
+  // (which every spec's sign-ins share).
+  expect((await page.request.post('/api/auth/logout')).status()).toBe(200)
+  await password(page, LUCIA, 'lucia-contraseña-larga')
+  await page.getByLabel('Código de verificación').fill(code)
+  await page.getByRole('button', { name: 'Verificar' }).click()
+  await expect(page.getByRole('alert')).toContainText('Ese código ya se ha usado')
   await page.context().close()
 
   const other = await password(browser, LUCIA, 'lucia-contraseña-larga')
@@ -187,7 +201,7 @@ test('signing in: the password, then the app\'s code; or a recovery code, which 
   await expect(other.getByRole('status')).toHaveText('Te quedan 9 códigos de recuperación.')
   await other.getByRole('button', { name: 'Continuar' }).click()
   await expect(other.getByRole('treegrid')).toBeVisible()
-  await other.context().close()
+  session = other
 
   // A recovery code works once.
   const again = await password(browser, LUCIA, 'lucia-contraseña-larga')
@@ -198,11 +212,8 @@ test('signing in: the password, then the app\'s code; or a recovery code, which 
   await again.context().close()
 })
 
-test('a new key asks for the app\'s current code, even with a session; the password is not enough', async ({ browser }) => {
-  const page = await password(browser, LUCIA, 'lucia-contraseña-larga')
-  await page.getByLabel('Código de verificación').fill(await lucia.next())
-  await page.getByRole('button', { name: 'Verificar' }).click()
-  await expect(page.getByRole('treegrid')).toBeVisible()
+test('a new key asks for the app\'s current code, even with a session; the password is not enough', async () => {
+  const page = session
   await openSettings(page, 'Agentes y API', 'agents')
   await page.getByRole('button', { name: 'Nueva clave' }).click()
   const dialog = page.getByRole('dialog', { name: 'Nueva clave' })
@@ -250,7 +261,7 @@ test('required: an invited member sets it up before getting in; the admin sees w
   expect(await phone.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
   await phone.screenshot({ path: `${SHOTS}/twofa-required-mobile-dark.png`, fullPage: true, animations: 'disabled' })
   const pablo = authenticator(await phone.getByLabel('Clave secreta').innerText())
-  await phone.getByLabel('Código de verificación').fill(pablo.first())
+  await phone.getByLabel('Código de verificación').fill(await pablo.next())
   await phone.getByRole('button', { name: 'Verificar y activar' }).tap()
   await expect(phone.getByRole('heading', { level: 1 })).toHaveText('Guarda tus códigos de recuperación')
   await expect(phone.getByRole('list', { name: 'Códigos de recuperación' }).getByRole('listitem')).toHaveCount(10)

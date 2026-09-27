@@ -9,14 +9,17 @@
 // too. It works in its own folder, `acceso/`.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES, PASSWORD, PERMISSIONS } from './env.ts'
-import { signIn, writeWorkspace } from './helpers.ts'
+import { E2E_DIR, NOTES, PASSWORD, permissionsSection, unique } from './env.ts'
+import { signIn, usePermissions } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const shot = (page: Page, name: string) => page.screenshot({ path: `${SHOTS}/${name}.png`, animations: 'disabled' })
 /** A tree row by its name (a folder's name may be followed by its marks). */
 const row = (page: Page, name: string) => page.getByRole('row', { name: new RegExp(`^${name}\\b`) })
-const RULES = PERMISSIONS + '  "acceso/personas/{user}":\n    grants: { "{user}": manage }\n'
+const PERSONAL = { 'acceso/personas/{user}': { '{user}': 'manage' } } as const
+const RULES = permissionsSection({}, PERSONAL)
+/** Someone this spec creates: a name of this run (a deleted user's stays reserved). */
+const BRUNO = unique('bruno')
 const NOTES_IN: Record<string, string> = {
   'acceso/equipo/Plan del equipo.md': '# Plan del equipo\n\nObjetivos del trimestre.\n',
   'acceso/equipo/Secreto.md': '# Secreto\n\nSolo para quien gestiona el equipo.\n',
@@ -63,14 +66,14 @@ test.beforeAll(async ({ browser }) => {
     const r = await k.request.post('/api/note', { data: { path, text } })
     expect(r.status(), await r.text()).toBe(201)
   }
-  writeFileSync(`${NOTES}/thoth.yaml`, RULES)
+  await usePermissions({ rules: PERSONAL })
   await rulesInForce(k, true)
   await k.reload()
 })
 
 test.afterAll(async () => {
   test.setTimeout(90_000)
-  writeWorkspace()
+  await usePermissions()
   await rulesInForce(k, false)
   if (keyId) await k.request.delete(`/api/keys/${keyId}`)
   // Through the API (never rm): a note may still be open in an editor.
@@ -166,11 +169,11 @@ async function newMember(browser: Browser, username: string) {
 }
 
 test('a member shares a folder of her own with someone else: he sees it after reloading, the folders above only as the way, and can only read it', async ({ browser }) => {
-  await newMember(browser, 'bruno')
+  await newMember(browser, BRUNO)
   // Nothing is his yet: no tree to wait for.
   const bruno = await (await browser.newContext()).newPage()
   await bruno.goto('/')
-  await bruno.getByLabel('Nombre de usuario').fill('bruno')
+  await bruno.getByLabel('Nombre de usuario').fill(BRUNO)
   await bruno.getByLabel('Contraseña').fill(PASSWORD)
   await bruno.getByRole('button', { name: 'Entrar' }).last().click()
   await expect(bruno.getByRole('status').filter({ hasText: 'Todavía no tienes acceso a ninguna carpeta' })).toBeVisible()
@@ -199,14 +202,14 @@ test('a member shares a folder of her own with someone else: he sees it after re
   await expect(dialog).toContainText('Cerrada desde /acceso/personas/ana')
   await dialog.getByRole('button', { name: 'Cambiar permisos' }).click()
   await expect(dialog).toContainText('Nadie más puede ver esta carpeta.')
-  await dialog.getByRole('combobox', { name: 'Persona o grupo' }).selectOption('bruno')
+  await dialog.getByRole('combobox', { name: 'Persona o grupo' }).selectOption(BRUNO)
   await dialog.getByRole('button', { name: 'Añadir' }).click()
-  await expect(dialog.getByRole('combobox', { name: 'Nivel de bruno' })).toHaveValue('read')
+  await expect(dialog.getByRole('combobox', { name: `Nivel de ${BRUNO}` })).toHaveValue('read')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(dialog.getByRole('status')).toHaveText('Guardado.')
   await dialog.getByRole('tab', { name: 'Quién tiene acceso' }).click()
   const who = dialog.getByRole('list', { name: 'Quién tiene acceso' }).getByRole('listitem')
-  await expect(who).toHaveText([/anaGestionarDirectamente · en \/acceso\/personas\/ana\/cocinaDirectamente · gestiona \/acceso\/personas\/ana$/, /brunoLeerDirectamente · en \/acceso\/personas\/ana\/cocina$/])
+  await expect(who).toHaveText([/anaGestionarDirectamente · en \/acceso\/personas\/ana\/cocinaDirectamente · gestiona \/acceso\/personas\/ana$/, new RegExp(`${BRUNO}LeerDirectamente · en /acceso/personas/ana/cocina$`)])
   await shot(ana, 'permissions-access-light')
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
 
@@ -231,9 +234,9 @@ test('a member shares a folder of her own with someone else: he sees it after re
   await k.goto('/?view=users')
   const folders = k.getByRole('list', { name: 'Carpetas' })
   await expect(folders.getByRole('listitem').filter({ hasText: /^cocina/ })).toBeVisible()
-  await k.getByRole('row', { name: /^bruno\b/ }).getByRole('button', { name: 'Acciones para bruno' }).click()
+  await k.getByRole('row', { name: new RegExp(`^${BRUNO}\\b`) }).getByRole('button', { name: `Acciones para ${BRUNO}` }).click()
   await k.getByRole('menuitem', { name: 'Ver a qué carpetas llega' }).click()
-  const access = k.getByRole('dialog', { name: 'Acceso de bruno' })
+  const access = k.getByRole('dialog', { name: `Acceso de ${BRUNO}` })
   await expect(access.getByRole('list', { name: 'Carpetas a las que llega' }).getByRole('listitem')).toHaveText(['accesosolo el camino', 'personassolo el camino', 'anasolo el camino', 'cocinaLeer'])
   await shot(k, 'permissions-user-access-light')
   await access.getByRole('button', { name: 'Cerrar' }).click()
@@ -293,7 +296,7 @@ test('on a phone and in dark mode: the dialog, the locks and the warning fit', a
   await row(page, 'cocina').getByRole('button', { name: 'Acciones de la carpeta «cocina»' }).tap()
   await page.getByRole('menuitem', { name: 'Permisos…' }).tap()
   const dialog = page.getByRole('dialog', { name: 'Permisos de «cocina»' })
-  await expect(dialog.getByRole('combobox', { name: 'Nivel de bruno' })).toHaveValue('read')
+  await expect(dialog.getByRole('combobox', { name: `Nivel de ${BRUNO}` })).toHaveValue('read')
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
   await shot(page, 'permissions-dialog-mobile-dark')
   await dialog.getByRole('tab', { name: 'Quién tiene acceso' }).tap()

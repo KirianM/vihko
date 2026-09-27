@@ -118,7 +118,8 @@ test('moving the folder of the open note keeps it open at its new path', async (
   // Put it back for the rest of the tests.
   const r = await k.request.post('/api/folder/move', { data: { from: 'ft2', to: DIR } })
   expect(r.status()).toBe(200)
-  await k.reload()
+  // To its path now: a reload could still carry the old one, if it came before the page followed the move.
+  await k.goto(`/?note=${encodeURIComponent(`${DIR}/Archivo 2026/Movible.md`)}`)
   await expect(k.locator('.crumbs')).toHaveText('ft / Archivo 2026 / Movible')
 })
 

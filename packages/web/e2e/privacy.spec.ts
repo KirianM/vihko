@@ -82,8 +82,9 @@ test('with them, the keys that can read and how; a key can’t download images',
   await ana.goto('/?view=privacy')
   const hersNow = ana.locator('section', { has: ana.getByRole('heading', { name: 'Ahora mismo, en este servidor' }) })
   await expect(hersNow).toContainText('Tus claves activas pueden leer esto')
-  await expect(hersNow.getByRole('listitem')).toHaveCount(1)
-  await expect(hersNow).toContainText('Blog privacidad e2e')
+  // Hers only (other specs may have left keys of hers; never the admin's).
+  await expect(hersNow.getByRole('listitem').filter({ hasText: 'Blog privacidad e2e' }).first()).toBeVisible()
+  await expect(hersNow).not.toContainText('Claude privacidad e2e')
   await k.page.getByRole('link', { name: 'Gestionar las claves en «Agentes y API»' }).click()
   await expect(k.page).toHaveURL(/\?view=agents$/)
   await ana.context().close()

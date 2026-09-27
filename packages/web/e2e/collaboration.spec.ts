@@ -5,8 +5,8 @@
 // purging a version of a note, with the admin's notice.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES } from './env.ts'
-import { editorText, signIn, writeWorkspace } from './helpers.ts'
+import { E2E_DIR, NOTES, permissionsSection } from './env.ts'
+import { editorText, signIn, usePermissions, writeWorkspace } from './helpers.ts'
 
 const DIR = 'colab'
 const NOTE = `${DIR}/Receta.md`
@@ -23,7 +23,7 @@ const SLOW = { timeout: 20_000 }
  * everything under it (D-040 3.5).
  */
 function rules(level: 'read' | 'comment') {
-  writeFileSync(`${NOTES}/thoth.yaml`, `permissions:\n  "":\n    grants: { noa: edit, ana: edit }\n  ${DIR}:\n    grants: { ana: manage, noa: ${level} }\n`)
+  writeWorkspace('', permissionsSection({ noa: 'edit' }, { [DIR]: { ana: 'manage', noa: level } }))
 }
 
 const level = async (p: Page, path = NOTE) => ((await (await p.request.get(`/api/note?path=${q(path)}`)).json()) as { level?: string }).level
@@ -47,10 +47,7 @@ test.beforeAll(async ({ browser }) => {
   k = await signIn(browser, 'noa', NOTE)
 })
 
-test.afterAll(async () => {
-  writeWorkspace()
-  await expect.poll(() => level(k), SLOW).toBe('manage')
-})
+test.afterAll(() => usePermissions())
 
 test('with comment, the editor is read-only and says so; each person is in the note once, by who they are', async () => {
   await expect(k.locator('.status-readonly')).toHaveText('Solo comentarios')
