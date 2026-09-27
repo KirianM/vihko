@@ -6,23 +6,22 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { EVERYONE } from './_permissions.ts'
-import { CLI, api, closeAll, connect, login, makeDirs, sleep, startServer, typeLine, waitFor, type Srv } from './_collab.ts'
+import { everyone } from './_permissions.ts'
+import { CLI, adminOf, api, closeAll, connect, login, makeDirs, sleep, startServer, typeLine, waitFor, type Srv } from './_collab.ts'
+import { mother, type NewUser } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 const NOTE = 'hogar/Proxy.md'
 const q = encodeURIComponent
 const FAST = { THOTH_HISTORY_QUIET_SECONDS: '0.4', THOTH_HISTORY_MAX_SECONDS: '30' }
 
-function withAna(env: Record<string, string>) {
-  spawnSync(process.execPath, [CLI, 'user', 'create', 'ana'], { env: { ...process.env, ...env }, input: 'a-long-password' })
-  // ana edits everything, as before M4 (_permissions.ts).
-  writeFileSync(join(env.THOTH_NOTES_DIR!, 'thoth.yaml'), EVERYONE)
-}
-
-async function loginAs(srv: Srv, username: string): Promise<string> {
-  const r = await fetch(srv.base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password: 'a-long-password' }) })
-  assert.equal(r.status, 200)
-  return r.headers.get('set-cookie')!.split(';')[0]!
+/** A member (new) beside the admin of makeDirs; both edit everything, as before M4 (_permissions.ts). */
+function withMember(env: Record<string, string>, admin: NewUser): NewUser {
+  const member = m.aUser({ role: 'member' })
+  spawnSync(process.execPath, [CLI, 'user', 'create', member.username], { env: { ...process.env, ...env }, input: member.password })
+  writeFileSync(join(env.THOTH_NOTES_DIR!, 'thoth.yaml'), everyone(admin.username, member.username))
+  return member
 }
 
 const who = (v: { authors: { kind: string; name: string }[] }) => v.authors.map((a) => (a.kind === 'user' ? a.name : a.kind)).join(',')
@@ -38,29 +37,29 @@ async function textOf(srv: Srv, cookie: string, path: string, id: string) {
 }
 
 test('someone who starts writing where another was closes their version first, with the text from before; whoever was writing goes on with them', async () => {
-  const { notes, env } = makeDirs()
-  withAna(env)
+  const { notes, env, admin } = makeDirs()
+  const member = withMember(env, admin)
   const srv = await startServer({ ...env, ...FAST, THOTH_HISTORY_QUIET_SECONDS: '1.5' })
   try {
     const k = await login(srv)
-    const a = await loginAs(srv, 'ana')
+    const a = await login(srv, member)
     const ck = await connect(srv, k, NOTE)
     const ca = await connect(srv, a, NOTE)
     typeLine(ck, 'K-TYPED-1')
-    await waitFor(() => ca.text().includes('K-TYPED-1'), 'Noa\'s typing reaches Ana')
-    // Ana's first change closes Noa's version as it was right before it (D-034 3.4).
+    await waitFor(() => ca.text().includes('K-TYPED-1'), 'the admin\'s typing reaches the member')
+    // The member's first change closes the admin's version as it was right before it (D-034 3.4).
     typeLine(ca, 'A-TYPED-1')
-    await waitFor(() => ck.text().includes('A-TYPED-1'), 'Ana\'s typing reaches Noa')
-    // Noa was already writing: he goes on in Ana's version, without closing it.
+    await waitFor(() => ck.text().includes('A-TYPED-1'), 'the member\'s typing reaches the admin')
+    // The admin was already writing: they go on in the member's version, without closing it.
     typeLine(ck, 'K-TYPED-2')
     await waitFor(() => { const t = readFileSync(join(notes, NOTE), 'utf8'); return t.includes('K-TYPED-2') && t.includes('A-TYPED-1') }, 'flush of both')
     const open = await versionsOf(srv, k, NOTE)
-    assert.deepEqual(open.pending.authors.map((x: any) => x.name).sort(), ['ana', 'noa'])
+    assert.deepEqual(open.pending.authors.map((x: any) => x.name).sort(), [admin.username, member.username].sort())
     await waitFor(async () => (await versionsOf(srv, k, NOTE)).versions.length === 3, 'the version closes after the quiet time')
     const { versions } = await versionsOf(srv, k, NOTE)
-    assert.deepEqual(versions.map(who), ['ana,noa', 'noa', 'system'])
+    assert.deepEqual(versions.map(who), [`${member.username},${admin.username}`, admin.username, 'system'])
     const first = await textOf(srv, k, NOTE, versions[1].id)
-    assert.ok(first.includes('K-TYPED-1') && !first.includes('A-TYPED-1'), 'Noa\'s version is the text right before Ana\'s first change')
+    assert.ok(first.includes('K-TYPED-1') && !first.includes('A-TYPED-1'), 'the admin\'s version is the text right before the member\'s first change')
     const second = await textOf(srv, k, NOTE, versions[0].id)
     assert.ok(second.includes('A-TYPED-1') && second.includes('K-TYPED-2'))
     assert.equal(versions[0].change, 'modified')
@@ -68,12 +67,12 @@ test('someone who starts writing where another was closes their version first, w
 })
 
 test('a direct write to an open note is its own version; what was typed before it closes first, with the text from before', async () => {
-  const { env } = makeDirs()
-  withAna(env)
+  const { env, admin } = makeDirs()
+  const member = withMember(env, admin)
   const srv = await startServer({ ...env, ...FAST })
   try {
     const k = await login(srv)
-    const a = await loginAs(srv, 'ana')
+    const a = await login(srv, member)
     const ck = await connect(srv, k, NOTE)
     typeLine(ck, 'TYPED-BEFORE')
     await sleep(50) // typed, not necessarily flushed yet
@@ -82,7 +81,7 @@ test('a direct write to an open note is its own version; what was typed before i
     await waitFor(() => ck.text().includes('FROM-THE-API'), 'the write reaches the editor')
     await waitFor(async () => (await versionsOf(srv, k, NOTE)).versions.length >= 3, 'both versions')
     const { versions } = await versionsOf(srv, k, NOTE)
-    assert.deepEqual(versions.slice(0, 2).map(who), ['ana', 'noa'])
+    assert.deepEqual(versions.slice(0, 2).map(who), [member.username, admin.username])
     const typed = await textOf(srv, k, NOTE, versions[1].id)
     assert.ok(typed.includes('TYPED-BEFORE') && !typed.includes('FROM-THE-API'), 'the typed version is the text right before the write')
     assert.ok((await textOf(srv, k, NOTE, versions[0].id)).includes('FROM-THE-API'))
@@ -90,21 +89,21 @@ test('a direct write to an open note is its own version; what was typed before i
 })
 
 test('a direct write to an open note without a uid: the uid the hub adds on flushing is part of that write\'s version', async () => {
-  const { notes, env } = makeDirs()
-  withAna(env)
+  const { notes, env, admin } = makeDirs()
+  const member = withMember(env, admin)
   const srv = await startServer({ ...env, ...FAST })
   try {
     const k = await login(srv)
-    const a = await loginAs(srv, 'ana')
+    const a = await login(srv, member)
     await connect(srv, k, NOTE) // open, nobody types
     assert.ok(!readFileSync(join(notes, NOTE), 'utf8').includes('uid:'))
-    assert.equal((await api(srv, a, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'append', text: 'ANA-API\n' }] })).status, 200)
+    assert.equal((await api(srv, a, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'append', text: 'MEMBER-API\n' }] })).status, 200)
     await waitFor(() => readFileSync(join(notes, NOTE), 'utf8').includes('uid:'), 'flushed with a uid')
     await waitFor(async () => (await versionsOf(srv, k, NOTE)).versions.length >= 2, 'the version closes')
     await sleep(800)
     const { versions } = await versionsOf(srv, k, NOTE)
-    assert.deepEqual(versions.map(who), ['ana', 'system'])
-    assert.match(await textOf(srv, k, NOTE, versions[0].id), /uid: \w+[\s\S]*ANA-API/)
+    assert.deepEqual(versions.map(who), [member.username, 'system'])
+    assert.match(await textOf(srv, k, NOTE, versions[0].id), /uid: \w+[\s\S]*MEMBER-API/)
   } finally { closeAll(); await srv.stop() }
 })
 
@@ -121,7 +120,7 @@ test('an external change to an open note is its own version, after what was type
     await waitFor(() => ck.text().includes('(outside)'), 'merged into the editor')
     await waitFor(async () => (await versionsOf(srv, k, NOTE)).versions.length >= 3, 'versions')
     const { versions } = await versionsOf(srv, k, NOTE)
-    assert.deepEqual(versions.slice(0, 2).map(who), ['external', 'noa'])
+    assert.deepEqual(versions.slice(0, 2).map(who), ['external', adminOf(srv).username])
     const ext = await textOf(srv, k, NOTE, versions[0].id)
     assert.ok(ext.includes('(outside)') && ext.includes('TYPED-FIRST'))
   } finally { closeAll(); await srv.stop() }
@@ -146,7 +145,7 @@ test('external changes in a row to an open note are one version; typing in it cl
     await waitFor(() => readFileSync(file, 'utf8').includes('TYPED-AFTER'), 'flush')
     await waitFor(async () => (await versionsOf(srv, k, NOTE)).versions.length >= 3, 'the typed version closes too', 15_000)
     const { versions } = await versionsOf(srv, k, NOTE)
-    assert.deepEqual(versions.map(who), ['noa', 'external', 'system'])
+    assert.deepEqual(versions.map(who), [adminOf(srv).username, 'external', 'system'])
     const ext = await textOf(srv, k, NOTE, versions[1].id)
     assert.ok(ext.includes('(OUTSIDE-1) (OUTSIDE-2)') && !ext.includes('TYPED-AFTER'), 'both saves, and nothing typed after them')
   } finally { closeAll(); await srv.stop() }
@@ -171,7 +170,7 @@ test('a rename rewrites the links of an open note in the same system commit, and
     assert.equal(r.status, 200, JSON.stringify(r.body))
     await waitFor(() => links.text().includes('[[Proxy#Red]]') && !links.text().includes('[[GW#Red]]'), 'the editor shows the restored text')
     await waitFor(async () => (await versionsOf(srv, k, 'hogar/enlaces.md')).versions[0].change === 'restored', 'restored version')
-    assert.equal(who((await versionsOf(srv, k, 'hogar/enlaces.md')).versions[0]), 'noa')
+    assert.equal(who((await versionsOf(srv, k, 'hogar/enlaces.md')).versions[0]), adminOf(srv).username)
   } finally { closeAll(); await srv.stop() }
 })
 
@@ -207,7 +206,7 @@ test('kill -9 after a version is journaled and before git has it: the version ke
   try {
     await waitFor(async () => (await versionsOf(srv, cookie, 'tags.md')).versions.length === 2, 'the version is committed after the restart')
     const { versions } = await versionsOf(srv, cookie, 'tags.md')
-    assert.deepEqual(versions.map(who), ['noa', 'system'])
+    assert.deepEqual(versions.map(who), [adminOf(srv).username, 'system'])
     assert.ok((await textOf(srv, cookie, 'tags.md', versions[0].id)).includes('ANTES-DEL-KILL'))
   } finally { closeAll(); await srv.stop() }
 })
@@ -221,7 +220,7 @@ test('kill -9 right after a write reaches the disk, before the history recorded 
     assert.ok(readFileSync(join(notes, 'tags.md'), 'utf8').includes('JUSTO-ANTES-DEL-KILL'), 'the write reached the disk')
     await waitFor(async () => (await versionsOf(srv, cookie, 'tags.md')).versions.length === 2, 'the version')
     const { versions } = await versionsOf(srv, cookie, 'tags.md')
-    assert.deepEqual(versions.map((v: any) => [who(v), v.foundAtStartup]), [['noa', false], ['system', false]])
+    assert.deepEqual(versions.map((v: any) => [who(v), v.foundAtStartup]), [[adminOf(srv).username, false], ['system', false]])
   } finally { closeAll(); await srv.stop() }
 })
 
@@ -234,7 +233,7 @@ test('kill -9 after git has a commit and before the journal knows: it is not rep
     await sleep(1500)
     assert.ok(readFileSync(join(notes, 'tags.md'), 'utf8').includes('UNA-VEZ'), 'the write reached the disk')
     const { versions } = await versionsOf(srv, cookie, 'tags.md')
-    assert.deepEqual(versions.map(who), ['noa', 'system'])
+    assert.deepEqual(versions.map(who), [adminOf(srv).username, 'system'])
     const changes = (await api(srv, cookie, 'GET', '/api/history/changes')).body.changes
     assert.equal(changes.filter((c: any) => c.files.some((f: any) => f.path === 'tags.md')).length, 2)
   } finally { closeAll(); await srv.stop() }
@@ -256,7 +255,7 @@ test('kill -9 while git commits a version, holding its locks: the restart remove
     await waitFor(async () => (await versionsOf(srv, cookie, 'tags.md')).versions.length === 2, 'the version is committed after the restart')
     assert.deepEqual((await api(srv, cookie, 'GET', '/api/history/status')).body, { mode: 'managed', available: true, error: null })
     const { versions } = await versionsOf(srv, cookie, 'tags.md')
-    assert.deepEqual(versions.map(who), ['noa', 'system'])
+    assert.deepEqual(versions.map(who), [adminOf(srv).username, 'system'])
     assert.ok((await textOf(srv, cookie, 'tags.md', versions[0].id)).includes('EN-MITAD-DE-GIT'))
     // On top of the commit git had before the kill, once.
     const changes = (await api(srv, cookie, 'GET', '/api/history/changes')).body.changes
@@ -290,7 +289,7 @@ test('kill -9 after a flush is journaled and before the file is written: the typ
     await waitFor(() => readFileSync(join(notes, NOTE), 'utf8').includes('TECLEADO-ANTES-DEL-KILL'), 'the hub recovered the text')
     await waitFor(async () => (await versionsOf(srv, cookie, NOTE)).versions.length === 2, 'the typed version')
     const { versions } = await versionsOf(srv, cookie, NOTE)
-    assert.deepEqual(versions.map(who), ['noa', 'system'])
+    assert.deepEqual(versions.map(who), [adminOf(srv).username, 'system'])
     assert.equal(versions[0].foundAtStartup, false)
     assert.ok((await textOf(srv, cookie, NOTE, versions[0].id)).includes('TECLEADO-ANTES-DEL-KILL'))
   } finally { closeAll(); await srv.stop() }

@@ -7,14 +7,21 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { api, closeAll, connect, login, makeDirs, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
+import { yamlKey } from './_permissions.ts'
+import { mother } from '../../../test/mother.ts'
 
+const m = mother(import.meta.url)
 const NOTE = 'hogar/Proxy.md'
 
-/** The notes folder, with noa managing everything and ana editing it (a member sees nothing until granted, D-038). */
+/**
+ * The notes folder, with its admin managing everything and a member (created
+ * by the test) editing it (a member sees nothing until granted, D-038).
+ */
 function dirs() {
   const d = makeDirs()
-  writeFileSync(join(d.notes, 'thoth.yaml'), 'permissions:\n  "": { grants: { noa: manage, ana: edit } }\n')
-  return d
+  const member = m.aUser()
+  writeFileSync(join(d.notes, 'thoth.yaml'), `permissions:\n  "": { grants: { ${yamlKey(d.admin.username)}: manage, ${yamlKey(member.username)}: edit } }\n`)
+  return { ...d, member }
 }
 
 async function signIn(srv: Srv, username: string, password: string): Promise<string> {
@@ -33,18 +40,18 @@ function watch(c: Client) {
 }
 
 test('disabling someone ends their open editor and their key at once', async () => {
-  const { env } = dirs()
+  const { env, member } = dirs()
   const srv = await startServer(env)
   try {
     const admin = await login(srv)
-    const created = await api(srv, admin, 'POST', '/api/admin/users', { username: 'ana', role: 'member', password: 'ana-long-password' })
+    const created = await api(srv, admin, 'POST', '/api/admin/users', { username: member.username, role: 'member', password: member.password })
     assert.equal(created.status, 201)
     assert.equal((await api(srv, admin, 'PUT', '/api/admin/integrations', { api: true })).status, 200)
-    const ana = await signIn(srv, 'ana', 'ana-long-password')
-    const key = { authorization: `Bearer ${(await api(srv, ana, 'POST', '/api/keys', { name: 'Script', canWrite: true, confirm: 'ana-long-password' })).body.token}` }
+    const session = await signIn(srv, member.username, member.password)
+    const key = { authorization: `Bearer ${(await api(srv, session, 'POST', '/api/keys', { name: 'Script', canWrite: true, confirm: member.password })).body.token}` }
     assert.equal((await api(srv, '', 'GET', '/api/tree', undefined, key)).status, 200)
 
-    const editor = await connect(srv, ana, NOTE)
+    const editor = await connect(srv, session, NOTE)
     const seen = watch(editor)
     const bystander = await connect(srv, admin, NOTE)
     const other = watch(bystander)
@@ -67,7 +74,7 @@ test('disabling someone ends their open editor and their key at once', async () 
 })
 
 test('a new password ends the editors of the other sessions, not the one that changed it', async () => {
-  const { env } = dirs()
+  const { env, admin: who } = dirs()
   const srv = await startServer(env)
   try {
     const admin = await login(srv)
@@ -76,7 +83,7 @@ test('a new password ends the editors of the other sessions, not the one that ch
     const there = await connect(srv, second, NOTE)
     const hereSeen = watch(here)
     const thereSeen = watch(there)
-    const r = await api(srv, admin, 'POST', '/api/auth/password', { current: 'a-long-password', password: 'another-long-password' })
+    const r = await api(srv, admin, 'POST', '/api/auth/password', { current: who.password, password: m.aPassword() })
     assert.equal(r.status, 200)
     await waitFor(() => thereSeen.status() === 'disconnected', 'the other session\'s editor closes')
     assert.ok(thereSeen.heard.includes('thoth:session-ended'))

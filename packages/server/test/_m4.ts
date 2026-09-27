@@ -1,14 +1,27 @@
 // The M4 scenario (m4-multiusuario.md §7), shared by the permission tests
-// and the leak sweep: Noa (admin), Laura and Marta (members), the group
-// `@familia` (Laura and Marta; until piece U brings groups, a stand-in
-// `groupsOf`). Rules: the root is Noa's; `personas/{user}` → `manage`;
-// `familia` → `@familia: edit`, `noa: edit`; `personas/laura/diario` with
-// `ai: false`. The API with keys, the MCP server and the history, in process.
+// and the leak sweep: an admin, a member and another member (the mother's,
+// the same for every setup of a test file), a group of the two members
+// (until piece U brings groups, a stand-in `groupsOf`). Rules: the root is
+// the admin's; `personas/{user}` → `manage`; `familia` → the group edits it,
+// and the admin; the member's `diario` with `ai: false`. The API with keys,
+// the MCP server and the history, in process.
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, PermissionHolds, PermissionsEngine, Profiles, Workspace, createServer, mountMcp, openIndex, openState, stateDirectory, toolData, AccessPolicy, type Runtime } from '@thoth/server'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { tempDir } from './_tmp.ts'
+import { yamlKey } from './_permissions.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
+/** The people of the scenario: their usernames and passwords (created by every setup). */
+export const ADMIN = m.aUser({ role: 'admin' })
+export const MEMBER = m.aUser({ role: 'member' })
+export const OTHER = m.aUser({ role: 'member' })
+/** The group of the two members. */
+export const GROUP = m.aGroupName()
+/** A name nobody has: `personas/<NOBODY>` is the folder of no user. */
+export const NOBODY = m.aUsername()
 
 /** A 1×1 PNG. */
 export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
@@ -16,23 +29,23 @@ export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAA
 export const RULES = `# Who reads what
 permissions:
   "":
-    grants: { noa: manage }
+    grants: { ${yamlKey(ADMIN.username)}: manage }
   familia:
-    grants: { "@familia": edit, noa: edit }
+    grants: { ${yamlKey(`@${GROUP}`)}: edit, ${yamlKey(ADMIN.username)}: edit }
   "personas/{user}":
     grants: { "{user}": manage }
-  personas/laura/diario:
+  ${yamlKey(`personas/${MEMBER.username}/diario`)}:
     ai: false
 `
 
-export const USERS = { noa: 'admin', laura: 'member', marta: 'member' } as const
+export const USERS = { admin: ADMIN, member: MEMBER, other: OTHER } as const
 export type Name = keyof typeof USERS
 
 export interface M4Setup {
   files?: Record<string, string | Uint8Array>
   /** thoth.yaml (RULES by default). */
   config?: string
-  /** Group memberships by user name (familia: laura and marta by default). */
+  /** Group memberships by group name (GROUP: the member and the other by default). */
   groups?: Record<string, Name[]>
 }
 
@@ -51,9 +64,9 @@ export async function setup(opts: M4Setup = {}) {
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
   const profiles = new Profiles(state)
-  const users = {} as Record<Name, Awaited<ReturnType<Auth['createUser']>>>
-  for (const [name, role] of Object.entries(USERS)) users[name as Name] = await auth.createUser(name, 'a-long-password', role)
-  const groupList: Record<string, Name[]> = { ...(opts.groups ?? { familia: ['laura', 'marta'] }) }
+  const users = {} as Record<Name, Awaited<ReturnType<Auth['createUser']>> & { password: string }>
+  for (const [name, u] of Object.entries(USERS)) users[name as Name] = { ...(await auth.createUser(u.username, u.password, u.role)), password: u.password }
+  const groupList: Record<string, Name[]> = { ...(opts.groups ?? { [GROUP]: ['member', 'other'] }) }
   const groups = {
     groupsOf: (id: string) => Object.entries(groupList).filter(([, m]) => m.some((n) => users[n].id === id)).map(([g]) => g),
     groups: () => Object.keys(groupList),
@@ -87,7 +100,8 @@ export async function setup(opts: M4Setup = {}) {
 
   const cookies = {} as Record<Name, string>
   for (const name of Object.keys(users) as Name[]) {
-    const res = await app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: name, password: 'a-long-password' }) })
+    const { username, password } = users[name]
+    const res = await app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password }) })
     cookies[name] = res.headers.get('set-cookie')!.split(';')[0]!
   }
 
@@ -109,13 +123,13 @@ export async function setup(opts: M4Setup = {}) {
   const withKey = (token: string) => (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>
     send(method, path, body, { authorization: `Bearer ${token}`, ...headers })
   const newKey = async (who: Name, input: Record<string, unknown>) => {
-    const r = await as(who)('POST', '/api/keys', { confirm: 'a-long-password', ...input })
+    const r = await as(who)('POST', '/api/keys', { confirm: users[who].password, ...input })
     if (r.status !== 201) throw new Error(`key: ${r.status} ${r.text}`)
     return r.body as { key: { id: string }; token: string }
   }
   const enable = async () => {
     for (const s of [{ api: true }, { mcp: true }]) {
-      const r = await as('noa')('PUT', '/api/admin/integrations', s)
+      const r = await as('admin')('PUT', '/api/admin/integrations', s)
       if (r.status !== 200) throw new Error(`switch: ${r.status} ${r.text}`)
     }
   }
@@ -151,21 +165,22 @@ export async function setup(opts: M4Setup = {}) {
   }
   return {
     dir, notesDir, stateDir, index, app, services, auth, keys, history, notes, indexer, runtime, workspace, users, groupList, permissions, holds, policy,
-    as, noa: as('noa'), laura: as('laura'), marta: as('marta'), withKey, newKey, enable, mcp, settle, url, close,
+    as, admin: as('admin'), member: as('member'), other: as('other'), withKey, newKey, enable, mcp, settle, url, close,
   }
 }
 
-/** The vault of the scenario: a shared folder, each person's own, Laura's diary and recipes, and notes that link across. */
+/** The vault of the scenario: a shared folder, each person's own, the member's diary and recipes, and notes that link across. */
 export const FILES: Record<string, string | Uint8Array> = {
   'familia/compra.md': '---\ntags: [casa]\nuid: 01COMPRA000000000000000000\n---\n# Lista de la compra\n\nLeche. Ver [[tarta]] y [[2026-09-27]]. [[Plan]]\n\n![](foto.png)\n',
   'familia/foto.png': PNG,
-  'personas/laura/diario/2026-09-27.md': '---\ntags: [casa, intimo]\n---\n# Diario de Laura\n\nSecreto Turmalina. Hablé de [[compra]].\n',
-  'personas/laura/recetas/tarta.md': '---\nuid: 01TARTA0000000000000000000\n---\n# Tarta de Laura\n\nTarta Obsidiana. [[compra]]\n',
-  'personas/laura/foto-laura.png': PNG,
-  'personas/marta/notas.md': '# Notas de Marta\n\nPalabra Jade.\n',
-  'personas/noa/plan.md': '# Plan de Noa\n\nProyecto Ónice. [[compra]]\n',
-  'personas/noa/Plan.md': '# Otro Plan de Noa\n\nÓnice dos.\n',
-  'personas/antigua/nota.md': '# De nadie\n\nPalabra Cuarzo.\n',
+  [`personas/${MEMBER.username}/diario/2026-09-27.md`]: `---\ntags: [casa, intimo]\n---\n# Diario de ${MEMBER.username}\n\nSecreto Turmalina. Hablé de [[compra]].\n`,
+  [`personas/${MEMBER.username}/recetas/tarta.md`]: `---\nuid: 01TARTA0000000000000000000\n---\n# Tarta de ${MEMBER.username}\n\nTarta Obsidiana. [[compra]]\n`,
+  [`personas/${MEMBER.username}/foto-${MEMBER.username}.png`]: PNG,
+  [`personas/${OTHER.username}/notas.md`]: `# Notas de ${OTHER.username}\n\nPalabra Jade.\n`,
+  // Two notes whose names differ only in case, in the admin's folder.
+  [`personas/${ADMIN.username}/plan.md`]: `# Plan de ${ADMIN.username}\n\nProyecto Ónice. [[compra]]\n`,
+  [`personas/${ADMIN.username}/Plan.md`]: `# Otro Plan de ${ADMIN.username}\n\nÓnice dos.\n`,
+  [`personas/${NOBODY}/nota.md`]: '# De nadie\n\nPalabra Cuarzo.\n',
   'admin/ajustes.md': '# Ajustes del admin\n\nPalabra Berilo. [[compra]]\n',
   'Plan.md': '# Plan raíz\n\nPalabra Berilo raíz.\n',
 }

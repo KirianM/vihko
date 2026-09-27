@@ -18,6 +18,9 @@ import { join } from 'node:path'
 import { CIMD_MAX_BYTES, CIMD_MAX_TTL_MS, CIMD_DEFAULT_TTL_MS, CimdError, ClientMetadataFetcher, cacheTtlMs, checkClientIdUrl, isPublicAddress, type Resolver } from '@thoth/server'
 import { setup } from './_agents.ts'
 import { tempDir } from './_tmp.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 const HOST = 'cimd.test'
 const PUBLIC = 'https://notas.example.org'
@@ -132,7 +135,7 @@ test('fetching a document: what it gives, the cache, and every refusal', { timeo
     '/slow.json': () => ({ hang: true }),
     '/other-id.json': (url) => ({ body: doc(url.replace('other-id', 'client')) }),
     '/no-name.json': (url) => ({ body: doc(url, { client_name: '' }) }),
-    '/secret.json': (url) => ({ body: doc(url, { client_secret: 's3cret' }) }),
+    '/secret.json': (url) => ({ body: doc(url, { client_secret: m.aSecret(12) }) }),
     '/basic.json': (url) => ({ body: doc(url, { token_endpoint_auth_method: 'client_secret_basic' }) }),
     '/not-json.json': () => ({ body: '<html>hello</html>' }),
     '/array.json': () => ({ body: '[]' }),
@@ -252,22 +255,22 @@ test('OAuth with a client named by its metadata document: advertised, fetched on
     assert.equal(dns.calls.length, 0)
 
     // The consent page asks, with the session: fetched now; the domain is the document's host.
-    const asked = await h.noa('GET', `/api/oauth/authorize?${q}`)
+    const asked = await h.admin('GET', `/api/oauth/authorize?${q}`)
     assert.equal(asked.status, 200, asked.text)
     assert.deepEqual(asked.body.client, { id: clientId, name: 'Claude (CIMD)', redirectUri: CALLBACK, host: HOST })
     assert.equal(site.hits['/client.json'], 1)
     // A client that registered itself has no host to show.
     const reg = await h.app.request('/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'Registered', redirect_uris: [CALLBACK], token_endpoint_auth_method: 'none' }) })
     const regId = (await reg.json() as { client_id: string }).client_id
-    const regAsked = await h.noa('GET', `/api/oauth/authorize?${q.replace(encodeURIComponent(clientId), regId)}`)
+    const regAsked = await h.admin('GET', `/api/oauth/authorize?${q.replace(encodeURIComponent(clientId), regId)}`)
     assert.equal(regAsked.body.client.host, null)
 
     // A redirect URI the document doesn't list: nowhere to send the browser.
-    const wrong = await h.noa('GET', `/api/oauth/authorize?${q.replace(encodeURIComponent(CALLBACK), encodeURIComponent('https://evil.example/cb'))}`)
+    const wrong = await h.admin('GET', `/api/oauth/authorize?${q.replace(encodeURIComponent(CALLBACK), encodeURIComponent('https://evil.example/cb'))}`)
     assert.deepEqual([wrong.status, wrong.body.error, wrong.body.redirect], [400, 'invalid_redirect_uri', undefined])
 
     // Approved (the document comes from the cache), then the code for tokens with no secret, as a public client.
-    const approved = await h.noa('POST', '/api/oauth/authorize', { query: q, approve: true, confirm: 'a-long-password' })
+    const approved = await h.admin('POST', '/api/oauth/authorize', { query: q, approve: true, confirm: h.users.admin.password })
     assert.equal(approved.status, 200, approved.text)
     assert.equal(site.hits['/client.json'], 1)
     const back = new URL(approved.body.redirect)
@@ -288,13 +291,13 @@ test('OAuth with a client named by its metadata document: advertised, fetched on
     assert.equal(refreshed.status, 200)
     assert.equal(site.hits['/client.json'], 1)
     // The authorization is a key named after the client.
-    const keys = await h.noa('GET', '/api/keys')
+    const keys = await h.admin('GET', '/api/keys')
     const key = (keys.body.keys as { name: string; client: { id: string; redirectUris: string[] } | null }[]).find((k) => k.client?.id === clientId)
     assert.deepEqual([key?.name, key?.client?.redirectUris], ['Claude (CIMD)', [CALLBACK]])
 
     // Documents that can't be used: the page hears why and from which host, never anything they said.
     const refusal = async (id: string) => {
-      const r = await h.noa('GET', `/api/oauth/authorize?${q.replace(encodeURIComponent(clientId), encodeURIComponent(id))}`)
+      const r = await h.admin('GET', `/api/oauth/authorize?${q.replace(encodeURIComponent(clientId), encodeURIComponent(id))}`)
       assert.equal(r.status, 400, id)
       assert.equal(r.body.error, 'invalid_client_metadata', id)
       assert.equal(r.body.redirect, undefined, id)
@@ -304,7 +307,7 @@ test('OAuth with a client named by its metadata document: advertised, fetched on
     assert.deepEqual(await refusal(`${site.base}/implicit.json`), ['invalid_client_metadata', HOST])
     assert.deepEqual(await refusal(`https://intranet.test:${new URL(site.base).port}/client.json`), ['blocked_address', 'intranet.test'])
     // And the answer can't approve one either.
-    const post = await h.noa('POST', '/api/oauth/authorize', { query: q.replace(encodeURIComponent(clientId), encodeURIComponent(`${site.base}/js.json`)), approve: true })
+    const post = await h.admin('POST', '/api/oauth/authorize', { query: q.replace(encodeURIComponent(clientId), encodeURIComponent(`${site.base}/js.json`)), approve: true })
     assert.equal(post.status, 400)
   } finally {
     await h.close()

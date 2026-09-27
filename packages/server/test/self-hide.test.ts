@@ -99,8 +99,8 @@ test('MCP: a revert that leaves the frontmatter unreadable hides the note: now_h
     await h.enableMcp()
     await h.settle()
     const put = async (edit: (t: string) => string) => {
-      const cur = await h.noa('GET', h.url('/api/note', { path: 'p/fm.md' }))
-      assert.equal((await h.noa('PUT', h.url('/api/note', { path: 'p/fm.md' }), { text: edit(cur.body.text) }, { 'if-match': `"${cur.body.etag}"` })).status, 200)
+      const cur = await h.admin('GET', h.url('/api/note', { path: 'p/fm.md' }))
+      assert.equal((await h.admin('PUT', h.url('/api/note', { path: 'p/fm.md' }), { text: edit(cur.body.text) }, { 'if-match': `"${cur.body.etag}"` })).status, 200)
       await h.settle()
     }
     await put((t) => t.replace('a: "x\n  y"', 'a: x\nb: y'))
@@ -154,8 +154,8 @@ test('HTTP with a key: an edit, a creation or a whole text that hides the note s
     assert.equal((await key('GET', h.url('/api/note', { path: 'p/libre.md' }))).status, 403)
 
     // A person writing the same gets no such answer: they still see the note.
-    const mine = await h.noa('GET', h.url('/api/note', { path: 'p/otra.md' }))
-    const person = await h.noa('POST', '/api/note/edit', { path: 'p/otra.md', ops: [{ op: 'set_frontmatter', key: 'ai', value: false }], ifMatch: mine.body.etag })
+    const mine = await h.admin('GET', h.url('/api/note', { path: 'p/otra.md' }))
+    const person = await h.admin('POST', '/api/note/edit', { path: 'p/otra.md', ops: [{ op: 'set_frontmatter', key: 'ai', value: false }], ifMatch: mine.body.etag })
     assert.deepEqual(Object.keys(person.body), ['etag'])
   } finally { await h.close() }
 })
@@ -166,8 +166,8 @@ test('HTTP with a key: a revert that hides the note answers nowHidden, without i
     await h.enableApi()
     await h.settle()
     const put = async (edit: (t: string) => string) => {
-      const cur = await h.noa('GET', h.url('/api/note', { path: 'p/fm.md' }))
-      assert.equal((await h.noa('PUT', h.url('/api/note', { path: 'p/fm.md' }), { text: edit(cur.body.text) }, { 'if-match': `"${cur.body.etag}"` })).status, 200)
+      const cur = await h.admin('GET', h.url('/api/note', { path: 'p/fm.md' }))
+      assert.equal((await h.admin('PUT', h.url('/api/note', { path: 'p/fm.md' }), { text: edit(cur.body.text) }, { 'if-match': `"${cur.body.etag}"` })).status, 200)
       await h.settle()
     }
     await put((t) => t.replace('a: "x\n  y"', 'a: x\nb: y'))

@@ -4,6 +4,13 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { ROUTES } from '@thoth/server'
 import { PNG, setup } from './_agents.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
+/** SQLite's `collate nocase` order, which thoth lists usernames in: ASCII letters folded, then bytes. */
+const nocase = (a: string, b: string) => Buffer.compare(Buffer.from(a.replace(/[A-Z]/g, (c) => c.toLowerCase())), Buffer.from(b.replace(/[A-Z]/g, (c) => c.toLowerCase())))
+/** A session cookie nobody was given. */
+const NO_SESSION = `thoth_session=${m.aSecret(43)}`
 
 const FILES = {
   'proyectos/plan.md': '# Plan\n\nPaso uno.\n',
@@ -20,12 +27,12 @@ test('switched off (the default), a key reaches nothing: 404 everywhere, as a ro
       assert.deepEqual([r.status, r.body?.error], [404, 'not_found'], `${m} ${p}`)
     }
     // Not even a valid cookie gets a request with a key through.
-    const both = await key('GET', '/api/tree', undefined, { cookie: h.cookies.noa! })
+    const both = await key('GET', '/api/tree', undefined, { cookie: h.cookies.admin })
     assert.equal(both.status, 404)
     // From another origin too: off, there is nothing there (not even a CSRF 403).
     assert.equal((await key('POST', '/api/note', { path: 'x.md', text: 'x' }, { origin: 'https://elsewhere.example' })).status, 404)
-    assert.equal((await h.noa('GET', '/api/tree')).status, 200, 'the cookie still works without a key')
-    assert.equal((await h.noa('GET', '/api/health')).status, 200)
+    assert.equal((await h.admin('GET', '/api/tree')).status, 200, 'the cookie still works without a key')
+    assert.equal((await h.admin('GET', '/api/health')).status, 200)
   } finally { await h.close() }
 })
 
@@ -46,7 +53,7 @@ test('switched on: only the listed routes, by the key alone; a bad key is 401, a
     }
     assert.equal((await key('GET', '/api/no-such-route')).status, 404)
     // Bad keys: 401, and never the cookie instead.
-    const cookie = { cookie: `thoth_session=whatever` }
+    const cookie = { cookie: NO_SESSION }
     for (const bad of ['', 'nope', token.slice(0, -2) + 'xx', `${token}x`]) {
       const r = await h.withKey(bad)('GET', '/api/tree', undefined, cookie)
       assert.deepEqual([r.status, r.body?.error], [401, 'unauthorized'], bad)
@@ -55,11 +62,11 @@ test('switched on: only the listed routes, by the key alone; a bad key is 401, a
     const w = await key('POST', '/api/note', { path: 'proyectos/nueva.md', text: 'x' })
     assert.deepEqual([w.status, w.body?.error], [403, 'forbidden'])
     // Revoked: 401 from then on.
-    assert.equal((await h.noa('DELETE', `/api/keys/${info.id}`)).status, 200)
+    assert.equal((await h.admin('DELETE', `/api/keys/${info.id}`)).status, 200)
     assert.equal((await key('GET', '/api/tree')).status, 401)
     // Switched off again: 404.
     const { token: t2 } = await h.newKey({ name: 'otra' })
-    await h.noa('PUT', '/api/admin/integrations', { api: false })
+    await h.admin('PUT', '/api/admin/integrations', { api: false })
     assert.equal((await h.withKey(t2)('GET', '/api/tree')).status, 404)
   } finally { await h.close() }
 })
@@ -68,9 +75,9 @@ test('THOTH_INTEGRATIONS=off: keys get 404 whatever state.db says, and the switc
   const h = await setup({ files: FILES, locked: true })
   try {
     h.integrations.set({ api: false })
-    const view = await h.noa('GET', '/api/integrations')
+    const view = await h.admin('GET', '/api/integrations')
     assert.deepEqual(view.body, { api: false, mcp: false, membersCanCreateKeys: true, oauthRegistration: true, locked: true, canCreateKeys: true, publicUrl: null })
-    const on = await h.noa('PUT', '/api/admin/integrations', { api: true })
+    const on = await h.admin('PUT', '/api/admin/integrations', { api: true })
     assert.deepEqual([on.status, on.body.error], [409, 'integrations_locked'])
     const { token } = await h.newKey({ name: 'x' })
     assert.equal((await h.withKey(token)('GET', '/api/tree')).status, 404)
@@ -80,40 +87,42 @@ test('THOTH_INTEGRATIONS=off: keys get 404 whatever state.db says, and the switc
 test('keys over the UI: created once with their token, listed without it, changed and revoked by their owner; the admin sees and revokes all', async () => {
   const h = await setup({ files: FILES })
   try {
-    const created = await h.noa('POST', '/api/keys', { confirm: 'a-long-password', name: 'Claude Code', canWrite: true, folders: ['proyectos'], expiresAt: '2027-01-01T00:00:00Z' })
+    const created = await h.admin('POST', '/api/keys', { confirm: h.users.admin.password, name: 'Claude Code', canWrite: true, folders: ['proyectos'], expiresAt: '2027-01-01T00:00:00Z' })
     assert.equal(created.status, 201)
     const { key, token } = created.body
     assert.match(token, /^thoth_[0-9A-Z]{26}_[A-Za-z0-9_-]{43}$/)
     assert.deepEqual([key.name, key.canWrite, key.folders, key.expiresAt, key.status, key.last4], ['Claude Code', true, ['proyectos'], '2027-01-01T00:00:00.000Z', 'active', token.slice(-4)])
-    const list = await h.noa('GET', '/api/keys')
+    const list = await h.admin('GET', '/api/keys')
     assert.deepEqual(list.body.keys.map((k: any) => k.id), [key.id])
     assert.ok(!list.text.includes(token.slice(33)), 'the token is shown once')
-    assert.deepEqual((await h.noa('POST', '/api/keys', { confirm: 'a-long-password', name: '' })).body.error, 'invalid')
-    assert.deepEqual((await h.noa('POST', '/api/keys', { confirm: 'a-long-password', name: 'x', folders: ['../fuera'] })).body.error, 'invalid_path')
-    const changed = await h.noa('PATCH', `/api/keys/${key.id}`, { name: 'Claude', canWrite: false, folders: [] })
+    assert.deepEqual((await h.admin('POST', '/api/keys', { confirm: h.users.admin.password, name: '' })).body.error, 'invalid')
+    assert.deepEqual((await h.admin('POST', '/api/keys', { confirm: h.users.admin.password, name: 'x', folders: ['../fuera'] })).body.error, 'invalid_path')
+    const changed = await h.admin('PATCH', `/api/keys/${key.id}`, { name: 'Claude', canWrite: false, folders: [] })
     assert.deepEqual([changed.body.key.name, changed.body.key.canWrite, changed.body.key.folders], ['Claude', false, []])
 
-    // Ana's keys are hers: noa (admin) sees them with ?all=1 and may revoke, not change them.
-    const anas = (await h.ana('POST', '/api/keys', { confirm: 'a-long-password', name: 'Ana bot' })).body.key
-    assert.deepEqual((await h.ana('GET', '/api/keys')).body.keys.map((k: any) => k.name), ['Ana bot'])
-    assert.equal((await h.ana('GET', '/api/keys?all=1')).status, 403)
-    assert.deepEqual((await h.noa('GET', '/api/keys?all=1')).body.keys.map((k: any) => [k.user.username, k.name]), [['ana', 'Ana bot'], ['noa', 'Claude']])
-    assert.equal((await h.noa('PATCH', `/api/keys/${anas.id}`, { name: 'mine' })).status, 404)
-    assert.equal((await h.ana('PATCH', `/api/keys/${key.id}`, { name: 'mine' })).status, 404)
-    assert.equal((await h.ana('DELETE', `/api/keys/${key.id}`)).status, 404)
-    assert.equal((await h.noa('DELETE', `/api/keys/${anas.id}`)).body.key.status, 'revoked')
+    // The member's keys are theirs: the admin sees them with ?all=1 and may revoke, not change them.
+    const botName = m.aKeyName()
+    const theirs = (await h.member('POST', '/api/keys', { confirm: h.users.member.password, name: botName })).body.key
+    assert.deepEqual((await h.member('GET', '/api/keys')).body.keys.map((k: any) => k.name), [botName])
+    assert.equal((await h.member('GET', '/api/keys?all=1')).status, 403)
+    const everyone = [[h.users.member.username, botName], [h.users.admin.username, 'Claude']].sort(([x], [y]) => nocase(x!, y!))
+    assert.deepEqual((await h.admin('GET', '/api/keys?all=1')).body.keys.map((k: any) => [k.user.username, k.name]), everyone)
+    assert.equal((await h.admin('PATCH', `/api/keys/${theirs.id}`, { name: 'mine' })).status, 404)
+    assert.equal((await h.member('PATCH', `/api/keys/${key.id}`, { name: 'mine' })).status, 404)
+    assert.equal((await h.member('DELETE', `/api/keys/${key.id}`)).status, 404)
+    assert.equal((await h.admin('DELETE', `/api/keys/${theirs.id}`)).body.key.status, 'revoked')
 
-    // «Members can create keys» off: ana can't create or change hers; she still lists and revokes them.
-    const mine = (await h.ana('POST', '/api/keys', { confirm: 'a-long-password', name: 'second' })).body.key
-    assert.equal((await h.noa('PUT', '/api/admin/integrations', { membersCanCreateKeys: false })).body.membersCanCreateKeys, false)
-    assert.equal((await h.ana('GET', '/api/integrations')).body.canCreateKeys, false)
-    assert.deepEqual([(await h.ana('POST', '/api/keys', { confirm: 'a-long-password', name: 'third' })).status, (await h.ana('PATCH', `/api/keys/${mine.id}`, { name: 'x' })).status], [403, 403])
-    assert.equal((await h.ana('GET', '/api/keys')).body.keys.length, 2)
-    assert.equal((await h.ana('DELETE', `/api/keys/${mine.id}`)).status, 200)
-    assert.equal((await h.noa('POST', '/api/keys', { confirm: 'a-long-password', name: 'admin can' })).status, 201)
+    // «Members can create keys» off: the member can't create or change theirs; they still list and revoke them.
+    const mine = (await h.member('POST', '/api/keys', { confirm: h.users.member.password, name: 'second' })).body.key
+    assert.equal((await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: false })).body.membersCanCreateKeys, false)
+    assert.equal((await h.member('GET', '/api/integrations')).body.canCreateKeys, false)
+    assert.deepEqual([(await h.member('POST', '/api/keys', { confirm: h.users.member.password, name: 'third' })).status, (await h.member('PATCH', `/api/keys/${mine.id}`, { name: 'x' })).status], [403, 403])
+    assert.equal((await h.member('GET', '/api/keys')).body.keys.length, 2)
+    assert.equal((await h.member('DELETE', `/api/keys/${mine.id}`)).status, 200)
+    assert.equal((await h.admin('POST', '/api/keys', { confirm: h.users.admin.password, name: 'admin can' })).status, 201)
     // Only the admin touches the switches.
-    assert.equal((await h.ana('PUT', '/api/admin/integrations', { api: true })).status, 403)
-    assert.equal((await h.noa('PUT', '/api/admin/integrations', { api: 'yes' })).body.error, 'invalid')
+    assert.equal((await h.member('PUT', '/api/admin/integrations', { api: true })).status, 403)
+    assert.equal((await h.admin('PUT', '/api/admin/integrations', { api: 'yes' })).body.error, 'invalid')
   } finally { await h.close() }
 })
 
@@ -122,25 +131,25 @@ test('rotating a key over the UI: its owner only, a new token once, both working
   try {
     await h.enableApi()
     const { key, token } = await h.newKey({ name: 'Claude Code', canWrite: true })
-    const r = await h.noa('POST', `/api/keys/${key.id}/rotate`, { confirm: 'a-long-password' })
+    const r = await h.admin('POST', `/api/keys/${key.id}/rotate`, { confirm: h.users.admin.password })
     assert.equal(r.status, 200, r.text)
     assert.match(r.body.token, /^thoth_[0-9A-Z]{26}_[A-Za-z0-9_-]{43}$/)
     assert.notEqual(r.body.token, token)
     assert.deepEqual([r.body.key.id, r.body.key.name, r.body.key.last4, typeof r.body.key.previousUntil], [key.id, 'Claude Code', r.body.token.slice(-4), 'string'])
-    assert.ok(!(await h.noa('GET', '/api/keys')).text.includes(r.body.token.slice(33)), 'the new token is shown once')
+    assert.ok(!(await h.admin('GET', '/api/keys')).text.includes(r.body.token.slice(33)), 'the new token is shown once')
     // Both keys work while the old one's grace lasts (the grace itself: keys.test.ts).
     for (const t of [token, r.body.token]) assert.equal((await h.withKey(t)('GET', '/api/tree')).status, 200)
     // Someone else's key: not theirs to rotate, admin or not; a key can't rotate itself.
-    const anas = (await h.newKey({ name: 'Ana bot' }, 'ana')).key
-    assert.equal((await h.noa('POST', `/api/keys/${anas.id}/rotate`)).status, 404)
-    assert.equal((await h.ana('POST', `/api/keys/${key.id}/rotate`)).status, 404)
+    const theirs = (await h.newKey({ name: m.aKeyName() }, 'member')).key
+    assert.equal((await h.admin('POST', `/api/keys/${theirs.id}/rotate`)).status, 404)
+    assert.equal((await h.member('POST', `/api/keys/${key.id}/rotate`)).status, 404)
     assert.equal((await h.withKey(r.body.token)('POST', `/api/keys/${key.id}/rotate`)).status, 404)
     // A member while members may not create keys: no.
-    await h.noa('PUT', '/api/admin/integrations', { membersCanCreateKeys: false })
-    assert.equal((await h.ana('POST', `/api/keys/${anas.id}/rotate`)).status, 403)
+    await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: false })
+    assert.equal((await h.member('POST', `/api/keys/${theirs.id}/rotate`)).status, 403)
     // Revoked: invalid.
-    await h.noa('DELETE', `/api/keys/${key.id}`)
-    assert.deepEqual([(await h.noa('POST', `/api/keys/${key.id}/rotate`)).status, (await h.withKey(token)('GET', '/api/tree')).status], [400, 401])
+    await h.admin('DELETE', `/api/keys/${key.id}`)
+    assert.deepEqual([(await h.admin('POST', `/api/keys/${key.id}/rotate`)).status, (await h.withKey(token)('GET', '/api/tree')).status], [400, 401])
   } finally { await h.close() }
 })
 
@@ -185,9 +194,9 @@ test('writing with a key: If-Match (412 with the current ETag), If-None-Match: *
     assert.deepEqual([outside.status, outside.body.error, outside.body.reason], [403, 'agent_denied', 'outside_key_folders'])
 
     await h.settle()
-    const versions = (await h.noa('GET', h.url('/api/history/versions', { path }))).body.versions
+    const versions = (await h.admin('GET', h.url('/api/history/versions', { path }))).body.versions
     const agent = versions[0].authors[0]
-    assert.deepEqual(agent, { kind: 'agent', id: info.id, name: 'Claude Code', onBehalfOf: { id: h.users.noa.id, name: 'noa' }, via: 'api', key: `agent:${info.id}` })
+    assert.deepEqual(agent, { kind: 'agent', id: info.id, name: 'Claude Code', onBehalfOf: { id: h.users.admin.id, name: h.users.admin.username }, via: 'api', key: `agent:${info.id}` })
     // As the key sees it too.
     assert.deepEqual((await key('GET', h.url('/api/history/versions', { path }))).body.versions[0].authors[0], agent)
   } finally { await h.close() }
@@ -231,9 +240,9 @@ test('images: an agent stores them next to its notes, never outside its folders'
 test('an alert while the API or MCP is on and the history is not managed: what agents write has no version of its own', async () => {
   const h = await setup({ files: FILES, config: 'history:\n  mode: off\n' })
   try {
-    const ours = async () => ((await h.ana('GET', '/api/alerts')).body.alerts as { code: string }[]).filter((a) => a.code === 'integrations_unversioned')
+    const ours = async () => ((await h.member('GET', '/api/alerts')).body.alerts as { code: string }[]).filter((a) => a.code === 'integrations_unversioned')
     assert.deepEqual(await ours(), [], 'off: nothing to warn about')
-    await h.noa('PUT', '/api/admin/integrations', { mcp: true })
+    await h.admin('PUT', '/api/admin/integrations', { mcp: true })
     assert.deepEqual(await ours(), [{ code: 'integrations_unversioned', mode: 'off', api: false, mcp: true, actions: [] }])
     await h.enableApi()
     assert.deepEqual(await ours(), [{ code: 'integrations_unversioned', mode: 'off', api: true, mcp: true, actions: [] }])
@@ -251,7 +260,7 @@ test('restoring and reverting with a key: as the agent on its user\'s behalf, wi
     const key = h.withKey(token)
     const path = 'proyectos/plan.md'
     const at = h.url('/api/note', { path })
-    const put = async (text: (t: string) => string, who = h.noa) => {
+    const put = async (text: (t: string) => string, who = h.admin) => {
       const cur = (await who('GET', at)).body
       const r = await who('PUT', at, { text: text(cur.text) }, { 'if-match': `"${cur.etag}"` })
       assert.equal(r.status, 200, r.text)
@@ -259,7 +268,7 @@ test('restoring and reverting with a key: as the agent on its user\'s behalf, wi
     }
     await put((t) => t + 'Paso dos.\n')
     await put((t) => t.replace('Paso dos.', 'Paso dos, del agente.'), key)
-    const versions = async () => (await h.noa('GET', h.url('/api/history/versions', { path }))).body.versions as { id: string; authors: { kind: string; via?: string; name: string }[]; reason: { code: string } | null }[]
+    const versions = async () => (await h.admin('GET', h.url('/api/history/versions', { path }))).body.versions as { id: string; authors: { kind: string; via?: string; name: string }[]; reason: { code: string } | null }[]
     const byAgent = (await versions())[0]!
     assert.equal(byAgent.authors[0]!.kind, 'agent')
 
@@ -278,7 +287,7 @@ test('restoring and reverting with a key: as the agent on its user\'s behalf, wi
     await h.settle()
     const rs = (await versions())[0]!
     assert.deepEqual([rs.reason?.code, rs.authors[0]!.kind, rs.authors[0]!.via], ['restored', 'agent', 'api'])
-    assert.equal((await h.noa('GET', h.url('/api/history/versions', { path }))).body.versions[0].authors[0].id, info.id)
+    assert.equal((await h.admin('GET', h.url('/api/history/versions', { path }))).body.versions[0].authors[0].id, info.id)
 
     // A read-only key: 403 on both (the key's limit), and nothing written.
     const { token: ro } = await h.newKey({ name: 'solo lectura', folders: ['proyectos'] })

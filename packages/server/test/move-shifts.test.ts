@@ -8,9 +8,12 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Indexer, NoteService, openIndex, type Actor } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
-const me: Actor = { kind: 'user', id: 'noa' }
+const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
 const DIARY = 'diario/2026-09-24.md'
 const BOTH = ['proyectos/blog/Tareas.md', 'proyectos/thoth/Tareas.md']
 

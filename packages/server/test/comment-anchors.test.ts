@@ -8,11 +8,17 @@ import { join } from 'node:path'
 import { Indexer, NoteService, openIndex, type Actor } from '@thoth/server'
 import { setup as appSetup } from './_app.ts'
 import { tempDir } from './_tmp.ts'
+import { mother } from '../../../test/mother.ts'
 
-const me: Actor = { kind: 'user', id: 'noa' }
-const C1 = '<!-- @noa 2026-09-24T08:12Z · no, use SQLite -->'
-const C2 = '<!-- @ana 2026-09-24T09:00Z · ↳ agreed -->'
-const C3 = '<!-- @ana 2026-09-24T09:30Z · which one? -->'
+// Comments' authors (usernames); the actor who writes is a user id.
+const m = mother(import.meta.url)
+const AUTHOR = m.aUsername()
+const REPLIER = m.aUsername()
+
+const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
+const C1 = `<!-- @${AUTHOR} 2026-09-24T08:12Z · no, use SQLite -->`
+const C2 = `<!-- @${REPLIER} 2026-09-24T09:00Z · ↳ agreed -->`
+const C3 = `<!-- @${REPLIER} 2026-09-24T09:30Z · which one? -->`
 
 function setup() {
   const dir = tempDir('thoth-comment-anchors-')
@@ -82,24 +88,24 @@ test('moving or renaming a note keeps its threads\' original text', async () => 
 })
 
 test('GET /api/note/comments: the original text and whether it changed', async () => {
-  const { notesDir, runtime, noa } = await appSetup()
+  const { notesDir, runtime, admin } = await appSetup()
   const path = 'Plan comentado.md'
   const file = join(notesDir, path)
   writeFileSync(file, `Intro. We'll use Postgres for the index.${C1}\n\nA general remark.\n\n${C3}\n`)
   runtime.rescan({})
-  const r1 = await noa('GET', `/api/note/comments?path=${encodeURIComponent(path)}`)
+  const r1 = await admin('GET', `/api/note/comments?path=${encodeURIComponent(path)}`)
   assert.equal(r1.status, 200)
   assert.deepEqual(r1.body.threads.map((t: any) => [t.original, t.changed]), [["We'll use Postgres for the index.", false], ['', false]])
-  assert.match(r1.body.threads[0].id, /^noa\|2026-09-24T08:12Z\|no, use SQLite\|0$/)
+  assert.equal(r1.body.threads[0].id, `${AUTHOR}|2026-09-24T08:12Z|no, use SQLite|0`)
 
   // Reflowing or spacing is not a change; rewording is.
   writeFileSync(file, `Intro.  We'll  use \tPostgres for the index. ${C1}\n\nA general remark.\n\n${C3}\n`)
   runtime.rescan({})
-  assert.deepEqual((await noa('GET', `/api/note/comments?path=${encodeURIComponent(path)}`)).body.threads.map((t: any) => t.changed), [false, false])
+  assert.deepEqual((await admin('GET', `/api/note/comments?path=${encodeURIComponent(path)}`)).body.threads.map((t: any) => t.changed), [false, false])
   writeFileSync(file, `Intro. We'll not use Postgres for the index, ever.${C1}\n\nA general remark.\n\n${C3}\n`)
   runtime.rescan({})
-  const r2 = await noa('GET', `/api/note/comments?path=${encodeURIComponent(path)}`)
+  const r2 = await admin('GET', `/api/note/comments?path=${encodeURIComponent(path)}`)
   assert.deepEqual(r2.body.threads.map((t: any) => [t.original, t.changed]), [["We'll use Postgres for the index.", true], ['', false]])
 
-  assert.equal((await noa('GET', '/api/note/comments?path=nope.md')).status, 404)
+  assert.equal((await admin('GET', '/api/note/comments?path=nope.md')).status, 404)
 })

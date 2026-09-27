@@ -67,7 +67,7 @@ test('today\'s note hidden from the agent: agent_denied with the reason, over HT
     assert.equal(readFileSync(join(h.notesDir, `fuera/diario/${TODAY}.md`), 'utf8'), FILES[`fuera/diario/${TODAY}.md`])
     assert.ok(!existsSync(join(h.notesDir, 'fuera/vacia')))
     // The person still gets it.
-    const own = await h.noa('GET', '/api/daily')
+    const own = await h.admin('GET', '/api/daily')
     assert.deepEqual([own.status, own.body.path, own.body.exists], [200, `proyectos/diario/${TODAY}.md`, true])
   } finally { await h.close() }
 })

@@ -78,12 +78,12 @@ async function exercise(call: Call, tag: string, write: boolean): Promise<string
 }
 
 async function server() {
-  const { notes, env } = makeDirs()
+  const { notes, env, admin } = makeDirs()
   writeFileSync(join(notes, 'thoth.yaml'), 'daily:\n  diario:\n    folder: diario\n')
   const srv = await startServer({ ...env, THOTH_HISTORY_QUIET_SECONDS: '0.3' })
   const cookie = await login(srv)
   const key = async (input: Record<string, unknown>) => {
-    const r = await api(srv, cookie, 'POST', '/api/keys', { confirm: 'a-long-password', ...input })
+    const r = await api(srv, cookie, 'POST', '/api/keys', { confirm: admin.password, ...input })
     assert.equal(r.status, 201)
     return r.body.token as string
   }

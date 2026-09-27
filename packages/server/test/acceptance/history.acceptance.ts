@@ -11,7 +11,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { api, closeAll, connect, login, typeLine } from '../_collab.ts'
-import { NOTES, cleanup, metric, percentile, startServer, timed, waitFor, workspace, type Server } from './_harness.ts'
+import { NOTES, PASSWORD, USER, cleanup, metric, percentile, startServer, timed, waitFor, workspace, type Server } from './_harness.ts'
 
 const q = encodeURIComponent
 const who = (v: { authors: { kind: string; name: string }[] }) => v.authors.map((a) => (a.kind === 'user' ? a.name : a.kind)).join(',')
@@ -24,7 +24,7 @@ test(`history over ${NOTES} notes: startup, write latency, and every change seen
     // 1. First start: the index and the first commit of the whole folder.
     const t0 = performance.now()
     srv = await startServer(env)
-    const cookie = await login(srv)
+    const cookie = await login(srv, { username: USER, password: PASSWORD })
     const changes = async () => (await api(srv!, cookie, 'GET', '/api/history/changes?limit=5')).body.changes as any[]
     await waitFor(async () => (await changes()).length === 1, 'the first commit', 120_000)
     const first = (await changes())[0]
@@ -77,24 +77,24 @@ test(`history over ${NOTES} notes: startup, write latency, and every change seen
     const versions = async (path: string) => (await api(srv!, cookie, 'GET', `/api/history/versions?path=${q(path)}`)).body.versions as any[]
     await waitFor(async () => (await versions(note)).length >= 3, 'versions of the note', 20_000)
     const v = await versions(note)
-    assert.deepEqual(v.slice(0, 2).map(who), ['external', 'noa'])
+    assert.deepEqual(v.slice(0, 2).map(who), ['external', USER])
     // Undone: back to the version before the external change.
     const r = await api(srv, cookie, 'POST', '/api/history/restore', { path: note, id: v[1].id })
     assert.equal(r.status, 200, JSON.stringify(r.body))
     const restored = readFileSync(file, 'utf8')
     assert.ok(restored.includes('TYPED-IN-THE-EDITOR') && !restored.includes('CHANGED-WITH-ANOTHER-EDITOR'))
 
-    // The most linked note renamed: its move by noa, its backlinks rewritten by the system for noa.
+    // The most linked note renamed: its move by the admin, its backlinks rewritten by the system for them.
     const hub = ws.vault.hub
     const [mv, renameMs] = await timed(() => api(srv!, cookie, 'POST', '/api/note/move', { from: hub, to: ws.vault.hubTarget }))
     assert.equal(mv.status, 200)
     const relinked = (mv.body.relinked as { path: string }[]).map((x) => x.path).filter((p) => p !== ws.vault.hubTarget)
     await waitFor(async () => (await changes()).some((c: any) => c.reason?.code === 'note_moved'), 'the system commit', 30_000)
     const system = (await changes()).find((c: any) => c.reason?.code === 'note_moved')
-    assert.equal(system.reason.by.name, 'noa')
+    assert.equal(system.reason.by.name, USER)
     assert.deepEqual(system.files.map((f: any) => f.path).sort(), [...relinked].sort(), 'every rewritten backlink, in one commit')
     const moved = (await versions(ws.vault.hubTarget))[0]
-    assert.deepEqual([moved.change, moved.from, who(moved)], ['moved', hub, 'noa'])
+    assert.deepEqual([moved.change, moved.from, who(moved)], ['moved', hub, USER])
     metric('rename of the most linked note, with its history', renameMs, 'ms', { backlinks: relinked.length })
     // Undone for a backlink: its version from before the rewrite comes back.
     const backlink = relinked[0]!
@@ -110,7 +110,7 @@ test(`history over ${NOTES} notes: startup, write latency, and every change seen
     const before2 = (await changes())[0].id
     await srv.stop()
     srv = await startServer(env)
-    const c2 = await login(srv)
+    const c2 = await login(srv, { username: USER, password: PASSWORD })
     metric('warm start with history', srv.listeningMs, 'ms')
     assert.ok(srv.listeningMs < 10_000, `warm start ${Math.round(srv.listeningMs)} ms`)
     const late = (await api(srv, c2, 'GET', '/api/history/changes?limit=5')).body.changes as any[]

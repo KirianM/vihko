@@ -9,6 +9,9 @@ import { readFileSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type * as Y from 'yjs'
 import { api, closeAll, connect, login, makeDirs, startServer, typeLine, waitFor } from './_collab.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 const NOTE = 'hogar/Proxy.md'
 
@@ -26,12 +29,13 @@ function clientsOf(doc: Y.Doc, needle: string): Set<number> {
 }
 
 test('an agent writing to an open note shows up in its awareness, and its text carries that client id', async () => {
-  const { notes, env } = makeDirs()
+  const { notes, env, admin } = makeDirs()
+  const keyName = m.aKeyName()
   const srv = await startServer(env)
   try {
     const cookie = await login(srv)
     assert.equal((await api(srv, cookie, 'PUT', '/api/admin/integrations', { api: true })).status, 200)
-    const created = await api(srv, cookie, 'POST', '/api/keys', { name: 'Claude Code', canWrite: true, confirm: 'a-long-password' })
+    const created = await api(srv, cookie, 'POST', '/api/keys', { name: keyName, canWrite: true, confirm: admin.password })
     assert.equal(created.status, 201)
     const key = { authorization: `Bearer ${created.body.token}` }
     const editor = await connect(srv, cookie, NOTE)
@@ -50,7 +54,7 @@ test('an agent writing to an open note shows up in its awareness, and its text c
     await waitFor(() => editor.text().includes('AGENT-ONE'), 'the write reaches the editor')
     const agent = seen.find((s) => (s.state as { agent?: unknown } | undefined)?.agent)
     assert.ok(agent, 'the agent is announced')
-    assert.deepEqual(agent.state, { agent: { name: 'Claude Code', onBehalfOf: 'noa', via: 'api' } })
+    assert.deepEqual(agent.state, { agent: { name: keyName, onBehalfOf: admin.username, via: 'api' } })
     assert.ok(agent.at < textAt, 'announced before its text arrives')
     assert.deepEqual([...clientsOf(editor.doc, 'AGENT-ONE\n')], [agent.client], 'its text is made by the client it announced')
     assert.notEqual(agent.client, editor.doc.clientID)
@@ -79,7 +83,7 @@ test('an agent writing to an open note shows up in its awareness, and its text c
     const del = await api(srv, cookie, 'DELETE', `/api/note?path=${encodeURIComponent(NOTE)}`, undefined, key)
     assert.equal(del.status, 200, JSON.stringify(del.body))
     await waitFor(() => trashed.some((m) => (m as { type: string }).type === 'thoth:trashed'), 'the editor is told')
-    assert.equal((trashed.find((m) => (m as { type: string }).type === 'thoth:trashed') as { by: string }).by, 'Claude Code')
+    assert.equal((trashed.find((m) => (m as { type: string }).type === 'thoth:trashed') as { by: string }).by, keyName)
   } finally { closeAll(); await srv.stop(); rmSync(dirname(notes), { recursive: true, force: true }) }
 })
 

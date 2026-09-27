@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { Indexer, dumpIndex, openIndex } from '@thoth/server'
 import { api, closeAll, connect, login, typeLine } from '../_collab.ts'
-import { cleanup, metric, sleep, startServer, waitFor, workspace, type Server } from './_harness.ts'
+import { PASSWORD, USER, cleanup, metric, sleep, startServer, waitFor, workspace, type Server } from './_harness.ts'
 
 function dumpOf(file: string): string {
   const db = new Database(file, { readonly: true })
@@ -29,7 +29,7 @@ test('deleting index.db and rebuilding it gives an identical dump', { timeout: 3
   const indexFile = join(ws.stateDir, 'index.db')
   try {
     srv = await startServer(ws.env)
-    const cookie = await login(srv)
+    const cookie = await login(srv, { username: USER, password: PASSWORD })
     const [a, b, c, d] = ws.vault.editable as [string, string, string, string]
     const ok = (r: { status: number; body: unknown }) => assert.ok(r.status < 300, JSON.stringify(r.body))
     // A lived-in index: every kind of change, through the server and from outside.

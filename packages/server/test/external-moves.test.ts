@@ -8,6 +8,9 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Auth, ExternalMoves, Indexer, NoteService, Profiles, Watcher, Workspace, createApp, openIndex, openState, type Runtime } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
@@ -27,9 +30,10 @@ async function app(opts: { moveWaitMs?: number } = {}) {
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
   const notes = new NoteService({ notesDir, stateDir, indexer, db: index })
   const a = createApp({ auth, profiles: new Profiles(state), workspace: new Workspace({ notesDir }), notes, index, indexer, notesDir, runtime, externalMoves, moveWaitMs: opts.moveWaitMs })
-  await auth.createUser('noa', 'a-long-password', 'admin')
+  const admin = m.aUser({ role: 'admin' })
+  await auth.createUser(admin.username, admin.password, admin.role)
   runtime.rescan({})
-  const login = await a.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'noa', password: 'a-long-password' }) })
+  const login = await a.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: admin.username, password: admin.password }) })
   const cookie = login.headers.get('set-cookie')!.split(';')[0]!
   const call = async (method: string, path: string, body?: unknown) => {
     const res = await a.request(path, { method, headers: { 'content-type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) })

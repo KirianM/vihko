@@ -65,8 +65,8 @@ export const leaked = (shown: string, asked: string) => MARKERS.filter((m) => sh
  */
 export async function historyToHide(h: Awaited<ReturnType<typeof setup>>) {
   const put = async (path: string, edit: (t: string) => string) => {
-    const cur = await h.noa('GET', h.url('/api/note', { path }))
-    const r = await h.noa('PUT', h.url('/api/note', { path }), { text: edit(cur.body.text) }, { 'if-match': `"${cur.body.etag}"` })
+    const cur = await h.admin('GET', h.url('/api/note', { path }))
+    const r = await h.admin('PUT', h.url('/api/note', { path }), { text: edit(cur.body.text) }, { 'if-match': `"${cur.body.etag}"` })
     assert.equal(r.status, 200, `${path}: ${r.text}`)
     await h.settle()
   }
@@ -76,12 +76,12 @@ export async function historyToHide(h: Awaited<ReturnType<typeof setup>>) {
   await put('proyectos/visible.md', (t) => t + 'Otra línea.\n')
   // Written outside, then brought in: what it said outside stays there.
   await put('fuera/mudanza.md', (t) => t.replace('Cuarzo de antes.', 'Texto de ahora.'))
-  assert.equal((await h.noa('POST', '/api/note/move', { from: 'fuera/mudanza.md', to: 'proyectos/mudanza.md' })).status, 200)
+  assert.equal((await h.admin('POST', '/api/note/move', { from: 'fuera/mudanza.md', to: 'proyectos/mudanza.md' })).status, 200)
   // A note outside, renamed: the system rewrites the visible note's link to it.
-  assert.equal((await h.noa('POST', '/api/note/move', { from: 'fuera/otra.md', to: 'fuera/otra-nueva.md' })).status, 200)
+  assert.equal((await h.admin('POST', '/api/note/move', { from: 'fuera/otra.md', to: 'fuera/otra-nueva.md' })).status, 200)
   await h.settle()
   assert.match(readFileSync(join(h.notesDir, 'proyectos/visible.md'), 'utf8'), /\[\[otra-nueva\]\]/)
-  const idsOf = async (path: string) => ((await h.noa('GET', h.url('/api/history/versions', { path }))).body.versions as { id: string }[]).map((v) => v.id)
+  const idsOf = async (path: string) => ((await h.admin('GET', h.url('/api/history/versions', { path }))).body.versions as { id: string }[]).map((v) => v.id)
   const ids = { secret: await idsOf('proyectos/secreto.md'), revealed: await idsOf('proyectos/revelada.md'), visible: await idsOf('proyectos/visible.md') }
   assert.ok(ids.secret.length >= 2 && ids.revealed.length >= 2 && ids.visible.length >= 2)
   return ids

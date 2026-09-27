@@ -6,9 +6,12 @@ import { fileURLToPath } from 'node:url'
 import { contentHash, readFrontmatter } from '@thoth/core'
 import { Indexer, NoteError, NoteService, openIndex, type Actor } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
-const me: Actor = { kind: 'user', id: 'noa' }
+const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
 
 function setup() {
   const dir = tempDir('thoth-notes-')

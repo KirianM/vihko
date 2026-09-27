@@ -9,6 +9,9 @@ import assert from 'node:assert/strict'
 import { createHash, randomBytes } from 'node:crypto'
 import { OAuthServer, REGISTRATIONS_PER_HOUR, REGISTRATION_ADDRESSES, WindowLimit, publicUrlFrom, sameRedirect } from '@thoth/server'
 import { setup } from './_agents.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 const PUBLIC = 'https://notas.example.org'
 const RESOURCE = `${PUBLIC}/mcp`
@@ -58,9 +61,8 @@ function authorizeQuery(clientId: string, challenge: string, extra: Record<strin
  * The person's side: the consent page asks who is asking, then approves (or
  * not) with what they chose. Returns where the browser is sent.
  */
-async function consent(h: H, query: string, choice: { approve?: boolean; canWrite?: boolean; folders?: string[] } = {}, who: 'noa' | 'ana' = 'noa') {
-  const as = who === 'noa' ? h.noa : h.ana
-  const r = await as('POST', '/api/oauth/authorize', { query, approve: choice.approve ?? true, confirm: 'a-long-password', ...(choice.canWrite === undefined ? {} : { canWrite: choice.canWrite }), ...(choice.folders ? { folders: choice.folders } : {}) })
+async function consent(h: H, query: string, choice: { approve?: boolean; canWrite?: boolean; folders?: string[] } = {}, who: 'admin' | 'member' = 'admin') {
+  const r = await h.as(who)('POST', '/api/oauth/authorize', { query, approve: choice.approve ?? true, confirm: h.users[who].password, ...(choice.canWrite === undefined ? {} : { canWrite: choice.canWrite }), ...(choice.folders ? { folders: choice.folders } : {}) })
   return r
 }
 
@@ -124,8 +126,8 @@ test('without THOTH_PUBLIC_URL, or with the MCP server off, OAuth doesn\'t exist
         assert.equal(r.status, 404, `${variant}: ${m} ${p}`)
         assert.ok(!r.text.includes('id="root"'), `${variant}: ${m} ${p} never falls to the UI`)
       }
-      for (const m of ['GET', 'POST'] as const) assert.equal((await h.noa(m, `/api/oauth/authorize?${authorizeQuery('x', challenge)}`, m === 'POST' ? { query: '', approve: true } : undefined)).status, 404, `${variant}: ${m} /api/oauth/authorize`)
-      const integ = await h.noa('GET', '/api/integrations')
+      for (const m of ['GET', 'POST'] as const) assert.equal((await h.admin(m, `/api/oauth/authorize?${authorizeQuery('x', challenge)}`, m === 'POST' ? { query: '', approve: true } : undefined)).status, 404, `${variant}: ${m} /api/oauth/authorize`)
+      const integ = await h.admin('GET', '/api/integrations')
       assert.equal(integ.body.publicUrl, variant === 'MCP off' ? PUBLIC : null)
       if (variant === 'MCP off') {
         assert.equal((await mcpPost(h, null)).status, 404)
@@ -176,7 +178,7 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     assert.match(page.text, /id="root"/)
     // Without a session, the page asks to sign in first (its API needs one).
     assert.equal((await raw(h, 'GET', `/api/oauth/authorize?${query}`)).status, 401)
-    const asked = await h.noa('GET', `/api/oauth/authorize?${query}`)
+    const asked = await h.admin('GET', `/api/oauth/authorize?${query}`)
     assert.deepEqual(asked.body, { client: { id: client.client_id, name: 'Claude', redirectUri: REDIRECT, host: null }, canAuthorize: true })
 
     // Approved as it comes: read-only, every folder.
@@ -212,18 +214,18 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     await assert.rejects(reader.client.callTool({ name: 'create_note', arguments: { path: 'x.md', text: 'x' } }))
     await reader.close()
 
-    // The authorization is a key of noa's, named after the client, used via OAuth.
-    let [key] = (await h.noa('GET', '/api/keys')).body.keys
+    // The authorization is a key of the admin's, named after the client, used via OAuth.
+    let [key] = (await h.admin('GET', '/api/keys')).body.keys
     assert.equal(key.name, 'Claude')
     assert.equal(key.canWrite, false)
     assert.deepEqual(key.folders, [])
     assert.equal(key.lastVia, 'oauth')
     assert.ok(key.lastUsedAt)
     assert.deepEqual(key.client, { id: client.client_id, redirectUris: [REDIRECT] })
-    assert.equal((await h.noa('GET', '/api/keys')).body.keys.length, 1, 'the replayed code\'s authorization is the same key')
+    assert.equal((await h.admin('GET', '/api/keys')).body.keys.length, 1, 'the replayed code\'s authorization is the same key')
 
     // Renamed by its person, then authorized again with write, in one folder: the same authorization changes, and keeps its name.
-    assert.equal((await h.noa('PATCH', `/api/keys/${key.id}`, { name: 'Claude web' })).status, 200)
+    assert.equal((await h.admin('PATCH', `/api/keys/${key.id}`, { name: 'Claude web' })).status, 200)
     const rw = await authorize(h, client.client_id, { canWrite: true, folders: ['proyectos'] })
     assert.equal(rw.scope, 'read write')
     const writer = await h.mcp(rw.access_token)
@@ -232,14 +234,14 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     assert.equal(made.error, false, made.raw)
     assert.equal((await writer.call('create_note', { path: 'diario/no.md', text: 'x' })).error, true, 'outside its folders')
     await writer.close()
-    const keys = (await h.noa('GET', '/api/keys')).body.keys
+    const keys = (await h.admin('GET', '/api/keys')).body.keys
     assert.equal(keys.length, 1)
     assert.equal(keys[0].id, key.id)
     assert.deepEqual([keys[0].name, keys[0].canWrite, keys[0].folders], ['Claude web', true, ['proyectos']])
-    // The history names the authorization, on noa's behalf, via OAuth.
+    // The history names the authorization, on the admin's behalf, via OAuth.
     await h.settle()
-    const versions = (await h.noa('GET', h.url('/api/history/versions', { path: 'proyectos/de-claude.md' }))).body.versions
-    assert.deepEqual(versions[0].authors[0], { kind: 'agent', id: key.id, name: 'Claude web', onBehalfOf: { id: h.users.noa.id, name: 'noa' }, via: 'oauth', key: `agent:${key.id}` })
+    const versions = (await h.admin('GET', h.url('/api/history/versions', { path: 'proyectos/de-claude.md' }))).body.versions
+    assert.deepEqual(versions[0].authors[0], { kind: 'agent', id: key.id, name: 'Claude web', onBehalfOf: { id: h.users.admin.id, name: h.users.admin.username }, via: 'oauth', key: `agent:${key.id}` })
 
     // An access token is only for /mcp: the HTTP API never takes it.
     await h.enableApi()
@@ -267,14 +269,14 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     assert.equal((await mcpPost(h, later.body.access_token)).status, 200)
 
     // Revoked in «Agents and API»: its tokens stop at once, and refreshing fails.
-    assert.equal((await h.noa('DELETE', `/api/keys/${key.id}`)).status, 200)
+    assert.equal((await h.admin('DELETE', `/api/keys/${key.id}`)).status, 200)
     const revoked = await mcpPost(h, later.body.access_token)
     assert.equal(revoked.status, 401)
     assert.equal(revoked.headers.get('www-authenticate'), `Bearer error="invalid_token", resource_metadata="${PUBLIC}/.well-known/oauth-protected-resource/mcp"`)
     assert.equal((await refresh(later.body.refresh_token)).body.error, 'invalid_grant')
     // Authorizing again makes a new authorization; the revoked one stays revoked.
     await authorize(h, client.client_id)
-    const after = (await h.noa('GET', '/api/keys')).body.keys
+    const after = (await h.admin('GET', '/api/keys')).body.keys
     assert.deepEqual(after.map((k: { status: string }) => k.status).sort(), ['active', 'revoked'])
     // With the MCP server off, the tokens of a live authorization reach nothing.
     const live = await authorize(h, client.client_id)
@@ -303,7 +305,7 @@ test('the authorization request: unknown clients and redirect URIs are never red
       assert.equal(page.headers.get('location'), null)
       const asJson = await get(q, 'application/json')
       assert.deepEqual([asJson.status, asJson.body.error], [400, error])
-      const api = await h.noa('GET', `/api/oauth/authorize?${q}`)
+      const api = await h.admin('GET', `/api/oauth/authorize?${q}`)
       assert.deepEqual([api.status, api.body.error, api.body.redirect], [400, error, undefined])
       assert.equal((await consent(h, q)).body.error, error)
     }
@@ -384,28 +386,28 @@ test('registration: checked, confidential clients need their secret, and the adm
     const basic = (id: string, s: string) => ({ authorization: `Basic ${Buffer.from(`${encodeURIComponent(id)}:${encodeURIComponent(s)}`).toString('base64')}` })
     const missing = await form(h, '/oauth/token', { ...(await code()), client_id: conf.body.client_id })
     assert.deepEqual([missing.status, missing.body.error], [401, 'invalid_client'])
-    const wrong = await form(h, '/oauth/token', await code(), basic(conf.body.client_id, 'nope'))
+    const wrong = await form(h, '/oauth/token', await code(), basic(conf.body.client_id, m.aSecret()))
     assert.deepEqual([wrong.status, wrong.body.error], [401, 'invalid_client'])
     assert.equal((await form(h, '/oauth/token', await code(), basic(conf.body.client_id, secret))).status, 200)
     assert.equal((await form(h, '/oauth/token', { ...(await code()), client_id: conf.body.client_id, client_secret: secret })).status, 200)
     assert.equal((await form(h, '/oauth/token', { ...(await code()), client_id: 'nope' })).body.error, 'invalid_client')
 
     // Turned off by the admin: no registration, and the metadata stops offering it; registered clients keep working.
-    assert.equal((await h.ana('PUT', '/api/admin/integrations', { oauthRegistration: false })).status, 403)
-    assert.equal((await h.noa('PUT', '/api/admin/integrations', { oauthRegistration: false })).body.oauthRegistration, false)
+    assert.equal((await h.member('PUT', '/api/admin/integrations', { oauthRegistration: false })).status, 403)
+    assert.equal((await h.admin('PUT', '/api/admin/integrations', { oauthRegistration: false })).body.oauthRegistration, false)
     assert.equal((await json(h, 'POST', '/oauth/register', { redirect_uris: [REDIRECT], token_endpoint_auth_method: 'none' })).status, 404)
     assert.equal((await raw(h, 'GET', '/.well-known/oauth-authorization-server')).body.registration_endpoint, undefined)
     const { challenge } = pkce()
     assert.equal((await consent(h, authorizeQuery(app.client_id, challenge, { redirect_uri: 'http://127.0.0.1:9/cb' }))).status, 200)
-    await h.noa('PUT', '/api/admin/integrations', { oauthRegistration: true })
+    await h.admin('PUT', '/api/admin/integrations', { oauthRegistration: true })
 
     // A client registered and never authorized is forgotten after a day (registration is open to anyone).
     const idle = await register(h, { client_name: 'Nadie' })
     h.clock.now = new Date(h.clock.now.getTime() + 25 * 3600_000)
     await register(h)
-    assert.equal((await h.noa('GET', `/api/oauth/authorize?${authorizeQuery(idle.client_id, challenge)}`)).body.error, 'invalid_client')
+    assert.equal((await h.admin('GET', `/api/oauth/authorize?${authorizeQuery(idle.client_id, challenge)}`)).body.error, 'invalid_client')
     // One that was authorized stays.
-    assert.equal((await h.noa('GET', `/api/oauth/authorize?${authorizeQuery(conf.body.client_id, challenge)}`)).status, 200)
+    assert.equal((await h.admin('GET', `/api/oauth/authorize?${authorizeQuery(conf.body.client_id, challenge)}`)).status, 200)
   } finally { await h.close() }
 })
 
@@ -465,20 +467,20 @@ test('who may authorize: a member only while members may create keys; an agent n
     const client = await register(h)
     const { challenge } = pkce()
     const q = authorizeQuery(client.client_id, challenge)
-    assert.equal((await h.ana('GET', `/api/oauth/authorize?${q}`)).body.canAuthorize, true)
-    assert.equal((await consent(h, q, {}, 'ana')).status, 200)
-    assert.equal((await h.noa('PUT', '/api/admin/integrations', { membersCanCreateKeys: false })).status, 200)
-    assert.equal((await h.ana('GET', `/api/oauth/authorize?${q}`)).body.canAuthorize, false)
-    assert.deepEqual([(await consent(h, q, {}, 'ana')).status, (await consent(h, q, {}, 'ana')).body.error], [403, 'forbidden'])
+    assert.equal((await h.member('GET', `/api/oauth/authorize?${q}`)).body.canAuthorize, true)
+    assert.equal((await consent(h, q, {}, 'member')).status, 200)
+    assert.equal((await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: false })).status, 200)
+    assert.equal((await h.member('GET', `/api/oauth/authorize?${q}`)).body.canAuthorize, false)
+    assert.deepEqual([(await consent(h, q, {}, 'member')).status, (await consent(h, q, {}, 'member')).body.error], [403, 'forbidden'])
     // Saying no is always possible.
-    assert.equal((await consent(h, q, { approve: false }, 'ana')).status, 200)
-    assert.equal((await h.noa('GET', `/api/oauth/authorize?${q}`)).body.canAuthorize, true, 'the admin always may')
+    assert.equal((await consent(h, q, { approve: false }, 'member')).status, 200)
+    assert.equal((await h.admin('GET', `/api/oauth/authorize?${q}`)).body.canAuthorize, true, 'the admin always may')
     // A key never reaches the consent routes.
     await h.enableApi()
     const { token } = await h.newKey({ name: 'k', canWrite: true })
     assert.equal((await h.withKey(token)('POST', '/api/oauth/authorize', { query: q, approve: true })).status, 404)
     // Nor another site: the consent is a write with the session (CSRF).
-    assert.equal((await h.noa('POST', '/api/oauth/authorize', { query: q, approve: true }, { origin: 'https://attacker.example' })).status, 403)
+    assert.equal((await h.admin('POST', '/api/oauth/authorize', { query: q, approve: true }, { origin: 'https://attacker.example' })).status, 403)
   } finally { await h.close() }
 })
 

@@ -22,7 +22,7 @@ test('a note says whether it is hidden from agents, and why: the UI shows it', a
     'a/sin.md': '# Sin frontmatter\n',
   } })
   try {
-    const hiding = async (path: string) => (await h.noa('GET', h.url('/api/note', { path }))).body.hiddenFromAgents
+    const hiding = async (path: string) => (await h.admin('GET', h.url('/api/note', { path }))).body.hiddenFromAgents
     assert.equal(await hiding('a/oculta.md'), 'ai')
     assert.equal(await hiding('a/rota.md'), 'frontmatter')
     assert.equal(await hiding('a/visible.md'), null)

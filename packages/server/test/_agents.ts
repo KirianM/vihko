@@ -1,20 +1,23 @@
 // Shared setup for the agent tests (keys over HTTP, the access filter and the
 // leak tests): a small vault built for them, the history (managed, short
-// timings), the API with keys, and two users signed in: noa (admin) and
-// ana (member).
+// timings), the API with keys, and two users signed in: an admin and a
+// member (new ones every time, _people.ts).
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, mountMcp, openIndex, openState, toolData, type ClientMetadataFetcher, type Runtime } from '@thoth/server'
 import { Client, StreamableHTTPClientTransport, type VersionNegotiationMode } from '@modelcontextprotocol/client'
 import { tempDir } from './_tmp.ts'
 import { withEveryone } from './_permissions.ts'
+import { byNames, create, newPeople, type ByNames } from './_people.ts'
 
 /** A 1×1 PNG. */
 export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
 
 export interface AgentSetup {
-  files?: Record<string, string | Uint8Array>
-  config?: string
+  /** Files to add (a function of the people's usernames when their paths or texts name them). */
+  files?: ByNames<Record<string, string | Uint8Array>>
+  /** thoth.yaml (a function of the people's usernames when it names them). */
+  config?: ByNames<string>
   /** Locked off by the server's administrator (THOTH_INTEGRATIONS=off). */
   locked?: boolean
   now?: Date
@@ -31,18 +34,20 @@ export async function setup(opts: AgentSetup = {}) {
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
   mkdirSync(notesDir, { recursive: true })
-  for (const [p, content] of Object.entries(opts.files ?? {})) {
+  const people = newPeople()
+  const names = { admin: people.admin.username, member: people.member.username }
+  for (const [p, content] of Object.entries(byNames(opts.files ?? {}, names))) {
     if (p.endsWith('/')) { mkdirSync(join(notesDir, p), { recursive: true }); continue }
     mkdirSync(dirname(join(notesDir, p)), { recursive: true })
     writeFileSync(join(notesDir, p), content)
   }
   // Both users see everything unless the test brings its own permissions (_permissions.ts).
-  writeFileSync(join(notesDir, 'thoth.yaml'), withEveryone(opts.config))
+  writeFileSync(join(notesDir, 'thoth.yaml'), withEveryone(opts.config === undefined ? undefined : byNames(opts.config, names), names.admin, names.member))
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
   const profiles = new Profiles(state)
-  const users = { noa: await auth.createUser('noa', 'a-long-password', 'admin'), ana: await auth.createUser('ana', 'a-long-password', 'member') }
+  const users = { admin: await create(auth, people.admin), member: await create(auth, people.member) }
   const workspace = new Workspace({ notesDir })
   const indexer = new Indexer({ notesDir, db: index })
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
@@ -72,10 +77,11 @@ export async function setup(opts: AgentSetup = {}) {
     routes: (a, s) => { mountMcp(a, s, { auth, workspace, pollMs: 25 }) },
   })
 
-  const cookies: Record<string, string> = {}
-  for (const name of Object.keys(users)) {
-    const res = await app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: name, password: 'a-long-password' }) })
-    cookies[name] = res.headers.get('set-cookie')!.split(';')[0]!
+  const cookies = {} as Record<keyof typeof users, string>
+  for (const role of Object.keys(users) as (keyof typeof users)[]) {
+    const { username, password } = users[role]
+    const res = await app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password }) })
+    cookies[role] = res.headers.get('set-cookie')!.split(';')[0]!
   }
 
   interface Res { status: number; body: any; text: string; headers: Headers }
@@ -94,24 +100,24 @@ export async function setup(opts: AgentSetup = {}) {
   }
   /** A request with a user's session. */
   const as = (user: keyof typeof users) => (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>
-    send(method, path, body, { cookie: cookies[user]!, ...headers })
+    send(method, path, body, { cookie: cookies[user], ...headers })
   /** A request with a key (and no cookie, unless given). */
   const withKey = (token: string) => (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>
     send(method, path, body, { authorization: `Bearer ${token}`, ...headers })
 
-  const noa = as('noa')
-  /** A key of noa's, created through the API. */
-  const newKey = async (input: Record<string, unknown>, who: keyof typeof users = 'noa') => {
-    const r = await as(who)('POST', '/api/keys', { confirm: 'a-long-password', ...input })
+  const admin = as('admin')
+  /** A key of the admin's (or `who`'s), created through the API. */
+  const newKey = async (input: Record<string, unknown>, who: keyof typeof users = 'admin') => {
+    const r = await as(who)('POST', '/api/keys', { confirm: users[who].password, ...input })
     if (r.status !== 201) throw new Error(`key: ${r.status} ${r.text}`)
     return r.body as { key: { id: string }; token: string }
   }
   const enableApi = async () => {
-    const r = await noa('PUT', '/api/admin/integrations', { api: true })
+    const r = await admin('PUT', '/api/admin/integrations', { api: true })
     if (r.status !== 200) throw new Error(`switch: ${r.status} ${r.text}`)
   }
   const enableMcp = async (on = true) => {
-    const r = await noa('PUT', '/api/admin/integrations', { mcp: on })
+    const r = await admin('PUT', '/api/admin/integrations', { mcp: on })
     if (r.status !== 200) throw new Error(`switch: ${r.status} ${r.text}`)
   }
   /**
@@ -153,5 +159,5 @@ export async function setup(opts: AgentSetup = {}) {
     state.close()
     rmSync(dir, { recursive: true, force: true })
   }
-  return { dir, notesDir, index, app, services, cookies, auth, keys, integrations, history, notes, indexer, runtime, workspace, users, clock, as, noa, ana: as('ana'), withKey, newKey, enableApi, enableMcp, mcp, settle, url, close }
+  return { dir, notesDir, index, app, services, cookies, auth, keys, integrations, history, notes, indexer, runtime, workspace, users, clock, as, admin, member: as('member'), withKey, newKey, enableApi, enableMcp, mcp, settle, url, close }
 }

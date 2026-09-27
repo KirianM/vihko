@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { api, closeAll, login } from '../_collab.ts'
 import { Indexer, dumpIndex, openIndex } from '@thoth/server'
-import { ROUNDS, cleanup, metric, startServer, workspace, type Server } from './_harness.ts'
+import { PASSWORD, ROUNDS, USER, cleanup, metric, startServer, workspace, type Server } from './_harness.ts'
 import { AGENT_MARK, historyAfterKills, killRound } from './_crash.ts'
 
 test(`kill -9 while two people type and an agent edits: ${ROUNDS} rounds`, { timeout: ROUNDS * 90_000 + 60_000 }, async () => {
@@ -18,7 +18,7 @@ test(`kill -9 while two people type and an agent edits: ${ROUNDS} rounds`, { tim
   let srv: Server = await startServer(env)
   const failures: string[] = []
   try {
-    const cookie = await login(srv)
+    const cookie = await login(srv, { username: USER, password: PASSWORD })
     const mark = await api(srv, cookie, 'POST', '/api/note/edit', { path: hot, ops: [{ op: 'append', text: `${AGENT_MARK}\n` }] })
     assert.equal(mark.status, 200, JSON.stringify(mark.body))
     const totals = { typed: 0, acked: 0, agentHot: 0, agentCold: 0, recoveryMs: [] as number[] }

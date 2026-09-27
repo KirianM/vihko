@@ -12,35 +12,44 @@ import { join } from 'node:path'
 import { MessageType } from '@hocuspocus/server'
 import * as server from '@thoth/server'
 import { HUB_MESSAGES, ROUTE_NEEDS, TOOL_NEEDS, type Principal } from '@thoth/server'
-import { FILES as BASE, PNG, RULES, setup } from './_m4.ts'
+import { ADMIN, FILES as BASE, MEMBER, NOBODY, OTHER, PNG, RULES, setup } from './_m4.ts'
+import { yamlKey } from './_permissions.ts'
+import { mother } from '../../../test/mother.ts'
 
-const CONFLICT = 'personas/marta/notas.sync-conflict-20260927-100000-ABCDEFG.md'
+const m = mother(import.meta.url)
+const CONFLICT = `personas/${OTHER.username}/notas.sync-conflict-20260927-100000-ABCDEFG.md`
 const FILES = {
   ...BASE,
   'admin/logo.png': PNG,
-  [CONFLICT]: '# Notas de Marta (copia)\n\nPalabra Jade copia.\n',
+  [CONFLICT]: `# Notas de ${OTHER.username} (copia)\n\nPalabra Jade copia.\n`,
   // Closed to the group by its own grants: its managers from above (the root's) still reach it (D-040 3.5).
   'familia/sorpresa/regalo.md': '# Regalo sorpresa\n\nPalabra Ámbar.\n',
 }
 
-/** What gives each note (or file) away: its path (or folder) and words only it has. */
+const member = `personas/${MEMBER.username}`
+const other = `personas/${OTHER.username}`
+const admin = `personas/${ADMIN.username}`
+/**
+ * What gives each note (or file) away: its path (or folder) and words only it
+ * has. A person's folder ends in `/`: one username may start another's.
+ */
 const MARKS: Record<string, string[]> = {
   'familia/compra.md': ['Lista de la compra', 'Leche'],
-  'personas/laura/diario/2026-09-27.md': ['personas/laura', 'Diario de Laura', 'Turmalina', 'intimo'],
-  'personas/laura/recetas/tarta.md': ['personas/laura', 'Tarta de Laura', 'Obsidiana'],
-  'personas/laura/foto-laura.png': ['foto-laura'],
-  'personas/marta/notas.md': ['personas/marta', 'Notas de Marta', 'Jade'],
+  [`${member}/diario/2026-09-27.md`]: [`${member}/`, `Diario de ${MEMBER.username}`, 'Turmalina', 'intimo'],
+  [`${member}/recetas/tarta.md`]: [`${member}/`, `Tarta de ${MEMBER.username}`, 'Obsidiana'],
+  [`${member}/foto-${MEMBER.username}.png`]: [`foto-${MEMBER.username}.png`],
+  [`${other}/notas.md`]: [`${other}/`, `Notas de ${OTHER.username}`, 'Jade'],
   [CONFLICT]: ['sync-conflict', 'Jade copia'],
-  'personas/noa/plan.md': ['personas/noa', 'Plan de Noa', 'Ónice'],
-  'personas/noa/Plan.md': ['Otro Plan de Noa'],
-  'personas/antigua/nota.md': ['personas/antigua', 'De nadie', 'Cuarzo'],
+  [`${admin}/plan.md`]: [`${admin}/`, `Plan de ${ADMIN.username}`, 'Ónice'],
+  [`${admin}/Plan.md`]: [`Otro Plan de ${ADMIN.username}`],
+  [`personas/${NOBODY}/nota.md`]: [`personas/${NOBODY}/`, 'De nadie', 'Cuarzo'],
   'admin/ajustes.md': ['admin/ajustes', 'Ajustes del admin', 'Berilo'],
   'admin/logo.png': ['logo.png'],
   'Plan.md': ['Plan raíz', 'Berilo raíz'],
   'familia/sorpresa/regalo.md': ['familia/sorpresa', 'Regalo sorpresa', 'Ámbar'],
 }
 
-type Who = 'laura' | 'marta' | 'agent'
+type Who = 'member' | 'other' | 'agent'
 interface Call { route: string; method: string; path: string; body?: unknown; headers?: Record<string, string>; expect?: number | string }
 
 test('every HTTP route, MCP tool and hub message is classified by what it needs of the permissions', async () => {
@@ -51,7 +60,7 @@ test('every HTTP route, MCP tool and hub message is classified by what it needs 
     assert.deepEqual([...routes].filter((r) => !(r in ROUTE_NEEDS)), [], 'a new route must say what it needs in http/routes.ts ROUTE_NEEDS')
     assert.deepEqual(Object.keys(ROUTE_NEEDS).filter((r) => !routes.has(r)), [])
     await h.enable()
-    const c = await h.mcp((await h.newKey('noa', { name: 'rw', canWrite: true })).token)
+    const c = await h.mcp((await h.newKey('admin', { name: 'rw', canWrite: true })).token)
     const tools = (await c.client.listTools()).tools.map((t) => t.name).sort()
     await c.close()
     assert.deepEqual(tools, Object.keys(TOOL_NEEDS).sort(), 'a new tool must say what it needs in mcp/tools.ts TOOL_NEEDS')
@@ -65,14 +74,14 @@ test('every HTTP route, MCP tool and hub message is classified by what it needs 
 })
 
 test('two people and an agent over the same tree: nothing of what they can\'t see reaches them, through any route or tool', async () => {
-  const h = await setup({ files: FILES, config: RULES + '  personas/noa/compartida:\n    grants: { noa: manage }\n  familia/sorpresa:\n    grants: { laura: manage }\n' })
+  const h = await setup({ files: FILES, config: RULES + `  ${yamlKey(`${admin}/compartida`)}:\n    grants: { ${yamlKey(ADMIN.username)}: manage }\n  familia/sorpresa:\n    grants: { ${yamlKey(MEMBER.username)}: manage }\n` })
   try {
     await h.enable()
-    const agentKey = await h.newKey('noa', { name: 'Agente de Noa', canWrite: true })
-    const agentPrincipal: Principal = { kind: 'agent', user: h.users.noa, key: { id: agentKey.key.id, name: 'x', canWrite: true, folders: [] }, via: 'api' }
+    const agentKey = await h.newKey('admin', { name: m.aKeyName(), canWrite: true })
+    const agentPrincipal: Principal = { kind: 'agent', user: h.users.admin, key: { id: agentKey.key.id, name: 'x', canWrite: true, folders: [] }, via: 'api' }
     const principals: Record<Who, Principal> = {
-      laura: { kind: 'user', user: h.users.laura },
-      marta: { kind: 'user', user: h.users.marta },
+      member: { kind: 'user', user: h.users.member },
+      other: { kind: 'user', user: h.users.other },
       agent: agentPrincipal,
     }
     // What each one can't see, by the access engine: those notes' marks.
@@ -82,11 +91,12 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       return [...new Set(Object.keys(MARKS).filter((p) => !access.canRead(p)).flatMap((p) => MARKS[p]!))].filter((m) => !seen.has(m))
     }
     // A premise of the sweep (D-040 3.5): the root's manager (the agent's user) reaches the subfolder closed to the group; the group doesn't.
-    assert.deepEqual((['laura', 'marta', 'agent'] as Who[]).map((w) => h.policy.for(principals[w]).canRead('familia/sorpresa/regalo.md')), [true, false, true])
-    const own: Record<Who, string> = { laura: 'personas/laura/recetas/tarta.md', marta: 'personas/marta/notas.md', agent: 'personas/noa/plan.md' }
-    const hidden: Record<Who, string> = { laura: 'personas/noa/plan.md', marta: 'personas/laura/recetas/tarta.md', agent: 'personas/laura/recetas/tarta.md' }
-    const hiddenFolder: Record<Who, string> = { laura: 'admin', marta: 'personas/laura', agent: 'personas/laura' }
-    const hiddenImage: Record<Who, string> = { laura: 'admin/logo.png', marta: 'personas/laura/foto-laura.png', agent: 'personas/laura/foto-laura.png' }
+    assert.deepEqual((['member', 'other', 'agent'] as Who[]).map((w) => h.policy.for(principals[w]).canRead('familia/sorpresa/regalo.md')), [true, false, true])
+    const own: Record<Who, string> = { member: `${member}/recetas/tarta.md`, other: `${other}/notas.md`, agent: `${admin}/plan.md` }
+    const hidden: Record<Who, string> = { member: `${admin}/plan.md`, other: `${member}/recetas/tarta.md`, agent: `${member}/recetas/tarta.md` }
+    const hiddenFolder: Record<Who, string> = { member: 'admin', other: member, agent: member }
+    const photo = `${member}/foto-${MEMBER.username}.png`
+    const hiddenImage: Record<Who, string> = { member: 'admin/logo.png', other: photo, agent: photo }
     const shared = 'familia/compra.md'
 
     // Some history, some trash and a conflict copy for everyone to (not) see.
@@ -96,36 +106,36 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       assert.equal(r.status, 200, `${path}: ${JSON.stringify(r.body)}`)
       await h.settle()
     }
-    await put(h.laura, 'personas/laura/recetas/tarta.md', 'Más Obsidiana.\n')
-    await put(h.laura, shared, 'Pan.\n')
-    await put(h.noa, 'admin/ajustes.md', 'Más Berilo.\n')
-    await put(h.marta, 'personas/marta/notas.md', 'Más Jade.\n')
-    await put(h.noa, 'familia/sorpresa/regalo.md', 'Más Ámbar.\n')
-    assert.equal((await h.noa('POST', '/api/note', { path: 'admin/borrar.md', text: '# Borrador Berilo\n' })).status, 201)
-    assert.equal((await h.noa('DELETE', h.url('/api/note', { path: 'admin/borrar.md' }))).status, 200)
-    const noaTrash = ((await h.noa('GET', '/api/trash')).body.entries as { id: string }[])[0]!.id
-    const versionOf = async (path: string) => ((await h.laura('GET', h.url('/api/history/versions', { path }))).body.versions as { id: string }[])[0]!.id
+    await put(h.member, `${member}/recetas/tarta.md`, 'Más Obsidiana.\n')
+    await put(h.member, shared, 'Pan.\n')
+    await put(h.admin, 'admin/ajustes.md', 'Más Berilo.\n')
+    await put(h.other, `${other}/notas.md`, 'Más Jade.\n')
+    await put(h.admin, 'familia/sorpresa/regalo.md', 'Más Ámbar.\n')
+    assert.equal((await h.admin('POST', '/api/note', { path: 'admin/borrar.md', text: '# Borrador Berilo\n' })).status, 201)
+    assert.equal((await h.admin('DELETE', h.url('/api/note', { path: 'admin/borrar.md' }))).status, 200)
+    const adminTrash = ((await h.admin('GET', '/api/trash')).body.entries as { id: string }[])[0]!.id
+    const versionOf = async (path: string) => ((await h.member('GET', h.url('/api/history/versions', { path }))).body.versions as { id: string }[])[0]!.id
     const sharedVersion = await versionOf(shared)
-    const lauraVersion = await versionOf('personas/laura/recetas/tarta.md')
+    const memberVersion = await versionOf(`${member}/recetas/tarta.md`)
     const q = (path: string, params: Record<string, string>) => h.url(path, params)
     // Notices addressed to each person about a purge of what they can't read now (M4.1): never its path.
     const store = new server.Notices(h.auth.state)
     const notice = {
-      laura: store.add(h.users.laura.id, { code: 'history_purged_authored', by: h.users.noa.id, path: hidden.laura, version: true })!.id,
-      marta: store.add(h.users.marta.id, { code: 'history_purged_authored', by: h.users.noa.id, path: hidden.marta, version: false })!.id,
+      member: store.add(h.users.member.id, { code: 'history_purged_authored', by: h.users.admin.id, path: hidden.member, version: true })!.id,
+      other: store.add(h.users.other.id, { code: 'history_purged_authored', by: h.users.admin.id, path: hidden.other, version: false })!.id,
     }
 
     const calls = (who: Who): Call[] => {
       const mine = own[who]
       const theirs = hidden[who]
       const folder = hiddenFolder[who]
-      const version = who === 'laura' ? lauraVersion : sharedVersion
+      const version = who === 'member' ? memberVersion : sharedVersion
       const note = (p: string) => q('/api/note', { path: p })
       return [
         { route: 'GET /api/health', method: 'GET', path: '/api/health' },
         { route: 'GET /api/setup', method: 'GET', path: '/api/setup' },
-        { route: 'POST /api/setup', method: 'POST', path: '/api/setup', body: { token: 'x', username: 'y', password: 'z' } },
-        { route: 'POST /api/auth/login', method: 'POST', path: '/api/auth/login', body: { username: 'nadie', password: 'x' } },
+        { route: 'POST /api/setup', method: 'POST', path: '/api/setup', body: { token: m.aSecret(43), username: m.aUsername(), password: m.aPassword() } },
+        { route: 'POST /api/auth/login', method: 'POST', path: '/api/auth/login', body: { username: m.aUsername(), password: m.aPassword() } },
         { route: 'GET /api/auth/me', method: 'GET', path: '/api/auth/me' },
         { route: 'GET /api/config', method: 'GET', path: '/api/config' },
         { route: 'GET /api/workspace', method: 'GET', path: '/api/workspace' },
@@ -141,7 +151,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'GET /api/oauth/authorize', method: 'GET', path: '/api/oauth/authorize' },
         { route: 'POST /api/oauth/authorize', method: 'POST', path: '/api/oauth/authorize', body: {} },
         { route: 'POST /api/admin/rescan', method: 'POST', path: '/api/admin/rescan', body: {}, expect: who === 'agent' ? 404 : 403 },
-        { route: 'POST /api/admin/users', method: 'POST', path: '/api/admin/users', body: { username: 'otro', password: 'a-long-password' }, expect: who === 'agent' ? 404 : 403 },
+        { route: 'POST /api/admin/users', method: 'POST', path: '/api/admin/users', body: { username: m.aUsername(), password: m.aPassword() }, expect: who === 'agent' ? 404 : 403 },
 
         { route: 'GET /api/tree', method: 'GET', path: '/api/tree', expect: 200 },
         { route: 'GET /api/tags', method: 'GET', path: '/api/tags', expect: 200 },
@@ -174,10 +184,10 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'POST /api/daily', method: 'POST', path: '/api/daily', body: {} },
         { route: 'POST /api/attachments', method: 'POST', path: q('/api/attachments', { note: theirs }), body: PNG },
         { route: 'POST /api/attachments/fetch', method: 'POST', path: '/api/attachments/fetch', body: { note: theirs, url: 'http://127.0.0.1:9/x.png' } },
-        { route: 'POST /api/note/link/pin', method: 'POST', path: '/api/note/link/pin', body: { path: shared, raw: '[[Plan]]', target: 'personas/noa/Plan.md' } },
+        { route: 'POST /api/note/link/pin', method: 'POST', path: '/api/note/link/pin', body: { path: shared, raw: '[[Plan]]', target: `${admin}/Plan.md` } },
         { route: 'POST /api/note/orphan', method: 'POST', path: '/api/note/orphan', body: { path: theirs, action: 'discard' } },
         { route: 'POST /api/external-moves/:id/relink', method: 'POST', path: '/api/external-moves/nope/relink', body: { dryRun: true } },
-        { route: 'POST /api/trash/:id/restore', method: 'POST', path: `/api/trash/${noaTrash}/restore`, body: {} },
+        { route: 'POST /api/trash/:id/restore', method: 'POST', path: `/api/trash/${adminTrash}/restore`, body: {} },
         { route: 'POST /api/folder', method: 'POST', path: '/api/folder', body: { path: `${folder}/sub` } },
         { route: 'DELETE /api/folder', method: 'DELETE', path: q('/api/folder', { path: folder }) },
         { route: 'POST /api/folder/move', method: 'POST', path: '/api/folder/move', body: { from: folder, to: 'familia/robada', dryRun: true } },
@@ -187,11 +197,11 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         ...[mine, theirs].map((p) => ({ route: 'GET /api/history/version', method: 'GET', path: q('/api/history/version', { path: p, id: version }) })),
         ...[mine, theirs].map((p) => ({ route: 'GET /api/history/diff', method: 'GET', path: q('/api/history/diff', { path: p, id: version, against: 'current' }) })),
         ...[shared, theirs].map((p) => ({ route: 'GET /api/history/resolved', method: 'GET', path: q('/api/history/resolved', { path: p }) })),
-        { route: 'POST /api/history/restore', method: 'POST', path: '/api/history/restore', body: { path: theirs, id: lauraVersion } },
-        { route: 'POST /api/history/revert', method: 'POST', path: '/api/history/revert', body: { path: theirs, id: lauraVersion, dryRun: true } },
+        { route: 'POST /api/history/restore', method: 'POST', path: '/api/history/restore', body: { path: theirs, id: memberVersion } },
+        { route: 'POST /api/history/revert', method: 'POST', path: '/api/history/revert', body: { path: theirs, id: memberVersion, dryRun: true } },
         // Purging (D-038.9): what they can't see, by name, as a note, a version or a folder.
         { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: theirs, dryRun: true }, expect: 404 },
-        { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: theirs, version: lauraVersion, dryRun: true }, expect: 404 },
+        { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: theirs, version: memberVersion, dryRun: true }, expect: 404 },
         { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: `${folder}/nada.md`, dryRun: true }, expect: 404 },
         { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: folder, dryRun: true }, expect: who === 'agent' ? 404 : 400 },
         { route: 'DELETE /api/history/purges/:id', method: 'DELETE', path: '/api/history/purges/nope', expect: who === 'agent' ? 404 : 403 },
@@ -200,30 +210,30 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'POST /api/note/comment', method: 'POST', path: '/api/note/comment', body: { path: theirs, op: 'resolve', thread: 'x|y|z|0' }, expect: 404 },
         { route: 'POST /api/note/comment', method: 'POST', path: '/api/note/comment', body: { path: shared, op: 'resolve', thread: 'x|y|z|0' }, expect: who === 'agent' ? 404 : 412 },
 
-        ...[folder, 'personas/laura/recetas', 'familia'].map((f) => ({ route: 'GET /api/permissions', method: 'GET', path: q('/api/permissions', { folder: f }) })),
+        ...[folder, `${member}/recetas`, 'familia'].map((f) => ({ route: 'GET /api/permissions', method: 'GET', path: q('/api/permissions', { folder: f }) })),
         { route: 'PUT /api/permissions', method: 'PUT', path: '/api/permissions', body: { folder, grants: {}, ifMatch: 'x' } },
         { route: 'GET /api/permissions/folders', method: 'GET', path: '/api/permissions/folders' },
         { route: 'GET /api/permissions/access', method: 'GET', path: '/api/permissions/access' },
-        { route: 'GET /api/permissions/access', method: 'GET', path: q('/api/permissions/access', { user: h.users.noa.id }) },
+        { route: 'GET /api/permissions/access', method: 'GET', path: q('/api/permissions/access', { user: h.users.admin.id }) },
         { route: 'POST /api/permissions/holds/:id', method: 'POST', path: '/api/permissions/holds/nope', body: { action: 'release' } },
         // Users and groups (piece U): names only, one's own account, and the admin's.
         { route: 'GET /api/invite/:token', method: 'GET', path: '/api/invite/nope' },
-        { route: 'POST /api/invite/:token', method: 'POST', path: '/api/invite/nope', body: { password: 'a-long-password' } },
+        { route: 'POST /api/invite/:token', method: 'POST', path: '/api/invite/nope', body: { password: m.aPassword() } },
         { route: 'GET /api/directory', method: 'GET', path: '/api/directory' },
         { route: 'GET /api/account/sessions', method: 'GET', path: '/api/account/sessions' },
         { route: 'DELETE /api/account/sessions/:id', method: 'DELETE', path: '/api/account/sessions/nope' },
         { route: 'DELETE /api/account/sessions', method: 'DELETE', path: '/api/account/sessions' },
-        { route: 'POST /api/auth/password', method: 'POST', path: '/api/auth/password', body: { current: 'wrong', password: 'another-long-password' } },
+        { route: 'POST /api/auth/password', method: 'POST', path: '/api/auth/password', body: { current: m.aPassword(), password: m.aPassword() } },
         // One's own notices: someone else's doesn't exist.
-        { route: 'DELETE /api/account/notices/:id', method: 'DELETE', path: `/api/account/notices/${who === 'laura' ? notice.marta : notice.laura}`, expect: 404 },
+        { route: 'DELETE /api/account/notices/:id', method: 'DELETE', path: `/api/account/notices/${who === 'member' ? notice.other : notice.member}`, expect: 404 },
         // The second factor: pending tokens and codes that don't exist, one's own, and the admin's reset.
-        { route: 'POST /api/auth/login/code', method: 'POST', path: '/api/auth/login/code', body: { token: 'nope', code: '000000' } },
-        { route: 'POST /api/auth/2fa/setup', method: 'POST', path: '/api/auth/2fa/setup', body: { token: 'nope' } },
-        { route: 'POST /api/auth/2fa/enable', method: 'POST', path: '/api/auth/2fa/enable', body: { token: 'nope', code: '000000' } },
+        { route: 'POST /api/auth/login/code', method: 'POST', path: '/api/auth/login/code', body: { token: m.aSecret(43), code: '000000' } },
+        { route: 'POST /api/auth/2fa/setup', method: 'POST', path: '/api/auth/2fa/setup', body: { token: m.aSecret(43) } },
+        { route: 'POST /api/auth/2fa/enable', method: 'POST', path: '/api/auth/2fa/enable', body: { token: m.aSecret(43), code: '000000' } },
         { route: 'GET /api/account/2fa', method: 'GET', path: '/api/account/2fa' },
-        { route: 'POST /api/account/2fa/setup', method: 'POST', path: '/api/account/2fa/setup', body: { password: 'wrong' } },
+        { route: 'POST /api/account/2fa/setup', method: 'POST', path: '/api/account/2fa/setup', body: { password: m.aPassword() } },
         { route: 'POST /api/account/2fa/enable', method: 'POST', path: '/api/account/2fa/enable', body: { code: '000000' } },
-        { route: 'POST /api/account/2fa/recovery', method: 'POST', path: '/api/account/2fa/recovery', body: { confirm: 'wrong' } },
+        { route: 'POST /api/account/2fa/recovery', method: 'POST', path: '/api/account/2fa/recovery', body: { confirm: m.aPassword() } },
         { route: 'POST /api/account/2fa/disable', method: 'POST', path: '/api/account/2fa/disable', body: { code: '000000' } },
         { route: 'POST /api/admin/users/:id/2fa/reset', method: 'POST', path: '/api/admin/users/nope/2fa/reset', expect: who === 'agent' ? 404 : 403 },
         ...([
@@ -243,7 +253,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
 
     const before = Object.values(hidden).map((p) => readFileSync(join(h.notesDir, p), 'utf8'))
     const covered = new Set<string>()
-    for (const who of ['laura', 'marta', 'agent'] as Who[]) {
+    for (const who of ['member', 'other', 'agent'] as Who[]) {
       const send = who === 'agent' ? h.withKey(agentKey.token) : h.as(who)
       const marks = hiddenMarks(who)
       assert.ok(marks.length > 5, `${who} has something not to see`)
@@ -271,17 +281,17 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
     const toolCalls: [string, Record<string, unknown>][] = [
       ...['Turmalina', 'Obsidiana', 'Jade', 'Cuarzo', 'Leche', 'Ámbar', 'tag:intimo', 'path:personas'].map((query): [string, Record<string, unknown>] => ['search', { query }]),
       ['get_note', { path: theirs }], ['get_note', { path: shared }], ['get_note', { uid: '01TARTA0000000000000000000' }],
-      ['list_folder', { folder: '' , recursive: true }], ['list_folder', { folder: 'personas' }], ['list_folder', { folder: 'personas/laura' }],
+      ['list_folder', { folder: '' , recursive: true }], ['list_folder', { folder: 'personas' }], ['list_folder', { folder: member }],
       ['related', { path: shared }], ['related', { path: theirs }],
       ['resolve_link', { from: shared, link: '[[tarta]]' }], ['resolve_link', { from: shared, link: '[[Plan]]' }], ['resolve_link', { from: theirs, link: '[[compra]]' }],
       ['changes_since', { path: theirs, since: 'sha256:x' }], ['changes_since', { path: shared, since: sharedVersion }],
       ['history', { path: theirs }], ['history', { path: shared }], ['history', { path: shared, version: sharedVersion }],
       ['daily_note', { create: false }],
-      ['create_note', { path: 'personas/laura/nueva.md', text: 'x' }], ['create_note', { path: 'familia/de-plantilla.md', template: theirs }],
+      ['create_note', { path: `${member}/nueva.md`, text: 'x' }], ['create_note', { path: 'familia/de-plantilla.md', template: theirs }],
       ['edit_note', { path: theirs, operations: [{ op: 'append', text: 'x' }] }],
       ['move', { from: shared, to: 'familia/lista.md', dry_run: true }], ['move', { from: theirs, to: 'familia/x.md', dry_run: true }],
       ['delete', { path: theirs }],
-      ['revert_change', { path: theirs, version: lauraVersion, dry_run: true }],
+      ['revert_change', { path: theirs, version: memberVersion, dry_run: true }],
     ]
     const toolsCovered = new Set<string>()
     for (const [name, args] of toolCalls) {

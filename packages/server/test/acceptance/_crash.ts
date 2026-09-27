@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as Y from 'yjs'
 import { api, closeAll, connect, login, type Client, type Srv } from '../_collab.ts'
-import { sleep, waitFor } from './_harness.ts'
+import { PASSWORD, USER, sleep, waitFor } from './_harness.ts'
 
 export const AGENT_MARK = 'AGENT-MARK'
 
@@ -194,7 +194,7 @@ export async function killRound(o: RoundOptions): Promise<RoundResult & { srv: S
     if (countLine(disk, AGENT_MARK) !== 1) failures.push(`round ${o.round}: the agent's anchor appears ${countLine(disk, AGENT_MARK)} times after the restart`)
 
     // 2. The open tabs reconnect: everything they typed converges once.
-    await login(srv) // the session survived (state.db)
+    await login(srv, { username: USER, password: PASSWORD }) // the session survived (state.db)
     await sleep(500)
     a.stop = b.stop = true
     await Promise.all([a.loop, b.loop])

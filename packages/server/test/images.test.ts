@@ -12,6 +12,9 @@ import {
   type ExternalImages, type FetchImageOptions, type Runtime,
 } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
@@ -27,8 +30,9 @@ async function setup(opts: { maxImageBytes?: number; webDir?: string; externalIm
   const dir = tempDir('thoth-images-')
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
-  // A member sees nothing until something is granted (D-038): noa edits everywhere.
-  if (opts.role === 'member') writeFileSync(join(notesDir, 'thoth.yaml'), 'permissions:\n  "": { grants: { noa: edit } }\n')
+  const user = m.aUser({ role: opts.role ?? 'admin' })
+  // A member sees nothing until something is granted (D-038): the user edits everywhere.
+  if (opts.role === 'member') writeFileSync(join(notesDir, 'thoth.yaml'), `permissions:\n  "": { grants: { ${JSON.stringify(user.username)}: edit } }\n`)
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
@@ -37,9 +41,9 @@ async function setup(opts: { maxImageBytes?: number; webDir?: string; externalIm
   runtime.rescan({})
   const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db: index, maxImageBytes: opts.maxImageBytes })
   const app = createApp({ auth, profiles: new Profiles(state), workspace: new Workspace({ notesDir }), notes, index, indexer, notesDir, runtime, webDir: opts.webDir, externalImages: opts.externalImages, imageFetchTesting: opts.fetchTesting })
-  await auth.createUser('noa', 'a-long-password', opts.role ?? 'admin')
+  await auth.createUser(user.username, user.password, user.role)
   const login = await app.request('/api/auth/login', {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'noa', password: 'a-long-password' }),
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: user.username, password: user.password }),
   })
   const cookie = login.headers.get('set-cookie')!.split(';')[0]!
   assert.ok(cookie.startsWith(SESSION_COOKIE + '='))

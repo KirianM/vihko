@@ -1,6 +1,6 @@
 // Shared setup for the history tests that run in-process: a copy of the test
 // vault, the recorder with short timings, the note service and the API, two
-// users signed in. The collaboration hub isn't here (history-hub.test.ts runs
+// users signed in: an admin and a member (new ones for every folder, _people.ts). The collaboration hub isn't here (history-hub.test.ts runs
 // a real server for what the editor does).
 import { chmodSync, cpSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -8,14 +8,19 @@ import { fileURLToPath } from 'node:url'
 import { Auth, History, Indexer, NoteService, Profiles, Workspace, createApp, openIndex, openState, type Runtime } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
 import { withEveryone } from './_permissions.ts'
+import { byNames, create, newPeople, type ByNames, type Person } from './_people.ts'
 
 export const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/** The people of each folder a setup made: a restart (`dir`) signs the same ones in. */
+const peopleOf = new Map<string, { admin: Person; member: Person }>()
+
 export interface HistorySetup {
-  /** Before anything starts: files to add to the vault copy. */
-  files?: Record<string, string | Uint8Array>
-  config?: string
+  /** Before anything starts: files to add to the vault copy (a function of the people's usernames when they name them). */
+  files?: ByNames<Record<string, string | Uint8Array>>
+  /** thoth.yaml (a function of the people's usernames when it names them). */
+  config?: ByNames<string>
   git?: string
   /** Reuse a folder from an earlier setup (a restart). */
   dir?: string
@@ -34,22 +39,23 @@ export async function setup(opts: HistorySetup = {}) {
   const dir = opts.dir ?? tempDir('thoth-history-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
+  const people = fresh ? newPeople() : peopleOf.get(dir)!
+  const names = { admin: people.admin.username, member: people.member.username }
   if (fresh) {
     cpSync(VAULT, notesDir, { recursive: true })
-    for (const [p, content] of Object.entries(opts.files ?? {})) {
+    for (const [p, content] of Object.entries(byNames(opts.files ?? {}, names))) {
       mkdirSync(join(notesDir, p, '..'), { recursive: true })
       writeFileSync(join(notesDir, p), content)
     }
     // Both users see everything unless the test brings its own permissions (_permissions.ts).
-    writeFileSync(join(notesDir, 'thoth.yaml'), withEveryone(opts.config))
+    writeFileSync(join(notesDir, 'thoth.yaml'), withEveryone(opts.config === undefined ? undefined : byNames(opts.config, names), names.admin, names.member))
     opts.prepare?.({ dir, notesDir })
   }
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
-  const users = fresh
-    ? { noa: await auth.createUser('noa', 'a-long-password', 'admin'), ana: await auth.createUser('ana', 'a-long-password', 'member') }
-    : null
+  const users = fresh ? { admin: await create(auth, people.admin), member: await create(auth, people.member) } : peopleOf.get(dir)!
+  peopleOf.set(dir, users)
   const workspace = new Workspace({ notesDir })
   const indexer = new Indexer({ notesDir, db: index })
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
@@ -67,17 +73,19 @@ export async function setup(opts: HistorySetup = {}) {
   indexer.onApplied = (a) => history.recorder.observeIndexed(a)
   const notes = new NoteService({ notesDir, stateDir, indexer, db: index, history: history.recorder, attachments: () => workspace.config.attachments })
   const app = createApp({ auth, profiles: new Profiles(state), workspace, notes, index, indexer, notesDir, runtime, history })
-  const cookies: Record<string, string> = {}
-  for (const name of ['noa', 'ana']) {
-    const res = await app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: name, password: 'a-long-password' }) })
-    cookies[name] = res.headers.get('set-cookie')!.split(';')[0]!
+  type Role = keyof typeof users
+  const cookies = {} as Record<Role, string>
+  for (const role of Object.keys(users) as Role[]) {
+    const { username, password } = users[role]
+    const res = await app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password }) })
+    cookies[role] = res.headers.get('set-cookie')!.split(';')[0]!
   }
-  const as = (user: 'noa' | 'ana') => async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
-    const res = await app.request(path, { method, headers: { 'content-type': 'application/json', cookie: cookies[user]!, ...headers }, body: body === undefined ? undefined : JSON.stringify(body) })
+  const as = (user: Role) => async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
+    const res = await app.request(path, { method, headers: { 'content-type': 'application/json', cookie: cookies[user], ...headers }, body: body === undefined ? undefined : JSON.stringify(body) })
     return { status: res.status, body: await res.json().catch(() => null) as any, headers: res.headers }
   }
-  const noa = as('noa')
-  const ids = { noa: users?.noa.id ?? idOf(state, 'noa'), ana: users?.ana.id ?? idOf(state, 'ana') }
+  const admin = as('admin')
+  const ids = { admin: users.admin.id, member: users.member.id }
   const q = (s: string) => encodeURIComponent(s)
   /** Everything open becomes a version and reaches git. */
   const settle = async () => {
@@ -85,16 +93,16 @@ export async function setup(opts: HistorySetup = {}) {
     await history.recorder.settle()
   }
   const versions = async (path: string, extra = '') => {
-    const r = await noa('GET', `/api/history/versions?path=${q(path)}${extra}`)
+    const r = await admin('GET', `/api/history/versions?path=${q(path)}${extra}`)
     if (r.status !== 200) throw new Error(`versions of ${path}: ${r.status} ${JSON.stringify(r.body)}`)
     return r.body as { versions: any[]; next: string | null; pending: any; excluded: boolean }
   }
-  const changes = async (extra = '', who: 'noa' | 'ana' = 'noa') => {
+  const changes = async (extra = '', who: Role = 'admin') => {
     const r = await as(who)('GET', `/api/history/changes?limit=100${extra}`)
     if (r.status !== 200) throw new Error(`changes: ${r.status} ${JSON.stringify(r.body)}`)
     return r.body as { changes: any[]; next: string | null; authors: any[] }
   }
-  const put = async (path: string, edit: (t: string) => string, who: 'noa' | 'ana' = 'noa') => {
+  const put = async (path: string, edit: (t: string) => string, who: Role = 'admin') => {
     const cur = await as(who)('GET', `/api/note?path=${q(path)}`)
     const r = await as(who)('PUT', `/api/note?path=${q(path)}`, { text: edit(cur.body.text) }, { 'if-match': `"${cur.body.etag}"` })
     if (r.status !== 200) throw new Error(`put ${path}: ${r.status} ${JSON.stringify(r.body)}`)
@@ -105,11 +113,7 @@ export async function setup(opts: HistorySetup = {}) {
     index.close()
     state.close()
   }
-  return { dir, notesDir, stateDir, app, history, notes, indexer, workspace, auth, ids, logs, noa, ana: as('ana'), settle, versions, changes, put, close, q }
-}
-
-function idOf(state: ReturnType<typeof openState>, username: string): string {
-  return (state.prepare('select id from users where username = ?').get(username) as { id: string }).id
+  return { dir, notesDir, stateDir, app, history, notes, indexer, workspace, auth, users, ids, logs, admin, member: as('member'), settle, versions, changes, put, close, q }
 }
 
 /** A git that fails while `flag` exists (a broken repository, a full disk…). */
@@ -121,5 +125,5 @@ export function flakyGit(dir: string): { git: string; flag: string } {
   return { git, flag }
 }
 
-/** Author kinds and names of a version, for short asserts: `user:noa`, `system`, `external`. */
+/** Author kinds and names of a version, for short asserts: `user:<name>`, `system`, `external`. */
 export const who = (v: { authors: { kind: string; name: string }[] }) => v.authors.map((a) => (a.kind === 'user' ? `user:${a.name}` : a.kind)).join(',')

@@ -5,9 +5,12 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync, readdirSync, readlinkSync } from 'node:fs'
 import { join } from 'node:path'
+import { mother } from '../../../test/mother.ts'
 
-export const ANA = { name: 'Ana Pérez', email: 'ana@example.com' }
-export const BEA = { name: 'Bea', email: 'bea@example.com' }
+const m = mother(import.meta.url)
+/** Two authors of the user's commits (git's name and e-mail, not thoth users). */
+export const AUTHOR = { name: m.aDisplayName(), email: m.anEmail() }
+export const CO_AUTHOR = { name: m.aDisplayName(), email: m.anEmail() }
 
 /** The environment the user's git runs with in tests: nothing from the machine's configuration. */
 export function gitEnv(extra: Record<string, string> = {}): Record<string, string> {
@@ -29,7 +32,7 @@ export function userGit(top: string, opts: { since?: number } = {}) {
     run,
     head: () => run(['rev-parse', 'HEAD']).trim(),
     /** Commits what changed (`add: false`: only what is staged already), as `who`. */
-    commit(message: string, who = ANA, opts: { add?: boolean } = {}): { id: string; at: string } {
+    commit(message: string, who = AUTHOR, opts: { add?: boolean } = {}): { id: string; at: string } {
       clock += 60
       const date = new Date(clock * 1000).toISOString().slice(0, 19) + '+0000'
       if (opts.add !== false) run(['add', '-A'])

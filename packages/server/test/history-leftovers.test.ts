@@ -88,19 +88,19 @@ test('while a git gc that outlived thoth still runs, its locks are its own: noth
 test('stale locks from a kill -9 before startup (main.lock, index.lock, HEAD.lock): the history is available, and what the journal held reaches git once, with its authors', async () => {
   const dir = tempDir('thoth-git-')
   const { git, flag } = flakyGit(dir)
-  // Long quiet time: ana's version is still open when thoth stops.
+  // Long quiet time: the member's version is still open when thoth stops.
   const h = await setup({ git, quietMs: 60_000 })
   let total: number
   try {
     total = (await h.changes()).changes.length
-    // Git fails: noa's version waits in the queue…
+    // Git fails: the admin's version waits in the queue…
     writeFileSync(flag, '')
     await h.put(NOTE, (t) => t + '\nEN-LA-COLA\n')
     h.history.recorder.closeAll()
     await h.history.recorder.settle()
-    assert.equal((await h.noa('GET', '/api/history/status')).body.available, false)
-    // …and ana's is open.
-    await h.put('tags.md', (t) => t + 'ABIERTA\n', 'ana')
+    assert.equal((await h.admin('GET', '/api/history/status')).body.available, false)
+    // …and the member's is open.
+    await h.put('tags.md', (t) => t + 'ABIERTA\n', 'member')
   } finally { await h.close() }
   const journal = readFileSync(join(h.stateDir, 'history/journal.json'), 'utf8')
   assert.ok(journal.includes('EN-LA-COLA') && journal.includes('ABIERTA'), 'both in the journal')
@@ -114,13 +114,13 @@ test('stale locks from a kill -9 before startup (main.lock, index.lock, HEAD.loc
   const again = await setup({ dir: h.dir })
   try {
     await again.settle()
-    assert.deepEqual((await again.noa('GET', '/api/history/status')).body, { mode: 'managed', available: true, error: null })
-    assert.ok(!(await again.noa('GET', '/api/alerts')).body.alerts.some((a: any) => a.code === 'history_unavailable'))
+    assert.deepEqual((await again.admin('GET', '/api/history/status')).body, { mode: 'managed', available: true, error: null })
+    assert.ok(!(await again.admin('GET', '/api/alerts')).body.alerts.some((a: any) => a.code === 'history_unavailable'))
     const note = (await again.versions(NOTE)).versions
-    assert.deepEqual(note.map(who), ['user:noa', 'system'])
-    assert.ok((await again.noa('GET', `/api/history/version?path=${again.q(NOTE)}&id=${note[0].id}`)).body.text.includes('EN-LA-COLA'))
+    assert.deepEqual(note.map(who), [`user:${again.users.admin.username}`, 'system'])
+    assert.ok((await again.admin('GET', `/api/history/version?path=${again.q(NOTE)}&id=${note[0].id}`)).body.text.includes('EN-LA-COLA'))
     const tags = (await again.versions('tags.md')).versions
-    assert.deepEqual(tags.map((v: any) => [who(v), v.foundAtStartup]), [['user:ana', false], ['system', false]])
+    assert.deepEqual(tags.map((v: any) => [who(v), v.foundAtStartup]), [[`user:${again.users.member.username}`, false], ['system', false]])
     assert.equal((await again.changes()).changes.length, total! + 2, 'each version once')
     for (const f of ['refs/heads/main.lock', 'HEAD.lock', 'index.lock']) {
       assert.ok(!existsSync(join(gitDir, f)), f)

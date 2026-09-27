@@ -278,7 +278,7 @@ test('renaming an open note: editors are told, nothing is lost and the old path 
 })
 
 test('trashing an open note tells its editors the entry, and restoring it reopens it', async () => {
-  const { notes, env } = makeDirs()
+  const { notes, env, admin } = makeDirs()
   const srv = await startServer(env)
   try {
     const cookie = await login(srv)
@@ -290,7 +290,7 @@ test('trashing an open note tells its editors the entry, and restoring it reopen
     const del = await api(srv, cookie, 'DELETE', `/api/note?path=${encodeURIComponent(NOTE)}`)
     assert.equal(del.status, 200)
     await waitFor(() => messages.some((m) => m.type === 'thoth:trashed'), 'trash notice')
-    assert.deepEqual(messages.find((m) => m.type === 'thoth:trashed'), { type: 'thoth:trashed', path: NOTE, id: del.body.id, by: 'noa' })
+    assert.deepEqual(messages.find((m) => m.type === 'thoth:trashed'), { type: 'thoth:trashed', path: NOTE, id: del.body.id, by: admin.username })
     // The editor is still around and retries: it does not resurrect the note, not even by typing.
     typeLine(a, 'AFTER-DELETE')
     await sleep(1500)

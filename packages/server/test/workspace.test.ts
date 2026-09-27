@@ -7,12 +7,12 @@ import { SESSION_COOKIE } from '@thoth/server'
 import { CONFIG, setup } from './_app.ts'
 
 test('workspace: read at start, reloaded on change; an invalid file keeps the last good one', async () => {
-  const { notesDir, workspace, noa } = await setup({ config: CONFIG })
+  const { notesDir, workspace, admin } = await setup({ config: CONFIG })
   assert.deepEqual(workspace.config.daily.map((s) => s.id), ['diario', 'equipo'])
-  assert.deepEqual((await noa('GET', '/api/workspace')).body.templates, 'Plantillas')
+  assert.deepEqual((await admin('GET', '/api/workspace')).body.templates, 'Plantillas')
   assert.equal(workspace.reload(), false, 'unchanged file: nothing to do')
 
-  const configAlerts = async () => (await noa('GET', '/api/alerts')).body.alerts.filter((a: { code: string }) => a.code === 'config_invalid' || a.code === 'config_warnings')
+  const configAlerts = async () => (await admin('GET', '/api/alerts')).body.alerts.filter((a: { code: string }) => a.code === 'config_invalid' || a.code === 'config_warnings')
 
   // An unknown key is left out with a warning; the rest applies.
   writeFileSync(join(notesDir, 'thoth.yaml'), CONFIG.replace('templates:', 'templtes:'))
@@ -42,13 +42,13 @@ test('workspace: read at start, reloaded on change; an invalid file keeps the la
 })
 
 test('workspace: invalid from the start means nothing configured; never served as a file', async () => {
-  const { workspace, noa } = await setup({ config: 'daily: [\n' })
+  const { workspace, admin } = await setup({ config: 'daily: [\n' })
   assert.deepEqual(workspace.config.daily, [])
-  const alert = (await noa('GET', '/api/alerts')).body.alerts.find((a: { code: string }) => a.code === 'config_invalid')
+  const alert = (await admin('GET', '/api/alerts')).body.alerts.find((a: { code: string }) => a.code === 'config_invalid')
   assert.equal(alert.fallback, 'none')
   assert.equal(alert.errors[0].code, 'yaml')
-  assert.equal((await noa('GET', '/api/file?path=thoth.yaml')).status, 404)
-  assert.equal((await noa('GET', '/api/tree')).body.notes.some((n: { path: string }) => n.path === 'thoth.yaml'), false, 'not a note')
+  assert.equal((await admin('GET', '/api/file?path=thoth.yaml')).status, 404)
+  assert.equal((await admin('GET', '/api/tree')).body.notes.some((n: { path: string }) => n.path === 'thoth.yaml'), false, 'not a note')
 })
 
 test('workspace: an unreadable file is an alert, not a crash', { skip: process.getuid?.() === 0 }, async () => {
@@ -64,8 +64,8 @@ test('workspace: an unreadable file is an alert, not a crash', { skip: process.g
 })
 
 test('attachments: thoth.yaml can send new images to a fixed folder', async () => {
-  const { app } = await setup({ config: CONFIG })
-  const login = await app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'noa', password: 'a-long-password' }) })
+  const { app, users } = await setup({ config: CONFIG })
+  const login = await app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: users.admin.username, password: users.admin.password }) })
   const cookie = login.headers.get('set-cookie')!.split(';')[0]!
   assert.ok(cookie.startsWith(SESSION_COOKIE))
   const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13])

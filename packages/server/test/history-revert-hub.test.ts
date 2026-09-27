@@ -4,19 +4,16 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { EVERYONE } from './_permissions.ts'
 import { join } from 'node:path'
+import { everyone } from './_permissions.ts'
 import { CLI, api, closeAll, connect, login, makeDirs, startServer, typeLine, waitFor, type Srv } from './_collab.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 const NOTE = 'hogar/Proxy.md'
 const q = encodeURIComponent
 const FAST = { THOTH_HISTORY_QUIET_SECONDS: '0.4', THOTH_HISTORY_MAX_SECONDS: '30' }
-
-async function loginAs(srv: Srv, username: string): Promise<string> {
-  const r = await fetch(srv.base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password: 'a-long-password' }) })
-  assert.equal(r.status, 200)
-  return r.headers.get('set-cookie')!.split(';')[0]!
-}
 
 async function versionsOf(srv: Srv, cookie: string, path: string) {
   const r = await api(srv, cookie, 'GET', `/api/history/versions?path=${q(path)}`)
@@ -27,14 +24,15 @@ async function versionsOf(srv: Srv, cookie: string, path: string) {
 const names = (v: { authors: { kind: string; name: string }[] }) => v.authors.map((a) => (a.kind === 'user' ? a.name : a.kind)).join(',')
 
 test('reverting on an open note: both editors get it at once, and what was typed after the version, and while reverting, stays', async () => {
-  const { notes, env } = makeDirs()
-  spawnSync(process.execPath, [CLI, 'user', 'create', 'ana'], { env: { ...process.env, ...env }, input: 'a-long-password' })
-  // ana edits everything, as before M4 (_permissions.ts).
-  writeFileSync(join(notes, 'thoth.yaml'), EVERYONE)
+  const { notes, env, admin } = makeDirs()
+  const member = m.aUser({ role: 'member' })
+  spawnSync(process.execPath, [CLI, 'user', 'create', member.username], { env: { ...process.env, ...env }, input: member.password })
+  // The member edits everything, as before M4 (_permissions.ts).
+  writeFileSync(join(notes, 'thoth.yaml'), everyone(admin.username, member.username))
   const srv = await startServer({ ...env, ...FAST })
   try {
     const k = await login(srv)
-    const a = await loginAs(srv, 'ana')
+    const a = await login(srv, member)
     const ck = await connect(srv, k, NOTE)
     const ca = await connect(srv, a, NOTE)
     // «The agent»: a write through the API while the note is open.
@@ -42,9 +40,9 @@ test('reverting on an open note: both editors get it at once, and what was typed
     assert.equal(edit.status, 200, JSON.stringify(edit.body))
     await waitFor(() => ck.text().includes('AGENT-PARAGRAPH'), 'the write reaches the editor')
     typeLine(ck, 'PERSON-1')
-    await waitFor(async () => (await versionsOf(srv, k, NOTE)).versions.some((v: any) => names(v) === 'noa'), 'the typed version closes', 15_000)
+    await waitFor(async () => (await versionsOf(srv, k, NOTE)).versions.some((v: any) => names(v) === admin.username), 'the typed version closes', 15_000)
     const { versions } = await versionsOf(srv, k, NOTE)
-    const agent = versions.find((v: any) => names(v) === 'ana')
+    const agent = versions.find((v: any) => names(v) === member.username)
     assert.ok(agent, JSON.stringify(versions.map(names)))
 
     const preview = await api(srv, k, 'POST', '/api/history/revert', { path: NOTE, id: agent.id, dryRun: true })
@@ -65,7 +63,7 @@ test('reverting on an open note: both editors get it at once, and what was typed
     await waitFor(() => { const t = readFileSync(join(notes, NOTE), 'utf8'); return !t.includes('AGENT-PARAGRAPH') && t.includes('PERSON-2') }, 'flushed')
     await waitFor(async () => (await versionsOf(srv, k, NOTE)).versions[0]?.reason?.code === 'reverted', 'the revert\'s version')
     const after = await versionsOf(srv, k, NOTE)
-    assert.equal(names(after.versions[0]), 'noa')
+    assert.equal(names(after.versions[0]), admin.username)
     assert.deepEqual(after.versions[0].reason, { code: 'reverted', id: agent.id, at: agent.at })
 
     // Reverting the revert, still open: the agent's paragraph comes back for both.

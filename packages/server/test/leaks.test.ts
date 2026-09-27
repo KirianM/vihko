@@ -153,7 +153,7 @@ test('a key limited to proyectos/ sees nothing of what it can\'t read, through a
     // Counts: only what the key can read counts.
     const tags = JSON.parse(responses['GET /api/tags']![0]!.text).tags as { tag: string; count: number; total: number }[]
     assert.deepEqual(tags.find((t) => t.tag === 'compartida'), { tag: 'compartida', count: 1, total: 1 })
-    const adminTags = (await h.noa('GET', '/api/tags')).body.tags as { tag: string; count: number }[]
+    const adminTags = (await h.admin('GET', '/api/tags')).body.tags as { tag: string; count: number }[]
     assert.equal(adminTags.find((t) => t.tag === 'compartida')!.count, 3, 'the UI still sees everything')
     const byTag = (await key('GET', q('/api/search', { q: 'tag:compartida' }))).body.results
     assert.deepEqual(byTag.map((r: { path: string }) => r.path), ['proyectos/visible.md'])
@@ -188,7 +188,7 @@ test('a key limited to proyectos/ sees nothing of what it can\'t read, through a
     // The link rewritten by a move it can't see: the version is there, the paths of that move aren't.
     const visibleVersions = JSON.parse(responses['GET /api/history/versions']![0]!.text).versions
     const relinked = visibleVersions.find((v: { reason: { code?: string } | null }) => v.reason?.code === 'note_moved')
-    assert.deepEqual([relinked.reason.from, relinked.reason.to, relinked.reason.by.name], [null, null, 'noa'])
+    assert.deepEqual([relinked.reason.from, relinked.reason.to, relinked.reason.by.name], [null, null, h.users.admin.username])
 
     // «Recent changes»: only files it can see, and only their authors.
     const changes = JSON.parse(responses['GET /api/history/changes']![0]!.text)
@@ -205,7 +205,7 @@ test('the filter in the query and the one for a path agree, note by note', async
     const principal = h.keys.authenticate(token, 'api')!
     const access = h.services.policy.for(principal)
     const w = access.notesWhere('n')
-    const all = (h.services.scoped(h.services.policy.for({ kind: 'user', user: h.users.noa })).tree().notes).map((n) => n.path)
+    const all = (h.services.scoped(h.services.policy.for({ kind: 'user', user: h.users.admin })).tree().notes).map((n) => n.path)
     const listed = new Set((h.services.scoped(access).tree().notes).map((n) => n.path))
     const viaSql = new Set((h.index.prepare(`select path from notes n where ${w.sql}`).all(...w.params) as { path: string }[]).map((r) => r.path))
     for (const p of all) {

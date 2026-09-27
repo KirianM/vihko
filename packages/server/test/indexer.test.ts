@@ -6,6 +6,13 @@ import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { Indexer, SCHEMA_VERSION, dumpIndex, openIndex, type Db } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
+import { mother } from '../../../test/mother.ts'
+
+// Comments' authors (usernames).
+const m = mother(import.meta.url)
+const AUTHOR = m.aUsername()
+const REPLIER = m.aUsername()
+const AGENT = m.aUsername()
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
@@ -69,10 +76,10 @@ test('full-text search without accents', () => {
 test('comments inside a note are not body text: not searchable, not in its title', () => {
   const { notes, db, indexer } = setup('comments')
   writeFileSync(join(notes, 'discussed.md'), [
-    '# Storage <!-- @ana 2026-09-24T08:10Z · rename it? -->',
+    `# Storage <!-- @${REPLIER} 2026-09-24T08:10Z · rename it? -->`,
     '',
-    'We use Postgres for the index.<!-- @noa 2026-09-24T08:12Z · no, use zanahoria -->',
-    '<!-- @claude 2026-09-24T08:15Z · ↳ agreed, switching to pepino -->',
+    `We use Postgres for the index.<!-- @${AUTHOR} 2026-09-24T08:12Z · no, use zanahoria -->`,
+    `<!-- @${AGENT} 2026-09-24T08:15Z · ↳ agreed, switching to pepino -->`,
     '',
   ].join('\n'))
   indexer.scan()

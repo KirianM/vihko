@@ -10,9 +10,12 @@ import { LinkIndex, extract, readFrontmatter } from '@thoth/core'
 import { Indexer, NoteError, NoteService, openIndex, rewriteLink, type Actor } from '@thoth/server'
 import { setup as appSetup } from './_app.ts'
 import { tempDir } from './_tmp.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
-const me: Actor = { kind: 'user', id: 'noa' }
+const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
 
 function setup() {
   const dir = tempDir('thoth-pin-')
@@ -94,20 +97,20 @@ test("pinning is refused for a note that isn't a candidate or a link that isn't 
 // --- HTTP -----------------------------------------------------------------------
 
 test('HTTP: the links carry where they are and their candidates\' titles; pinning goes through the API', async () => {
-  const { noa, notesDir } = await appSetup()
-  const links = await noa('GET', '/api/note/links?path=diario/2026-09-24.md')
+  const { admin, notesDir } = await appSetup()
+  const links = await admin('GET', '/api/note/links?path=diario/2026-09-24.md')
   const tareas = links.body.outgoing.find((l: { raw: string }) => l.raw === '[[Tareas]]')
   assert.equal(tareas.status, 'ambiguous')
   assert.equal(typeof tareas.pos_from, 'number')
   assert.deepEqual(links.body.titles, { 'proyectos/blog/Tareas.md': 'Tareas de blog', 'proyectos/thoth/Tareas.md': 'Tareas de thoth' })
 
-  const r = await noa('POST', '/api/note/link/pin', { path: 'diario/2026-09-24.md', raw: '[[Tareas]]', at: tareas.pos_from, target: 'proyectos/thoth/Tareas.md' })
+  const r = await admin('POST', '/api/note/link/pin', { path: 'diario/2026-09-24.md', raw: '[[Tareas]]', at: tareas.pos_from, target: 'proyectos/thoth/Tareas.md' })
   assert.equal(r.status, 200)
   assert.equal(r.body.raw, '[[thoth/Tareas]]')
   assert.ok(readFileSync(join(notesDir, 'diario/2026-09-24.md'), 'utf8').includes('- [[thoth/Tareas]] es ambiguo'))
-  const bad = await noa('POST', '/api/note/link/pin', { path: 'diario/2026-09-24.md', raw: '[[Tareas]]', target: 'proyectos/thoth/Tareas.md' })
+  const bad = await admin('POST', '/api/note/link/pin', { path: 'diario/2026-09-24.md', raw: '[[Tareas]]', target: 'proyectos/thoth/Tareas.md' })
   assert.equal(bad.status, 409)
   assert.equal(bad.body.error, 'edit_mismatch')
-  const invalid = await noa('POST', '/api/note/link/pin', { path: 'diario/2026-09-24.md', raw: '[[Tareas]]', at: 'x', target: 'a.md' })
+  const invalid = await admin('POST', '/api/note/link/pin', { path: 'diario/2026-09-24.md', raw: '[[Tareas]]', at: 'x', target: 'a.md' })
   assert.equal(invalid.status, 400)
 })

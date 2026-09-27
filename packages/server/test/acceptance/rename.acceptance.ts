@@ -16,7 +16,7 @@ import Database from 'better-sqlite3'
 import { classifyPath, extract, readFrontmatter, setFrontmatterKey } from '@thoth/core'
 import { Indexer, dumpIndex, openIndex } from '@thoth/server'
 import { api, closeAll, connect, login } from '../_collab.ts'
-import { cleanup, metric, startServer, timed, waitFor, workspace, type Server, type Workspace } from './_harness.ts'
+import { PASSWORD, USER, cleanup, metric, startServer, timed, waitFor, workspace, type Server, type Workspace } from './_harness.ts'
 
 interface LinkRow { src_path: string; ord: number; raw: string; status: string; dst_path: string | null; anchor_ok: number | null; candidates: string | null }
 
@@ -145,7 +145,7 @@ test('renaming heavily linked notes keeps every link of the vault', { timeout: 3
   let srv: Server | null = null
   try {
     srv = await startServer(ws.env)
-    const cookie = await login(srv)
+    const cookie = await login(srv, { username: USER, password: PASSWORD })
     const { hub, hubTarget, trap } = ws.vault
     // The hub moves to another folder, to the name the trap already has.
     const r1 = await checkedMove(srv, cookie, ws, hub, hubTarget, true)

@@ -7,7 +7,7 @@
 // runs against the Docker image in docker.acceptance.ts.
 import { test } from 'node:test'
 import { login } from '../_collab.ts'
-import { NOTES, cleanup, startServer, workspace, type Server } from './_harness.ts'
+import { NOTES, PASSWORD, USER, cleanup, startServer, workspace, type Server } from './_harness.ts'
 import { m3DoneWhen } from './_m3.ts'
 
 test(`M3 done when, over ${NOTES} notes: an agent writes a plan, a person edits it, the agent sees it and folds it in, all in the history, nothing hidden leaks`, { timeout: 300_000 }, async () => {
@@ -15,7 +15,7 @@ test(`M3 done when, over ${NOTES} notes: an agent writes a plan, a person edits 
   let srv: Server | null = null
   try {
     srv = await startServer({ ...ws.env, THOTH_HISTORY_QUIET_SECONDS: '1', THOTH_RESCAN_SECONDS: '5' })
-    await m3DoneWhen({ srv, cookie: await login(srv), notesDir: ws.notesDir })
+    await m3DoneWhen({ srv, cookie: await login(srv, { username: USER, password: PASSWORD }), user: { username: USER, password: PASSWORD }, notesDir: ws.notesDir })
   } finally {
     await srv?.stop()
     cleanup(ws)

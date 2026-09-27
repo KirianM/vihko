@@ -6,8 +6,11 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { dirname, join } from 'node:path'
 import { Indexer, NoteService, dumpIndex, openIndex, type Actor } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
+import { mother } from '../../../test/mother.ts'
 
-const me: Actor = { kind: 'user', id: 'noa' }
+// The user the writes are made as (an id, as thoth has them).
+const m = mother(import.meta.url)
+const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
 
 function setup(files: Record<string, string | Uint8Array>) {

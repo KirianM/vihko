@@ -5,8 +5,11 @@ import { dirname, join } from 'node:path'
 import { readFrontmatter } from '@thoth/core'
 import { Indexer, NoteError, NoteService, dumpIndex, openIndex, type Actor } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
+import { mother } from '../../../test/mother.ts'
 
-const me: Actor = { kind: 'user', id: 'noa' }
+// The user the writes are made as (an id, as thoth has them).
+const m = mother(import.meta.url)
+const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
 const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex')
 
 /** A small vault where a folder move touches every kind of reference. */

@@ -8,6 +8,10 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Indexer, NoteService, matchMoves, openIndex, type DetectedMove, type MoveCandidate } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
+const USER_ID = m.faker.string.ulid()
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 const UID = '01J8Z6S6ZK3R2V4TQ9WQ4M3N7B'
@@ -115,8 +119,8 @@ test('watcher batches: a removal and an addition a moment apart pair within the 
 test("thoth's own writes are not someone else's move", async () => {
   const { dir, notesDir, db, indexer, moves } = indexed()
   const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db })
-  await notes.move('proyectos/thoth/Plan.md', 'archivo/Plan.md', { actor: { kind: 'user', id: 'noa' } })
-  await notes.moveFolder('hogar', 'infra', { actor: { kind: 'user', id: 'noa' } })
+  await notes.move('proyectos/thoth/Plan.md', 'archivo/Plan.md', { actor: { kind: 'user', id: USER_ID } })
+  await notes.moveFolder('hogar', 'infra', { actor: { kind: 'user', id: USER_ID } })
   // What the watcher would see afterwards changes nothing.
   indexer.indexPaths(['proyectos/thoth/Plan.md', 'archivo/Plan.md', 'hogar/Proxy.md', 'infra/Proxy.md'], { detectMoves: true })
   indexer.scan()
