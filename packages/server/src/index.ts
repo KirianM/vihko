@@ -45,7 +45,7 @@ export { DEFAULT_RULES, LoginLimiter, SETUP_ACCOUNT, accountKey, type Attempt, t
 export { UNKNOWN_IP, clientIp, ipKey, trustedProxiesFrom } from './http/clientIp.ts'
 export { ftsQuery, search } from './http/search.ts'
 export { configFromEnv, openStores, start, type Config } from './main.ts'
-export { COLLAB_PATH, CollabHub, ORPHAN_MESSAGE, SAVED_MESSAGE, TEXT, type AgentPresenceState, type HubOptions } from './hub.ts'
+export { ACCESS_MESSAGE, COLLAB_PATH, CollabHub, HUB_MESSAGES, MOVED_MESSAGE, ORPHAN_MESSAGE, ORPHAN_RESOLVED_MESSAGE, SAVED_MESSAGE, STALE_MESSAGE, TEXT, TRASHED_MESSAGE, type AgentPresenceState, type HubOptions } from './hub.ts'
 export { applyEdits, applySplices, planEdits, spliceOf, type EditOp, type Splice } from './edits.ts'
 export { FetchImageError, SERVED_TYPES, attachmentPath, fetchImage, noteAttachmentsDir, sniffImage, type FetchErrorCode, type FetchImageOptions } from './attachments.ts'
 export { Workspace, type WorkspaceOptions } from './workspace.ts'

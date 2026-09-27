@@ -158,11 +158,12 @@ async function run(config: Config, lock: StateLock) {
     git: config.history.git, quietMs: config.history.quietMs, maxOpenMs: config.history.maxOpenMs, sweepMs: config.history.sweepMs,
     nameOf: (a) => (a.kind === 'user' ? auth.username(a.id) ?? a.id : a.kind === 'agent' ? keys.nameOf(a.id) ?? a.id : a.kind),
   })
-  /** Rereads thoth.yaml and applies what the index and the history depend on. */
+  /** Rereads thoth.yaml and applies what the index, the history and open editors depend on. */
   const reloadWorkspace = () => {
     if (!workspace.reload()) return
     indexer.setLinkAliases(workspace.config.links.aliases)
     history.configure().catch((e) => log(`history: ${e instanceof Error ? e.message : String(e)}`))
+    follow?.recheckAccess()
   }
 
   const runtime: Runtime = {
@@ -178,7 +179,7 @@ async function run(config: Config, lock: StateLock) {
   log(`index ready: ${first.added.length} added, ${first.changed.length} changed, ${first.removed.length} removed, ${first.unchanged} unchanged`)
 
   await history.open()
-  const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log, history: history.recorder, agentName: (id) => keys.nameOf(id) })
+  const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log, history: history.recorder, agentName: (id) => keys.nameOf(id), policy })
   // Checked against the index as the first scan left it. One that stopped may
   // have left the index behind the files: then no saved state is trusted.
   if (!first.aborted) hub.trustSavedStates()
@@ -216,7 +217,7 @@ async function run(config: Config, lock: StateLock) {
   const profiles = new Profiles(state)
   const app = createApp({
     auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies,
-    policy, holds,
+    policy, holds, onPermissionsChanged: () => hub.recheckAccess(),
     // The MCP server, at /mcp (off until the admin turns it on).
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log }) },
   })
