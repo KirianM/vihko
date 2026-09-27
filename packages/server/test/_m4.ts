@@ -1,10 +1,11 @@
 // The M4 scenario (m4-multiusuario.md §7), shared by the permission tests
-// and the leak sweep: an admin, a member and another member (the mother's,
-// the same for every setup of a test file), a group of the two members
-// (until piece U brings groups, a stand-in `groupsOf`). Rules: the root is
-// the admin's; `personas/{user}` → `manage`; `familia` → the group edits it,
-// and the admin; the member's `diario` with `ai: false`. The API with keys,
-// the MCP server and the history, in process.
+// and the leak sweep: an admin, a member and another member, a group of the
+// two members (until piece U brings groups, a stand-in `groupsOf`), and a
+// vault (FILES) whose folders, notes, tags and words are the mother's too,
+// the same for every setup of a test file. Rules: the root is the admin's;
+// `<DIR.people>/{user}` → `manage`; the shared folder (`DIR.shared`) → the
+// group edits it, and the admin; the member's diary with `ai: false`. The
+// API with keys, the MCP server and the history, in process.
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, PermissionHolds, PermissionsEngine, Profiles, Workspace, createServer, mountMcp, openIndex, openState, stateDirectory, toolData, AccessPolicy, type Runtime } from '@thoth/server'
@@ -20,8 +21,43 @@ export const MEMBER = m.aUser({ role: 'member' })
 export const OTHER = m.aUser({ role: 'member' })
 /** The group of the two members. */
 export const GROUP = m.aGroupName()
-/** A name nobody has: `personas/<NOBODY>` is the folder of no user. */
+/** A name nobody has: `<DIR.people>/<NOBODY>` is the folder of no user. */
 export const NOBODY = m.aUsername()
+
+/** The folders of the scenario: the shared one, the one of everyone's own, the admin's. */
+export const DIR = { shared: m.aFolder(), people: m.aFolder(), admin: m.aFolder() }
+/** The member's diary and recipes folders, inside their own. */
+const DIARY_DIR = m.aFolder()
+const RECIPES_DIR = m.aFolder()
+/** Note names (without `.md`) that other notes link to. */
+export const NAME = { list: m.aTitle(), cake: m.aTitle(), plan: m.aTitle(), photo: m.aFolder() }
+/** A tag of the shared list and the diary, and one of the diary alone. */
+export const TAG = { home: m.aTag(), intimate: m.aTag() }
+/** Words only one note has, to find it by searching (and to spot it where it mustn't be). */
+export const WORD = {
+  diary: m.aUniqueWord(), cake: m.aUniqueWord(), other: m.aUniqueWord(), admin: m.aUniqueWord(),
+  nobody: m.aUniqueWord(), settings: m.aUniqueWord(), root: m.aUniqueWord(),
+}
+/** The uids the list and the recipe carry. */
+export const UID = { list: m.faker.string.ulid(), cake: m.faker.string.ulid() }
+/** Each person's own folder. */
+export const home = (username: string) => `${DIR.people}/${username}`
+/** The notes and images of FILES, by what they are. */
+export const PATH = {
+  list: `${DIR.shared}/${NAME.list}.md`,
+  photo: `${DIR.shared}/${NAME.photo}.png`,
+  diaryDir: `${home(MEMBER.username)}/${DIARY_DIR}`,
+  diary: `${home(MEMBER.username)}/${DIARY_DIR}/2026-09-27.md`,
+  cake: `${home(MEMBER.username)}/${RECIPES_DIR}/${NAME.cake}.md`,
+  memberPhoto: `${home(MEMBER.username)}/${NAME.photo}-${MEMBER.username}.png`,
+  otherNotes: `${home(OTHER.username)}/${m.aTitle()}.md`,
+  // Two notes of the admin whose names differ only in case, and one more at the root.
+  adminPlan: `${home(ADMIN.username)}/${NAME.plan.toLowerCase()}.md`,
+  adminPlanCased: `${home(ADMIN.username)}/${NAME.plan}.md`,
+  nobodyNote: `${home(NOBODY)}/${m.aTitle()}.md`,
+  settings: `${DIR.admin}/${m.aTitle()}.md`,
+  rootPlan: `${NAME.plan}.md`,
+}
 
 /** A 1×1 PNG. */
 export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
@@ -30,11 +66,11 @@ export const RULES = `# Who reads what
 permissions:
   "":
     grants: { ${yamlKey(ADMIN.username)}: manage }
-  familia:
+  ${yamlKey(DIR.shared)}:
     grants: { ${yamlKey(`@${GROUP}`)}: edit, ${yamlKey(ADMIN.username)}: edit }
-  "personas/{user}":
+  ${yamlKey(`${DIR.people}/{user}`)}:
     grants: { "{user}": manage }
-  ${yamlKey(`personas/${MEMBER.username}/diario`)}:
+  ${yamlKey(PATH.diaryDir)}:
     ai: false
 `
 
@@ -171,16 +207,16 @@ export async function setup(opts: M4Setup = {}) {
 
 /** The vault of the scenario: a shared folder, each person's own, the member's diary and recipes, and notes that link across. */
 export const FILES: Record<string, string | Uint8Array> = {
-  'familia/compra.md': '---\ntags: [casa]\nuid: 01COMPRA000000000000000000\n---\n# Lista de la compra\n\nLeche. Ver [[tarta]] y [[2026-09-27]]. [[Plan]]\n\n![](foto.png)\n',
-  'familia/foto.png': PNG,
-  [`personas/${MEMBER.username}/diario/2026-09-27.md`]: `---\ntags: [casa, intimo]\n---\n# Diario de ${MEMBER.username}\n\nSecreto Turmalina. Hablé de [[compra]].\n`,
-  [`personas/${MEMBER.username}/recetas/tarta.md`]: `---\nuid: 01TARTA0000000000000000000\n---\n# Tarta de ${MEMBER.username}\n\nTarta Obsidiana. [[compra]]\n`,
-  [`personas/${MEMBER.username}/foto-${MEMBER.username}.png`]: PNG,
-  [`personas/${OTHER.username}/notas.md`]: `# Notas de ${OTHER.username}\n\nPalabra Jade.\n`,
-  // Two notes whose names differ only in case, in the admin's folder.
-  [`personas/${ADMIN.username}/plan.md`]: `# Plan de ${ADMIN.username}\n\nProyecto Ónice. [[compra]]\n`,
-  [`personas/${ADMIN.username}/Plan.md`]: `# Otro Plan de ${ADMIN.username}\n\nÓnice dos.\n`,
-  [`personas/${NOBODY}/nota.md`]: '# De nadie\n\nPalabra Cuarzo.\n',
-  'admin/ajustes.md': '# Ajustes del admin\n\nPalabra Berilo. [[compra]]\n',
-  'Plan.md': '# Plan raíz\n\nPalabra Berilo raíz.\n',
+  // An image destination with a space is no image: written as %20.
+  [PATH.list]: `---\ntags: [${TAG.home}]\nuid: ${UID.list}\n---\n# ${m.aHeading()}\n\n${m.aSentence()} [[${NAME.cake}]] [[2026-09-27]]. [[${NAME.plan}]]\n\n![](${NAME.photo.replaceAll(' ', '%20')}.png)\n`,
+  [PATH.photo]: PNG,
+  [PATH.diary]: `---\ntags: [${TAG.home}, ${TAG.intimate}]\n---\n# ${m.aHeading()} ${MEMBER.username}\n\n${m.aSentence()} ${WORD.diary}. [[${NAME.list}]]\n`,
+  [PATH.cake]: `---\nuid: ${UID.cake}\n---\n# ${m.aHeading()} ${MEMBER.username}\n\n${m.aSentence()} ${WORD.cake}. [[${NAME.list}]]\n`,
+  [PATH.memberPhoto]: PNG,
+  [PATH.otherNotes]: `# ${m.aHeading()} ${OTHER.username}\n\n${m.aSentence()} ${WORD.other}.\n`,
+  [PATH.adminPlan]: `# ${m.aHeading()} ${ADMIN.username}\n\n${m.aSentence()} ${WORD.admin}. [[${NAME.list}]]\n`,
+  [PATH.adminPlanCased]: `# ${m.aHeading()} ${ADMIN.username}\n\n${m.aSentence()} ${WORD.admin}.\n`,
+  [PATH.nobodyNote]: `# ${m.aHeading()}\n\n${m.aSentence()} ${WORD.nobody}.\n`,
+  [PATH.settings]: `# ${m.aHeading()}\n\n${m.aSentence()} ${WORD.settings}. [[${NAME.list}]]\n`,
+  [PATH.rootPlan]: `# ${m.aHeading()}\n\n${m.aSentence()} ${WORD.settings} ${WORD.root}.\n`,
 }

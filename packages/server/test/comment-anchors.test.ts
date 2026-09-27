@@ -16,9 +16,19 @@ const AUTHOR = m.aUsername()
 const REPLIER = m.aUsername()
 
 const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
-const C1 = `<!-- @${AUTHOR} 2026-09-24T08:12Z · no, use SQLite -->`
-const C2 = `<!-- @${REPLIER} 2026-09-24T09:00Z · ↳ agreed -->`
-const C3 = `<!-- @${REPLIER} 2026-09-24T09:30Z · which one? -->`
+/** A thread (a comment and its reply) and a comment of its own, whatever they say. */
+const C1_TEXT = m.aComment()
+const C1 = `<!-- @${AUTHOR} 2026-09-24T08:12Z · ${C1_TEXT} -->`
+const C2 = `<!-- @${REPLIER} 2026-09-24T09:00Z · ↳ ${m.aComment()} -->`
+const C3 = `<!-- @${REPLIER} 2026-09-24T09:30Z · ${m.aComment()} -->`
+/** The sentence a thread is on, then reworded; a list item; a sentence before them. */
+const FIRST = m.aSentence()
+const REWORDED = m.aSentence()
+const ITEM = m.aHeading()
+const INTRO = m.aSentence()
+const HEADING = m.aHeading()
+/** The originals as the index lists them (by text, as SQLite compares it). */
+const sorted = (...texts: string[]) => [...texts].sort()
 
 function setup() {
   const dir = tempDir('thoth-comment-anchors-')
@@ -26,6 +36,7 @@ function setup() {
   mkdirSync(notesDir, { recursive: true })
   let n = 0
   const write = (p: string, text: string) => {
+    mkdirSync(join(notesDir, p, '..'), { recursive: true })
     writeFileSync(join(notesDir, p), text)
     // A distinct whole-second mtime each time, so a rescan never takes it for unchanged.
     const t = 1_800_000_000 + ++n
@@ -43,69 +54,73 @@ function setup() {
 
 test('the first text a thread is seen with is kept while the note changes', () => {
   const { write, open } = setup()
-  write('plan.md', `# Plan\n\nIntro. We'll use Postgres for the index.${C1}\n${C2}\n\n- Two options${C3}\n`)
+  const note = m.aNotePath()
+  write(note, `# ${HEADING}\n\n${INTRO} ${FIRST}${C1}\n${C2}\n\n- ${ITEM}${C3}\n`)
   const { indexer, rows } = open()
-  assert.deepEqual(rows('plan.md'), ['Two options', "We'll use Postgres for the index."])
+  assert.deepEqual(rows(note), sorted(ITEM, FIRST))
 
-  write('plan.md', `# Plan\n\nIntro. We'll use SQLite for the index.${C1}\n${C2}\n\n- Two options${C3}\n`)
+  write(note, `# ${HEADING}\n\n${INTRO} ${REWORDED}${C1}\n${C2}\n\n- ${ITEM}${C3}\n`)
   indexer.scan()
-  assert.deepEqual(rows('plan.md'), ['Two options', "We'll use Postgres for the index."], 'the original, not the new text')
+  assert.deepEqual(rows(note), sorted(ITEM, FIRST), 'the original, not the new text')
 
   // Resolving deletes the thread: its memory goes too. The same comment added again starts over.
-  write('plan.md', `# Plan\n\nIntro. We'll use SQLite for the index.\n\n- Two options${C3}\n`)
+  write(note, `# ${HEADING}\n\n${INTRO} ${REWORDED}\n\n- ${ITEM}${C3}\n`)
   indexer.scan()
-  assert.deepEqual(rows('plan.md'), ['Two options'])
-  write('plan.md', `# Plan\n\nIntro. We'll use SQLite for the index.${C1}\n\n- Two options${C3}\n`)
+  assert.deepEqual(rows(note), [ITEM])
+  write(note, `# ${HEADING}\n\n${INTRO} ${REWORDED}${C1}\n\n- ${ITEM}${C3}\n`)
   indexer.scan()
-  assert.deepEqual(rows('plan.md'), ['Two options', "We'll use SQLite for the index."])
+  assert.deepEqual(rows(note), sorted(ITEM, REWORDED))
 })
 
 test('a rebuilt index takes the text as it is then; the note file is never touched', () => {
   const { dir, notesDir, write, open } = setup()
-  write('plan.md', `We'll use Postgres.${C1}\n`)
+  const note = m.aNotePath()
+  write(note, `${FIRST}${C1}\n`)
   const first = open()
-  write('plan.md', `We'll use SQLite.${C1}\n`)
+  write(note, `${REWORDED}${C1}\n`)
   first.indexer.scan()
-  assert.deepEqual(first.rows('plan.md'), ["We'll use Postgres."])
+  assert.deepEqual(first.rows(note), [FIRST])
   first.db.close()
   rmSync(join(dir, 'index.db'))
   const rebuilt = open()
-  assert.deepEqual(rebuilt.rows('plan.md'), ["We'll use SQLite."])
-  assert.equal(readFileSync(join(notesDir, 'plan.md'), 'utf8'), `We'll use SQLite.${C1}\n`)
+  assert.deepEqual(rebuilt.rows(note), [REWORDED])
+  assert.equal(readFileSync(join(notesDir, note), 'utf8'), `${REWORDED}${C1}\n`)
 })
 
 test('moving or renaming a note keeps its threads\' original text', async () => {
   const { dir, notesDir, write, open } = setup()
-  write('plan.md', `We'll use Postgres.${C1}\n`)
+  const [from, to] = [m.aNotePath(), m.aNotePath(m.aFolder())]
+  write(from, `${FIRST}${C1}\n`)
   const { db, indexer, rows } = open()
-  write('plan.md', `We'll use SQLite.${C1}\n`)
+  write(from, `${REWORDED}${C1}\n`)
   indexer.scan()
   const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db })
-  await notes.move('plan.md', 'archive/roadmap.md', { actor: me })
-  assert.deepEqual(rows('archive/roadmap.md'), ["We'll use Postgres."])
-  assert.deepEqual(rows('plan.md'), [])
+  await notes.move(from, to, { actor: me })
+  assert.deepEqual(rows(to), [FIRST])
+  assert.deepEqual(rows(from), [])
   assert.equal((db.prepare('select count(*) n from comment_anchors').get() as { n: number }).n, 1, 'nothing left behind')
 })
 
 test('GET /api/note/comments: the original text and whether it changed', async () => {
   const { notesDir, runtime, admin } = await appSetup()
-  const path = 'Plan comentado.md'
+  const path = m.aNotePath()
   const file = join(notesDir, path)
-  writeFileSync(file, `Intro. We'll use Postgres for the index.${C1}\n\nA general remark.\n\n${C3}\n`)
+  const remark = m.aSentence()
+  const comments = async () => (await admin('GET', `/api/note/comments?path=${encodeURIComponent(path)}`)).body
+  writeFileSync(file, `${INTRO} ${FIRST}${C1}\n\n${remark}\n\n${C3}\n`)
   runtime.rescan({})
   const r1 = await admin('GET', `/api/note/comments?path=${encodeURIComponent(path)}`)
   assert.equal(r1.status, 200)
-  assert.deepEqual(r1.body.threads.map((t: any) => [t.original, t.changed]), [["We'll use Postgres for the index.", false], ['', false]])
-  assert.equal(r1.body.threads[0].id, `${AUTHOR}|2026-09-24T08:12Z|no, use SQLite|0`)
+  assert.deepEqual(r1.body.threads.map((t: any) => [t.original, t.changed]), [[FIRST, false], ['', false]])
+  assert.equal(r1.body.threads[0].id, `${AUTHOR}|2026-09-24T08:12Z|${C1_TEXT}|0`)
 
   // Reflowing or spacing is not a change; rewording is.
-  writeFileSync(file, `Intro.  We'll  use \tPostgres for the index. ${C1}\n\nA general remark.\n\n${C3}\n`)
+  writeFileSync(file, `${INTRO}  ${FIRST.replaceAll(' ', '  ').replace('  ', ' \t')} ${C1}\n\n${remark}\n\n${C3}\n`)
   runtime.rescan({})
-  assert.deepEqual((await admin('GET', `/api/note/comments?path=${encodeURIComponent(path)}`)).body.threads.map((t: any) => t.changed), [false, false])
-  writeFileSync(file, `Intro. We'll not use Postgres for the index, ever.${C1}\n\nA general remark.\n\n${C3}\n`)
+  assert.deepEqual((await comments()).threads.map((t: any) => t.changed), [false, false])
+  writeFileSync(file, `${INTRO} ${FIRST.replace(/\.$/, ` ${m.aWord()}.`)}${C1}\n\n${remark}\n\n${C3}\n`)
   runtime.rescan({})
-  const r2 = await admin('GET', `/api/note/comments?path=${encodeURIComponent(path)}`)
-  assert.deepEqual(r2.body.threads.map((t: any) => [t.original, t.changed]), [["We'll use Postgres for the index.", true], ['', false]])
+  assert.deepEqual((await comments()).threads.map((t: any) => [t.original, t.changed]), [[FIRST, true], ['', false]])
 
-  assert.equal((await admin('GET', '/api/note/comments?path=nope.md')).status, 404)
+  assert.equal((await admin('GET', `/api/note/comments?path=${encodeURIComponent(m.aNotePath())}`)).status, 404)
 })

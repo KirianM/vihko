@@ -10,7 +10,11 @@ import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
+// Over a copy of the test vault: its notes and links are the fixture; the new names are the mother's.
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
+/** A new name with a space in it (a Markdown link escapes it), and one without. */
+const spaced = () => `${m.aTitle()} ${m.aWord()}`
+const token = () => m.aUniqueWord()
 const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
 
 function setup() {
@@ -28,27 +32,30 @@ function setup() {
 
 test('renaming rewrites wikilinks (with an anchor) and Markdown links, and leaves the still-valid ones alone', async () => {
   const { notes, body, dst } = setup()
-  const r = await notes.move('hogar/Proxy.md', 'hogar/Hipervisor Proxy.md', { actor: me })
+  const name = spaced()
+  const r = await notes.move('hogar/Proxy.md', `hogar/${name}.md`, { actor: me })
   assert.deepEqual(r.failed, [])
   const t = body('hogar/enlaces.md')
   assert.ok(t.includes('- [[gw]] resuelve por alias'), "the alias still works: it's left alone")
-  assert.ok(t.includes('[[Hipervisor Proxy#Red]]'))
-  assert.ok(t.includes('[[Hipervisor Proxy#No existe]]'))
-  assert.ok(t.includes('[Proxy en Markdown](Hipervisor%20Proxy.md)'))
-  assert.equal(dst('hogar/enlaces.md', '[[Hipervisor Proxy#Red]]'), 'hogar/Hipervisor Proxy.md')
-  assert.equal(dst('hogar/enlaces.md', '[Proxy en Markdown](Hipervisor%20Proxy.md)'), 'hogar/Hipervisor Proxy.md')
+  assert.ok(t.includes(`[[${name}#Red]]`))
+  assert.ok(t.includes(`[[${name}#No existe]]`))
+  const escaped = name.replaceAll(' ', '%20')
+  assert.ok(t.includes(`[Proxy en Markdown](${escaped}.md)`))
+  assert.equal(dst('hogar/enlaces.md', `[[${name}#Red]]`), `hogar/${name}.md`)
+  assert.equal(dst('hogar/enlaces.md', `[Proxy en Markdown](${escaped}.md)`), `hogar/${name}.md`)
 })
 
 test('moving to another folder uses the shortest unambiguous suffix and keeps visible text and embeds', async () => {
   const { notes, body, dst } = setup()
-  await notes.move('proyectos/thoth/Plan.md', 'archivo/Plan.md', { actor: me })
+  const archive = token()
+  await notes.move('proyectos/thoth/Plan.md', `${archive}/Plan.md`, { actor: me })
   const t = body('proyectos/thoth/notas.md')
   // From proyectos/thoth/, [[Plan]] would now go to proyectos/blog/Plan.md: it needs disambiguating.
-  assert.ok(t.includes('- [[archivo/Plan]] resuelve'))
-  assert.ok(t.includes('- [[archivo/Plan|el plan]]'))
-  assert.ok(t.includes('- ![[archivo/Plan]]'))
-  assert.equal(dst('proyectos/thoth/notas.md', '[[archivo/Plan|el plan]]'), 'archivo/Plan.md')
-  assert.ok(body('hogar/enlaces.md').includes('[Plan de thoth](../archivo/Plan.md)'))
+  assert.ok(t.includes(`- [[${archive}/Plan]] resuelve`))
+  assert.ok(t.includes(`- [[${archive}/Plan|el plan]]`))
+  assert.ok(t.includes(`- ![[${archive}/Plan]]`))
+  assert.equal(dst('proyectos/thoth/notas.md', `[[${archive}/Plan|el plan]]`), `${archive}/Plan.md`)
+  assert.ok(body('hogar/enlaces.md').includes(`[Plan de thoth](../${archive}/Plan.md)`))
 })
 
 test('a rename doesn\'t "steal" links from other notes; an absolute path is used if needed', async () => {
@@ -66,82 +73,90 @@ test('a rename doesn\'t "steal" links from other notes; an absolute path is used
 
 test("the moved note's own links keep pointing to the same thing", async () => {
   const { notes, body, dst } = setup()
-  await notes.move('proyectos/thoth/notas.md', 'ideas/notas thoth.md', { actor: me })
-  const t = body('ideas/notas thoth.md')
+  const name = spaced()
+  const to = `${m.aFolder()}/${name}.md`
+  await notes.move('proyectos/thoth/notas.md', to, { actor: me })
+  const t = body(to)
   assert.ok(t.includes('- [[proyectos/thoth/Plan]] resuelve') || t.includes('- [[thoth/Plan]] resuelve'), t)
-  assert.ok(t.includes('- [[notas thoth]] enlace a sí misma'))
-  assert.equal(dst('ideas/notas thoth.md', '[[notas thoth]]'), 'ideas/notas thoth.md')
+  assert.ok(t.includes(`- [[${name}]] enlace a sí misma`))
+  assert.equal(dst(to, `[[${name}]]`), to)
 })
 
 test('the preview details every link that changes and those that keep working untouched', async () => {
   const { notes } = setup()
-  const r = await notes.move('hogar/Proxy.md', 'hogar/Hipervisor Proxy.md', { actor: me, dryRun: true })
+  const name = spaced()
+  const r = await notes.move('hogar/Proxy.md', `hogar/${name}.md`, { actor: me, dryRun: true })
   const enlaces = r.relinked.find((x) => x.path === 'hogar/enlaces.md')!
   assert.deepEqual(enlaces.changes, [
-    { before: '[[Proxy#Red]]', after: '[[Hipervisor Proxy#Red]]' },
-    { before: '[[Proxy#No existe]]', after: '[[Hipervisor Proxy#No existe]]' },
-    { before: '[Proxy en Markdown](Proxy.md)', after: '[Proxy en Markdown](Hipervisor%20Proxy.md)' },
+    { before: '[[Proxy#Red]]', after: `[[${name}#Red]]` },
+    { before: '[[Proxy#No existe]]', after: `[[${name}#No existe]]` },
+    { before: '[Proxy en Markdown](Proxy.md)', after: `[Proxy en Markdown](${name.replaceAll(' ', '%20')}.md)` },
   ])
   assert.equal(enlaces.links, enlaces.changes.length)
   assert.deepEqual(r.kept.filter((k) => k.path === 'hogar/enlaces.md'), [{ path: 'hogar/enlaces.md', raw: '[[gw]]', via: 'alias' }])
   // Moving without renaming: links by name keep working.
-  const m = await notes.move('hogar/Proxy.md', 'infra/Proxy.md', { actor: me, dryRun: true })
-  assert.ok(m.kept.some((k) => k.raw === '[[Proxy#Red]]' && k.via === 'path'))
-  assert.ok(!m.relinked.some((x) => x.changes.some((c) => c.before === '[[Proxy#Red]]')))
+  const moved = await notes.move('hogar/Proxy.md', `${m.aFolder()}/Proxy.md`, { actor: me, dryRun: true })
+  assert.ok(moved.kept.some((k) => k.raw === '[[Proxy#Red]]' && k.via === 'path'))
+  assert.ok(!moved.relinked.some((x) => x.changes.some((c) => c.before === '[[Proxy#Red]]')))
 })
 
 test('dryRun changes nothing; an existing destination and a stale if_match are rejected', async () => {
   const { notesDir, db, notes } = setup()
   const snapshot = dumpIndex(db)
-  const r = await notes.move('hogar/Proxy.md', 'hogar/GW.md', { actor: me, dryRun: true })
+  const to = m.aNotePath('hogar')
+  const r = await notes.move('hogar/Proxy.md', to, { actor: me, dryRun: true })
   assert.equal(r.dryRun, true)
   assert.ok(r.relinked.some((x) => x.path === 'hogar/enlaces.md'))
-  assert.ok(existsSync(join(notesDir, 'hogar/Proxy.md')) && !existsSync(join(notesDir, 'hogar/GW.md')))
+  assert.ok(existsSync(join(notesDir, 'hogar/Proxy.md')) && !existsSync(join(notesDir, to)))
   assert.equal(dumpIndex(db), snapshot)
   await assert.rejects(notes.move('hogar/Proxy.md', '../fuera.md', { actor: me, dryRun: true }), (e: NoteError) => e.code === 'invalid_path')
   await assert.rejects(notes.move('hogar/Proxy.md', 'hogar/Red.md', { actor: me }), (e: NoteError) => e.code === 'exists')
-  await assert.rejects(notes.move('hogar/Proxy.md', 'x.md', { actor: me, ifMatch: 'sha256:bad' }), (e: NoteError) => e.code === 'precondition_failed')
+  await assert.rejects(notes.move('hogar/Proxy.md', m.aNotePath(), { actor: me, ifMatch: 'sha256:bad' }), (e: NoteError) => e.code === 'precondition_failed')
 })
 
 test('if a rewrite fails, the old name is kept as an alias', { skip: process.getuid?.() === 0 }, async () => {
   const { notesDir, indexer, notes, dst } = setup()
   const { mkdirSync, writeFileSync } = await import('node:fs')
-  mkdirSync(join(notesDir, 'otra'))
-  mkdirSync(join(notesDir, 'bloqueada'))
-  writeFileSync(join(notesDir, 'otra/Destino.md'), '# Destino\n')
-  writeFileSync(join(notesDir, 'bloqueada/enlaza.md'), '[[Destino]]\n')
+  const [folder, locked, target, renamed] = [m.aFolder(), m.aFolder(), m.aTitle(), m.aTitle()]
+  const [from, to, linking] = [`${folder}/${target}.md`, `${folder}/${renamed}.md`, m.aNotePath(locked)]
+  mkdirSync(join(notesDir, folder))
+  mkdirSync(join(notesDir, locked))
+  writeFileSync(join(notesDir, from), `# ${target}\n`)
+  writeFileSync(join(notesDir, linking), `[[${target}]]\n`)
   indexer.scan()
-  chmodSync(join(notesDir, 'bloqueada'), 0o555)
+  chmodSync(join(notesDir, locked), 0o555)
   try {
-    const r = await notes.move('otra/Destino.md', 'otra/Nuevo nombre.md', { actor: me })
-    assert.deepEqual(r.failed.map((f) => [f.path, f.error]), [['bloqueada/enlaza.md', 'internal']])
-    assert.equal(r.aliasAdded, 'Destino')
-    assert.deepEqual(readFrontmatter(readFileSync(join(notesDir, 'otra/Nuevo nombre.md'), 'utf8')).data.aliases, ['Destino'])
-    assert.equal(readFileSync(join(notesDir, 'bloqueada/enlaza.md'), 'utf8'), '[[Destino]]\n')
-    assert.equal(dst('bloqueada/enlaza.md', '[[Destino]]'), 'otra/Nuevo nombre.md', 'the unrewritten link still resolves via the alias')
+    const r = await notes.move(from, to, { actor: me })
+    assert.deepEqual(r.failed.map((f) => [f.path, f.error]), [[linking, 'internal']])
+    assert.equal(r.aliasAdded, target)
+    assert.deepEqual(readFrontmatter(readFileSync(join(notesDir, to), 'utf8')).data.aliases, [target])
+    assert.equal(readFileSync(join(notesDir, linking), 'utf8'), `[[${target}]]\n`)
+    assert.equal(dst(linking, `[[${target}]]`), to, 'the unrewritten link still resolves via the alias')
   } finally {
-    chmodSync(join(notesDir, 'bloqueada'), 0o755)
+    chmodSync(join(notesDir, locked), 0o755)
   }
 })
 
 test('with links.aliases off, a failed rewrite adds no alias: it would save nothing', { skip: process.getuid?.() === 0 }, async () => {
   const { notesDir, indexer, notes, dst } = setup()
   const { mkdirSync, writeFileSync } = await import('node:fs')
-  mkdirSync(join(notesDir, 'otra'))
-  mkdirSync(join(notesDir, 'bloqueada'))
-  writeFileSync(join(notesDir, 'otra/Destino.md'), '# Destino\n')
-  writeFileSync(join(notesDir, 'bloqueada/enlaza.md'), '[[Destino]]\n')
+  const [folder, locked, target, renamed] = [m.aFolder(), m.aFolder(), m.aTitle(), m.aTitle()]
+  const [from, to, linking] = [`${folder}/${target}.md`, `${folder}/${renamed}.md`, m.aNotePath(locked)]
+  mkdirSync(join(notesDir, folder))
+  mkdirSync(join(notesDir, locked))
+  writeFileSync(join(notesDir, from), `# ${target}\n`)
+  writeFileSync(join(notesDir, linking), `[[${target}]]\n`)
   indexer.scan()
   indexer.setLinkAliases(false)
-  chmodSync(join(notesDir, 'bloqueada'), 0o555)
+  chmodSync(join(notesDir, locked), 0o555)
   try {
-    const r = await notes.move('otra/Destino.md', 'otra/Nuevo nombre.md', { actor: me })
-    assert.deepEqual(r.failed.map((f) => [f.path, f.error]), [['bloqueada/enlaza.md', 'internal']], 'the failure is still reported')
+    const r = await notes.move(from, to, { actor: me })
+    assert.deepEqual(r.failed.map((f) => [f.path, f.error]), [[linking, 'internal']], 'the failure is still reported')
     assert.equal(r.aliasAdded, null)
-    assert.equal(readFrontmatter(readFileSync(join(notesDir, 'otra/Nuevo nombre.md'), 'utf8')).data.aliases, undefined, 'no alias added')
-    assert.equal(dst('bloqueada/enlaza.md', '[[Destino]]'), null, 'the link left behind is broken')
+    assert.equal(readFrontmatter(readFileSync(join(notesDir, to), 'utf8')).data.aliases, undefined, 'no alias added')
+    assert.equal(dst(linking, `[[${target}]]`), null, 'the link left behind is broken')
   } finally {
-    chmodSync(join(notesDir, 'bloqueada'), 0o755)
+    chmodSync(join(notesDir, locked), 0o755)
   }
 })
 
@@ -149,8 +164,9 @@ test("if the source can't be removed, the note isn't left duplicated", { skip: p
   const { notesDir, notes } = setup()
   chmodSync(join(notesDir, 'recetas'), 0o555)
   try {
-    await assert.rejects(notes.move('recetas/Notas de reunión (2026).md', 'reuniones/2026.md', { actor: me }))
-    assert.ok(!existsSync(join(notesDir, 'reuniones/2026.md')))
+    const to = m.aNotePath(m.aFolder())
+    await assert.rejects(notes.move('recetas/Notas de reunión (2026).md', to, { actor: me }))
+    assert.ok(!existsSync(join(notesDir, to)))
     assert.ok(existsSync(join(notesDir, 'recetas/Notas de reunión (2026).md')))
   } finally {
     chmodSync(join(notesDir, 'recetas'), 0o755)
@@ -165,7 +181,8 @@ test('a move says when the note is in place, counts its rewrites, and moves run 
     onProgress: (done: number, total: number) => { if (done === total) events.push(`${name} ${done}/${total}`) },
   })
   const [a, b] = await Promise.all([
-    notes.move('hogar/Proxy.md', 'hogar/GW.md', { actor: me, ...hooks('a') }).then((r) => { events.push('a done'); return r }),
+    notes.move('hogar/Proxy.md', m.aNotePath('hogar'), { actor: me, ...hooks('a') }).then((r) => { events.push('a done'); return r }),
+    // To `blog`, the name a vault note's partial link already uses: one rewrite, as counted below.
     notes.moveFolder('proyectos/blog', 'blog', { actor: me, ...hooks('b') }).then((r) => { events.push('b done'); return r }),
   ])
   assert.deepEqual([a.failed, b.failed], [[], []])

@@ -11,6 +11,7 @@ import { yamlKey } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
+// A note of the test vault (testdata/vault), which makeDirs copies.
 const NOTE = 'hogar/Proxy.md'
 
 /**
@@ -48,7 +49,7 @@ test('disabling someone ends their open editor and their key at once', async () 
     assert.equal(created.status, 201)
     assert.equal((await api(srv, admin, 'PUT', '/api/admin/integrations', { api: true })).status, 200)
     const session = await signIn(srv, member.username, member.password)
-    const key = { authorization: `Bearer ${(await api(srv, session, 'POST', '/api/keys', { name: 'Script', canWrite: true, confirm: member.password })).body.token}` }
+    const key = { authorization: `Bearer ${(await api(srv, session, 'POST', '/api/keys', { name: m.aKeyName(), canWrite: true, confirm: member.password })).body.token}` }
     assert.equal((await api(srv, '', 'GET', '/api/tree', undefined, key)).status, 200)
 
     const editor = await connect(srv, session, NOTE)
@@ -61,9 +62,10 @@ test('disabling someone ends their open editor and their key at once', async () 
     await waitFor(() => seen.status() === 'disconnected', 'and its connection closes')
     assert.equal((await api(srv, '', 'GET', '/api/tree', undefined, key)).status, 401, 'the key stops at once')
     // It tries to reconnect, and the hub refuses it: what it types never reaches anyone.
-    typeLine(editor, 'WRITTEN-AFTER-DISABLE')
+    const afterDisable = m.aUniqueWord()
+    typeLine(editor, afterDisable)
     await new Promise((r) => setTimeout(r, 1500))
-    assert.ok(!bystander.text().includes('WRITTEN-AFTER-DISABLE'))
+    assert.ok(!bystander.text().includes(afterDisable))
     assert.notEqual(seen.status(), 'connected')
     assert.ok(!other.heard.includes('thoth:session-ended'), 'someone else\'s editor goes on')
     assert.equal(other.status(), 'connected')
@@ -87,8 +89,9 @@ test('a new password ends the editors of the other sessions, not the one that ch
     assert.equal(r.status, 200)
     await waitFor(() => thereSeen.status() === 'disconnected', 'the other session\'s editor closes')
     assert.ok(thereSeen.heard.includes('thoth:session-ended'))
-    typeLine(here, 'STILL-HERE')
-    await waitFor(async () => (await api(srv, admin, 'GET', `/api/note?path=${encodeURIComponent(NOTE)}`)).body?.text?.includes('STILL-HERE'), 'this session keeps writing')
+    const stillHere = m.aUniqueWord()
+    typeLine(here, stillHere)
+    await waitFor(async () => (await api(srv, admin, 'GET', `/api/note?path=${encodeURIComponent(NOTE)}`)).body?.text?.includes(stillHere), 'this session keeps writing')
     assert.ok(!hereSeen.heard.includes('thoth:session-ended'))
     assert.equal(hereSeen.status(), 'connected')
   } finally {

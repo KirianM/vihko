@@ -322,10 +322,11 @@ test('the CLI gives a reset link (the way back for an admin who lost their passw
   const s = await setup()
   try {
     const admin = s.users.admin.username
-    const env = { ...process.env, THOTH_STATE_DIR: s.dir, THOTH_NOTES_DIR: s.notesDir, THOTH_PUBLIC_URL: 'https://notas.example.org' }
+    const publicUrl = `https://${m.aHost()}`
+    const env = { ...process.env, THOTH_STATE_DIR: s.dir, THOTH_NOTES_DIR: s.notesDir, THOTH_PUBLIC_URL: publicUrl }
     const r = spawnSync(process.execPath, ['--no-experimental-webstorage', CLI, 'user', 'reset-link', admin], { env, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
-    const token = /https:\/\/notas\.example\.org\/invite\/([A-Za-z0-9_-]{43})/.exec(r.stdout)?.[1]
+    const token = new RegExp(`${publicUrl.replace(/[.]/g, '\\.')}/invite/([A-Za-z0-9_-]{43})`).exec(r.stdout)?.[1]
     assert.ok(token, r.stdout)
     assert.ok(r.stdout.includes(`password reset link for ${admin}`), r.stdout)
     assert.deepEqual((await anon(s.app, 'GET', `/api/invite/${token}`)).body, { kind: 'reset', username: admin }, 'a running thoth reads it at once')

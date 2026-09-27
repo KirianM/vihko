@@ -61,9 +61,10 @@ async function store() {
 
 test('setting it up: nothing is theirs until a code from the new secret is verified, and that code is spent', async () => {
   const { tf, code, advance, clock, name } = await store()
-  const s = tf.beginSetup('u1', name, 'notas.example.org')
+  const host = m.aHost()
+  const s = tf.beginSetup('u1', name, host)
   assert.match(s.secret, /^([A-Z2-7]{4} ){7}[A-Z2-7]{4}$/, '160 bits, in groups of four to type it')
-  assert.equal(s.uri, `otpauth://totp/thoth:${encodeURIComponent(name)}%40notas.example.org?secret=${s.secret.replace(/ /g, '')}&issuer=thoth&algorithm=SHA1&digits=6&period=30`)
+  assert.equal(s.uri, `otpauth://totp/thoth:${encodeURIComponent(name)}%40${host}?secret=${s.secret.replace(/ /g, '')}&issuer=thoth&algorithm=SHA1&digits=6&period=30`)
   assert.ok(s.qr && s.qr.size >= 21)
   assert.equal(tf.enabled('u1'), false)
   assert.equal(tf.finishSetup('u1', '000000'), null, 'a wrong code')
@@ -303,7 +304,7 @@ test('the policy: a change is confirmed; required makes whoever has none set it 
     assert.equal((await signIn(h, 'member')).body.user.username, member)
     assert.deepEqual((await h.admin('GET', '/api/account/2fa')).body, { policy: 'disabled', enabled: true, enabledAt: since, recoveryCodesLeft: 10, confirmWith: 'code' })
     nextStep(h)
-    assert.equal((await h.admin('POST', '/api/keys', { name: 'k', confirm: totp(secret, h.clock.now.getTime()) })).status, 201, 'keys confirm with the code')
+    assert.equal((await h.admin('POST', '/api/keys', { name: m.aKeyName(), confirm: totp(secret, h.clock.now.getTime()) })).status, 201, 'keys confirm with the code')
     // Who has one may change the app, and turn it off: then it isn't offered again.
     assert.equal((await h.admin('POST', '/api/account/2fa/setup', { password: confirm })).status, 200)
     nextStep(h)
@@ -350,23 +351,25 @@ test('links: an invitation under a required policy sets it up before the session
 })
 
 test('confirming at the moment: creating or rotating a key and approving an OAuth client ask for the current code, or the password without one', async () => {
-  const h = await setup({ publicUrl: 'https://notas.example.org' })
+  const publicUrl = `https://${m.aHost()}`
+  const h = await setup({ publicUrl })
   try {
+    const [first, second, third] = [m.aKeyName(), m.aKeyName(), m.aKeyName()]
     const password = h.users.admin.password
     // Without a second factor: the password.
-    const missing = await h.admin('POST', '/api/keys', { name: 'k' })
+    const missing = await h.admin('POST', '/api/keys', { name: first })
     assert.deepEqual([missing.status, missing.body.error, missing.body.with], [400, 'confirmation_required', 'password'])
-    assert.deepEqual((await h.admin('POST', '/api/keys', { name: 'k', confirm: m.aPassword() })).body.error, 'wrong_password')
-    const key = (await h.admin('POST', '/api/keys', { name: 'k', confirm: password })).body
+    assert.deepEqual((await h.admin('POST', '/api/keys', { name: first, confirm: m.aPassword() })).body.error, 'wrong_password')
+    const key = (await h.admin('POST', '/api/keys', { name: first, confirm: password })).body
 
     // With one: its current code, and never the password (a session left open could know it).
     const { secret } = await enable(h, 'admin')
     nextStep(h)
     const code = () => totp(secret, h.clock.now.getTime())
-    assert.equal((await h.admin('POST', '/api/keys', { name: 'k2' })).body.with, 'code')
-    assert.equal((await h.admin('POST', '/api/keys', { name: 'k2', confirm: password })).body.error, 'invalid_code')
-    assert.equal((await h.admin('POST', '/api/keys', { name: 'k2', confirm: code() })).status, 201)
-    assert.equal((await h.admin('POST', '/api/keys', { name: 'k3', confirm: code() })).body.error, 'code_used', 'a code confirms once')
+    assert.equal((await h.admin('POST', '/api/keys', { name: second })).body.with, 'code')
+    assert.equal((await h.admin('POST', '/api/keys', { name: second, confirm: password })).body.error, 'invalid_code')
+    assert.equal((await h.admin('POST', '/api/keys', { name: second, confirm: code() })).status, 201)
+    assert.equal((await h.admin('POST', '/api/keys', { name: third, confirm: code() })).body.error, 'code_used', 'a code confirms once')
     assert.equal((await h.admin('POST', `/api/keys/${key.key.id}/rotate`)).body.error, 'confirmation_required')
     nextStep(h)
     const rotated = await h.admin('POST', `/api/keys/${key.key.id}/rotate`, { confirm: code() })
@@ -378,9 +381,10 @@ test('confirming at the moment: creating or rotating a key and approving an OAut
 
     // OAuth: saying yes needs the code; saying no never does.
     await h.enableMcp()
-    const reg = await send(h.app, 'POST', '/oauth/register', { client_name: 'Claude', redirect_uris: ['https://claude.example/cb'], token_endpoint_auth_method: 'none' })
+    const redirect = `https://${m.aHost()}/${m.aWord()}`
+    const reg = await send(h.app, 'POST', '/oauth/register', { client_name: m.aKeyName(), redirect_uris: [redirect], token_endpoint_auth_method: 'none' })
     const challenge = createHash('sha256').update(randomBytes(32).toString('base64url')).digest('base64url')
-    const query = new URLSearchParams({ response_type: 'code', client_id: reg.body.client_id, redirect_uri: 'https://claude.example/cb', code_challenge: challenge, code_challenge_method: 'S256', state: 's', resource: 'https://notas.example.org/mcp' }).toString()
+    const query = new URLSearchParams({ response_type: 'code', client_id: reg.body.client_id, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: 'S256', state: m.aWord(), resource: `${publicUrl}/mcp` }).toString()
     assert.equal((await h.admin('POST', '/api/oauth/authorize', { query, approve: true })).body.error, 'confirmation_required')
     assert.equal((await h.admin('POST', '/api/oauth/authorize', { query, approve: true, confirm: '000000' })).body.error, 'invalid_code')
     assert.equal((await h.admin('POST', '/api/oauth/authorize', { query, approve: false })).status, 200)
@@ -395,8 +399,8 @@ test('confirming counts in the login limits: guessing the code with a session le
   const h = await setup()
   try {
     await enable(h, 'admin')
-    for (let i = 0; i < 5; i++) assert.equal((await h.admin('POST', '/api/keys', { name: 'k', confirm: '000000' })).status, 403)
-    assert.equal((await h.admin('POST', '/api/keys', { name: 'k', confirm: '000000' })).status, 429)
+    for (let i = 0; i < 5; i++) assert.equal((await h.admin('POST', '/api/keys', { name: m.aKeyName(), confirm: '000000' })).status, 403)
+    assert.equal((await h.admin('POST', '/api/keys', { name: m.aKeyName(), confirm: '000000' })).status, 429)
   } finally { await h.close() }
 })
 

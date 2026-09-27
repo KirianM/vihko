@@ -14,6 +14,7 @@ const m = mother(import.meta.url)
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
+// Over the test vault: its two notes named Tareas are the ambiguity; the new names are the mother's.
 const DIARY = 'diario/2026-09-24.md'
 const BOTH = ['proyectos/blog/Tareas.md', 'proyectos/thoth/Tareas.md']
 
@@ -51,47 +52,51 @@ test('an ambiguous link the move would resolve is listed in the preview, left as
 
 test('leaving a tie also resolves a link silently: it is listed with the note it will lead to', async () => {
   const { notes } = setup()
-  const r = await notes.move('proyectos/blog/Tareas.md', 'proyectos/blog/Pendientes.md', { actor: me, dryRun: true })
+  const r = await notes.move('proyectos/blog/Tareas.md', m.aNotePath('proyectos/blog'), { actor: me, dryRun: true })
   assert.deepEqual(r.shifted.map((g) => [g.path, g.changes.map((c) => [c.raw, c.code, c.after])]), [
     [DIARY, [['[[Tareas]]', 'resolves', { status: 'resolved', path: 'proyectos/thoth/Tareas.md' }]]],
   ])
 })
 
 test("the moved note's own ambiguous links count too, under its new path", async () => {
-  const { notes } = setup({ 'suelta.md': '# Suelta\n\n- [[Tareas]] desde la raíz es ambiguo.\n' })
-  const r = await notes.move('suelta.md', 'proyectos/thoth/suelta.md', { actor: me, dryRun: true })
+  const name = `${m.aTitle()}.md`
+  const { notes } = setup({ [name]: `# ${m.aHeading()}\n\n- [[Tareas]] ${m.aSentence()}\n` })
+  const r = await notes.move(name, `proyectos/thoth/${name}`, { actor: me, dryRun: true })
   assert.deepEqual(r.shifted, [{
-    path: 'proyectos/thoth/suelta.md', links: 1,
+    path: `proyectos/thoth/${name}`, links: 1,
     changes: [{ raw: '[[Tareas]]', code: 'resolves', before: { status: 'ambiguous', candidates: BOTH }, after: { status: 'resolved', path: 'proyectos/thoth/Tareas.md' } }],
   }])
 })
 
 test('a broken link that a rename would repair is listed as well', async () => {
-  const { notes } = setup({ 'pendiente.md': 'Ver [[Red local]] y [[Red local#Subredes]].\n' })
-  const r = await notes.move('hogar/Red.md', 'hogar/Red local.md', { actor: me, dryRun: true })
-  const group = r.shifted.find((g) => g.path === 'pendiente.md')
+  // Links to a name no note has yet, and the vault's hogar/Red.md renamed to it.
+  const [waiting, name, heading] = [m.aNotePath(), m.aTitle(), m.aHeading()]
+  const { notes } = setup({ [waiting]: `${m.aWord()} [[${name}]] ${m.aWord()} [[${name}#${heading}]].\n` })
+  const r = await notes.move('hogar/Red.md', `hogar/${name}.md`, { actor: me, dryRun: true })
+  const group = r.shifted.find((g) => g.path === waiting)
   assert.equal(group?.links, 2)
   assert.deepEqual(group?.changes.map((c) => [c.raw, c.code, c.before]), [
-    ['[[Red local]]', 'resolves', { status: 'missing' }],
-    ['[[Red local#Subredes]]', 'resolves', { status: 'missing' }],
+    [`[[${name}]]`, 'resolves', { status: 'missing' }],
+    [`[[${name}#${heading}]]`, 'resolves', { status: 'missing' }],
   ])
 })
 
 test('a link that stays ambiguous, among other candidates, is not a shift', async () => {
   const { notes } = setup()
-  const r = await notes.move('proyectos/blog/Tareas.md', 'archivo/x/Tareas.md', { actor: me, dryRun: true })
+  const r = await notes.move('proyectos/blog/Tareas.md', `${m.aFolderPath(2)}/Tareas.md`, { actor: me, dryRun: true })
   assert.deepEqual(r.shifted, [])
 })
 
 test('a folder move lists the links it would resolve, in its preview and its report', async () => {
   const { notes, read } = setup()
+  const to = m.aFolder()
   const expected = [{
     path: DIARY, links: 1,
-    changes: [{ raw: '[[Tareas]]', code: 'resolves', before: { status: 'ambiguous', candidates: BOTH }, after: { status: 'resolved', path: 'blog/Tareas.md' } }],
+    changes: [{ raw: '[[Tareas]]', code: 'resolves', before: { status: 'ambiguous', candidates: BOTH }, after: { status: 'resolved', path: `${to}/Tareas.md` } }],
   }]
-  const preview = await notes.moveFolder('proyectos/blog', 'blog', { actor: me, dryRun: true })
+  const preview = await notes.moveFolder('proyectos/blog', to, { actor: me, dryRun: true })
   assert.deepEqual(preview.shifted, expected)
-  const report = await notes.moveFolder('proyectos/blog', 'blog', { actor: me })
+  const report = await notes.moveFolder('proyectos/blog', to, { actor: me })
   assert.deepEqual(report.shifted, expected)
   assert.ok(read(DIARY).includes('- [[Tareas]] es ambiguo'), 'not rewritten')
 })

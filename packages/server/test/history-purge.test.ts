@@ -12,8 +12,16 @@ import { CLI, makeDirs, startServer } from './_collab.ts'
 import { setup, who } from './_history.ts'
 import { mother } from '../../../test/mother.ts'
 
+// A note of the fixed vault the setup copies (testdata/vault); what is purged is the mother's.
 const NOTE = 'hogar/Proxy.md'
 const m = mother(import.meta.url)
+/** A folder to purge, with a note in it, and another one purged later. */
+const SECRETS = m.aFolder()
+const KEY_NOTE = m.aNotePath(SECRETS)
+const OTHERS = m.aFolder()
+const OTHER_NOTE = m.aNotePath(OTHERS)
+/** `text` for a regular expression that matches it literally. */
+const re = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 /** What is purged: text nothing else in the history has. */
 const SECRET = m.aSecret()
 const PENDING = m.aSecret()
@@ -50,52 +58,53 @@ function purge(env: Record<string, string>, args: string[], extra: Record<string
 const envOf = (h: { notesDir: string; stateDir: string }) => ({ THOTH_NOTES_DIR: h.notesDir, THOTH_STATE_DIR: h.stateDir })
 
 test('purging a path: gone from every version, the journal and the repository; the rest keeps its authors, dates, trailers and moves', async () => {
-  const h = await setup({ quietMs: 60_000, files: { 'secretos/clave.md': '# Clave\n' } })
+  const h = await setup({ quietMs: 60_000, files: { [KEY_NOTE]: `# ${m.aHeading()}\n` } })
+  const MOVED = m.aNotePath(m.aFolder())
   let history: unknown[]
   try {
-    await h.put('secretos/clave.md', (t) => t + `${SECRET}\n`)
+    await h.put(KEY_NOTE, (t) => t + `${SECRET}\n`)
     await h.settle()
-    await h.put(NOTE, (t) => t + '\nprimera\n')
+    await h.put(NOTE, (t) => t + `\n${m.aSentence()}\n`)
     await h.settle()
     const v1 = (await h.versions(NOTE)).versions[0]
-    await h.put(NOTE, (t) => t + 'segunda\n')
+    await h.put(NOTE, (t) => t + `${m.aSentence()}\n`)
     await h.settle()
     assert.equal((await h.admin('POST', '/api/history/restore', { path: NOTE, id: v1.id })).status, 200)
     await h.settle()
-    assert.equal((await h.admin('POST', '/api/note/move', { from: NOTE, to: 'infra/GW.md' })).status, 200)
+    assert.equal((await h.admin('POST', '/api/note/move', { from: NOTE, to: MOVED })).status, 200)
     await h.settle()
-    history = (await h.versions('infra/GW.md')).versions.map((v) => [v.change, v.path, v.from ?? null, who(v), v.at, v.reason?.code ?? null])
+    history = (await h.versions(MOVED)).versions.map((v) => [v.change, v.path, v.from ?? null, who(v), v.at, v.reason?.code ?? null])
     // Still open when thoth stops: only in the journal.
-    await h.put('secretos/clave.md', (t) => t + `${PENDING}\n`)
+    await h.put(KEY_NOTE, (t) => t + `${PENDING}\n`)
     assert.ok(readFileSync(join(h.stateDir, 'history/journal.json'), 'utf8').includes(PENDING))
   } finally { await h.close() }
   const before = await commits(h.stateDir)
   assert.ok((await objects(h.stateDir)).includes(SECRET))
 
-  const dry = purge(envOf(h), ['secretos', '--dry-run'])
+  const dry = purge(envOf(h), [SECRETS, '--dry-run'])
   assert.equal(dry.status, 0, dry.out)
   assert.match(dry.out, /Dry run: nothing is changed/)
-  assert.match(dry.out, /created\s+secretos\/clave\.md/)
-  assert.match(dry.out, /modified\s+secretos\/clave\.md/)
+  assert.match(dry.out, new RegExp(`created\\s+${re(KEY_NOTE)}`))
+  assert.match(dry.out, new RegExp(`modified\\s+${re(KEY_NOTE)}`))
   assert.deepEqual(await commits(h.stateDir), before, 'a dry run changes nothing')
 
-  const run = purge(envOf(h), ['secretos/'])
+  const run = purge(envOf(h), [`${SECRETS}/`])
   assert.equal(run.status, 0, run.out)
-  assert.match(run.out, /Removed 2 file versions of secretos in 2 commits, and rewrote \d+ commits \(1 left empty: dropped\)/)
+  assert.match(run.out, new RegExp(`Removed 2 file versions of ${re(SECRETS)} in 2 commits, and rewrote \\d+ commits \\(1 left empty: dropped\\)`))
   assert.match(run.out, /open version/)
-  assert.match(run.out, /warning: secretos\/clave\.md is still in the notes folder/)
+  assert.match(run.out, new RegExp(`warning: ${re(KEY_NOTE)} is still in the notes folder`))
 
   // Nothing of it anywhere in the repository, nor in the recorder's files.
   const all = await objects(h.stateDir)
   assert.ok(!all.includes(SECRET) && !all.includes(PENDING), 'no object holds the purged content')
   assert.ok(!readFileSync(join(h.stateDir, 'history/journal.json'), 'utf8').includes(PENDING))
-  assert.ok(!readFileSync(join(h.stateDir, 'history/files.json'), 'utf8').includes('secretos/'))
+  assert.ok(!readFileSync(join(h.stateDir, 'history/files.json'), 'utf8').includes(`${SECRETS}/`))
   const after = await commits(h.stateDir)
-  const { stdout: touched } = await repo(h.stateDir).run(['log', '--format=%H', 'refs/heads/main', '--', 'secretos'])
+  const { stdout: touched } = await repo(h.stateDir).run(['log', '--format=%H', 'refs/heads/main', '--', SECRETS])
   assert.equal(touched.toString().trim(), '', 'no version has the folder')
 
   // Every other commit as it was: author, date and message, with a restore pointing to the new id of its version.
-  const kept = before.filter((c) => c.message.split('\n')[0] !== 'Edit secretos/clave.md')
+  const kept = before.filter((c) => c.message.split('\n')[0] !== `Edit ${KEY_NOTE}`)
   assert.equal(after.length, kept.length)
   const renamed = new Map(kept.map((c, i) => [c.id, after[i]!.id]))
   for (let i = 0; i < kept.length; i++) {
@@ -110,87 +119,92 @@ test('purging a path: gone from every version, the journal and the repository; t
   const again = await setup({ dir: h.dir })
   try {
     assert.equal((await again.changes()).changes.length, after.length)
-    assert.deepEqual((await again.versions('infra/GW.md')).versions.map((v) => [v.change, v.path, v.from ?? null, who(v), v.at, v.reason?.code ?? null]), history!)
-    const secret = await again.versions('secretos/clave.md')
+    assert.deepEqual((await again.versions(MOVED)).versions.map((v) => [v.change, v.path, v.from ?? null, who(v), v.at, v.reason?.code ?? null]), history!)
+    const secret = await again.versions(KEY_NOTE)
     assert.deepEqual([secret.versions.length, secret.pending], [0, null])
     // Its next version brings it back, as the command warned.
-    await again.put('secretos/clave.md', (t) => t + 'nueva línea\n')
+    await again.put(KEY_NOTE, (t) => t + `${m.aSentence()}\n`)
     await again.settle()
-    const [v] = (await again.versions('secretos/clave.md')).versions
+    const [v] = (await again.versions(KEY_NOTE)).versions
     assert.deepEqual([v.change, who(v)], ['created', `user:${again.users.admin.username}`])
-    const text = (await again.admin('GET', `/api/history/version?path=${again.q('secretos/clave.md')}&id=${v.id}`)).body.text
+    const text = (await again.admin('GET', `/api/history/version?path=${again.q(KEY_NOTE)}&id=${v.id}`)).body.text
     assert.ok(text.includes(PENDING))
   } finally { await again.close() }
 })
 
 test('purging one version: only its content goes, from that version and wherever the file still holds it', async () => {
-  const h = await setup({ files: { 'notas/n.md': 'uno\n', 'notas/m.md': 'tres\n' } })
+  const folder = m.aFolder()
+  const [N, M] = [m.aNotePath(folder), m.aNotePath(folder)]
+  const [first, second, third] = [m.aSentence(), m.aSentence(), m.aSentence()]
+  const h = await setup({ files: { [N]: `${first}\n`, [M]: `${third}\n` } })
   let n: any[]
-  let m: any[]
+  let mVersions: any[]
   let total: number
   try {
-    await h.put('notas/n.md', () => `uno\n${V1_SECRET}\n`)
+    await h.put(N, () => `${first}\n${V1_SECRET}\n`)
     await h.settle()
-    await h.put('notas/n.md', () => 'uno\ndos\n')
+    await h.put(N, () => `${first}\n${second}\n`)
     await h.settle()
-    // The last version of m.md is the one purged: the file still holds it.
-    await h.put('notas/m.md', () => `tres\n${M_SECRET}\n`)
+    // The last version of M is the one purged: the file still holds it.
+    await h.put(M, () => `${third}\n${M_SECRET}\n`)
     await h.settle()
-    n = (await h.versions('notas/n.md')).versions
-    m = (await h.versions('notas/m.md')).versions
+    n = (await h.versions(N)).versions
+    mVersions = (await h.versions(M)).versions
     total = (await h.changes()).changes.length
   } finally { await h.close() }
 
-  const r1 = purge(envOf(h), ['notas/n.md', '--version', n[1].id.slice(0, 12)])
+  const r1 = purge(envOf(h), [N, '--version', n[1].id.slice(0, 12)])
   assert.equal(r1.status, 0, r1.out)
-  assert.match(r1.out, /Removed 1 file version of the content of notas\/n\.md in [0-9a-f]{10} in 1 commit, and rewrote 3 commits \(1 left empty: dropped\)/)
+  assert.match(r1.out, new RegExp(`Removed 1 file version of the content of ${re(N)} in [0-9a-f]{10} in 1 commit, and rewrote 3 commits \\(1 left empty: dropped\\)`))
   assert.doesNotMatch(r1.out, /^warning:/m, 'what the file holds now is already a version')
   // Rewritten by the first purge: the version has another id now.
-  const { stdout } = await repo(h.stateDir).run(['log', '-1', '--format=%H', 'refs/heads/main', '--', 'notas/m.md'])
+  const { stdout } = await repo(h.stateDir).run(['log', '-1', '--format=%H', 'refs/heads/main', '--', M])
   const last = stdout.toString().trim()
-  assert.notEqual(last, m![0].id)
-  assert.match(purge(envOf(h), ['notas/m.md', `--version=${m![0].id}`]).out, /error \(not_found\)/)
-  const r2 = purge(envOf(h), ['notas/m.md', `--version=${last}`])
+  assert.notEqual(last, mVersions![0].id)
+  assert.match(purge(envOf(h), [M, `--version=${mVersions![0].id}`]).out, /error \(not_found\)/)
+  const r2 = purge(envOf(h), [M, `--version=${last}`])
   assert.equal(r2.status, 0, r2.out)
-  assert.match(r2.out, /warning: notas\/m\.md is still in the notes folder/)
+  assert.match(r2.out, new RegExp(`warning: ${re(M)} is still in the notes folder`))
   const all = await objects(h.stateDir)
   assert.ok(!all.includes(V1_SECRET) && !all.includes(M_SECRET))
 
   const again = await setup({ dir: h.dir })
   try {
     assert.equal((await again.changes()).changes.length, total! - 2, 'both commits held only that content: dropped')
-    const nv = (await again.versions('notas/n.md')).versions
+    const nv = (await again.versions(N)).versions
     assert.deepEqual(nv.map((v) => [v.change, v.at]), [[n[0].change, n[0].at], [n[2].change, n[2].at]])
-    const diff = async (against: string) => (await again.admin('GET', `/api/history/diff?path=${again.q('notas/n.md')}&id=${nv[0].id}&against=${against}`)).body
+    const diff = async (against: string) => (await again.admin('GET', `/api/history/diff?path=${again.q(N)}&id=${nv[0].id}&against=${against}`)).body
     const previous = await diff('previous')
     assert.deepEqual(previous, await diff(nv[1].id), 'the next version now follows the one before the purged one')
     assert.ok(!JSON.stringify(previous.ops).includes(V1_SECRET))
-    // m.md: the version before, and nothing recorded at startup for what the file still holds.
-    const mv = await again.versions('notas/m.md')
+    // M: the version before, and nothing recorded at startup for what the file still holds.
+    const mv = await again.versions(M)
     assert.deepEqual([mv.versions.length, mv.pending], [1, null])
-    await again.put('notas/m.md', (t) => t + 'cuatro\n')
+    await again.put(M, (t) => t + `${m.aSentence()}\n`)
     await again.settle()
-    const [v] = (await again.versions('notas/m.md')).versions
+    const [v] = (await again.versions(M)).versions
     assert.deepEqual([v.change, who(v)], ['modified', `user:${again.users.admin.username}`])
   } finally { await again.close() }
 })
 
 test('a purged note that was moved or copied: the report says where the same content stays, and no move trailer names it', async () => {
-  const h = await setup({ files: { 'viejo.md': `# Nota\n${SHARED_SECRET}\n`, 'copia.md': `# Nota\n${SHARED_SECRET}\n` } })
+  const [OLD, NEW, COPY] = [m.aNotePath(), m.aNotePath(), m.aNotePath()]
+  const heading = `# ${m.aHeading()}\n`
+  const h = await setup({ files: { [OLD]: `${heading}${SHARED_SECRET}\n`, [COPY]: `${heading}${SHARED_SECRET}\n` } })
   try {
-    assert.equal((await h.admin('POST', '/api/note/move', { from: 'viejo.md', to: 'nuevo.md' })).status, 200)
+    assert.equal((await h.admin('POST', '/api/note/move', { from: OLD, to: NEW })).status, 200)
     await h.settle()
   } finally { await h.close() }
   const moves = async () => (await commits(h.stateDir)).flatMap((c) => c.message.split('\n').filter((l) => l.startsWith('Thoth-Move:')))
-  assert.deepEqual(await moves(), ['Thoth-Move: viejo.md\tnuevo.md'])
-  const r = purge(envOf(h), ['nuevo.md'])
+  assert.deepEqual(await moves(), [`Thoth-Move: ${OLD}\t${NEW}`])
+  const r = purge(envOf(h), [NEW])
   assert.equal(r.status, 0, r.out)
-  assert.match(r.out, /^note: before a move, it was viejo\.md/m)
+  assert.match(r.out, new RegExp(`^note: before a move, it was ${re(OLD)}`, 'm'))
   assert.deepEqual(await moves(), [], 'the move to a path that is gone')
-  // The copy has the same content as viejo.md had before the move.
-  const copy = purge(envOf(h), ['copia.md'])
+  // The copy has the same content as the old path had before the move.
+  const copy = purge(envOf(h), [COPY])
   assert.equal(copy.status, 0, copy.out)
-  assert.match(copy.out, /^warning: the same content is also in the history under viejo\.md; it stays stored there/m)
+  assert.match(copy.out, new RegExp(`^warning: the same content is also in the history under ${re(OLD)}; it stays stored there`, 'm'))
   assert.ok((await objects(h.stateDir)).includes(SHARED_SECRET), 'still stored under the other path, as reported')
 })
 
@@ -225,9 +239,9 @@ test('the purge refuses while thoth runs (and a second server refuses too), in u
     assert.match(r.out, new RegExp(`error \\(${code}\\)`), r.out)
   }
   assert.equal(purge(env, []).status, 2)
-  assert.equal(purge(env, [NOTE, 'otra.md']).status, 2)
+  assert.equal(purge(env, [NOTE, m.aNotePath()]).status, 2)
   const id = (await commits(env.THOTH_STATE_DIR)).at(-1)!.id
-  const other = purge(env, ['no-existe.md', '--version', id])
+  const other = purge(env, [m.aNotePath(), '--version', id])
   assert.match(other.out, /error \(not_a_version\)/)
 
   // After the kill -9 the lock is free: the purge runs.
@@ -236,7 +250,7 @@ test('the purge refuses while thoth runs (and a second server refuses too), in u
 })
 
 test('what a crash left in the repository goes before a purge: fast-import\'s keep mark would keep what it purges, and a stale lock would fail it', async () => {
-  const h = await setup({ files: { 'secretos/clave.md': `# Clave\n${SECRET}\n`, 'otro/clave.md': `# Otra\n${OTHER_SECRET}\n` } })
+  const h = await setup({ files: { [KEY_NOTE]: `# ${m.aHeading()}\n${SECRET}\n`, [OTHER_NOTE]: `# ${m.aHeading()}\n${OTHER_SECRET}\n` } })
   await h.close()
   const env = envOf(h)
   const gitDir = join(h.stateDir, 'history.git')
@@ -245,7 +259,7 @@ test('what a crash left in the repository goes before a purge: fast-import\'s ke
   const pack = readdirSync(join(gitDir, 'objects/pack')).find((f) => f.endsWith('.pack'))!
   const keep = `objects/pack/${pack.replace(/\.pack$/, '.keep')}`
   writeFileSync(join(gitDir, keep), 'fast-import\n')
-  const first = purge(env, ['secretos'])
+  const first = purge(env, [SECRETS])
   assert.equal(first.status, 0, first.out)
   assert.ok(!(await objects(h.stateDir)).includes(SECRET), 'no pack keeps what was purged')
   assert.ok(first.out.includes(`note: removed the keep mark of a fast-import left by a crash: ${keep}\n`), first.out)
@@ -253,7 +267,7 @@ test('what a crash left in the repository goes before a purge: fast-import\'s ke
   // The locks a kill -9 leaves in the middle of a commit.
   writeFileSync(join(gitDir, 'refs/heads/main.lock'), `${await head(h.stateDir)}\n`)
   writeFileSync(join(gitDir, 'HEAD.lock'), 'ref: refs/heads/main\n')
-  const second = purge(env, ['otro'])
+  const second = purge(env, [OTHERS])
   assert.equal(second.status, 0, second.out)
   assert.match(second.out, /^note: removed a stale git lock left by a crash: refs\/heads\/main\.lock$/m)
   assert.match(second.out, /^note: removed a stale git lock left by a crash: HEAD\.lock$/m)
@@ -265,30 +279,30 @@ test('what a crash left in the repository goes before a purge: fast-import\'s ke
 })
 
 test('a purge killed half way leaves the history as it was, or finished but not compacted; running it again completes it', async () => {
-  const h = await setup({ files: { 'secretos/clave.md': `# Clave\n${SECRET}\n` } })
+  const h = await setup({ files: { [KEY_NOTE]: `# ${m.aHeading()}\n${SECRET}\n` } })
   try {
     for (let i = 0; i < 3; i++) {
-      await h.put(NOTE, (t) => t + `línea ${i}\n`)
+      await h.put(NOTE, (t) => t + `${m.aSentence()}\n`)
       await h.settle()
     }
   } finally { await h.close() }
   const env = envOf(h)
   const original = await head(h.stateDir)
   for (const point of ['purge-importing', 'purge-imported']) {
-    const r = purge(env, ['secretos'], { THOTH_TEST_CRASH_AT: point })
+    const r = purge(env, [SECRETS], { THOTH_TEST_CRASH_AT: point })
     assert.equal(r.signal, 'SIGKILL', `${point}: ${r.out}`)
     assert.equal(await head(h.stateDir), original, `${point}: the history as it was`)
     assert.ok((await objects(h.stateDir)).includes(SECRET))
   }
-  const moved = purge(env, ['secretos'], { THOTH_TEST_CRASH_AT: 'purge-moved' })
+  const moved = purge(env, [SECRETS], { THOTH_TEST_CRASH_AT: 'purge-moved' })
   assert.equal(moved.signal, 'SIGKILL', moved.out)
   assert.notEqual(await head(h.stateDir), original, 'the history moved in one step')
   assert.ok((await objects(h.stateDir)).includes(SECRET), 'but it was not compacted yet')
   const rewritten = await commits(h.stateDir)
 
-  const again = purge(env, ['secretos'])
+  const again = purge(env, [SECRETS])
   assert.equal(again.status, 0, again.out)
-  assert.match(again.out, /Nothing of secretos is in the history/)
+  assert.match(again.out, new RegExp(`Nothing of ${re(SECRETS)} is in the history`))
   assert.deepEqual(await commits(h.stateDir), rewritten)
   assert.ok(!(await objects(h.stateDir)).includes(SECRET), 'compacted')
   assert.equal(rewritten.length, 4)

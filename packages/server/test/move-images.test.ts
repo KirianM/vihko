@@ -11,6 +11,12 @@ import { mother } from '../../../test/mother.ts'
 // The user the writes are made as (an id, as thoth has them).
 const m = mother(import.meta.url)
 const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
+// The names of the notes, folders and images (one token each: they sit in Markdown links' destinations).
+const token = () => m.aUniqueWord()
+const [PROJ, PLAN, ARCHIVE, OTHER, SHARED, IMG, SUB, ASSETS, LOGO, CHART, DIAGRAM, PHOTO] = [token(), token(), token(), token(), token(), token(), token(), token(), token(), token(), token(), token()]
+const [ALT, CAPTION, RENAMED, HEADING] = [m.aWord(), m.aHeading(), m.aTitle(), m.aHeading()]
+/** Notes by path, as the index lists them (SQLite's order). */
+const sorted = (...paths: string[]) => [...paths].sort()
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
 
 function setup(files: Record<string, string | Uint8Array>) {
@@ -33,69 +39,70 @@ function setup(files: Record<string, string | Uint8Array>) {
 
 test('an image only the note uses, in its folder, goes with it; the link keeps working', async () => {
   const { notes, has, read, users } = setup({
-    'proj/plan.md': '# Plan\n\n![diagram](plan-2026.png)\n![[photo.jpg|a photo]]\n![](https://example.com/x.png)\n',
-    'proj/plan-2026.png': PNG,
-    'proj/photo.jpg': PNG,
+    [`${PROJ}/${PLAN}.md`]: `# ${HEADING}\n\n![${ALT}](${DIAGRAM}.png)\n![[${PHOTO}.jpg|${CAPTION}]]\n![](https://example.com/x.png)\n`,
+    [`${PROJ}/${DIAGRAM}.png`]: PNG,
+    [`${PROJ}/${PHOTO}.jpg`]: PNG,
   })
-  const r = await notes.move('proj/plan.md', 'archive/plan.md', { actor: me })
-  assert.deepEqual(r.images.moved, [{ from: 'proj/plan-2026.png', to: 'archive/plan-2026.png' }, { from: 'proj/photo.jpg', to: 'archive/photo.jpg' }])
+  const r = await notes.move(`${PROJ}/${PLAN}.md`, `${ARCHIVE}/${PLAN}.md`, { actor: me })
+  assert.deepEqual(r.images.moved, [{ from: `${PROJ}/${DIAGRAM}.png`, to: `${ARCHIVE}/${DIAGRAM}.png` }, { from: `${PROJ}/${PHOTO}.jpg`, to: `${ARCHIVE}/${PHOTO}.jpg` }])
   assert.deepEqual([r.images.stayed, r.images.failed], [[], []])
-  assert.ok(has('archive/plan-2026.png') && has('archive/photo.jpg'))
-  assert.ok(!has('proj/plan-2026.png') && !has('proj/photo.jpg'))
+  assert.ok(has(`${ARCHIVE}/${DIAGRAM}.png`) && has(`${ARCHIVE}/${PHOTO}.jpg`))
+  assert.ok(!has(`${PROJ}/${DIAGRAM}.png`) && !has(`${PROJ}/${PHOTO}.jpg`))
   // Same name, relative: the text does not need to change.
-  assert.equal(read('archive/plan.md').replace(/^---\n[\s\S]*?\n---\n/, ''), '# Plan\n\n![diagram](plan-2026.png)\n![[photo.jpg|a photo]]\n![](https://example.com/x.png)\n')
+  assert.equal(read(`${ARCHIVE}/${PLAN}.md`).replace(/^---\n[\s\S]*?\n---\n/, ''), `# ${HEADING}\n\n![${ALT}](${DIAGRAM}.png)\n![[${PHOTO}.jpg|${CAPTION}]]\n![](https://example.com/x.png)\n`)
   assert.deepEqual(r.relinked, [])
-  assert.deepEqual(users('archive/plan-2026.png'), ['archive/plan.md'])
-  assert.deepEqual(users('proj/plan-2026.png'), [])
+  assert.deepEqual(users(`${ARCHIVE}/${DIAGRAM}.png`), [`${ARCHIVE}/${PLAN}.md`])
+  assert.deepEqual(users(`${PROJ}/${DIAGRAM}.png`), [])
 })
 
 test('a shared image and one in another folder stay; the moved note links them from its new place', async () => {
   const { notes, has, read, users } = setup({
-    'proj/plan.md': '![](shared.png) ![[img/sub.png]] ![](../assets/logo.png) ![](/assets/logo.png)\n',
-    'proj/other.md': 'Also here: ![](shared.png)\n',
-    'proj/shared.png': PNG,
-    'proj/img/sub.png': PNG,
-    'assets/logo.png': PNG,
+    [`${PROJ}/${PLAN}.md`]: `![](${SHARED}.png) ![[${IMG}/${SUB}.png]] ![](../${ASSETS}/${LOGO}.png) ![](/${ASSETS}/${LOGO}.png)\n`,
+    [`${PROJ}/${OTHER}.md`]: `Also here: ![](${SHARED}.png)\n`,
+    [`${PROJ}/${SHARED}.png`]: PNG,
+    [`${PROJ}/${IMG}/${SUB}.png`]: PNG,
+    [`${ASSETS}/${LOGO}.png`]: PNG,
   })
-  const dry = await notes.move('proj/plan.md', 'archive/2026/plan.md', { actor: me, dryRun: true })
+  const dry = await notes.move(`${PROJ}/${PLAN}.md`, `${ARCHIVE}/2026/${PLAN}.md`, { actor: me, dryRun: true })
   assert.deepEqual(dry.images.moved, [])
   assert.deepEqual(dry.images.stayed, [
-    { path: 'proj/shared.png', reason: 'shared' },
-    { path: 'proj/img/sub.png', reason: 'elsewhere' },
-    { path: 'assets/logo.png', reason: 'elsewhere' },
+    { path: `${PROJ}/${SHARED}.png`, reason: 'shared' },
+    { path: `${PROJ}/${IMG}/${SUB}.png`, reason: 'elsewhere' },
+    { path: `${ASSETS}/${LOGO}.png`, reason: 'elsewhere' },
   ])
-  assert.deepEqual(dry.relinked, [{ path: 'archive/2026/plan.md', links: 3, changes: [
-    { before: '![](shared.png)', after: '![](../../proj/shared.png)' },
-    { before: '![[img/sub.png]]', after: '![[/proj/img/sub.png]]' },
-    { before: '![](../assets/logo.png)', after: '![](../../assets/logo.png)' },
+  assert.deepEqual(dry.relinked, [{ path: `${ARCHIVE}/2026/${PLAN}.md`, links: 3, changes: [
+    { before: `![](${SHARED}.png)`, after: `![](../../${PROJ}/${SHARED}.png)` },
+    { before: `![[${IMG}/${SUB}.png]]`, after: `![[/${PROJ}/${IMG}/${SUB}.png]]` },
+    { before: `![](../${ASSETS}/${LOGO}.png)`, after: `![](../../${ASSETS}/${LOGO}.png)` },
   ] }])
-  await notes.move('proj/plan.md', 'archive/2026/plan.md', { actor: me })
-  assert.ok(has('proj/shared.png') && has('proj/img/sub.png') && has('assets/logo.png'))
-  assert.ok(read('archive/2026/plan.md').endsWith('![](../../proj/shared.png) ![[/proj/img/sub.png]] ![](../../assets/logo.png) ![](/assets/logo.png)\n'))
-  assert.equal(read('proj/other.md'), 'Also here: ![](shared.png)\n')
-  assert.deepEqual(users('proj/shared.png'), ['archive/2026/plan.md', 'proj/other.md'])
-  assert.deepEqual(users('assets/logo.png'), ['archive/2026/plan.md'])
+  await notes.move(`${PROJ}/${PLAN}.md`, `${ARCHIVE}/2026/${PLAN}.md`, { actor: me })
+  assert.ok(has(`${PROJ}/${SHARED}.png`) && has(`${PROJ}/${IMG}/${SUB}.png`) && has(`${ASSETS}/${LOGO}.png`))
+  assert.ok(read(`${ARCHIVE}/2026/${PLAN}.md`).endsWith(`![](../../${PROJ}/${SHARED}.png) ![[/${PROJ}/${IMG}/${SUB}.png]] ![](../../${ASSETS}/${LOGO}.png) ![](/${ASSETS}/${LOGO}.png)\n`))
+  assert.equal(read(`${PROJ}/${OTHER}.md`), `Also here: ![](${SHARED}.png)\n`)
+  assert.deepEqual(users(`${PROJ}/${SHARED}.png`), sorted(`${ARCHIVE}/2026/${PLAN}.md`, `${PROJ}/${OTHER}.md`))
+  assert.deepEqual(users(`${ASSETS}/${LOGO}.png`), [`${ARCHIVE}/2026/${PLAN}.md`])
 })
 
 test('a taken name at the destination gets a suffix; nothing is overwritten', async () => {
   const { notes, has, read } = setup({
-    'proj/plan.md': '![](chart.png) and again ![chart](chart.png "title")\n',
-    'proj/chart.png': PNG,
-    'archive/chart.png': 'someone else\'s',
+    [`${PROJ}/${PLAN}.md`]: `![](${CHART}.png) and again ![${CHART}](${CHART}.png "title")\n`,
+    [`${PROJ}/${CHART}.png`]: PNG,
+    [`${ARCHIVE}/${CHART}.png`]: 'someone else\'s',
   })
-  const dry = await notes.move('proj/plan.md', 'archive/plan.md', { actor: me, dryRun: true })
-  assert.deepEqual(dry.images.moved, [{ from: 'proj/chart.png', to: 'archive/chart-2.png' }])
-  const r = await notes.move('proj/plan.md', 'archive/plan.md', { actor: me })
-  assert.deepEqual(r.images.moved, [{ from: 'proj/chart.png', to: 'archive/chart-2.png' }])
-  assert.equal(read('archive/chart.png'), 'someone else\'s')
-  assert.ok(has('archive/chart-2.png') && !has('proj/chart.png'))
-  assert.ok(read('archive/plan.md').endsWith('![](chart-2.png) and again ![chart](chart-2.png "title")\n'))
+  const dry = await notes.move(`${PROJ}/${PLAN}.md`, `${ARCHIVE}/${PLAN}.md`, { actor: me, dryRun: true })
+  assert.deepEqual(dry.images.moved, [{ from: `${PROJ}/${CHART}.png`, to: `${ARCHIVE}/${CHART}-2.png` }])
+  const r = await notes.move(`${PROJ}/${PLAN}.md`, `${ARCHIVE}/${PLAN}.md`, { actor: me })
+  assert.deepEqual(r.images.moved, [{ from: `${PROJ}/${CHART}.png`, to: `${ARCHIVE}/${CHART}-2.png` }])
+  assert.equal(read(`${ARCHIVE}/${CHART}.png`), 'someone else\'s')
+  assert.ok(has(`${ARCHIVE}/${CHART}-2.png`) && !has(`${PROJ}/${CHART}.png`))
+  assert.ok(read(`${ARCHIVE}/${PLAN}.md`).endsWith(`![](${CHART}-2.png) and again ![${CHART}](${CHART}-2.png "title")\n`))
   assert.deepEqual(r.relinked[0]!.changes, [
-    { before: '![](chart.png)', after: '![](chart-2.png)' },
-    { before: '![chart](chart.png "title")', after: '![chart](chart-2.png "title")' },
+    { before: `![](${CHART}.png)`, after: `![](${CHART}-2.png)` },
+    { before: `![${CHART}](${CHART}.png "title")`, after: `![${CHART}](${CHART}-2.png "title")` },
   ])
 })
 
+// Spaces, %-escapes, angle brackets and a `#` in the names: the case under test, so literal.
 test('URL-encoded paths, angle brackets and embeds keep their style', async () => {
   const { notes, has, read } = setup({
     'a b/note.md': '![x](my%20pic.png) ![y](<my pic.png>) ![[my pic.png]] [see](../other%20dir/c%23d.png?v=2)\n',
@@ -112,46 +119,46 @@ test('URL-encoded paths, angle brackets and embeds keep their style', async () =
 
 test('renaming within the folder moves no image', async () => {
   const { notes, has, read } = setup({
-    'proj/plan.md': '![](plan.png) ![](../x.png)\n',
-    'proj/plan.png': PNG,
+    [`${PROJ}/${PLAN}.md`]: `![](${PLAN}.png) ![](../x.png)\n`,
+    [`${PROJ}/${PLAN}.png`]: PNG,
     'x.png': PNG,
   })
-  const r = await notes.move('proj/plan.md', 'proj/New plan.md', { actor: me })
+  const r = await notes.move(`${PROJ}/${PLAN}.md`, `${PROJ}/${RENAMED}.md`, { actor: me })
   assert.deepEqual(r.images, { moved: [], stayed: [], folder: null, failed: [] })
-  assert.ok(has('proj/plan.png'))
-  assert.ok(read('proj/New plan.md').endsWith('![](plan.png) ![](../x.png)\n'))
+  assert.ok(has(`${PROJ}/${PLAN}.png`))
+  assert.ok(read(`${PROJ}/${RENAMED}.md`).endsWith(`![](${PLAN}.png) ![](../x.png)\n`))
 })
 
 test('the dry run touches nothing', async () => {
-  const { db, notes, has } = setup({ 'proj/plan.md': '![](plan.png)\n', 'proj/plan.png': PNG })
+  const { db, notes, has } = setup({ [`${PROJ}/${PLAN}.md`]: `![](${PLAN}.png)\n`, [`${PROJ}/${PLAN}.png`]: PNG })
   const snapshot = dumpIndex(db)
-  const r = await notes.move('proj/plan.md', 'plan.md', { actor: me, dryRun: true })
-  assert.deepEqual(r.images.moved, [{ from: 'proj/plan.png', to: 'plan.png' }])
-  assert.ok(has('proj/plan.png') && !has('plan.png') && has('proj/plan.md'))
+  const r = await notes.move(`${PROJ}/${PLAN}.md`, `${PLAN}.md`, { actor: me, dryRun: true })
+  assert.deepEqual(r.images.moved, [{ from: `${PROJ}/${PLAN}.png`, to: `${PLAN}.png` }])
+  assert.ok(has(`${PROJ}/${PLAN}.png`) && !has(`${PLAN}.png`) && has(`${PROJ}/${PLAN}.md`))
   assert.equal(dumpIndex(db), snapshot)
 })
 
 test('if the note cannot leave its folder, the images placed at the destination are removed again', { skip: process.getuid?.() === 0 }, async () => {
-  const { notesDir, notes, has, read } = setup({ 'proj/plan.md': '![](plan.png)\n', 'proj/plan.png': PNG })
-  chmodSync(join(notesDir, 'proj'), 0o555)
+  const { notesDir, notes, has, read } = setup({ [`${PROJ}/${PLAN}.md`]: `![](${PLAN}.png)\n`, [`${PROJ}/${PLAN}.png`]: PNG })
+  chmodSync(join(notesDir, PROJ), 0o555)
   try {
-    await assert.rejects(notes.move('proj/plan.md', 'archive/plan.md', { actor: me }))
-    assert.ok(!has('archive/plan.md') && !has('archive/plan.png'))
-    assert.ok(has('proj/plan.png'))
-    assert.equal(read('proj/plan.md'), '![](plan.png)\n')
+    await assert.rejects(notes.move(`${PROJ}/${PLAN}.md`, `${ARCHIVE}/${PLAN}.md`, { actor: me }))
+    assert.ok(!has(`${ARCHIVE}/${PLAN}.md`) && !has(`${ARCHIVE}/${PLAN}.png`))
+    assert.ok(has(`${PROJ}/${PLAN}.png`))
+    assert.equal(read(`${PROJ}/${PLAN}.md`), `![](${PLAN}.png)\n`)
   } finally {
-    chmodSync(join(notesDir, 'proj'), 0o755)
+    chmodSync(join(notesDir, PROJ), 0o755)
   }
 })
 
 test('an image that cannot go with the note stays, and the note links it where it is', async () => {
-  const taken: Record<string, string> = { 'archive/plan.png': 'taken' }
-  for (let n = 2; n <= 1000; n++) taken[`archive/plan-${n}.png`] = 'taken'
-  const { notes, has, read } = setup({ 'proj/plan.md': '![](plan.png)\n', 'proj/plan.png': PNG, ...taken })
-  const r = await notes.move('proj/plan.md', 'archive/plan.md', { actor: me })
+  const taken: Record<string, string> = { [`${ARCHIVE}/${PLAN}.png`]: 'taken' }
+  for (let n = 2; n <= 1000; n++) taken[`${ARCHIVE}/${PLAN}-${n}.png`] = 'taken'
+  const { notes, has, read } = setup({ [`${PROJ}/${PLAN}.md`]: `![](${PLAN}.png)\n`, [`${PROJ}/${PLAN}.png`]: PNG, ...taken })
+  const r = await notes.move(`${PROJ}/${PLAN}.md`, `${ARCHIVE}/${PLAN}.md`, { actor: me })
   assert.deepEqual(r.images.moved, [])
-  assert.deepEqual(r.images.failed.map((f) => [f.path, f.to, f.outcome, f.error]), [['proj/plan.png', null, 'stayed', 'exists']])
-  assert.ok(has('proj/plan.png'))
-  assert.ok(read('archive/plan.md').endsWith('![](../proj/plan.png)\n'))
-  assert.deepEqual(r.relinked[0]!.changes, [{ before: '![](plan.png)', after: '![](../proj/plan.png)' }])
+  assert.deepEqual(r.images.failed.map((f) => [f.path, f.to, f.outcome, f.error]), [[`${PROJ}/${PLAN}.png`, null, 'stayed', 'exists']])
+  assert.ok(has(`${PROJ}/${PLAN}.png`))
+  assert.ok(read(`${ARCHIVE}/${PLAN}.md`).endsWith(`![](../${PROJ}/${PLAN}.png)\n`))
+  assert.deepEqual(r.relinked[0]!.changes, [{ before: `![](${PLAN}.png)`, after: `![](../${PROJ}/${PLAN}.png)` }])
 })

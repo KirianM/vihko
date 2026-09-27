@@ -72,13 +72,15 @@ async function origin(routes: Record<string, (res: import('node:http').ServerRes
 
 test('names: next to the note, from its name and the UTC time, with a suffix for taken names', () => {
   const now = new Date('2026-09-25T10:12:59Z')
-  assert.equal(attachmentPath('proyectos/thoth/plan.md', 'png', now), 'proyectos/thoth/plan-2026-09-25-1012.png')
-  assert.equal(attachmentPath('Plan.md', 'jpg', now), 'Plan-2026-09-25-1012.jpg')
-  assert.equal(attachmentPath('a/Mi nota.md', 'webp', now, 3), 'a/Mi nota-2026-09-25-1012-3.webp')
-  assert.equal(attachmentPath('x.md', 'png', new Date('2026-01-02T23:05:00+02:00')), 'x-2026-01-02-2105.png', 'UTC, not local time')
-  assert.equal(attachmentPath('a/Mi nota.md', 'png', now, 2, { folder: 'Adjuntos/img' }), 'Adjuntos/img/Mi nota-2026-09-25-1012-2.png', 'a fixed folder from thoth.yaml')
-  assert.equal(attachmentPath('a/Mi nota.md', 'png', now, 1, { folder: null, perNote: '.assets' }), 'a/Mi nota.assets/2026-09-25-1012.png', 'the note\'s own folder')
-  assert.equal(attachmentPath('Plan.md', 'png', now, 2, { folder: null, perNote: '_files' }), 'Plan_files/2026-09-25-1012-2.png')
+  const [dir, name, other, rootName] = [m.aFolderPath(2), m.aTitle(), m.aTitle(), m.aTitle()]
+  const fixed = m.aFolderPath(2)
+  assert.equal(attachmentPath(`${dir}/${name}.md`, 'png', now), `${dir}/${name}-2026-09-25-1012.png`)
+  assert.equal(attachmentPath(`${rootName}.md`, 'jpg', now), `${rootName}-2026-09-25-1012.jpg`)
+  assert.equal(attachmentPath(`${dir}/${other}.md`, 'webp', now, 3), `${dir}/${other}-2026-09-25-1012-3.webp`)
+  assert.equal(attachmentPath(`${name}.md`, 'png', new Date('2026-01-02T23:05:00+02:00')), `${name}-2026-01-02-2105.png`, 'UTC, not local time')
+  assert.equal(attachmentPath(`${dir}/${other}.md`, 'png', now, 2, { folder: fixed }), `${fixed}/${other}-2026-09-25-1012-2.png`, 'a fixed folder from thoth.yaml')
+  assert.equal(attachmentPath(`${dir}/${other}.md`, 'png', now, 1, { folder: null, perNote: '.assets' }), `${dir}/${other}.assets/2026-09-25-1012.png`, 'the note\'s own folder')
+  assert.equal(attachmentPath(`${rootName}.md`, 'png', now, 2, { folder: null, perNote: '_files' }), `${rootName}_files/2026-09-25-1012-2.png`)
 })
 
 test('types are detected from the bytes; SVG and anything else is refused', () => {
@@ -86,6 +88,7 @@ test('types are detected from the bytes; SVG and anything else is refused', () =
   for (const b of [SVG, new TextEncoder().encode('%PDF-1.7'), new Uint8Array()]) assert.equal(sniffImage(b), null)
 })
 
+// From here on, over a copy of the test vault: its notes are where images go.
 test('upload: stored next to the note, never overwrites, and the note is untouched', async () => {
   const { notesDir, upload } = await setup()
   const before = readFileSync(join(notesDir, 'proyectos/thoth/notas.md'), 'utf8')
@@ -117,7 +120,7 @@ test('upload limits: type, size, note that exists and a valid path', async () =>
   big.set(PNG)
   const tooBig = await upload('Plan.md', big)
   assert.deepEqual([tooBig.status, tooBig.body.error], [413, 'too_large'])
-  const missing = await upload('no-existe.md', PNG)
+  const missing = await upload(m.aNotePath(), PNG)
   assert.deepEqual([missing.status, missing.body.error], [404, 'not_found'])
   for (const bad of ['../fuera.md', '/Plan.md', 'adjuntos/imagen.png', '.obsidian/x.md']) {
     const r = await upload(bad, PNG)
@@ -139,22 +142,25 @@ test('serving files: type, nosniff, revalidation, and the same path rules as not
   const etag = res.headers.get('etag')!
   assert.equal((await get(`/api/file?path=${encodeURIComponent(up.body.path)}`, { 'if-none-match': etag })).status, 304)
 
-  writeFileSync(join(notesDir, 'dibujo.svg'), SVG)
-  const svg = await get('/api/file?path=dibujo.svg')
+  const drawing = `${m.aTitle()}.svg`
+  writeFileSync(join(notesDir, drawing), SVG)
+  const svg = await get(`/api/file?path=${encodeURIComponent(drawing)}`)
   assert.equal(svg.headers.get('content-type'), 'image/svg+xml')
   assert.match(svg.headers.get('content-security-policy')!, /default-src 'none'.*sandbox/, 'an SVG opened on its own runs nothing')
   const canvas = await get('/api/file?path=adjuntos/tablero.canvas')
   assert.equal(canvas.headers.get('content-type'), 'application/octet-stream')
   assert.match(canvas.headers.get('content-disposition')!, /^attachment/)
 
-  mkdirSync(join(notesDir, '.oculta'))
-  writeFileSync(join(notesDir, '.oculta/x.png'), PNG)
+  const hidden = `.${m.aFolder()}`
+  const [secret, link] = [`${m.aTitle()}.png`, m.aFolder()]
+  mkdirSync(join(notesDir, hidden))
+  writeFileSync(join(notesDir, hidden, 'x.png'), PNG)
   const outside = tempDir('thoth-outside-')
-  writeFileSync(join(outside, 'secret.png'), PNG)
-  symlinkSync(outside, join(notesDir, 'enlace'))
+  writeFileSync(join(outside, secret), PNG)
+  symlinkSync(outside, join(notesDir, link))
   const status = async (p: string) => (await get(`/api/file?path=${encodeURIComponent(p)}`)).status
   for (const p of ['../x.png', '/etc/passwd', 'a/../../x.png', 'a//b.png', '']) assert.equal(await status(p), 400, p)
-  for (const p of ['Plan.md', '.oculta/x.png', 'enlace/secret.png', 'no-existe.png', 'adjuntos']) assert.equal(await status(p), 404, p)
+  for (const p of ['Plan.md', `${hidden}/x.png`, `${link}/${secret}`, `${m.aTitle()}.png`, 'adjuntos']) assert.equal(await status(p), 404, p)
   assert.equal((await app.request(`/api/file?path=${encodeURIComponent(up.body.path)}`)).status, 401, 'needs a session')
 })
 
@@ -187,7 +193,7 @@ test('by URL: a copy is downloaded and stored like an upload, following a few re
     assert.deepEqual(await code(`${url}/big`), [413, 'too_large'])
     assert.deepEqual(await code(`${url}/big-chunked`), [413, 'too_large'], 'the cap holds without a Content-Length')
     for (const bad of ['file:///etc/passwd', 'ftp://h/x.png', 'no es una url', `http://user:pw@127.0.0.1/x.png`]) assert.deepEqual(await code(bad), [400, 'invalid'], bad)
-    const noNote = await post('/api/attachments/fetch', { note: 'no-existe.md', url: `${url}/chart.png` })
+    const noNote = await post('/api/attachments/fetch', { note: m.aNotePath(), url: `${url}/chart.png` })
     assert.deepEqual([noNote.status, noNote.body.error], [404, 'not_found'])
 
     await assert.rejects(fetchImage(`${url}/slow`, { maxBytes: 100, timeoutMs: 200 }), (e: Error & { code?: string }) => e.code === 'fetch_failed' && /timed out/.test(e.message))

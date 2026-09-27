@@ -68,9 +68,10 @@ const WORDS = (
   'pingüino cigüeña ñandú corazón canción acción razón algún según después través'
 ).split(' ')
 
-const PEOPLE = ['José Álvarez', 'Zoë Martín', 'Íñigo Ruiz', 'Ana Peña', 'Chloé Dubois', 'Łukasz Nowak', 'Søren Kierkegaard',
-  'María José', 'Björk', 'Renée Leclerc', 'Nuño Castaño', 'Ángela Ortiz', 'François Muñoz', 'Jürgen Groß', 'Ximena Úbeda',
-  'Pedro Sánchez', 'Lucía Fernández', 'Marta Gómez', 'Raúl Díaz', 'Elena Ibáñez']
+// Invented people whose names cover accents, «ñ», «ø», «ö», «ß», «ł» and one-word names (the edge cases, kept literal).
+const PEOPLE = ['José Álvarez', 'Zoë Martín', 'Íñigo Ruiz', 'Ana Peñalver', 'Chloé Dubois', 'Łukasz Nowak', 'Søren Vestbjerg',
+  'María José', 'Sölvi', 'Renée Leclerc', 'Nuño Castaño', 'Ángela Ortiz', 'François Muñoz', 'Jürgen Groß', 'Ximena Úbeda',
+  'Tadeo Sáenz', 'Lucía Fernández', 'Marta Góngora', 'Raúl Díaz', 'Elena Ibáñez']
 const RECIPES = ['Café con leche', 'Crème brûlée', 'Paella valenciana', 'Tortilla de patatas', 'Gazpacho andaluz', 'Piñones tostados',
   'Açaí bowl', 'Pâté de campaña', 'Jalapeños rellenos', 'Ñoquis de calabaza', 'Crêpes', 'Smørrebrød', 'Bacalao al pil-pil',
   'Salmorejo', 'Pan de muerto', 'Crema catalana', 'Fideuà', 'Häagen helado casero', 'Migas', 'Cocido madrileño']

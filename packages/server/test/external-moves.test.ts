@@ -45,14 +45,20 @@ async function app(opts: { moveWaitMs?: number } = {}) {
   return { dir, notesDir, stateDir, index, indexer, runtime, externalMoves, notes, call, moved, read, dst }
 }
 
+// Over a copy of the test vault: its notes and links are the fixture; the new names are the mother's
+// (one token each where they sit in a Markdown link's destination).
+const token = () => m.aUniqueWord()
+const [NEW, GW, RENAMED, WORK, UX, OWN, PHOTO, SUB] = [token(), token(), token(), token(), token(), token(), token(), token()]
+const [HEADING, LABEL] = [m.aHeading(), m.aHeading()]
+
 test('the alert: which note moved where and how many links it left behind; nothing is rewritten on its own', async () => {
   const { notesDir, runtime, moved, read } = await app()
   const before = read('hogar/enlaces.md')
-  renameSync(join(notesDir, 'hogar/Proxy.md'), join(notesDir, 'hogar/Hipervisor.md'))
+  renameSync(join(notesDir, 'hogar/Proxy.md'), join(notesDir, `hogar/${NEW}.md`))
   runtime.rescan({})
   const alerts = await moved()
   assert.equal(alerts.length, 1)
-  assert.deepEqual(alerts[0].moves, [{ from: 'hogar/Proxy.md', to: 'hogar/Hipervisor.md' }])
+  assert.deepEqual(alerts[0].moves, [{ from: 'hogar/Proxy.md', to: `hogar/${NEW}.md` }])
   assert.deepEqual(alerts[0].actions, ['update_links'])
   // In hogar/enlaces.md: [[Proxy#Red]], [[Proxy#No existe]] and the Markdown one ([[gw]] still resolves by alias).
   assert.equal(alerts[0].links, 3)
@@ -61,7 +67,7 @@ test('the alert: which note moved where and how many links it left behind; nothi
 
 test('«Update links»: preview, then the rewrite as a move would do it; no file moves and the alert goes', async () => {
   const { notesDir, runtime, moved, read, call, dst } = await app()
-  renameSync(join(notesDir, 'hogar/Proxy.md'), join(notesDir, 'hogar/Hipervisor.md'))
+  renameSync(join(notesDir, 'hogar/Proxy.md'), join(notesDir, `hogar/${NEW}.md`))
   runtime.rescan({})
   const [alert] = await moved()
   const preview = await call('POST', `/api/external-moves/${alert.id}/relink`, { dryRun: true })
@@ -69,9 +75,9 @@ test('«Update links»: preview, then the rewrite as a move would do it; no file
   assert.equal(preview.body.dryRun, true)
   const changes = preview.body.relinked.flatMap((r: { changes: { before: string; after: string }[] }) => r.changes.map((x) => `${x.before} → ${x.after}`)).sort()
   assert.deepEqual(changes, [
-    '[Proxy en Markdown](Proxy.md) → [Proxy en Markdown](Hipervisor.md)',
-    '[[Proxy#No existe]] → [[Hipervisor#No existe]]',
-    '[[Proxy#Red]] → [[Hipervisor#Red]]',
+    `[Proxy en Markdown](Proxy.md) → [Proxy en Markdown](${NEW}.md)`,
+    `[[Proxy#No existe]] → [[${NEW}#No existe]]`,
+    `[[Proxy#Red]] → [[${NEW}#Red]]`,
   ])
   assert.ok(read('hogar/enlaces.md').includes('[[Proxy#Red]]'), 'the preview writes nothing')
 
@@ -79,41 +85,41 @@ test('«Update links»: preview, then the rewrite as a move would do it; no file
   assert.equal(done.status, 200)
   assert.deepEqual(done.body.failed, [])
   const t = read('hogar/enlaces.md')
-  assert.ok(t.includes('[[Hipervisor#Red]]') && t.includes('[Proxy en Markdown](Hipervisor.md)') && t.includes('[[gw]]'))
-  assert.equal(dst('hogar/enlaces.md', '[[Hipervisor#Red]]')?.dst_path, 'hogar/Hipervisor.md')
-  assert.ok(existsSync(join(notesDir, 'hogar/Hipervisor.md')) && !existsSync(join(notesDir, 'hogar/Proxy.md')), 'no file moved')
+  assert.ok(t.includes(`[[${NEW}#Red]]`) && t.includes(`[Proxy en Markdown](${NEW}.md)`) && t.includes('[[gw]]'))
+  assert.equal(dst('hogar/enlaces.md', `[[${NEW}#Red]]`)?.dst_path, `hogar/${NEW}.md`)
+  assert.ok(existsSync(join(notesDir, `hogar/${NEW}.md`)) && !existsSync(join(notesDir, 'hogar/Proxy.md')), 'no file moved')
   assert.deepEqual(await moved(), [])
   assert.equal((await call('POST', `/api/external-moves/${alert.id}/relink`, {})).status, 404)
 })
 
 test("the moved note's own relative links are updated too, and its images only if they stayed", async () => {
   const { notesDir, runtime, moved, read, call } = await app()
-  mkdirSync(join(notesDir, 'ux'))
-  writeFileSync(join(notesDir, 'ux/propia.md'), '# Propia\n\n[la red](../hogar/Red.md) y ![img](../adjuntos/imagen.png) ![foto](foto.png)\n')
-  writeFileSync(join(notesDir, 'ux/foto.png'), 'not really a png')
+  mkdirSync(join(notesDir, UX))
+  writeFileSync(join(notesDir, `${UX}/${OWN}.md`), `# ${HEADING}\n\n[${LABEL}](../hogar/Red.md) y ![img](../adjuntos/imagen.png) ![${PHOTO}](${PHOTO}.png)\n`)
+  writeFileSync(join(notesDir, `${UX}/${PHOTO}.png`), 'not really a png')
   runtime.rescan({})
   // The other tool moves the note and, with it, its picture.
-  mkdirSync(join(notesDir, 'ux/sub'))
-  renameSync(join(notesDir, 'ux/propia.md'), join(notesDir, 'ux/sub/propia.md'))
-  renameSync(join(notesDir, 'ux/foto.png'), join(notesDir, 'ux/sub/foto.png'))
+  mkdirSync(join(notesDir, `${UX}/${SUB}`))
+  renameSync(join(notesDir, `${UX}/${OWN}.md`), join(notesDir, `${UX}/${SUB}/${OWN}.md`))
+  renameSync(join(notesDir, `${UX}/${PHOTO}.png`), join(notesDir, `${UX}/${SUB}/${PHOTO}.png`))
   runtime.rescan({})
   const [alert] = await moved()
   assert.equal(alert.links, 1, 'its own link no longer reaches Red')
   await call('POST', `/api/external-moves/${alert.id}/relink`, {})
-  assert.ok(read('ux/sub/propia.md').endsWith('# Propia\n\n[la red](../../hogar/Red.md) y ![img](../../adjuntos/imagen.png) ![foto](foto.png)\n'))
+  assert.ok(read(`${UX}/${SUB}/${OWN}.md`).endsWith(`# ${HEADING}\n\n[${LABEL}](../../hogar/Red.md) y ![img](../../adjuntos/imagen.png) ![${PHOTO}](${PHOTO}.png)\n`))
 })
 
 test('the count follows the files: the other tool rewriting the links makes the alert go away', async () => {
   const { notesDir, runtime, moved, read } = await app()
-  renameSync(join(notesDir, 'hogar/Proxy.md'), join(notesDir, 'hogar/Hipervisor.md'))
+  renameSync(join(notesDir, 'hogar/Proxy.md'), join(notesDir, `hogar/${NEW}.md`))
   runtime.rescan({})
   assert.equal((await moved())[0].links, 3)
   // The other tool fixes some links…
-  writeFileSync(join(notesDir, 'hogar/enlaces.md'), read('hogar/enlaces.md').replace('[[Proxy#Red]]', '[[Hipervisor#Red]]').replace('(Proxy.md)', '(Hipervisor.md)'))
+  writeFileSync(join(notesDir, 'hogar/enlaces.md'), read('hogar/enlaces.md').replace('[[Proxy#Red]]', `[[${NEW}#Red]]`).replace('(Proxy.md)', `(${NEW}.md)`))
   runtime.rescan({})
   assert.equal((await moved())[0].links, 1)
   // …then the rest.
-  writeFileSync(join(notesDir, 'hogar/enlaces.md'), read('hogar/enlaces.md').replaceAll('[[Proxy', '[[Hipervisor'))
+  writeFileSync(join(notesDir, 'hogar/enlaces.md'), read('hogar/enlaces.md').replaceAll('[[Proxy', `[[${NEW}`))
   runtime.rescan({})
   assert.deepEqual(await moved(), [])
 })
@@ -121,15 +127,15 @@ test('the count follows the files: the other tool rewriting the links makes the 
 test('moving on, moving back, deleting: the pending move follows the note or goes', async () => {
   const { notesDir, runtime, moved } = await app()
   const mv = (a: string, b: string) => { renameSync(join(notesDir, a), join(notesDir, b)); runtime.rescan({}) }
-  mv('hogar/Proxy.md', 'hogar/GW.md')
-  mv('hogar/GW.md', 'hogar/Hipervisor.md')
+  mv('hogar/Proxy.md', `hogar/${GW}.md`)
+  mv(`hogar/${GW}.md`, `hogar/${NEW}.md`)
   let alerts = await moved()
-  assert.deepEqual(alerts.map((a) => a.moves), [[{ from: 'hogar/Proxy.md', to: 'hogar/Hipervisor.md' }]], 'a → b → c is a → c (nothing links to b)')
-  mv('hogar/Hipervisor.md', 'hogar/Proxy.md')
+  assert.deepEqual(alerts.map((a) => a.moves), [[{ from: 'hogar/Proxy.md', to: `hogar/${NEW}.md` }]], 'a → b → c is a → c (nothing links to b)')
+  mv(`hogar/${NEW}.md`, 'hogar/Proxy.md')
   assert.deepEqual(await moved(), [], 'back where it was')
-  mv('hogar/Proxy.md', 'hogar/Hipervisor.md')
+  mv('hogar/Proxy.md', `hogar/${NEW}.md`)
   assert.equal((await moved()).length, 1)
-  rmSync(join(notesDir, 'hogar/Hipervisor.md'))
+  rmSync(join(notesDir, `hogar/${NEW}.md`))
   runtime.rescan({})
   alerts = await moved()
   assert.deepEqual(alerts, [], 'deleted: nothing to update')
@@ -137,18 +143,18 @@ test('moving on, moving back, deleting: the pending move follows the note or goe
 
 test('pending moves survive a restart (state volume), and a group of moves is one alert', async () => {
   const { notesDir, stateDir, index, indexer, runtime, moved } = await app()
-  renameSync(join(notesDir, 'proyectos'), join(notesDir, 'trabajo'))
+  renameSync(join(notesDir, 'proyectos'), join(notesDir, WORK))
   runtime.rescan({})
   const [alert] = await moved()
   assert.ok(alert.moves.length >= 5)
-  assert.ok(alert.moves.every((m: { from: string; to: string }) => m.from.startsWith('proyectos/') && m.to === 'trabajo/' + m.from.slice('proyectos/'.length)))
+  assert.ok(alert.moves.every((m: { from: string; to: string }) => m.from.startsWith('proyectos/') && m.to === `${WORK}/` + m.from.slice('proyectos/'.length)))
   const again = new ExternalMoves({ stateDir, db: index, indexer })
   assert.deepEqual(again.pending().map((p) => p.id), [alert.id])
 })
 
 test('«Update links» in the background: a job, then the report', async () => {
   const { notesDir, runtime, moved, call, read } = await app({ moveWaitMs: 0 })
-  renameSync(join(notesDir, 'hogar/Proxy.md'), join(notesDir, 'hogar/Hipervisor.md'))
+  renameSync(join(notesDir, 'hogar/Proxy.md'), join(notesDir, `hogar/${NEW}.md`))
   runtime.rescan({})
   const [alert] = await moved()
   const r = await call('POST', `/api/external-moves/${alert.id}/relink`, { background: true })
@@ -162,7 +168,7 @@ test('«Update links» in the background: a job, then the report', async () => {
     }
   }
   assert.deepEqual(report.failed, [])
-  assert.ok(read('hogar/enlaces.md').includes('[[Hipervisor#Red]]'))
+  assert.ok(read('hogar/enlaces.md').includes(`[[${NEW}#Red]]`))
   assert.deepEqual(await moved(), [])
 })
 
@@ -171,13 +177,13 @@ test('the watcher: a note renamed on disk raises the alert', async () => {
   const w = new Watcher({ notesDir, indexer, db: index, debounceMs: 50, rescanMs: 60_000 })
   w.start()
   try {
-    renameSync(join(notesDir, 'hogar/Red.md'), join(notesDir, 'hogar/Redes.md'))
+    renameSync(join(notesDir, 'hogar/Red.md'), join(notesDir, `hogar/${RENAMED}.md`))
     const start = Date.now()
     while ((await moved()).length === 0) {
       if (Date.now() - start > 5000) throw new Error('timeout: no alert')
       await new Promise((ok) => setTimeout(ok, 50))
     }
-    assert.deepEqual((await moved())[0].moves, [{ from: 'hogar/Red.md', to: 'hogar/Redes.md' }])
+    assert.deepEqual((await moved())[0].moves, [{ from: 'hogar/Red.md', to: `hogar/${RENAMED}.md` }])
   } finally {
     w.stop()
   }

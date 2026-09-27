@@ -14,7 +14,7 @@ const m = mother(import.meta.url)
 const USER_ID = m.faker.string.ulid()
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
-const UID = '01J8Z6S6ZK3R2V4TQ9WQ4M3N7B'
+const UID = m.faker.string.ulid()
 
 // --- Pairing -------------------------------------------------------------------
 
@@ -42,6 +42,7 @@ test('pairing: never a guess when several notes could be the one', () => {
 })
 
 // --- The indexer ---------------------------------------------------------------
+// Over a copy of the test vault; the notes the tests add and move are the mother's.
 
 function indexed(opts: { now?: () => number } = {}) {
   const dir = tempDir('thoth-xmove-')
@@ -57,72 +58,87 @@ function indexed(opts: { now?: () => number } = {}) {
   return { dir, notesDir, db, indexer, moves, has, put, mv }
 }
 
+/** A note of its own: a heading and a text no other note has (moves without uid pair by content). */
+const note = () => `# ${m.aHeading()}\n\n${m.aUniqueWord()} ${m.aSentence()}\n`
+
 test('a scan detects a rename by uid and by content, and keeps it out of added and removed', () => {
   const { indexer, moves, put, mv, has } = indexed()
-  put('ux/con-uid.md', `---\nuid: ${UID}\n---\n# Con uid\n`)
-  put('ux/sin-uid.md', '# Sin uid\n\nTexto único.\n')
+  const [dir, other] = [m.aFolder(), m.aFolder()]
+  const [withUid, withoutUid] = [m.aNotePath(dir), m.aNotePath(dir)]
+  const [renamed, moved] = [m.aNotePath(other), withoutUid.replace(dir, other)]
+  put(withUid, `---\nuid: ${UID}\n---\n${note()}`)
+  put(withoutUid, note())
   indexer.scan()
-  mv('ux/con-uid.md', 'otra/con-uid-renombrada.md')
-  writeFileSync(join(indexer['opts'].notesDir, 'otra/con-uid-renombrada.md'), `---\nuid: ${UID}\n---\n# Con uid, y retocada\n`)
-  mv('ux/sin-uid.md', 'otra/sin-uid.md')
+  mv(withUid, renamed)
+  writeFileSync(join(indexer['opts'].notesDir, renamed), `---\nuid: ${UID}\n---\n${note()}`)
+  mv(withoutUid, moved)
   const r = indexer.scan()
-  assert.deepEqual(r.moved.sort((a, b) => a.from.localeCompare(b.from)), [
-    { from: 'ux/con-uid.md', to: 'otra/con-uid-renombrada.md', by: 'uid' },
-    { from: 'ux/sin-uid.md', to: 'otra/sin-uid.md', by: 'hash' },
-  ])
+  const byFrom = (a: { from: string }, b: { from: string }) => a.from.localeCompare(b.from)
+  assert.deepEqual(r.moved.sort(byFrom), [
+    { from: withUid, to: renamed, by: 'uid' },
+    { from: withoutUid, to: moved, by: 'hash' },
+  ].sort(byFrom))
   assert.deepEqual(r.added, [])
   assert.deepEqual(r.removed, [])
-  assert.ok(has('otra/sin-uid.md') && !has('ux/sin-uid.md'))
+  assert.ok(has(moved) && !has(withoutUid))
   assert.equal(moves.length, 1, 'announced once, as one batch')
 })
 
 test('not detected: a rename that changes the text of a note without uid, and a content that isn\'t unique', () => {
   const { indexer, put, mv } = indexed()
-  put('ux/a.md', '# A\n\nUno.\n')
-  put('ux/gemela-1.md', '# Gemela\n')
-  put('ux/gemela-2.md', '# Gemela\n')
+  const dir = m.aFolder()
+  const [edited, twin1, twin2] = [m.aNotePath(dir), m.aNotePath(dir), m.aNotePath(dir)]
+  const [editedTo, twin3] = [m.aNotePath(dir), m.aNotePath(dir)]
+  const text = note()
+  const twins = note()
+  put(edited, text)
+  put(twin1, twins)
+  put(twin2, twins)
   indexer.scan()
-  mv('ux/a.md', 'ux/b.md')
-  writeFileSync(join(indexer['opts'].notesDir, 'ux/b.md'), '# A\n\nUno, retocado.\n')
-  mv('ux/gemela-1.md', 'ux/gemela-3.md')
+  mv(edited, editedTo)
+  writeFileSync(join(indexer['opts'].notesDir, editedTo), `${text}${m.aSentence()}\n`)
+  mv(twin1, twin3)
   const r = indexer.scan()
   assert.deepEqual(r.moved, [])
-  assert.deepEqual(r.removed.sort(), ['ux/a.md', 'ux/gemela-1.md'])
-  assert.deepEqual(r.added.sort(), ['ux/b.md', 'ux/gemela-3.md'])
+  assert.deepEqual(r.removed.sort(), [edited, twin1].sort())
+  assert.deepEqual(r.added.sort(), [editedTo, twin3].sort())
 })
 
 test('watcher batches: a removal and an addition a moment apart pair within the window, not after it', () => {
   let now = 1_000_000
   const { indexer, put, mv, moves } = indexed({ now: () => now })
-  put('ux/tarde.md', '# Tarde\n\nSe mueve en dos pasos.\n')
-  put('ux/lejos.md', '# Lejos\n\nTambién.\n')
+  const dir = m.aFolder()
+  const [late, lateTo, far, farTo] = [m.aNotePath(dir), m.aNotePath(dir), m.aNotePath(dir), m.aNotePath(dir)]
+  put(late, note())
+  put(far, note())
   indexer.scan()
   // A tool that writes the copy first and removes the original later.
-  mv('ux/tarde.md', 'ux/tarde-2.md')
-  let r = indexer.indexPaths(['ux/tarde-2.md'], { detectMoves: true })
-  assert.deepEqual(r.added, ['ux/tarde-2.md'])
+  mv(late, lateTo)
+  let r = indexer.indexPaths([lateTo], { detectMoves: true })
+  assert.deepEqual(r.added, [lateTo])
   now += 2000
-  r = indexer.indexPaths(['ux/tarde.md'], { detectMoves: true })
-  assert.deepEqual(r.moved, [{ from: 'ux/tarde.md', to: 'ux/tarde-2.md', by: 'hash' }])
+  r = indexer.indexPaths([late], { detectMoves: true })
+  assert.deepEqual(r.moved, [{ from: late, to: lateTo, by: 'hash' }])
   assert.deepEqual(r.removed, [])
   // Removed, and the copy shows up after the window: two unrelated events.
-  mv('ux/lejos.md', 'ux/lejos-2.md')
-  r = indexer.indexPaths(['ux/lejos.md'], { detectMoves: true })
-  assert.deepEqual(r.removed, ['ux/lejos.md'])
+  mv(far, farTo)
+  r = indexer.indexPaths([far], { detectMoves: true })
+  assert.deepEqual(r.removed, [far])
   now += 6000
-  r = indexer.indexPaths(['ux/lejos-2.md'], { detectMoves: true })
+  r = indexer.indexPaths([farTo], { detectMoves: true })
   assert.deepEqual(r.moved, [])
-  assert.deepEqual(r.added, ['ux/lejos-2.md'])
+  assert.deepEqual(r.added, [farTo])
   assert.equal(moves.length, 1)
 })
 
 test("thoth's own writes are not someone else's move", async () => {
   const { dir, notesDir, db, indexer, moves } = indexed()
   const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db })
-  await notes.move('proyectos/thoth/Plan.md', 'archivo/Plan.md', { actor: { kind: 'user', id: USER_ID } })
-  await notes.moveFolder('hogar', 'infra', { actor: { kind: 'user', id: USER_ID } })
+  const [archive, infra] = [m.aFolder(), m.aFolder()]
+  await notes.move('proyectos/thoth/Plan.md', `${archive}/Plan.md`, { actor: { kind: 'user', id: USER_ID } })
+  await notes.moveFolder('hogar', infra, { actor: { kind: 'user', id: USER_ID } })
   // What the watcher would see afterwards changes nothing.
-  indexer.indexPaths(['proyectos/thoth/Plan.md', 'archivo/Plan.md', 'hogar/Proxy.md', 'infra/Proxy.md'], { detectMoves: true })
+  indexer.indexPaths(['proyectos/thoth/Plan.md', `${archive}/Plan.md`, 'hogar/Proxy.md', `${infra}/Proxy.md`], { detectMoves: true })
   indexer.scan()
   assert.deepEqual(moves, [])
 })
@@ -130,12 +146,13 @@ test("thoth's own writes are not someone else's move", async () => {
 test('a folder renamed with another tool is a move of its notes, not a mass deletion', () => {
   const dir = tempDir('thoth-xmove-mass-')
   const notesDir = join(dir, 'notes')
-  mkdirSync(join(notesDir, 'todo'), { recursive: true })
-  for (let i = 0; i < 30; i++) writeFileSync(join(notesDir, `todo/nota-${i}.md`), `# Nota ${i}\n`)
+  const [from, to] = [m.aFolder(), m.aFolder()]
+  mkdirSync(join(notesDir, from), { recursive: true })
+  for (let i = 0; i < 30; i++) writeFileSync(join(notesDir, m.aNotePath(from)), note())
   const db = openIndex(join(dir, 'index.db'))
   const indexer = new Indexer({ notesDir, db })
   indexer.scan()
-  renameSync(join(notesDir, 'todo'), join(notesDir, 'todas'))
+  renameSync(join(notesDir, from), join(notesDir, to))
   const r = indexer.scan()
   assert.equal(r.aborted, null)
   assert.equal(r.moved.length, 30)

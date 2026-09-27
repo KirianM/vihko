@@ -4,6 +4,10 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseSearchQuery } from '@thoth/core'
 import { setup } from './_app.ts'
+import { mother } from '../../../test/mother.ts'
+
+// Over the test vault (its tags and folders are the fixture); what the tests add is the mother's.
+const m = mother(import.meta.url)
 
 const paths = (r: { body: { results: { path: string }[] } }) => r.body.results.map((x) => x.path).sort()
 
@@ -56,43 +60,49 @@ test('the tags list counts notes per tag, with and without nested tags', async (
   assert.deepEqual(by.get('hogar/red'), { tag: 'hogar/red', count: 1, total: 1 })
   assert.deepEqual(by.get('proyectos'), { tag: 'proyectos', count: 1, total: 1 })
   assert.ok(!by.has('notag') && !by.has('tampoco'), 'tags inside code are not tags')
-  writeFileSync(join(notesDir, 'solo-anidado.md'), '#hogar/wifi y #viaje/2026\n')
+  // Only nested tags: one under the vault's `hogar`, one under a parent nobody writes.
+  const parent = m.aTag()
+  writeFileSync(join(notesDir, m.aNotePath()), `#hogar/${m.aTag()} ${m.aWord()} #${parent}/2026\n`)
   await admin('POST', '/api/admin/rescan', {})
   const after = new Map(((await admin('GET', '/api/tags')).body.tags as { tag: string; count: number; total: number }[]).map((t) => [t.tag, t]))
   assert.deepEqual(after.get('hogar'), { tag: 'hogar', count: 2, total: 3 }, 'a note with only a nested tag counts in the total')
-  assert.ok(!after.has('viaje'), 'a parent nobody writes is not a tag in use (the view groups it)')
+  assert.ok(!after.has(parent), 'a parent nobody writes is not a tag in use (the view groups it)')
 })
 
 test('the tree lists folders, the empty ones too; folders are created, moved and deleted over HTTP', async () => {
   const { notesDir, admin } = await setup()
-  mkdirSync(join(notesDir, 'vacia'))
-  writeFileSync(join(notesDir, 'enlaza.md'), '[[hogar/Proxy]] y [otra](hogar/Red.md)\n')
+  const [empty, created, infra] = [m.aFolder(), m.aFolder(), m.aFolder()]
+  // A note of its own linking to two of the vault's in `hogar`, the folder that moves.
+  const linking = m.aNotePath()
+  mkdirSync(join(notesDir, empty))
+  writeFileSync(join(notesDir, linking), `[[hogar/Proxy]] ${m.aWord()} [${m.aWord()}](hogar/Red.md)\n`)
   await admin('POST', '/api/admin/rescan', {})
   let tree = await admin('GET', '/api/tree')
-  assert.ok(tree.body.folders.includes('vacia') && tree.body.folders.includes('hogar'))
+  assert.ok(tree.body.folders.includes(empty) && tree.body.folders.includes('hogar'))
   assert.ok(!tree.body.folders.some((f: string) => f.startsWith('.')), 'hidden folders are not listed')
 
-  assert.equal((await admin('POST', '/api/folder', { path: 'nueva' })).status, 201)
-  assert.equal((await admin('POST', '/api/folder', { path: 'nueva' })).body.error, 'exists')
-  assert.equal((await admin('POST', '/api/folder', { path: '.oculta' })).body.error, 'invalid_path')
+  assert.equal((await admin('POST', '/api/folder', { path: created })).status, 201)
+  assert.equal((await admin('POST', '/api/folder', { path: created })).body.error, 'exists')
+  assert.equal((await admin('POST', '/api/folder', { path: `.${m.aFolder()}` })).body.error, 'invalid_path')
 
-  const preview = await admin('POST', '/api/folder/move', { from: 'hogar', to: 'infra/hogar', dryRun: true })
+  const preview = await admin('POST', '/api/folder/move', { from: 'hogar', to: `${infra}/hogar`, dryRun: true })
   assert.equal(preview.status, 200)
   assert.equal(preview.body.notes.length, 4)
-  assert.ok(preview.body.relinked.some((x: { path: string }) => x.path === 'enlaza.md'))
+  assert.ok(preview.body.relinked.some((x: { path: string }) => x.path === linking))
   assert.ok(existsSync(join(notesDir, 'hogar/Proxy.md')))
-  const moved = await admin('POST', '/api/folder/move', { from: 'hogar', to: 'infra/hogar' })
+  const moved = await admin('POST', '/api/folder/move', { from: 'hogar', to: `${infra}/hogar` })
   assert.equal(moved.status, 200)
   assert.deepEqual(moved.body.failed, [])
   tree = await admin('GET', '/api/tree')
-  assert.ok(tree.body.notes.some((n: { path: string }) => n.path === 'infra/hogar/Proxy.md'))
-  assert.ok(!tree.body.folders.includes('hogar') && tree.body.folders.includes('infra/hogar'))
-  const links = await admin('GET', `/api/note/links?path=${encodeURIComponent('enlaza.md')}`)
-  assert.deepEqual(links.body.outgoing.map((l: { dst_path: string }) => l.dst_path), ['infra/hogar/Proxy.md', 'infra/hogar/Red.md'])
+  assert.ok(tree.body.notes.some((n: { path: string }) => n.path === `${infra}/hogar/Proxy.md`))
+  assert.ok(!tree.body.folders.includes('hogar') && tree.body.folders.includes(`${infra}/hogar`))
+  const links = await admin('GET', `/api/note/links?path=${encodeURIComponent(linking)}`)
+  assert.deepEqual(links.body.outgoing.map((l: { dst_path: string }) => l.dst_path), [`${infra}/hogar/Proxy.md`, `${infra}/hogar/Red.md`])
 
-  assert.equal((await admin('POST', '/api/folder/move', { from: 'recetas', to: 'infra' })).status, 409)
-  assert.equal((await admin('DELETE', '/api/folder?path=infra')).status, 409)
-  assert.equal((await admin('DELETE', '/api/folder?path=infra')).body.error, 'not_empty')
-  assert.equal((await admin('DELETE', '/api/folder?path=vacia')).status, 200)
-  assert.ok(!(await admin('GET', '/api/tree')).body.folders.includes('vacia'))
+  assert.equal((await admin('POST', '/api/folder/move', { from: 'recetas', to: infra })).status, 409)
+  const folder = (path: string) => `/api/folder?path=${encodeURIComponent(path)}`
+  assert.equal((await admin('DELETE', folder(infra))).status, 409)
+  assert.equal((await admin('DELETE', folder(infra))).body.error, 'not_empty')
+  assert.equal((await admin('DELETE', folder(empty))).status, 200)
+  assert.ok(!(await admin('GET', '/api/tree')).body.folders.includes(empty))
 })

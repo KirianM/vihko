@@ -12,8 +12,14 @@ import { yamlKey } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 import { tempDir } from './_tmp.ts'
 
+// The setup copies the fixed vault (testdata/vault): its notes (tags.md,
+// hogar/Proxy.md, privado/, recetas/ with its Unicode names) are the vault's.
+// What the tests write and the notes they make are the mother's; commit
+// messages are the steps' labels.
 const m = mother(import.meta.url)
 const UNMANAGED = 'history:\n  mode: unmanaged\n'
+/** One word per line or name where a count of words or a Markdown destination depends on it. */
+const word = () => m.aUniqueWord()
 
 /** The text without its first comment thread, as resolving it in the editor leaves it. */
 function resolveIn(text: string): string {
@@ -24,32 +30,36 @@ function resolveIn(text: string): string {
 const cursorOf = (value: unknown) => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
 
 test('unmanaged mode reads the user\'s own git: their commits are the versions, by their authors, and moves follow git', async () => {
-  const NOTE = 'etiquetas/Índice de etiquetas.md'
+  const folder = m.aFolder()
+  const NOTE = m.aNotePath(folder)
+  const FIRST = m.aNotePath()
+  const OUTSIDE = `${m.aTitle()}.md`
+  const [w1, w2, w3, w4, w5] = [word(), word(), word(), word(), word()]
   const c: Record<string, { id: string; at: string }> = {}
   let repo!: ReturnType<typeof userGit>
   const h = await setup({
     // Nobody reads privado/ (nobody manages the root: whoever did would reach it, D-040 3.5).
     config: ({ admin, member }) => UNMANAGED + `permissions:\n  "": { grants: { ${yamlKey(admin)}: edit, ${yamlKey(member)}: edit } }\n  privado: { grants: {} }\n`,
-    files: { 'nota.md': 'uno dos tres\n' },
+    files: { [FIRST]: `${w1} ${w2} ${w3}\n` },
     // The notes folder is one folder of a larger repository.
     prepare: ({ dir, notesDir }) => {
       repo = userGit(dir)
       // Their settings don't change what thoth reads.
       for (const [k, v] of [['log.follow', 'true'], ['log.showRoot', 'false'], ['diff.renames', 'false'], ['i18n.logOutputEncoding', 'ISO-8859-1'], ['core.abbrev', '7']]) repo.run(['config', k!, v!])
       writeFileSync(join(dir, '.gitignore'), '/state/\n/*.db*\n')
-      writeFileSync(join(dir, 'fuera.md'), 'fuera de la carpeta de notas\n')
+      writeFileSync(join(dir, OUTSIDE), `${m.aSentence()}\n`)
       c.first = repo.commit('Initial')
-      writeFileSync(join(notesDir, 'nota.md'), 'uno dos tres cuatro\n')
-      writeFileSync(join(dir, 'fuera.md'), 'cambiada\n')
+      writeFileSync(join(notesDir, FIRST), `${w1} ${w2} ${w3} ${w4}\n`)
+      writeFileSync(join(dir, OUTSIDE), `${m.aSentence()}\n`)
       c.edit = repo.commit('Edit', CO_AUTHOR)
-      mkdirSync(join(notesDir, 'etiquetas'))
-      repo.run(['mv', 'notes/nota.md', `notes/${NOTE}`])
+      mkdirSync(join(notesDir, folder))
+      repo.run(['mv', `notes/${FIRST}`, `notes/${NOTE}`])
       c.move = repo.commit('Move')
-      writeFileSync(join(notesDir, NOTE), 'uno dos tres cuatro cinco\n')
+      writeFileSync(join(notesDir, NOTE), `${w1} ${w2} ${w3} ${w4} ${w5}\n`)
       c.after = repo.commit('After the move', CO_AUTHOR)
-      writeFileSync(join(dir, 'fuera.md'), 'otra vez\n')
+      writeFileSync(join(dir, OUTSIDE), `${m.aSentence()}\n`)
       c.outside = repo.commit('Only outside the notes folder', CO_AUTHOR)
-      writeFileSync(join(notesDir, 'privado/sin-ia.md'), 'secreto\n')
+      writeFileSync(join(notesDir, 'privado/sin-ia.md'), `${m.aSentence()}\n`)
       c.private = repo.commit('Only a private note', CO_AUTHOR)
     },
   })
@@ -59,9 +69,9 @@ test('unmanaged mode reads the user\'s own git: their commits are the versions, 
     assert.equal(pending, null, 'only commits are versions')
     assert.deepEqual(versions.map((v: any) => [v.id, v.change, v.path, v.from ?? null, v.authors[0].name, v.at]), [
       [c.after!.id, 'modified', NOTE, null, CO_AUTHOR.name, c.after!.at],
-      [c.move!.id, 'moved', NOTE, 'nota.md', AUTHOR.name, c.move!.at],
-      [c.edit!.id, 'modified', 'nota.md', null, CO_AUTHOR.name, c.edit!.at],
-      [c.first!.id, 'created', 'nota.md', null, AUTHOR.name, c.first!.at],
+      [c.move!.id, 'moved', NOTE, FIRST, AUTHOR.name, c.move!.at],
+      [c.edit!.id, 'modified', FIRST, null, CO_AUTHOR.name, c.edit!.at],
+      [c.first!.id, 'created', FIRST, null, AUTHOR.name, c.first!.at],
     ])
     assert.deepEqual(versions[0].authors, [{ kind: 'git', id: CO_AUTHOR.email, name: CO_AUTHOR.name, key: `git:${CO_AUTHOR.email}` }])
     assert.ok(versions.every((v: any) => v.reason === null && v.foundAtStartup === false))
@@ -69,19 +79,19 @@ test('unmanaged mode reads the user\'s own git: their commits are the versions, 
 
     // A version's text, and the note's text right before it, where it was then.
     const moved = await h.admin('GET', `/api/history/version?path=${h.q(NOTE)}&id=${c.move!.id}`)
-    assert.deepEqual(moved.body, { path: NOTE, id: c.move!.id, at: c.move!.at, text: 'uno dos tres cuatro\n' })
+    assert.deepEqual(moved.body, { path: NOTE, id: c.move!.id, at: c.move!.at, text: `${w1} ${w2} ${w3} ${w4}\n` })
     const oldest = await h.admin('GET', `/api/history/version?path=${h.q(NOTE)}&id=${c.first!.id}`)
-    assert.deepEqual([oldest.body.path, oldest.body.text], ['nota.md', 'uno dos tres\n'])
+    assert.deepEqual([oldest.body.path, oldest.body.text], [FIRST, `${w1} ${w2} ${w3}\n`])
     const d = await h.admin('GET', `/api/history/diff?path=${h.q(NOTE)}&id=${c.after!.id}`)
     assert.deepEqual([d.body.added, d.body.removed], [1, 0])
-    assert.ok(d.body.ops.some(([op, s]: [number, string]) => op === 1 && s.includes('cinco')))
+    assert.ok(d.body.ops.some(([op, s]: [number, string]) => op === 1 && s.includes(w5)))
     assert.equal((await h.admin('GET', `/api/history/version?path=${h.q(NOTE)}&id=${c.outside!.id}`)).status, 404, 'a commit that doesn\'t touch the note isn\'t one of its versions')
 
     // «Recent changes»: their git log, the notes folder only, file by file through the permission check.
     const { changes, authors } = await h.changes()
     assert.deepEqual(changes.map((ch: any) => ch.id), [c.after!.id, c.move!.id, c.edit!.id, c.first!.id], 'commits with nothing readable in the notes folder are left out')
-    assert.deepEqual(changes[1].files, [{ path: NOTE, change: 'moved', from: 'nota.md', added: 0, removed: 0 }])
-    assert.deepEqual(changes[2].files.map((f: any) => f.path), ['nota.md'])
+    assert.deepEqual(changes[1].files, [{ path: NOTE, change: 'moved', from: FIRST, added: 0, removed: 0 }])
+    assert.deepEqual(changes[2].files.map((f: any) => f.path), [FIRST])
     const first = changes[3].files.map((f: any) => f.path)
     // thoth.yaml isn't served to anyone (it holds the permissions), not even its history.
     assert.ok(first.includes('hogar/Proxy.md') && !first.includes('thoth.yaml') && !first.includes('privado/sin-ia.md'))
@@ -93,7 +103,7 @@ test('unmanaged mode reads the user\'s own git: their commits are the versions, 
     assert.equal((await h.admin('GET', `/api/history/versions?path=${h.q('privado/sin-ia.md')}`)).status, 404)
 
     // What thoth writes is a change without a commit for their git, until they commit it.
-    await h.put(NOTE, (t) => t + 'desde thoth\n')
+    await h.put(NOTE, (t) => t + `${m.aSentence()}\n`)
     assert.equal((await h.versions(NOTE)).versions.length, 4)
     assert.equal(h.history.recorder.headId, null, 'nothing is recorded in a managed repository')
     const committed = repo.commit('Commit what thoth wrote', CO_AUTHOR)
@@ -105,14 +115,18 @@ test('unmanaged mode never writes to the user\'s repository: .git is byte for by
   const c: Record<string, { id: string; at: string }> = {}
   let repo!: ReturnType<typeof userGit>
   let before: Record<string, string> = {}
+  const folder = m.aFolder()
+  const path = m.aNotePath(folder)
+  const image = `${word()}.png`
+  const bytes = m.aSecret()
   const h = await setup({
     config: UNMANAGED,
-    files: { 'fotos/nota.md': '# Con imagen\n\n![](a.png)\n', 'fotos/a.png': 'AAAA' },
+    files: { [path]: `# ${m.aHeading()}\n\n![](${image})\n`, [`${folder}/${image}`]: bytes },
     prepare: ({ notesDir }) => {
       repo = userGit(notesDir)
       c.first = repo.commit('Initial')
-      writeFileSync(join(notesDir, 'fotos/nota.md'), '# Sin imagen\n')
-      rmSync(join(notesDir, 'fotos/a.png'))
+      writeFileSync(join(notesDir, path), `# ${m.aHeading()}\n`)
+      rmSync(join(notesDir, folder, image))
       c.second = repo.commit('Drop the image', CO_AUTHOR)
       // A lock of the user's own git (their editor is committing): never taken for a crash's, as in thoth's own repository.
       writeFileSync(join(notesDir, '.git/index.lock'), '')
@@ -121,7 +135,6 @@ test('unmanaged mode never writes to the user\'s repository: .git is byte for by
     },
   })
   try {
-    const path = 'fotos/nota.md'
     assert.equal((await h.admin('GET', '/api/history/status')).body.available, true)
     assert.deepEqual((await h.admin('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code.startsWith('history_')), [])
     const page = await h.versions(path, '&limit=1')
@@ -137,9 +150,9 @@ test('unmanaged mode never writes to the user\'s repository: .git is byte for by
     // Restoring writes through the core, and brings back the image that version linked.
     const r = await h.admin('POST', '/api/history/restore', { path, id: c.first!.id })
     assert.equal(r.status, 200, JSON.stringify(r.body))
-    assert.deepEqual(r.body.images, { restored: ['fotos/a.png'], missing: [] })
-    assert.equal(readFileSync(join(h.notesDir, 'fotos/a.png'), 'utf8'), 'AAAA')
-    assert.ok(readFileSync(join(h.notesDir, path), 'utf8').includes('![](a.png)'))
+    assert.deepEqual(r.body.images, { restored: [`${folder}/${image}`], missing: [] })
+    assert.equal(readFileSync(join(h.notesDir, folder, image), 'utf8'), bytes)
+    assert.ok(readFileSync(join(h.notesDir, path), 'utf8').includes(`![](${image})`))
 
     // To managed and back: the managed history lives in the state volume.
     for (const mode of ['managed', 'unmanaged']) {
@@ -153,9 +166,10 @@ test('unmanaged mode never writes to the user\'s repository: .git is byte for by
     assert.deepEqual(snapshot(join(h.notesDir, '.git')), before)
     // For their git, the restore is a change without a commit.
     assert.equal(repo.head(), c.second!.id)
-    const status = repo.run(['--no-optional-locks', 'status', '--porcelain']).split('\n')
-    assert.ok(status.includes(' M fotos/nota.md'), status.join('\n'))
-    assert.ok(status.includes('?? fotos/a.png'), status.join('\n'))
+    // -z: paths as they are (without it, git quotes names with spaces or accents).
+    const status = repo.run(['--no-optional-locks', 'status', '--porcelain', '-z']).split('\0')
+    assert.ok(status.includes(` M ${path}`), status.join('\n'))
+    assert.ok(status.includes(`?? ${folder}/${image}`), status.join('\n'))
   } finally { await h.close() }
 })
 
@@ -163,30 +177,32 @@ test('pages in unmanaged mode follow moves across pages and stay the same while 
   const ids: string[] = []
   let repo!: ReturnType<typeof userGit>
   let notes = ''
+  const series = m.aNotePath()
+  const movedTo = m.aFolder()
+  const path = `${movedTo}/${series}`
   const h = await setup({
     config: UNMANAGED,
-    files: { 'serie.md': 'v0\n' },
+    files: { [series]: `${m.aSentence()}\n` },
     prepare: ({ notesDir }) => {
       notes = notesDir
       repo = userGit(notesDir)
       ids.unshift(repo.commit('v0').id)
       for (let i = 1; i <= 3; i++) {
-        writeFileSync(join(notesDir, 'serie.md'), `v${i}\n`)
+        writeFileSync(join(notesDir, series), `${m.aSentence()}\n`)
         ids.unshift(repo.commit(`v${i}`, i % 2 ? CO_AUTHOR : AUTHOR).id)
-        writeFileSync(join(notesDir, 'tags.md'), `otra ${i}\n`)
+        writeFileSync(join(notesDir, 'tags.md'), `${m.aSentence()}\n`)
         repo.commit(`other ${i}`)
       }
-      mkdirSync(join(notesDir, 'movida'))
-      repo.run(['mv', 'serie.md', 'movida/serie.md'])
+      mkdirSync(join(notesDir, movedTo))
+      repo.run(['mv', series, path])
       ids.unshift(repo.commit('move').id)
       for (let i = 4; i <= 5; i++) {
-        writeFileSync(join(notesDir, 'movida/serie.md'), `v${i}\n`)
+        writeFileSync(join(notesDir, path), `${m.aSentence()}\n`)
         ids.unshift(repo.commit(`v${i}`).id)
       }
     },
   })
   try {
-    const path = 'movida/serie.md'
     const seen: any[] = []
     let next: string | null = null
     let pages = 0
@@ -197,13 +213,13 @@ test('pages in unmanaged mode follow moves across pages and stay the same while 
       next = page.next
       // The user commits while the pages are read: the listing goes on where it started.
       if (pages++ === 0) {
-        writeFileSync(join(notes, path), 'mientras se lee\n')
+        writeFileSync(join(notes, path), `${m.aSentence()}\n`)
         repo.commit('while reading', CO_AUTHOR)
       }
     } while (next)
     assert.deepEqual(seen.map((v) => v.id), ids)
     assert.equal(pages, 4)
-    assert.deepEqual(seen.filter((v) => v.change === 'moved').map((v) => [v.from, v.path]), [['serie.md', path]])
+    assert.deepEqual(seen.filter((v) => v.change === 'moved').map((v) => [v.from, v.path]), [[series, path]])
     assert.equal(seen.at(-1).change, 'created')
     // A new first page has it.
     assert.equal((await h.versions(path, '&limit=2')).versions[0].authors[0].name, CO_AUTHOR.name)
@@ -216,7 +232,7 @@ test('pages in unmanaged mode follow moves across pages and stay the same while 
       all.push(...r.body.changes.map((ch: any) => ch.id))
       cursor = r.body.next
       if (all.length === 3) {
-        writeFileSync(join(notes, 'tags.md'), 'otra más\n')
+        writeFileSync(join(notes, 'tags.md'), `${m.aSentence()}\n`)
         repo.commit('also while reading')
       }
     } while (cursor)
@@ -241,7 +257,7 @@ test('unmanaged mode: a repository without commits, then a detached HEAD', async
     assert.deepEqual((await h.versions('tags.md')).versions, [])
     assert.deepEqual(await h.changes(), { changes: [], next: null, authors: [] })
     const first = repo.commit('Initial')
-    writeFileSync(join(h.notesDir, 'tags.md'), 'segunda\n')
+    writeFileSync(join(h.notesDir, 'tags.md'), `${m.aSentence()}\n`)
     const second = repo.commit('Second', CO_AUTHOR)
     assert.deepEqual((await h.versions('tags.md')).versions.map((v: any) => v.id), [second.id, first.id])
     repo.run(['checkout', '-q', '--detach', 'HEAD~1'])
@@ -251,10 +267,11 @@ test('unmanaged mode: a repository without commits, then a detached HEAD', async
 })
 
 test('resolved comments in unmanaged mode: a commit of the user that removes a thread, by that commit\'s author', async () => {
-  const NOTE = 'hilos/Decisiones.md'
+  const NOTE = m.aNotePath(m.aFolder())
   const commenter = m.aUsername()
-  const K = `<!-- @${commenter} 2026-09-24T08:12Z · esto no, usa SQLite -->`
-  const TEXT = `# Decisiones\n\nUsaremos Postgres para el índice.${K}\n\nEl índice vive en disco local.\n`
+  const said = m.aComment()
+  const K = `<!-- @${commenter} 2026-09-24T08:12Z · ${said} -->`
+  const TEXT = `# ${m.aHeading()}\n\n${m.aSentence()}${K}\n\n${m.aSentence()}\n`
   let repo!: ReturnType<typeof userGit>
   const h = await setup({
     config: UNMANAGED,
@@ -278,40 +295,44 @@ test('resolved comments in unmanaged mode: a commit of the user that removes a t
     const c = repo.commit('Resolve the thread', CO_AUTHOR)
     const { threads, complete } = await resolved()
     assert.equal(complete, true)
-    assert.deepEqual(threads.map((t) => [t.id, t.version, t.resolvedAt, t.reopenable]), [[`${commenter}|2026-09-24T08:12Z|esto no, usa SQLite`, c.id, c.at, true]])
+    assert.deepEqual(threads.map((t) => [t.id, t.version, t.resolvedAt, t.reopenable]), [[`${commenter}|2026-09-24T08:12Z|${said}`, c.id, c.at, true]])
     assert.deepEqual(threads[0].resolvedBy, [{ kind: 'git', id: CO_AUTHOR.email, name: CO_AUTHOR.name, key: `git:${CO_AUTHOR.email}` }])
   } finally { await h.close() }
 })
 
 test('unmanaged mode reads a repository with SHA-256 object ids', async () => {
   const c: { id: string; at: string }[] = []
+  const note = m.aNotePath()
+  const image = `${word()}.png`
   const h = await setup({
     config: UNMANAGED,
     prepare: ({ notesDir }) => {
       execFileSync('git', ['init', '-q', '--object-format=sha256', notesDir], { env: gitEnv() })
       const repo = userGit(notesDir)
       c.push(repo.commit('Initial'))
-      writeFileSync(join(notesDir, 'fotos.md'), '![](a.png)\n')
-      writeFileSync(join(notesDir, 'a.png'), 'AAAA')
+      writeFileSync(join(notesDir, note), `![](${image})\n`)
+      writeFileSync(join(notesDir, image), m.aSecret())
       c.push(repo.commit('With an image', CO_AUTHOR))
-      rmSync(join(notesDir, 'a.png'))
-      writeFileSync(join(notesDir, 'fotos.md'), 'sin imagen\n')
+      rmSync(join(notesDir, image))
+      writeFileSync(join(notesDir, note), `${m.aSentence()}\n`)
       c.push(repo.commit('Without it'))
     },
   })
   try {
-    const { versions } = await h.versions('fotos.md')
+    const { versions } = await h.versions(note)
     assert.deepEqual(versions.map((v: any) => [v.id.length, v.change]), [[64, 'modified'], [64, 'created']])
-    const v = await h.admin('GET', `/api/history/version?path=fotos.md&id=${c[1]!.id}`)
-    assert.equal(v.body.text, '![](a.png)\n')
-    const r = await h.admin('POST', '/api/history/restore', { path: 'fotos.md', id: c[1]!.id })
-    assert.deepEqual(r.body.images, { restored: ['a.png'], missing: [] })
+    const v = await h.admin('GET', `/api/history/version?path=${h.q(note)}&id=${c[1]!.id}`)
+    assert.equal(v.body.text, `![](${image})\n`)
+    const r = await h.admin('POST', '/api/history/restore', { path: note, id: c[1]!.id })
+    assert.deepEqual(r.body.images, { restored: [image], missing: [] })
     assert.equal((await h.changes()).changes.length, 3)
   } finally { await h.close() }
 })
 
 test('unmanaged mode: a shallow clone\'s history ends where the clone does', async () => {
   const c: string[] = []
+  const series = m.aNotePath()
+  const texts = Array.from({ length: 4 }, word)
   const h = await setup({
     prepare: ({ dir, notesDir }) => {
       const origin = join(dir, 'origin')
@@ -319,7 +340,7 @@ test('unmanaged mode: a shallow clone\'s history ends where the clone does', asy
       const repo = userGit(origin)
       writeFileSync(join(origin, 'thoth.yaml'), UNMANAGED)
       for (let i = 1; i <= 4; i++) {
-        writeFileSync(join(origin, 'serie.md'), `v${i}\n`)
+        writeFileSync(join(origin, series), `${texts[i - 1]}\n`)
         c.push(repo.commit(`v${i}`).id)
       }
       rmSync(notesDir, { recursive: true })
@@ -328,11 +349,11 @@ test('unmanaged mode: a shallow clone\'s history ends where the clone does', asy
   })
   try {
     assert.equal((await h.admin('GET', '/api/history/status')).body.available, true)
-    const { versions } = await h.versions('serie.md')
+    const { versions } = await h.versions(series)
     assert.deepEqual(versions.map((v: any) => [v.id, v.change]), [[c[3], 'modified']], 'the commit the clone starts at is not a version: what it changed is unknown')
-    const v = await h.admin('GET', `/api/history/version?path=serie.md&id=${c[3]}`)
-    assert.equal(v.body.text, 'v4\n')
-    const d = await h.admin('GET', `/api/history/diff?path=serie.md&id=${c[3]}`)
+    const v = await h.admin('GET', `/api/history/version?path=${h.q(series)}&id=${c[3]}`)
+    assert.equal(v.body.text, `${texts[3]}\n`)
+    const d = await h.admin('GET', `/api/history/diff?path=${h.q(series)}&id=${c[3]}`)
     assert.deepEqual([d.body.added, d.body.removed], [1, 1], 'against the text the clone starts with')
     assert.deepEqual((await h.changes()).changes.map((ch: any) => ch.id), [c[3]])
   } finally { await h.close() }
@@ -342,45 +363,51 @@ test('unmanaged mode: submodules are left out, files in Git LFS show their point
   const c: Record<string, { id: string; at: string }> = {}
   const pointer = 'version https://git-lfs.github.com/spec/v1\noid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\nsize 12345\n'
   let cafe = ''
+  // Names in .gitattributes and a Markdown destination: one word each.
+  const folder = word()
+  const note = `${folder}/${word()}.md`
+  const image = `${word()}.png`
+  const lfsNote = `${word()}.md`
+  const submodule = word()
   const h = await setup({
     config: UNMANAGED,
-    files: { 'fotos/con-lfs.md': '![](lfs.png)\n', 'fotos/lfs.png': pointer, 'lfs-nota.md': pointer },
+    files: { [note]: `![](${image})\n`, [`${folder}/${image}`]: pointer, [lfsNote]: pointer },
     prepare: ({ notesDir }) => {
       const repo = userGit(notesDir)
-      writeFileSync(join(notesDir, '.gitattributes'), '*.png filter=lfs diff=lfs merge=lfs -text\nlfs-nota.md filter=lfs diff=lfs merge=lfs -text\n')
+      writeFileSync(join(notesDir, '.gitattributes'), `*.png filter=lfs diff=lfs merge=lfs -text\n${lfsNote} filter=lfs diff=lfs merge=lfs -text\n`)
       c.first = repo.commit('Initial')
       // A submodule (not checked out): only its commit is in the tree.
-      mkdirSync(join(notesDir, 'vendored'))
-      repo.run(['update-index', '--add', '--cacheinfo', `160000,${c.first.id},vendored`])
+      mkdirSync(join(notesDir, submodule))
+      repo.run(['update-index', '--add', '--cacheinfo', `160000,${c.first.id},${submodule}`])
       c.submodule = repo.commit('Add a submodule', AUTHOR, { add: false })
-      rmSync(join(notesDir, 'fotos/lfs.png'))
-      writeFileSync(join(notesDir, 'fotos/con-lfs.md'), 'sin imagen\n')
+      rmSync(join(notesDir, folder, image))
+      writeFileSync(join(notesDir, note), `${m.aSentence()}\n`)
       // As it is on disk (NFD).
       cafe = `recetas/${readdirSync(join(notesDir, 'recetas')).find((n) => n.normalize('NFC') === 'Café.md')!}`
-      writeFileSync(join(notesDir, cafe), 'café solo\n')
-      writeFileSync(join(notesDir, 'recetas/Notas de reunión (2026).md'), 'reunión\n')
+      writeFileSync(join(notesDir, cafe), `${m.aSentence()}\n`)
+      writeFileSync(join(notesDir, 'recetas/Notas de reunión (2026).md'), `${m.aSentence()}\n`)
       c.last = repo.commit('Drop the image, edit the recipes', CO_AUTHOR)
     },
   })
   try {
     const { changes } = await h.changes()
     assert.deepEqual(changes.map((ch: any) => ch.id), [c.last!.id, c.first!.id], 'a commit that only adds a submodule has nothing to show')
-    assert.ok(changes.every((ch: any) => ch.files.every((f: any) => f.path !== 'vendored')))
+    assert.ok(changes.every((ch: any) => ch.files.every((f: any) => f.path !== submodule)))
     assert.deepEqual(changes[0].files.map((f: any) => [f.path, f.change]).sort(), [
-      ['fotos/con-lfs.md', 'modified'], ['fotos/lfs.png', 'deleted'], [cafe, 'modified'], ['recetas/Notas de reunión (2026).md', 'modified'],
+      [note, 'modified'], [`${folder}/${image}`, 'deleted'], [cafe, 'modified'], ['recetas/Notas de reunión (2026).md', 'modified'],
     ].sort())
     for (const p of [cafe, 'recetas/Notas de reunión (2026).md']) {
       assert.deepEqual((await h.versions(p)).versions.map((v: any) => [v.path, v.change]), [[p, 'modified'], [p, 'created']])
     }
     // A note kept in LFS: its versions are the pointer (git has nothing else).
-    const lfsNote = (await h.versions('lfs-nota.md')).versions[0]
-    const text = (await h.admin('GET', `/api/history/version?path=lfs-nota.md&id=${lfsNote.id}`)).body.text
+    const lfsVersion = (await h.versions(lfsNote)).versions[0]
+    const text = (await h.admin('GET', `/api/history/version?path=${h.q(lfsNote)}&id=${lfsVersion.id}`)).body.text
     assert.ok(text.startsWith('version https://git-lfs.github.com/spec/v1'))
     // An image kept in LFS isn't brought back as its pointer.
-    const r = await h.admin('POST', '/api/history/restore', { path: 'fotos/con-lfs.md', id: c.first!.id })
+    const r = await h.admin('POST', '/api/history/restore', { path: note, id: c.first!.id })
     assert.equal(r.status, 200, JSON.stringify(r.body))
-    assert.deepEqual(r.body.images, { restored: [], missing: [{ path: 'fotos/lfs.png', reason: 'not_in_history' }] })
-    assert.ok(!existsSync(join(h.notesDir, 'fotos/lfs.png')))
+    assert.deepEqual(r.body.images, { restored: [], missing: [{ path: `${folder}/${image}`, reason: 'not_in_history' }] })
+    assert.ok(!existsSync(join(h.notesDir, folder, image)))
   } finally { await h.close() }
 })
 
@@ -430,21 +457,21 @@ test('switching modes live keeps the managed history and the user\'s git apart',
       before = snapshot(join(notesDir, '.git'))
     },
   })
-  const mode = async (m: string) => {
-    writeFileSync(join(h.notesDir, 'thoth.yaml'), `history:\n  mode: ${m}\n`)
+  const mode = async (to: string) => {
+    writeFileSync(join(h.notesDir, 'thoth.yaml'), `history:\n  mode: ${to}\n`)
     h.workspace.reload()
     await h.history.configure()
     await h.settle()
   }
   try {
     // Managed by default, even with a repository in the folder.
-    await h.put(NOTE, (t) => t + '\ngestionado\n')
+    await h.put(NOTE, (t) => t + `\n${m.aSentence()}\n`)
     await h.settle()
     assert.deepEqual((await h.versions(NOTE)).versions.map((v: any) => v.authors[0].kind), ['user', 'system'])
     await mode('unmanaged')
     const managedHead = h.history.recorder.headId
     assert.deepEqual((await h.versions(NOTE)).versions.map((v: any) => [v.id, v.authors[0].kind]), [[initial, 'git']])
-    await h.put(NOTE, (t) => t + 'sin gestionar\n')
+    await h.put(NOTE, (t) => t + `${m.aSentence()}\n`)
     await sleep(50)
     await h.settle()
     assert.equal(h.history.recorder.headId, managedHead, 'nothing is recorded meanwhile')

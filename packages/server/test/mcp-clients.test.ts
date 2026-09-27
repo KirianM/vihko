@@ -15,6 +15,13 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { toolData } from '@thoth/server'
 import { api, login, makeDirs, startServer, waitFor } from './_collab.ts'
 import { tempDir } from './_tmp.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
+/** Where the clients write their notes, the section they write under, and the names of the two keys. */
+const FOLDER = m.aFolder()
+const SECTION = m.aTitle()
+const KEY = { rw: m.aKeyName(), ro: m.aKeyName() }
 
 const MODULES = fileURLToPath(new URL('../../../node_modules/', import.meta.url))
 const INSPECTOR = join(MODULES, '@modelcontextprotocol/inspector/clients/launcher/build/index.js')
@@ -57,23 +64,25 @@ async function exercise(call: Call, tag: string, write: boolean): Promise<string
   await ok('daily_note', {})
   if (!write) return called
 
-  const path = `clientes/${tag}.md`
-  const made = await ok('create_note', { path, text: `# ${tag}\n\n## Registro\n` })
+  const path = `${FOLDER}/${tag}.md`
+  const made = await ok('create_note', { path, text: `# ${tag}\n\n## ${SECTION}\n` })
   const versions = async (n: number) => {
     let list: any[] = []
     await waitFor(async () => (list = (await ok('history', { path })).versions).length >= n, `${tag}: ${n} versions`, 20_000)
     return list
   }
   await versions(1)
-  await ok('edit_note', { path, operations: [{ op: 'append_under_heading', heading: 'Registro', text: `- ${tag} estuvo aquí` }] })
+  const entry = `- ${tag} ${m.aSentence(3)}`
+  await ok('edit_note', { path, operations: [{ op: 'append_under_heading', heading: SECTION, text: entry }] })
   const since = await ok('changes_since', { path, since: made.etag })
-  assert.deepEqual(since.changes.map((c: any) => c.added), [`- ${tag} estuvo aquí\n`])
+  assert.deepEqual(since.changes.map((c: any) => c.added), [`${entry}\n`])
   const [edit] = await versions(2)
-  assert.equal(edit.authors[0].name, 'Claude Code')
+  assert.equal(edit.authors[0].name, KEY.rw)
   assert.equal(edit.authors[0].via, 'mcp')
   assert.equal((await ok('revert_change', { path, version: edit.version, dry_run: true })).counts.reverted, 1)
-  await ok('move', { from: path, to: `clientes/${tag}-movida.md` })
-  await ok('delete', { path: `clientes/${tag}-movida.md` })
+  const moved = `${FOLDER}/${tag}-${m.anId()}.md`
+  await ok('move', { from: path, to: moved })
+  await ok('delete', { path: moved })
   return called
 }
 
@@ -94,7 +103,7 @@ async function server() {
     await srv.stop()
     rmSync(dirname(notes), { recursive: true, force: true })
   }
-  return { srv, url: `${srv.base}/mcp`, rw: await key({ name: 'Claude Code', canWrite: true }), ro: await key({ name: 'Lector' }), mcp, stop }
+  return { srv, url: `${srv.base}/mcp`, rw: await key({ name: KEY.rw, canWrite: true }), ro: await key({ name: KEY.ro }), mcp, stop }
 }
 
 /** The SDK's client, over HTTP. */
@@ -119,7 +128,7 @@ test('the SDK\'s client, in both protocol eras', { timeout: 120_000 }, async () 
       const ro = await sdk(s.url, s.ro, mode)
       assert.deepEqual(await ro.tools(), READ, `${mode}: a read-only key sees no tool that writes`)
       await exercise(ro.call, `sdk-ro-${mode}`, false)
-      await assert.rejects(ro.client.callTool({ name: 'create_note', arguments: { path: 'x.md', text: 'x' } }), /create_note/)
+      await assert.rejects(ro.client.callTool({ name: 'create_note', arguments: { path: m.aNotePath(), text: m.aSentence() } }), /create_note/)
       await ro.client.close()
     }
     await s.mcp(false)
@@ -169,7 +178,7 @@ test('MCP Inspector in CLI mode, in both protocol eras', { timeout: 300_000 }, a
         return parse(r.out.result)
       }
       assert.deepEqual((await exercise(call(s.rw), `inspector-${era}`, true)).sort(), ALL, `${era}: every tool called`)
-      const refused = await inspector(home, s.url, s.ro, era, ['--method', 'tools/call', '--tool-name', 'create_note', '--tool-args-json', '{"path":"x.md","text":"x"}'])
+      const refused = await inspector(home, s.url, s.ro, era, ['--method', 'tools/call', '--tool-name', 'create_note', '--tool-args-json', JSON.stringify({ path: m.aNotePath(), text: m.aSentence() })])
       assert.ok(refused.code !== 0 || refused.out?.result?.isError === true, `${era}: ${JSON.stringify(refused.out)}`)
     }
     await s.mcp(false)
@@ -209,7 +218,7 @@ test('mcp-remote, the stdio bridge to a remote server', { timeout: 180_000 }, as
     await rw.client.close()
     const ro = await connect(s.ro)
     assert.deepEqual((await ro.client.listTools()).tools.map((t) => t.name).sort(), READ)
-    await assert.rejects(ro.client.callTool({ name: 'edit_note', arguments: { path: 'x.md', operations: [] } }))
+    await assert.rejects(ro.client.callTool({ name: 'edit_note', arguments: { path: m.aNotePath(), operations: [] } }))
     await ro.client.close()
     await s.mcp(false)
     await assert.rejects(connect(s.rw), /404/)

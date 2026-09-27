@@ -9,9 +9,24 @@ import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path'
 import { readFrontmatter } from '@thoth/core'
 import { api, closeAll, connect, login, makeDirs, sleep, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
+/** Lines typed or written to find again: words no other text has. */
+const MARK = {
+  afterMove: m.aUniqueWord(),
+  changed: m.aUniqueWord(),
+  flushed: m.aUniqueWord(),
+  keptAside: m.aUniqueWord(),
+  otherTool: m.aUniqueWord(),
+  pending: m.aUniqueWord(),
+  sent: m.aUniqueWord(),
+  typed: m.aUniqueWord(),
+}
 
 const NOTE = 'hogar/Proxy.md'
-const TO = 'hogar/Hipervisor.md'
+// The vault's note, renamed on disk (the new name is the mother's).
+const TO = m.aNotePath('hogar')
 
 const once = (text: string, line: string) => text.split('\n').filter((l) => l === line).length === 1
 
@@ -45,12 +60,12 @@ async function renamedWhileTyping(uid: boolean) {
     const mb = listen(b)
     const lines: string[] = []
     if (uid) {
-      for (let i = 0; i < 5; i++) { typeLine(a, `FLUSHED-${i}`); lines.push(`FLUSHED-${i}`) }
-      await waitFor(() => readFileSync(from, 'utf8').includes('FLUSHED-4\n'), 'flush')
+      for (let i = 0; i < 5; i++) { typeLine(a, `${MARK.flushed}-${i}`); lines.push(`${MARK.flushed}-${i}`) }
+      await waitFor(() => readFileSync(from, 'utf8').includes(`${MARK.flushed}-4\n`), 'flush')
       assert.ok(readFrontmatter(readFileSync(from, 'utf8')).data.uid, 'flushing gave it a uid')
     }
     // Sent to the hub, not yet flushed (1 s debounce).
-    for (let i = 0; i < 5; i++) { typeLine(b, `SENT-${i}`); lines.push(`SENT-${i}`) }
+    for (let i = 0; i < 5; i++) { typeLine(b, `${MARK.sent}-${i}`); lines.push(`${MARK.sent}-${i}`) }
     await waitFor(() => b.provider.unsyncedChanges === 0, 'sent')
     if (!uid) assert.ok(!readFrontmatter(readFileSync(from, 'utf8')).data.uid, 'not flushed yet: no uid')
     // From here, each acknowledgement confirms one of a's lines.
@@ -63,12 +78,12 @@ async function renamedWhileTyping(uid: boolean) {
     let renamed = false
     const typing = (async () => {
       for (let n = 0; !moved() && n < 500; n++) {
-        typeLine(a, `TYPED-${n}.`)
-        typed.push(`TYPED-${n}.`)
+        typeLine(a, `${MARK.typed}-${n}.`)
+        typed.push(`${MARK.typed}-${n}.`)
         if (n === 10) {
           // Another tool renames it (and, with a uid, edits it on the way).
           renameSync(from, to)
-          if (uid) writeFileSync(to, readFileSync(to, 'utf8') + 'OTHER-TOOL\n')
+          if (uid) writeFileSync(to, readFileSync(to, 'utf8') + `${MARK.otherTool}\n`)
           renamed = true
         }
         await sleep(20)
@@ -83,7 +98,7 @@ async function renamedWhileTyping(uid: boolean) {
     a.close(); b.close()
     const acked = typed.slice(0, acks)
     assert.ok(acked.length > 10, `typing went on after the rename (${acked.length} acknowledged)`)
-    if (uid) lines.push('OTHER-TOOL')
+    if (uid) lines.push(MARK.otherTool)
     // What arrived just before the editors were closed is written right after telling them.
     await waitFor(() => { const t = readFileSync(to, 'utf8'); return [...lines, ...acked].every((l) => t.includes(`${l}\n`)) }, 'everything acknowledged reaches the new path')
     const text = readFileSync(to, 'utf8')
@@ -92,8 +107,8 @@ async function renamedWhileTyping(uid: boolean) {
     // Reopened at the new path, it's the same text and editing goes on there.
     const c = await connect(srv, cookie, TO)
     assert.equal(c.text(), text)
-    typeLine(c, 'AFTER-MOVE')
-    await waitFor(() => readFileSync(to, 'utf8').includes('AFTER-MOVE\n'), 'flushed at the new path')
+    typeLine(c, MARK.afterMove)
+    await waitFor(() => readFileSync(to, 'utf8').includes(`${MARK.afterMove}\n`), 'flushed at the new path')
     await sleep(1500)
     assert.ok(!existsSync(from), 'the old path is not recreated')
     const list = await alerts(srv, cookie)
@@ -117,12 +132,12 @@ test('renamed and changed on disk without a uid: not provably the same note, so 
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
     const got = listen(a)
-    const changed = readFileSync(from, 'utf8') + 'CHANGED\n'
+    const changed = readFileSync(from, 'utf8') + `${MARK.changed}\n`
     writeFileSync(to, changed)
     rmSync(from)
     await waitFor(() => got.some((m) => m.type === 'thoth:deleted-externally'), 'deleted notice', 15000)
     assert.ok(!got.some((m) => m.type === 'thoth:moved'))
-    typeLine(a, 'KEPT-ASIDE')
+    typeLine(a, MARK.keptAside)
     await sleep(1500)
     assert.ok(!existsSync(from), 'not recreated')
     assert.equal(readFileSync(to, 'utf8'), changed, 'the other note is left alone')
@@ -138,16 +153,16 @@ test('moved with the server down and edits pending in the log: they land at the 
   try {
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
-    for (let i = 0; i < 5; i++) typeLine(a, `PENDING-${i}`)
+    for (let i = 0; i < 5; i++) typeLine(a, `${MARK.pending}-${i}`)
     await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
     await sleep(100)
     a.close()
     await srv.stop('SIGKILL') // before the flush
     renameSync(from, to) // no uid yet: the same text
     srv = await startServer(env)
-    await waitFor(() => existsSync(to) && readFileSync(to, 'utf8').includes('PENDING-4\n'), 'the pending edits reach the new path')
+    await waitFor(() => existsSync(to) && readFileSync(to, 'utf8').includes(`${MARK.pending}-4\n`), 'the pending edits reach the new path')
     const text = readFileSync(to, 'utf8')
-    for (let i = 0; i < 5; i++) assert.ok(once(text, `PENDING-${i}`), `PENDING-${i} exactly once`)
+    for (let i = 0; i < 5; i++) assert.ok(once(text, `${MARK.pending}-${i}`), `${MARK.pending}-${i} exactly once`)
     await sleep(1500)
     assert.ok(!existsSync(from), 'the old path is not recreated')
     const cookie2 = await login(srv)

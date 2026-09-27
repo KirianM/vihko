@@ -161,29 +161,32 @@ test('notes over HTTP: read, create, write with If-Match, move and delete', asyn
   assert.equal(plan.status, 200)
   assert.equal(plan.headers.get('etag'), `"${plan.body.etag}"`)
 
-  const noMatch = await req('PUT', '/api/note?path=Plan.md', { text: 'x' })
+  const noMatch = await req('PUT', '/api/note?path=Plan.md', { text: m.aSentence() })
   assert.deepEqual([noMatch.status, noMatch.body.error], [428, 'precondition_required'], "without If-Match, nothing is overwritten")
-  const stale = await req('PUT', '/api/note?path=Plan.md', { text: 'x' }, { 'if-match': '"sha256:old"' })
+  const stale = await req('PUT', '/api/note?path=Plan.md', { text: m.aSentence() }, { 'if-match': '"sha256:old"' })
   assert.deepEqual([stale.status, stale.body.error], [412, 'precondition_failed'])
   assert.equal(stale.body.etag, plan.body.etag, 'the 412 returns the current ETag')
-  const put = await req('PUT', '/api/note?path=Plan.md', { text: '# Plan general\n\nNuevo.\n' }, { 'if-match': `"${plan.body.etag}"` })
+  const put = await req('PUT', '/api/note?path=Plan.md', { text: `# ${m.aHeading()}\n\n${m.aSentence()}\n` }, { 'if-match': `"${plan.body.etag}"` })
   assert.equal(put.status, 200)
 
-  assert.equal((await req('POST', '/api/note', { path: 'nueva.md', text: '# Nueva\n' })).status, 201)
-  assert.deepEqual(errorOf(await req('POST', '/api/note', { path: 'nueva.md', text: '# Otra\n' })), [409, 'exists'])
-  assert.deepEqual(errorOf(await req('GET', '/api/note?path=../fuera.md')), [400, 'invalid_path'])
-  assert.deepEqual(errorOf(await req('GET', '/api/note?path=no-existe.md')), [404, 'not_found'])
+  const fresh = m.aNotePath()
+  assert.equal((await req('POST', '/api/note', { path: fresh, text: `# ${m.aHeading()}\n` })).status, 201)
+  assert.deepEqual(errorOf(await req('POST', '/api/note', { path: fresh, text: `# ${m.aHeading()}\n` })), [409, 'exists'])
+  assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(`../${m.aNotePath()}`)}`)), [400, 'invalid_path'])
+  assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(m.aNotePath())}`)), [404, 'not_found'])
   const notJson = await req('POST', '/api/note', '{no es json', {}, true)
   assert.deepEqual(errorOf(notJson), [400, 'invalid'], "a body that isn't JSON isn't an internal error")
 
-  const dry = await req('POST', '/api/note/move', { from: 'hogar/Proxy.md', to: 'hogar/GW.md', dryRun: true })
+  // A note of the vault that others link to, renamed.
+  const renamed = m.aNotePath('hogar')
+  const dry = await req('POST', '/api/note/move', { from: 'hogar/Proxy.md', to: renamed, dryRun: true })
   assert.ok(dry.body.relinked.length > 0)
-  assert.equal((await req('POST', '/api/note/move', { from: 'hogar/Proxy.md', to: 'hogar/GW.md' })).status, 200)
+  assert.equal((await req('POST', '/api/note/move', { from: 'hogar/Proxy.md', to: renamed })).status, 200)
 
-  const del = await req('DELETE', '/api/note?path=nueva.md')
+  const del = await req('DELETE', `/api/note?path=${encodeURIComponent(fresh)}`)
   assert.equal(del.status, 200)
   const trash = await req('GET', '/api/trash')
-  assert.equal(trash.body.entries[0].path, 'nueva.md')
+  assert.equal(trash.body.entries[0].path, fresh)
   assert.equal((await req('POST', `/api/trash/${del.body.id}/restore`, {})).status, 200)
 })
 
@@ -231,7 +234,7 @@ test('editor autocomplete data: aliases in the tree, tags with counts and a note
 
   const headings = await req('GET', '/api/note/headings?path=hogar/Proxy.md')
   assert.ok(headings.body.headings.some((h: { text: string }) => h.text === 'Red'))
-  assert.deepEqual(errorOf(await req('GET', '/api/note/headings?path=no-existe.md')), [404, 'not_found'])
+  assert.deepEqual(errorOf(await req('GET', `/api/note/headings?path=${encodeURIComponent(m.aNotePath())}`)), [404, 'not_found'])
 })
 
 test('comments inside a note stay out of backlink contexts and search', async () => {
@@ -239,13 +242,16 @@ test('comments inside a note stay out of backlink contexts and search', async ()
   const admin = m.aUser({ role: 'admin' })
   await auth.createUser(admin.username, admin.password, admin.role)
   await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
-  writeFileSync(join(notesDir, 'hogar/discussed.md'),
-    `Move the VMs to [[Proxy]] this week.<!-- @${m.aUsername()} 2026-09-24T08:12Z · which zanahoria host? -->\n`)
+  // A note linking to one of the vault's, with a comment (thoth's format) after the link's sentence.
+  const discussed = m.aNotePath('hogar')
+  const line = `${m.aSentence(3).slice(0, -1)} [[Proxy]] ${m.aWord()}.`
+  const commented = m.aUniqueWord()
+  writeFileSync(join(notesDir, discussed), `${line}<!-- @${m.aUsername()} 2026-09-24T08:12Z · ${m.aWord()} ${commented}? -->\n`)
   runtime.rescan({})
   const back = await req('GET', '/api/note/links?path=hogar/Proxy.md')
-  const b = back.body.backlinks.find((x: { path: string }) => x.path === 'hogar/discussed.md')
-  assert.equal(b.context, 'Move the VMs to [[Proxy]] this week.')
-  assert.deepEqual((await req('GET', '/api/search?q=zanahoria')).body.results, [])
+  const b = back.body.backlinks.find((x: { path: string }) => x.path === discussed)
+  assert.equal(b.context, line)
+  assert.deepEqual((await req('GET', `/api/search?q=${encodeURIComponent(commented)}`)).body.results, [])
 })
 
 test('workspace alerts: codes with their data and actions based on role', async () => {
@@ -264,7 +270,7 @@ test('workspace alerts: codes with their data and actions based on role', async 
   const copy = await req('GET', `/api/conflict?path=${encodeURIComponent(conflict)}`)
   assert.equal(copy.status, 200)
   assert.match(copy.body.text, /\S/)
-  for (const p of ['Plan.md', '../fuera.md', 'proyectos/thoth/Otro.sync-conflict-20260924-120000-ABCDEFG.md']) {
+  for (const p of ['Plan.md', '../fuera.md', `proyectos/thoth/${m.aTitle()}.sync-conflict-20260924-120000-ABCDEFG.md`]) {
     assert.deepEqual(errorOf(await req('GET', `/api/conflict?path=${encodeURIComponent(p)}`)), [404, 'not_found'], `only detected copies: ${p}`)
   }
 
@@ -305,17 +311,18 @@ test("UI: static files, app routes serve index.html, and the API doesn't fall th
   assert.match(await home.text(), /id="root"/)
   assert.match(home.headers.get('content-security-policy')!, /default-src 'self'/)
   assert.equal(home.headers.get('cache-control'), 'no-cache')
-  const deep = await raw('/cualquier/ruta?note=Plan.md')
+  const deep = await raw(`/${encodeURIComponent(m.aWord())}/${encodeURIComponent(m.aWord())}?note=Plan.md`)
   assert.equal(deep.status, 200)
   assert.match(await deep.text(), /id="root"/, 'app routes serve index.html')
   const asset = await raw('/assets/app-abc123.js')
   assert.equal(await asset.text(), 'console.log(1)')
   assert.match(asset.headers.get('cache-control')!, /immutable/)
-  assert.equal((await req('GET', '/api/no-existe')).status, 401, 'the API still requires a session')
+  const unknown = `/api/${m.aUniqueWord()}`
+  assert.equal((await req('GET', unknown)).status, 401, 'the API still requires a session')
   const admin = m.aUser({ role: 'admin' })
   await auth.createUser(admin.username, admin.password, admin.role)
   await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
-  const missing = await req('GET', '/api/no-existe')
+  const missing = await req('GET', unknown)
   assert.deepEqual([missing.status, missing.body.error], [404, 'not_found'], "an unknown API route doesn't return the UI")
 })
 
@@ -324,9 +331,10 @@ test('CSRF: a write from another origin is rejected', async () => {
   const admin = m.aUser({ role: 'admin' })
   await auth.createUser(admin.username, admin.password, admin.role)
   await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
-  const r = await req('POST', '/api/note', { path: 'x.md', text: 'x' }, { origin: 'https://malicious.example' })
+  const path = m.aNotePath()
+  const r = await req('POST', '/api/note', { path, text: m.aSentence() }, { origin: 'https://malicious.example' })
   assert.equal(r.status, 403)
-  const same = await req('POST', '/api/note', { path: 'x.md', text: 'x' }, { origin: 'http://localhost' })
+  const same = await req('POST', '/api/note', { path, text: m.aSentence() }, { origin: 'http://localhost' })
   assert.equal(same.status, 201)
 })
 

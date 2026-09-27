@@ -22,6 +22,9 @@ function revert(before: string, version: string, current: string) {
   return { text: applySplices(current, plan.splices), plan }
 }
 
+// The texts of the merge are the case under test: where a change starts and
+// ends, which words touch, what is on the same line or the next one. They
+// stay literal; the notes the API tests make are the mother's.
 const BEFORE = '# Plan\n\n## Storage\n\nWe keep notes in files.\nThe index is SQLite.\n\n## Sync\n\nNone yet.\n'
 const AGENT = '# Plan\n\n## Storage\n\nWe keep notes in Postgres tables.\nThe index is Postgres too.\n\n## Sync\n\nNone yet.\n'
 
@@ -215,12 +218,12 @@ test('long texts with little in common take bounded time, and a big piece is sho
 
 // --- Through the API, with the history recording -----------------------------------
 
-const PLAN = 'proyectos/plan.md'
+const PLAN = m.aNotePath(m.aFolder())
 
 /** A note written by an agent (one version), then by the person (another), both in git. */
 async function agentThenPerson(person: (t: string) => string) {
   const h = await setup({ files: { [PLAN]: BEFORE } })
-  const agent: Actor = { kind: 'agent', id: 'key-1', onBehalfOf: h.ids.admin }
+  const agent: Actor = { kind: 'agent', id: m.anId(), onBehalfOf: h.ids.admin }
   await h.notes.edit(PLAN, (t) => t.replace('files.', 'Postgres tables.').replace('SQLite.', 'Postgres too.'), { actor: agent })
   await h.put(PLAN, person)
   await h.settle()
@@ -291,23 +294,25 @@ test('API: a clash is reported in the preview and not applied; the rest is', asy
 })
 
 test('API: errors as codes: a creation or a deletion is not revertible, a stale ifMatch, an unknown version, a note that cannot be read', async () => {
+  // privado/ is the fixed vault's (testdata/vault): nobody reads it here.
   const h = await setup({ files: { [PLAN]: BEFORE }, config: ({ admin, member }) => `permissions:\n  "": { grants: { ${yamlKey(admin)}: manage, ${yamlKey(member)}: edit } }\n  privado: { grants: {} }\n` })
   try {
-    const created = await h.admin('POST', '/api/note', { path: 'nueva.md', text: '# Nueva\n' })
+    const NEW = m.aNotePath()
+    const created = await h.admin('POST', '/api/note', { path: NEW, text: `# ${m.aHeading()}\n` })
     assert.equal(created.status, 201)
-    await h.put('nueva.md', (t) => t + 'más\n')
+    await h.put(NEW, (t) => t + `${m.aSentence()}\n`)
     await h.settle()
-    const { versions } = await h.versions('nueva.md')
+    const { versions } = await h.versions(NEW)
     const creation = versions.at(-1)
     assert.equal(creation.change, 'created')
-    const r1 = await h.admin('POST', '/api/history/revert', { path: 'nueva.md', id: creation.id })
+    const r1 = await h.admin('POST', '/api/history/revert', { path: NEW, id: creation.id })
     assert.deepEqual([r1.status, r1.body.error], [409, 'not_revertible'])
 
-    const stale = await h.admin('POST', '/api/history/revert', { path: 'nueva.md', id: versions[0].id, ifMatch: 'sha256:0' })
+    const stale = await h.admin('POST', '/api/history/revert', { path: NEW, id: versions[0].id, ifMatch: 'sha256:0' })
     assert.equal(stale.status, 412)
     assert.equal(stale.body.error, 'precondition_failed')
-    const fresh = await h.admin('GET', `/api/note?path=${h.q('nueva.md')}`)
-    const ok = await h.admin('POST', '/api/history/revert', { path: 'nueva.md', id: versions[0].id, dryRun: true }, { 'if-match': `"${fresh.body.etag}"` })
+    const fresh = await h.admin('GET', `/api/note?path=${h.q(NEW)}`)
+    const ok = await h.admin('POST', '/api/history/revert', { path: NEW, id: versions[0].id, dryRun: true }, { 'if-match': `"${fresh.body.etag}"` })
     assert.equal(ok.status, 200, JSON.stringify(ok.body))
 
     const del = await h.admin('DELETE', `/api/note?path=${h.q(PLAN)}`)
@@ -318,10 +323,10 @@ test('API: errors as codes: a creation or a deletion is not revertible, a stale 
     const r2 = await h.admin('POST', '/api/history/revert', { path: PLAN, id: gone.id })
     assert.deepEqual([r2.status, r2.body.error], [409, 'not_revertible'])
 
-    const unknown = await h.admin('POST', '/api/history/revert', { path: 'nueva.md', id: '0'.repeat(40) })
+    const unknown = await h.admin('POST', '/api/history/revert', { path: NEW, id: '0'.repeat(40) })
     assert.equal(unknown.status, 404)
-    assert.equal((await h.admin('POST', '/api/history/revert', { path: 'nueva.md' })).status, 400)
-    const hidden = await h.admin('POST', '/api/history/revert', { path: 'privado/secreto.md', id: versions[0].id })
+    assert.equal((await h.admin('POST', '/api/history/revert', { path: NEW })).status, 400)
+    const hidden = await h.admin('POST', '/api/history/revert', { path: m.aNotePath('privado'), id: versions[0].id })
     assert.deepEqual([hidden.status, hidden.body.error], [404, 'not_found'])
   } finally { await h.close() }
 })

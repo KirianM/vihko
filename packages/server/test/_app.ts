@@ -7,20 +7,34 @@ import { Auth, Indexer, NoteService, Profiles, Workspace, createApp, openIndex, 
 import { tempDir } from './_tmp.ts'
 import { withEveryone } from './_permissions.ts'
 import { byNames, create, newPeople, type ByNames } from './_people.ts'
+import { mother } from '../../../test/mother.ts'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
+const m = mother(import.meta.url)
+
+/**
+ * The workspace of the daily-note tests (CONFIG), its names the mother's: a
+ * templates folder, a series of one's own (in a folder per person, with a
+ * template) and a shared one, and the attachments folder.
+ */
+export const DAILY = {
+  templates: m.aFolder(),
+  own: { id: m.anId(), label: m.aHeading(), folder: m.aFolder(), template: m.aTitle() },
+  team: { id: m.anId(), folder: m.aFolder() },
+  attachments: m.aFolder(),
+}
 
 export const CONFIG = `# Workspace settings
-templates: Plantillas
+templates: ${JSON.stringify(DAILY.templates)}
 daily:
-  diario:
-    label: Diario
-    folder: Diario/{user}
-    template: Plantillas/Diario
-  equipo:
-    folder: Equipo
+  ${DAILY.own.id}:
+    label: ${JSON.stringify(DAILY.own.label)}
+    folder: ${JSON.stringify(`${DAILY.own.folder}/{user}`)}
+    template: ${JSON.stringify(`${DAILY.templates}/${DAILY.own.template}`)}
+  ${DAILY.team.id}:
+    folder: ${JSON.stringify(DAILY.team.folder)}
 attachments:
-  folder: Adjuntos
+  folder: ${JSON.stringify(DAILY.attachments)}
 `
 
 
@@ -28,7 +42,7 @@ export async function setup(opts: { config?: ByNames<string>; clock?: { now: Dat
   const dir = tempDir('thoth-daily-')
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
-  mkdirSync(join(notesDir, 'Plantillas'))
+  mkdirSync(join(notesDir, DAILY.templates))
   const people = newPeople()
   const names = { admin: people.admin.username, member: people.member.username }
   // Both users see everything unless the test brings its own permissions (_permissions.ts).

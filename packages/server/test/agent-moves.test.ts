@@ -6,14 +6,14 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { ADMIN, FILES, GROUP, MEMBER, OTHER, setup } from './_m4.ts'
+import { DIR, FILES, GROUP, MEMBER, OTHER, PATH, setup } from './_m4.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 /** Who gains access when the admin's plan goes to the shared folder: both members, in the order thoth lists them (by name). */
 const GAINERS = [MEMBER.username, OTHER.username].sort((a, b) => a.localeCompare(b))
 /** The admin's note that the agent moves to the shared folder. */
-const PLAN = { from: `personas/${ADMIN.username}/plan.md`, to: 'familia/plan.md' }
+const PLAN = { from: PATH.adminPlan, to: m.aNotePath(DIR.shared) }
 
 test('API: an agent\'s move that widens access needs confirmAudience; the dry run says who gains it; narrowing needs nothing', async () => {
   const h = await setup({ files: FILES })
@@ -21,7 +21,7 @@ test('API: an agent\'s move that widens access needs confirmAudience; the dry ru
     await h.enable()
     const membersKey = m.aKeyName()
     await h.newKey('member', { name: membersKey })
-    const agent = h.withKey((await h.newKey('admin', { name: 'K', canWrite: true })).token)
+    const agent = h.withKey((await h.newKey('admin', { name: m.aKeyName(), canWrite: true })).token)
     const plan = PLAN
 
     const dry = await agent('POST', '/api/note/move', { ...plan, dryRun: true })
@@ -49,7 +49,7 @@ test('API: an agent\'s move that widens access needs confirmAudience; the dry ru
     const back = await agent('POST', '/api/note/move', { from: plan.to, to: plan.from })
     assert.equal(back.status, 200, back.text)
     // Nor a move within the same audience.
-    assert.equal((await agent('POST', '/api/note/move', { from: 'admin/ajustes.md', to: 'admin/config.md' })).status, 200)
+    assert.equal((await agent('POST', '/api/note/move', { from: PATH.settings, to: m.aNotePath(DIR.admin) })).status, 200)
 
     // A person moves as before: the UI asks them (D-038), the API doesn't.
     assert.equal((await h.admin('POST', '/api/note/move', plan)).status, 200)
@@ -60,7 +60,7 @@ test('MCP: move with dry_run gives the audience; widening needs confirm_audience
   const h = await setup({ files: FILES })
   try {
     await h.enable()
-    const c = await h.mcp((await h.newKey('admin', { name: 'K', canWrite: true })).token)
+    const c = await h.mcp((await h.newKey('admin', { name: m.aKeyName(), canWrite: true })).token)
     try {
       const instructions = c.client.getInstructions() ?? ''
       assert.match(instructions, /audience_widens/)

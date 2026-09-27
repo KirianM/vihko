@@ -62,9 +62,12 @@ async function clientSite(tls: { key: string; cert: string }, routes: Record<str
   }
 }
 
+/** The name the client's documents give. */
+const CLIENT = m.aKeyName()
+
 /** A good metadata document for the client at `url`. */
 const doc = (url: string, extra: Record<string, unknown> = {}) =>
-  JSON.stringify({ client_id: url, client_name: 'Claude (CIMD)', redirect_uris: [CALLBACK], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none', ...extra })
+  JSON.stringify({ client_id: url, client_name: CLIENT, redirect_uris: [CALLBACK], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none', ...extra })
 
 /** Where `cimd.test` (and anything else asked) is, counting lookups. */
 function resolver(map: Record<string, string[]>) {
@@ -145,7 +148,7 @@ test('fetching a document: what it gives, the cache, and every refusal', { timeo
     const dns = resolver({ [HOST]: ['127.0.0.1'] })
     const f = new ClientMetadataFetcher({ testing: { resolve: dns.resolve, allowLoopback: true, anyPort: true, ca: tls.cert } })
     const got = await f.get(`${site.base}/client.json`)
-    assert.deepEqual({ ...got }, { clientId: `${site.base}/client.json`, name: 'Claude (CIMD)', host: HOST, redirectUris: [CALLBACK], grantTypes: ['authorization_code', 'refresh_token'], responseTypes: ['code'] })
+    assert.deepEqual({ ...got }, { clientId: `${site.base}/client.json`, name: CLIENT, host: HOST, redirectUris: [CALLBACK], grantTypes: ['authorization_code', 'refresh_token'], responseTypes: ['code'] })
     // Kept as its Cache-Control says: asking again doesn't fetch; a no-store one is fetched every time.
     await f.get(`${site.base}/client.json`)
     assert.equal(site.hits['/client.json'], 1)
@@ -204,7 +207,7 @@ test('the connection goes to the address that was checked, even if the name reso
     let n = 0
     const resolve: Resolver = async () => (n++ === 0 ? [{ address: '127.0.0.1', family: 4 }] : [{ address: '10.255.255.1', family: 4 }])
     const f = new ClientMetadataFetcher({ testing: { resolve, allowLoopback: true, anyPort: true, ca: tls.cert } })
-    assert.equal((await f.get(`${site.base}/client.json`)).name, 'Claude (CIMD)')
+    assert.equal((await f.get(`${site.base}/client.json`)).name, CLIENT)
     assert.equal(n, 1, 'resolved once')
     assert.equal(site.hits['/client.json'], 1)
     // The next fetch resolves again, gets the private address, and is refused without connecting.
@@ -231,17 +234,18 @@ test('OAuth with a client named by its metadata document: advertised, fetched on
   })
   const dns = resolver({ [HOST]: ['127.0.0.1'], 'intranet.test': ['10.0.0.8'] })
   const clientMetadata = new ClientMetadataFetcher({ testing: { resolve: dns.resolve, allowLoopback: true, anyPort: true, ca: tls.cert } })
-  const h = await setup({ files: { 'proyectos/plan.md': '# Plan\n' }, publicUrl: PUBLIC, ui: true, clientMetadata })
+  const h = await setup({ files: { [m.aNotePath(m.aFolder())]: `# ${m.aHeading()}\n` }, publicUrl: PUBLIC, ui: true, clientMetadata })
   try {
     await h.enableMcp()
     const meta = await h.app.request('/.well-known/oauth-authorization-server')
-    const m = await meta.json() as Record<string, unknown>
-    assert.equal(m.client_id_metadata_document_supported, true)
-    assert.ok((m.token_endpoint_auth_methods_supported as string[]).includes('none'), 'Claude uses CIMD only with `none` listed')
+    const advertised = await meta.json() as Record<string, unknown>
+    assert.equal(advertised.client_id_metadata_document_supported, true)
+    assert.ok((advertised.token_endpoint_auth_methods_supported as string[]).includes('none'), 'Claude uses CIMD only with `none` listed')
 
     const clientId = `${site.base}/client.json`
     const { verifier, challenge } = pkce()
-    const q = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: CALLBACK, code_challenge: challenge, code_challenge_method: 'S256', state: 'st-9', resource: RESOURCE }).toString()
+    const state = m.aSecret(12)
+    const q = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: CALLBACK, code_challenge: challenge, code_challenge_method: 'S256', state, resource: RESOURCE }).toString()
 
     // Before anyone signs in: the page, and nothing fetched (nor resolved).
     const page = await h.app.request(`/oauth/authorize?${q}`, { headers: { accept: 'text/html' } })
@@ -257,10 +261,10 @@ test('OAuth with a client named by its metadata document: advertised, fetched on
     // The consent page asks, with the session: fetched now; the domain is the document's host.
     const asked = await h.admin('GET', `/api/oauth/authorize?${q}`)
     assert.equal(asked.status, 200, asked.text)
-    assert.deepEqual(asked.body.client, { id: clientId, name: 'Claude (CIMD)', redirectUri: CALLBACK, host: HOST })
+    assert.deepEqual(asked.body.client, { id: clientId, name: CLIENT, redirectUri: CALLBACK, host: HOST })
     assert.equal(site.hits['/client.json'], 1)
     // A client that registered itself has no host to show.
-    const reg = await h.app.request('/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'Registered', redirect_uris: [CALLBACK], token_endpoint_auth_method: 'none' }) })
+    const reg = await h.app.request('/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: m.aKeyName(), redirect_uris: [CALLBACK], token_endpoint_auth_method: 'none' }) })
     const regId = (await reg.json() as { client_id: string }).client_id
     const regAsked = await h.admin('GET', `/api/oauth/authorize?${q.replace(encodeURIComponent(clientId), regId)}`)
     assert.equal(regAsked.body.client.host, null)
@@ -274,7 +278,7 @@ test('OAuth with a client named by its metadata document: advertised, fetched on
     assert.equal(approved.status, 200, approved.text)
     assert.equal(site.hits['/client.json'], 1)
     const back = new URL(approved.body.redirect)
-    assert.equal(back.searchParams.get('state'), 'st-9')
+    assert.equal(back.searchParams.get('state'), state)
     const form = (fields: Record<string, string>) => h.app.request('/oauth/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(fields).toString() })
     const tok = await form({ grant_type: 'authorization_code', code: back.searchParams.get('code')!, redirect_uri: CALLBACK, client_id: clientId, code_verifier: verifier, resource: RESOURCE })
     assert.equal(tok.status, 200)
@@ -293,7 +297,7 @@ test('OAuth with a client named by its metadata document: advertised, fetched on
     // The authorization is a key named after the client.
     const keys = await h.admin('GET', '/api/keys')
     const key = (keys.body.keys as { name: string; client: { id: string; redirectUris: string[] } | null }[]).find((k) => k.client?.id === clientId)
-    assert.deepEqual([key?.name, key?.client?.redirectUris], ['Claude (CIMD)', [CALLBACK]])
+    assert.deepEqual([key?.name, key?.client?.redirectUris], [CLIENT, [CALLBACK]])
 
     // Documents that can't be used: the page hears why and from which host, never anything they said.
     const refusal = async (id: string) => {

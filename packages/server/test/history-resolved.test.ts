@@ -15,11 +15,14 @@ const m = mother(import.meta.url)
 const WRITER = m.aUsername()
 const REPLIER = m.aUsername()
 
-const NOTE = 'hilos/Decisiones.md'
-const K = `<!-- @${WRITER} 2026-09-24T08:12Z · esto no, usa SQLite -->`
-const R = `<!-- @${REPLIER} 2026-09-24T08:15Z · ↳ de acuerdo -->`
-const OTHER = `<!-- @${REPLIER} 2026-09-25T10:00Z · ¿en disco local? -->`
-const TEXT = `# Decisiones\n\nUsaremos Postgres para el índice.${K}\n${R}\n\nEl índice vive en disco local.${OTHER}\n`
+const NOTE = m.aNotePath(m.aFolder())
+/** The two sentences comments hang from, and what the comments say. */
+const [FIRST, SECOND] = [m.aSentence(), m.aSentence()]
+const [SAID, REPLIED, ASKED] = [m.aComment(), m.aComment(), m.aComment()]
+const K = `<!-- @${WRITER} 2026-09-24T08:12Z · ${SAID} -->`
+const R = `<!-- @${REPLIER} 2026-09-24T08:15Z · ↳ ${REPLIED} -->`
+const OTHER = `<!-- @${REPLIER} 2026-09-25T10:00Z · ${ASKED} -->`
+const TEXT = `# ${m.aHeading()}\n\n${FIRST}${K}\n${R}\n\n${SECOND}${OTHER}\n`
 
 const apply = (doc: string, c: Change) => doc.slice(0, c.from) + c.insert + doc.slice(c.to)
 /** The text without its thread `i`, as resolving it in the editor leaves it. */
@@ -44,12 +47,12 @@ test('a resolved thread is listed at once, whole, by whoever resolved it; once a
     const open = (await resolvedOf(h, NOTE)).threads
     assert.equal(open.length, 1)
     const [t] = open
-    assert.equal(t.id, `${WRITER}|2026-09-24T08:12Z|esto no, usa SQLite`)
+    assert.equal(t.id, `${WRITER}|2026-09-24T08:12Z|${SAID}`)
     assert.deepEqual(t.comments, [
-      { author: WRITER, date: '2026-09-24T08:12Z', text: 'esto no, usa SQLite', reply: false },
-      { author: REPLIER, date: '2026-09-24T08:15Z', text: 'de acuerdo', reply: true },
+      { author: WRITER, date: '2026-09-24T08:12Z', text: SAID, reply: false },
+      { author: REPLIER, date: '2026-09-24T08:15Z', text: REPLIED, reply: true },
     ])
-    assert.equal(t.anchor, 'Usaremos Postgres para el índice.')
+    assert.equal(t.anchor, FIRST)
     assert.equal(t.place.removed, `${K}\n${R}`)
     assert.equal(t.version, null)
     assert.deepEqual(names(t), [h.users.member.username])
@@ -87,32 +90,33 @@ test('reopened, it is no longer resolved; resolved again, it is listed once, by 
 test('a thread whose text was deleted can be read but not reopened; a reply more is not a resolution', async () => {
   const h = await setup({ files: { [NOTE]: TEXT } })
   try {
-    await h.put(NOTE, (text) => text.replace(`El índice vive en disco local.${OTHER}\n`, ''), 'member')
-    await h.put(NOTE, (text) => text.replace(R, `${R}\n<!-- @${WRITER} 2026-09-24T09:00Z · ↳ hecho -->`))
+    await h.put(NOTE, (text) => text.replace(`${SECOND}${OTHER}\n`, ''), 'member')
+    await h.put(NOTE, (text) => text.replace(R, `${R}\n<!-- @${WRITER} 2026-09-24T09:00Z · ↳ ${m.aComment()} -->`))
     await h.settle()
     const { threads } = await resolvedOf(h, NOTE)
-    assert.deepEqual(threads.map((t) => [t.anchor, names(t), t.reopenable]), [['El índice vive en disco local.', [h.users.member.username], false]])
+    assert.deepEqual(threads.map((t) => [t.anchor, names(t), t.reopenable]), [[SECOND, [h.users.member.username], false]])
   } finally { await h.close() }
 })
 
 test('the resolved threads follow the note when it moves', async () => {
   const h = await setup({ files: { [NOTE]: TEXT } })
+  const moved = m.aNotePath(m.aFolder())
   try {
     await h.put(NOTE, without(0), 'member')
     await h.settle()
-    assert.equal((await h.admin('POST', '/api/note/move', { from: NOTE, to: 'otra/Movida.md' })).status, 200)
-    await h.put('otra/Movida.md', without(0))
+    assert.equal((await h.admin('POST', '/api/note/move', { from: NOTE, to: moved })).status, 200)
+    await h.put(moved, without(0))
     await h.settle()
-    const { threads } = await resolvedOf(h, 'otra/Movida.md')
+    const { threads } = await resolvedOf(h, moved)
     assert.deepEqual(threads.map((t) => [t.anchor, names(t), t.reopenable]), [
-      ['El índice vive en disco local.', [h.users.admin.username], true],
-      ['Usaremos Postgres para el índice.', [h.users.member.username], true],
+      [SECOND, [h.users.admin.username], true],
+      [FIRST, [h.users.member.username], true],
     ])
   } finally { await h.close() }
 })
 
 test('the same permission check as the rest of the history, and its errors', async () => {
-  // Nobody reads privado/: its history doesn't exist for anyone. (Nobody manages the root: whoever did would reach it, D-040 3.5.)
+  // Nobody reads privado/ (the fixed vault's): its history doesn't exist for anyone. (Nobody manages the root: whoever did would reach it, D-040 3.5.)
   const h = await setup({ files: { [NOTE]: TEXT }, config: ({ admin, member }) => `permissions:\n  "": { grants: { ${yamlKey(admin)}: edit, ${yamlKey(member)}: edit } }\n  privado: { grants: {} }\n` })
   try {
     assert.equal((await h.admin('GET', `/api/history/resolved?path=${h.q('privado/sin-ia.md')}`)).status, 404)
@@ -129,8 +133,12 @@ test('the same permission check as the rest of the history, and its errors', asy
 
 const DAY = 24 * 60 * 60 * 1000
 const NOW = Date.UTC(2026, 8, 26, 12)
-const thread = (n: number) => `Frase ${n}.<!-- @${REPLIER} 2026-08-01T10:00Z · hilo ${n} -->\n\n`
-const drop = (text: string, n: number) => text.replace(`<!-- @${REPLIER} 2026-08-01T10:00Z · hilo ${n} -->`, '')
+/** The note the made-up reader holds, and its numbered sentences, each with a numbered comment. */
+const WALKED = m.aNotePath()
+const [PHRASE, SAYS] = [m.aTitle(), m.aWord()]
+const anchor = (n: number) => `${PHRASE} ${n}.`
+const thread = (n: number) => `${anchor(n)}<!-- @${REPLIER} 2026-08-01T10:00Z · ${SAYS} ${n} -->\n\n`
+const drop = (text: string, n: number) => text.replace(`<!-- @${REPLIER} 2026-08-01T10:00Z · ${SAYS} ${n} -->`, '')
 
 /** A note's history, newest first: each version's text; the one before it is the next one's. */
 function madeUp(list: { id: string; at: number; text: string | null; by?: AuthorRef }[]) {
@@ -138,7 +146,7 @@ function madeUp(list: { id: string; at: number; text: string | null; by?: Author
   const versions: RawVersion[] = list.map((v, i) => {
     const before = list[i + 1]?.text ?? null
     return {
-      id: v.id, at: new Date(v.at).toISOString(), authors: [v.by ?? { kind: 'external' }], reason: null, foundAtStartup: false, path: 'n.md',
+      id: v.id, at: new Date(v.at).toISOString(), authors: [v.by ?? { kind: 'external' }], reason: null, foundAtStartup: false, path: WALKED,
       change: before === null ? 'created' : v.text === null ? 'deleted' : 'modified',
       ...wordStats(before ?? '', v.text ?? ''),
     }
@@ -153,7 +161,7 @@ function madeUp(list: { id: string; at: number; text: string | null; by?: Author
       reads.set(id, (reads.get(id) ?? 0) + 1)
       const i = list.findIndex((v) => v.id === id)
       if (i === -1) return null
-      return { path: 'n.md', id, at: versions[i]!.at, text: list[i]!.text, before: list[i + 1]?.text ?? null }
+      return { path: WALKED, id, at: versions[i]!.at, text: list[i]!.text, before: list[i + 1]?.text ?? null }
     },
     async file() { return null },
     async changes() { return { changes: [], next: null } },
@@ -166,7 +174,7 @@ test('the walk: the last 30 days only, what came back is not resolved, and each 
   const t0 = thread(1) + thread(2) + thread(3)
   const t1 = drop(t0, 3)
   const t2 = drop(t1, 1)
-  const t3 = t1 + 'más texto\n'
+  const t3 = t1 + `${m.aSentence()}\n`
   const t4 = drop(t3, 2)
   const resolver: AuthorRef = { kind: 'user', id: 'u-1' }
   const { reader, reads } = madeUp([
@@ -178,23 +186,23 @@ test('the walk: the last 30 days only, what came back is not resolved, and each 
   ])
   const resolved = new ResolvedThreads({ now: () => NOW })
   for (let i = 0; i < 3; i++) {
-    const r = await resolved.list(reader, 'n.md', { current: t4, pending: null })
+    const r = await resolved.list(reader, WALKED, { current: t4, pending: null })
     assert.equal(r.complete, true)
-    assert.deepEqual(r.threads.map((t) => [t.anchor, t.version, t.resolvedBy, t.reopenable]), [['Frase 2.', 'v4', [resolver], true]])
+    assert.deepEqual(r.threads.map((t) => [t.anchor, t.version, t.resolvedBy, t.reopenable]), [[anchor(2), 'v4', [resolver], true]])
   }
   assert.deepEqual(Object.fromEntries(reads), { v4: 1, v2: 1 }, 'never v3 (it removed nothing) nor what is older than 30 days')
 })
 
 test('the walk: what is still open counts, by whoever has it open; without anything open, only versions', async () => {
   const t0 = thread(1) + thread(2)
-  const t1 = t0 + 'más\n'
+  const t1 = t0 + `${m.aSentence()}\n`
   const { reader, reads } = madeUp([{ id: 'v1', at: NOW - DAY, text: t1 }, { id: 'v0', at: NOW - 2 * DAY, text: t0 }])
   const resolved = new ResolvedThreads({ now: () => NOW })
   const typing: AuthorRef = { kind: 'user', id: 'u-2' }
-  const open = await resolved.list(reader, 'n.md', { current: drop(t1, 1), pending: [typing] })
-  assert.deepEqual(open.threads.map((t) => [t.anchor, t.version, t.resolvedBy, t.resolvedAt]), [['Frase 1.', null, [typing], new Date(NOW).toISOString()]])
+  const open = await resolved.list(reader, WALKED, { current: drop(t1, 1), pending: [typing] })
+  assert.deepEqual(open.threads.map((t) => [t.anchor, t.version, t.resolvedBy, t.resolvedAt]), [[anchor(1), null, [typing], new Date(NOW).toISOString()]])
   // A change that isn't a version (the notes folder's git: not committed) doesn't count.
-  assert.deepEqual((await resolved.list(reader, 'n.md', { current: drop(t1, 1), pending: null })).threads, [])
+  assert.deepEqual((await resolved.list(reader, WALKED, { current: drop(t1, 1), pending: null })).threads, [])
   assert.deepEqual(Object.fromEntries(reads), { v1: 1 })
 })
 
@@ -209,13 +217,13 @@ test('the walk: a long history is read over several requests, never too much in 
   }
   const { reader, reads } = madeUp(list)
   const resolved = new ResolvedThreads({ now: () => NOW })
-  const first = await resolved.list(reader, 'n.md', { current: text, pending: null })
+  const first = await resolved.list(reader, WALKED, { current: text, pending: null })
   assert.equal(first.complete, false)
   assert.ok(first.threads.length >= 1 && first.threads.length <= 200, `${first.threads.length} in the first request`)
   let last = first
-  for (let i = 0; i < 5 && !last.complete; i++) last = await resolved.list(reader, 'n.md', { current: text, pending: null })
+  for (let i = 0; i < 5 && !last.complete; i++) last = await resolved.list(reader, WALKED, { current: text, pending: null })
   assert.equal(last.complete, true)
   assert.equal(last.threads.length, n)
-  assert.equal(last.threads[0]!.anchor, `Frase ${n - 1}.`, 'newest first')
+  assert.equal(last.threads[0]!.anchor, anchor(n - 1), 'newest first')
   assert.ok([...reads.values()].every((c) => c === 1), 'no version read twice')
 })
