@@ -16,7 +16,7 @@ const warnings = (text: string, strict?: readonly StrictSection[]) => {
 }
 
 test('thoth.yaml: empty or just comments is valid and turns nothing on', () => {
-  for (const text of ['', '# nothing yet\n', '---\n']) assert.deepEqual(parseWorkspaceConfig(text), { ok: true, config: EMPTY_WORKSPACE, warnings: [], sections: { permissions: null } })
+  for (const text of ['', '# nothing yet\n', '---\n']) assert.deepEqual(parseWorkspaceConfig(text), { ok: true, config: EMPTY_WORKSPACE, warnings: [], sections: { permissions: { kind: 'implicit' } } })
 })
 
 test('thoth.yaml: series, templates and attachments', () => {
@@ -139,19 +139,26 @@ test('thoth.yaml: a wrong value in a known key still makes the file unusable', (
   assert.deepEqual(brief(r.warnings), [['unknown_key', 'unknown', 1]])
 })
 
-test('thoth.yaml: permissions is not applied until it exists, and never blocks the rest', () => {
-  const r = parseWorkspaceConfig('templates: P\npermissions:\n  Privado: {noa: edit}\n')
+test('thoth.yaml: permissions is a strict section: rejected, nobody reads; missing, the implicit one', () => {
+  const r = parseWorkspaceConfig('templates: P\npermissions:\n  Privado: {grants: {noa: edit}}\n')
   assert.ok(r.ok)
-  assert.deepEqual(brief(r.warnings), [['not_supported', 'permissions', 2]])
-  assert.equal(r.sections.permissions, null)
-  assert.equal(r.config.templates, 'P')
+  assert.deepEqual(r.warnings, [])
+  assert.deepEqual(r.sections.permissions, { kind: 'rules', rules: [{ folder: 'Privado', grants: { noa: 'edit' }, ai: null }] })
+  const bad = parseWorkspaceConfig('templates: P\npermissions:\n  Privado: {noa: edit}\n')
+  assert.ok(bad.ok, 'never blocks the rest')
+  assert.equal(bad.config.templates, 'P')
+  assert.deepEqual(bad.sections.permissions, { kind: 'closed' })
+  assert.deepEqual(brief(bad.warnings), [['section_rejected', 'permissions', 2], ['unknown_key', 'permissions.Privado.noa', 3]])
+  const none = parseWorkspaceConfig('templates: P\n')
+  assert.ok(none.ok)
+  assert.deepEqual(none.sections.permissions, { kind: 'implicit' })
 })
 
 // A stand-in for a security section (M4's permissions): strict, failing closed.
 const FAKE: StrictSection<{ shared: string[] }> = {
   key: 'sharing',
   closed: { shared: [] },
-  parse(raw, at, report) {
+  parse(raw, at, report, _notice) {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) { report('not_a_map', at); return { shared: [] } }
     const out: string[] = []
     for (const [k, v] of Object.entries(raw)) {
