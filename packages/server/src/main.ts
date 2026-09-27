@@ -26,6 +26,7 @@ import type { Server } from 'node:http'
 import type { BlockList } from 'node:net'
 import { trustedProxiesFrom } from './http/clientIp.ts'
 import { WORKSPACE_FILE } from '@thoth/core'
+import { Users } from './users.ts'
 
 export interface Config {
   notesDir: string
@@ -205,8 +206,13 @@ async function run(config: Config, lock: StateLock) {
   const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const profiles = new Profiles(state)
+  // Users and groups. Ending someone's sessions ends their live connections
+  // too. The permissions read someone's groups with `users.groupsOf(id)`;
+  // the grants hooks (a user deleted, a group renamed or deleted) are no-ops
+  // until the permissions writer (thoth.yaml) fills them in.
+  const users = new Users(auth, { hooks: { onSessionsEnded: (id) => hub.checkSessions(id) } })
   const app = createApp({
-    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies,
+    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users,
     // The MCP server, at /mcp (off until the admin turns it on).
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log }) },
   })
@@ -236,5 +242,5 @@ async function run(config: Config, lock: StateLock) {
     state.close()
     lock.release()
   }
-  return { app, stop, auth, hub, notes, server, workspace, history }
+  return { app, stop, auth, users, hub, notes, server, workspace, history }
 }

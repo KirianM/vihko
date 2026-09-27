@@ -1,5 +1,6 @@
 // state.db: application state that is NOT derived from the files: users,
-// sessions, profiles, settings, agent keys, OAuth clients and tokens and, later, webhooks. It's not disposable: it's
+// groups, sessions, one-time links, profiles, settings, agent keys, OAuth
+// clients and tokens and, later, webhooks. It's not disposable: it's
 // backed up, and its schema evolves through migrations, never by deleting it.
 import Database from 'better-sqlite3'
 import { copyFileSync, existsSync } from 'node:fs'
@@ -96,6 +97,36 @@ const MIGRATIONS: string[] = [
   // working until `previous_until`, so that whatever used it can be changed.
   `alter table api_keys add column previous_secret_hash text;
    alter table api_keys add column previous_until text;`,
+  // Several people (M4, users.ts). A deleted user stays as a tombstone: its
+  // row keeps the id and the name (the history still says who wrote, and
+  // the name is never given to someone else), with no password, and
+  // `disabled` set so nothing signs in as it. Groups (subjects of the
+  // permissions as `@name`) and their members. One-time links to choose a
+  // password (an invitation, or a reset): only their sha256, with an expiry
+  // and when they were used. A session remembers its browser, to tell it
+  // apart in «Account».
+  `alter table users add column deleted_at text;
+   alter table sessions add column user_agent text;
+   create table user_groups (
+     id         text primary key,
+     name       text not null unique collate nocase,
+     created_at text not null
+   );
+   create table group_members (
+     group_id text not null references user_groups(id) on delete cascade,
+     user_id  text not null references users(id) on delete cascade,
+     primary key (group_id, user_id)
+   );
+   create index group_members_user on group_members(user_id);
+   create table user_links (
+     token_hash text primary key,
+     user_id    text not null references users(id) on delete cascade,
+     kind       text not null check (kind in ('invite', 'reset')),
+     created_at text not null,
+     expires_at text not null,
+     used_at    text
+   );
+   create index user_links_user on user_links(user_id);`,
 ]
 
 export const STATE_VERSION = MIGRATIONS.length

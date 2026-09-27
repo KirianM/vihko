@@ -39,6 +39,9 @@ import type { BlockList } from 'node:net'
 import { LoginLimiter, SETUP_ACCOUNT, type AttemptResult } from '../loginLimit.ts'
 import { clientIp, ipKey } from './clientIp.ts'
 import { written } from './written.ts'
+import { Users, UsersError } from '../users.ts'
+import { AdminSettings, AdminSettingsError } from '../adminSettings.ts'
+import { inviteRoutes, userRoutes, usersErrorStatus, type UserRoutesDeps } from './users.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
@@ -117,6 +120,13 @@ export interface AppDeps {
    * default; only tests pass one (that may reach a local server).
    */
   clientMetadata?: ClientMetadataFetcher
+  /**
+   * Users and groups (users.ts). One of its own over `auth` by default;
+   * main.ts passes one whose sessions ending also ends the hub's connections.
+   */
+  users?: Users
+  /** The admin's settings (state.db). By default, over the same state.db as `auth`. */
+  adminSettings?: AdminSettings
 }
 
 /**
@@ -132,6 +142,8 @@ export interface Services {
   history?: History
   /** OAuth for the MCP server (it says whether it exists: `available()`). */
   oauth: OAuthServer
+  /** Users and groups: `groupsOf(userId)` is how the permissions read someone's groups. */
+  users: Users
 }
 
 export type ExternalImages = 'allow' | 'block'
@@ -191,8 +203,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const integrations = deps.integrations ?? new Integrations(auth.state)
   const policy = new AccessPolicy({ index })
   const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
+  const users = deps.users ?? new Users(auth)
+  const adminSettings = deps.adminSettings ?? new AdminSettings(auth.state)
   const scopedDeps: ScopedDeps = { notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links }
-  const services: Services = { keys, integrations, policy, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth }
+  const services: Services = { keys, integrations, policy, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users }
   const app = new Hono<Env>()
   /** The request's operations, as whoever is asking. */
   const scoped = (c: Context<Env>) => services.scoped(c.get('access'))
@@ -212,6 +226,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400, err.code, err.message)
     if (err instanceof KeyError) return fail(c, keyErrorStatus(err), err.code, err.message)
     if (err instanceof IntegrationsError) return fail(c, err.code === 'integrations_locked' ? 409 : 400, err.code, err.message)
+    if (err instanceof UsersError) return fail(c, usersErrorStatus(err), err.code, err.message)
+    if (err instanceof AdminSettingsError) return fail(c, 400, err.code, err.message)
     // Body that isn't JSON.
     if (err instanceof SyntaxError) return fail(c, 400, 'invalid', err.message)
     console.error(err)
@@ -283,19 +299,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     }
   })
 
-  app.post('/api/auth/login', authBody, async (c) => {
-    const body = await c.req.json<{ username?: unknown; password?: unknown }>()
-    const username = text(body?.username)
-    const device = limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username)
-    const attempt = limiter.begin({ ip: ipOf(c), account: username, device })
-    if (!attempt.ok) return tooMany(c, attempt.retryAfter)
-    const s = await auth.login(username, text(body?.password))
-    if (!s) {
-      // The failure that starts a wait says so at once.
-      const wait = attempt.failed()
-      return wait > 0 ? tooMany(c, wait) : fail(c, 401, 'invalid_credentials', 'incorrect username or password')
-    }
-    attempt.passed()
+  /** The session cookie of someone who just signed in, and their device's for the login limits. */
+  const signedIn = (c: Context, username: string, s: { token: string; expiresAt: Date }) => {
     setCookie(c, SESSION_COOKIE, s.token, {
       httpOnly: true,
       sameSite: 'Lax',
@@ -311,8 +316,32 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       secure: isHttps(c),
       maxAge: DEVICE_DAYS * 86_400,
     })
+  }
+
+  app.post('/api/auth/login', authBody, async (c) => {
+    const body = await c.req.json<{ username?: unknown; password?: unknown }>()
+    const username = text(body?.username)
+    const device = limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username)
+    const attempt = limiter.begin({ ip: ipOf(c), account: username, device })
+    if (!attempt.ok) return tooMany(c, attempt.retryAfter)
+    const s = await auth.login(username, text(body?.password), c.req.header('user-agent'))
+    if (!s) {
+      // The failure that starts a wait says so at once.
+      const wait = attempt.failed()
+      return wait > 0 ? tooMany(c, wait) : fail(c, 401, 'invalid_credentials', 'incorrect username or password')
+    }
+    attempt.passed()
+    signedIn(c, s.user.username, s)
     return c.json({ user: s.user })
   })
+
+  const userDeps: UserRoutesDeps = {
+    auth, users, settings: adminSettings, limiter, ipOf, signedIn, tooMany, publicUrl: deps.publicUrl ?? null,
+    deviceOf: (c, username) => limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username),
+  }
+  // A one-time link (an invitation or a reset): no session yet.
+  app.use('/api/invite/*', authBody)
+  inviteRoutes(app, userDeps)
 
   // --- From here on, a session is required -----------------------------------
 
@@ -337,6 +366,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   app.post('/api/auth/logout', (c) => {
     auth.logout(c.get('token'))
+    // Its editors in other tabs (the same cookie) end too.
+    users.hooks.onSessionsEnded?.(c.get('user').id)
     deleteCookie(c, SESSION_COOKIE, { path: '/' })
     return c.json({ ok: true })
   })
@@ -630,10 +661,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return c.json(deps.runtime.rescan({ force: body.force === true, confirmRemoval }))
   })
 
-  app.post('/api/admin/users', adminOnly, async (c) => {
-    const { username, password, role } = await c.req.json<{ username: string; password: string; role?: 'admin' | 'member' }>()
-    return c.json({ user: await auth.createUser(username, password, role ?? 'member') }, 201)
-  })
+  // Users, groups, one's own account and the admin's settings (http/users.ts).
+  userRoutes(app, userDeps)
 
   if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, keyName: (id) => keys.nameOf(id), canRead: deps.canRead ?? (() => true) })
 
