@@ -2,9 +2,9 @@
 // pasted image lands in the note's own folder, and renaming the note renames
 // that folder, with the preview saying so and every link into it rewritten.
 import { expect, test, type Page } from '@playwright/test'
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { E2E_DIR, NOTES } from './env.ts'
-import { png, sendFiles, signIn } from './helpers.ts'
+import { png, sendFiles, signIn, writeWorkspace } from './helpers.ts'
 
 const DIR = 'adjuntos'
 const NOTE = `${DIR}/plan.md`
@@ -19,7 +19,7 @@ test.beforeAll(async ({ browser }) => {
   mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
   writeFileSync(`${NOTES}/${NOTE}`, '# Plan\n\nCon imágenes.\n')
   writeFileSync(`${NOTES}/${DIR}/sonda.md`, '# Sonda\n')
-  writeFileSync(`${NOTES}/thoth.yaml`, 'attachments:\n  mode: per-note\n')
+  writeWorkspace('attachments:\n  mode: per-note\n')
   k = await signIn(browser, 'noa', NOTE)
   // Until thoth.yaml is read again (watcher or rescan), uploads still go next to the note.
   await expect.poll(async () => {
@@ -28,7 +28,7 @@ test.beforeAll(async ({ browser }) => {
   }, { timeout: 15_000 }).toBe(true)
 })
 
-test.afterAll(() => rmSync(`${NOTES}/thoth.yaml`, { force: true }))
+test.afterAll(() => writeWorkspace())
 
 test('a pasted image goes to the note\'s own folder; renaming the note takes the folder along', async () => {
   await k.locator('.cm-h1').click()
