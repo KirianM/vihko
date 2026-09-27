@@ -286,7 +286,7 @@ test('API: a clash is reported in the preview and not applied; the rest is', asy
 })
 
 test('API: errors as codes: a creation or a deletion is not revertible, a stale ifMatch, an unknown version, a note that cannot be read', async () => {
-  const h = await setup({ files: { [PLAN]: BEFORE }, canRead: (_u, p) => p !== 'privado/secreto.md' })
+  const h = await setup({ files: { [PLAN]: BEFORE }, config: 'permissions:\n  \"\": { grants: { noa: manage, ana: edit } }\n  privado: { grants: {} }\n' })
   try {
     const created = await h.noa('POST', '/api/note', { path: 'nueva.md', text: '# Nueva\n' })
     assert.equal(created.status, 201)

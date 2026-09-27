@@ -35,7 +35,7 @@ async function setup(opts: { maxImageBytes?: number; webDir?: string; externalIm
   runtime.rescan({})
   const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db: index, maxImageBytes: opts.maxImageBytes })
   const app = createApp({ auth, profiles: new Profiles(state), workspace: new Workspace({ notesDir }), notes, index, indexer, notesDir, runtime, webDir: opts.webDir, externalImages: opts.externalImages })
-  await auth.createUser('noa', 'a-long-password', 'member')
+  await auth.createUser('noa', 'a-long-password', 'admin')
   const login = await app.request('/api/auth/login', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'noa', password: 'a-long-password' }),
   })

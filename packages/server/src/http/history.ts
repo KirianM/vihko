@@ -1,9 +1,12 @@
 // History API (the same principal and filter as the rest, D-014): a note's
-// history is only shown to whoever can read the note now (D-016), and
-// «Recent changes» filters file by file. An agent reads it through
-// agentHistory.ts: only versions it could have seen. Authors come back with their
-// current name (state.db), never the one stored in the commit; reasons as
-// codes with their data, which the UI words (D-025).
+// history is only for whoever has `edit` where it is now (D-034 3.5, D-038),
+// and «Recent changes» filters file by file the same way. Everyone reads it
+// through agentHistory.ts: only versions from where they could edit it (and,
+// for an agent, whose text it could see). Someone who can read the note but
+// not edit it gets `forbidden`; someone who can't read it, `not_found`.
+// Authors come back with their current name (state.db), never the one
+// stored in the commit; reasons as codes with their data, which the UI
+// words (D-025).
 //
 //   GET  /api/history/status
 //   GET  /api/history/versions?path=&cursor=&limit=   (`excluded`: history.exclude keeps it out)
@@ -16,7 +19,7 @@
 import type { Context, Hono } from 'hono'
 import { parseAuthorKey, type Via } from '../actor.ts'
 import type { Auth, User } from '../auth.ts'
-import { AgentDenied, type Access } from '../access.ts'
+import { AccessError, AgentDenied, type Access } from '../access.ts'
 import { historyFor } from '../agentHistory.ts'
 import { History, HistoryError, type AuthorRef, type HistoryReader } from '../history/index.ts'
 import { wordDiff } from '../history/diff.ts'
@@ -33,8 +36,6 @@ export interface HistoryRoutesDeps {
   auth: Auth
   /** A key's name (`Claude Code`), for agent authors; null if unknown. */
   keyName?: (id: string) => string | null
-  /** Whether `user` can read `path` now, on top of the access filter (everything, until M4). */
-  canRead: (user: User, path: string) => boolean
 }
 
 /**
@@ -86,18 +87,17 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     return Number.isInteger(n) && n > 0 ? Math.min(n, max) : Math.min(DEFAULT_LIMIT, max)
   }
 
-  /** Whether whoever asks may read `path` now. */
-  const readable = (c: Context<Env>, path: string) => c.get('access').canRead(path) && deps.canRead(c.get('user'), path)
-
   /**
-   * The note in the request, if whoever asks can read it now; otherwise it
-   * doesn't exist for them, except for an agent naming a note that exists
-   * but is hidden from it (`agent_denied`, access.ts).
+   * The note in the request, if whoever asks may see its history now:
+   * `edit` where it is. One they can't read doesn't exist for them (except
+   * for an agent naming a note that exists but is hidden from it:
+   * `agent_denied`, access.ts); one they only read is `forbidden`.
    */
   const notePath = (c: Context<Env>, raw: string | undefined): string => {
     const path = NoteService.checkPath(raw ?? '')
-    if (!deps.canRead(c.get('user'), path)) throw new NoteError('not_found', `no history for ${path}`)
-    c.get('access').assertRead(path)
+    const access = c.get('access')
+    access.assertRead(path)
+    if (!access.canHistory(path)) throw new AccessError('the history of a note is for whoever can edit it')
     return path
   }
 
@@ -175,8 +175,10 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     const v = await versionOf(reader, path, body.id)
     if (v.text === null) throw new HistoryError('invalid', 'that version deletes the note: there is no text to restore')
     const ifMatch = body.ifMatch ?? unquote(c.req.header('if-match'))
+    const access = c.get('access')
+    // The images it brings back: only from folders whoever asks can read, and to where they can write.
     const r = await notes.restoreVersion(path, { id: v.id, at: v.at, path: v.path, text: v.text }, {
-      ifMatch, actor: c.get('access').actor, file: (p) => reader.file(v.id, p),
+      ifMatch, actor: access.actor, file: (p) => reader.file(v.id, p), canWrite: (p) => access.canWrite(p),
     })
     c.header('ETag', `"${r.etag}"`)
     return c.json(r)
@@ -206,9 +208,11 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
 
   app.get('/api/history/changes', async (c) => {
     const reader = readerOf(c)
-    const page = await reader.changes({ cursor: c.req.query('cursor'), limit: limitOf(c), author: c.req.query('author') || null, canRead: (p) => readable(c, p) })
-    // An agent learns of the authors of what it sees, nobody else.
-    const authors = c.get('access').isAgent ? distinctAuthors(page.changes.flatMap((ch) => ch.authors)).map(author) : (await reader.authors()).map(author)
+    const access = c.get('access')
+    const page = await reader.changes({ cursor: c.req.query('cursor'), limit: limitOf(c), author: c.req.query('author') || null, canRead: (p) => access.canHistory(p) })
+    // The authors to filter by: an agent, those of what it sees; a person, the
+    // people (every name is visible to everyone), their own agents and those of what they see.
+    const authors = distinctAuthors([...(await reader.authors()), ...page.changes.flatMap((ch) => ch.authors)]).map(author)
     return c.json({
       changes: page.changes.map((ch) => ({ ...ch, authors: ch.authors.map(author), reason: reason(ch.reason) })),
       next: page.next,

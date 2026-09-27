@@ -73,6 +73,100 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'POST /api/keys/:id/rotate': 'session',
   'GET /api/oauth/authorize': 'session',
   'POST /api/oauth/authorize': 'session',
+  'GET /api/permissions': 'session',
+  'PUT /api/permissions': 'session',
+  'GET /api/permissions/folders': 'session',
+  'GET /api/permissions/access': 'session',
+  'POST /api/permissions/holds/:id': 'session',
+}
+
+/**
+ * What each route needs of the folders' permissions (D-038), for a person
+ * (a key's agent needs the same of its user, and its key's own limits). The
+ * leak tests walk every route with two people and an agent over the same
+ * tree; a route without its line here fails them.
+ *
+ * - `none`: nothing about notes (health, sign-in, the person's own profile,
+ *   keys and session, the installation's switches).
+ * - `admin`: the thoth admin's (users, the rescan): never notes' contents.
+ * - `filtered`: lists (tree, search, tags, trash, alerts, «Recent
+ *   changes»…): only what the person may see, counts included.
+ * - `read`, `comment`, `edit`, `manage`: that level where the note or folder
+ *   named is; below it, 403 if they see it, 404 if not.
+ * - `history`: `edit` where the note is (D-034 3.5).
+ * - `permissions`: the admin, or `manage` in the folder (http/permissions.ts).
+ */
+export type RouteNeeds = 'none' | 'admin' | 'filtered' | 'read' | 'comment' | 'edit' | 'manage' | 'history' | 'permissions'
+
+export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
+  'GET /api/health': 'none',
+  'GET /api/setup': 'none',
+  'POST /api/setup': 'none',
+  'POST /api/auth/login': 'none',
+  'POST /api/auth/logout': 'none',
+  'GET /api/auth/me': 'none',
+  'GET /api/config': 'none',
+  'GET /api/workspace': 'none',
+  'GET /api/profile': 'none',
+  'PUT /api/profile': 'none',
+  'GET /api/integrations': 'none',
+  'PUT /api/admin/integrations': 'admin',
+  'GET /api/keys': 'none',
+  'POST /api/keys': 'none',
+  'PATCH /api/keys/:id': 'none',
+  'DELETE /api/keys/:id': 'none',
+  'POST /api/keys/:id/rotate': 'none',
+  'GET /api/oauth/authorize': 'none',
+  'POST /api/oauth/authorize': 'none',
+  'POST /api/admin/rescan': 'admin',
+  'POST /api/admin/users': 'admin',
+
+  'GET /api/tree': 'filtered',
+  'GET /api/tags': 'filtered',
+  'GET /api/search': 'filtered',
+  'GET /api/trash': 'filtered',
+  'GET /api/alerts': 'filtered',
+  'GET /api/history/status': 'none',
+  'GET /api/history/changes': 'filtered',
+  'GET /api/move-jobs/:id': 'filtered',
+
+  'GET /api/note': 'read',
+  'GET /api/note/links': 'read',
+  'GET /api/note/headings': 'read',
+  'GET /api/note/comments': 'read',
+  'GET /api/daily': 'read',
+  'GET /api/file': 'read',
+  'GET /api/conflict': 'read',
+
+  'POST /api/note': 'edit',
+  'PUT /api/note': 'edit',
+  'POST /api/note/edit': 'edit',
+  'POST /api/note/move': 'edit',
+  'DELETE /api/note': 'edit',
+  'POST /api/daily': 'edit',
+  'POST /api/attachments': 'edit',
+  'POST /api/attachments/fetch': 'edit',
+  'POST /api/note/link/pin': 'edit',
+  'POST /api/note/orphan': 'edit',
+  'POST /api/external-moves/:id/relink': 'edit',
+  'POST /api/trash/:id/restore': 'edit',
+  'POST /api/folder': 'edit',
+
+  'DELETE /api/folder': 'manage',
+  'POST /api/folder/move': 'manage',
+
+  'GET /api/history/versions': 'history',
+  'GET /api/history/version': 'history',
+  'GET /api/history/diff': 'history',
+  'GET /api/history/resolved': 'history',
+  'POST /api/history/restore': 'history',
+  'POST /api/history/revert': 'history',
+
+  'GET /api/permissions': 'permissions',
+  'PUT /api/permissions': 'permissions',
+  'GET /api/permissions/folders': 'filtered',
+  'GET /api/permissions/access': 'none',
+  'POST /api/permissions/holds/:id': 'permissions',
 }
 
 /**

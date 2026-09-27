@@ -164,6 +164,8 @@ export interface FolderMoveReport {
   notes: { from: string; to: string }[]
   /** Other files that go with the folder (images, attachments). */
   files: number
+  /** Their paths, from the notes root, where they were (for filtering by who asks: scoped.ts drops them). */
+  filePaths?: string[]
   /**
    * Notes whose links or image references are rewritten, moved ones under
    * their new path, with each change as in a note move.
@@ -782,6 +784,7 @@ export class NoteService {
     const report: FolderMoveReport = {
       from, to, notes: [...moves].map(([f, t]) => ({ from: f, to: t })),
       files: inside.filter((p) => classifyPath(`${from}/${p}`) === 'other').length,
+      filePaths: inside.filter((p) => classifyPath(`${from}/${p}`) === 'other').map((p) => `${from}/${p}`),
       relinked: [], shifted: [], failed: [], dryRun: !!opts.dryRun,
     }
     const own: [string, string][] = []
@@ -1042,10 +1045,11 @@ export class NoteService {
    * Brings back a version of a note from the history (D-016): its text is
    * written like any edit (an open note changes live for its editors), and
    * the images it linked that no longer exist come back from the same commit
-   * (`file`), never over an existing file. One commit, by `actor`, with the
-   * reason `restored`. A note that no longer exists is created again.
+   * (`file`), never over an existing file, and only where `canWrite` allows.
+   * One commit, by `actor`, with the reason `restored`. A note that no
+   * longer exists is created again.
    */
-  async restoreVersion(path: string, version: { id: string; at: string; path: string; text: string }, opts: { ifMatch?: string; actor: Actor; file: (path: string) => Promise<Uint8Array | null> }): Promise<RestoreReport> {
+  async restoreVersion(path: string, version: { id: string; at: string; path: string; text: string }, opts: { ifMatch?: string; actor: Actor; file: (path: string) => Promise<Uint8Array | null>; canWrite?: (path: string) => boolean }): Promise<RestoreReport> {
     const file = this.file(path)
     const reason: Reason = { code: 'restored', id: version.id, at: version.at }
     return this.history.operation(opts.actor, reason, async () => {
@@ -1065,6 +1069,8 @@ export class NoteService {
         const source = resolveImageRef(version.path, img.dest, { embed })
         if (target === null || source === null || seen.has(target) || classifyPath(target) !== 'other') continue
         seen.add(target)
+        // Where whoever restores can't write: as if the history didn't have it (nothing of that folder is said).
+        if (opts.canWrite && !opts.canWrite(target)) { images.missing.push({ path: target, reason: 'not_in_history' }); continue }
         const bytes = await opts.file(source)
         const abs = join(this.opts.notesDir, target)
         if (this.isFile(target)) {

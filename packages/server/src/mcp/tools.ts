@@ -254,6 +254,28 @@ function bySource(backlinks: readonly Backlink[]) {
 
 // --- The tools -----------------------------------------------------------------
 
+/**
+ * Every tool, and what it needs of its user's permissions where the note is
+ * (D-038; as `ROUTE_NEEDS` for the HTTP API): `filtered` lists only what
+ * the key may see; `read` and `edit`, that level; `history`, `edit` (D-034
+ * 3.5). A tool without its line here fails the leak tests.
+ */
+export const TOOL_NEEDS = {
+  search: 'filtered',
+  get_note: 'read',
+  list_folder: 'filtered',
+  related: 'read',
+  resolve_link: 'read',
+  changes_since: 'read', // from a version id: `history`
+  history: 'history',
+  daily_note: 'read', // creating it: `edit`
+  create_note: 'edit',
+  edit_note: 'edit',
+  move: 'edit',
+  delete: 'edit',
+  revert_change: 'history',
+} as const
+
 /** The server's tools for this key: the ones that write only if it may write. */
 export function registerTools(server: McpServer, ctx: ToolContext) {
   const { access, scoped, texts } = ctx
@@ -510,6 +532,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     access.assertRead(note)
     // Hidden by its text now (not yet by the index): denied too. A note deleted since keeps its history.
     try { scoped.read(note) } catch (err) { if (err instanceof AgentDenied) throw err }
+    // A note's history is for whoever can edit it (D-034 3.5): its user must have `edit` there.
+    if (!access.canHistory(note)) throw new AccessError('the history of a note is only for whoever can edit it')
     const r = reader()
     if (version) {
       const v = await r.version(note, version)

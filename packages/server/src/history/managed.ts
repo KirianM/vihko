@@ -20,7 +20,8 @@ interface Step {
   meta: ParsedMessage
 }
 
-interface Resume { rev: string; path: string }
+/** Where a note's versions go on: a commit and the note's path there, for the listing of `origin` (the path asked for). */
+interface Resume { rev: string; path: string; origin?: string }
 
 // A cursor comes from the client: its `rev` goes to git, so it must be a commit id and never an option (`--output=…`).
 const isCommitId = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{40}$/.test(v)
@@ -102,12 +103,14 @@ export class ManagedReader implements HistoryReader {
   versions(path: string, page: { cursor?: string | null; limit: number }) {
     return this.run(async () => {
       const start = decodeCursor(page.cursor, isResume)
+      // A cursor goes on with the note it was made for, never another one.
+      if (start && start.origin !== path) throw new HistoryError('invalid', 'invalid cursor')
       const head = start ? null : await resolveRef(this.git, HISTORY_REF)
       if (!start && head === null) return { versions: [], next: null }
       const steps: Step[] = []
       let next: string | null = null
       for await (const { step, resume } of this.walk(start ?? { rev: head!, path }, page.limit + 1)) {
-        if (steps.length === page.limit) { next = encodeCursor(resume); break }
+        if (steps.length === page.limit) { next = encodeCursor({ ...resume, origin: path }); break }
         steps.push(step)
       }
       // A first page walked from the head: its versions are asked for next.

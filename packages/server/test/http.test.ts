@@ -10,11 +10,12 @@ import { tempDir } from './_tmp.ts'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
-async function setup(opts: { webDir?: string } = {}) {
+async function setup(opts: { webDir?: string; config?: string } = {}) {
   const dir = tempDir('thoth-http-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
   cpSync(VAULT, notesDir, { recursive: true })
+  if (opts.config !== undefined) writeFileSync(join(notesDir, 'thoth.yaml'), opts.config)
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
@@ -160,7 +161,8 @@ test('notes over HTTP: read, create, write with If-Match, move and delete', asyn
 })
 
 test('links, backlinks with context, search and alerts', async () => {
-  const { auth, req } = await setup()
+  // A member who manages everything (D-038): reading notes is the folders' permissions, never the role.
+  const { auth, req } = await setup({ config: 'permissions:\n  "": { grants: { noa: manage } }\n' })
   await auth.createUser('noa', 'a-long-password', 'member')
   await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
 
@@ -184,7 +186,7 @@ test('links, backlinks with context, search and alerts', async () => {
 
 test('editor autocomplete data: aliases in the tree, tags with counts and a note\'s headings', async () => {
   const { auth, req } = await setup()
-  await auth.createUser('noa', 'a-long-password', 'member')
+  await auth.createUser('noa', 'a-long-password', 'admin')
   await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
 
   const tree = await req('GET', '/api/tree')
@@ -205,7 +207,7 @@ test('editor autocomplete data: aliases in the tree, tags with counts and a note
 
 test('comments inside a note stay out of backlink contexts and search', async () => {
   const { auth, req, notesDir, runtime } = await setup()
-  await auth.createUser('noa', 'a-long-password', 'member')
+  await auth.createUser('noa', 'a-long-password', 'admin')
   await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
   writeFileSync(join(notesDir, 'hogar/discussed.md'),
     'Move the VMs to [[Proxy]] this week.<!-- @ana 2026-09-24T08:12Z · which zanahoria host? -->\n')
@@ -244,9 +246,9 @@ test('workspace alerts: codes with their data and actions based on role', async 
   assert.deepEqual(scan, { code: 'scan_aborted_mass_delete', ...aborted.massDelete, actions: ['rescan', 'confirm_removal'] })
   assert.ok((scan!.removing as number) > 10 && (scan!.total as number) > (scan!.removing as number))
 
-  // A member sees the alert, but without actions, and the server denies them too.
+  // A system alert is the admin's (D-038): a member (who reads nothing here) sees nothing, and the server denies them too.
   await as('ana')
-  assert.deepEqual((await alerts())[0], { ...scan, actions: [] })
+  assert.deepEqual(await alerts(), [])
   assert.deepEqual(errorOf(await req('POST', '/api/admin/rescan', { confirmRemoval: scan!.removing })), [403, 'forbidden'])
 
   // Confirming with a number that no longer matches the alert deletes nothing.

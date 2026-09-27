@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { EVERYONE } from './_permissions.ts'
 import { CLI, api, closeAll, connect, login, makeDirs, sleep, startServer, typeLine, waitFor, type Srv } from './_collab.ts'
 
 const NOTE = 'hogar/Proxy.md'
@@ -14,6 +15,8 @@ const FAST = { THOTH_HISTORY_QUIET_SECONDS: '0.4', THOTH_HISTORY_MAX_SECONDS: '3
 
 function withAna(env: Record<string, string>) {
   spawnSync(process.execPath, [CLI, 'user', 'create', 'ana'], { env: { ...process.env, ...env }, input: 'a-long-password' })
+  // ana edits everything, as before M4 (_permissions.ts).
+  writeFileSync(join(env.THOTH_NOTES_DIR!, 'thoth.yaml'), EVERYONE)
 }
 
 async function loginAs(srv: Srv, username: string): Promise<string> {

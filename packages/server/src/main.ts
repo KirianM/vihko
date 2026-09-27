@@ -26,6 +26,9 @@ import type { Server } from 'node:http'
 import type { BlockList } from 'node:net'
 import { trustedProxiesFrom } from './http/clientIp.ts'
 import { WORKSPACE_FILE } from '@thoth/core'
+import { AccessPolicy } from './access.ts'
+import { PermissionsEngine, stateDirectory } from './permissions.ts'
+import { PermissionHolds } from './permissionHolds.ts'
 
 export interface Config {
   notesDir: string
@@ -132,12 +135,18 @@ async function run(config: Config, lock: StateLock) {
   const log = (msg: string) => console.log(`[thoth] ${msg}`)
   const workspace = new Workspace({ notesDir: config.notesDir, log })
   const indexer = new Indexer({ notesDir: config.notesDir, db: index, linkAliases: workspace.config.links.aliases })
+  // Who reads what (D-038): thoth.yaml's rules over state.db's users (and, with piece U, groups).
+  const permissions = new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(state) })
   // Before the first scan: a note moved while the server was stopped is detected too.
+  const holds = new PermissionHolds({ stateDir: config.stateDir, engine: permissions, log })
+  const policy = new AccessPolicy({ index, permissions, holds })
   const externalMoves = new ExternalMoves({ stateDir: config.stateDir, db: index, indexer, log })
   // Open notes follow their file (the hub exists after the first scan, which
   // hands it its moves once the recovery logs are loaded).
   let follow: CollabHub | null = null
   indexer.onMoves = (moves) => {
+    // First: a note that left a folder with rules of its own is held before anyone can list it.
+    holds.consider(moves)
     externalMoves.record(moves)
     log(`moved outside thoth: ${moves.map((m) => `${m.from} → ${m.to} (${m.by})`).join(', ')}`)
     follow?.followMoves(moves)
@@ -207,6 +216,7 @@ async function run(config: Config, lock: StateLock) {
   const profiles = new Profiles(state)
   const app = createApp({
     auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies,
+    policy, holds,
     // The MCP server, at /mcp (off until the admin turns it on).
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log }) },
   })
