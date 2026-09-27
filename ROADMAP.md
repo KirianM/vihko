@@ -149,29 +149,29 @@ agent sees those changes, with safeguards and everything in the history.
 
 ## M4 · Multi-user
 
-- [ ] Users and groups; accounts created with a one-time, expiring link (no
+- [x] Users and groups; accounts created with a one-time, expiring link (no
       SMTP), which also resets passwords; deactivate (cuts sessions, keys and
       OAuth at once) and delete (history keeps the name).
-- [ ] Per-folder permissions in `thoth.yaml`, managed from the UI: `read`,
+- [x] Per-folder permissions in `thoth.yaml`, managed from the UI: `read`,
       `comment`, `edit` and `manage`; inherited, with a folder's own grants
       replacing the inherited ones; deny by default. `manage` shares the folder.
       Optional `{user}` rules (e.g. a folder per person). A folder can be
       closed to agents (`ai: false`, inherited, only closes).
-- [ ] The thoth admin manages users, groups and permissions but only reads what
+- [x] The thoth admin manages users, groups and permissions but only reads what
       is granted to them, like anyone else.
-- [ ] Single filtering point with leak tests over every endpoint, tool and
+- [x] Single filtering point with leak tests over every endpoint, tool and
       editor message (titles, backlinks, counts, candidates, errors).
-- [ ] Link rewriting as the system across permissions; moving something that
+- [x] Link rewriting as the system across permissions; moving something that
       changes who can see it asks first.
-- [ ] Presence and cursors across users in the editor; read-only and
+- [x] Presence and cursors across users in the editor; read-only and
       comment-only editing.
-- [ ] Purge from history in the UI: whoever manages the folder, or the admin by
+- [x] Purge from history in the UI: whoever manages the folder, or the admin by
       path; on top of the M2.1 command.
-- [ ] A note's history (versions, diffs, resolved comments, its part of recent
+- [x] A note's history (versions, diffs, resolved comments, its part of recent
       changes) needs edit permission, and so does restoring: sharing a note to
       read doesn't share its past.
-- [ ] An open version closes when someone who wasn't in it starts typing.
-- [ ] Saving a copy of an image by URL: members only from public addresses
+- [x] An open version closes when someone who wasn't in it starts typing.
+- [x] Saving a copy of an image by URL: members only from public addresses
       unless the admin allows the local network.
 - [x] Second factor for users: TOTP with recovery codes; the admin makes it
       required, optional or disabled, and can reset a user's; asked again
