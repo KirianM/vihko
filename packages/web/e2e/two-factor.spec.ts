@@ -8,7 +8,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { createHmac } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES, PERMISSIONS, PUBLIC_URL } from './env.ts'
+import { E2E_DIR, NOTES, PASSWORD, PERMISSIONS, PUBLIC_URL } from './env.ts'
 import { signIn, writeWorkspace } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
@@ -33,7 +33,7 @@ test.beforeAll(async ({ browser }) => {
 
 test.afterAll(async () => {
   const admin = keeper
-  await admin.request.put('/api/admin/settings', { data: { twoFactor: 'optional' } })
+  await admin.request.put('/api/admin/settings', { data: { twoFactor: 'optional', confirm: PASSWORD } })
   for (const u of (await (await admin.request.get('/api/admin/users')).json()).users as { id: string; username: string }[]) {
     if (u.username !== LUCIA && u.username !== PABLO) continue
     await admin.request.post(`/api/admin/users/${u.id}/disable`)
@@ -224,7 +224,13 @@ test('a new key asks for the app\'s current code, even with a session; the passw
 test('required: an invited member sets it up before getting in; the admin sees who has it and resets it', async ({ browser }) => {
   const admin = await signIn(browser, 'noa')
   await openSettings(admin, 'Usuarios y grupos', 'users')
-  await admin.getByRole('radio', { name: /Obligatoria/ }).check()
+  // A new policy is confirmed at the moment (D-040 3.4a): the admin's password, without a second factor.
+  await admin.getByRole('radio', { name: /Obligatoria/ }).click()
+  const policy = admin.getByRole('alertdialog')
+  await expect(policy.getByRole('heading')).toHaveText('¿Cambiar la verificación en dos pasos a «Obligatoria»?')
+  await expect(admin.getByRole('radio', { name: /Opcional/ })).toBeChecked()
+  await policy.getByLabel('Tu contraseña').fill(PASSWORD)
+  await policy.getByRole('button', { name: 'Cambiar' }).click()
   await expect(admin.getByRole('radio', { name: /Obligatoria/ })).toBeChecked()
   expect((await (await admin.request.get('/api/admin/settings')).json()).twoFactor).toBe('required')
   const { link } = await (await admin.request.post('/api/admin/users', { data: { username: PABLO, role: 'member' } })).json() as { link: { path: string } }
@@ -263,10 +269,14 @@ test('required: an invited member sets it up before getting in; the admin sees w
   const confirm = admin.getByRole('alertdialog')
   await expect(confirm.getByRole('heading')).toHaveText(`¿Restablecer la verificación en dos pasos de ${PABLO}?`)
   await expect(confirm).toContainText('Como es obligatoria, la configurará de nuevo la próxima vez que entre.')
+  await expect(confirm).toContainText(`${PABLO} verá un aviso al entrar, y los demás administradores también.`)
+  await confirm.getByLabel('Tu contraseña').fill(PASSWORD)
   await confirm.getByRole('button', { name: 'Restablecer' }).click()
   await expect(row(admin, PABLO)).toContainText('Al entrar')
 
-  await admin.getByRole('radio', { name: /Opcional/ }).check()
+  await admin.getByRole('radio', { name: /Opcional/ }).click()
+  await admin.getByRole('alertdialog').getByLabel('Tu contraseña').fill(PASSWORD)
+  await admin.getByRole('alertdialog').getByRole('button', { name: 'Cambiar' }).click()
   await expect(row(admin, 'noa')).not.toContainText('Al entrar')
   await admin.context().close()
 })

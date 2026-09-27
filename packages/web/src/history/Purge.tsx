@@ -3,10 +3,13 @@
 // admin, who needn't be able to read it. The confirmation lists what is lost
 // (the versions, by date; never their content) and says it can't be undone;
 // the server works it out without changing anything first (`dryRun`). The
-// admin is told who purged what.
+// admin is told who purged what, and so is whoever wrote in it (D-040 3.6).
+// The admin purging something they can't read confirms at the moment, with
+// their code or password (`confirmRequired`).
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, TextField } from 'react-aria-components'
 import { errorText, useT } from '../i18n.tsx'
+import { ConfirmField, codeError, useConfirmWith } from '../TwoFactor.tsx'
 import { historyApi, type PurgeReport } from './api.ts'
 import { pathLabel } from './format.ts'
 import { useDates } from './ui.tsx'
@@ -14,6 +17,12 @@ import './purge.css'
 
 /** Versions listed in the confirmation; the rest are counted. */
 const SHOWN = 12
+
+/** The admin's own code (or password), for a purge of something they can't read. */
+function IdentityField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const t = useT()
+  return <ConfirmField how={useConfirmWith()} value={value} onChange={onChange} hint={t('purge.confirmIdentityHint')} />
+}
 
 /** «Purge …?»: what goes, asked of the server without writing; then the purge itself. */
 export function PurgeDialog({ path, version, onCancel, onDone }: {
@@ -28,6 +37,7 @@ export function PurgeDialog({ path, version, onCancel, onDone }: {
   const [preview, setPreview] = useState<PurgeReport | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [secret, setSecret] = useState('')
 
   useEffect(() => {
     let live = true
@@ -39,14 +49,15 @@ export function PurgeDialog({ path, version, onCancel, onDone }: {
     setBusy(true)
     setError(null)
     try {
-      onDone(await historyApi.purge(path, { version }))
+      onDone(await historyApi.purge(path, { version, confirm: preview?.confirmRequired ? secret.trim() : undefined }))
     } catch (e) {
-      setError(errorText(t, e))
+      setError(codeError(t, e))
       setBusy(false)
     }
   }
 
   const n = preview?.versions.length ?? 0
+  const asks = !!preview?.confirmRequired && n > 0
   return (
     <ModalOverlay className="modal-overlay" isOpen onOpenChange={(o) => { if (!o && !busy) onCancel() }} isDismissable={!busy}>
       <Modal className="modal">
@@ -78,12 +89,13 @@ export function PurgeDialog({ path, version, onCancel, onDone }: {
               {preview.sharedWith.length > 0 && <p className="hint">{t('purge.shared', { paths: preview.sharedWith.map(pathLabel).join(', ') })}</p>}
               {preview.movedFrom.length > 0 && <p className="hint">{t('purge.movedFrom', { paths: preview.movedFrom.map(pathLabel).join(', ') })}</p>}
               <p className="hint">{t('purge.adminTold')}</p>
+              {asks && <IdentityField value={secret} onChange={setSecret} />}
             </div>
           )}
           {error && <p className="error-text dialog-error" role="alert">{error}</p>}
           <div className="dialog-actions">
             <Button className="btn" autoFocus isDisabled={busy} onPress={onCancel}>{t('common.cancel')}</Button>
-            <Button className="btn btn-danger" isDisabled={busy || !preview || n === 0} onPress={() => void purge()}>{t(version ? 'purge.confirmVersion' : 'purge.confirm')}</Button>
+            <Button className="btn btn-danger" isDisabled={busy || !preview || n === 0 || (asks && !secret.trim())} onPress={() => void purge()}>{t(version ? 'purge.confirmVersion' : 'purge.confirm')}</Button>
           </div>
         </Dialog>
       </Modal>

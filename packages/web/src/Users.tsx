@@ -5,11 +5,15 @@
 // admin creates and fills. And the admin's settings: members downloading
 // images from the local network (D-038.6) and the second factor's policy
 // (D-036: required, optional or disabled), whose state each person's row
-// shows and the admin can reset.
+// shows and the admin can reset. What lets the admin into someone else's
+// account (a reset link, their second factor's reset, a new role) and a new
+// policy ask for the confirmation at the moment, the admin's own code or
+// password (D-040 3.1, 3.4a); the person and the other admins are told.
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, Text, TextField } from 'react-aria-components'
 import { ApiError, api, type AdminSettings, type GroupInfo, type NewLink, type TwoFactorPolicy, type User, type UserInfo } from './api.ts'
 import { CopyButton, Toggle } from './Agents.tsx'
+import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import { AdminPurge } from './history/Purge.tsx'
@@ -41,6 +45,7 @@ type Open =
   | { kind: 'new' }
   | { kind: 'link'; user: UserInfo; link: NewLink; created: boolean }
   | { kind: 'confirm'; action: Action; user: UserInfo }
+  | { kind: 'policy'; policy: TwoFactorPolicy }
   | { kind: 'newGroup' }
   | { kind: 'renameGroup'; group: GroupInfo }
   | { kind: 'deleteGroup'; group: GroupInfo }
@@ -126,39 +131,55 @@ function LinkDialog({ user, link, created, onClose }: { user: UserInfo; link: Ne
   )
 }
 
-/** A confirmation that lists what happens. */
-function ConfirmDialog({ title, items, confirm, danger, onClose, onConfirm }: {
+/** The admin's own code (or password) that confirms a change at the moment. */
+function IdentityField({ value, onChange, hint }: { value: string; onChange: (v: string) => void; hint: string }) {
+  const how = useConfirmWith()
+  return <ConfirmField how={how} value={value} onChange={onChange} hint={hint} />
+}
+
+/**
+ * A confirmation that lists what happens. With `identity` (a hint), it also
+ * asks for the admin's current code or password, which `onConfirm` gets.
+ */
+function ConfirmDialog({ title, items, confirm, danger, identity, onClose, onConfirm }: {
   title: string
   items: string[]
   confirm: string
   danger?: boolean
+  identity?: string
   onClose: () => void
-  onConfirm: () => Promise<void>
+  onConfirm: (secret: string) => Promise<void>
 }) {
   const t = useT()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const go = async () => {
+  const [secret, setSecret] = useState('')
+  const go = async (e?: FormEvent) => {
+    e?.preventDefault()
+    if (busy || (identity && !secret.trim())) return
     setBusy(true)
     setError(null)
     try {
-      await onConfirm()
+      await onConfirm(secret.trim())
     } catch (err) {
-      setError(errorText(t, err))
+      setError(codeError(t, err))
       setBusy(false)
     }
   }
   return (
     <Dialog className="dialog dialog-narrow" role="alertdialog">
-      <div className="dialog-fields">
-        <Heading slot="title" className="dialog-title">{title}</Heading>
-        <ul className="consequences">{items.map((x) => <li key={x}>{x}</li>)}</ul>
-        {error && <p className="error-text" role="alert">{error}</p>}
-      </div>
-      <div className="dialog-actions">
-        <Button className="btn" onPress={onClose} autoFocus>{t('common.cancel')}</Button>
-        <Button className={danger ? 'btn btn-danger' : 'btn btn-primary'} onPress={() => void go()} isDisabled={busy}>{confirm}</Button>
-      </div>
+      <form onSubmit={(e) => void go(e)}>
+        <div className="dialog-fields">
+          <Heading slot="title" className="dialog-title">{title}</Heading>
+          <ul className="consequences">{items.map((x) => <li key={x}>{x}</li>)}</ul>
+          {identity && <IdentityField value={secret} onChange={setSecret} hint={identity} />}
+          {error && <p className="error-text" role="alert">{error}</p>}
+        </div>
+        <div className="dialog-actions">
+          <Button className="btn" onPress={onClose} autoFocus={!identity}>{t('common.cancel')}</Button>
+          <Button type="submit" className={danger ? 'btn btn-danger' : 'btn btn-primary'} isDisabled={busy || (!!identity && !secret.trim())}>{confirm}</Button>
+        </div>
+      </form>
     </Dialog>
   )
 }
@@ -300,9 +321,9 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
   }, [users])
   const q = query.trim().toLowerCase()
   const shown = (users ?? []).filter((u) => (filter === 'all' || u.status === filter) && (!q || u.username.toLowerCase().includes(q)))
-  // The second factor's column, unless the admin turned it off for everyone.
+  // The second factor's column: also while it's off for new setups, whoever has one keeps it.
   const policy = settings?.twoFactor ?? 'optional'
-  const twoFactor = settings !== null && policy !== 'disabled'
+  const twoFactor = settings !== null
   const twoFactorCell = (u: UserInfo) => {
     if (u.twoFactor.enabled) return <span className="user-status user-status-active" title={u.twoFactor.enabledAt ? t('users.tfSince', { date: dates.dateTime(u.twoFactor.enabledAt) }) : undefined}>{t('users.tfOn')}</span>
     if (policy === 'required' && u.status !== 'disabled') return <span className="hint">{t('users.tfAtSignIn')}</span>
@@ -328,8 +349,11 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
     setOpen({ kind: 'confirm', action: id as Action, user: u })
   }
 
-  const confirmFor = (action: Action, u: UserInfo): { title: string; items: string[]; confirm: string; danger?: boolean; go: () => Promise<void> } => {
+  const confirmFor = (action: Action, u: UserInfo): { title: string; items: string[]; confirm: string; danger?: boolean; identity?: string; go: (secret: string) => Promise<void> } => {
     const user = u.username
+    /** Into someone else's account: confirmed at the moment, and told (D-040 3.1). */
+    const told = t('users.told', { user })
+    const identity = t('users.confirmIdentityHint')
     switch (action) {
       case 'disable': return {
         title: t('users.disableTitle', { user }), danger: true, confirm: t('users.disableConfirm'),
@@ -343,13 +367,13 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
       }
       case 'promote': return {
         title: t('users.promoteTitle', { user }), confirm: t('users.promoteConfirm'),
-        items: [t('users.promote1'), t('users.promote2')],
-        go: async () => { await api.setRole(u.id, 'admin'); done() },
+        items: [t('users.promote1'), t('users.promote2'), told], identity,
+        go: async (secret) => { await api.setRole(u.id, 'admin', secret); done() },
       }
       case 'demote': return {
         title: t('users.demoteTitle', { user }), confirm: t('users.demoteConfirm'),
-        items: [t('users.demote1'), t('users.demote2')],
-        go: async () => { await api.setRole(u.id, 'member'); done() },
+        items: [t('users.demote1'), t('users.demote2'), told], identity,
+        go: async (secret) => { await api.setRole(u.id, 'member', secret); done() },
       }
       case 'sessions': return {
         title: t('users.sessionsTitle', { user }), danger: true, confirm: t('users.sessionsConfirm'),
@@ -358,16 +382,17 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
       }
       case 'twoFactor': return {
         title: t('users.tfResetTitle', { user }), danger: true, confirm: t('users.tfResetConfirm'),
-        items: [t(policy === 'required' ? 'users.tfReset1Required' : 'users.tfReset1'), t('users.tfReset2'), t('users.tfReset3')],
-        go: async () => { await api.resetTwoFactor(u.id); done() },
+        items: [t(policy === 'required' ? 'users.tfReset1Required' : 'users.tfReset1'), t('users.tfReset2'), t('users.tfReset3'), told], identity,
+        go: async (secret) => { await api.resetTwoFactor(u.id, secret); done() },
       }
       case 'link': {
         const reset = u.status !== 'invited'
         return {
           title: t(reset ? 'users.resetTitle' : 'users.relinkTitle', { user }), confirm: t('users.linkConfirm'),
-          items: reset ? [t('users.reset1'), t('users.reset2'), t('users.linkEnds')] : [t('users.relink1'), t('users.linkEnds')],
-          go: async () => {
-            const r = await api.userLink(u.id)
+          items: reset ? [t('users.reset1'), t('users.reset2'), t('users.linkEnds'), told] : [t('users.relink1'), t('users.linkEnds')],
+          ...(reset ? { identity } : {}),
+          go: async (secret) => {
+            const r = await api.userLink(u.id, reset ? secret : undefined)
             setOpen({ kind: 'link', user: r.user, link: r.link, created: false })
             void load()
           },
@@ -383,7 +408,12 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
   else if (open?.kind === 'link') dialog = <LinkDialog user={open.user} link={open.link} created={open.created} onClose={close} />
   else if (open?.kind === 'confirm') {
     const c = confirmFor(open.action, open.user)
-    dialog = <ConfirmDialog key={`${open.action}-${open.user.id}`} title={c.title} items={c.items} confirm={c.confirm} danger={c.danger} onClose={close} onConfirm={c.go} />
+    dialog = <ConfirmDialog key={`${open.action}-${open.user.id}`} title={c.title} items={c.items} confirm={c.confirm} danger={c.danger} identity={c.identity} onClose={close} onConfirm={c.go} />
+  } else if (open?.kind === 'policy') {
+    const p = POLICIES.find((x) => x.id === open.policy)!
+    dialog = <ConfirmDialog key={`policy-${p.id}`} title={t('users.tfPolicyTitle', { policy: t(p.label) })} items={[t(p.hint)]} confirm={t('users.tfPolicyConfirm')}
+      identity={t('users.tfPolicyHint')} onClose={close}
+      onConfirm={async (secret) => { setSettings(await api.setAdminSettings({ twoFactor: p.id, confirm: secret })); close() }} />
   } else if (open?.kind === 'newGroup' || open?.kind === 'renameGroup') {
     dialog = <GroupNameDialog group={open.kind === 'renameGroup' ? open.group : null} onClose={close} onSaved={done} />
   } else if (open?.kind === 'deleteGroup') {
@@ -509,12 +539,9 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
                 <legend>{t('users.tfPolicy')}</legend>
                 {POLICIES.map((p) => (
                   <label key={p.id} className="check">
+                    {/* A new policy is confirmed at the moment (D-040 3.4a): the radio shows what is in force until then. */}
                     <input type="radio" name="twoFactor" checked={settings.twoFactor === p.id} disabled={busy}
-                      onChange={() => {
-                        // Chosen at once; if saving fails, the page loads what is in force.
-                        setSettings({ ...settings, twoFactor: p.id })
-                        void run(async () => setSettings(await api.setAdminSettings({ twoFactor: p.id })))
-                      }} />
+                      onChange={() => setOpen({ kind: 'policy', policy: p.id })} />
                     <span className="check-text">{t(p.label)}<span className="hint">{t(p.hint)}</span></span>
                   </label>
                 ))}

@@ -5,7 +5,7 @@ import { seriesNeighbors } from '@thoth/core/series'
 import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
 import { audienceChanges } from './Audience.tsx'
 import { PermissionsDialog } from './Permissions.tsx'
-import { AlertsPage } from './Alerts.tsx'
+import { AlertsPage, isPersonalNotice, noticeText, type PersonalNotice } from './Alerts.tsx'
 import { AgentsPage } from './Agents.tsx'
 import { PrivacyPage } from './Privacy.tsx'
 import { UsersPage } from './Users.tsx'
@@ -70,6 +70,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   /** Your last folder move, if some link could not be rewritten. */
   const [folderIssue, setFolderIssue] = useState<FolderMoveReport | null>(null)
   const [alerts, setAlerts] = useState(0)
+  /** Notices addressed to this person when they came in (M4.1): said at once, kept in «Alerts» until dismissed there. */
+  const [arrived, setArrived] = useState<PersonalNotice[] | null>(null)
   const [openPath, setOpenPathState] = useState<string | null>(() => new URLSearchParams(location.search).get('note'))
   const [view, setView] = useState<View | null>(() => {
     const v = new URLSearchParams(location.search).get('view')
@@ -133,7 +135,14 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
 
   useEffect(() => {
     void loadTree()
-    void loadAlerts()
+    api.alerts().then((a) => {
+      setAlerts(a.length)
+      const mine = a.filter(isPersonalNotice)
+      if (!mine.length) return
+      setArrived(mine)
+      // On a phone the tree starts open over everything: the notice goes first.
+      setNavOpen(false)
+    }).catch(() => {})
     void loadWorkspace()
     const startedEmpty = !openPath && !view
     api.profile().then(async (p) => {
@@ -530,6 +539,14 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               {!openPath && !error && <p className="empty">{t('shell.empty')}</p>}
             </div>
           </>
+        )}
+        {arrived && view !== 'avisos' && (
+          <div className="toast">
+            <span className="toast-icon">{Icon.alert}</span>
+            <span className="toast-text" role="status">{arrived.length === 1 ? noticeText(t, arrived[0]!) : t('notices.many', { n: arrived.length })}</span>
+            <Button className="btn" onPress={() => { setArrived(null); setNavOpen(false); showAlerts() }}>{t('notices.see')}</Button>
+            <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setArrived(null)}>{Icon.close}</Button>
+          </div>
         )}
         {moveIssue && <MoveToast report={moveIssue} onDismiss={() => setMoveIssue(null)} />}
         {outsideMove && outsideMove.to === openPath && (

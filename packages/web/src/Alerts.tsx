@@ -1,10 +1,12 @@
 // Workspace alerts: what thoth has detected in the notes folder that needs a
 // decision. The server gives codes, data and the actions allowed to whoever is
-// looking; here they're worded and only those actions are offered.
+// looking; here they're worded and only those actions are offered. Notices
+// addressed to the person (M4.1: what the admin did to their account, a purge
+// of what they wrote) come with them, each until they dismiss it.
 import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Modal, ModalOverlay } from 'react-aria-components'
 import { ApiError, api, type Alert, type MoveJob, type MovedRelinkReport } from './api.ts'
-import { errorText, useT } from './i18n.tsx'
+import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { MenuButton, ThemeToggle, noteName as fileName } from './ui.tsx'
 import { SearchButton } from './Palette.tsx'
 import type { ConfigError } from '@thoth/core/codes'
@@ -15,6 +17,35 @@ import { historyApi } from './history/api.ts'
 import './actions.css'
 
 type ExternalMove = Extract<Alert, { code: 'external_move' }>
+type Translate = ReturnType<typeof useT>
+
+/** Notices addressed to one person (M4.1): theirs to dismiss, and said when they come in. */
+export type PersonalNotice = Extract<Alert, { code: 'account_changed' | 'user_account_changed' | 'history_purged_authored' }>
+export const isPersonalNotice = (a: Alert): a is PersonalNotice =>
+  a.code === 'account_changed' || a.code === 'user_account_changed' || a.code === 'history_purged_authored'
+
+/** A notice's title: its text's key, and what goes in it (names; the path only if they can still read it). */
+function noticeTitle(a: PersonalNotice): { key: MessageKey; parts: { by: string; user?: string; path?: string } } {
+  switch (a.code) {
+    case 'account_changed': return {
+      key: a.change === 'reset_link' ? 'alerts.accountResetLink' : a.change === 'two_factor_reset' ? 'alerts.accountTwoFactor' : a.role === 'admin' ? 'alerts.accountPromoted' : 'alerts.accountDemoted',
+      parts: { by: a.by },
+    }
+    case 'user_account_changed': return {
+      key: a.change === 'reset_link' ? 'alerts.userResetLink' : a.change === 'two_factor_reset' ? 'alerts.userTwoFactor' : a.role === 'admin' ? 'alerts.userPromoted' : 'alerts.userDemoted',
+      parts: { by: a.by, user: a.user },
+    }
+    case 'history_purged_authored': return a.path === null
+      ? { key: a.version ? 'alerts.purgedAuthoredVersionNeutral' : 'alerts.purgedAuthoredNeutral', parts: { by: a.by } }
+      : { key: a.version ? 'alerts.purgedAuthoredVersion' : 'alerts.purgedAuthored', parts: { by: a.by, path: a.path } }
+  }
+}
+
+/** A notice's title as plain text (the toast when one comes in). */
+export function noticeText(t: Translate, a: PersonalNotice): string {
+  const { key, parts } = noticeTitle(a)
+  return t(key, { ...parts, ...(parts.path ? { path: label(parts.path) } : {}) })
+}
 
 const svg = (children: ReactNode) => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">{children}</svg>
@@ -26,6 +57,7 @@ const icons = {
   sync: svg(<path d="M16 3h5v5M8 21H3v-5M21 3l-7 7M3 21l7-7" />),
   config: svg(<><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></>),
   moved: svg(<><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4" /><path d="M14 3v6h6v3" /><path d="M14 18h7M18 15l3 3-3 3" /></>),
+  person: svg(<><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>),
 }
 
 /** Changed links in a report, as a total. */
@@ -188,7 +220,7 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
 
   function card(a: Alert, i: number) {
     const id = `alert-${i}`
-    const key = `${a.code}:${a.code === 'history_purged' ? a.id : 'path' in a ? a.path : 'uid' in a ? a.uid : 'series' in a ? a.series : 'id' in a ? a.id : ''}`
+    const key = `${a.code}:${'id' in a ? a.id : 'path' in a ? a.path : 'uid' in a ? a.uid : 'series' in a ? a.series : ''}`
     const frame = (o: { icon: ReactNode; tone?: 'warn' | 'accent'; title: ReactNode; body: ReactNode; extra?: ReactNode; actions: ReactNode }) => (
       <section key={key} className={`alert-card${o.tone === 'warn' ? ' alert-card-warn' : ''}`} aria-labelledby={id}>
         <span className={`alert-icon alert-icon-${o.tone ?? 'muted'}`}>{o.icon}</span>
@@ -334,6 +366,33 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
             when: dates.dateTime(a.at),
           }),
           actions: a.actions.includes('dismiss') && <Button className="btn" isDisabled={busy} onPress={() => act(() => historyApi.dismissPurge(a.id))}>{t('alerts.dismiss')}</Button>,
+        })
+      case 'account_changed':
+      case 'user_account_changed':
+      case 'history_purged_authored': {
+        const when = dates.dateTime(a.at)
+        const n = noticeTitle(a)
+        const body = a.code === 'account_changed'
+          ? t(a.change === 'reset_link' ? 'alerts.accountResetLinkBody' : a.change === 'two_factor_reset' ? 'alerts.accountTwoFactorBody' : 'alerts.accountRoleBody', { when })
+          : a.code === 'user_account_changed'
+            ? t(a.user === a.by ? 'alerts.userChangedSelfBody' : 'alerts.userChangedBody', { when, user: a.user })
+            : t('alerts.purgedAuthoredBody', { when })
+        return frame({
+          icon: a.code === 'history_purged_authored' ? icons.config : icons.person,
+          tone: a.code === 'account_changed' ? 'accent' : undefined,
+          title: rich(t(n.key), { by: <b>{n.parts.by}</b>, user: <b>{n.parts.user}</b>, path: <span className="mono">{n.parts.path}</span> }),
+          body,
+          actions: <Button className="btn" isDisabled={busy} onPress={() => act(() => api.dismissNotice(a.id))}>{t('alerts.dismiss')}</Button>,
+        })
+      }
+      case 'two_factor_unreadable':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: a.users.length === 1 ? t('alerts.unreadableTitleOne', { user: a.users[0]! }) : t('alerts.unreadableTitle', { n: a.users.length }),
+          body: t('alerts.unreadableBody'),
+          extra: a.users.length > 1 && <ul className="alert-paths">{a.users.map((u) => <li key={u}>{u}</li>)}</ul>,
+          actions: null,
         })
       case 'history_no_repository':
         return frame({
