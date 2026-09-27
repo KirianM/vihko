@@ -33,7 +33,8 @@ import { contextAfter, contextBefore, wordDiff } from '../history/diff.ts'
 import { HistoryError, type AuthorRef, type HistoryReader } from '../history/reader.ts'
 import type { History } from '../history/index.ts'
 import { NoteError, NoteService } from '../notes.ts'
-import { HIGHLIGHT_END, HIGHLIGHT_START, RequestError, type NowHidden, type ScopedMoveReport, type ScopedNotes, type ScopedRevertReport } from '../scoped.ts'
+import type { AudienceChange } from '../audience.ts'
+import { AudienceWidens, HIGHLIGHT_END, HIGHLIGHT_START, RequestError, type NowHidden, type ScopedMoveReport, type ScopedNotes, type ScopedRevertReport } from '../scoped.ts'
 import type { TextCache } from './texts.ts'
 
 /** What each tool call acts with: one key, over one request. */
@@ -65,7 +66,7 @@ class ToolError extends Error {
 
 /** camelCase for snake_case, anywhere in the input. */
 const CASE_ALIASES: Record<string, string> = {
-  ifMatch: 'if_match', dryRun: 'dry_run', expectedCount: 'expected_count', maxChars: 'max_chars',
+  ifMatch: 'if_match', dryRun: 'dry_run', confirmAudience: 'confirm_audience', expectedCount: 'expected_count', maxChars: 'max_chars',
   waitSeconds: 'wait_seconds', includeText: 'include_text', nextOffset: 'offset',
 }
 
@@ -157,6 +158,7 @@ function failure(err: unknown, log: (m: string) => void): CallToolResult {
     // Whatever the reason (missing, out of the key's folders, hidden from agents), the same words.
     if (err.code === 'not_found') body.message = 'does not exist'
   } else if (err instanceof AgentDenied) body = { error: 'agent_denied', reason: err.reason, message: err.message }
+  else if (err instanceof AudienceWidens) body = { error: 'audience_widens', message: err.message, audience: audienceResult(err.audience) }
   else if (err instanceof RequestError) body = { error: err.code, message: err.message }
   else if (err instanceof AccessError) body = { error: 'forbidden', message: err.message }
   else if (err instanceof HistoryError) body = { error: err.code, message: err.message }
@@ -221,11 +223,21 @@ function changesOf(a: string, b: string): { changes: TextChange[]; words: { adde
 /** What a write that hid the note from this agent adds to its answer (scoped.ts `NowHidden`). */
 const hiddenFields = (h: NowHidden) => ({ now_hidden: true, reason: h.reason, message: h.message })
 
+/** Who gains or loses access with a move: users and groups by name (everyone sees them), keys only counted. */
+function audienceResult(a: AudienceChange) {
+  return {
+    users: { gain: a.users.gain.map((u) => u.username), lose: a.users.lose.map((u) => u.username) },
+    groups: a.groups,
+    keys: a.keys,
+  }
+}
+
 /** A move's report, in the tools' own case. */
 function moveResult(r: ScopedMoveReport) {
   return {
     from: r.from, to: r.to, dry_run: r.dryRun, ...(r.etag ? { etag: r.etag } : {}),
     relinked: r.relinked, shifted: r.shifted, kept: r.kept, failed: r.failed, alias_added: r.aliasAdded, hidden: r.hidden ?? false, images: r.images,
+    ...(r.audience ? { audience: audienceResult(r.audience) } : {}),
     ...(r.nowHidden ? hiddenFields(r.nowHidden) : {}),
   }
 }
@@ -686,17 +698,21 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       + '`failed`, notes that couldn\'t be rewritten; '
       + '`alias_added`, the old name, added to the note\'s aliases when a rewrite failed, so that the links left behind still lead to it (null otherwise); '
       + '`hidden`, true when notes you can\'t see link to it too (thoth rewrites them as well, without naming them); '
-      + '`images`, what happened to the note\'s images. '
+      + '`images`, what happened to the note\'s images; '
+      + '`audience` (with dry_run), who gains or loses access to it in its new folder: people and groups by name, keys counted. '
+      + 'Who can see a note depends on its folder. A move that would open it to anyone who can\'t see it now fails with `audience_widens` and that `audience`: '
+      + 'ask the person you act for, saying who would gain access, and only if they agree move it again with confirm_audience: true. A move that only narrows access needs nothing. '
       + 'Returns the note\'s ETag at its new path.',
     inputSchema: input(z.object({
       from: path.describe('The note to move.'),
       to: path.describe('Its new path.'),
       if_match: ifMatch.optional(),
       dry_run: z.boolean().default(false).describe('Only show what it would do.'),
+      confirm_audience: z.boolean().default(false).describe('The person you act for agreed to open the note to whoever gains access (the `audience` of the dry run, or of the `audience_widens` error). Never set it on your own.'),
     }), NAME_ALIASES),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  }, run(async ({ from, to, if_match, dry_run }) => {
-    const r = await scoped.move(from, to, { ifMatch: if_match, dryRun: dry_run })
+  }, run(async ({ from, to, if_match, dry_run, confirm_audience }) => {
+    const r = await scoped.move(from, to, { ifMatch: if_match, dryRun: dry_run, confirmAudience: confirm_audience })
     if (!r.dryRun && !r.nowHidden) remember(r.to, r.etag ?? undefined)
     return reply(moveResult(r))
   }))

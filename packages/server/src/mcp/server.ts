@@ -48,6 +48,7 @@ function instructions(access: Access): string {
       '- Every read gives the note\'s ETag. To replace text (find_replace, replace_section, set_frontmatter), pass it as if_match: plan the change on the text you read. Appends don\'t need it. If it fails with precondition_failed, read again (or ask changes_since) and plan again.',
       '- Someone may have the note open and be typing: prefer small operations with edit_note to rewriting a note, and use changes_since (it can wait for a change) to see what they changed since your last read.',
       '- create_note never overwrites; delete moves to the trash. Everything you write is kept in the note\'s history under your name and can be reverted.',
+      '- Who can see a note depends on its folder, so moving it can open it to other people. A move that would do so fails with `audience_widens` and who would gain access: ask the person you act for before moving it with confirm_audience: true, and never confirm it on your own.',
       '- Writing `ai: false` in a note\'s frontmatter hides it from every agent, you included: the write goes through (`now_hidden: true`), and only a person can undo it, from thoth\'s interface. Don\'t do it unless you are asked to.',
     ] : [
       '- changes_since shows what changed in a note since you read it, and can wait for a change.',
