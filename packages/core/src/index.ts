@@ -34,3 +34,4 @@ export {
   anchorChanged, cleanText, commentKey, formatComment, goneThreads, normalizeAnchor, parseComments, parseThreads, removedThread, reopener, replyTo, resolveThread,
   type Change, type Comment, type RemovedThread, type Thread,
 } from './comments.ts'
+export { MIN_HUE_DISTANCE, baseHue, distinctHue, freeHue, hueDistance, isPersonHue } from './hue.ts'

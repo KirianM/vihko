@@ -3,10 +3,10 @@
 // noa», diamond, never colour alone) and what it just wrote is marked for
 // a few seconds, in two sessions at once. Nothing a person types is marked.
 //
-// The hub's connection for an agent publishes `{ agent: { name, onBehalfOf,
-// via } }` in the awareness and writes with its own clientID (M3 §5, the MCP
-// work). Until that lands, the agent's connection is simulated here by a Yjs
-// client with that awareness, as the hub's would be.
+// The hub publishes `{ agent: { name, onBehalfOf, via } }` in the awareness
+// for a key that writes, and writes with that presence's clientID. A
+// person's connection that announces itself as an agent is not shown as one:
+// the hub signs presence (D-040 3.3).
 import { expect, test, type Page } from '@playwright/test'
 import { HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import { mkdirSync } from 'node:fs'
@@ -93,11 +93,21 @@ test('an edit with a key over the API reaches the open editors live', async () =
 })
 
 test('the agent shows as presence and what it writes is marked for a few seconds, in both sessions', async () => {
-  const agent = await agentClient(noa, AGENT)
+  await noa.request.put('/api/admin/integrations', { data: { api: true } })
+  const { key, token } = await (await noa.request.post('/api/keys', { data: { confirm: PASSWORD, name: 'Claude Code', canWrite: true, folders: ['e2e-agentes'] } })).json() as { key: { id: string }; token: string }
+  const write = async (text: string) => {
+    const r = await noa.request.post('/api/note/edit', { headers: { Authorization: `Bearer ${token}` }, data: { path: NOTE, ops: [{ op: 'append', text }] } })
+    expect(r.status()).toBe(200)
+  }
+  await write('Texto que escribe el agente.\n')
+  await expect(lineOf(noa, 'Texto que escribe el agente.')).toBeVisible()
+  await expect(fresh(noa)).toHaveText('Texto que escribe el agente.')
+  await expect(fresh(noa)).toHaveAttribute('title', 'Lo acaba de escribir Claude Code · en nombre de noa')
+  await expect(fresh(ana)).toHaveText('Texto que escribe el agente.')
   // Presence: the diamond and who it acts for, in text; how it came, for screen readers and on hover.
-  await expect(pill(noa)).toHaveText('Claude Code · en nombre de noa, por MCP')
+  await expect(pill(noa)).toHaveText('Claude Code · en nombre de noa, por la API')
   await expect(pill(noa).locator('.diamond')).toBeVisible()
-  await expect(pill(noa)).toHaveAttribute('title', 'Claude Code · en nombre de noa, por MCP')
+  await expect(pill(noa)).toHaveAttribute('title', 'Claude Code · en nombre de noa, por la API')
   await expect(pill(ana)).toBeVisible()
   // On the phone the header has room for it: it overlaps none of its buttons.
   const overlaps = await ana.locator('.main-head').evaluate((head) => {
@@ -112,13 +122,6 @@ test('the agent shows as presence and what it writes is marked for a few seconds
   expect((await ana.locator('.crumbs b').boundingBox())!.width).toBeGreaterThan(40)
   // People are circles (noa and ana); the agent never is one.
   await expect(noa.locator('.avatar-stack')).toHaveCount(2)
-
-  const t = agent.text
-  t.insert(t.length, 'Texto que escribe el agente.\n')
-  await expect(lineOf(noa, 'Texto que escribe el agente.')).toBeVisible()
-  await expect(fresh(noa)).toHaveText('Texto que escribe el agente.')
-  await expect(fresh(noa)).toHaveAttribute('title', 'Lo acaba de escribir Claude Code · en nombre de noa')
-  await expect(fresh(ana)).toHaveText('Texto que escribe el agente.')
   // The mark is accent-soft with an accent underline, from the design tokens.
   const style = await fresh(noa).evaluate((el) => {
     const css = getComputedStyle(el)
@@ -142,20 +145,21 @@ test('the agent shows as presence and what it writes is marked for a few seconds
   await noa.waitForTimeout(500)
   await expect(fresh(noa)).toHaveCount(0)
 
-  // The agent leaves: it's shown a moment longer, then goes.
-  agent.destroy()
-  await expect(pill(noa)).toBeVisible()
-  await expect(pill(noa)).toHaveCount(0, { timeout: 20_000 })
-  await expect(pill(ana)).toHaveCount(0, { timeout: 20_000 })
+  // The agent stops writing: it's shown a moment longer, then goes.
+  await noa.request.delete(`/api/keys/${key.id}`)
+  await expect(pill(noa)).toHaveCount(0, { timeout: 30_000 })
+  await expect(pill(ana)).toHaveCount(0, { timeout: 30_000 })
 })
 
-test('text that arrives before its awareness says it was an agent’s is still marked', async () => {
-  const agent = await agentClient(noa, null)
-  agent.text.insert(agent.text.length, 'Antes de presentarse.\n')
-  await expect(lineOf(noa, 'Antes de presentarse.')).toBeVisible()
-  await expect(fresh(noa)).toHaveCount(0)
-  agent.provider.awareness!.setLocalStateField('agent', AGENT)
-  await expect(fresh(noa)).toHaveText('Antes de presentarse.')
-  await expect(pill(noa)).toBeVisible()
-  agent.destroy()
+test('a person\'s connection that announces itself as an agent is not shown as one, nor is its text marked (D-040 3.3)', async () => {
+  const fake = await agentClient(noa, AGENT)
+  fake.text.insert(fake.text.length, 'Un cliente que se hace pasar por agente.\n')
+  await expect(lineOf(ana, 'Un cliente que se hace pasar por agente.')).toBeVisible()
+  await expect(lineOf(noa, 'Un cliente que se hace pasar por agente.')).toBeVisible()
+  await noa.waitForTimeout(1000)
+  for (const p of [noa, ana]) {
+    await expect(pill(p)).toHaveCount(0)
+    await expect(fresh(p)).toHaveCount(0)
+  }
+  fake.destroy()
 })
