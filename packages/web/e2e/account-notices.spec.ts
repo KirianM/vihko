@@ -6,13 +6,13 @@
 // what, never the content. Users and notes of their own, removed at the end.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { createHmac } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES, PASSWORD, PERMISSIONS } from './env.ts'
-import { signIn, writeWorkspace } from './helpers.ts'
+import { mkdirSync } from 'node:fs'
+import { E2E_DIR, PASSWORD, unique } from './env.ts'
+import { signIn, usePermissions } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
-const CARMEN = 'avi-carmen'
-const BRUNO = 'avi-bruno'
+const CARMEN = unique('avi-carmen')
+const BRUNO = unique('avi-bruno')
 const SHARED = 'avisos-e2e/lista.md'
 // A personal folder: the only kind the admin, managing the root, can't read (D-040 3.5).
 const PRIVATE = `avisos-personas/${CARMEN}/diario.md`
@@ -24,8 +24,7 @@ let admin: Page
 test.beforeAll(async ({ browser }) => {
   mkdirSync(SHOTS, { recursive: true })
   // Carmen edits everywhere and has a folder of her own that nobody else reads, the admin included.
-  writeFileSync(`${NOTES}/thoth.yaml`, PERMISSIONS.replace('ana: edit }', `ana: edit, ${CARMEN}: edit, ${BRUNO}: read }`)
-    + '  "avisos-personas/{user}":\n    grants: { "{user}": manage }\n')
+  await usePermissions({ grants: { [CARMEN]: 'edit', [BRUNO]: 'read' }, rules: { 'avisos-personas/{user}': { '{user}': 'manage' } } })
   admin = await signIn(browser, 'noa')
   for (const [username, role] of [[CARMEN, 'member'], [BRUNO, 'admin']]) {
     expect((await admin.request.post('/api/admin/users', { data: { username, role, password: `${username}-contraseña` } })).status()).toBe(201)
@@ -39,7 +38,7 @@ test.afterAll(async ({ browser }) => {
   await carmen.request.delete(`/api/folder?path=${encodeURIComponent(`avisos-personas/${CARMEN}`)}`)
   await admin.request.delete('/api/folder?path=avisos-e2e')
   await carmen.context().close()
-  writeWorkspace()
+  await usePermissions()
   for (const u of (await (await admin.request.get('/api/admin/users')).json()).users as { id: string; username: string }[]) {
     if (u.username !== CARMEN && u.username !== BRUNO) continue
     await admin.request.post(`/api/admin/users/${u.id}/disable`)

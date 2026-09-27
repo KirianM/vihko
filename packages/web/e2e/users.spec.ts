@@ -5,20 +5,24 @@
 // included); the link doesn't work twice; deleting says what goes. Groups,
 // and one's own account.
 import { expect, test, type Page } from '@playwright/test'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { BASE_URL, E2E_DIR, NOTES, PASSWORD, PERMISSIONS, PUBLIC_URL } from './env.ts'
-import { signIn, writeWorkspace } from './helpers.ts'
+import { mkdirSync } from 'node:fs'
+import { BASE_URL, E2E_DIR, PASSWORD, PUBLIC_URL, unique } from './env.ts'
+import { signIn, usePermissions } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const NOTE = 'hogar/Proxy.md'
+// Names of this run: a deleted user's stays reserved, and other specs make people and groups of their own.
+const MARTA = unique('marta')
+const FAMILY = unique('familia')
+const HOME = unique('casa')
 
 test.describe.configure({ mode: 'serial' })
-test.beforeAll(() => {
+test.beforeAll(async () => {
   mkdirSync(SHOTS, { recursive: true })
   // A member sees nothing until something is granted (D-038): marta, once she exists, edits everything.
-  writeFileSync(`${NOTES}/thoth.yaml`, PERMISSIONS.replace('ana: edit }', 'ana: edit, marta: edit }'))
+  await usePermissions({ grants: { [MARTA]: 'edit' } })
 })
-test.afterAll(() => writeWorkspace())
+test.afterAll(() => usePermissions())
 
 /** From the sidebar: Preferences → one of the settings pages. */
 async function openSettings(page: Page, link: string, view: string) {
@@ -40,10 +44,10 @@ test('the admin invites a member by link, the member joins in another browser, a
   // A new member: a name and a role, then the link, shown once.
   await admin.getByRole('button', { name: 'Nuevo usuario' }).click()
   const create = admin.getByRole('dialog')
-  await create.getByLabel('Nombre de usuario').fill('marta')
+  await create.getByLabel('Nombre de usuario').fill(MARTA)
   await expect(create.getByRole('radio', { name: /Miembro/ })).toBeChecked()
   await create.getByRole('button', { name: 'Crear y obtener el enlace' }).click()
-  const linkDialog = admin.getByRole('dialog', { name: 'Enlace de invitación para marta' })
+  const linkDialog = admin.getByRole('dialog', { name: `Enlace de invitación para ${MARTA}` })
   await expect(linkDialog).toContainText('Solo se muestra ahora')
   // With THOTH_PUBLIC_URL (as this server has), the link is given for it.
   const shown = (await linkDialog.getByLabel('Enlace').innerText()).trim()
@@ -56,18 +60,18 @@ test('the admin invites a member by link, the member joins in another browser, a
   const url = BASE_URL + new URL(shown).pathname
   await admin.screenshot({ path: `${SHOTS}/users-link.png`, animations: 'disabled' })
   await linkDialog.getByRole('button', { name: 'Listo' }).click()
-  await expect(row(admin, 'marta')).toContainText('Invitación pendiente')
+  await expect(row(admin, MARTA)).toContainText('Invitación pendiente')
 
   // The member, in a browser of their own: the link, a password, and they're in.
   const member = await (await browser.newContext()).newPage()
   await member.goto(url)
   await expect(member.getByRole('heading', { name: 'Te damos la bienvenida' })).toBeVisible()
-  await expect(member.getByText('Elige la contraseña de tu cuenta, marta.')).toBeVisible()
-  await member.getByLabel('Contraseña', { exact: true }).fill('marta-contraseña-larga')
+  await expect(member.getByText(`Elige la contraseña de tu cuenta, ${MARTA}.`)).toBeVisible()
+  await member.getByLabel('Contraseña', { exact: true }).fill(`${MARTA}-contraseña-larga`)
   await member.getByLabel('Repite la contraseña').fill('otra-cosa-distinta')
   await member.getByRole('button', { name: 'Guardar y entrar' }).click()
   await expect(member.getByRole('alert')).toHaveText('Las dos contraseñas no coinciden.')
-  await member.getByLabel('Repite la contraseña').fill('marta-contraseña-larga')
+  await member.getByLabel('Repite la contraseña').fill(`${MARTA}-contraseña-larga`)
   await member.getByRole('button', { name: 'Guardar y entrar' }).click()
   await expect(member.getByRole('treegrid')).toBeVisible()
   await expect(member).toHaveURL(/\/$/)
@@ -75,24 +79,24 @@ test('the admin invites a member by link, the member joins in another browser, a
   await expect(member.locator('.cm-content')).toBeVisible()
 
   await admin.reload()
-  await expect(row(admin, 'marta')).toContainText('Activo')
+  await expect(row(admin, MARTA)).toContainText('Activo')
 
   // Disabled: the confirmation says what happens, and the member's session (their open note too) ends now.
-  await row(admin, 'marta').getByRole('button', { name: 'Acciones para marta' }).click()
+  await row(admin, MARTA).getByRole('button', { name: `Acciones para ${MARTA}` }).click()
   await admin.getByRole('menuitem', { name: 'Desactivar' }).click()
   const confirm = admin.getByRole('alertdialog')
-  await expect(confirm.getByRole('heading')).toHaveText('¿Desactivar a marta?')
+  await expect(confirm.getByRole('heading')).toHaveText(`¿Desactivar a ${MARTA}?`)
   await expect(confirm).toContainText('Sus sesiones se cierran ahora mismo, también una nota que tenga abierta')
   await expect(confirm).toContainText('Sus claves de agente y las aplicaciones que autorizó dejan de funcionar')
   await admin.screenshot({ path: `${SHOTS}/users-disable.png`, animations: 'disabled' })
   await confirm.getByRole('button', { name: 'Desactivar' }).click()
-  await expect(row(admin, 'marta')).toContainText('Desactivado')
+  await expect(row(admin, MARTA)).toContainText('Desactivado')
 
   // No reload, no click: the hub tells the open note, and the member is back at the login.
   await expect(member.getByRole('button', { name: 'Entrar' }).last()).toBeVisible({ timeout: 10_000 })
   await expect(member.getByRole('alert')).toHaveText('Tu sesión ha caducado. Vuelve a entrar.')
-  await member.getByLabel('Nombre de usuario').fill('marta')
-  await member.getByLabel('Contraseña').fill('marta-contraseña-larga')
+  await member.getByLabel('Nombre de usuario').fill(MARTA)
+  await member.getByLabel('Contraseña').fill(`${MARTA}-contraseña-larga`)
   await member.getByRole('button', { name: 'Entrar' }).last().click()
   await expect(member.getByRole('alert')).toHaveText('Usuario o contraseña incorrectos.')
 
@@ -103,18 +107,20 @@ test('the admin invites a member by link, the member joins in another browser, a
   await member.screenshot({ path: `${SHOTS}/invite-invalid.png`, animations: 'disabled' })
 
   // Deleting (only someone disabled) lists what goes, and can't be undone.
-  await row(admin, 'marta').getByRole('button', { name: 'Acciones para marta' }).click()
+  await row(admin, MARTA).getByRole('button', { name: `Acciones para ${MARTA}` }).click()
   await admin.getByRole('menuitem', { name: 'Borrar' }).click()
   const del = admin.getByRole('alertdialog')
-  await expect(del.getByRole('heading')).toHaveText('¿Borrar a marta?')
+  await expect(del.getByRole('heading')).toHaveText(`¿Borrar a ${MARTA}?`)
   await expect(del).toContainText('no se puede deshacer')
   await expect(del).toContainText('el historial sigue diciendo qué escribió')
   await del.getByRole('button', { name: 'Borrar para siempre' }).click()
-  await expect(row(admin, 'marta')).toHaveCount(0)
+  await expect(row(admin, MARTA)).toHaveCount(0)
 
   // The filters.
   await admin.getByRole('button', { name: /^Invitación pendiente/ }).click()
-  await expect(admin.getByText('Nadie coincide.')).toBeVisible()
+  // Only people still invited (none of this spec's; other specs may have some).
+  await expect(row(admin, 'ana')).toHaveCount(0)
+  await expect(row(admin, 'noa')).toHaveCount(0)
   await admin.getByRole('button', { name: /^Todos/ }).click()
   await expect(row(admin, 'ana')).toBeVisible()
   await member.context().close()
@@ -125,19 +131,19 @@ test('groups: the admin creates one, adds a member, renames it and deletes it; m
   const admin = await signIn(browser, 'noa')
   await openSettings(admin, 'Usuarios y grupos', 'users')
   await admin.getByRole('button', { name: 'Nuevo grupo' }).click()
-  await admin.getByRole('dialog').getByLabel('Nombre').fill('familia')
+  await admin.getByRole('dialog').getByLabel('Nombre').fill(FAMILY)
   await admin.getByRole('dialog').getByRole('button', { name: 'Crear' }).click()
-  const card = admin.locator('.group-card', { hasText: '@familia' })
+  const card = admin.locator('.group-card', { hasText: `@${FAMILY}` })
   await expect(card).toContainText('Sin miembros.')
-  await card.getByRole('combobox', { name: 'Añadir a @familia' }).selectOption({ label: 'ana' })
-  await expect(card.getByRole('list', { name: 'Miembros de @familia' })).toHaveText('ana')
-  await expect(row(admin, 'ana')).toContainText('@familia')
+  await card.getByRole('combobox', { name: `Añadir a @${FAMILY}` }).selectOption({ label: 'ana' })
+  await expect(card.getByRole('list', { name: `Miembros de @${FAMILY}` })).toHaveText('ana')
+  await expect(row(admin, 'ana')).toContainText(`@${FAMILY}`)
   await admin.screenshot({ path: `${SHOTS}/users-groups.png`, animations: 'disabled', fullPage: true })
 
   const ana = await signIn(browser, 'ana')
   // Names only (other specs on this server add people of their own).
   const directory = await (await ana.request.get('/api/directory')).json()
-  expect(directory.groups).toEqual(['familia'])
+  expect(directory.groups).toContain(FAMILY)
   expect(directory.users).toEqual(expect.arrayContaining(['ana', 'noa']))
   expect(directory.users.every((u: unknown) => typeof u === 'string')).toBe(true)
   expect((await ana.request.get('/api/admin/users')).status()).toBe(403)
@@ -147,16 +153,17 @@ test('groups: the admin creates one, adds a member, renames it and deletes it; m
   await ana.context().close()
 
   await card.getByRole('button', { name: 'Renombrar' }).click()
-  await admin.getByRole('dialog').getByLabel('Nombre').fill('casa')
+  await admin.getByRole('dialog').getByLabel('Nombre').fill(HOME)
   await admin.getByRole('dialog').getByRole('button', { name: 'Renombrar' }).click()
-  const renamed = admin.locator('.group-card', { hasText: '@casa' })
-  await renamed.getByRole('button', { name: 'Quitar a ana de @casa' }).click()
+  const renamed = admin.locator('.group-card', { hasText: `@${HOME}` })
+  await renamed.getByRole('button', { name: `Quitar a ana de @${HOME}` }).click()
   await expect(renamed).toContainText('Sin miembros.')
   await renamed.getByRole('button', { name: 'Borrar' }).click()
   const confirm = admin.getByRole('alertdialog')
-  await expect(confirm).toContainText('Se quitan los permisos de @casa en las carpetas')
+  await expect(confirm).toContainText(`Se quitan los permisos de @${HOME} en las carpetas`)
   await confirm.getByRole('button', { name: 'Borrar el grupo' }).click()
-  await expect(admin.getByText('Aún no hay grupos.')).toBeVisible()
+  await expect(renamed).toHaveCount(0)
+  expect((await (await admin.request.get('/api/directory')).json()).groups).not.toContain(HOME)
   await admin.context().close()
 })
 

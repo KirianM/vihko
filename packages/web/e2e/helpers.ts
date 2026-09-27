@@ -1,11 +1,36 @@
-import { expect, type Browser, type Page } from '@playwright/test'
+import { expect, request, type Browser, type Page } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 import { crc32, deflateSync } from 'node:zlib'
-import { NOTES, PASSWORD, PERMISSIONS } from './env.ts'
+import { BASE_URL, NOTES, PASSWORD, PERMISSIONS, permissionsSection, ROOT_GRANTS, type Grants } from './env.ts'
 
-/** Writes thoth.yaml with `text` and the permissions every spec runs under (env.ts); with nothing, only those. */
-export function writeWorkspace(text = '') {
-  writeFileSync(`${NOTES}/thoth.yaml`, (text === '' || text.endsWith('\n') ? text : text + '\n') + PERMISSIONS)
+/** Writes thoth.yaml with `text` and `permissions` (by default the ones every spec runs under, env.ts); with nothing, only those. */
+export function writeWorkspace(text = '', permissions = PERMISSIONS) {
+  writeFileSync(`${NOTES}/thoth.yaml`, (text === '' || text.endsWith('\n') ? text : text + '\n') + permissions)
+}
+
+/**
+ * The permissions of a spec, in thoth.yaml: ROOT_GRANTS plus `grants` at
+ * the root, and `rules` for other folders (`config`, other keys of the file,
+ * before them). Returns once thoth has read it, as the root's grants say to
+ * the admin: the whole file is read at once, so the rules are in force too
+ * (when the root's grants don't change, the spec waits for its rules itself).
+ * With nothing, the baseline back: every spec that calls it in `beforeAll`
+ * calls it again in `afterAll`, after whatever it undoes with its grants.
+ */
+export async function usePermissions(opts: { grants?: Grants; rules?: Record<string, Grants>; config?: string } = {}) {
+  writeWorkspace(opts.config, permissionsSection(opts.grants, opts.rules))
+  const expected = { ...ROOT_GRANTS, ...opts.grants }
+  const api = await request.newContext({ baseURL: BASE_URL })
+  try {
+    const login = await api.post('/api/auth/login', { data: { username: 'noa', password: PASSWORD } })
+    expect(login.status(), await login.text()).toBe(200)
+    await expect.poll(async () => {
+      const r = await api.get('/api/permissions?folder=')
+      return r.ok() ? ((await r.json()) as { own: { grants: Grants } | null }).own?.grants : r.status()
+    }, { message: 'thoth reads the new thoth.yaml', timeout: 15_000 }).toEqual(expected)
+  } finally {
+    await api.dispose()
+  }
 }
 
 /** Own session (isolated context) with the person already signed in and the note open. */

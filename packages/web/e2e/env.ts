@@ -15,9 +15,32 @@ export const EXTERNAL_PORT = Number(process.env.E2E_EXTERNAL_PORT ?? 8132)
 export const PUBLIC_URL = 'https://thoth.e2e.test'
 export const PASSWORD = 'contraseña-larga'
 export const USERS: [string, boolean][] = [['noa', true], ['ana', false]]
+export type Level = 'read' | 'comment' | 'edit' | 'manage'
+export type Grants = Record<string, Level>
 /**
- * The permissions every spec runs under, in thoth.yaml (D-038): noa (the
- * admin) manages the root and ana (a member) edits it, so both see
- * everything. A spec that writes thoth.yaml keeps them (`writeWorkspace`).
+ * The grants at the root every spec runs under (D-038): noa (the admin)
+ * manages it and ana (a member) edits it, so both see everything.
  */
-export const PERMISSIONS = 'permissions:\n  "":\n    grants: { noa: manage, ana: edit }\n'
+export const ROOT_GRANTS: Grants = { noa: 'manage', ana: 'edit' }
+
+/**
+ * The `permissions:` section of thoth.yaml: the root with ROOT_GRANTS, plus
+ * (or changed by) `grants`; then `rules`, more folders with their grants.
+ */
+export function permissionsSection(grants: Grants = {}, rules: Record<string, Grants> = {}): string {
+  const map = (g: Grants) => `{ ${Object.entries(g).map(([s, l]) => `${s.includes('{') ? JSON.stringify(s) : s}: ${l}`).join(', ')} }`
+  return 'permissions:\n  "":\n    grants: ' + map({ ...ROOT_GRANTS, ...grants }) + '\n'
+    + Object.entries(rules).map(([folder, g]) => `  ${JSON.stringify(folder)}:\n    grants: ${map(g)}\n`).join('')
+}
+
+/** The permissions every spec runs under, in thoth.yaml. A spec that writes thoth.yaml keeps them (`writeWorkspace`, `usePermissions`). */
+export const PERMISSIONS = permissionsSection()
+
+/**
+ * This run of the specs, for the names of what they create on the shared
+ * server: a deleted user's name stays reserved (D-038.8), so a spec run again
+ * (a retry, or `--grep` on a server that is still up) needs new ones.
+ */
+export const RUN = Date.now().toString(36).slice(-5)
+/** A name of this run: `unique('bruno')` is `bruno-<run>`. */
+export const unique = (name: string) => `${name}-${RUN}`
