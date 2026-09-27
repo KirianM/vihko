@@ -181,12 +181,14 @@ test('a rename rewrites the links of an open note in the same system commit, and
  */
 // The write that sets a crash off may get no answer: under load, the kill can
 // come before its response leaves (what the test checks is what survives).
+// The crash point only fires for a commit touching tags.md, never for one
+// the system makes at startup (THOTH_TEST_CRASH_PATH).
 async function crashAt(point: string, act: (srv: Srv, cookie: string) => Promise<void>, dead?: (stateDir: string) => void) {
   const { notes, env } = makeDirs()
   // First start: the history begins (its own commit), with no crash point.
   let srv = await startServer({ ...env, ...FAST })
   await srv.stop()
-  srv = await startServer({ ...env, ...FAST, THOTH_TEST_CRASH_AT: point })
+  srv = await startServer({ ...env, ...FAST, THOTH_TEST_CRASH_AT: point, THOTH_TEST_CRASH_PATH: 'tags.md' })
   const cookie = await login(srv)
   await act(srv, cookie)
   await waitFor(() => srv.proc.signalCode !== null || srv.proc.exitCode !== null, `killed at ${point}`, 15_000)
@@ -224,12 +226,13 @@ test('kill -9 right after a write reaches the disk, before the history recorded 
 })
 
 test('kill -9 after git has a commit and before the journal knows: it is not repeated', async () => {
-  const { srv, cookie } = await crashAt('history-committed', async (s, c) => {
+  const { srv, cookie, notes } = await crashAt('history-committed', async (s, c) => {
     const cur = await api(s, c, 'GET', `/api/note?path=${q('tags.md')}`)
     await api(s, c, 'PUT', `/api/note?path=${q('tags.md')}`, { text: cur.body.text + 'UNA-VEZ\n' }, { 'if-match': `"${cur.body.etag}"` }).catch(() => null)
   })
   try {
     await sleep(1500)
+    assert.ok(readFileSync(join(notes, 'tags.md'), 'utf8').includes('UNA-VEZ'), 'the write reached the disk')
     const { versions } = await versionsOf(srv, cookie, 'tags.md')
     assert.deepEqual(versions.map(who), ['noa', 'system'])
     const changes = (await api(srv, cookie, 'GET', '/api/history/changes')).body.changes

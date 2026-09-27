@@ -211,8 +211,12 @@ const BLOB_CACHE_BYTES = 64 * 1024 * 1024
 const CONCURRENCY = 16
 
 /** Tests only: `THOTH_TEST_CRASH_AT=<point>` kills the process there, like a kill -9 landing at that moment. */
-export function crashPoint(point: string) {
-  if (process.env.THOTH_TEST_CRASH_AT === point) process.kill(process.pid, 'SIGKILL')
+export function crashPoint(point: string, paths?: Iterable<string>) {
+  if (process.env.THOTH_TEST_CRASH_AT !== point) return
+  // With THOTH_TEST_CRASH_PATH, only for what touches that path: a system commit at startup doesn't set it off.
+  const only = process.env.THOTH_TEST_CRASH_PATH
+  if (only && paths && ![...paths].includes(only)) return
+  process.kill(process.pid, 'SIGKILL')
 }
 
 /**
@@ -227,7 +231,17 @@ function crashHooks(dir: string): Record<string, string> {
   const hooks = join(dir, 'test-hooks')
   mkdirSync(hooks, { recursive: true })
   const hook = join(hooks, 'reference-transaction')
-  writeFileSync(hook, `#!/bin/sh\n[ "$1" = prepared ] || exit 0\nkill -9 ${process.pid} "$PPID"\n`)
+  // With THOTH_TEST_CRASH_PATH, only when what comes in touches that path (as crashPoint).
+  const only = process.env.THOTH_TEST_CRASH_PATH
+  const filter = only === undefined ? '' : [
+    'hit=0',
+    'while read old new ref; do',
+    '  case "$old" in *[!0]*) range="$old..$new" ;; *) range="$new" ;; esac',
+    `  git log --name-only --format= "$range" | grep -qxF ${JSON.stringify(only)} && hit=1`,
+    'done',
+    '[ "$hit" = 1 ] || exit 0',
+  ].join('\n') + '\n'
+  writeFileSync(hook, `#!/bin/sh\n[ "$1" = prepared ] || exit 0\n${filter}kill -9 ${process.pid} "$PPID"\n`)
   chmodSync(hook, 0o755)
   return { 'core.hooksPath': hooks }
 }
@@ -1447,7 +1461,7 @@ export class Recorder {
     }
     this.compact()
     this.saveJournal()
-    crashPoint('history-queued')
+    crashPoint('history-queued', q.changes.map((c) => c.path))
     this.scheduleDrain()
   }
 
@@ -1603,7 +1617,7 @@ export class Recorder {
           this.fail(err)
           return this.retryLater()
         }
-        crashPoint('history-committed')
+        crashPoint('history-committed', batch.flatMap((q) => q.changes.map((c) => c.path)))
         this.head = ids.at(-1)!
         this.headTime = Math.max(this.headTime, ...commits.map((c) => c.authorTime * 1000))
         this.committed = working
