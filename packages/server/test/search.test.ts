@@ -8,7 +8,7 @@ import { setup } from './_app.ts'
 const paths = (r: { body: { results: { path: string }[] } }) => r.body.results.map((x) => x.path).sort()
 
 test('the query parser takes filters out of the text: quotes, negation, case', () => {
-  assert.deepEqual(parseSearchQuery('proxy tag:Hogar path:"mis notas/" -tag:#hecho red'), {
+  assert.deepEqual(parseSearchQuery('proxy tag:HoGar path:"mis notas/" -tag:#hecho red'), {
     text: 'proxy red',
     filters: [
       { kind: 'tag', value: 'hogar', negate: false },
@@ -28,7 +28,7 @@ test('tag: matches case-insensitively and includes nested tags; path: a folder o
   const q = (s: string) => noa('GET', `/api/search?q=${encodeURIComponent(s)}`)
   assert.deepEqual(paths(await q('tag:hogar')), ['codigo.md', 'tags.md'])
   assert.deepEqual(paths(await q('tag:HOGAR/red')), ['tags.md'])
-  assert.deepEqual(paths(await q('tag:home')), [], 'a tag is never matched by a prefix of its name')
+  assert.deepEqual(paths(await q('tag:hog')), [], 'a tag is never matched by a prefix of its name')
   assert.deepEqual(paths(await q('tag:hogar -tag:proyectos')), ['codigo.md'])
   assert.deepEqual(paths(await q('tag:a path:frontmatter/')), ['frontmatter/exotico.md'])
   assert.deepEqual(paths(await q('tag:a -path:frontmatter')), [])
