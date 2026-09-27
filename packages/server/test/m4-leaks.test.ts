@@ -192,6 +192,16 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'DELETE /api/account/sessions/:id', method: 'DELETE', path: '/api/account/sessions/nope' },
         { route: 'DELETE /api/account/sessions', method: 'DELETE', path: '/api/account/sessions' },
         { route: 'POST /api/auth/password', method: 'POST', path: '/api/auth/password', body: { current: 'wrong', password: 'another-long-password' } },
+        // The second factor: pending tokens and codes that don't exist, one's own, and the admin's reset.
+        { route: 'POST /api/auth/login/code', method: 'POST', path: '/api/auth/login/code', body: { token: 'nope', code: '000000' } },
+        { route: 'POST /api/auth/2fa/setup', method: 'POST', path: '/api/auth/2fa/setup', body: { token: 'nope' } },
+        { route: 'POST /api/auth/2fa/enable', method: 'POST', path: '/api/auth/2fa/enable', body: { token: 'nope', code: '000000' } },
+        { route: 'GET /api/account/2fa', method: 'GET', path: '/api/account/2fa' },
+        { route: 'POST /api/account/2fa/setup', method: 'POST', path: '/api/account/2fa/setup', body: { password: 'wrong' } },
+        { route: 'POST /api/account/2fa/enable', method: 'POST', path: '/api/account/2fa/enable', body: { code: '000000' } },
+        { route: 'POST /api/account/2fa/recovery', method: 'POST', path: '/api/account/2fa/recovery', body: { confirm: 'wrong' } },
+        { route: 'POST /api/account/2fa/disable', method: 'POST', path: '/api/account/2fa/disable', body: { code: '000000' } },
+        { route: 'POST /api/admin/users/:id/2fa/reset', method: 'POST', path: '/api/admin/users/nope/2fa/reset', expect: who === 'agent' ? 404 : 403 },
         ...([
           ['GET', '/api/admin/users'], ['POST', '/api/admin/users/nope/link'], ['PUT', '/api/admin/users/nope/role'],
           ['POST', '/api/admin/users/nope/disable'], ['POST', '/api/admin/users/nope/enable'], ['DELETE', '/api/admin/users/nope'],

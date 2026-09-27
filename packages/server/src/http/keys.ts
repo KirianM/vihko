@@ -4,9 +4,10 @@
 //   GET    /api/integrations            the switches, the lock, whether this user may create keys, and the public URL (OAuth)
 //   PUT    /api/admin/integrations      { api?, mcp?, membersCanCreateKeys?, oauthRegistration? }   the thoth admin only
 //   GET    /api/keys[?all=1]            this user's keys; with all=1, the admin gets everyone's
-//   POST   /api/keys                    { name, canWrite?, folders?, expiresAt? } → { key, token } (the token, once)
+//   POST   /api/keys                    { name, canWrite?, folders?, expiresAt?, confirm } → { key, token } (the token, once).
+//                                        `confirm`: the current TOTP code, or the password without a second factor (D-036)
 //   PATCH  /api/keys/:id                { name?, canWrite?, folders?, expiresAt? } its owner
-//   POST   /api/keys/:id/rotate         → { key, token }: a new secret (once); the old one works 10 more minutes. Its owner
+//   POST   /api/keys/:id/rotate         { confirm } → { key, token }: a new secret (once); the old one works 10 more minutes. Its owner
 //   DELETE /api/keys/:id                revokes it: its owner or the admin
 import type { Context, Hono } from 'hono'
 import type { User } from '../auth.ts'
@@ -21,6 +22,11 @@ export interface KeyRoutesDeps {
   integrations: Integrations
   /** THOTH_PUBLIC_URL, if set: OAuth is offered there while the MCP server is on. */
   publicUrl?: string | null
+  /**
+   * Confirms that the person is there now (the current TOTP code, or the
+   * password without one, D-036): null if so, the response otherwise.
+   */
+  confirm: (c: Context<Env>, confirm: unknown) => Promise<Response | null>
 }
 
 export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
@@ -59,6 +65,8 @@ export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
   app.post('/api/keys', async (c) => {
     if (!mayCreate(c)) return c.json({ error: 'forbidden', message: 'members may not create keys here' }, 403)
     const b = await body(c)
+    const refused = await deps.confirm(c, b.confirm)
+    if (refused) return refused
     const input: KeyInput = { name: b.name, canWrite: b.canWrite, folders: b.folders, expiresAt: b.expiresAt }
     return c.json(keys.create(c.get('user'), input), 201)
   })
@@ -78,9 +86,13 @@ export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
   })
 
   // Only its owner: a new secret is theirs to see (the admin revokes, never rotates, someone else's).
-  app.post('/api/keys/:id/rotate', (c) => {
+  // A new secret is as good as a new key: it's confirmed the same way.
+  app.post('/api/keys/:id/rotate', async (c) => {
     const key = own(c)
     if (!mayCreate(c)) return c.json({ error: 'forbidden', message: 'members may not change keys here' }, 403)
+    const b = await c.req.json<{ confirm?: unknown }>().catch(() => ({}) as { confirm?: unknown })
+    const refused = await deps.confirm(c, b?.confirm)
+    if (refused) return refused
     return c.json(keys.rotate(key.id))
   })
 

@@ -226,8 +226,8 @@ export interface UserInfo {
   groups: string[]
   /** A link that still works: what for and until when (never its token). */
   link: { kind: 'invite' | 'reset'; expiresAt: string } | null
-  /** The second factor (D-036): null until it exists (piece T). */
-  twoFactor: null
+  /** Whether they set up a second factor (D-036), and since when. */
+  twoFactor: { enabled: boolean; enabledAt: string | null }
 }
 /** A folder permission level, from less to more (D-038.5). */
 export type Level = 'read' | 'comment' | 'edit' | 'manage'
@@ -270,8 +270,27 @@ export interface AudienceChange {
 /** A new one-time link, shown once: `url` with THOTH_PUBLIC_URL, otherwise this origin + `path`. */
 export interface NewLink { token: string; kind: 'invite' | 'reset'; expiresAt: string; path: string; url: string | null }
 export interface GroupInfo { id: string; name: string; members: { id: string; username: string }[] }
-/** The admin's settings: members downloading images from the local network (off by default). */
-export interface AdminSettings { membersLocalDownloads: boolean }
+/** The second factor's policy (D-036): required, optional (the default) or disabled. */
+export type TwoFactorPolicy = 'required' | 'optional' | 'disabled'
+/** The admin's settings: members downloading images from the local network (off by default), and the second factor's policy. */
+export interface AdminSettings { membersLocalDownloads: boolean; twoFactor: TwoFactorPolicy }
+/**
+ * After the password (signing in, or with a one-time link): the session, or
+ * the second step first, with a short-lived pending sign-in: a code, or
+ * setting the second factor up (the admin requires it).
+ */
+export type SignInResult = { user: User } | SecondStep
+export interface SecondStep { step: 'code' | 'setup'; pending: string; expiresAt: string; username: string }
+/** Setting up the second factor: the secret (in groups of four), the `otpauth://` URI and its QR code (null if it doesn't fit one). */
+export interface TwoFactorSetup { secret: string; uri: string; qr: { size: number; path: string } | null }
+/** One's own second factor: the policy, whether it's set up, and what confirms a new key or OAuth client. */
+export interface TwoFactorInfo {
+  policy: TwoFactorPolicy
+  enabled: boolean
+  enabledAt: string | null
+  recoveryCodesLeft: number
+  confirmWith: 'code' | 'password'
+}
 /** One of one's own sessions. */
 export interface SessionInfo { id: string; createdAt: string; lastSeenAt: string; expiresAt: string; userAgent: string | null; current: boolean }
 
@@ -282,7 +301,14 @@ const started = <R>(r: R | { job: MoveJob }): MoveStart<R> => (r !== null && typ
 export const api = {
   setupNeeded: () => request<{ needed: boolean }>('GET', '/api/setup'),
   setup: (token: string, username: string, password: string) => request<{ user: User }>('POST', '/api/setup', { token, username, password }),
-  login: (username: string, password: string) => request<{ user: User }>('POST', '/api/auth/login', { username, password }),
+  /** The password: the session, or the second step to take first. */
+  login: (username: string, password: string) => request<SignInResult>('POST', '/api/auth/login', { username, password }),
+  /** The second step with a code (TOTP, or a recovery code: then how many are left). */
+  loginCode: (pending: string, code: string) => request<{ user: User; recoveryCodesLeft?: number }>('POST', '/api/auth/login/code', { pending, code }),
+  /** Setting the second factor up during a sign-in the admin requires it for. */
+  setupPending: (pending: string) => request<TwoFactorSetup>('POST', '/api/auth/2fa/setup', { pending }),
+  /** Its first code: now it's theirs and they're signed in; the recovery codes, shown once. */
+  enablePending: (pending: string, code: string) => request<{ user: User; recoveryCodes: string[] }>('POST', '/api/auth/2fa/enable', { pending, code }),
   logout: () => request<{ ok: true }>('POST', '/api/auth/logout'),
   me: () => request<{ user: User }>('GET', '/api/auth/me'),
   /** Notes and folders (empty ones included); `pathOnly`: folders shown only as the way to what the person sees. */
@@ -344,20 +370,21 @@ export const api = {
   /** Everyone's keys, with their user: the thoth admin only. */
   allKeys: () => request<{ keys: KeyWithUser[] }>('GET', '/api/keys?all=1').then((r) => r.keys),
   /** A new key: the token comes back this once and never again. */
-  createKey: (input: KeyInput & { name: string }) => request<{ key: KeyInfo; token: string }>('POST', '/api/keys', input),
+  /** `confirm`: the current code, or the password without a second factor (D-036). */
+  createKey: (input: KeyInput & { name: string; confirm: string }) => request<{ key: KeyInfo; token: string }>('POST', '/api/keys', input),
   updateKey: (id: string, patch: KeyInput) => request<{ key: KeyInfo }>('PATCH', `/api/keys/${encodeURIComponent(id)}`, patch).then((r) => r.key),
   /** Its owner, or the thoth admin for anyone's. */
-  rotateKey: (id: string) => request<{ key: KeyInfo; token: string }>('POST', `/api/keys/${encodeURIComponent(id)}/rotate`),
+  rotateKey: (id: string, confirm: string) => request<{ key: KeyInfo; token: string }>('POST', `/api/keys/${encodeURIComponent(id)}/rotate`, { confirm }),
   revokeKey: (id: string) => request<{ key: KeyInfo }>('DELETE', `/api/keys/${encodeURIComponent(id)}`).then((r) => r.key),
   /** The OAuth authorization request in `query` (the page's own query string, without `?`): who asks, and whether this person may say yes. */
   oauthRequest: (query: string) => request<OAuthRequest>('GET', `/api/oauth/authorize?${query}`),
   /** The person's answer: where the browser goes next (back to the client, with a code or `access_denied`). */
-  oauthDecide: (query: string, decision: { approve: boolean; canWrite?: boolean; folders?: string[] }) =>
+  oauthDecide: (query: string, decision: { approve: boolean; canWrite?: boolean; folders?: string[]; confirm?: string }) =>
     request<{ redirect: string }>('POST', '/api/oauth/authorize', { query, ...decision }),
   /** Whom a one-time link is for; `invalid_link` if it doesn't work (unknown, used or expired, alike). */
   invite: (token: string) => request<{ kind: 'invite' | 'reset'; username: string }>('GET', `/api/invite/${encodeURIComponent(token)}`),
   /** Chooses the password with the link, and signs in. */
-  acceptInvite: (token: string, password: string) => request<{ user: User }>('POST', `/api/invite/${encodeURIComponent(token)}`, { password }),
+  acceptInvite: (token: string, password: string) => request<SignInResult>('POST', `/api/invite/${encodeURIComponent(token)}`, { password }),
   /** Names of users and groups, to share with them. */
   directory: () => request<{ users: string[]; groups: string[] }>('GET', '/api/directory'),
   sessions: () => request<{ sessions: SessionInfo[] }>('GET', '/api/account/sessions').then((r) => r.sessions),
@@ -392,4 +419,15 @@ export const api = {
     request<EffectiveAccess>('GET', `/api/permissions/access?${'user' in who ? `user=${encodeURIComponent(who.user)}` : `key=${encodeURIComponent(who.key)}`}`),
   adminSettings: () => request<AdminSettings>('GET', '/api/admin/settings'),
   setAdminSettings: (patch: Partial<AdminSettings>) => request<AdminSettings>('PUT', '/api/admin/settings', patch),
+  /** Takes someone's second factor away (the thoth admin). */
+  resetTwoFactor: (id: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/2fa/reset`).then((r) => r.user),
+  twoFactor: () => request<TwoFactorInfo>('GET', '/api/account/2fa'),
+  /** A new secret to set it up (or to replace the authenticator): the password is asked for. */
+  startTwoFactor: (password: string) => request<TwoFactorSetup>('POST', '/api/account/2fa/setup', { password }),
+  /** A code from the new secret: now it's theirs; the recovery codes, shown once. */
+  enableTwoFactor: (code: string) => request<{ recoveryCodes: string[] }>('POST', '/api/account/2fa/enable', { code }).then((r) => r.recoveryCodes),
+  /** New recovery codes (the old ones stop working); `confirm`: a current code or the password. */
+  newRecoveryCodes: (confirm: string) => request<{ recoveryCodes: string[] }>('POST', '/api/account/2fa/recovery', { confirm }).then((r) => r.recoveryCodes),
+  /** Only while the admin doesn't require it; a code or a recovery code. */
+  disableTwoFactor: (code: string) => request<{ ok: true }>('POST', '/api/account/2fa/disable', { code }),
 }

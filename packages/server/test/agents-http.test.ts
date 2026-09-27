@@ -80,7 +80,7 @@ test('THOTH_INTEGRATIONS=off: keys get 404 whatever state.db says, and the switc
 test('keys over the UI: created once with their token, listed without it, changed and revoked by their owner; the admin sees and revokes all', async () => {
   const h = await setup({ files: FILES })
   try {
-    const created = await h.noa('POST', '/api/keys', { name: 'Claude Code', canWrite: true, folders: ['proyectos'], expiresAt: '2027-01-01T00:00:00Z' })
+    const created = await h.noa('POST', '/api/keys', { confirm: 'a-long-password', name: 'Claude Code', canWrite: true, folders: ['proyectos'], expiresAt: '2027-01-01T00:00:00Z' })
     assert.equal(created.status, 201)
     const { key, token } = created.body
     assert.match(token, /^thoth_[0-9A-Z]{26}_[A-Za-z0-9_-]{43}$/)
@@ -88,13 +88,13 @@ test('keys over the UI: created once with their token, listed without it, change
     const list = await h.noa('GET', '/api/keys')
     assert.deepEqual(list.body.keys.map((k: any) => k.id), [key.id])
     assert.ok(!list.text.includes(token.slice(33)), 'the token is shown once')
-    assert.deepEqual((await h.noa('POST', '/api/keys', { name: '' })).body.error, 'invalid')
-    assert.deepEqual((await h.noa('POST', '/api/keys', { name: 'x', folders: ['../fuera'] })).body.error, 'invalid_path')
+    assert.deepEqual((await h.noa('POST', '/api/keys', { confirm: 'a-long-password', name: '' })).body.error, 'invalid')
+    assert.deepEqual((await h.noa('POST', '/api/keys', { confirm: 'a-long-password', name: 'x', folders: ['../fuera'] })).body.error, 'invalid_path')
     const changed = await h.noa('PATCH', `/api/keys/${key.id}`, { name: 'Claude', canWrite: false, folders: [] })
     assert.deepEqual([changed.body.key.name, changed.body.key.canWrite, changed.body.key.folders], ['Claude', false, []])
 
     // Ana's keys are hers: noa (admin) sees them with ?all=1 and may revoke, not change them.
-    const anas = (await h.ana('POST', '/api/keys', { name: 'Ana bot' })).body.key
+    const anas = (await h.ana('POST', '/api/keys', { confirm: 'a-long-password', name: 'Ana bot' })).body.key
     assert.deepEqual((await h.ana('GET', '/api/keys')).body.keys.map((k: any) => k.name), ['Ana bot'])
     assert.equal((await h.ana('GET', '/api/keys?all=1')).status, 403)
     assert.deepEqual((await h.noa('GET', '/api/keys?all=1')).body.keys.map((k: any) => [k.user.username, k.name]), [['ana', 'Ana bot'], ['noa', 'Claude']])
@@ -104,13 +104,13 @@ test('keys over the UI: created once with their token, listed without it, change
     assert.equal((await h.noa('DELETE', `/api/keys/${anas.id}`)).body.key.status, 'revoked')
 
     // «Members can create keys» off: ana can't create or change hers; she still lists and revokes them.
-    const mine = (await h.ana('POST', '/api/keys', { name: 'second' })).body.key
+    const mine = (await h.ana('POST', '/api/keys', { confirm: 'a-long-password', name: 'second' })).body.key
     assert.equal((await h.noa('PUT', '/api/admin/integrations', { membersCanCreateKeys: false })).body.membersCanCreateKeys, false)
     assert.equal((await h.ana('GET', '/api/integrations')).body.canCreateKeys, false)
-    assert.deepEqual([(await h.ana('POST', '/api/keys', { name: 'third' })).status, (await h.ana('PATCH', `/api/keys/${mine.id}`, { name: 'x' })).status], [403, 403])
+    assert.deepEqual([(await h.ana('POST', '/api/keys', { confirm: 'a-long-password', name: 'third' })).status, (await h.ana('PATCH', `/api/keys/${mine.id}`, { name: 'x' })).status], [403, 403])
     assert.equal((await h.ana('GET', '/api/keys')).body.keys.length, 2)
     assert.equal((await h.ana('DELETE', `/api/keys/${mine.id}`)).status, 200)
-    assert.equal((await h.noa('POST', '/api/keys', { name: 'admin can' })).status, 201)
+    assert.equal((await h.noa('POST', '/api/keys', { confirm: 'a-long-password', name: 'admin can' })).status, 201)
     // Only the admin touches the switches.
     assert.equal((await h.ana('PUT', '/api/admin/integrations', { api: true })).status, 403)
     assert.equal((await h.noa('PUT', '/api/admin/integrations', { api: 'yes' })).body.error, 'invalid')
@@ -122,7 +122,7 @@ test('rotating a key over the UI: its owner only, a new token once, both working
   try {
     await h.enableApi()
     const { key, token } = await h.newKey({ name: 'Claude Code', canWrite: true })
-    const r = await h.noa('POST', `/api/keys/${key.id}/rotate`)
+    const r = await h.noa('POST', `/api/keys/${key.id}/rotate`, { confirm: 'a-long-password' })
     assert.equal(r.status, 200, r.text)
     assert.match(r.body.token, /^thoth_[0-9A-Z]{26}_[A-Za-z0-9_-]{43}$/)
     assert.notEqual(r.body.token, token)

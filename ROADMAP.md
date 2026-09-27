@@ -173,7 +173,7 @@ agent sees those changes, with safeguards and everything in the history.
 - [ ] An open version closes when someone who wasn't in it starts typing.
 - [ ] Saving a copy of an image by URL: members only from public addresses
       unless the admin allows the local network.
-- [ ] Second factor for users: TOTP with recovery codes; the admin makes it
+- [x] Second factor for users: TOTP with recovery codes; the admin makes it
       required, optional or disabled, and can reset a user's; asked again
       before OAuth consent and before creating a key.
 

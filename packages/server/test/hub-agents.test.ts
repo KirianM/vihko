@@ -31,7 +31,7 @@ test('an agent writing to an open note shows up in its awareness, and its text c
   try {
     const cookie = await login(srv)
     assert.equal((await api(srv, cookie, 'PUT', '/api/admin/integrations', { api: true })).status, 200)
-    const created = await api(srv, cookie, 'POST', '/api/keys', { name: 'Claude Code', canWrite: true })
+    const created = await api(srv, cookie, 'POST', '/api/keys', { name: 'Claude Code', canWrite: true, confirm: 'a-long-password' })
     assert.equal(created.status, 201)
     const key = { authorization: `Bearer ${created.body.token}` }
     const editor = await connect(srv, cookie, NOTE)

@@ -1,0 +1,400 @@
+// The second factor (D-036): TOTP against RFC 6238's vectors, its window
+// and replay, recovery codes, the QR code, the two-step sign-in and its
+// limits, the admin's policy (also after an invitation or a reset), the
+// admin's reset and the CLI's, and confirming at the moment before creating
+// a key or approving an OAuth client. Keys never ask for a second factor.
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { createHash, randomBytes } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+import { TwoFactor, base32Decode, base32Encode, hotp, openState, qrCode, qrModules, totp, type SetupData } from '@thoth/server'
+import { setup } from './_agents.ts'
+import { tempDir } from './_tmp.ts'
+import { join } from 'node:path'
+
+const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
+const PASSWORD = 'a-long-password'
+type H = Awaited<ReturnType<typeof setup>>
+type App = H['app']
+
+// --- TOTP and its pieces ------------------------------------------------------
+
+test('HOTP and TOTP: the vectors of RFC 4226 (appendix D) and RFC 6238 (appendix B, SHA-1)', () => {
+  const secret = Buffer.from('12345678901234567890')
+  assert.deepEqual(Array.from({ length: 10 }, (_, i) => hotp(secret, i)),
+    ['755224', '287082', '359152', '969429', '338314', '254676', '287922', '162583', '399871', '520489'])
+  const vectors: [number, string][] = [
+    [59, '94287082'], [1111111109, '07081804'], [1111111111, '14050471'], [1234567890, '89005924'], [2000000000, '69279037'], [20000000000, '65353130'],
+  ]
+  for (const [seconds, code] of vectors) {
+    assert.equal(totp(secret, seconds * 1000, 8), code, `T = ${seconds}`)
+    assert.equal(totp(secret, seconds * 1000), code.slice(2), 'six digits: the same code, its last six')
+  }
+})
+
+test('base32: the form authenticator apps take, ignoring case, spaces and padding', () => {
+  assert.equal(base32Encode(Buffer.from('12345678901234567890')), 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ')
+  assert.equal(base32Encode(Buffer.from('f')), 'MY')
+  assert.deepEqual(base32Decode('gezd gnbv gy3t qojq gezd gnbv gy3t qojq'), Buffer.from('12345678901234567890'))
+  assert.deepEqual(base32Decode('MY======'), Buffer.from('f'))
+  for (let i = 0; i < 50; i++) {
+    const b = randomBytes(i)
+    assert.deepEqual(base32Decode(base32Encode(b)), b)
+  }
+  assert.throws(() => base32Decode('A1'))
+})
+
+/** A store on a clock the test moves, with a user (state.db needs one). */
+async function store() {
+  const dir = tempDir('thoth-2fa-')
+  const state = openState(join(dir, 'state.db'))
+  const clock = { t: Date.parse('2026-09-27T10:00:05Z') }
+  const tf = new TwoFactor(state, { now: () => new Date(clock.t) })
+  state.prepare("insert into users (id, username, password_hash, role, created_at) values ('u1', 'noa', 'x', 'admin', '2026-01-01T00:00:00Z')").run()
+  const code = (s: SetupData, offsetSteps = 0) => totp(base32Decode(s.secret), clock.t + offsetSteps * 30_000)
+  return { state, tf, clock, code, advance: (steps: number) => { clock.t += steps * 30_000 } }
+}
+
+test('setting it up: nothing is theirs until a code from the new secret is verified, and that code is spent', async () => {
+  const { tf, code, advance, clock } = await store()
+  const s = tf.beginSetup('u1', 'noa', 'notas.example.org')
+  assert.match(s.secret, /^([A-Z2-7]{4} ){7}[A-Z2-7]{4}$/, '160 bits, in groups of four to type it')
+  assert.equal(s.uri, `otpauth://totp/thoth:noa%40notas.example.org?secret=${s.secret.replace(/ /g, '')}&issuer=thoth&algorithm=SHA1&digits=6&period=30`)
+  assert.ok(s.qr && s.qr.size >= 21)
+  assert.equal(tf.enabled('u1'), false)
+  assert.equal(tf.finishSetup('u1', '000000'), null, 'a wrong code')
+  assert.equal(tf.finishSetup('u1', code(s, 2)), null, 'two steps ahead: outside the window')
+  assert.equal(tf.enabled('u1'), false)
+  const codes = tf.finishSetup('u1', code(s))
+  assert.ok(codes)
+  assert.equal(codes.length, 10)
+  assert.ok(codes.every((c) => /^[a-z2-9]{5}-[a-z2-9]{5}$/.test(c)))
+  assert.deepEqual(tf.status('u1'), { enabled: true, enabledAt: new Date(clock.t).toISOString(), recoveryCodesLeft: 10 })
+  assert.deepEqual(tf.verify('u1', code(s)), { ok: false, reason: 'used' }, 'the code that set it up is spent')
+  advance(1)
+  assert.equal(tf.verify('u1', code(s)).ok, true)
+
+  // A new setup replaces nothing until verified, and one that waits too long is forgotten.
+  const again = tf.beginSetup('u1', 'noa')
+  clock.t += 15 * 60_000
+  assert.equal(tf.finishSetup('u1', code(again)), null)
+  assert.equal(tf.verify('u1', code(s)).ok, true, 'the old secret is still theirs')
+})
+
+test('TOTP: one step either side is accepted, two are not; a code, or an earlier one, never works twice', async () => {
+  const { tf, code, advance } = await store()
+  const s = tf.beginSetup('u1', 'noa')
+  tf.finishSetup('u1', code(s))
+  advance(10)
+  assert.deepEqual(tf.verify('u1', code(s, -2)), { ok: false, reason: 'invalid' })
+  assert.deepEqual(tf.verify('u1', code(s, 2)), { ok: false, reason: 'invalid' })
+  assert.equal(tf.verify('u1', code(s, -1)).ok, true, 'the previous step: a clock a little behind')
+  assert.equal(tf.verify('u1', code(s, 1)).ok, true, 'the next step: a clock a little ahead')
+  assert.deepEqual(tf.verify('u1', code(s)), { ok: false, reason: 'used' }, 'now is earlier than the step already accepted')
+  assert.deepEqual(tf.verify('u1', code(s, 1)), { ok: false, reason: 'used' }, 'the same code again')
+  advance(2)
+  assert.equal(tf.verify('u1', code(s)).ok, true)
+  assert.deepEqual(tf.verify('u1', ` ${code(s).slice(0, 3)} ${code(s).slice(3)} `), { ok: false, reason: 'used' }, 'spaces are ignored')
+  for (const junk of ['', '12345', '1234567', 'abcdef', null, 123456]) assert.deepEqual(tf.verify('u1', junk), { ok: false, reason: 'invalid' })
+})
+
+test('recovery codes: ten, single use, stored only as a hash, and new ones end the old ones', async () => {
+  const { tf, state, code } = await store()
+  const s = tf.beginSetup('u1', 'noa')
+  const codes = tf.finishSetup('u1', code(s))!
+  const stored = state.prepare('select code_hash from recovery_codes').all() as { code_hash: string }[]
+  assert.equal(stored.length, 10)
+  const dump = JSON.stringify(state.prepare('select * from recovery_codes').all())
+  for (const c of codes) assert.ok(!dump.includes(c) && !dump.includes(c.replace('-', '')), 'never in the clear')
+  assert.deepEqual(tf.verify('u1', codes[0]), { ok: false, reason: 'invalid' }, 'not where a TOTP code is asked for')
+  assert.deepEqual(tf.verify('u1', codes[0], { recovery: true }), { ok: true, recovery: true, recoveryCodesLeft: 9 })
+  assert.deepEqual(tf.verify('u1', codes[0], { recovery: true }), { ok: false, reason: 'invalid' }, 'once')
+  assert.equal(tf.verify('u1', ` ${codes[1]!.toUpperCase().replace('-', ' ')} `, { recovery: true }).ok, true, 'any case, with or without its dash')
+  const fresh = tf.regenerate('u1')!
+  assert.equal(tf.status('u1').recoveryCodesLeft, 10)
+  assert.deepEqual(tf.verify('u1', codes[2], { recovery: true }), { ok: false, reason: 'invalid' }, 'the old ones no longer work')
+  assert.equal(tf.verify('u1', fresh[2], { recovery: true }).ok, true)
+  assert.equal(tf.disable('u1'), true)
+  assert.deepEqual(tf.status('u1'), { enabled: false, enabledAt: null, recoveryCodesLeft: 0 })
+  assert.equal((state.prepare('select count(*) n from recovery_codes').get() as { n: number }).n, 0)
+  assert.equal(tf.regenerate('u1'), null)
+})
+
+test('the QR code: standard sizes, and the same modules as a code checked with a real decoder', () => {
+  const digest = (text: string) => createHash('sha256').update(qrModules(text)!.map((r) => r.map((d) => (d ? '1' : '0')).join('')).join('\n')).digest('hex')
+  // Checked once against jsQR and module for module against qrcode-generator (the same data, error correction and layout).
+  assert.equal(digest('otpauth://totp/thoth:ana@notas.example.org?secret=JBSWY3DPEHPK3PXP&issuer=thoth'), '69bf57687eadbb356ccce5abc5fa85c17dd7a0de16de1ff25eebb0ee64956545')
+  assert.equal(digest('HELLO WORLD'), '2d21897bf5a7ac606d02da07bdd5e7f02a8b90097f12404b1f7d764f18ef618c')
+  assert.equal(digest('thoth: añadir ñ €'), '9c03d900ffbdf9309da6ea271dbc74b804227683570f7f7389990b4029863abd', 'UTF-8')
+  // Version 1 holds 14 bytes at level M; 15 need version 2. 2331 is the most version 40 holds.
+  assert.equal(qrCode('x'.repeat(14))!.size, 21)
+  assert.equal(qrCode('x'.repeat(15))!.size, 25)
+  assert.equal(qrCode('x'.repeat(2331))!.size, 177)
+  assert.equal(qrCode('x'.repeat(2332)), null)
+  // The three finder patterns, where they go.
+  const m = qrModules('HELLO WORLD')!
+  for (const [x0, y0] of [[0, 0], [14, 0], [0, 14]] as const) {
+    const ring = [0, 6].flatMap((i) => [m[y0 + i]![x0 + 3], m[y0 + 3]![x0 + i]])
+    assert.ok(ring.every(Boolean) && m[y0 + 3]![x0 + 3] && !m[y0 + 1]![x0 + 3], `finder at ${x0},${y0}`)
+  }
+})
+
+// --- Over HTTP -------------------------------------------------------------------
+
+async function send(app: App, method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
+  const res = await app.request(path, { method, headers: { 'content-type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body) })
+  return { status: res.status, body: await res.json().catch(() => null) as any, cookie: res.headers.getSetCookie().find((c) => c.startsWith('thoth_session='))?.split(';')[0] ?? null }
+}
+
+/** Signs in with the password: the session cookie, or the second step. */
+const signIn = (h: H, username: string, password = PASSWORD) => send(h.app, 'POST', '/api/auth/login', { username, password })
+
+/** Sets up the second factor from «Account», with the session `as`: the secret and the recovery codes. */
+async function enable(h: H, as: H['noa']) {
+  const s = await as('POST', '/api/account/2fa/setup', { password: PASSWORD })
+  assert.equal(s.status, 200, s.text)
+  const secret = base32Decode(s.body.secret)
+  const r = await as('POST', '/api/account/2fa/enable', { code: totp(secret, h.clock.now.getTime()) })
+  assert.equal(r.status, 200, r.text)
+  return { secret, recoveryCodes: r.body.recoveryCodes as string[] }
+}
+
+/** The clock moves on to the next TOTP step (so that a new code exists). */
+const nextStep = (h: H) => { h.clock.now = new Date(h.clock.now.getTime() + 30_000) }
+
+test('two steps: the password gives a pending sign-in, and a TOTP code or a recovery code completes it', async () => {
+  const h = await setup()
+  try {
+    // «Account» asks for the password to set it up; a wrong one gets nothing.
+    assert.deepEqual((await h.noa('GET', '/api/account/2fa')).body, { policy: 'optional', enabled: false, enabledAt: null, recoveryCodesLeft: 0, confirmWith: 'password' })
+    const wrong = await h.noa('POST', '/api/account/2fa/setup', { password: 'not-the-password' })
+    assert.deepEqual([wrong.status, wrong.body.error], [403, 'wrong_password'])
+    const setupData = (await h.noa('POST', '/api/account/2fa/setup', { password: PASSWORD })).body
+    assert.ok(setupData.qr.path.startsWith('M'))
+    assert.deepEqual((await h.noa('POST', '/api/account/2fa/enable', { code: '000000' })).body.error, 'invalid_code')
+    assert.equal((await signIn(h, 'noa')).body.user.username, 'noa', 'not set up until a code is verified: no second step yet')
+    const { secret, recoveryCodes } = await enable(h, h.noa)
+    assert.deepEqual((await h.noa('GET', '/api/account/2fa')).body.confirmWith, 'code')
+    assert.deepEqual((await h.noa('GET', '/api/admin/users')).body.users.find((u: any) => u.username === 'noa').twoFactor,
+      { enabled: true, enabledAt: h.clock.now.toISOString() })
+
+    // The password alone: no session, a pending sign-in.
+    const first = await signIn(h, 'noa')
+    assert.equal(first.status, 200)
+    assert.deepEqual([first.body.step, first.body.username, first.body.user, first.cookie], ['code', 'noa', undefined, null])
+    assert.match(first.body.pending, /^[A-Za-z0-9_-]{43}$/)
+    const bad = await send(h.app, 'POST', '/api/auth/login/code', { pending: first.body.pending, code: '000000' })
+    assert.deepEqual([bad.status, bad.body.error, bad.cookie], [401, 'invalid_code', null])
+    const used = await send(h.app, 'POST', '/api/auth/login/code', { pending: first.body.pending, code: totp(secret, h.clock.now.getTime()) })
+    assert.deepEqual([used.status, used.body.error], [401, 'code_used'], 'the code that set it up')
+    nextStep(h)
+    const ok = await send(h.app, 'POST', '/api/auth/login/code', { pending: first.body.pending, code: totp(secret, h.clock.now.getTime()) })
+    assert.equal(ok.status, 200)
+    assert.equal(ok.body.user.username, 'noa')
+    assert.equal(ok.body.recoveryCodesLeft, undefined)
+    assert.ok(ok.cookie)
+    assert.equal((await send(h.app, 'GET', '/api/auth/me', undefined, { cookie: ok.cookie! })).body.user.username, 'noa')
+    assert.equal((await send(h.app, 'POST', '/api/auth/login/code', { pending: first.body.pending, code: '123456' })).body.error, 'login_expired', 'a pending sign-in works once')
+
+    // A recovery code, once; the page learns how many are left.
+    const second = await signIn(h, 'noa')
+    const rec = await send(h.app, 'POST', '/api/auth/login/code', { pending: second.body.pending, code: recoveryCodes[0] })
+    assert.deepEqual([rec.status, rec.body.recoveryCodesLeft], [200, 9])
+    const third = await signIn(h, 'noa')
+    assert.equal((await send(h.app, 'POST', '/api/auth/login/code', { pending: third.body.pending, code: recoveryCodes[0] })).body.error, 'invalid_code')
+
+    // Five minutes, then the password again.
+    h.clock.now = new Date(h.clock.now.getTime() + 5 * 60_000 + 1)
+    assert.equal((await send(h.app, 'POST', '/api/auth/login/code', { pending: third.body.pending, code: totp(secret, h.clock.now.getTime()) })).body.error, 'login_expired')
+    assert.equal((await send(h.app, 'POST', '/api/auth/login/code', { pending: 'nonsense', code: '123456' })).status, 401)
+
+    // New recovery codes: a current code or the password.
+    nextStep(h)
+    assert.equal((await h.noa('POST', '/api/account/2fa/recovery', { confirm: 'wrong-password' })).body.error, 'wrong_password')
+    const regen = await h.noa('POST', '/api/account/2fa/recovery', { confirm: totp(secret, h.clock.now.getTime()) })
+    assert.equal(regen.body.recoveryCodes.length, 10)
+    assert.equal((await h.noa('POST', '/api/account/2fa/recovery', { confirm: PASSWORD })).body.recoveryCodes.length, 10)
+    assert.equal((await h.noa('GET', '/api/account/2fa')).body.recoveryCodesLeft, 10)
+  } finally { await h.close() }
+})
+
+test('limits: wrong codes count, a right password does not clear them, and a success does', async () => {
+  const h = await setup()
+  try {
+    const { secret } = await enable(h, h.noa)
+    const wrongCode = (pending: string) => send(h.app, 'POST', '/api/auth/login/code', { pending, code: '000000' })
+    let pending = (await signIn(h, 'noa')).body.pending
+    for (let i = 0; i < 4; i++) assert.equal((await wrongCode(pending)).status, 401, `failure ${i + 1} is free`)
+    // Signing in again with the right password gives no fresh guesses at the code.
+    pending = (await signIn(h, 'noa')).body.pending
+    assert.equal((await wrongCode(pending)).status, 401, 'the fifth is free')
+    const sixth = await wrongCode(pending)
+    assert.deepEqual([sixth.status, sixth.body.error], [429, 'too_many_attempts'], 'the sixth starts a wait')
+    nextStep(h)
+    const refused = await send(h.app, 'POST', '/api/auth/login/code', { pending, code: totp(secret, h.clock.now.getTime()) })
+    assert.equal(refused.status, 429, 'refused while waiting, even with the right code')
+    // The code counter is the second factor's own: the password's still works.
+    assert.equal((await signIn(h, 'noa')).status, 200)
+    await new Promise((r) => setTimeout(r, 1100))
+    const ok = await send(h.app, 'POST', '/api/auth/login/code', { pending, code: totp(secret, h.clock.now.getTime()) })
+    assert.equal(ok.status, 200)
+    // Cleared by the success: five free failures again.
+    pending = (await signIn(h, 'noa')).body.pending
+    for (let i = 0; i < 5; i++) assert.equal((await wrongCode(pending)).status, 401)
+  } finally { await h.close() }
+})
+
+test('the policy: required makes whoever has none set it up at sign-in, before any session; disabled asks for nothing', async () => {
+  const h = await setup()
+  try {
+    assert.equal((await h.ana('PUT', '/api/admin/settings', { twoFactor: 'required' })).status, 403, 'the admin only')
+    assert.equal((await h.noa('PUT', '/api/admin/settings', { twoFactor: 'sometimes' })).body.error, 'invalid')
+    assert.equal((await h.noa('PUT', '/api/admin/settings', { twoFactor: 'required' })).body.twoFactor, 'required')
+
+    // ana has none: the password gives the setup step, not a session.
+    const first = await signIn(h, 'ana')
+    assert.deepEqual([first.body.step, first.cookie], ['setup', null])
+    assert.equal((await send(h.app, 'POST', '/api/auth/login/code', { pending: first.body.pending, code: '123456' })).body.error, 'login_expired', 'a setup step is not a code step')
+    const s = await send(h.app, 'POST', '/api/auth/2fa/setup', { pending: first.body.pending })
+    assert.equal(s.status, 200)
+    assert.match(s.body.uri, /^otpauth:\/\/totp\/thoth:ana%40localhost\?secret=/)
+    assert.equal((await send(h.app, 'POST', '/api/auth/2fa/enable', { pending: first.body.pending, code: '000000' })).body.error, 'invalid_code')
+    const done = await send(h.app, 'POST', '/api/auth/2fa/enable', { pending: first.body.pending, code: totp(base32Decode(s.body.secret), h.clock.now.getTime()) })
+    assert.equal(done.status, 200)
+    assert.equal(done.body.recoveryCodes.length, 10)
+    assert.ok(done.cookie, 'set up: now the session')
+    assert.equal((await signIn(h, 'ana')).body.step, 'code', 'and from now on, the code')
+
+    // Required: one's own can't be turned off.
+    const anaSession = (m: string, p: string, b?: unknown) => send(h.app, m, p, b, { cookie: done.cookie! })
+    assert.equal((await anaSession('POST', '/api/account/2fa/disable', { code: done.body.recoveryCodes[0] })).body.error, 'two_factor_required')
+
+    // Optional: it can, with a code (or a recovery code); a wrong one doesn't.
+    await h.noa('PUT', '/api/admin/settings', { twoFactor: 'optional' })
+    assert.equal((await anaSession('POST', '/api/account/2fa/disable', { code: '000000' })).body.error, 'invalid_code')
+    assert.equal((await anaSession('POST', '/api/account/2fa/disable', { code: done.body.recoveryCodes[0] })).status, 200)
+    assert.equal((await signIn(h, 'ana')).body.user.username, 'ana')
+    assert.equal((await anaSession('POST', '/api/account/2fa/disable', { code: '123456' })).body.error, 'two_factor_off')
+
+    // Disabled: nobody is asked for a code, not even who set one up; it isn't offered, and keys confirm with the password.
+    await enable(h, h.noa)
+    await h.noa('PUT', '/api/admin/settings', { twoFactor: 'disabled' })
+    assert.equal((await signIn(h, 'noa')).body.user.username, 'noa')
+    assert.equal((await h.ana('POST', '/api/account/2fa/setup', { password: PASSWORD })).body.error, 'two_factor_disabled')
+    assert.deepEqual((await h.noa('GET', '/api/account/2fa')).body, { policy: 'disabled', enabled: true, enabledAt: h.clock.now.toISOString(), recoveryCodesLeft: 10, confirmWith: 'password' })
+    assert.equal((await h.noa('POST', '/api/keys', { name: 'k', confirm: PASSWORD })).status, 201)
+    // Back to optional, theirs applies again.
+    await h.noa('PUT', '/api/admin/settings', { twoFactor: 'optional' })
+    assert.equal((await signIn(h, 'noa')).body.step, 'code')
+  } finally { await h.close() }
+})
+
+test('links: an invitation under a required policy sets it up before the session; a reset never skips it', async () => {
+  const h = await setup()
+  try {
+    await h.noa('PUT', '/api/admin/settings', { twoFactor: 'required' })
+    const { user, link } = (await h.noa('POST', '/api/admin/users', { username: 'marta', role: 'member' })).body
+    const accepted = await send(h.app, 'POST', `/api/invite/${link.token}`, { password: 'marta-long-password' })
+    assert.deepEqual([accepted.status, accepted.body.step, accepted.cookie], [200, 'setup', null])
+    const s = await send(h.app, 'POST', '/api/auth/2fa/setup', { pending: accepted.body.pending })
+    const secret = base32Decode(s.body.secret)
+    const done = await send(h.app, 'POST', '/api/auth/2fa/enable', { pending: accepted.body.pending, code: totp(secret, h.clock.now.getTime()) })
+    assert.ok(done.cookie)
+    assert.equal(done.body.user.username, 'marta')
+
+    // A reset link for someone with a second factor: the new password, then their code.
+    await h.noa('PUT', '/api/admin/settings', { twoFactor: 'optional' })
+    const reset = (await h.noa('POST', `/api/admin/users/${user.id}/link`)).body.link
+    const r = await send(h.app, 'POST', `/api/invite/${reset.token}`, { password: 'marta-new-long-password' })
+    assert.deepEqual([r.body.step, r.cookie], ['code', null])
+    nextStep(h)
+    const ok = await send(h.app, 'POST', '/api/auth/login/code', { pending: r.body.pending, code: totp(secret, h.clock.now.getTime()) })
+    assert.ok(ok.cookie)
+
+    // The admin resets it (a member can't): the password alone again.
+    assert.equal((await h.ana('POST', `/api/admin/users/${user.id}/2fa/reset`)).status, 403)
+    assert.equal((await h.noa('POST', '/api/admin/users/nobody/2fa/reset')).status, 404)
+    const after = await h.noa('POST', `/api/admin/users/${user.id}/2fa/reset`)
+    assert.deepEqual(after.body.user.twoFactor, { enabled: false, enabledAt: null })
+    assert.equal((await signIn(h, 'marta', 'marta-new-long-password')).body.user.username, 'marta')
+  } finally { await h.close() }
+})
+
+test('confirming at the moment: creating or rotating a key and approving an OAuth client ask for the current code, or the password without one', async () => {
+  const h = await setup({ publicUrl: 'https://notas.example.org' })
+  try {
+    // Without a second factor: the password.
+    const missing = await h.noa('POST', '/api/keys', { name: 'k' })
+    assert.deepEqual([missing.status, missing.body.error, missing.body.with], [400, 'confirmation_required', 'password'])
+    assert.deepEqual((await h.noa('POST', '/api/keys', { name: 'k', confirm: 'wrong-password' })).body.error, 'wrong_password')
+    const key = (await h.noa('POST', '/api/keys', { name: 'k', confirm: PASSWORD })).body
+
+    // With one: its current code, and never the password (a session left open could know it).
+    const { secret } = await enable(h, h.noa)
+    nextStep(h)
+    const code = () => totp(secret, h.clock.now.getTime())
+    assert.equal((await h.noa('POST', '/api/keys', { name: 'k2' })).body.with, 'code')
+    assert.equal((await h.noa('POST', '/api/keys', { name: 'k2', confirm: PASSWORD })).body.error, 'invalid_code')
+    assert.equal((await h.noa('POST', '/api/keys', { name: 'k2', confirm: code() })).status, 201)
+    assert.equal((await h.noa('POST', '/api/keys', { name: 'k3', confirm: code() })).body.error, 'code_used', 'a code confirms once')
+    assert.equal((await h.noa('POST', `/api/keys/${key.key.id}/rotate`)).body.error, 'confirmation_required')
+    nextStep(h)
+    const rotated = await h.noa('POST', `/api/keys/${key.key.id}/rotate`, { confirm: code() })
+    assert.equal(rotated.status, 200)
+
+    // Keys never ask for a second factor.
+    await h.enableApi()
+    assert.equal((await h.withKey(rotated.body.token)('GET', '/api/tree')).status, 200)
+
+    // OAuth: saying yes needs the code; saying no never does.
+    await h.enableMcp()
+    const reg = await send(h.app, 'POST', '/oauth/register', { client_name: 'Claude', redirect_uris: ['https://claude.example/cb'], token_endpoint_auth_method: 'none' })
+    const challenge = createHash('sha256').update(randomBytes(32).toString('base64url')).digest('base64url')
+    const query = new URLSearchParams({ response_type: 'code', client_id: reg.body.client_id, redirect_uri: 'https://claude.example/cb', code_challenge: challenge, code_challenge_method: 'S256', state: 's', resource: 'https://notas.example.org/mcp' }).toString()
+    assert.equal((await h.noa('POST', '/api/oauth/authorize', { query, approve: true })).body.error, 'confirmation_required')
+    assert.equal((await h.noa('POST', '/api/oauth/authorize', { query, approve: true, confirm: '000000' })).body.error, 'invalid_code')
+    assert.equal((await h.noa('POST', '/api/oauth/authorize', { query, approve: false })).status, 200)
+    nextStep(h)
+    const approved = await h.noa('POST', '/api/oauth/authorize', { query, approve: true, confirm: code() })
+    assert.equal(approved.status, 200)
+    assert.ok(new URL(approved.body.redirect).searchParams.get('code'))
+  } finally { await h.close() }
+})
+
+test('confirming counts in the login limits: guessing the code with a session left open soon waits', async () => {
+  const h = await setup()
+  try {
+    await enable(h, h.noa)
+    for (let i = 0; i < 5; i++) assert.equal((await h.noa('POST', '/api/keys', { name: 'k', confirm: '000000' })).status, 403)
+    assert.equal((await h.noa('POST', '/api/keys', { name: 'k', confirm: '000000' })).status, 429)
+  } finally { await h.close() }
+})
+
+test('the CLI takes a second factor away (with reset-link, the way back for an admin who lost password and phone)', async () => {
+  const h = await setup()
+  try {
+    await enable(h, h.noa)
+    assert.equal((await signIn(h, 'noa')).body.step, 'code')
+    const env = { ...process.env, THOTH_STATE_DIR: h.dir, THOTH_NOTES_DIR: h.notesDir }
+    const r = spawnSync(process.execPath, ['--no-experimental-webstorage', CLI, 'user', 'reset-2fa', 'noa'], { env, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stdout, /second factor removed for noa/)
+    assert.equal((await signIn(h, 'noa')).body.user.username, 'noa', 'a running thoth reads it at once')
+    const again = spawnSync(process.execPath, ['--no-experimental-webstorage', CLI, 'user', 'reset-2fa', 'noa'], { env, encoding: 'utf8' })
+    assert.match(again.stdout, /noa had no second factor/)
+    const none = spawnSync(process.execPath, ['--no-experimental-webstorage', CLI, 'user', 'reset-2fa', 'nadie'], { env, encoding: 'utf8' })
+    assert.equal(none.status, 1)
+    assert.match(none.stderr, /not_found/)
+  } finally { await h.close() }
+})
+
+test('deleting a user takes their second factor with them', async () => {
+  const h = await setup()
+  try {
+    await enable(h, h.ana)
+    await h.noa('POST', `/api/admin/users/${h.users.ana.id}/disable`)
+    await h.noa('DELETE', `/api/admin/users/${h.users.ana.id}`)
+    for (const t of ['two_factor', 'recovery_codes']) assert.equal((h.auth.state.prepare(`select count(*) n from ${t} where user_id = ?`).get(h.users.ana.id) as { n: number }).n, 0, t)
+  } finally { await h.close() }
+})

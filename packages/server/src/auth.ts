@@ -201,9 +201,17 @@ export class Auth {
 
   /**
    * Returns a new session token, or null if the credentials are invalid.
-   * `userAgent`: the browser, remembered to tell the session apart.
+   * `userAgent`: the browser, remembered to tell the session apart. (The
+   * API's sign-in checks the credentials with `verifyLogin` instead, and
+   * asks for the second factor before starting the session.)
    */
   async login(username: string, password: string, userAgent?: string): Promise<{ token: string; user: User; expiresAt: Date } | null> {
+    const user = await this.verifyLogin(username, password)
+    return user && { ...this.startSession(user.id, userAgent), user }
+  }
+
+  /** The user these credentials are for, or null if they are invalid (or the user is disabled). Starts no session. */
+  async verifyLogin(username: string, password: string): Promise<User | null> {
     const row = this.db.prepare('select id, username, role, disabled, password_hash from users where username = ?')
       .get(username.normalize('NFC').trim()) as { id: string; username: string; role: Role; disabled: number; password_hash: string } | undefined
     // Verified against a dummy hash either way (also for someone invited who
@@ -214,7 +222,14 @@ export class Auth {
     if (needsRehash(row.password_hash)) {
       this.db.prepare('update users set password_hash = ? where id = ? and password_hash = ?').run(await hashPassword(password), row.id, row.password_hash)
     }
-    return { ...this.startSession(row.id, userAgent), user: rowToUser(row) }
+    return rowToUser(row)
+  }
+
+  /** A user who can sign in (enabled, not deleted), by id; null otherwise. */
+  user(id: string): User | null {
+    const row = this.db.prepare('select id, username, role, disabled from users where id = ? and disabled = 0 and deleted_at is null').get(id) as
+      { id: string; username: string; role: Role; disabled: number } | undefined
+    return row ? rowToUser(row) : null
   }
 
   /** A new session for a user whose credentials were just checked (a login, or a one-time link). */
