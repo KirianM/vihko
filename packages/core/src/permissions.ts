@@ -416,7 +416,7 @@ function applyRules(text: string, changes: readonly Change[], opts: { implicitAd
     // A block entry keeps its key's line (and the comment on it); only what is under it is written again.
     const keyLineEnd = nextLine(text, range(item.key)[1])
     if (/^\s*:\s*(#.*)?\r?\n?$/.test(text.slice(range(item.key)[1], keyLineEnd)) && keyLineEnd <= to) {
-      splices.push({ from: keyLineEnd, to, text: entryText('', v, indent).slice(indent.length + 2) })
+      splices.push({ from: keyLineEnd, to, text: keepComments(text.slice(keyLineEnd, to), entryText('', v, indent).slice(indent.length + 2)) })
     } else splices.push({ from, to, text: entryText(text.slice(keyStart, range(item.key)[1]), v, indent) })
   }
   const added = [...want].filter(([, v]) => v !== null).map(([f, v]) => entryText(yamlKey(f, PLAIN_KEY), v!, indent)).join('')
@@ -424,6 +424,26 @@ function applyRules(text: string, changes: readonly Change[], opts: { implicitAd
   let out = text
   for (const s of splices.sort((a, b) => b.from - a.from)) out = out.slice(0, s.from) + s.text + out.slice(s.to)
   return verify(out, asked, before)
+}
+
+/**
+ * The comments of an entry's lines written again: a comment line stays, first,
+ * and a comment at the end of a line (`grants: {…}  # why`) goes back to the
+ * new line with the same key. Subjects and levels never hold a `#`.
+ */
+function keepComments(before: string, after: string): string {
+  const own = before.split('\n').filter((l) => /^\s*#/.test(l))
+  const trailing = new Map<string, string>()
+  for (const l of before.split('\n')) {
+    const m = /^\s*([^\s#:][^:#]*):[^#]*?(\s+#[^"'\n]*)$/.exec(l.replace(/\r$/, ''))
+    if (m) trailing.set(m[1]!.trim(), m[2]!)
+  }
+  const lines = after.split('\n').map((l) => {
+    const key = /^\s*([^\s#:][^:#]*):/.exec(l)?.[1]?.trim()
+    const comment = key === undefined ? undefined : trailing.get(key)
+    return comment === undefined || l.includes('#') ? l : l + comment
+  })
+  return (own.length ? own.join('\n') + '\n' : '') + lines.join('\n')
 }
 
 /** A section written in flow style: through the Document API (comments and order kept, spacing not). */

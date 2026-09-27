@@ -111,6 +111,9 @@ daily:
 `
   const out = setRule(text, 'familia', { grants: { '@familia': 'edit', laura: 'read' }, ai: null })
   assert.equal(out, text.replace('grants: { "@familia": edit }', 'grants: { "@familia": edit, laura: read }'))
+  // A comment on a line written again stays, with its line; one on its own line too.
+  const commented = text.replace('grants: { "@familia": edit }', '# who\n    grants: { "@familia": edit }  # the family edits')
+  assert.equal(setRule(commented, 'familia', { grants: { '@familia': 'read' }, ai: null }), commented.replace('"@familia": edit }', '"@familia": read }'))
   const added = setRule(text, 'personas/laura/recetas', { grants: { laura: 'manage', noa: 'comment' }, ai: null })
   assert.match(added, /familia:   # shared\n {4}grants: \{ "@familia": edit \}\n {2}personas\/laura\/recetas:\n {4}grants: \{ laura: manage, noa: comment \}\ndaily:/)
   assert.ok(added.startsWith('# Workspace\ntemplates: Plantillas   # templates here\n'))
