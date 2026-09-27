@@ -24,7 +24,7 @@
 // writer follow a deletion or a rename (they run first; if one throws,
 // nothing changes here).
 import { createHash, randomBytes } from 'node:crypto'
-import { newUid } from '@thoth/core'
+import { newUid, subjectKey } from '@thoth/core'
 import type { Db } from './db.ts'
 import type { Actor } from './actor.ts'
 import { AuthError, MIN_PASSWORD, NAME_PATTERN, hashPassword, type Auth, type Role, type User } from './auth.ts'
@@ -349,8 +349,10 @@ export class Users {
   private groupName(name: unknown, except?: string): string {
     const n = typeof name === 'string' ? name.normalize('NFC').trim() : ''
     if (!NAME_PATTERN.test(n)) throw new UsersError('invalid_group_name', 'invalid group name (2-64 letters, digits, ".", "_" or "-")')
-    const taken = this.db.prepare('select id from user_groups where name = ?').get(n) as { id: string } | undefined
-    if (taken && taken.id !== except) throw new UsersError('group_exists', `group ${n} already exists`)
+    // As the permissions compare them (auth.ts `createUser`): not only ASCII's case.
+    const key = subjectKey(n)
+    const groups = this.db.prepare('select id, name from user_groups').all() as { id: string; name: string }[]
+    if (groups.some((g) => g.id !== except && subjectKey(g.name) === key)) throw new UsersError('group_exists', `group ${n} already exists`)
     return n
   }
 

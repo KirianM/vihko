@@ -5,7 +5,7 @@
 import * as crypto from 'node:crypto'
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
-import { newUid } from '@thoth/core'
+import { newUid, subjectKey } from '@thoth/core'
 import type { Db } from './db.ts'
 
 const scryptAsync = promisify(scrypt) as (pw: string, salt: Buffer, len: number, opts: object) => Promise<Buffer>
@@ -168,7 +168,11 @@ export class Auth {
     const name = username.normalize('NFC').trim()
     if (!NAME_PATTERN.test(name)) throw new AuthError('invalid_username', 'invalid username (2-64 letters, digits, ".", "_" or "-")')
     if (password !== null) strongEnough(password)
-    if (this.db.prepare('select 1 from users where username = ?').get(name)) throw new AuthError('user_exists', `user ${name} already exists`)
+    // Taken as the permissions compare names (any case, in any script): SQLite's
+    // nocase only folds ASCII, and «ángela» would inherit «Ángela»'s grants.
+    const key = subjectKey(name)
+    const names = this.db.prepare('select username from users').all() as { username: string }[]
+    if (names.some((r) => subjectKey(r.username) === key)) throw new AuthError('user_exists', `user ${name} already exists`)
     const user: User = { id: newUid(), username: name, role, disabled: false }
     this.db.prepare('insert into users (id, username, password_hash, role, created_at) values (?, ?, ?, ?, ?)')
       .run(user.id, user.username, password === null ? '' : await hashPassword(password), role, new Date().toISOString())
