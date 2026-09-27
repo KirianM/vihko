@@ -173,6 +173,13 @@ export type Alert =
    * of the content.
    */
   | { code: 'history_purged_authored'; id: string; path: string | null; version: boolean; by: string; at: string; actions: 'dismiss'[] }
+  /**
+   * Second factors stored encrypted with a THOTH_SECRET_KEY that isn't the
+   * one in force (or with none set): their codes can't be checked, so those
+   * people (`users`, names) sign in with a recovery code, or the admin takes
+   * theirs away (`thoth user reset-2fa`). Only admins see it.
+   */
+  | { code: 'two_factor_unreadable'; users: string[]; actions: never[] }
 
 /** What the thoth admin did to someone's account. */
 export type AccountChange = 'reset_link' | 'two_factor_reset' | 'role_changed'

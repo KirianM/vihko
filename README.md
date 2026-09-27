@@ -78,6 +78,7 @@ All optional:
 | `THOTH_INTEGRATIONS` | unset | `off` keeps the API with keys and the MCP server off whatever the admin turns on in the UI |
 | `THOTH_PUBLIC_URL` | unset | The `https://` address thoth is reached at from outside, behind a reverse proxy (origin only). Turns on OAuth for the MCP server while it's on, for remote assistants such as claude.ai; see [Remote MCP](#remote-mcp-with-a-public-url-oauth) |
 | `THOTH_TRUSTED_PROXIES` | unset | Addresses or CIDR ranges of your reverse proxies (`172.16.0.0/12, 10.0.0.5`). Only from them is `X-Forwarded-For` believed, to tell clients apart for the [login limits](#login-limits); unset, the connection's address counts and the header is ignored |
+| `THOTH_SECRET_KEY` / `THOTH_SECRET_KEY_FILE` | unset | A key (32 characters or more) that encrypts the second factor's secrets in `state.db`, or the file that holds it (a Docker secret). See [The second factor's key](#the-second-factors-key) |
 
 ### Command line
 
@@ -90,7 +91,7 @@ it's stopped):
 | `thoth serve` | Starts the server (what the container runs) |
 | `thoth user create <name> [--admin]` | Creates a user; the password is read from standard input |
 | `thoth user reset-link <name>` | Prints a one-time link (7 days) for that user to choose a new password: the way back for an admin who lost theirs. Any earlier link of theirs stops working. A second factor they have is still asked for after it |
-| `thoth user reset-2fa <name>` | Takes away that user's second factor (TOTP and recovery codes). With `reset-link`, the way back for an admin who lost both password and phone |
+| `thoth user reset-2fa <name>` | Takes away that user's second factor (TOTP and recovery codes). With `reset-link`, the way back for an admin who lost both password and phone; also for whoever's second factor can't be read after `THOTH_SECRET_KEY` was lost or changed |
 | `thoth history purge <path> [--version <id>] [--dry-run]` | Rewrites the managed history without a file or folder, or without one version of a file |
 
 **`thoth history purge`** is for something that should never have been kept,
@@ -224,6 +225,33 @@ Codes of the second factor (a TOTP code or a recovery code, at sign-in or when
 confirming a new key or an OAuth client) are limited the same way, with
 counters of their own for each username: knowing the password doesn't give
 fresh guesses at the code.
+
+### The second factor's key
+
+To check someone's second-factor codes, thoth has to keep the secret their
+authenticator app was given, in `state.db`. Without a key it's kept as it is:
+anyone with a copy of `state.db` (a backup) could compute that person's codes.
+With `THOTH_SECRET_KEY`, the secrets are stored encrypted (AES-256-GCM, with a
+key derived from yours), and a copy of `state.db` alone is not enough.
+
+```sh
+openssl rand -base64 32   # a key; keep it apart from the backups of the state volume
+```
+
+- Give it as `THOTH_SECRET_KEY`, or in a file named by `THOTH_SECRET_KEY_FILE`
+  (a Docker secret: `/run/secrets/…`), not both. A key shorter than 32
+  characters, or a file that can't be read, stops thoth from starting.
+- thoth never writes the key to disk or to its log, and takes it out of its
+  environment once read.
+- Setting it on an installation that already has second factors: they are
+  encrypted when thoth starts (the log says how many). Without it, they're
+  stored as before; both kinds can coexist.
+- **If the key is lost or changed**, the secrets encrypted with the old one
+  can't be read. thoth still starts, and tells the admin in «Alerts» whose
+  second factor can't be checked. Those people can still sign in with a
+  recovery code; otherwise `thoth user reset-2fa <name>` (or the admin, in
+  «Users and groups») takes theirs away so they set it up again. Putting the
+  old key back makes them readable again.
 
 ## Workspace configuration: `thoth.yaml`
 

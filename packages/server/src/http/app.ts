@@ -429,7 +429,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.get('/api/auth/me', (c) => c.json({ user: c.get('user') }))
 
   // What the UI needs to know about this installation's settings.
-  app.get('/api/config', (c) => c.json({ externalImages, maxImageBytes: notes.maxImageBytes }))
+  // `secretsEncrypted`: THOTH_SECRET_KEY is set (the privacy page says how the second factor's secret is kept).
+  app.get('/api/config', (c) => c.json({ externalImages, maxImageBytes: notes.maxImageBytes, secretsEncrypted: twoFactor.encrypted }))
 
   // Notes and folders: a folder with no notes (just created, or emptied) still shows.
   app.get('/api/tree', (c) => c.json(scoped(c).tree()))
@@ -733,6 +734,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     // Someone may be guessing passwords: only for admins, who can do something about it.
     const guessing = admin ? limiter.summary() : null
     if (guessing) alerts.push({ code: 'login_attempts_blocked', ...guessing, actions: [] })
+    // Second factors that can't be read with the THOTH_SECRET_KEY in force (twoFactor.ts).
+    const unreadable = admin ? twoFactor.unreadable() : []
+    if (unreadable.length) alerts.push({ code: 'two_factor_unreadable', users: unreadable.map(nameOf).sort(), actions: [] })
     // Notices addressed to this person (notices.ts), last: what others did to their account or their writing.
     if (!access.isAgent) for (const n of notices.of(c.get('user').id)) alerts.push(noticeAlert(n, access, nameOf))
     return c.json({ alerts })
