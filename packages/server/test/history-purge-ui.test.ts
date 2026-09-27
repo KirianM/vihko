@@ -29,7 +29,7 @@ async function objects(stateDir: string): Promise<string> {
 test('whoever manages a folder purges a version of a note in it from the UI: gone from the repository, nothing else touched; the admin gets a notice without the content', async () => {
   const h = await setup({ files: FILES, config: SHARED })
   try {
-    const SECRET = 'CLAVE-SECRETA-5d2b'
+    const SECRET = 'CLAVE-SECRETA-5d2b' // gitleaks:allow (an invented secret)
     await put(h.laura, DIARY, (t) => t + `${SECRET}\n`)
     await h.settle()
     await put(h.laura, DIARY, (t) => t.replace(`${SECRET}\n`, 'Sin secreto.\n'))
