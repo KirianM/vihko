@@ -241,7 +241,7 @@ test('a member shares a folder of her own with someone else: he sees it after re
 })
 
 test('a key\'s effective access, from «Agents and API»', async () => {
-  const r = await k.request.post('/api/keys', { data: { name: 'Lector del equipo', folders: ['acceso/equipo'] } })
+  const r = await k.request.post('/api/keys', { data: { name: 'Lector del equipo', folders: ['acceso/equipo'], confirm: PASSWORD } })
   expect(r.status(), await r.text()).toBe(201)
   keyId = (await r.json() as { key: { id: string } }).key.id
   await k.goto('/?view=agents')
