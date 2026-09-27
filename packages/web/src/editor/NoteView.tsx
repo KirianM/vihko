@@ -5,7 +5,7 @@ import { startCompletion } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Dialog, DialogTrigger, Popover, Tooltip, TooltipTrigger } from 'react-aria-components'
-import { ApiError, api, type CommentOriginal, type MoveJob, type MoveReport, type ServerConfig, type User } from '../api.ts'
+import { ApiError, api, canEdit, type CommentOriginal, type Level, type MoveJob, type MoveReport, type ServerConfig, type User } from '../api.ts'
 import { INSERT_IMAGE } from '../commands.ts'
 import { useTheme } from '../theme.ts'
 import { userColor } from '../userColor.ts'
@@ -104,6 +104,43 @@ function useAgentHiding(path: string, c: CollabState): 'ai' | 'frontmatter' | nu
     return () => { live = false }
   }, [path, c.save, block])
   return hiding
+}
+
+/**
+ * What the person may do in the note (D-038.5), from the server: asked on
+ * opening, and again when the hub says it changed while open (then the
+ * session is opened again: collab.ts). Null until known, and `none` when
+ * they can't read it any more.
+ */
+function useLevel(path: string, c: CollabState): Level | 'none' | null {
+  const [level, setLevel] = useState<{ path: string; value: Level | 'none' } | null>(null)
+  useEffect(() => {
+    if (c.access === 'none') return setLevel({ path, value: 'none' })
+    let live = true
+    api.note(path).then((n) => { if (live) setLevel({ path, value: n.level ?? 'edit' }) }, (e) => {
+      if (live && e instanceof ApiError && e.code === 'not_found') setLevel({ path, value: 'none' })
+    })
+    return () => { live = false }
+  }, [path, c.access])
+  // Until the server answers, what the hub said (it doesn't tell `manage` from `edit`).
+  if (level?.path === path) return level.value
+  return c.access === 'none' ? 'none' : c.access
+}
+
+const EyeIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" />
+  </svg>
+)
+
+/** «Read only» or «Comments only», where the save state would be: the person can't edit here. */
+function ReadOnlyBadge({ level }: { level: Level }) {
+  const t = useT()
+  return (
+    <span className="status status-readonly" role="status">
+      {EyeIcon}<span className="status-label">{t(level === 'comment' ? 'note.commentOnly' : 'note.readOnly')}</span>
+    </span>
+  )
 }
 
 /** «Hidden from agents», discreet in the header: why, on hover or focus, and on a press (a phone has no hover). */
@@ -212,9 +249,11 @@ function DailyNav({ daily, onNavigate, bar }: { daily: { prev: string | null; ne
   )
 }
 
-function EditorBar({ view, c, onComment, onImage, daily, onNavigate }: {
+function EditorBar({ view, c, level, onComment, onImage, daily, onNavigate }: {
   view: EditorView | null
   c: CollabState
+  /** Below `edit`, only what doesn't write (commenting, with `comment`). */
+  level: Level
   onComment: () => void
   onImage: () => void
   daily: { prev: string | null; next: string | null } | null
@@ -240,14 +279,18 @@ function EditorBar({ view, c, onComment, onImage, daily, onNavigate }: {
   }
   return (
     <div className="editor-bar" role="toolbar" aria-label={t('editor.bar')}>
-      <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertLink')} onPress={() => edit(wikilink, true)}>[[</Button>
-      <Button className="btn btn-icon bar-btn bar-hash" preventFocusOnPress aria-label={t('editor.insertTag')} onPress={() => edit(tag, true)}>#</Button>
-      <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertList')} onPress={() => edit((doc, from) => listItem(doc, from))}>{Icon.list}</Button>
-      <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('image.insertTitle')} onPress={onImage}>{Icon.image}</Button>
-      <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.comment')} onPress={onComment}>{Icon.comment}</Button>
+      {canEdit(level) && (
+        <>
+          <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertLink')} onPress={() => edit(wikilink, true)}>[[</Button>
+          <Button className="btn btn-icon bar-btn bar-hash" preventFocusOnPress aria-label={t('editor.insertTag')} onPress={() => edit(tag, true)}>#</Button>
+          <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertList')} onPress={() => edit((doc, from) => listItem(doc, from))}>{Icon.list}</Button>
+          <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('image.insertTitle')} onPress={onImage}>{Icon.image}</Button>
+        </>
+      )}
+      {level !== 'read' && <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.comment')} onPress={onComment}>{Icon.comment}</Button>}
       <span className="spacer" />
       {daily && <DailyNav daily={daily} onNavigate={onNavigate} bar />}
-      <span className={daily ? 'status-compact' : undefined}><SaveStatus c={c} /></span>
+      <span className={daily ? 'status-compact' : undefined}>{canEdit(level) ? <SaveStatus c={c} /> : <ReadOnlyBadge level={level} />}</span>
     </div>
   )
 }
@@ -284,6 +327,10 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
   const t = useT()
   const c = useCollab(path)
   const hiding = useAgentHiding(path, c)
+  const level = useLevel(path, c)
+  const gone = level === 'none'
+  const known: Level | null = level === 'none' ? null : level
+  const editable = canEdit(known)
   const [linkData, setLinkData] = useState<LinksData | null>(null)
   const links = useMemo(
     () => new Map<string, LinkInfo>((linkData?.outgoing ?? []).map((l) => [l.raw, { status: l.status, path: l.dst_path, candidates: l.candidates }])),
@@ -315,9 +362,9 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
     return () => { live = false }
   }, [])
 
-  // «Insert image» from the palette.
+  // «Insert image» from the palette (not for someone who can't edit the note).
   const openInsert = useRef(images.openInsert)
-  openInsert.current = images.openInsert
+  openInsert.current = editable ? images.openInsert : () => {}
   useEffect(() => {
     const open = () => openInsert.current()
     window.addEventListener(INSERT_IMAGE, open)
@@ -350,8 +397,8 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
     if (c.trashed) onTrashed({ id: c.trashed.id, path, by: c.trashed.by === user.username ? null : c.trashed.by })
   }, [c.trashed]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // History: the note's versions, kept fresh while the tab or a version is on screen.
-  const historyOn = history !== null && history.mode !== 'off'
+  // History: the note's versions, kept fresh while the tab or a version is on screen. Only with `edit` (D-034 3.5).
+  const historyOn = history !== null && history.mode !== 'off' && editable
   const versions = useVersions(historyOn || version !== null ? path : null, version !== null || (historyOn && panel.open && panel.tab === 'history'))
   // Whatever is written into the note, by anyone, may open or extend a version.
   const activity = versions.activity
@@ -383,22 +430,23 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
         {daily && !mobile && <DailyNav daily={daily} onNavigate={onNavigate} />}
         {hiding && <HiddenFromAgents why={hiding} />}
         <span className="spacer" />
-        {!mobile && <SaveStatus c={c} />}
-        <Presence c={c} />
+        {!mobile && known && (editable || c.orphaned || c.connection === 'offline' ? <SaveStatus c={c} /> : <ReadOnlyBadge level={known} />)}
+        {!gone && <Presence c={c} />}
         <SearchButton />
         <ThemeToggle />
-        <PanelToggle panel={panel} />
-        <NoteActions path={path} onMoved={onMoved} onMoveStarted={onMoveStarted} onTrashed={(id) => onTrashed({ id, path, by: null })} onInsertImage={images.openInsert} />
+        {!gone && <PanelToggle panel={panel} />}
+        {editable && <NoteActions path={path} onMoved={onMoved} onMoveStarted={onMoveStarted} onTrashed={(id) => onTrashed({ id, path, by: null })} onInsertImage={images.openInsert} />}
       </header>
-      {c.orphaned && <OrphanBanner path={path} />}
+      {c.orphaned && !gone && <OrphanBanner path={path} />}
       <SetAsideBanner path={path} c={c} onCreated={onCreated} />
       <CreateLinkUi state={createLink} />
       <div className="note-body">
         <div className="note" hidden={version !== null}>
-          {c.session && c.connection !== 'connecting' && config && (
+          {gone && <p className="empty" role="alert">{t('note.gone')}</p>}
+          {c.session && c.connection !== 'connecting' && config && known && (
             <Editor path={path} session={c.session} user={user} links={links} onNavigate={onNavigate} onView={setView} onComments={panel.showComments}
               externalImages={config.externalImages} onImageFiles={images.onFiles} onImageUrl={images.onUrl} onCreateLink={createLink.onCreateLink}
-              onPickAmbiguous={openPicker} />
+              onPickAmbiguous={openPicker} readOnly={!editable} />
           )}
         </div>
         {version !== null && (
@@ -406,13 +454,16 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
           <VersionView path={path} id={version} store={versions} exists session={c.session} closeLabel={t('version.back')}
             onClose={() => { onVersion(null); requestAnimationFrame(() => view?.focus()) }}
             onRestored={(r) => { versions.refresh(); onRestored(r) }}
-            onReverted={(r) => { versions.refresh(); onVersion(null); setReverted((p) => ({ seq: (p?.seq ?? 0) + 1, report: r })) }} />
+            onReverted={(r) => { versions.refresh(); onVersion(null); setReverted((p) => ({ seq: (p?.seq ?? 0) + 1, report: r })) }}
+            onPurged={known === 'manage' && history?.mode === 'managed' ? () => { versions.refresh(); onVersion(null) } : undefined} />
         )}
-        <NotePanel panel={panel} view={view} session={c.session} user={user} links={linkData} originals={originals} onNavigate={onNavigate}
-          onPickAmbiguous={openPicker} onOpenCandidate={openCandidate}
-          history={historyOn ? <HistoryTab store={versions} status={history} current={version} onOpen={openVersion} /> : null} />
+        {known && !gone && (
+          <NotePanel panel={panel} view={view} session={c.session} user={user} level={known} links={linkData} originals={originals} onNavigate={onNavigate}
+            onPickAmbiguous={openPicker} onOpenCandidate={openCandidate}
+            history={historyOn ? <HistoryTab store={versions} status={history} current={version} onOpen={openVersion} path={path} canPurge={known === 'manage'} onPurged={() => { versions.refresh(); onVersion(null) }} /> : null} />
+        )}
       </div>
-      {mobile && !panel.open && version === null && <EditorBar view={view} c={c} onComment={() => panel.showComments(null)} onImage={images.openInsert} daily={daily ?? null} onNavigate={onNavigate} />}
+      {mobile && !panel.open && version === null && known && <EditorBar view={view} c={c} level={known} onComment={() => panel.showComments(null)} onImage={images.openInsert} daily={daily ?? null} onNavigate={onNavigate} />}
       <ImageInsertUi ins={images} />
       {picker && (
         <AmbiguousPicker source={path} state={picker} titles={linkData?.titles ?? {}} onClose={() => setPicker(null)}

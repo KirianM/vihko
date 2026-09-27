@@ -3,7 +3,10 @@
 // reaches the disk (`thoth:saved`), when the note is deleted outside thoth,
 // when anyone moves or trashes it from thoth and when it was moved outside
 // thoth and the hub followed it, and when this session ended (then the
-// application signs out). If the hub refuses the tab's
+// application signs out). When the person's access to the note changes while
+// it's open (D-038), the hub says what they have now and closes it: it's
+// opened again at once with that (read-only below `edit`), or, with no access
+// left, not at all. If the hub refuses the tab's
 // copy on a reconnection (another document generation, see lineage.ts), the
 // session moves to the hub's document and what hadn't been sent is set aside.
 import { HocuspocusProviderWebsocket, type HocuspocusProvider } from '@hocuspocus/provider'
@@ -19,6 +22,10 @@ const ORPHAN_RESOLVED = 'thoth:orphan-resolved'
 const MOVED = 'thoth:moved'
 const TRASHED = 'thoth:trashed'
 const SESSION_ENDED = 'thoth:session-ended'
+const ACCESS = 'thoth:access'
+
+/** What the hub says a person may do in the note now: `none` means it's gone for them. */
+export type HubAccess = 'none' | 'read' | 'comment' | 'edit'
 
 /** A single WebSocket for the whole application; each open note is a document over it. */
 let socket: HocuspocusProviderWebsocket | null = null
@@ -54,6 +61,8 @@ export interface CollabState {
   setAside: SetAside | null
   /** Forgets the text set aside (kept as a copy, or discarded). */
   clearSetAside: () => void
+  /** What the hub last said this person may do in the note, when it changed while open (null: nothing said). */
+  access: HubAccess | null
 }
 
 /** `sha256:<hex>`, same as the server's `contentHash`. */
@@ -65,8 +74,13 @@ async function contentHash(text: string) {
 export function useCollab(path: string): CollabState {
   const [state, setState] = useState<CollabState>(() => ({
     session: null, connection: 'connecting', save: 'saved', orphaned: false, moved: null, trashed: null, setAside: null,
-    clearSetAside: () => setState((s) => ({ ...s, setAside: null })),
+    clearSetAside: () => setState((s) => ({ ...s, setAside: null })), access: null,
   }))
+  // Each reopening after an access change is a new session.
+  const [opening, setOpening] = useState(0)
+
+  // Another note: nothing said about it yet.
+  useEffect(() => setState((s) => ({ ...s, access: null })), [path])
 
   useEffect(() => {
     const set = (patch: Partial<CollabState>) => setState((s) => ({ ...s, ...patch }))
@@ -99,7 +113,7 @@ export function useCollab(path: string): CollabState {
         else if (status === 'connected' && provider.isSynced) set({ connection: 'online' })
       })
       provider.on('stateless', ({ payload }: { payload: string }) => {
-        let msg: { type?: string; etag?: string; to?: string; external?: boolean; id?: string; by?: string; action?: string }
+        let msg: { type?: string; etag?: string; to?: string; external?: boolean; id?: string; by?: string; action?: string; access?: string }
         try { msg = JSON.parse(payload) } catch { return }
         if (msg.type === SAVED && msg.etag) { savedHash = msg.etag; void recheck() }
         else if (msg.type === ORPHANED) set({ orphaned: true })
@@ -107,6 +121,13 @@ export function useCollab(path: string): CollabState {
         else if (msg.type === MOVED && msg.to) { closedByHub = true; set({ moved: { to: msg.to, outside: msg.external === true } }) }
         else if (msg.type === TRASHED && msg.id) { closedByHub = true; set({ trashed: { id: msg.id, by: msg.by ?? '' } }) }
         else if (msg.type === SESSION_ENDED) window.dispatchEvent(new Event(SESSION_ENDED_EVENT))
+        else if (msg.type === ACCESS && typeof msg.access === 'string') {
+          // The hub closes it right after: opened again with what the person has now, unless that's nothing.
+          const access = msg.access as HubAccess
+          closedByHub = true
+          set({ access })
+          if (access !== 'none') setOpening((n) => n + 1)
+        }
       })
     }
 
@@ -116,7 +137,7 @@ export function useCollab(path: string): CollabState {
     // document on its side: the provider leaves the shared socket without
     // sending a close, which Hocuspocus would queue and apply to a later opening.
     return () => link.destroy(closedByHub)
-  }, [path])
+  }, [path, opening])
 
   return state
 }
