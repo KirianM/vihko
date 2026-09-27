@@ -149,7 +149,8 @@ test('a read-only key for one folder: shown once, with its MCP configurations', 
   await page.reload()
   await expect(card(page, 'Claude Code e2e')).toBeVisible()
   expect(await page.content()).not.toContain(token)
-  expect(await (await page.request.get('/api/keys')).text()).not.toContain(token.split('_')[2])
+  // The secret is everything after `thoth_<id>_`: base64url, so it may hold `_` itself.
+  expect(await (await page.request.get('/api/keys')).text()).not.toContain(token.split('_').slice(2).join('_'))
   await page.screenshot({ path: `${SHOTS}/agents-light.png`, fullPage: true, animations: 'disabled' })
   await page.context().close()
 })
