@@ -1,26 +1,65 @@
 // Note side panel: links, outline and comments inside the file,
 // with two people at once.
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, MEMBER, NOTES } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
 import { editorText, literally, signIn } from './helpers.ts'
 
-const NOTE = 'panel/comentarios.md'
+const m = specMother(import.meta.url)
+const fold = (s: string) => s.toLowerCase()
+const taken: string[] = []
+/** A new title none of this spec's others is part of (nor has one inside): a link or a button found by it is that one. */
+function distinct(): string {
+  for (;;) {
+    const t = m.aTitle()
+    if (!taken.some((o) => fold(o).includes(fold(t)) || fold(t).includes(fold(o)))) return taken.push(t), t
+  }
+}
+const DIR = m.aFolder()
+const TITLE = distinct()
+const NOTE = `${DIR}/${TITLE}.md`
 const FILE = `${NOTES}/${NOTE}`
-const BODY = `# Índice del índice
+/** The commented sentence: longer than the 60 characters a quote shows. */
+let SENTENCE = m.aSentence(10)
+while (SENTENCE.length <= 60) SENTENCE = m.aSentence(10)
+/** A comment's quote in the panel: the first 57 characters and «…» past 60 (NotePanel.tsx). */
+const quote = (s: string) => (s.length > 60 ? s.slice(0, 57).trimEnd() + '…' : s)
+/** The headings, and the text under the last one. */
+const [H1, H2, H3] = [m.aHeading(), m.aHeading(), m.aHeading()]
+const LAST = m.aSentence()
+const BODY = `# ${H1}
 
-La propuesta inicial era usar Postgres con una tabla por tipo de nota.
+${SENTENCE}
 
-## Almacenamiento
+## ${H2}
 
-Texto del almacenamiento.
+${m.aSentence()}
 
-## Pruebas
+## ${H3}
 
-Texto de las pruebas.
+${LAST}
 `
-const ORIGINAL = `---\ntitle: Comentarios\n# comentario de YAML que no se toca\n---\n${BODY}`
+/** A frontmatter with a YAML comment in it, which the comments never touch (up to its end, where a uid may go). */
+const FRONTMATTER = `---\ntitle: ${m.aWord()}\n# ${m.aSentence()}\n`
+const ORIGINAL = `${FRONTMATTER}---\n${BODY}`
+/** The admin's comment and the member's reply. */
+const [COMMENTED, REPLIED] = [m.aComment(), m.aComment()]
 const disk = () => readFileSync(FILE, 'utf8')
+
+/**
+ * The caret at the very end of a line of the editor (which must have the
+ * focus). End stops where a long line wraps, and generated text may wrap
+ * anywhere: the DOM selection instead, which the editor takes as its own.
+ */
+async function toLineEnd(line: Locator) {
+  await line.evaluate((el) => {
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    range.collapse(false)
+    getSelection()!.removeAllRanges()
+    getSelection()!.addRange(range)
+  })
+}
 const SHOTS = `${E2E_DIR}/shots`
 // An author is any username: letters of any script, digits, `.`, `_`, `-`.
 const COMMENT = /<!-- @([\p{L}\p{N}._-]+) \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z · (↳ )?([^>]*) -->/u
@@ -30,7 +69,7 @@ let k: Page
 let a: Page
 
 test.beforeAll(async ({ browser }) => {
-  mkdirSync(`${NOTES}/panel`, { recursive: true })
+  mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
   mkdirSync(SHOTS, { recursive: true })
   writeFileSync(FILE, ORIGINAL)
   k = await signIn(browser, ADMIN, NOTE)
@@ -58,32 +97,36 @@ test('links: backlinks with context', async () => {
 })
 
 test('links: a note\'s links to itself are neither outgoing nor backlinks, and still show as working links in the editor', async () => {
-  writeFileSync(`${NOTES}/panel/propia.md`, '# Propia\n\n## Índice\n\nVer [[#Índice]] y [[propia]]. También [[comentarios]].\n')
-  await k.goto('/?note=panel/propia.md')
+  const self = distinct()
+  const heading = m.aHeading()
+  writeFileSync(`${NOTES}/${DIR}/${self}.md`, `# ${self}\n\n## ${heading}\n\n${m.aWord()} [[#${heading}]] y [[${self}]]. ${m.aWord()} [[${TITLE}]].\n`)
+  await k.goto(`/?note=${encodeURIComponent(`${DIR}/${self}.md`)}`)
   await k.getByRole('tab', { name: /Enlaces/ }).click()
   const panel = k.getByRole('complementary', { name: 'Comentarios y contexto' })
   await expect(panel.getByRole('heading', { name: 'Salientes · 1' })).toBeVisible()
   await expect(panel.getByRole('heading', { name: 'Entrantes · 0' })).toBeVisible()
   await expect(panel.locator('.link-list').first().locator(':scope > li')).toHaveCount(1)
-  await expect(panel.getByRole('button', { name: /comentarios/ })).toBeVisible()
+  await expect(panel.getByRole('button', { name: new RegExp(literally(TITLE), 'u') })).toBeVisible()
   await expect(k.getByRole('tab', { name: /Enlaces/ })).toHaveText('Enlaces · 1')
-  // In the text, [[propia]] still leads somewhere: not shown as missing.
-  await expect(k.locator('.cm-wikilink-resolved', { hasText: 'propia' })).toHaveCount(1)
+  // In the text, [[self]] still leads somewhere: not shown as missing.
+  await expect(k.locator('.cm-wikilink-resolved', { hasText: self })).toHaveCount(1)
   await expect(k.locator('.cm-wikilink-missing')).toHaveCount(0)
 })
 
 test('outline: live headings; clicking one moves the cursor there', async () => {
-  await k.goto(`/?note=${NOTE}`)
+  await k.goto(`/?note=${encodeURIComponent(NOTE)}`)
   await k.getByRole('tab', { name: 'Índice' }).click()
   const toc = k.locator('.toc-item')
-  await expect(toc).toHaveText(['Índice del índice', 'Almacenamiento', 'Pruebas'])
-  await toc.filter({ hasText: 'Pruebas' }).click()
-  await expect(k.locator('.toc-current')).toHaveText('Pruebas')
+  await expect(toc).toHaveText([H1, H2, H3])
+  await toc.nth(2).click()
+  await expect(k.locator('.toc-current')).toHaveText(H3)
   // What's typed shows up in the outline without saving or reloading (the member types it).
-  await a.locator('.cm-line', { hasText: 'Texto de las pruebas' }).click()
-  await a.keyboard.press('End')
-  await a.keyboard.type('\n\n### Carga')
-  await expect(toc).toHaveText(['Índice del índice', 'Almacenamiento', 'Pruebas', 'Carga'])
+  const typed = m.aHeading()
+  const line = a.locator('.cm-line', { hasText: LAST })
+  await line.click()
+  await toLineEnd(line)
+  await a.keyboard.type(`\n\n### ${typed}`)
+  await expect(toc).toHaveText([H1, H2, H3, typed])
   await a.keyboard.press('Control+z')
   await expect(toc).toHaveCount(3)
 })
@@ -94,35 +137,41 @@ test('commenting, seeing it live, replying: all inside the file, in the format d
   await expect(k.getByText('Esta nota no tiene comentarios', { exact: false })).toBeVisible()
 
   // The admin selects the sentence and comments.
-  await k.locator('.cm-line', { hasText: 'usar Postgres' }).click()
-  await k.keyboard.press('Home')
-  await k.keyboard.press('Shift+End')
+  // The whole line (Shift+End stops where it wraps, and it may): the DOM selection, which the editor takes.
+  const line = k.locator('.cm-line', { hasText: SENTENCE })
+  await line.click()
+  await line.evaluate((el) => {
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    getSelection()!.removeAllRanges()
+    getSelection()!.addRange(range)
+  })
   await k.getByRole('button', { name: 'Comentar la selección' }).click()
-  await expect(k.locator('.thread-draft .thread-quote')).toHaveText(/^«La propuesta inicial era usar Postgres con una .*…»$/)
-  await k.getByRole('textbox', { name: 'Escribe un comentario…' }).fill('esto no, usa SQLite')
+  await expect(k.locator('.thread-draft .thread-quote')).toHaveText(`«${quote(SENTENCE)}»`)
+  await k.getByRole('textbox', { name: 'Escribe un comentario…' }).fill(COMMENTED)
   await k.keyboard.press('Enter')
 
-  await expect.poll(disk).toMatch(new RegExp(`tipo de nota\\.<!-- @${literally(ADMIN.username)} \\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}Z · esto no, usa SQLite -->\\n\\n## Almacenamiento`))
-  expect(disk().startsWith('---\ntitle: Comentarios\n# comentario de YAML que no se toca\n')).toBe(true)
+  await expect.poll(disk).toMatch(new RegExp(`${literally(SENTENCE)}<!-- @${literally(ADMIN.username)} \\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}Z · ${literally(COMMENTED)} -->\\n\\n## ${literally(H2)}\\n`, 'u'))
+  expect(disk().startsWith(FRONTMATTER)).toBe(true)
 
   // The member sees it live: thread in the panel and the text highlighted; the syntax stays hidden.
-  const thread = a.locator('.thread', { hasText: 'esto no, usa SQLite' })
+  const thread = a.locator('.thread', { hasText: COMMENTED })
   await expect(thread).toBeVisible()
   await expect(thread.locator('.comment b')).toHaveText(ADMIN.username)
-  await expect(a.locator('.cm-commented')).toHaveText('La propuesta inicial era usar Postgres con una tabla por tipo de nota.')
+  await expect(a.locator('.cm-commented')).toHaveText(SENTENCE)
   await expect.poll(() => editorText(a)).not.toContain('<!--')
   await expect(a.getByRole('tab', { name: 'Comentarios · 1' })).toBeVisible()
 
   // The member replies; the reply goes on its own line, with ↳.
   await thread.getByRole('button', { name: 'Responder' }).click()
-  await a.getByRole('textbox', { name: 'Escribe una respuesta…' }).fill('de acuerdo, lo cambio')
+  await a.getByRole('textbox', { name: 'Escribe una respuesta…' }).fill(REPLIED)
   await a.keyboard.press('Enter')
-  await expect.poll(disk).toMatch(new RegExp(`usa SQLite -->\\n<!-- @${literally(MEMBER.username)} \\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}Z · ↳ de acuerdo, lo cambio -->\\n\\n## Almacenamiento`))
+  await expect.poll(disk).toMatch(new RegExp(`${literally(COMMENTED)} -->\\n<!-- @${literally(MEMBER.username)} \\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}Z · ↳ ${literally(REPLIED)} -->\\n\\n## ${literally(H2)}\\n`, 'u'))
   const replies = k.locator('.thread').first().locator('.comment')
   await expect(replies).toHaveCount(2)
   await expect(replies.nth(1)).toHaveClass(/comment-reply/)
   const lines = disk().split('\n').filter((l) => l.includes('<!--'))
-  expect(lines.map((l) => COMMENT.exec(l)?.slice(1))).toEqual([[ADMIN.username, undefined, 'esto no, usa SQLite'], [MEMBER.username, '↳ ', 'de acuerdo, lo cambio']])
+  expect(lines.map((l) => COMMENT.exec(l)?.slice(1))).toEqual([[ADMIN.username, undefined, COMMENTED], [MEMBER.username, '↳ ', REPLIED]])
 })
 
 test('screenshots: light, dark and narrow', async () => {
@@ -142,7 +191,7 @@ test('narrow screen: panel hidden, notice under the paragraph, and overlaid pane
   await notice.click()
   const panel = a.getByRole('complementary', { name: 'Comentarios y contexto' })
   await expect(panel).toBeVisible()
-  await expect(panel.locator('.thread-active')).toContainText('esto no, usa SQLite')
+  await expect(panel.locator('.thread-active')).toContainText(COMMENTED)
   await a.screenshot({ path: `${SHOTS}/panel-overlay.png` })
   await panel.getByRole('button', { name: 'Ocultar el panel lateral' }).click()
   await expect(panel).toHaveCount(0)
@@ -154,24 +203,25 @@ const originals = async (p: Page) => {
   const r = await p.request.get(`/api/note/comments?path=${encodeURIComponent(NOTE)}`)
   return ((await r.json()) as { threads: { original: string; changed: boolean }[] }).threads.map((t) => [t.original, t.changed])
 }
-const SENTENCE = 'La propuesta inicial era usar Postgres con una tabla por tipo de nota.'
 
 test('the text has changed: rewriting the commented sentence marks the thread for everyone; restoring it clears the mark', async () => {
   await expect.poll(() => originals(k)).toEqual([[SENTENCE, false]])
-  const thread = (p: Page) => p.locator('.thread', { hasText: 'esto no, usa SQLite' })
+  const thread = (p: Page) => p.locator('.thread', { hasText: COMMENTED })
   await expect(thread(k).locator('.thread-changed')).toHaveCount(0)
 
-  await k.locator('.cm-line', { hasText: 'usar Postgres' }).click()
+  const prefix = `${m.aWord()}: `
+  // On its first row (it may wrap): Home goes to the start of the row clicked.
+  await k.locator('.cm-line', { hasText: SENTENCE }).click({ position: { x: 4, y: 6 } })
   await k.keyboard.press('Home')
-  await k.keyboard.type('Al final no: ')
+  await k.keyboard.type(prefix)
   for (const p of [k, a]) {
     await expect(thread(p).locator('.thread-changed-badge')).toHaveText('El texto ha cambiado')
-    await expect(thread(p).locator('.thread-original')).toHaveText(/^Texto original: «La propuesta inicial era usar Postgres con una .*…»$/)
+    await expect(thread(p).locator('.thread-original')).toHaveText(`Texto original: «${quote(SENTENCE)}»`)
   }
   // The server says the same (it reads an open note as its editors have it);
   // once saved, the note file holds nothing of it.
   await expect.poll(() => originals(k)).toEqual([[SENTENCE, true]])
-  await expect.poll(disk).toContain(`Al final no: ${SENTENCE}<!-- @${ADMIN.username} `)
+  await expect.poll(disk).toContain(`${prefix}${SENTENCE}<!-- @${ADMIN.username} `)
   expect(disk()).not.toContain('Texto original')
 
   await k.screenshot({ path: `${SHOTS}/comment-changed-light.png` })
@@ -189,12 +239,12 @@ test('the text has changed: rewriting the commented sentence marks the thread fo
   // The line wraps now: clicked on its first row. Home twice: with leading
   // spaces the first one stops after them.
   const select = async (n: number) => {
-    await k.locator('.cm-line', { hasText: 'propuesta inicial' }).click({ position: { x: 4, y: 6 } })
+    await k.locator('.cm-line', { hasText: SENTENCE }).click({ position: { x: 4, y: 6 } })
     await k.keyboard.press('Home')
     await k.keyboard.press('Home')
     for (let i = 0; i < n; i++) await k.keyboard.press('Shift+ArrowRight')
   }
-  await select('Al final no: '.length)
+  await select(prefix.length)
   await k.keyboard.type('  ')
   await expect.poll(() => originals(k)).toEqual([[SENTENCE, false]])
   await expect(thread(k).locator('.thread-changed')).toHaveCount(0)
@@ -213,7 +263,7 @@ test('resolving deletes the thread from the file and leaves the text as it was',
   await expect(k.locator('.thread-confirm')).toHaveCount(0)
   await expect.poll(disk).not.toContain('<!--')
   expect(disk()).toContain(BODY)
-  expect(disk().startsWith('---\ntitle: Comentarios\n# comentario de YAML que no se toca\n')).toBe(true)
+  expect(disk().startsWith(FRONTMATTER)).toBe(true)
   await expect(a.locator('.thread')).toHaveCount(0)
   await expect(a.locator('.cm-commented')).toHaveCount(0)
 })

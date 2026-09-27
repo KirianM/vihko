@@ -5,11 +5,13 @@
 // a key doesn't find the note.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
-import { ADMIN, BASE_URL, E2E_DIR } from './env.ts'
+import { ADMIN, BASE_URL, E2E_DIR, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
-const LIVE = 'e2e-oculta/Cambia.md'
+const m = specMother(import.meta.url)
+// The hidden notes, the unreadable one and Plan.md are testdata/vault's (privado/sin-ia.md, frontmatter/invalido.md).
+const LIVE = m.aNotePath(m.aFolder())
 
 test.describe.configure({ mode: 'serial' })
 test.beforeAll(() => mkdirSync(SHOTS, { recursive: true }))
@@ -47,7 +49,7 @@ test('ai: false and an unreadable frontmatter show it, with why; other notes don
 
   // What it says holds: a key that names the note is told it exists and is not for agents (agent_denied), and gets nothing of it.
   await page.request.put('/api/admin/integrations', { data: { api: true } })
-  const { key, token } = await (await page.request.post('/api/keys', { data: { confirm: ADMIN.password, name: 'Oculta e2e' } })).json() as { key: { id: string }; token: string }
+  const { key, token } = await (await page.request.post('/api/keys', { data: { confirm: ADMIN.password, name: m.aKeyName() } })).json() as { key: { id: string }; token: string }
   try {
     const auth = { Authorization: `Bearer ${token}` }
     for (const path of ['privado/sin-ia.md', 'frontmatter/invalido.md']) {
@@ -67,16 +69,17 @@ test('ai: false and an unreadable frontmatter show it, with why; other notes don
 
 test('it follows the frontmatter: shown once ai: false is saved, gone once it isn’t', async ({ browser }) => {
   const page = await signIn(browser, ADMIN)
-  const created = await page.request.post('/api/note', { data: { path: LIVE, text: '---\nai: true\n---\n# Cambia\n\nTexto.\n' } })
+  const text = m.aSentence()
+  const created = await page.request.post('/api/note', { data: { path: LIVE, text: `---\nai: true\n---\n# ${m.aHeading()}\n\n${text}\n` } })
   expect(created.status()).toBe(201)
   await open(page, LIVE)
-  await expect(page.locator('.cm-content')).toContainText('Texto.')
+  await expect(page.locator('.cm-content')).toContainText(text)
   await expect(badge(page)).toHaveCount(0)
   // Changed while it is open (by the same person in another tab: an edit by operation).
   const edit = (find: string, replace: string) => page.request.post('/api/note/edit', { data: { path: LIVE, ops: [{ op: 'find_replace', find, replace }] } })
   expect((await edit('ai: true', 'ai: false')).status()).toBe(200)
   await expect(badge(page)).toBeVisible({ timeout: 10_000 })
-  expect((await edit('ai: false', 'ai: yes')).status()).toBe(200)
+  expect((await edit('ai: false', 'ai: yes')).status()).toBe(200) // not the boolean false: not hidden
   await expect(badge(page)).toHaveCount(0, { timeout: 10_000 })
   await page.context().close()
 })

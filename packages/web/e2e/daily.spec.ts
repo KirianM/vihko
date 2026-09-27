@@ -5,22 +5,37 @@
 // keeps working; two timezones, two dates.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, MEMBER, NOTES } from './env.ts'
-import { editorText, signIn, writeWorkspace } from './helpers.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
+import { editorText, literally, signIn, writeWorkspace } from './helpers.ts'
 
 type Person = { username: string; password: string }
 
 const SHOTS = `${E2E_DIR}/shots`
+const m = specMother(import.meta.url)
+/** A series id (thoth's: ASCII letters, digits, `_` and `-`). */
+const seriesId = () => m.anId()
+/** The templates folder, the template, and two series: each person's own, and a team one. */
+const TEMPLATES = m.aFolder()
+const TEMPLATE = m.aTitle()
+const OWN = { id: seriesId(), label: m.aHeading(), folder: m.aFolder() }
+const TEAM = { id: seriesId(), label: m.aHeading(), folder: m.aFolder() }
+const TEMPLATE_TAG = m.aTag()
+/** A placeholder the template language doesn't know ({{letters}}): left as it is. */
+const UNKNOWN = `{{${m.faker.string.alpha({ length: 10 })}}}`
+/** What the template writes before the user's name. */
+const BY = m.aSentence(m.anInt(1, 3)).slice(0, -1)
+const q = JSON.stringify
+// Line 2 is `templates:`, line 10 the team's folder: the alerts below name them.
 const CONFIG = `# e2e
-templates: e2e-plantillas
+templates: ${q(TEMPLATES)}
 daily:
-  diario:
-    label: Diario personal
-    folder: e2e-diario/{user}
-    template: e2e-plantillas/Diario
-  equipo:
-    label: Equipo
-    folder: e2e-equipo
+  ${OWN.id}:
+    label: ${q(OWN.label)}
+    folder: ${q(`${OWN.folder}/{user}`)}
+    template: ${q(`${TEMPLATES}/${TEMPLATE}`)}
+  ${TEAM.id}:
+    label: ${q(TEAM.label)}
+    folder: ${q(TEAM.folder)}
 `
 // UTC+14 and UTC-11: never on the same date, whatever the time of the run.
 const EAST = 'Pacific/Kiritimati'
@@ -29,10 +44,11 @@ const WEST = 'Pacific/Pago_Pago'
 test.describe.configure({ mode: 'serial' })
 
 test.beforeAll(() => {
-  mkdirSync(`${NOTES}/e2e-plantillas`, { recursive: true })
-  mkdirSync(`${NOTES}/e2e-diario/${ADMIN.username}`, { recursive: true })
-  writeFileSync(`${NOTES}/e2e-plantillas/Diario.md`, '---\ntags: [diario]\n---\n# {{date:DD/MM/YYYY}}\n\nEscrito por {{user}}. {{desconocida}}\n')
-  writeFileSync(`${NOTES}/e2e-diario/${ADMIN.username}/2020-01-01.md`, '# Hace tiempo\n')
+  mkdirSync(`${NOTES}/${TEMPLATES}`, { recursive: true })
+  mkdirSync(`${NOTES}/${OWN.folder}/${ADMIN.username}`, { recursive: true })
+  writeFileSync(`${NOTES}/${TEMPLATES}/${TEMPLATE}.md`, `---\ntags: [${TEMPLATE_TAG}]\n---\n# {{date:DD/MM/YYYY}}\n\n${BY} {{user}}. ${UNKNOWN}\n`)
+  // An older note of the series, for previous/next.
+  writeFileSync(`${NOTES}/${OWN.folder}/${ADMIN.username}/2020-01-01.md`, `# ${m.aHeading()}\n`)
   writeWorkspace(CONFIG)
 })
 
@@ -40,7 +56,7 @@ test.beforeAll(() => {
 // Notes that were open in an editor go through thoth's trash, so none is left as a pending copy.
 test.afterAll(async ({ browser }) => {
   writeWorkspace()
-  const dirs = ['e2e-plantillas', 'e2e-diario', 'e2e-equipo']
+  const dirs = [TEMPLATES, OWN.folder, TEAM.folder]
   for (const user of [ADMIN, MEMBER]) {
     const page = await signIn(browser, user)
     await page.request.put('/api/profile', { data: { dailySeries: null, openDailyOnStart: false } })
@@ -56,6 +72,8 @@ test.afterAll(async ({ browser }) => {
 /** Today's date (YYYY-MM-DD) in a timezone. */
 const dateIn = (timeZone: string) => new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
 const ddmmyyyy = (iso: string) => iso.split('-').reverse().join('/')
+/** A zone as the browser reports it (the canonical name of an alias). */
+const canonical = (timeZone: string) => new Intl.DateTimeFormat('en-US', { timeZone }).resolvedOptions().timeZone
 
 /** Signs in and sets the profile timezone, after the first-sign-in one from the browser. */
 async function signInAt(browser: Browser, user: Person, timeZone: string, note?: string): Promise<Page> {
@@ -77,45 +95,48 @@ test('first sign-in: the profile takes the browser\'s timezone', async ({ browse
   await before.request.put('/api/profile', { data: { timezone: null } })
   await before.context().close()
 
-  const ctx = await browser.newContext({ timezoneId: 'America/Bogota' })
+  const zone = m.aTimeZone()
+  const ctx = await browser.newContext({ timezoneId: zone })
   const page = await ctx.newPage()
   await page.goto('/')
   await page.getByLabel('Nombre de usuario').fill(MEMBER.username)
   await page.getByLabel('Contraseña').fill(MEMBER.password)
   await page.getByRole('button', { name: 'Entrar' }).last().click()
   await expect(page.getByRole('treegrid')).toBeVisible()
-  await expect.poll(async () => (await (await page.request.get('/api/profile')).json()).timezone).toBe('America/Bogota')
+  await expect.poll(async () => (await (await page.request.get('/api/profile')).json()).timezone).toBe(canonical(zone))
   await ctx.close()
 })
 
 test('«Today» creates the note from the template in the series folder, then only opens it', async ({ browser }) => {
   k = await signInAt(browser, ADMIN, EAST)
   const today = dateIn(EAST)
-  const path = `e2e-diario/${ADMIN.username}/${today}.md`
+  const path = `${OWN.folder}/${ADMIN.username}/${today}.md`
   await expect(todayButton(k)).toBeVisible()
   await todayButton(k).click()
   await expect(k.locator('.crumbs b')).toHaveText(today)
-  await expect(k).toHaveURL(new RegExp(`\\?note=${encodeURIComponent(path).replace(/\./g, '\\.')}$`))
-  await expect.poll(() => editorText(k)).toContain(`Escrito por ${ADMIN.username}. {{desconocida}}`)
+  // The page writes the path with URLSearchParams: a space as `+`.
+  await expect(k).toHaveURL(new RegExp(`\\?note=${literally(encodeURIComponent(path)).replace(/%20/g, '(?:\\+|%20)')}$`))
+  await expect.poll(() => editorText(k)).toContain(`${BY} ${ADMIN.username}. ${UNKNOWN}`)
   const onDisk = readFileSync(`${NOTES}/${path}`, 'utf8')
-  expect(onDisk).toMatch(new RegExp(`^---\\ntags: \\[diario\\]\\nuid: \\w+\\n---\\n# ${ddmmyyyy(today).replace(/\//g, '\\/')}\\n`))
+  expect(onDisk).toMatch(new RegExp(`^---\\ntags: \\[${literally(TEMPLATE_TAG)}\\]\\nuid: \\w+\\n---\\n# ${ddmmyyyy(today).replace(/\//g, '\\/')}\\n`))
   // The tree shows it where it is.
   await expect(k.getByRole('row', { name: today })).toHaveAttribute('aria-selected', 'true')
 
   // Written in, then «Today» again (the shortcut, from another note): the same note, untouched.
   await k.locator('.cm-content').click()
   await k.keyboard.press('Control+End')
-  await k.keyboard.type('\nsegunda visita')
-  await expect.poll(() => readFileSync(`${NOTES}/${path}`, 'utf8')).toContain('segunda visita')
+  const again = m.aUniqueWord()
+  await k.keyboard.type(`\n${again}`)
+  await expect.poll(() => readFileSync(`${NOTES}/${path}`, 'utf8')).toContain(again)
   await k.goto('/?note=Plan.md')
   await expect(k.locator('.crumbs b')).toHaveText('Plan')
   await expect(todayButton(k)).toBeVisible() // thoth.yaml read: the shortcut is live
   await k.keyboard.press('Control+Alt+d')
   await expect(k.locator('.crumbs b')).toHaveText(today)
-  await expect.poll(() => editorText(k)).toContain('segunda visita')
+  await expect.poll(() => editorText(k)).toContain(again)
   await todayButton(k).click()
   await expect(k.locator('.crumbs b')).toHaveText(today)
-  expect(readFileSync(`${NOTES}/${path}`, 'utf8')).toContain('segunda visita')
+  expect(readFileSync(`${NOTES}/${path}`, 'utf8')).toContain(again)
 })
 
 test('previous and next in the header: the nearest notes of the series that exist', async () => {
@@ -144,15 +165,16 @@ test('palette: «today\'s note» command and a new note from a template', async 
 
   await k.goto('/?note=Plan.md')
   await k.locator('nav.sidebar').getByRole('button', { name: 'Nueva nota' }).click()
-  await k.getByRole('dialog').getByRole('textbox').fill('Reunión e2e')
-  const option = k.getByRole('option', { name: 'Crear «Reunión e2e» con la plantilla Diario' })
+  const title = m.aTitle()
+  await k.getByRole('dialog').getByRole('textbox').fill(title)
+  const option = k.getByRole('option', { name: `Crear «${title}» con la plantilla ${TEMPLATE}` })
   await expect(option).toBeVisible()
   await k.screenshot({ path: `${SHOTS}/daily-palette-template.png` })
   await option.click()
-  await expect(k.locator('.crumbs b')).toHaveText('Reunión e2e')
-  await expect.poll(() => editorText(k)).toContain(`Escrito por ${ADMIN.username}.`)
-  expect(readFileSync(`${NOTES}/Reunión e2e.md`, 'utf8')).toContain(`# ${ddmmyyyy(dateIn(EAST))}`)
-  expect((await k.request.delete(`/api/note?path=${encodeURIComponent('Reunión e2e.md')}`)).ok()).toBe(true)
+  await expect(k.locator('.crumbs b')).toHaveText(title)
+  await expect.poll(() => editorText(k)).toContain(`${BY} ${ADMIN.username}.`)
+  expect(readFileSync(`${NOTES}/${title}.md`, 'utf8')).toContain(`# ${ddmmyyyy(dateIn(EAST))}`)
+  expect((await k.request.delete(`/api/note?path=${encodeURIComponent(`${title}.md`)}`)).ok()).toBe(true)
 })
 
 test('another timezone near midnight gets another date', async ({ browser }) => {
@@ -161,8 +183,8 @@ test('another timezone near midnight gets another date', async ({ browser }) => 
   const theirs = dateIn(WEST)
   expect(theirs).not.toBe(dateIn(EAST))
   await expect(member.locator('.crumbs b')).toHaveText(theirs)
-  expect(existsSync(`${NOTES}/e2e-diario/${MEMBER.username}/${theirs}.md`)).toBe(true)
-  expect(existsSync(`${NOTES}/e2e-diario/${MEMBER.username}/${dateIn(EAST)}.md`)).toBe(false)
+  expect(existsSync(`${NOTES}/${OWN.folder}/${MEMBER.username}/${theirs}.md`)).toBe(true)
+  expect(existsSync(`${NOTES}/${OWN.folder}/${MEMBER.username}/${dateIn(EAST)}.md`)).toBe(false)
   await member.context().close()
 })
 
@@ -171,7 +193,7 @@ test('preferences: series and «open on start», which never creates a note', as
   await k.getByRole('button', { name: 'Preferencias' }).click()
   const dialog = k.getByRole('dialog', { name: 'Preferencias' })
   await expect(dialog.getByLabel('Zona horaria')).toHaveValue(EAST)
-  await dialog.getByLabel('Serie de la nota del día').selectOption('equipo')
+  await dialog.getByLabel('Serie de la nota del día').selectOption(TEAM.id)
   await dialog.getByLabel('Abrir la nota de hoy al entrar').check()
   await k.screenshot({ path: `${SHOTS}/daily-preferences-light.png` })
   await dialog.getByRole('button', { name: 'Guardar' }).click()
@@ -181,12 +203,12 @@ test('preferences: series and «open on start», which never creates a note', as
   await k.goto('/')
   await expect(k.getByRole('treegrid')).toBeVisible()
   await expect(k.getByText('Elige una nota en el árbol.')).toBeVisible()
-  expect(existsSync(`${NOTES}/e2e-equipo/${dateIn(EAST)}.md`)).toBe(false)
+  expect(existsSync(`${NOTES}/${TEAM.folder}/${dateIn(EAST)}.md`)).toBe(false)
   // «Today» does, in the chosen series, without a template: empty but for the uid.
   await todayButton(k).click()
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
-  await expect(k.locator('.crumbs-path')).toContainText('e2e-equipo')
-  expect(readFileSync(`${NOTES}/e2e-equipo/${dateIn(EAST)}.md`, 'utf8')).toMatch(/^---\nuid: \w+\n---\n$/)
+  await expect(k.locator('.crumbs-path')).toContainText(TEAM.folder)
+  expect(readFileSync(`${NOTES}/${TEAM.folder}/${dateIn(EAST)}.md`, 'utf8')).toMatch(/^---\nuid: \w+\n---\n$/)
   // Now it exists, so opening thoth opens it; a note in the URL wins.
   await k.goto('/')
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
@@ -210,14 +232,14 @@ test('thoth.yaml: an unknown key is ignored with a warning; an invalid file keep
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
 
   // A wrong value in a known key: the whole file waits, the last good one stays.
-  writeWorkspace(CONFIG.replace('folder: e2e-equipo', 'folder: ../e2e-equipo'))
+  writeWorkspace(CONFIG.replace(`folder: ${q(TEAM.folder)}`, `folder: ${q(`../${TEAM.folder}`)}`))
   await expect(async () => {
     await k.goto('/?view=avisos')
     await expect(k.locator('.alert-card', { hasText: 'no se puede usar' })).toBeVisible({ timeout: 1000 })
   }).toPass({ timeout: 20_000 })
   const card = k.locator('.alert-card', { hasText: 'no se puede usar' })
   await expect(card).toContainText('thoth sigue con la última versión válida')
-  await expect(card.getByRole('listitem')).toHaveText('línea 10 · daily.equipo.folder Ruta no válida: relativa a la carpeta de notas, sin «..» ni carpetas ocultas.')
+  await expect(card.getByRole('listitem')).toHaveText(`línea 10 · daily.${TEAM.id}.folder Ruta no válida: relativa a la carpeta de notas, sin «..» ni carpetas ocultas.`)
   await k.screenshot({ path: `${SHOTS}/daily-alert-light.png` })
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()
   await k.screenshot({ path: `${SHOTS}/daily-alert-dark.png` })
@@ -232,11 +254,11 @@ test('thoth.yaml: an unknown key is ignored with a warning; an invalid file keep
     await expect(k.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 1000 })
     await expect(k.locator('.alert-card', { hasText: /no se puede usar|salvo algunas partes/ })).toHaveCount(0, { timeout: 1000 })
   }).toPass({ timeout: 20_000 })
-  await k.request.put('/api/profile', { data: { dailySeries: 'diario', openDailyOnStart: false } })
+  await k.request.put('/api/profile', { data: { dailySeries: OWN.id, openDailyOnStart: false } })
 })
 
 test('screenshots: note header with previous/next, light and dark', async () => {
-  await k.goto(`/?note=${encodeURIComponent(`e2e-diario/${ADMIN.username}/${dateIn(EAST)}.md`)}`)
+  await k.goto(`/?note=${encodeURIComponent(`${OWN.folder}/${ADMIN.username}/${dateIn(EAST)}.md`)}`)
   await expect(k.locator('.cm-content')).toBeVisible()
   await k.screenshot({ path: `${SHOTS}/daily-note-light.png` })
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()

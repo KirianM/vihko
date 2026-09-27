@@ -3,11 +3,14 @@
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
-import { signIn } from './helpers.ts'
+import { literally, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
+/** A path as the UI shows it: `a/b.md` → `a / b`. */
+const label = (path: string) => path.replace(/\.md$/i, '').split('/').join(' / ')
 
-const DIR = `${NOTES}/e2e-avisos`
+const FOLDER = m.aFolder()
+const DIR = `${NOTES}/${FOLDER}`
 const SHOTS = `${E2E_DIR}/shots`
 
 test.describe.configure({ mode: 'serial' })
@@ -27,47 +30,50 @@ async function waitForCard(page: Page, text: string) {
 }
 
 test('duplicate uid: appears after the rescan and both notes open', async ({ browser }) => {
-  writeFileSync(`${DIR}/Original.md`, '---\nuid: E2E-AVISOS\n---\n# Original\n')
-  writeFileSync(`${DIR}/Copia.md`, '---\nuid: E2E-AVISOS\n---\n# Copia\n')
+  const [original, copy] = [m.aTitle(), m.aTitle()]
+  const uid = m.aUniqueWord().toUpperCase()
+  writeFileSync(`${DIR}/${original}.md`, `---\nuid: ${uid}\n---\n# ${original}\n`)
+  writeFileSync(`${DIR}/${copy}.md`, `---\nuid: ${uid}\n---\n# ${copy}\n`)
   const k = await signIn(browser, ADMIN)
   await k.locator('.sidebar-alerts').click()
   await expect(k).toHaveURL(/\?view=avisos$/)
   await expect(k.getByRole('heading', { level: 1 })).toHaveText('Avisos del espacio')
-  await waitForCard(k, 'E2E-AVISOS')
-  const uid = card(k, 'E2E-AVISOS')
-  await expect(uid.getByRole('heading')).toHaveText('Mismo identificador en 2 notas')
-  await expect(uid.getByRole('button')).toHaveCount(0) // fixed in the frontmatter, not with a button
-  await uid.getByRole('link', { name: 'e2e-avisos/Copia.md' }).click()
-  await expect(k.locator('.crumbs b')).toHaveText('Copia')
-  await expect(k).toHaveURL(/\?note=e2e-avisos%2FCopia\.md$/)
+  await waitForCard(k, uid)
+  const both = card(k, uid)
+  await expect(both.getByRole('heading')).toHaveText('Mismo identificador en 2 notas')
+  await expect(both.getByRole('button')).toHaveCount(0) // fixed in the frontmatter, not with a button
+  await both.getByRole('link', { name: `${FOLDER}/${copy}.md` }).click()
+  await expect(k.locator('.crumbs b')).toHaveText(copy)
+  await expect(k).toHaveURL(new RegExp(`\\?note=${literally(encodeURIComponent(`${FOLDER}/${copy}.md`)).replace(/%20/g, '(?:\\+|%20)')}$`))
   await expect(k.locator('.cm-content')).toBeVisible()
   await k.goto('/?view=avisos')
-  await card(k, 'E2E-AVISOS').getByRole('link', { name: 'e2e-avisos/Original.md' }).click()
-  await expect(k.locator('.crumbs b')).toHaveText('Original')
-  rmSync(`${DIR}/Copia.md`)
+  await card(k, uid).getByRole('link', { name: `${FOLDER}/${original}.md` }).click()
+  await expect(k.locator('.crumbs b')).toHaveText(original)
+  rmSync(`${DIR}/${copy}.md`)
   await k.context().close()
 })
 
 test('pending copy of a note deleted externally: kept from the page and the count drops', async ({ browser }) => {
-  const NOTE = 'e2e-avisos/Borrada.md'
+  const NOTE = m.aNotePath(FOLDER)
   const file = `${NOTES}/${NOTE}`
-  writeFileSync(file, '# Borrada\n')
+  const typed = m.aUniqueWord()
+  writeFileSync(file, `# ${m.aHeading()}\n`)
   const k = await signIn(browser, ADMIN, NOTE)
   await k.locator('.cm-content').click()
   await k.keyboard.press('Control+End')
-  await k.keyboard.type('\nescrito antes del borrado')
-  await expect.poll(() => (existsSync(file) ? readFileSync(file, 'utf8') : '')).toContain('antes del borrado')
+  await k.keyboard.type(`\n${typed}`)
+  await expect.poll(() => (existsSync(file) ? readFileSync(file, 'utf8') : '')).toContain(typed)
   rmSync(file)
   await expect(k.getByRole('alert')).toContainText('se ha borrado fuera', { timeout: 15_000 }) // after the grace for a move (6 s)
 
   // The editor is closed without deciding: the copy stays as an alert.
   await k.goto('/?view=avisos')
-  const orphan = card(k, 'Copia pendiente de «e2e-avisos / Borrada»')
+  const orphan = card(k, `Copia pendiente de «${label(NOTE)}»`)
   await expect(orphan).toBeVisible()
   const before = await sidebarCount(k)
   await orphan.getByRole('button', { name: 'Conservar la copia' }).click()
   await expect(orphan).toHaveCount(0)
-  expect(readFileSync(file, 'utf8')).toContain('antes del borrado')
+  expect(readFileSync(file, 'utf8')).toContain(typed)
   await expect.poll(() => sidebarCount(k)).toBe(before - 1)
   await k.context().close()
 })
@@ -89,7 +95,9 @@ test('sync conflict: viewing the copy and opening the note; a member sees it too
 
 // Mass deletion is hard to trigger without breaking the other tests (it's
 // tested against the server in http.test.ts): here the response is mocked.
-const SCAN = { code: 'scan_aborted_mass_delete', removing: 214, total: 260 }
+// The fixture's notes are the test vault's.
+const removing = m.anInt(2, 900)
+const SCAN = { code: 'scan_aborted_mass_delete', removing, total: removing + m.anInt(1, 900) }
 const FIXTURE = [
   { ...SCAN, actions: ['rescan', 'confirm_removal'] },
   { code: 'orphaned_note', path: 'hogar/Proxy.md', actions: ['keep_copy', 'discard_copy'] },
@@ -109,9 +117,9 @@ test('scan stopped: the admin confirms with the figure they see; a member has no
   })
   await k.goto('/?view=avisos')
   const scan = card(k, 'Escaneo detenido')
-  await expect(scan.getByRole('heading')).toHaveText('Escaneo detenido: iba a retirar 214 notas de 260')
+  await expect(scan.getByRole('heading')).toHaveText(`Escaneo detenido: iba a retirar ${SCAN.removing} notas de ${SCAN.total}`)
   await scan.getByRole('button', { name: 'Sí, las he borrado yo' }).click()
-  await expect.poll(() => sent).toEqual({ confirmRemoval: 214 })
+  await expect.poll(() => sent).toEqual({ confirmRemoval: SCAN.removing })
   await scan.getByRole('button', { name: 'Volver a comprobar' }).click()
   await expect.poll(() => sent).toEqual({})
   await k.context().close()
@@ -127,11 +135,17 @@ test('scan stopped: the admin confirms with the figure they see; a member has no
 
 test('history alerts: git failing (with its detail), versions merged at the cap, files over the limit, no repository in unmanaged mode', async ({ browser }) => {
   const k = await signIn(browser, ADMIN)
-  const big = Array.from({ length: 12 }, (_, i) => `videos/clip-${i}.mp4`)
+  // Twelve files: ten are listed, and «and 2 more».
+  const folder = m.aFolder()
+  const big = Array.from({ length: 12 }, () => `${folder}/${m.aTitle()}.mp4`)
+  const detail = m.aSentence()
+  const versions = m.anInt(2, 999)
+  const limitMb = m.anInt(1, 100)
   await mockAlerts(k, [
-    { code: 'history_unavailable', detail: 'git fast-import exited with 128: fatal: write error: No space left on device', actions: [] },
-    { code: 'history_versions_merged', versions: 37, since: '2026-03-14T09:30:00Z', actions: [] },
-    { code: 'history_files_too_large', paths: big, limitMb: 20, actions: [] },
+    { code: 'history_unavailable', detail, actions: [] },
+    // Shown as a date in the admin's timezone (the browser's UTC, or UTC+14 from daily.spec): the 14th either way.
+    { code: 'history_versions_merged', versions, since: '2026-03-14T09:30:00Z', actions: [] },
+    { code: 'history_files_too_large', paths: big, limitMb, actions: [] },
     { code: 'history_no_repository', actions: [] },
   ])
   await k.goto('/?view=avisos')
@@ -139,15 +153,15 @@ test('history alerts: git failing (with its detail), versions merged at the cap,
   await expect(git).toContainText('Las notas se siguen guardando con normalidad')
   await expect(git.locator('.alert-copy')).toBeHidden()
   await git.getByText('Detalle para quien administra thoth').click()
-  await expect(git.locator('.alert-copy')).toContainText('No space left on device')
+  await expect(git.locator('.alert-copy')).toContainText(detail)
   const merged = card(k, 'ha juntado')
-  await expect(merged.getByRole('heading')).toHaveText('El historial ha juntado 37 versiones')
+  await expect(merged.getByRole('heading')).toHaveText(`El historial ha juntado ${versions} versiones`)
   // The date in the person's timezone: 14 March, whatever the hour there.
   await expect(merged).toContainText(/Desde el 14 mar/)
   await expect(merged).toContainText('no se pierde texto ni autores')
   const large = card(k, 'no entran en el historial')
   await expect(large.getByRole('heading')).toHaveText('12 archivos no entran en el historial')
-  await expect(large).toContainText('límite de 20 MB')
+  await expect(large).toContainText(`límite de ${limitMb} MB`)
   await expect(large.locator('li')).toHaveCount(11) // ten paths and «and 2 more»
   await expect(large).toContainText('y 2 más')
   await expect(card(k, 'no tiene repositorio git')).toContainText('history.mode: unmanaged')
@@ -178,11 +192,14 @@ test('agents without a managed history: which door is open and what it means', a
 
 test('permissions: rejected, notes held after a move outside thoth, and images all in one folder', async ({ browser }) => {
   const k = await signIn(browser, ADMIN)
+  const parent = m.aFolder()
+  const held = { id: m.aSecret(8), folder: `${parent}/${m.aFolder()}`, to: `${parent}/${m.aFolder()}`, notes: m.anInt(2, 40) }
   await mockAlerts(k, [
     { code: 'permissions_rejected', fallback: 'closed', actions: [] },
-    { code: 'permissions_held', id: 'h1', folder: 'familia/viajes', to: 'familia/rutas', notes: 3, actions: ['move_permissions', 'release'] },
-    { code: 'permissions_held', id: 'h2', folder: `personas/${m.aUsername()}`, to: null, notes: 1, actions: ['release'] },
-    { code: 'attachments_shared_folder', folder: 'Adjuntos', actions: [] },
+    { code: 'permissions_held', ...held, actions: ['move_permissions', 'release'] },
+    // One note, without a destination: nothing to move the permissions to.
+    { code: 'permissions_held', id: m.aSecret(8), folder: `${m.aFolder()}/${m.aUsername()}`, to: null, notes: 1, actions: ['release'] },
+    { code: 'attachments_shared_folder', folder: m.aFolder(), actions: [] },
   ])
   const sent: { url: string; body: unknown }[] = []
   await k.route('**/api/permissions/holds/*', (route) => { sent.push({ url: route.request().url(), body: route.request().postDataJSON() }); return route.fulfill({ json: { ok: true } }) })
@@ -190,12 +207,12 @@ test('permissions: rejected, notes held after a move outside thoth, and images a
   const rejected = card(k, 'no se pueden usar')
   await expect(rejected.getByRole('heading')).toHaveText('Los permisos de thoth.yaml no se pueden usar')
   await expect(rejected).toContainText('nadie puede leer ninguna nota')
-  const three = card(k, '3 notas retenidas')
-  await expect(three).toContainText('familia/viajes')
-  await expect(three).toContainText('familia/rutas')
-  await three.getByRole('button', { name: 'Mover sus permisos' }).click()
+  const many = card(k, `${held.notes} notas retenidas`)
+  await expect(many).toContainText(held.folder)
+  await expect(many).toContainText(held.to)
+  await many.getByRole('button', { name: 'Mover sus permisos' }).click()
   await expect.poll(() => sent.length).toBe(1)
-  expect(sent[0]).toEqual({ url: expect.stringMatching(/\/api\/permissions\/holds\/h1$/), body: { action: 'move_permissions' } })
+  expect(sent[0]).toEqual({ url: expect.stringMatching(new RegExp(`/api/permissions/holds/${held.id}$`)), body: { action: 'move_permissions' } })
   const one = card(k, 'Una nota retenida')
   await expect(one.getByRole('button', { name: 'Mover sus permisos' })).toHaveCount(0)
   await one.getByRole('button', { name: 'Soltarlas' }).click()

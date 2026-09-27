@@ -1,13 +1,38 @@
 // Phone layout (390×844, touch): the folder drawer, the note header, the
 // editor bar, the side panel as a sheet, alerts, palette, theme and sign out.
 // Also the web app manifest and its icons (installable, no service worker).
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, NOTES } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES, specMother } from './env.ts'
 
-const DIR = `${NOTES}/movil`
-const NOTE = 'movil/Una nota con un nombre bastante largo.md'
+const m = specMother(import.meta.url)
+const FOLDER = m.aFolder()
+const DIR = `${NOTES}/${FOLDER}`
+/** A long name (at least 36 characters): the header must show it whole, not a couple of letters. */
+let LONG = m.aTitle()
+while (LONG.length < 36) LONG += ` ${m.aWord()}`
+const NOTE = `${FOLDER}/${LONG}.md`
 const FILE = `${NOTES}/${NOTE}`
+const FIRST = m.aSentence()
+/** Two notes with one uid, for an alert. */
+const TWINS = [`${m.aTitle()}.md`, `${m.aTitle()}.md`]
+const UID = m.aUniqueWord()
+const noteParam = (page: Page) => new URL(page.url()).searchParams.get('note')
+
+/**
+ * The caret at the very end of a line of the editor (which must have the
+ * focus). End stops where a long line wraps, and generated text may wrap
+ * anywhere: the DOM selection instead, which the editor takes as its own.
+ */
+async function toLineEnd(line: Locator) {
+  await line.evaluate((el) => {
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    range.collapse(false)
+    getSelection()!.removeAllRanges()
+    getSelection()!.addRange(range)
+  })
+}
 const SHOTS = `${E2E_DIR}/shots`
 
 test.describe.configure({ mode: 'serial' })
@@ -15,13 +40,12 @@ test.describe.configure({ mode: 'serial' })
 test.beforeAll(() => {
   mkdirSync(DIR, { recursive: true })
   mkdirSync(SHOTS, { recursive: true })
-  writeFileSync(FILE, '# Nota del móvil\n\nPrimera línea.\n')
+  writeFileSync(FILE, `# ${m.aHeading()}\n\n${FIRST}\n`)
   // Two notes with the same uid: a workspace alert, reachable from the drawer.
-  writeFileSync(`${DIR}/Gemela A.md`, '---\nuid: E2E-MOVIL\n---\n# A\n')
-  writeFileSync(`${DIR}/Gemela B.md`, '---\nuid: E2E-MOVIL\n---\n# B\n')
+  for (const twin of TWINS) writeFileSync(`${DIR}/${twin}`, `---\nuid: ${UID}\n---\n# ${m.aHeading()}\n`)
 })
 // The note stays (deleting a note that was just open would leave a pending copy); the alert goes.
-test.afterAll(() => { for (const f of ['Gemela A.md', 'Gemela B.md']) rmSync(`${DIR}/${f}`, { force: true }) })
+test.afterAll(() => { for (const f of TWINS) rmSync(`${DIR}/${f}`, { force: true }) })
 
 const drawer = (page: Page) => page.getByRole('dialog', { name: 'Carpetas' })
 const noHorizontalScroll = (page: Page) =>
@@ -56,14 +80,14 @@ test('no sidebar; with nothing open the folder drawer is the first screen', asyn
 })
 
 test('open a note from the tree: the drawer closes and the header shows the full name', async () => {
-  await drawer(page).getByRole('row', { name: 'movil' }).tap()
-  await drawer(page).getByRole('row', { name: 'Una nota con un nombre bastante largo' }).tap()
+  await drawer(page).getByRole('row', { name: FOLDER, exact: true }).tap()
+  await drawer(page).getByRole('row', { name: LONG, exact: true }).tap()
   await expect(drawer(page)).toHaveCount(0)
   await expect(page.locator('.cm-content')).toBeVisible()
-  await expect(page).toHaveURL(/\?note=movil%2FUna/)
+  await expect.poll(() => noteParam(page)).toBe(NOTE)
   const crumbs = page.locator('.main-head .crumbs')
-  await expect(crumbs.locator('.crumbs-path')).toHaveText('movil / ')
-  await expect(crumbs.locator('b')).toHaveText('Una nota con un nombre bastante largo')
+  await expect(crumbs.locator('.crumbs-path')).toHaveText(`${FOLDER} / `)
+  await expect(crumbs.locator('b')).toHaveText(LONG)
   await page.screenshot({ path: `${SHOTS}/mobile-open-light.png`, animations: 'disabled' })
   // Not clipped to a couple of letters: the name gets all the width the header buttons leave it.
   const width = await crumbs.locator('b').evaluate((b) => b.getBoundingClientRect().width)
@@ -72,17 +96,20 @@ test('open a note from the tree: the drawer closes and the header shows the full
 })
 
 test('edit with the keyboard and the editor bar ([[, #, list); the save state is in the bar', async () => {
-  await page.locator('.cm-line', { hasText: 'Primera línea.' }).tap()
-  await page.keyboard.press('End')
-  await page.keyboard.type(' Ver ')
+  const line = page.locator('.cm-line', { hasText: FIRST })
+  await line.tap()
+  await toLineEnd(line)
+  const word = m.aWord()
+  const tag = m.aTag()
+  await page.keyboard.type(` ${word} `)
   const bar = page.getByRole('toolbar', { name: 'Formato' })
   await bar.getByRole('button', { name: 'Enlazar nota' }).tap()
-  await page.keyboard.type('Plan')
+  await page.keyboard.type('Plan') // the vault's Plan (testdata/vault)
   await page.keyboard.press('End')
   await bar.getByRole('button', { name: 'Añadir tag' }).tap()
-  await page.keyboard.type('movil')
+  await page.keyboard.type(tag)
   await bar.getByRole('button', { name: 'Lista' }).tap()
-  await expect.poll(() => readFileSync(FILE, 'utf8')).toContain('- Primera línea. Ver [[Plan]] #movil')
+  await expect.poll(() => readFileSync(FILE, 'utf8')).toContain(`- ${FIRST} ${word} [[Plan]] #${tag}`)
   // The bar's buttons don't take the focus: the keyboard would close.
   await expect(page.locator('.cm-content')).toBeFocused()
   await expect(bar.getByText('Guardado en disco')).toBeVisible()
@@ -103,7 +130,7 @@ test('the side panel opens as a full-width sheet; back closes it and keeps the n
   await page.screenshot({ path: `${SHOTS}/mobile-panel-light.png`, animations: 'disabled' })
   await page.goBack()
   await expect(panel).toHaveCount(0)
-  await expect(page).toHaveURL(/\?note=movil%2FUna/)
+  await expect.poll(() => noteParam(page)).toBe(NOTE)
   await expect(page.locator('.cm-content')).toBeVisible()
 })
 
@@ -111,15 +138,15 @@ test('the drawer: back and Escape close it; the note it was opened over stays', 
   await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
   await expect(drawer(page)).toBeVisible()
   // It shows where the open note is.
-  await expect(drawer(page).getByRole('row', { name: 'Una nota con un nombre bastante largo' })).toHaveAttribute('aria-selected', 'true')
+  await expect(drawer(page).getByRole('row', { name: LONG, exact: true })).toHaveAttribute('aria-selected', 'true')
   await page.goBack()
   await expect(drawer(page)).toHaveCount(0)
-  await expect(page).toHaveURL(/\?note=movil%2FUna/)
+  await expect.poll(() => noteParam(page)).toBe(NOTE)
   await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
   await expect(drawer(page)).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(drawer(page)).toHaveCount(0)
-  await expect(page).toHaveURL(/\?note=movil%2FUna/)
+  await expect.poll(() => noteParam(page)).toBe(NOTE)
 })
 
 test('palette: full screen from the header, back closes it', async () => {
@@ -131,7 +158,7 @@ test('palette: full screen from the header, back closes it', async () => {
   await noHorizontalScroll(page)
   await page.goBack()
   await expect(input).toHaveCount(0)
-  await expect(page).toHaveURL(/\?note=movil%2FUna/)
+  await expect.poll(() => noteParam(page)).toBe(NOTE)
 })
 
 test('alerts from the drawer', async () => {
@@ -145,7 +172,7 @@ test('alerts from the drawer', async () => {
   await expect(drawer(page)).toHaveCount(0)
   await expect(page).toHaveURL(/\?view=avisos$/)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Avisos del espacio')
-  await expect(page.locator('.alert-card', { hasText: 'E2E-MOVIL' })).toBeVisible()
+  await expect(page.locator('.alert-card', { hasText: UID })).toBeVisible()
   await noHorizontalScroll(page)
   // From the alerts page, the drawer is still reachable.
   await expect(page.getByRole('button', { name: 'Abrir carpetas' })).toBeVisible()
@@ -205,14 +232,14 @@ test('web app manifest: installable fields and icons that exist', async ({ reque
   const res = await request.get('/manifest.webmanifest')
   expect(res.status()).toBe(200)
   expect(res.headers()['content-type']).toMatch(/^application\/manifest\+json/)
-  const m = await res.json() as { name: string; short_name: string; start_url: string; display: string; theme_color: string; background_color: string; icons: { src: string; sizes: string; type: string; purpose: string }[] }
-  expect(m).toMatchObject({ name: 'thoth', short_name: 'thoth', start_url: '/', display: 'standalone' })
-  expect(m.theme_color).toMatch(/^#[0-9A-Fa-f]{6}$/)
-  expect(m.background_color).toMatch(/^#[0-9A-Fa-f]{6}$/)
+  const manifest = await res.json() as { name: string; short_name: string; start_url: string; display: string; theme_color: string; background_color: string; icons: { src: string; sizes: string; type: string; purpose: string }[] }
+  expect(manifest).toMatchObject({ name: 'thoth', short_name: 'thoth', start_url: '/', display: 'standalone' })
+  expect(manifest.theme_color).toMatch(/^#[0-9A-Fa-f]{6}$/)
+  expect(manifest.background_color).toMatch(/^#[0-9A-Fa-f]{6}$/)
   // Chrome needs a 192 and a 512 icon; one maskable for Android's shapes.
-  expect(m.icons.map((i) => i.sizes)).toEqual(expect.arrayContaining(['192x192', '512x512']))
-  expect(m.icons.some((i) => i.purpose === 'maskable')).toBe(true)
-  for (const icon of [...m.icons, { src: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }]) {
+  expect(manifest.icons.map((i) => i.sizes)).toEqual(expect.arrayContaining(['192x192', '512x512']))
+  expect(manifest.icons.some((i) => i.purpose === 'maskable')).toBe(true)
+  for (const icon of [...manifest.icons, { src: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }]) {
     const r = await request.get(icon.src)
     expect(r.status(), icon.src).toBe(200)
     expect(r.headers()['content-type']).toBe('image/png')

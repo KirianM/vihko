@@ -15,9 +15,15 @@ const SHOTS = `${E2E_DIR}/shots`
 /** The member whose second factor the admin resets, and another admin: people of this spec. */
 const PERSON = m.aUser({ role: 'member' })
 const OTHER_ADMIN = m.aUser({ role: 'admin' })
-const SHARED = 'avisos-e2e/lista.md'
+/** A folder of this spec, and a note in it the member writes in. */
+const SHARED_DIR = m.aFolder()
+const SHARED = m.aNotePath(SHARED_DIR)
 // A personal folder: the only kind the admin, managing the root, can't read (D-040 3.5).
-const PRIVATE = `avisos-personas/${PERSON.username}/diario.md`
+const PEOPLE = m.aFolder()
+const PRIVATE = m.aNotePath(`${PEOPLE}/${PERSON.username}`)
+/** A word in each note: a notice must never carry what the notes said. */
+const SHARED_WORD = m.aUniqueWord()
+const PRIVATE_WORD = m.aUniqueWord()
 
 test.describe.configure({ mode: 'serial', timeout: 120_000 })
 
@@ -26,7 +32,7 @@ let admin: Page
 test.beforeAll(async ({ browser }) => {
   mkdirSync(SHOTS, { recursive: true })
   // The member edits everywhere and has a folder of her own that nobody else reads, the admin included.
-  await usePermissions({ grants: { [PERSON.username]: 'edit', [OTHER_ADMIN.username]: 'read' }, rules: { 'avisos-personas/{user}': { '{user}': 'manage' } } })
+  await usePermissions({ grants: { [PERSON.username]: 'edit', [OTHER_ADMIN.username]: 'read' }, rules: { [`${PEOPLE}/{user}`]: { '{user}': 'manage' } } })
   admin = await signIn(browser, ADMIN)
   for (const u of [PERSON, OTHER_ADMIN]) {
     expect((await admin.request.post('/api/admin/users', { data: { username: u.username, role: u.role, password: u.password } })).status()).toBe(201)
@@ -37,8 +43,8 @@ test.afterAll(async ({ browser }) => {
   const person = await password(browser, PERSON)
   for (const path of [SHARED, PRIVATE]) await person.request.delete(`/api/note?path=${encodeURIComponent(path)}`)
   // Each folder, by whoever manages it: the member hers, the admin the other one.
-  await person.request.delete(`/api/folder?path=${encodeURIComponent(`avisos-personas/${PERSON.username}`)}`)
-  await admin.request.delete('/api/folder?path=avisos-e2e')
+  await person.request.delete(`/api/folder?path=${encodeURIComponent(`${PEOPLE}/${PERSON.username}`)}`)
+  await admin.request.delete(`/api/folder?path=${encodeURIComponent(SHARED_DIR)}`)
   await person.context().close()
   await usePermissions()
   for (const u of (await (await admin.request.get('/api/admin/users')).json()).users as { id: string; username: string }[]) {
@@ -142,7 +148,8 @@ test('the admin resets a member\'s second factor with his own password; she is t
 
 test('a purge tells whoever wrote in it, without the content; what the admin can\'t read, he confirms first', async ({ browser }) => {
   const person = await password(browser, PERSON)
-  for (const [path, text] of [[SHARED, '# Lista\n\nPan y Turquesa.\n'], [PRIVATE, '# Diario\n\nSecreto Ámbar.\n']]) {
+  for (const [path, word] of [[SHARED, SHARED_WORD], [PRIVATE, PRIVATE_WORD]] as const) {
+    const text = `# ${m.aHeading()}\n\n${m.aSentence()} ${word}.\n`
     await expect.poll(async () => (await person.request.post('/api/note', { data: { path, text } })).status(), { timeout: 15_000 }).toBe(201)
   }
   // Each note's version reaches the history once the typing calms down (3 s here).
@@ -181,8 +188,8 @@ test('a purge tells whoever wrote in it, without the content; what the admin can
   await expect(phone).toHaveURL(/\?view=avisos$/)
   await expect(phone.getByRole('region', { name: `${ADMIN.username} purgó del historial ${SHARED}, donde escribiste` })).toBeVisible()
   await expect(phone.getByRole('region', { name: `${ADMIN.username} purgó del historial ${PRIVATE}, donde escribiste` })).toBeVisible()
-  await expect(phone.locator('.alerts-page')).not.toContainText('Turquesa')
-  await expect(phone.locator('.alerts-page')).not.toContainText('Ámbar')
+  await expect(phone.locator('.alerts-page')).not.toContainText(SHARED_WORD)
+  await expect(phone.locator('.alerts-page')).not.toContainText(PRIVATE_WORD)
   expect(await phone.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
   await phone.screenshot({ path: `${SHOTS}/notices-purge-mobile.png`, animations: 'disabled', fullPage: true })
   await phone.context().close()

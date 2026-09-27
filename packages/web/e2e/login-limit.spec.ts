@@ -9,7 +9,8 @@ import { signIn } from './helpers.ts'
 const m = specMother(import.meta.url)
 
 const SHOTS = `${E2E_DIR}/shots`
-const CALLBACK = 'http://127.0.0.1:4439/callback'
+/** Where the OAuth client would get its code (nothing listens: the consent page never gets that far). */
+const CALLBACK = `http://127.0.0.1:${m.anInt(1024, 65535)}/${m.anId()}`
 
 test.describe.configure({ mode: 'serial' })
 
@@ -21,7 +22,7 @@ test.beforeAll(async ({ browser, request }) => {
   const k = await signIn(browser, ADMIN)
   expect((await k.request.put('/api/admin/integrations', { data: { mcp: true, oauthRegistration: true } })).status()).toBe(200)
   await k.context().close()
-  const r = await request.post(`${BASE_URL}/oauth/register`, { data: { client_name: 'Límites e2e', redirect_uris: [CALLBACK], token_endpoint_auth_method: 'none' } })
+  const r = await request.post(`${BASE_URL}/oauth/register`, { data: { client_name: m.aKeyName(), redirect_uris: [CALLBACK], token_endpoint_auth_method: 'none' } })
   expect(r.status()).toBe(201)
   clientId = (await r.json()).client_id
 })
@@ -73,7 +74,7 @@ test('OAuth consent: signing in there shows the wait too, in minutes (English)',
     status: 429, headers: { 'retry-after': '125' },
     json: { error: 'too_many_attempts', message: 'too many failed attempts', retryAfter: 125 },
   }))
-  const q = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: CALLBACK, code_challenge: 'x'.repeat(43), code_challenge_method: 'S256', state: 's', resource: `${PUBLIC_URL}/mcp` })
+  const q = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: CALLBACK, code_challenge: 'x'.repeat(43), code_challenge_method: 'S256', state: m.aSecret(12), resource: `${PUBLIC_URL}/mcp` })
   await page.goto(`/oauth/authorize?${q}`)
   await expect(page.getByText('Sign in to decide whether an app may use your notes.')).toBeVisible()
   await page.getByLabel('Username').fill(ADMIN.username)
@@ -89,11 +90,12 @@ test('OAuth consent: signing in there shows the wait too, in minutes (English)',
 
 test('the admin’s alert when someone may be guessing passwords', async ({ browser }) => {
   const k = await signIn(browser, ADMIN)
-  await k.route('**/api/alerts', (route) => route.fulfill({ json: { alerts: [{ code: 'login_attempts_blocked', attempts: 143, since: '2026-09-26T12:10:00Z', actions: [] }] } }))
+  const attempts = m.anInt(2, 9999)
+  await k.route('**/api/alerts', (route) => route.fulfill({ json: { alerts: [{ code: 'login_attempts_blocked', attempts, since: '2026-09-26T12:10:00Z', actions: [] }] } }))
   await k.goto('/?view=avisos')
   const card = k.locator('.alert-card', { hasText: 'intentos de entrar' })
   // The date in the person's timezone (another spec may have changed it): 25, 26 or 27 September.
-  await expect(card.getByRole('heading')).toHaveText(/^143 intentos de entrar fallidos o frenados desde el 2[5-7] sept, \d{2}:\d{2}$/)
+  await expect(card.getByRole('heading')).toHaveText(new RegExp(`^${attempts} intentos de entrar fallidos o frenados desde el 2[5-7] sept, \\d{2}:\\d{2}$`))
   await expect(card).toContainText('THOTH_TRUSTED_PROXIES')
   await k.screenshot({ path: `${SHOTS}/avisos-login.png`, fullPage: true, animations: 'disabled' })
   await k.context().close()

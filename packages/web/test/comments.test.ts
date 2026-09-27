@@ -16,17 +16,21 @@ const anchor = (doc: string, i = 0) => {
 }
 const WHEN = new Date(Date.UTC(2026, 8, 24, 8, 12))
 
-const D023 = `Usaremos Postgres para el índice.<!-- @${AUTHOR} 2026-09-24T08:12Z · esto no, usa SQLite -->
-<!-- @${AGENT} 2026-09-24T08:15Z · ↳ de acuerdo, lo cambio -->
+// A sentence with a thread on it (a comment and a reply); what they say doesn't matter.
+const SENTENCE = m.aSentence()
+const ROOT = m.aComment()
+const REPLY = m.aComment()
+const D023 = `${SENTENCE}<!-- @${AUTHOR} 2026-09-24T08:12Z · ${ROOT} -->
+<!-- @${AGENT} 2026-09-24T08:15Z · ↳ ${REPLY} -->
 `
 
 test('reads the example: a thread with a reply, anchored to the sentence', () => {
   const threads = parseThreads(D023)
   assert.equal(threads.length, 1)
   const [root, reply] = threads[0]!.comments
-  assert.deepEqual([root!.author, root!.date, root!.text, root!.reply], [AUTHOR, '2026-09-24T08:12Z', 'esto no, usa SQLite', false])
-  assert.deepEqual([reply!.author, reply!.text, reply!.reply], [AGENT, 'de acuerdo, lo cambio', true])
-  assert.equal(anchor(D023), 'Usaremos Postgres para el índice.')
+  assert.deepEqual([root!.author, root!.date, root!.text, root!.reply], [AUTHOR, '2026-09-24T08:12Z', ROOT, false])
+  assert.deepEqual([reply!.author, reply!.text, reply!.reply], [AGENT, REPLY, true])
+  assert.equal(anchor(D023), SENTENCE)
 })
 
 test('the anchor starts at the sentence, without list or heading marks', () => {
@@ -90,7 +94,7 @@ test('commenting with no selection: at the end of the cursor\'s sentence or line
 
 test('commenting inside a thread adds it after the thread', () => {
   const doc = D023.trimEnd()
-  const inside = doc.indexOf('esto no')
+  const inside = doc.indexOf(ROOT)
   assert.equal(commentPosition(doc, inside, inside), doc.length)
 })
 
@@ -109,7 +113,7 @@ test('replying: on its own line after a thread that closes a paragraph; attached
 test('resolving deletes the whole thread and nothing else', () => {
   const doc = `---\nuid: X\n---\n${D023}\nFin.`
   const out = apply(doc, resolveThread(doc, parseThreads(doc)[0]!))
-  assert.equal(out, '---\nuid: X\n---\nUsaremos Postgres para el índice.\n\nFin.')
+  assert.equal(out, `---\nuid: X\n---\n${SENTENCE}\n\nFin.`)
   const own = `a\n<!-- @${REPLIER} 2026-09-24T08:12Z · suelta -->\nb`
   assert.equal(apply(own, resolveThread(own, parseThreads(own)[0]!)), 'a\nb')
   const last = `a\n<!-- @${REPLIER} 2026-09-24T08:12Z · suelta -->`

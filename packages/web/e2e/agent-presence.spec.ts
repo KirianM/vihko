@@ -1,5 +1,5 @@
 // An agent in an open note (M3 §6): a key's edit over the API reaches the
-// editors live; the agent shows as presence («Claude Code · en nombre de
+// editors live; the agent shows as presence («<key name> · en nombre de
 // <the admin>», diamond, never colour alone) and what it just wrote is marked for
 // a few seconds, in two sessions at once. Nothing a person types is marked.
 //
@@ -12,12 +12,26 @@ import { HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import { mkdirSync } from 'node:fs'
 import WebSocket from 'ws'
 import { openLineage, type Lineage } from '../src/editor/lineage.ts'
-import { ADMIN, BASE_URL, E2E_DIR, MEMBER } from './env.ts'
+import { ADMIN, BASE_URL, E2E_DIR, MEMBER, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
-const NOTE = 'e2e-agentes/Plan del agente.md'
-const AGENT = { name: 'Claude Code', onBehalfOf: ADMIN.username, via: 'mcp' }
+const m = specMother(import.meta.url)
+/** The spec's folder (the keys' only one), and its note. */
+const FOLDER = m.aFolder()
+const NOTE = m.aNotePath(FOLDER)
+const TITLE = NOTE.slice(FOLDER.length + 1, -'.md'.length)
+/** The keys' name: what the presence shows. */
+const KEY_NAME = m.aKeyName()
+const AGENT = { name: KEY_NAME, onBehalfOf: ADMIN.username, via: 'mcp' }
+/** Lines of the note: its first one, what the agent writes each time, what a person types. */
+const FIRST = m.aSentence()
+const BY_API = m.aSentence()
+const BY_AGENT = m.aSentence()
+const TYPED = m.aSentence()
+const BY_FAKE = m.aSentence()
+/** The pill's text: who, for whom, and how. */
+const PILL = `${KEY_NAME} · en nombre de ${ADMIN.username}, por la API`
 
 test.describe.configure({ mode: 'serial' })
 
@@ -52,10 +66,10 @@ let member: Page
 
 test.beforeAll(async ({ browser }) => {
   admin = await signIn(browser, ADMIN)
-  const created = await admin.request.post('/api/note', { data: { path: NOTE, text: '# Plan del agente\n\nPrimera línea del plan.\n' } })
+  const created = await admin.request.post('/api/note', { data: { path: NOTE, text: `# ${TITLE}\n\n${FIRST}\n` } })
   expect([201, 409]).toContain(created.status())
   await admin.goto(`/?note=${encodeURIComponent(NOTE)}`)
-  await expect(admin.locator('.cm-content')).toContainText('Primera línea del plan.')
+  await expect(admin.locator('.cm-content')).toContainText(FIRST)
   // The member, in her own session, on a phone in dark mode.
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, colorScheme: 'dark', locale: 'es-ES' })
   member = await ctx.newPage()
@@ -63,7 +77,7 @@ test.beforeAll(async ({ browser }) => {
   await member.getByLabel('Nombre de usuario').fill(MEMBER.username)
   await member.getByLabel('Contraseña').fill(MEMBER.password)
   await member.getByRole('button', { name: 'Entrar' }).last().tap()
-  await expect(member.locator('.cm-content')).toContainText('Primera línea del plan.')
+  await expect(member.locator('.cm-content')).toContainText(FIRST)
 })
 test.afterAll(async () => {
   await admin.request.put('/api/admin/integrations', { data: { api: false, mcp: false } })
@@ -73,18 +87,18 @@ test.afterAll(async () => {
 
 test('an edit with a key over the API reaches the open editors live', async () => {
   await admin.request.put('/api/admin/integrations', { data: { api: true } })
-  const { key, token } = await (await admin.request.post('/api/keys', { data: { confirm: ADMIN.password, name: 'Claude Code', canWrite: true, folders: ['e2e-agentes'] } })).json() as { key: { id: string }; token: string }
+  const { key, token } = await (await admin.request.post('/api/keys', { data: { confirm: ADMIN.password, name: KEY_NAME, canWrite: true, folders: [FOLDER] } })).json() as { key: { id: string }; token: string }
   const r = await admin.request.post('/api/note/edit', {
     headers: { Authorization: `Bearer ${token}` },
-    data: { path: NOTE, ops: [{ op: 'append', text: 'Escrito por la API con la clave.\n' }] },
+    data: { path: NOTE, ops: [{ op: 'append', text: `${BY_API}\n` }] },
   })
   expect(r.status()).toBe(200)
-  await expect(lineOf(admin, 'Escrito por la API con la clave.')).toBeVisible()
-  await expect(lineOf(member, 'Escrito por la API con la clave.')).toBeVisible()
+  await expect(lineOf(admin, BY_API)).toBeVisible()
+  await expect(lineOf(member, BY_API)).toBeVisible()
   // The hub's real presence for the key (not a simulated client): who and how, and its text marked.
-  await expect(pill(admin)).toHaveText(`Claude Code · en nombre de ${ADMIN.username}, por la API`)
-  await expect(fresh(admin)).toHaveText('Escrito por la API con la clave.')
-  await expect(fresh(member)).toHaveText('Escrito por la API con la clave.')
+  await expect(pill(admin)).toHaveText(PILL)
+  await expect(fresh(admin)).toHaveText(BY_API)
+  await expect(fresh(member)).toHaveText(BY_API)
   await admin.request.delete(`/api/keys/${key.id}`)
   // Both go after a few seconds, before the next test brings its own agent.
   await expect(fresh(admin)).toHaveCount(0, { timeout: 10_000 })
@@ -94,20 +108,20 @@ test('an edit with a key over the API reaches the open editors live', async () =
 
 test('the agent shows as presence and what it writes is marked for a few seconds, in both sessions', async () => {
   await admin.request.put('/api/admin/integrations', { data: { api: true } })
-  const { key, token } = await (await admin.request.post('/api/keys', { data: { confirm: ADMIN.password, name: 'Claude Code', canWrite: true, folders: ['e2e-agentes'] } })).json() as { key: { id: string }; token: string }
+  const { key, token } = await (await admin.request.post('/api/keys', { data: { confirm: ADMIN.password, name: KEY_NAME, canWrite: true, folders: [FOLDER] } })).json() as { key: { id: string }; token: string }
   const write = async (text: string) => {
     const r = await admin.request.post('/api/note/edit', { headers: { Authorization: `Bearer ${token}` }, data: { path: NOTE, ops: [{ op: 'append', text }] } })
     expect(r.status()).toBe(200)
   }
-  await write('Texto que escribe el agente.\n')
-  await expect(lineOf(admin, 'Texto que escribe el agente.')).toBeVisible()
-  await expect(fresh(admin)).toHaveText('Texto que escribe el agente.')
-  await expect(fresh(admin)).toHaveAttribute('title', `Lo acaba de escribir Claude Code · en nombre de ${ADMIN.username}`)
-  await expect(fresh(member)).toHaveText('Texto que escribe el agente.')
+  await write(`${BY_AGENT}\n`)
+  await expect(lineOf(admin, BY_AGENT)).toBeVisible()
+  await expect(fresh(admin)).toHaveText(BY_AGENT)
+  await expect(fresh(admin)).toHaveAttribute('title', `Lo acaba de escribir ${KEY_NAME} · en nombre de ${ADMIN.username}`)
+  await expect(fresh(member)).toHaveText(BY_AGENT)
   // Presence: the diamond and who it acts for, in text; how it came, for screen readers and on hover.
-  await expect(pill(admin)).toHaveText(`Claude Code · en nombre de ${ADMIN.username}, por la API`)
+  await expect(pill(admin)).toHaveText(PILL)
   await expect(pill(admin).locator('.diamond')).toBeVisible()
-  await expect(pill(admin)).toHaveAttribute('title', `Claude Code · en nombre de ${ADMIN.username}, por la API`)
+  await expect(pill(admin)).toHaveAttribute('title', PILL)
   await expect(pill(member)).toBeVisible()
   // On the phone the header has room for it: it overlaps none of its buttons.
   const overlaps = await member.locator('.main-head').evaluate((head) => {
@@ -118,8 +132,9 @@ test('the agent shows as presence and what it writes is marked for a few seconds
     }).map((b) => b.getAttribute('aria-label'))
   })
   expect(overlaps).toEqual([])
-  // And the note's name keeps its room.
-  expect((await member.locator('.crumbs b').boundingBox())!.width).toBeGreaterThan(40)
+  // And the note's name keeps its room: shown whole, or with 40 px at least when it has to be cut.
+  const name = await member.locator('.crumbs b').evaluate((b) => ({ width: b.getBoundingClientRect().width, whole: b.scrollWidth <= b.clientWidth }))
+  expect(name.whole || name.width > 40, JSON.stringify(name)).toBe(true)
   // People are circles (the admin and the member); the agent never is one.
   await expect(admin.locator('.avatar-stack')).toHaveCount(2)
   // The mark is accent-soft with an accent underline, from the design tokens.
@@ -135,13 +150,13 @@ test('the agent shows as presence and what it writes is marked for a few seconds
   // A few seconds later, the mark goes; the text stays.
   await expect(fresh(admin)).toHaveCount(0, { timeout: 10_000 })
   await expect(fresh(member)).toHaveCount(0, { timeout: 10_000 })
-  await expect(lineOf(admin, 'Texto que escribe el agente.')).toBeVisible()
+  await expect(lineOf(admin, BY_AGENT)).toBeVisible()
 
   // What a person types is never marked.
-  await lineOf(member, 'Texto que escribe el agente.').tap()
+  await lineOf(member, BY_AGENT).tap()
   await member.keyboard.press('End')
-  await member.keyboard.type(` Y esto lo escribe ${MEMBER.username}.`)
-  await expect(admin.locator('.cm-content')).toContainText(`Y esto lo escribe ${MEMBER.username}.`)
+  await member.keyboard.type(` ${TYPED}`)
+  await expect(admin.locator('.cm-content')).toContainText(TYPED)
   await admin.waitForTimeout(500)
   await expect(fresh(admin)).toHaveCount(0)
 
@@ -153,9 +168,9 @@ test('the agent shows as presence and what it writes is marked for a few seconds
 
 test('a person\'s connection that announces itself as an agent is not shown as one, nor is its text marked (D-040 3.3)', async () => {
   const fake = await agentClient(admin, AGENT)
-  fake.text.insert(fake.text.length, 'Un cliente que se hace pasar por agente.\n')
-  await expect(lineOf(member, 'Un cliente que se hace pasar por agente.')).toBeVisible()
-  await expect(lineOf(admin, 'Un cliente que se hace pasar por agente.')).toBeVisible()
+  fake.text.insert(fake.text.length, `${BY_FAKE}\n`)
+  await expect(lineOf(member, BY_FAKE)).toBeVisible()
+  await expect(lineOf(admin, BY_FAKE)).toBeVisible()
   await admin.waitForTimeout(1000)
   for (const p of [admin, member]) {
     await expect(pill(p)).toHaveCount(0)

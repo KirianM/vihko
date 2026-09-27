@@ -6,15 +6,48 @@
 // marks, to copy; and a phone.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, MEMBER, NOTES } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
 import { editorText, signIn } from './helpers.ts'
 
-const NOTE = 'revertir/Plan.md'
+const m = specMother(import.meta.url)
+/** Words of a sentence, without its full stop. */
+const words = (n: number) => m.aSentence(n).slice(0, -1)
+const DIR = m.aFolder()
+const NOTE = m.aNotePath(DIR)
 const SHOTS = `${E2E_DIR}/shots`
-const BEFORE = '# Plan\n\n## Almacenamiento\n\nGuardamos las notas en archivos.\nEl índice es SQLite.\n\n## Sincronización\n\nNada todavía.\n'
-const PERSON = '¿Y las copias de seguridad?'
+/**
+ * The note: two sections. The agent changes a word at the end of each of the
+ * first section's two lines (FILES → REPLACED, INDEX → REPLACED_INDEX, both
+ * with SHARED in them), then the second section's heading (+ VERSION) and the
+ * word WAS (→ NOW). Words nothing else has, so what the diff shows is exact.
+ */
+const [STORE, SYNC] = [m.aHeading(), m.aHeading()]
+const [LINE1, LINE2, TAIL] = [words(4), words(3), m.aWord()]
+const u = () => m.aUniqueWord()
+const [FILES, INDEX, SHARED, WAS, NOW] = [u(), u(), u(), u(), u()]
+const REPLACED = `${u()} ${u()} ${SHARED}`
+const REPLACED_INDEX = `${SHARED} ${u()}`
+const VERSION = `(${u()})`
+const BEFORE = `# ${m.aHeading()}\n\n## ${STORE}\n\n${LINE1} ${FILES}.\n${LINE2} ${INDEX}.\n\n## ${SYNC}\n\n${WAS} ${TAIL}.\n`
+/** What the person writes after the agent. */
+const PERSON = `¿${words(5)}?`
 const read = () => readFileSync(`${NOTES}/${NOTE}`, 'utf8')
 const q = encodeURIComponent
+
+/**
+ * The caret at the very end of a line of the editor (which must have the
+ * focus). End stops where a long line wraps, and generated text may wrap
+ * anywhere: the DOM selection instead, which the editor takes as its own.
+ */
+async function toLineEnd(line: Locator) {
+  await line.evaluate((el) => {
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    range.collapse(false)
+    getSelection()!.removeAllRanges()
+    getSelection()!.addRange(range)
+  })
+}
 /** Versions appear after a flush and some calm (3 s on the e2e server): more than the default 5 s. */
 const SLOW = { timeout: 20_000 }
 
@@ -61,7 +94,7 @@ async function openHistory(page: Page) {
 const memberRow = (page: Page): Locator => rows(page).filter({ has: named(page, MEMBER.username) }).first()
 
 test.beforeAll(async ({ browser }) => {
-  mkdirSync(`${NOTES}/revertir`, { recursive: true })
+  mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
   mkdirSync(SHOTS, { recursive: true })
   writeFileSync(`${NOTES}/${NOTE}`, BEFORE)
   k = await signIn(browser, ADMIN)
@@ -73,11 +106,12 @@ test.beforeAll(async ({ browser }) => {
 })
 
 test('reverting the agent\'s version keeps what the person wrote after it, and the other editor gets it live', async () => {
-  await agentEdit('archivos.\nEl índice es SQLite.', 'tablas de Postgres.\nEl índice es Postgres también.')
-  await expect.poll(() => editorText(k)).toContain('Postgres también.')
+  await agentEdit(`${FILES}.\n${LINE2} ${INDEX}.`, `${REPLACED}.\n${LINE2} ${REPLACED_INDEX}.`)
+  await expect.poll(() => editorText(k)).toContain(`${REPLACED_INDEX}.`)
   // The person writes after it, right below the agent's section.
-  await k.locator('.cm-line', { hasText: 'El índice es Postgres también.' }).click()
-  await k.keyboard.press('End')
+  const line = k.locator('.cm-line', { hasText: `${LINE2} ${REPLACED_INDEX}.` })
+  await line.click()
+  await toLineEnd(line)
   await k.keyboard.type(`\n\n${PERSON}`)
   await expect.poll(() => typedAfterAgent(k), SLOW).toBe(true)
 
@@ -91,25 +125,25 @@ test('reverting the agent\'s version keeps what the person wrote after it, and t
   await expect(dialog.getByRole('heading')).toHaveText('¿Revertir este cambio?')
   await expect(dialog).toContainText('Se deshace solo lo que cambió esta versión, sobre el texto de ahora: lo que se escribió después se queda.')
   await expect(dialog.locator('.preview-head')).toHaveText('Se deshace (2)')
-  await expect(dialog.locator('.rv-piece del')).toHaveText(['tablas de Postgres', 'Postgres también'])
-  await expect(dialog.locator('.rv-piece ins')).toHaveText(['archivos', 'SQLite'])
+  await expect(dialog.locator('.rv-piece del')).toHaveText([REPLACED, REPLACED_INDEX])
+  await expect(dialog.locator('.rv-piece ins')).toHaveText([FILES, INDEX])
   await expect(dialog.locator('.rv-skipped')).toHaveCount(0)
   await k.screenshot({ path: `${SHOTS}/revert-preview-light.png`, animations: 'disabled' })
   // Cancel first: nothing changes.
   await dialog.getByRole('button', { name: 'Cancelar' }).click()
   await expect(dialog).toHaveCount(0)
-  expect(read()).toContain('Postgres también.')
+  expect(read()).toContain(`${REPLACED_INDEX}.`)
 
   await band(k).getByRole('button', { name: 'Revertir este cambio' }).click()
   await dialogOf(k).getByRole('button', { name: 'Revertir este cambio' }).click()
   await expect(k.getByRole('status').filter({ hasText: 'Cambio revertido.' })).toBeVisible()
   await expect(k.locator('.version')).toHaveCount(0)
-  const expected = `Guardamos las notas en archivos.\nEl índice es SQLite.\n\n${PERSON}\n\n## Sincronización`
+  const expected = `${LINE1} ${FILES}.\n${LINE2} ${INDEX}.\n\n${PERSON}\n\n## ${SYNC}`
   // Both editors, at once; then the file.
-  await expect.poll(() => editorText(k)).toContain('El índice es SQLite.')
-  await expect.poll(() => editorText(a)).toContain('El índice es SQLite.')
+  await expect.poll(() => editorText(k)).toContain(`${LINE2} ${INDEX}.`)
+  await expect.poll(() => editorText(a)).toContain(`${LINE2} ${INDEX}.`)
   expect(await editorText(a)).toContain(PERSON)
-  expect(await editorText(a)).not.toContain('Postgres')
+  expect(await editorText(a)).not.toContain(SHARED)
   await expect.poll(read, SLOW).toContain(expected)
   // A version of its own, by whoever reverted, saying which change it undid.
   const first = rows(k).first()
@@ -118,14 +152,14 @@ test('reverting the agent\'s version keeps what the person wrote after it, and t
 })
 
 test('a piece changed afterwards is shown in the preview and left as it is; the notice says so', async () => {
-  await agentEdit('## Sincronización\n\nNada todavía.', '## Sincronización (v2)\n\nSyncthing todavía.')
-  await expect.poll(() => editorText(k)).toContain('Syncthing todavía.')
+  await agentEdit(`## ${SYNC}\n\n${WAS} ${TAIL}.`, `## ${SYNC} ${VERSION}\n\n${NOW} ${TAIL}.`)
+  await expect.poll(() => editorText(k)).toContain(`${NOW} ${TAIL}.`)
   // The person changes the very word the agent wrote.
-  await k.locator('.cm-line', { hasText: 'Syncthing todavía.' }).click()
+  await k.locator('.cm-line', { hasText: `${NOW} ${TAIL}.` }).click()
   await k.keyboard.press('Home')
-  for (let i = 0; i < 'Syncthing'.length; i++) await k.keyboard.press('ArrowRight')
+  for (let i = 0; i < NOW.length; i++) await k.keyboard.press('ArrowRight')
   await k.keyboard.type('2')
-  await expect.poll(() => read(), SLOW).toContain('Syncthing2 todavía.')
+  await expect.poll(() => read(), SLOW).toContain(`${NOW}2 ${TAIL}.`)
   await expect.poll(() => typedAfterAgent(k), SLOW).toBe(true)
   // The panel's list has them too (it asks again every few seconds).
   await expect(named(rows(k).nth(1), MEMBER.username).first()).toBeVisible(SLOW)
@@ -139,17 +173,17 @@ test('a piece changed afterwards is shown in the preview and left as it is; the 
   const skipped = dialog.locator('.rv-skipped')
   await expect(skipped).toContainText('No se deshace (1)')
   await expect(skipped).toContainText('Se volvió a cambiar después de esta versión, así que se deja como está.')
-  await expect(skipped).toContainText('Esta versión cambió «Nada» por «Syncthing».')
-  await expect(skipped.locator('mark')).toHaveText('Syncthing2')
+  await expect(skipped).toContainText(`Esta versión cambió «${WAS}» por «${NOW}».`)
+  await expect(skipped.locator('mark')).toHaveText(`${NOW}2`)
   await k.screenshot({ path: `${SHOTS}/revert-preview-skipped-light.png`, animations: 'disabled' })
   await dialog.getByRole('button', { name: 'Revertir este cambio' }).click()
   const notice = k.getByRole('alert').filter({ hasText: 'Cambio revertido.' })
-  await expect(notice).toContainText('No se ha deshecho una parte porque se cambió después: «Syncthing2».')
+  await expect(notice).toContainText(`No se ha deshecho una parte porque se cambió después: «${NOW}2».`)
   await k.screenshot({ path: `${SHOTS}/revert-notice-light.png`, animations: 'disabled' })
   await k.getByRole('button', { name: 'Cerrar aviso' }).click()
-  // The other editor (the admin's caret, with their name, sits inside «Syncthing2»: the file says the rest).
-  await expect.poll(() => editorText(a)).not.toContain('(v2)')
-  await expect.poll(read, SLOW).toContain('## Sincronización\n\nSyncthing2 todavía.')
+  // The other editor (the admin's caret, with their name, sits inside that word: the file says the rest).
+  await expect.poll(() => editorText(a)).not.toContain(VERSION)
+  await expect.poll(read, SLOW).toContain(`## ${SYNC}\n\n${NOW}2 ${TAIL}.`)
 })
 
 test('nothing left to undo: the preview says so and the button stays off', async () => {
@@ -169,9 +203,9 @@ test('reverting a revert brings the agent\'s change back, with what the person w
   await expect(dialogOf(k).locator('.preview-head')).toHaveText('Se deshace (2)')
   await dialogOf(k).getByRole('button', { name: 'Revertir este cambio' }).click()
   await expect(k.getByRole('status').filter({ hasText: 'Cambio revertido.' })).toBeVisible()
-  await expect.poll(() => editorText(a)).toContain('El índice es Postgres también.')
+  await expect.poll(() => editorText(a)).toContain(`${LINE2} ${REPLACED_INDEX}.`)
   expect(await editorText(a)).toContain(PERSON)
-  await expect.poll(read, SLOW).toContain(`tablas de Postgres.\nEl índice es Postgres también.\n\n${PERSON}`)
+  await expect.poll(read, SLOW).toContain(`${REPLACED}.\n${LINE2} ${REPLACED_INDEX}.\n\n${PERSON}`)
 })
 
 test('«Content only»: the version\'s text without marks, to copy', async () => {
@@ -180,9 +214,9 @@ test('«Content only»: the version\'s text without marks, to copy', async () =>
   await expect(k.locator('.v-text del').first()).toBeVisible()
   await toggle(k, 'Solo contenido').click()
   const plain = k.locator('.v-plain')
-  await expect(plain).toContainText('## Sincronización (v2)')
-  await expect(plain).toContainText('Syncthing todavía.')
-  await expect(plain).not.toContainText('Nada todavía')
+  await expect(plain).toContainText(`## ${SYNC} ${VERSION}`)
+  await expect(plain).toContainText(`${NOW} ${TAIL}.`)
+  await expect(plain).not.toContainText(`${WAS} ${TAIL}`)
   await expect(k.locator('.v-scroll ins, .v-scroll del')).toHaveCount(0)
   // Nothing about the diff while it's shown.
   await expect(toggle(k, 'Anterior')).toHaveCount(0)
@@ -222,45 +256,45 @@ test('«Recent changes» says what a revert undid', async () => {
 })
 
 test.describe('phone', () => {
-  let m: Page
+  let phone: Page
   test.beforeAll(async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: 'es-ES' })
-    m = await ctx.newPage()
-    await m.goto(`/?note=${q(NOTE)}`)
-    await m.getByLabel('Nombre de usuario').fill(ADMIN.username)
-    await m.getByLabel('Contraseña').fill(ADMIN.password)
-    await m.getByRole('button', { name: 'Entrar' }).last().tap()
-    await expect(m.locator('.cm-content')).toBeVisible()
+    phone = await ctx.newPage()
+    await phone.goto(`/?note=${q(NOTE)}`)
+    await phone.getByLabel('Nombre de usuario').fill(ADMIN.username)
+    await phone.getByLabel('Contraseña').fill(ADMIN.password)
+    await phone.getByRole('button', { name: 'Entrar' }).last().tap()
+    await expect(phone.locator('.cm-content')).toBeVisible()
   })
-  test.afterAll(async () => { await m.context().close() })
+  test.afterAll(async () => { await phone.context().close() })
 
   const noHorizontalScroll = (page: Page) =>
     expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
 
   test('the band\'s buttons, the preview and «Content only» on a phone', async () => {
-    await m.getByRole('button', { name: 'Mostrar el panel lateral' }).tap()
-    await panelOf(m).getByRole('tab', { name: 'Historial' }).tap()
-    const row = rows(m).filter({ has: named(m, MEMBER.username) }).last()
+    await phone.getByRole('button', { name: 'Mostrar el panel lateral' }).tap()
+    await panelOf(phone).getByRole('tab', { name: 'Historial' }).tap()
+    const row = rows(phone).filter({ has: named(phone, MEMBER.username) }).last()
     await row.scrollIntoViewIfNeeded()
     await row.tap()
-    await expect(m.locator('.version')).toBeVisible()
+    await expect(phone.locator('.version')).toBeVisible()
     for (const name of ['Revertir este cambio', 'Restaurar esta versión', 'Volver a la nota']) {
-      const b = await band(m).getByRole('button', { name }).boundingBox()
+      const b = await band(phone).getByRole('button', { name }).boundingBox()
       expect(b!.height).toBeGreaterThanOrEqual(44)
     }
-    await noHorizontalScroll(m)
-    await m.screenshot({ path: `${SHOTS}/revert-mobile-version.png`, animations: 'disabled' })
-    await band(m).getByRole('button', { name: 'Revertir este cambio' }).tap()
-    const dialog = dialogOf(m)
+    await noHorizontalScroll(phone)
+    await phone.screenshot({ path: `${SHOTS}/revert-mobile-version.png`, animations: 'disabled' })
+    await band(phone).getByRole('button', { name: 'Revertir este cambio' }).tap()
+    const dialog = dialogOf(phone)
     await expect(dialog.locator('.preview-head')).toHaveText('Se deshace (2)')
     const box = await dialog.boundingBox()
     expect(box!.width).toBeLessThanOrEqual(390)
-    await noHorizontalScroll(m)
-    await m.screenshot({ path: `${SHOTS}/revert-mobile-preview.png`, animations: 'disabled' })
+    await noHorizontalScroll(phone)
+    await phone.screenshot({ path: `${SHOTS}/revert-mobile-preview.png`, animations: 'disabled' })
     await dialog.getByRole('button', { name: 'Cancelar' }).tap()
-    await toggle(m, 'Solo contenido').tap()
-    await expect(m.locator('.v-plain')).toBeVisible()
-    await noHorizontalScroll(m)
-    await m.screenshot({ path: `${SHOTS}/version-content-mobile.png`, animations: 'disabled' })
+    await toggle(phone, 'Solo contenido').tap()
+    await expect(phone.locator('.v-plain')).toBeVisible()
+    await noHorizontalScroll(phone)
+    await phone.screenshot({ path: `${SHOTS}/version-content-mobile.png`, animations: 'disabled' })
   })
 })

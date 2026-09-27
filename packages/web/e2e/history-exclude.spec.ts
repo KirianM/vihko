@@ -3,11 +3,13 @@
 // of looking empty. At the end the folder goes back to having no thoth.yaml.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, NOTES } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES, specMother } from './env.ts'
 import { signIn, writeWorkspace } from './helpers.ts'
 
-const DIR = 'fuera-del-historial'
-const NOTE = `${DIR}/Contraseñas.md`
+const m = specMother(import.meta.url)
+const DIR = m.aFolder()
+const NOTE = m.aNotePath(DIR)
+const TEXT = m.aSentence()
 const excluded = async (page: Page) => {
   const q = new URLSearchParams()
   q.set('path', NOTE)
@@ -20,10 +22,10 @@ let k: Page
 test.beforeAll(async ({ browser }) => {
   k = await signIn(browser, ADMIN)
   // The pattern first: the note is never in the history.
-  writeWorkspace(`history:\n  exclude:\n    - ${DIR}/**\n`)
+  writeWorkspace(`history:\n  exclude:\n    - ${JSON.stringify(`${DIR}/**`)}\n`)
   await expect.poll(() => excluded(k), { timeout: 20_000 }).toBe(true)
   mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
-  writeFileSync(`${NOTES}/${NOTE}`, '# Contraseñas\n\nNada que guardar aquí.\n')
+  writeFileSync(`${NOTES}/${NOTE}`, `# ${m.aHeading()}\n\n${TEXT}\n`)
 })
 
 test.afterAll(async () => {
@@ -51,9 +53,9 @@ test('an excluded note: its history tab says it is kept out, and typing makes no
   await panel.screenshot({ path: `${E2E_DIR}/shots/history-tab-excluded.png`, animations: 'disabled' })
 
   // Still a note like any other: it is edited and saved.
-  await k.locator('.cm-line', { hasText: 'Nada que guardar aquí.' }).click()
+  await k.locator('.cm-line', { hasText: TEXT }).click()
   await k.keyboard.press('End')
-  await k.keyboard.type(' Ni esto.')
+  await k.keyboard.type(` ${m.aSentence()}`)
   await expect(k.getByText('Guardado en disco')).toBeVisible({ timeout: 10_000 })
   await k.waitForTimeout(4_000) // longer than the e2e server's quiet time
   await expect(panel.locator('.h-pending')).toHaveCount(0)

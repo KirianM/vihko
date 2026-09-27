@@ -6,14 +6,16 @@
 import { expect, test, type Page } from '@playwright/test'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { mkdirSync } from 'node:fs'
-import { ADMIN, BASE_URL, E2E_DIR } from './env.ts'
+import { ADMIN, BASE_URL, E2E_DIR, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
-const FOLDER = 'e2e-via'
-const BY_API = `${FOLDER}/Por la API.md`
-const BY_MCP = `${FOLDER}/Por MCP.md`
-const NAME = 'Agente vía'
+const m = specMother(import.meta.url)
+const FOLDER = m.aFolder()
+const BY_API = m.aNotePath(FOLDER)
+const BY_MCP = m.aNotePath(FOLDER)
+/** The key's name. */
+const NAME = m.aKeyName()
 const WHO = `${NAME} · en nombre de ${ADMIN.username}`
 /** Versions appear after a flush and some calm (3 s on the e2e server). */
 const SLOW = { timeout: 20_000 }
@@ -26,18 +28,18 @@ test.beforeAll(async ({ browser }) => {
   mkdirSync(SHOTS, { recursive: true })
   k = await signIn(browser, ADMIN)
   expect((await k.request.put('/api/admin/integrations', { data: { api: true, mcp: true } })).status()).toBe(200)
-  for (const [path, text] of [[BY_API, '# Por la API\n\nAntes.\n'], [BY_MCP, '# Por MCP\n\nAntes.\n']]) {
+  for (const [path, text] of [[BY_API, `# ${m.aHeading()}\n\n${m.aSentence()}\n`], [BY_MCP, `# ${m.aHeading()}\n\n${m.aSentence()}\n`]]) {
     expect([201, 409]).toContain((await k.request.post('/api/note', { data: { path, text } })).status())
   }
   const { key, token } = await (await k.request.post('/api/keys', { data: { confirm: ADMIN.password, name: NAME, canWrite: true, folders: [FOLDER] } })).json() as { key: { id: string }; token: string }
   keyId = key.id
   // Over the HTTP API, with the key.
-  const r = await k.request.post('/api/note/edit', { headers: { Authorization: `Bearer ${token}` }, data: { path: BY_API, ops: [{ op: 'append', text: 'Escrito por la API.\n' }] } })
+  const r = await k.request.post('/api/note/edit', { headers: { Authorization: `Bearer ${token}` }, data: { path: BY_API, ops: [{ op: 'append', text: `${m.aSentence()}\n` }] } })
   expect(r.status(), await r.text()).toBe(200)
   // Through the MCP server, as a client would.
   const client = new Client({ name: 'e2e', version: '1' })
   await client.connect(new StreamableHTTPClientTransport(new URL(`${BASE_URL}/mcp`), { requestInit: { headers: { authorization: `Bearer ${token}` } } }))
-  const done = await client.callTool({ name: 'edit_note', arguments: { path: BY_MCP, ops: [{ op: 'append', text: 'Escrito por MCP.\n' }] } }) as { isError?: boolean; content: unknown }
+  const done = await client.callTool({ name: 'edit_note', arguments: { path: BY_MCP, ops: [{ op: 'append', text: `${m.aSentence()}\n` }] } }) as { isError?: boolean; content: unknown }
   expect(done.isError, JSON.stringify(done.content)).not.toBe(true)
   await client.close()
 })
