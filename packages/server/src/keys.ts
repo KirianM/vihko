@@ -31,7 +31,7 @@ const KEY_FORMAT = /^thoth_([0-9A-HJKMNP-TV-Z]{26})_([A-Za-z0-9_-]{43})$/
 export interface KeyInfo {
   id: string
   userId: string
-  /** What the history and the editor show: «Claude Code», «Blog»… */
+  /** What the history and the editor show: «Claude Code», «Backup script»… */
   name: string
   canWrite: boolean
   /** Folders it reaches; empty = every folder its user sees. */
