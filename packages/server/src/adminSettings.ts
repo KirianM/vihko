@@ -14,7 +14,8 @@ export interface AdminSettingsView {
   /**
    * The second factor (D-036): `required` (whoever hasn't set it up does so
    * at their next sign-in, before anything else), `optional` (the default:
-   * each person chooses) or `disabled` (neither asked for nor offered).
+   * each person chooses) or `disabled` (nobody new sets one up; whoever has
+   * one is still asked for it, D-040 3.4a).
    */
   twoFactor: TwoFactorPolicy
 }

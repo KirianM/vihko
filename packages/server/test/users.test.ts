@@ -78,7 +78,7 @@ test('links: a new one ends the previous one, they expire after 7 days, a reset 
 
     // A reset for someone with a password, with a session open.
     const cookie = await login(s.app, 'marta', 'marta-long-password') as string
-    const reset = (await s.noa('POST', `/api/admin/users/${user.id}/link`)).body.link
+    const reset = (await s.noa('POST', `/api/admin/users/${user.id}/link`, { confirm: PASSWORD })).body.link
     assert.equal(reset.kind, 'reset')
     assert.equal((await s.app.request('/api/auth/me', { headers: { cookie } })).status, 200, 'a link alone ends nothing')
     assert.equal((await anon(s.app, 'POST', `/api/invite/${reset.token}`, { password: 'marta-new-password' })).status, 200)
@@ -86,12 +86,12 @@ test('links: a new one ends the previous one, they expire after 7 days, a reset 
     assert.equal(await login(s.app, 'marta', 'marta-long-password'), 401)
 
     // Expired: the same neutral answer.
-    const late = (await s.noa('POST', `/api/admin/users/${user.id}/link`)).body.link
+    const late = (await s.noa('POST', `/api/admin/users/${user.id}/link`, { confirm: PASSWORD })).body.link
     s.auth.state.prepare("update user_links set expires_at = '2020-01-01T00:00:00.000Z'").run()
     assert.deepEqual((await anon(s.app, 'GET', `/api/invite/${late.token}`)).body.error, 'invalid_link')
 
     // Disabled: no new link, and a pending one stops working.
-    const pending = (await s.noa('POST', `/api/admin/users/${user.id}/link`)).body.link
+    const pending = (await s.noa('POST', `/api/admin/users/${user.id}/link`, { confirm: PASSWORD })).body.link
     await s.noa('POST', `/api/admin/users/${user.id}/disable`)
     assert.equal((await anon(s.app, 'GET', `/api/invite/${pending.token}`)).status, 404)
     const none = await s.noa('POST', `/api/admin/users/${user.id}/link`)
@@ -130,15 +130,15 @@ test('the last active admin can\'t be demoted, disabled or deleted; with another
   const s = await setup()
   try {
     const id = s.users.noa.id
-    for (const [method, path, body] of [['PUT', `/api/admin/users/${id}/role`, { role: 'member' }], ['POST', `/api/admin/users/${id}/disable`, undefined]] as const) {
+    for (const [method, path, body] of [['PUT', `/api/admin/users/${id}/role`, { role: 'member', confirm: PASSWORD }], ['POST', `/api/admin/users/${id}/disable`, undefined]] as const) {
       const r = await s.noa(method, path, body)
       assert.deepEqual([r.status, r.body.error], [409, 'last_admin'], path)
     }
     // An invited admin can't sign in yet: they don't count.
     const invited = (await s.noa('POST', '/api/admin/users', { username: 'laura', role: 'admin' })).body
-    assert.equal((await s.noa('PUT', `/api/admin/users/${id}/role`, { role: 'member' })).body.error, 'last_admin')
+    assert.equal((await s.noa('PUT', `/api/admin/users/${id}/role`, { role: 'member', confirm: PASSWORD })).body.error, 'last_admin')
     await anon(s.app, 'POST', `/api/invite/${invited.link.token}`, { password: 'laura-long-password' })
-    const demoted = await s.noa('PUT', `/api/admin/users/${id}/role`, { role: 'member' })
+    const demoted = await s.noa('PUT', `/api/admin/users/${id}/role`, { role: 'member', confirm: PASSWORD })
     assert.deepEqual([demoted.status, demoted.body.user.role], [200, 'member'])
     assert.equal((await s.noa('GET', '/api/admin/users')).status, 403, 'the role applies at once')
     const laura = await login(s.app, 'laura', 'laura-long-password') as string
@@ -319,7 +319,7 @@ test('state.db: version 5 migrates keeping its users, with a copy before', () =>
   const file = join(dir, 'state.db')
   openState(file).close()
   const raw = new Database(file)
-  raw.exec(`drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
+  raw.exec(`drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
     alter table users drop column deleted_at; alter table sessions drop column user_agent;
     insert into users (id, username, password_hash, role, created_at) values ('01U', 'noa', 'x', 'admin', '2026-01-01T00:00:00Z');
     insert into users (id, username, password_hash, role, created_at, disabled) values ('02U', 'ana', 'x', 'member', '2026-01-01T00:00:00Z', 1);`)
@@ -332,4 +332,22 @@ test('state.db: version 5 migrates keeping its users, with a copy before', () =>
   ])
   db.close()
   assert.ok(existsSync(`${file}.bak-v5`))
+})
+
+test('names are taken as the permissions compare them: a case in any script, a deleted user\'s too', async () => {
+  const s = await setup()
+  try {
+    const first = await s.noa('POST', '/api/admin/users', { username: 'Ángela', role: 'member' })
+    assert.equal(first.status, 201)
+    // SQLite's nocase folds only ASCII: «ángela» would have inherited «Ángela»'s grants and `{user}` folder.
+    assert.deepEqual([(await s.noa('POST', '/api/admin/users', { username: 'ángela', role: 'member' })).body.error], ['user_exists'])
+    assert.equal((await s.noa('POST', `/api/admin/users/${first.body.user.id}/disable`)).status, 200)
+    assert.equal((await s.noa('DELETE', `/api/admin/users/${first.body.user.id}`)).status, 200)
+    assert.deepEqual([(await s.noa('POST', '/api/admin/users', { username: 'ÁNGELA', role: 'member' })).body.error], ['user_exists'], 'nor once she is deleted')
+
+    assert.equal((await s.noa('POST', '/api/admin/groups', { name: 'Équipo' })).status, 201)
+    assert.deepEqual([(await s.noa('POST', '/api/admin/groups', { name: 'équipo' })).body.error], ['group_exists'])
+  } finally {
+    await s.close()
+  }
 })

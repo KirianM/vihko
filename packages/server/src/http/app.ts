@@ -52,6 +52,7 @@ import { AdminSettings, AdminSettingsError } from '../adminSettings.ts'
 import { inviteRoutes, userRoutes, usersErrorStatus, type UserRoutesDeps } from './users.ts'
 import { TwoFactor } from '../twoFactor.ts'
 import { twoFactorHttp } from './twoFactor.ts'
+import { Notices, noticeAlert } from '../notices.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
@@ -148,6 +149,8 @@ export interface AppDeps {
   adminSettings?: AdminSettings
   /** The second factor (state.db). By default, over the same state.db as `auth`, on the app's clock. */
   twoFactor?: TwoFactor
+  /** Notices addressed to one person (state.db). By default, over the same state.db as `auth`, on the app's clock. */
+  notices?: Notices
   /** Only tests: how «Save a copy» resolves names and which addresses count as public. */
   imageFetchTesting?: FetchImageOptions['testing']
 }
@@ -235,6 +238,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const permissions = policy.permissions
   const permissionsFile = new PermissionsFile({ notesDir: deps.notesDir, workspace, engine: permissions, history: deps.history?.recorder, onChange: deps.onPermissionsChanged })
   const twoFactor = deps.twoFactor ?? new TwoFactor(auth.state, { now })
+  const notices = deps.notices ?? new Notices(auth.state, { now })
   const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
   const scopedDeps: ScopedDeps = {
     notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links,
@@ -362,7 +366,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   // The second factor (http/twoFactor.ts): after the password, the session or the second step.
   const tf = twoFactorHttp({
-    auth, users, twoFactor, settings: adminSettings, limiter, deviceCookie: DEVICE_COOKIE, ipOf, tooMany, signedIn,
+    auth, users, twoFactor, settings: adminSettings, limiter, deviceCookie: DEVICE_COOKIE, ipOf, tooMany, signedIn, notices,
     publicUrl: deps.publicUrl ?? null, now: () => now().getTime(),
   })
 
@@ -391,7 +395,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const userDeps: UserRoutesDeps = {
     auth, users, settings: adminSettings, limiter, ipOf, tooMany, publicUrl: deps.publicUrl ?? null,
     deviceOf: (c, username) => limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username),
-    passwordAccepted: tf.passwordAccepted,
+    passwordAccepted: tf.passwordAccepted, confirm: tf.confirmIdentity, notices,
   }
   // A one-time link (an invitation or a reset): no session yet.
   app.use('/api/invite/*', authBody)
@@ -426,7 +430,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.get('/api/auth/me', (c) => c.json({ user: c.get('user') }))
 
   // What the UI needs to know about this installation's settings.
-  app.get('/api/config', (c) => c.json({ externalImages, maxImageBytes: notes.maxImageBytes }))
+  // `secretsEncrypted`: THOTH_SECRET_KEY is set (the privacy page says how the second factor's secret is kept).
+  app.get('/api/config', (c) => c.json({ externalImages, maxImageBytes: notes.maxImageBytes, secretsEncrypted: twoFactor.encrypted }))
 
   // Notes and folders: a folder with no notes (just created, or emptied) still shows.
   app.get('/api/tree', (c) => c.json(scoped(c).tree()))
@@ -674,6 +679,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // A note's alert goes to whoever can read the note, with only what they can
   // see; the system's (the scan, git, sign-ins, thoth.yaml and its
   // permissions), to the admin, without paths of notes they can't read (D-038).
+  const nameOf = (id: string) => auth.username(id) ?? id
   app.get('/api/alerts', (c) => {
     const access = c.get('access')
     const admin = !access.isAgent && c.get('user').role === 'admin'
@@ -732,6 +738,11 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     // Someone may be guessing passwords: only for admins, who can do something about it.
     const guessing = admin ? limiter.summary() : null
     if (guessing) alerts.push({ code: 'login_attempts_blocked', ...guessing, actions: [] })
+    // Second factors that can't be read with the THOTH_SECRET_KEY in force (twoFactor.ts).
+    const unreadable = admin ? twoFactor.unreadable() : []
+    if (unreadable.length) alerts.push({ code: 'two_factor_unreadable', users: unreadable.map(nameOf).sort(), actions: [] })
+    // Notices addressed to this person (notices.ts), last: what others did to their account or their writing.
+    if (!access.isAgent) for (const n of notices.of(c.get('user').id)) alerts.push(noticeAlert(n, access, nameOf))
     return c.json({ alerts })
   })
 
@@ -761,7 +772,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // One's own second factor, and the admin's reset of someone's.
   tf.routes(app)
 
-  if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, keyName: (id) => keys.nameOf(id) })
+  if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, keyName: (id) => keys.nameOf(id), notices, confirm: tf.confirmIdentity })
 
   // Creating a key, and approving an OAuth client, confirm who is there (D-036).
   keyRoutes(app, { keys, integrations, publicUrl: oauth.publicUrl, confirm: tf.confirmIdentity })

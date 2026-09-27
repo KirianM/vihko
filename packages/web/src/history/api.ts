@@ -127,8 +127,8 @@ export const historyApi = {
   changes: (opts: { cursor?: string | null; author?: string | null } = {}) =>
     request<ChangesPage>('GET', `/api/history/changes?${query({ cursor: opts.cursor, author: opts.author })}`, undefined, {}, AbortSignal.timeout(POLL_TIMEOUT)),
   /** Purges a note (or, the admin, any path) or one of its versions from the history; `dryRun`: only what it would take out. */
-  purge: (path: string, opts: { version?: string | null; dryRun?: boolean } = {}) =>
-    request<PurgeReport>('POST', '/api/history/purge', { path, ...(opts.version ? { version: opts.version } : {}), dryRun: opts.dryRun === true }),
+  purge: (path: string, opts: { version?: string | null; dryRun?: boolean; confirm?: string } = {}) =>
+    request<PurgeReport>('POST', '/api/history/purge', { path, ...(opts.version ? { version: opts.version } : {}), dryRun: opts.dryRun === true, ...(opts.confirm ? { confirm: opts.confirm } : {}) }),
   /** The admin's notice of a purge, dismissed. */
   dismissPurge: (id: string) => request<{ ok: true }>('DELETE', `/api/history/purges/${encodeURIComponent(id)}`),
 }
@@ -150,4 +150,6 @@ export interface PurgeReport {
   onDisk: number
   sharedWith: string[]
   movedFrom: string[]
+  /** In a dry run: the purge takes out something the admin can't read, and asks for the confirmation at the moment (D-040 3.6). */
+  confirmRequired?: boolean
 }

@@ -56,7 +56,7 @@ export type ErrorCode =
   | 'login_expired' // the second step of a sign-in came too late (or its pending sign-in is unknown): the password again
   | 'invalid_code' // a second-factor code (or recovery code) that isn't right
   | 'code_used' // a TOTP code already accepted once: wait for the next one
-  | 'confirmation_required' // creating a key or approving an OAuth client: the current code (or the password) is missing
+  | 'confirmation_required' // creating a key, approving an OAuth client or one of the admin's changes to an account: the current code (or the password) is missing
   | 'two_factor_disabled' // the admin turned the second factor off: it can't be set up
   | 'two_factor_required' // the admin requires a second factor: one's own can't be turned off
   | 'two_factor_off' // no second factor in force to change
@@ -159,6 +159,31 @@ export type Alert =
    * or `next-to-note` keep each image with its note. Only admins see it.
    */
   | { code: 'attachments_shared_folder'; folder: string; actions: never[] }
+  /**
+   * Addressed to one person (M4.1): the thoth admin `by` (their name) gave
+   * them a password reset link, took their second factor away or changed
+   * their role (to `role`) at `at` (ISO). Until they dismiss it.
+   */
+  | { code: 'account_changed'; id: string; change: AccountChange; role: 'admin' | 'member' | null; by: string; at: string; actions: 'dismiss'[] }
+  /** The same, told to every other admin: `by` did it to `user` (names). Until each dismisses theirs. */
+  | { code: 'user_account_changed'; id: string; change: AccountChange; role: 'admin' | 'member' | null; by: string; user: string; at: string; actions: 'dismiss'[] }
+  /**
+   * Addressed to one person (M4.1): `by` (their name) purged from the
+   * history a note they wrote in (`version`: one version of it) at `at`.
+   * `path` only while they can still read it; null otherwise. Never anything
+   * of the content.
+   */
+  | { code: 'history_purged_authored'; id: string; path: string | null; version: boolean; by: string; at: string; actions: 'dismiss'[] }
+  /**
+   * Second factors stored encrypted with a THOTH_SECRET_KEY that isn't the
+   * one in force (or with none set): their codes can't be checked, so those
+   * people (`users`, names) sign in with a recovery code, or the admin takes
+   * theirs away (`thoth user reset-2fa`). Only admins see it.
+   */
+  | { code: 'two_factor_unreadable'; users: string[]; actions: never[] }
+
+/** What the thoth admin did to someone's account. */
+export type AccountChange = 'reset_link' | 'two_factor_reset' | 'role_changed'
 
 export type AlertCode = Alert['code']
 export type AlertAction = Alert['actions'][number]

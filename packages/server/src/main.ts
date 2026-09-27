@@ -30,6 +30,8 @@ import { AccessPolicy } from './access.ts'
 import { PermissionsEngine, groupSource, stateDirectory } from './permissions.ts'
 import { PermissionHolds } from './permissionHolds.ts'
 import { Users } from './users.ts'
+import { TwoFactor } from './twoFactor.ts'
+import { secretBoxFrom, type SecretBox } from './secretKey.ts'
 
 export interface Config {
   notesDir: string
@@ -67,6 +69,12 @@ export interface Config {
    * Unset: the socket's address, and the header is ignored.
    */
   trustedProxies: BlockList | null
+  /**
+   * THOTH_SECRET_KEY (or THOTH_SECRET_KEY_FILE, a Docker secret): with it,
+   * the TOTP secrets in state.db are stored encrypted (secretKey.ts). Only
+   * the derived key is kept; the variables leave the environment once read.
+   */
+  secretBox: SecretBox | null
 }
 
 export function configFromEnv(env = process.env): Config {
@@ -88,6 +96,7 @@ export function configFromEnv(env = process.env): Config {
     integrationsLocked: integrationsLockedFrom(env.THOTH_INTEGRATIONS),
     publicUrl: publicUrlFrom(env.THOTH_PUBLIC_URL),
     trustedProxies: trustedProxiesFrom(env.THOTH_TRUSTED_PROXIES),
+    secretBox: secretBoxFrom(env),
   }
 }
 
@@ -220,8 +229,16 @@ async function run(config: Config, lock: StateLock) {
   const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const profiles = new Profiles(state)
+  // The second factor's secrets: encrypted with THOTH_SECRET_KEY if there is
+  // one (those still in plaintext, now). One that can't be read never stops
+  // thoth: the admin is told (an alert), and `thoth user reset-2fa` fixes it.
+  const twoFactor = new TwoFactor(state, { box: config.secretBox })
+  const sealed = twoFactor.sealPlaintext()
+  if (config.secretBox) log(`THOTH_SECRET_KEY: second factors are stored encrypted${sealed ? ` (${sealed} encrypted now)` : ''}`)
+  const unreadable = twoFactor.unreadable().length
+  if (unreadable) log(`${unreadable} second factor(s) can't be read ${config.secretBox ? 'with this THOTH_SECRET_KEY' : 'without THOTH_SECRET_KEY'}: those people sign in with a recovery code, or run thoth user reset-2fa <name>`)
   const app = createApp({
-    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users,
+    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users, twoFactor,
     policy, holds, onPermissionsChanged: () => hub.recheckAccess(),
     // The MCP server, at /mcp (off until the admin turns it on).
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log }) },

@@ -108,6 +108,12 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
     const sharedVersion = await versionOf(shared)
     const lauraVersion = await versionOf('personas/laura/recetas/tarta.md')
     const q = (path: string, params: Record<string, string>) => h.url(path, params)
+    // Notices addressed to each person about a purge of what they can't read now (M4.1): never its path.
+    const store = new server.Notices(h.auth.state)
+    const notice = {
+      laura: store.add(h.users.laura.id, { code: 'history_purged_authored', by: h.users.noa.id, path: hidden.laura, version: true })!.id,
+      marta: store.add(h.users.marta.id, { code: 'history_purged_authored', by: h.users.noa.id, path: hidden.marta, version: false })!.id,
+    }
 
     const calls = (who: Who): Call[] => {
       const mine = own[who]
@@ -208,6 +214,8 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'DELETE /api/account/sessions/:id', method: 'DELETE', path: '/api/account/sessions/nope' },
         { route: 'DELETE /api/account/sessions', method: 'DELETE', path: '/api/account/sessions' },
         { route: 'POST /api/auth/password', method: 'POST', path: '/api/auth/password', body: { current: 'wrong', password: 'another-long-password' } },
+        // One's own notices: someone else's doesn't exist.
+        { route: 'DELETE /api/account/notices/:id', method: 'DELETE', path: `/api/account/notices/${who === 'laura' ? notice.marta : notice.laura}`, expect: 404 },
         // The second factor: pending tokens and codes that don't exist, one's own, and the admin's reset.
         { route: 'POST /api/auth/login/code', method: 'POST', path: '/api/auth/login/code', body: { token: 'nope', code: '000000' } },
         { route: 'POST /api/auth/2fa/setup', method: 'POST', path: '/api/auth/2fa/setup', body: { token: 'nope' } },

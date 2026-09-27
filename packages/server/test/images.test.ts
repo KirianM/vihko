@@ -250,7 +250,7 @@ test('external images: exposed to the UI, and the UI CSP follows the setting', a
   writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
   for (const [setting, allowed] of [['allow', true], ['block', false]] as const) {
     const { get } = await setup({ webDir, externalImages: setting, maxImageBytes: 1234 })
-    assert.deepEqual(await (await get('/api/config')).json(), { externalImages: setting, maxImageBytes: 1234 })
+    assert.deepEqual(await (await get('/api/config')).json(), { externalImages: setting, maxImageBytes: 1234, secretsEncrypted: false })
     const csp = (await get('/')).headers.get('content-security-policy')!
     const img = /img-src ([^;]*)/.exec(csp)![1]!
     assert.equal(img.includes('https:'), allowed, csp)

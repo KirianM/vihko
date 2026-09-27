@@ -87,6 +87,8 @@ export interface PurgedCommit {
   files: PurgedFile[]
   /** Left with no change: it goes. */
   dropped: boolean
+  /** The people who wrote it (their user ids, from its `Thoth-Actor` trailers; never agents). */
+  people: string[]
 }
 
 export interface PurgeReport {
@@ -321,6 +323,8 @@ const within = (path: string, target: string) => { const p = nfc(path); return p
 const changeOf = (status: string): PurgedFile['change'] => (status === 'A' ? 'created' : status === 'D' ? 'deleted' : 'modified')
 const iso = (ident: string) => new Date(Number(/ (\d+) [+-]\d{4}$/.exec(ident)?.[1] ?? 0) * 1000).toISOString()
 const subjectOf = (message: string) => message.split('\n')[0] ?? ''
+/** The users among a commit's authors (an agent is not a person, whoever it acts for). */
+const peopleOf = (message: string) => [...new Set(parseMessage(message).parsedAuthors.flatMap((a) => (a.kind === 'user' ? [a.id] : [])))]
 
 function opOf(f: Commit['files'][number]): Op {
   return f.newOid === null ? { op: 'D', path: f.path } : { op: 'M', mode: f.mode, oid: f.newOid, path: f.path }
@@ -349,7 +353,7 @@ function planPath(commits: Commit[], raw: string, exact = false): Plan {
       if (inside(m.to) && !inside(m.from)) movedFrom.add(m.from)
       else if (target.startsWith(nfc(m.to) + '/')) movedFrom.add(m.from + target.slice(nfc(m.to).length))
     }
-    if (files.length) affected.push({ id: c.id, at: iso(c.author), subject: subjectOf(c.message), files: files.map((f) => ({ path: f.path, change: changeOf(f.status) })), dropped: false })
+    if (files.length) affected.push({ id: c.id, at: iso(c.author), subject: subjectOf(c.message), files: files.map((f) => ({ path: f.path, change: changeOf(f.status) })), dropped: false, people: peopleOf(c.message) })
   }
   return {
     version: null, affected, removed, movedFrom: [...movedFrom].sort(),
@@ -402,7 +406,7 @@ async function planVersion(git: Git, commits: Commit[], raw: string, version: st
     // Its own change to the file isn't the same any more.
     if (b.now === now.get(c.id) || f.newOid === content) {
       if (f.newOid === content) removed++
-      affected.push({ id: c.id, at: iso(c.author), subject: subjectOf(c.message), files: [{ path, change: changeOf(f.status) }], dropped: false })
+      affected.push({ id: c.id, at: iso(c.author), subject: subjectOf(c.message), files: [{ path, change: changeOf(f.status) }], dropped: false, people: peopleOf(c.message) })
     }
   }
   return {
