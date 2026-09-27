@@ -333,3 +333,21 @@ test('state.db: version 5 migrates keeping its users, with a copy before', () =>
   db.close()
   assert.ok(existsSync(`${file}.bak-v5`))
 })
+
+test('names are taken as the permissions compare them: a case in any script, a deleted user\'s too', async () => {
+  const s = await setup()
+  try {
+    const first = await s.noa('POST', '/api/admin/users', { username: 'Ángela', role: 'member' })
+    assert.equal(first.status, 201)
+    // SQLite's nocase folds only ASCII: «ángela» would have inherited «Ángela»'s grants and `{user}` folder.
+    assert.deepEqual([(await s.noa('POST', '/api/admin/users', { username: 'ángela', role: 'member' })).body.error], ['user_exists'])
+    assert.equal((await s.noa('POST', `/api/admin/users/${first.body.user.id}/disable`)).status, 200)
+    assert.equal((await s.noa('DELETE', `/api/admin/users/${first.body.user.id}`)).status, 200)
+    assert.deepEqual([(await s.noa('POST', '/api/admin/users', { username: 'ÁNGELA', role: 'member' })).body.error], ['user_exists'], 'nor once she is deleted')
+
+    assert.equal((await s.noa('POST', '/api/admin/groups', { name: 'Équipo' })).status, 201)
+    assert.deepEqual([(await s.noa('POST', '/api/admin/groups', { name: 'équipo' })).body.error], ['group_exists'])
+  } finally {
+    await s.close()
+  }
+})
