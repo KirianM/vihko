@@ -62,7 +62,18 @@ test('note paths are valid, and titles, folders and tags never repeat under case
   assert.equal(new Set(tags.map(caseFold)).size, tags.length)
   const words = Array.from({ length: 50 }, () => m.aUniqueWord())
   const text = Array.from({ length: 200 }, () => m.aParagraph()).join(' ')
-  for (const w of words) assert.ok(!text.split(/[\s.]+/).includes(w), `${w} is in no sentence`)
+  const inText = new Set(text.toLowerCase().split(/[\s.]+/))
+  for (const w of words) assert.ok(!inText.has(w), `${w} is in no sentence`)
+  for (const t of tags) assert.ok(!inText.has(t.toLowerCase()), `the tag ${t} is in no sentence`)
+})
+
+test('ids and hosts are ASCII, valid and unique', () => {
+  const ids = Array.from({ length: 100 }, () => m.anId())
+  for (const id of ids) assert.match(id, /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/)
+  assert.equal(new Set(ids).size, ids.length)
+  const hosts = Array.from({ length: 50 }, () => m.aHost())
+  for (const h of hosts) assert.equal(new URL(`https://${h}/`).hostname, h)
+  assert.equal(new Set(hosts).size, hosts.length)
 })
 
 test('a lane other than 0 gives other names, which never clash with lane 0', () => {

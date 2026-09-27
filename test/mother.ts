@@ -82,6 +82,9 @@ const WORDS: readonly string[] = (() => {
   for (const word of VAULT_WORDS) out.delete(word)
   return [...out].sort()
 })()
+/** Tags come from words no text uses (every fourth word), so a tag found in a text was put there as a tag. */
+const TAG_WORDS = WORDS.filter((_, i) => i % 4 === 0)
+const TEXT_WORDS = WORDS.filter((_, i) => i % 4 !== 0)
 
 const FIRST_NAMES: readonly string[] = [...new Set(Object.values(es.person!.first_name as Record<string, string[]>).flat())].sort()
 const LAST_NAMES: readonly string[] = [...new Set(flatStrings(es.person!.last_name))].sort()
@@ -117,6 +120,9 @@ for (const r of RESERVED) {
   taken.names.add(subjectKey(r))
   taken.notes.add(caseFold(r))
 }
+
+/** A word without its accents (NFD, marks removed): «ñ» becomes «n». */
+const ascii = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '')
 
 /** 32-bit FNV-1a of a string: the scope's part of a stream's seed. */
 function hash(s: string): number {
@@ -201,14 +207,14 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
     /** A password thoth accepts (at least MIN_PASSWORD), never handed out before in this process. */
     aPassword(): string {
       return draw('password', () => {
-        const words = [pick(WORDS), pick(WORDS), pick(WORDS)].map((w, i) => (i === int(0, 2) ? capital(w) : w))
+        const words = [pick(TEXT_WORDS), pick(TEXT_WORDS), pick(TEXT_WORDS)].map((w, i) => (i === int(0, 2) ? capital(w) : w))
         return words.join(pick(['-', '.', '_', '·'])) + int(10, 99)
       }, (p) => p.length >= MIN_PASSWORD && fresh(taken.secrets, p))
     },
 
     /** A password thoth rejects as too short (1 to MIN_PASSWORD - 1 characters). */
     aWeakPassword(): string {
-      return pick(WORDS).repeat(3).slice(0, int(1, MIN_PASSWORD - 1))
+      return pick(TEXT_WORDS).repeat(3).slice(0, int(1, MIN_PASSWORD - 1))
     },
 
     /** A random secret (a key, a token): `length` letters and digits, never handed out before. */
@@ -219,7 +225,7 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
     /** A valid group name, unique among the names of this process (users' too). */
     aGroupName(): string {
       return draw('group name', () => {
-        const name = pick([() => pick(WORDS), () => `${pick(WORDS)}-${pick(WORDS)}`, () => `${pick(WORDS)}${int(2, 99)}`])()
+        const name = pick([() => pick(TEXT_WORDS), () => `${pick(TEXT_WORDS)}-${pick(TEXT_WORDS)}`, () => `${pick(TEXT_WORDS)}${int(2, 99)}`])()
         return (chance(0.3) ? capital(name) : name) + suffix
       }, (n) => NAME_PATTERN.test(n) && fresh(taken.names, subjectKey(n)))
     },
@@ -236,14 +242,14 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
 
     /** A name for an agent key or an OAuth client: a few words, unique in this process. */
     aKeyName(): string {
-      return draw('key name', () => `${capital(pick(WORDS))} ${pick(WORDS)}`, (n) => fresh(taken.notes, caseFold(n)))
+      return draw('key name', () => `${capital(pick(TEXT_WORDS))} ${pick(TEXT_WORDS)}`, (n) => fresh(taken.notes, caseFold(n)))
     },
 
     // --- Notes -----------------------------------------------------------------
 
     /** A Spanish word (lowercase letters); not unique. */
     aWord(): string {
-      return pick(WORDS)
+      return pick(TEXT_WORDS)
     },
 
     /**
@@ -252,23 +258,40 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
      * where the test put it.
      */
     aUniqueWord(): string {
-      return draw('unique word', () => `${pick(WORDS)}${pick(WORDS)}`, (w) => w.length <= 28 && fresh(taken.words, caseFold(w)))
+      return draw('unique word', () => `${pick(TEXT_WORDS)}${pick(TEXT_WORDS)}`, (w) => w.length <= 28 && fresh(taken.words, caseFold(w)))
     },
 
     /** A tag's name (no `#`): letters, unique in this process under case folding. */
     aTag(): string {
-      return draw('tag', () => pick(WORDS), (t) => fresh(taken.words, caseFold(t)))
+      return draw('tag', () => (chance(0.8) ? pick(TAG_WORDS) : `${pick(TAG_WORDS)}-${pick(TAG_WORDS)}`), (t) => fresh(taken.words, caseFold(t)))
+    },
+
+    /**
+     * An ASCII identifier (a word without its accents, maybe with a
+     * `-word` or digits), unique in this process: for keys thoth takes as
+     * ids, such as a daily series' (letters, digits, `-`, `_`).
+     */
+    anId(): string {
+      return draw('id', () => {
+        const word = ascii(pick(TEXT_WORDS))
+        return pick([() => word, () => `${word}-${ascii(pick(TEXT_WORDS))}`, () => `${word}${int(2, 99)}`])()
+      }, (id) => /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id) && fresh(taken.words, caseFold(id)))
+    },
+
+    /** A host name under example.org (reserved for examples, RFC 2606), ASCII, unique in this process. */
+    aHost(): string {
+      return draw('host', () => `${ascii(pick(TEXT_WORDS))}${chance(0.3) ? `-${ascii(pick(TEXT_WORDS))}` : ''}.example.org`, (h) => fresh(taken.words, h))
     },
 
     /** A note's title (its file name without `.md`): 1 to 4 words, unique in this process under case folding. */
     aTitle(): string {
-      return draw('title', () => capital(Array.from({ length: int(1, 4) }, () => pick(WORDS)).join(' ')), (t) => fresh(taken.notes, caseFold(t)))
+      return draw('title', () => capital(Array.from({ length: int(1, 4) }, () => pick(TEXT_WORDS)).join(' ')), (t) => fresh(taken.notes, caseFold(t)))
     },
 
     /** A folder's name (one segment): 1 or 2 words, unique like titles. */
     aFolder(): string {
       return draw('folder', () => {
-        const name = Array.from({ length: int(1, 2) }, () => pick(WORDS)).join(pick([' ', '-', '_']))
+        const name = Array.from({ length: int(1, 2) }, () => pick(TEXT_WORDS)).join(pick([' ', '-', '_']))
         return chance(0.3) ? capital(name) : name
       }, (f) => fresh(taken.notes, caseFold(f)))
     },
@@ -285,12 +308,12 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
 
     /** A heading's text (not unique). */
     aHeading(): string {
-      return capital(Array.from({ length: int(1, 4) }, () => pick(WORDS)).join(' '))
+      return capital(Array.from({ length: int(1, 4) }, () => pick(TEXT_WORDS)).join(' '))
     },
 
     /** A sentence of `words` words (4 to 10), capitalised, ending in a full stop. */
     aSentence(words = int(4, 10)): string {
-      return capital(Array.from({ length: words }, () => pick(WORDS)).join(' ')) + '.'
+      return capital(Array.from({ length: words }, () => pick(TEXT_WORDS)).join(' ')) + '.'
     },
 
     /** A paragraph: 2 to 4 sentences. */
