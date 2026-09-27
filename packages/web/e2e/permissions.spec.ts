@@ -51,7 +51,7 @@ async function openFolders(page: Page, ...names: string[]) {
 /** Waits until thoth has read thoth.yaml with the `{user}` rule (or without it). */
 async function rulesInForce(page: Page, personal: boolean) {
   await expect.poll(async () => {
-    const r = await page.request.get('/api/permissions?folder=acceso%2Fpersonas%2Fkirian')
+    const r = await page.request.get('/api/permissions?folder=acceso%2Fpersonas%2Fnoa')
     return r.ok() && (await r.json()).userRule !== null
   }, { timeout: 15_000 }).toBe(personal)
 }
@@ -109,7 +109,7 @@ test('the admin takes a folder away from a member: a lock in the tree; she no lo
   // Who has access, and why.
   await dialog.getByRole('tab', { name: 'Quién tiene acceso' }).click()
   // Its own grant, and managing the root, which reaches under it whatever this folder says (D-040 3.5).
-  await expect(dialog.getByRole('list', { name: 'Quién tiene acceso' }).getByRole('listitem')).toHaveText([/kirianGestionarDirectamente · en \/acceso\/equipoDirectamente · gestiona \/$/])
+  await expect(dialog.getByRole('list', { name: 'Quién tiene acceso' }).getByRole('listitem')).toHaveText([/noaGestionarDirectamente · en \/acceso\/equipoDirectamente · gestiona \/$/])
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
   await expect(row(k, 'equipo').getByRole('img', { name: 'Permisos propios' })).toBeVisible()
 

@@ -39,7 +39,7 @@ test('a tampered client can\'t present itself as someone else, speak for another
   try {
     const k = await login(srv)
     const l = await loginAs(srv, 'laura')
-    const kirianId = (await api(srv, k, 'GET', '/api/auth/me')).body.user.id as string
+    const noaId = (await api(srv, k, 'GET', '/api/auth/me')).body.user.id as string
     const lauraId = (await api(srv, l, 'GET', '/api/auth/me')).body.user.id as string
     const noa = await connect(srv, k, NOTE)
     const laura = await connect(srv, l, NOTE)
@@ -48,12 +48,12 @@ test('a tampered client can\'t present itself as someone else, speak for another
     const seen = (client: number) => observer.provider.awareness!.getStates().get(client) as State | undefined
 
     // An honest one: kept as sent (its id and name are the session's anyway), cursor colour included.
-    noa.provider.awareness!.setLocalStateField('user', { id: kirianId, name: 'noa', hue: 30, color: '#aa5500', colorLight: '#aa550033' })
+    noa.provider.awareness!.setLocalStateField('user', { id: noaId, name: 'noa', hue: 30, color: '#aa5500', colorLight: '#aa550033' })
     await waitFor(() => seen(noa.doc.clientID)?.user?.hue === 30, 'Noa\'s presence')
-    assert.deepEqual(seen(noa.doc.clientID)!.user, { id: kirianId, name: 'noa', hue: 30, color: '#aa5500', colorLight: '#aa550033' })
+    assert.deepEqual(seen(noa.doc.clientID)!.user, { id: noaId, name: 'noa', hue: 30, color: '#aa5500', colorLight: '#aa550033' })
 
     // Laura's client says it's Noa, in the agents' colour, and an agent besides: the server rewrites it as her.
-    laura.provider.awareness!.setLocalState({ user: { id: kirianId, name: 'noa', hue: 258, color: 'red' }, agent: { name: 'Claude', onBehalfOf: 'noa', via: 'mcp' }, cursor: null })
+    laura.provider.awareness!.setLocalState({ user: { id: noaId, name: 'noa', hue: 258, color: 'red' }, agent: { name: 'Claude', onBehalfOf: 'noa', via: 'mcp' }, cursor: null })
     await waitFor(() => seen(laura.doc.clientID)?.user !== undefined, 'Laura\'s presence')
     const hers = seen(laura.doc.clientID)!
     assert.deepEqual(hers.user, { id: lauraId, name: 'laura', hue: baseHue(lauraId) })
@@ -78,12 +78,12 @@ test('a tampered client can\'t present itself as someone else, speak for another
     // And for a client nobody has announced, next to her own: hers, so it's signed as her.
     const extra = new Y.Doc()
     const other = new Awareness(extra)
-    other.setLocalState({ user: { id: kirianId, name: 'noa', hue: 40 } })
+    other.setLocalState({ user: { id: noaId, name: 'noa', hue: 40 } })
     applyAwarenessUpdate(laura.provider.awareness!, encodeAwarenessUpdate(other, [extra.clientID]), 'forged')
     await waitFor(() => seen(extra.clientID) !== undefined, 'the extra client')
     assert.deepEqual(seen(extra.clientID)!.user, { id: lauraId, name: 'laura', hue: 40 })
     await sleep(500)
-    assert.deepEqual(seen(noa.doc.clientID)!.user, { id: kirianId, name: 'noa', hue: 30, color: '#aa5500', colorLight: '#aa550033' })
+    assert.deepEqual(seen(noa.doc.clientID)!.user, { id: noaId, name: 'noa', hue: 30, color: '#aa5500', colorLight: '#aa550033' })
     fake.destroy(); other.destroy(); forged.destroy(); extra.destroy()
   } finally { closeAll(); await srv.stop() }
 })

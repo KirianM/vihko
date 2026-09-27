@@ -134,7 +134,7 @@ test('the texts of a folder nobody is granted: seen only by whoever manages it f
   await expect(dialog.getByRole('status')).toHaveText('Guardado.')
   // He still manages it, from the root: the dialog stays his, and says why.
   await dialog.getByRole('tab', { name: 'Quién tiene acceso' }).click()
-  await expect(dialog.getByRole('list', { name: 'Quién tiene acceso' }).getByRole('listitem')).toHaveText([/kirianGestionarDirectamente · gestiona \/$/])
+  await expect(dialog.getByRole('list', { name: 'Quién tiene acceso' }).getByRole('listitem')).toHaveText([/noaGestionarDirectamente · gestiona \/$/])
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
 
   // A personal folder named like nobody: the admin opens its permissions (the name, never what's in it).

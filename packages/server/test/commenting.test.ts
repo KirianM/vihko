@@ -45,7 +45,7 @@ test('with comment, a person adds comments, replies and resolves their own threa
     assert.equal(r.status, 200, JSON.stringify(r.body))
     const threads = async () => (await h.laura('GET', `/api/note/comments?path=${encodeURIComponent(TARTA)}`)).body.threads as { id: string }[]
     const lauras = (await threads()).find((t) => t.id.startsWith('laura|'))!.id
-    const kirians = (await threads()).find((t) => t.id.startsWith('noa|'))!.id
+    const noas = (await threads()).find((t) => t.id.startsWith('noa|'))!.id
     r = await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'reply', thread: lauras, text: 'Sí' })
     assert.equal(r.status, 200, JSON.stringify(r.body))
     assert.ok(file().includes(`# Tarta de Laura<!-- @laura ${WHEN} · ¿Le cambio el nombre? -->\n<!-- @noa ${WHEN} · ↳ Sí -->`), file())
@@ -53,7 +53,7 @@ test('with comment, a person adds comments, replies and resolves their own threa
     r = await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'resolve', thread: lauras })
     assert.equal(r.status, 403, 'only whoever started a thread, or someone who can edit, resolves it')
     assert.equal(file(), withBoth)
-    r = await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'resolve', thread: kirians })
+    r = await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'resolve', thread: noas })
     assert.equal(r.status, 200)
     assert.ok(!file().includes('menos azúcar') && file().includes('Tarta Obsidiana. [[compra]]'))
     // With edit, anyone's.

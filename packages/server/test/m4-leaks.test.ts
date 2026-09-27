@@ -103,7 +103,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
     await put(h.noa, 'familia/sorpresa/regalo.md', 'Más Ámbar.\n')
     assert.equal((await h.noa('POST', '/api/note', { path: 'admin/borrar.md', text: '# Borrador Berilo\n' })).status, 201)
     assert.equal((await h.noa('DELETE', h.url('/api/note', { path: 'admin/borrar.md' }))).status, 200)
-    const kirianTrash = ((await h.noa('GET', '/api/trash')).body.entries as { id: string }[])[0]!.id
+    const noaTrash = ((await h.noa('GET', '/api/trash')).body.entries as { id: string }[])[0]!.id
     const versionOf = async (path: string) => ((await h.laura('GET', h.url('/api/history/versions', { path }))).body.versions as { id: string }[])[0]!.id
     const sharedVersion = await versionOf(shared)
     const lauraVersion = await versionOf('personas/laura/recetas/tarta.md')
@@ -177,7 +177,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'POST /api/note/link/pin', method: 'POST', path: '/api/note/link/pin', body: { path: shared, raw: '[[Plan]]', target: 'personas/noa/Plan.md' } },
         { route: 'POST /api/note/orphan', method: 'POST', path: '/api/note/orphan', body: { path: theirs, action: 'discard' } },
         { route: 'POST /api/external-moves/:id/relink', method: 'POST', path: '/api/external-moves/nope/relink', body: { dryRun: true } },
-        { route: 'POST /api/trash/:id/restore', method: 'POST', path: `/api/trash/${kirianTrash}/restore`, body: {} },
+        { route: 'POST /api/trash/:id/restore', method: 'POST', path: `/api/trash/${noaTrash}/restore`, body: {} },
         { route: 'POST /api/folder', method: 'POST', path: '/api/folder', body: { path: `${folder}/sub` } },
         { route: 'DELETE /api/folder', method: 'DELETE', path: q('/api/folder', { path: folder }) },
         { route: 'POST /api/folder/move', method: 'POST', path: '/api/folder/move', body: { from: folder, to: 'familia/robada', dryRun: true } },

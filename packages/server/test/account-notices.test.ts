@@ -55,11 +55,11 @@ test('a reset link, a second factor\'s reset and a new role are confirmed, and t
     const s = await h.ana('POST', '/api/account/2fa/setup', { password: PASSWORD })
     await h.ana('POST', '/api/account/2fa/enable', { code: totp(base32Decode(s.body.secret), h.clock.now.getTime()) })
     const k = await h.noa('POST', '/api/account/2fa/setup', { password: PASSWORD })
-    const kirianSecret = base32Decode(k.body.secret)
-    await h.noa('POST', '/api/account/2fa/enable', { code: totp(kirianSecret, h.clock.now.getTime()) })
+    const noaSecret = base32Decode(k.body.secret)
+    await h.noa('POST', '/api/account/2fa/enable', { code: totp(noaSecret, h.clock.now.getTime()) })
     h.clock.now = new Date(h.clock.now.getTime() + 30_000)
     assert.equal((await h.noa('POST', `/api/admin/users/${ana}/2fa/reset`, { confirm: PASSWORD })).body.error, 'invalid_code')
-    const reset = await h.noa('POST', `/api/admin/users/${ana}/2fa/reset`, { confirm: totp(kirianSecret, h.clock.now.getTime()) })
+    const reset = await h.noa('POST', `/api/admin/users/${ana}/2fa/reset`, { confirm: totp(noaSecret, h.clock.now.getTime()) })
     assert.deepEqual(reset.body.user.twoFactor, { enabled: false, enabledAt: null })
 
     // Ana is told what, by whom and when; Bea, the same about Ana; Noa, who did it, nothing; Carla, nothing.
