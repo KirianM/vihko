@@ -15,7 +15,7 @@ import { setup } from './_agents.ts'
 import { tempDir } from './_tmp.ts'
 
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
-const KEY = 'k5Q1n0mZrT8vYc2WbXe7LpA4sDf9GhJ3uIo6'
+const KEY = 'k5Q1n0mZrT8vYc2WbXe7LpA4sDf9GhJ3uIo6' // gitleaks:allow (an invented key)
 const OTHER = 'a-completely-different-key-of-40-characters'
 
 test('the box: AES-256-GCM with a nonce each time, bound to its owner; another key, another owner or a change open nothing', () => {
