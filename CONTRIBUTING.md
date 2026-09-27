@@ -3,7 +3,8 @@
 ## Pull requests
 
 thoth is not accepting external pull requests for now. Issues are welcome:
-bug reports, questions and ideas.
+bug reports, questions and ideas. Security vulnerabilities are reported
+privately, never in an issue: see [SECURITY.md](SECURITY.md).
 
 ## Development
 
