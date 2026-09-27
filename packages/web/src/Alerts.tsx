@@ -11,6 +11,7 @@ import type { ConfigError } from '@thoth/core/codes'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
 import { ShiftPreview } from './Shifts.tsx'
 import { useDates } from './history/ui.tsx'
+import { historyApi } from './history/api.ts'
 import './actions.css'
 
 type ExternalMove = Extract<Alert, { code: 'external_move' }>
@@ -187,7 +188,7 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
 
   function card(a: Alert, i: number) {
     const id = `alert-${i}`
-    const key = `${a.code}:${'path' in a ? a.path : 'uid' in a ? a.uid : 'series' in a ? a.series : 'id' in a ? a.id : ''}`
+    const key = `${a.code}:${a.code === 'history_purged' ? a.id : 'path' in a ? a.path : 'uid' in a ? a.uid : 'series' in a ? a.series : 'id' in a ? a.id : ''}`
     const frame = (o: { icon: ReactNode; tone?: 'warn' | 'accent'; title: ReactNode; body: ReactNode; extra?: ReactNode; actions: ReactNode }) => (
       <section key={key} className={`alert-card${o.tone === 'warn' ? ' alert-card-warn' : ''}`} aria-labelledby={id}>
         <span className={`alert-icon alert-icon-${o.tone ?? 'muted'}`}>{o.icon}</span>
@@ -322,6 +323,17 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           title: a.versions === 1 ? t('alerts.historyMergedTitleOne') : t('alerts.historyMergedTitle', { n: a.versions }),
           body: t('alerts.historyMergedBody', { since: dates.dateTime(a.since) }),
           actions: null,
+        })
+      case 'history_purged':
+        return frame({
+          icon: icons.config,
+          title: t(a.version ? 'alerts.purgedVersionTitle' : 'alerts.purgedTitle', { by: a.by }),
+          body: rich(t(a.version ? 'alerts.purgedVersionBody' : 'alerts.purgedBody'), {
+            path: <span className="mono">{a.path}</span>,
+            version: <span className="mono">{a.version?.slice(0, 7) ?? ''}</span>,
+            when: dates.dateTime(a.at),
+          }),
+          actions: a.actions.includes('dismiss') && <Button className="btn" isDisabled={busy} onPress={() => act(() => historyApi.dismissPurge(a.id))}>{t('alerts.dismiss')}</Button>,
         })
       case 'history_no_repository':
         return frame({

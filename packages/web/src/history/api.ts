@@ -126,4 +126,28 @@ export const historyApi = {
     request<RevertReport>('POST', '/api/history/revert', { path, id, dryRun: opts.dryRun === true }),
   changes: (opts: { cursor?: string | null; author?: string | null } = {}) =>
     request<ChangesPage>('GET', `/api/history/changes?${query({ cursor: opts.cursor, author: opts.author })}`, undefined, {}, AbortSignal.timeout(POLL_TIMEOUT)),
+  /** Purges a note (or, the admin, any path) or one of its versions from the history; `dryRun`: only what it would take out. */
+  purge: (path: string, opts: { version?: string | null; dryRun?: boolean } = {}) =>
+    request<PurgeReport>('POST', '/api/history/purge', { path, ...(opts.version ? { version: opts.version } : {}), dryRun: opts.dryRun === true }),
+  /** The admin's notice of a purge, dismissed. */
+  dismissPurge: (id: string) => request<{ ok: true }>('DELETE', `/api/history/purges/${encodeURIComponent(id)}`),
+}
+
+/**
+ * What a purge takes out (`dryRun`) or took out (D-038.9): the versions whose
+ * change goes (when, how many files; a version left with nothing goes whole,
+ * `dropped`), and never anything of the content. `onDisk`: files still in the
+ * folder, which enter the history again with their next version.
+ * `sharedWith`: other notes whose history holds the same content (only those
+ * the person can read).
+ */
+export interface PurgeReport {
+  path: string
+  version: string | null
+  dryRun: boolean
+  versions: { id: string; at: string; files: number; dropped: boolean }[]
+  filesRemoved: number
+  onDisk: number
+  sharedWith: string[]
+  movedFrom: string[]
 }
