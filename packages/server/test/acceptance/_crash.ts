@@ -166,6 +166,11 @@ export async function killRound(o: RoundOptions): Promise<RoundResult & { srv: S
     if (lostTyped.length || lostHot.length || lostCold.length) {
       failures.push(`round ${o.round}: acknowledged but missing or duplicated after the restart: typed ${JSON.stringify(lostTyped)}, agent on the open note ${JSON.stringify(lostHot)}, agent on the closed note ${JSON.stringify(lostCold)}`)
     }
+    // A line its own typist's copy doesn't hold whole either was broken while typing, not lost by the server.
+    const broken = [...a.done.map((tok) => [tok, a] as const), ...b.done.map((tok) => [tok, b] as const)]
+      .filter(([tok, t]) => countLine(t.client.text(), tok) !== 1)
+      .map(([tok, t]) => [tok, t.client.text().split('\n').filter((l) => l.includes(tok.slice(-4)))])
+    if (broken.length) failures.push(`round ${o.round}: typed lines not whole in their own typist's copy (the typing broke them): ${JSON.stringify(broken)}`)
     if (countLine(disk, AGENT_MARK) !== 1) failures.push(`round ${o.round}: the agent's anchor appears ${countLine(disk, AGENT_MARK)} times after the restart`)
 
     // 2. The open tabs reconnect: everything they typed converges once.
