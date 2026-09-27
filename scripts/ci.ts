@@ -7,10 +7,24 @@
 //   npm run ci -- --pr 72            pull request 72 merged onto its base, as GitHub tests it
 //   npm run ci -- --ref origin/main  a commit (fetch first to test the latest main)
 //   npm run ci -- --jobs check,e2e   some jobs only
+//   npm run ci -- --jobs e2e --grep 'two-factor\.spec'
+//                                    only the tests matching a pattern (below)
 //   npm run ci -- --keep             keep the run's folder (worktree, data) to debug
 //   npm run ci -- --pr 72 --post     pending, then success or failure, on the PR's head commit
 //   npm run ci -- --parallel         the jobs at the same time (faster, but see CONTRIBUTING.md)
 //   npm run ci -- --clean            remove the folders and logs of earlier runs
+//
+// To run again only what failed: `--jobs` with the failed jobs and, for
+// browser tests, `--grep` with their files (a failed run prints the command).
+// `--grep` is a regular expression: Playwright matches it against the file
+// name and the titles (`two-factor\.spec`, `purge`), `node --test` against
+// test names only (--test-name-pattern). A run of some jobs or tests is not the
+// CI: with `--post` it reports as `ci/local-partial`, never `ci/local`, which
+// only a run of every job and test sets.
+//
+// Browser tests that fail run once more (Playwright's retries, with a trace).
+// One that passes then is flaky: the job passes, and the summary, the job's
+// line and the posted status say which, so it's never silent.
 //
 // Each run has its own folder (THOTH_CI_DIR, /var/tmp/thoth-ci by default:
 // local disk, never NFS nor a tmpfs /tmp) with a git worktree, TMPDIR, test
@@ -32,18 +46,31 @@ type Job = (typeof JOBS)[number]
 type Stage = 'setup' | Job
 /** Minutes: the workflow's timeout-minutes. Setup is the `npm ci` and build every job there starts with. */
 const LIMIT: Record<Stage, number> = { setup: 15, check: 20, acceptance: 30, docker: 30, e2e: 45 }
-const USAGE = `Usage: npm run ci -- [--pr N | --ref COMMIT] [--jobs ${JOBS.join(',')}] [--keep] [--post] [--parallel] | --clean`
+const USAGE = `Usage: npm run ci -- [--pr N | --ref COMMIT] [--jobs ${JOBS.join(',')}] [--grep PATTERN] [--keep] [--post] [--parallel] | --clean`
+const HELP = `  --pr N          pull request N merged onto its base, as GitHub tests it
+  --ref COMMIT    a commit (fetch first to test the latest main); by default, this checkout's HEAD
+  --jobs LIST     some jobs only, e.g. e2e or check,e2e
+  --grep PATTERN  only the tests matching this regular expression: Playwright matches the
+                  file name and titles (e.g. 'two-factor\\.spec'), node --test the test names
+  --post          report as a commit status: ci/local for a run of every job and test,
+                  ci/local-partial for one with --jobs or --grep (never ci/local)
+  --keep          keep the run's folder (worktree, data) to debug
+  --parallel      the jobs at the same time (faster, but see CONTRIBUTING.md)
+  --clean         remove the folders and logs of earlier runs
+
+A failed run prints the command that runs again only what failed. Browser tests
+that fail run once more; one that passes then is reported as flaky.`
 
 const REPO = dirname(fileURLToPath(new URL('.', import.meta.url)))
 const BASE = process.env.THOTH_CI_DIR ?? '/var/tmp/thoth-ci'
 /** Logs of finished runs are kept this long. */
 const LOG_DAYS = 7
 
-let opt: { pr?: string; ref?: string; jobs?: string; keep?: boolean; post?: boolean; parallel?: boolean; clean?: boolean; help?: boolean }
+let opt: { pr?: string; ref?: string; jobs?: string; grep?: string; keep?: boolean; post?: boolean; parallel?: boolean; clean?: boolean; help?: boolean }
 try {
   opt = parseArgs({
     options: {
-      pr: { type: 'string' }, ref: { type: 'string' }, jobs: { type: 'string' }, keep: { type: 'boolean' }, post: { type: 'boolean' },
+      pr: { type: 'string' }, ref: { type: 'string' }, jobs: { type: 'string' }, grep: { type: 'string' }, keep: { type: 'boolean' }, post: { type: 'boolean' },
       parallel: { type: 'boolean' }, clean: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
     },
   }).values
@@ -52,7 +79,7 @@ try {
   process.exit(2)
 }
 if (opt.help) {
-  console.log(USAGE)
+  console.log(`${USAGE}\n\n${HELP}`)
   process.exit(0)
 }
 const selected = (opt.jobs ?? JOBS.join(',')).split(',').map((j) => j.trim()).filter(Boolean)
@@ -60,9 +87,14 @@ const unknown = selected.filter((j) => !(JOBS as readonly string[]).includes(j))
 if (unknown.length || selected.length === 0) usage(`unknown jobs: ${unknown.join(', ') || '(none)'}`)
 if (opt.pr !== undefined && !/^\d+$/.test(opt.pr)) usage('--pr takes a pull request number')
 if (opt.pr !== undefined && opt.ref !== undefined) usage('--pr or --ref, not both')
-// The status says "the CI passed": only a run of every job can say it.
-if (opt.post && selected.length !== JOBS.length) usage('--post reports the whole CI: run every job')
+if (opt.grep !== undefined) {
+  try { new RegExp(opt.grep) } catch (err) { usage(`--grep: ${(err as Error).message}`) }
+  if (opt.grep === '') usage('--grep takes a pattern')
+}
 const jobs = JOBS.filter((j) => selected.includes(j))
+/** Some jobs, or some tests: never the whole CI, so never `ci/local` (see the top). */
+const partial = jobs.length !== JOBS.length || opt.grep !== undefined
+const CONTEXT = partial ? 'ci/local-partial' : 'ci/local'
 /**
  * One after another unless --parallel. Measured on the 6-CPU machine the CI
  * runs on: 12m30s one after another, 8m at once; but at once, one run in three
@@ -91,8 +123,52 @@ const LABEL = `thoth-ci=${ID}`
 const SAFE = ['-c', `safe.directory=${TREE}`]
 
 type Status = 'OK' | 'FAILED' | 'CANCELLED' | 'SKIPPED'
-interface Result { stage: Stage; status: Status; ms: number; why?: string; log: string }
-interface Ctx { stage: Stage; log: string; fd: number; env: NodeJS.ProcessEnv; deadline: number; procs: Set<ChildProcess> }
+/** `flaky`: browser tests that failed and then passed on their retry; `info`: what else the job's line says. */
+interface Result { stage: Stage; status: Status; ms: number; why?: string; log: string; flaky?: string[]; info?: string }
+interface Ctx { stage: Stage; log: string; fd: number; env: NodeJS.ProcessEnv; deadline: number; procs: Set<ChildProcess>; info: string[] }
+
+/** What this run tests, in words: its jobs, and its pattern if it has one. */
+const what = () => `${jobs.join(', ')}${opt.grep !== undefined ? ` (--grep ${opt.grep})` : ''}`
+/** A test as Playwright names it, shorter: its file and title. */
+const short = (test: string) => test.replace(/^(?:\[[^\]]*\] › )?(?:e2e\/|acceptance\/)?([^:]+):\d+:\d+ › /, '$1 › ').slice(0, 60)
+/** Quoted for a POSIX shell, when it has to be. */
+const shell = (s: string) => (/^[\w.,/:=@%+-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`)
+
+/**
+ * The command that runs again only what failed: the same target, the failed
+ * jobs, and for browser tests their files (or this run's --grep). Null when
+ * nothing failed, or the setup did (then everything runs again anyway).
+ */
+function rerun(failed: Result[]): string | null {
+  if (!failed.length || failed.some((r) => r.stage === 'setup')) return null
+  const args = [...(opt.pr ? ['--pr', opt.pr] : opt.ref ? ['--ref', opt.ref] : []), '--jobs', failed.map((r) => r.stage).join(',')]
+  const e2e = failed.find((r) => r.stage === 'e2e')
+  const files = e2e ? [...new Set(playwrightSummary(e2e.log).failed.map((t) => /([^/\s]+\.spec\.ts):\d+/.exec(t)?.[1]).filter((f): f is string => !!f))] : []
+  // A pattern only when the browser tests are all that failed: it would filter the others' tests too.
+  if (failed.length === 1 && files.length) args.push('--grep', files.map((f) => f.replace(/[.]/g, '\\.')).join('|'))
+  else if (opt.grep !== undefined) args.push('--grep', opt.grep)
+  return `npm run ci -- ${args.map(shell).join(' ')}`
+}
+
+/**
+ * Playwright's closing summaries in a log (the list reporter's `N failed`
+ * and `N flaky` sections, one per `playwright test` in it): the tests named.
+ */
+function playwrightSummary(log: string): { failed: string[]; flaky: string[] } {
+  const found = { failed: [] as string[], flaky: [] as string[] }
+  let lines: string[]
+  try { lines = readFileSync(log, 'utf8').replace(/\x1b\[[0-9;]*m/g, '').split('\n') } catch { return found }
+  for (let i = 0; i < lines.length; i++) {
+    const head = /^\s+\d+ (failed|flaky)$/.exec(lines[i]!)
+    if (!head) continue
+    for (let j = i + 1; j < lines.length; j++) {
+      const item = /^\s{4,}(\S.* › .+?)[\s─]*$/.exec(lines[j]!)
+      if (!item) break
+      found[head[1] as 'failed' | 'flaky'].push(item[1]!)
+    }
+  }
+  return found
+}
 
 /** A step that failed; the message says which and why. */
 class Failure extends Error {}
@@ -135,6 +211,7 @@ async function main(): Promise<number> {
   say(`thoth CI · ${ID}`)
   say(`  folder  ${RUN}`)
   say(`  jobs    ${jobs.join(', ')} (${parallel ? 'in parallel' : 'one after another'})`)
+  if (opt.grep !== undefined) say(`  grep    ${opt.grep} (only the tests it matches)`)
   say(`  ports   e2e ${e2e}, locked ${locked}, images ${external}, acceptance ${acc}, docker ${docker}`)
   say('')
 
@@ -148,7 +225,7 @@ async function main(): Promise<number> {
       s.target = target
       note(c, `testing ${target.what}`)
       if (opt.post) {
-        post(target.sha, 'pending', `Running ${jobs.join(', ')} on ${hostname()}`)
+        post(target.sha, 'pending', `Running ${what()} on ${hostname()}`)
         s.posted = true
       }
       await checkout(c, target)
@@ -171,10 +248,14 @@ async function main(): Promise<number> {
   } finally {
     const total = Date.now() - t0
     const failed = results.filter((r) => r.status === 'FAILED')
-    const outcome = signalled ? 'CANCELLED' : failed.length ? 'FAILED' : 'OK'
+    const flaky = results.flatMap((r) => r.flaky ?? [])
+    const outcome = signalled ? 'CANCELLED' : failed.length ? 'FAILED' : flaky.length ? `OK, with ${flaky.length} flaky` : 'OK'
+    const again = signalled ? null : rerun(failed)
     const tail = [
       `total ${clock(total)} · ${outcome}`,
       ...failed.map((r) => `\n${r.stage} FAILED: ${r.why}\n  log: ${r.log}`),
+      ...(flaky.length ? [`\nflaky (failed, then passed on their retry; see the log and the retry's trace):`, ...flaky.map((t) => `  ${t}`)] : []),
+      ...(again ? [`\nonly what failed, again: ${again}`] : []),
       ...notes,
       ...(s.target ? [`target: ${s.target.what}`] : []),
     ]
@@ -183,9 +264,9 @@ async function main(): Promise<number> {
     if (s.posted && s.target) {
       const [state, description] = signalled ? ['error', `Cancelled after ${clock(total)}`] as const
         : failed.length ? ['failure', `${failed.map((r) => r.stage).join(', ')} failed: ${failed[0]!.why} (${clock(total)})`] as const
-        : ['success', `${jobs.join(', ')} passed in ${clock(total)}`] as const
+        : ['success', `${what()} passed in ${clock(total)}${flaky.length ? `; ${flaky.length} flaky: ${flaky.map(short).join(', ')}` : ''}`] as const
       post(s.target.sha, state, description)
-      say(`ci/local → ${state} on ${s.target.sha.slice(0, 7)}`)
+      say(`${CONTEXT} → ${state} on ${s.target.sha.slice(0, 7)}`)
     }
     const done = await cleanup(ID, RUN, opt.keep === true)
     say(`cleanup: ${done.join('; ') || 'nothing was left'}`)
@@ -244,12 +325,12 @@ async function checkout(c: Ctx, t: Target) {
 const JOB: Record<Job, (c: Ctx) => Promise<void>> = {
   async check(c) {
     await run(c, 'npm', ['run', 'typecheck'])
-    await run(c, 'npm', ['test'])
+    await run(c, 'npm', ['test'], { env: nodeTestFilter(c) })
   },
 
   async acceptance(c) {
     // The docker job runs that part against the image it builds.
-    await run(c, 'npm', ['run', 'acceptance'], { env: { ACCEPTANCE_DOCKER: '0' } })
+    await run(c, 'npm', ['run', 'acceptance'], { env: { ACCEPTANCE_DOCKER: '0', ...nodeTestFilter(c) } })
   },
 
   async docker(c) {
@@ -266,18 +347,27 @@ const JOB: Record<Job, (c: Ctx) => Promise<void>> = {
       await run(c, 'docker', ['logs', name], { limitMs: 30_000 }).catch(() => {})
       await run(c, 'docker', ['rm', '-f', name], { limitMs: 60_000 }).catch(() => {})
     }
-    await run(c, process.execPath, ['--test', '--test-force-exit', 'packages/server/test/acceptance/docker.acceptance.ts'], { env: { ACCEPTANCE_IMAGE: IMAGE } })
+    await run(c, process.execPath, ['--test', '--test-force-exit', 'packages/server/test/acceptance/docker.acceptance.ts'], { env: { ACCEPTANCE_IMAGE: IMAGE, ...nodeTestFilter(c) } })
   },
 
   // The servers run here and the browser in the Playwright image, on the host's network.
+  // With --grep, a suite none of whose tests match is skipped, server included.
   async e2e(c) {
     const web = join(TREE, 'packages/web')
     try {
       const base = `http://127.0.0.1:${c.env.E2E_PORT}`
       const e2e = { E2E_BASE_URL: base, E2E_PORT: c.env.E2E_PORT!, E2E_LOCKED_PORT: c.env.E2E_LOCKED_PORT!, E2E_EXTERNAL_PORT: c.env.E2E_EXTERNAL_PORT!, E2E_DIR: join(RUN, 'data/e2e') }
-      await withServer(c, ['e2e/serve.ts'], e2e, [`${base}/api/health`, `http://127.0.0.1:${c.env.E2E_LOCKED_PORT}/api/health`], 60_000, () => playwright(c, e2e, 'e2e'))
       const acc = { ACC_BASE_URL: `http://127.0.0.1:${c.env.ACC_PORT}`, ACC_PORT: c.env.ACC_PORT!, ACC_DIR: join(RUN, 'data/acceptance') }
-      await withServer(c, ['acceptance/serve.ts'], acc, [`${acc.ACC_BASE_URL}/api/health`], 180_000, () => playwright(c, acc, 'acceptance:ui'))
+      const suites = [
+        { script: 'e2e', env: e2e, config: [], serve: ['e2e/serve.ts'], urls: [`${base}/api/health`, `http://127.0.0.1:${c.env.E2E_LOCKED_PORT}/api/health`], ms: 60_000 },
+        { script: 'acceptance:ui', env: acc, config: ['-c', 'playwright.acceptance.config.ts'], serve: ['acceptance/serve.ts'], urls: [`${acc.ACC_BASE_URL}/api/health`], ms: 180_000 },
+      ]
+      for (const s of suites) {
+        const n = opt.grep === undefined ? null : await matching(c, s.env, s.config)
+        if (n !== null) c.info.push(`${s.script}: ${n} ${n === 1 ? 'test matches' : 'tests match'}`)
+        if (n === 0) continue
+        await withServer(c, s.serve, s.env, s.urls, s.ms, () => playwright(c, s.env, s.script))
+      }
     } catch (err) {
       // What the workflow uploads when it fails.
       for (const dir of ['playwright-report', 'test-results']) {
@@ -299,16 +389,50 @@ async function withServer(c: Ctx, args: string[], env: Record<string, string>, u
   }
 }
 
-/** `npm run <script> -w @thoth/web` in the Playwright image of the installed @playwright/test. */
+/** `npm run <script> -w @thoth/web` in the Playwright image of the installed @playwright/test (with --grep, only its tests). */
 function playwright(c: Ctx, env: Record<string, string>, script: string) {
   const version = (JSON.parse(readFileSync(join(TREE, 'node_modules/@playwright/test/package.json'), 'utf8')) as { version: string }).version
   const image = `mcr.microsoft.com/playwright:v${version}-noble`
   const vars = Object.entries({ HOME: '/tmp', CI: 'true', NPM_CONFIG_UPDATE_NOTIFIER: 'false', ...env }).flatMap(([k, v]) => ['-e', `${k}=${v}`])
+  const grep = opt.grep === undefined ? [] : ['--', '--grep', opt.grep]
   return run(c, 'docker', [
     'run', '--rm', '--init', '--name', `thoth-ci-${ID}-${script.replace(/\W/g, '-')}`, '--label', LABEL,
     '--network', 'host', '--user', `${process.getuid!()}:${process.getgid!()}`, ...vars,
-    '-v', `${RUN}:${RUN}`, '-w', join(TREE, 'packages/web'), image, 'npm', 'run', script,
+    '-v', `${RUN}:${RUN}`, '-w', join(TREE, 'packages/web'), image, 'npm', 'run', script, ...grep,
   ], { label: `npm run ${script} (${basename(image)})` })
+}
+
+/**
+ * How many tests of a Playwright configuration match --grep. Listed here,
+ * not in the image: listing starts no browser (nor, with the base URL in the
+ * environment, a server).
+ */
+async function matching(c: Ctx, env: Record<string, string>, config: string[]): Promise<number> {
+  const args = [join(TREE, 'node_modules/@playwright/test/cli.js'), 'test', '--list', '--grep', opt.grep!, ...config]
+  note(c, `\n[${time()}] $ node ${args.join(' ')}`)
+  const child = spawn(process.execPath, args, { cwd: join(TREE, 'packages/web'), env: { ...c.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+  c.procs.add(child)
+  let out = ''
+  child.stdout!.on('data', (d: Buffer) => { out += d })
+  child.stderr!.on('data', (d: Buffer) => { out += d })
+  const end = await ending(child, Math.min(c.deadline, Date.now() + 120_000))
+  c.procs.delete(child)
+  const total = /^Total: (\d+) tests? in/m.exec(out)
+  note(c, total ? total[0] : out.trim().split('\n').slice(-10).join('\n'))
+  if (end === 'aborted') throw new Failure('cancelled while listing the browser tests')
+  if (!total) throw new Failure(`could not list the browser tests (${end})`)
+  return Number(total[1])
+}
+
+/**
+ * With --grep, the environment that makes `node --test` run only the tests
+ * whose names match: NODE_OPTIONS, since options after the files would go to
+ * the tests instead (npm run appends them there).
+ */
+function nodeTestFilter(c: Ctx): Record<string, string> {
+  if (opt.grep === undefined) return {}
+  const pattern = `--test-name-pattern="${opt.grep.replace(/[\\"]/g, '\\$&')}"`
+  return { NODE_OPTIONS: [c.env.NODE_OPTIONS, pattern].filter(Boolean).join(' ') }
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +441,7 @@ function playwright(c: Ctx, env: Record<string, string>, script: string) {
 async function stage(name: Stage, ports: Record<string, number>, body: (c: Ctx) => Promise<void>): Promise<Result> {
   const log = join(LOGS, `${name}.log`)
   const fd = openSync(log, 'a')
-  const c: Ctx = { stage: name, log, fd, env: environment(name, ports), deadline: Date.now() + LIMIT[name] * 60_000, procs: new Set() }
+  const c: Ctx = { stage: name, log, fd, env: environment(name, ports), deadline: Date.now() + LIMIT[name] * 60_000, procs: new Set(), info: [] }
   const t0 = Date.now()
   if (tty && !parallel) process.stdout.write(`  ${name.padEnd(11)}`)
   note(c, `[${time()}] ${name} (at most ${LIMIT[name]} min) in ${TREE}`)
@@ -334,7 +458,9 @@ async function stage(name: Stage, ports: Record<string, number>, body: (c: Ctx) 
     note(c, `[${time()}] ${name}: ${status} in ${clock(Date.now() - t0)}`)
     closeSync(fd)
   }
-  const r: Result = { stage: name, status, ms: Date.now() - t0, why, log }
+  const flaky = name === 'e2e' ? playwrightSummary(log).flaky : []
+  if (flaky.length) c.info.push(`${flaky.length} flaky: ${flaky.map(short).join(', ')}`)
+  const r: Result = { stage: name, status, ms: Date.now() - t0, why, log, flaky, info: c.info.join('; ') || undefined }
   // On a terminal, one job after another: the line started above ends here (unless Ctrl-C broke it).
   say(tty && !parallel && !signalled ? line(r).slice(13) : line(r))
   return r
@@ -345,7 +471,7 @@ const skipped = (stage: Job): Result => {
   say(line(r))
   return r
 }
-const line = (r: Result) => `  ${r.stage.padEnd(11)}${r.status.padEnd(10)}${r.status === 'SKIPPED' ? '' : clock(r.ms).padStart(7)}${r.why && r.status === 'FAILED' ? `  ${r.why.split('\n')[0]}` : ''}`
+const line = (r: Result) => `  ${r.stage.padEnd(11)}${r.status.padEnd(10)}${r.status === 'SKIPPED' ? '' : clock(r.ms).padStart(7)}${r.why && r.status === 'FAILED' ? `  ${r.why.split('\n')[0]}` : ''}${r.info ? `  (${r.info})` : ''}`
 
 /**
  * The environment of a stage: this one without what could steer the tests
@@ -502,13 +628,16 @@ function listenable(port: number): Promise<boolean> {
   })
 }
 
-/** The `ci/local` commit status: GitHub shows it on the pull request, and it costs no Actions minutes. */
+/**
+ * The `ci/local` commit status (`ci/local-partial` for a run of some jobs or
+ * tests): GitHub shows it on the pull request, and it costs no Actions minutes.
+ */
 function post(sha: string, state: 'pending' | 'success' | 'failure' | 'error', description: string) {
   const r = capture('gh', ['api', '--method', 'POST', `repos/{owner}/{repo}/statuses/${sha}`,
-    '-f', `state=${state}`, '-f', 'context=ci/local', '-f', `description=${description.replace(/\s+/g, ' ').slice(0, 140)}`])
+    '-f', `state=${state}`, '-f', `context=${CONTEXT}`, '-f', `description=${description.replace(/\s+/g, ' ').slice(0, 140)}`])
   if (!r.ok) {
-    if (state === 'pending') throw new Failure(`could not post the ci/local status: ${r.err}`)
-    say(`could not post the ci/local status (${state}): ${r.err}`)
+    if (state === 'pending') throw new Failure(`could not post the ${CONTEXT} status: ${r.err}`)
+    say(`could not post the ${CONTEXT} status (${state}): ${r.err}`)
     process.exitCode = 1
   }
 }
