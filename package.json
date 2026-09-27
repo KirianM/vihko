@@ -12,12 +12,13 @@
   "scripts": {
     "typecheck": "tsc -p . && tsc -p packages/web",
     "test": "node scripts/test.ts",
-    "load": "node --test --test-concurrency=1 \"packages/*/test/**/*.collab.ts\"",
-    "acceptance": "node --test --test-concurrency=1 --test-force-exit \"packages/server/test/acceptance/*.acceptance.ts\"",
+    "load": "node scripts/seeded.ts node --test --test-concurrency=1 \"packages/*/test/**/*.collab.ts\"",
+    "acceptance": "node scripts/seeded.ts node --test --test-concurrency=1 --test-force-exit \"packages/server/test/acceptance/*.acceptance.ts\"",
     "build": "npm run build -w @thoth/web",
     "ci": "node scripts/ci.ts"
   },
   "devDependencies": {
+    "@faker-js/faker": "^10.6.0",
     "@types/node": "^26.6.2",
     "typescript": "^7.0.2"
   },

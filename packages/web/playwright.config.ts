@@ -1,9 +1,16 @@
 import { defineConfig } from '@playwright/test'
+import { seedLine, testSeed } from '../../test/seed.ts'
 import { BASE_URL, E2E_PORT } from './e2e/env.ts'
 
 // With E2E_BASE_URL the server is already running externally (npm run e2e:serve);
 // otherwise, Playwright starts and stops it.
 //
+// The test data's seed (test/seed.ts; e2e/data.ts reads a running server's):
+// set in the environment by now, it reaches the server Playwright starts and
+// every worker.
+const seed = testSeed()
+if (process.env.TEST_WORKER_INDEX === undefined) console.log(seedLine(seed, 'npm run e2e -w @thoth/web'))
+
 // Traces only on a retry. Recording one on every test cost time on each of
 // them, and stopping it could fail a test that had passed: many specs keep a
 // browser context open across their tests, and each test's trace of such a

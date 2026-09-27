@@ -33,6 +33,11 @@
 // found by their working directory (killing `npm run` leaves its grandchildren
 // alive), removes its containers, image and worktree, and keeps only the logs.
 // A run killed outright (kill -9) is cleaned up by the next one.
+//
+// The tests draw their data (people, passwords, notes…) from one seed per
+// run (test/seed.ts): THOTH_TEST_SEED, or a new one. Every job gets the same,
+// the Playwright container included; the run prints it, and the summary and
+// a failure give it with the command that runs again with the same data.
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs'
@@ -40,6 +45,7 @@ import { createServer } from 'node:net'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { SEED_VARIABLE, testSeed } from '../test/seed.ts'
 
 const JOBS = ['check', 'acceptance', 'docker', 'e2e'] as const
 type Job = (typeof JOBS)[number]
@@ -103,6 +109,8 @@ const CONTEXT = partial ? 'ci/local-partial' : 'ci/local'
  * than a slower one.
  */
 const parallel = opt.parallel === true && jobs.length > 1
+/** The test data's seed, for every job (the environment of each is built without THOTH_ variables, so it's put back there). */
+const SEED = testSeed()
 
 function usage(message: string): never {
   console.error(`${message}\n${USAGE}`)
@@ -147,7 +155,7 @@ function rerun(failed: Result[]): string | null {
   // A pattern only when the browser tests are all that failed: it would filter the others' tests too.
   if (failed.length === 1 && files.length) args.push('--grep', files.map((f) => f.replace(/[.]/g, '\\.')).join('|'))
   else if (opt.grep !== undefined) args.push('--grep', opt.grep)
-  return `npm run ci -- ${args.map(shell).join(' ')}`
+  return `${SEED_VARIABLE}=${SEED} npm run ci -- ${args.map(shell).join(' ')}`
 }
 
 /**
@@ -213,6 +221,7 @@ async function main(): Promise<number> {
   say(`  jobs    ${jobs.join(', ')} (${parallel ? 'in parallel' : 'one after another'})`)
   if (opt.grep !== undefined) say(`  grep    ${opt.grep} (only the tests it matches)`)
   say(`  ports   e2e ${e2e}, locked ${locked}, images ${external}, acceptance ${acc}, docker ${docker}`)
+  say(`  seed    ${SEED} (the test data's: ${SEED_VARIABLE}=${SEED} npm run ci … runs with the same)`)
   say('')
 
   const t0 = Date.now()
@@ -255,7 +264,8 @@ async function main(): Promise<number> {
       `total ${clock(total)} · ${outcome}`,
       ...failed.map((r) => `\n${r.stage} FAILED: ${r.why}\n  log: ${r.log}`),
       ...(flaky.length ? [`\nflaky (failed, then passed on their retry; see the log and the retry's trace):`, ...flaky.map((t) => `  ${t}`)] : []),
-      ...(again ? [`\nonly what failed, again: ${again}`] : []),
+      ...(again ? [`\nonly what failed, again (with the same test data): ${again}`] : []),
+      `seed: ${SEED} (the test data's; ${SEED_VARIABLE}=${SEED} repeats it)`,
       ...notes,
       ...(s.target ? [`target: ${s.target.what}`] : []),
     ]
@@ -263,7 +273,7 @@ async function main(): Promise<number> {
     try { writeFileSync(join(LOGS, 'summary.txt'), [...results.map(line), ...tail].join('\n') + '\n') } catch {}
     if (s.posted && s.target) {
       const [state, description] = signalled ? ['error', `Cancelled after ${clock(total)}`] as const
-        : failed.length ? ['failure', `${failed.map((r) => r.stage).join(', ')} failed: ${failed[0]!.why} (${clock(total)})`] as const
+        : failed.length ? ['failure', `${failed.map((r) => r.stage).join(', ')} failed with seed ${SEED}: ${failed[0]!.why} (${clock(total)})`] as const
         : ['success', `${what()} passed in ${clock(total)}${flaky.length ? `; ${flaky.length} flaky: ${flaky.map(short).join(', ')}` : ''}`] as const
       post(s.target.sha, state, description)
       say(`${CONTEXT} → ${state} on ${s.target.sha.slice(0, 7)}`)
@@ -393,7 +403,7 @@ async function withServer(c: Ctx, args: string[], env: Record<string, string>, u
 function playwright(c: Ctx, env: Record<string, string>, script: string) {
   const version = (JSON.parse(readFileSync(join(TREE, 'node_modules/@playwright/test/package.json'), 'utf8')) as { version: string }).version
   const image = `mcr.microsoft.com/playwright:v${version}-noble`
-  const vars = Object.entries({ HOME: '/tmp', CI: 'true', NPM_CONFIG_UPDATE_NOTIFIER: 'false', ...env }).flatMap(([k, v]) => ['-e', `${k}=${v}`])
+  const vars = Object.entries({ HOME: '/tmp', CI: 'true', NPM_CONFIG_UPDATE_NOTIFIER: 'false', [SEED_VARIABLE]: String(SEED), ...env }).flatMap(([k, v]) => ['-e', `${k}=${v}`])
   const grep = opt.grep === undefined ? [] : ['--', '--grep', opt.grep]
   return run(c, 'docker', [
     'run', '--rm', '--init', '--name', `thoth-ci-${ID}-${script.replace(/\W/g, '-')}`, '--label', LABEL,
@@ -483,7 +493,7 @@ function environment(stage: Stage, ports: Record<string, number>): NodeJS.Proces
   for (const [k, v] of Object.entries(process.env)) if (!/^(npm_|E2E_|ACC_|ACCEPTANCE_|THOTH_|INIT_CWD$)/.test(k)) env[k] = v
   const tmp = join(RUN, 'tmp', stage)
   mkdirSync(tmp, { recursive: true })
-  const own: Record<string, string> = { PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ''}`, TMPDIR: tmp, TMP: tmp, TEMP: tmp, CI: 'true' }
+  const own: Record<string, string> = { PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ''}`, TMPDIR: tmp, TMP: tmp, TEMP: tmp, CI: 'true', [SEED_VARIABLE]: String(SEED) }
   for (const [k, v] of Object.entries(ports)) own[k] = String(v)
   return { ...env, ...own }
 }

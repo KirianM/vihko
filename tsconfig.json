@@ -16,6 +16,7 @@
   },
   "include": [
     "scripts",
+    "test",
     "packages/core/src",
     "packages/core/test",
     "packages/server/src",

@@ -41,6 +41,40 @@ privately, never in an issue: see [SECURITY.md](SECURITY.md).
   same server); and lists other specs add to (users, keys, groups) are checked
   for what the spec made, never as a whole.
 
+## Test data
+
+Tests don't hard-code people, credentials or incidental content: they ask
+the object mother, `test/mother.ts`, for them (`const m =
+mother(import.meta.url)`, then `m.aUser({ role: 'admin' })`, `m.aPassword()`,
+`m.aGroupName()`, `m.aNotePath(m.aFolder())`, `m.aTag()`, `m.aSentence()`…).
+Its values are invented with [faker](https://fakerjs.dev) (a development
+dependency only), Spanish-flavoured so accents and «ñ» show up, and follow
+thoth's rules for their kind: a username matches thoth's pattern and is unique
+under thoth's comparison, a password is long enough, a note path is valid.
+Tests speak of roles ("the admin", "a member") and build their expectations
+from the values they were given. A literal stays only where it is the case
+under test (a parser edge case, Unicode folding, a format's test vector) or
+in an integration test on the fixed vault (`testdata/vault`), with a comment
+saying why.
+
+The values change on every run, from one seed per run: `THOTH_TEST_SEED`, or
+a random one. `npm test`, `npm run acceptance`, the Playwright suites and
+their servers, and every job of `npm run ci` print it and hand the same seed
+to every test process, so the same seed gives the same values. To reproduce
+a failure, run again with the seed it printed:
+
+```sh
+THOTH_TEST_SEED=1234567 npm test -- packages/server/test/users.test.ts
+THOTH_TEST_SEED=1234567 npm run ci -- --jobs e2e --grep 'users\.spec'
+```
+
+Each file draws from its own stream (the seed and the file's path), so a file
+run alone gets the values it got in the full run. A test that fails with some
+seeds only has a hidden assumption about its data: fix the test (or thoth),
+never pin the seed. A browser server started by hand writes its seed next to
+its data (`.data/e2e/seed`), and Playwright pointed at it with `E2E_BASE_URL`
+reads it when `THOTH_TEST_SEED` isn't set.
+
 ## Acceptance
 
 The milestone's «Done when» as tests, over a generated vault of 1,000
