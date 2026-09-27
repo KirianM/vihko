@@ -338,6 +338,36 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           body: t(a.mode === 'off' ? 'alerts.unversionedBodyOff' : 'alerts.unversionedBodyUnmanaged'),
           actions: null,
         })
+      case 'permissions_rejected':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.permissionsRejectedTitle'),
+          body: t(a.fallback === 'closed' ? 'alerts.permissionsRejectedClosed' : 'alerts.permissionsRejectedLastGood'),
+          actions: null,
+        })
+      case 'permissions_held': {
+        const folder = <span className="mono">{a.folder || '/'}</span>
+        return frame({
+          icon: icons.moved,
+          tone: 'warn',
+          title: a.notes === 1 ? t('alerts.heldTitleOne') : t('alerts.heldTitle', { n: a.notes }),
+          body: a.to !== null ? rich(t('alerts.heldBodyTo'), { folder, to: <span className="mono">{a.to}</span> }) : rich(t('alerts.heldBody'), { folder }),
+          actions: (
+            <>
+              {a.actions.includes('move_permissions') && <Button className="btn btn-primary" isDisabled={busy} onPress={() => act(() => api.held(a.id, 'move_permissions'))}>{t('alerts.heldMove')}</Button>}
+              {a.actions.includes('release') && <Button className="btn" isDisabled={busy} onPress={() => act(() => api.held(a.id, 'release'))}>{t('alerts.heldRelease')}</Button>}
+            </>
+          ),
+        })
+      }
+      case 'attachments_shared_folder':
+        return frame({
+          icon: icons.config,
+          title: rich(t('alerts.sharedAttachmentsTitle'), { folder: <span className="mono">{a.folder}</span> }),
+          body: t('alerts.sharedAttachmentsBody'),
+          actions: null,
+        })
       case 'login_attempts_blocked':
         return frame({
           icon: icons.warn,

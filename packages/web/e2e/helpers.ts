@@ -1,6 +1,12 @@
 import { expect, type Browser, type Page } from '@playwright/test'
+import { writeFileSync } from 'node:fs'
 import { crc32, deflateSync } from 'node:zlib'
-import { PASSWORD } from './env.ts'
+import { NOTES, PASSWORD, PERMISSIONS } from './env.ts'
+
+/** Writes thoth.yaml with `text` and the permissions every spec runs under (env.ts); with nothing, only those. */
+export function writeWorkspace(text = '') {
+  writeFileSync(`${NOTES}/thoth.yaml`, (text === '' || text.endsWith('\n') ? text : text + '\n') + PERMISSIONS)
+}
 
 /** Own session (isolated context) with the person already signed in and the note open. */
 export async function signIn(browser: Browser, user: string, note?: string): Promise<Page> {

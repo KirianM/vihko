@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path'
 import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, mountMcp, openIndex, openState, toolData, type ClientMetadataFetcher, type Runtime } from '@thoth/server'
 import { Client, StreamableHTTPClientTransport, type VersionNegotiationMode } from '@modelcontextprotocol/client'
 import { tempDir } from './_tmp.ts'
+import { withEveryone } from './_permissions.ts'
 
 /** A 1×1 PNG. */
 export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
@@ -35,7 +36,8 @@ export async function setup(opts: AgentSetup = {}) {
     mkdirSync(dirname(join(notesDir, p)), { recursive: true })
     writeFileSync(join(notesDir, p), content)
   }
-  if (opts.config !== undefined) writeFileSync(join(notesDir, 'thoth.yaml'), opts.config)
+  // Both users see everything unless the test brings its own permissions (_permissions.ts).
+  writeFileSync(join(notesDir, 'thoth.yaml'), withEveryone(opts.config))
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)

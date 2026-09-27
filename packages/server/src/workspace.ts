@@ -1,12 +1,19 @@
 // The workspace configuration (thoth.yaml at the root of the notes folder),
 // read at start and again whenever the watcher or the periodic rescan says
-// it may have changed. thoth never writes it. A file that can't be used never
-// stops the server: thoth keeps the last valid configuration it read and
-// raises a workspace alert until the file is fixed. Parts of a usable file
-// that were left out (unknown keys, a rejected strict section) raise another.
+// it may have changed (and at once after thoth writes its `permissions`,
+// permissionsFile.ts). A file that can't be used never stops the server:
+// thoth keeps the last valid configuration it read and raises a workspace
+// alert until the file is fixed. Parts of a usable file that were left out
+// (unknown keys, a rejected strict section) raise another.
+//
+// Permissions always fail closed (D-038): a section rejected (or a file that
+// can't be used) when thoth starts leaves nobody reading anything until it's
+// fixed; once a valid one was in force, it stays while the file is wrong. No
+// file, or a file without the section: the implicit one (every admin
+// manages the root).
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { EMPTY_WORKSPACE, WORKSPACE_FILE, parseWorkspaceConfig, type ConfigError, type WorkspaceConfig } from '@thoth/core'
+import { CLOSED_PERMISSIONS, EMPTY_WORKSPACE, IMPLICIT_PERMISSIONS, WORKSPACE_FILE, parseWorkspaceConfig, type ConfigError, type Permissions, type WorkspaceConfig } from '@thoth/core'
 
 export interface WorkspaceOptions {
   notesDir: string
@@ -22,6 +29,11 @@ export class Workspace {
   private problems: ConfigError[] = []
   /** What the configuration in force left out. */
   private ignored: ConfigError[] = []
+  /** The permissions in force: closed until a valid section (or none) is read. */
+  private perms: Permissions = CLOSED_PERMISSIONS
+  private hasGoodPerms = false
+  /** The permissions in the file can't be used (rejected, or the whole file): what applies instead. */
+  private permsFallback: 'last_good' | 'closed' | null = null
 
   constructor(opts: WorkspaceOptions) {
     this.opts = opts
@@ -31,6 +43,20 @@ export class Workspace {
   /** The configuration in force: the file's, the last valid one or the empty one. */
   get config(): WorkspaceConfig {
     return this.good
+  }
+
+  /** The permissions in force (see the header). */
+  get permissions(): Permissions {
+    return this.perms
+  }
+
+  /**
+   * Whether the permissions in the file are left out, and what applies
+   * instead: the last valid ones, or nothing at all (`closed`); null when the
+   * file's apply.
+   */
+  get permissionsFallback(): 'last_good' | 'closed' | null {
+    return this.permsFallback
   }
 
   /**
@@ -51,21 +77,23 @@ export class Workspace {
       if (code === 'ENOENT' || code === 'ENOTDIR') text = null
       else {
         // It exists but can't be read: keep what is in force, like an invalid file.
-        const was = JSON.stringify(this.problems)
+        const was = JSON.stringify([this.problems, this.permsFallback])
         this.problems = [{ code: 'unreadable', at: null, line: null, detail: code ?? String(err) }]
         this.lastText = undefined
-        return was !== JSON.stringify(this.problems)
+        this.permissionsUnusable()
+        return was !== JSON.stringify([this.problems, this.permsFallback])
       }
     }
     if (text === this.lastText) return false
     this.lastText = text
-    const before = JSON.stringify([this.good, this.problems, this.ignored])
+    const before = JSON.stringify([this.good, this.problems, this.ignored, this.perms, this.permsFallback])
     if (text === null) {
-      // No file: nothing is configured. Deleting it turns everything off.
+      // No file: nothing is configured. Deleting it turns everything off, and the permissions are the implicit ones.
       this.good = EMPTY_WORKSPACE
       this.hasGood = false
       this.problems = []
       this.ignored = []
+      this.setPermissions(IMPLICIT_PERMISSIONS)
     } else {
       const r = parseWorkspaceConfig(text)
       if (r.ok) {
@@ -73,15 +101,38 @@ export class Workspace {
         this.hasGood = true
         this.problems = []
         this.ignored = r.warnings
+        const p = r.sections.permissions as Permissions
+        if (p.kind === 'closed') this.permissionsUnusable()
+        else this.setPermissions(p)
       } else {
         this.problems = r.errors
+        // The section stands on its own: a mistake elsewhere in the file doesn't touch it.
+        const p = r.sections?.permissions as Permissions | undefined
+        if (p === undefined || p.kind === 'closed') this.permissionsUnusable()
+        else this.setPermissions(p)
       }
     }
-    const changed = before !== JSON.stringify([this.good, this.problems, this.ignored])
+    const changed = before !== JSON.stringify([this.good, this.problems, this.ignored, this.perms, this.permsFallback])
     if (changed) {
       if (this.problems.length) this.opts.log?.(`${WORKSPACE_FILE} can't be used (${this.problems.map((e) => `${e.code}${e.at ? ` at ${e.at}` : ''}`).join(', ')}); ${this.hasGood ? 'keeping the last valid one' : 'nothing configured'}`)
       else this.opts.log?.(text === null ? `no ${WORKSPACE_FILE}: nothing configured` : `${WORKSPACE_FILE} loaded${this.ignored.length ? ` without ${this.ignored.map((e) => `${e.code}${e.at ? ` at ${e.at}` : ''}`).join(', ')}` : ''}`)
     }
     return changed
+  }
+
+  private setPermissions(p: Permissions) {
+    // The same rules keep their object: whoever compiled them keeps what it compiled.
+    if (JSON.stringify(p) !== JSON.stringify(this.perms)) this.perms = p
+    this.hasGoodPerms = true
+    this.permsFallback = null
+  }
+
+  /** The file's permissions can't be used: the last valid ones stay, or nobody reads (never open). */
+  private permissionsUnusable() {
+    if (this.hasGoodPerms) this.permsFallback = 'last_good'
+    else {
+      this.perms = CLOSED_PERMISSIONS
+      this.permsFallback = 'closed'
+    }
   }
 }

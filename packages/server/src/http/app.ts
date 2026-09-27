@@ -1,7 +1,9 @@
 // HTTP API. Used by the UI with a session (cookie), always active. Agents
 // reach the routes listed in http/routes.ts with a key (`Authorization:
 // Bearer`), only while the API switch is on; everything goes through the
-// access filter (access.ts, scoped.ts), for the UI and for agents alike.
+// access filter (access.ts, scoped.ts), for the UI and for agents alike:
+// every route that touches notes, folders or their names asks it, and each
+// is classified in routes.ts (with what it needs, for the leak tests).
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
@@ -26,6 +28,10 @@ import { HistoryError, type History } from '../history/index.ts'
 import { GitError } from '../history/git.ts'
 import { historyErrorStatus, historyRoutes } from './history.ts'
 import { AccessError, AccessPolicy, AgentDenied, type Access } from '../access.ts'
+import { PermissionsEngine, groupSource, stateDirectory, type GroupSource } from '../permissions.ts'
+import { ConfigInvalidError, PermissionsFile } from '../permissionsFile.ts'
+import type { PermissionHolds } from '../permissionHolds.ts'
+import { permissionRoutes, rulesWithoutFolder } from './permissions.ts'
 import { ApiKeys, KeyError } from '../keys.ts'
 import { Integrations, IntegrationsError } from '../integrations.ts'
 import { RequestError, ScopedNotes, type ScopedDeps } from '../scoped.ts'
@@ -95,10 +101,19 @@ export interface AppDeps {
   /** Note history (M2). Without it, the history API doesn't exist. */
   history?: History
   /**
-   * Whether a user can read a path now, for the history (tests of its
-   * filter); on top of the access filter (access.ts). Everything, until M4.
+   * The groups users belong to (piece U, state.db). None until it exists:
+   * a grant to a group then reaches nobody (and is reported as unknown).
    */
-  canRead?: (user: User, path: string) => boolean
+  groups?: Partial<GroupSource>
+  /**
+   * The access policy, when the caller shares it with others (the
+   * collaboration hub, main.ts). One of its own over `index` by default.
+   */
+  policy?: AccessPolicy
+  /** Notes held after moves made outside thoth (permissionHolds.ts). */
+  holds?: PermissionHolds
+  /** After thoth changes the permissions (thoth.yaml): open editors are checked again. */
+  onPermissionsChanged?: () => void
   /** Agent keys (state.db). By default, over the same state.db as `auth`. */
   keys?: ApiKeys
   /** The integration switches (state.db). By default, over the same state.db as `auth`, unlocked. */
@@ -144,6 +159,8 @@ export interface Services {
   keys: ApiKeys
   integrations: Integrations
   policy: AccessPolicy
+  /** thoth.yaml's permissions, as thoth writes them (piece U: `removeSubjectGrants` when a user is deleted). */
+  permissionsFile: PermissionsFile
   scoped(access: Access): ScopedNotes
   history?: History
   /** OAuth for the MCP server (it says whether it exists: `available()`). */
@@ -207,13 +224,26 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const moveWaitMs = deps.moveWaitMs ?? 1000
   const keys = deps.keys ?? new ApiKeys(auth.state)
   const integrations = deps.integrations ?? new Integrations(auth.state)
-  const policy = new AccessPolicy({ index })
-  const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
   const users = deps.users ?? new Users(auth)
   const adminSettings = deps.adminSettings ?? new AdminSettings(auth.state)
+  const policy = deps.policy ?? new AccessPolicy({
+    index, holds: deps.holds,
+    permissions: new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(auth.state, deps.groups ?? groupSource(users)) }),
+  })
+  const permissions = policy.permissions
+  const permissionsFile = new PermissionsFile({ notesDir: deps.notesDir, workspace, engine: permissions, history: deps.history?.recorder, onChange: deps.onPermissionsChanged })
   const twoFactor = deps.twoFactor ?? new TwoFactor(auth.state, { now })
-  const scopedDeps: ScopedDeps = { notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links }
-  const services: Services = { keys, integrations, policy, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users }
+  const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
+  const scopedDeps: ScopedDeps = {
+    notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links,
+    permissions, permissionsFile, keys: () => keys.listAll(), orphans: deps.orphans, externalMoves: deps.externalMoves,
+  }
+  // A user deleted, a group renamed or deleted: their grants in thoth.yaml
+  // follow, first (if thoth.yaml can't be written, nothing changes).
+  users.hooks.onUserDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(name, { actor: by }) }
+  users.hooks.onGroupRenamed ??= async (from, to, by) => { await permissionsFile.renameSubject(`@${from}`, `@${to}`, { actor: by }) }
+  users.hooks.onGroupDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(`@${name}`, { actor: by }) }
+  const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users }
   const app = new Hono<Env>()
   /** The request's operations, as whoever is asking. */
   const scoped = (c: Context<Env>) => services.scoped(c.get('access'))
@@ -233,6 +263,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400, err.code, err.message)
     if (err instanceof KeyError) return fail(c, keyErrorStatus(err), err.code, err.message)
     if (err instanceof IntegrationsError) return fail(c, err.code === 'integrations_locked' ? 409 : 400, err.code, err.message)
+    if (err instanceof ConfigInvalidError) return fail(c, 409, 'config_invalid', err.message)
     if (err instanceof UsersError) return fail(c, usersErrorStatus(err), err.code, err.message)
     if (err instanceof AdminSettingsError) return fail(c, 400, err.code, err.message)
     // Body that isn't JSON.
@@ -375,9 +406,6 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     await next()
   })
 
-  /** Who writes: the user, or an agent on their behalf. */
-  const actor = (c: Context<Env>) => c.get('access').actor
-
   const adminOnly = async (c: Context<Env>, next: () => Promise<void>) => {
     if (c.get('access').isAgent || c.get('user').role !== 'admin') return fail(c, 403, 'forbidden', 'admins only')
     await next()
@@ -413,22 +441,25 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // compares the same originals with what is being typed.
   app.get('/api/note/comments', (c) => c.json({ threads: scoped(c).comments(c.req.query('path') ?? '') }))
 
-  // Folders only exist on disk: these create, move (with every note in them,
-  // links kept as in a note move) and delete them (only when empty).
+  // Folders only exist on disk: these create (`edit` where it goes), move
+  // (`manage` in it and `edit` in its new parent: with every note in them,
+  // links kept as in a note move, and its permissions with it) and delete
+  // them (`manage`, only when empty). A dry run of a move says whose access
+  // changes (`audience`), for the UI to confirm.
   app.post('/api/folder', async (c) => {
     const { path } = await c.req.json<{ path: string }>()
-    return c.json(notes.createFolder(path, actor(c)), 201)
+    return c.json(scoped(c).createFolder(path), 201)
   })
 
-  app.delete('/api/folder', (c) => c.json(notes.deleteFolder(c.req.query('path') ?? '', actor(c))))
+  app.delete('/api/folder', async (c) => c.json(await scoped(c).deleteFolder(c.req.query('path') ?? '')))
 
   // With `background`, a move that takes long answers 202 with a job as soon
   // as the folder (or note) is in place; GET /api/move-jobs/:id follows it.
   app.post('/api/folder/move', async (c) => {
     const { from, to, dryRun, background } = await c.req.json<{ from: string; to: string; dryRun?: boolean; background?: boolean }>()
-    const by = actor(c)
-    if (!background || dryRun) return c.json(await notes.moveFolder(from, to, { actor: by, dryRun }))
-    const r = await jobs.start(c.get('user').username, 'folder', from, to, (hooks) => notes.moveFolder(from, to, { actor: by, ...hooks }), moveWaitMs)
+    const s = scoped(c)
+    if (!background || dryRun) return c.json(await s.moveFolder(from, to, { dryRun }))
+    const r = await jobs.start(c.get('user').username, 'folder', from, to, (hooks) => s.moveFolder(from, to, hooks), moveWaitMs)
     return 'job' in r ? c.json(r, 202) : c.json(r.report)
   })
 
@@ -520,32 +551,29 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.get('/api/note/links', (c) => c.json(scoped(c).links(c.req.query('path') ?? '')))
 
   // Fixes where one ambiguous link leads (D-031.2): that occurrence (`raw`,
-  // nearest to `at`) is rewritten to the shortest form that reaches `target`.
+  // nearest to `at`) is rewritten to the shortest form that reaches `target`,
+  // in a note the person can write, to a candidate they can see.
   app.post('/api/note/link/pin', async (c) => {
     const { path, raw, at, target } = await c.req.json<{ path: string; raw: string; at?: number; target: string }>()
     if (typeof raw !== 'string' || typeof target !== 'string' || (at !== undefined && typeof at !== 'number')) return fail(c, 400, 'invalid', 'expected path, raw, target and an optional numeric at')
-    const r = await notes.pinLink(path, { raw, at }, target, { actor: actor(c) })
+    const r = await scoped(c).pinLink(path, { raw, at }, target)
     c.header('ETag', `"${r.etag}"`)
     return c.json(r)
   })
 
   // Updates the links after notes moved outside thoth (D-031.4), as a move
-  // would; with `dryRun`, only what it would do. With `background`, as a move job.
+  // would, for the moves the person may make; with `dryRun`, only what it
+  // would do. With `background`, as a move job. The report names only what
+  // they can see.
   app.post('/api/external-moves/:id/relink', async (c) => {
-    const group = deps.externalMoves?.get(c.req.param('id'))
-    if (!group) return fail(c, 404, 'not_found', 'no such external move')
     const { dryRun, background } = await c.req.json<{ dryRun?: boolean; background?: boolean }>().catch(() => ({}) as { dryRun?: boolean; background?: boolean })
-    const by = actor(c)
-    if (dryRun) return c.json(await notes.relinkMoved(group.moves, { actor: by, dryRun: true }))
-    // Done once every rewrite went through; with failures it stays, to try again.
-    const run = async (hooks: MoveHooks) => {
-      const report = await notes.relinkMoved(group.moves, { actor: by, ...hooks })
-      if (report.failed.length === 0) deps.externalMoves?.drop(group.id)
-      return report
-    }
-    if (!background) return c.json(await run({}))
+    const s = scoped(c)
+    const id = c.req.param('id')
+    if (dryRun || !background) return c.json(await s.relinkExternal(id, { dryRun: dryRun === true }))
+    const group = s.externalMoves().find((g) => g.id === id)
+    if (!group) return fail(c, 404, 'not_found', 'no such external move')
     const first = group.moves[0]!
-    const r = await jobs.start(c.get('user').username, 'relink', first.from, first.to, run, moveWaitMs)
+    const r = await jobs.start(c.get('user').username, 'relink', first.from, first.to, (hooks: MoveHooks) => s.relinkExternal(id, hooks), moveWaitMs)
     return 'job' in r ? c.json(r, 202) : c.json(r.report)
   })
 
@@ -560,14 +588,14 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   // A copy of an image from a URL, stored like an upload. Only on this explicit
   // request from a user: the server never fetches URLs written in notes.
+  // Nothing is downloaded for a note that doesn't exist or they can't write.
   // Members only from public addresses, unless the admin lets them reach the
   // local network (D-038.6); the thoth admin, from anywhere.
   app.post('/api/attachments/fetch', async (c) => {
     const { note, url } = await c.req.json<{ note: string; url: string }>()
-    notes.read(note ?? '') // nothing is downloaded for a note that doesn't exist
     const publicOnly = c.get('user').role !== 'admin' && !adminSettings.view().membersLocalDownloads
-    const { bytes } = await fetchImage(String(url ?? ''), { maxBytes: notes.maxImageBytes, publicOnly, testing: deps.imageFetchTesting })
-    return c.json(await notes.attach(note, bytes, actor(c)), 201)
+    const r = await scoped(c).attachFromUrl(note ?? '', async () => (await fetchImage(String(url ?? ''), { maxBytes: notes.maxImageBytes, publicOnly, testing: deps.imageFetchTesting })).bytes)
+    return c.json(r, 201)
   })
 
   // A file in the notes folder that isn't a note (images and other attachments).
@@ -612,38 +640,69 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return c.json({ results, highlight: { start: HIGHLIGHT_START, end: HIGHLIGHT_END } })
   })
 
-  app.get('/api/trash', (c) => c.json({ entries: notes.trash() }))
+  // The trash: each person sees what was deleted where they'd have `edit`
+  // now, and restores with `edit` where it goes (D-038).
+  app.get('/api/trash', (c) => c.json({ entries: scoped(c).trash() }))
   app.post('/api/trash/:id/restore', async (c) => {
     const { to } = await c.req.json<{ to?: string }>().catch(() => ({ to: undefined }))
-    return c.json(await notes.restore(c.req.param('id'), actor(c), to))
+    return c.json(await scoped(c).restoreTrash(c.req.param('id'), to))
   })
 
   // Workspace alerts: codes with their data, never text. Admin actions are
   // only offered to those who can perform them; the endpoint enforces it again.
+  // A note's alert goes to whoever can read the note, with only what they can
+  // see; the system's (the scan, git, sign-ins, thoth.yaml and its
+  // permissions), to the admin, without paths of notes they can't read (D-038).
   app.get('/api/alerts', (c) => {
-    const admin = c.get('user').role === 'admin'
+    const access = c.get('access')
+    const admin = !access.isAgent && c.get('user').role === 'admin'
+    const s = scoped(c)
     const alerts: Alert[] = []
     const scan = deps.runtime.lastScan
-    if (scan?.aborted === 'mass_delete' && scan.massDelete) {
-      alerts.push({ code: 'scan_aborted_mass_delete', ...scan.massDelete, actions: admin ? ['rescan', 'confirm_removal'] : [] })
+    if (admin && scan?.aborted === 'mass_delete' && scan.massDelete) {
+      alerts.push({ code: 'scan_aborted_mass_delete', ...scan.massDelete, actions: ['rescan', 'confirm_removal'] })
     } else if (scan?.aborted === 'root_unavailable') {
       alerts.push({ code: 'scan_aborted_root_unavailable', actions: admin ? ['rescan'] : [] })
     }
-    for (const path of deps.orphans?.orphans() ?? []) alerts.push({ code: 'orphaned_note', path, actions: ['keep_copy', 'discard_copy'] })
-    for (const m of deps.externalMoves?.pending() ?? []) alerts.push({ code: 'external_move', ...m, actions: ['update_links'] })
-    for (const u of deps.indexer.uidConflicts()) alerts.push({ code: 'uid_conflict', uid: u.uid, paths: u.paths, actions: [] })
+    for (const path of deps.orphans?.orphans() ?? []) {
+      if (access.canRead(path)) alerts.push({ code: 'orphaned_note', path, actions: access.canWrite(path) ? ['keep_copy', 'discard_copy'] : [] })
+    }
+    for (const m of s.externalMoves()) {
+      const mine = m.moves.some((x) => access.canWrite(x.to) && access.canWrite(x.from))
+      alerts.push({ code: 'external_move', ...m, actions: mine ? ['update_links'] : [] })
+    }
+    for (const u of deps.indexer.uidConflicts()) {
+      const paths = u.paths.filter((p) => access.canRead(p))
+      if (paths.length) alerts.push({ code: 'uid_conflict', uid: u.uid, paths, actions: [] })
+    }
     const noteExists = index.prepare('select 1 from notes where path = ?')
     const ws = workspace.status
-    if (ws.errors.length) alerts.push({ code: 'config_invalid', file: WORKSPACE_FILE, errors: ws.errors, fallback: ws.fallback, actions: [] })
-    if (ws.warnings.length) alerts.push({ code: 'config_warnings', file: WORKSPACE_FILE, warnings: ws.warnings, actions: [] })
-    for (const s of workspace.config.daily) {
-      if (s.template && !noteExists.get(s.template)) alerts.push({ code: 'config_template_missing', series: s.id, template: s.template, actions: [] })
+    if (admin) {
+      if (ws.errors.length) alerts.push({ code: 'config_invalid', file: WORKSPACE_FILE, errors: ws.errors, fallback: ws.fallback, actions: [] })
+      // What the file leaves out, and the grants and rules that name nothing that exists.
+      const missing = rulesWithoutFolder(permissions, index).map((f) => ({ code: 'missing_folder' as const, at: `permissions.${f}`, line: null, detail: f }))
+      const warnings = [...ws.warnings, ...permissions.unknownSubjects(), ...missing]
+      if (warnings.length) alerts.push({ code: 'config_warnings', file: WORKSPACE_FILE, warnings, actions: [] })
+      if (workspace.permissionsFallback) alerts.push({ code: 'permissions_rejected', fallback: workspace.permissionsFallback, actions: [] })
+      for (const sr of workspace.config.daily) {
+        if (sr.template && !noteExists.get(sr.template)) alerts.push({ code: 'config_template_missing', series: sr.id, template: sr.template, actions: [] })
+      }
+      const shared = workspace.config.attachments.folder
+      if (shared !== null && permissions.directory.users().length > 1) alerts.push({ code: 'attachments_shared_folder', folder: shared, actions: [] })
     }
+    for (const a of deps.holds?.alerts((p) => noteExists.get(p) !== undefined, (h) => admin || access.canManage(h.folder)) ?? []) alerts.push(a)
     for (const { path } of index.prepare("select path from alerts where kind = 'sync_conflict' order by path").all() as { path: string }[]) {
+      if (!access.canRead(path)) continue
       const note = conflictOriginal(path)
-      alerts.push({ code: 'sync_conflict', path, note: noteExists.get(note) ? note : null, actions: [] })
+      alerts.push({ code: 'sync_conflict', path, note: noteExists.get(note) && access.canRead(note) ? note : null, actions: [] })
     }
-    alerts.push(...(deps.history?.alerts() ?? []))
+    for (const a of deps.history?.alerts() ?? []) {
+      // Files over the history's limit: those the person can read; the rest of the history's, the admin's.
+      if (a.code === 'history_files_too_large') {
+        const paths = a.paths.filter((p) => access.canRead(p))
+        if (paths.length) alerts.push({ ...a, paths })
+      } else if (admin) alerts.push(a)
+    }
     // Agents writing with no version of their own to undo them by (D-034 3.8).
     const mode = workspace.config.history.mode
     const api = integrations.apiEnabled()
@@ -656,23 +715,16 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   // Text of a conflict copy, to compare it with the note. Only for those the
-  // indexer has detected: this can't be used to read an arbitrary file.
-  app.get('/api/conflict', (c) => {
-    const path = c.req.query('path') ?? ''
-    const known = classifyPath(path) === 'conflict' && index.prepare("select 1 from alerts where path = ? and kind = 'sync_conflict'").get(path)
-    let text: string | null = null
-    if (known) try { text = readFileSync(join(deps.notesDir, path), 'utf8') } catch { /* no longer exists */ }
-    if (text === null) return fail(c, 404, 'not_found', `there's no conflict copy at ${path}`)
-    return c.json({ path, text })
-  })
+  // indexer has detected, in a folder the person can read: this can't be
+  // used to read an arbitrary file.
+  app.get('/api/conflict', (c) => c.json(scoped(c).conflict(c.req.query('path') ?? '')))
 
-  // Note deleted from outside with an open copy: keep it or treat it as deleted.
+  // Note deleted from outside with an open copy: keep it or treat it as
+  // deleted (`edit` where it was).
   app.post('/api/note/orphan', async (c) => {
     const { path, action } = await c.req.json<{ path: string; action: 'restore' | 'discard' }>()
-    if (!deps.orphans) return fail(c, 404, 'not_found', 'no collaboration hub')
-    if (action === 'restore') return c.json(await deps.orphans.restoreOrphan(path))
-    if (action === 'discard') { await deps.orphans.discardOrphan(path); return c.json({ ok: true }) }
-    return fail(c, 400, 'invalid', 'action must be restore or discard')
+    if (action !== 'restore' && action !== 'discard') return fail(c, 400, 'invalid', 'action must be restore or discard')
+    return c.json(await scoped(c).orphan(path, action))
   })
 
   // `confirmRemoval`: the number of notes the alert said would be removed.
@@ -688,10 +740,12 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // One's own second factor, and the admin's reset of someone's.
   tf.routes(app)
 
-  if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, keyName: (id) => keys.nameOf(id), canRead: deps.canRead ?? (() => true) })
+  if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, keyName: (id) => keys.nameOf(id) })
 
   // Creating a key, and approving an OAuth client, confirm who is there (D-036).
   keyRoutes(app, { keys, integrations, publicUrl: oauth.publicUrl, confirm: tf.confirmIdentity })
+
+  permissionRoutes(app, { engine: permissions, file: permissionsFile, index, keys, policy, holds: deps.holds })
 
   // OAuth for the MCP server: its addresses for clients, and the consent page's (session).
   oauthRoutes(app, { oauth, integrations, ui: deps.webDir !== undefined, clientAddress: ipOf, confirm: tf.confirmIdentity })

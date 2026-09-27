@@ -6,7 +6,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { E2E_DIR, NOTES } from './env.ts'
-import { editorText, signIn } from './helpers.ts'
+import { editorText, signIn, writeWorkspace } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const CONFIG = `# e2e
@@ -31,13 +31,13 @@ test.beforeAll(() => {
   mkdirSync(`${NOTES}/e2e-diario/noa`, { recursive: true })
   writeFileSync(`${NOTES}/e2e-plantillas/Diario.md`, '---\ntags: [diario]\n---\n# {{date:DD/MM/YYYY}}\n\nEscrito por {{user}}. {{desconocida}}\n')
   writeFileSync(`${NOTES}/e2e-diario/noa/2020-01-01.md`, '# Hace tiempo\n')
-  writeFileSync(`${NOTES}/thoth.yaml`, CONFIG)
+  writeWorkspace(CONFIG)
 })
 
 // The other tests share the notes folder and the users: everything is left as it was.
 // Notes that were open in an editor go through thoth's trash, so none is left as a pending copy.
 test.afterAll(async ({ browser }) => {
-  rmSync(`${NOTES}/thoth.yaml`, { force: true })
+  writeWorkspace()
   const dirs = ['e2e-plantillas', 'e2e-diario', 'e2e-equipo']
   for (const user of ['noa', 'ana']) {
     const page = await signIn(browser, user)
@@ -195,7 +195,7 @@ test('preferences: series and «open on start», which never creates a note', as
 
 test('thoth.yaml: an unknown key is ignored with a warning; an invalid file keeps the last good one', async () => {
   // A misspelt key: left out, and the rest applies.
-  writeFileSync(`${NOTES}/thoth.yaml`, CONFIG.replace('templates:', 'templtes:'))
+  writeWorkspace(CONFIG.replace('templates:', 'templtes:'))
   await expect(async () => {
     await k.goto('/?view=avisos')
     await expect(k.locator('.alert-card', { hasText: 'salvo algunas partes' })).toBeVisible({ timeout: 1000 })
@@ -208,7 +208,7 @@ test('thoth.yaml: an unknown key is ignored with a warning; an invalid file keep
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
 
   // A wrong value in a known key: the whole file waits, the last good one stays.
-  writeFileSync(`${NOTES}/thoth.yaml`, CONFIG.replace('folder: e2e-equipo', 'folder: ../e2e-equipo'))
+  writeWorkspace(CONFIG.replace('folder: e2e-equipo', 'folder: ../e2e-equipo'))
   await expect(async () => {
     await k.goto('/?view=avisos')
     await expect(k.locator('.alert-card', { hasText: 'no se puede usar' })).toBeVisible({ timeout: 1000 })
@@ -224,7 +224,7 @@ test('thoth.yaml: an unknown key is ignored with a warning; an invalid file keep
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
 
   // Fixed: the alerts go away on their own.
-  writeFileSync(`${NOTES}/thoth.yaml`, CONFIG)
+  writeWorkspace(CONFIG)
   await expect(async () => {
     await k.goto('/?view=avisos')
     await expect(k.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 1000 })

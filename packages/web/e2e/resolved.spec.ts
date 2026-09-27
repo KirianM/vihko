@@ -3,9 +3,9 @@
 // it, reopening through the editor (the other one sees it come back live), a
 // thread whose text is gone, and the history off as before.
 import { expect, test, type Page } from '@playwright/test'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { E2E_DIR, NOTES } from './env.ts'
-import { signIn } from './helpers.ts'
+import { signIn, writeWorkspace } from './helpers.ts'
 
 const NOTE = 'resueltos/Hilos.md'
 const FILE = `${NOTES}/${NOTE}`
@@ -40,7 +40,7 @@ test.beforeAll(async ({ browser }) => {
 })
 
 test.afterAll(async () => {
-  rmSync(`${NOTES}/thoth.yaml`, { force: true })
+  writeWorkspace()
   await expect.poll(() => status(k), { timeout: 20_000 }).toBe('managed')
 })
 
@@ -119,7 +119,7 @@ test('a thread whose sentence was deleted can be read but not reopened; the sent
 })
 
 test('with the history off, resolving asks as before, and there is no «Resolved»', async () => {
-  writeFileSync(`${NOTES}/thoth.yaml`, 'history:\n  mode: off\n')
+  writeWorkspace('history:\n  mode: off\n')
   await expect.poll(() => status(k), { timeout: 20_000 }).toBe('off')
   const asked = k.waitForResponse((r) => r.url().includes('/api/history/status'))
   await k.reload()

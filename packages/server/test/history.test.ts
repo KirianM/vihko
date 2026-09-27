@@ -307,7 +307,8 @@ test('history.exclude keeps files out of the history without hiding them; a move
     const now = (await h.changes()).changes[0]
     assert.equal(who(now), 'external')
     assert.deepEqual(now.files.map((f: any) => [f.path, f.change]).sort(), [
-      ['adjuntos/doc.pdf', 'created'], ['biblioteca/libro.md', 'created'], ['borradores/secreto.md', 'modified'], ['thoth.yaml', 'modified'],
+      // (thoth.yaml changed too: its versions aren't listed to anyone, D-038.)
+      ['adjuntos/doc.pdf', 'created'], ['biblioteca/libro.md', 'created'], ['borradores/secreto.md', 'modified'],
       ...inFolder.map((p) => [`biblioteca/${p}`, 'created']),
     ].sort())
   } finally { await h.close() }
@@ -429,31 +430,31 @@ test('versions come in pages', async () => {
 })
 
 test('«Recent changes» filters file by file with the permission check, and by author', async () => {
-  const canRead = (_u: unknown, path: string) => !path.startsWith('privado/')
-  const h = await setup({ canRead })
+  // privado/ is noa's alone: ana edits everything else.
+  const h = await setup({ config: 'permissions:\n  "": { grants: { noa: manage, ana: edit } }\n  privado: { grants: { noa: manage } }\n' })
   try {
     await h.put('privado/sin-ia.md', (t) => t + 'secreto\n')
     await h.settle()
     await h.put('tags.md', (t) => t + 'visible\n', 'ana')
     await h.settle()
-    const { changes, authors } = await h.changes()
+    const { changes, authors } = await h.changes('', 'ana')
     assert.equal(changes.length, 2, 'the change with only a private file is left out')
     assert.ok(changes.every((c: any) => c.files.every((f: any) => !f.path.startsWith('privado/'))))
     assert.deepEqual(authors.map((a: any) => a.key).sort(), ['system', `user:${h.ids.ana}`, `user:${h.ids.noa}`].sort())
-    assert.equal((await h.noa('GET', `/api/history/versions?path=${h.q('privado/sin-ia.md')}`)).status, 404)
-    const byAna = await h.changes(`&author=user:${h.ids.ana}`)
+    assert.equal((await h.ana('GET', `/api/history/versions?path=${h.q('privado/sin-ia.md')}`)).status, 404)
+    const byAna = await h.changes(`&author=user:${h.ids.ana}`, 'ana')
     assert.deepEqual(byAna.changes.map((c: any) => who(c)), ['user:ana'])
-    assert.deepEqual((await h.changes('&author=system')).changes.map((c: any) => c.reason.code), ['history_enabled'])
+    assert.deepEqual((await h.changes('&author=system', 'ana')).changes.map((c: any) => c.reason.code), ['history_enabled'])
     // A note moved out of a folder the user can't read: where it was isn't said.
     await h.noa('POST', '/api/note/move', { from: 'privado/sin-ia.md', to: 'publica.md' })
     await h.settle()
-    const all = (await h.changes()).changes
+    const all = (await h.changes('', 'ana')).changes
     const moved = all[0].files.find((f: any) => f.path === 'publica.md')
     assert.equal(moved.change, 'moved')
     assert.equal(moved.from, undefined)
-    const page = await h.noa('GET', '/api/history/changes?limit=1')
+    const page = await h.ana('GET', '/api/history/changes?limit=1')
     assert.deepEqual(page.body.changes.map((c: any) => c.id), [all[0].id])
-    const rest = await h.noa('GET', `/api/history/changes?limit=5&cursor=${page.body.next}`)
+    const rest = await h.ana('GET', `/api/history/changes?limit=5&cursor=${page.body.next}`)
     assert.deepEqual(rest.body.changes.map((c: any) => c.id), all.slice(1).map((c: any) => c.id))
     assert.equal(rest.body.next, null)
   } finally { await h.close() }
@@ -583,7 +584,8 @@ test('thoth.yaml turns the history off and on: nothing recorded meanwhile is att
     const { changes } = await h.changes()
     assert.deepEqual(changes[0].reason, { code: 'history_resumed' })
     assert.equal(who(changes[0]), 'system')
-    assert.deepEqual(changes[0].files.map((f: any) => f.path).sort(), [NOTE, 'thoth.yaml'])
+    // thoth.yaml is in that version too, but it isn't listed to anyone (it holds the permissions, D-038).
+    assert.deepEqual(changes[0].files.map((f: any) => f.path).sort(), [NOTE])
     assert.equal(changes.length, 2)
   } finally { await h.close() }
 })

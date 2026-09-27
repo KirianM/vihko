@@ -19,9 +19,14 @@ export { DEFAULT_DATE_FORMAT, renderTemplate, type TemplateVars } from './templa
 export { SERIES_TOKENS, matchSeries, patternPeriod, patternTokens, seriesNeighbors, seriesPath, seriesPattern, type Period, type Series, type SeriesToken } from './series.ts'
 export { hasSearchFilter, parseSearchQuery, type ParsedQuery, type SearchFilter } from './query.ts'
 export {
-  EMPTY_WORKSPACE, STRICT_SECTIONS, WORKSPACE_FILE, WORKSPACE_VERSION, parseWorkspaceConfig,
+  EMPTY_WORKSPACE, PERMISSIONS_SECTION, STRICT_SECTIONS, WORKSPACE_FILE, WORKSPACE_VERSION, parseWorkspaceConfig,
   type ConfigError, type ConfigErrorCode, type ParseResult, type StrictSection, type WorkspaceConfig,
 } from './workspace.ts'
+export {
+  CLOSED_PERMISSIONS, IMPLICIT_PERMISSIONS, LEVELS, PermissionsFileError, RuleSet, USER_SEGMENT,
+  atLeast, folderOf, grantsAt, isSubject, levelIn, maxLevel, moveRules, parentFolder, parsePermissions, removeRules, rewriteSubject, rulesInFile, selfAndAncestors, setRule, subjectKey,
+  type Governing, type Level, type PermissionRule, type Permissions, type RuleMatch, type RuleValue,
+} from './permissions.ts'
 export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'
 export { DEFAULT_HISTORY_MAX_FILE_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode, type McpConfig } from './workspace.ts'
 export { globProblem, pathMatcher, type GlobProblem } from './glob.ts'

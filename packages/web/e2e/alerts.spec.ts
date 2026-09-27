@@ -174,6 +174,39 @@ test('agents without a managed history: which door is open and what it means', a
   await k.context().close()
 })
 
+test('permissions: rejected, notes held after a move outside thoth, and images all in one folder', async ({ browser }) => {
+  const k = await signIn(browser, 'noa')
+  await mockAlerts(k, [
+    { code: 'permissions_rejected', fallback: 'closed', actions: [] },
+    { code: 'permissions_held', id: 'h1', folder: 'familia/viajes', to: 'familia/rutas', notes: 3, actions: ['move_permissions', 'release'] },
+    { code: 'permissions_held', id: 'h2', folder: 'personas/laura', to: null, notes: 1, actions: ['release'] },
+    { code: 'attachments_shared_folder', folder: 'Adjuntos', actions: [] },
+  ])
+  const sent: { url: string; body: unknown }[] = []
+  await k.route('**/api/permissions/holds/*', (route) => { sent.push({ url: route.request().url(), body: route.request().postDataJSON() }); return route.fulfill({ json: { ok: true } }) })
+  await k.goto('/?view=avisos')
+  const rejected = card(k, 'no se pueden usar')
+  await expect(rejected.getByRole('heading')).toHaveText('Los permisos de thoth.yaml no se pueden usar')
+  await expect(rejected).toContainText('nadie puede leer ninguna nota')
+  const three = card(k, '3 notas retenidas')
+  await expect(three).toContainText('familia/viajes')
+  await expect(three).toContainText('familia/rutas')
+  await three.getByRole('button', { name: 'Mover sus permisos' }).click()
+  await expect.poll(() => sent.length).toBe(1)
+  expect(sent[0]).toEqual({ url: expect.stringMatching(/\/api\/permissions\/holds\/h1$/), body: { action: 'move_permissions' } })
+  const one = card(k, 'Una nota retenida')
+  await expect(one.getByRole('button', { name: 'Mover sus permisos' })).toHaveCount(0)
+  await one.getByRole('button', { name: 'Soltarlas' }).click()
+  await expect.poll(() => sent.length).toBe(2)
+  expect(sent[1]!.body).toEqual({ action: 'release' })
+  await expect(card(k, 'Las imágenes nuevas van todas a')).toContainText('per-note')
+  await k.setViewportSize({ width: 1440, height: 900 })
+  await k.screenshot({ path: `${SHOTS}/avisos-permisos.png`, fullPage: true, animations: 'disabled' })
+  await k.setViewportSize({ width: 390, height: 844 })
+  expect(await k.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  await k.context().close()
+})
+
 test('empty state', async ({ browser }) => {
   const k = await signIn(browser, 'noa')
   await mockAlerts(k, [])

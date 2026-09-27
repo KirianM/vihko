@@ -230,8 +230,9 @@ fresh guesses at the code.
 Settings that belong to the notes rather than to the installation live in
 `thoth.yaml`, at the root of the notes folder, so they travel and are
 versioned with the notes. It is optional: without it nothing is turned on.
-thoth only reads it (at start, when it changes, and on every rescan) and never
-writes to it; it doesn't show up as a note.
+thoth reads it at start, when it changes, and on every rescan; the only part
+it writes is `permissions`, from the permissions dialog. It doesn't show up
+as a note, and it's served to nobody (it holds the permissions).
 
 ```yaml
 version: 1                  # optional
@@ -258,6 +259,15 @@ history:
     - Library/**
     - "**/*.pdf"
     - Drafts/private.md
+permissions:                # who reads what, per folder; without it, every admin manages the root
+  "":                       # the root
+    grants: { noa: manage }
+  Family:
+    grants: { "@family": edit, noa: edit }
+  "People/{user}":          # one folder per person, theirs
+    grants: { "{user}": manage }
+  People/laura/Diary:
+    ai: false               # closed to agents, with everything under it
 ```
 
 - **Images** go next to their note by default (`plan-2026-09-25-1012.png`).
@@ -307,10 +317,23 @@ history:
   with a wrong value (a path outside the notes folder, a bad series pattern),
   shows up as a workspace alert with the reason and line, and thoth keeps
   using the last valid version it read.
-- **Security sections are strict.** `permissions` (per-folder permissions,
-  not built yet) is reported and never applied. Once it exists, anything
-  doubtful in it (an unknown key included) rejects that section alone, and
-  the most restrictive setting applies instead.
+- **Permissions** (`permissions`) are per folder: each key is a folder
+  (`""` the root, and a `{user}` segment makes a rule hold for each user),
+  with `grants` from a user's name, `@group` or `{user}` to `read`,
+  `comment`, `edit` or `manage`, and `ai: false` to close it (and what's
+  under it) to agents. A folder with grants of its own replaces what it
+  would inherit; one without them inherits from the nearest folder above
+  that has some. Nobody reads what isn't granted, the admin included.
+  Without the section, every admin manages the root. thoth writes this
+  section itself from the permissions dialog (only the entries that change;
+  the rest of the file stays as it was) and moves a folder's rules when the
+  folder moves from thoth.
+- **Security sections are strict.** Anything doubtful in `permissions` (an
+  unknown key included) rejects that section alone: if thoth starts that
+  way, nobody reads any note until it's fixed; if it happens while running,
+  the last valid permissions stay. Grants to users or groups that don't
+  exist are ignored with a warning, so deleting someone never invalidates
+  the section.
 
 ## Status
 

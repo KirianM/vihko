@@ -27,6 +27,8 @@ async function setup(opts: { maxImageBytes?: number; webDir?: string; externalIm
   const dir = tempDir('thoth-images-')
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
+  // A member sees nothing until something is granted (D-038): noa edits everywhere.
+  if (opts.role === 'member') writeFileSync(join(notesDir, 'thoth.yaml'), 'permissions:\n  "": { grants: { noa: edit } }\n')
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)

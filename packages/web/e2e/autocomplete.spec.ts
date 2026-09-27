@@ -6,7 +6,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { E2E_DIR, NOTES } from './env.ts'
-import { signIn } from './helpers.ts'
+import { signIn, writeWorkspace } from './helpers.ts'
 
 const DIR = 'e2e-ac'
 const TEMPLATES = 'e2e-ac-plantillas'
@@ -37,7 +37,7 @@ test.beforeAll(async ({ browser }) => {
 
 // Created notes go through thoth's trash (some were open in an editor), then the folders go.
 test.afterAll(async () => {
-  rmSync(`${NOTES}/thoth.yaml`, { force: true })
+  writeWorkspace()
   const { notes } = await (await k.request.get('/api/tree')).json() as { notes: { path: string }[] }
   for (const n of notes) {
     if (n.path.startsWith(`${DIR}/`) || n.path.startsWith(`${TEMPLATES}/`)) await k.request.delete(`/api/note?path=${encodeURIComponent(n.path)}`)
@@ -180,7 +180,7 @@ test('never overwrites: if the note appeared meanwhile and the link leads there,
 test('with templates configured, «create» asks which one', async () => {
   mkdirSync(`${NOTES}/${TEMPLATES}`, { recursive: true })
   writeFileSync(`${NOTES}/${TEMPLATES}/Reunión.md`, '# {{title}}\n\nAsistentes:\n')
-  writeFileSync(`${NOTES}/thoth.yaml`, `templates: ${TEMPLATES}\n`)
+  writeWorkspace(`templates: ${TEMPLATES}\n`)
   await expect.poll(async () => (await (await k.request.get('/api/workspace')).json() as { templates: string | null }).templates).toBe(TEMPLATES)
   await expect.poll(async () => {
     const { notes } = await (await k.request.get('/api/tree')).json() as { notes: { path: string }[] }
@@ -206,7 +206,7 @@ test('with templates configured, «create» asks which one', async () => {
   await menu.getByRole('menuitem', { name: 'Reunión' }).click()
   await expect(k).toHaveURL(/\?note=e2e-ac%2FActa\+del\+lunes\.md/)
   await expect.poll(() => disk(`${DIR}/Acta del lunes.md`)).toMatch(/(^|---\n)# Acta del lunes\n\nAsistentes:\n$/)
-  rmSync(`${NOTES}/thoth.yaml`, { force: true })
+  writeWorkspace()
 })
 
 test('with links.aliases off in thoth.yaml, [[alias]] is broken and an alias is inserted as [[Note|alias]]', async () => {
@@ -218,7 +218,7 @@ test('with links.aliases off in thoth.yaml, [[alias]] is broken and an alias is 
   writeFileSync(`${NOTES}/${NOTE}`, '# Apodos\n\nVer [[Alias destino]].\n')
   await expect.poll(status).toBe('resolved')
 
-  writeFileSync(`${NOTES}/thoth.yaml`, 'links:\n  aliases: false\n')
+  writeWorkspace('links:\n  aliases: false\n')
   await expect.poll(async () => (await (await k.request.get('/api/workspace')).json() as { links: { aliases: boolean } }).links.aliases).toBe(false)
   await expect.poll(status).toBe('missing')
   await k.goto(`/?note=${encodeURIComponent(NOTE)}`)
@@ -235,7 +235,7 @@ test('with links.aliases off in thoth.yaml, [[alias]] is broken and an alias is 
   await k.screenshot({ path: `${SHOTS}/aliases-off-light.png`, animations: 'disabled' })
 
   // Back on: the alias resolves again, without touching the note.
-  rmSync(`${NOTES}/thoth.yaml`, { force: true })
+  writeWorkspace()
   await expect.poll(status).toBe('resolved')
 })
 

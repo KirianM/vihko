@@ -38,6 +38,7 @@ export type ErrorCode =
   | 'invalid_client' // an OAuth authorization request from a client this thoth doesn't know
   | 'invalid_redirect_uri' // an OAuth authorization request whose redirect URI the client didn't register
   | 'too_many_attempts' // too many failed sign-ins (or first-boot tokens): wait `retryAfter` seconds (also Retry-After)
+  | 'config_invalid' // thoth.yaml can't be changed by thoth as it is (not valid YAML, or its permissions are rejected): it's fixed by hand first
   | 'invalid_link' // a one-time link (invitation or reset) that doesn't work: unknown, used or expired, alike
   | 'wrong_password' // a password asked for with a session (changing it, confirming a key or an OAuth client) isn't right
   | 'last_admin' // the last active admin can't be demoted, disabled or deleted
@@ -122,6 +123,29 @@ export type Alert =
    * a restart forgets it.
    */
   | { code: 'login_attempts_blocked'; attempts: number; since: string; actions: never[] }
+  /**
+   * The `permissions` of thoth.yaml can't be used (the file, or the section,
+   * with a mistake: `config_warnings` or `config_invalid` say where). With
+   * `last_good`, the last valid ones stay in force; with `closed` (it was
+   * so when thoth started), nobody reads any note until it's fixed. Only
+   * admins see it.
+   */
+  | { code: 'permissions_rejected'; fallback: 'last_good' | 'closed'; actions: never[] }
+  /**
+   * Notes moved outside thoth out of `folder`, which has permissions of its
+   * own, into a folder where others apply: nobody reads them until someone
+   * decides. `move_permissions` moves the folder's rules to `to` (where the
+   * notes went); `release` accepts what they get where they are. `notes`:
+   * how many. For the admin and whoever manages `folder`.
+   */
+  | { code: 'permissions_held'; id: string; folder: string; to: string | null; notes: number; actions: ('move_permissions' | 'release')[] }
+  /**
+   * New images go to one folder for everyone (`attachments.mode: folder`),
+   * with more than one person: the image of a private note lands where
+   * others may read it (an image has its folder's permissions). `per-note`
+   * or `next-to-note` keep each image with its note. Only admins see it.
+   */
+  | { code: 'attachments_shared_folder'; folder: string; actions: never[] }
 
 export type AlertCode = Alert['code']
 export type AlertAction = Alert['actions'][number]

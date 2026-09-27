@@ -7,7 +7,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { ANA, userGit } from '../../server/test/_userGit.ts'
 import { NOTES } from './env.ts'
-import { signIn } from './helpers.ts'
+import { signIn, writeWorkspace } from './helpers.ts'
 
 const DIR = 'historial-git'
 const NOTE = `${DIR}/Receta.md`
@@ -23,13 +23,13 @@ test.beforeAll(async ({ browser }) => {
   const repo = userGit(NOTES, { since: Date.now() - 120_000 })
   repo.run(['add', '--', NOTE])
   repo.commit('Receta', ANA, { add: false })
-  writeFileSync(`${NOTES}/thoth.yaml`, 'history:\n  mode: unmanaged\n')
+  writeWorkspace('history:\n  mode: unmanaged\n')
   k = await signIn(browser, 'noa')
   await expect.poll(() => status(k), { timeout: 20_000 }).toEqual({ mode: 'unmanaged', available: true, error: null })
 })
 
 test.afterAll(async () => {
-  rmSync(`${NOTES}/thoth.yaml`, { force: true })
+  writeWorkspace()
   await expect.poll(async () => (await status(k)).mode, { timeout: 20_000 }).toBe('managed')
   rmSync(`${NOTES}/.git`, { recursive: true, force: true })
   await k.context().close()

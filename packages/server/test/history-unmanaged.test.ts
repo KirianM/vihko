@@ -25,9 +25,9 @@ test('unmanaged mode reads the user\'s own git: their commits are the versions, 
   const c: Record<string, { id: string; at: string }> = {}
   let repo!: ReturnType<typeof userGit>
   const h = await setup({
-    config: UNMANAGED,
+    // Nobody reads privado/.
+    config: UNMANAGED + 'permissions:\n  \"\": { grants: { noa: manage, ana: edit } }\n  privado: { grants: {} }\n',
     files: { 'nota.md': 'uno dos tres\n' },
-    canRead: (_u, path) => !path.startsWith('privado/'),
     // The notes folder is one folder of a larger repository.
     prepare: ({ dir, notesDir }) => {
       repo = userGit(dir)
@@ -80,7 +80,8 @@ test('unmanaged mode reads the user\'s own git: their commits are the versions, 
     assert.deepEqual(changes[1].files, [{ path: NOTE, change: 'moved', from: 'nota.md', added: 0, removed: 0 }])
     assert.deepEqual(changes[2].files.map((f: any) => f.path), ['nota.md'])
     const first = changes[3].files.map((f: any) => f.path)
-    assert.ok(first.includes('hogar/Proxy.md') && first.includes('thoth.yaml') && !first.includes('privado/sin-ia.md'))
+    // thoth.yaml isn't served to anyone (it holds the permissions), not even its history.
+    assert.ok(first.includes('hogar/Proxy.md') && !first.includes('thoth.yaml') && !first.includes('privado/sin-ia.md'))
     for (const p of first) assert.ok(!p.split('/').some((s: string) => s.startsWith('.')) && !p.endsWith('~'), `a file thoth ignores is listed: ${p}`)
     assert.ok(changes[3].files.every((f: any) => f.change === 'created'))
     assert.deepEqual(authors.map((a: any) => a.key).sort(), ['git:ana@example.com', 'git:bea@example.com'])

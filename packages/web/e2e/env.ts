@@ -15,3 +15,9 @@ export const EXTERNAL_PORT = Number(process.env.E2E_EXTERNAL_PORT ?? 8132)
 export const PUBLIC_URL = 'https://thoth.e2e.test'
 export const PASSWORD = 'contraseña-larga'
 export const USERS: [string, boolean][] = [['noa', true], ['ana', false]]
+/**
+ * The permissions every spec runs under, in thoth.yaml (D-038): noa (the
+ * admin) manages the root and ana (a member) edits it, so both see
+ * everything. A spec that writes thoth.yaml keeps them (`writeWorkspace`).
+ */
+export const PERMISSIONS = 'permissions:\n  "":\n    grants: { noa: manage, ana: edit }\n'

@@ -6,7 +6,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { generateVault } from '../../server/test/acceptance/_vault.ts'
-import { ACC_DIR, ACC_PORT, NOTES, PASSWORD, USERS } from './env.ts'
+import { ACC_DIR, ACC_PORT, NOTES, PASSWORD, PERMISSIONS, USERS } from './env.ts'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const cli = root + 'packages/server/src/cli.ts'
@@ -17,6 +17,7 @@ mkdirSync(ACC_DIR, { recursive: true })
 const vault = generateVault(NOTES, { notes: Number(process.env.ACCEPTANCE_NOTES ?? 1000), seed: Number(process.env.ACCEPTANCE_SEED ?? 1) })
 // What the specs need to know about the vault.
 writeFileSync(ACC_DIR + '/vault.json', JSON.stringify(vault))
+writeFileSync(NOTES + '/thoth.yaml', PERMISSIONS)
 for (const [name, admin] of USERS) {
   execFileSync(process.execPath, ['--no-experimental-webstorage', cli, 'user', 'create', name, ...(admin ? ['--admin'] : [])], { env, input: PASSWORD })
 }

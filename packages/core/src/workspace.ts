@@ -1,15 +1,18 @@
 // thoth.yaml: the workspace configuration, at the root of the notes folder so
-// it travels (and is versioned) with the notes (D-011, D-014). thoth only reads
-// it. Parsing is tolerant where it can be and strict where it must (D-031.9):
+// it travels (and is versioned) with the notes (D-011, D-014). thoth only
+// writes its `permissions` section, from the permissions UI (permissions.ts),
+// keeping the rest of the file as it was. Parsing is tolerant where it can be
+// and strict where it must (D-031.9):
 // - An unknown key (a typo, or a newer thoth's setting) is reported and
 //   ignored; the rest applies. So is a `version` newer than this thoth's.
 // - A wrong value in a known key makes the file unusable: thoth keeps the last
 //   valid configuration, so a mistyped setting never silently turns into
 //   another one.
-// - Security-relevant sections (`permissions`, M4) are strict sections: any
+// - Security-relevant sections (`permissions`) are strict sections: any
 //   doubt about one invalidates that section alone, which then applies its most
 //   restrictive setting.
 import { LineCounter, isMap, isScalar, isSeq, parseDocument, type Document } from 'yaml'
+import { IMPLICIT_PERMISSIONS, CLOSED_PERMISSIONS, parsePermissions, type Permissions } from './permissions.ts'
 import { patternPeriod, patternTokens, seriesPath, type Series } from './series.ts'
 import { classifyPath } from './paths.ts'
 import { globProblem } from './glob.ts'
@@ -122,17 +125,26 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = {
  * - `newer_version`: `version` is newer than this thoth's (`detail`); what it
  *   understands applies.
  * - `not_supported`: a section this version reserves but doesn't implement
- *   yet (`permissions`): not applied.
+ *   yet: not applied.
  * - `section_rejected`: a strict section with a problem (listed next to it):
  *   the whole section is left out and its most restrictive setting applies.
- * Inside a strict section, any code (an unknown key included) is a warning
- * that comes with `section_rejected`.
+ * - `ignored_value`: a value that means nothing there and is ignored without
+ *   rejecting anything (`ai: true` in `permissions`: it never reopens).
+ * - `unknown_subject`: a grant to a user or group that doesn't exist
+ *   (`detail`): ignored, so that deleting someone never invalidates the
+ *   section. Reported by the server, which knows the users.
+ * - `missing_folder`: rules for a folder that doesn't exist (moved or
+ *   deleted outside thoth): kept, and applied again if it comes back.
+ *   Reported by the server.
+ * Inside a strict section, any other code (an unknown key included) is a
+ * warning that comes with `section_rejected`.
  */
 export type ConfigErrorCode =
   | 'yaml' | 'not_a_map' | 'invalid_version' | 'invalid_type' | 'not_boolean'
   | 'invalid_path' | 'invalid_id' | 'pattern_token' | 'pattern_period' | 'unreadable'
   | 'invalid_value' | 'invalid_pattern'
   | 'unknown_key' | 'newer_version' | 'not_supported' | 'section_rejected'
+  | 'ignored_value' | 'unknown_subject' | 'missing_folder'
 
 export interface ConfigError {
   code: ConfigErrorCode
@@ -150,35 +162,45 @@ export interface ConfigError {
  */
 export type ParseResult =
   | { ok: true; config: WorkspaceConfig; warnings: ConfigError[]; sections: Record<string, unknown> }
-  | { ok: false; errors: ConfigError[]; warnings: ConfigError[] }
+  /**
+   * `sections`: the strict sections, when the file could be read as YAML:
+   * they stand on their own, so a mistake elsewhere doesn't change them.
+   */
+  | { ok: false; errors: ConfigError[]; warnings: ConfigError[]; sections?: Record<string, unknown> }
 
-type Report = (code: ConfigErrorCode, path: string[], detail?: string | null) => void
+export type Report = (code: ConfigErrorCode, path: string[], detail?: string | null) => void
 
 /**
  * A security-relevant section: parsed strictly and failing closed. Any
  * problem it reports rejects the section alone (never the rest of the file),
- * and then `closed` applies, as when the section is missing.
+ * and then `closed` applies; when the section is missing, `missing` (by
+ * default, `closed` too).
  */
 export interface StrictSection<T = unknown> {
   key: string
-  /** The most restrictive setting: what applies when the section is missing or rejected. */
+  /** The most restrictive setting: what applies when the section is rejected. */
   closed: T
-  /** Reads the section; reporting anything rejects it. `at` is `[key]`. */
-  parse(raw: unknown, at: string[], report: Report): T
+  /** What applies when the file doesn't have the section (`closed` if not given). */
+  missing?: T
+  /**
+   * Reads the section; `report`ing anything rejects it, a `notice` only
+   * tells (something ignored that changes nothing). `at` is `[key]`.
+   */
+  parse(raw: unknown, at: string[], report: Report, notice: Report): T
 }
 
 /**
- * Per-folder permissions (M4) will be a strict section. Until they exist the
- * section is reported and never applied, so it can't look like it protects
- * anything.
+ * Per-folder permissions (D-014, D-038, permissions.ts). Missing, every admin
+ * manages the root; rejected, nobody reads anything.
  */
-const PERMISSIONS: StrictSection<null> = {
+export const PERMISSIONS_SECTION: StrictSection<Permissions> = {
   key: 'permissions',
-  closed: null,
-  parse: (_raw, at, report) => { report('not_supported', at); return null },
+  closed: CLOSED_PERMISSIONS,
+  missing: IMPLICIT_PERMISSIONS,
+  parse: (raw, at, report, notice) => parsePermissions(raw, at, report, notice),
 }
 
-export const STRICT_SECTIONS: readonly StrictSection[] = [PERMISSIONS]
+export const STRICT_SECTIONS: readonly StrictSection[] = [PERMISSIONS_SECTION as StrictSection]
 
 const TOP_KEYS = ['version', 'templates', 'daily', 'attachments', 'links', 'history', 'mcp']
 const LINKS_KEYS = ['aliases']
@@ -209,7 +231,7 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
     ({ code, at: path.length ? path.join('.') : null, line: nodeLine(doc, lines, path), detail })
   const fail: Report = (code, path, detail = null) => { errors.push(issue(code, path, detail)) }
   const warn: Report = (code, path, detail = null) => { warnings.push(issue(code, path, detail)) }
-  const sections: Record<string, unknown> = Object.fromEntries(strict.map((s) => [s.key, s.closed]))
+  const sections: Record<string, unknown> = Object.fromEntries(strict.map((s) => [s.key, 'missing' in s ? s.missing : s.closed]))
   const data = doc.toJS({ maxAliasCount: 100 }) as unknown
   if (data === null || data === undefined) return { ok: true, config: EMPTY_WORKSPACE, warnings, sections }
   if (!isRecord(data)) return { ok: false, errors: [{ code: 'not_a_map', at: null, line: 1, detail: null }], warnings }
@@ -332,15 +354,16 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
   for (const section of strict) {
     if (!(section.key in data)) continue
     const found: ConfigError[] = []
-    const value = section.parse(data[section.key], [section.key], (code, path, detail = null) => { found.push(issue(code, path, detail)) })
+    const value = section.parse(data[section.key], [section.key], (code, path, detail = null) => { found.push(issue(code, path, detail)) }, warn)
     if (found.length === 0) { sections[section.key] = value; continue }
+    sections[section.key] = section.closed
     warnings.push(...found)
     if (!found.some((f) => f.code === 'not_supported' && f.at === section.key)) warn('section_rejected', [section.key])
   }
 
   // Reported in the order of the file.
   warnings.sort((a, b) => (a.line ?? 0) - (b.line ?? 0))
-  return errors.length ? { ok: false, errors, warnings } : { ok: true, config, warnings, sections }
+  return errors.length ? { ok: false, errors, warnings, sections } : { ok: true, config, warnings, sections }
 }
 
 /** A note's path relative to the notes root (`.md` added if missing), or null with the problem reported. */

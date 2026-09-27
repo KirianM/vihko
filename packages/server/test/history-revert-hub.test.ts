@@ -3,7 +3,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { EVERYONE } from './_permissions.ts'
 import { join } from 'node:path'
 import { CLI, api, closeAll, connect, login, makeDirs, startServer, typeLine, waitFor, type Srv } from './_collab.ts'
 
@@ -28,6 +29,8 @@ const names = (v: { authors: { kind: string; name: string }[] }) => v.authors.ma
 test('reverting on an open note: both editors get it at once, and what was typed after the version, and while reverting, stays', async () => {
   const { notes, env } = makeDirs()
   spawnSync(process.execPath, [CLI, 'user', 'create', 'ana'], { env: { ...process.env, ...env }, input: 'a-long-password' })
+  // ana edits everything, as before M4 (_permissions.ts).
+  writeFileSync(join(notes, 'thoth.yaml'), EVERYONE)
   const srv = await startServer({ ...env, ...FAST })
   try {
     const k = await login(srv)

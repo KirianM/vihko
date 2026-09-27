@@ -5,8 +5,9 @@
 import { chmodSync, cpSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Auth, History, Indexer, NoteService, Profiles, Workspace, createApp, openIndex, openState, type Runtime, type User } from '@thoth/server'
+import { Auth, History, Indexer, NoteService, Profiles, Workspace, createApp, openIndex, openState, type Runtime } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
+import { withEveryone } from './_permissions.ts'
 
 export const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -16,7 +17,6 @@ export interface HistorySetup {
   files?: Record<string, string | Uint8Array>
   config?: string
   git?: string
-  canRead?: (user: User, path: string) => boolean
   /** Reuse a folder from an earlier setup (a restart). */
   dir?: string
   quietMs?: number
@@ -40,7 +40,8 @@ export async function setup(opts: HistorySetup = {}) {
       mkdirSync(join(notesDir, p, '..'), { recursive: true })
       writeFileSync(join(notesDir, p), content)
     }
-    if (opts.config !== undefined) writeFileSync(join(notesDir, 'thoth.yaml'), opts.config)
+    // Both users see everything unless the test brings its own permissions (_permissions.ts).
+    writeFileSync(join(notesDir, 'thoth.yaml'), withEveryone(opts.config))
     opts.prepare?.({ dir, notesDir })
   }
   const index = openIndex(join(dir, 'index.db'))
@@ -65,7 +66,7 @@ export async function setup(opts: HistorySetup = {}) {
   await history.recorder.settle()
   indexer.onApplied = (a) => history.recorder.observeIndexed(a)
   const notes = new NoteService({ notesDir, stateDir, indexer, db: index, history: history.recorder, attachments: () => workspace.config.attachments })
-  const app = createApp({ auth, profiles: new Profiles(state), workspace, notes, index, indexer, notesDir, runtime, history, canRead: opts.canRead })
+  const app = createApp({ auth, profiles: new Profiles(state), workspace, notes, index, indexer, notesDir, runtime, history })
   const cookies: Record<string, string> = {}
   for (const name of ['noa', 'ana']) {
     const res = await app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: name, password: 'a-long-password' }) })
