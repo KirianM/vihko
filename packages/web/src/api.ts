@@ -173,7 +173,12 @@ export type MoveStart<R> = { report: R } | { job: MoveJob }
 export interface TagCount { tag: string; count: number; total: number }
 export interface TrashEntry { id: string; path: string; deletedAt: string }
 /** Installation settings the UI needs. */
-export interface ServerConfig { externalImages: 'allow' | 'block'; maxImageBytes: number }
+export interface ServerConfig {
+  externalImages: 'allow' | 'block'
+  maxImageBytes: number
+  /** The second factor's secrets are stored encrypted (THOTH_SECRET_KEY). */
+  secretsEncrypted?: boolean
+}
 /** A stored image: `path` from the notes root, `src` relative to the note (to link it). */
 export interface Attachment { path: string; src: string }
 /** What the UI needs from thoth.yaml: daily-note series and the templates folder. */
@@ -406,14 +411,17 @@ export const api = {
   directory: () => request<{ users: string[]; groups: string[] }>('GET', '/api/directory'),
   sessions: () => request<{ sessions: SessionInfo[] }>('GET', '/api/account/sessions').then((r) => r.sessions),
   endSession: (id: string) => request<{ ok: true }>('DELETE', `/api/account/sessions/${encodeURIComponent(id)}`),
+  /** One of one's own notices (what the admin did to one's account, a purge of what one wrote), dismissed. */
+  dismissNotice: (id: string) => request<{ ok: true }>('DELETE', `/api/account/notices/${encodeURIComponent(id)}`),
   endOtherSessions: () => request<{ ended: number }>('DELETE', '/api/account/sessions'),
   /** Other sessions end; `wrong_password` if `current` isn't right. */
   changePassword: (current: string, password: string) => request<{ ok: true }>('POST', '/api/auth/password', { current, password }),
   users: () => request<{ users: UserInfo[] }>('GET', '/api/admin/users').then((r) => r.users),
   createUser: (username: string, role: UserInfo['role']) => request<{ user: UserInfo; link: NewLink }>('POST', '/api/admin/users', { username, role }),
   /** A new link for them (an invitation, or a reset if they have a password); the earlier one stops working. */
-  userLink: (id: string) => request<{ link: NewLink; user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/link`),
-  setRole: (id: string, role: UserInfo['role']) => request<{ user: UserInfo }>('PUT', `/api/admin/users/${encodeURIComponent(id)}/role`, { role }).then((r) => r.user),
+  /** A new link; a reset (they have a password) is confirmed with `confirm` (D-040 3.1). */
+  userLink: (id: string, confirm?: string) => request<{ link: NewLink; user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/link`, confirm ? { confirm } : {}),
+  setRole: (id: string, role: UserInfo['role'], confirm: string) => request<{ user: UserInfo }>('PUT', `/api/admin/users/${encodeURIComponent(id)}/role`, { role, confirm }).then((r) => r.user),
   disableUser: (id: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/disable`).then((r) => r.user),
   enableUser: (id: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/enable`).then((r) => r.user),
   deleteUser: (id: string) => request<{ ok: true }>('DELETE', `/api/admin/users/${encodeURIComponent(id)}`),
@@ -435,9 +443,10 @@ export const api = {
   access: (who: { user: string } | { key: string }) =>
     request<EffectiveAccess>('GET', `/api/permissions/access?${'user' in who ? `user=${encodeURIComponent(who.user)}` : `key=${encodeURIComponent(who.key)}`}`),
   adminSettings: () => request<AdminSettings>('GET', '/api/admin/settings'),
-  setAdminSettings: (patch: Partial<AdminSettings>) => request<AdminSettings>('PUT', '/api/admin/settings', patch),
+  /** A new second-factor policy is confirmed with `confirm` (D-040 3.4a). */
+  setAdminSettings: (patch: Partial<AdminSettings> & { confirm?: string }) => request<AdminSettings>('PUT', '/api/admin/settings', patch),
   /** Takes someone's second factor away (the thoth admin). */
-  resetTwoFactor: (id: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/2fa/reset`).then((r) => r.user),
+  resetTwoFactor: (id: string, confirm: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/2fa/reset`, { confirm }).then((r) => r.user),
   twoFactor: () => request<TwoFactorInfo>('GET', '/api/account/2fa'),
   /** A new secret to set it up (or to replace the authenticator): the password is asked for. */
   startTwoFactor: (password: string) => request<TwoFactorSetup>('POST', '/api/account/2fa/setup', { password }),

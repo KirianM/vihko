@@ -108,8 +108,11 @@ test('a manager purges a note\'s whole history (that file alone); the admin purg
     assert.notEqual((await h.laura('POST', '/api/history/purge', { path: 'personas/laura/diario' })).status, 200)
 
     // The admin, Marta's folder by its name: he can't read it, and the answer says nothing of it but how much.
+    const preview = await h.noa('POST', '/api/history/purge', { path: 'personas/marta', dryRun: true })
+    assert.equal(preview.body.confirmRequired, true, 'what he can\'t read is confirmed at the moment (D-040 3.6)')
+    assert.equal((await h.noa('POST', '/api/history/purge', { path: 'personas/marta' })).body.error, 'confirmation_required')
     const writing = put(h.laura, 'familia/compra.md', (t) => t + 'Mientras.\n')
-    const k = await h.noa('POST', '/api/history/purge', { path: 'personas/marta' })
+    const k = await h.noa('POST', '/api/history/purge', { path: 'personas/marta', confirm: 'a-long-password' })
     await writing
     assert.equal(k.status, 200, JSON.stringify(k.body))
     for (const mark of ['Jade', 'notas.md', 'notas-viejas']) assert.ok(!JSON.stringify(k.body).includes(mark), mark)

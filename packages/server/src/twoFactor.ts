@@ -11,14 +11,18 @@
 //   authenticator (the old one works until the new one is verified).
 // - Recovery codes are kept only as their sha256 (with the user's id), and
 //   each one works once. Making new ones ends the old ones.
-// - The TOTP secret has to be kept as it is (it computes the codes), in
-//   state.db, which is backed up and never served.
+// - The TOTP secret has to be kept (it computes the codes), in state.db,
+//   which is backed up and never served. With THOTH_SECRET_KEY (secretKey.ts)
+//   it's kept encrypted, and one encrypted with another key (or with none
+//   set) can't be read: that person's TOTP codes fail, their recovery codes
+//   still work, and `unreadable` tells the admin (D-040 3.4b).
 // - The admin's policy (adminSettings.ts): required, optional (the default)
-//   or disabled. Disabled, no one is asked for a code, not even those who set
-//   one up (theirs is kept, and applies again if it's turned back on).
+//   or disabled. Disabled, nobody new sets one up; whoever has one is still
+//   asked for it (D-040 3.4a).
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import type { Db } from './db.ts'
 import { qrCode, type QrCode } from './qr.ts'
+import { isSealed, type SecretBox } from './secretKey.ts'
 
 export const TOTP_PERIOD = 30
 export const TOTP_DIGITS = 6
@@ -144,12 +148,58 @@ const recoveryHash = (userId: string, code: string) => createHash('sha256').upda
 export class TwoFactor {
   private db: Db
   private now: () => Date
+  /** THOTH_SECRET_KEY, derived: secrets are stored encrypted with it (null: plaintext, as before). */
+  private box: SecretBox | null
   /** Secrets being set up, by user: not theirs until a code from them is verified. */
   private pending = new Map<string, { secret: Buffer; until: number }>()
 
-  constructor(state: Db, opts: { now?: () => Date } = {}) {
+  constructor(state: Db, opts: { now?: () => Date; box?: SecretBox | null } = {}) {
     this.db = state
     this.now = opts.now ?? (() => new Date())
+    this.box = opts.box ?? null
+  }
+
+  /** Whether secrets are stored encrypted (THOTH_SECRET_KEY is set). */
+  get encrypted(): boolean {
+    return this.box !== null
+  }
+
+  /** A secret (base32) as it's stored: encrypted with the key in force, if there is one. */
+  private stored(userId: string, b32: string): string {
+    return this.box ? this.box.seal(b32, userId) : b32
+  }
+
+  /** A stored secret as bytes; null if it can't be read (encrypted, with another key or none). */
+  private secretOf(userId: string, stored: string): Buffer | null {
+    if (!isSealed(stored)) return base32Decode(stored)
+    const b32 = this.box?.open(stored, userId)
+    return b32 ? base32Decode(b32) : null
+  }
+
+  /**
+   * With a key: the secrets still in plaintext are encrypted with it (at
+   * startup, when it was just set). How many. Without one, nothing.
+   */
+  sealPlaintext(): number {
+    const box = this.box
+    if (!box) return 0
+    return this.db.transaction(() => {
+      const rows = this.db.prepare('select user_id, secret from two_factor').all() as { user_id: string; secret: string }[]
+      const put = this.db.prepare('update two_factor set secret = ? where user_id = ? and secret = ?')
+      let n = 0
+      for (const r of rows) if (!isSealed(r.secret)) n += put.run(box.seal(r.secret, r.user_id), r.user_id, r.secret).changes
+      return n
+    })()
+  }
+
+  /**
+   * The users whose secret can't be read now: encrypted with another key, or
+   * with none set. Their TOTP codes fail (recovery codes still work) until
+   * the right key is back or the admin takes theirs away.
+   */
+  unreadable(): string[] {
+    const rows = this.db.prepare('select user_id, secret from two_factor').all() as { user_id: string; secret: string }[]
+    return rows.filter((r) => this.secretOf(r.user_id, r.secret) === null).map((r) => r.user_id)
   }
 
   status(userId: string): TwoFactorStatus {
@@ -195,7 +245,7 @@ export class TwoFactor {
     return this.db.transaction(() => {
       this.db.prepare(`insert into two_factor (user_id, secret, enabled_at, last_step) values (?, ?, ?, ?)
         on conflict(user_id) do update set secret = excluded.secret, enabled_at = excluded.enabled_at, last_step = excluded.last_step`)
-        .run(userId, base32Encode(p.secret), now.toISOString(), step)
+        .run(userId, this.stored(userId, base32Encode(p.secret)), now.toISOString(), step)
       return this.newRecoveryCodes(userId)
     })()
   }
@@ -209,7 +259,9 @@ export class TwoFactor {
     if (!row) return { ok: false, reason: 'invalid' }
     const t = asTotp(code)
     if (t) {
-      const step = matchStep(base32Decode(row.secret), t, this.now().getTime())
+      // A secret that can't be read (another THOTH_SECRET_KEY) matches no code.
+      const secret = this.secretOf(userId, row.secret)
+      const step = secret ? matchStep(secret, t, this.now().getTime()) : null
       if (step === null) return { ok: false, reason: 'invalid' }
       // Only a later step than the last one accepted: one request wins if two race with the same code.
       const won = this.db.prepare('update two_factor set last_step = ? where user_id = ? and last_step < ?').run(step, userId, step).changes > 0

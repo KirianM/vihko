@@ -11,26 +11,38 @@
 //   DELETE /api/account/sessions               ends every other session of one's own
 //   DELETE /api/account/sessions/:id           ends one
 //   POST   /api/auth/password                  { current, password }: other sessions end
+//   DELETE /api/account/notices/:id            one of one's own notices (notices.ts), dismissed
 // The thoth admin:
 //   GET    /api/admin/users                    everyone (state, role, groups, pending link, sessions)
 //   POST   /api/admin/users                    { username, role } → { user, link }  (with `password`: no link, as before M4)
-//   POST   /api/admin/users/:id/link           a new link (an invitation, or a reset if they have a password) → { link }
-//   PUT    /api/admin/users/:id/role           { role }
+//   POST   /api/admin/users/:id/link           a new link (an invitation, or a reset if they have a password) → { link };
+//                                               a reset, with `confirm`
+//   PUT    /api/admin/users/:id/role           { role, confirm }
 //   POST   /api/admin/users/:id/disable | enable
 //   DELETE /api/admin/users/:id                only someone disabled
 //   DELETE /api/admin/users/:id/sessions       ends all their sessions
 //   GET    /api/admin/groups, POST { name }, PATCH /:id { name }, DELETE /:id
 //   POST   /api/admin/groups/:id/members { userId }, DELETE /api/admin/groups/:id/members/:userId
-//   GET    /api/admin/settings, PUT { membersLocalDownloads?, twoFactor? }
+//   GET    /api/admin/settings, PUT { membersLocalDownloads?, twoFactor?, confirm? }  (a new policy, with `confirm`)
 //
 // Guessing a link (or the current password) counts in the login limits, as a
 // password or the first-boot token does (loginLimit.ts).
+//
+// What lets the admin into someone else's account, or changes what they may
+// do (a reset link, a new role; the second factor's reset is in
+// http/twoFactor.ts), and a new policy for the second factor, ask for the
+// confirmation at the moment (D-036, D-040 3.1 and 3.4a: the current code, or
+// the password without a second factor): a session left open is not enough.
+// The person is told the next time they come in, and every other admin too
+// (notices.ts).
 import type { Context, Hono } from 'hono'
 import { AuthError, sessionIdOf, type Auth, type User } from '../auth.ts'
 import type { Access } from '../access.ts'
 import type { AdminSettings } from '../adminSettings.ts'
 import type { AttemptResult, LoginLimiter } from '../loginLimit.ts'
 import { UsersError, type NewLink, type Users } from '../users.ts'
+import type { Notices } from '../notices.ts'
+import { POLICIES, type TwoFactorPolicy } from '../twoFactor.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
 
@@ -51,6 +63,10 @@ export interface UserRoutesDeps {
   passwordAccepted: (c: Context, user: User) => Response
   /** THOTH_PUBLIC_URL, if set: the address the links are given for. */
   publicUrl: string | null
+  /** The confirmation at the moment (http/twoFactor.ts `confirmIdentity`): null if confirmed, the response otherwise. */
+  confirm: (c: Context<Env>, confirm: unknown) => Promise<Response | null>
+  /** Notices addressed to one person. */
+  notices: Notices
 }
 
 const fail = (c: Context, status: 400 | 403 | 404, error: string, message: string) => c.json({ error, message }, status)
@@ -90,13 +106,13 @@ export function inviteRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
 
 /** The routes with a session (after the session middleware). */
 export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
-  const { auth, users, settings } = deps
+  const { auth, users, settings, notices } = deps
   const admin = async (c: Context<Env>, next: () => Promise<void>) => {
     if (c.get('access').isAgent || c.get('user').role !== 'admin') return fail(c, 403, 'forbidden', 'admins only')
     await next()
   }
-  const body = async (c: Context<Env>) => {
-    const b = await c.req.json<unknown>()
+  const body = async (c: Context<Env>, optional = false) => {
+    const b = optional ? await c.req.json<unknown>().catch(() => ({})) : await c.req.json<unknown>()
     if (typeof b !== 'object' || b === null || Array.isArray(b)) throw new UsersError('invalid', 'expected an object')
     return b as Record<string, unknown>
   }
@@ -153,6 +169,11 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
     return c.json({ ok: true })
   })
 
+  app.delete('/api/account/notices/:id', (c) => {
+    if (!notices.dismiss(c.get('user').id, param(c, 'id'))) return fail(c, 404, 'not_found', 'no such notice')
+    return c.json({ ok: true })
+  })
+
   // --- Users (the thoth admin) ------------------------------------------------
 
   app.get('/api/admin/users', admin, (c) => c.json({ users: users.list() }))
@@ -168,9 +189,33 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
     return c.json({ user: r.user, link: link(r.link) }, 201)
   })
 
-  app.post('/api/admin/users/:id/link', admin, (c) => c.json({ link: link(users.newLink(param(c, 'id'))), user: users.get(param(c, 'id')) }))
+  // An invitation (they never chose a password) needs nothing more; a reset
+  // lets whoever holds the link into their account: confirmed, and told.
+  app.post('/api/admin/users/:id/link', admin, async (c) => {
+    const id = param(c, 'id')
+    const kind = users.nextLinkKind(id)
+    if (kind === 'reset') {
+      const refused = await deps.confirm(c, (await body(c, true)).confirm)
+      if (refused) return refused
+    }
+    const l = link(users.newLink(id))
+    if (kind === 'reset') notices.accountChanged(id, c.get('user').id, 'reset_link')
+    return c.json({ link: l, user: users.get(id) })
+  })
 
-  app.put('/api/admin/users/:id/role', admin, async (c) => c.json({ user: users.setRole(param(c, 'id'), (await body(c)).role) }))
+  app.put('/api/admin/users/:id/role', admin, async (c) => {
+    const id = param(c, 'id')
+    const b = await body(c)
+    const before = users.get(id)
+    if (!before) throw new UsersError('not_found', `no user ${id}`)
+    if (b.role !== 'admin' && b.role !== 'member') throw new UsersError('invalid', 'role must be admin or member')
+    if (before.role === b.role) return c.json({ user: before })
+    const refused = await deps.confirm(c, b.confirm)
+    if (refused) return refused
+    const user = users.setRole(id, b.role)
+    notices.accountChanged(id, c.get('user').id, 'role_changed', user.role)
+    return c.json({ user })
+  })
 
   app.post('/api/admin/users/:id/disable', admin, (c) => c.json({ user: users.disable(param(c, 'id')) }))
 
@@ -208,7 +253,17 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
 
   app.get('/api/admin/settings', admin, (c) => c.json(settings.view()))
 
-  app.put('/api/admin/settings', admin, async (c) => c.json(settings.set(await body(c))))
+  // A new policy for the second factor is confirmed (D-040 3.4a): it decides
+  // whether anyone is asked for one. The other settings aren't.
+  app.put('/api/admin/settings', admin, async (c) => {
+    const { confirm, ...patch } = await body(c)
+    const policy = patch.twoFactor
+    if (policy !== undefined && POLICIES.includes(policy as TwoFactorPolicy) && policy !== settings.twoFactorPolicy()) {
+      const refused = await deps.confirm(c, confirm)
+      if (refused) return refused
+    }
+    return c.json(settings.set(patch))
+  })
 }
 
 /** HTTP status for each users error code. */

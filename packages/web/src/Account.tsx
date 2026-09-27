@@ -1,6 +1,7 @@
 // Settings → «Account»: one's own password (the current one is asked for, and
 // every other session ends), the second factor (D-036: set it up, change the
-// app, new recovery codes, turn it off while the admin doesn't require it)
+// app, new recovery codes, turn it off while the admin doesn't require it;
+// with the policy `disabled`, only whoever already has one sees it, D-040 3.4a)
 // and sessions (which browser, when it was last used; close one, or all the
 // others). Reached from the preferences, like the other settings pages.
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
@@ -186,7 +187,7 @@ function AskDialog({ title, text, label, hint, recovery, confirm, danger, onClos
   )
 }
 
-/** One's own second factor, unless the admin turned it off for everyone. */
+/** One's own second factor, unless the admin turned it off for new setups and they have none. */
 function TwoFactorSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   const t = useT()
   const dates = useDates()
@@ -202,7 +203,7 @@ function TwoFactorSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   const close = () => { setOpen(null); setCodes(null); void load() }
 
   if (!info) return error ? <p className="error-text" role="alert">{error}</p> : null
-  if (info.policy === 'disabled') return null
+  if (info.policy === 'disabled' && !info.enabled) return null
   const on = info.enabled
 
   let dialog: ReactNode = null
@@ -242,6 +243,7 @@ function TwoFactorSection({ onUnauthorized }: { onUnauthorized: () => void }) {
             {info.policy !== 'required' && <Button className="btn btn-danger" onPress={() => setOpen('disable')}>{t('twofa.disable')}</Button>}
           </div>
           {info.policy === 'required' && <p className="hint">{t('twofa.requiredHint')}</p>}
+          {info.policy === 'disabled' && <p className="hint">{t('twofa.disabledKeep')}</p>}
         </>
       ) : (
         <>

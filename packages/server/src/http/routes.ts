@@ -76,6 +76,7 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'GET /api/account/sessions': 'session',
   'DELETE /api/account/sessions': 'session',
   'DELETE /api/account/sessions/:id': 'session',
+  'DELETE /api/account/notices/:id': 'session',
   'GET /api/admin/users': 'session',
   'POST /api/admin/users': 'session',
   'POST /api/admin/users/:id/link': 'session',
@@ -162,6 +163,8 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'DELETE /api/account/sessions': 'none',
   'DELETE /api/account/sessions/:id': 'none',
   'POST /api/auth/password': 'none',
+  // One's own notices (notices.ts): only one's own is dismissed; the others don't exist.
+  'DELETE /api/account/notices/:id': 'none',
   'GET /api/admin/users': 'admin',
   'POST /api/admin/users/:id/link': 'admin',
   'PUT /api/admin/users/:id/role': 'admin',
