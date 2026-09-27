@@ -2,7 +2,7 @@
 // the source of truth, changes and deletions made outside thoth.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { NOTES } from './env.ts'
+import { ADMIN, MEMBER, NOTES } from './env.ts'
 import { editorText, signIn } from './helpers.ts'
 
 const NOTE = 'hogar/Proxy.md'
@@ -14,8 +14,8 @@ let k: Page
 let a: Page
 
 test.beforeAll(async ({ browser }) => {
-  k = await signIn(browser, 'noa', NOTE)
-  a = await signIn(browser, 'ana', NOTE)
+  k = await signIn(browser, ADMIN, NOTE)
+  a = await signIn(browser, MEMBER, NOTE)
 })
 
 test('on open: presence with distinct colors, saved, folded frontmatter and no marks', async () => {
@@ -31,18 +31,18 @@ test('on open: presence with distinct colors, saved, folded frontmatter and no m
 test('two people write at the same time and the file converges with an intact uid and frontmatter', async () => {
   await k.locator('.cm-content').click()
   await k.keyboard.press('Control+End')
-  await k.keyboard.type('\nEscrito por noa con **negrita** y [[Red]].')
+  await k.keyboard.type(`\nEscrito por ${ADMIN.username} con **negrita** y [[Red]].`)
   await a.locator('.cm-line', { hasText: 'Red' }).first().click()
   await a.keyboard.press('End')
-  await a.keyboard.type('\nvmbr0 escrito por ana')
+  await a.keyboard.type(`\nvmbr0 escrito por ${MEMBER.username}`)
 
-  await expect.poll(disk).toContain('Escrito por noa con **negrita** y [[Red]].')
-  await expect.poll(disk).toContain('vmbr0 escrito por ana')
+  await expect.poll(disk).toContain(`Escrito por ${ADMIN.username} con **negrita** y [[Red]].`)
+  await expect.poll(disk).toContain(`vmbr0 escrito por ${MEMBER.username}`)
   expect(disk()).toMatch(/^---\naliases: \[gw, Hipervisor\]\n/)
   expect(disk()).toMatch(/\nuid: [0-9A-Z]{26}\n/)
   await expect(k.locator('.status')).toHaveText('Guardado en disco')
-  await expect.poll(() => editorText(a)).toContain('Escrito por noa')
-  await expect.poll(() => editorText(k)).toContain('vmbr0 escrito por ana')
+  await expect.poll(() => editorText(a)).toContain(`Escrito por ${ADMIN.username}`)
+  await expect.poll(() => editorText(k)).toContain(`vmbr0 escrito por ${MEMBER.username}`)
   await expect(k.locator('.cm-ySelectionCaret').first()).toBeAttached()
 })
 
@@ -53,7 +53,7 @@ test('a change made outside thoth shows up live', async () => {
 
 test('live preview: marks hidden outside the cursor and a resolved wikilink', async () => {
   await k.locator('.cm-h1').click()
-  await expect(k.locator('.cm-line', { hasText: 'Escrito por noa' })).toHaveText('Escrito por noa con negrita y Red.')
+  await expect(k.locator('.cm-line', { hasText: `Escrito por ${ADMIN.username}` })).toHaveText(`Escrito por ${ADMIN.username} con negrita y Red.`)
   await expect(k.locator('.cm-wikilink-resolved a', { hasText: 'Red' })).toBeVisible()
 })
 

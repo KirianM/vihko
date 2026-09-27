@@ -5,7 +5,7 @@
 // can't have the server download an image.
 import { expect, test, type Browser } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
-import { BASE_URL, E2E_DIR, PASSWORD } from './env.ts'
+import { ADMIN, BASE_URL, E2E_DIR, MEMBER } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
@@ -14,7 +14,7 @@ test.describe.configure({ mode: 'serial' })
 test.beforeAll(() => mkdirSync(SHOTS, { recursive: true }))
 
 async function admin(browser: Browser) {
-  const page = await signIn(browser, 'noa')
+  const page = await signIn(browser, ADMIN)
   return { page, request: page.request }
 }
 test.afterAll(async ({ browser }) => {
@@ -27,7 +27,7 @@ test.afterAll(async ({ browser }) => {
 })
 
 test('with the integrations off, nothing gets in or out; and the UI talks only to its server', async ({ browser }) => {
-  const page = await signIn(browser, 'noa')
+  const page = await signIn(browser, ADMIN)
   const hosts = new Set<string>()
   page.on('request', (r) => { const u = new URL(r.url()); if (u.protocol !== 'data:' && u.protocol !== 'blob:') hosts.add(u.origin) })
   await page.getByRole('button', { name: 'Preferencias' }).click()
@@ -59,9 +59,9 @@ test('with the integrations off, nothing gets in or out; and the UI talks only t
 test('with them, the keys that can read and how; a key can’t download images', async ({ browser, request }) => {
   const k = await admin(browser)
   await k.request.put('/api/admin/integrations', { data: { api: true, mcp: true } })
-  const mine = await (await k.request.post('/api/keys', { data: { confirm: PASSWORD, name: 'Claude privacidad e2e', folders: ['proyectos'] } })).json() as { token: string }
-  const ana = await signIn(browser, 'ana')
-  const hers = await (await ana.request.post('/api/keys', { data: { confirm: PASSWORD, name: 'Blog privacidad e2e', canWrite: true } })).json() as { token: string }
+  const mine = await (await k.request.post('/api/keys', { data: { confirm: ADMIN.password, name: 'Claude privacidad e2e', folders: ['proyectos'] } })).json() as { token: string }
+  const member = await signIn(browser, MEMBER)
+  const hers = await (await member.request.post('/api/keys', { data: { confirm: MEMBER.password, name: 'Blog privacidad e2e', canWrite: true } })).json() as { token: string }
   expect((await request.get(`${BASE_URL}/api/tree`, { headers: { Authorization: `Bearer ${mine.token}` } })).status()).toBe(200)
   // Downloading an image by URL is only for a person who asks: a key doesn't even find the route.
   const fetchByKey = await request.post(`${BASE_URL}/api/attachments/fetch`, { headers: { Authorization: `Bearer ${hers.token}` }, data: { note: 'Plan.md', url: 'http://127.0.0.1:9/x.png' } })
@@ -75,19 +75,19 @@ test('with them, the keys that can read and how; a key can’t download images',
   await expect(now).toContainText('Integraciones activas: API · MCP. Estas claves pueden leer notas ahora mismo:')
   await expect(now.getByRole('listitem').filter({ hasText: 'Claude privacidad e2e' })).toContainText('solo lee · en proyectos/ · último uso el')
   await expect(now.getByRole('listitem').filter({ hasText: 'Claude privacidad e2e' })).toContainText('por la API')
-  await expect(now.getByRole('listitem').filter({ hasText: 'Blog privacidad e2e' })).toContainText('(de ana): lee y escribe · en todas las carpetas de su usuario · sin usar todavía')
+  await expect(now.getByRole('listitem').filter({ hasText: 'Blog privacidad e2e' })).toContainText(`(de ${MEMBER.username}): lee y escribe · en todas las carpetas de su usuario · sin usar todavía`)
   await k.page.screenshot({ path: `${SHOTS}/privacy-light.png`, fullPage: true, animations: 'disabled' })
 
   // A member sees their own keys, and is told there may be others.
-  await ana.goto('/?view=privacy')
-  const hersNow = ana.locator('section', { has: ana.getByRole('heading', { name: 'Ahora mismo, en este servidor' }) })
+  await member.goto('/?view=privacy')
+  const hersNow = member.locator('section', { has: member.getByRole('heading', { name: 'Ahora mismo, en este servidor' }) })
   await expect(hersNow).toContainText('Tus claves activas pueden leer esto')
   // Hers only (other specs may have left keys of hers; never the admin's).
   await expect(hersNow.getByRole('listitem').filter({ hasText: 'Blog privacidad e2e' }).first()).toBeVisible()
   await expect(hersNow).not.toContainText('Claude privacidad e2e')
   await k.page.getByRole('link', { name: 'Gestionar las claves en «Agentes y API»' }).click()
   await expect(k.page).toHaveURL(/\?view=agents$/)
-  await ana.context().close()
+  await member.context().close()
   await k.page.context().close()
 })
 
@@ -95,8 +95,8 @@ test('on a phone, in dark mode', async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, colorScheme: 'dark', locale: 'es-ES' })
   const page = await ctx.newPage()
   await page.goto('/?view=privacy')
-  await page.getByLabel('Nombre de usuario').fill('noa')
-  await page.getByLabel('Contraseña').fill(PASSWORD)
+  await page.getByLabel('Nombre de usuario').fill(ADMIN.username)
+  await page.getByLabel('Contraseña').fill(ADMIN.password)
   await page.getByRole('button', { name: 'Entrar' }).last().tap()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Privacidad')
   await expect(page.getByText('Estas claves pueden leer notas ahora mismo:')).toBeVisible()

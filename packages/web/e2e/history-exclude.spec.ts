@@ -3,7 +3,7 @@
 // of looking empty. At the end the folder goes back to having no thoth.yaml.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES } from './env.ts'
 import { signIn, writeWorkspace } from './helpers.ts'
 
 const DIR = 'fuera-del-historial'
@@ -18,7 +18,7 @@ test.describe.configure({ mode: 'serial' })
 let k: Page
 
 test.beforeAll(async ({ browser }) => {
-  k = await signIn(browser, 'noa')
+  k = await signIn(browser, ADMIN)
   // The pattern first: the note is never in the history.
   writeWorkspace(`history:\n  exclude:\n    - ${DIR}/**\n`)
   await expect.poll(() => excluded(k), { timeout: 20_000 }).toBe(true)

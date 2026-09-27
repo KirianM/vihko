@@ -4,9 +4,12 @@
 // in a code block that stays code, and the phone layout.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES, PASSWORD } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
+const m = specMother(import.meta.url)
+/** A done task that names someone. */
+const CALL = `Llamar a ${m.aDisplayName()}`
 const DIR = 'tareas'
 const NOTE = `${DIR}/Tareas y tablas.md`
 const FILE = `${NOTES}/${NOTE}`
@@ -20,7 +23,7 @@ uid: 01K5TASKSTAB7ES00000000000
 # Tareas y tablas
 
 - [ ] Comprar té
-- [x] Llamar a Ana
+- [x] ${CALL}
 - [ ] Revisar la tabla
 
 | Producto | Cantidad | Nota |
@@ -52,8 +55,8 @@ test.beforeAll(async ({ browser }) => {
   mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
   mkdirSync(SHOTS, { recursive: true })
   writeFileSync(FILE, SOURCE)
-  k = await signIn(browser, 'noa', NOTE)
-  a = await signIn(browser, 'ana', NOTE)
+  k = await signIn(browser, ADMIN, NOTE)
+  a = await signIn(browser, MEMBER, NOTE)
 })
 
 test.afterAll(async () => {
@@ -70,7 +73,7 @@ test('tasks show a checkbox in place of the marker; done ones are struck through
   await expect(boxes(k).nth(0)).not.toBeChecked()
   await expect(boxes(k).nth(1)).toBeChecked()
   await expect(k.locator('.cm-line', { hasText: 'Comprar té' })).toHaveText('Comprar té')
-  await expect(k.locator('.cm-task-done')).toHaveText('Llamar a Ana')
+  await expect(k.locator('.cm-task-done')).toHaveText(CALL)
   expect(await k.locator('.cm-task-done').evaluate((e) => getComputedStyle(e).textDecorationLine)).toBe('line-through')
 })
 
@@ -88,7 +91,7 @@ test('clicking a checkbox changes one character of the file', async () => {
 test('two people toggling different tasks at the same time: both changes land', async () => {
   const before = disk()
   await Promise.all([boxes(k).nth(1).click(), boxes(a).nth(2).click()])
-  await expect.poll(disk).toContain('- [ ] Llamar a Ana')
+  await expect.poll(disk).toContain(`- [ ] ${CALL}`)
   await expect.poll(disk).toContain('- [x] Revisar la tabla')
   expect(diff(before, disk())).toHaveLength(2)
   for (const p of [k, a]) {
@@ -98,15 +101,15 @@ test('two people toggling different tasks at the same time: both changes land', 
 })
 
 test('keyboard: Ctrl+Enter toggles the task on the cursor line; Enter continues with a new task', async () => {
-  await k.locator('.cm-line', { hasText: 'Llamar a Ana' }).click()
+  await k.locator('.cm-line', { hasText: CALL }).click()
   await k.keyboard.press('End')
   // Typing in the task's text keeps the checkbox.
   await expect(boxes(k)).toHaveCount(3)
   await k.keyboard.press('Control+Enter')
-  await expect.poll(disk).toContain('- [x] Llamar a Ana\n')
+  await expect.poll(disk).toContain(`- [x] ${CALL}\n`)
   await k.keyboard.press('Enter')
   await k.keyboard.type('Nueva tarea')
-  await expect.poll(disk).toContain('- [x] Llamar a Ana\n- [ ] Nueva tarea\n- [x] Revisar la tabla')
+  await expect.poll(disk).toContain(`- [x] ${CALL}\n- [ ] Nueva tarea\n- [x] Revisar la tabla`)
   // Enter on the empty task ends the list.
   await k.keyboard.press('Enter')
   await k.keyboard.press('Enter')
@@ -161,8 +164,8 @@ test('phone: a wide table scrolls inside itself and a tap toggles a task', async
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: 'es-ES' })
   const page = await ctx.newPage()
   await page.goto(`/?note=${encodeURIComponent(NOTE)}`)
-  await page.getByLabel('Nombre de usuario').fill('noa')
-  await page.getByLabel('Contraseña').fill(PASSWORD)
+  await page.getByLabel('Nombre de usuario').fill(ADMIN.username)
+  await page.getByLabel('Contraseña').fill(ADMIN.password)
   await page.getByRole('button', { name: 'Entrar' }).last().tap()
   await expect(page.locator('.cm-table').last()).toBeVisible()
   const wrap = page.locator('.cm-table-wrap').last()

@@ -5,7 +5,7 @@
 // a key doesn't find the note.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
-import { BASE_URL, E2E_DIR, PASSWORD } from './env.ts'
+import { ADMIN, BASE_URL, E2E_DIR } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
@@ -21,7 +21,7 @@ const open = async (page: Page, path: string) => {
 }
 
 test('ai: false and an unreadable frontmatter show it, with why; other notes don’t', async ({ browser, request }) => {
-  const page = await signIn(browser, 'noa')
+  const page = await signIn(browser, ADMIN)
   await open(page, 'privado/sin-ia.md')
   await expect(badge(page)).toBeVisible()
   // React Aria shows tooltips on hover once it knows a mouse is in use (after a first press on the page).
@@ -47,7 +47,7 @@ test('ai: false and an unreadable frontmatter show it, with why; other notes don
 
   // What it says holds: a key that names the note is told it exists and is not for agents (agent_denied), and gets nothing of it.
   await page.request.put('/api/admin/integrations', { data: { api: true } })
-  const { key, token } = await (await page.request.post('/api/keys', { data: { confirm: PASSWORD, name: 'Oculta e2e' } })).json() as { key: { id: string }; token: string }
+  const { key, token } = await (await page.request.post('/api/keys', { data: { confirm: ADMIN.password, name: 'Oculta e2e' } })).json() as { key: { id: string }; token: string }
   try {
     const auth = { Authorization: `Bearer ${token}` }
     for (const path of ['privado/sin-ia.md', 'frontmatter/invalido.md']) {
@@ -66,7 +66,7 @@ test('ai: false and an unreadable frontmatter show it, with why; other notes don
 })
 
 test('it follows the frontmatter: shown once ai: false is saved, gone once it isn’t', async ({ browser }) => {
-  const page = await signIn(browser, 'noa')
+  const page = await signIn(browser, ADMIN)
   const created = await page.request.post('/api/note', { data: { path: LIVE, text: '---\nai: true\n---\n# Cambia\n\nTexto.\n' } })
   expect(created.status()).toBe(201)
   await open(page, LIVE)
@@ -85,8 +85,8 @@ test('on a phone, in dark mode: the icon alone, and a press says why', async ({ 
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, colorScheme: 'dark', locale: 'es-ES' })
   const page = await ctx.newPage()
   await page.goto(`/?note=${encodeURIComponent('privado/sin-ia.md')}`)
-  await page.getByLabel('Nombre de usuario').fill('noa')
-  await page.getByLabel('Contraseña').fill(PASSWORD)
+  await page.getByLabel('Nombre de usuario').fill(ADMIN.username)
+  await page.getByLabel('Contraseña').fill(ADMIN.password)
   await page.getByRole('button', { name: 'Entrar' }).last().tap()
   await expect(badge(page)).toBeVisible()
   const box = (await badge(page).boundingBox())!

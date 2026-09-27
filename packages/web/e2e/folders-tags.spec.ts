@@ -3,7 +3,7 @@
 // ⌘K, on a desktop and in the phone drawer. It works in its own folder.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const DIR = 'ft'
@@ -19,7 +19,7 @@ test.beforeAll(async ({ browser }) => {
   writeFileSync(`${NOTES}/${DIR}/Movible.md`, '---\ntags: [ftproyecto]\n---\n# Movible\n\nUna nota que cambia de carpeta.\n')
   writeFileSync(`${NOTES}/${DIR}/Enlaza.md`, '# Enlaza\n\n- [[Movible]] por nombre.\n- [la movible](Movible.md) relativo.\n\n#ftproyecto/fase1\n')
   writeFileSync(`${NOTES}/Fuera ft.md`, '# Fuera\n\n- [[ft/Enlaza]] con carpeta.\n')
-  k = await signIn(browser, 'noa')
+  k = await signIn(browser, ADMIN)
   // Until the index sees the links (watcher or rescan), the preview does not know them.
   await expect.poll(async () => (await (await k.request.get(`/api/note/links?path=${encodeURIComponent(`${DIR}/Movible.md`)}`)).json()).backlinks.length, { timeout: 15_000 }).toBe(2)
   await k.reload()

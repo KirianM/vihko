@@ -5,7 +5,7 @@
 // the page on a phone, in dark mode.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
-import { BASE_URL, E2E_DIR, LOCKED_URL, PASSWORD } from './env.ts'
+import { ADMIN, BASE_URL, E2E_DIR, LOCKED_URL, MEMBER } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
@@ -15,10 +15,10 @@ test.describe.configure({ mode: 'serial' })
 test.beforeAll(() => mkdirSync(SHOTS, { recursive: true }))
 
 /** Signs in on a page of any context (and any server). */
-async function login(page: Page, user: string, url = '/') {
+async function login(page: Page, user: { username: string; password: string }, url = '/') {
   await page.goto(url)
-  await page.getByLabel('Nombre de usuario').fill(user)
-  await page.getByLabel('Contraseña').fill(PASSWORD)
+  await page.getByLabel('Nombre de usuario').fill(user.username)
+  await page.getByLabel('Contraseña').fill(user.password)
   await page.getByRole('button', { name: 'Entrar' }).last().click()
 }
 
@@ -37,7 +37,7 @@ const bearer = (token: string) => ({ Authorization: `Bearer ${token}` })
 
 /** Leaves the switches as every other spec expects them: API and MCP off, members may create keys. */
 async function resetSwitches(browser: Browser) {
-  const page = await signIn(browser, 'noa')
+  const page = await signIn(browser, ADMIN)
   const r = await page.request.put('/api/admin/integrations', { data: { api: false, mcp: false, membersCanCreateKeys: true } })
   expect(r.status()).toBe(200)
   await page.context().close()
@@ -47,7 +47,7 @@ test.afterAll(async ({ browser }) => resetSwitches(browser))
 let token = ''
 
 test('the admin turns on the API and the MCP server', async ({ browser }) => {
-  const page = await signIn(browser, 'noa')
+  const page = await signIn(browser, ADMIN)
   await openAgents(page)
   const mcp = page.getByRole('switch', { name: /Servidor MCP/ })
   const apiSwitch = page.getByRole('switch', { name: /API HTTP con claves/ })
@@ -71,7 +71,7 @@ test('the admin turns on the API and the MCP server', async ({ browser }) => {
 })
 
 test('a read-only key for one folder: shown once, with its MCP configurations', async ({ browser }) => {
-  const page = await signIn(browser, 'noa')
+  const page = await signIn(browser, ADMIN)
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   await openAgents(page)
   await page.getByRole('button', { name: 'Nueva clave' }).click()
@@ -94,7 +94,7 @@ test('a read-only key for one folder: shown once, with its MCP configurations', 
   await dialog.getByLabel('Tu contraseña').fill('no-es-la-contraseña')
   await dialog.getByRole('button', { name: 'Crear la clave' }).click()
   await expect(dialog.getByRole('alert')).toHaveText('La contraseña actual no es correcta.')
-  await dialog.getByLabel('Tu contraseña').fill(PASSWORD)
+  await dialog.getByLabel('Tu contraseña').fill(ADMIN.password)
   await dialog.getByRole('button', { name: 'Crear la clave' }).click()
 
   const shown = page.getByRole('dialog', { name: 'Clave para «Claude Code e2e»' })
@@ -164,7 +164,7 @@ test('the key works over HTTP: read-only in its folder; edited, it writes there 
   const write = await request.post(`${BASE_URL}/api/note`, { headers: bearer(token), data: { path: 'proyectos/de-la-clave.md', text: 'no\n' } })
   expect(write.status()).toBe(403)
 
-  const page = await signIn(browser, 'noa')
+  const page = await signIn(browser, ADMIN)
   await page.goto('/?view=agents')
   await expect(card(page, 'Claude Code e2e')).toContainText('por la API')
 
@@ -188,7 +188,7 @@ test('the key works over HTTP: read-only in its folder; edited, it writes there 
 })
 
 test('rotating asks first, shows the new key once, and the old one keeps working for a while', async ({ browser, request }) => {
-  const page = await signIn(browser, 'noa')
+  const page = await signIn(browser, ADMIN)
   await page.goto('/?view=agents')
   const before = await card(page, 'Claude Code e2e').locator('.key-meta').innerText()
   await card(page, 'Claude Code e2e').getByRole('button', { name: 'Rotar' }).click()
@@ -199,7 +199,7 @@ test('rotating asks first, shows the new key once, and the old one keeps working
   await expect(ask).toHaveCount(0)
   await card(page, 'Claude Code e2e').getByRole('button', { name: 'Rotar' }).click()
   // A new secret is as good as a new key: confirmed the same way.
-  await page.getByRole('alertdialog').getByLabel('Tu contraseña').fill(PASSWORD)
+  await page.getByRole('alertdialog').getByLabel('Tu contraseña').fill(ADMIN.password)
   await page.getByRole('alertdialog').getByRole('button', { name: 'Rotar la clave' }).click()
   // The new key, once, as when it was created; and until when the old one works.
   const shown = page.getByRole('dialog', { name: 'Clave para «Claude Code e2e»' })
@@ -222,7 +222,7 @@ test('rotating asks first, shows the new key once, and the old one keeps working
 })
 
 test('revoking asks first, and the key stops working at once', async ({ browser, request }) => {
-  const page = await signIn(browser, 'noa')
+  const page = await signIn(browser, ADMIN)
   await page.goto('/?view=agents')
   await card(page, 'Claude Code e2e').getByRole('button', { name: 'Revocar' }).click()
   const ask = page.getByRole('alertdialog', { name: '¿Revocar «Claude Code e2e»?' })
@@ -242,57 +242,57 @@ test('revoking asks first, and the key stops working at once', async ({ browser,
 })
 
 test('members: their own keys while allowed; with the setting off, none new, and the admin revokes theirs', async ({ browser }) => {
-  const ana = await signIn(browser, 'ana')
-  await openAgents(ana)
+  const member = await signIn(browser, MEMBER)
+  await openAgents(member)
   // A member sees how things are, not the switches.
-  await expect(ana.getByRole('switch')).toHaveCount(0)
-  await expect(ana.getByText('El MCP está activado.')).toBeVisible()
-  await ana.getByRole('button', { name: 'Nueva clave' }).click()
-  const dialog = ana.getByRole('dialog', { name: 'Nueva clave' })
+  await expect(member.getByRole('switch')).toHaveCount(0)
+  await expect(member.getByText('El MCP está activado.')).toBeVisible()
+  await member.getByRole('button', { name: 'Nueva clave' }).click()
+  const dialog = member.getByRole('dialog', { name: 'Nueva clave' })
   await dialog.getByLabel('Nombre').fill('Blog e2e')
   await dialog.getByRole('checkbox', { name: /Puede escribir/ }).check()
   await dialog.getByRole('combobox', { name: 'Caducidad' }).selectOption('30')
-  await dialog.getByLabel('Tu contraseña').fill(PASSWORD)
+  await dialog.getByLabel('Tu contraseña').fill(MEMBER.password)
   await dialog.getByRole('button', { name: 'Crear la clave' }).click()
-  await ana.getByRole('button', { name: 'Ya la he guardado' }).click()
-  await expect(card(ana, 'Blog e2e')).toContainText('Lee y escribe')
-  await expect(card(ana, 'Blog e2e')).toContainText('Caduca el')
+  await member.getByRole('button', { name: 'Ya la he guardado' }).click()
+  await expect(card(member, 'Blog e2e')).toContainText('Lee y escribe')
+  await expect(card(member, 'Blog e2e')).toContainText('Caduca el')
 
-  const noa = await signIn(browser, 'noa')
-  await noa.goto('/?view=agents')
-  await flip(noa, 'Los miembros pueden crear claves')
-  await expect(noa.getByRole('switch', { name: /Los miembros pueden crear claves/ })).not.toBeChecked()
+  const admin = await signIn(browser, ADMIN)
+  await admin.goto('/?view=agents')
+  await flip(admin, 'Los miembros pueden crear claves')
+  await expect(admin.getByRole('switch', { name: /Los miembros pueden crear claves/ })).not.toBeChecked()
 
-  await ana.reload()
-  await expect(ana.getByText('El administrador no permite que los miembros creen claves', { exact: false })).toBeVisible()
-  await expect(ana.getByRole('button', { name: 'Nueva clave' })).toHaveCount(0)
+  await member.reload()
+  await expect(member.getByText('El administrador no permite que los miembros creen claves', { exact: false })).toBeVisible()
+  await expect(member.getByRole('button', { name: 'Nueva clave' })).toHaveCount(0)
   // Her key still works and she may revoke it, but not change it.
-  await expect(card(ana, 'Blog e2e').getByRole('button', { name: 'Editar' })).toHaveCount(0)
-  await expect(card(ana, 'Blog e2e').getByRole('button', { name: 'Revocar' })).toBeVisible()
-  const refused = await ana.request.post('/api/keys', { data: { confirm: PASSWORD, name: 'otra' } })
+  await expect(card(member, 'Blog e2e').getByRole('button', { name: 'Editar' })).toHaveCount(0)
+  await expect(card(member, 'Blog e2e').getByRole('button', { name: 'Revocar' })).toBeVisible()
+  const refused = await member.request.post('/api/keys', { data: { confirm: MEMBER.password, name: 'otra' } })
   expect(refused.status()).toBe(403)
 
   // The admin sees it, with its user, and revokes it.
-  await noa.reload()
-  const theirs = noa.locator('section', { has: noa.getByRole('heading', { name: 'Claves de los demás' }) })
-  await expect(card(noa, 'Blog e2e')).toContainText('de ana')
+  await admin.reload()
+  const theirs = admin.locator('section', { has: admin.getByRole('heading', { name: 'Claves de los demás' }) })
+  await expect(card(admin, 'Blog e2e')).toContainText(`de ${MEMBER.username}`)
   await theirs.getByRole('button', { name: 'Revocar' }).click()
-  const ask = noa.getByRole('alertdialog', { name: '¿Revocar «Blog e2e»?' })
-  await expect(ask).toContainText('Es una clave de ana.')
+  const ask = admin.getByRole('alertdialog', { name: '¿Revocar «Blog e2e»?' })
+  await expect(ask).toContainText(`Es una clave de ${MEMBER.username}.`)
   await ask.getByRole('button', { name: 'Revocar la clave' }).click()
   await expect(theirs.getByText('Nadie más tiene claves activas.')).toBeVisible()
-  await ana.reload()
-  await ana.getByText(/^Revocadas \(\d+\)$/).click()
-  await expect(card(ana, 'Blog e2e')).toContainText('Revocada')
-  await ana.context().close()
-  await noa.context().close()
+  await member.reload()
+  await member.getByText(/^Revocadas \(\d+\)$/).click()
+  await expect(card(member, 'Blog e2e')).toContainText('Revocada')
+  await member.context().close()
+  await admin.context().close()
 })
 
 test('THOTH_INTEGRATIONS=off: the switches are locked and say why', async ({ browser }) => {
   const ctx = await browser.newContext({ baseURL: LOCKED_URL })
   const page = await ctx.newPage()
   await expect.poll(async () => (await page.request.get('/api/health').catch(() => null))?.status(), { timeout: 30_000 }).toBe(200)
-  await login(page, 'noa', '/?view=agents')
+  await login(page, ADMIN, '/?view=agents')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Agentes y API')
   await expect(page.getByRole('note')).toContainText('THOTH_INTEGRATIONS=off')
   for (const name of [/Servidor MCP/, /API HTTP con claves/]) {
@@ -307,7 +307,7 @@ test('THOTH_INTEGRATIONS=off: the switches are locked and say why', async ({ bro
   // A key can still be made, and it says it won't work while the lock lasts.
   await page.getByRole('button', { name: 'Nueva clave' }).click()
   await page.getByRole('dialog').getByLabel('Nombre').fill('Bloqueada e2e')
-  await page.getByRole('dialog').getByLabel('Tu contraseña').fill(PASSWORD)
+  await page.getByRole('dialog').getByLabel('Tu contraseña').fill(ADMIN.password)
   await page.getByRole('dialog').getByRole('button', { name: 'Crear la clave' }).click()
   const shown = page.getByRole('dialog', { name: 'Clave para «Bloqueada e2e»' })
   await expect(shown).toContainText('la clave no funcionará mientras sigan así')
@@ -321,7 +321,7 @@ test('THOTH_INTEGRATIONS=off: the switches are locked and say why', async ({ bro
 test('on a phone, in dark mode: the page, the dialog and the key fit', async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, colorScheme: 'dark', locale: 'es-ES' })
   const page = await ctx.newPage()
-  await login(page, 'noa', '/?view=agents')
+  await login(page, ADMIN, '/?view=agents')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Agentes y API')
   await expect(page.locator('html')).not.toHaveAttribute('data-theme', 'light')
   const wide = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
@@ -333,7 +333,7 @@ test('on a phone, in dark mode: the page, the dialog and the key fit', async ({ 
   await dialog.getByRole('radio', { name: /Solo estas carpetas/ }).tap()
   await page.screenshot({ path: `${SHOTS}/agents-new-mobile-dark.png`, animations: 'disabled' })
   await dialog.getByRole('checkbox', { name: 'hogar', exact: true }).tap()
-  await dialog.getByLabel('Tu contraseña').fill(PASSWORD)
+  await dialog.getByLabel('Tu contraseña').fill(ADMIN.password)
   await dialog.getByRole('button', { name: 'Crear la clave' }).tap()
   const shown = page.getByRole('dialog', { name: 'Clave para «Móvil e2e»' })
   await expect(shown.locator('.token')).toBeVisible()

@@ -2,8 +2,10 @@
 // depending on role, and the sidebar count.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
+
+const m = specMother(import.meta.url)
 
 const DIR = `${NOTES}/e2e-avisos`
 const SHOTS = `${E2E_DIR}/shots`
@@ -27,7 +29,7 @@ async function waitForCard(page: Page, text: string) {
 test('duplicate uid: appears after the rescan and both notes open', async ({ browser }) => {
   writeFileSync(`${DIR}/Original.md`, '---\nuid: E2E-AVISOS\n---\n# Original\n')
   writeFileSync(`${DIR}/Copia.md`, '---\nuid: E2E-AVISOS\n---\n# Copia\n')
-  const k = await signIn(browser, 'noa')
+  const k = await signIn(browser, ADMIN)
   await k.locator('.sidebar-alerts').click()
   await expect(k).toHaveURL(/\?view=avisos$/)
   await expect(k.getByRole('heading', { level: 1 })).toHaveText('Avisos del espacio')
@@ -50,7 +52,7 @@ test('pending copy of a note deleted externally: kept from the page and the coun
   const NOTE = 'e2e-avisos/Borrada.md'
   const file = `${NOTES}/${NOTE}`
   writeFileSync(file, '# Borrada\n')
-  const k = await signIn(browser, 'noa', NOTE)
+  const k = await signIn(browser, ADMIN, NOTE)
   await k.locator('.cm-content').click()
   await k.keyboard.press('Control+End')
   await k.keyboard.type('\nescrito antes del borrado')
@@ -71,7 +73,7 @@ test('pending copy of a note deleted externally: kept from the page and the coun
 })
 
 test('sync conflict: viewing the copy and opening the note; a member sees it too', async ({ browser }) => {
-  const a = await signIn(browser, 'ana')
+  const a = await signIn(browser, MEMBER)
   await a.goto('/?view=avisos')
   const sync = card(a, 'Conflicto de sincronización')
   await expect(sync).toContainText('Plan.sync-conflict-20260924-120000-ABCDEFG.md')
@@ -98,7 +100,7 @@ const mockAlerts = (page: Page, alerts: unknown[]) =>
   page.route('**/api/alerts', (route) => route.fulfill({ json: { alerts } }))
 
 test('scan stopped: the admin confirms with the figure they see; a member has no actions', async ({ browser }) => {
-  const k = await signIn(browser, 'noa')
+  const k = await signIn(browser, ADMIN)
   await mockAlerts(k, FIXTURE)
   let sent: unknown = null
   await k.route('**/api/admin/rescan', async (route) => {
@@ -114,7 +116,7 @@ test('scan stopped: the admin confirms with the figure they see; a member has no
   await expect.poll(() => sent).toEqual({})
   await k.context().close()
 
-  const a = await signIn(browser, 'ana')
+  const a = await signIn(browser, MEMBER)
   await mockAlerts(a, [{ ...SCAN, actions: [] }])
   await a.goto('/?view=avisos')
   const member = card(a, 'Escaneo detenido')
@@ -124,7 +126,7 @@ test('scan stopped: the admin confirms with the figure they see; a member has no
 })
 
 test('history alerts: git failing (with its detail), versions merged at the cap, files over the limit, no repository in unmanaged mode', async ({ browser }) => {
-  const k = await signIn(browser, 'noa')
+  const k = await signIn(browser, ADMIN)
   const big = Array.from({ length: 12 }, (_, i) => `videos/clip-${i}.mp4`)
   await mockAlerts(k, [
     { code: 'history_unavailable', detail: 'git fast-import exited with 128: fatal: write error: No space left on device', actions: [] },
@@ -155,7 +157,7 @@ test('history alerts: git failing (with its detail), versions merged at the cap,
 })
 
 test('agents without a managed history: which door is open and what it means', async ({ browser }) => {
-  const k = await signIn(browser, 'noa')
+  const k = await signIn(browser, ADMIN)
   await mockAlerts(k, [{ code: 'integrations_unversioned', mode: 'unmanaged', api: true, mcp: true, actions: [] }])
   await k.goto('/?view=avisos')
   const both = card(k, 'sin historial gestionado')
@@ -175,11 +177,11 @@ test('agents without a managed history: which door is open and what it means', a
 })
 
 test('permissions: rejected, notes held after a move outside thoth, and images all in one folder', async ({ browser }) => {
-  const k = await signIn(browser, 'noa')
+  const k = await signIn(browser, ADMIN)
   await mockAlerts(k, [
     { code: 'permissions_rejected', fallback: 'closed', actions: [] },
     { code: 'permissions_held', id: 'h1', folder: 'familia/viajes', to: 'familia/rutas', notes: 3, actions: ['move_permissions', 'release'] },
-    { code: 'permissions_held', id: 'h2', folder: 'personas/laura', to: null, notes: 1, actions: ['release'] },
+    { code: 'permissions_held', id: 'h2', folder: `personas/${m.aUsername()}`, to: null, notes: 1, actions: ['release'] },
     { code: 'attachments_shared_folder', folder: 'Adjuntos', actions: [] },
   ])
   const sent: { url: string; body: unknown }[] = []
@@ -208,7 +210,7 @@ test('permissions: rejected, notes held after a move outside thoth, and images a
 })
 
 test('empty state', async ({ browser }) => {
-  const k = await signIn(browser, 'noa')
+  const k = await signIn(browser, ADMIN)
   await mockAlerts(k, [])
   await k.goto('/?view=avisos')
   await expect(k.getByText('No hay avisos')).toBeVisible()
@@ -217,7 +219,7 @@ test('empty state', async ({ browser }) => {
 })
 
 test('screenshots: light, dark and mobile', async ({ browser }) => {
-  const k = await signIn(browser, 'noa')
+  const k = await signIn(browser, ADMIN)
   await mockAlerts(k, FIXTURE)
   await k.setViewportSize({ width: 1440, height: 900 })
   await k.goto('/?view=avisos')

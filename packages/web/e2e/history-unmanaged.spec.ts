@@ -5,8 +5,8 @@
 // back to the managed history the other specs use.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { ANA, userGit } from '../../server/test/_userGit.ts'
-import { NOTES } from './env.ts'
+import { AUTHOR, userGit } from '../../server/test/_userGit.ts'
+import { ADMIN, NOTES } from './env.ts'
 import { signIn, writeWorkspace } from './helpers.ts'
 
 const DIR = 'historial-git'
@@ -19,12 +19,12 @@ let k: Page
 test.beforeAll(async ({ browser }) => {
   mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
   writeFileSync(`${NOTES}/${NOTE}`, '# Receta\n\nHarina y agua.\n')
-  // The folder is a repository with one commit, by Ana, of this note only.
+  // The folder is a repository with one commit, by someone (a git author, not a thoth user), of this note only.
   const repo = userGit(NOTES, { since: Date.now() - 120_000 })
   repo.run(['add', '--', NOTE])
-  repo.commit('Receta', ANA, { add: false })
+  repo.commit('Receta', AUTHOR, { add: false })
   writeWorkspace('history:\n  mode: unmanaged\n')
-  k = await signIn(browser, 'noa')
+  k = await signIn(browser, ADMIN)
   await expect.poll(() => status(k), { timeout: 20_000 }).toEqual({ mode: 'unmanaged', available: true, error: null })
 })
 
@@ -43,7 +43,7 @@ test('a commit of the folder\'s own git, with its author; only what has a commit
   await expect(panel.getByText('Historial del git de la carpeta de notas: solo aparece lo que tiene commit.')).toBeVisible()
   const rows = panel.locator('.h-row')
   await expect(rows).toHaveCount(1)
-  await expect(rows.first()).toContainText('Ana Pérez')
+  await expect(rows.first()).toContainText(AUTHOR.name)
   await expect(rows.first()).toContainText('Creada')
   // A git author: the commit icon and the name, no presence dot.
   await expect(rows.first().locator('.h-dot')).toHaveCount(0)
@@ -58,6 +58,6 @@ test('a commit of the folder\'s own git, with its author; only what has a commit
   await expect(rows).toHaveCount(1)
 
   await rows.first().click()
-  await expect(k.locator('.v-band')).toContainText('Ana Pérez')
+  await expect(k.locator('.v-band')).toContainText(AUTHOR.name)
   await expect(k.locator('.v-text ins')).toContainText('Harina y agua.')
 })

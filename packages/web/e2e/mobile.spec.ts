@@ -3,7 +3,7 @@
 // Also the web app manifest and its icons (installable, no service worker).
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES, PASSWORD } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES } from './env.ts'
 
 const DIR = `${NOTES}/movil`
 const NOTE = 'movil/Una nota con un nombre bastante largo.md'
@@ -29,8 +29,8 @@ const noHorizontalScroll = (page: Page) =>
 
 async function signIn(page: Page) {
   await page.goto('/')
-  await page.getByLabel('Nombre de usuario').fill('noa')
-  await page.getByLabel('Contraseña').fill(PASSWORD)
+  await page.getByLabel('Nombre de usuario').fill(ADMIN.username)
+  await page.getByLabel('Contraseña').fill(ADMIN.password)
   await page.getByRole('button', { name: 'Entrar' }).last().tap()
 }
 
@@ -182,8 +182,8 @@ test('tablet (768px): sidebar and header fit, the note name is not clipped', asy
   const ctx = await browser.newContext({ viewport: { width: 768, height: 1024 }, hasTouch: true, locale: 'es-ES' })
   const t = await ctx.newPage()
   await t.goto(`/?note=${encodeURIComponent('proyectos/thoth/Plan.md')}`)
-  await t.getByLabel('Nombre de usuario').fill('noa')
-  await t.getByLabel('Contraseña').fill(PASSWORD)
+  await t.getByLabel('Nombre de usuario').fill(ADMIN.username)
+  await t.getByLabel('Contraseña').fill(ADMIN.password)
   await t.getByRole('button', { name: 'Entrar' }).last().click()
   await expect(t.locator('.cm-content')).toBeVisible()
   await expect(t.locator('nav.sidebar')).toBeVisible()

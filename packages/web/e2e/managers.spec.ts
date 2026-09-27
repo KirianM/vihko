@@ -6,23 +6,28 @@
 // the admin included. It works in its own folder, `gestores/`.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
-import { E2E_DIR, PASSWORD, unique } from './env.ts'
-import { signIn, usePermissions } from './helpers.ts'
+import { ADMIN, E2E_DIR, MEMBER, specMother } from './env.ts'
+import { literally, signIn, usePermissions } from './helpers.ts'
 
+const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
 const shot = (page: Page, name: string) => page.screenshot({ path: `${SHOTS}/${name}.png`, animations: 'disabled' })
-const row = (page: Page, name: string) => page.getByRole('row', { name: new RegExp(`^${name}\\b`) })
-/** Someone this spec creates: a name of this run (a deleted user's stays reserved). */
-const CARLA = unique('carla')
+/** A row by its name: then its marks, or nothing that could continue a username. */
+const row = (page: Page, name: string) => page.getByRole('row', { name: new RegExp(`^${literally(name)}(?![\\p{L}\\p{N}._-])`, 'u') })
+/** Someone this spec creates, who manages `gestores/viajes` with the member. */
+const CO_MANAGER = m.aUser({ role: 'member' })
+/** A name nobody has: `gestores/personas/<it>` is a personal folder of no one. */
+const NOBODY = m.aUsername()
+// The member first, then the co-manager: the dialog lists who manages from above in this order.
 const RULES = {
-  'gestores/viajes': { ana: 'manage', [CARLA]: 'manage' },
+  'gestores/viajes': { [MEMBER.username]: 'manage', [CO_MANAGER.username]: 'manage' },
   'gestores/personas/{user}': { '{user}': 'manage' },
 } as const
 const NOTES_IN: Record<string, string> = {
   'gestores/viajes/Ruta.md': '# Ruta\n\nPor la costa.\n',
   'gestores/viajes/sorpresa/Regalo.md': '# Regalo\n\nUn mapa antiguo.\n',
   'gestores/cerrada/Nota.md': '# Nota\n\nNada más.\n',
-  'gestores/personas/antigua/Vieja.md': '# Vieja\n\nDe alguien que ya no está.\n',
+  [`gestores/personas/${NOBODY}/Vieja.md`]: '# Vieja\n\nDe alguien que ya no está.\n',
 }
 
 test.describe.configure({ mode: 'serial' })
@@ -40,25 +45,25 @@ async function openFolders(page: Page, ...names: string[]) {
   }
 }
 
-/** A member created by the admin and signed up through their link, with the tests' password. */
-async function newMember(browser: Browser, username: string) {
-  const r = await k.request.post('/api/admin/users', { data: { username, role: 'member' } })
+/** A member created by the admin and signed up through their link, with their password. */
+async function newMember(browser: Browser, user: { username: string; password: string }) {
+  const r = await k.request.post('/api/admin/users', { data: { username: user.username, role: 'member' } })
   expect(r.status(), await r.text()).toBe(201)
   const { link } = await r.json() as { link: { token: string } }
   const ctx = await browser.newContext()
-  expect((await ctx.request.post(`/api/invite/${link.token}`, { data: { password: PASSWORD } })).status()).toBe(200)
+  expect((await ctx.request.post(`/api/invite/${link.token}`, { data: { password: user.password } })).status()).toBe(200)
   await ctx.close()
 }
 
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(90_000)
   mkdirSync(SHOTS, { recursive: true })
-  k = await signIn(browser, 'noa')
+  k = await signIn(browser, ADMIN)
   for (const [path, text] of Object.entries(NOTES_IN)) {
     const r = await k.request.post('/api/note', { data: { path, text } })
     expect(r.status(), await r.text()).toBe(201)
   }
-  await newMember(browser, CARLA)
+  await newMember(browser, CO_MANAGER)
   await usePermissions({ rules: RULES })
   await expect.poll(async () => {
     const r = await k.request.get('/api/permissions?folder=gestores%2Fviajes')
@@ -77,45 +82,47 @@ test.afterAll(async () => {
 })
 
 test('two co-managers: one gives a subfolder permissions of its own without the other, who keeps seeing and managing it', async ({ browser }) => {
-  const ana = await signIn(browser, 'ana')
-  const carla = await signIn(browser, CARLA)
-  await openFolders(ana, 'gestores', 'viajes')
-  await rowMenu(ana, 'sorpresa', 'Permisos…')
-  const dialog = ana.getByRole('dialog', { name: 'Permisos de «sorpresa»' })
+  const member = await signIn(browser, MEMBER)
+  const coManager = await signIn(browser, CO_MANAGER)
+  await openFolders(member, 'gestores', 'viajes')
+  await rowMenu(member, 'sorpresa', 'Permisos…')
+  const dialog = member.getByRole('dialog', { name: 'Permisos de «sorpresa»' })
   await dialog.getByRole('button', { name: 'Cambiar permisos' }).click()
-  await dialog.getByRole('button', { name: `Quitar a ${CARLA}` }).click()
+  await dialog.getByRole('button', { name: `Quitar a ${CO_MANAGER.username}`, exact: true }).click()
   // Only her in its grants, but not «nobody else»: whoever manages above keeps managing it, and it says who.
   await expect(dialog).not.toContainText('Nadie más puede ver esta carpeta.')
-  await expect(dialog.locator('.perm-managers')).toHaveText(`Quien gestiona una carpeta de arriba también gestiona esta, digan lo que digan sus permisos: ana (en /gestores/viajes), ${CARLA} (en /gestores/viajes), noa (en /).`)
+  await expect(dialog.locator('.perm-managers')).toHaveText(`Quien gestiona una carpeta de arriba también gestiona esta, digan lo que digan sus permisos: ${MEMBER.username} (en /gestores/viajes), ${CO_MANAGER.username} (en /gestores/viajes), ${ADMIN.username} (en /).`)
   await expect(dialog).toContainText('quien gestiona esta carpeta sigue gestionando las de debajo, salvo las carpetas personales')
-  await shot(ana, 'managers-dialog-light')
+  await shot(member, 'managers-dialog-light')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(dialog.getByRole('status')).toHaveText('Guardado.')
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
-  await expect(row(ana, 'sorpresa').getByRole('img', { name: 'Permisos propios' })).toBeVisible()
+  await expect(row(member, 'sorpresa').getByRole('img', { name: 'Permisos propios' })).toBeVisible()
 
-  // Carla, in her own session: the subfolder is still there, with its note, and its permissions are hers to change.
-  await carla.reload()
-  await openFolders(carla, 'gestores', 'viajes', 'sorpresa')
-  await row(carla, 'Regalo').click()
-  await expect(carla.locator('.cm-content')).toContainText('Un mapa antiguo.')
-  await rowMenu(carla, 'sorpresa', 'Permisos…')
-  const hers = carla.getByRole('dialog', { name: 'Permisos de «sorpresa»' })
+  // The co-manager, in her own session: the subfolder is still there, with its note, and its permissions are hers to change.
+  await coManager.reload()
+  await openFolders(coManager, 'gestores', 'viajes', 'sorpresa')
+  await row(coManager, 'Regalo').click()
+  await expect(coManager.locator('.cm-content')).toContainText('Un mapa antiguo.')
+  await rowMenu(coManager, 'sorpresa', 'Permisos…')
+  const hers = coManager.getByRole('dialog', { name: 'Permisos de «sorpresa»' })
   await expect(hers.getByRole('button', { name: 'Restaurar herencia' })).toBeVisible()
   await hers.getByRole('tab', { name: 'Quién tiene acceso' }).click()
   const who = hers.getByRole('list', { name: 'Quién tiene acceso' }).getByRole('listitem')
-  await expect(who.filter({ hasText: CARLA })).toHaveText(new RegExp(`${CARLA}GestionarDirectamente · gestiona /gestores/viajes$`))
-  await shot(carla, 'managers-access-light')
+  // Her row: the one whose name is exactly hers (its text starts with an avatar letter).
+  const herName = coManager.locator('.perm-name', { hasText: new RegExp(`^${literally(CO_MANAGER.username)}$`, 'u') })
+  await expect(who.filter({ has: herName })).toHaveText(new RegExp(`${literally(CO_MANAGER.username)}GestionarDirectamente · gestiona /gestores/viajes$`, 'u'))
+  await shot(coManager, 'managers-access-light')
   // She puts herself back in its grants.
   await hers.getByRole('tab', { name: 'Permisos' }).click()
-  await hers.getByRole('combobox', { name: 'Persona o grupo' }).selectOption(CARLA)
+  await hers.getByRole('combobox', { name: 'Persona o grupo' }).selectOption(CO_MANAGER.username)
   await hers.getByRole('button', { name: 'Añadir' }).click()
   await hers.getByRole('button', { name: 'Guardar' }).click()
   await expect(hers.getByRole('status')).toHaveText('Guardado.')
-  expect((await (await carla.request.get('/api/permissions?folder=gestores%2Fviajes%2Fsorpresa')).json()).own.grants).toEqual({ ana: 'manage', [CARLA]: 'read' })
+  expect((await (await coManager.request.get('/api/permissions?folder=gestores%2Fviajes%2Fsorpresa')).json()).own.grants).toEqual({ [MEMBER.username]: 'manage', [CO_MANAGER.username]: 'read' })
   await hers.getByRole('button', { name: 'Cerrar' }).click()
-  await ana.context().close()
-  await carla.context().close()
+  await member.context().close()
+  await coManager.context().close()
 })
 
 test('the texts of a folder nobody is granted: seen only by whoever manages it from above; a personal folder, by nobody, the admin neither', async () => {
@@ -124,23 +131,23 @@ test('the texts of a folder nobody is granted: seen only by whoever manages it f
   await rowMenu(k, 'cerrada', 'Permisos…')
   const dialog = k.getByRole('dialog', { name: 'Permisos de «cerrada»' })
   await dialog.getByRole('button', { name: 'Cambiar permisos' }).click()
-  await dialog.getByRole('button', { name: 'Quitar a ana' }).click()
-  await dialog.getByRole('button', { name: 'Quitar a noa' }).click()
+  await dialog.getByRole('button', { name: `Quitar a ${MEMBER.username}`, exact: true }).click()
+  await dialog.getByRole('button', { name: `Quitar a ${ADMIN.username}`, exact: true }).click()
   await expect(dialog.locator('.perm-nobody')).toHaveText('Sin permisos aquí: solo la ve quien la gestiona por encima.')
-  await expect(dialog.locator('.perm-managers')).toContainText('noa (en /)')
+  await expect(dialog.locator('.perm-managers')).toContainText(`${ADMIN.username} (en /)`)
   await expect(dialog).not.toContainText('tampoco el administrador')
   await shot(k, 'managers-nobody-light')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(dialog.getByRole('status')).toHaveText('Guardado.')
   // He still manages it, from the root: the dialog stays his, and says why.
   await dialog.getByRole('tab', { name: 'Quién tiene acceso' }).click()
-  await expect(dialog.getByRole('list', { name: 'Quién tiene acceso' }).getByRole('listitem')).toHaveText([/noaGestionarDirectamente · gestiona \/$/])
+  await expect(dialog.getByRole('list', { name: 'Quién tiene acceso' }).getByRole('listitem')).toHaveText([new RegExp(`${literally(ADMIN.username)}GestionarDirectamente · gestiona /$`, 'u')])
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
 
   // A personal folder named like nobody: the admin opens its permissions (the name, never what's in it).
   await k.goto('/?view=users')
-  await k.getByRole('button', { name: 'Permisos de /gestores/personas/antigua' }).click()
-  const personal = k.getByRole('dialog', { name: 'Permisos de «antigua»' })
+  await k.getByRole('button', { name: `Permisos de /gestores/personas/${NOBODY}` }).click()
+  const personal = k.getByRole('dialog', { name: `Permisos de «${NOBODY}»` })
   await expect(personal.locator('.perm-nobody')).toHaveText('Nadie puede ver esta carpeta, tampoco el administrador.')
   await expect(personal.locator('.perm-managers')).toHaveCount(0)
   await shot(k, 'managers-personal-light')

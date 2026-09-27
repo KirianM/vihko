@@ -3,7 +3,7 @@
 // an alert whose «Update links» rewrites the links left behind.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES } from './env.ts'
 import { editorText, signIn } from './helpers.ts'
 
 const DIR = 'e2e-enlaces'
@@ -25,7 +25,7 @@ const ambiguousLink = (page: Page) => page.locator('.cm-wikilink-ambiguous a', {
 
 test('the picker lists the candidates by title and path; «Pin» rewrites that link without leaving', async ({ browser }) => {
   const note = ambiguousNote('Fijar aquí')
-  const k = await signIn(browser, 'noa', note)
+  const k = await signIn(browser, ADMIN, note)
   await ambiguousLink(k).click()
   const p = picker(k)
   await expect(p).toBeVisible()
@@ -46,7 +46,7 @@ test('the picker lists the candidates by title and path; «Pin» rewrites that l
 
 test('opening a candidate goes there and offers «Pin this destination», which rewrites the link in the note you came from', async ({ browser }) => {
   const note = ambiguousNote('Abrir y fijar', '# Abrir y fijar\n\n- [[Tareas|las tareas]] con texto\n')
-  const k = await signIn(browser, 'noa', note)
+  const k = await signIn(browser, ADMIN, note)
   await k.locator('.cm-wikilink-ambiguous a', { hasText: 'las tareas' }).click()
   await picker(k).getByRole('row', { name: /Tareas de thoth/ }).click()
   await expect(k.locator('.crumbs')).toHaveText('proyectos / thoth / Tareas')
@@ -63,7 +63,7 @@ test('opening a candidate goes there and offers «Pin this destination», which 
 
 test('from the panel, with the keyboard: the picker opens on the link, arrows and Enter open a candidate', async ({ browser }) => {
   const note = ambiguousNote('Desde el panel')
-  const k = await signIn(browser, 'noa', note)
+  const k = await signIn(browser, ADMIN, note)
   await k.getByRole('tab', { name: /Enlaces/ }).click()
   const panel = k.getByRole('complementary', { name: 'Comentarios y contexto' })
   await panel.getByRole('button', { name: /Tareas\s*ambiguo · 2/ }).click()
@@ -86,7 +86,7 @@ test('from the panel, with the keyboard: the picker opens on the link, arrows an
 
 test('screenshots of the picker: light, dark and a phone', async ({ browser }) => {
   const note = ambiguousNote('Capturas del selector')
-  const k = await signIn(browser, 'noa', note)
+  const k = await signIn(browser, ADMIN, note)
   await k.setViewportSize({ width: 1280, height: 800 })
   await ambiguousLink(k).click()
   await expect(picker(k)).toBeVisible()
@@ -103,8 +103,8 @@ test('screenshots of the picker: light, dark and a phone', async ({ browser }) =
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
   const m = await ctx.newPage()
   await m.goto(`/?note=${encodeURIComponent(note)}`)
-  await m.getByLabel('Nombre de usuario').fill('noa')
-  await m.getByLabel('Contraseña').fill('contraseña-larga')
+  await m.getByLabel('Nombre de usuario').fill(ADMIN.username)
+  await m.getByLabel('Contraseña').fill(ADMIN.password)
   await m.getByRole('button', { name: 'Entrar' }).last().click()
   await expect(m.locator('.cm-content')).toBeVisible()
   await ambiguousLink(m).tap()
@@ -126,7 +126,7 @@ test('renamed on disk: the alert says where it went and how many links point to 
   const origin = `${DIR}/Origen.md`
   writeFileSync(`${NOTES}/${dest}`, '# Destino\n\n## Sección\n\nTexto.\n')
   writeFileSync(`${NOTES}/${origin}`, '# Origen\n\n- [[Destino]] por nombre\n- [[Destino#Sección|la sección]] con ancla\n')
-  const k = await signIn(browser, 'noa', origin)
+  const k = await signIn(browser, ADMIN, origin)
   await expect(k.locator('.cm-wikilink-resolved a', { hasText: 'la sección' })).toBeVisible()
   // Another tool renames it.
   renameSync(`${NOTES}/${dest}`, `${NOTES}/${DIR}/Destino renombrado.md`)
@@ -172,7 +172,7 @@ test('the open note renamed on disk: the editor follows it (URL, tree), keeps wh
   const origin = `${DIR}/Enlaza a abierta.md`
   writeFileSync(`${NOTES}/${note}`, '# Abierta\n\nTexto.\n')
   writeFileSync(`${NOTES}/${origin}`, '# Enlaza\n\n- [[Abierta]] por nombre\n')
-  const k = await signIn(browser, 'noa', note)
+  const k = await signIn(browser, ADMIN, note)
   await expect.poll(async () => (await (await k.request.get(`/api/note/links?path=${encodeURIComponent(note)}`)).json()).backlinks.length, { timeout: 20_000 }).toBe(1)
   await k.locator('.cm-h1').click()
   await k.keyboard.press('Control+End')
@@ -218,7 +218,7 @@ test("the other tool fixing the links itself makes the alert go away", async ({ 
   const origin = `${DIR}/Enlaza a otra.md`
   writeFileSync(`${NOTES}/${dest}`, '# Otra\n')
   writeFileSync(`${NOTES}/${origin}`, '# Enlaza\n\n[[Otra]]\n')
-  const k = await signIn(browser, 'noa')
+  const k = await signIn(browser, ADMIN)
   // Indexed before it moves (the rescan runs every 5 s, the watcher sooner).
   await expect.poll(async () => (await k.request.get(`/api/note/links?path=${encodeURIComponent(origin)}`)).ok(), { timeout: 20_000 }).toBe(true)
   renameSync(`${NOTES}/${dest}`, `${NOTES}/${DIR}/Otra más.md`)

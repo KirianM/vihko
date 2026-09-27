@@ -3,7 +3,7 @@
 // that folder, with the preview saying so and every link into it rewritten.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES } from './env.ts'
 import { png, sendFiles, signIn, writeWorkspace } from './helpers.ts'
 
 const DIR = 'adjuntos'
@@ -20,7 +20,7 @@ test.beforeAll(async ({ browser }) => {
   writeFileSync(`${NOTES}/${NOTE}`, '# Plan\n\nCon imágenes.\n')
   writeFileSync(`${NOTES}/${DIR}/sonda.md`, '# Sonda\n')
   writeWorkspace('attachments:\n  mode: per-note\n')
-  k = await signIn(browser, 'noa', NOTE)
+  k = await signIn(browser, ADMIN, NOTE)
   // Until thoth.yaml is read again (watcher or rescan), uploads still go next to the note.
   await expect.poll(async () => {
     const r = await k.request.post(`/api/attachments?note=${encodeURIComponent(`${DIR}/sonda.md`)}`, { data: BLUE, headers: { 'content-type': 'image/png' } })

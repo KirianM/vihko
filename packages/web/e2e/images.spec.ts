@@ -4,7 +4,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
-import { E2E_DIR, EXTERNAL_PORT, NOTES } from './env.ts'
+import { ADMIN, E2E_DIR, EXTERNAL_PORT, NOTES } from './env.ts'
 import { png, sendFiles, signIn } from './helpers.ts'
 
 const DIR = 'imagenes'
@@ -30,7 +30,7 @@ test.beforeAll(async ({ browser }) => {
   await new Promise<void>((r) => external.listen(EXTERNAL_PORT, '127.0.0.1', r))
   mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
   writeFileSync(FILE, '# Galería\n\nImágenes de prueba.\n')
-  k = await signIn(browser, 'noa', NOTE)
+  k = await signIn(browser, ADMIN, NOTE)
 })
 
 test.afterAll(() => { external.closeAllConnections(); external.close() })

@@ -6,7 +6,7 @@
 // restores through it.
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { ACC_DIR, NOTES } from './env.ts'
+import { ACC_DIR, ADMIN, NOTES } from './env.ts'
 import { editorText, signIn } from '../e2e/helpers.ts'
 
 interface Vault { hub: string; editable: string[] }
@@ -22,7 +22,7 @@ const versions = async (path: string): Promise<Version[]> => (await (await k.req
 
 test.beforeAll(async ({ browser }) => {
   vault = JSON.parse(readFileSync(`${ACC_DIR}/vault.json`, 'utf8'))
-  k = await signIn(browser, 'noa')
+  k = await signIn(browser, ADMIN)
 })
 
 test('typed in the browser, then changed with another editor: each version with its author, and restoring undoes the change', async () => {
@@ -41,7 +41,7 @@ test('typed in the browser, then changed with another editor: each version with 
     const r = await (await k.request.get(`/api/history/versions?path=${q(note)}`)).json() as { versions: Version[]; pending: { authors: { kind: string }[] } | null }
     return `${r.versions[0] ? who(r.versions[0]) : ''} | ${r.pending?.authors.map((a) => a.kind).join(',') ?? ''}`
   }
-  await expect.poll(state, { timeout: 15_000 }).toBe('noa | external')
+  await expect.poll(state, { timeout: 15_000 }).toBe(`${ADMIN.username} | external`)
   const [typed] = await versions(note)
   const r = await k.request.post('/api/history/restore', { data: { path: note, id: typed!.id } })
   expect(r.status()).toBe(200)
@@ -49,7 +49,7 @@ test('typed in the browser, then changed with another editor: each version with 
   expect(await editorText(k)).toContain('Escrito para el historial.')
   await expect.poll(() => read(note), { timeout: 10_000 }).not.toContain('Cambio de otro editor para el historial.')
   // Restoring closed the external version first: each change is still there with its author.
-  await expect.poll(async () => (await versions(note)).slice(0, 3).map((v) => `${v.change} ${who(v)}`).join(' | ')).toBe('restored noa | modified external | modified noa')
+  await expect.poll(async () => (await versions(note)).slice(0, 3).map((v) => `${v.change} ${who(v)}`).join(' | ')).toBe(`restored ${ADMIN.username} | modified external | modified ${ADMIN.username}`)
 })
 
 test('a rename from the UI: the move by whoever did it, the links rewritten by the system for them, and restoring a backlink brings its link back', async () => {
@@ -74,12 +74,12 @@ test('a rename from the UI: the move by whoever did it, the links rewritten by t
   await expect(submit).toBeEnabled({ timeout: 15_000 })
   await submit.click()
   await expect(k.locator('.crumbs b')).toHaveText(name, { timeout: 30_000 })
-  await expect.poll(async () => { const [v] = await versions(to); return v ? `${v.change} ${v.from} ${who(v)}` : '' }, { timeout: 15_000 }).toBe(`moved ${target} noa`)
+  await expect.poll(async () => { const [v] = await versions(to); return v ? `${v.change} ${v.from} ${who(v)}` : '' }, { timeout: 15_000 }).toBe(`moved ${target} ${ADMIN.username}`)
   const src = backlink!.path
   await expect.poll(async () => (await versions(src))[0]?.reason?.code, { timeout: 15_000 }).toBe('note_moved')
   const [rewrite, before] = await versions(src)
   expect(who(rewrite!)).toBe('system')
-  expect(rewrite!.reason!.by!.name).toBe('noa')
+  expect(rewrite!.reason!.by!.name).toBe(ADMIN.username)
   expect(read(src)).not.toContain(backlink!.raw)
   const r = await k.request.post('/api/history/restore', { data: { path: src, id: before!.id } })
   expect(r.status()).toBe(200)

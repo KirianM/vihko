@@ -5,7 +5,7 @@
 // typed version after 3 s of calm (THOTH_HISTORY_QUIET_SECONDS).
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES, PASSWORD } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES } from './env.ts'
 import { editorText, png, signIn } from './helpers.ts'
 
 const DIR = 'historial'
@@ -24,6 +24,8 @@ const SLOW = { timeout: 20_000 }
 test.describe.configure({ mode: 'serial' })
 let k: Page
 let a: Page
+/** A name as a whole element (an author's), never as part of another name nor of the text around it. */
+const named = (scope: Page | Locator, name: string) => scope.getByText(name, { exact: true })
 
 const panelOf = (page: Page) => page.getByRole('complementary', { name: 'Comentarios y contexto' })
 const rows = (page: Page) => panelOf(page).locator('.h-row')
@@ -54,7 +56,7 @@ test.beforeAll(async ({ browser }) => {
   writeFileSync(`${NOTES}/${NOTE}`, '# Viaje\n\nPrimer día en Roma.\n')
   writeFileSync(`${NOTES}/${INDEX}`, '# Índice\n\n- [[Viaje]]\n')
   writeFileSync(`${NOTES}/${IMAGE}`, png(24, 24, [200, 80, 40]))
-  k = await signIn(browser, 'noa')
+  k = await signIn(browser, ADMIN)
   // Until the recorder sees the new files there is nothing to show.
   await expect.poll(async () => (await newest(k, NOTE))?.change, SLOW).toBe('created')
 })
@@ -72,9 +74,9 @@ test('a note written by another tool: «Outside thoth», created', async () => {
 test('typing in the editor: «In progress», then a version by whoever typed it', async () => {
   await typeLine(k, `${TYPED} ![](foto.png)`)
   await expect(panelOf(k).getByText('En curso · se guarda en unos segundos')).toBeVisible({ timeout: 10_000 })
-  await expect(panelOf(k).locator('.h-pending')).toContainText('noa')
+  await expect(named(panelOf(k).locator('.h-pending'), ADMIN.username).first()).toBeVisible()
   await panelOf(k).screenshot({ path: `${SHOTS}/history-tab-pending.png`, animations: 'disabled' })
-  const mine = rows(k).filter({ hasText: 'noa' }).first()
+  const mine = rows(k).filter({ has: named(k, ADMIN.username) }).first()
   await expect(mine).toBeVisible(SLOW)
   await expect(panelOf(k).locator('.h-pending')).toHaveCount(0)
   // The person's dot and name, and what the version added.
@@ -97,11 +99,11 @@ test('a change made with another editor shows up as «Outside thoth»', async ()
 })
 
 test('a version opens in the main area: read only, its diff, compared with the previous one or the current note', async () => {
-  await rows(k).filter({ hasText: 'noa' }).first().click()
+  await rows(k).filter({ has: named(k, ADMIN.username) }).first().click()
   await expect(k).toHaveURL(/[?&]version=[0-9a-f]{40}/)
   await expect(band(k).getByRole('heading')).toHaveText(/^Versión del /)
-  await expect(band(k)).toContainText('noa')
-  await expect(rows(k).filter({ hasText: 'noa' }).first()).toHaveAttribute('aria-current', 'true')
+  await expect(named(band(k), ADMIN.username).first()).toBeVisible()
+  await expect(rows(k).filter({ has: named(k, ADMIN.username) }).first()).toHaveAttribute('aria-current', 'true')
   // The editor gives way to the version (read only: no editor on screen).
   await expect(k.locator('.cm-content')).toBeHidden()
   const text = k.locator('.v-text')
@@ -130,7 +132,7 @@ test('a version opens in the main area: read only, its diff, compared with the p
 })
 
 test('the back button closes a version, and a link opens it', async () => {
-  await rows(k).filter({ hasText: 'noa' }).first().click()
+  await rows(k).filter({ has: named(k, ADMIN.username) }).first().click()
   await expect(k.locator('.version')).toBeVisible()
   const url = k.url()
   await k.goBack()
@@ -145,10 +147,10 @@ test('the back button closes a version, and a link opens it', async () => {
 })
 
 test('restoring with two people in the note: asked first, and the other one gets it live', async ({ browser }) => {
-  a = await signIn(browser, 'ana', NOTE)
+  a = await signIn(browser, MEMBER, NOTE)
   await expect(k.locator('.presence .avatar')).toHaveCount(2)
   expect(await editorText(a)).toContain(OUTSIDE)
-  await rows(k).filter({ hasText: 'noa' }).first().click()
+  await rows(k).filter({ has: named(k, ADMIN.username) }).first().click()
   await band(k).getByRole('button', { name: 'Restaurar esta versión' }).click()
   const dialog = k.getByRole('alertdialog')
   await expect(dialog.getByRole('heading')).toHaveText('¿Restaurar esta versión?')
@@ -169,7 +171,7 @@ test('restoring with two people in the note: asked first, and the other one gets
   // The restore is a version of its own, by whoever restored it.
   const first = rows(k).first()
   await expect(first).toContainText(/Restaurada desde la versión del \d+ \S+, \d\d:\d\d/, SLOW)
-  await expect(first).toContainText('noa')
+  await expect(named(first, ADMIN.username).first()).toBeVisible()
 })
 
 test('restoring brings back the images that version linked and that are gone', async () => {
@@ -180,7 +182,7 @@ test('restoring brings back the images that version linked and that are gone', a
     const { changes } = (await r.json()) as { changes: { files: { path: string; change: string }[] }[] }
     return changes.some((c) => c.files.some((f) => f.path === IMAGE && f.change === 'deleted'))
   }, SLOW).toBe(true)
-  await rows(k).filter({ hasText: 'noa' }).filter({ hasNotText: 'Restaurada' }).first().click()
+  await rows(k).filter({ has: named(k, ADMIN.username) }).filter({ hasNotText: 'Restaurada' }).first().click()
   await band(k).getByRole('button', { name: 'Restaurar esta versión' }).click()
   await k.getByRole('alertdialog').getByRole('button', { name: 'Restaurar esta versión' }).click()
   await expect(k.getByRole('status').filter({ hasText: 'Versión restaurada.' })).toContainText('Se ha recuperado 1 imagen que ya no estaba: foto.png.')
@@ -201,14 +203,14 @@ test('a rename: the move by whoever did it, and the links rewritten by the syste
   await openHistory(k)
   const moved = rows(k).first()
   await expect(moved).toContainText('Renombrada: «Viaje» → «Viaje a Roma»', SLOW)
-  await expect(moved).toContainText('noa')
+  await expect(named(moved, ADMIN.username).first()).toBeVisible()
   // Older versions are still there: the history follows the note.
   await expect(rows(k).filter({ hasText: 'Creada' })).toHaveCount(1)
 
   await k.goto(`/?note=${q(INDEX)}`)
   await openHistory(k)
   const system = rows(k).first()
-  await expect(system).toContainText('Enlaces actualizados al renombrar «Viaje» como «Viaje a Roma», por noa', SLOW)
+  await expect(system).toContainText(`Enlaces actualizados al renombrar «Viaje» como «Viaje a Roma», por ${ADMIN.username}`, SLOW)
   // The system: thoth's mark and the words, no person's dot.
   await expect(system.locator('.h-system svg')).toBeVisible()
   await expect(system.locator('.h-dot')).toHaveCount(0)
@@ -223,7 +225,7 @@ test('«Recent changes»: by day, with authors and files, filtered by author; a 
   await expect(k.getByRole('heading', { name: 'Cambios recientes', level: 1 })).toBeVisible()
   await expect(k.getByRole('heading', { name: 'Hoy', level: 2 })).toBeVisible()
   const cards = k.locator('.c-change')
-  await expect(cards.filter({ hasText: 'Enlaces actualizados al renombrar «Viaje» como «Viaje a Roma», por noa' })).toHaveCount(1)
+  await expect(cards.filter({ hasText: `Enlaces actualizados al renombrar «Viaje» como «Viaje a Roma», por ${ADMIN.username}` })).toHaveCount(1)
   await k.screenshot({ path: `${SHOTS}/history-changes-light.png`, animations: 'disabled' })
 
   const filter = k.getByLabel('Autor')
@@ -232,10 +234,11 @@ test('«Recent changes»: by day, with authors and files, filtered by author; a 
   await expect(cards.filter({ hasNotText: 'Fuera de thoth' })).toHaveCount(0)
   await expect(cards.filter({ has: k.locator('.h-dot') })).toHaveCount(0)
 
-  await filter.selectOption({ label: 'noa' })
-  await expect(cards.first()).toContainText('noa')
+  await filter.selectOption({ label: ADMIN.username })
+  await expect(cards.first()).toContainText(ADMIN.username)
   await expect(cards.filter({ hasText: 'Fuera de thoth' })).toHaveCount(0)
-  await expect(cards.filter({ hasNotText: 'noa' })).toHaveCount(0)
+  // Every card is theirs: their name as its author, or the system's words «…, por <them>».
+  await expect(cards.filter({ hasNot: named(k, ADMIN.username) }).filter({ hasNotText: `por ${ADMIN.username}` })).toHaveCount(0)
 
   // A version of the note from before its rename opens where the note is now.
   const typed = cards.filter({ has: k.getByRole('link', { name: 'historial / Viaje' , exact: true }) }).last()
@@ -266,8 +269,8 @@ test.describe('phone', () => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: 'es-ES' })
     m = await ctx.newPage()
     await m.goto(`/?note=${q(RENAMED)}`)
-    await m.getByLabel('Nombre de usuario').fill('noa')
-    await m.getByLabel('Contraseña').fill(PASSWORD)
+    await m.getByLabel('Nombre de usuario').fill(ADMIN.username)
+    await m.getByLabel('Contraseña').fill(ADMIN.password)
     await m.getByRole('button', { name: 'Entrar' }).last().tap()
     await expect(m.locator('.cm-content')).toBeVisible()
   })
@@ -284,7 +287,7 @@ test.describe('phone', () => {
     const box = await rows(m).first().boundingBox()
     expect(box!.height).toBeGreaterThanOrEqual(44)
     await m.screenshot({ path: `${SHOTS}/history-mobile-tab.png`, animations: 'disabled' })
-    await tapRow(rows(m).filter({ hasText: 'noa' }).filter({ hasNotText: 'Restaurada' }).filter({ hasNotText: 'Renombrada' }).first())
+    await tapRow(rows(m).filter({ has: named(m, ADMIN.username) }).filter({ hasNotText: 'Restaurada' }).filter({ hasNotText: 'Renombrada' }).first())
     // The sheet closes: the version takes the whole screen.
     await expect(panelOf(m)).toHaveCount(0)
     await expect(m.locator('.v-text ins').first()).toBeVisible()

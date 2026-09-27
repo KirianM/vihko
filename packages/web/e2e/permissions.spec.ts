@@ -9,25 +9,33 @@
 // too. It works in its own folder, `acceso/`.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES, PASSWORD, permissionsSection, unique } from './env.ts'
-import { signIn, usePermissions } from './helpers.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, permissionsSection, specMother } from './env.ts'
+import { literally, signIn, usePermissions } from './helpers.ts'
 
+const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
 const shot = (page: Page, name: string) => page.screenshot({ path: `${SHOTS}/${name}.png`, animations: 'disabled' })
-/** A tree row by its name (a folder's name may be followed by its marks). */
-const row = (page: Page, name: string) => page.getByRole('row', { name: new RegExp(`^${name}\\b`) })
+/** A tree (or users) row by its name: then its marks, or nothing that could continue a username. */
+const row = (page: Page, name: string) => page.getByRole('row', { name: new RegExp(`^${literally(name)}(?![\\p{L}\\p{N}._-])`, 'u') })
+/** A row of the permissions dialog about someone: the one whose name is exactly theirs (a row's text starts with an avatar letter). */
+const about = (page: Page, name: string) => page.locator('.perm-name', { hasText: new RegExp(`^${literally(name)}$`, 'u') })
+/** A subject as thoth writes it in thoth.yaml: plain when that reads back the same, quoted otherwise. */
+const yamlSubject = (s: string) => (/^[\p{L}\p{N}_][\p{L}\p{N}._-]*$/u.test(s) && !/^(true|false|null|yes|no|on|off|y|n|~)$/i.test(s) && !/^[\d.+-]/.test(s) ? s : JSON.stringify(s))
 const PERSONAL = { 'acceso/personas/{user}': { '{user}': 'manage' } } as const
 const RULES = permissionsSection({}, PERSONAL)
-/** Someone this spec creates: a name of this run (a deleted user's stays reserved). */
-const BRUNO = unique('bruno')
+/** Someone this spec creates, whom the member shares a folder with. */
+const OUTSIDER = m.aUser({ role: 'member' })
+/** The member's and the admin's personal folders ({user} rule). */
+const MINE = `acceso/personas/${MEMBER.username}`
+const ADMINS = `acceso/personas/${ADMIN.username}`
 const NOTES_IN: Record<string, string> = {
   'acceso/equipo/Plan del equipo.md': '# Plan del equipo\n\nObjetivos del trimestre.\n',
   'acceso/equipo/Secreto.md': '# Secreto\n\nSolo para quien gestiona el equipo.\n',
   'acceso/compartida/Índice.md': '# Índice\n\nVer [[Secreto]] y [[Plan del equipo]].\n',
   'acceso/compartida/Para mover.md': '# Para mover\n\nUna nota que cambia de sitio.\n',
-  'acceso/personas/ana/cocina/Tortilla.md': '# Tortilla\n\nHuevos, patatas y paciencia.\n',
-  'acceso/personas/ana/diario/Hoy.md': '# Hoy\n\nSolo mío.\n',
-  'acceso/personas/noa/Notas.md': '# Notas de noa\n',
+  [`${MINE}/cocina/Tortilla.md`]: '# Tortilla\n\nHuevos, patatas y paciencia.\n',
+  [`${MINE}/diario/Hoy.md`]: '# Hoy\n\nSolo mío.\n',
+  [`${ADMINS}/Notas.md`]: `# Notas de ${ADMIN.username}\n`,
 }
 
 test.describe.configure({ mode: 'serial' })
@@ -51,7 +59,7 @@ async function openFolders(page: Page, ...names: string[]) {
 /** Waits until thoth has read thoth.yaml with the `{user}` rule (or without it). */
 async function rulesInForce(page: Page, personal: boolean) {
   await expect.poll(async () => {
-    const r = await page.request.get('/api/permissions?folder=acceso%2Fpersonas%2Fnoa')
+    const r = await page.request.get(`/api/permissions?folder=${encodeURIComponent(ADMINS)}`)
     return r.ok() && (await r.json()).userRule !== null
   }, { timeout: 15_000 }).toBe(personal)
 }
@@ -60,8 +68,8 @@ test.beforeAll(async ({ browser }) => {
   // Seven notes written (and kept in the history) and thoth.yaml read again: more than a click, under load.
   test.setTimeout(90_000)
   mkdirSync(SHOTS, { recursive: true })
-  k = await signIn(browser, 'noa')
-  // The notes, through the API while noa still manages everything; then the rules.
+  k = await signIn(browser, ADMIN)
+  // The notes, through the API while the admin still manages everything; then the rules.
   for (const [path, text] of Object.entries(NOTES_IN)) {
     const r = await k.request.post('/api/note', { data: { path, text } })
     expect(r.status(), await r.text()).toBe(201)
@@ -91,51 +99,51 @@ test('the admin takes a folder away from a member: a lock in the tree; she no lo
   await expect(dialog).toContainText('Hereda de /')
   const rows = dialog.getByRole('list', { name: 'Quién tiene permiso' })
   await expect(rows.getByRole('listitem')).toHaveCount(2)
-  await expect(rows.getByRole('listitem').filter({ hasText: 'ana' })).toContainText('EditarHeredado de /')
+  await expect(rows.getByRole('listitem').filter({ has: about(k, MEMBER.username) })).toContainText('EditarHeredado de /')
   await expect(rows.getByRole('combobox')).toHaveCount(0)
   await expect(dialog).toContainText('Las subcarpetas heredan estos permisos salvo que tengan los suyos.')
   await expect(dialog.getByRole('button', { name: 'Guardar' })).toBeDisabled()
   // Own permissions start from the inherited ones.
   await dialog.getByRole('button', { name: 'Cambiar permisos' }).click()
   await expect(dialog).toContainText('Permisos propios')
-  await expect(dialog.getByRole('combobox', { name: 'Nivel de ana' })).toHaveValue('edit')
-  await dialog.getByRole('button', { name: 'Quitar a ana' }).click()
+  await expect(dialog.getByRole('combobox', { name: `Nivel de ${MEMBER.username}`, exact: true })).toHaveValue('edit')
+  await dialog.getByRole('button', { name: `Quitar a ${MEMBER.username}`, exact: true }).click()
   await expect(dialog).toContainText('Nadie más puede ver esta carpeta.')
   await shot(k, 'permissions-dialog-light')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(dialog.getByRole('status')).toHaveText('Guardado.')
   await expect(dialog.getByRole('button', { name: 'Restaurar herencia' })).toBeVisible()
-  expect(readFileSync(`${NOTES}/thoth.yaml`, 'utf8')).toBe(RULES + '  acceso/equipo:\n    grants: { noa: manage }\n')
+  expect(readFileSync(`${NOTES}/thoth.yaml`, 'utf8')).toBe(RULES + `  acceso/equipo:\n    grants: { ${yamlSubject(ADMIN.username)}: manage }\n`)
   // Who has access, and why.
   await dialog.getByRole('tab', { name: 'Quién tiene acceso' }).click()
   // Its own grant, and managing the root, which reaches under it whatever this folder says (D-040 3.5).
-  await expect(dialog.getByRole('list', { name: 'Quién tiene acceso' }).getByRole('listitem')).toHaveText([/noaGestionarDirectamente · en \/acceso\/equipoDirectamente · gestiona \/$/])
+  await expect(dialog.getByRole('list', { name: 'Quién tiene acceso' }).getByRole('listitem')).toHaveText([new RegExp(`${literally(ADMIN.username)}GestionarDirectamente · en /acceso/equipoDirectamente · gestiona /$`, 'u')])
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
   await expect(row(k, 'equipo').getByRole('img', { name: 'Permisos propios' })).toBeVisible()
 
-  const ana = await signIn(browser, 'ana', 'acceso/compartida/Índice.md')
-  await openFolders(ana, 'acceso')
-  await expect(row(ana, 'compartida')).toBeVisible()
-  await expect(row(ana, 'equipo')).toHaveCount(0)
+  const member = await signIn(browser, MEMBER, 'acceso/compartida/Índice.md')
+  await openFolders(member, 'acceso')
+  await expect(row(member, 'compartida')).toBeVisible()
+  await expect(row(member, 'equipo')).toHaveCount(0)
   // Links to notes she can't read: dimmed, with a lock, never «create».
-  await expect(ana.locator('.cm-wikilink-no_access')).toHaveText(['Secretosin acceso', 'Plan del equiposin acceso'])
-  await expect(ana.locator('.cm-wikilink-create')).toHaveCount(0)
+  await expect(member.locator('.cm-wikilink-no_access')).toHaveText(['Secretosin acceso', 'Plan del equiposin acceso'])
+  await expect(member.locator('.cm-wikilink-create')).toHaveCount(0)
   // Opening it, or a note that doesn't exist: the same neutral message.
   for (const path of ['acceso/equipo/Secreto.md', 'acceso/no/existe.md']) {
-    await ana.goto(`/?note=${encodeURIComponent(path)}`)
-    await expect(ana.getByRole('alert')).toContainText('Esta nota no existe o no tienes acceso')
+    await member.goto(`/?note=${encodeURIComponent(path)}`)
+    await expect(member.getByRole('alert')).toContainText('Esta nota no existe o no tienes acceso')
   }
-  await shot(ana, 'permissions-no-access-light')
-  await ana.context().close()
+  await shot(member, 'permissions-no-access-light')
+  await member.context().close()
 })
 
 test('moving a note where someone loses access says who and waits for a confirmation', async ({ browser }) => {
   await openFolders(k, 'acceso', 'compartida')
   await rowMenu(k, 'Para mover', 'Renombrar o mover…')
   const dialog = k.getByRole('dialog')
-  await dialog.getByLabel('Carpeta').fill('acceso/personas/noa')
+  await dialog.getByLabel('Carpeta').fill(ADMINS)
   const warning = dialog.getByRole('group', { name: 'Cambia quién puede verlo' })
-  await expect(warning).toContainText('Lo pierdenana')
+  await expect(warning).toContainText(`Lo pierden${MEMBER.username}`)
   const move = dialog.getByRole('button', { name: 'Mover' })
   await expect(move).toBeDisabled()
   await shot(k, 'permissions-move-warning-light')
@@ -143,7 +151,7 @@ test('moving a note where someone loses access says who and waits for a confirma
   await expect(move).toBeEnabled()
   // Another destination asks again.
   await dialog.getByLabel('Carpeta').fill('acceso/equipo')
-  await expect(warning).toContainText('Lo pierdenana')
+  await expect(warning).toContainText(`Lo pierden${MEMBER.username}`)
   await expect(move).toBeDisabled()
   await warning.getByLabel('Entiendo que cambia quién puede verlo').check()
   await move.click()
@@ -151,39 +159,39 @@ test('moving a note where someone loses access says who and waits for a confirma
   await openFolders(k, 'equipo')
   await expect(row(k, 'Para mover')).toBeVisible()
 
-  const ana = await signIn(browser, 'ana')
-  await openFolders(ana, 'acceso', 'compartida')
-  await expect(row(ana, 'Índice')).toBeVisible()
-  await expect(row(ana, 'Para mover')).toHaveCount(0)
-  await ana.context().close()
+  const member = await signIn(browser, MEMBER)
+  await openFolders(member, 'acceso', 'compartida')
+  await expect(row(member, 'Índice')).toBeVisible()
+  await expect(row(member, 'Para mover')).toHaveCount(0)
+  await member.context().close()
 })
 
-/** A member created by the admin and signed up through their link, with the tests' password. */
-async function newMember(browser: Browser, username: string) {
-  const r = await k.request.post('/api/admin/users', { data: { username, role: 'member' } })
+/** A member created by the admin and signed up through their link, with their password. */
+async function newMember(browser: Browser, user: { username: string; password: string }) {
+  const r = await k.request.post('/api/admin/users', { data: { username: user.username, role: 'member' } })
   expect(r.status(), await r.text()).toBe(201)
   const { link } = await r.json() as { link: { token: string } }
   const ctx = await browser.newContext()
-  expect((await ctx.request.post(`/api/invite/${link.token}`, { data: { password: PASSWORD } })).status()).toBe(200)
+  expect((await ctx.request.post(`/api/invite/${link.token}`, { data: { password: user.password } })).status()).toBe(200)
   await ctx.close()
 }
 
 test('a member shares a folder of her own with someone else: he sees it after reloading, the folders above only as the way, and can only read it', async ({ browser }) => {
-  await newMember(browser, BRUNO)
+  await newMember(browser, OUTSIDER)
   // Nothing is his yet: no tree to wait for.
-  const bruno = await (await browser.newContext()).newPage()
-  await bruno.goto('/')
-  await bruno.getByLabel('Nombre de usuario').fill(BRUNO)
-  await bruno.getByLabel('Contraseña').fill(PASSWORD)
-  await bruno.getByRole('button', { name: 'Entrar' }).last().click()
-  await expect(bruno.getByRole('status').filter({ hasText: 'Todavía no tienes acceso a ninguna carpeta' })).toBeVisible()
-  await expect(bruno.getByRole('button', { name: 'Nueva nota' })).toHaveCount(0)
+  const outsider = await (await browser.newContext()).newPage()
+  await outsider.goto('/')
+  await outsider.getByLabel('Nombre de usuario').fill(OUTSIDER.username)
+  await outsider.getByLabel('Contraseña').fill(OUTSIDER.password)
+  await outsider.getByRole('button', { name: 'Entrar' }).last().click()
+  await expect(outsider.getByRole('status').filter({ hasText: 'Todavía no tienes acceso a ninguna carpeta' })).toBeVisible()
+  await expect(outsider.getByRole('button', { name: 'Nueva nota' })).toHaveCount(0)
 
-  const ana = await signIn(browser, 'ana')
-  await openFolders(ana, 'acceso', 'personas', 'ana')
+  const member = await signIn(browser, MEMBER)
+  await openFolders(member, 'acceso', 'personas', MEMBER.username)
   // Her own folder: the {user} rule decides; she closes it to agents.
-  await rowMenu(ana, 'ana', 'Permisos…')
-  let dialog = ana.getByRole('dialog', { name: 'Permisos de «ana»' })
+  await rowMenu(member, MEMBER.username, 'Permisos…')
+  let dialog = member.getByRole('dialog', { name: `Permisos de «${MEMBER.username}»` })
   await expect(dialog).toContainText('Carpeta personal: la regla acceso/personas/{user} decide quién entra')
   // React Aria's switch: its input is hidden, the label takes the click.
   await dialog.locator('label.switch', { hasText: 'Cerrada a los agentes' }).click()
@@ -191,61 +199,65 @@ test('a member shares a folder of her own with someone else: he sees it after re
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(dialog.getByRole('status')).toHaveText('Guardado.')
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
-  await expect(row(ana, 'ana').getByRole('img', { name: 'Cerrada a los agentes' })).toBeVisible()
-  await expect(row(ana, 'cocina').getByRole('img', { name: 'Cerrada a los agentes' })).toBeVisible()
+  await expect(row(member, MEMBER.username).getByRole('img', { name: 'Cerrada a los agentes' })).toBeVisible()
+  await expect(row(member, 'cocina').getByRole('img', { name: 'Cerrada a los agentes' })).toBeVisible()
 
-  // Shares «cocina» with bruno, to read.
-  await rowMenu(ana, 'cocina', 'Permisos…')
-  dialog = ana.getByRole('dialog', { name: 'Permisos de «cocina»' })
-  await expect(dialog).toContainText('Hereda de /acceso/personas/ana (regla acceso/personas/{user})')
+  // Shares «cocina» with the outsider, to read.
+  await rowMenu(member, 'cocina', 'Permisos…')
+  dialog = member.getByRole('dialog', { name: 'Permisos de «cocina»' })
+  await expect(dialog).toContainText(`Hereda de /${MINE} (regla acceso/personas/{user})`)
   await expect(dialog.getByRole('switch', { name: /Cerrada a los agentes/ })).toBeDisabled()
-  await expect(dialog).toContainText('Cerrada desde /acceso/personas/ana')
+  await expect(dialog).toContainText(`Cerrada desde /${MINE}`)
   await dialog.getByRole('button', { name: 'Cambiar permisos' }).click()
   await expect(dialog).toContainText('Nadie más puede ver esta carpeta.')
-  await dialog.getByRole('combobox', { name: 'Persona o grupo' }).selectOption(BRUNO)
+  await dialog.getByRole('combobox', { name: 'Persona o grupo' }).selectOption(OUTSIDER.username)
   await dialog.getByRole('button', { name: 'Añadir' }).click()
-  await expect(dialog.getByRole('combobox', { name: `Nivel de ${BRUNO}` })).toHaveValue('read')
+  await expect(dialog.getByRole('combobox', { name: `Nivel de ${OUTSIDER.username}`, exact: true })).toHaveValue('read')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(dialog.getByRole('status')).toHaveText('Guardado.')
   await dialog.getByRole('tab', { name: 'Quién tiene acceso' }).click()
   const who = dialog.getByRole('list', { name: 'Quién tiene acceso' }).getByRole('listitem')
-  await expect(who).toHaveText([/anaGestionarDirectamente · en \/acceso\/personas\/ana\/cocinaDirectamente · gestiona \/acceso\/personas\/ana$/, new RegExp(`${BRUNO}LeerDirectamente · en /acceso/personas/ana/cocina$`)])
-  await shot(ana, 'permissions-access-light')
+  // Sorted by level (manage first), then by name.
+  await expect(who).toHaveText([
+    new RegExp(`${literally(MEMBER.username)}GestionarDirectamente · en /${literally(MINE)}/cocinaDirectamente · gestiona /${literally(MINE)}$`, 'u'),
+    new RegExp(`${literally(OUTSIDER.username)}LeerDirectamente · en /${literally(MINE)}/cocina$`, 'u'),
+  ])
+  await shot(member, 'permissions-access-light')
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
 
-  // Bruno, after reloading: the way to it muted and with nothing to do; the folder, to read.
-  await bruno.reload()
-  await openFolders(bruno, 'acceso', 'personas', 'ana', 'cocina')
-  await expect(row(bruno, 'acceso').locator('.tree-row')).toHaveAttribute('title', 'Solo el camino hasta lo que compartieron contigo')
-  await expect(row(bruno, 'cocina').locator('.tree-row')).not.toHaveAttribute('title', /.*/)
-  await expect(row(bruno, 'ana').getByRole('button', { name: /Acciones/ })).toHaveCount(0)
-  await expect(row(bruno, 'cocina').getByRole('button', { name: /Acciones/ })).toHaveCount(0)
-  await expect(row(bruno, 'diario')).toHaveCount(0)
-  await row(bruno, 'Tortilla').click()
-  await expect(bruno.locator('.cm-content')).toContainText('Huevos, patatas y paciencia.')
-  await expect(bruno.getByRole('button', { name: 'Nueva nota' })).toHaveCount(0)
-  await shot(bruno, 'permissions-shared-tree-light')
+  // The outsider, after reloading: the way to it muted and with nothing to do; the folder, to read.
+  await outsider.reload()
+  await openFolders(outsider, 'acceso', 'personas', MEMBER.username, 'cocina')
+  await expect(row(outsider, 'acceso').locator('.tree-row')).toHaveAttribute('title', 'Solo el camino hasta lo que compartieron contigo')
+  await expect(row(outsider, 'cocina').locator('.tree-row')).not.toHaveAttribute('title', /.*/)
+  await expect(row(outsider, MEMBER.username).getByRole('button', { name: /Acciones/ })).toHaveCount(0)
+  await expect(row(outsider, 'cocina').getByRole('button', { name: /Acciones/ })).toHaveCount(0)
+  await expect(row(outsider, 'diario')).toHaveCount(0)
+  await row(outsider, 'Tortilla').click()
+  await expect(outsider.locator('.cm-content')).toContainText('Huevos, patatas y paciencia.')
+  await expect(outsider.getByRole('button', { name: 'Nueva nota' })).toHaveCount(0)
+  await shot(outsider, 'permissions-shared-tree-light')
 
-  // The admin doesn't see her folder in the tree; in «Users and groups», its name, and bruno's access.
+  // The admin doesn't see her folder in the tree; in «Users and groups», its name, and the outsider's access.
   await k.reload()
   await openFolders(k, 'acceso', 'personas')
-  await expect(row(k, 'noa')).toBeVisible()
-  await expect(row(k, 'ana')).toHaveCount(0)
+  await expect(row(k, ADMIN.username)).toBeVisible()
+  await expect(row(k, MEMBER.username)).toHaveCount(0)
   await k.goto('/?view=users')
   const folders = k.getByRole('list', { name: 'Carpetas' })
   await expect(folders.getByRole('listitem').filter({ hasText: /^cocina/ })).toBeVisible()
-  await k.getByRole('row', { name: new RegExp(`^${BRUNO}\\b`) }).getByRole('button', { name: `Acciones para ${BRUNO}` }).click()
+  await row(k, OUTSIDER.username).getByRole('button', { name: `Acciones para ${OUTSIDER.username}` }).click()
   await k.getByRole('menuitem', { name: 'Ver a qué carpetas llega' }).click()
-  const access = k.getByRole('dialog', { name: `Acceso de ${BRUNO}` })
-  await expect(access.getByRole('list', { name: 'Carpetas a las que llega' }).getByRole('listitem')).toHaveText(['accesosolo el camino', 'personassolo el camino', 'anasolo el camino', 'cocinaLeer'])
+  const access = k.getByRole('dialog', { name: `Acceso de ${OUTSIDER.username}` })
+  await expect(access.getByRole('list', { name: 'Carpetas a las que llega' }).getByRole('listitem')).toHaveText(['accesosolo el camino', 'personassolo el camino', `${MEMBER.username}solo el camino`, 'cocinaLeer'])
   await shot(k, 'permissions-user-access-light')
   await access.getByRole('button', { name: 'Cerrar' }).click()
-  await ana.context().close()
-  await bruno.context().close()
+  await member.context().close()
+  await outsider.context().close()
 })
 
 test('a key\'s effective access, from «Agents and API»', async () => {
-  const r = await k.request.post('/api/keys', { data: { name: 'Lector del equipo', folders: ['acceso/equipo'], confirm: PASSWORD } })
+  const r = await k.request.post('/api/keys', { data: { name: 'Lector del equipo', folders: ['acceso/equipo'], confirm: ADMIN.password } })
   expect(r.status(), await r.text()).toBe(201)
   keyId = (await r.json() as { key: { id: string } }).key.id
   await k.goto('/?view=agents')
@@ -262,7 +274,7 @@ test('thoth.yaml changed meanwhile: the dialog loads it again and says so; one t
   await k.getByRole('button', { name: 'Permisos de la carpeta /acceso/compartida' }).click()
   const dialog = k.getByRole('dialog', { name: 'Permisos de «compartida»' })
   await dialog.getByRole('button', { name: 'Cambiar permisos' }).click()
-  await dialog.getByRole('combobox', { name: 'Nivel de ana' }).selectOption('read')
+  await dialog.getByRole('combobox', { name: `Nivel de ${MEMBER.username}`, exact: true }).selectOption('read')
   // Someone else edits the file meanwhile.
   writeFileSync(`${NOTES}/thoth.yaml`, '# edited by hand\n' + readFileSync(`${NOTES}/thoth.yaml`, 'utf8'))
   await dialog.getByRole('button', { name: 'Guardar' }).click()
@@ -270,11 +282,14 @@ test('thoth.yaml changed meanwhile: the dialog loads it again and says so; one t
   await expect(dialog).toContainText('Hereda de /')
   // A section thoth can't use: it is fixed by hand.
   const good = readFileSync(`${NOTES}/thoth.yaml`, 'utf8')
-  writeFileSync(`${NOTES}/thoth.yaml`, good.replace('noa: manage, ana: edit', 'noa: owner, ana: edit'))
+  // The admin's level at the root, however the key is written, becomes one that doesn't exist.
+  const broken = good.replace(new RegExp(`("?${literally(ADMIN.username)}"?): manage`, 'u'), '$1: owner')
+  expect(broken).not.toBe(good)
+  writeFileSync(`${NOTES}/thoth.yaml`, broken)
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
   await rowMenu(k, 'compartida', 'Permisos…')
   await dialog.getByRole('button', { name: 'Cambiar permisos' }).click()
-  await dialog.getByRole('combobox', { name: 'Nivel de ana' }).selectOption('read')
+  await dialog.getByRole('combobox', { name: `Nivel de ${MEMBER.username}`, exact: true }).selectOption('read')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(dialog.getByRole('alert')).toContainText('Hay que corregirlo a mano')
   await shot(k, 'permissions-config-invalid-light')
@@ -286,17 +301,17 @@ test('on a phone and in dark mode: the dialog, the locks and the warning fit', a
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, colorScheme: 'dark', locale: 'es-ES' })
   const page = await ctx.newPage()
   await page.goto('/')
-  await page.getByLabel('Nombre de usuario').fill('ana')
-  await page.getByLabel('Contraseña').fill(PASSWORD)
+  await page.getByLabel('Nombre de usuario').fill(MEMBER.username)
+  await page.getByLabel('Contraseña').fill(MEMBER.password)
   await page.getByRole('button', { name: 'Entrar' }).last().tap()
   await expect(page.getByRole('treegrid')).toBeVisible()
-  await openFolders(page, 'acceso', 'personas', 'ana')
+  await openFolders(page, 'acceso', 'personas', MEMBER.username)
   await expect(row(page, 'cocina').getByRole('img', { name: 'Permisos propios' })).toBeVisible()
   await shot(page, 'permissions-tree-mobile-dark')
   await row(page, 'cocina').getByRole('button', { name: 'Acciones de la carpeta «cocina»' }).tap()
   await page.getByRole('menuitem', { name: 'Permisos…' }).tap()
   const dialog = page.getByRole('dialog', { name: 'Permisos de «cocina»' })
-  await expect(dialog.getByRole('combobox', { name: `Nivel de ${BRUNO}` })).toHaveValue('read')
+  await expect(dialog.getByRole('combobox', { name: `Nivel de ${OUTSIDER.username}`, exact: true })).toHaveValue('read')
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
   await shot(page, 'permissions-dialog-mobile-dark')
   await dialog.getByRole('tab', { name: 'Quién tiene acceso' }).tap()
@@ -308,12 +323,12 @@ test('on a phone and in dark mode: the dialog, the locks and the warning fit', a
   const dark = await browser.newContext({ colorScheme: 'dark', locale: 'es-ES' })
   const d = await dark.newPage()
   await d.goto('/')
-  await d.getByLabel('Nombre de usuario').fill('noa')
-  await d.getByLabel('Contraseña').fill(PASSWORD)
+  await d.getByLabel('Nombre de usuario').fill(ADMIN.username)
+  await d.getByLabel('Contraseña').fill(ADMIN.password)
   await d.getByRole('button', { name: 'Entrar' }).last().click()
   await openFolders(d, 'acceso', 'compartida')
   await rowMenu(d, 'Índice', 'Renombrar o mover…')
-  await d.getByRole('dialog').getByLabel('Carpeta').fill('acceso/personas/noa')
+  await d.getByRole('dialog').getByLabel('Carpeta').fill(ADMINS)
   await expect(d.getByRole('group', { name: 'Cambia quién puede verlo' })).toBeVisible()
   await shot(d, 'permissions-move-warning-dark')
   await d.getByRole('dialog').getByRole('button', { name: 'Cancelar' }).click()

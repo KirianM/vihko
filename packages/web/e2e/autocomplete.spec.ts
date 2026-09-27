@@ -5,7 +5,7 @@
 // from a template. Desktop, dark theme and a phone.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES } from './env.ts'
 import { signIn, writeWorkspace } from './helpers.ts'
 
 const DIR = 'e2e-ac'
@@ -25,7 +25,7 @@ test.beforeAll(async ({ browser }) => {
   writeFileSync(FILE, '# Origen\n\nTexto.\n')
   writeFileSync(`${NOTES}/${DIR}/Destino.md`, '---\naliases: [Alias destino]\n---\n# Destino\n\n## Primera sección\n\n## Segunda\n')
   writeFileSync(`${NOTES}/${DIR}/Etiquetas.md`, '# Etiquetas\n\n#e2etag-alpha y #e2etag-beta\n')
-  k = await signIn(browser, 'noa')
+  k = await signIn(browser, ADMIN)
   // Wait for the indexer to see the new notes.
   await expect.poll(async () => {
     const { notes } = await (await k.request.get('/api/tree')).json() as { notes: { path: string }[] }

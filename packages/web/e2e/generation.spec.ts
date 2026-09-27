@@ -9,7 +9,7 @@
 // the tab's copy merges as usual: no copy, nothing twice (D-032.4).
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES, PASSWORD } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES } from './env.ts'
 import { editorText, signIn } from './helpers.ts'
 
 const DIR = 'generation-tests'
@@ -33,8 +33,8 @@ async function openTab(browser: Browser, note: string) {
     live.push(ws, ws.connectToServer())
   })
   await page.goto(`/?note=${encodeURIComponent(note)}`)
-  await page.getByLabel('Nombre de usuario').fill('noa')
-  await page.getByLabel('Contraseña').fill(PASSWORD)
+  await page.getByLabel('Nombre de usuario').fill(ADMIN.username)
+  await page.getByLabel('Contraseña').fill(ADMIN.password)
   await page.getByRole('button', { name: 'Entrar' }).last().click()
   await expect(page.locator('.cm-content')).toBeVisible()
   await page.locator('.cm-h1').click()
@@ -143,23 +143,23 @@ test('two sessions: someone opens the note while a tab is offline; the tab merge
   editOutside(file)
   await page.keyboard.type('\nUnsent line.')
 
-  // Ana opens it meanwhile: the other editor's change is there, and she types.
-  const ana = await signIn(browser, 'ana', note)
-  await expect.poll(() => editorText(ana)).toContain('External line.')
-  await ana.locator('.cm-h1').click()
-  await ana.keyboard.press('Control+End')
-  await ana.keyboard.type('\nAna line.')
-  await expect.poll(() => readFileSync(file, 'utf8')).toContain('Ana line.')
+  // The member opens it meanwhile: the other editor's change is there, and they type.
+  const member = await signIn(browser, MEMBER, note)
+  await expect.poll(() => editorText(member)).toContain('External line.')
+  await member.locator('.cm-h1').click()
+  await member.keyboard.press('Control+End')
+  await member.keyboard.type('\nMember line.')
+  await expect.poll(() => readFileSync(file, 'utf8')).toContain('Member line.')
 
   reconnect()
   await expect.poll(() => readFileSync(file, 'utf8'), { timeout: 30_000 }).toContain('Unsent line.')
-  await expect.poll(() => editorText(ana)).toContain('Unsent line.')
-  await expect.poll(() => editorText(page)).toContain('Ana line.')
-  for (const p of [page, ana]) {
+  await expect.poll(() => editorText(member)).toContain('Unsent line.')
+  await expect.poll(() => editorText(page)).toContain('Member line.')
+  for (const p of [page, member]) {
     await expect(p.locator('.status')).toHaveText('Guardado en disco')
     await expect(p.getByRole('alert')).toHaveCount(0)
   }
   await page.screenshot({ path: 'test-results/generation-offline-merge.png' })
-  once([await editorText(page), await editorText(ana), readFileSync(file, 'utf8')],
-    ['First line.', 'External line.', 'Sent line.', 'Unsent line.', 'Ana line.'])
+  once([await editorText(page), await editorText(member), readFileSync(file, 'utf8')],
+    ['First line.', 'External line.', 'Sent line.', 'Unsent line.', 'Member line.'])
 })

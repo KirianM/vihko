@@ -2,14 +2,14 @@
 // note in the current folder, commands, and the mobile version.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, readFileSync } from 'node:fs'
-import { NOTES } from './env.ts'
+import { ADMIN, MEMBER, NOTES } from './env.ts'
 import { signIn } from './helpers.ts'
 
 test.describe.configure({ mode: 'serial' })
 let k: Page
 
 test.beforeAll(async ({ browser }) => {
-  k = await signIn(browser, 'noa')
+  k = await signIn(browser, ADMIN)
 })
 
 const palette = () => k.getByRole('dialog', { name: 'Buscar o crear' })
@@ -90,7 +90,7 @@ test('command mode with ">": dark theme and new note', async () => {
 })
 
 test('mobile: the palette fills the screen and opens from the header', async ({ browser }) => {
-  const m = await signIn(browser, 'ana', 'hogar/Red.md')
+  const m = await signIn(browser, MEMBER, 'hogar/Red.md')
   await m.setViewportSize({ width: 390, height: 844 })
   await m.getByRole('button', { name: 'Buscar', exact: true }).click()
   const dialog = m.getByRole('dialog', { name: 'Buscar o crear' })

@@ -2,8 +2,8 @@
 // with two people at once.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES } from './env.ts'
-import { editorText, signIn } from './helpers.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES } from './env.ts'
+import { editorText, literally, signIn } from './helpers.ts'
 
 const NOTE = 'panel/comentarios.md'
 const FILE = `${NOTES}/${NOTE}`
@@ -22,7 +22,8 @@ Texto de las pruebas.
 const ORIGINAL = `---\ntitle: Comentarios\n# comentario de YAML que no se toca\n---\n${BODY}`
 const disk = () => readFileSync(FILE, 'utf8')
 const SHOTS = `${E2E_DIR}/shots`
-const COMMENT = /<!-- @(\w+) \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z · (↳ )?([^>]*) -->/
+// An author is any username: letters of any script, digits, `.`, `_`, `-`.
+const COMMENT = /<!-- @([\p{L}\p{N}._-]+) \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z · (↳ )?([^>]*) -->/u
 
 test.describe.configure({ mode: 'serial' })
 let k: Page
@@ -32,8 +33,8 @@ test.beforeAll(async ({ browser }) => {
   mkdirSync(`${NOTES}/panel`, { recursive: true })
   mkdirSync(SHOTS, { recursive: true })
   writeFileSync(FILE, ORIGINAL)
-  k = await signIn(browser, 'noa', NOTE)
-  a = await signIn(browser, 'ana', NOTE)
+  k = await signIn(browser, ADMIN, NOTE)
+  a = await signIn(browser, MEMBER, NOTE)
 })
 
 test('links: outgoing with their status, ambiguous with candidates, and navigation', async () => {
@@ -78,7 +79,7 @@ test('outline: live headings; clicking one moves the cursor there', async () => 
   await expect(toc).toHaveText(['Índice del índice', 'Almacenamiento', 'Pruebas'])
   await toc.filter({ hasText: 'Pruebas' }).click()
   await expect(k.locator('.toc-current')).toHaveText('Pruebas')
-  // What's typed shows up in the outline without saving or reloading (ana types it).
+  // What's typed shows up in the outline without saving or reloading (the member types it).
   await a.locator('.cm-line', { hasText: 'Texto de las pruebas' }).click()
   await a.keyboard.press('End')
   await a.keyboard.type('\n\n### Carga')
@@ -92,7 +93,7 @@ test('commenting, seeing it live, replying: all inside the file, in the format d
   await a.getByRole('tab', { name: /Comentarios/ }).click()
   await expect(k.getByText('Esta nota no tiene comentarios', { exact: false })).toBeVisible()
 
-  // noa selects the sentence and comments.
+  // The admin selects the sentence and comments.
   await k.locator('.cm-line', { hasText: 'usar Postgres' }).click()
   await k.keyboard.press('Home')
   await k.keyboard.press('Shift+End')
@@ -101,27 +102,27 @@ test('commenting, seeing it live, replying: all inside the file, in the format d
   await k.getByRole('textbox', { name: 'Escribe un comentario…' }).fill('esto no, usa SQLite')
   await k.keyboard.press('Enter')
 
-  await expect.poll(disk).toMatch(/tipo de nota\.<!-- @noa \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z · esto no, usa SQLite -->\n\n## Almacenamiento/)
+  await expect.poll(disk).toMatch(new RegExp(`tipo de nota\\.<!-- @${literally(ADMIN.username)} \\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}Z · esto no, usa SQLite -->\\n\\n## Almacenamiento`))
   expect(disk().startsWith('---\ntitle: Comentarios\n# comentario de YAML que no se toca\n')).toBe(true)
 
-  // ana sees it live: thread in the panel and the text highlighted; the syntax stays hidden.
+  // The member sees it live: thread in the panel and the text highlighted; the syntax stays hidden.
   const thread = a.locator('.thread', { hasText: 'esto no, usa SQLite' })
   await expect(thread).toBeVisible()
-  await expect(thread.locator('.comment b')).toHaveText('noa')
+  await expect(thread.locator('.comment b')).toHaveText(ADMIN.username)
   await expect(a.locator('.cm-commented')).toHaveText('La propuesta inicial era usar Postgres con una tabla por tipo de nota.')
   await expect.poll(() => editorText(a)).not.toContain('<!--')
   await expect(a.getByRole('tab', { name: 'Comentarios · 1' })).toBeVisible()
 
-  // ana replies; the reply goes on its own line, with ↳.
+  // The member replies; the reply goes on its own line, with ↳.
   await thread.getByRole('button', { name: 'Responder' }).click()
   await a.getByRole('textbox', { name: 'Escribe una respuesta…' }).fill('de acuerdo, lo cambio')
   await a.keyboard.press('Enter')
-  await expect.poll(disk).toMatch(/usa SQLite -->\n<!-- @ana \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z · ↳ de acuerdo, lo cambio -->\n\n## Almacenamiento/)
+  await expect.poll(disk).toMatch(new RegExp(`usa SQLite -->\\n<!-- @${literally(MEMBER.username)} \\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}Z · ↳ de acuerdo, lo cambio -->\\n\\n## Almacenamiento`))
   const replies = k.locator('.thread').first().locator('.comment')
   await expect(replies).toHaveCount(2)
   await expect(replies.nth(1)).toHaveClass(/comment-reply/)
   const lines = disk().split('\n').filter((l) => l.includes('<!--'))
-  expect(lines.map((l) => COMMENT.exec(l)?.slice(1))).toEqual([['noa', undefined, 'esto no, usa SQLite'], ['ana', '↳ ', 'de acuerdo, lo cambio']])
+  expect(lines.map((l) => COMMENT.exec(l)?.slice(1))).toEqual([[ADMIN.username, undefined, 'esto no, usa SQLite'], [MEMBER.username, '↳ ', 'de acuerdo, lo cambio']])
 })
 
 test('screenshots: light, dark and narrow', async () => {
@@ -170,7 +171,7 @@ test('the text has changed: rewriting the commented sentence marks the thread fo
   // The server says the same (it reads an open note as its editors have it);
   // once saved, the note file holds nothing of it.
   await expect.poll(() => originals(k)).toEqual([[SENTENCE, true]])
-  await expect.poll(disk).toContain(`Al final no: ${SENTENCE}<!-- @noa`)
+  await expect.poll(disk).toContain(`Al final no: ${SENTENCE}<!-- @${ADMIN.username} `)
   expect(disk()).not.toContain('Texto original')
 
   await k.screenshot({ path: `${SHOTS}/comment-changed-light.png` })
@@ -202,7 +203,7 @@ test('the text has changed: rewriting the commented sentence marks the thread fo
   await k.keyboard.press('Backspace')
   await expect.poll(disk).toContain(`
 
-${SENTENCE}<!-- @noa`)
+${SENTENCE}<!-- @${ADMIN.username} `)
 })
 
 // With the history on (the default), without asking: it can be reopened (resolved.spec.ts).

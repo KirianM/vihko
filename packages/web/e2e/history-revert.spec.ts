@@ -6,7 +6,7 @@
 // marks, to copy; and a phone.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES, PASSWORD } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES } from './env.ts'
 import { editorText, signIn } from './helpers.ts'
 
 const NOTE = 'revertir/Plan.md'
@@ -21,6 +21,8 @@ const SLOW = { timeout: 20_000 }
 test.describe.configure({ mode: 'serial' })
 let k: Page
 let a: Page
+/** A name as a whole element (an author's), never as part of another name nor of the text around it. */
+const named = (scope: Page | Locator, name: string) => scope.getByText(name, { exact: true })
 
 const panelOf = (page: Page) => page.getByRole('complementary', { name: 'Comentarios y contexto' })
 const rows = (page: Page) => panelOf(page).locator('.h-row')
@@ -37,13 +39,13 @@ async function versions(page: Page): Promise<V[]> {
 async function newest(page: Page) {
   return (await versions(page))[0] ?? null
 }
-/** The agent's version, then what the person typed after it, both closed: `ana` then `noa` (a plain edit), newest first. */
+/** The agent's version, then what the person typed after it, both closed: the member then the admin (a plain edit), newest first. */
 async function typedAfterAgent(page: Page) {
   const [first, second] = await versions(page)
-  return !!first && !!second && first.reason === null && first.authors.map((x) => x.name).join() === 'noa' && second.authors.map((x) => x.name).join() === 'ana'
+  return !!first && !!second && first.reason === null && first.authors.map((x) => x.name).join() === ADMIN.username && second.authors.map((x) => x.name).join() === MEMBER.username
 }
 
-/** «The agent»: ana writes through the API, while the note is open. */
+/** «The agent»: the member writes through the API, while the note is open. */
 async function agentEdit(find: string, replace: string) {
   const r = await a.request.post('/api/note/edit', { data: { path: NOTE, ops: [{ op: 'find_replace', find, replace }] } })
   expect(r.status(), await r.text()).toBe(200)
@@ -55,16 +57,16 @@ async function openHistory(page: Page) {
   await expect(tab).toHaveAttribute('aria-selected', 'true')
 }
 
-/** The newest version by ana (after the calm, the newest may be someone else's). */
-const anaRow = (page: Page): Locator => rows(page).filter({ hasText: 'ana' }).first()
+/** The newest version by the member (after the calm, the newest may be someone else's). */
+const memberRow = (page: Page): Locator => rows(page).filter({ has: named(page, MEMBER.username) }).first()
 
 test.beforeAll(async ({ browser }) => {
   mkdirSync(`${NOTES}/revertir`, { recursive: true })
   mkdirSync(SHOTS, { recursive: true })
   writeFileSync(`${NOTES}/${NOTE}`, BEFORE)
-  k = await signIn(browser, 'noa')
+  k = await signIn(browser, ADMIN)
   await expect.poll(async () => (await newest(k))?.change, SLOW).toBe('created')
-  a = await signIn(browser, 'ana', NOTE)
+  a = await signIn(browser, MEMBER, NOTE)
   await k.goto(`/?note=${q(NOTE)}`)
   await expect(k.locator('.cm-content')).toBeVisible()
   await expect(k.locator('.presence .avatar')).toHaveCount(2)
@@ -80,10 +82,10 @@ test('reverting the agent\'s version keeps what the person wrote after it, and t
   await expect.poll(() => typedAfterAgent(k), SLOW).toBe(true)
 
   await openHistory(k)
-  await expect(rows(k).nth(1)).toContainText('ana', SLOW)
-  await anaRow(k).click()
+  await expect(named(rows(k).nth(1), MEMBER.username).first()).toBeVisible(SLOW)
+  await memberRow(k).click()
   await expect(band(k).getByRole('heading')).toHaveText(/^Versión del /)
-  await expect(band(k)).toContainText('ana')
+  await expect(named(band(k), MEMBER.username).first()).toBeVisible()
   await band(k).getByRole('button', { name: 'Revertir este cambio' }).click()
   const dialog = dialogOf(k)
   await expect(dialog.getByRole('heading')).toHaveText('¿Revertir este cambio?')
@@ -112,7 +114,7 @@ test('reverting the agent\'s version keeps what the person wrote after it, and t
   // A version of its own, by whoever reverted, saying which change it undid.
   const first = rows(k).first()
   await expect(first).toContainText(/Deshace el cambio del \d+ \S+, \d\d:\d\d/, SLOW)
-  await expect(first).toContainText('noa')
+  await expect(named(first, ADMIN.username).first()).toBeVisible()
 })
 
 test('a piece changed afterwards is shown in the preview and left as it is; the notice says so', async () => {
@@ -126,11 +128,11 @@ test('a piece changed afterwards is shown in the preview and left as it is; the 
   await expect.poll(() => read(), SLOW).toContain('Syncthing2 todavía.')
   await expect.poll(() => typedAfterAgent(k), SLOW).toBe(true)
   // The panel's list has them too (it asks again every few seconds).
-  await expect(rows(k).nth(1)).toContainText('ana', SLOW)
+  await expect(named(rows(k).nth(1), MEMBER.username).first()).toBeVisible(SLOW)
   await expect(rows(k).first()).not.toContainText('Deshace')
 
-  await anaRow(k).click()
-  await expect(band(k)).toContainText('ana')
+  await memberRow(k).click()
+  await expect(named(band(k), MEMBER.username).first()).toBeVisible()
   await band(k).getByRole('button', { name: 'Revertir este cambio' }).click()
   const dialog = dialogOf(k)
   await expect(dialog.locator('.preview-head')).toHaveText('Se deshace (1)')
@@ -145,13 +147,13 @@ test('a piece changed afterwards is shown in the preview and left as it is; the 
   await expect(notice).toContainText('No se ha deshecho una parte porque se cambió después: «Syncthing2».')
   await k.screenshot({ path: `${SHOTS}/revert-notice-light.png`, animations: 'disabled' })
   await k.getByRole('button', { name: 'Cerrar aviso' }).click()
-  // The other editor (noa's caret, with his name, sits inside «Syncthing2»: the file says the rest).
+  // The other editor (the admin's caret, with their name, sits inside «Syncthing2»: the file says the rest).
   await expect.poll(() => editorText(a)).not.toContain('(v2)')
   await expect.poll(read, SLOW).toContain('## Sincronización\n\nSyncthing2 todavía.')
 })
 
 test('nothing left to undo: the preview says so and the button stays off', async () => {
-  await rows(k).filter({ hasText: 'ana' }).last().click()
+  await rows(k).filter({ has: named(k, MEMBER.username) }).last().click()
   await band(k).getByRole('button', { name: 'Revertir este cambio' }).click()
   const dialog = dialogOf(k)
   await expect(dialog.locator('.rv-nothing')).toHaveText('No hay nada que deshacer: el texto de ahora ya no tiene los cambios de esta versión.')
@@ -174,7 +176,7 @@ test('reverting a revert brings the agent\'s change back, with what the person w
 
 test('«Content only»: the version\'s text without marks, to copy', async () => {
   await k.context().grantPermissions(['clipboard-read', 'clipboard-write'])
-  await anaRow(k).click()
+  await memberRow(k).click()
   await expect(k.locator('.v-text del').first()).toBeVisible()
   await toggle(k, 'Solo contenido').click()
   const plain = k.locator('.v-plain')
@@ -199,7 +201,7 @@ test('«Content only»: the version\'s text without marks, to copy', async () =>
 test('dark theme: the preview and «Content only»', async () => {
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()
   // The agent's first version: its change is back in the note, so there is something to undo.
-  await rows(k).filter({ hasText: 'ana' }).last().click()
+  await rows(k).filter({ has: named(k, MEMBER.username) }).last().click()
   await band(k).getByRole('button', { name: 'Revertir este cambio' }).click()
   await expect(dialogOf(k).locator('.preview-head')).toBeVisible()
   await k.screenshot({ path: `${SHOTS}/revert-preview-dark.png`, animations: 'disabled' })
@@ -225,8 +227,8 @@ test.describe('phone', () => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: 'es-ES' })
     m = await ctx.newPage()
     await m.goto(`/?note=${q(NOTE)}`)
-    await m.getByLabel('Nombre de usuario').fill('noa')
-    await m.getByLabel('Contraseña').fill(PASSWORD)
+    await m.getByLabel('Nombre de usuario').fill(ADMIN.username)
+    await m.getByLabel('Contraseña').fill(ADMIN.password)
     await m.getByRole('button', { name: 'Entrar' }).last().tap()
     await expect(m.locator('.cm-content')).toBeVisible()
   })
@@ -238,7 +240,7 @@ test.describe('phone', () => {
   test('the band\'s buttons, the preview and «Content only» on a phone', async () => {
     await m.getByRole('button', { name: 'Mostrar el panel lateral' }).tap()
     await panelOf(m).getByRole('tab', { name: 'Historial' }).tap()
-    const row = rows(m).filter({ hasText: 'ana' }).last()
+    const row = rows(m).filter({ has: named(m, MEMBER.username) }).last()
     await row.scrollIntoViewIfNeeded()
     await row.tap()
     await expect(m.locator('.version')).toBeVisible()

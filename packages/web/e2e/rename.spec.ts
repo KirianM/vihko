@@ -2,7 +2,7 @@
 // creates its own notes at the start so it never touches other specs' notes.
 import { expect, test, type Page } from '@playwright/test'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES, PASSWORD } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES } from './env.ts'
 import { editorText, png, sendFiles, signIn } from './helpers.ts'
 
 const DIR = 'rename-tests'
@@ -27,10 +27,10 @@ test.beforeAll(async ({ browser }) => {
     '- [[srv]] by alias.',
     '- [Server in Markdown](Server.md) relative.', '',
   ].join('\n'))
-  k = await signIn(browser, 'noa', NOTE)
+  k = await signIn(browser, ADMIN, NOTE)
   // Until the index sees the links (watcher or rescan), the preview does not know them.
   await expect.poll(async () => (await (await k.request.get(`/api/note/links?path=${encodeURIComponent(NOTE)}`)).json()).backlinks.length, { timeout: 15_000 }).toBe(4)
-  a = await signIn(browser, 'ana', NOTE)
+  a = await signIn(browser, MEMBER, NOTE)
 })
 
 async function openRename(page: Page) {
@@ -61,23 +61,23 @@ test('rename with preview: links are rewritten on disk and both editors follow t
   await expect(submit).toBeEnabled()
   await shot(k, 'rename-light')
 
-  // Ana types while noa renames: nothing is lost.
+  // The member types while the admin renames: nothing is lost.
   await a.locator('.cm-content').click()
   await a.keyboard.press('Control+End')
-  await a.keyboard.type('Written by ana before the rename.')
+  await a.keyboard.type('Written by the member before the rename.')
   await submit.click()
 
   for (const p of [k, a]) {
     await expect(p.locator('.crumbs b')).toHaveText('Main server')
     await expect(p).toHaveURL(/note=rename-tests%2FMain(\+|%20)server\.md/)
-    await expect.poll(() => editorText(p)).toContain('Written by ana before the rename.')
+    await expect.poll(() => editorText(p)).toContain('Written by the member before the rename.')
   }
   await expect(k.locator('.presence .avatar')).toHaveCount(2)
   // The tree refreshes: the expanded folder shows the new name.
   await expect(k.getByRole('row', { name: 'Main server' })).toBeVisible()
   await expect(k.getByRole('row', { name: 'Server', exact: true })).toHaveCount(0)
   await expect(k.getByRole('dialog')).toHaveCount(0)
-  await expect.poll(() => read(RENAMED)).toContain('Written by ana before the rename.')
+  await expect.poll(() => read(RENAMED)).toContain('Written by the member before the rename.')
   expect(read(NOTE)).toBeNull()
   await expect.poll(() => read(LINKS)).toContain('[Server in Markdown](Main%20server.md)')
   const links = read(LINKS)!
@@ -86,7 +86,7 @@ test('rename with preview: links are rewritten on disk and both editors follow t
   expect(links).toContain('- [[srv]] by alias.')
   expect(links).toContain('[Server in Markdown](Main%20server.md)')
 
-  // Ana keeps editing at the new path; the old one does not come back.
+  // The member keeps editing at the new path; the old one does not come back.
   await a.locator('.cm-content').click()
   await a.keyboard.press('Control+End')
   await a.keyboard.type(' And afterwards.')
@@ -134,7 +134,7 @@ test('trash: confirmation names the note, whoever had it open is told, and it re
   await expect(k.getByText('Elige una nota en el árbol.')).toBeVisible()
   await expect(k).not.toHaveURL(/note=/)
   await expect(k.getByRole('row', { name: 'Main server' })).toHaveCount(0)
-  await expect(a.getByRole('alert')).toHaveText('noa ha movido «Main server» a la papelera mientras la tenías abierta.')
+  await expect(a.getByRole('alert')).toHaveText(`${ADMIN.username} ha movido «Main server» a la papelera mientras la tenías abierta.`)
   await expect(a.locator('.cm-content')).toHaveCount(0)
   await shot(a, 'trash-other')
   // Nobody resurrects it: neither the editor that had it open nor a pending flush.
@@ -144,9 +144,9 @@ test('trash: confirmation names the note, whoever had it open is told, and it re
   await k.getByRole('button', { name: 'Restaurar' }).click()
   await expect(k.locator('.crumbs b')).toHaveText('Main server')
   await expect.poll(() => editorText(k)).toContain('And afterwards.')
-  expect(read(MOVED)).toContain('Written by ana before the rename.')
+  expect(read(MOVED)).toContain('Written by the member before the rename.')
   await expect(k.getByRole('status').filter({ hasText: 'papelera' })).toHaveCount(0)
-  // Ana, with nothing left to restore, reopens it with the same button.
+  // The member, with nothing left to restore, reopens it with the same button.
   await a.getByRole('button', { name: 'Restaurar' }).click()
   await expect(a.locator('.crumbs b')).toHaveText('Main server')
   await expect.poll(() => editorText(a)).toContain('And afterwards.')
@@ -174,8 +174,8 @@ test('screenshots: menu, dialog in dark and on mobile', async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
   const m = await ctx.newPage()
   await m.goto(`/?note=${encodeURIComponent(MOVED)}`)
-  await m.getByLabel('Nombre de usuario').fill('noa')
-  await m.getByLabel('Contraseña').fill(PASSWORD)
+  await m.getByLabel('Nombre de usuario').fill(ADMIN.username)
+  await m.getByLabel('Contraseña').fill(ADMIN.password)
   await m.getByRole('button', { name: 'Entrar' }).last().click()
   await expect(m.locator('.cm-content')).toBeVisible()
   await shot(m, 'header-mobile')
