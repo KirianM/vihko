@@ -214,8 +214,14 @@ export interface HubOptions {
  * the new text on disk before the history expects it.
  */
 export interface HubHistory {
-  /** Someone typed in the note since its last flush. */
-  typing(path: string, actor: Actor): void
+  /**
+   * Someone typed in the note since its last flush. `before`: the text right
+   * before their change, given when `startsVersion` said it might close the
+   * open version (D-034 3.4).
+   */
+  typing(path: string, actor: Actor, before?: string): void
+  /** Whether this person starting to type now would close the version open on the note (someone else's). */
+  startsVersion?(path: string, actor: Actor): boolean
   /** What people typed is about to be written. */
   flushing(path: string, text: string): void
   /** A direct write (agent, API, system) to the open note: `typed` is the document right before it. */
@@ -430,12 +436,6 @@ export class CollabHub implements HotDocuments {
         this.log(`${documentName}: an editor's copy from another generation was refused`)
         // Without `message`, so the hook chain doesn't log it again. Hocuspocus closes the connection.
         throw { code: 4409, reason: STALE_MESSAGE }
-      },
-      // Who types (D-033): an update from an editor's connection carries its session's user.
-      onChange: async ({ documentName, transactionOrigin }) => {
-        const origin = transactionOrigin as { source?: string; connection?: { context?: Ctx } } | null
-        const user = origin?.source === 'connection' ? origin.connection?.context?.user : undefined
-        if (user) this.opts.history?.typing(documentName, { kind: 'user', id: user.id })
       },
       onLoadDocument: async ({ documentName, document }) => { await this.load(documentName, document) },
       onStoreDocument: async ({ documentName }) => { await this.flush(documentName) },
@@ -953,11 +953,39 @@ export class CollabHub implements HotDocuments {
       }
       this.hot.set(path, h)
       doc.on('update', (update: Uint8Array) => writeSync(h.logFd, record('U', update)))
+      this.watchTyping(path, doc)
       // A missing file isn't "empty": it was deleted (server down, or before
       // reopening). Announced at once: a move made meanwhile was already seen
       // by the scan, and is followed when it's reported (`followMoves`).
       if (diskOrNull === null) this.markOrphan(path, h, true)
       else if (previous && diskHash !== flushedHash) this.mergeExternal(path, h, disk, diskHash)
+    })
+  }
+
+  /**
+   * Who types (D-033): a change from an editor's connection carries its
+   * session's user, and the history hears of it once applied. Someone who
+   * starts writing where others were (D-034 3.4) closes their version with
+   * the text from right before their change: it's read before the change
+   * is applied, only for them (`startsVersion`).
+   */
+  private watchTyping(path: string, doc: Y.Doc) {
+    const history = this.opts.history
+    if (!history) return
+    const userOf = (origin: unknown) => {
+      const o = origin as { source?: string; connection?: { context?: Ctx } } | null
+      return o?.source === 'connection' ? o.connection?.context?.user : undefined
+    }
+    let before: { transaction: Y.Transaction; text: string } | null = null
+    doc.on('beforeTransaction', (tr: Y.Transaction) => {
+      const user = userOf(tr.origin)
+      before = user && history.startsVersion?.(path, { kind: 'user', id: user.id }) ? { transaction: tr, text: doc.getText(TEXT).toString() } : null
+    })
+    doc.on('afterTransaction', (tr: Y.Transaction) => {
+      const text = before?.transaction === tr ? before.text : undefined
+      before = null
+      const user = userOf(tr.origin)
+      if (user && tr.changed.size > 0) history.typing(path, { kind: 'user', id: user.id }, text)
     })
   }
 

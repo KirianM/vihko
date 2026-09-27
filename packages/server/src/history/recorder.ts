@@ -5,8 +5,10 @@
 // Product rules it implements (docs: M2 specification, §3 and §4):
 // - What people type in the editor accumulates in one open version per note
 //   (the hub reports who typed and each flush), closed after `quietMs`
-//   without changes or `maxOpenMs` after it opened. Several people in that
-//   window share the version.
+//   without changes or `maxOpenMs` after it opened. Someone who starts
+//   writing where others were closes their version first, with the text
+//   from right before their change, and starts one of their own (D-034 3.4);
+//   whoever was already writing goes on in it with them.
 // - Any other write is its own version, and right before it whatever was
 //   pending on that file is closed with the content from before the write:
 //   there is always «the version right before the agent». Writes in a row by
@@ -282,6 +284,12 @@ export class Recorder {
   private lastAt = new Map<string, number>()
   private pending = new Map<string, Pending>()
   private typists = new Map<string, Set<string>>()
+  /**
+   * Who has been typing in each note since it was last quiet (in memory
+   * only): a person already writing there doesn't close the open version
+   * when they go on in someone else's (`typing`).
+   */
+  private writers = new Map<string, { keys: Set<string>; last: number }>()
   private queue: QCommit[] = []
   private inflight: Journal['inflight'] = null
   private groups = new Map<Actor, Group>()
@@ -418,6 +426,7 @@ export class Recorder {
   private async stopRecording() {
     this.closeMany([...this.pending.keys()])
     this.typists.clear()
+    this.writers.clear()
     this.recording = false
     this.saveJournal()
     await this.drain()
@@ -536,10 +545,43 @@ export class Recorder {
 
   // --- Recording: the collaboration hub -----------------------------------------
 
-  /** Someone typed in the editor of `path` since its last flush (the first keystroke per flush and person). */
-  typing(path: string, actor: Actor) {
+  /**
+   * Whether `actor` starting to type in `path` now closes the open version
+   * (D-034 3.4): what others typed is open (a version, or typing not yet
+   * flushed) and they aren't in it, nor among those who have been writing
+   * in the note since it was last quiet (`writers`).
+   */
+  startsVersion(path: string, actor: Actor): boolean {
+    if (!this.live || !this.takes(path)) return false
+    const key = authorKey(authorOf(actor))
+    if (this.writers.get(path)?.keys.has(key)) return false
+    const p = this.pending.get(path)
+    const typing = this.typists.get(path)
+    if (typing?.has(key) || p?.authors.includes(key)) return false
+    return p?.kind === 'typed' || !!typing?.size
+  }
+
+  /**
+   * Someone typed in the editor of `path` since its last flush (the first
+   * keystroke per flush and person). `before`: the note's text right before
+   * it, when it may start a version (`startsVersion`): then what others typed
+   * until that moment closes first as their version, with that text, and
+   * this person's first write starts one of their own (D-034 3.4). Whoever
+   * was writing goes on in it with them; the next one to come in closes it
+   * again. Once the note is quiet, it starts over.
+   */
+  typing(path: string, actor: Actor, before?: string) {
     if (!this.live || !this.takes(path)) return
     const key = authorKey(authorOf(actor))
+    let writers = this.writers.get(path)
+    if (!writers) this.writers.set(path, (writers = { keys: new Set(), last: 0 }))
+    if (before !== undefined && this.startsVersion(path, actor)) {
+      for (const a of [...(this.pending.get(path)?.authors ?? []), ...(this.typists.get(path) ?? [])]) writers.keys.add(a)
+      this.flushing(path, before)
+      this.closePending(path)
+    }
+    writers.keys.add(key)
+    writers.last = this.now()
     let set = this.typists.get(path)
     if (!set) this.typists.set(path, (set = new Set()))
     if (set.has(key)) return
@@ -1054,6 +1096,8 @@ export class Recorder {
     const quiet = this.opts.quietMs ?? 30_000
     const max = this.opts.maxOpenMs ?? 300_000
     const due = [...this.pending].filter(([, p]) => now - p.last >= quiet || now - p.since >= max).map(([path]) => path)
+    // A note gone quiet: whoever types in it next starts over (see `typing`).
+    for (const [path, w] of [...this.writers]) if (now - w.last >= quiet) this.writers.delete(path)
     // External versions closing together are one commit: when one closes, those
     // of other files that are nearly as quiet close with it (a sync tool writes
     // a batch of files over a few seconds).
@@ -1295,6 +1339,12 @@ export class Recorder {
       const d = this.typists.get(dest) ?? new Set<string>()
       for (const a of set) d.add(a)
       this.typists.set(dest, d)
+    }
+    for (const [p, w] of [...this.writers]) {
+      const dest = p === from ? to : folder && under(p, from) ? to + p.slice(from.length) : null
+      if (dest === null) continue
+      this.writers.delete(p)
+      this.writers.set(dest, w)
     }
   }
 

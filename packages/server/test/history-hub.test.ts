@@ -37,7 +37,7 @@ async function textOf(srv: Srv, cookie: string, path: string, id: string) {
   return (await api(srv, cookie, 'GET', `/api/history/version?path=${q(path)}&id=${id}`)).body.text as string
 }
 
-test('what two people type in the same window is one version with both of them', async () => {
+test('someone who starts writing where another was closes their version first, with the text from before; whoever was writing goes on with them', async () => {
   const { notes, env } = makeDirs()
   withAna(env)
   const srv = await startServer({ ...env, ...FAST, THOTH_HISTORY_QUIET_SECONDS: '1.5' })
@@ -47,15 +47,23 @@ test('what two people type in the same window is one version with both of them',
     const ck = await connect(srv, k, NOTE)
     const ca = await connect(srv, a, NOTE)
     typeLine(ck, 'K-TYPED-1')
-    await sleep(200)
+    await waitFor(() => ca.text().includes('K-TYPED-1'), 'Noa\'s typing reaches Ana')
+    // Ana's first change closes Noa's version as it was right before it (D-034 3.4).
     typeLine(ca, 'A-TYPED-1')
-    await waitFor(() => { const t = readFileSync(join(notes, NOTE), 'utf8'); return t.includes('K-TYPED-1') && t.includes('A-TYPED-1') }, 'flush of both')
+    await waitFor(() => ck.text().includes('A-TYPED-1'), 'Ana\'s typing reaches Noa')
+    // Noa was already writing: he goes on in Ana's version, without closing it.
+    typeLine(ck, 'K-TYPED-2')
+    await waitFor(() => { const t = readFileSync(join(notes, NOTE), 'utf8'); return t.includes('K-TYPED-2') && t.includes('A-TYPED-1') }, 'flush of both')
     const open = await versionsOf(srv, k, NOTE)
     assert.deepEqual(open.pending.authors.map((x: any) => x.name).sort(), ['ana', 'noa'])
-    await waitFor(async () => (await versionsOf(srv, k, NOTE)).versions.length === 2, 'the version closes after the quiet time')
-    const [v] = (await versionsOf(srv, k, NOTE)).versions
-    assert.deepEqual(v.authors.map((x: any) => x.name).sort(), ['ana', 'noa'])
-    assert.equal(v.change, 'modified')
+    await waitFor(async () => (await versionsOf(srv, k, NOTE)).versions.length === 3, 'the version closes after the quiet time')
+    const { versions } = await versionsOf(srv, k, NOTE)
+    assert.deepEqual(versions.map(who), ['ana,noa', 'noa', 'system'])
+    const first = await textOf(srv, k, NOTE, versions[1].id)
+    assert.ok(first.includes('K-TYPED-1') && !first.includes('A-TYPED-1'), 'Noa\'s version is the text right before Ana\'s first change')
+    const second = await textOf(srv, k, NOTE, versions[0].id)
+    assert.ok(second.includes('A-TYPED-1') && second.includes('K-TYPED-2'))
+    assert.equal(versions[0].change, 'modified')
   } finally { closeAll(); await srv.stop() }
 })
 

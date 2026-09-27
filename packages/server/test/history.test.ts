@@ -645,3 +645,30 @@ test('a file whose mtime is older than its last version is dated at that version
     assert.ok(statSync(file).mtimeMs < Date.parse(versions[1].at))
   } finally { await h.close() }
 })
+
+test('someone who starts typing where another was closes the open version first, with the text from before; whoever was writing goes on with them', async () => {
+  const h = await setup({ quietMs: 600_000 })
+  try {
+    const r = h.history.recorder
+    const noa: Actor = { kind: 'user', id: h.ids.noa }
+    const ana: Actor = { kind: 'user', id: h.ids.ana }
+    const t0 = readFileSync(join(h.notesDir, NOTE), 'utf8')
+    r.typing(NOTE, noa)
+    r.flushing(NOTE, t0 + 'k1\n')
+    r.typing(NOTE, noa) // typed again, not flushed yet
+    assert.equal(r.startsVersion(NOTE, noa), false)
+    assert.equal(r.startsVersion(NOTE, ana), true)
+    // Ana's first change: what Noa had, flushed or not, closes as his version.
+    r.typing(NOTE, ana, t0 + 'k1\nk2\n')
+    r.flushing(NOTE, t0 + 'k1\nk2\na1\n')
+    assert.equal(r.startsVersion(NOTE, noa), false, 'Noa was already writing: he goes on in her version')
+    r.typing(NOTE, noa, t0 + 'k1\nk2\na1\n')
+    r.flushing(NOTE, t0 + 'k1\nk2\na1\nk3\n')
+    await h.settle()
+    const { versions } = await h.versions(NOTE)
+    assert.deepEqual(versions.map(who), ['user:ana,user:noa', 'user:noa', 'system'])
+    const text = async (id: string) => (await h.noa('GET', `/api/history/version?path=${h.q(NOTE)}&id=${id}`)).body.text as string
+    assert.equal(await text(versions[1].id), t0 + 'k1\nk2\n')
+    assert.equal(await text(versions[0].id), t0 + 'k1\nk2\na1\nk3\n')
+  } finally { await h.close() }
+})
