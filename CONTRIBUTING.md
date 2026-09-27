@@ -134,8 +134,9 @@ containers, networks, image and worktree, and keeps only the logs (for 7 days).
 cleaned up by the next one.
 
 The jobs run one after another. On the 6-CPU machine the CI runs on, a full
-run takes about 12m30s: setup 5 s, check 2m30s, acceptance 1m50s, docker 25 s
-(with the image layers cached) and e2e 7m40s. `--parallel` runs them at the
+run takes about 14 minutes: setup 5 s, check 2m45s, acceptance 1m55s, docker
+30 s (with the image layers cached) and e2e 8m30s; `--jobs e2e --grep` with one
+spec file, one or two. `--parallel` runs them at the
 same time in about 8 minutes, but the load is theirs: in one of three such runs
 a unit test that depends on two writes landing within 150 ms failed, which
 never happened one after another. The acceptance has time thresholds and the
