@@ -46,7 +46,7 @@ export async function m3DoneWhen(opts: { srv: Srv; cookie: string; notesDir: str
   }
   await waitFor(async () => (await api(srv, cookie, 'GET', '/api/search?q=ZAFIRO')).body.results.length === 2, 'the hidden notes are indexed', 60_000)
   assert.equal((await api(srv, cookie, 'PUT', '/api/admin/integrations', { mcp: true })).status, 200)
-  const created = await api(srv, cookie, 'POST', '/api/keys', { name: 'Claude Code', canWrite: true, folders: ['proyectos'] })
+  const created = await api(srv, cookie, 'POST', '/api/keys', { name: 'Claude Code', canWrite: true, folders: ['proyectos'], confirm: 'a-long-password' })
   assert.equal(created.status, 201)
 
   const client = new Client({ name: 'acceptance', version: '1' })

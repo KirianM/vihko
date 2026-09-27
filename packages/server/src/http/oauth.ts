@@ -13,7 +13,8 @@
 // For the consent page, with the person's session (http/routes.ts: `session`):
 //   GET  /api/oauth/authorize?<the request's query>    who is asking (fetching a client's metadata document
 //                                                      if its client_id is one's URL), and whether this person may authorize
-//   POST /api/oauth/authorize { query, approve, canWrite?, folders? } → { redirect }
+//   POST /api/oauth/authorize { query, approve, canWrite?, folders?, confirm? } → { redirect }; approving
+//                                                      needs `confirm`: the current TOTP code, or the password without one (D-036)
 import type { Context, Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { User } from '../auth.ts'
@@ -30,6 +31,11 @@ export interface OAuthRoutesDeps {
   ui: boolean
   /** Who is asking, by address (http/clientIp.ts), for the limit on registrations. */
   clientAddress: (c: Context) => string
+  /**
+   * Confirms that the person is there now (the current TOTP code, or the
+   * password without one, D-036), even with a session: null if so, the response otherwise.
+   */
+  confirm: (c: Context<Env>, confirm: unknown) => Promise<Response | null>
 }
 
 const MAX_BODY = 64 * 1024
@@ -140,9 +146,9 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
 
   app.post('/api/oauth/authorize', async (c) => {
     if (!oauth.available() || c.get('access').isAgent) return none(c)
-    const b = await c.req.json<{ query?: unknown; approve?: unknown; canWrite?: unknown; folders?: unknown }>()
+    const b = await c.req.json<{ query?: unknown; approve?: unknown; canWrite?: unknown; folders?: unknown; confirm?: unknown }>()
     if (typeof b !== 'object' || b === null || typeof b.query !== 'string' || typeof b.approve !== 'boolean') {
-      return c.json({ error: 'invalid', message: 'expected { query, approve, canWrite?, folders? }' }, 400)
+      return c.json({ error: 'invalid', message: 'expected { query, approve, canWrite?, folders?, confirm? }' }, 400)
     }
     const query = new URLSearchParams(b.query)
     const check = await oauth.checkAuthorize((name) => query.get(name))
@@ -150,6 +156,9 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
     if (!b.approve) return c.json({ redirect: oauth.deny(check.req) })
     if (!mayAuthorize(c)) return c.json({ error: 'forbidden', message: 'members may not authorize clients here' }, 403)
     if (b.canWrite !== undefined && typeof b.canWrite !== 'boolean') return c.json({ error: 'invalid', message: 'canWrite must be true or false' }, 400)
+    // Saying yes is confirmed at the moment (D-036); saying no never needs it.
+    const unconfirmed = await deps.confirm(c, b.confirm)
+    if (unconfirmed) return unconfirmed
     // Read-only and every folder unless the person chose otherwise (D-035.3).
     const folders = b.folders ?? []
     return c.json({ redirect: oauth.approve(check.req, c.get('user').id, { canWrite: b.canWrite === true, folders: folders as string[] }) })

@@ -160,7 +160,7 @@ agent sees those changes, with safeguards and everything in the history.
       changes) needs edit permission, and so does restoring: sharing a note to
       read doesn't share its past.
 - [ ] An open version closes when someone who wasn't in it starts typing.
-- [ ] Second factor for users: TOTP with recovery codes; the admin makes it
+- [x] Second factor for users: TOTP with recovery codes; the admin makes it
       required, optional or disabled, and can reset a user's; asked again
       before OAuth consent and before creating a key.
 

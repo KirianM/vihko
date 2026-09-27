@@ -315,7 +315,7 @@ test('state.db: migrations, a copy before migrating, and rejecting future versio
   const old = join(dir, 'old.db')
   copyFileSync(file, old)
   const r = new Database(old)
-  r.exec('drop table user_links; drop table group_members; drop table user_groups; drop table oauth_tokens; drop table oauth_codes; drop table oauth_clients; drop table api_keys; drop table settings; drop table profiles; drop table sessions; drop table users')
+  r.exec('drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups; drop table oauth_tokens; drop table oauth_codes; drop table oauth_clients; drop table api_keys; drop table settings; drop table profiles; drop table sessions; drop table users')
   r.pragma('user_version = 0')
   r.close()
   openState(old).close()

@@ -3,6 +3,8 @@
 // thoth user create <name> [--admin]  creates a user; the password is read from stdin
 // thoth user reset-link <name>        a one-time link for them to choose a password
 //                                     (7 days; the way back for an admin who lost theirs)
+// thoth user reset-2fa <name>         takes their second factor away (with reset-link,
+//                                     the way back for an admin who lost password and phone)
 // thoth history purge <path> [--version <id>] [--dry-run]
 //                                     rewrites the managed history without a path
 //                                     (or one version's content of it); thoth stopped
@@ -15,13 +17,14 @@ import { pathMatcher } from '@thoth/core'
 import { Auth, AuthError } from './auth.ts'
 import { configFromEnv, start } from './main.ts'
 import { Users, UsersError } from './users.ts'
+import { TwoFactor } from './twoFactor.ts'
 import { openState } from './state.ts'
 import { PurgeError, purgeHistory, type PurgeReport } from './history/purge.ts'
 import { describeLeftover } from './history/leftovers.ts'
 import { StateInUseError } from './lock.ts'
 import { Workspace } from './workspace.ts'
 
-const USAGE = 'usage: thoth serve | thoth user create <name> [--admin] | thoth user reset-link <name> | thoth history purge <path> [--version <id>] [--dry-run]'
+const USAGE = 'usage: thoth serve | thoth user create <name> [--admin] | thoth user reset-link <name> | thoth user reset-2fa <name> | thoth history purge <path> [--version <id>] [--dry-run]'
 
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = []
@@ -62,6 +65,23 @@ async function main(argv: string[]) {
       const base = config.publicUrl
       console.log(`${link.kind === 'invite' ? 'invitation' : 'password reset'} link for ${name}, valid until ${link.expiresAt} (any earlier link of theirs no longer works):`)
       console.log(base ? `${base}${path}` : `  <thoth's address>${path}`)
+    } finally {
+      state.close()
+    }
+    return
+  }
+  // A reset link keeps a second factor on purpose (whoever intercepts the
+  // link still needs the code): someone with the server's shell takes it
+  // away here, for whoever lost it with no admin left to reset it.
+  if (cmd === 'user' && sub === 'reset-2fa' && rest[0] && rest.length === 1) {
+    const state = openState(join(config.stateDir, 'state.db'))
+    try {
+      const name = rest[0].normalize('NFC').trim()
+      const row = state.prepare('select id from users where username = ? and deleted_at is null').get(name) as { id: string } | undefined
+      if (!row) throw new UsersError('not_found', `no user ${name}`)
+      // Written straight into state.db: a running thoth reads it on the next request.
+      const had = new TwoFactor(state).disable(row.id)
+      console.log(had ? `second factor removed for ${name}: they sign in with their password alone (or set up a new one, if it's required)` : `${name} had no second factor`)
     } finally {
       state.close()
     }

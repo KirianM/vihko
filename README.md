@@ -89,7 +89,8 @@ it's stopped):
 |---|---|
 | `thoth serve` | Starts the server (what the container runs) |
 | `thoth user create <name> [--admin]` | Creates a user; the password is read from standard input |
-| `thoth user reset-link <name>` | Prints a one-time link (7 days) for that user to choose a new password: the way back for an admin who lost theirs. Any earlier link of theirs stops working |
+| `thoth user reset-link <name>` | Prints a one-time link (7 days) for that user to choose a new password: the way back for an admin who lost theirs. Any earlier link of theirs stops working. A second factor they have is still asked for after it |
+| `thoth user reset-2fa <name>` | Takes away that user's second factor (TOTP and recovery codes). With `reset-link`, the way back for an admin who lost both password and phone |
 | `thoth history purge <path> [--version <id>] [--dry-run]` | Rewrites the managed history without a file or folder, or without one version of a file |
 
 **`thoth history purge`** is for something that should never have been kept,
@@ -218,6 +219,11 @@ The counters live in memory: restarting thoth forgets them (and browsers sign
 in as new ones once). Their number is capped, so made-up usernames can't fill
 the memory. Behind a reverse proxy, set `THOTH_TRUSTED_PROXIES`, or every
 client counts as the proxy's address.
+
+Codes of the second factor (a TOTP code or a recovery code, at sign-in or when
+confirming a new key or an OAuth client) are limited the same way, with
+counters of their own for each username: knowing the password doesn't give
+fresh guesses at the code.
 
 ## Workspace configuration: `thoth.yaml`
 
