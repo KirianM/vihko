@@ -54,6 +54,9 @@
 @media (pointer: coarse) { .editor .cm-wikilink-create { padding: var(--space-1) 0; } }
 
 .editor .cm-link-missing { color: var(--danger); text-decoration-style: dashed; }
+/* A note that exists but isn't yours to read (D-024): dimmed, with a lock; never «create». */
+.editor .cm-wikilink-no_access a, .editor .cm-link-no_access { color: var(--muted); text-decoration-style: dotted; cursor: default; }
+.editor .cm-wikilink-no_access .cm-wikilink-badge { display: inline-flex; align-items: center; gap: 3px; background: var(--chip); color: var(--muted); }
 .editor .cm-bullet { color: var(--muted); display: inline-block; width: 1ch; }
 
 /* Images: the image in place of its source, below it while the cursor is on it */
