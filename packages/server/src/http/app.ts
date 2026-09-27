@@ -16,7 +16,7 @@ import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
 import { NoteError, type MoveHooks, type NoteService } from '../notes.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import type { EditOp } from '../edits.ts'
-import { FetchImageError, SERVED_TYPES, fetchImage } from '../attachments.ts'
+import { FetchImageError, SERVED_TYPES, fetchImage, type FetchImageOptions } from '../attachments.ts'
 import { DailyNotes } from '../daily.ts'
 import { ProfileError, type Profile, type Profiles } from '../profiles.ts'
 import type { Workspace } from '../workspace.ts'
@@ -39,6 +39,9 @@ import type { BlockList } from 'node:net'
 import { LoginLimiter, SETUP_ACCOUNT, type AttemptResult } from '../loginLimit.ts'
 import { clientIp, ipKey } from './clientIp.ts'
 import { written } from './written.ts'
+import { Users, UsersError } from '../users.ts'
+import { AdminSettings, AdminSettingsError } from '../adminSettings.ts'
+import { inviteRoutes, userRoutes, usersErrorStatus, type UserRoutesDeps } from './users.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
@@ -117,6 +120,15 @@ export interface AppDeps {
    * default; only tests pass one (that may reach a local server).
    */
   clientMetadata?: ClientMetadataFetcher
+  /**
+   * Users and groups (users.ts). One of its own over `auth` by default;
+   * main.ts passes one whose sessions ending also ends the hub's connections.
+   */
+  users?: Users
+  /** The admin's settings (state.db). By default, over the same state.db as `auth`. */
+  adminSettings?: AdminSettings
+  /** Only tests: how «Save a copy» resolves names and which addresses count as public. */
+  imageFetchTesting?: FetchImageOptions['testing']
 }
 
 /**
@@ -132,6 +144,8 @@ export interface Services {
   history?: History
   /** OAuth for the MCP server (it says whether it exists: `available()`). */
   oauth: OAuthServer
+  /** Users and groups: `groupsOf(userId)` is how the permissions read someone's groups. */
+  users: Users
 }
 
 export type ExternalImages = 'allow' | 'block'
@@ -163,7 +177,7 @@ function noteErrorStatus(e: NoteError) {
 }
 
 function fetchErrorStatus(e: FetchImageError) {
-  return ({ invalid: 400, too_large: 413, unsupported_type: 415, fetch_failed: 502 } as const)[e.code]
+  return ({ invalid: 400, too_large: 413, unsupported_type: 415, fetch_failed: 502, private_address: 403 } as const)[e.code]
 }
 
 /**
@@ -191,8 +205,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const integrations = deps.integrations ?? new Integrations(auth.state)
   const policy = new AccessPolicy({ index })
   const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
+  const users = deps.users ?? new Users(auth)
+  const adminSettings = deps.adminSettings ?? new AdminSettings(auth.state)
   const scopedDeps: ScopedDeps = { notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links }
-  const services: Services = { keys, integrations, policy, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth }
+  const services: Services = { keys, integrations, policy, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users }
   const app = new Hono<Env>()
   /** The request's operations, as whoever is asking. */
   const scoped = (c: Context<Env>) => services.scoped(c.get('access'))
@@ -212,6 +228,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400, err.code, err.message)
     if (err instanceof KeyError) return fail(c, keyErrorStatus(err), err.code, err.message)
     if (err instanceof IntegrationsError) return fail(c, err.code === 'integrations_locked' ? 409 : 400, err.code, err.message)
+    if (err instanceof UsersError) return fail(c, usersErrorStatus(err), err.code, err.message)
+    if (err instanceof AdminSettingsError) return fail(c, 400, err.code, err.message)
     // Body that isn't JSON.
     if (err instanceof SyntaxError) return fail(c, 400, 'invalid', err.message)
     console.error(err)
@@ -283,19 +301,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     }
   })
 
-  app.post('/api/auth/login', authBody, async (c) => {
-    const body = await c.req.json<{ username?: unknown; password?: unknown }>()
-    const username = text(body?.username)
-    const device = limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username)
-    const attempt = limiter.begin({ ip: ipOf(c), account: username, device })
-    if (!attempt.ok) return tooMany(c, attempt.retryAfter)
-    const s = await auth.login(username, text(body?.password))
-    if (!s) {
-      // The failure that starts a wait says so at once.
-      const wait = attempt.failed()
-      return wait > 0 ? tooMany(c, wait) : fail(c, 401, 'invalid_credentials', 'incorrect username or password')
-    }
-    attempt.passed()
+  /** The session cookie of someone who just signed in, and their device's for the login limits. */
+  const signedIn = (c: Context, username: string, s: { token: string; expiresAt: Date }) => {
     setCookie(c, SESSION_COOKIE, s.token, {
       httpOnly: true,
       sameSite: 'Lax',
@@ -311,8 +318,32 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       secure: isHttps(c),
       maxAge: DEVICE_DAYS * 86_400,
     })
+  }
+
+  app.post('/api/auth/login', authBody, async (c) => {
+    const body = await c.req.json<{ username?: unknown; password?: unknown }>()
+    const username = text(body?.username)
+    const device = limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username)
+    const attempt = limiter.begin({ ip: ipOf(c), account: username, device })
+    if (!attempt.ok) return tooMany(c, attempt.retryAfter)
+    const s = await auth.login(username, text(body?.password), c.req.header('user-agent'))
+    if (!s) {
+      // The failure that starts a wait says so at once.
+      const wait = attempt.failed()
+      return wait > 0 ? tooMany(c, wait) : fail(c, 401, 'invalid_credentials', 'incorrect username or password')
+    }
+    attempt.passed()
+    signedIn(c, s.user.username, s)
     return c.json({ user: s.user })
   })
+
+  const userDeps: UserRoutesDeps = {
+    auth, users, settings: adminSettings, limiter, ipOf, signedIn, tooMany, publicUrl: deps.publicUrl ?? null,
+    deviceOf: (c, username) => limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username),
+  }
+  // A one-time link (an invitation or a reset): no session yet.
+  app.use('/api/invite/*', authBody)
+  inviteRoutes(app, userDeps)
 
   // --- From here on, a session is required -----------------------------------
 
@@ -337,6 +368,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   app.post('/api/auth/logout', (c) => {
     auth.logout(c.get('token'))
+    // Its editors in other tabs (the same cookie) end too.
+    users.hooks.onSessionsEnded?.(c.get('user').id)
     deleteCookie(c, SESSION_COOKIE, { path: '/' })
     return c.json({ ok: true })
   })
@@ -510,10 +543,13 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   // A copy of an image from a URL, stored like an upload. Only on this explicit
   // request from a user: the server never fetches URLs written in notes.
+  // Members only from public addresses, unless the admin lets them reach the
+  // local network (D-038.6); the thoth admin, from anywhere.
   app.post('/api/attachments/fetch', async (c) => {
     const { note, url } = await c.req.json<{ note: string; url: string }>()
     notes.read(note ?? '') // nothing is downloaded for a note that doesn't exist
-    const { bytes } = await fetchImage(String(url ?? ''), { maxBytes: notes.maxImageBytes })
+    const publicOnly = c.get('user').role !== 'admin' && !adminSettings.view().membersLocalDownloads
+    const { bytes } = await fetchImage(String(url ?? ''), { maxBytes: notes.maxImageBytes, publicOnly, testing: deps.imageFetchTesting })
     return c.json(await notes.attach(note, bytes, actor(c)), 201)
   })
 
@@ -630,10 +666,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return c.json(deps.runtime.rescan({ force: body.force === true, confirmRemoval }))
   })
 
-  app.post('/api/admin/users', adminOnly, async (c) => {
-    const { username, password, role } = await c.req.json<{ username: string; password: string; role?: 'admin' | 'member' }>()
-    return c.json({ user: await auth.createUser(username, password, role ?? 'member') }, 201)
-  })
+  // Users, groups, one's own account and the admin's settings (http/users.ts).
+  userRoutes(app, userDeps)
 
   if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, keyName: (id) => keys.nameOf(id), canRead: deps.canRead ?? (() => true) })
 

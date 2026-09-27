@@ -12,7 +12,7 @@ import { WebSocketServer } from 'ws'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { contentHash, newUid, readFrontmatter, setFrontmatterKey } from '@thoth/core'
-import type { Auth, User } from './auth.ts'
+import { sessionIdOf, type Auth, type User } from './auth.ts'
 import { readStable, readText, replaceText } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
@@ -111,6 +111,14 @@ export const TRASHED_MESSAGE = 'thoth:trashed'
  * refused before anything is synced, and the editor opens the note again.
  */
 export const STALE_MESSAGE = 'thoth:stale-generation'
+/**
+ * To the editors of a session that just ended (the user was disabled or
+ * deleted, the admin closed their sessions, another session changed the
+ * password): the connection closes next, and the UI goes to sign in.
+ */
+export const SESSION_ENDED_MESSAGE = 'thoth:session-ended'
+/** The WebSocket close code that goes with it. */
+export const SESSION_ENDED_CODE = 4401
 
 export interface HubOptions {
   notesDir: string
@@ -154,7 +162,8 @@ export interface HubHistory {
 }
 
 /** `generation`: the one the editor's copy belongs to (null: an empty copy, it claims none). */
-type Ctx = { user?: User; system?: Actor; generation?: string | null }
+/** A connection's context: its session's user and its public id (auth.ts `sessionIdOf`), or the system's writes; the editor's generation. */
+type Ctx = { user?: User; session?: string; system?: Actor; generation?: string | null }
 
 // --- Utilities ---------------------------------------------------------------
 
@@ -311,6 +320,8 @@ export class CollabHub implements HotDocuments {
   private logDir: string
   private checkTimer: NodeJS.Timeout | null = null
   private wss = new WebSocketServer({ noServer: true })
+  /** Open WebSockets, by user and session (its token, to tell whether it is still in force): ended at once when the session ends (`checkSessions`). */
+  private sockets = new Set<{ userId: string; session: string; token: string; close(code: number, reason: string): void }>()
   private log: (m: string) => void
 
   constructor(opts: HubOptions) {
@@ -394,14 +405,39 @@ export class CollabHub implements HotDocuments {
       if (!user) return reject(socket, 401)
       this.wss.handleUpgrade(req, socket, head, (ws) => {
         const request = new Request(url, { headers: req.headers as Record<string, string> })
-        const conn = this.hocuspocus.handleConnection(ws as never, request, { user })
+        const session = sessionIdOf(token!)
+        const conn = this.hocuspocus.handleConnection(ws as never, request, { user, session })
+        const live = { userId: user.id, session, token: token!, close: (code: number, reason: string) => ws.close(code, reason) }
+        this.sockets.add(live)
         ws.on('message', (data: Buffer) => conn.handleMessage(new Uint8Array(data)))
-        ws.on('close', (code: number, reason: Buffer) => conn.handleClose({ code, reason: reason.toString() }))
+        ws.on('close', (code: number, reason: Buffer) => { this.sockets.delete(live); conn.handleClose({ code, reason: reason.toString() }) })
       })
     })
     this.checkTimer = setInterval(() => {
       for (const path of this.hot.keys()) this.checkExternal(path).catch((e) => this.log(`check of ${path}: ${e}`))
     }, this.opts.checkMs ?? 1000)
+  }
+
+  /**
+   * Some of a user's sessions ended (users.ts: disabled, deleted, closed, a
+   * new password): the connections of those no longer in force end now,
+   * their editors told first so the UI signs out. The others stay.
+   */
+  checkSessions(userId: string) {
+    const ending = [...this.sockets].filter((s) => s.userId === userId && !this.opts.auth.session(s.token))
+    if (ending.length === 0) return
+    const ended = new Set(ending.map((s) => s.session))
+    const payload = JSON.stringify({ type: SESSION_ENDED_MESSAGE })
+    for (const doc of this.hocuspocus.documents.values()) {
+      for (const c of doc.getConnections()) {
+        const ctx = c.context as Ctx
+        if (ctx.user?.id === userId && ctx.session && ended.has(ctx.session)) c.sendStateless(payload)
+      }
+    }
+    for (const s of ending) {
+      this.sockets.delete(s)
+      s.close(SESSION_ENDED_CODE, SESSION_ENDED_MESSAGE)
+    }
   }
 
   async close() {

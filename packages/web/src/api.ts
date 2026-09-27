@@ -44,6 +44,12 @@ export async function request<T>(method: string, path: string, body?: unknown, h
 }
 
 export interface User { id: string; username: string; role: 'admin' | 'member' }
+/**
+ * Dispatched on `window` when the hub says this session ended (the admin
+ * disabled the account or closed its sessions, or the password changed in
+ * another session): the application goes to sign in (Shell.tsx).
+ */
+export const SESSION_ENDED_EVENT = 'thoth:session-ended'
 export interface TreeNote { path: string; title: string; uid: string | null; aliases: string[] }
 export interface Note {
   path: string
@@ -203,6 +209,29 @@ export interface KeyInput { name?: string; canWrite?: boolean; folders?: string[
 /** An authorization request: who asks (`host`: the domain that described it, for a client named by its metadata document; null if it registered itself) and whether this person may authorize. */
 export interface OAuthRequest { client: { id: string; name: string; redirectUri: string; host: string | null }; canAuthorize: boolean }
 
+/** A user as the thoth admin sees them (M4). `invited`: never chose a password. */
+export interface UserInfo {
+  id: string
+  username: string
+  role: 'admin' | 'member'
+  status: 'active' | 'invited' | 'disabled'
+  createdAt: string
+  lastSeenAt: string | null
+  sessions: number
+  groups: string[]
+  /** A link that still works: what for and until when (never its token). */
+  link: { kind: 'invite' | 'reset'; expiresAt: string } | null
+  /** The second factor (D-036): null until it exists (piece T). */
+  twoFactor: null
+}
+/** A new one-time link, shown once: `url` with THOTH_PUBLIC_URL, otherwise this origin + `path`. */
+export interface NewLink { token: string; kind: 'invite' | 'reset'; expiresAt: string; path: string; url: string | null }
+export interface GroupInfo { id: string; name: string; members: { id: string; username: string }[] }
+/** The admin's settings: members downloading images from the local network (off by default). */
+export interface AdminSettings { membersLocalDownloads: boolean }
+/** One of one's own sessions. */
+export interface SessionInfo { id: string; createdAt: string; lastSeenAt: string; expiresAt: string; userAgent: string | null; current: boolean }
+
 let config: Promise<ServerConfig> | null = null
 
 const started = <R>(r: R | { job: MoveJob }): MoveStart<R> => (r !== null && typeof r === 'object' && 'job' in r ? { job: r.job } : { report: r as R })
@@ -280,4 +309,32 @@ export const api = {
   /** The person's answer: where the browser goes next (back to the client, with a code or `access_denied`). */
   oauthDecide: (query: string, decision: { approve: boolean; canWrite?: boolean; folders?: string[] }) =>
     request<{ redirect: string }>('POST', '/api/oauth/authorize', { query, ...decision }),
+  /** Whom a one-time link is for; `invalid_link` if it doesn't work (unknown, used or expired, alike). */
+  invite: (token: string) => request<{ kind: 'invite' | 'reset'; username: string }>('GET', `/api/invite/${encodeURIComponent(token)}`),
+  /** Chooses the password with the link, and signs in. */
+  acceptInvite: (token: string, password: string) => request<{ user: User }>('POST', `/api/invite/${encodeURIComponent(token)}`, { password }),
+  /** Names of users and groups, to share with them. */
+  directory: () => request<{ users: string[]; groups: string[] }>('GET', '/api/directory'),
+  sessions: () => request<{ sessions: SessionInfo[] }>('GET', '/api/account/sessions').then((r) => r.sessions),
+  endSession: (id: string) => request<{ ok: true }>('DELETE', `/api/account/sessions/${encodeURIComponent(id)}`),
+  endOtherSessions: () => request<{ ended: number }>('DELETE', '/api/account/sessions'),
+  /** Other sessions end; `wrong_password` if `current` isn't right. */
+  changePassword: (current: string, password: string) => request<{ ok: true }>('POST', '/api/auth/password', { current, password }),
+  users: () => request<{ users: UserInfo[] }>('GET', '/api/admin/users').then((r) => r.users),
+  createUser: (username: string, role: UserInfo['role']) => request<{ user: UserInfo; link: NewLink }>('POST', '/api/admin/users', { username, role }),
+  /** A new link for them (an invitation, or a reset if they have a password); the earlier one stops working. */
+  userLink: (id: string) => request<{ link: NewLink; user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/link`),
+  setRole: (id: string, role: UserInfo['role']) => request<{ user: UserInfo }>('PUT', `/api/admin/users/${encodeURIComponent(id)}/role`, { role }).then((r) => r.user),
+  disableUser: (id: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/disable`).then((r) => r.user),
+  enableUser: (id: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/enable`).then((r) => r.user),
+  deleteUser: (id: string) => request<{ ok: true }>('DELETE', `/api/admin/users/${encodeURIComponent(id)}`),
+  endUserSessions: (id: string) => request<{ ended: number }>('DELETE', `/api/admin/users/${encodeURIComponent(id)}/sessions`),
+  groups: () => request<{ groups: GroupInfo[] }>('GET', '/api/admin/groups').then((r) => r.groups),
+  createGroup: (name: string) => request<{ group: GroupInfo }>('POST', '/api/admin/groups', { name }).then((r) => r.group),
+  renameGroup: (id: string, name: string) => request<{ group: GroupInfo }>('PATCH', `/api/admin/groups/${encodeURIComponent(id)}`, { name }).then((r) => r.group),
+  deleteGroup: (id: string) => request<{ ok: true }>('DELETE', `/api/admin/groups/${encodeURIComponent(id)}`),
+  addMember: (group: string, userId: string) => request<{ group: GroupInfo }>('POST', `/api/admin/groups/${encodeURIComponent(group)}/members`, { userId }).then((r) => r.group),
+  removeMember: (group: string, userId: string) => request<{ group: GroupInfo }>('DELETE', `/api/admin/groups/${encodeURIComponent(group)}/members/${encodeURIComponent(userId)}`).then((r) => r.group),
+  adminSettings: () => request<AdminSettings>('GET', '/api/admin/settings'),
+  setAdminSettings: (patch: Partial<AdminSettings>) => request<AdminSettings>('PUT', '/api/admin/settings', patch),
 }

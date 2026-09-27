@@ -38,6 +38,14 @@ export type ErrorCode =
   | 'invalid_client' // an OAuth authorization request from a client this thoth doesn't know
   | 'invalid_redirect_uri' // an OAuth authorization request whose redirect URI the client didn't register
   | 'too_many_attempts' // too many failed sign-ins (or first-boot tokens): wait `retryAfter` seconds (also Retry-After)
+  | 'invalid_link' // a one-time link (invitation or reset) that doesn't work: unknown, used or expired, alike
+  | 'wrong_password' // changing one's password: the current one given isn't right
+  | 'last_admin' // the last active admin can't be demoted, disabled or deleted
+  | 'not_disabled' // only a disabled user can be deleted
+  | 'user_disabled' // a disabled user gets no link: enable them first
+  | 'group_exists'
+  | 'invalid_group_name'
+  | 'private_address' // «Save a copy»: a member may only download from public addresses (D-038.6)
 
 /**
  * Space-level alerts: what thoth has detected in the notes folder that needs

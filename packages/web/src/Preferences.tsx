@@ -1,7 +1,8 @@
 // The person's own preferences (state.db): their timezone, which decides what
 // day "today" is, and the daily note (which series «Today» opens and whether
 // it opens when thoth does). Reached from the user row of the sidebar, and the
-// way to the other settings pages («Agents and API», privacy).
+// way to the other settings pages (one's account, «Agents and API», privacy
+// and, for the thoth admin, «Users and groups»).
 import { useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Modal, ModalOverlay } from 'react-aria-components'
 import { api, type Profile, type WorkspaceInfo } from './api.ts'
@@ -19,7 +20,7 @@ function zones(current: string): string[] {
   return [...new Set([current, browserTimeZone(), 'UTC', ...all])].sort((a, b) => a.localeCompare(b))
 }
 
-export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgents, onPrivacy }: {
+export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgents, onPrivacy, onAccount, onUsers }: {
   profile: Profile
   workspace: WorkspaceInfo | null
   onClose: () => void
@@ -27,6 +28,9 @@ export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgen
   /** Open «Agents and API» or the privacy page (and close this). */
   onAgents: () => void
   onPrivacy: () => void
+  /** Open one's account (password, sessions), or «Users and groups» (the thoth admin; null for anyone else). */
+  onAccount: () => void
+  onUsers: (() => void) | null
 }) {
   const t = useT()
   useBackClose(useMobile(), onClose)
@@ -88,6 +92,8 @@ export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgen
                 <p className="dialog-text">{t('prefs.seriesOff')}</p>
               )}
               <div className="prefs-links">
+                <Button className="btn btn-quiet prefs-link" onPress={onAccount}>{t('prefs.account')}{Icon.chevron}</Button>
+                {onUsers && <Button className="btn btn-quiet prefs-link" onPress={onUsers}>{t('prefs.users')}{Icon.chevron}</Button>}
                 <Button className="btn btn-quiet prefs-link" onPress={onAgents}>{t('prefs.agents')}{Icon.chevron}</Button>
                 <Button className="btn btn-quiet prefs-link" onPress={onPrivacy}>{t('prefs.privacy')}{Icon.chevron}</Button>
               </div>

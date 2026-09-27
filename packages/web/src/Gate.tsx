@@ -117,6 +117,82 @@ export function Setup({ onDone }: { onDone: (u: User) => void }) {
   )
 }
 
+/**
+ * A one-time link (`/invite/<token>`, D-038.3): someone the admin invited, or
+ * whose password is being reset, chooses it here and is signed in. A link
+ * that doesn't work (unknown, used or expired) gets the same message either
+ * way. (With a required second factor, its setup comes after this: piece T.)
+ */
+export function Invite({ token, onDone, onLogin }: { token: string; onDone: (u: User) => void; onLogin: () => void }) {
+  const t = useT()
+  const [link, setLink] = useState<{ kind: 'invite' | 'reset'; username: string } | 'invalid' | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const wait = useWait()
+
+  useEffect(() => {
+    api.invite(token).then(setLink, (err) => {
+      // Too many guesses, or the server can't be reached: said as such; anything else, the neutral message.
+      if (!wait.caught(err) && !(err instanceof ApiError && err.code === 'invalid_link')) setError(errorText(t, err))
+      setLink('invalid')
+    })
+  }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const f = new FormData(e.currentTarget)
+    const password = String(f.get('password'))
+    if (password !== String(f.get('repeat'))) return setError(t('invite.mismatch'))
+    setBusy(true)
+    setError(null)
+    try {
+      const { user } = await api.acceptInvite(token, password)
+      history.replaceState(null, '', '/')
+      onDone(user)
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'invalid_link') setLink('invalid')
+      else setError(wait.caught(err) ? null : errorText(t, err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (link === null) return <Frame><p className="empty">{t('common.loading')}</p></Frame>
+  if (link === 'invalid') {
+    return (
+      <Frame>
+        <h1>{t('invite.invalidTitle')}</h1>
+        <p role="alert">{wait.message ?? error ?? t('invite.invalid')}</p>
+        <Button className="btn btn-xl" onPress={() => { history.replaceState(null, '', '/'); onLogin() }}>{t('invite.toLogin')}</Button>
+      </Frame>
+    )
+  }
+  const reset = link.kind === 'reset'
+  return (
+    <Frame>
+      <h1>{t(reset ? 'invite.resetTitle' : 'invite.title')}</h1>
+      <p>{t(reset ? 'invite.resetIntro' : 'invite.intro', { user: link.username })}</p>
+      <Form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {/* For password managers: whose password this is. */}
+        <input type="text" name="username" autoComplete="username" value={link.username} readOnly hidden />
+        <TextField className="field" name="password" type="password" isRequired minLength={10} autoComplete="new-password" autoFocus>
+          <Label>{t('invite.password')}</Label>
+          <Input />
+          <span className="hint">{t('field.passwordHint')}</span>
+          <FieldError className="error-text" />
+        </TextField>
+        <TextField className="field" name="repeat" type="password" isRequired minLength={10} autoComplete="new-password">
+          <Label>{t('invite.repeat')}</Label>
+          <Input />
+          <FieldError className="error-text" />
+        </TextField>
+        {(wait.message ?? error) && <p className="error-text" role="alert">{wait.message ?? error}</p>}
+        <Button type="submit" className="btn btn-primary btn-xl" isDisabled={busy || wait.left > 0}>{wait.button ?? t('invite.submit')}</Button>
+      </Form>
+    </Frame>
+  )
+}
+
 /** `intro`: why signing in is asked for, when it isn't just to open thoth (an OAuth authorization). */
 export function Login({ onDone, notice, intro }: { onDone: (u: User) => void; notice?: string | null; intro?: string }) {
   const t = useT()

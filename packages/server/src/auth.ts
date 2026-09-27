@@ -31,6 +31,8 @@ const MAXMEM = 64 * 1024 * 1024
 
 export const MIN_PASSWORD = 10
 export const SESSION_DAYS = 30
+/** The browser a session remembers (its User-Agent), cut to this length. */
+const MAX_USER_AGENT = 200
 
 export type Role = 'admin' | 'member'
 
@@ -42,6 +44,16 @@ export interface User {
 }
 
 export type AuthErrorCode = 'invalid_username' | 'weak_password' | 'user_exists' | 'already_setup' | 'invalid_token'
+
+/** A session as its owner sees it in «Account»: never its token. */
+export interface SessionInfo {
+  /** Stands for the session (part of its token's hash, which reveals nothing of the token). */
+  id: string
+  createdAt: string
+  lastSeenAt: string
+  expiresAt: string
+  userAgent: string | null
+}
 
 /** Error creating a user or on first boot. `code` is stable and the UI translates it. */
 export class AuthError extends Error {
@@ -101,6 +113,16 @@ export function needsRehash(stored: string): boolean {
 
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex')
 const newToken = () => randomBytes(32).toString('base64url')
+/** How long the public id of a session is: the start of its token's hash. */
+const SESSION_ID = 32
+
+/** The public id of the session with this token (SessionInfo.id). */
+export function sessionIdOf(token: string): string {
+  return tokenHash(token).slice(0, SESSION_ID)
+}
+
+/** A username (or a group name, users.ts): letters, digits, `.`, `_` or `-`, 2 to 64. */
+export const NAME_PATTERN = /^[\p{L}\p{N}._-]{2,64}$/u
 
 function rowToUser(r: { id: string; username: string; role: Role; disabled: number }): User {
   return { id: r.id, username: r.username, role: r.role, disabled: !!r.disabled }
@@ -137,15 +159,33 @@ export class Auth {
     return token
   }
 
-  async createUser(username: string, password: string, role: Role): Promise<User> {
+  /**
+   * A new user. Without a password (null), they can't sign in until they
+   * choose one with a one-time link (users.ts). A deleted user's name is
+   * still taken (its tombstone keeps it).
+   */
+  async createUser(username: string, password: string | null, role: Role): Promise<User> {
     const name = username.normalize('NFC').trim()
-    if (!/^[\p{L}\p{N}._-]{2,64}$/u.test(name)) throw new AuthError('invalid_username', 'invalid username (2-64 letters, digits, ".", "_" or "-")')
-    if (password.length < MIN_PASSWORD) throw new AuthError('weak_password', `password must be at least ${MIN_PASSWORD} characters`)
+    if (!NAME_PATTERN.test(name)) throw new AuthError('invalid_username', 'invalid username (2-64 letters, digits, ".", "_" or "-")')
+    if (password !== null) strongEnough(password)
     if (this.db.prepare('select 1 from users where username = ?').get(name)) throw new AuthError('user_exists', `user ${name} already exists`)
     const user: User = { id: newUid(), username: name, role, disabled: false }
     this.db.prepare('insert into users (id, username, password_hash, role, created_at) values (?, ?, ?, ?, ?)')
-      .run(user.id, user.username, await hashPassword(password), role, new Date().toISOString())
+      .run(user.id, user.username, password === null ? '' : await hashPassword(password), role, new Date().toISOString())
     return user
+  }
+
+  /** Replaces a user's password (a one-time link, or «Account»). Sessions stay: the caller ends those it has to. */
+  async setPassword(userId: string, password: string): Promise<void> {
+    strongEnough(password)
+    this.db.prepare('update users set password_hash = ? where id = ? and deleted_at is null').run(await hashPassword(password), userId)
+  }
+
+  /** Whether this is the user's password now (always as slow as a real check). */
+  async checkPassword(userId: string, password: string): Promise<boolean> {
+    const row = this.db.prepare('select password_hash from users where id = ? and disabled = 0').get(userId) as { password_hash: string } | undefined
+    const ok = await verifyPassword(password, row?.password_hash || DUMMY_HASH)
+    return ok && !!row?.password_hash
   }
 
   /** Creates the first admin with the first-boot token. The token is consumed. */
@@ -159,23 +199,52 @@ export class Auth {
     return user
   }
 
-  /** Returns a new session token, or null if the credentials are invalid. */
-  async login(username: string, password: string): Promise<{ token: string; user: User; expiresAt: Date } | null> {
+  /**
+   * Returns a new session token, or null if the credentials are invalid.
+   * `userAgent`: the browser, remembered to tell the session apart.
+   */
+  async login(username: string, password: string, userAgent?: string): Promise<{ token: string; user: User; expiresAt: Date } | null> {
     const row = this.db.prepare('select id, username, role, disabled, password_hash from users where username = ?')
       .get(username.normalize('NFC').trim()) as { id: string; username: string; role: Role; disabled: number; password_hash: string } | undefined
-    // Verified against a dummy hash either way, so response time doesn't reveal which users exist.
-    const ok = await verifyPassword(password, row?.password_hash ?? DUMMY_HASH)
-    if (!row || !ok || row.disabled) return null
+    // Verified against a dummy hash either way (also for someone invited who
+    // has no password yet), so response time doesn't reveal which users exist.
+    const ok = await verifyPassword(password, row?.password_hash || DUMMY_HASH)
+    if (!row || !ok || !row.password_hash || row.disabled) return null
     // A hash from before argon2id (or with weaker parameters) is replaced now that the password is known.
     if (needsRehash(row.password_hash)) {
       this.db.prepare('update users set password_hash = ? where id = ? and password_hash = ?').run(await hashPassword(password), row.id, row.password_hash)
     }
+    return { ...this.startSession(row.id, userAgent), user: rowToUser(row) }
+  }
+
+  /** A new session for a user whose credentials were just checked (a login, or a one-time link). */
+  startSession(userId: string, userAgent?: string): { token: string; expiresAt: Date } {
     const token = newToken()
     const now = new Date()
     const expiresAt = new Date(now.getTime() + SESSION_DAYS * 86_400_000)
-    this.db.prepare('insert into sessions (token_hash, user_id, created_at, expires_at, last_seen_at) values (?, ?, ?, ?, ?)')
-      .run(tokenHash(token), row.id, now.toISOString(), expiresAt.toISOString(), now.toISOString())
-    return { token, user: rowToUser(row), expiresAt }
+    this.db.prepare('insert into sessions (token_hash, user_id, created_at, expires_at, last_seen_at, user_agent) values (?, ?, ?, ?, ?, ?)')
+      .run(tokenHash(token), userId, now.toISOString(), expiresAt.toISOString(), now.toISOString(), userAgent?.slice(0, MAX_USER_AGENT) || null)
+    return { token, expiresAt }
+  }
+
+  /** A user's sessions still in force, most recently used first. */
+  sessions(userId: string): SessionInfo[] {
+    const rows = this.db.prepare(`select token_hash, created_at, last_seen_at, expires_at, user_agent from sessions
+      where user_id = ? and expires_at > ? order by last_seen_at desc, created_at desc`).all(userId, new Date().toISOString()) as
+      { token_hash: string; created_at: string; last_seen_at: string; expires_at: string; user_agent: string | null }[]
+    return rows.map((r) => ({ id: r.token_hash.slice(0, SESSION_ID), createdAt: r.created_at, lastSeenAt: r.last_seen_at, expiresAt: r.expires_at, userAgent: r.user_agent }))
+  }
+
+  /** Ends one session of a user's by its public id. Whether there was one. */
+  endSession(userId: string, id: string): boolean {
+    if (!/^[0-9a-f]+$/.test(id) || id.length !== SESSION_ID) return false
+    return this.db.prepare('delete from sessions where user_id = ? and substr(token_hash, 1, ?) = ?').run(userId, SESSION_ID, id).changes > 0
+  }
+
+  /** Ends every session of a user's, but the one with the public id `keep` (if given). How many ended. */
+  endSessions(userId: string, keep?: string): number {
+    if (keep) return this.db.prepare('delete from sessions where user_id = ? and substr(token_hash, 1, ?) != ?').run(userId, SESSION_ID, keep).changes
+    return this.db.prepare('delete from sessions where user_id = ?').run(userId).changes
   }
 
   /** User of a valid session. Renews the expiry (sliding session). */
@@ -202,6 +271,10 @@ export class Auth {
   logout(token: string) {
     this.db.prepare('delete from sessions where token_hash = ?').run(tokenHash(token))
   }
+}
+
+function strongEnough(password: string) {
+  if (typeof password !== 'string' || password.length < MIN_PASSWORD) throw new AuthError('weak_password', `password must be at least ${MIN_PASSWORD} characters`)
 }
 
 // Same algorithm and cost as a real hash, so an unknown user takes as long as a known one.

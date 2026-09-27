@@ -1,0 +1,82 @@
+// A session that ends ends its live connections too (users.ts, the hub):
+// disabling someone cuts their open editor and their key at once, and a new
+// password ends the other sessions' editors, never the one that changed it.
+// On a real server.
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { api, closeAll, connect, login, makeDirs, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
+
+const NOTE = 'hogar/Proxy.md'
+
+async function signIn(srv: Srv, username: string, password: string): Promise<string> {
+  const r = await fetch(srv.base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password }) })
+  assert.equal(r.status, 200)
+  return r.headers.get('set-cookie')!.split(';')[0]!
+}
+
+/** What an editor hears: the hub's messages, and whether its connection is up. */
+function watch(c: Client) {
+  const heard: string[] = []
+  let status = 'connected'
+  c.provider.on('stateless', ({ payload }: { payload: string }) => { heard.push(JSON.parse(payload).type) })
+  c.provider.on('status', ({ status: s }: { status: string }) => { status = s })
+  return { heard, status: () => status }
+}
+
+test('disabling someone ends their open editor and their key at once', async () => {
+  const { env } = makeDirs()
+  const srv = await startServer(env)
+  try {
+    const admin = await login(srv)
+    const created = await api(srv, admin, 'POST', '/api/admin/users', { username: 'ana', role: 'member', password: 'ana-long-password' })
+    assert.equal(created.status, 201)
+    assert.equal((await api(srv, admin, 'PUT', '/api/admin/integrations', { api: true })).status, 200)
+    const ana = await signIn(srv, 'ana', 'ana-long-password')
+    const key = { authorization: `Bearer ${(await api(srv, ana, 'POST', '/api/keys', { name: 'Script', canWrite: true })).body.token}` }
+    assert.equal((await api(srv, '', 'GET', '/api/tree', undefined, key)).status, 200)
+
+    const editor = await connect(srv, ana, NOTE)
+    const seen = watch(editor)
+    const bystander = await connect(srv, admin, NOTE)
+    const other = watch(bystander)
+
+    assert.equal((await api(srv, admin, 'POST', `/api/admin/users/${created.body.user.id}/disable`)).status, 200)
+    await waitFor(() => seen.heard.includes('thoth:session-ended'), 'the editor is told its session ended')
+    await waitFor(() => seen.status() === 'disconnected', 'and its connection closes')
+    assert.equal((await api(srv, '', 'GET', '/api/tree', undefined, key)).status, 401, 'the key stops at once')
+    // It tries to reconnect, and the hub refuses it: what it types never reaches anyone.
+    typeLine(editor, 'WRITTEN-AFTER-DISABLE')
+    await new Promise((r) => setTimeout(r, 1500))
+    assert.ok(!bystander.text().includes('WRITTEN-AFTER-DISABLE'))
+    assert.notEqual(seen.status(), 'connected')
+    assert.ok(!other.heard.includes('thoth:session-ended'), 'someone else\'s editor goes on')
+    assert.equal(other.status(), 'connected')
+  } finally {
+    closeAll()
+    await srv.stop()
+  }
+})
+
+test('a new password ends the editors of the other sessions, not the one that changed it', async () => {
+  const { env } = makeDirs()
+  const srv = await startServer(env)
+  try {
+    const admin = await login(srv)
+    const second = await login(srv)
+    const here = await connect(srv, admin, NOTE)
+    const there = await connect(srv, second, NOTE)
+    const hereSeen = watch(here)
+    const thereSeen = watch(there)
+    const r = await api(srv, admin, 'POST', '/api/auth/password', { current: 'a-long-password', password: 'another-long-password' })
+    assert.equal(r.status, 200)
+    await waitFor(() => thereSeen.status() === 'disconnected', 'the other session\'s editor closes')
+    assert.ok(thereSeen.heard.includes('thoth:session-ended'))
+    typeLine(here, 'STILL-HERE')
+    await waitFor(async () => (await api(srv, admin, 'GET', `/api/note?path=${encodeURIComponent(NOTE)}`)).body?.text?.includes('STILL-HERE'), 'this session keeps writing')
+    assert.ok(!hereSeen.heard.includes('thoth:session-ended'))
+    assert.equal(hereSeen.status(), 'connected')
+  } finally {
+    closeAll()
+    await srv.stop()
+  }
+})

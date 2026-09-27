@@ -1,8 +1,14 @@
 // Images stored in the notes folder (D-028): which types are accepted, where a
 // new one goes and what it is called, and downloading one from a URL when a
-// user explicitly asks for a copy.
+// user explicitly asks for a copy (members only from public addresses,
+// D-038.6).
+import { lookup as dnsLookup } from 'node:dns/promises'
+import { request as httpRequest, type IncomingMessage } from 'node:http'
+import { request as httpsRequest } from 'node:https'
+import { isIP, type LookupFunction } from 'node:net'
 import { posix } from 'node:path'
 import type { AttachmentsConfig } from '@thoth/core'
+import { isPublicAddress, type Resolver } from './cimd.ts'
 
 /** Types thoth stores, detected from the bytes (never from the name or the declared type). */
 const STORED: { mime: string; ext: string; test: (b: Uint8Array) => boolean }[] = [
@@ -88,7 +94,7 @@ export function suffixedName(name: string, n: number): string {
   return dot > 0 ? `${name.slice(0, dot)}-${n}${name.slice(dot)}` : `${name}-${n}`
 }
 
-export type FetchErrorCode = 'invalid' | 'too_large' | 'unsupported_type' | 'fetch_failed'
+export type FetchErrorCode = 'invalid' | 'too_large' | 'unsupported_type' | 'fetch_failed' | 'private_address'
 
 export class FetchImageError extends Error {
   readonly code: FetchErrorCode
@@ -102,6 +108,15 @@ export interface FetchImageOptions {
   maxBytes: number
   timeoutMs?: number
   maxRedirects?: number
+  /**
+   * Only public addresses (D-038.6, for members): every address the host
+   * resolves to must be public (cimd.ts `isPublicAddress`), and the
+   * connection goes to the one that was checked; each redirect is checked
+   * again, the same way. Otherwise `private_address`.
+   */
+  publicOnly?: boolean
+  /** Only tests pass it: a resolver in place of the system's, and which addresses count as public. */
+  testing?: { resolve?: Resolver; isPublic?: (ip: string) => boolean }
 }
 
 /**
@@ -110,9 +125,10 @@ export interface FetchImageOptions {
  * headers), a bounded number of redirects, an image content type and bytes
  * that really are one of the stored types.
  *
- * Private and LAN addresses are allowed on purpose: a user may want a copy of a
- * chart from a service on their network. It only runs on an explicit user
- * action, never for URLs found in notes (D-028).
+ * Private and LAN addresses are allowed for the thoth admin (and for members
+ * if the admin allows it): a chart from a service on the network may be worth
+ * a copy. Otherwise `publicOnly`. It only runs on an explicit user action,
+ * never for URLs found in notes (D-028).
  */
 export async function fetchImage(url: string, opts: FetchImageOptions): Promise<{ bytes: Uint8Array; mime: string }> {
   const signal = AbortSignal.timeout(opts.timeoutMs ?? 15_000)
@@ -120,25 +136,27 @@ export async function fetchImage(url: string, opts: FetchImageOptions): Promise<
   let current = parseHttpUrl(url)
   try {
     for (let hop = 0; ; hop++) {
-      const res = await fetch(current, { redirect: 'manual', signal, headers: { accept: 'image/*' } })
-      if (res.status >= 300 && res.status < 400 && res.headers.has('location')) {
-        await res.body?.cancel()
+      const res = await get(current, opts, signal)
+      const status = res.statusCode ?? 0
+      const location = res.headers.location
+      if (status >= 300 && status < 400 && location) {
+        res.destroy()
         if (hop >= maxRedirects) throw new FetchImageError('fetch_failed', `too many redirects from ${url}`)
-        current = parseHttpUrl(new URL(res.headers.get('location')!, current).href)
+        current = parseHttpUrl(new URL(location, current).href)
         continue
       }
-      if (!res.ok) {
-        await res.body?.cancel()
-        throw new FetchImageError('fetch_failed', `the server answered ${res.status}`)
+      if (status < 200 || status >= 300) {
+        res.destroy()
+        throw new FetchImageError('fetch_failed', `the server answered ${status}`)
       }
-      const type = (res.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
+      const type = (res.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase()
       if (!type.startsWith('image/')) {
-        await res.body?.cancel()
+        res.destroy()
         throw new FetchImageError('unsupported_type', `not an image: ${type || 'no content type'}`)
       }
-      const declared = Number(res.headers.get('content-length'))
+      const declared = Number(res.headers['content-length'])
       if (declared > opts.maxBytes) {
-        await res.body?.cancel()
+        res.destroy()
         throw new FetchImageError('too_large', `${declared} bytes, the limit is ${opts.maxBytes}`)
       }
       const bytes = await readCapped(res, opts.maxBytes)
@@ -153,6 +171,42 @@ export async function fetchImage(url: string, opts: FetchImageOptions): Promise<
   }
 }
 
+/** One GET, answered with its response (headers read, body not yet). */
+function get(u: URL, opts: FetchImageOptions, signal: AbortSignal): Promise<IncomingMessage> {
+  const isPublic = opts.testing?.isPublic ?? isPublicAddress
+  let lookup: LookupFunction | undefined
+  let blocked: FetchImageError | null = null
+  if (opts.publicOnly) {
+    // An address in the URL is never looked up: it's checked here.
+    const host = u.hostname.replace(/^\[|\]$/g, '')
+    if (isIP(host) && !isPublic(host)) return Promise.reject(privateAddress(host))
+    // A name is resolved once, all its addresses must be public, and the socket connects to the one checked.
+    const resolve: Resolver = opts.testing?.resolve ?? ((h) => dnsLookup(h, { all: true, verbatim: true }))
+    lookup = ((hostname: string, options: { all?: boolean }, cb: (...args: unknown[]) => void) => {
+      resolve(hostname).then((all) => {
+        if (all.length === 0) return cb(Object.assign(new Error(`${hostname} does not resolve`), { code: 'ENOTFOUND' }))
+        if (!all.every((a) => isPublic(a.address))) {
+          blocked = privateAddress(hostname)
+          return cb(blocked)
+        }
+        if (options?.all) cb(null, [all[0]])
+        else cb(null, all[0]!.address, all[0]!.family)
+      }, (err: unknown) => cb(err))
+    }) as unknown as LookupFunction
+  }
+  return new Promise((resolve, reject) => {
+    const req = (u.protocol === 'https:' ? httpsRequest : httpRequest)(u, {
+      method: 'GET', headers: { accept: 'image/*', 'user-agent': 'thoth' }, signal, agent: false, ...(lookup ? { lookup } : {}),
+    }, resolve)
+    req.on('error', (err) => reject(blocked ?? err))
+    req.end()
+  })
+}
+
+function privateAddress(host: string) {
+  return new FetchImageError('private_address', `${host} is not a public address: members only download from public addresses`)
+}
+
 function parseHttpUrl(raw: string): URL {
   let u: URL
   try { u = new URL(raw) } catch { throw new FetchImageError('invalid', `not a URL: ${raw}`) }
@@ -161,23 +215,17 @@ function parseHttpUrl(raw: string): URL {
   return u
 }
 
-async function readCapped(res: Response, max: number): Promise<Uint8Array> {
-  const reader = res.body?.getReader()
-  if (!reader) return new Uint8Array()
-  const chunks: Uint8Array[] = []
+async function readCapped(res: IncomingMessage, max: number): Promise<Uint8Array> {
+  const chunks: Buffer[] = []
   let total = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    total += value.byteLength
+  for await (const chunk of res) {
+    const c = chunk as Buffer
+    total += c.byteLength
     if (total > max) {
-      await reader.cancel()
+      res.destroy()
       throw new FetchImageError('too_large', `more than ${max} bytes`)
     }
-    chunks.push(value)
+    chunks.push(c)
   }
-  const out = new Uint8Array(total)
-  let at = 0
-  for (const c of chunks) { out.set(c, at); at += c.byteLength }
-  return out
+  return new Uint8Array(Buffer.concat(chunks, total))
 }

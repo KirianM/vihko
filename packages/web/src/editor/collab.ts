@@ -2,13 +2,15 @@
 // /collab. The file is still the source of truth; the hub says whenever the text
 // reaches the disk (`thoth:saved`), when the note is deleted outside thoth,
 // when anyone moves or trashes it from thoth and when it was moved outside
-// thoth and the hub followed it. If the hub refuses the tab's
+// thoth and the hub followed it, and when this session ended (then the
+// application signs out). If the hub refuses the tab's
 // copy on a reconnection (another document generation, see lineage.ts), the
 // session moves to the hub's document and what hadn't been sent is set aside.
 import { HocuspocusProviderWebsocket, type HocuspocusProvider } from '@hocuspocus/provider'
 import { useEffect, useState } from 'react'
 import type * as Y from 'yjs'
 import { NoteLink, TEXT, type Lineage, type SetAside } from './lineage.ts'
+import { SESSION_ENDED_EVENT } from '../api.ts'
 
 export { TEXT, type SetAside }
 const SAVED = 'thoth:saved'
@@ -16,6 +18,7 @@ const ORPHANED = 'thoth:deleted-externally'
 const ORPHAN_RESOLVED = 'thoth:orphan-resolved'
 const MOVED = 'thoth:moved'
 const TRASHED = 'thoth:trashed'
+const SESSION_ENDED = 'thoth:session-ended'
 
 /** A single WebSocket for the whole application; each open note is a document over it. */
 let socket: HocuspocusProviderWebsocket | null = null
@@ -103,6 +106,7 @@ export function useCollab(path: string): CollabState {
         else if (msg.type === ORPHAN_RESOLVED) { if (msg.action === 'discard') closedByHub = true; set({ orphaned: false }) }
         else if (msg.type === MOVED && msg.to) { closedByHub = true; set({ moved: { to: msg.to, outside: msg.external === true } }) }
         else if (msg.type === TRASHED && msg.id) { closedByHub = true; set({ trashed: { id: msg.id, by: msg.by ?? '' } }) }
+        else if (msg.type === SESSION_ENDED) window.dispatchEvent(new Event(SESSION_ENDED_EVENT))
       })
     }
 
