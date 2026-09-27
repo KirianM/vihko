@@ -194,6 +194,7 @@ export class RuleSet {
   /** `{user}` rules: their segments and where the `{user}` is. */
   private patterns: { rule: PermissionRule; segs: string[]; at: number }[] = []
   private ownCache = new Map<string, RuleMatch | null>()
+  private userCache = new Map<string, RuleMatch | null>()
   private governingCache = new Map<string, Governing | null>()
 
   constructor(rules: readonly PermissionRule[]) {
@@ -213,21 +214,34 @@ export class RuleSet {
     const f = folder.normalize('NFC')
     const cached = this.ownCache.get(f)
     if (cached !== undefined) return cached
-    let found: RuleMatch | null = null
     const lit = this.literal.get(f)
-    if (lit) found = { rule: lit, user: null }
-    else if (f !== '') {
-      const segs = f.split('/')
-      for (const p of this.patterns) {
-        if (p.segs.length !== segs.length) continue
-        if (p.segs.every((s, i) => i === p.at || s === segs[i])) { found = { rule: p.rule, user: segs[p.at]! }; break }
-      }
-    }
+    const found: RuleMatch | null = lit ? { rule: lit, user: null } : this.userRule(f)
     this.remember(this.ownCache, f, found)
     return found
   }
 
-  /** Where the folder's grants come from: its own rule with grants, or its nearest ancestor's; null if none has any. */
+  /** The `{user}` rule matching this folder, even under a literal one written for it. */
+  userRule(folder: string): RuleMatch | null {
+    const f = folder.normalize('NFC')
+    if (f === '' || this.patterns.length === 0) return null
+    const cached = this.userCache.get(f)
+    if (cached !== undefined) return cached
+    const segs = f.split('/')
+    let found: RuleMatch | null = null
+    for (const p of this.patterns) {
+      if (p.segs.length !== segs.length) continue
+      if (p.segs.every((s, i) => i === p.at || s === segs[i])) { found = { rule: p.rule, user: segs[p.at]! }; break }
+    }
+    this.remember(this.userCache, f, found)
+    return found
+  }
+
+  /**
+   * Where the folder's grants come from: its own rule with grants, or its
+   * nearest ancestor's; null if none has any. A literal rule without grants
+   * (only `ai: false`, say) over a `{user}` one leaves that one's grants in
+   * place: the folder never falls through to what's above it.
+   */
   governing(folder: string): Governing | null {
     const f = folder.normalize('NFC')
     const cached = this.governingCache.get(f)
@@ -236,6 +250,8 @@ export class RuleSet {
     for (const d of selfAndAncestors(f)) {
       const m = this.own(d)
       if (m && m.rule.grants !== null) { found = { ...m, at: d }; break }
+      const u = m && m.user === null ? this.userRule(d) : null
+      if (u && u.rule.grants !== null) { found = { ...u, at: d }; break }
     }
     this.remember(this.governingCache, f, found)
     return found
@@ -243,7 +259,9 @@ export class RuleSet {
 
   /** The folder (itself or an ancestor) whose `ai: false` closes it to agents; null if none does. */
   aiClosedAt(folder: string): string | null {
-    for (const d of selfAndAncestors(folder.normalize('NFC'))) if (this.own(d)?.rule.ai === false) return d
+    for (const d of selfAndAncestors(folder.normalize('NFC'))) {
+      if (this.own(d)?.rule.ai === false || this.userRule(d)?.rule.ai === false) return d
+    }
     return null
   }
 
