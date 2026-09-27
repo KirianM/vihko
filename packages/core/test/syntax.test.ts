@@ -4,6 +4,9 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { markdownParser } from '@thoth/core/syntax'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 const SRC = fileURLToPath(new URL('../src/', import.meta.url))
 
@@ -23,6 +26,6 @@ test('@thoth/core/syntax is browser-safe: no Node modules', () => {
 
 test('@thoth/core/syntax recognizes wikilinks and tags', () => {
   const names = new Set<string>()
-  markdownParser.parse('[[Plan]] y #hogar').iterate({ enter: (n) => { names.add(n.name) } })
+  markdownParser.parse(`[[${m.aTitle()}]] y #${m.aTag()}`).iterate({ enter: (n) => { names.add(n.name) } })
   assert.ok(names.has('WikiLink') && names.has('Tag'))
 })
