@@ -19,6 +19,8 @@ const FILES = {
   ...BASE,
   'admin/logo.png': PNG,
   [CONFLICT]: '# Notas de Marta (copia)\n\nPalabra Jade copia.\n',
+  // Closed to the group by its own grants: its managers from above (the root's) still reach it (D-040 3.5).
+  'familia/sorpresa/regalo.md': '# Regalo sorpresa\n\nPalabra Ámbar.\n',
 }
 
 /** What gives each note (or file) away: its path (or folder) and words only it has. */
@@ -35,6 +37,7 @@ const MARKS: Record<string, string[]> = {
   'admin/ajustes.md': ['admin/ajustes', 'Ajustes del admin', 'Berilo'],
   'admin/logo.png': ['logo.png'],
   'Plan.md': ['Plan raíz', 'Berilo raíz'],
+  'familia/sorpresa/regalo.md': ['familia/sorpresa', 'Regalo sorpresa', 'Ámbar'],
 }
 
 type Who = 'laura' | 'marta' | 'agent'
@@ -62,7 +65,7 @@ test('every HTTP route, MCP tool and hub message is classified by what it needs 
 })
 
 test('two people and an agent over the same tree: nothing of what they can\'t see reaches them, through any route or tool', async () => {
-  const h = await setup({ files: FILES, config: RULES + '  personas/noa/compartida:\n    grants: { noa: manage }\n' })
+  const h = await setup({ files: FILES, config: RULES + '  personas/noa/compartida:\n    grants: { noa: manage }\n  familia/sorpresa:\n    grants: { laura: manage }\n' })
   try {
     await h.enable()
     const agentKey = await h.newKey('noa', { name: 'Agente de Noa', canWrite: true })
@@ -78,6 +81,8 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       const seen = new Set(Object.keys(MARKS).filter((p) => access.canRead(p)).flatMap((p) => MARKS[p]!))
       return [...new Set(Object.keys(MARKS).filter((p) => !access.canRead(p)).flatMap((p) => MARKS[p]!))].filter((m) => !seen.has(m))
     }
+    // A premise of the sweep (D-040 3.5): the root's manager (the agent's user) reaches the subfolder closed to the group; the group doesn't.
+    assert.deepEqual((['laura', 'marta', 'agent'] as Who[]).map((w) => h.policy.for(principals[w]).canRead('familia/sorpresa/regalo.md')), [true, false, true])
     const own: Record<Who, string> = { laura: 'personas/laura/recetas/tarta.md', marta: 'personas/marta/notas.md', agent: 'personas/noa/plan.md' }
     const hidden: Record<Who, string> = { laura: 'personas/noa/plan.md', marta: 'personas/laura/recetas/tarta.md', agent: 'personas/laura/recetas/tarta.md' }
     const hiddenFolder: Record<Who, string> = { laura: 'admin', marta: 'personas/laura', agent: 'personas/laura' }
@@ -95,6 +100,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
     await put(h.laura, shared, 'Pan.\n')
     await put(h.noa, 'admin/ajustes.md', 'Más Berilo.\n')
     await put(h.marta, 'personas/marta/notas.md', 'Más Jade.\n')
+    await put(h.noa, 'familia/sorpresa/regalo.md', 'Más Ámbar.\n')
     assert.equal((await h.noa('POST', '/api/note', { path: 'admin/borrar.md', text: '# Borrador Berilo\n' })).status, 201)
     assert.equal((await h.noa('DELETE', h.url('/api/note', { path: 'admin/borrar.md' }))).status, 200)
     const kirianTrash = ((await h.noa('GET', '/api/trash')).body.entries as { id: string }[])[0]!.id
@@ -139,7 +145,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
 
         { route: 'GET /api/tree', method: 'GET', path: '/api/tree', expect: 200 },
         { route: 'GET /api/tags', method: 'GET', path: '/api/tags', expect: 200 },
-        ...['Turmalina', 'Obsidiana', 'Jade', 'Ónice', 'Berilo', 'Cuarzo', 'Leche', 'Plan', 'tag:intimo', 'tag:casa', 'path:personas', 'path:admin', 'copia']
+        ...['Turmalina', 'Obsidiana', 'Jade', 'Ónice', 'Berilo', 'Cuarzo', 'Leche', 'Ámbar', 'Plan', 'tag:intimo', 'tag:casa', 'path:personas', 'path:admin', 'path:familia', 'copia']
           .map((s) => ({ route: 'GET /api/search', method: 'GET', path: q('/api/search', { q: s }), expect: 200 })),
         { route: 'GET /api/trash', method: 'GET', path: '/api/trash' },
         { route: 'GET /api/alerts', method: 'GET', path: '/api/alerts' },
@@ -263,7 +269,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
     const marks = hiddenMarks('agent')
     const theirs = hidden.agent
     const toolCalls: [string, Record<string, unknown>][] = [
-      ...['Turmalina', 'Obsidiana', 'Jade', 'Cuarzo', 'Leche', 'tag:intimo', 'path:personas'].map((query): [string, Record<string, unknown>] => ['search', { query }]),
+      ...['Turmalina', 'Obsidiana', 'Jade', 'Cuarzo', 'Leche', 'Ámbar', 'tag:intimo', 'path:personas'].map((query): [string, Record<string, unknown>] => ['search', { query }]),
       ['get_note', { path: theirs }], ['get_note', { path: shared }], ['get_note', { uid: '01TARTA0000000000000000000' }],
       ['list_folder', { folder: '' , recursive: true }], ['list_folder', { folder: 'personas' }], ['list_folder', { folder: 'personas/laura' }],
       ['related', { path: shared }], ['related', { path: theirs }],

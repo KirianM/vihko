@@ -17,9 +17,13 @@ const disk = (p = NOTE) => readFileSync(`${NOTES}/${p}`, 'utf8')
 const q = encodeURIComponent
 const SLOW = { timeout: 20_000 }
 
-/** thoth.yaml: the root as every spec has it, and `colab` Ana's, shared with Noa at `level`. */
+/**
+ * thoth.yaml: both edit the root, and `colab` is Ana's, shared with Noa at
+ * `level`. Noa doesn't manage the root here: whoever does keeps managing
+ * everything under it (D-040 3.5).
+ */
 function rules(level: 'read' | 'comment') {
-  writeFileSync(`${NOTES}/thoth.yaml`, `permissions:\n  "":\n    grants: { noa: manage, ana: edit }\n  ${DIR}:\n    grants: { ana: manage, noa: ${level} }\n`)
+  writeFileSync(`${NOTES}/thoth.yaml`, `permissions:\n  "":\n    grants: { noa: edit, ana: edit }\n  ${DIR}:\n    grants: { ana: manage, noa: ${level} }\n`)
 }
 
 const level = async (p: Page, path = NOTE) => ((await (await p.request.get(`/api/note?path=${q(path)}`)).json()) as { level?: string }).level
@@ -101,6 +105,22 @@ test('a comment by someone who may only comment reaches the other editor live; t
   await his.getByRole('button', { name: 'Resolver y borrar' }).click()
   await expect(panel(a).locator('.thread', { hasText: 'Mejor con pera' })).toHaveCount(0)
   await expect.poll(() => disk()).not.toContain('Mejor con pera')
+  // One of his with a reply from Ana: resolving it would take her words out too, so it isn't his to do (D-040 3.7).
+  await k.locator('.cm-line', { hasText: 'Con manzana.' }).click()
+  await panel(k).getByRole('button', { name: 'Comentar la selección' }).click()
+  await panel(k).getByPlaceholder('Escribe un comentario…').fill('¿Y canela?')
+  await panel(k).locator('.thread-draft').getByRole('button', { name: 'Comentar' }).click()
+  const canela = (p: Page) => panel(p).locator('.thread', { hasText: '¿Y canela?' })
+  await expect(canela(k).getByRole('button', { name: 'Resolver' })).toBeVisible()
+  await canela(a).getByRole('button', { name: 'Responder' }).click()
+  await canela(a).getByPlaceholder('Escribe una respuesta…').fill('Un poco')
+  await canela(a).getByRole('button', { name: 'Responder' }).click()
+  await expect(canela(k)).toContainText('Un poco')
+  await expect(canela(k).getByRole('button', { name: 'Resolver' })).toHaveCount(0)
+  await expect(canela(k).getByRole('button', { name: 'Responder' })).toBeVisible()
+  await k.screenshot({ path: `${SHOTS}/comment-resolve-others-light.png`, animations: 'disabled' })
+  await canela(a).getByRole('button', { name: 'Resolver' }).click()
+  await expect(canela(k)).toHaveCount(0)
   // Ana (edit) resolves anyone's.
   await expect(panel(a).locator('.thread', { hasText: '¿Cuánto rato?' }).getByRole('button', { name: 'Resolver' })).toBeVisible()
   expect(await editorText(a)).not.toContain('NOA-TECLEA')

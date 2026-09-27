@@ -9,15 +9,16 @@
 //   POST /api/permissions/holds/:id        { action: 'move_permissions' | 'release' } notes held after an external move (permissionHolds.ts)
 //
 // Who: the admin, for any folder (they see folders' names, never their
-// notes, D-038.1), and whoever has `manage` in the folder (D-038.4). A
-// folder with its own rules that leave someone out is changed by the admin
-// or by whoever has `manage` in it: nobody else has `manage` there. `ai:
-// false` is set and removed with `manage` too. A `{user}` rule itself (its
+// notes, D-038.1), and whoever has `manage` in the folder (D-038.4), which
+// whoever manages a folder above keeps whatever its own rules say (D-040
+// 3.5), except in a personal folder (a `{user}` rule's) and under it, where
+// nobody from above it manages. `ai: false` is set and removed with `manage`
+// too. A `{user}` rule itself (its
 // key, `personas/{user}`) only by the admin. Others: 403 if they see the
 // folder, 404 if not.
 import type { Context, Hono } from 'hono'
 import {
-  LEVELS, USER_SEGMENT, WORKSPACE_FILE, atLeast, grantsAt, isSubject, parentFolder, subjectKey,
+  LEVELS, USER_SEGMENT, WORKSPACE_FILE, atLeast, grantsAt, isSubject, parentFolder, selfAndAncestors, subjectKey,
   type Level, type RuleValue,
 } from '@thoth/core'
 import { AccessError, inFolders, type Access, type AccessPolicy } from '../access.ts'
@@ -82,6 +83,7 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
     // The `{user}` rule matching this folder, also under a literal one: what «restore» goes back to there.
     const pattern = folder.includes(USER_SEGMENT) ? null : set?.userRule(folder) ?? null
     const names = new Set(users.map((u) => subjectKey(u.username)))
+    const personal = folder.includes(USER_SEGMENT) ? folder : set ? selfAndAncestors(folder).find((f) => set.personal(f)) ?? null : null
     return {
       folder,
       /** The ETag of thoth.yaml: a change must name it (412 if the file changed). */
@@ -98,6 +100,14 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
         : null,
       /** The grants that apply here (resolved: `{user}` is the person's name), and the folder they're written for. */
       effective: { from: effective.governing?.at ?? null, rule: effective.governing?.rule.folder ?? null, grants: effective.grants },
+      /**
+       * Who manages it from above, whatever its own grants say (D-040 3.5):
+       * each subject with the folder whose rule gives them `manage`. None in a
+       * personal folder from above it (`personal`: the personal folder it is,
+       * or is in; null if none).
+       */
+      managedAbove: folder.includes(USER_SEGMENT) ? [] : engine.reaching(folder, users).above,
+      personal,
       /** Closed to agents (`ai: false`), and where that's set: here, or above (then it can't be undone here). */
       ai: { closed: aiAt !== null, from: aiAt },
       canEdit: mayManage(c, folder),

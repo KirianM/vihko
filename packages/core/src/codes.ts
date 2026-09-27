@@ -35,6 +35,7 @@ export type ErrorCode =
   | 'integrations_locked' // THOTH_INTEGRATIONS=off: the API and MCP switches can't be turned on
   | 'not_revertible' // a version that creates or deletes the note has no change of its text to revert
   | 'agent_denied' // an agent named a note that exists but isn't for agents (`ai: false`, or outside its key's folders)
+  | 'audience_widens' // an agent's move would open the note to people, groups or keys who can't see it now: it needs the audience confirmed (D-040 3.2)
   | 'invalid_client' // an OAuth authorization request from a client this thoth doesn't know
   | 'invalid_redirect_uri' // an OAuth authorization request whose redirect URI the client didn't register
   | 'too_many_attempts' // too many failed sign-ins (or first-boot tokens): wait `retryAfter` seconds (also Retry-After)

@@ -209,6 +209,27 @@ export interface ResolvedLink {
   titles: Record<string, string>
 }
 
+/**
+ * An agent's move would open the note to someone who can't see it now
+ * (D-040 3.2): it goes through only when asked again with the audience
+ * confirmed (`confirmAudience`, which the agent asks the person for first).
+ * The change carries users' and groups' names (everyone sees them) and how
+ * many keys, never whose.
+ */
+export class AudienceWidens extends Error {
+  readonly code = 'audience_widens'
+  readonly audience: AudienceChange
+  constructor(audience: AudienceChange) {
+    super('this move opens the note to people, groups or keys who can\'t see it now: ask the person you act for, and move it again with the audience confirmed if they agree')
+    this.audience = audience
+  }
+}
+
+/** Whether a change of audience gives access to anyone (a person, a group or a key) who doesn't have it. */
+export function widens(a: AudienceChange): boolean {
+  return a.users.gain.length > 0 || a.groups.gain.length > 0 || a.keys.gain > 0
+}
+
 class DryRun extends Error {
   readonly preview: EditPreview
   constructor(preview: EditPreview) {
@@ -564,8 +585,8 @@ export class ScopedNotes {
 
   /**
    * A comment (commenting.ts), for someone with `comment` or more where the
-   * note is: a new thread, a reply, or resolving a thread they started (with
-   * `edit`, anyone's). One exact operation through the note service, as the
+   * note is: a new thread, a reply, or resolving a thread they started and
+   * nobody else replied to (with `edit`, anyone's). One exact operation through the note service, as the
    * person: on the open document if someone is editing the note, on the
    * file otherwise. Only people: an agent comments by editing (D-038.5).
    */
@@ -598,15 +619,23 @@ export class ScopedNotes {
    * (`edit` in its folder) to a path it can write. The report never names a
    * note it can't see (`hidden`: there are some, never which or how many);
    * the rewrites still reach them, as the system. A dry run says whose
-   * access changes (`audience`, D-038), for the UI to confirm.
+   * access changes (`audience`, D-038), for the UI to confirm, and for an
+   * agent too. An agent's move that opens the note to anyone who can't see
+   * it now needs `confirmAudience` (D-040 3.2: the person agreed), or it is
+   * refused with the change (`AudienceWidens`); one that only narrows it
+   * doesn't.
    */
-  async move(from: string, to: string, opts: { ifMatch?: string; dryRun?: boolean } & MoveHooks): Promise<ScopedMoveReport> {
+  async move(from: string, to: string, opts: { ifMatch?: string; dryRun?: boolean; confirmAudience?: boolean } & MoveHooks): Promise<ScopedMoveReport> {
     const f = this.writable(from)
     this.visible(f)
     const t = this.writable(to)
-    const report = await this.guardAsync(f, () => this.deps.notes.move(f, t, { ...opts, actor: this.access.actor }))
+    const audience = this.deps.permissions && this.deps.keys && (opts.dryRun || this.access.isAgent)
+      ? audienceChange(this.deps.permissions, this.deps.keys(), [{ before: f, after: t }]) : undefined
+    if (!opts.dryRun && this.access.isAgent && audience && widens(audience) && opts.confirmAudience !== true) throw new AudienceWidens(audience)
+    const { confirmAudience: _, ...moveOpts } = opts
+    const report = await this.guardAsync(f, () => this.deps.notes.move(f, t, { ...moveOpts, actor: this.access.actor }))
     const masked: ScopedMoveReport = this.maskReport(report)
-    if (report.dryRun && !this.access.isAgent && this.deps.permissions && this.deps.keys) masked.audience = audienceChange(this.deps.permissions, this.deps.keys(), [{ before: f, after: t }])
+    if (report.dryRun && audience) masked.audience = audience
     if (!this.access.isAgent) return masked
     if (report.dryRun || report.etag === null) return masked
     // Its folders only take it where it can see it, but whatever the reason: hidden now, no ETag (the move rewrote its text).

@@ -1,14 +1,15 @@
 // Who gains or loses access when something moves (D-038, «mover con aviso»):
 // the preview of a note or folder move says it, and the UI asks before
 // moving. Users and groups are named (everyone may see their names, D-038);
-// keys are only counted (they're their owners' own).
+// keys are only counted (they're their owners' own). Whoever manages a
+// folder above counts where they manage (D-040 3.5), as the engine says.
 //
 // A folder moved from thoth takes its rules along (permissionsFile.ts): its
 // own rules and those under it move with it, and a `{user}` rule that would
 // stop matching it is written as a literal copy at the new path
 // (`ruleMove`). Only what inherits from above the folder changes hands.
 import {
-  RuleSet, folderOf, grantsAt, levelIn, subjectKey,
+  RuleSet, folderOf, grantsAt, levelInReach, reachingGrants, subjectKey,
   type Level, type PermissionRule, type RuleValue,
 } from '@thoth/core'
 import { inFolders } from './access.ts'
@@ -71,13 +72,16 @@ export function audienceChange(engine: PermissionsEngine, keys: readonly KeyWith
   const names = new Set(users.map((u) => subjectKey(u.username)))
   const exists = (n: string) => names.has(subjectKey(n))
   const groupsOf = new Map(users.map((u) => [u.id, engine.directory.groupsOf(u.id)]))
+  // What reaches a folder: its grants and whoever manages it from above (D-040 3.5).
+  const reach = (set: RuleSet | null, folder: string) => (set ? reachingGrants(set, folder, exists) : null)
   const levelIn_ = (set: RuleSet | null, folder: string, u: DirectoryUser): Level | null => {
-    const g = set?.governing(folder)
-    return g ? levelIn(grantsAt(g, exists), { username: u.username, groups: groupsOf.get(u.id) ?? [] }) : null
+    const r = reach(set, folder)
+    return r ? levelInReach(r, { username: u.username, groups: groupsOf.get(u.id) ?? [] }) : null
   }
   const grantedGroups = (set: RuleSet | null, folder: string): Set<string> => {
-    const g = set?.governing(folder)
-    return new Set(g ? Object.keys(grantsAt(g, exists)).filter((s) => s.startsWith('@')).map((s) => s.slice(1)) : [])
+    const r = reach(set, folder)
+    const subjects = r ? [...Object.keys(r.grants), ...r.above.map((m) => m.subject)] : []
+    return new Set(subjects.filter((s) => s.startsWith('@')).map((s) => s.slice(1)))
   }
   const gainU = new Map<string, DirectoryUser>()
   const loseU = new Map<string, DirectoryUser>()

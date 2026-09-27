@@ -254,6 +254,63 @@ test('the permissions API: who sees and changes what, ai, the implicit section, 
   } finally { await h.close() }
 })
 
+test('D-040 3.5: a co-manager can\'t be locked out of a subfolder; the admin managing the root never gets into a personal folder', async () => {
+  const h = await setup({
+    files: { ...FILES, 'familia/viajes/sorpresa/regalo.md': '# Regalo\n\nPalabra Ámbar.\n', 'personas/laura/recetas/secreta/pan.md': '# Pan\n' },
+    config: RULES + '  familia/viajes:\n    grants: { laura: manage, marta: manage }\n',
+  })
+  try {
+    const regalo = h.url('/api/note', { path: 'familia/viajes/sorpresa/regalo.md' })
+    // Laura closes a subfolder to everyone but her: Marta, who manages the folder above with her, keeps managing it.
+    const folder = 'familia/viajes/sorpresa'
+    const before = (await h.laura('GET', h.url('/api/permissions', { folder }))).body
+    const put = await h.laura('PUT', '/api/permissions', { folder, grants: { laura: 'manage' }, ifMatch: before.etag })
+    assert.equal(put.status, 200, put.text)
+    assert.equal((await h.marta('GET', regalo)).status, 200)
+    const seen = await h.marta('GET', h.url('/api/permissions', { folder }))
+    assert.equal(seen.status, 200, seen.text)
+    assert.equal(seen.body.canEdit, true)
+    assert.equal(seen.body.personal, null)
+    assert.deepEqual(seen.body.managedAbove, [{ subject: 'laura', from: 'familia/viajes' }, { subject: 'marta', from: 'familia/viajes' }, { subject: 'noa', from: '' }])
+    // Why: she manages /familia/viajes. And she can put herself back.
+    const marta = seen.body.access.find((a: { username: string }) => a.username === 'marta')
+    assert.deepEqual(marta, { id: h.users.marta.id, username: 'marta', level: 'manage', via: [{ subject: 'marta', level: 'manage', from: 'familia/viajes', above: true }] })
+    const back = await h.marta('PUT', '/api/permissions', { folder, grants: { laura: 'manage', marta: 'edit' }, ifMatch: seen.body.etag })
+    assert.equal(back.status, 200, back.text)
+    // The admin manages the root: he reads it too, lists and direct reads alike.
+    assert.equal((await h.noa('GET', regalo)).status, 200)
+    assert.ok((await h.noa('GET', '/api/tree')).body.notes.some((n: { path: string }) => n.path === 'familia/viajes/sorpresa/regalo.md'))
+    assert.deepEqual((await h.noa('GET', h.url('/api/search', { q: 'Ámbar' }))).body.results.map((r: { path: string }) => r.path), ['familia/viajes/sorpresa/regalo.md'])
+
+    // A subfolder of a personal folder with grants of its own that leave its owner out: she still manages it.
+    const recetas = 'personas/laura/recetas'
+    const mine = (await h.laura('GET', h.url('/api/permissions', { folder: recetas }))).body
+    const shared = await h.laura('PUT', '/api/permissions', { folder: recetas, grants: { marta: 'read' }, ifMatch: mine.etag })
+    assert.equal(shared.status, 200, shared.text)
+    assert.equal(shared.body.canEdit, true, 'she manages personas/laura: not locked out')
+    assert.equal(shared.body.personal, 'personas/laura')
+    assert.deepEqual(shared.body.managedAbove, [{ subject: 'laura', from: 'personas/laura', rule: 'personas/{user}' }])
+    assert.equal((await h.laura('GET', h.url('/api/note', { path: 'personas/laura/recetas/secreta/pan.md' }))).status, 200)
+    assert.equal(h.policy.for({ kind: 'user', user: h.users.laura }).canManage('personas/laura/recetas/secreta'), true)
+    assert.equal((await h.marta('GET', h.url('/api/note', { path: 'personas/laura/recetas/tarta.md' }))).status, 200)
+
+    // The admin with manage on the root reads nothing of personas/laura, nor under it, however its subfolders are set.
+    for (const path of ['personas/laura/recetas/tarta.md', 'personas/laura/recetas/secreta/pan.md', 'personas/laura/diario/2026-09-27.md']) {
+      assert.equal((await h.noa('GET', h.url('/api/note', { path }))).status, 404, path)
+    }
+    assert.ok(!(await h.noa('GET', '/api/tree')).body.folders.some((f: string) => f.startsWith('personas/laura')))
+    assert.deepEqual((await h.noa('GET', h.url('/api/search', { q: 'Obsidiana' }))).body.results, [])
+    const kAccess = h.policy.for({ kind: 'user', user: h.users.noa })
+    assert.deepEqual(['personas/laura', 'personas/laura/recetas', 'personas/laura/recetas/secreta', 'personas/antigua'].map((f) => kAccess.level(f)), [null, null, null, null])
+    // He still sees and changes its permissions as the admin (folder names, never contents), and a grant to himself is explicit.
+    const asAdmin = (await h.noa('GET', h.url('/api/permissions', { folder: recetas }))).body
+    assert.equal(asAdmin.canEdit, true)
+    assert.ok(!asAdmin.access.some((a: { username: string }) => a.username === 'noa'))
+    const reached = (await h.noa('GET', h.url('/api/permissions/access', { user: h.users.noa.id }))).body.folders.map((f: { folder: string }) => f.folder)
+    assert.ok(reached.includes('familia/viajes/sorpresa') && !reached.some((f: string) => f.startsWith('personas/laura')), reached.join(', '))
+  } finally { await h.close() }
+})
+
 test('permissions fail closed: rejected at start, nobody reads; rejected while running, the last valid stay; unknown subjects are ignored with a warning', async () => {
   const bad = RULES.replace('grants: { noa: manage }', 'grants: { noa: owner }')
   const h = await setup({ files: FILES, config: bad })
@@ -287,7 +344,9 @@ test('folders: create with edit, move and delete with manage; their rules go wit
   try {
     assert.equal((await h.marta('POST', '/api/folder', { path: 'familia/nueva' })).status, 201)
     assert.equal((await h.marta('POST', '/api/folder', { path: 'admin/nueva' })).status, 404)
-    assert.equal((await h.noa('POST', '/api/folder', { path: 'familia/viajes/x' })).status, 403, 'read only there')
+    // Noa only reads it by its own grants, but he manages the root, and managing keeps reaching under it (D-040 3.5).
+    assert.equal((await h.noa('POST', '/api/folder', { path: 'familia/viajes/x' })).status, 201, 'he manages it from above')
+    assert.equal((await h.marta('POST', '/api/folder', { path: 'familia/viajes/y' })).status, 404, 'not granted there: she can\'t see it')
     // Moving familia/viajes: Laura manages it; she needs edit where it goes.
     assert.equal((await h.marta('POST', '/api/folder/move', { from: 'familia/viajes', to: 'familia/v2' })).status, 404, 'she can\'t see it')
     assert.equal((await h.laura('POST', '/api/folder/move', { from: 'familia/viajes', to: 'admin/viajes' })).status, 404)

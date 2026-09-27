@@ -61,11 +61,27 @@ function FolderLink({ folder, canOpen, onOpen }: { folder: string; canOpen: (f: 
   return <Button className="perm-folder-link mono" onPress={() => onOpen(folder)}>{folderLabel(folder)}</Button>
 }
 
-/** Why someone has access, in words: through whom and where it's written. */
+/** Why someone has access, in words: through whom and where it's written (or which folder above they manage). */
 function viaText(t: Translate, via: FolderPermissions['access'][number]['via'][number], username: string): string {
   const through = via.subject.toLowerCase() === username.toLowerCase() || via.subject === '{user}' ? t('perm.viaDirect') : t('perm.viaGroup', { group: via.subject })
-  const where = via.rule ? t('perm.viaRule', { rule: via.rule }) : t('perm.viaFolder', { folder: folderLabel(via.from) })
+  const where = via.above ? t('perm.viaAbove', { folder: folderLabel(via.from) })
+    : via.rule ? t('perm.viaRule', { rule: via.rule }) : t('perm.viaFolder', { folder: folderLabel(via.from) })
   return `${through} · ${where}`
+}
+
+/**
+ * Who sees a folder with no grants (D-040 3.5): nobody at all, and in a
+ * personal folder not the admin either; elsewhere, only whoever manages it
+ * from above.
+ */
+function nobodyText(view: FolderPermissions): MessageKey {
+  if (view.managedAbove.length > 0) return 'perm.onlyAbove'
+  return view.personal !== null ? 'perm.nobody' : 'perm.nobodyAtAll'
+}
+
+/** Whoever manages it from above, with where: «noa (in /), @family (in /family)». */
+function managersText(t: Translate, managers: FolderPermissions['managedAbove']): string {
+  return managers.map((m) => t('perm.managerAt', { who: m.subject, folder: folderLabel(m.from) })).join(', ')
 }
 
 type Draft = { grants: Grants | null; ai: boolean }
@@ -124,10 +140,13 @@ export function PermissionsDialog({ folder: start, me, canOpen, onClose, onChang
   const shown: Grants = custom ?? fallback?.grants ?? view?.effective.grants ?? {}
   const subjects = Object.keys(shown).sort(sortSubjects)
   const meKey = me.username.toLowerCase()
-  const onlyMe = subjects.length > 0 && subjects.every((s) => s.toLowerCase() === meKey)
-  // Giving away one's own `manage` (not the admin): they won't see these permissions again.
+  // Whoever manages it from above keeps `manage` here whatever it says (D-040 3.5): the others among them.
+  const managers = view?.managedAbove ?? []
+  const othersAbove = managers.filter((m) => m.subject.toLowerCase() !== meKey)
+  const onlyMe = subjects.length > 0 && subjects.every((s) => s.toLowerCase() === meKey) && othersAbove.length === 0
+  // Giving away one's own `manage` (not the admin, nor whoever manages it from above): they won't see these permissions again.
   const losesManage = me.role !== 'admin' && custom !== null && !atLeast(custom[Object.keys(custom).find((s) => s.toLowerCase() === meKey) ?? ''] ?? null, 'manage')
-    && !!view?.access.some((a) => a.id === me.id && a.level === 'manage' && a.via.every((v) => !isGroup(v.subject)))
+    && !!view?.access.some((a) => a.id === me.id && a.level === 'manage' && a.via.every((v) => !isGroup(v.subject) && !v.above))
   const candidates = useMemo(() => {
     if (!directory || custom === null) return { users: [], groups: [] }
     const taken = new Set(Object.keys(custom).map((s) => s.toLowerCase()))
@@ -219,7 +238,7 @@ export function PermissionsDialog({ folder: start, me, canOpen, onClose, onChang
               {origin}
               {view.userRule && custom !== null && <p className="hint">{t('perm.overridesUserRule', { rule: view.userRule.rule })}</p>}
               {subjects.length === 0 ? (
-                <p className="perm-nobody">{Icon.lock}<span>{t('perm.nobody')}</span></p>
+                <p className="perm-nobody">{Icon.lock}<span>{t(nobodyText(view))}</span></p>
               ) : (
                 <ul className="perm-rows" aria-label={t('perm.rows')}>
                   {subjects.map((s) => (
@@ -243,6 +262,7 @@ export function PermissionsDialog({ folder: start, me, canOpen, onClose, onChang
                 </ul>
               )}
               {onlyMe && <p className="hint">{t('perm.onlyYou')}</p>}
+              {managers.length > 0 && <p className="hint perm-managers">{t('perm.managedAbove', { who: managersText(t, managers) })}</p>}
               {custom !== null && !readOnly && (
                 <div className="perm-add">
                   <select className="select perm-add-who" aria-label={t('perm.addWho')} value={adding.subject} onChange={(e) => setAdding({ ...adding, subject: e.target.value })}>
@@ -287,7 +307,7 @@ export function FolderAccess({ view }: { view: FolderPermissions }) {
   return (
     <>
       <p className="hint">{t('perm.accessIntro')}</p>
-      {rows.length === 0 ? <p className="perm-nobody">{Icon.lock}<span>{t('perm.nobody')}</span></p> : (
+      {rows.length === 0 ? <p className="perm-nobody">{Icon.lock}<span>{t(nobodyText(view))}</span></p> : (
         <ul className="perm-rows" aria-label={t('perm.tabAccess')}>
           {rows.map((a) => (
             <li key={a.id} className="perm-row perm-row-access">

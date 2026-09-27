@@ -36,7 +36,7 @@ import type { PermissionHolds } from '../permissionHolds.ts'
 import { permissionRoutes, rulesWithoutFolder } from './permissions.ts'
 import { ApiKeys, KeyError } from '../keys.ts'
 import { Integrations, IntegrationsError } from '../integrations.ts'
-import { RequestError, ScopedNotes, type ScopedDeps } from '../scoped.ts'
+import { AudienceWidens, RequestError, ScopedNotes, type ScopedDeps } from '../scoped.ts'
 import { keyErrorStatus, keyRoutes } from './keys.ts'
 import { authenticateKey, bearerToken } from './keyAuth.ts'
 import { keyRouteClass } from './routes.ts'
@@ -262,6 +262,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof RequestError) return fail(c, err.status, err.code, err.message)
     if (err instanceof AccessError) return fail(c, 403, 'forbidden', err.message)
     if (err instanceof AgentDenied) return fail(c, 403, 'agent_denied', err.message, { reason: err.reason })
+    if (err instanceof AudienceWidens) return fail(c, 409, 'audience_widens', err.message, { audience: err.audience })
     if (err instanceof FetchImageError) return fail(c, fetchErrorStatus(err), err.code, err.message)
     if (err instanceof ProfileError) return fail(c, 400, err.code, err.message)
     if (err instanceof HistoryError) return fail(c, historyErrorStatus(err), err.code, err.message)
@@ -561,10 +562,13 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   // An agent's move is always answered with its report (no jobs for keys).
+  // One that opens the note to anyone who can't see it now needs
+  // `confirmAudience: true` (D-040 3.2), or it's 409 `audience_widens` with
+  // the change; `dryRun` says it beforehand.
   app.post('/api/note/move', async (c) => {
-    const { from, to, dryRun, background } = await c.req.json<{ from: string; to: string; dryRun?: boolean; background?: boolean }>()
+    const { from, to, dryRun, background, confirmAudience } = await c.req.json<{ from: string; to: string; dryRun?: boolean; background?: boolean; confirmAudience?: boolean }>()
     const s = scoped(c)
-    const opts = { ifMatch: unquote(c.req.header('if-match')) }
+    const opts = { ifMatch: unquote(c.req.header('if-match')), confirmAudience: confirmAudience === true }
     if (!background || dryRun || s.access.isAgent) return c.json(written(c, await s.move(from, to, { ...opts, dryRun })))
     const r = await jobs.start(c.get('user').username, 'note', from, to, (hooks) => s.move(from, to, { ...opts, ...hooks }), moveWaitMs)
     return 'job' in r ? c.json(r, 202) : c.json(r.report)

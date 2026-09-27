@@ -13,7 +13,11 @@
 // (`ACCESS_MESSAGE`) and closed at once: they reopen it with what they have
 // now, or not at all. Every message the hub sends is classified in
 // `HUB_MESSAGES` (hubMessages.ts), for the leak tests.
-import { Hocuspocus, type Document } from '@hocuspocus/server'
+//
+// Presence is signed by the server (D-040 3.3, as Outline does): what a
+// connection announces in the awareness is its session's person, with the
+// id and name the server knows, whatever the client says (`signPresence`).
+import { Hocuspocus, type Connection, type Document } from '@hocuspocus/server'
 import diff from 'fast-diff'
 import { randomUUID } from 'node:crypto'
 import { closeSync, constants, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
@@ -23,7 +27,7 @@ import { dirname, join } from 'node:path'
 import { WebSocketServer } from 'ws'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import * as Y from 'yjs'
-import { contentHash, newUid, readFrontmatter, setFrontmatterKey } from '@thoth/core'
+import { baseHue, contentHash, isPersonHue, newUid, readFrontmatter, setFrontmatterKey } from '@thoth/core'
 import { sessionIdOf, type Auth, type User } from './auth.ts'
 import { readStable, readText, replaceText } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
@@ -440,6 +444,10 @@ export class CollabHub implements HotDocuments {
         // Without `message`, so the hook chain doesn't log it again. Hocuspocus closes the connection.
         throw { code: 4409, reason: STALE_MESSAGE }
       },
+      // Presence from a connection: only its own, as the person of its session.
+      beforeHandleAwareness: async ({ context, connection, document, states }) => {
+        if (connection) this.signPresence(document, connection, context?.user, states)
+      },
       onLoadDocument: async ({ documentName, document }) => { await this.load(documentName, document) },
       onStoreDocument: async ({ documentName }) => { await this.flush(documentName) },
       beforeUnloadDocument: async ({ documentName }) => { await this.flush(documentName) },
@@ -533,6 +541,35 @@ export class CollabHub implements HotDocuments {
         conn.close({ code: 4403, reason: ACCESS_MESSAGE })
         this.log(`${path}: an editor's access changed (${ctx.level} → ${level}); closed for it to reopen`)
       }
+    }
+  }
+
+  /**
+   * Presence as a connection may announce it (D-040 3.3): only for Yjs
+   * clients that are its own (a client id another connection holds, or an
+   * agent's presence, is dropped), and only as the person of its session:
+   * `user` gets their id and name from the server and a person's hue (the
+   * one announced if it is one, outside the agents' band; theirs by default).
+   * The cursor's colour, painted in the sender's theme, stays if it is one.
+   * `agent` never comes from a connection (the hub publishes agents' own).
+   */
+  private signPresence(document: Document, connection: Connection<Ctx>, user: User | undefined, states: Map<number, Record<string, unknown>>) {
+    const mine = document.getClients(connection)
+    const others = new Set<number>()
+    for (const c of document.getConnections()) if (c !== connection) for (const id of document.getClients(c)) others.add(id)
+    const known = document.awareness.getStates()
+    // The session's own (names don't change; someone disabled or deleted is disconnected).
+    const name = user?.username ?? null
+    for (const [id, state] of [...states]) {
+      if (!user || others.has(id) || (known.has(id) && !mine.has(id))) { states.delete(id); continue }
+      const { user: claimed, agent: _agent, ...rest } = state
+      const said = typeof claimed === 'object' && claimed !== null ? claimed as Record<string, unknown> : null
+      if (said === null) { states.set(id, rest); continue }
+      const color = typeof said.color === 'string' && /^#[0-9a-f]{6}$/i.test(said.color) ? said.color : null
+      states.set(id, {
+        ...rest,
+        user: { id: user.id, name, hue: isPersonHue(said.hue) ? said.hue : baseHue(user.id), ...(color ? { color, colorLight: color + '33' } : {}) },
+      })
     }
   }
 

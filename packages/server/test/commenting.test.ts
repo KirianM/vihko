@@ -80,3 +80,34 @@ test('with comment, a person adds comments, replies and resolves their own threa
     assert.ok(versions.some((v) => v.authors.map((a) => a.name).join() === 'noa'), JSON.stringify(versions))
   } finally { await h.close() }
 })
+
+test('with comment, one\'s own thread with replies from other people isn\'t theirs to resolve (D-040 3.7); with only their own, it is', async () => {
+  const h = await setup({ files: FILES, config: SHARED })
+  try {
+    const file = () => readFileSync(join(h.notesDir, TARTA), 'utf8')
+    const threads = async () => (await h.noa('GET', `/api/note/comments?path=${encodeURIComponent(TARTA)}`)).body.threads as { id: string }[]
+    // Two threads of Noa's: Laura replies to one, he replies to the other himself.
+    let r = await h.noa('POST', '/api/note/comment', addAfter(file(), '# Tarta de Laura', '¿Con canela?'))
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    r = await h.noa('POST', '/api/note/comment', addAfter(file(), 'Tarta Obsidiana.', '¿Cuántos huevos?'))
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    const [canela, huevos] = (await threads()).map((t) => t.id)
+    assert.ok(canela && huevos)
+    assert.equal((await h.laura('POST', '/api/note/comment', { path: TARTA, op: 'reply', thread: canela, text: 'Mejor no' })).status, 200)
+    assert.equal((await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'reply', thread: huevos, text: 'Tres, creo' })).status, 200)
+
+    // With her reply in it, resolving would take her words out of the note: forbidden, nothing written.
+    const before = file()
+    r = await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'resolve', thread: canela })
+    assert.deepEqual([r.status, r.body.error], [403, 'forbidden'])
+    assert.equal(file(), before)
+    // Only his own replies: as before.
+    r = await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'resolve', thread: huevos })
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    assert.ok(!file().includes('huevos') && !file().includes('Tres, creo'))
+    // Someone who can edit resolves it, replies and all.
+    r = await h.laura('POST', '/api/note/comment', { path: TARTA, op: 'resolve', thread: canela })
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    assert.ok(!file().includes('canela') && !file().includes('Mejor no'))
+  } finally { await h.close() }
+})

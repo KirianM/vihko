@@ -25,8 +25,8 @@ test('unmanaged mode reads the user\'s own git: their commits are the versions, 
   const c: Record<string, { id: string; at: string }> = {}
   let repo!: ReturnType<typeof userGit>
   const h = await setup({
-    // Nobody reads privado/.
-    config: UNMANAGED + 'permissions:\n  \"\": { grants: { noa: manage, ana: edit } }\n  privado: { grants: {} }\n',
+    // Nobody reads privado/ (nobody manages the root: whoever did would reach it, D-040 3.5).
+    config: UNMANAGED + 'permissions:\n  \"\": { grants: { noa: edit, ana: edit } }\n  privado: { grants: {} }\n',
     files: { 'nota.md': 'uno dos tres\n' },
     // The notes folder is one folder of a larger repository.
     prepare: ({ dir, notesDir }) => {

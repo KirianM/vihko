@@ -256,7 +256,10 @@ export const atLeast = (have: Level | null | undefined, need: Level) => have != 
 /** A user name, `@group`, or `{user}` (in a `{user}` rule), with its level. */
 export type Grants = Record<string, Level>
 /** A grant that gives someone access to a folder: to them or to a group of theirs, written for `from` (or `rule`, a `{user}` rule's key). */
-export interface GrantSource { subject: string; level: Level; from: string; rule?: string }
+/** Why someone has access: a grant, where it's written, and `above` when it's `manage` of a folder above that reaches here whatever this one's grants say. */
+export interface GrantSource { subject: string; level: Level; from: string; rule?: string; above?: true }
+/** Whoever manages a folder from above (D-040 3.5), and where. */
+export interface ManagerAbove { subject: string; from: string; rule?: string }
 /** A folder's rule, who has access and why (GET /api/permissions). */
 export interface FolderPermissions {
   folder: string
@@ -272,6 +275,10 @@ export interface FolderPermissions {
   userRule: { rule: string; user: string; grants: Grants } | null
   /** What applies here, and the folder it's written for. */
   effective: { from: string | null; rule: string | null; grants: Grants }
+  /** Who manages it from above, whatever its own grants say; none into a personal folder. */
+  managedAbove: ManagerAbove[]
+  /** The personal folder (a `{user}` rule's) it is or is in; null if none. */
+  personal: string | null
   ai: { closed: boolean; from: string | null }
   canEdit: boolean
   access: { id: string; username: string; level: Level; via: GrantSource[] }[]

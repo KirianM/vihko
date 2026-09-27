@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  PermissionsFileError, RuleSet, grantsAt, levelIn, moveRules, parseWorkspaceConfig, removeRules, rewriteSubject, setRule,
+  PermissionsFileError, RuleSet, grantsAt, levelIn, levelInReach, moveRules, parseWorkspaceConfig, reachingGrants, removeRules, rewriteSubject, setRule,
   type ConfigError, type Level, type PermissionRule,
 } from '@thoth/core'
 
@@ -77,7 +77,7 @@ test('permissions: which rule governs a folder, most specific first', () => {
   assert.equal(level('otra/cosa', 'noa'), 'manage', 'inherited from the root')
   assert.equal(level('otra', 'laura'), null)
   assert.equal(level('familia/recetas', 'laura', ['familia']), 'edit', 'through a group')
-  assert.equal(level('familia', 'noa'), 'edit', 'own grants replace the root\'s manage')
+  assert.equal(level('familia', 'noa'), 'edit', 'own grants replace the root\'s (in the grants: his manage still reaches it from above, reachingGrants)')
   assert.equal(level('personas', 'noa'), 'manage', 'the folder above a {user} rule inherits')
   assert.equal(level('personas/laura', 'laura'), 'manage')
   assert.equal(level('personas/laura/diario', 'laura'), 'manage', 'ai alone doesn\'t change the grants')
@@ -104,6 +104,41 @@ test('permissions: which rule governs a folder, most specific first', () => {
   assert.equal(new RuleSet(rulesOf(SPEC.replace('{ "{user}": manage }', '{ "{user}": manage }\n    ai: false'))).aiClosedAt('personas/marta/x'), 'personas/marta')
   // Names compare without case, as state.db does.
   assert.equal(levelIn({ Noa: 'read', '@Familia': 'edit' }, { username: 'noa', groups: ['familia'] }), 'edit')
+})
+
+test('permissions: whoever manages a folder keeps manage under it, whatever a subfolder\'s grants say, but never into a personal folder (D-040 3.5)', () => {
+  const set = new RuleSet(rulesOf(SPEC
+    + '  familia/viajes:\n    grants: { laura: manage, marta: manage }\n'
+    + '  familia/viajes/sorpresa:\n    grants: { laura: manage }\n'
+    + '  personas/laura/recetas:\n    grants: { marta: read }\n'))
+  const users = new Set(['noa', 'laura', 'marta'])
+  const exists = (u: string) => users.has(u)
+  const level = (folder: string, username: string, groups: string[] = []) => levelInReach(reachingGrants(set, folder, exists), { username, groups })
+  // Where managers come from: up to the nearest personal folder, included; none for a personal folder itself.
+  assert.deepEqual(set.managedFrom('familia/viajes/sorpresa'), ['familia/viajes', 'familia', ''])
+  assert.deepEqual(set.managedFrom('personas/laura/recetas/x'), ['personas/laura/recetas', 'personas/laura'])
+  assert.deepEqual(set.managedFrom('personas/laura'), [])
+  assert.deepEqual([set.personal('personas/laura'), set.personal('personas'), set.personal('personas/laura/recetas')], [true, false, false])
+  // A co-manager left out of a subfolder's own grants keeps managing it.
+  assert.equal(level('familia/viajes/sorpresa', 'marta'), 'manage')
+  assert.deepEqual(reachingGrants(set, 'familia/viajes/sorpresa', exists).above, [
+    { subject: 'laura', from: 'familia/viajes' }, { subject: 'marta', from: 'familia/viajes' }, { subject: 'noa', from: '' },
+  ])
+  // The root's manager: everything but personal folders.
+  assert.equal(level('familia', 'noa'), 'manage', 'his own edit, and the root\'s manage from above')
+  assert.equal(level('familia/viajes/sorpresa', 'noa'), 'manage')
+  assert.equal(level('familia/recetas', 'laura', ['familia']), 'edit', 'a grant below manage doesn\'t flow')
+  for (const f of ['personas/laura', 'personas/laura/recetas', 'personas/laura/recetas/x', 'personas/antigua', 'personas/antigua/sub']) {
+    assert.equal(level(f, 'noa'), null, f)
+  }
+  // The owner of a personal folder manages a subfolder whose own grants leave her out; a reader there only reads.
+  assert.equal(level('personas/laura/recetas', 'laura'), 'manage')
+  assert.equal(level('personas/laura/recetas', 'marta'), 'read')
+  assert.deepEqual(reachingGrants(set, 'personas/laura/recetas', exists).above, [{ subject: 'laura', from: 'personas/laura', rule: 'personas/{user}' }])
+  // Through a group, as any grant.
+  const group = new RuleSet(rulesOf('permissions:\n  a:\n    grants: { "@equipo": manage }\n  a/b:\n    grants: { ana: read }\n'))
+  assert.equal(levelInReach(reachingGrants(group, 'a/b/c', exists), { username: 'luis', groups: ['equipo'] }), 'manage')
+  assert.equal(levelInReach(reachingGrants(group, 'a/b/c', exists), { username: 'ana', groups: [] }), 'read')
 })
 
 test('permissions file: one entry changes, comments, order and the rest of the file stay', () => {

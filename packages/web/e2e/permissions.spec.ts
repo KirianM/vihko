@@ -105,7 +105,8 @@ test('the admin takes a folder away from a member: a lock in the tree; she no lo
   expect(readFileSync(`${NOTES}/thoth.yaml`, 'utf8')).toBe(RULES + '  acceso/equipo:\n    grants: { noa: manage }\n')
   // Who has access, and why.
   await dialog.getByRole('tab', { name: 'Quién tiene acceso' }).click()
-  await expect(dialog.getByRole('list', { name: 'Quién tiene acceso' }).getByRole('listitem')).toHaveText([/kirianGestionarDirectamente · en \/acceso\/equipo$/])
+  // Its own grant, and managing the root, which reaches under it whatever this folder says (D-040 3.5).
+  await expect(dialog.getByRole('list', { name: 'Quién tiene acceso' }).getByRole('listitem')).toHaveText([/kirianGestionarDirectamente · en \/acceso\/equipoDirectamente · gestiona \/$/])
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
   await expect(row(k, 'equipo').getByRole('img', { name: 'Permisos propios' })).toBeVisible()
 
@@ -205,7 +206,7 @@ test('a member shares a folder of her own with someone else: he sees it after re
   await expect(dialog.getByRole('status')).toHaveText('Guardado.')
   await dialog.getByRole('tab', { name: 'Quién tiene acceso' }).click()
   const who = dialog.getByRole('list', { name: 'Quién tiene acceso' }).getByRole('listitem')
-  await expect(who).toHaveText([/anaGestionarDirectamente · en \/acceso\/personas\/ana\/cocina$/, /brunoLeerDirectamente · en \/acceso\/personas\/ana\/cocina$/])
+  await expect(who).toHaveText([/anaGestionarDirectamente · en \/acceso\/personas\/ana\/cocinaDirectamente · gestiona \/acceso\/personas\/ana$/, /brunoLeerDirectamente · en \/acceso\/personas\/ana\/cocina$/])
   await shot(ana, 'permissions-access-light')
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
 

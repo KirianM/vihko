@@ -107,6 +107,16 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
           <p>{t('privacy.none')}</p>
         </section>
 
+        <section className="settings-section" aria-labelledby="privacy-people">
+          <h2 id="privacy-people">{t('privacy.peopleTitle')}</h2>
+          <ul>
+            <li>{t('privacy.peopleFolders')}</li>
+            <li>{t('privacy.peopleManagers')}</li>
+            <li>{withCode(t('privacy.peoplePersonal'), { rule: '{user}' })}</li>
+            <li>{t('privacy.peopleAdmin')}</li>
+          </ul>
+        </section>
+
         <section className="settings-section" aria-labelledby="privacy-keys">
           <h2 id="privacy-keys">{t('privacy.keysTitle')}</h2>
           <ul>

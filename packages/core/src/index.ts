@@ -24,8 +24,8 @@ export {
 } from './workspace.ts'
 export {
   CLOSED_PERMISSIONS, IMPLICIT_PERMISSIONS, LEVELS, PermissionsFileError, RuleSet, USER_SEGMENT,
-  atLeast, folderOf, grantsAt, isSubject, levelIn, maxLevel, moveRules, parentFolder, parsePermissions, removeRules, rewriteSubject, rulesInFile, selfAndAncestors, setRule, subjectKey,
-  type Governing, type Level, type PermissionRule, type Permissions, type RuleMatch, type RuleValue,
+  atLeast, folderOf, grantsAt, isSubject, levelIn, levelInReach, maxLevel, moveRules, parentFolder, parsePermissions, reachingGrants, removeRules, rewriteSubject, rulesInFile, selfAndAncestors, setRule, subjectKey,
+  type Governing, type Level, type ManagerAbove, type PermissionRule, type Permissions, type Reaching, type RuleMatch, type RuleValue,
 } from './permissions.ts'
 export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'
 export { DEFAULT_HISTORY_MAX_FILE_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode, type McpConfig } from './workspace.ts'
@@ -34,3 +34,4 @@ export {
   anchorChanged, cleanText, commentKey, formatComment, goneThreads, normalizeAnchor, parseComments, parseThreads, removedThread, reopener, replyTo, resolveThread,
   type Change, type Comment, type RemovedThread, type Thread,
 } from './comments.ts'
+export { MIN_HUE_DISTANCE, baseHue, distinctHue, freeHue, hueDistance, isPersonHue } from './hue.ts'
