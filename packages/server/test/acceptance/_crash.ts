@@ -24,6 +24,31 @@ export const AGENT_MARK = 'AGENT-MARK'
 
 interface Typist { client: Client; done: string[]; acked: Set<string>; stop: boolean; loop: Promise<void> }
 
+/**
+ * Starts typing `token` on a new line at `at` (a line start): its first
+ * character and its newline go in as one insert. Returns a function that
+ * types the next character, false once the token is complete.
+ *
+ * Not the newline alone first: for a moment the others' copies would hold an
+ * empty line, and a typist starting its own line there, before the first
+ * character arrived, anchored its newline next to that character's; Yjs then
+ * interleaves both lines (`RR0-B-27.` and `0-A-27.`) in every copy, and a
+ * round takes the broken lines for lost ones.
+ */
+export function startLine(text: Y.Text, at: number, token: string): () => boolean {
+  const doc = text.doc!
+  text.insert(at, token[0] + '\n')
+  let typed = 1
+  let cursor = Y.createRelativePositionFromTypeIndex(text, at + 1)
+  return () => {
+    if (typed === token.length) return false
+    const abs = Y.createAbsolutePositionFromRelativePosition(cursor, doc)!
+    text.insert(abs.index, token[typed++]!)
+    cursor = Y.createRelativePositionFromTypeIndex(text, abs.index + 1)
+    return true
+  }
+}
+
 /** Types lines character by character at random line starts in the body. */
 function typist(client: Client, id: string): Typist {
   const t: Typist = { client, done: [], acked: new Set(), stop: false, loop: Promise.resolve() }
@@ -39,14 +64,9 @@ function typist(client: Client, id: string): Typist {
       const starts = [body]
       for (let i = s.indexOf('\n', body); i !== -1 && i < s.length - 1; i = s.indexOf('\n', i + 1)) starts.push(i + 1)
       const at = starts[Math.floor(Math.random() * starts.length)]!
-      text.insert(at, '\n')
-      let cursor = Y.createRelativePositionFromTypeIndex(text, at)
-      for (const ch of token) {
-        const abs = Y.createAbsolutePositionFromRelativePosition(cursor, client.doc)!
-        text.insert(abs.index, ch)
-        cursor = Y.createRelativePositionFromTypeIndex(text, abs.index + 1)
-        await sleep(3 + Math.random() * 12)
-      }
+      const next = startLine(text, at, token)
+      do await sleep(3 + Math.random() * 12)
+      while (next())
       t.done.push(token)
       await sleep(Math.random() * 30)
     }
