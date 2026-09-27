@@ -354,3 +354,22 @@ test('a note moved outside thoth out of a folder with its own rules is held from
     assert.equal((await h.marta('GET', h.url('/api/note', { path: 'familia/tarta.md' }))).status, 200, 'released: the folder it\'s in applies')
   } finally { await h.close() }
 })
+
+test('a folder with its own rules renamed outside thoth: its notes are held, and «move its permissions» takes the rules where it went', async () => {
+  const h = await setup({ files: { ...FILES, 'familia/viajes/roma.md': '# Roma\n\nPalabra Coliseo.\n' }, config: RULES + '  familia/viajes:\n    grants: { laura: manage }\n' })
+  try {
+    renameSync(join(h.notesDir, 'familia/viajes'), join(h.notesDir, 'familia/rutas'))
+    h.runtime.rescan({})
+    assert.equal((await h.marta('GET', h.url('/api/note', { path: 'familia/rutas/roma.md' }))).status, 404, 'it would have inherited familia/: held instead')
+    assert.equal((await h.laura('GET', h.url('/api/note', { path: 'familia/rutas/roma.md' }))).status, 404)
+    const held = ((await h.noa('GET', '/api/alerts')).body.alerts as { code: string; id: string; to: string | null; actions: string[] }[]).find((a) => a.code === 'permissions_held')!
+    assert.deepEqual([held.to, held.actions], ['familia/rutas', ['move_permissions', 'release']])
+    const warnings = ((await h.noa('GET', '/api/alerts')).body.alerts as { code: string; warnings?: { code: string; detail: string }[] }[]).find((a) => a.code === 'config_warnings')?.warnings ?? []
+    assert.ok(warnings.some((w) => w.code === 'missing_folder' && w.detail === 'familia/viajes'))
+    const r = await h.laura('POST', `/api/permissions/holds/${held.id}`, { action: 'move_permissions' })
+    assert.equal(r.status, 200, r.text)
+    assert.match(readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8'), /familia\/rutas:\n {4}grants: \{ laura: manage \}\n/)
+    assert.equal((await h.laura('GET', h.url('/api/note', { path: 'familia/rutas/roma.md' }))).status, 200)
+    assert.equal((await h.marta('GET', h.url('/api/note', { path: 'familia/rutas/roma.md' }))).status, 404, 'the same audience as before')
+  } finally { await h.close() }
+})
