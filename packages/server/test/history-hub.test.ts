@@ -179,6 +179,8 @@ test('a rename rewrites the links of an open note in the same system commit, and
  * The server, killed at a history crash point while it does `act`, and
  * started again without it. `dead` looks at the state volume in between.
  */
+// The write that sets a crash off may get no answer: under load, the kill can
+// come before its response leaves (what the test checks is what survives).
 async function crashAt(point: string, act: (srv: Srv, cookie: string) => Promise<void>, dead?: (stateDir: string) => void) {
   const { notes, env } = makeDirs()
   // First start: the history begins (its own commit), with no crash point.
@@ -198,7 +200,7 @@ async function crashAt(point: string, act: (srv: Srv, cookie: string) => Promise
 test('kill -9 after a version is journaled and before git has it: the version keeps its author', async () => {
   const { srv, cookie } = await crashAt('history-queued', async (s, c) => {
     const cur = await api(s, c, 'GET', `/api/note?path=${q('tags.md')}`)
-    await api(s, c, 'PUT', `/api/note?path=${q('tags.md')}`, { text: cur.body.text + 'ANTES-DEL-KILL\n' }, { 'if-match': `"${cur.body.etag}"` })
+    await api(s, c, 'PUT', `/api/note?path=${q('tags.md')}`, { text: cur.body.text + 'ANTES-DEL-KILL\n' }, { 'if-match': `"${cur.body.etag}"` }).catch(() => null)
   })
   try {
     await waitFor(async () => (await versionsOf(srv, cookie, 'tags.md')).versions.length === 2, 'the version is committed after the restart')
@@ -224,7 +226,7 @@ test('kill -9 right after a write reaches the disk, before the history recorded 
 test('kill -9 after git has a commit and before the journal knows: it is not repeated', async () => {
   const { srv, cookie } = await crashAt('history-committed', async (s, c) => {
     const cur = await api(s, c, 'GET', `/api/note?path=${q('tags.md')}`)
-    await api(s, c, 'PUT', `/api/note?path=${q('tags.md')}`, { text: cur.body.text + 'UNA-VEZ\n' }, { 'if-match': `"${cur.body.etag}"` })
+    await api(s, c, 'PUT', `/api/note?path=${q('tags.md')}`, { text: cur.body.text + 'UNA-VEZ\n' }, { 'if-match': `"${cur.body.etag}"` }).catch(() => null)
   })
   try {
     await sleep(1500)
@@ -241,7 +243,7 @@ test('kill -9 while git commits a version, holding its locks: the restart remove
   let head = ''
   const { srv, cookie, stateDir } = await crashAt('history-importing', async (s, c) => {
     const cur = await api(s, c, 'GET', `/api/note?path=${q('tags.md')}`)
-    await api(s, c, 'PUT', `/api/note?path=${q('tags.md')}`, { text: cur.body.text + 'EN-MITAD-DE-GIT\n' }, { 'if-match': `"${cur.body.etag}"` })
+    await api(s, c, 'PUT', `/api/note?path=${q('tags.md')}`, { text: cur.body.text + 'EN-MITAD-DE-GIT\n' }, { 'if-match': `"${cur.body.etag}"` }).catch(() => null)
   }, (state) => {
     left = LOCKS.filter((f) => existsSync(join(state, 'history.git', f)))
     head = readFileSync(join(state, 'history.git', 'refs/heads/main'), 'utf8').trim()
