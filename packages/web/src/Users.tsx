@@ -3,11 +3,12 @@
 // to reset the password, copied once; role; close sessions; disable, enable
 // and delete), each confirmation saying what it does. Groups, which the
 // admin creates and fills. And the admin's settings: members downloading
-// images from the local network (D-038.6). Where the second factor goes
-// (piece T): a column, an action and a setting, marked below.
+// images from the local network (D-038.6) and the second factor's policy
+// (D-036: required, optional or disabled), whose state each person's row
+// shows and the admin can reset.
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, Text, TextField } from 'react-aria-components'
-import { ApiError, api, type AdminSettings, type GroupInfo, type NewLink, type User, type UserInfo } from './api.ts'
+import { ApiError, api, type AdminSettings, type GroupInfo, type NewLink, type TwoFactorPolicy, type User, type UserInfo } from './api.ts'
 import { CopyButton, Toggle } from './Agents.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
@@ -26,7 +27,13 @@ const FILTERS: { id: Filter; label: MessageKey }[] = [
 ]
 
 /** What a confirmation does: its title, the consequences it lists and its button. */
-type Action = 'disable' | 'delete' | 'promote' | 'demote' | 'sessions' | 'link'
+type Action = 'disable' | 'delete' | 'promote' | 'demote' | 'sessions' | 'link' | 'twoFactor'
+
+const POLICIES: { id: TwoFactorPolicy; label: MessageKey; hint: MessageKey }[] = [
+  { id: 'optional', label: 'users.tfOptional', hint: 'users.tfOptionalHint' },
+  { id: 'required', label: 'users.tfRequired', hint: 'users.tfRequiredHint' },
+  { id: 'disabled', label: 'users.tfDisabled', hint: 'users.tfDisabledHint' },
+]
 
 type Open =
   | { kind: 'new' }
@@ -287,15 +294,21 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
   }, [users])
   const q = query.trim().toLowerCase()
   const shown = (users ?? []).filter((u) => (filter === 'all' || u.status === filter) && (!q || u.username.toLowerCase().includes(q)))
-  // The second factor's column appears once piece T reports it (null for everyone until then).
-  const twoFactor = (users ?? []).some((u) => u.twoFactor !== null)
+  // The second factor's column, unless the admin turned it off for everyone.
+  const policy = settings?.twoFactor ?? 'optional'
+  const twoFactor = settings !== null && policy !== 'disabled'
+  const twoFactorCell = (u: UserInfo) => {
+    if (u.twoFactor.enabled) return <span className="user-status user-status-active" title={u.twoFactor.enabledAt ? t('users.tfSince', { date: dates.dateTime(u.twoFactor.enabledAt) }) : undefined}>{t('users.tfOn')}</span>
+    if (policy === 'required' && u.status !== 'disabled') return <span className="hint">{t('users.tfAtSignIn')}</span>
+    return <span className="hint">{t('users.tfOff')}</span>
+  }
 
   const actions = (u: UserInfo) => {
     const items: { id: string; label: string; danger?: boolean }[] = []
     if (u.status !== 'disabled') items.push({ id: 'link', label: t(u.status === 'invited' ? 'users.actionInviteLink' : 'users.actionResetLink') })
     items.push({ id: u.role === 'admin' ? 'demote' : 'promote', label: t(u.role === 'admin' ? 'users.actionDemote' : 'users.actionPromote') })
     if (u.sessions > 0) items.push({ id: 'sessions', label: t('users.actionSessions', { n: u.sessions }) })
-    // Piece T: «Reset the second factor» goes here.
+    if (u.twoFactor.enabled) items.push({ id: 'twoFactor', label: t('users.actionTwoFactor') })
     if (u.status === 'disabled') {
       items.push({ id: 'enable', label: t('users.actionEnable') })
       items.push({ id: 'delete', label: t('users.actionDelete'), danger: true })
@@ -334,6 +347,11 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
         title: t('users.sessionsTitle', { user }), danger: true, confirm: t('users.sessionsConfirm'),
         items: [t(u.sessions === 1 ? 'users.sessions1One' : 'users.sessions1', { n: u.sessions }), t('users.sessions2')],
         go: async () => { await api.endUserSessions(u.id); done() },
+      }
+      case 'twoFactor': return {
+        title: t('users.tfResetTitle', { user }), danger: true, confirm: t('users.tfResetConfirm'),
+        items: [t(policy === 'required' ? 'users.tfReset1Required' : 'users.tfReset1'), t('users.tfReset2'), t('users.tfReset3')],
+        go: async () => { await api.resetTwoFactor(u.id); done() },
       }
       case 'link': {
         const reset = u.status !== 'invited'
@@ -422,7 +440,7 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
                       <td><StatusPill u={u} /></td>
                       <td>{t(u.role === 'admin' ? 'users.roleAdmin' : 'users.roleMember')}</td>
                       <td>{u.groups.length ? <span className="user-groups">{u.groups.map((g) => <span key={g} className="group-tag">@{g}</span>)}</span> : <span className="hint">—</span>}</td>
-                      {twoFactor && <td>—</td>}
+                      {twoFactor && <td>{twoFactorCell(u)}</td>}
                       <td>{u.lastSeenAt ? dates.dateTime(u.lastSeenAt) : <span className="hint">{t('users.never')}</span>}</td>
                       <td className="user-actions">
                         {u.id !== me.id && (
@@ -470,7 +488,20 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
             <div className="switches">
               <Toggle label={t('users.localDownloads')} hint={t('users.localDownloadsHint')} value={settings.membersLocalDownloads} disabled={busy}
                 onChange={(v) => void run(async () => setSettings(await api.setAdminSettings({ membersLocalDownloads: v })))} />
-              {/* Piece T: the second factor's policy (required, optional, disabled) goes here. */}
+              <fieldset className="key-fieldset">
+                <legend>{t('users.tfPolicy')}</legend>
+                {POLICIES.map((p) => (
+                  <label key={p.id} className="check">
+                    <input type="radio" name="twoFactor" checked={settings.twoFactor === p.id} disabled={busy}
+                      onChange={() => {
+                        // Chosen at once; if saving fails, the page loads what is in force.
+                        setSettings({ ...settings, twoFactor: p.id })
+                        void run(async () => setSettings(await api.setAdminSettings({ twoFactor: p.id })))
+                      }} />
+                    <span className="check-text">{t(p.label)}<span className="hint">{t(p.hint)}</span></span>
+                  </label>
+                ))}
+              </fieldset>
             </div>
           )}
         </section>

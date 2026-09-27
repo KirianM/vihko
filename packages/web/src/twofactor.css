@@ -1,0 +1,39 @@
+/* The second factor: its setup (QR code, secret, first code), the recovery
+   codes and the confirmation fields. Design system tokens only. */
+
+/* A QR code reads best dark on light: in the dark theme, ink (light there)
+   is the background and bg (dark there) the modules. */
+.qr { display: block; width: 184px; height: 184px; margin-top: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.qr-light { fill: var(--field); }
+.qr-dark { fill: var(--ink); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .qr-light { fill: var(--ink); }
+  :root:not([data-theme="light"]) .qr-dark { fill: var(--bg); }
+}
+:root[data-theme="dark"] .qr-light { fill: var(--ink); }
+:root[data-theme="dark"] .qr-dark { fill: var(--bg); }
+
+.twofa-setup { display: flex; flex-direction: column; gap: var(--space-4); }
+.twofa-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: var(--space-4); }
+.twofa-steps > li { display: flex; flex-direction: column; gap: 6px; padding-left: var(--space-1); }
+.twofa-steps > li::marker { color: var(--muted); font-weight: 600; }
+.twofa-step { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--ink); }
+.twofa-steps .hint { margin: 0; font-size: 13px; line-height: 1.45; color: var(--faint); }
+.twofa-secret { letter-spacing: 0.04em; }
+.twofa-open { font-size: 13px; color: var(--accent-strong); align-self: flex-start; }
+.code-input { letter-spacing: 0.2em; font-size: 18px; }
+
+.twofa-codes-block { display: flex; flex-direction: column; gap: var(--space-3); }
+.twofa-codes { margin: 0; padding: var(--space-3) var(--space-4); list-style: none; display: grid; grid-template-columns: repeat(2, max-content); gap: 6px var(--space-8); background: var(--field); border: 1px solid var(--line-strong); border-radius: var(--radius-md); font-size: 15px; line-height: 22px; color: var(--ink); user-select: all; }
+.twofa-codes-actions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.twofa-codes-actions .spacer { flex-grow: 1; }
+
+/* «Account»: its state and what can be done. */
+.twofa-state { margin: 0; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: 14px; line-height: 20px; color: var(--ink-2); }
+.twofa-on { font-size: 12px; line-height: 18px; padding: 0 8px; border-radius: var(--radius-pill); color: var(--ok); border: 1px solid var(--line); }
+.twofa-low { color: var(--warn-ink); }
+.twofa-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+
+@media (max-width: 760px) {
+  .twofa-codes { grid-template-columns: max-content; }
+}

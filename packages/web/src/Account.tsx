@@ -1,14 +1,17 @@
 // Settings → «Account»: one's own password (the current one is asked for, and
-// every other session ends) and sessions (which browser, when it was last
-// used; close one, or all the others). Reached from the preferences, like the
-// other settings pages. (The second factor, D-036, goes here too: piece T.)
-import { useEffect, useState, type FormEvent } from 'react'
-import { Button, FieldError, Form, Input, Label, TextField } from 'react-aria-components'
-import { ApiError, api, type SessionInfo, type User } from './api.ts'
+// every other session ends), the second factor (D-036: set it up, change the
+// app, new recovery codes, turn it off while the admin doesn't require it)
+// and sessions (which browser, when it was last used; close one, or all the
+// others). Reached from the preferences, like the other settings pages.
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { Button, Dialog, FieldError, Form, Heading, Input, Label, Modal, ModalOverlay, TextField } from 'react-aria-components'
+import { ApiError, api, type SessionInfo, type TwoFactorInfo, type User } from './api.ts'
 import { errorText, useT } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import { SearchButton } from './Palette.tsx'
+import { CodeField, RecoveryCodes, SetupForm, codeError } from './TwoFactor.tsx'
 import { MenuButton, ThemeToggle } from './ui.tsx'
+import './actions.css'
 import './agents.css'
 import './users.css'
 
@@ -76,6 +79,186 @@ function PasswordForm({ onUnauthorized }: { onUnauthorized: () => void }) {
   )
 }
 
+type TwoFactorDialog = 'setup' | 'recovery' | 'disable'
+
+/**
+ * Setting it up (or changing the app): the password first, then the QR code
+ * and a first code, then the recovery codes.
+ */
+function SetupDialog({ replacing, onClose, onDone }: { replacing: boolean; onClose: () => void; onDone: () => void }) {
+  const t = useT()
+  const [password, setPassword] = useState('')
+  const [started, setStarted] = useState<Awaited<ReturnType<typeof api.startTwoFactor>> | null>(null)
+  const [codes, setCodes] = useState<string[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const start = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setError(null)
+    try { setStarted(await api.startTwoFactor(password)) } catch (err) { setError(errorText(t, err)) }
+    setBusy(false)
+  }
+  let body: ReactNode
+  if (codes) body = <RecoveryCodes codes={codes} done={t('twofa.codesDone')} onDone={onDone} />
+  else if (started) body = <SetupForm load={() => Promise.resolve(started)} enable={api.enableTwoFactor} onEnabled={setCodes} />
+  else {
+    body = (
+      <form className="account-form" onSubmit={start}>
+        <p className="dialog-text">{t(replacing ? 'twofa.replaceIntro' : 'twofa.setupIntro')}</p>
+        <TextField className="field" type="password" isRequired value={password} onChange={setPassword} autoComplete="current-password" autoFocus>
+          <Label>{t('account.current')}</Label>
+          <Input />
+        </TextField>
+        {error && <p className="error-text" role="alert">{error}</p>}
+        <div className="account-actions">
+          <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={busy || !password}>{t('twofa.next')}</Button>
+        </div>
+      </form>
+    )
+  }
+  return (
+    <Dialog className="dialog key-dialog" aria-label={t(codes ? 'twofa.codesTitle' : replacing ? 'twofa.replaceTitle' : 'twofa.setupTitle')}>
+      <div className="dialog-fields">
+        <Heading slot="title" className="dialog-title">{t(codes ? 'twofa.codesTitle' : replacing ? 'twofa.replaceTitle' : 'twofa.setupTitle')}</Heading>
+        {body}
+      </div>
+      {started && !codes && (
+        <div className="dialog-actions">
+          <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
+        </div>
+      )}
+    </Dialog>
+  )
+}
+
+/** A dialog that asks for one secret (a code, or a code or the password) and then does something. */
+function AskDialog({ title, text, label, hint, recovery, confirm, danger, onClose, onConfirm }: {
+  title: string
+  text: string
+  label: string
+  hint?: string
+  recovery?: boolean
+  confirm: string
+  danger?: boolean
+  onClose: () => void
+  onConfirm: (value: string) => Promise<void>
+}) {
+  const t = useT()
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      await onConfirm(value.trim())
+    } catch (err) {
+      setError(codeError(t, err))
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog className="dialog dialog-narrow">
+      <form onSubmit={submit}>
+        <div className="dialog-fields">
+          <Heading slot="title" className="dialog-title">{title}</Heading>
+          <p className="dialog-text">{text}</p>
+          {recovery
+            ? <CodeField recovery label={label} hint={hint} value={value} onChange={setValue} autoFocus />
+            : (
+              <TextField className="field" type="password" isRequired value={value} onChange={setValue} autoComplete="current-password" autoFocus>
+                <Label>{label}</Label>
+                <Input />
+                {hint && <span className="hint">{hint}</span>}
+              </TextField>
+            )}
+        </div>
+        {error && <p className="error-text dialog-error" role="alert">{error}</p>}
+        <div className="dialog-actions">
+          <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" className={danger ? 'btn btn-danger' : 'btn btn-primary'} isDisabled={busy || !value.trim()}>{confirm}</Button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
+/** One's own second factor, unless the admin turned it off for everyone. */
+function TwoFactorSection({ onUnauthorized }: { onUnauthorized: () => void }) {
+  const t = useT()
+  const dates = useDates()
+  const [info, setInfo] = useState<TwoFactorInfo | null>(null)
+  const [open, setOpen] = useState<TwoFactorDialog | null>(null)
+  const [codes, setCodes] = useState<string[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const load = () => api.twoFactor().then(setInfo, (err) => {
+    if (err instanceof ApiError && err.status === 401) return onUnauthorized()
+    setError(errorText(t, err))
+  })
+  useEffect(() => { void load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const close = () => { setOpen(null); setCodes(null); void load() }
+
+  if (!info) return error ? <p className="error-text" role="alert">{error}</p> : null
+  if (info.policy === 'disabled') return null
+  const on = info.enabled
+
+  let dialog: ReactNode = null
+  if (open === 'setup') dialog = <SetupDialog replacing={on} onClose={close} onDone={close} />
+  else if (open === 'recovery' && codes) {
+    dialog = (
+      <Dialog className="dialog key-dialog" aria-label={t('twofa.codesTitle')}>
+        <div className="dialog-fields">
+          <Heading slot="title" className="dialog-title">{t('twofa.codesTitle')}</Heading>
+          <RecoveryCodes codes={codes} done={t('twofa.codesDone')} onDone={close} />
+        </div>
+      </Dialog>
+    )
+  } else if (open === 'recovery') {
+    dialog = <AskDialog title={t('twofa.newCodesTitle')} text={t('twofa.newCodesBody')} label={t('twofa.codeOrPassword')} hint={t('twofa.codeOrPasswordHint')}
+      confirm={t('twofa.newCodesConfirm')} onClose={close} onConfirm={async (v) => setCodes(await api.newRecoveryCodes(v))} />
+  } else if (open === 'disable') {
+    dialog = <AskDialog title={t('twofa.disableTitle')} text={t('twofa.disableBody')} label={t('twofa.codeOrRecovery')} recovery danger
+      confirm={t('twofa.disableConfirm')} onClose={close} onConfirm={async (v) => { await api.disableTwoFactor(v); close() }} />
+  }
+
+  return (
+    <section className="settings-section" aria-labelledby="account-2fa">
+      <h2 id="account-2fa">{t('twofa.title')}</h2>
+      {on ? (
+        <>
+          <p className="twofa-state">
+            <span className="twofa-on">{t('twofa.on')}</span>
+            {info.enabledAt && t('twofa.onSince', { date: dates.dateTime(info.enabledAt) })}
+          </p>
+          <p className={info.recoveryCodesLeft <= 3 ? 'hint twofa-low' : 'hint'}>
+            {t(info.recoveryCodesLeft === 1 ? 'twofa.recoveryLeftOne' : 'twofa.recoveryLeft', { n: info.recoveryCodesLeft })}
+          </p>
+          <div className="twofa-actions">
+            <Button className="btn" onPress={() => setOpen('recovery')}>{t('twofa.newCodes')}</Button>
+            <Button className="btn" onPress={() => setOpen('setup')}>{t('twofa.replace')}</Button>
+            {info.policy !== 'required' && <Button className="btn btn-danger" onPress={() => setOpen('disable')}>{t('twofa.disable')}</Button>}
+          </div>
+          {info.policy === 'required' && <p className="hint">{t('twofa.requiredHint')}</p>}
+        </>
+      ) : (
+        <>
+          <p className="hint">{t('twofa.offIntro')}</p>
+          {info.policy === 'required' && <p className="hint">{t('twofa.requiredNext')}</p>}
+          <div className="twofa-actions">
+            <Button className="btn btn-primary" onPress={() => setOpen('setup')}>{t('twofa.enable')}</Button>
+          </div>
+        </>
+      )}
+      <ModalOverlay className="modal-overlay" isOpen={open !== null} isDismissable={open !== 'setup' && !codes} onOpenChange={(o) => { if (!o) close() }}>
+        <Modal className="modal">{dialog}</Modal>
+      </ModalOverlay>
+    </section>
+  )
+}
+
 export function AccountPage({ user, onUnauthorized }: { user: User; onUnauthorized: () => void }) {
   const t = useT()
   const dates = useDates()
@@ -118,7 +301,7 @@ export function AccountPage({ user, onUnauthorized }: { user: User; onUnauthoriz
           <PasswordForm onUnauthorized={onUnauthorized} />
         </section>
 
-        {/* The second factor (D-036) goes here, between the password and the sessions: piece T. */}
+        <TwoFactorSection onUnauthorized={onUnauthorized} />
 
         <section className="settings-section" aria-labelledby="account-sessions">
           <div className="settings-head">
