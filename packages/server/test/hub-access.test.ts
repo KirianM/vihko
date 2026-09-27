@@ -89,7 +89,7 @@ test('access changed with the note open: the editor is told and closed; a move n
     const put = await api(srv, k, 'PUT', '/api/permissions', { folder: 'familia', grants: { laura: 'read', noa: 'edit' }, ifMatch: perm.body.etag })
     assert.equal(put.status, 200, JSON.stringify(put.body))
     await waitFor(() => got.some((g) => g.who === 'laura' && g.m.type === 'thoth:access'), 'Laura is told')
-    assert.deepEqual(got.filter((g) => g.m.type === 'thoth:access').map((g) => [g.who, g.m.access]).sort(), [['noa', 'edit'], ['laura', 'read']])
+    assert.deepEqual(got.filter((g) => g.m.type === 'thoth:access').map((g) => [g.who, g.m.access]).sort(), [['laura', 'read'], ['noa', 'edit']])
     // Reopened: she reads, and nothing she types goes in.
     const again = await connect(srv, l, 'familia/compra.md')
     typeLine(again, 'AFTER-DOWNGRADE')
@@ -103,6 +103,6 @@ test('access changed with the note open: the editor is told and closed; a move n
     const mv = await api(srv, k, 'POST', '/api/note/move', { from: 'familia/compra.md', to: 'personas/noa/compra.md' })
     assert.equal(mv.status, 200, JSON.stringify(mv.body))
     await waitFor(() => moved.length === 2, 'both editors told')
-    assert.deepEqual(moved.sort((a, b) => a.who.localeCompare(b.who)), [{ who: 'noa', to: 'personas/noa/compra.md' }, { who: 'laura', to: null }])
+    assert.deepEqual(moved.sort((a, b) => a.who.localeCompare(b.who)), [{ who: 'laura', to: null }, { who: 'noa', to: 'personas/noa/compra.md' }])
   } finally { closeAll(); await srv.stop() }
 })

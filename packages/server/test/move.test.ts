@@ -31,9 +31,9 @@ test('renaming rewrites wikilinks (with an anchor) and Markdown links, and leave
   assert.ok(t.includes('- [[gw]] resuelve por alias'), "the alias still works: it's left alone")
   assert.ok(t.includes('[[Hipervisor Proxy#Red]]'))
   assert.ok(t.includes('[[Hipervisor Proxy#No existe]]'))
-  assert.ok(t.includes('[Proxy en Markdown](Hipervisor%20Proxmox.md)'))
+  assert.ok(t.includes('[Proxy en Markdown](Hipervisor%20Proxy.md)'))
   assert.equal(dst('hogar/enlaces.md', '[[Hipervisor Proxy#Red]]'), 'hogar/Hipervisor Proxy.md')
-  assert.equal(dst('hogar/enlaces.md', '[Proxy en Markdown](Hipervisor%20Proxmox.md)'), 'hogar/Hipervisor Proxy.md')
+  assert.equal(dst('hogar/enlaces.md', '[Proxy en Markdown](Hipervisor%20Proxy.md)'), 'hogar/Hipervisor Proxy.md')
 })
 
 test('moving to another folder uses the shortest unambiguous suffix and keeps visible text and embeds', async () => {
@@ -77,7 +77,7 @@ test('the preview details every link that changes and those that keep working un
   assert.deepEqual(enlaces.changes, [
     { before: '[[Proxy#Red]]', after: '[[Hipervisor Proxy#Red]]' },
     { before: '[[Proxy#No existe]]', after: '[[Hipervisor Proxy#No existe]]' },
-    { before: '[Proxy en Markdown](Proxy.md)', after: '[Proxy en Markdown](Hipervisor%20Proxmox.md)' },
+    { before: '[Proxy en Markdown](Proxy.md)', after: '[Proxy en Markdown](Hipervisor%20Proxy.md)' },
   ])
   assert.equal(enlaces.links, enlaces.changes.length)
   assert.deepEqual(r.kept.filter((k) => k.path === 'hogar/enlaces.md'), [{ path: 'hogar/enlaces.md', raw: '[[gw]]', via: 'alias' }])

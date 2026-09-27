@@ -43,7 +43,7 @@ test('matchScore: exact > prefix > word start > contained > all words > letters 
   assert.ok(s('plan general', 'plan') > s('mi plan', 'plan'))
   assert.ok(s('mi plan', 'plan') > s('explanar', 'plan'))
   assert.ok(s('explanar', 'plan') > s('notas de reunion', 'reunion notas'))
-  assert.ok(s('notas de reunion', 'reunion notas') > s('proxy', 'pmx'))
+  assert.ok(s('notas de reunion', 'reunion notas') > s('proxy', 'pxy'))
   assert.equal(s('proxy', 'zz'), -1)
   assert.equal(s('proxy', 'x'), 40, 'a single letter never matches out of order')
 })
@@ -105,7 +105,7 @@ test('headings and tags: filtered and ordered', () => {
   assert.deepEqual(rankHeadings(hs, 'gestion').map((h) => h.text), ['Red de gestión'])
   const tags = [{ tag: 'hogar', count: 3 }, { tag: 'hogar/red', count: 1 }, { tag: 'proyectos', count: 5 }]
   assert.deepEqual(rankTags(tags, '').map((t) => t.tag), ['proyectos', 'hogar', 'hogar/red'])
-  assert.deepEqual(rankTags(tags, 'home').map((t) => t.tag), ['hogar', 'hogar/red'])
+  assert.deepEqual(rankTags(tags, 'hog').map((t) => t.tag), ['hogar', 'hogar/red'])
   assert.deepEqual(rankTags(tags, 'red').map((t) => t.tag), ['hogar/red'])
   assert.deepEqual(rankTags(tags, 'Hogar'), [], 'a complete tag suggests nothing: ↵ is a new line')
   assert.deepEqual(rankTags(tags, 'hogar/').map((t) => t.tag), ['hogar/red'])
