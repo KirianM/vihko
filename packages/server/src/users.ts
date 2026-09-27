@@ -25,6 +25,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { newUid } from '@thoth/core'
 import type { Db } from './db.ts'
+import type { Actor } from './actor.ts'
 import { AuthError, MIN_PASSWORD, NAME_PATTERN, hashPassword, type Auth, type Role, type User } from './auth.ts'
 
 /** How long a one-time link works. */
@@ -97,11 +98,11 @@ export class UsersError extends Error {
  */
 export interface UserHooks {
   /** Before a user is deleted: their grants in thoth.yaml go. If it throws, the user isn't deleted. */
-  onUserDeleted?(username: string): void | Promise<void>
+  onUserDeleted?(username: string, by: Actor): void | Promise<void>
   /** Before a group is renamed: its grants follow it. If it throws, the group keeps its name. */
-  onGroupRenamed?(from: string, to: string): void | Promise<void>
+  onGroupRenamed?(from: string, to: string, by: Actor): void | Promise<void>
   /** Before a group is deleted: its grants go. If it throws, the group stays. */
-  onGroupDeleted?(name: string): void | Promise<void>
+  onGroupDeleted?(name: string, by: Actor): void | Promise<void>
   /**
    * Some of a user's sessions were ended (disabled, deleted, closed, a new
    * password): the live connections of those sessions (the hub's) end too.
@@ -244,10 +245,10 @@ export class Users {
    * grants in thoth.yaml go first (`onUserDeleted`); if that fails, nothing
    * is deleted.
    */
-  async remove(id: string): Promise<void> {
+  async remove(id: string, by: Actor): Promise<void> {
     const r = this.must(id)
     if (!r.disabled) throw new UsersError('not_disabled', 'only a disabled user can be deleted: disable them first')
-    await this.hooks.onUserDeleted?.(r.username)
+    await this.hooks.onUserDeleted?.(r.username, by)
     this.db.transaction(() => {
       const now = this.now().toISOString()
       this.db.prepare("update users set deleted_at = ?, password_hash = '', disabled = 1 where id = ?").run(now, id)
@@ -297,18 +298,18 @@ export class Users {
     return this.group(id)
   }
 
-  async renameGroup(id: string, name: unknown): Promise<GroupInfo> {
+  async renameGroup(id: string, name: unknown, by: Actor): Promise<GroupInfo> {
     const g = this.group(id)
     const n = this.groupName(name, id)
     if (n === g.name) return g
-    await this.hooks.onGroupRenamed?.(g.name, n)
+    await this.hooks.onGroupRenamed?.(g.name, n, by)
     this.db.prepare('update user_groups set name = ? where id = ?').run(n, id)
     return this.group(id)
   }
 
-  async deleteGroup(id: string): Promise<void> {
+  async deleteGroup(id: string, by: Actor): Promise<void> {
     const g = this.group(id)
-    await this.hooks.onGroupDeleted?.(g.name)
+    await this.hooks.onGroupDeleted?.(g.name, by)
     this.db.prepare('delete from user_groups where id = ?').run(id)
   }
 

@@ -5,6 +5,7 @@
 // Implementing one: pages are always bounded (never walk the whole history to
 // answer one page), cursors are opaque strings, and `canRead` is asked for
 // every file a change lists (the permission filter, D-014, D-016).
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { Author } from '../actor.ts'
 
 /**
@@ -100,16 +101,30 @@ export function matchesAuthor(authors: readonly AuthorRef[], filter: string | nu
   return authors.some((a) => a.kind === filter || authorFilter(a) === filter)
 }
 
-/** Cursors: opaque to clients, JSON inside. */
+/**
+ * Cursors: opaque to clients, JSON inside, signed with a key of this process.
+ * A cursor carries where a walk goes on (a commit, a path): only the server
+ * makes one, so a client can't point a page at another note's history. A
+ * restart makes them stale (`invalid`): the list is loaded again.
+ */
+const CURSOR_KEY = randomBytes(32)
+const sign = (payload: string) => createHmac('sha256', CURSOR_KEY).update(payload).digest().subarray(0, 18).toString('base64url')
+
 export function encodeCursor(value: unknown): string {
-  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
+  const payload = Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
+  return `${payload}.${sign(payload)}`
 }
 
 export function decodeCursor<T>(cursor: string | null | undefined, check: (v: unknown) => v is T): T | null {
   if (!cursor) return null
   try {
-    const v = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as unknown
-    if (check(v)) return v
+    const [payload, sig, ...rest] = cursor.split('.')
+    const want = Buffer.from(sign(payload ?? ''))
+    const got = Buffer.from(sig ?? '')
+    if (rest.length === 0 && got.length === want.length && timingSafeEqual(got, want)) {
+      const v = JSON.parse(Buffer.from(payload!, 'base64url').toString('utf8')) as unknown
+      if (check(v)) return v
+    }
   } catch { /* falls through */ }
   throw new HistoryError('invalid', 'invalid cursor')
 }

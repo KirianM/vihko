@@ -103,9 +103,11 @@ export class ExternalMoves {
   /**
    * The groups with links left behind. Moves no longer in place (the note
    * moved on or was deleted, or a note is back at the old path) are dropped,
-   * and so is a group with nothing left to update.
+   * and so is a group with nothing left to update. With `visible` and
+   * `readable`, as one person sees them (only their moves, only the links
+   * in notes they can read; a group with none of either isn't listed).
    */
-  pending(): PendingExternalMove[] {
+  pending(visible?: (m: { from: string; to: string }) => boolean, readable?: (path: string) => boolean): PendingExternalMove[] {
     const out: PendingExternalMove[] = []
     const links = this.opts.indexer.links
     let changed = false
@@ -114,15 +116,21 @@ export class ExternalMoves {
       if (live.length !== g.moves.length) { g.moves = live; changed = true }
       const n = live.length ? this.leftBehind(live) : 0
       if (n === 0) { changed = true; return false }
-      out.push({ id: g.id, moves: live.map((m) => ({ from: m.from, to: m.to })), links: n })
+      // As someone sees it: the moves they see, and the links in the notes they can read.
+      const shown = visible ? live.filter(visible) : live
+      const seen = readable ? (shown.length ? this.leftBehind(shown, readable) : 0) : n
+      if (seen > 0) out.push({ id: g.id, moves: shown.map((m) => ({ from: m.from, to: m.to })), links: seen })
       return true
     })
     if (changed) this.save()
     return out
   }
 
-  /** How many links the moves left behind, counted from the index alone (no note is read). */
-  private leftBehind(moves: readonly { from: string; to: string }[]): number {
+  /**
+   * How many links the moves left behind, counted from the index alone (no
+   * note is read); with `readable`, only those in notes it allows.
+   */
+  private leftBehind(moves: readonly { from: string; to: string }[], readable: (path: string) => boolean = () => true): number {
     const after = this.opts.indexer.links
     const before = beforeMoves(after, moves)
     const forward = new Map(moves.map((m) => [m.from, m.to]))
@@ -140,6 +148,7 @@ export class ExternalMoves {
     for (const to of back.keys()) add(bySrc.all(to))
     let n = 0
     for (const r of rows.values()) {
+      if (!readable(r.src_path)) continue
       const own = back.get(r.src_path)
       const was = before.resolve(own ?? r.src_path, r)
       if (was.status !== 'resolved') continue

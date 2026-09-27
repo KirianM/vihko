@@ -7,7 +7,7 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { E2E_DIR, E2E_PORT, LOCKED_PORT, PASSWORD, PUBLIC_URL, USERS } from './env.ts'
+import { E2E_DIR, E2E_PORT, LOCKED_PORT, PASSWORD, PERMISSIONS, PUBLIC_URL, USERS } from './env.ts'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const cli = root + 'packages/server/src/cli.ts'
@@ -20,6 +20,8 @@ const locked = { ...process.env, THOTH_NOTES_DIR: E2E_DIR + '/locked/notes', THO
 mkdirSync(locked.THOTH_NOTES_DIR, { recursive: true })
 writeFileSync(locked.THOTH_NOTES_DIR + '/Bloqueada.md', '# Bloqueada\n')
 for (const e of [env, locked]) {
+  // Both users see everything (D-038: a member reads only what is granted).
+  writeFileSync(e.THOTH_NOTES_DIR + '/thoth.yaml', PERMISSIONS)
   for (const [name, admin] of USERS) {
     execFileSync(process.execPath, ['--no-experimental-webstorage', cli, 'user', 'create', name, ...(admin ? ['--admin'] : [])], { env: e, input: PASSWORD })
   }

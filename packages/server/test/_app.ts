@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Auth, Indexer, NoteService, Profiles, Workspace, createApp, openIndex, openState, type Runtime } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
+import { withEveryone } from './_permissions.ts'
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
@@ -27,7 +28,8 @@ export async function setup(opts: { config?: string; clock?: { now: Date }; move
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
   mkdirSync(join(notesDir, 'Plantillas'))
-  if (opts.config !== undefined) writeFileSync(join(notesDir, 'thoth.yaml'), opts.config)
+  // Both users see everything unless the test brings its own permissions (_permissions.ts).
+  writeFileSync(join(notesDir, 'thoth.yaml'), withEveryone(opts.config))
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)

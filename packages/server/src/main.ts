@@ -26,6 +26,9 @@ import type { Server } from 'node:http'
 import type { BlockList } from 'node:net'
 import { trustedProxiesFrom } from './http/clientIp.ts'
 import { WORKSPACE_FILE } from '@thoth/core'
+import { AccessPolicy } from './access.ts'
+import { PermissionsEngine, groupSource, stateDirectory } from './permissions.ts'
+import { PermissionHolds } from './permissionHolds.ts'
 import { Users } from './users.ts'
 
 export interface Config {
@@ -133,12 +136,22 @@ async function run(config: Config, lock: StateLock) {
   const log = (msg: string) => console.log(`[thoth] ${msg}`)
   const workspace = new Workspace({ notesDir: config.notesDir, log })
   const indexer = new Indexer({ notesDir: config.notesDir, db: index, linkAliases: workspace.config.links.aliases })
+  // Users and groups. Ending someone's sessions ends their live connections
+  // too (the hub exists further down). Their grants in thoth.yaml follow a
+  // deletion or a group's rename (http/app.ts fills those hooks in).
+  const users = new Users(auth, { hooks: { onSessionsEnded: (id) => hub.checkSessions(id) } })
+  // Who reads what (D-038): thoth.yaml's rules over state.db's users and groups.
+  const permissions = new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(state, groupSource(users)) })
   // Before the first scan: a note moved while the server was stopped is detected too.
+  const holds = new PermissionHolds({ stateDir: config.stateDir, engine: permissions, log })
+  const policy = new AccessPolicy({ index, permissions, holds })
   const externalMoves = new ExternalMoves({ stateDir: config.stateDir, db: index, indexer, log })
   // Open notes follow their file (the hub exists after the first scan, which
   // hands it its moves once the recovery logs are loaded).
   let follow: CollabHub | null = null
   indexer.onMoves = (moves) => {
+    // First: a note that left a folder with rules of its own is held before anyone can list it.
+    holds.consider(moves)
     externalMoves.record(moves)
     log(`moved outside thoth: ${moves.map((m) => `${m.from} → ${m.to} (${m.by})`).join(', ')}`)
     follow?.followMoves(moves)
@@ -150,11 +163,12 @@ async function run(config: Config, lock: StateLock) {
     git: config.history.git, quietMs: config.history.quietMs, maxOpenMs: config.history.maxOpenMs, sweepMs: config.history.sweepMs,
     nameOf: (a) => (a.kind === 'user' ? auth.username(a.id) ?? a.id : a.kind === 'agent' ? keys.nameOf(a.id) ?? a.id : a.kind),
   })
-  /** Rereads thoth.yaml and applies what the index and the history depend on. */
+  /** Rereads thoth.yaml and applies what the index, the history and open editors depend on. */
   const reloadWorkspace = () => {
     if (!workspace.reload()) return
     indexer.setLinkAliases(workspace.config.links.aliases)
     history.configure().catch((e) => log(`history: ${e instanceof Error ? e.message : String(e)}`))
+    follow?.recheckAccess()
   }
 
   const runtime: Runtime = {
@@ -170,7 +184,7 @@ async function run(config: Config, lock: StateLock) {
   log(`index ready: ${first.added.length} added, ${first.changed.length} changed, ${first.removed.length} removed, ${first.unchanged} unchanged`)
 
   await history.open()
-  const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log, history: history.recorder, agentName: (id) => keys.nameOf(id) })
+  const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log, history: history.recorder, agentName: (id) => keys.nameOf(id), policy })
   // Checked against the index as the first scan left it. One that stopped may
   // have left the index behind the files: then no saved state is trusted.
   if (!first.aborted) hub.trustSavedStates()
@@ -206,13 +220,9 @@ async function run(config: Config, lock: StateLock) {
   const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const profiles = new Profiles(state)
-  // Users and groups. Ending someone's sessions ends their live connections
-  // too. The permissions read someone's groups with `users.groupsOf(id)`;
-  // the grants hooks (a user deleted, a group renamed or deleted) are no-ops
-  // until the permissions writer (thoth.yaml) fills them in.
-  const users = new Users(auth, { hooks: { onSessionsEnded: (id) => hub.checkSessions(id) } })
   const app = createApp({
     auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users,
+    policy, holds, onPermissionsChanged: () => hub.recheckAccess(),
     // The MCP server, at /mcp (off until the admin turns it on).
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log }) },
   })

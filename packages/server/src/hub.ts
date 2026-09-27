@@ -1,6 +1,16 @@
 // Collaboration hub: hot notes as Yjs documents over the file's text. The file
 // is still the source of truth; the document is a cache that exists while
 // someone has the note open.
+//
+// Who may open a note, and what they may do in it, is the access filter's
+// (access.ts, D-038): connecting needs `read` (a note one can't read doesn't
+// exist, as over HTTP); with `read` or `comment` the connection is read-only
+// (the server drops every change it sends; the comment-only path is piece
+// C's); with `edit`, it writes. When someone's access changes while the note
+// is open (thoth.yaml, groups, a user disabled), their connection is told
+// (`ACCESS_MESSAGE`) and closed at once: they reopen it with what they have
+// now, or not at all. Every message the hub sends is classified in
+// `HUB_MESSAGES` (hubMessages.ts), for the leak tests.
 import { Hocuspocus, type Document } from '@hocuspocus/server'
 import diff from 'fast-diff'
 import { randomUUID } from 'node:crypto'
@@ -17,6 +27,7 @@ import { readStable, readText, replaceText } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
 import type { Via } from './actor.ts'
+import type { AccessPolicy } from './access.ts'
 
 export const TEXT = 'md'
 /** Map in the document with the hub's metadata: `generation` (see `load`). */
@@ -112,6 +123,14 @@ export const TRASHED_MESSAGE = 'thoth:trashed'
  */
 export const STALE_MESSAGE = 'thoth:stale-generation'
 /**
+ * To an editor whose access to the note changed while it was open (D-038):
+ * `access` is what they have now (`none`, `read`, `comment` or `edit`); the
+ * connection is closed right after, and they reopen it with that, if any.
+ */
+export const ACCESS_MESSAGE = 'thoth:access'
+/** An orphan's copy was kept (`restore`) or discarded. */
+export const ORPHAN_RESOLVED_MESSAGE = 'thoth:orphan-resolved'
+/**
  * To the editors of a session that just ended (the user was disabled or
  * deleted, the admin closed their sessions, another session changed the
  * password): the connection closes next, and the UI goes to sign in.
@@ -119,6 +138,43 @@ export const STALE_MESSAGE = 'thoth:stale-generation'
 export const SESSION_ENDED_MESSAGE = 'thoth:session-ended'
 /** The WebSocket close code that goes with it. */
 export const SESSION_ENDED_CODE = 4401
+
+/**
+ * Every message of the collaboration protocol, and who it reaches (m4 §2):
+ * a new one without its line here fails the leak tests.
+ * - `inbound`, by hocuspocus message type: what a connection (someone who
+ *   could read the note when they opened it) may send. `edit`: applied only
+ *   for a connection that may write, dropped for a read-only one; `read`:
+ *   anyone connected; `ignored`: nothing is done with it.
+ * - `outbound`, by thoth's own stateless messages: whom it goes to and what
+ *   it carries.
+ */
+export const HUB_MESSAGES = {
+  inbound: {
+    Unknown: 'ignored',
+    Sync: 'edit', // step 1 only reads; step 2 and updates write
+    SyncReply: 'edit',
+    Awareness: 'read', // presence and cursors, not the note
+    QueryAwareness: 'read',
+    Auth: 'read',
+    Stateless: 'ignored', // no onStateless hook
+    BroadcastStateless: 'ignored', // refused from a client by hocuspocus
+    CLOSE: 'read',
+    SyncStatus: 'read',
+    Ping: 'read',
+    Pong: 'read',
+  },
+  outbound: {
+    [SAVED_MESSAGE]: 'the note\'s editors: its ETag',
+    [ORPHAN_MESSAGE]: 'the note\'s editors: its own path',
+    [ORPHAN_RESOLVED_MESSAGE]: 'the note\'s editors: its own path',
+    [MOVED_MESSAGE]: 'the note\'s editors: where it went, only to those who can read it there (null otherwise)',
+    [TRASHED_MESSAGE]: 'the note\'s editors: the trash entry and who deleted it',
+    [STALE_MESSAGE]: 'one editor, before anything is synced: its own path',
+    [ACCESS_MESSAGE]: 'one editor whose access changed: its own path and level',
+    [SESSION_ENDED_MESSAGE]: 'the editors of a session that ended: nothing but the type',
+  },
+} as const
 
 export interface HubOptions {
   notesDir: string
@@ -143,6 +199,13 @@ export interface HubOptions {
   agentName?: (keyId: string) => string | null
   /** How long an agent's presence stays after its last write to an open note (5 s). */
   agentPresenceMs?: number
+  /**
+   * Who may open a note and write in it (access.ts). Without it, anyone with
+   * a session opens and writes any note: only the hub's own tests do that.
+   */
+  policy?: AccessPolicy
+  /** How often every open connection's access is checked again, besides each change thoth makes (5 s). */
+  accessCheckMs?: number
 }
 
 /**
@@ -161,9 +224,12 @@ export interface HubHistory {
   external(path: string, text: string): void
 }
 
-/** `generation`: the one the editor's copy belongs to (null: an empty copy, it claims none). */
-/** A connection's context: its session's user and its public id (auth.ts `sessionIdOf`), or the system's writes; the editor's generation. */
-type Ctx = { user?: User; session?: string; system?: Actor; generation?: string | null }
+/**
+ * `generation`: the one the editor's copy belongs to (null: an empty copy, it
+ * claims none). `level`: what the person had in the note when they connected.
+ * `session`: its session's public id (auth.ts `sessionIdOf`).
+ */
+type Ctx = { user?: User; session?: string; system?: Actor; generation?: string | null; level?: string }
 
 // --- Utilities ---------------------------------------------------------------
 
@@ -319,6 +385,7 @@ export class CollabHub implements HotDocuments {
   private uidKey: string
   private logDir: string
   private checkTimer: NodeJS.Timeout | null = null
+  private accessTimer: NodeJS.Timeout | null = null
   private wss = new WebSocketServer({ noServer: true })
   /** Open WebSockets, by user and session (its token, to tell whether it is still in force): ended at once when the session ends (`checkSessions`). */
   private sockets = new Set<{ userId: string; session: string; token: string; close(code: number, reason: string): void }>()
@@ -336,8 +403,14 @@ export class CollabHub implements HotDocuments {
       quiet: true,
       debounce,
       maxDebounce: debounce * 10,
-      onConnect: async ({ documentName }) => {
+      onConnect: async ({ documentName, context, connectionConfig }) => {
         NoteService.checkPath(documentName)
+        // A note one can't read doesn't exist for them: the same answer as a note that isn't there.
+        const level = this.levelOf(context.user, documentName)
+        if (level === 'none') throw new NoteError('not_found', `does not exist: ${documentName}`)
+        // With `read` or `comment`, every change it sends is dropped (hocuspocus answers it wasn't applied).
+        connectionConfig.readOnly = level !== 'edit'
+        context.level = level
         // A note deleted or moved from thoth is not reopened: a reconnecting editor cannot resurrect it.
         if (this.hot.get(documentName)?.discarded) throw new NoteError('not_found', `does not exist: ${documentName}`)
         if (!this.hot.has(documentName) && readText(this.file(documentName)) === null) {
@@ -416,6 +489,70 @@ export class CollabHub implements HotDocuments {
     this.checkTimer = setInterval(() => {
       for (const path of this.hot.keys()) this.checkExternal(path).catch((e) => this.log(`check of ${path}: ${e}`))
     }, this.opts.checkMs ?? 1000)
+    // Groups and users change outside what thoth writes (piece U): looked at again now and then.
+    if (this.opts.policy) this.accessTimer = setInterval(() => this.recheckAccess(), this.opts.accessCheckMs ?? 5000)
+  }
+
+  // --- Access (D-038) ------------------------------------------------------------
+
+  /** What a person may do in a note now: `none`, `read`, `comment` or `edit` (`manage` writes as `edit`). */
+  private levelOf(user: User | undefined, path: string): 'none' | 'read' | 'comment' | 'edit' {
+    const policy = this.opts.policy
+    if (!policy) return 'edit'
+    if (!user) return 'none'
+    const access = policy.for({ kind: 'user', user })
+    if (!access.canRead(path)) return 'none'
+    if (access.canWrite(path)) return 'edit'
+    return access.canComment(path) ? 'comment' : 'read'
+  }
+
+  /**
+   * Checks every open connection against what its person may do now. Whoever
+   * lost access, or whose access changed, is told (`ACCESS_MESSAGE`) and
+   * closed at once, read-only first so nothing else they send goes in; they
+   * reopen it with what they have now. After each permissions change thoth
+   * makes, and every few seconds (groups, users).
+   */
+  recheckAccess() {
+    if (!this.opts.policy) return
+    const users = new Map<string, User | null>()
+    for (const [path, doc] of this.hocuspocus.documents) {
+      for (const conn of doc.getConnections()) {
+        const ctx = conn.context as Ctx
+        if (!ctx.user) continue
+        // The person as they are now: disabled or deleted, nothing.
+        let user = users.get(ctx.user.id)
+        if (user === undefined) users.set(ctx.user.id, (user = this.currentUser(ctx.user)))
+        const level = user ? this.levelOf(user, path) : 'none'
+        if (level === ctx.level) continue
+        conn.readOnly = true
+        conn.sendStateless(JSON.stringify({ type: ACCESS_MESSAGE, path, access: level }))
+        conn.close({ code: 4403, reason: ACCESS_MESSAGE })
+        this.log(`${path}: an editor's access changed (${ctx.level} → ${level}); closed for it to reopen`)
+      }
+    }
+  }
+
+  /** The user as state.db has them now; null if they can't sign in any more. */
+  private currentUser(user: User): User | null {
+    const name = this.opts.auth.username(user.id)
+    if (name === null) return null
+    const row = this.opts.auth.state.prepare('select role, disabled from users where id = ?').get(user.id) as { role: User['role']; disabled: number } | undefined
+    if (!row || row.disabled) return null
+    return { ...user, username: name, role: row.role, disabled: false }
+  }
+
+  /**
+   * Sends one message to each editor of a note, made for its person (`none`
+   * leaves them out): what one may see of a move, say, isn't what another may.
+   */
+  private tellEach(path: string, message: (user: User | undefined) => Record<string, unknown> | null) {
+    const doc = this.hocuspocus.documents.get(path)
+    if (!doc) return
+    for (const conn of doc.getConnections()) {
+      const m = message((conn.context as Ctx).user)
+      if (m) conn.sendStateless(JSON.stringify(m))
+    }
   }
 
   /**
@@ -442,6 +579,7 @@ export class CollabHub implements HotDocuments {
 
   async close() {
     if (this.checkTimer) clearInterval(this.checkTimer)
+    if (this.accessTimer) clearInterval(this.accessTimer)
     for (const [path, h] of this.hot) this.agentsDone(path, h)
     this.hocuspocus.flushPendingStores()
     for (const path of [...this.hot.keys()]) await this.flush(path)
@@ -616,7 +754,7 @@ export class CollabHub implements HotDocuments {
         fork.transact(() => applyTextDiff(fork.getText(TEXT), text, r.written!))
         Y.applyUpdate(h.doc, Y.encodeStateAsUpdate(fork, sv), 'move')
       }
-      this.hocuspocus.documents.get(from)?.broadcastStateless(JSON.stringify({ type: MOVED_MESSAGE, from, to }))
+      this.tellMoved(from, to, false)
       this.hocuspocus.closeConnections(from)
       const final = h.doc.getText(TEXT).toString()
       if (r.written !== null && final !== r.written) late = { text: final, base: r.written }
@@ -705,7 +843,7 @@ export class CollabHub implements HotDocuments {
           throw err
         }
         h.discarded = true
-        this.hocuspocus.documents.get(from)?.broadcastStateless(JSON.stringify({ type: MOVED_MESSAGE, from, to, external: true }))
+        this.tellMoved(from, to, true)
         this.hocuspocus.closeConnections(from)
         // Closed: nothing else can arrive. What came in between is written
         // before the lock is released, so the log (which unloading removes)
@@ -723,6 +861,15 @@ export class CollabHub implements HotDocuments {
     } finally {
       await conn?.disconnect()
     }
+  }
+
+  /**
+   * Tells a note's editors it moved: where to, to those who can read it
+   * there; to the rest, only that it's gone from where they had it (`to`
+   * null): a move into a folder they can't see names nothing of it.
+   */
+  private tellMoved(from: string, to: string, external: boolean) {
+    this.tellEach(from, (user) => ({ type: MOVED_MESSAGE, from, to: this.levelOf(user, to) === 'none' ? null : to, ...(external ? { external: true } : {}) }))
   }
 
   /** Whether `text` is the note `h` holds: the same `uid` or, without one, the text last written. */
@@ -1012,7 +1159,7 @@ export class CollabHub implements HotDocuments {
         h.flushedHash = contentHash(text)
         this.remember(path, h)
         this.opts.indexer.indexPaths([path])
-        this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: 'thoth:orphan-resolved', path, action: 'restore' }))
+        this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: ORPHAN_RESOLVED_MESSAGE, path, action: 'restore' }))
         this.log(`${path}: the open copy is kept`)
         return { etag: h.flushedHash }
       })
@@ -1024,7 +1171,7 @@ export class CollabHub implements HotDocuments {
   /** Discards the copy: the external deletion is accepted as final. */
   async discardOrphan(path: string) {
     if (!this.orphans().includes(path)) throw new NoteError('not_found', `no pending copy for ${path}`)
-    this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: 'thoth:orphan-resolved', path, action: 'discard' }))
+    this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: ORPHAN_RESOLVED_MESSAGE, path, action: 'discard' }))
     if (this.hot.has(path)) await this.discard(path)
     else {
       rmSync(this.logPath(path), { force: true })

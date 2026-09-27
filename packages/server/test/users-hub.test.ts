@@ -2,11 +2,20 @@
 // disabling someone cuts their open editor and their key at once, and a new
 // password ends the other sessions' editors, never the one that changed it.
 // On a real server.
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { api, closeAll, connect, login, makeDirs, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
 
 const NOTE = 'hogar/Proxy.md'
+
+/** The notes folder, with noa managing everything and ana editing it (a member sees nothing until granted, D-038). */
+function dirs() {
+  const d = makeDirs()
+  writeFileSync(join(d.notes, 'thoth.yaml'), 'permissions:\n  "": { grants: { noa: manage, ana: edit } }\n')
+  return d
+}
 
 async function signIn(srv: Srv, username: string, password: string): Promise<string> {
   const r = await fetch(srv.base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password }) })
@@ -24,7 +33,7 @@ function watch(c: Client) {
 }
 
 test('disabling someone ends their open editor and their key at once', async () => {
-  const { env } = makeDirs()
+  const { env } = dirs()
   const srv = await startServer(env)
   try {
     const admin = await login(srv)
@@ -58,7 +67,7 @@ test('disabling someone ends their open editor and their key at once', async () 
 })
 
 test('a new password ends the editors of the other sessions, not the one that changed it', async () => {
-  const { env } = makeDirs()
+  const { env } = dirs()
   const srv = await startServer(env)
   try {
     const admin = await login(srv)

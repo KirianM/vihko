@@ -2,9 +2,9 @@
 // opens and edits it, and its history tab says why it has no versions instead
 // of looking empty. At the end the folder goes back to having no thoth.yaml.
 import { expect, test, type Page } from '@playwright/test'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { E2E_DIR, NOTES } from './env.ts'
-import { signIn } from './helpers.ts'
+import { signIn, writeWorkspace } from './helpers.ts'
 
 const DIR = 'fuera-del-historial'
 const NOTE = `${DIR}/Contraseñas.md`
@@ -20,7 +20,7 @@ let k: Page
 test.beforeAll(async ({ browser }) => {
   k = await signIn(browser, 'noa')
   // The pattern first: the note is never in the history.
-  writeFileSync(`${NOTES}/thoth.yaml`, `history:\n  exclude:\n    - ${DIR}/**\n`)
+  writeWorkspace(`history:\n  exclude:\n    - ${DIR}/**\n`)
   await expect.poll(() => excluded(k), { timeout: 20_000 }).toBe(true)
   mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
   writeFileSync(`${NOTES}/${NOTE}`, '# Contraseñas\n\nNada que guardar aquí.\n')
@@ -32,7 +32,7 @@ test.afterAll(async () => {
   const q = new URLSearchParams()
   q.set('path', NOTE)
   expect((await k.request.delete(`/api/note?${q}`)).ok()).toBe(true)
-  rmSync(`${NOTES}/thoth.yaml`, { force: true })
+  writeWorkspace()
   await expect.poll(() => excluded(k), { timeout: 20_000 }).toBe(false)
   await k.context().close()
 })

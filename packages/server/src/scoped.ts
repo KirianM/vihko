@@ -1,13 +1,14 @@
 // What a principal can do with the notes, through the access filter
-// (access.ts): the operations the HTTP API offers (and the MCP server, M3),
+// (access.ts): the operations the HTTP API offers (and the MCP server),
 // each one reading and writing through the note service as that principal.
-// A user sees everything (until M4); an agent only what its key allows, and
-// nothing it can't see leaks through a list, a count, a link, a preview or an
-// error: it doesn't exist (`not_found`), or, when it names a note that exists,
+// A person sees what the folders' permissions give them (D-038); an agent
+// only what its user sees and its key allows. Nothing a principal can't see
+// leaks through a list, a count, a link, a preview or an error: it doesn't
+// exist (`not_found`), or, when an agent names a note that exists,
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { anchorChanged, contentHash, extract, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type LinkIndex, type LinkRef, type Range } from '@thoth/core'
+import { anchorChanged, classifyPath, contentHash, extract, parentFolder, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type LinkIndex, type LinkRef, type Range } from '@thoth/core'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
@@ -16,7 +17,13 @@ import type { Db } from './db.ts'
 import type { DailyNotes } from './daily.ts'
 import { planEdits, type EditOp } from './edits.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START, search, type SearchResult } from './http/search.ts'
-import { NoteError, NoteService, type MoveHooks, type MoveReport, type NoteRead } from './notes.ts'
+import { NoteError, NoteService, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type TrashEntry } from './notes.ts'
+import { audienceChange, ruleMove, type AudienceChange } from './audience.ts'
+import type { ExternalMoves, PendingExternalMove } from './externalMoves.ts'
+import type { Orphans } from './http/app.ts'
+import type { KeyWithUser } from './keys.ts'
+import type { PermissionsEngine } from './permissions.ts'
+import type { PermissionsFile } from './permissionsFile.ts'
 import type { Profiles } from './profiles.ts'
 import type { LinkState } from './relink.ts'
 import { createFromTemplate } from './templates.ts'
@@ -28,6 +35,17 @@ export { HIGHLIGHT_END, HIGHLIGHT_START }
 
 export interface ScopedDeps {
   notes: NoteService
+  /** The rules of thoth.yaml, for what moves with a folder and the audience of a move. */
+  permissions?: PermissionsEngine
+  /** thoth.yaml's permissions, rewritten when a folder moves or is deleted from thoth. */
+  permissionsFile?: PermissionsFile
+  /** Every key, for how many gain or lose access with a move. */
+  keys?: () => KeyWithUser[]
+  /** Notes deleted from outside with an open copy (the collaboration hub). */
+  orphans?: Orphans
+  /** Notes moved outside thoth, pending a link update. */
+  externalMoves?: ExternalMoves
+  log?: (msg: string) => void
   index: Db
   notesDir: string
   daily: DailyNotes
@@ -108,7 +126,20 @@ export interface EditPreview {
  * it can't see, never which or how many (D-018); `nowHidden`, that the note
  * moved is hidden from it at its new path (then without its ETag).
  */
-export type ScopedMoveReport = MoveReport & { hidden?: boolean; nowHidden?: NowHidden }
+export type ScopedMoveReport = MoveReport & { hidden?: boolean; nowHidden?: NowHidden; audience?: AudienceChange }
+
+/** What `maskReport` filters: the parts of the reports of note moves, folder moves and link updates after external moves. */
+interface MaskableReport {
+  relinked: MoveReport['relinked']
+  shifted: MoveReport['shifted']
+  failed: MoveReport['failed']
+  from?: string
+  to?: string
+  kept?: MoveReport['kept']
+  images?: MoveReport['images']
+  notes?: { from: string; to: string }[]
+  moves?: { from: string; to: string }[]
+}
 
 /**
  * What a write answers besides its own data: the note's ETag after it, and
@@ -225,9 +256,9 @@ export class ScopedNotes {
   }
 
   private masked(err: unknown, path: string): unknown {
-    if (!(err instanceof NoteError) || !this.access.isAgent || this.readable(path)) return err
-    // A note there that it can't read (not indexed yet): it named it, so it's told, and nothing else.
-    if (err.code === 'exists') return new AgentDenied(this.access.reasonFor(path))
+    if (!(err instanceof NoteError) || this.readable(path)) return err
+    // A note there that it can't read (not indexed yet): an agent named it, so it's told, and nothing else; a person, that it doesn't exist.
+    if (err.code === 'exists') return this.access.isAgent ? new AgentDenied(this.access.reasonFor(path)) : new NoteError('not_found', `does not exist: ${path}`)
     return err.etag ? new NoteError(err.code, err.message) : err
   }
 
@@ -288,11 +319,11 @@ export class ScopedNotes {
 
   /**
    * A note's outgoing links and backlinks (with their context), and the
-   * titles of an ambiguous link's candidates. For an agent, a link to a note
-   * hidden from it is `no_access` (the note isn't named); an ambiguous one
-   * keeps the candidates it can see, with `others_no_access` if there are
-   * others, and is `no_access` if it can see none. Backlinks from notes it
-   * can't see aren't there at all.
+   * titles of an ambiguous link's candidates. A link to a note the
+   * principal can't read is `no_access` (the note isn't named, D-024); an
+   * ambiguous one keeps the candidates it can see, with `others_no_access`
+   * if there are others, and is `no_access` if it can see none. Backlinks
+   * from notes it can't see aren't there at all.
    *
    * A link from a note to itself (`[[#Heading]]`, or its own name) is not a
    * link between notes: it is never a backlink, and among the outgoing ones
@@ -325,7 +356,7 @@ export class ScopedNotes {
     const out = outgoing.map((l): OutgoingLink => {
       const candidates = l.candidates ? JSON.parse(l.candidates) as string[] : null
       const row: OutgoingLink = { ...l, candidates, ...(l.status === 'resolved' && l.dst_path === p ? { self: true as const } : {}) }
-      const link = this.access.isAgent ? this.maskedLink(row) : row
+      const link = this.maskedLink(row)
       for (const c of link.candidates ?? []) titles[c] ??= (titleOf.get(c) as { title: string } | undefined)?.title ?? c
       return link
     })
@@ -333,16 +364,18 @@ export class ScopedNotes {
   }
 
   /**
-   * A link as an agent sees it (see `links`). `no_access` carries the reason
-   * when every note it may lead to is hidden for the same one (the agent has
-   * the link, so it names them, as `resolveLink` does).
+   * A link as the principal sees it (see `links`). For an agent, `no_access`
+   * carries the reason when every note it may lead to is hidden for the same
+   * one (the agent has the link, so it names them, as `resolveLink` does); a
+   * person gets no reason (D-024).
    */
   private maskedLink(l: OutgoingLink): OutgoingLink {
-    if (l.dst_path !== null && !this.access.canRead(l.dst_path)) return noAccess(l, this.access.reasonFor(l.dst_path))
+    const reasonFor = (p: string) => (this.access.isAgent ? this.access.reasonFor(p) : null)
+    if (l.dst_path !== null && !this.access.canRead(l.dst_path)) return noAccess(l, reasonFor(l.dst_path))
     if (!l.candidates) return l
     const visible = l.candidates.filter((c) => this.access.canRead(c))
     if (visible.length === 0) {
-      const reasons = new Set(l.candidates.map((c) => this.access.reasonFor(c)))
+      const reasons = new Set(l.candidates.map(reasonFor))
       return noAccess(l, reasons.size === 1 ? [...reasons][0]! : null)
     }
     return visible.length === l.candidates.length ? l : { ...l, candidates: visible, others_no_access: true }
@@ -351,8 +384,9 @@ export class ScopedNotes {
   /**
    * Where `link` leads, written in `from`: `[[Note#Heading]]`, `[text](path.md)`
    * or a bare target (`Note#Heading`), by the same rules as `links`. A note
-   * hidden from an agent is `no_access`, with its reason when the link leads
-   * to that one note (the agent named it); never its path or title.
+   * the principal can't read is `no_access` (for an agent, with its reason
+   * when the link leads to that one note: it named it); never its path or
+   * title.
    */
   resolveLink(from: string, link: string): ResolvedLink {
     const { path: src } = this.visible(from)
@@ -366,7 +400,7 @@ export class ScopedNotes {
       anchor_ok: r.status === 'resolved' && r.anchor !== null ? (r.anchor === 'ok' ? 1 : 0) : null,
       candidates: r.status === 'ambiguous' ? r.candidates : null,
     }
-    const shown = this.access.isAgent ? this.maskedLink(row) : row
+    const shown = this.maskedLink(row)
     const reason = shown.status === 'no_access' ? shown.reason ?? null : null
     const titleOf = this.deps.index.prepare('select title from notes where path = ?')
     const titles: Record<string, string> = {}
@@ -379,15 +413,22 @@ export class ScopedNotes {
   }
 
   /**
-   * Notes and folders. A folder shows if it is within reach and doesn't only
-   * hold notes the principal can't see (a folder with no notes at all, just
-   * created or emptied, still shows).
+   * Notes and folders. A person sees a folder they can read, and the folders
+   * above what they can read only as the way to it (`pathOnly`: listed in
+   * `folders` too, but nothing in them is theirs). For an agent, only what
+   * its key reaches, and not a folder that only holds notes hidden from it
+   * (a folder with no notes at all, just created or emptied, still shows).
    */
-  tree(): { notes: { path: string; title: string; uid: string | null; aliases: string[] }[]; folders: string[] } {
+  tree(): { notes: { path: string; title: string; uid: string | null; aliases: string[] }[]; folders: string[]; pathOnly: string[] } {
     const { index } = this.deps
     const w = this.access.notesWhere('n')
     const rows = index.prepare(`select path, title, uid, aliases from notes n where ${w.sql} order by path`).all(...w.params) as { path: string; title: string; uid: string | null; aliases: string }[]
-    let folders = (index.prepare('select path from folders order by path').all() as { path: string }[]).map((r) => r.path)
+    const all = (index.prepare('select path from folders order by path').all() as { path: string }[]).map((r) => r.path)
+    const readable = new Set(all.filter((f) => this.access.level(f) !== null && this.access.folderInScope(f)))
+    const shown = new Set(readable)
+    for (const f of readable) for (const a of ancestors(f + '/x')) shown.add(a)
+    for (const { path } of rows) for (const a of ancestors(path)) shown.add(a)
+    let folders = all.filter((f) => shown.has(f))
     if (this.access.isAgent) {
       const holds = new Set<string>()
       const holdsVisible = new Set<string>()
@@ -395,7 +436,7 @@ export class ScopedNotes {
       for (const { path } of rows) for (const a of ancestors(path)) holdsVisible.add(a)
       folders = folders.filter((f) => this.access.folderInScope(f) && (!holds.has(f) || holdsVisible.has(f)))
     }
-    return { notes: rows.map((r) => ({ ...r, aliases: JSON.parse(r.aliases) as string[] })), folders }
+    return { notes: rows.map((r) => ({ ...r, aliases: JSON.parse(r.aliases) as string[] })), folders, pathOnly: folders.filter((f) => !readable.has(f)) }
   }
 
   /**
@@ -406,8 +447,8 @@ export class ScopedNotes {
   tags(): { tag: string; count: number; total: number }[] {
     const { index } = this.deps
     const w = this.access.notesWhere('n')
-    const join = this.access.isAgent ? `join notes n on n.path = t.path where ${w.sql}` : ''
-    const params = this.access.isAgent ? w.params : []
+    const join = `join notes n on n.path = t.path where ${w.sql}`
+    const params = w.params
     const rows = index.prepare(`select t.tag, count(distinct t.path) as count from tags t ${join} group by t.tag order by count desc, t.tag`).all(...params) as { tag: string; count: number }[]
     const under = new Map<string, Set<string>>()
     for (const r of index.prepare(`select distinct t.path, t.tag from tags t ${join}`).all(...params) as { path: string; tag: string }[]) {
@@ -436,15 +477,15 @@ export class ScopedNotes {
 
   /**
    * A new note, with the given text or from a template note (D-030). Never
-   * overwrites. An agent needs to be able to read the template. If what it
-   * created is hidden from it (`ai: false` in its text), `nowHidden`.
+   * overwrites. The template must be one the principal can read. If what an
+   * agent created is hidden from it (`ai: false` in its text), `nowHidden`.
    */
   async create(path: string, opts: { text?: string; template?: string; freshUid?: boolean }): Promise<{ path: string; uid: string | null } & Written> {
     const p = this.writable(path)
     const actor = this.access.actor
     let r: { path: string; etag: string; uid: string | null }
     if (opts.template !== undefined) {
-      if (this.access.isAgent) this.visible(opts.template)
+      this.unnamed(() => this.visible(opts.template!))
       const user = this.access.user
       r = await this.guardAsync(p, () => createFromTemplate(this.deps.notes, { path: p, template: opts.template!, user, now: this.deps.profiles.now(user.id, this.deps.now()), actor }))
     } else {
@@ -521,52 +562,70 @@ export class ScopedNotes {
   /** To the trash. */
   async delete(path: string, opts: { ifMatch?: string }) {
     const p = this.writable(path)
-    if (this.access.isAgent) this.visible(p)
+    this.visible(p)
     return this.guardAsync(p, () => this.deps.notes.delete(p, { ifMatch: opts.ifMatch, actor: this.access.actor }))
   }
 
   /**
-   * Moves or renames a note (links kept, D-018). An agent moves only a note
-   * it can write to a path it can write; the report never names a note it
-   * can't see (`hidden`: there are some).
+   * Moves or renames a note (links kept, D-018): only a note it can write
+   * (`edit` in its folder) to a path it can write. The report never names a
+   * note it can't see (`hidden`: there are some, never which or how many);
+   * the rewrites still reach them, as the system. A dry run says whose
+   * access changes (`audience`, D-038), for the UI to confirm.
    */
   async move(from: string, to: string, opts: { ifMatch?: string; dryRun?: boolean } & MoveHooks): Promise<ScopedMoveReport> {
     const f = this.writable(from)
-    if (this.access.isAgent) this.visible(f)
+    this.visible(f)
     const t = this.writable(to)
     const report = await this.guardAsync(f, () => this.deps.notes.move(f, t, { ...opts, actor: this.access.actor }))
-    if (!this.access.isAgent) return report
-    const masked = this.maskReport(report)
+    const masked: ScopedMoveReport = this.maskReport(report)
+    if (report.dryRun && !this.access.isAgent && this.deps.permissions && this.deps.keys) masked.audience = audienceChange(this.deps.permissions, this.deps.keys(), [{ before: f, after: t }])
+    if (!this.access.isAgent) return masked
     if (report.dryRun || report.etag === null) return masked
     // Its folders only take it where it can see it, but whatever the reason: hidden now, no ETag (the move rewrote its text).
     const w = this.written(t, report.etag, false)
     return w.nowHidden ? { ...masked, etag: null, nowHidden: w.nowHidden } : masked
   }
 
-  private maskReport(report: MoveReport): ScopedMoveReport {
+  /**
+   * A move's report (a note's, a folder's, or the links after moves made
+   * outside thoth) with only what the principal can see (D-018): `hidden`
+   * says something was left out, never what or how much. `back` gives a
+   * path's name before the move (a folder move's notes are listed at their
+   * new paths, and whether they're seen is judged where they were).
+   */
+  maskReport<T extends MaskableReport>(report: T, back: (p: string) => string = (p) => p): T & { hidden: boolean } {
     let hidden = false
-    const sees = (p: string) => p === report.to || p === report.from || this.access.canRead(p)
-    const keep = <T>(list: T[], path: (x: T) => string) => list.filter((x) => (sees(path(x)) ? true : ((hidden = true), false)))
+    const moved = new Set([report.from, report.to].filter((p): p is string => typeof p === 'string'))
+    const sees = (p: string) => moved.has(p) || this.access.canRead(back(p))
+    const keep = <X>(list: X[], path: (x: X) => string) => list.filter((x) => (sees(path(x)) ? true : ((hidden = true), false)))
     const stateOk = (s: LinkState) => s.status === 'resolved' ? sees(s.path) : s.status === 'ambiguous' ? s.candidates.every(sees) : true
     const shifted = keep(report.shifted, (g) => g.path).flatMap((g) => {
       const changes = keep(g.changes, (c) => (stateOk(c.before) && stateOk(c.after) ? g.path : ''))
       return changes.length ? [{ ...g, links: changes.length, changes }] : []
     })
-    const inReach = (p: string) => this.access.inScope(p)
-    return {
+    // Images: an agent, those in its key's folders; a person, those in folders they can read.
+    const inReach = (p: string) => (this.access.isAgent ? this.access.inScope(p) : this.access.canRead(back(p)))
+    const out: T & { hidden: boolean } = {
       ...report,
       relinked: keep(report.relinked, (r) => r.path),
       shifted,
-      kept: keep(report.kept, (k) => k.path),
       failed: keep(report.failed, (x) => x.path),
-      images: {
-        moved: report.images.moved.filter((m) => inReach(m.from) && inReach(m.to)),
-        stayed: report.images.stayed.filter((s) => inReach(s.path)),
-        folder: report.images.folder,
-        failed: report.images.failed.filter((x) => inReach(x.path)),
-      },
       hidden,
     }
+    if (report.kept) out.kept = keep(report.kept, (k) => k.path)
+    if (report.images) {
+      out.images = {
+        moved: report.images.moved.filter((m) => inReach(m.from)),
+        stayed: report.images.stayed.filter((x) => inReach(x.path)),
+        folder: report.images.folder,
+        failed: report.images.failed.filter((x) => inReach(x.path)),
+      }
+    }
+    if (report.notes) out.notes = keep(report.notes, (n) => n.from)
+    if (report.moves) out.moves = keep(report.moves, (m) => m.from).filter((m) => sees(m.to))
+    out.hidden = hidden
+    return out
   }
 
   /**
@@ -601,42 +660,201 @@ export class ScopedNotes {
   // --- The daily note (D-030) --------------------------------------------------
 
   /**
-   * Where the user's note for today is and whether it exists. For an agent,
-   * asking for today's note names it, as reading it by its path would: if it
-   * exists but is hidden from the agent (`ai: false`, a frontmatter that
-   * can't be read, or outside the key's folders), `agent_denied` with the
-   * reason (D-035, D-037), never its path or anything of it. If it doesn't
-   * exist and falls outside the key's folders, `not_found`, without its path
-   * either (thoth.yaml made it, not the agent).
+   * Where the user's note for today is and whether it exists. Asking for
+   * today's note names it, as reading it by its path would: in a folder the
+   * person can't read, `not_found` without its path (thoth.yaml made it, not
+   * them). For an agent, if it exists but is hidden from it (`ai: false`, a
+   * frontmatter that can't be read, outside the key's folders, or its user
+   * can't see it), `agent_denied` with the reason (D-035, D-037), never its
+   * path or anything of it; if it doesn't exist and falls where the agent
+   * can't reach, `not_found`, without its path either.
    */
   dailyToday(series?: string | null) {
     const r = this.deps.daily.today(this.access.user, series)
-    if (this.access.isAgent) {
-      this.unnamed(() => {
-        this.access.assertRead(r.path)
-        if (r.exists) this.visible(r.path)
-      })
-    }
+    this.unnamed(() => {
+      this.access.assertRead(r.path)
+      if (r.exists) this.visible(r.path)
+    })
     return r
   }
 
   /**
-   * Today's note: opened if it exists, created (from the series template) if
-   * not, as the principal. For an agent, the same answers as `dailyToday`.
+   * Today's note: opened if it exists, created (from the series template,
+   * if the principal can read it) if not, as the principal. The same answers
+   * as `dailyToday`, and `forbidden` where it can see but not write.
    */
   async dailyOpen(series?: string | null) {
     const user = this.access.user
-    if (this.access.isAgent) {
-      const today = this.deps.daily.today(user, series)
-      this.unnamed(() => {
-        this.access.assertWrite(today.path)
-        if (today.exists) this.visible(today.path)
-      })
-    }
+    const today = this.deps.daily.today(user, series)
+    this.unnamed(() => {
+      if (today.exists) this.visible(today.path)
+      else this.access.assertWrite(today.path)
+    })
     return this.deps.daily.open(user, series, {
       actor: this.access.actor,
-      template: (t) => !this.access.isAgent || (this.access.canRead(t) && this.readable(t)),
+      template: (t) => this.access.canRead(t) && this.readable(t),
     })
+  }
+
+  // --- Folders (D-038.5) ---------------------------------------------------------
+  // Creating one needs `edit` where it goes; renaming, moving or deleting
+  // one, `manage` in it (and `edit` in its new parent). A folder the person
+  // can't see doesn't exist for them; one they see but can't change this
+  // way is `forbidden`. Its rules in thoth.yaml go with it.
+
+  /** Unless the person has `need` in `folder`: `forbidden` if they see it, `not_found` if not. */
+  private assertFolder(folder: string, need: 'edit' | 'manage') {
+    const ok = need === 'manage' ? this.access.canManage(folder) : this.access.canWrite(folder === '' ? '_.md' : `${folder}/_.md`)
+    if (ok) return
+    if (this.access.level(folder) !== null) throw new AccessError(`no permission to ${need === 'manage' ? 'manage' : 'edit'} ${folder || 'the root'}`)
+    throw new NoteError('not_found', `no such folder: ${folder}`)
+  }
+
+  /** A new, empty folder: `edit` where it goes. */
+  createFolder(path: string): { path: string } {
+    const p = NoteService.checkFolder(path)
+    this.assertFolder(parentFolder(p) ?? '', 'edit')
+    return this.deps.notes.createFolder(p, this.access.actor)
+  }
+
+  /** Deletes an empty folder: `manage` in it. Its rules in thoth.yaml go too. */
+  async deleteFolder(path: string): Promise<{ path: string }> {
+    const p = NoteService.checkFolder(path)
+    this.assertFolder(p, 'manage')
+    const r = this.deps.notes.deleteFolder(p, this.access.actor)
+    await this.deps.permissionsFile?.removeRules(p, { actor: this.access.actor })
+      .catch((err) => this.deps.log?.(`permissions of the deleted folder ${p} stay in thoth.yaml: ${err instanceof Error ? err.message : String(err)}`))
+    return r
+  }
+
+  /**
+   * Moves or renames a folder with everything in it (notes.ts), and its
+   * rules with it: `manage` in it and `edit` in its new parent. The rules
+   * are first written at the new path too, then the folder moves, then the
+   * old ones go: at no moment is what it holds left without its rules. If
+   * the rules can't be written, the folder doesn't move; if the folder
+   * can't move, the copies go. The report names only what the person can
+   * see; a dry run says whose access changes (`audience`).
+   */
+  async moveFolder(from: string, to: string, opts: { dryRun?: boolean } & MoveHooks = {}): Promise<FolderMoveReport & { hidden: boolean; audience?: AudienceChange }> {
+    const f = NoteService.checkFolder(from)
+    const t = NoteService.checkFolder(to)
+    this.assertFolder(f, 'manage')
+    this.assertFolder(parentFolder(t) ?? '', 'edit')
+    const actor = this.access.actor
+    const back = (p: string) => (p === t || p.startsWith(t + '/') ? f + p.slice(t.length) : p)
+    const engine = this.deps.permissions
+    const under = (this.deps.index.prepare("select path from folders where path = ? or path like ? escape '\\'").all(f, likePrefix(f)) as { path: string }[]).map((r) => r.path)
+    const plan = engine ? ruleMove(engine, f, t, under) : { extra: [], rules: null }
+    const mask = (r: FolderMoveReport) => {
+      const { filePaths, ...rest } = r
+      const masked = this.maskReport(rest, back)
+      // Only the files in folders the person can read count.
+      return { ...masked, files: (filePaths ?? []).filter((p) => this.access.canRead(p)).length }
+    }
+    if (opts.dryRun) {
+      const r = mask(await this.deps.notes.moveFolder(f, t, { actor, dryRun: true }))
+      if (!engine || !this.deps.keys) return r
+      const pairs = [...r.notes.map((n) => ({ before: n.from, after: n.to })), ...under.map((d) => ({ before: `${d}/_`, after: `${t}${d.slice(f.length)}/_` }))]
+      return { ...r, audience: audienceChange(engine, this.deps.keys(), pairs, plan.rules) }
+    }
+    const file = this.deps.permissionsFile
+    const before = file?.read().text ?? null
+    const copied = file ? (await file.moveRules(f, t, { actor, keepFrom: true, extra: plan.extra })).changed : false
+    const afterCopy = copied ? file!.read().text : null
+    let report: FolderMoveReport
+    try {
+      report = await this.deps.notes.moveFolder(f, t, { actor, ...opts })
+    } catch (err) {
+      // It didn't move: the copies go, unless someone changed the file meanwhile.
+      if (copied) await file!.update((x) => (x === afterCopy ? before ?? '' : x), { actor }).catch(() => {})
+      throw err
+    }
+    if (copied) {
+      await file!.removeRules(f, { actor })
+        .catch((err) => this.deps.log?.(`the old rules of ${f} stay in thoth.yaml after it moved to ${t}: ${err instanceof Error ? err.message : String(err)}`))
+    }
+    return mask(report)
+  }
+
+  // --- Other requests about notes -----------------------------------------------
+
+  /**
+   * Fixes where one ambiguous link leads (D-031.2), in a note it can write,
+   * to a candidate it can see: one it can't is not a candidate for it.
+   */
+  async pinLink(path: string, link: { raw: string; at?: number }, target: string): Promise<{ etag: string; raw: string }> {
+    const p = this.writable(path)
+    this.visible(p)
+    if (typeof target !== 'string' || !this.access.canRead(target)) throw new NoteError('edit_mismatch', `${link.raw} in ${p} has no such candidate`)
+    return this.guardAsync(p, () => this.deps.notes.pinLink(p, link, target, { actor: this.access.actor }))
+  }
+
+  /** Stores an image fetched from a URL for a note it can write, like an upload: nothing is fetched for a note it can't. */
+  async attachFromUrl(note: string, fetch: () => Promise<Uint8Array>) {
+    const p = this.writable(note)
+    this.visible(p)
+    return this.attach(p, await fetch())
+  }
+
+  /** The trash: what was deleted where the person would have `edit` now (D-038). */
+  trash(): TrashEntry[] {
+    return this.deps.notes.trash().filter((e) => this.access.canWrite(e.path))
+  }
+
+  /** Restores a note from the trash (to its path, or `to`): an entry it may see, to where it may write. */
+  async restoreTrash(id: string, to?: string): Promise<{ path: string; etag: string }> {
+    const entry = this.deps.notes.trash().find((e) => e.id === id)
+    if (!entry || !this.access.canWrite(entry.path)) throw new NoteError('not_found', `not in the trash: ${id}`)
+    const dest = this.writable(to ?? entry.path)
+    return this.guardAsync(dest, () => this.deps.notes.restore(id, this.access.actor, dest))
+  }
+
+  /** A sync tool's conflict copy the indexer found, in a folder the person can read. */
+  conflict(path: string): { path: string; text: string } {
+    const known = classifyPath(path) === 'conflict' && this.access.canRead(path)
+      && this.deps.index.prepare("select 1 from alerts where path = ? and kind = 'sync_conflict'").get(path)
+    let text: string | null = null
+    if (known) try { text = readFileSync(join(this.deps.notesDir, path), 'utf8') } catch { /* no longer exists */ }
+    if (text === null) throw new NoteError('not_found', `there's no conflict copy at ${path}`)
+    return { path, text }
+  }
+
+  /** Keeps or discards the copy of a note deleted from outside while it was open: `edit` where it was. */
+  async orphan(path: string, action: 'restore' | 'discard'): Promise<{ etag: string } | { ok: true }> {
+    const orphans = this.deps.orphans
+    const p = NoteService.checkPath(path)
+    if (!orphans || !orphans.orphans().includes(p) || !this.access.canWrite(p)) throw new NoteError('not_found', `no pending copy for ${p}`)
+    if (action === 'restore') return orphans.restoreOrphan(p)
+    await orphans.discardOrphan(p)
+    return { ok: true }
+  }
+
+  /**
+   * Notes moved outside thoth whose links are left behind (D-031.4), as the
+   * person sees them: only moves they can see at both ends, and only the
+   * links in notes they can read.
+   */
+  externalMoves(): PendingExternalMove[] {
+    return this.deps.externalMoves?.pending((m) => this.access.canRead(m.to) && this.access.canRead(m.from), (p) => this.access.canRead(p)) ?? []
+  }
+
+  /**
+   * Updates the links after notes moved outside thoth (D-031.4), as a thoth
+   * move would, for the moves the person may make: `edit` where each note
+   * was and is. The rewrites reach notes they can't see, as the system
+   * (D-018); the report doesn't name them.
+   */
+  async relinkExternal(id: string, opts: { dryRun?: boolean } & MoveHooks = {}) {
+    const ext = this.deps.externalMoves
+    const group = ext?.get(id)
+    const moves = group?.moves.filter((m) => this.access.canWrite(m.to) && this.access.canWrite(m.from)) ?? []
+    if (!ext || !group || moves.length === 0) throw new NoteError('not_found', 'no such external move')
+    const report = await this.deps.notes.relinkMoved(moves, { actor: this.access.actor, ...opts })
+    // Done once every rewrite went through, for every move it had; with failures, or moves left, it stays.
+    if (!opts.dryRun && report.failed.length === 0 && moves.length === group.moves.length) ext.drop(group.id)
+    const back = new Map(report.moves.map((m) => [m.to, m.from]))
+    return this.maskReport(report, (p) => back.get(p) ?? p)
   }
 
   /** Runs a check about a path the principal didn't write: a `not_found` doesn't name it (an `agent_denied` never does). */
@@ -677,6 +895,8 @@ function parseLink(link: string): Pick<LinkRef, 'kind' | 'target' | 'anchor'> | 
 function noAccess(l: { raw: string; kind: string; target: string; anchor: string | null; pos_from: number }, reason: DenyReason | null): OutgoingLink {
   return { raw: l.raw, kind: l.kind, target: l.target, anchor: l.anchor, status: 'no_access', dst_path: null, anchor_ok: null, candidates: null, pos_from: l.pos_from, ...(reason ? { reason } : {}) }
 }
+
+const likePrefix = (dir: string) => dir.replace(/[\\%_]/g, (c) => '\\' + c) + '/%'
 
 /** `a/b/c.md` → `a`, `a/b`. */
 function ancestors(path: string): string[] {

@@ -105,7 +105,8 @@ test('the resolved threads follow the note when it moves', async () => {
 })
 
 test('the same permission check as the rest of the history, and its errors', async () => {
-  const h = await setup({ files: { [NOTE]: TEXT }, canRead: (_u, path) => !path.startsWith('privado/') })
+  // Nobody reads privado/: its history doesn't exist for anyone.
+  const h = await setup({ files: { [NOTE]: TEXT }, config: 'permissions:\n  \"\": { grants: { noa: manage, ana: edit } }\n  privado: { grants: {} }\n' })
   try {
     assert.equal((await h.noa('GET', `/api/history/resolved?path=${h.q('privado/sin-ia.md')}`)).status, 404)
     assert.equal((await h.noa('GET', '/api/history/resolved?path=..%2Fx.md')).status, 400)

@@ -8,3 +8,5 @@ export const NOTES = ACC_DIR + '/notes'
 export const BASE_URL = process.env.ACC_BASE_URL ?? `http://127.0.0.1:${ACC_PORT}`
 export const PASSWORD = 'contraseña-larga'
 export const USERS: [string, boolean][] = [['noa', true], ['ana', false]]
+/** Both users see everything (D-038: a member reads only what is granted). */
+export const PERMISSIONS = 'permissions:\n  "":\n    grants: { noa: manage, ana: edit }\n'

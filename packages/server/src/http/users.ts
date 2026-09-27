@@ -176,7 +176,7 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   app.post('/api/admin/users/:id/enable', admin, (c) => c.json({ user: users.enable(param(c, 'id')) }))
 
   app.delete('/api/admin/users/:id', admin, async (c) => {
-    await users.remove(param(c, 'id'))
+    await users.remove(param(c, 'id'), c.get('access').actor)
     return c.json({ ok: true })
   })
 
@@ -188,10 +188,10 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
 
   app.post('/api/admin/groups', admin, async (c) => c.json({ group: users.createGroup((await body(c)).name) }, 201))
 
-  app.patch('/api/admin/groups/:id', admin, async (c) => c.json({ group: await users.renameGroup(param(c, 'id'), (await body(c)).name) }))
+  app.patch('/api/admin/groups/:id', admin, async (c) => c.json({ group: await users.renameGroup(param(c, 'id'), (await body(c)).name, c.get('access').actor) }))
 
   app.delete('/api/admin/groups/:id', admin, async (c) => {
-    await users.deleteGroup(param(c, 'id'))
+    await users.deleteGroup(param(c, 'id'), c.get('access').actor)
     return c.json({ ok: true })
   })
 
