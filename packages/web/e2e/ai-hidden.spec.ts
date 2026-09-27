@@ -47,7 +47,7 @@ test('ai: false and an unreadable frontmatter show it, with why; other notes don
 
   // What it says holds: a key that names the note is told it exists and is not for agents (agent_denied), and gets nothing of it.
   await page.request.put('/api/admin/integrations', { data: { api: true } })
-  const { key, token } = await (await page.request.post('/api/keys', { data: { name: 'Oculta e2e' } })).json() as { key: { id: string }; token: string }
+  const { key, token } = await (await page.request.post('/api/keys', { data: { confirm: PASSWORD, name: 'Oculta e2e' } })).json() as { key: { id: string }; token: string }
   try {
     const auth = { Authorization: `Bearer ${token}` }
     for (const path of ['privado/sin-ia.md', 'frontmatter/invalido.md']) {

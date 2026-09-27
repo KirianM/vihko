@@ -16,6 +16,7 @@ import { copyText } from './copy.ts'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import { SearchButton } from './Palette.tsx'
+import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
 import { Diamond, Icon, MenuButton, ThemeToggle } from './ui.tsx'
 import './actions.css'
 import './agents.css'
@@ -111,6 +112,9 @@ function KeyDialog({ edit, onClose, onCreated, onSaved }: {
   const [all, setAll] = useState<string[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A new key is confirmed at the moment (D-036): the current code, or the password.
+  const confirmWith = useConfirmWith()
+  const [confirm, setConfirm] = useState('')
 
   useEffect(() => {
     let live = true
@@ -123,18 +127,18 @@ function KeyDialog({ edit, onClose, onCreated, onSaved }: {
   const noneChosen = some && folders.length === 0
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (busy || !name.trim() || noneChosen) return
+    if (busy || !name.trim() || noneChosen || (!edit && !confirm.trim())) return
     setBusy(true)
     setError(null)
     const input = { name: name.trim(), canWrite, folders: some ? folders : [], ...(preset === 'keep' ? {} : { expiresAt: expiryFrom(preset) }) }
     try {
       if (edit) onSaved(await api.updateKey(edit.id, input))
       else {
-        const r = await api.createKey(input)
+        const r = await api.createKey({ ...input, confirm: confirm.trim() })
         onCreated(r.key, r.token)
       }
     } catch (err) {
-      setError(errorText(t, err))
+      setError(codeError(t, err))
       setBusy(false)
     }
   }
@@ -177,12 +181,13 @@ function KeyDialog({ edit, onClose, onCreated, onSaved }: {
               {PRESETS.map((p) => <option key={p} value={p}>{t(presetKey[p])}</option>)}
             </select>
           </label>
+          {!edit && <ConfirmField how={confirmWith} value={confirm} onChange={setConfirm} hint={t('keys.confirmHint')} />}
         </div>
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}
         <div className="dialog-actions">
           {noneChosen && <span className="hint key-need">{t('keys.foldersNeeded')}</span>}
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className="btn btn-primary" isDisabled={busy || !name.trim() || noneChosen}>{t(edit ? 'keys.save' : 'keys.create')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={busy || !name.trim() || noneChosen || (!edit && !confirm.trim())}>{t(edit ? 'keys.save' : 'keys.create')}</Button>
         </div>
       </form>
     </Dialog>
@@ -328,34 +333,41 @@ function RevokeDialog({ keyInfo, owner, onClose, onRevoked }: { keyInfo: KeyInfo
   )
 }
 
-/** Rotating: asked first; then the new key, shown once (TokenDialog). */
+/** Rotating: asked first, and confirmed as a new key is; then the new key, shown once (TokenDialog). */
 function RotateDialog({ keyInfo, onClose, onRotated }: { keyInfo: KeyInfo; onClose: () => void; onRotated: (key: KeyInfo, token: string) => void }) {
   const t = useT()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const rotate = async () => {
+  const confirmWith = useConfirmWith()
+  const [confirm, setConfirm] = useState('')
+  const rotate = async (e: FormEvent) => {
+    e.preventDefault()
+    if (busy || !confirm.trim()) return
     setBusy(true)
     setError(null)
     try {
-      const r = await api.rotateKey(keyInfo.id)
+      const r = await api.rotateKey(keyInfo.id, confirm.trim())
       onRotated(r.key, r.token)
     } catch (err) {
-      setError(errorText(t, err))
+      setError(codeError(t, err))
       setBusy(false)
     }
   }
   return (
     <Dialog className="dialog dialog-narrow" role="alertdialog">
-      <div className="dialog-fields">
-        <Heading slot="title" className="dialog-title">{t('keys.rotateTitle', { name: keyInfo.name })}</Heading>
-        <p className="dialog-text">{t('keys.rotateBody')}</p>
-        <p className="dialog-text">{t('keys.rotateGrace')}</p>
-        {error && <p className="error-text" role="alert">{error}</p>}
-      </div>
-      <div className="dialog-actions">
-        <Button className="btn" onPress={onClose} autoFocus>{t('common.cancel')}</Button>
-        <Button className="btn btn-primary" onPress={() => void rotate()} isDisabled={busy}>{t('keys.rotateConfirm')}</Button>
-      </div>
+      <form onSubmit={rotate}>
+        <div className="dialog-fields">
+          <Heading slot="title" className="dialog-title">{t('keys.rotateTitle', { name: keyInfo.name })}</Heading>
+          <p className="dialog-text">{t('keys.rotateBody')}</p>
+          <p className="dialog-text">{t('keys.rotateGrace')}</p>
+          <ConfirmField how={confirmWith} value={confirm} onChange={setConfirm} hint={t('keys.confirmHint')} />
+          {error && <p className="error-text" role="alert">{error}</p>}
+        </div>
+        <div className="dialog-actions">
+          <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={busy || !confirm.trim()}>{t('keys.rotateConfirm')}</Button>
+        </div>
+      </form>
     </Dialog>
   )
 }

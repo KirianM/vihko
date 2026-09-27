@@ -136,7 +136,7 @@ test('mcp-remote: discovery, registration, consent, tokens and the tools of a re
     const asked = await browser('GET', `/api/oauth/authorize${url.search}`, undefined, { cookie })
     assert.equal(asked.status, 200, JSON.stringify(asked.body))
     assert.equal(asked.body.client.redirectUri, `http://localhost:${port}/oauth/callback`)
-    const approved = await browser('POST', '/api/oauth/authorize', { query: url.search.slice(1), approve: true }, { cookie, origin: publicUrl })
+    const approved = await browser('POST', '/api/oauth/authorize', { query: url.search.slice(1), approve: true, confirm: 'a-long-password' }, { cookie, origin: publicUrl })
     assert.equal(approved.status, 200, JSON.stringify(approved.body))
     // Back to mcp-remote, as the browser follows the redirect. mcp-remote prints the address
     // before it opens its callback server: a person's browser is never that fast, this test can be.

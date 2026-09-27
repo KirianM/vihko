@@ -41,7 +41,7 @@ test('disabling someone ends their open editor and their key at once', async () 
     assert.equal(created.status, 201)
     assert.equal((await api(srv, admin, 'PUT', '/api/admin/integrations', { api: true })).status, 200)
     const ana = await signIn(srv, 'ana', 'ana-long-password')
-    const key = { authorization: `Bearer ${(await api(srv, ana, 'POST', '/api/keys', { name: 'Script', canWrite: true })).body.token}` }
+    const key = { authorization: `Bearer ${(await api(srv, ana, 'POST', '/api/keys', { name: 'Script', canWrite: true, confirm: 'ana-long-password' })).body.token}` }
     assert.equal((await api(srv, '', 'GET', '/api/tree', undefined, key)).status, 200)
 
     const editor = await connect(srv, ana, NOTE)

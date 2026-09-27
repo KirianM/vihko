@@ -1,8 +1,10 @@
-// Screens without a session: first start (create the admin) and login.
+// Screens without a session: first start (create the admin), login and its
+// second step (TwoFactor.tsx), and a one-time link.
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, FieldError, Form, Input, Label, TextField } from 'react-aria-components'
-import { ApiError, api, type User } from './api.ts'
+import { ApiError, api, type SecondStep, type User } from './api.ts'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
+import { SecondStepForm } from './TwoFactor.tsx'
 import { Brand, ThemeToggle } from './ui.tsx'
 
 function Frame({ children }: { children: React.ReactNode }) {
@@ -78,9 +80,11 @@ export function Setup({ onDone }: { onDone: (u: User) => void }) {
     setError(null)
     try {
       await api.setup(String(f.get('token')).trim(), username, password)
-      const { user } = await api.login(username, password)
+      const r = await api.login(username, password)
       history.replaceState(null, '', '/')
-      onDone(user)
+      // The first admin has no second factor yet; should one be asked for, the login page asks.
+      if ('user' in r) onDone(r.user)
+      else location.assign('/')
     } catch (err) {
       setError(wait.caught(err) ? null : errorText(t, err))
     } finally {
@@ -121,13 +125,16 @@ export function Setup({ onDone }: { onDone: (u: User) => void }) {
  * A one-time link (`/invite/<token>`, D-038.3): someone the admin invited, or
  * whose password is being reset, chooses it here and is signed in. A link
  * that doesn't work (unknown, used or expired) gets the same message either
- * way. (With a required second factor, its setup comes after this: piece T.)
+ * way. Then, as after a password at sign-in, the second factor: its code if
+ * they have one (a reset never skips it), or setting it up if the admin
+ * requires it.
  */
 export function Invite({ token, onDone, onLogin }: { token: string; onDone: (u: User) => void; onLogin: () => void }) {
   const t = useT()
   const [link, setLink] = useState<{ kind: 'invite' | 'reset'; username: string } | 'invalid' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [second, setSecond] = useState<SecondStep | null>(null)
   const wait = useWait()
 
   useEffect(() => {
@@ -146,9 +153,10 @@ export function Invite({ token, onDone, onLogin }: { token: string; onDone: (u: 
     setBusy(true)
     setError(null)
     try {
-      const { user } = await api.acceptInvite(token, password)
+      const r = await api.acceptInvite(token, password)
       history.replaceState(null, '', '/')
-      onDone(user)
+      if ('user' in r) onDone(r.user)
+      else setSecond(r)
     } catch (err) {
       if (err instanceof ApiError && err.code === 'invalid_link') setLink('invalid')
       else setError(wait.caught(err) ? null : errorText(t, err))
@@ -157,6 +165,8 @@ export function Invite({ token, onDone, onLogin }: { token: string; onDone: (u: 
     }
   }
 
+  // The password is saved and the link spent: if the second step expires, signing in is the way on.
+  if (second) return <Frame><SecondStepForm step={second} onDone={onDone} onRestart={() => onLogin()} /></Frame>
   if (link === null) return <Frame><p className="empty">{t('common.loading')}</p></Frame>
   if (link === 'invalid') {
     return (
@@ -193,11 +203,16 @@ export function Invite({ token, onDone, onLogin }: { token: string; onDone: (u: 
   )
 }
 
-/** `intro`: why signing in is asked for, when it isn't just to open thoth (an OAuth authorization). */
+/**
+ * `intro`: why signing in is asked for, when it isn't just to open thoth (an
+ * OAuth authorization). After the password, the second factor if it applies
+ * (a code, or setting it up if the admin requires it).
+ */
 export function Login({ onDone, notice, intro }: { onDone: (u: User) => void; notice?: string | null; intro?: string }) {
   const t = useT()
   const [error, setError] = useState<string | null>(notice ?? null)
   const [busy, setBusy] = useState(false)
+  const [second, setSecond] = useState<SecondStep | null>(null)
   const wait = useWait()
 
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -206,8 +221,9 @@ export function Login({ onDone, notice, intro }: { onDone: (u: User) => void; no
     setBusy(true)
     setError(null)
     try {
-      const { user } = await api.login(String(f.get('username')), String(f.get('password')))
-      onDone(user)
+      const r = await api.login(String(f.get('username')), String(f.get('password')))
+      if ('user' in r) return onDone(r.user)
+      setSecond(r)
     } catch (err) {
       setError(wait.caught(err) ? null : err instanceof ApiError && err.status === 401 ? t('login.failed') : errorText(t, err))
     } finally {
@@ -215,6 +231,13 @@ export function Login({ onDone, notice, intro }: { onDone: (u: User) => void; no
     }
   }
 
+  if (second) {
+    return (
+      <Frame>
+        <SecondStepForm step={second} onDone={onDone} onRestart={(message) => { setSecond(null); setError(message) }} />
+      </Frame>
+    )
+  }
   return (
     <Frame>
       <h1>{t('login.title')}</h1>

@@ -267,7 +267,7 @@ test('OAuth with a client named by its metadata document: advertised, fetched on
     assert.deepEqual([wrong.status, wrong.body.error, wrong.body.redirect], [400, 'invalid_redirect_uri', undefined])
 
     // Approved (the document comes from the cache), then the code for tokens with no secret, as a public client.
-    const approved = await h.noa('POST', '/api/oauth/authorize', { query: q, approve: true })
+    const approved = await h.noa('POST', '/api/oauth/authorize', { query: q, approve: true, confirm: 'a-long-password' })
     assert.equal(approved.status, 200, approved.text)
     assert.equal(site.hits['/client.json'], 1)
     const back = new URL(approved.body.redirect)

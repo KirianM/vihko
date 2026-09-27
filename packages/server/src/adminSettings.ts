@@ -1,6 +1,7 @@
 // Installation settings the thoth admin changes in «Users and groups»
 // (state.db; no row = the default). They apply at once.
 import type { Db } from './db.ts'
+import { POLICIES, type TwoFactorPolicy } from './twoFactor.ts'
 
 export interface AdminSettingsView {
   /**
@@ -10,12 +11,25 @@ export interface AdminSettingsView {
    * The thoth admin always may.
    */
   membersLocalDownloads: boolean
+  /**
+   * The second factor (D-036): `required` (whoever hasn't set it up does so
+   * at their next sign-in, before anything else), `optional` (the default:
+   * each person chooses) or `disabled` (neither asked for nor offered).
+   */
+  twoFactor: TwoFactorPolicy
 }
 
-const DEFAULTS: AdminSettingsView = { membersLocalDownloads: false }
+const DEFAULTS: AdminSettingsView = { membersLocalDownloads: false, twoFactor: 'optional' }
 
 const KEYS: Record<keyof AdminSettingsView, string> = {
   membersLocalDownloads: 'admin.membersLocalDownloads',
+  twoFactor: 'admin.twoFactor',
+}
+
+/** What each setting may be. */
+const VALID: { [K in keyof AdminSettingsView]: (v: unknown) => v is AdminSettingsView[K] } = {
+  membersLocalDownloads: (v): v is boolean => typeof v === 'boolean',
+  twoFactor: (v): v is TwoFactorPolicy => POLICIES.includes(v as TwoFactorPolicy),
 }
 
 export class AdminSettingsError extends Error {
@@ -32,12 +46,19 @@ export class AdminSettings {
   view(): AdminSettingsView {
     const rows = this.db.prepare("select key, value from settings where key like 'admin.%'").all() as { key: string; value: string }[]
     const stored = new Map(rows.map((r) => [r.key, r.value]))
-    const out = { ...DEFAULTS }
+    const out: Record<string, unknown> = { ...DEFAULTS }
     for (const k of Object.keys(KEYS) as (keyof AdminSettingsView)[]) {
-      const v = stored.get(KEYS[k])
-      if (v === 'true' || v === 'false') out[k] = v === 'true'
+      const raw = stored.get(KEYS[k])
+      if (raw === undefined) continue
+      const v = typeof DEFAULTS[k] === 'boolean' ? (raw === 'true' ? true : raw === 'false' ? false : undefined) : raw
+      if (VALID[k](v)) out[k] = v
     }
-    return out
+    return out as unknown as AdminSettingsView
+  }
+
+  /** The second factor's policy now. */
+  twoFactorPolicy(): TwoFactorPolicy {
+    return this.view().twoFactor
   }
 
   /** Changes some settings, all or none. */
@@ -45,7 +66,9 @@ export class AdminSettings {
     const entries = Object.entries(patch ?? {}).filter(([, v]) => v !== undefined)
     for (const [k, v] of entries) {
       if (!(k in KEYS)) throw new AdminSettingsError(`unknown setting: ${k}`)
-      if (typeof v !== 'boolean') throw new AdminSettingsError(`${k} must be true or false`)
+      if (!VALID[k as keyof AdminSettingsView](v)) {
+        throw new AdminSettingsError(k === 'twoFactor' ? `${k} must be one of ${POLICIES.join(', ')}` : `${k} must be true or false`)
+      }
     }
     const put = this.db.prepare('insert into settings (key, value) values (?, ?) on conflict(key) do update set value = excluded.value')
     this.db.transaction(() => {

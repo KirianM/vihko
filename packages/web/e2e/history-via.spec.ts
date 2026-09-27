@@ -6,7 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { mkdirSync } from 'node:fs'
-import { BASE_URL, E2E_DIR } from './env.ts'
+import { BASE_URL, E2E_DIR, PASSWORD } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
@@ -29,7 +29,7 @@ test.beforeAll(async ({ browser }) => {
   for (const [path, text] of [[BY_API, '# Por la API\n\nAntes.\n'], [BY_MCP, '# Por MCP\n\nAntes.\n']]) {
     expect([201, 409]).toContain((await k.request.post('/api/note', { data: { path, text } })).status())
   }
-  const { key, token } = await (await k.request.post('/api/keys', { data: { name: NAME, canWrite: true, folders: [FOLDER] } })).json() as { key: { id: string }; token: string }
+  const { key, token } = await (await k.request.post('/api/keys', { data: { confirm: PASSWORD, name: NAME, canWrite: true, folders: [FOLDER] } })).json() as { key: { id: string }; token: string }
   keyId = key.id
   // Over the HTTP API, with the key.
   const r = await k.request.post('/api/note/edit', { headers: { Authorization: `Bearer ${token}` }, data: { path: BY_API, ops: [{ op: 'append', text: 'Escrito por la API.\n' }] } })

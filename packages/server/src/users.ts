@@ -13,7 +13,8 @@
 //   given to someone else (a `{user}` folder of theirs must not open to a
 //   newcomer with the same name, D-038.8). Their keys are revoked for good
 //   and their secrets wiped (each keeps its name, for the history, as a
-//   revoked key does); sessions, links, profile and memberships go.
+//   revoked key does); sessions, links, profile, memberships and second
+//   factor go.
 // - The last active admin can't be demoted, disabled or deleted.
 // - Groups are permission subjects (`@name` in thoth.yaml): the admin
 //   creates, renames and fills them. Everyone signed in sees the names of
@@ -49,8 +50,8 @@ export interface UserInfo {
   groups: string[]
   /** A link that still works (never its token): what for, and until when. */
   link: { kind: LinkKind; expiresAt: string } | null
-  /** The second factor (D-036), which piece T fills in: null until then. */
-  twoFactor: null
+  /** Whether they set up a second factor (D-036), and since when (never the secret or the recovery codes). */
+  twoFactor: { enabled: boolean; enabledAt: string | null }
 }
 
 export interface GroupInfo {
@@ -252,7 +253,7 @@ export class Users {
     this.db.transaction(() => {
       const now = this.now().toISOString()
       this.db.prepare("update users set deleted_at = ?, password_hash = '', disabled = 1 where id = ?").run(now, id)
-      for (const t of ['sessions', 'user_links', 'profiles', 'group_members', 'oauth_codes']) this.db.prepare(`delete from ${t} where user_id = ?`).run(id)
+      for (const t of ['sessions', 'user_links', 'profiles', 'group_members', 'oauth_codes', 'two_factor', 'recovery_codes']) this.db.prepare(`delete from ${t} where user_id = ?`).run(id)
       this.db.prepare('delete from oauth_tokens where key_id in (select id from api_keys where user_id = ?)').run(id)
       // Revoked for good, with nothing left that could prove to be them; the name stays for the history.
       this.db.prepare(`update api_keys set revoked_at = coalesce(revoked_at, ?), secret_hash = ?, previous_secret_hash = null, previous_until = null
@@ -367,12 +368,13 @@ export class Users {
     const s = this.db.prepare('select count(*) n, max(last_seen_at) seen from sessions where user_id = ? and expires_at > ?').get(r.id, now) as { n: number; seen: string | null }
     const link = this.db.prepare('select kind, expires_at from user_links where user_id = ? and used_at is null and expires_at > ?').get(r.id, now) as
       { kind: LinkKind; expires_at: string } | undefined
+    const tf = this.db.prepare('select enabled_at from two_factor where user_id = ?').get(r.id) as { enabled_at: string } | undefined
     return {
       id: r.id, username: r.username, role: r.role,
       status: r.disabled ? 'disabled' : r.password_hash ? 'active' : 'invited',
       createdAt: r.created_at, lastSeenAt: s.seen, sessions: s.n, groups: this.groupsOf(r.id),
       link: link && !r.disabled ? { kind: link.kind, expiresAt: link.expires_at } : null,
-      twoFactor: null,
+      twoFactor: { enabled: !!tf, enabledAt: tf?.enabled_at ?? null },
     }
   }
 }

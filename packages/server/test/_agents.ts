@@ -102,7 +102,7 @@ export async function setup(opts: AgentSetup = {}) {
   const noa = as('noa')
   /** A key of noa's, created through the API. */
   const newKey = async (input: Record<string, unknown>, who: keyof typeof users = 'noa') => {
-    const r = await as(who)('POST', '/api/keys', input)
+    const r = await as(who)('POST', '/api/keys', { confirm: 'a-long-password', ...input })
     if (r.status !== 201) throw new Error(`key: ${r.status} ${r.text}`)
     return r.body as { key: { id: string }; token: string }
   }

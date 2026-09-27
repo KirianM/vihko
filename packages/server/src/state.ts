@@ -127,6 +127,22 @@ const MIGRATIONS: string[] = [
      used_at    text
    );
    create index user_links_user on user_links(user_id);`,
+  // The second factor (D-036, twoFactor.ts): a user's TOTP secret (base32;
+  // it has to be kept as it is to compute the codes) and the last step
+  // whose code was accepted, so that none works twice. Recovery codes, only
+  // as their sha256, each one used once.
+  `create table two_factor (
+     user_id    text primary key references users(id) on delete cascade,
+     secret     text not null,
+     enabled_at text not null,
+     last_step  integer not null default 0
+   );
+   create table recovery_codes (
+     user_id   text not null references users(id) on delete cascade,
+     code_hash text not null,
+     used_at   text,
+     primary key (user_id, code_hash)
+   );`,
 ]
 
 export const STATE_VERSION = MIGRATIONS.length
