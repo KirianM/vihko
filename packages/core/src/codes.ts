@@ -45,6 +45,7 @@ export type ErrorCode =
   | 'user_disabled' // a disabled user gets no link: enable them first
   | 'group_exists'
   | 'invalid_group_name'
+  | 'private_address' // «Save a copy»: a member may only download from public addresses (D-038.6)
 
 /**
  * Space-level alerts: what thoth has detected in the notes folder that needs

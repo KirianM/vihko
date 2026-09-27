@@ -16,7 +16,7 @@ import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
 import { NoteError, type MoveHooks, type NoteService } from '../notes.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import type { EditOp } from '../edits.ts'
-import { FetchImageError, SERVED_TYPES, fetchImage } from '../attachments.ts'
+import { FetchImageError, SERVED_TYPES, fetchImage, type FetchImageOptions } from '../attachments.ts'
 import { DailyNotes } from '../daily.ts'
 import { ProfileError, type Profile, type Profiles } from '../profiles.ts'
 import type { Workspace } from '../workspace.ts'
@@ -127,6 +127,8 @@ export interface AppDeps {
   users?: Users
   /** The admin's settings (state.db). By default, over the same state.db as `auth`. */
   adminSettings?: AdminSettings
+  /** Only tests: how «Save a copy» resolves names and which addresses count as public. */
+  imageFetchTesting?: FetchImageOptions['testing']
 }
 
 /**
@@ -175,7 +177,7 @@ function noteErrorStatus(e: NoteError) {
 }
 
 function fetchErrorStatus(e: FetchImageError) {
-  return ({ invalid: 400, too_large: 413, unsupported_type: 415, fetch_failed: 502 } as const)[e.code]
+  return ({ invalid: 400, too_large: 413, unsupported_type: 415, fetch_failed: 502, private_address: 403 } as const)[e.code]
 }
 
 /**
@@ -541,10 +543,13 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   // A copy of an image from a URL, stored like an upload. Only on this explicit
   // request from a user: the server never fetches URLs written in notes.
+  // Members only from public addresses, unless the admin lets them reach the
+  // local network (D-038.6); the thoth admin, from anywhere.
   app.post('/api/attachments/fetch', async (c) => {
     const { note, url } = await c.req.json<{ note: string; url: string }>()
     notes.read(note ?? '') // nothing is downloaded for a note that doesn't exist
-    const { bytes } = await fetchImage(String(url ?? ''), { maxBytes: notes.maxImageBytes })
+    const publicOnly = c.get('user').role !== 'admin' && !adminSettings.view().membersLocalDownloads
+    const { bytes } = await fetchImage(String(url ?? ''), { maxBytes: notes.maxImageBytes, publicOnly, testing: deps.imageFetchTesting })
     return c.json(await notes.attach(note, bytes, actor(c)), 201)
   })
 
