@@ -180,6 +180,24 @@ agent sees those changes, with safeguards and everything in the history.
 **Done when:** two users with different permissions work at the same time and
 the tests prove neither sees anything they shouldn't.
 
+## M4.1 · Multi-user follow-ups (before release)
+
+From the review after comparing M4 with other systems.
+
+- [x] Resetting someone's access or second factor, or changing their role,
+      asks the admin to confirm who they are, and the person and the other
+      admins are told.
+- [x] Whoever manages a folder keeps managing everything under it, except
+      inside a personal (`{user}`) folder.
+- [x] An agent that moves a note where more people can see it has to confirm
+      that audience explicitly.
+- [x] The editor's presence is signed by the server.
+- [x] Turning the second factor off for the workspace keeps it for whoever has
+      it; TOTP secrets are encrypted when the server administrator sets a key.
+- [x] Whoever wrote in what gets purged from the history is told, without the
+      content.
+- [x] User and group names are unique in any case, in any script.
+
 ## M5 · Release (v1.0)
 
 - [ ] Release policy: semver, changelog, Docker tags, migrations of `state.db`
