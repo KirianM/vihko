@@ -50,7 +50,7 @@ function Presence({ c }: { c: CollabState }) {
   return (
     <span className="presence">
       {peers.map((p) => (
-        <span key={p.name} className="avatar avatar-stack" title={p.name} style={{ background: userColor(p.hue, effective) }}>
+        <span key={p.key} className="avatar avatar-stack" title={p.name} style={{ background: userColor(p.hue, effective) }}>
           {p.name.slice(0, 1).toUpperCase()}
         </span>
       ))}

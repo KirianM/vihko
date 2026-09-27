@@ -6,7 +6,7 @@ import { currentTheme, onThemeChange } from '../theme.ts'
 import { distinctHue, userColor } from '../userColor.ts'
 
 type Awareness = NonNullable<HocuspocusProvider['awareness']>
-type PeerState = { user?: { name?: string; hue?: number } }
+type PeerState = { user?: { id?: string; name?: string; hue?: number } }
 
 /**
  * Announces the person in the note. Their hue separates from that of whoever has
@@ -25,7 +25,7 @@ export function announce(awareness: Awareness, user: { id: string; username: str
     const color = userColor(hue, currentTheme())
     const cur = (awareness.getLocalState() as { user?: { hue?: number; color?: string } } | null)?.user
     if (cur?.hue === hue && cur.color === color) return
-    awareness.setLocalStateField('user', { name: user.username, hue, color, colorLight: color + '33' })
+    awareness.setLocalStateField('user', { id: user.id, name: user.username, hue, color, colorLight: color + '33' })
   }
   choose()
   awareness.on('change', choose)
@@ -36,20 +36,28 @@ export function announce(awareness: Awareness, user: { id: string; username: str
   }
 }
 
-export interface Peer { name: string; hue: number }
+/** A person in the note: `key` tells two people apart (their user id; their name, from an older tab that doesn't send it). */
+export interface Peer { key: string; name: string; hue: number }
 
+/**
+ * Who has the note open: each person once, however many tabs they have it
+ * in, by user id (two people are never one because of their names). Agents
+ * aren't here (they have no `user`: agents.ts).
+ */
 export function usePresence(provider: HocuspocusProvider | undefined): Peer[] {
   const [peers, setPeers] = useState<Peer[]>([])
   useEffect(() => {
     const awareness = provider?.awareness
     if (!awareness) return
     const read = () => {
-      const byName = new Map<string, number>()
+      const byKey = new Map<string, Peer>()
       for (const s of awareness.getStates().values()) {
         const u = (s as PeerState).user
-        if (u?.name && typeof u.hue === 'number' && !byName.has(u.name)) byName.set(u.name, u.hue)
+        if (!u?.name || typeof u.hue !== 'number') continue
+        const key = u.id ? `id:${u.id}` : `name:${u.name}`
+        if (!byKey.has(key)) byKey.set(key, { key, name: u.name, hue: u.hue })
       }
-      setPeers([...byName].sort(([a], [b]) => a.localeCompare(b)).map(([name, hue]) => ({ name, hue })))
+      setPeers([...byKey.values()].sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key)))
     }
     read()
     awareness.on('change', read)
