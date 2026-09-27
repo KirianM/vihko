@@ -14,7 +14,8 @@ const SHOTS = `${E2E_DIR}/shots`
 const CARMEN = 'avi-carmen'
 const BRUNO = 'avi-bruno'
 const SHARED = 'avisos-e2e/lista.md'
-const PRIVATE = 'avisos-privada/diario.md'
+// A personal folder: the only kind the admin, managing the root, can't read (D-040 3.5).
+const PRIVATE = `avisos-personas/${CARMEN}/diario.md`
 
 test.describe.configure({ mode: 'serial', timeout: 120_000 })
 
@@ -24,7 +25,7 @@ test.beforeAll(async ({ browser }) => {
   mkdirSync(SHOTS, { recursive: true })
   // Carmen edits everywhere and has a folder of her own that nobody else reads, the admin included.
   writeFileSync(`${NOTES}/thoth.yaml`, PERMISSIONS.replace('ana: edit }', `ana: edit, ${CARMEN}: edit, ${BRUNO}: read }`)
-    + `  avisos-privada:\n    grants: { ${CARMEN}: manage }\n`)
+    + '  "avisos-personas/{user}":\n    grants: { "{user}": manage }\n')
   admin = await signIn(browser, 'noa')
   for (const [username, role] of [[CARMEN, 'member'], [BRUNO, 'admin']]) {
     expect((await admin.request.post('/api/admin/users', { data: { username, role, password: `${username}-contraseña` } })).status()).toBe(201)
@@ -35,7 +36,7 @@ test.afterAll(async ({ browser }) => {
   const carmen = await password(browser, CARMEN)
   for (const path of [SHARED, PRIVATE]) await carmen.request.delete(`/api/note?path=${encodeURIComponent(path)}`)
   // Each folder, by whoever manages it: Carmen hers, the admin the other one.
-  await carmen.request.delete('/api/folder?path=avisos-privada')
+  await carmen.request.delete(`/api/folder?path=${encodeURIComponent(`avisos-personas/${CARMEN}`)}`)
   await admin.request.delete('/api/folder?path=avisos-e2e')
   await carmen.context().close()
   writeWorkspace()
