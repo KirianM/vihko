@@ -5,8 +5,10 @@
 // Who may open a note, and what they may do in it, is the access filter's
 // (access.ts, D-038): connecting needs `read` (a note one can't read doesn't
 // exist, as over HTTP); with `read` or `comment` the connection is read-only
-// (the server drops every change it sends; the comment-only path is piece
-// C's); with `edit`, it writes. When someone's access changes while the note
+// (the server drops every change it sends; with `comment`, a comment comes
+// over HTTP as one exact operation the server builds, commenting.ts, and
+// reaches the document through the note service like any other write); with
+// `edit`, it writes. When someone's access changes while the note
 // is open (thoth.yaml, groups, a user disabled), their connection is told
 // (`ACCESS_MESSAGE`) and closed at once: they reopen it with what they have
 // now, or not at all. Every message the hub sends is classified in
@@ -414,7 +416,8 @@ export class CollabHub implements HotDocuments {
         // A note one can't read doesn't exist for them: the same answer as a note that isn't there.
         const level = this.levelOf(context.user, documentName)
         if (level === 'none') throw new NoteError('not_found', `does not exist: ${documentName}`)
-        // With `read` or `comment`, every change it sends is dropped (hocuspocus answers it wasn't applied).
+        // With `read` or `comment`, every change it sends is dropped (hocuspocus answers it wasn't applied):
+        // a comment comes over HTTP (commenting.ts).
         connectionConfig.readOnly = level !== 'edit'
         context.level = level
         // A note deleted or moved from thoth is not reopened: a reconnecting editor cannot resurrect it.

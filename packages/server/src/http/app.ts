@@ -18,6 +18,7 @@ import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
 import { NoteError, type MoveHooks, type NoteService } from '../notes.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import type { EditOp } from '../edits.ts'
+import { commentOp } from '../commenting.ts'
 import { FetchImageError, SERVED_TYPES, fetchImage, type FetchImageOptions } from '../attachments.ts'
 import { DailyNotes } from '../daily.ts'
 import { ProfileError, type Profile, type Profiles } from '../profiles.ts'
@@ -423,6 +424,20 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // since. Only threads the index knows (the note as last saved); the editor
   // compares the same originals with what is being typed.
   app.get('/api/note/comments', (c) => c.json({ threads: scoped(c).comments(c.req.query('path') ?? '') }))
+
+  // A comment written by the server (commenting.ts), for whoever may comment
+  // but not edit, whose editor is read-only: `{ path, op: 'add', at, context,
+  // newline?, text }`, `{ path, op: 'reply', thread, text }` or `{ path, op:
+  // 'resolve', thread }`. 412 if the place or the thread isn't there any more;
+  // 403 to resolve someone else's thread without `edit`.
+  app.post('/api/note/comment', async (c) => {
+    const body = await c.req.json<Record<string, unknown>>()
+    const op = commentOp(body)
+    if (!op || typeof body.path !== 'string') return fail(c, 400, 'invalid', 'expected a path and an operation: add, reply or resolve')
+    const r = await scoped(c).comment(body.path, op)
+    c.header('ETag', `"${r.etag}"`)
+    return c.json(r)
+  })
 
   // Folders only exist on disk: these create (`edit` where it goes), move
   // (`manage` in it and `edit` in its new parent: with every note in them,

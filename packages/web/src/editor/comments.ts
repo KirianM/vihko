@@ -15,22 +15,18 @@
 //   or by other tools) are still read.
 //
 // Pure module (no DOM, no CodeMirror): tested by the Node test runner. Whoever
-// uses it applies the changes it returns to the session's Y.Text. Reading the
-// threads, resolving and reopening are shared with the indexer and the history
-// (@thoth/core/comments).
-import { parseComments, parseThreads, type Change, type Thread } from '@thoth/core/comments'
+// uses it applies the changes it returns to the session's Y.Text (or, with
+// `comment` only, asks the server to: http `POST /api/note/comment`). Reading
+// the threads, writing a comment, replying, resolving and reopening are shared
+// with the server, the indexer and the history (@thoth/core/comments).
+import { formatComment, parseComments, parseThreads, type Change } from '@thoth/core/comments'
 
 export {
-  anchorChanged, commentKey, parseComments, parseThreads, removedThread, reopener, resolveThread,
+  anchorChanged, cleanText, commentKey, formatComment, formatDate, parseComments, parseThreads, removedThread, reopener, replyTo, resolveThread,
   type Change, type Comment, type RemovedThread, type Thread,
 } from '@thoth/core/comments'
 
 const pad = (n: number) => String(n).padStart(2, '0')
-
-/** UTC to the minute, as written into the note: `YYYY-MM-DDTHH:MMZ`. */
-export function formatDate(d: Date): string {
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}Z`
-}
 
 /** Instant of a comment date, or null when it has no timezone (then it can't be converted). */
 export function parseDate(date: string): Date | null {
@@ -52,15 +48,6 @@ export function displayDate(date: string, now = new Date()): string {
   const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`
   const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
   return day === today ? time : `${day} ${time}`
-}
-
-/** One line, with nothing that closes the comment early. */
-export function cleanText(text: string): string {
-  return text.replace(/\s+/g, ' ').trim().replace(/--+>/g, (m) => m.slice(0, -1) + ' >')
-}
-
-export function formatComment(author: string, date: Date, text: string, reply = false): string {
-  return `<!-- @${author} ${formatDate(date)} · ${reply ? '↳ ' : ''}${cleanText(text)} -->`
 }
 
 /**
@@ -90,17 +77,10 @@ export function addComment(doc: string, at: number, author: string, date: Date, 
   return { from: at, to: at, insert: formatComment(author, date, text) }
 }
 
-/**
- * Reply at the end of the thread. On its own line (as in the format above) if the
- * thread closes the line and what follows is a blank line or the end; otherwise,
- * right after the thread, so as not to split the paragraph in two.
- */
-export function replyTo(doc: string, thread: Thread, author: string, date: Date, text: string): Change {
-  const comment = formatComment(author, date, text, true)
-  const lineEnd = doc.indexOf('\n', thread.to) === -1 ? doc.length : doc.indexOf('\n', thread.to)
-  const restBlank = doc.slice(thread.to, lineEnd).trim() === ''
-  const nextEnd = doc.indexOf('\n', lineEnd + 1) === -1 ? doc.length : doc.indexOf('\n', lineEnd + 1)
-  const nextBlank = lineEnd >= doc.length || doc.slice(lineEnd + 1, nextEnd).trim() === ''
-  if (restBlank && nextBlank) return { from: lineEnd, to: lineEnd, insert: '\n' + comment }
-  return { from: thread.to, to: thread.to, insert: comment }
+/** How much of the text right before a new comment goes with it, so the server finds the place however the note moved meanwhile. */
+export const CONTEXT_CHARS = 80
+
+/** The text right before `at`, for the server to place a comment there (`POST /api/note/comment`). */
+export function commentContext(doc: string, at: number): string {
+  return doc.slice(Math.max(0, at - CONTEXT_CHARS), at)
 }

@@ -57,6 +57,7 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'POST /api/folder/move': 'session',
   'GET /api/move-jobs/:id': 'session',
   'POST /api/note/link/pin': 'session',
+  'POST /api/note/comment': 'session',
   'POST /api/note/orphan': 'session',
   'POST /api/external-moves/:id/relink': 'session',
   'POST /api/attachments/fetch': 'session',
@@ -182,6 +183,9 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'GET /api/daily': 'read',
   'GET /api/file': 'read',
   'GET /api/conflict': 'read',
+
+  // A person who may comment but not edit (an agent comments by editing).
+  'POST /api/note/comment': 'comment',
 
   'POST /api/note': 'edit',
   'PUT /api/note': 'edit',

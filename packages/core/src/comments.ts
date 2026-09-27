@@ -146,6 +146,39 @@ export function anchorChanged(original: string, current: string): boolean {
   return was !== '' && was !== normalizeAnchor(current)
 }
 
+// --- Writing -----------------------------------------------------------------------
+
+const pad = (n: number) => String(n).padStart(2, '0')
+
+/** UTC to the minute, as written into the note: `YYYY-MM-DDTHH:MMZ`. */
+export function formatDate(d: Date): string {
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}Z`
+}
+
+/** One line, with nothing that closes the comment early. */
+export function cleanText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().replace(/--+>/g, (m) => m.slice(0, -1) + ' >')
+}
+
+export function formatComment(author: string, date: Date, text: string, reply = false): string {
+  return `<!-- @${author} ${formatDate(date)} · ${reply ? '↳ ' : ''}${cleanText(text)} -->`
+}
+
+/**
+ * Reply at the end of the thread. On its own line (as in the format above) if the
+ * thread closes the line and what follows is a blank line or the end; otherwise,
+ * right after the thread, so as not to split the paragraph in two.
+ */
+export function replyTo(doc: string, thread: Thread, author: string, date: Date, text: string): Change {
+  const comment = formatComment(author, date, text, true)
+  const lineEnd = doc.indexOf('\n', thread.to) === -1 ? doc.length : doc.indexOf('\n', thread.to)
+  const restBlank = doc.slice(thread.to, lineEnd).trim() === ''
+  const nextEnd = doc.indexOf('\n', lineEnd + 1) === -1 ? doc.length : doc.indexOf('\n', lineEnd + 1)
+  const nextBlank = lineEnd >= doc.length || doc.slice(lineEnd + 1, nextEnd).trim() === ''
+  if (restBlank && nextBlank) return { from: lineEnd, to: lineEnd, insert: '\n' + comment }
+  return { from: thread.to, to: thread.to, insert: comment }
+}
+
 // --- Resolving and reopening ---------------------------------------------------
 
 /** Change to the text: delete [from, to) and insert `insert`. */
