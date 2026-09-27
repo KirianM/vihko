@@ -173,7 +173,12 @@ export type MoveStart<R> = { report: R } | { job: MoveJob }
 export interface TagCount { tag: string; count: number; total: number }
 export interface TrashEntry { id: string; path: string; deletedAt: string }
 /** Installation settings the UI needs. */
-export interface ServerConfig { externalImages: 'allow' | 'block'; maxImageBytes: number }
+export interface ServerConfig {
+  externalImages: 'allow' | 'block'
+  maxImageBytes: number
+  /** The second factor's secrets are stored encrypted (THOTH_SECRET_KEY). */
+  secretsEncrypted?: boolean
+}
 /** A stored image: `path` from the notes root, `src` relative to the note (to link it). */
 export interface Attachment { path: string; src: string }
 /** What the UI needs from thoth.yaml: daily-note series and the templates folder. */

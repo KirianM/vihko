@@ -13,7 +13,10 @@
 // CDNs (the page's CSP only lets the browser talk to this server, images
 // linked from other sites aside); images are downloaded by URL only when a
 // person asks (a key can't); external images as the server's administrator
-// says (THOTH_EXTERNAL_IMAGES), with no referrer.
+// says (THOTH_EXTERNAL_IMAGES), with no referrer. And one's account: what the
+// admin can do to it is confirmed at the moment and told (D-040 3.1), the
+// second factor's policy (3.4a), how its secret is kept (THOTH_SECRET_KEY,
+// 3.4b) and a purge's notice to whoever wrote (3.6).
 import { useEffect, useState, type ReactNode } from 'react'
 import { ApiError, api, type Integrations, type KeyInfo, type KeyWithUser, type ServerConfig, type User } from './api.ts'
 import { errorText, useT } from './i18n.tsx'
@@ -116,6 +119,18 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
             <li>{t('privacy.keysAsk')}</li>
             <li>{t('privacy.keysCimd')}</li>
             <li>{t('privacy.keysStored')}</li>
+          </ul>
+        </section>
+
+        <section className="settings-section" aria-labelledby="privacy-account">
+          <h2 id="privacy-account">{t('privacy.accountTitle')}</h2>
+          <ul>
+            <li>{t('privacy.accountAdmin')}</li>
+            <li>{t('privacy.accountPolicy')}</li>
+            <li>{config === null ? t('common.loading')
+              : config.secretsEncrypted ? t('privacy.accountSecretEncrypted')
+                : withCode(t('privacy.accountSecretPlain'), { setting: 'THOTH_SECRET_KEY' })}</li>
+            <li>{t('privacy.accountPurge')}</li>
           </ul>
         </section>
 
