@@ -116,6 +116,9 @@ test('a client asks: the person signs in, sees who asks, and approves it read-on
   await expect(page.getByRole('checkbox', { name: /Puede escribir/ })).not.toBeChecked()
   await expect(page.getByRole('radio', { name: 'Todas las carpetas que ves' })).toBeChecked()
   await expect(page.getByText('Has iniciado sesión como noa.')).toBeVisible()
+  // Saying yes is confirmed at the moment (D-036), even just signed in: the password, without a second factor.
+  await expect(page.getByRole('button', { name: 'Autorizar' })).toBeDisabled()
+  await page.getByLabel('Tu contraseña').fill(PASSWORD)
   await page.screenshot({ path: `${SHOTS}/consent-light.png`, fullPage: true, animations: 'disabled' })
 
   await page.getByRole('button', { name: 'Autorizar' }).click()
@@ -170,6 +173,7 @@ test('with write and one folder, the key says so; denying sends the client acces
   await page.getByRole('radio', { name: /Solo estas carpetas/ }).check()
   await expect(page.getByRole('button', { name: 'Autorizar' })).toBeDisabled()
   await page.getByRole('checkbox', { name: 'proyectos', exact: true }).check()
+  await page.getByLabel('Tu contraseña').fill(PASSWORD)
   await page.getByRole('button', { name: 'Autorizar' }).click()
   const tokens = await exchange(request, (await back()).searchParams.get('code')!, verifier)
   expect(tokens.scope).toBe('read write')
@@ -205,6 +209,7 @@ test('on a phone, in dark mode: the question fits and works', async ({ browser, 
   // The answer buttons fill the width, easy to tap.
   const approve = await page.getByRole('button', { name: 'Autorizar' }).boundingBox()
   expect(approve!.width).toBeGreaterThan(300)
+  await page.getByLabel('Tu contraseña').fill(PASSWORD)
   await page.screenshot({ path: `${SHOTS}/consent-mobile-dark.png`, fullPage: true, animations: 'disabled' })
   await page.getByRole('button', { name: 'Autorizar' }).tap()
   const tokens = await exchange(request, (await back()).searchParams.get('code')!, verifier)

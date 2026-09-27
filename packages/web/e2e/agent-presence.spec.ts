@@ -73,7 +73,7 @@ test.afterAll(async () => {
 
 test('an edit with a key over the API reaches the open editors live', async () => {
   await noa.request.put('/api/admin/integrations', { data: { api: true } })
-  const { key, token } = await (await noa.request.post('/api/keys', { data: { name: 'Claude Code', canWrite: true, folders: ['e2e-agentes'] } })).json() as { key: { id: string }; token: string }
+  const { key, token } = await (await noa.request.post('/api/keys', { data: { confirm: PASSWORD, name: 'Claude Code', canWrite: true, folders: ['e2e-agentes'] } })).json() as { key: { id: string }; token: string }
   const r = await noa.request.post('/api/note/edit', {
     headers: { Authorization: `Bearer ${token}` },
     data: { path: NOTE, ops: [{ op: 'append', text: 'Escrito por la API con la clave.\n' }] },

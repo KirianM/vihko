@@ -88,6 +88,13 @@ test('a read-only key for one folder: shown once, with its MCP configurations', 
   // A folder inside a chosen one is chosen with it.
   await expect(dialog.getByRole('checkbox', { name: 'thoth', exact: true })).toBeChecked()
   await expect(dialog.getByRole('checkbox', { name: 'thoth', exact: true })).toBeDisabled()
+  // Without a second factor, a new key is confirmed with the password (D-036), even with a session.
+  await expect(dialog.getByRole('button', { name: 'Crear la clave' })).toBeDisabled()
+  await expect(dialog.getByText('Una clave da acceso a tus notas: confirma que eres tú, aunque ya hayas entrado.')).toBeVisible()
+  await dialog.getByLabel('Tu contraseña').fill('no-es-la-contraseña')
+  await dialog.getByRole('button', { name: 'Crear la clave' }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('La contraseña actual no es correcta.')
+  await dialog.getByLabel('Tu contraseña').fill(PASSWORD)
   await dialog.getByRole('button', { name: 'Crear la clave' }).click()
 
   const shown = page.getByRole('dialog', { name: 'Clave para «Claude Code e2e»' })
@@ -190,6 +197,8 @@ test('rotating asks first, shows the new key once, and the old one keeps working
   await ask.getByRole('button', { name: 'Cancelar' }).click()
   await expect(ask).toHaveCount(0)
   await card(page, 'Claude Code e2e').getByRole('button', { name: 'Rotar' }).click()
+  // A new secret is as good as a new key: confirmed the same way.
+  await page.getByRole('alertdialog').getByLabel('Tu contraseña').fill(PASSWORD)
   await page.getByRole('alertdialog').getByRole('button', { name: 'Rotar la clave' }).click()
   // The new key, once, as when it was created; and until when the old one works.
   const shown = page.getByRole('dialog', { name: 'Clave para «Claude Code e2e»' })
@@ -242,6 +251,7 @@ test('members: their own keys while allowed; with the setting off, none new, and
   await dialog.getByLabel('Nombre').fill('Blog e2e')
   await dialog.getByRole('checkbox', { name: /Puede escribir/ }).check()
   await dialog.getByRole('combobox', { name: 'Caducidad' }).selectOption('30')
+  await dialog.getByLabel('Tu contraseña').fill(PASSWORD)
   await dialog.getByRole('button', { name: 'Crear la clave' }).click()
   await ana.getByRole('button', { name: 'Ya la he guardado' }).click()
   await expect(card(ana, 'Blog e2e')).toContainText('Lee y escribe')
@@ -258,7 +268,7 @@ test('members: their own keys while allowed; with the setting off, none new, and
   // Her key still works and she may revoke it, but not change it.
   await expect(card(ana, 'Blog e2e').getByRole('button', { name: 'Editar' })).toHaveCount(0)
   await expect(card(ana, 'Blog e2e').getByRole('button', { name: 'Revocar' })).toBeVisible()
-  const refused = await ana.request.post('/api/keys', { data: { name: 'otra' } })
+  const refused = await ana.request.post('/api/keys', { data: { confirm: PASSWORD, name: 'otra' } })
   expect(refused.status()).toBe(403)
 
   // The admin sees it, with its user, and revokes it.
@@ -296,6 +306,7 @@ test('THOTH_INTEGRATIONS=off: the switches are locked and say why', async ({ bro
   // A key can still be made, and it says it won't work while the lock lasts.
   await page.getByRole('button', { name: 'Nueva clave' }).click()
   await page.getByRole('dialog').getByLabel('Nombre').fill('Bloqueada e2e')
+  await page.getByRole('dialog').getByLabel('Tu contraseña').fill(PASSWORD)
   await page.getByRole('dialog').getByRole('button', { name: 'Crear la clave' }).click()
   const shown = page.getByRole('dialog', { name: 'Clave para «Bloqueada e2e»' })
   await expect(shown).toContainText('la clave no funcionará mientras sigan así')
@@ -321,6 +332,7 @@ test('on a phone, in dark mode: the page, the dialog and the key fit', async ({ 
   await dialog.getByRole('radio', { name: /Solo estas carpetas/ }).tap()
   await page.screenshot({ path: `${SHOTS}/agents-new-mobile-dark.png`, animations: 'disabled' })
   await dialog.getByRole('checkbox', { name: 'hogar', exact: true }).tap()
+  await dialog.getByLabel('Tu contraseña').fill(PASSWORD)
   await dialog.getByRole('button', { name: 'Crear la clave' }).tap()
   const shown = page.getByRole('dialog', { name: 'Clave para «Móvil e2e»' })
   await expect(shown.locator('.token')).toBeVisible()
