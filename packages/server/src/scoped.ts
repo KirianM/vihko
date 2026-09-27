@@ -8,7 +8,7 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { anchorChanged, classifyPath, contentHash, extract, parentFolder, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type LinkIndex, type LinkRef, type Range } from '@thoth/core'
+import { anchorChanged, classifyPath, contentHash, extract, folderOf, parentFolder, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type Range } from '@thoth/core'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
@@ -16,6 +16,7 @@ import { attachmentPath } from './attachments.ts'
 import type { Db } from './db.ts'
 import type { DailyNotes } from './daily.ts'
 import { planEdits, type EditOp } from './edits.ts'
+import { CommentError, commentSplices, type CommentOp } from './commenting.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START, search, type SearchResult } from './http/search.ts'
 import { NoteError, NoteService, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type TrashEntry } from './notes.ts'
 import { audienceChange, ruleMove, type AudienceChange } from './audience.ts'
@@ -281,12 +282,14 @@ export class ScopedNotes {
   /**
    * The note, with what the index knows of it and whether its text hides it
    * from agents (`hiddenFromAgents`, access.ts: null for any note an agent
-   * reads, since it can't read the others).
+   * reads, since it can't read the others). For a person, their `level`
+   * where it is (D-038.5): the editor is read-only below `edit`.
    */
-  read(path: string): NoteRead & { meta: unknown; hiddenFromAgents: 'ai' | 'frontmatter' | null } {
+  read(path: string): NoteRead & { meta: unknown; hiddenFromAgents: 'ai' | 'frontmatter' | null; level?: Level } {
     const r = this.visible(path)
     const meta = this.deps.index.prepare('select title, uid, fm_error from notes where path = ?').get(r.path) ?? null
-    return { ...r, meta, hiddenFromAgents: this.access.agentHiding(r.text) }
+    const level = this.access.isAgent ? undefined : this.access.level(folderOf(r.path)) ?? 'read'
+    return { ...r, meta, hiddenFromAgents: this.access.agentHiding(r.text), ...(level ? { level } : {}) }
   }
 
   /**
@@ -557,6 +560,30 @@ export class ScopedNotes {
       throw err
     }
     throw new Error('unreachable: a dry run always ends in its preview')
+  }
+
+  /**
+   * A comment (commenting.ts), for someone with `comment` or more where the
+   * note is: a new thread, a reply, or resolving a thread they started (with
+   * `edit`, anyone's). One exact operation through the note service, as the
+   * person: on the open document if someone is editing the note, on the
+   * file otherwise. Only people: an agent comments by editing (D-038.5).
+   */
+  async comment(path: string, op: CommentOp): Promise<{ etag: string }> {
+    const p = NoteService.checkPath(path)
+    this.visible(p)
+    if (this.access.isAgent || !this.access.canComment(p)) throw new AccessError('no permission to comment here')
+    const resolveAny = this.access.canWrite(p)
+    const author = this.access.user.username
+    try {
+      // A comment refused throws from inside the edit: nothing is written (not even a uid).
+      return await this.guardAsync(p, () => this.deps.notes.edit(p, (t) => commentSplices(t, op, author, this.deps.now(), { resolveAny }), { actor: this.access.actor }))
+    } catch (err) {
+      if (!(err instanceof CommentError)) throw err
+      if (err.code === 'not_own') throw new AccessError(err.message)
+      if (err.code === 'moved') throw new NoteError('precondition_failed', err.message)
+      throw new RequestError(400, 'invalid', err.message)
+    }
   }
 
   /** To the trash. */

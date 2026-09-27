@@ -13,7 +13,8 @@ import { Button, Dialog, Heading, Modal, ModalOverlay, ToggleButton, ToggleButto
 import type { Doc } from 'yjs'
 import { copyText } from '../copy.ts'
 import { errorText, useT } from '../i18n.tsx'
-import { historyApi, type Against, type Diff, type RestoreReport, type RevertReport, type SkippedPiece, type Version } from './api.ts'
+import { historyApi, type Against, type Diff, type PurgeReport, type RestoreReport, type RevertReport, type SkippedPiece, type Version } from './api.ts'
+import { PurgeDialog } from './Purge.tsx'
 import { changeGroups, changeText, pathLabel } from './format.ts'
 import { Authors, Counts, HistoryIcon, snippet, useDates, type VersionsStore } from './ui.tsx'
 
@@ -39,7 +40,7 @@ function Edit({ op, text, change, current, labels }: { op: 1 | -1; text: string;
 
 type Show = 'changes' | 'content'
 
-export function VersionView({ path, id, store, exists, session, closeLabel, onClose, onRestored, onReverted }: {
+export function VersionView({ path, id, store, exists, session, closeLabel, onClose, onRestored, onReverted, onPurged }: {
   path: string
   id: string
   /** The note's versions (the side panel's list, when the note is open). */
@@ -53,6 +54,8 @@ export function VersionView({ path, id, store, exists, session, closeLabel, onCl
   onRestored: (report: RestoreReport, path: string) => void
   /** A change was reverted: the notice, with what couldn't be undone. Without it, there is no «Revert this change». */
   onReverted?: (report: RevertReport) => void
+  /** This version was purged (D-038.9). Without it, there is no «Purge this version» (only whoever manages the folder). */
+  onPurged?: (report: PurgeReport) => void
 }) {
   const t = useT()
   const dates = useDates()
@@ -67,6 +70,7 @@ export function VersionView({ path, id, store, exists, session, closeLabel, onCl
   const [tick, setTick] = useState(0)
   const [confirming, setConfirming] = useState(false)
   const [reverting, setReverting] = useState(false)
+  const [purging, setPurging] = useState(false)
   const [busy, setBusy] = useState(false)
   const [restoreError, setRestoreError] = useState<string | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
@@ -124,8 +128,8 @@ export function VersionView({ path, id, store, exists, session, closeLabel, onCl
   // Esc goes back to the note, unless it's for something on top (a dialog, the overlaid panel, the palette).
   const close = useRef(onClose)
   close.current = onClose
-  const asking = useRef(confirming || reverting)
-  asking.current = confirming || reverting
+  const asking = useRef(confirming || reverting || purging)
+  asking.current = confirming || reverting || purging
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented || asking.current) return
@@ -220,6 +224,7 @@ export function VersionView({ path, id, store, exists, session, closeLabel, onCl
           {show === 'content' && plain?.text && <CopyButton text={plain.text} />}
           <span className="spacer" />
           <span className="v-actions">
+            {onPurged && version && version.change !== 'deleted' && <Button className="btn btn-quiet purge-open" onPress={() => setPurging(true)}>{t('purge.openVersion')}</Button>}
             {revertable && <Button className="btn" onPress={() => setReverting(true)}>{t('version.revert')}</Button>}
             <Button className="btn btn-primary" isDisabled={!restoreId} onPress={() => { setRestoreError(null); setConfirming(true) }}>{restoreLabel}</Button>
             <Button className="btn" onPress={onClose}>{closeLabel}</Button>
@@ -262,6 +267,9 @@ export function VersionView({ path, id, store, exists, session, closeLabel, onCl
       </ModalOverlay>
       {reverting && onReverted && (
         <RevertDialog path={path} id={id} onCancel={() => setReverting(false)} onDone={(r) => { setReverting(false); onReverted(r) }} />
+      )}
+      {purging && onPurged && version && (
+        <PurgeDialog path={version.path} version={id} onCancel={() => setPurging(false)} onDone={(r) => { setPurging(false); onPurged(r) }} />
       )}
     </section>
   )

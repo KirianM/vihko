@@ -5,8 +5,10 @@
 // Product rules it implements (docs: M2 specification, §3 and §4):
 // - What people type in the editor accumulates in one open version per note
 //   (the hub reports who typed and each flush), closed after `quietMs`
-//   without changes or `maxOpenMs` after it opened. Several people in that
-//   window share the version.
+//   without changes or `maxOpenMs` after it opened. Someone who starts
+//   writing where others were closes their version first, with the text
+//   from right before their change, and starts one of their own (D-034 3.4);
+//   whoever was already writing goes on in it with them.
 // - Any other write is its own version, and right before it whatever was
 //   pending on that file is closed with the content from before the write:
 //   there is always «the version right before the agent». Writes in a row by
@@ -282,6 +284,12 @@ export class Recorder {
   private lastAt = new Map<string, number>()
   private pending = new Map<string, Pending>()
   private typists = new Map<string, Set<string>>()
+  /**
+   * Who has been typing in each note since it was last quiet (in memory
+   * only): a person already writing there doesn't close the open version
+   * when they go on in someone else's (`typing`).
+   */
+  private writers = new Map<string, { keys: Set<string>; last: number }>()
   private queue: QCommit[] = []
   private inflight: Journal['inflight'] = null
   private groups = new Map<Actor, Group>()
@@ -318,6 +326,8 @@ export class Recorder {
   /** Contents known without being in git (see `Journal.baseline`), until the path's next version. */
   private baseline = new Map<string, string>()
   private closed = false
+  /** A purge is rewriting the repository (`purging`): nothing goes to git, and no sweep runs, until it ends. */
+  private paused = false
 
   constructor(opts: RecorderOptions) {
     this.opts = opts
@@ -418,6 +428,7 @@ export class Recorder {
   private async stopRecording() {
     this.closeMany([...this.pending.keys()])
     this.typists.clear()
+    this.writers.clear()
     this.recording = false
     this.saveJournal()
     await this.drain()
@@ -534,12 +545,118 @@ export class Recorder {
     this.scheduleDrain(0)
   }
 
+  // --- A purge while thoth runs (D-038.9) ----------------------------------------------
+
+  /**
+   * Runs `rewrite` (history/purge.ts, with the lock this process already
+   * holds) with the history paused: what is on its way to git gets there
+   * first, then nothing more goes to git and no sweep runs until it ends.
+   * Notes are still written meanwhile, and recorded: their versions wait in
+   * the queue (and the journal), as when git is unavailable. Afterwards the
+   * recorder forgets what the purge took out, as `thoth history purge` does
+   * with the journal when thoth is stopped: the open versions, typing and
+   * queued changes of the purged paths (`forget`), and their cached `stat`s;
+   * it reads the rewritten history, and what the notes folder still holds
+   * for a purged path (`pathsOnDisk`), if it's what the history knew before
+   * and not what it knows now, stays known by its content (`baseline`): it
+   * enters with the file's next version, never as a change made outside.
+   */
+  async purging<T>(rewrite: () => Promise<{ result: T; forget: (path: string) => boolean; pathsOnDisk: string[] }>): Promise<{ result: T; stillOnDisk: string[]; counts: { pending: number; queued: number } }> {
+    if (this.paused) throw new Error('a purge is already running')
+    this.paused = true
+    try {
+      await this.draining
+      await this.sweeping
+      if (this.gc) {
+        this.gc.stop.abort()
+        await this.gc.done
+      }
+      const { result, forget, pathsOnDisk } = await rewrite()
+      // What the recorder knew for those paths before the purge, and what the folder holds.
+      const onDisk = new Map<string, string>()
+      for (const p of pathsOnDisk) {
+        const content = this.readNow(p)
+        if (content !== null) onDisk.set(p, blobOid(content))
+      }
+      const before = new Map([...onDisk.keys()].map((p) => [p, this.known(p)]))
+      const counts = { pending: 0, queued: 0 }
+      for (const p of [...this.pending.keys()]) if (forget(p)) { this.pending.delete(p); counts.pending++ }
+      for (const p of [...this.typists.keys()]) if (forget(p)) this.typists.delete(p)
+      for (const p of [...this.writers.keys()]) if (forget(p)) this.writers.delete(p)
+      for (const g of this.groups.values()) for (const p of [...g.changes.keys()]) if (forget(p)) g.changes.delete(p)
+      const kept = (c: QChange): QChange | null => {
+        if (forget(c.path)) { counts.queued++; return null }
+        if (c.from === undefined || !forget(c.from)) return c
+        // A rename from a purged path: only its content is left to say.
+        const { from: _from, folder: _folder, ...rest } = c
+        return rest.oid === undefined ? null : rest
+      }
+      this.queue = this.queue.map((q) => ({ ...q, changes: q.changes.map(kept).filter((c): c is QChange => c !== null) })).filter((q) => q.changes.length)
+      for (const [id, w] of [...this.writesInFlight]) {
+        const changes = w.changes.filter((c) => !forget(c.path) && !(c.from !== undefined && forget(c.from)))
+        if (changes.length) this.writesInFlight.set(id, { ...w, changes })
+        else this.writesInFlight.delete(id)
+      }
+      for (const p of [...this.baseline.keys()]) if (forget(p) || onDisk.has(p)) this.baseline.delete(p)
+      for (const p of [...this.statCache.keys()]) if (forget(p) || pathsOnDisk.includes(p)) this.statCache.delete(p)
+      for (const p of [...this.tooLarge.keys()]) if (forget(p)) this.tooLarge.delete(p)
+      await this.reload()
+      const stillOnDisk: string[] = []
+      for (const [p, oid] of onDisk) {
+        if (this.known(p) === oid) continue
+        stillOnDisk.push(p)
+        // Only what the history knew already: a change it hadn't seen yet is still one.
+        if (oid === before.get(p)) this.baseline.set(p, oid)
+      }
+      this.saveJournal()
+      this.saveCache()
+      this.log(`history: purged; ${counts.pending} open and ${counts.queued} queued changes of what was purged dropped`)
+      return { result, stillOnDisk, counts }
+    } finally {
+      this.paused = false
+      this.scheduleDrain(0)
+    }
+  }
+
   // --- Recording: the collaboration hub -----------------------------------------
 
-  /** Someone typed in the editor of `path` since its last flush (the first keystroke per flush and person). */
-  typing(path: string, actor: Actor) {
+  /**
+   * Whether `actor` starting to type in `path` now closes the open version
+   * (D-034 3.4): what others typed is open (a version, or typing not yet
+   * flushed) and they aren't in it, nor among those who have been writing
+   * in the note since it was last quiet (`writers`).
+   */
+  startsVersion(path: string, actor: Actor): boolean {
+    if (!this.live || !this.takes(path)) return false
+    const key = authorKey(authorOf(actor))
+    if (this.writers.get(path)?.keys.has(key)) return false
+    const p = this.pending.get(path)
+    const typing = this.typists.get(path)
+    if (typing?.has(key) || p?.authors.includes(key)) return false
+    return p?.kind === 'typed' || !!typing?.size
+  }
+
+  /**
+   * Someone typed in the editor of `path` since its last flush (the first
+   * keystroke per flush and person). `before`: the note's text right before
+   * it, when it may start a version (`startsVersion`): then what others typed
+   * until that moment closes first as their version, with that text, and
+   * this person's first write starts one of their own (D-034 3.4). Whoever
+   * was writing goes on in it with them; the next one to come in closes it
+   * again. Once the note is quiet, it starts over.
+   */
+  typing(path: string, actor: Actor, before?: string) {
     if (!this.live || !this.takes(path)) return
     const key = authorKey(authorOf(actor))
+    let writers = this.writers.get(path)
+    if (!writers) this.writers.set(path, (writers = { keys: new Set(), last: 0 }))
+    if (before !== undefined && this.startsVersion(path, actor)) {
+      for (const a of [...(this.pending.get(path)?.authors ?? []), ...(this.typists.get(path) ?? [])]) writers.keys.add(a)
+      this.flushing(path, before)
+      this.closePending(path)
+    }
+    writers.keys.add(key)
+    writers.last = this.now()
     let set = this.typists.get(path)
     if (!set) this.typists.set(path, (set = new Set()))
     if (set.has(key)) return
@@ -886,7 +1003,7 @@ export class Recorder {
    * starts or resumes.
    */
   sweep(kind: SweepKind): Promise<void> {
-    if (!this.live) return Promise.resolve()
+    if (!this.live || this.paused) return Promise.resolve()
     if (this.sweeping) return this.sweeping
     this.sweeping = this.sweepNow(kind).finally(() => { this.sweeping = null; this.touched = null })
     return this.sweeping
@@ -1054,6 +1171,8 @@ export class Recorder {
     const quiet = this.opts.quietMs ?? 30_000
     const max = this.opts.maxOpenMs ?? 300_000
     const due = [...this.pending].filter(([, p]) => now - p.last >= quiet || now - p.since >= max).map(([path]) => path)
+    // A note gone quiet: whoever types in it next starts over (see `typing`).
+    for (const [path, w] of [...this.writers]) if (now - w.last >= quiet) this.writers.delete(path)
     // External versions closing together are one commit: when one closes, those
     // of other files that are nearly as quiet close with it (a sync tool writes
     // a batch of files over a few seconds).
@@ -1296,6 +1415,12 @@ export class Recorder {
       for (const a of set) d.add(a)
       this.typists.set(dest, d)
     }
+    for (const [p, w] of [...this.writers]) {
+      const dest = p === from ? to : folder && under(p, from) ? to + p.slice(from.length) : null
+      if (dest === null) continue
+      this.writers.delete(p)
+      this.writers.set(dest, w)
+    }
   }
 
   private cacheBlob(oid: string, bytes: Uint8Array) {
@@ -1452,12 +1577,13 @@ export class Recorder {
   }
 
   private async drainNow() {
+    if (this.paused) return
     if (!(await this.ensureReady())) return this.retryLater()
     if (this.resumeOnReady && this.started && this.recording) {
       this.resumeOnReady = false
       await this.sweep(this.head === null && this.queue.length === 0 ? 'enabled' : 'resumed')
     }
-    while (this.queue.length) {
+    while (this.queue.length && !this.paused) {
       const n = Math.min(this.queue.length, BATCH)
       const batch = this.queue.slice(0, n)
       const { commits, working, skipped } = this.build(batch)

@@ -8,13 +8,13 @@ import { EditorView } from '@codemirror/view'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Button, Tab, TabList, TabPanel, Tabs, TextArea, TextField, type Key } from 'react-aria-components'
 import * as Y from 'yjs'
-import type { CommentOriginal, NoteLinks, OutgoingLink, User } from '../api.ts'
-import { useT } from '../i18n.tsx'
+import { api, canEdit, type CommentOp, type CommentOriginal, type Level, type NoteLinks, type OutgoingLink, type User } from '../api.ts'
+import { errorText, useT } from '../i18n.tsx'
 import { useTheme } from '../theme.ts'
 import { Icon } from '../ui.tsx'
 import { baseHue, userColor } from '../userColor.ts'
 import type { Session } from './collab.ts'
-import { anchorChanged, commentKey, displayDate, formatComment, parseThreads, commentPosition, removedThread, replyTo, resolveThread, type Change, type Thread } from './comments.ts'
+import { anchorChanged, commentContext, commentKey, displayDate, formatComment, parseThreads, commentPosition, removedThread, replyTo, resolveThread, type Change, type Thread } from './comments.ts'
 import { setCommentStyle, threadsField } from './commentMarks.ts'
 import { usePresence } from './presence.ts'
 import { ResolvedSection, useHistoryState, useResolved } from './ResolvedThreads.tsx'
@@ -195,8 +195,10 @@ function ThreadCard({ tv, original, active, color, confirm, onSelect, onReply, o
   /** What to ask before resolving; null: nothing (the history keeps it, D-032.5). */
   confirm: string | null
   onSelect: () => void
-  onReply: (text: string) => void
-  onResolve: () => void
+  /** Null: the person can't reply (they may only read). */
+  onReply: ((text: string) => void) | null
+  /** Null: the person can't resolve this thread (D-038.5: with `comment`, only their own). */
+  onResolve: (() => void) | null
 }) {
   const t = useT()
   const [replying, setReplying] = useState(false)
@@ -220,9 +222,9 @@ function ThreadCard({ tv, original, active, color, confirm, onSelect, onReply, o
           </div>
         </div>
       ))}
-      {replying ? (
+      {replying && onReply ? (
         <Composer label={t('comments.replyPlaceholder')} submit={t('comments.reply')} onSend={(text) => { onReply(text); setReplying(false) }} onCancel={() => setReplying(false)} />
-      ) : confirming && confirm !== null ? (
+      ) : confirming && confirm !== null && onResolve ? (
         <div className="thread-confirm" role="group" aria-label={t('comments.resolve')}>
           <p>{confirm}</p>
           <div className="thread-actions">
@@ -230,10 +232,10 @@ function ThreadCard({ tv, original, active, color, confirm, onSelect, onReply, o
             <Button className="btn btn-sm btn-danger" onPress={() => { setConfirming(false); onResolve() }}>{t('comments.resolveYes')}</Button>
           </div>
         </div>
-      ) : (
+      ) : (onReply || onResolve) && (
         <div className="thread-actions">
-          <Button className="btn btn-sm" onPress={() => setReplying(true)}>{t('comments.reply')}</Button>
-          <Button className="btn btn-sm" onPress={() => (confirm === null ? onResolve() : setConfirming(true))}>{t('comments.resolve')}</Button>
+          {onReply && <Button className="btn btn-sm" onPress={() => setReplying(true)}>{t('comments.reply')}</Button>}
+          {onResolve && <Button className="btn btn-sm" onPress={() => (confirm === null ? onResolve() : setConfirming(true))}>{t('comments.resolve')}</Button>}
         </div>
       )}
     </article>
@@ -242,16 +244,26 @@ function ThreadCard({ tv, original, active, color, confirm, onSelect, onReply, o
 
 interface Draft { at: Y.RelativePosition; newline: boolean; quote: string }
 
-function CommentsTab({ view, session, user, originals, request, done }: {
+function CommentsTab({ view, session, user, originals, request, done, level }: {
   view: EditorView | null
   session: Session
   user: User
   originals: CommentOriginal[] | null
   request: Request | null
   done: () => void
+  /** What the person may do in the note (D-038.5): `read` only reads; `comment` comments through the server. */
+  level: Level
 }) {
   const t = useT()
   const color = useAuthorColor(session)
+  const editing = canEdit(level)
+  const commenting = level !== 'read'
+  // With `comment`, the editor is read-only: the server writes the comment (commenting.ts), and it arrives like anyone's edit.
+  const [failed, setFailed] = useState<string | null>(null)
+  const viaServer = (op: CommentOp) => {
+    setFailed(null)
+    api.comment(session.path, op).catch((e) => setFailed(errorText(t, e)))
+  }
   const { threads, head } = useViewState(view, readThreads, { threads: [], head: 0 })
   // Compared with the live text, so the mark follows what is being typed.
   const originalOf = useMemo(() => new Map((originals ?? []).map((o) => [o.id, o.original])), [originals])
@@ -265,11 +277,12 @@ function CommentsTab({ view, session, user, originals, request, done }: {
 
   // With history, resolving can be undone from «Resolved» (D-032.5): managed,
   // no need to ask; unmanaged, only what reaches a commit; off or unavailable, asked as before.
+  // Without `edit` there's no history to see (D-034 3.5): resolving is asked, and «Resolved» isn't there.
   const history = useHistoryState()
-  const mode = history?.available ? history.mode : 'off'
+  const mode = history?.available && editing ? history.mode : 'off'
   const confirm = mode === 'managed' ? null : mode === 'unmanaged' ? t('comments.resolved.confirmUnmanaged') : t('comments.resolveConfirm')
   const live = useMemo(() => threads.map((tv) => tv.thread), [threads])
-  const resolved = useResolved(session, live, history !== null && history.mode !== 'off')
+  const resolved = useResolved(session, live, editing && history !== null && history.mode !== 'off')
   // A thread reopened from «Resolved» becomes the active one once it is back in the text.
   const [reopened, setReopened] = useState<string | null>(null)
 
@@ -297,7 +310,7 @@ function CommentsTab({ view, session, user, originals, request, done }: {
   useEffect(() => {
     if (!request) return
     done()
-    if (request.thread === null) return startDraft()
+    if (request.thread === null) return commenting ? startDraft() : undefined
     setPicked(request.thread)
     list.current?.querySelector(`[data-thread="${CSS.escape(request.thread)}"]`)?.scrollIntoView({ block: 'nearest' })
     // Only reacts to new requests.
@@ -310,7 +323,8 @@ function CommentsTab({ view, session, user, originals, request, done }: {
     let pos = Y.createAbsolutePositionFromRelativePosition(draft.at, session.doc)?.index ?? doc.length
     // If meanwhile someone commented right there, the new one goes after that thread.
     for (const th of parseThreads(doc)) if (pos > th.from && pos < th.to) pos = th.to
-    apply(session, { from: pos, to: pos, insert: (draft.newline ? '\n' : '') + formatComment(user.username, new Date(), text) })
+    if (editing) apply(session, { from: pos, to: pos, insert: (draft.newline ? '\n' : '') + formatComment(user.username, new Date(), text) })
+    else viaServer({ op: 'add', at: pos, context: commentContext(doc, pos), text, ...(draft.newline ? { newline: true } : {}) })
     setDraft(null)
   }
   // Replying and resolving reread the text on the spot: the thread is looked up by its id.
@@ -320,20 +334,26 @@ function CommentsTab({ view, session, user, originals, request, done }: {
     return th ? { doc, th } : null
   }
   const reply = (id: string, text: string) => {
+    if (!editing) return viaServer({ op: 'reply', thread: id, text })
     const c = current(id)
     if (c) apply(session, replyTo(c.doc, c.th, user.username, new Date(), text))
   }
   const resolve = (id: string) => {
-    const c = current(id)
-    if (c) {
-      // Listed at once as resolved by you; the history lists it once the text is saved.
-      if (mode === 'managed') {
-        resolved.add({ ...removedThread(c.doc, c.th), resolvedAt: new Date().toISOString(), resolvedBy: [{ kind: 'user', id: user.id, name: user.username }], version: null, reopenable: true })
+    if (!editing) viaServer({ op: 'resolve', thread: id })
+    else {
+      const c = current(id)
+      if (c) {
+        // Listed at once as resolved by you; the history lists it once the text is saved.
+        if (mode === 'managed') {
+          resolved.add({ ...removedThread(c.doc, c.th), resolvedAt: new Date().toISOString(), resolvedBy: [{ kind: 'user', id: user.id, name: user.username }], version: null, reopenable: true })
+        }
+        apply(session, resolveThread(c.doc, c.th))
       }
-      apply(session, resolveThread(c.doc, c.th))
     }
     if (picked === id) setPicked(null)
   }
+  // With `comment`, only one's own threads (D-038.5); with `edit`, anyone's.
+  const mayResolve = (th: Thread) => editing || (commenting && th.comments[0]!.author === user.username)
   const select = (th: Thread) => {
     setPicked(th.id)
     if (view) scrollTo(view, th.anchorTo > th.anchorFrom ? th.anchorFrom : th.from, false)
@@ -352,7 +372,7 @@ function CommentsTab({ view, session, user, originals, request, done }: {
 
   return (
     <div className="panel-scroll" ref={list}>
-      {draft ? (
+      {!commenting ? null : draft ? (
         <div className="thread thread-draft">
           {draft.quote && <div className="thread-quote">«{shortQuote(draft.quote)}»</div>}
           <Composer label={t('comments.placeholder')} submit={t('comments.send')} onSend={send} onCancel={() => setDraft(null)} />
@@ -360,7 +380,8 @@ function CommentsTab({ view, session, user, originals, request, done }: {
       ) : (
         <Button className="btn panel-new" onPress={startDraft} isDisabled={!view}>{CommentIcon}{t('comments.new')}</Button>
       )}
-      {threads.length === 0 && !draft && <p className="panel-empty">{t('comments.empty')}</p>}
+      {failed && <p className="error-text" role="alert">{failed}</p>}
+      {threads.length === 0 && !draft && <p className="panel-empty">{t(commenting ? 'comments.empty' : 'comments.emptyRead')}</p>}
       {threads.map((tv) => (
         <ThreadCard
           key={tv.thread.id}
@@ -370,12 +391,12 @@ function CommentsTab({ view, session, user, originals, request, done }: {
           color={color}
           confirm={confirm}
           onSelect={() => select(tv.thread)}
-          onReply={(text) => reply(tv.thread.id, text)}
-          onResolve={() => resolve(tv.thread.id)}
+          onReply={commenting ? (text) => reply(tv.thread.id, text) : null}
+          onResolve={mayResolve(tv.thread) ? () => resolve(tv.thread.id) : null}
         />
       ))}
-      <ResolvedSection items={resolved.list} view={view} session={session} color={color} onReopened={setReopened} />
-      <p className="panel-note">{t(mode === 'managed' ? 'comments.resolved.noteManaged' : mode === 'unmanaged' ? 'comments.resolved.noteUnmanaged' : 'comments.note')}</p>
+      {editing && <ResolvedSection items={resolved.list} view={view} session={session} color={color} onReopened={setReopened} />}
+      <p className="panel-note">{t(!commenting ? 'comments.noteRead' : mode === 'managed' ? 'comments.resolved.noteManaged' : mode === 'unmanaged' ? 'comments.resolved.noteUnmanaged' : 'comments.note')}</p>
     </div>
   )
 }
@@ -527,11 +548,13 @@ function TocTab({ view }: { view: EditorView | null }) {
 
 // --- Panel ---------------------------------------------------------------------------
 
-export function NotePanel({ panel, view, session, user, links, originals, history, onNavigate, onPickAmbiguous, onOpenCandidate }: {
+export function NotePanel({ panel, view, session, user, level, links, originals, history, onNavigate, onPickAmbiguous, onOpenCandidate }: {
   panel: Panel
   view: EditorView | null
   session: Session | null
   user: User
+  /** What the person may do in the note (D-038.5). */
+  level: Level
   links: LinksData | null
   /** Comment threads' text as the index first saw it (null until loaded). */
   originals: CommentOriginal[] | null
@@ -583,7 +606,7 @@ export function NotePanel({ panel, view, session, user, links, originals, histor
             </Button>
           )}
         </div>
-        <TabPanel id="comments" className="panel-body"><CommentsTab view={view} session={session} user={user} originals={originals} request={panel.request} done={panel.done} /></TabPanel>
+        <TabPanel id="comments" className="panel-body"><CommentsTab view={view} session={session} user={user} originals={originals} request={panel.request} done={panel.done} level={level} /></TabPanel>
         <TabPanel id="links" className="panel-body"><LinksTab links={links} onNavigate={onNavigate} onPickAmbiguous={onPickAmbiguous} onOpenCandidate={onOpenCandidate} /></TabPanel>
         <TabPanel id="toc" className="panel-body"><TocTab view={view} /></TabPanel>
         {history && <TabPanel id="history" className="panel-body">{history}</TabPanel>}

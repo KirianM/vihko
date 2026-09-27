@@ -31,6 +31,6 @@ export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.
 export { DEFAULT_HISTORY_MAX_FILE_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode, type McpConfig } from './workspace.ts'
 export { globProblem, pathMatcher, type GlobProblem } from './glob.ts'
 export {
-  anchorChanged, commentKey, goneThreads, normalizeAnchor, parseComments, parseThreads, removedThread, reopener, resolveThread,
+  anchorChanged, cleanText, commentKey, formatComment, goneThreads, normalizeAnchor, parseComments, parseThreads, removedThread, reopener, replyTo, resolveThread,
   type Change, type Comment, type RemovedThread, type Thread,
 } from './comments.ts'

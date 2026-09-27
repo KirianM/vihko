@@ -47,9 +47,15 @@ interface Props {
   onCreateLink?: (note: NewLinkedNote, anchor: HTMLElement) => void
   /** An ambiguous link was clicked: open the picker of its candidates. */
   onPickAmbiguous?: PickAmbiguous
+  /**
+   * The person may read (or comment) but not edit (D-038.5): nothing can be
+   * typed, pasted or dropped, and nothing is offered that writes (creating a
+   * note from a broken link). The text can still be selected, to comment on it.
+   */
+  readOnly?: boolean
 }
 
-export function Editor({ path, session, user, links, onNavigate, onView, onComments, externalImages, onImageFiles, onImageUrl, onCreateLink, onPickAmbiguous }: Props) {
+export function Editor({ path, session, user, links, onNavigate, onView, onComments, externalImages, onImageFiles, onImageUrl, onCreateLink, onPickAmbiguous, readOnly = false }: Props) {
   const t = useT()
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -82,7 +88,8 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
         navigate.of((p) => nav.current(p)),
         pickAmbiguous.of((link, anchor) => pick.current?.(link, anchor)),
         notePath.of(path),
-        createLinkUi.of({
+        EditorState.readOnly.of(readOnly),
+        readOnly ? [] : createLinkUi.of({
           label: t('editor.linkCreate'),
           where: (note) => {
             const folder = note.path.includes('/') ? note.path.slice(0, note.path.lastIndexOf('/')).split('/').join(' / ') : t('palette.root')
@@ -138,7 +145,7 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
       view.current = null
     }
     // t only changes with the language; recreating the editor then is acceptable.
-  }, [session, user, t, path, externalImages])
+  }, [session, user, t, path, externalImages, readOnly])
 
   useEffect(() => {
     view.current?.dispatch({ effects: setLinks.of(links) })

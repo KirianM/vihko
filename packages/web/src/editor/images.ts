@@ -178,10 +178,11 @@ export function imageUrl(text: string): string | null {
   return /^https?:\/\/\S+$/i.test(t) && isImageRef(t) ? t : null
 }
 
+// Nothing is pasted or dropped into a read-only editor (D-038.5).
 const imageInput = EditorView.domEventHandlers({
   paste(e, view) {
     const host = view.state.facet(imageHost)
-    if (!host) return false
+    if (!host || view.state.readOnly) return false
     const { from, to } = view.state.selection.main
     const files = imageFiles(e.clipboardData, true)
     if (files.length) {
@@ -199,6 +200,10 @@ const imageInput = EditorView.domEventHandlers({
     const host = view.state.facet(imageHost)
     const files = imageFiles(e.dataTransfer, false)
     if (!host || !files.length) return false
+    if (view.state.readOnly) {
+      e.preventDefault()
+      return true
+    }
     e.preventDefault()
     const pos = view.posAtCoords({ x: e.clientX, y: e.clientY }) ?? view.state.selection.main.head
     host.onFiles(files, pos, pos)

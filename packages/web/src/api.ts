@@ -58,7 +58,22 @@ export interface Note {
   meta: { title: string; uid: string | null; fm_error: string | null } | null
   /** Whether its text hides it from every agent: `ai: false` (or any doubt), or a frontmatter that can't be read. */
   hiddenFromAgents: 'ai' | 'frontmatter' | null
+  /** What the person may do where it is (D-038.5): below `edit`, the editor is read-only. */
+  level?: Level
 }
+
+/** Whether a level lets the person write the note (`Level`, below: from less to more, D-038.5). */
+export const canEdit = (level: Level | null | undefined) => level === 'edit' || level === 'manage'
+
+/**
+ * A comment for the server to write (`comment` level, whose editor is
+ * read-only): a new thread right after `context` (the text before the place,
+ * nearest to `at`), a reply, or resolving a thread one started.
+ */
+export type CommentOp =
+  | { op: 'add'; at: number; context: string; newline?: boolean; text: string }
+  | { op: 'reply'; thread: string; text: string }
+  | { op: 'resolve'; thread: string }
 
 export interface OutgoingLink {
   raw: string
@@ -334,6 +349,8 @@ export const api = {
   /** Updates them; if it takes long, it goes on in the background (a job). */
   startRelink: (id: string) => request<MovedRelinkReport | { job: MoveJob }>('POST', `/api/external-moves/${encodeURIComponent(id)}/relink`, { background: true }).then(started<MovedRelinkReport>),
   commentOriginals: (path: string) => request<{ threads: CommentOriginal[] }>('GET', `/api/note/comments?path=${encodeURIComponent(path)}`).then((r) => r.threads),
+  /** A comment the server writes (`precondition_failed`: the place or the thread isn't there any more). */
+  comment: (path: string, op: CommentOp) => request<{ etag: string }>('POST', '/api/note/comment', { path, ...op }),
   /** Tags in use, most used first (editor suggestions and the tags view). */
   tags: () => request<{ tags: TagCount[] }>('GET', '/api/tags').then((r) => r.tags),
   headings: (path: string) => request<{ headings: { level: number; text: string }[] }>('GET', `/api/note/headings?path=${encodeURIComponent(path)}`).then((r) => r.headings),

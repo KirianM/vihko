@@ -12,6 +12,7 @@ import { ApiError, api, type AdminSettings, type GroupInfo, type NewLink, type T
 import { CopyButton, Toggle } from './Agents.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
+import { AdminPurge } from './history/Purge.tsx'
 import { AccessDialog, FolderPermissionsList, PermissionsDialog } from './Permissions.tsx'
 import { SearchButton } from './Palette.tsx'
 import { Icon, MenuButton, ThemeToggle } from './ui.tsx'
@@ -521,6 +522,8 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
             </div>
           )}
         </section>
+
+        <AdminPurge />
       </div>
       <ModalOverlay className="modal-overlay" isOpen={open !== null} isDismissable={open?.kind !== 'link'} isKeyboardDismissDisabled={open?.kind === 'link'}
         onOpenChange={(o) => { if (!o) close() }}>

@@ -1,9 +1,11 @@
 // The «History» tab of the note's side panel: the note's versions by day (in
 // the person's timezone), newest first, with who made each one and why; on
 // top, what is still being written. Picking one opens it in the main area.
+import { useState } from 'react'
 import { Button } from 'react-aria-components'
 import { errorText, useT } from '../i18n.tsx'
-import type { HistoryStatus } from './api.ts'
+import type { HistoryStatus, PurgeReport } from './api.ts'
+import { PurgeDialog, purgedText } from './Purge.tsx'
 import { changeText } from './format.ts'
 import { Authors, Counts, useDates, type VersionsStore } from './ui.tsx'
 
@@ -18,15 +20,22 @@ export function HistoryNotice({ status }: { status: HistoryStatus }) {
   return <p className="h-problem" role="status">{t('history.unavailable')}</p>
 }
 
-export function HistoryTab({ store, status, current, onOpen }: {
+export function HistoryTab({ store, status, current, onOpen, path, canPurge = false, onPurged }: {
   store: VersionsStore
   status: HistoryStatus
   /** The version open in the main area, if any. */
   current: string | null
   onOpen: (id: string) => void
+  /** The note, for purging its history. */
+  path?: string
+  /** Whoever manages its folder purges its history (D-038.9, managed history only). */
+  canPurge?: boolean
+  onPurged?: (report: PurgeReport) => void
 }) {
   const t = useT()
   const dates = useDates()
+  const [purging, setPurging] = useState(false)
+  const [purged, setPurged] = useState<string | null>(null)
   // Unmanaged without a repository (or not readable yet): nothing to list.
   const readable = status.mode === 'managed' || status.available
   const groups = dates.group(store.versions, (v) => v.at)
@@ -74,6 +83,15 @@ export function HistoryTab({ store, status, current, onOpen }: {
           ))}
           {store.next && (
             <Button className="btn btn-sm h-more" isDisabled={store.loadingMore} onPress={store.loadMore}>{t('history.loadMore')}</Button>
+          )}
+          {purged && <p className="alerts-done" role="status">{purged}</p>}
+          {canPurge && path && status.mode === 'managed' && store.versions.length > 0 && (
+            <div className="purge-row">
+              <Button className="btn btn-sm btn-quiet purge-open" onPress={() => { setPurged(null); setPurging(true) }}>{t('purge.open')}</Button>
+            </div>
+          )}
+          {purging && path && (
+            <PurgeDialog path={path} onCancel={() => setPurging(false)} onDone={(r) => { setPurging(false); setPurged(purgedText(t, r)); onPurged?.(r) }} />
           )}
         </>
       )}
