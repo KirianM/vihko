@@ -5,15 +5,20 @@
 // included); the link doesn't work twice; deleting says what goes. Groups,
 // and one's own account.
 import { expect, test, type Page } from '@playwright/test'
-import { mkdirSync } from 'node:fs'
-import { BASE_URL, E2E_DIR, PASSWORD, PUBLIC_URL } from './env.ts'
-import { signIn } from './helpers.ts'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { BASE_URL, E2E_DIR, NOTES, PASSWORD, PERMISSIONS, PUBLIC_URL } from './env.ts'
+import { signIn, writeWorkspace } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const NOTE = 'hogar/Proxy.md'
 
 test.describe.configure({ mode: 'serial' })
-test.beforeAll(() => mkdirSync(SHOTS, { recursive: true }))
+test.beforeAll(() => {
+  mkdirSync(SHOTS, { recursive: true })
+  // A member sees nothing until something is granted (D-038): marta, once she exists, edits everything.
+  writeFileSync(`${NOTES}/thoth.yaml`, PERMISSIONS.replace('ana: edit }', 'ana: edit, marta: edit }'))
+})
+test.afterAll(() => writeWorkspace())
 
 /** From the sidebar: Preferences → one of the settings pages. */
 async function openSettings(page: Page, link: string, view: string) {
