@@ -585,8 +585,8 @@ export class ScopedNotes {
 
   /**
    * A comment (commenting.ts), for someone with `comment` or more where the
-   * note is: a new thread, a reply, or resolving a thread they started (with
-   * `edit`, anyone's). One exact operation through the note service, as the
+   * note is: a new thread, a reply, or resolving a thread they started and
+   * nobody else replied to (with `edit`, anyone's). One exact operation through the note service, as the
    * person: on the open document if someone is editing the note, on the
    * file otherwise. Only people: an agent comments by editing (D-038.5).
    */

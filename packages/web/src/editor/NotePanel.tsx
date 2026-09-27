@@ -197,7 +197,7 @@ function ThreadCard({ tv, original, active, color, confirm, onSelect, onReply, o
   onSelect: () => void
   /** Null: the person can't reply (they may only read). */
   onReply: ((text: string) => void) | null
-  /** Null: the person can't resolve this thread (D-038.5: with `comment`, only their own). */
+  /** Null: the person can't resolve this thread (D-038.5: with `comment`, only their own, with no one else's replies). */
   onResolve: (() => void) | null
 }) {
   const t = useT()
@@ -353,7 +353,8 @@ function CommentsTab({ view, session, user, originals, request, done, level }: {
     if (picked === id) setPicked(null)
   }
   // With `comment`, only one's own threads (D-038.5); with `edit`, anyone's.
-  const mayResolve = (th: Thread) => editing || (commenting && th.comments[0]!.author === user.username)
+  // With `comment`, only a thread they started and nobody else replied to (D-038.5, D-040 3.7): resolving takes the replies out too.
+  const mayResolve = (th: Thread) => editing || (commenting && th.comments.every((c) => c.author === user.username))
   const select = (th: Thread) => {
     setPicked(th.id)
     if (view) scrollTo(view, th.anchorTo > th.anchorFrom ? th.anchorFrom : th.from, false)

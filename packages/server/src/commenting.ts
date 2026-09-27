@@ -1,6 +1,7 @@
 // Commenting without editing (D-038.5): someone with `comment` in a folder adds
-// comments (D-023) to its notes, replies, and resolves their own threads;
-// with `edit` they resolve anyone's. Their editor is read-only (the hub drops
+// comments (D-023) to its notes, replies, and resolves their own threads as
+// long as nobody else has replied (D-040 3.7: resolving takes the replies
+// out of the note too); with `edit` they resolve anyone's. Their editor is read-only (the hub drops
 // whatever it sends), so a comment reaches the note here, as one exact
 // operation the server builds itself (never a text the client sends): a
 // comment with the person's name and the server's clock, a reply at the end
@@ -24,7 +25,7 @@ export type CommentOp =
   | { op: 'reply'; thread: string; text: string }
   | { op: 'resolve'; thread: string }
 
-/** Why a comment can't be written: `invalid` (the request), `moved` (the place or the thread isn't in the note any more), `not_own` (someone else's thread). */
+/** Why a comment can't be written: `invalid` (the request), `moved` (the place or the thread isn't in the note any more), `not_own` (someone else's thread, or one with others' replies). */
 export class CommentError extends Error {
   readonly code: 'invalid' | 'moved' | 'not_own'
   constructor(code: CommentError['code'], message: string) {
@@ -53,7 +54,8 @@ export function commentOp(body: unknown): CommentOp | null {
  * The change `op` makes to `doc`, as `author` at `date`, checked: the text
  * outside the comments doesn't change, and the comments change by exactly
  * that one comment (or thread). `resolveAny`: whoever asks may resolve
- * anyone's thread (`edit`); otherwise only one they started.
+ * anyone's thread (`edit`); otherwise only one they started and nobody else
+ * replied to.
  */
 export function commentSplices(doc: string, op: CommentOp, author: string, date: Date, opts: { resolveAny: boolean }): Splice[] {
   if (op.op !== 'resolve' && (op.text.trim() === '' || op.text.length > MAX_COMMENT)) throw new CommentError('invalid', 'a comment needs some text, and not too much')
@@ -71,6 +73,8 @@ export function commentSplices(doc: string, op: CommentOp, author: string, date:
     if (op.op === 'reply') change = replyTo(doc, thread, author, date, op.text)
     else {
       if (!opts.resolveAny && thread.comments[0]!.author !== author) throw new CommentError('not_own', 'only whoever started a thread (or someone who can edit the note) resolves it')
+      // Resolving takes every reply out of the note: with others' replies in it, that's for someone who can edit.
+      if (!opts.resolveAny && thread.comments.some((c) => c.author !== author)) throw new CommentError('not_own', 'a thread with replies from other people is resolved by someone who can edit the note')
       change = resolveThread(doc, thread)
     }
   }
