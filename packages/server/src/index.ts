@@ -24,6 +24,7 @@ export { AdminSettings, AdminSettingsError, type AdminSettingsView } from './adm
 export { POLICIES, RECOVERY_CODES, TOTP_DIGITS, TOTP_PERIOD, TOTP_WINDOW, TwoFactor, asRecovery, asTotp, base32Decode, base32Encode, hotp, totp, totpStep, type CodeResult, type SetupData, type TwoFactorPolicy, type TwoFactorStatus } from './twoFactor.ts'
 export { PendingSignIns, secondFactorAccount, twoFactorHttp, type PendingStep, type TwoFactorHttpDeps } from './http/twoFactor.ts'
 export { qrCode, qrModules, type QrCode } from './qr.ts'
+export { Notices, noticeAlert, readablePath, type AccountChange, type Notice, type NoticeCode, type NoticeData } from './notices.ts'
 export { LINK_ACCOUNT, inviteRoutes, userRoutes, usersErrorStatus, type UserRoutesDeps } from './http/users.ts'
 export { STATE_VERSION, openState } from './state.ts'
 export { MoveJobs, type MoveJob } from './http/jobs.ts'

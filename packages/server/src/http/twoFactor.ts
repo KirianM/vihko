@@ -20,13 +20,19 @@
 //   POST /api/account/2fa/enable {code}     verifies a code from it: now it's theirs → { recoveryCodes } (shown once)
 //   POST /api/account/2fa/recovery {confirm}  new recovery codes; `confirm`: a current code or the password
 //   POST /api/account/2fa/disable {code}    only while the policy isn't `required`; a code or a recovery code
-//   POST /api/admin/users/:id/2fa/reset     the thoth admin takes someone's second factor away
+//   POST /api/admin/users/:id/2fa/reset {confirm}  the thoth admin takes someone's second factor away
+//
+// The policy `disabled` means nobody new sets one up (D-040 3.4a): whoever
+// already has one is still asked for it, and may replace or turn it off.
 //
 // Confirming at the moment (D-036, `confirmIdentity`): approving an OAuth
 // client and creating (or rotating) an agent key ask for the current TOTP
-// code, or the password if the person has no second factor in force, even
-// with a session: one left open and forgotten is not enough to hand access
-// to a program. Keys themselves never ask for a second factor.
+// code, or the password if the person has no second factor, even with a
+// session: one left open and forgotten is not enough to hand access to a
+// program. The admin's changes to someone else's account (a reset link, their
+// second factor's reset, their role) and a new policy ask the same (D-040
+// 3.1, 3.4a), and the person and every other admin are told (notices.ts).
+// Keys themselves never ask for a second factor.
 import { createHash, randomBytes } from 'node:crypto'
 import type { Context, Hono } from 'hono'
 import { getCookie } from 'hono/cookie'
@@ -34,6 +40,7 @@ import type { Auth, User } from '../auth.ts'
 import type { Access } from '../access.ts'
 import type { AdminSettings } from '../adminSettings.ts'
 import type { LoginLimiter } from '../loginLimit.ts'
+import type { Notices } from '../notices.ts'
 import { asTotp, type TwoFactor } from '../twoFactor.ts'
 import type { Users } from '../users.ts'
 
@@ -103,6 +110,8 @@ export interface TwoFactorHttpDeps {
   signedIn: (c: Context, username: string, session: { token: string; expiresAt: Date }) => void
   /** THOTH_PUBLIC_URL, if set: its host names the installation in the authenticator app. */
   publicUrl: string | null
+  /** Notices addressed to one person: the admin's reset of someone's second factor is told. */
+  notices?: Notices
   now?: () => number
 }
 
@@ -112,8 +121,11 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
   const { auth, twoFactor, settings, limiter } = deps
   const pending = new PendingSignIns({ now: deps.now })
   const deviceOf = (c: Context, username: string) => limiter.deviceFor(getCookie(c, deps.deviceCookie), username)
-  /** Whether this user signs in (and confirms) with a code: they set one up, and the policy doesn't turn it off. */
-  const inForce = (userId: string) => settings.twoFactorPolicy() !== 'disabled' && twoFactor.enabled(userId)
+  /**
+   * Whether this user signs in (and confirms) with a code: they set one up.
+   * The policy `disabled` only stops new ones (D-040 3.4a).
+   */
+  const inForce = (userId: string) => twoFactor.enabled(userId)
   /** Where thoth is reached, for the authenticator app's label. */
   const host = (c: Context) => {
     try { return new URL(deps.publicUrl ?? c.req.url).host } catch { return null }
@@ -145,14 +157,27 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
     return r.ok ? null : r.reason === 'used' ? 'code_used' : 'invalid_code'
   }
 
+  /**
+   * Confirms that the person with this session is there now: the current
+   * TOTP code if they have a second factor, their password otherwise. Null
+   * if confirmed; the response to give otherwise.
+   */
+  const confirmIdentity = async (c: Context<Env>, confirm: unknown): Promise<Response | null> => {
+    const user = c.get('user')
+    if (typeof confirm !== 'string' || !confirm) {
+      return c.json({ error: 'confirmation_required', message: 'confirm with the current code (or the password, without a second factor)', with: inForce(user.id) ? 'code' : 'password' }, 400)
+    }
+    if (inForce(user.id)) return attempt(c, secondFactorAccount(user.username), user.username, () => checkCode(user.id, confirm, false), 403)
+    return attempt(c, user.username, user.username, async () => ((await auth.checkPassword(user.id, confirm)) ? null : 'wrong_password'), 403)
+  }
+
   return {
     /**
      * The password was right (a sign-in, or a one-time link): the session,
      * or the second step to take first.
      */
     passwordAccepted(c: Context, user: User): Response {
-      const policy = settings.twoFactorPolicy()
-      const step: PendingStep | null = policy === 'disabled' ? null : twoFactor.enabled(user.id) ? 'code' : policy === 'required' ? 'setup' : null
+      const step: PendingStep | null = twoFactor.enabled(user.id) ? 'code' : settings.twoFactorPolicy() === 'required' ? 'setup' : null
       if (!step) {
         startSession(c, user)
         return c.json({ user })
@@ -161,19 +186,7 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
       return c.json({ step, pending: p.token, expiresAt: p.expiresAt, username: user.username })
     },
 
-    /**
-     * Confirms that the person with this session is there now: the current
-     * TOTP code if they have a second factor in force, their password
-     * otherwise. Null if confirmed; the response to give otherwise.
-     */
-    async confirmIdentity(c: Context<Env>, confirm: unknown): Promise<Response | null> {
-      const user = c.get('user')
-      if (typeof confirm !== 'string' || !confirm) {
-        return c.json({ error: 'confirmation_required', message: 'confirm with the current code (or the password, without a second factor)', with: inForce(user.id) ? 'code' : 'password' }, 400)
-      }
-      if (inForce(user.id)) return attempt(c, secondFactorAccount(user.username), user.username, () => checkCode(user.id, confirm, false), 403)
-      return attempt(c, user.username, user.username, async () => ((await auth.checkPassword(user.id, confirm)) ? null : 'wrong_password'), 403)
-    },
+    confirmIdentity,
 
     /** The second step, without a session yet (before the session middleware). */
     publicRoutes(app: Hono<Env>) {
@@ -223,7 +236,10 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
     /** With a session (after the session middleware). */
     routes(app: Hono<Env>) {
       const me = (c: Context<Env>) => c.get('user')
-      const offered = (c: Context) => (settings.twoFactorPolicy() === 'disabled' ? fail(c, 409, 'two_factor_disabled', 'the admin turned the second factor off') : null)
+      /** Setting one up: refused under `disabled` to whoever has none (whoever has one may replace it). */
+      const offered = (c: Context<Env>) => (settings.twoFactorPolicy() === 'disabled' && !twoFactor.enabled(me(c).id)
+        ? fail(c, 409, 'two_factor_disabled', 'the admin turned the second factor off for new setups')
+        : null)
 
       app.get('/api/account/2fa', (c) => {
         const u = me(c)
@@ -274,11 +290,17 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
         return c.json({ ok: true })
       })
 
-      app.post('/api/admin/users/:id/2fa/reset', (c) => {
+      // Confirmed at the moment, and told to the person and the other admins
+      // (D-040 3.1). Someone without one: nothing to take away, nothing asked.
+      app.post('/api/admin/users/:id/2fa/reset', async (c) => {
         if (c.get('access').isAgent || me(c).role !== 'admin') return fail(c, 403, 'forbidden', 'admins only')
         const id = c.req.param('id') ?? ''
         if (!deps.users.get(id)) return fail(c, 404, 'not_found', 'no such user')
-        twoFactor.disable(id)
+        if (twoFactor.enabled(id)) {
+          const refused = await confirmIdentity(c, (await body(c)).confirm)
+          if (refused) return refused
+          if (twoFactor.disable(id)) deps.notices?.accountChanged(id, me(c).id, 'two_factor_reset')
+        }
         return c.json({ user: deps.users.get(id) })
       })
     },

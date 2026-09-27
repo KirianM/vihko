@@ -245,12 +245,16 @@ test('limits: wrong codes count, a right password does not clear them, and a suc
   } finally { await h.close() }
 })
 
-test('the policy: required makes whoever has none set it up at sign-in, before any session; disabled asks for nothing', async () => {
+test('the policy: a change is confirmed; required makes whoever has none set it up at sign-in; disabled only stops new ones', async () => {
   const h = await setup()
   try {
     assert.equal((await h.ana('PUT', '/api/admin/settings', { twoFactor: 'required' })).status, 403, 'the admin only')
     assert.equal((await h.noa('PUT', '/api/admin/settings', { twoFactor: 'sometimes' })).body.error, 'invalid')
-    assert.equal((await h.noa('PUT', '/api/admin/settings', { twoFactor: 'required' })).body.twoFactor, 'required')
+    const unconfirmed = await h.noa('PUT', '/api/admin/settings', { twoFactor: 'required' })
+    assert.deepEqual([unconfirmed.status, unconfirmed.body.error, unconfirmed.body.with], [400, 'confirmation_required', 'password'], 'a new policy is confirmed at the moment')
+    assert.equal((await h.noa('PUT', '/api/admin/settings', { twoFactor: 'required', confirm: 'wrong-password' })).body.error, 'wrong_password')
+    assert.equal((await h.noa('PUT', '/api/admin/settings', { twoFactor: 'required', confirm: PASSWORD })).body.twoFactor, 'required')
+    assert.equal((await h.noa('PUT', '/api/admin/settings', { twoFactor: 'required' })).status, 200, 'the same policy again asks nothing')
 
     // ana has none: the password gives the setup step, not a session.
     const first = await signIn(h, 'ana')
@@ -271,29 +275,37 @@ test('the policy: required makes whoever has none set it up at sign-in, before a
     assert.equal((await anaSession('POST', '/api/account/2fa/disable', { code: done.body.recoveryCodes[0] })).body.error, 'two_factor_required')
 
     // Optional: it can, with a code (or a recovery code); a wrong one doesn't.
-    await h.noa('PUT', '/api/admin/settings', { twoFactor: 'optional' })
+    await h.noa('PUT', '/api/admin/settings', { twoFactor: 'optional', confirm: PASSWORD })
     assert.equal((await anaSession('POST', '/api/account/2fa/disable', { code: '000000' })).body.error, 'invalid_code')
     assert.equal((await anaSession('POST', '/api/account/2fa/disable', { code: done.body.recoveryCodes[0] })).status, 200)
     assert.equal((await signIn(h, 'ana')).body.user.username, 'ana')
     assert.equal((await anaSession('POST', '/api/account/2fa/disable', { code: '123456' })).body.error, 'two_factor_off')
 
-    // Disabled: nobody is asked for a code, not even who set one up; it isn't offered, and keys confirm with the password.
-    await enable(h, h.noa)
-    await h.noa('PUT', '/api/admin/settings', { twoFactor: 'disabled' })
+    // Disabled (D-040 3.4a): nobody new sets one up, and whoever has one is still asked for it.
+    const { secret } = await enable(h, h.noa)
+    const since = h.clock.now.toISOString()
+    nextStep(h)
+    assert.equal((await h.noa('PUT', '/api/admin/settings', { twoFactor: 'disabled', confirm: PASSWORD })).body.error, 'invalid_code', 'with a second factor, its code confirms')
+    assert.equal((await h.noa('PUT', '/api/admin/settings', { twoFactor: 'disabled', confirm: totp(secret, h.clock.now.getTime()) })).body.twoFactor, 'disabled')
+    assert.equal((await signIn(h, 'noa')).body.step, 'code', 'still asked for')
+    assert.equal((await h.ana('POST', '/api/account/2fa/setup', { password: PASSWORD })).body.error, 'two_factor_disabled', 'not offered to anyone new')
+    assert.equal((await signIn(h, 'ana')).body.user.username, 'ana')
+    assert.deepEqual((await h.noa('GET', '/api/account/2fa')).body, { policy: 'disabled', enabled: true, enabledAt: since, recoveryCodesLeft: 10, confirmWith: 'code' })
+    nextStep(h)
+    assert.equal((await h.noa('POST', '/api/keys', { name: 'k', confirm: totp(secret, h.clock.now.getTime()) })).status, 201, 'keys confirm with the code')
+    // Who has one may change the app, and turn it off: then it isn't offered again.
+    assert.equal((await h.noa('POST', '/api/account/2fa/setup', { password: PASSWORD })).status, 200)
+    nextStep(h)
+    assert.equal((await h.noa('POST', '/api/account/2fa/disable', { code: totp(secret, h.clock.now.getTime()) })).status, 200)
+    assert.equal((await h.noa('POST', '/api/account/2fa/setup', { password: PASSWORD })).body.error, 'two_factor_disabled')
     assert.equal((await signIn(h, 'noa')).body.user.username, 'noa')
-    assert.equal((await h.ana('POST', '/api/account/2fa/setup', { password: PASSWORD })).body.error, 'two_factor_disabled')
-    assert.deepEqual((await h.noa('GET', '/api/account/2fa')).body, { policy: 'disabled', enabled: true, enabledAt: h.clock.now.toISOString(), recoveryCodesLeft: 10, confirmWith: 'password' })
-    assert.equal((await h.noa('POST', '/api/keys', { name: 'k', confirm: PASSWORD })).status, 201)
-    // Back to optional, theirs applies again.
-    await h.noa('PUT', '/api/admin/settings', { twoFactor: 'optional' })
-    assert.equal((await signIn(h, 'noa')).body.step, 'code')
   } finally { await h.close() }
 })
 
 test('links: an invitation under a required policy sets it up before the session; a reset never skips it', async () => {
   const h = await setup()
   try {
-    await h.noa('PUT', '/api/admin/settings', { twoFactor: 'required' })
+    await h.noa('PUT', '/api/admin/settings', { twoFactor: 'required', confirm: PASSWORD })
     const { user, link } = (await h.noa('POST', '/api/admin/users', { username: 'marta', role: 'member' })).body
     const accepted = await send(h.app, 'POST', `/api/invite/${link.token}`, { password: 'marta-long-password' })
     assert.deepEqual([accepted.status, accepted.body.step, accepted.cookie], [200, 'setup', null])
@@ -304,8 +316,8 @@ test('links: an invitation under a required policy sets it up before the session
     assert.equal(done.body.user.username, 'marta')
 
     // A reset link for someone with a second factor: the new password, then their code.
-    await h.noa('PUT', '/api/admin/settings', { twoFactor: 'optional' })
-    const reset = (await h.noa('POST', `/api/admin/users/${user.id}/link`)).body.link
+    await h.noa('PUT', '/api/admin/settings', { twoFactor: 'optional', confirm: PASSWORD })
+    const reset = (await h.noa('POST', `/api/admin/users/${user.id}/link`, { confirm: PASSWORD })).body.link
     const r = await send(h.app, 'POST', `/api/invite/${reset.token}`, { password: 'marta-new-long-password' })
     assert.deepEqual([r.body.step, r.cookie], ['code', null])
     nextStep(h)
@@ -315,8 +327,10 @@ test('links: an invitation under a required policy sets it up before the session
     // The admin resets it (a member can't): the password alone again.
     assert.equal((await h.ana('POST', `/api/admin/users/${user.id}/2fa/reset`)).status, 403)
     assert.equal((await h.noa('POST', '/api/admin/users/nobody/2fa/reset')).status, 404)
-    const after = await h.noa('POST', `/api/admin/users/${user.id}/2fa/reset`)
+    assert.equal((await h.noa('POST', `/api/admin/users/${user.id}/2fa/reset`)).body.error, 'confirmation_required')
+    const after = await h.noa('POST', `/api/admin/users/${user.id}/2fa/reset`, { confirm: PASSWORD })
     assert.deepEqual(after.body.user.twoFactor, { enabled: false, enabledAt: null })
+    assert.equal((await h.noa('POST', `/api/admin/users/${user.id}/2fa/reset`)).status, 200, 'none left to take away: nothing asked')
     assert.equal((await signIn(h, 'marta', 'marta-new-long-password')).body.user.username, 'marta')
   } finally { await h.close() }
 })

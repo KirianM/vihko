@@ -143,6 +143,17 @@ const MIGRATIONS: string[] = [
      used_at   text,
      primary key (user_id, code_hash)
    );`,
+  // Notices addressed to one person (M4.1, notices.ts): a code and its data
+  // as JSON (ids of people, never names; a path only for a purge), until
+  // they dismiss it. Never anything of a note's content.
+  `create table notices (
+     id         text primary key,
+     user_id    text not null references users(id) on delete cascade,
+     code       text not null,
+     data       text not null,
+     created_at text not null
+   );
+   create index notices_user on notices(user_id, created_at);`,
 ]
 
 export const STATE_VERSION = MIGRATIONS.length

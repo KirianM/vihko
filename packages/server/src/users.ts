@@ -13,8 +13,8 @@
 //   given to someone else (a `{user}` folder of theirs must not open to a
 //   newcomer with the same name, D-038.8). Their keys are revoked for good
 //   and their secrets wiped (each keeps its name, for the history, as a
-//   revoked key does); sessions, links, profile, memberships and second
-//   factor go.
+//   revoked key does); sessions, links, profile, memberships, second
+//   factor and notices go.
 // - The last active admin can't be demoted, disabled or deleted.
 // - Groups are permission subjects (`@name` in thoth.yaml): the admin
 //   creates, renames and fills them. Everyone signed in sees the names of
@@ -161,10 +161,8 @@ export class Users {
    * password, a reset otherwise. Any earlier link of theirs stops working.
    */
   newLink(id: string): NewLink {
-    const r = this.must(id)
-    if (r.disabled) throw new UsersError('user_disabled', 'a disabled user gets no link: enable them first')
+    const kind = this.nextLinkKind(id)
     const token = randomBytes(32).toString('base64url')
-    const kind: LinkKind = r.password_hash ? 'reset' : 'invite'
     const now = this.now()
     const expiresAt = new Date(now.getTime() + LINK_DAYS * 86_400_000).toISOString()
     this.db.transaction(() => {
@@ -173,6 +171,16 @@ export class Users {
         .run(sha256(token), id, kind, now.toISOString(), expiresAt)
     })()
     return { token, kind, expiresAt }
+  }
+
+  /**
+   * What a new link for a user would be: an invitation if they never chose a
+   * password, a reset otherwise. Throws if they get none (unknown, disabled).
+   */
+  nextLinkKind(id: string): LinkKind {
+    const r = this.must(id)
+    if (r.disabled) throw new UsersError('user_disabled', 'a disabled user gets no link: enable them first')
+    return r.password_hash ? 'reset' : 'invite'
   }
 
   /** Whom a link is for, if it still works; null otherwise (unknown, used, expired, or its user disabled). */
@@ -253,7 +261,7 @@ export class Users {
     this.db.transaction(() => {
       const now = this.now().toISOString()
       this.db.prepare("update users set deleted_at = ?, password_hash = '', disabled = 1 where id = ?").run(now, id)
-      for (const t of ['sessions', 'user_links', 'profiles', 'group_members', 'oauth_codes', 'two_factor', 'recovery_codes']) this.db.prepare(`delete from ${t} where user_id = ?`).run(id)
+      for (const t of ['sessions', 'user_links', 'profiles', 'group_members', 'oauth_codes', 'two_factor', 'recovery_codes', 'notices']) this.db.prepare(`delete from ${t} where user_id = ?`).run(id)
       this.db.prepare('delete from oauth_tokens where key_id in (select id from api_keys where user_id = ?)').run(id)
       // Revoked for good, with nothing left that could prove to be them; the name stays for the history.
       this.db.prepare(`update api_keys set revoked_at = coalesce(revoked_at, ?), secret_hash = ?, previous_secret_hash = null, previous_until = null

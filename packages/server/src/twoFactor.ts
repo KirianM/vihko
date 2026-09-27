@@ -14,8 +14,8 @@
 // - The TOTP secret has to be kept as it is (it computes the codes), in
 //   state.db, which is backed up and never served.
 // - The admin's policy (adminSettings.ts): required, optional (the default)
-//   or disabled. Disabled, no one is asked for a code, not even those who set
-//   one up (theirs is kept, and applies again if it's turned back on).
+//   or disabled. Disabled, nobody new sets one up; whoever has one is still
+//   asked for it (D-040 3.4a).
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import type { Db } from './db.ts'
 import { qrCode, type QrCode } from './qr.ts'
