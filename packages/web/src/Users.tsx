@@ -12,6 +12,7 @@ import { ApiError, api, type AdminSettings, type GroupInfo, type NewLink, type T
 import { CopyButton, Toggle } from './Agents.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
+import { AccessDialog, FolderPermissionsList, PermissionsDialog } from './Permissions.tsx'
 import { SearchButton } from './Palette.tsx'
 import { Icon, MenuButton, ThemeToggle } from './ui.tsx'
 import './actions.css'
@@ -42,6 +43,8 @@ type Open =
   | { kind: 'newGroup' }
   | { kind: 'renameGroup'; group: GroupInfo }
   | { kind: 'deleteGroup'; group: GroupInfo }
+  | { kind: 'access'; user: UserInfo }
+  | { kind: 'permissions'; folder: string }
 
 const linkUrl = (l: NewLink) => l.url ?? `${location.origin}${l.path}`
 
@@ -268,6 +271,8 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState<Open | null>(null)
+  /** The folders' list again after a permissions change. */
+  const [foldersSeq, setFoldersSeq] = useState(0)
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -304,7 +309,8 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
   }
 
   const actions = (u: UserInfo) => {
-    const items: { id: string; label: string; danger?: boolean }[] = []
+    const items: { id: string; label: string; danger?: boolean }[] = [{ id: 'access', label: t('perm.userAccessAction') }]
+    if (u.id === me.id) return items
     if (u.status !== 'disabled') items.push({ id: 'link', label: t(u.status === 'invited' ? 'users.actionInviteLink' : 'users.actionResetLink') })
     items.push({ id: u.role === 'admin' ? 'demote' : 'promote', label: t(u.role === 'admin' ? 'users.actionDemote' : 'users.actionPromote') })
     if (u.sessions > 0) items.push({ id: 'sessions', label: t('users.actionSessions', { n: u.sessions }) })
@@ -317,6 +323,7 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
   }
   const onAction = (u: UserInfo, id: string) => {
     if (id === 'enable') return void run(() => api.enableUser(u.id))
+    if (id === 'access') return setOpen({ kind: 'access', user: u })
     setOpen({ kind: 'confirm', action: id as Action, user: u })
   }
 
@@ -383,6 +390,11 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
     dialog = <ConfirmDialog title={t('groups.deleteTitle', { name: g.name })} danger confirm={t('groups.deleteConfirm')}
       items={[t('groups.delete1', { name: g.name }), t('groups.delete2')]} onClose={close}
       onConfirm={async () => { await api.deleteGroup(g.id); done() }} />
+  } else if (open?.kind === 'access') {
+    dialog = <AccessDialog who={{ user: open.user.id }} title={t('perm.userAccessTitle', { user: open.user.username })} onClose={close} onUnauthorized={onUnauthorized} />
+  } else if (open?.kind === 'permissions') {
+    dialog = <PermissionsDialog folder={open.folder} me={me} canOpen={() => true} onClose={close}
+      onChanged={() => setFoldersSeq((n) => n + 1)} onAccessLost={close} onUnauthorized={onUnauthorized} />
   }
 
   return (
@@ -443,16 +455,14 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
                       {twoFactor && <td>{twoFactorCell(u)}</td>}
                       <td>{u.lastSeenAt ? dates.dateTime(u.lastSeenAt) : <span className="hint">{t('users.never')}</span>}</td>
                       <td className="user-actions">
-                        {u.id !== me.id && (
-                          <MenuTrigger>
-                            <Button className="btn btn-icon" aria-label={t('users.actionsFor', { user: u.username })} isDisabled={busy}>{Icon.more}</Button>
-                            <Popover className="menu-popover" placement="bottom end">
-                              <Menu className="menu" onAction={(key) => onAction(u, String(key))}>
-                                {actions(u).map((a) => <MenuItem key={a.id} id={a.id} className={a.danger ? 'menu-item menu-item-danger' : 'menu-item'}>{a.label}</MenuItem>)}
-                              </Menu>
-                            </Popover>
-                          </MenuTrigger>
-                        )}
+                        <MenuTrigger>
+                          <Button className="btn btn-icon" aria-label={t('users.actionsFor', { user: u.username })} isDisabled={busy}>{Icon.more}</Button>
+                          <Popover className="menu-popover" placement="bottom end">
+                            <Menu className="menu" onAction={(key) => onAction(u, String(key))}>
+                              {actions(u).map((a) => <MenuItem key={a.id} id={a.id} className={a.danger ? 'menu-item menu-item-danger' : 'menu-item'}>{a.label}</MenuItem>)}
+                            </Menu>
+                          </Popover>
+                        </MenuTrigger>
                       </td>
                     </tr>
                   ))}
@@ -480,6 +490,12 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
               ))}
             </ul>
           )}
+        </section>
+
+        <section className="settings-section" aria-labelledby="users-folders">
+          <h2 id="users-folders">{t('perm.foldersTitle')}</h2>
+          <p className="hint">{t('perm.foldersIntro')}</p>
+          <FolderPermissionsList refresh={foldersSeq} onOpen={(folder) => setOpen({ kind: 'permissions', folder })} onUnauthorized={onUnauthorized} />
         </section>
 
         <section className="settings-section" aria-labelledby="users-settings">

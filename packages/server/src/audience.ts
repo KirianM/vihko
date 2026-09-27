@@ -34,10 +34,14 @@ export function ruleMove(engine: PermissionsEngine, from: string, to: string, fo
   const under = (k: string) => k === f || k.startsWith(f + '/')
   const extra: (RuleValue & { folder: string })[] = []
   for (const folder of new Set([f, ...folders.map((x) => x.normalize('NFC')).filter(under)])) {
-    const m = set.own(folder)
-    if (!m || m.user === null) continue
+    const own = set.own(folder)
+    if (!own) continue
+    // A literal rule without grants over a `{user}` one takes that one's grants along (RuleSet.governing).
+    const u = own.user === null && own.rule.grants === null ? set.userRule(folder) : null
+    const m = own.user !== null ? own : u !== null && u.rule.grants !== null ? u : null
+    if (!m) continue
     const grants = m.rule.grants === null ? null : grantsAt({ ...m, at: folder }, (n) => names.has(subjectKey(n)))
-    extra.push({ folder: t + folder.slice(f.length), grants, ai: m.rule.ai })
+    extra.push({ folder: t + folder.slice(f.length), grants, ai: own.user === null ? own.rule.ai : m.rule.ai })
   }
   // The rules as they'll be once it moved (the implicit section has no rule under any folder: it doesn't change).
   const section = engine.section

@@ -5,6 +5,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, Text, TextField } from 'react-aria-components'
 import { api, type MoveJob, type MoveReport } from '../api.ts'
+import { AudienceWarning, audienceChanges } from '../Audience.tsx'
 import { ShiftPreview } from '../Shifts.tsx'
 import { errorText, useT, type MessageKey } from '../i18n.tsx'
 import { Icon, noteName } from '../ui.tsx'
@@ -43,12 +44,15 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
   const [preview, setPreview] = useState<Preview>({ kind: 'idle' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Moving it changes who sees it: confirmed for this destination (D-038). */
+  const [confirmed, setConfirmed] = useState(false)
   const to = targetPath(name, folder)
   const changed = to !== null && to !== path
 
   // Live preview (dryRun), with a short pause so it is not one request per keystroke.
   useEffect(() => {
     setError(null)
+    setConfirmed(false)
     if (!changed) return setPreview({ kind: 'idle' })
     setPreview({ kind: 'loading' })
     let live = true
@@ -71,10 +75,11 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
   const submitKey: MessageKey = `rename.${action}${count}${m ? 'Images' : ''}`
   const images = t(m === 1 ? 'rename.imagesOne' : 'rename.imagesMany', { n: m })
   const nothing = !!report && report.relinked.length === 0 && report.shifted.length === 0 && report.kept.length === 0 && report.images.moved.length === 0 && report.images.stayed.length === 0 && !report.images.folder && report.images.failed.length === 0
+  const blocked = audienceChanges(report?.audience) && !confirmed
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!report || busy) return
+    if (!report || busy || blocked) return
     setBusy(true)
     setError(null)
     try {
@@ -108,6 +113,7 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
             {preview.kind === 'idle' && <span className="preview-note">{t('rename.previewUnchanged')}</span>}
             {preview.kind === 'loading' && <span className="preview-note">{t('rename.previewLoading')}</span>}
             {preview.kind === 'error' && <span className="error-text" role="alert">{preview.message}</span>}
+            {report && <AudienceWarning audience={report.audience} confirmed={confirmed} onConfirm={setConfirmed} />}
             {nothing && <span className="preview-note">{t('rename.previewNone')}</span>}
             {report && <ShiftPreview groups={report.shifted} />}
             {report?.relinked.flatMap((r) => r.changes.map((c, i) => (
@@ -153,7 +159,7 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className="btn btn-primary" isDisabled={!report || busy}>{t(submitKey, { n, images })}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={!report || busy || blocked}>{t(submitKey, { n, images })}</Button>
         </div>
       </form>
     </Dialog>

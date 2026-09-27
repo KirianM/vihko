@@ -135,7 +135,11 @@ test('groups: the admin creates one, adds a member, renames it and deletes it; m
   await admin.screenshot({ path: `${SHOTS}/users-groups.png`, animations: 'disabled', fullPage: true })
 
   const ana = await signIn(browser, 'ana')
-  expect(await (await ana.request.get('/api/directory')).json()).toEqual({ users: ['ana', 'noa'], groups: ['familia'] })
+  // Names only (other specs on this server add people of their own).
+  const directory = await (await ana.request.get('/api/directory')).json()
+  expect(directory.groups).toEqual(['familia'])
+  expect(directory.users).toEqual(expect.arrayContaining(['ana', 'noa']))
+  expect(directory.users.every((u: unknown) => typeof u === 'string')).toBe(true)
   expect((await ana.request.get('/api/admin/users')).status()).toBe(403)
   // A member doesn't get the page either.
   await ana.goto('/?view=users')

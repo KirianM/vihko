@@ -11,11 +11,12 @@ import { markdownLinkNote, missingBadge, onCreateButton, wikiLinkNote } from './
 // --- Link state (resolved by the server's index) ----------
 
 export interface LinkInfo {
-  status: 'resolved' | 'ambiguous' | 'missing'
+  /** `no_access`: a note that exists but isn't the person's to read (D-024): dimmed, with a lock, never offering to create it. */
+  status: 'resolved' | 'ambiguous' | 'missing' | 'no_access'
   path: string | null
   candidates: string[] | null
 }
-export interface LinkLabels { ambiguous: (n: number) => string; missing: string; frontmatter: (n: number) => string }
+export interface LinkLabels { ambiguous: (n: number) => string; missing: string; noAccess?: string; frontmatter: (n: number) => string }
 
 /** Outgoing links of the note, by their exact text (`[[target|alias]]`). */
 export const setLinks = StateEffect.define<Map<string, LinkInfo>>()
@@ -134,10 +135,28 @@ class WikiWidget extends WidgetType {
       badge.className = 'cm-wikilink-badge'
       badge.textContent = this.text.ambiguous(this.info?.candidates?.length ?? 0)
       wrap.append(badge)
+    } else if (status === 'no_access') {
+      const badge = document.createElement('span')
+      badge.className = 'cm-wikilink-badge'
+      badge.append(lockIcon(), this.text.noAccess ?? 'no access')
+      wrap.append(badge)
     }
     return wrap
   }
   ignoreEvent(e: Event) { return ((this.info?.status === 'resolved' || this.info?.status === 'ambiguous') && e.type === 'mousedown') || onCreateButton(e) }
+}
+
+/** The lock of a link to a note without access (as in ui.tsx's Icon.lock). */
+function lockIcon(): SVGSVGElement {
+  const ns = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(ns, 'svg')
+  for (const [k, v] of Object.entries({ width: '12', height: '12', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) svg.setAttribute(k, v)
+  const rect = document.createElementNS(ns, 'rect')
+  for (const [k, v] of Object.entries({ x: '5', y: '11', width: '14', height: '10', rx: '2' })) rect.setAttribute(k, v)
+  const path = document.createElementNS(ns, 'path')
+  path.setAttribute('d', 'M8 11V7a4 4 0 0 1 8 0v4')
+  svg.append(rect, path)
+  return svg
 }
 
 class BulletWidget extends WidgetType {

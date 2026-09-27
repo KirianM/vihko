@@ -91,6 +91,17 @@ test('permissions: which rule governs a folder, most specific first', () => {
   const lit = new RuleSet(rulesOf(SPEC + '  personas/laura/recetas:\n    grants: { laura: manage, noa: comment }\n  personas/marta:\n    grants: { marta: read }\n'))
   assert.equal(levelIn(grantsAt(lit.governing('personas/laura/recetas')!, exists), { username: 'noa', groups: [] }), 'comment')
   assert.equal(levelIn(grantsAt(lit.governing('personas/marta')!, exists), { username: 'marta', groups: [] }), 'read')
+  // A literal rule without grants (only `ai: false`) over a {user} one keeps that one's grants: never the root's.
+  const closed = new RuleSet(rulesOf(SPEC + '  personas/laura:\n    ai: false\n'))
+  const at = (folder: string, username: string) => levelIn(grantsAt(closed.governing(folder)!, exists), { username, groups: [] })
+  assert.equal(at('personas/laura', 'laura'), 'manage')
+  assert.equal(at('personas/laura', 'noa'), null, 'the root\'s manager gains nothing')
+  assert.equal(at('personas/laura/recetas', 'noa'), null)
+  assert.equal(closed.aiClosedAt('personas/laura/recetas'), 'personas/laura')
+  assert.equal(closed.own('personas/laura')?.user, null, 'its own rule is the literal one')
+  assert.equal(closed.userRule('personas/laura')?.user, 'laura')
+  // And ai: false on the {user} rule closes every personal folder.
+  assert.equal(new RuleSet(rulesOf(SPEC.replace('{ "{user}": manage }', '{ "{user}": manage }\n    ai: false'))).aiClosedAt('personas/marta/x'), 'personas/marta')
   // Names compare without case, as state.db does.
   assert.equal(levelIn({ Noa: 'read', '@Familia': 'edit' }, { username: 'noa', groups: ['familia'] }), 'edit')
 })

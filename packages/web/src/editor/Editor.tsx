@@ -94,6 +94,7 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
         labels.of({
           ambiguous: (n) => t('editor.linkAmbiguous', { n }),
           missing: t('editor.linkMissing'),
+          noAccess: t('editor.linkNoAccess'),
           frontmatter: (n) => t(n === 1 ? 'editor.frontmatterOne' : 'editor.frontmatter', { n }),
         }),
         // tasks brings lang-markdown's keymap (Enter continues a task as a task).
