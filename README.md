@@ -323,7 +323,12 @@ permissions:                # who reads what, per folder; without it, every admi
   `comment`, `edit` or `manage`, and `ai: false` to close it (and what's
   under it) to agents. A folder with grants of its own replaces what it
   would inherit; one without them inherits from the nearest folder above
-  that has some. Nobody reads what isn't granted, the admin included.
+  that has some. Whoever manages a folder keeps `manage` in everything
+  under it, even in a subfolder whose own grants don't name them, except in
+  personal folders (those a `{user}` rule matches) and under them: nobody
+  from above gets into one. Nobody reads what isn't granted or managed from
+  above, the admin included: an admin who manages the root reads everything
+  but other people's personal folders, unless they're shared with them.
   Without the section, every admin manages the root. thoth writes this
   section itself from the permissions dialog (only the entries that change;
   the rest of the file stays as it was) and moves a folder's rules when the

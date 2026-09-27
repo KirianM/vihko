@@ -17,9 +17,13 @@ const disk = (p = NOTE) => readFileSync(`${NOTES}/${p}`, 'utf8')
 const q = encodeURIComponent
 const SLOW = { timeout: 20_000 }
 
-/** thoth.yaml: the root as every spec has it, and `colab` Ana's, shared with Noa at `level`. */
+/**
+ * thoth.yaml: both edit the root, and `colab` is Ana's, shared with Noa at
+ * `level`. Noa doesn't manage the root here: whoever does keeps managing
+ * everything under it (D-040 3.5).
+ */
 function rules(level: 'read' | 'comment') {
-  writeFileSync(`${NOTES}/thoth.yaml`, `permissions:\n  "":\n    grants: { noa: manage, ana: edit }\n  ${DIR}:\n    grants: { ana: manage, noa: ${level} }\n`)
+  writeFileSync(`${NOTES}/thoth.yaml`, `permissions:\n  "":\n    grants: { noa: edit, ana: edit }\n  ${DIR}:\n    grants: { ana: manage, noa: ${level} }\n`)
 }
 
 const level = async (p: Page, path = NOTE) => ((await (await p.request.get(`/api/note?path=${q(path)}`)).json()) as { level?: string }).level
