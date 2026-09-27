@@ -15,6 +15,7 @@ import { ApiError, api, type Integrations, type KeyInfo, type KeyWithUser, type 
 import { copyText } from './copy.ts'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
+import { AccessDialog } from './Permissions.tsx'
 import { SearchButton } from './Palette.tsx'
 import { Diamond, Icon, MenuButton, ThemeToggle } from './ui.tsx'
 import './actions.css'
@@ -407,6 +408,7 @@ type Open =
   | { kind: 'token'; key: KeyInfo; token: string }
   | { kind: 'revoke'; key: KeyInfo; owner: string | null }
   | { kind: 'rotate'; key: KeyInfo }
+  | { kind: 'access'; key: KeyInfo }
 
 export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; onUnauthorized: () => void; onPrivacy: () => void }) {
   const t = useT()
@@ -443,6 +445,7 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
   const gone = <K extends KeyInfo>(list: K[] | null) => (list ?? []).filter((k) => k.status === 'revoked')
   const own = (k: KeyInfo) => (
     <KeyCard key={k.id} k={k} actions={k.status === 'revoked' ? null : (<>
+      {k.status === 'active' && <Button className="btn" onPress={() => setOpen({ kind: 'access', key: k })}>{t('perm.keyAccessAction')}</Button>}
       {canCreate && k.status === 'active' && <Button className="btn" onPress={() => setOpen({ kind: 'edit', key: k })}>{t('keys.edit')}</Button>}
       {/* An OAuth authorization has no key to rotate: it is revoked, and authorized again. */}
       {canCreate && k.status === 'active' && !k.client && <Button className="btn" onPress={() => setOpen({ kind: 'rotate', key: k })}>{t('keys.rotate')}</Button>}
@@ -450,9 +453,10 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
     </>)} />
   )
   const theirs = (k: KeyWithUser) => (
-    <KeyCard key={k.id} k={k} owner={k.user.username} actions={k.status === 'revoked' ? null : (
+    <KeyCard key={k.id} k={k} owner={k.user.username} actions={k.status === 'revoked' ? null : (<>
+      {k.status === 'active' && <Button className="btn" onPress={() => setOpen({ kind: 'access', key: k })}>{t('perm.keyAccessAction')}</Button>}
       <Button className="btn btn-danger" onPress={() => setOpen({ kind: 'revoke', key: k, owner: k.user.username })}>{t('keys.revoke')}</Button>
-    )} />
+    </>)} />
   )
   const revoked = <K extends KeyInfo>(list: K[], render: (k: K) => ReactNode) => list.length > 0 && (
     <details className="keys-revoked">
@@ -551,7 +555,8 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
           )}
           {open?.kind === 'token' && <TokenDialog keyInfo={open.key} token={open.token} integrations={integ} onClose={close} />}
           {open?.kind === 'revoke' && <RevokeDialog keyInfo={open.key} owner={open.owner} onClose={close} onRevoked={done} />}
-          {open?.kind === 'rotate' && <RotateDialog keyInfo={open.key} onClose={close} onRotated={(key, token) => { setOpen({ kind: 'token', key, token }); void load() }} />}
+          {open?.kind === 'access' && <AccessDialog who={{ key: open.key.id }} title={t('perm.keyAccessTitle', { name: open.key.name })} onClose={close} onUnauthorized={onUnauthorized} />}
+          {open?.kind === 'rotate' &&<RotateDialog keyInfo={open.key} onClose={close} onRotated={(key, token) => { setOpen({ kind: 'token', key, token }); void load() }} />}
         </Modal>
       </ModalOverlay>
     </>

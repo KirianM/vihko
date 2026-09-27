@@ -2,7 +2,9 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, type Key } from 'react-aria-components'
 import { seriesNeighbors } from '@thoth/core/series'
-import { ApiError, SESSION_ENDED_EVENT, api, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
+import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
+import { audienceChanges } from './Audience.tsx'
+import { PermissionsDialog } from './Permissions.tsx'
 import { AlertsPage } from './Alerts.tsx'
 import { AgentsPage } from './Agents.tsx'
 import { PrivacyPage } from './Privacy.tsx'
@@ -11,7 +13,7 @@ import { AccountPage } from './Account.tsx'
 import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
-import { Brand, Crumbs, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
+import { Brand, Crumbs, FolderPermissionsContext, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
 import { TrashToast, type Trashed } from './TrashToast.tsx'
 import { PinOfferToast, type PinOffer } from './PinOffer.tsx'
 import { MoveToast, moveNotice } from './MoveToast.tsx'
@@ -21,7 +23,7 @@ import { OpenPaletteContext, Palette, SearchButton, type PaletteMode } from './P
 import { rememberNote } from './recent.ts'
 import { useBackClose, useMobile, useVisualViewport } from './mobile.ts'
 import { PreferencesDialog, browserTimeZone } from './Preferences.tsx'
-import { FolderTree, ancestors, buildTree, type Node, type TreeAction } from './FolderTree.tsx'
+import { FolderTree, ancestors, buildTree, type FolderInfoOf, type Node, type TreeAction } from './FolderTree.tsx'
 import { DeleteFolderDialog, FolderMoveDialog, NewFolderDialog } from './FolderDialogs.tsx'
 import { RenameDialog, TrashDialog } from './editor/NoteActions.tsx'
 import { TagsView } from './TagsView.tsx'
@@ -35,6 +37,7 @@ type TreeDialog =
   | { kind: 'newFolder'; parent: string }
   | { kind: 'moveFolder'; path: string; parent?: string }
   | { kind: 'deleteFolder'; path: string }
+  | { kind: 'permissions'; path: string }
   | { kind: 'moveNote'; path: string; folder?: string }
   | { kind: 'trashNote'; path: string }
 
@@ -52,6 +55,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const { effective } = useTheme()
   const [notes, setNotes] = useState<TreeNote[] | null>(null)
   const [folders, setFolders] = useState<string[]>([])
+  /** Folders shown only as the way to what the person sees (D-038). */
+  const [pathOnly, setPathOnly] = useState<Set<string>>(() => new Set())
+  /** The person's level in each folder they see, and the folders' locks (the admin: every folder). Null until loaded. */
+  const [locks, setLocks] = useState<Map<string, FolderLock> | null>(null)
+  /** The open note can't be read: it doesn't exist or isn't the person's to see (the same message for both). */
+  const [noAccess, setNoAccess] = useState<string | null>(null)
   /** Sidebar: the folder tree or the tags; a picked tag lists its notes. */
   const [sideTab, setSideTab] = useState<'folders' | 'tags'>('folders')
   const [tag, setTag] = useState<string | null>(null)
@@ -114,7 +123,11 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setError(errorText(t, err))
   }
 
-  const loadTree = () => api.tree().then((r) => { setNotes(r.notes); setFolders(r.folders) }).catch(fail)
+  const loadTree = () => Promise.all([
+    api.tree().then((r) => { setNotes(r.notes); setFolders(r.folders); setPathOnly(new Set(r.pathOnly ?? [])) }).catch(fail),
+    // Without it the tree offers every action and the server answers: never a reason to fail the page.
+    api.permissionFolders().then((r) => setLocks(new Map(r.folders.map((f) => [f.path, f])))).catch(() => {}),
+  ])
   const loadWorkspace = () => api.workspace().then(setWorkspace).catch(() => {})
   const loadAlerts = () => api.alerts().then((a) => setAlerts(a.length)).catch(() => {})
 
@@ -203,15 +216,35 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setOutsideMove((m) => (m?.to === openPath ? m : null))
     setError(null)
     setMissing(null)
+    setNoAccess(null)
     // Check that it exists before opening co-editing: the hub rejects notes that don't exist.
     api.note(openPath).then(() => { setReady(openPath); rememberNote(openPath) }).catch((err) => {
       if (versionRef.current && err instanceof ApiError && err.code === 'not_found') setMissing(openPath)
+      // Neither missing nor someone else's is told apart (D-024, D-038).
+      else if (err instanceof ApiError && (err.code === 'not_found' || err.code === 'forbidden')) setNoAccess(openPath)
       else fail(err)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openPath])
 
   const tree = useMemo(() => (notes ? buildTree(notes, folders) : []), [notes, folders])
+  const admin = user.role === 'admin'
+  /** The person's level and a folder's marks, for the tree's actions and locks. */
+  const folderInfo = useMemo<FolderInfoOf>(() => (path) => {
+    if (!locks) return undefined
+    const l = locks.get(path)
+    return { level: l?.level ?? null, canEdit: l?.canEdit ?? false, own: l?.ownGrants ?? false, ai: l?.aiClosed ?? false, pathOnly: pathOnly.has(path) }
+  }, [locks, pathOnly])
+  /** Whether this person may open a folder's permissions (the admin, any folder's; others, where they manage). */
+  const canManageFolder = (folder: string) => admin || !!locks?.get(folder)?.canEdit
+  /** Nowhere to write: no «New note» (read-only mode signals, D-038.5). */
+  const editsSomewhere = !locks || [...locks.values()].some((l) => atLeast(l.level, 'edit'))
+  const editsRoot = !locks || atLeast(locks.get('')?.level, 'edit')
+  // The header's way to a note's folder permissions (only once the levels are known).
+  const folderPermissions = useMemo(() => (locks ? {
+    can: (folder: string) => admin || !!locks.get(folder)?.canEdit,
+    open: (folder: string) => setTreeDialog({ kind: 'permissions', path: folder }),
+  } : null), [locks, admin])
   // Template notes: those in the templates folder of thoth.yaml, subfolders included.
   const templates = useMemo(() => {
     const dir = workspace?.templates
@@ -244,6 +277,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     else if (action === 'newFolder') setTreeDialog({ kind: 'newFolder', parent: node.path })
     else if (action === 'moveFolder') setTreeDialog({ kind: 'moveFolder', path: node.path })
     else if (action === 'deleteFolder') setTreeDialog({ kind: 'deleteFolder', path: node.path })
+    else if (action === 'permissions') setTreeDialog({ kind: 'permissions', path: node.path })
     else if (action === 'moveNote') setTreeDialog({ kind: 'moveNote', path: node.path })
     else setTreeDialog({ kind: 'trashNote', path: node.path })
   }
@@ -305,11 +339,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     try {
       if (key.startsWith('n:')) {
         const preview = await api.move(path, to, true)
-        if (preview.relinked.length || preview.shifted.length || preview.images.moved.length || preview.images.stayed.length || preview.images.folder || preview.images.failed.length) return setTreeDialog({ kind: 'moveNote', path, folder })
+        if (preview.relinked.length || preview.shifted.length || preview.images.moved.length || preview.images.stayed.length || preview.images.folder || preview.images.failed.length || audienceChanges(preview.audience)) return setTreeDialog({ kind: 'moveNote', path, folder })
         noteMoved(path, to, await api.move(path, to))
       } else {
         const preview = await api.moveFolder(path, to, true)
-        if (preview.relinked.length || preview.shifted.length) return setTreeDialog({ kind: 'moveFolder', path, parent: folder })
+        // Who sees it changes: never in silence (D-038), the dialog asks.
+        if (preview.relinked.length || preview.shifted.length || audienceChanges(preview.audience)) return setTreeDialog({ kind: 'moveFolder', path, parent: folder })
         folderMoved(await api.moveFolder(path, to))
       }
     } catch (err) {
@@ -329,14 +364,17 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <Tab id="tags" className="side-tab">{t('sidebar.tags')}</Tab>
         </TabList>
         <span className="spacer" />
-        {sideTab === 'folders' && (
+        {sideTab === 'folders' && editsRoot && (
           <Button className="btn btn-icon btn-quiet" aria-label={t('folder.new')} onPress={pick(() => setTreeDialog({ kind: 'newFolder', parent: '' }))}>{Icon.folderPlus}</Button>
         )}
       </div>
       <TabPanel id="folders" className="sidebar-tree">
         {notes === null
           ? <div className="empty">{t('common.loading')}</div>
-          : (
+          // Nothing shared yet is not an empty notes folder.
+          : tree.length === 0 && locks && ![...locks.values()].some((l) => l.level !== null)
+            ? <div className="empty" role="status">{t('shell.noAccess')}</div>
+            : (
             <FolderTree
               nodes={tree}
               selected={openPath}
@@ -347,6 +385,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               onDrop={(key, folder) => void onDrop(key, folder)}
               draggable={!mobile}
               emptyText={t('shell.noNotes')}
+              folderInfo={folderInfo}
             />
           )}
       </TabPanel>
@@ -380,6 +419,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     <TimeZoneContext.Provider value={profile?.timezone ?? browserTimeZone()}>
     <OpenPaletteContext.Provider value={() => setPalette('search')}>
     <OpenNavContext.Provider value={mobile ? () => setNavOpen(true) : null}>
+    <FolderPermissionsContext.Provider value={folderPermissions}>
     <div className="shell">
       {mobile ? (
         <ModalOverlay className="drawer-overlay" isOpen={navOpen} onOpenChange={setNavOpen} isDismissable>
@@ -393,7 +433,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               </div>
               {treeView}
               <div className="drawer-foot">
-                <Button className="btn btn-primary btn-xl" onPress={pick(() => setPalette('create'))}>{t('shell.newNote')}</Button>
+                {editsSomewhere && <Button className="btn btn-primary btn-xl" onPress={pick(() => setPalette('create'))}>{t('shell.newNote')}</Button>}
                 {dailyOn && <Button className="btn btn-xl" onPress={pick(() => void openToday())}>{Icon.calendar}{t('shell.today')}</Button>}
                 {changesLink}
                 {alertsLink}
@@ -408,7 +448,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             <Brand />
             <span className="spacer" />
             {dailyOn && <Button className="btn btn-icon" aria-label={t('shell.today')} onPress={() => void openToday()}>{Icon.calendar}</Button>}
-            <Button className="btn btn-icon" aria-label={t('shell.newNote')} onPress={() => setPalette('create')}>{Icon.plus}</Button>
+            {editsSomewhere && <Button className="btn btn-icon" aria-label={t('shell.newNote')} onPress={() => setPalette('create')}>{Icon.plus}</Button>}
           </div>
           <Button className="btn sidebar-search" onPress={() => setPalette('search')}>
             {Icon.search}<span>{t('shell.search')}</span><kbd>⌘K</kbd>
@@ -481,6 +521,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             </header>
             <div className="note">
               {error && <p className="error-text" role="alert">{error}</p>}
+              {openPath && noAccess === openPath && !error && (
+                <div className="no-access" role="alert">
+                  <p className="no-access-title">{Icon.lock}{t('note.noAccess')}</p>
+                  <p>{t('note.noAccessHint')}</p>
+                </div>
+              )}
               {!openPath && !error && <p className="empty">{t('shell.empty')}</p>}
             </div>
           </>
@@ -540,6 +586,10 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           )}
           {treeDialog?.kind === 'moveFolder' && <FolderMoveDialog path={treeDialog.path} initialParent={treeDialog.parent} onClose={closeTreeDialog} onMoved={folderMoved} onStarted={moveStarted} />}
           {treeDialog?.kind === 'deleteFolder' && <DeleteFolderDialog path={treeDialog.path} onClose={closeTreeDialog} onDeleted={() => { closeTreeDialog(); void loadTree() }} />}
+          {treeDialog?.kind === 'permissions' && (
+            <PermissionsDialog folder={treeDialog.path} me={user} canOpen={canManageFolder} onClose={closeTreeDialog}
+              onChanged={() => void loadTree()} onAccessLost={closeTreeDialog} onUnauthorized={onUnauthorized} />
+          )}
           {treeDialog?.kind === 'moveNote' && (
             <RenameDialog path={treeDialog.path} initialFolder={treeDialog.folder} onClose={closeTreeDialog} onMoved={(to, r) => noteMoved(treeDialog.path, to, r)} onStarted={moveStarted} />
           )}
@@ -582,6 +632,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         />
       )}
     </div>
+    </FolderPermissionsContext.Provider>
     </OpenNavContext.Provider>
     </OpenPaletteContext.Provider>
     </TimeZoneContext.Provider>

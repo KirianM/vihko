@@ -63,7 +63,8 @@ export interface Note {
 export interface OutgoingLink {
   raw: string
   kind: 'wiki' | 'embed' | 'md'
-  status: 'resolved' | 'ambiguous' | 'missing'
+  /** `no_access`: a note that exists but isn't the person's to read (D-024): no path, no title. */
+  status: 'resolved' | 'ambiguous' | 'missing' | 'no_access'
   dst_path: string | null
   candidates: string[] | null
   /** Where the link starts in the note as indexed (a hint to find that occurrence). */
@@ -113,6 +114,8 @@ export interface MoveReport {
     folder: { from: string; to: string; files: number } | null
     failed: { path: string; to: string | null; outcome: 'stayed' | 'copied'; error: ErrorCode; message: string }[]
   }
+  /** In a dry run, whose access changes (D-038): the UI asks before moving. */
+  audience?: AudienceChange
   dryRun: boolean
 }
 /** What a folder move does (or would do, with `dryRun`): every note in it goes along, links kept. */
@@ -125,6 +128,8 @@ export interface FolderMoveReport {
   relinked: MoveReport['relinked']
   shifted: ShiftGroup[]
   failed: MoveReport['failed']
+  /** In a dry run, whose access changes (D-038): the UI asks before moving. */
+  audience?: AudienceChange
   dryRun: boolean
 }
 /**
@@ -224,6 +229,44 @@ export interface UserInfo {
   /** The second factor (D-036): null until it exists (piece T). */
   twoFactor: null
 }
+/** A folder permission level, from less to more (D-038.5). */
+export type Level = 'read' | 'comment' | 'edit' | 'manage'
+export const LEVELS: readonly Level[] = ['read', 'comment', 'edit', 'manage']
+export const atLeast = (have: Level | null | undefined, need: Level) => have != null && LEVELS.indexOf(have) >= LEVELS.indexOf(need)
+/** A user name, `@group`, or `{user}` (in a `{user}` rule), with its level. */
+export type Grants = Record<string, Level>
+/** A grant that gives someone access to a folder: to them or to a group of theirs, written for `from` (or `rule`, a `{user}` rule's key). */
+export interface GrantSource { subject: string; level: Level; from: string; rule?: string }
+/** A folder's rule, who has access and why (GET /api/permissions). */
+export interface FolderPermissions {
+  folder: string
+  /** thoth.yaml's ETag: a change names it (412 if the file changed). */
+  etag: string
+  /** `implicit`: no section yet (the admins manage the root); `closed`: rejected, nobody reads. */
+  section: 'rules' | 'implicit' | 'closed'
+  /** The rule written for this folder: literal (`user` null), or a `{user}` rule matching it. */
+  own: { rule: string; user: string | null; grants: Grants | null; ai: boolean } | null
+  /** What the parent gives: from which folder, resolved. */
+  inherited: { from: string; rule: string; grants: Grants } | null
+  /** A `{user}` rule with grants matching this folder, resolved. */
+  userRule: { rule: string; user: string; grants: Grants } | null
+  /** What applies here, and the folder it's written for. */
+  effective: { from: string | null; rule: string | null; grants: Grants }
+  ai: { closed: boolean; from: string | null }
+  canEdit: boolean
+  access: { id: string; username: string; level: Level; via: GrantSource[] }[]
+}
+/** A folder's lock and the person's level in it (GET /api/permissions/folders). */
+export interface FolderLock { path: string; level: Level | null; ownGrants: boolean; aiClosed: boolean; canEdit: boolean }
+/** What a person or a key reaches, folder by folder. */
+export interface EffectiveAccess { user: { id: string; username: string }; key: { id: string; name: string } | null; folders: { folder: string; level: Level }[] }
+/** Who gains or loses access with a move (users and groups named, keys counted). */
+export interface AudienceChange {
+  users: { gain: { id: string; username: string }[]; lose: { id: string; username: string }[] }
+  groups: { gain: string[]; lose: string[] }
+  keys: { gain: number; lose: number }
+}
+
 /** A new one-time link, shown once: `url` with THOTH_PUBLIC_URL, otherwise this origin + `path`. */
 export interface NewLink { token: string; kind: 'invite' | 'reset'; expiresAt: string; path: string; url: string | null }
 export interface GroupInfo { id: string; name: string; members: { id: string; username: string }[] }
@@ -242,8 +285,8 @@ export const api = {
   login: (username: string, password: string) => request<{ user: User }>('POST', '/api/auth/login', { username, password }),
   logout: () => request<{ ok: true }>('POST', '/api/auth/logout'),
   me: () => request<{ user: User }>('GET', '/api/auth/me'),
-  /** Notes and folders (empty ones included). */
-  tree: () => request<{ notes: TreeNote[]; folders: string[] }>('GET', '/api/tree'),
+  /** Notes and folders (empty ones included); `pathOnly`: folders shown only as the way to what the person sees. */
+  tree: () => request<{ notes: TreeNote[]; folders: string[]; pathOnly: string[] }>('GET', '/api/tree'),
   createFolder: (path: string) => request<{ path: string }>('POST', '/api/folder', { path }),
   /** Only an empty folder (`not_empty` otherwise). */
   deleteFolder: (path: string) => request<{ path: string }>('DELETE', `/api/folder?path=${encodeURIComponent(path)}`),
@@ -337,6 +380,16 @@ export const api = {
   deleteGroup: (id: string) => request<{ ok: true }>('DELETE', `/api/admin/groups/${encodeURIComponent(id)}`),
   addMember: (group: string, userId: string) => request<{ group: GroupInfo }>('POST', `/api/admin/groups/${encodeURIComponent(group)}/members`, { userId }).then((r) => r.group),
   removeMember: (group: string, userId: string) => request<{ group: GroupInfo }>('DELETE', `/api/admin/groups/${encodeURIComponent(group)}/members/${encodeURIComponent(userId)}`).then((r) => r.group),
+  /** A folder's permissions: the admin, or whoever manages it (403 if they see it, 404 if not). */
+  permissions: (folder: string) => request<FolderPermissions>('GET', `/api/permissions?folder=${encodeURIComponent(folder)}`),
+  /** Changes them: `grants` null inherits, `ai` false closes it to agents (null opens it); 412 if thoth.yaml changed since `ifMatch`. */
+  setPermissions: (folder: string, change: { grants?: Grants | null; ai?: false | null }, ifMatch: string) =>
+    request<FolderPermissions | { folder: string; etag: string; canEdit: false }>('PUT', '/api/permissions', { folder, ...change, ifMatch }),
+  /** Folders with their locks and the person's level (the admin: every folder's name). */
+  permissionFolders: () => request<{ folders: FolderLock[]; section: FolderPermissions['section'] }>('GET', '/api/permissions/folders'),
+  /** The folders a person (the admin: anyone; others: themselves) or a key reaches. */
+  access: (who: { user: string } | { key: string }) =>
+    request<EffectiveAccess>('GET', `/api/permissions/access?${'user' in who ? `user=${encodeURIComponent(who.user)}` : `key=${encodeURIComponent(who.key)}`}`),
   adminSettings: () => request<AdminSettings>('GET', '/api/admin/settings'),
   setAdminSettings: (patch: Partial<AdminSettings>) => request<AdminSettings>('PUT', '/api/admin/settings', patch),
 }

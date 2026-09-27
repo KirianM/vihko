@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Text, TextField } from 'react-aria-components'
 import { api, type FolderMoveReport, type MoveJob } from './api.ts'
+import { AudienceWarning, audienceChanges } from './Audience.tsx'
 import { ShiftPreview } from './Shifts.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { parentOf } from './FolderTree.tsx'
@@ -93,11 +94,14 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
   const [preview, setPreview] = useState<Preview>({ kind: 'idle' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Moving it changes who sees it: confirmed for this destination. */
+  const [confirmed, setConfirmed] = useState(false)
   const to = folderPath(name, parent)
   const changed = to !== null && to !== path
 
   useEffect(() => {
     setError(null)
+    setConfirmed(false)
     if (!changed) return setPreview({ kind: 'idle' })
     setPreview({ kind: 'loading' })
     let live = true
@@ -115,10 +119,11 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
   const submitKey: MessageKey = `folder.submit${verb}${n === 0 ? '' : n === 1 ? 'One' : 'Many'}`
   const notes = report ? t(report.notes.length === 1 ? 'folder.notesOne' : 'folder.notesMany', { n: report.notes.length }) : ''
   const files = report ? t(report.files === 1 ? 'folder.filesOne' : 'folder.filesMany', { n: report.files }) : ''
+  const blocked = audienceChanges(report?.audience) && !confirmed
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!report || busy) return
+    if (!report || busy || blocked) return
     setBusy(true)
     setError(null)
     try {
@@ -152,6 +157,7 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
             {preview.kind === 'idle' && <span className="preview-note">{t('folder.previewUnchanged')}</span>}
             {preview.kind === 'loading' && <span className="preview-note">{t('rename.previewLoading')}</span>}
             {preview.kind === 'error' && <span className="error-text" role="alert">{preview.message}</span>}
+            {report && <AudienceWarning audience={report.audience} confirmed={confirmed} onConfirm={setConfirmed} />}
             {report && <span className="preview-note">{t('folder.previewContents', { notes, files })}</span>}
             {report && report.relinked.length === 0 && report.shifted.length === 0 && <span className="preview-note">{t('folder.previewNone')}</span>}
             {report && <ShiftPreview groups={report.shifted} />}
@@ -168,7 +174,7 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className="btn btn-primary" isDisabled={!report || busy}>{t(submitKey, { n })}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={!report || busy || blocked}>{t(submitKey, { n })}</Button>
         </div>
       </form>
     </Dialog>
