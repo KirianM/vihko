@@ -7,13 +7,17 @@
 //   the last valid one while running, the implicit one without a section
 //   (every admin manages the root) or none at all (closed: nobody reads).
 // - A user's level in a folder is the highest the grants that govern it give
-//   them, by name or through a group. Being an admin changes nothing here
-//   (D-038.1): the admin reads only what is granted.
+//   them, by name or through a group, or `manage` if they manage a folder
+//   above it (D-040 3.5: grants of its own never lock out whoever manages
+//   above), unless a personal folder (a `{user}` rule's) lies between: no
+//   manager from above crosses into one. Being an admin changes nothing here
+//   (D-038.1): the admin reads only what is granted, or what they manage
+//   from above, never a personal folder that isn't shared with them.
 // - A grant to a user or group that doesn't exist is ignored, with a warning
 //   (`unknownSubjects`): deleting someone never invalidates the section.
 import {
-  RuleSet, USER_SEGMENT, atLeast, folderOf, grantsAt, levelIn, maxLevel, subjectKey,
-  type ConfigError, type Governing, type Level, type PermissionRule, type Permissions,
+  RuleSet, USER_SEGMENT, atLeast, folderOf, grantsAt, levelInReach, maxLevel, reachingGrants, subjectKey,
+  type ConfigError, type Governing, type Level, type PermissionRule, type Permissions, type Reaching,
 } from '@thoth/core'
 import type { Role } from './auth.ts'
 import type { Db } from './db.ts'
@@ -79,6 +83,8 @@ export interface GrantSource {
   from: string
   /** The rule's key as written (`personas/{user}`), when it isn't `from`. */
   rule?: string
+  /** A `manage` grant of a folder above (`from`), which reaches here whatever this folder's grants say (D-040 3.5). */
+  above?: true
 }
 
 /** A user's access to a folder, and why. */
@@ -138,19 +144,36 @@ export class PermissionsEngine {
     return { governing: g, grants: grantsAt(g, (n) => names.has(subjectKey(n))) }
   }
 
+  /**
+   * What reaches a folder: the grants that govern it (`grantsAt`) and whoever
+   * manages it from above (D-040 3.5). Empty when closed.
+   */
+  reaching(folder: string, users?: readonly DirectoryUser[]): Reaching {
+    const list = users ?? this.opts.directory.users()
+    const set = this.rules(list)
+    if (!set) return { governing: null, grants: {}, above: [] }
+    const names = new Set(list.map((u) => subjectKey(u.username)))
+    return reachingGrants(set, folder, (n) => names.has(subjectKey(n)))
+  }
+
   /** Every user with some access to a folder, and why (the effective access, D-038). */
   audience(folder: string): UserAccess[] {
     const users = this.opts.directory.users()
-    const { governing, grants } = this.grantsAt(folder, users)
-    if (!governing) return []
+    const { governing, grants, above } = this.reaching(folder, users)
     const out: UserAccess[] = []
     for (const u of users) {
       const groups = new Set(this.opts.directory.groupsOf(u.id).map((g) => subjectKey('@' + g)))
+      const mine = (subject: string) => subjectKey(subject) === subjectKey(u.username) || groups.has(subjectKey(subject))
       const via: GrantSource[] = []
-      for (const [subject, level] of Object.entries(grants)) {
-        const k = subjectKey(subject)
-        if (k !== subjectKey(u.username) && !groups.has(k)) continue
-        via.push({ subject, level, from: governing.at, ...(governing.rule.folder !== governing.at ? { rule: governing.rule.folder } : {}) })
+      if (governing) {
+        for (const [subject, level] of Object.entries(grants)) {
+          if (mine(subject)) via.push({ subject, level, from: governing.at, ...(governing.rule.folder !== governing.at ? { rule: governing.rule.folder } : {}) })
+        }
+      }
+      // Managing a folder above: said once per grant, unless it's the grant that governs here anyway (inherited).
+      for (const m of above) {
+        if (!mine(m.subject) || (m.from === governing?.at && via.some((v) => v.subject === m.subject))) continue
+        via.push({ subject: m.subject, level: 'manage', from: m.from, ...(m.rule ? { rule: m.rule } : {}), above: true })
       }
       const level = via.reduce<Level | null>((l, v) => maxLevel(l, v.level), null)
       if (level) out.push({ id: u.id, username: u.username, level, via })
@@ -204,8 +227,7 @@ export class Viewer {
     const f = folder.normalize('NFC')
     const known = this.levels.get(f)
     if (known !== undefined) return known
-    const g = this.set?.governing(f) ?? null
-    const level = g ? levelIn(grantsAt(g, (n) => this.names.has(subjectKey(n))), { username: this.user.username, groups: this.groups }) : null
+    const level = this.set ? levelInReach(reachingGrants(this.set, f, (n) => this.names.has(subjectKey(n))), { username: this.user.username, groups: this.groups }) : null
     if (this.levels.size > 20_000) this.levels.clear()
     this.levels.set(f, level)
     return level

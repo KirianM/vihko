@@ -22,6 +22,10 @@
 //   most specific rule wins: a literal folder over a `{user}` rule at the same
 //   depth, and either over an ancestor's. A `{user}` rule at a folder named
 //   like no user grants nothing: nobody sees it (it never inherits).
+// - Whoever manages a folder keeps `manage` in everything under it, whatever
+//   the grants of a subfolder say (D-040 3.5), except across a personal
+//   folder (one a `{user}` rule matches): nobody from above it manages into
+//   it (`managedFrom`).
 // - `ai: false` holds for the folder and everything under it, on top of the
 //   notes' own `ai: false`. `ai: true` never reopens anything: ignored, with
 //   a notice.
@@ -196,6 +200,7 @@ export class RuleSet {
   private ownCache = new Map<string, RuleMatch | null>()
   private userCache = new Map<string, RuleMatch | null>()
   private governingCache = new Map<string, Governing | null>()
+  private managedCache = new Map<string, string[]>()
 
   constructor(rules: readonly PermissionRule[]) {
     this.rules = rules
@@ -257,6 +262,36 @@ export class RuleSet {
     return found
   }
 
+  /**
+   * Whether a folder is a personal one: a `{user}` rule matches it (also
+   * under a literal rule written for it). Managers from above never cross
+   * into one (D-040 3.5).
+   */
+  personal(folder: string): boolean {
+    return this.userRule(folder) !== null
+  }
+
+  /**
+   * The folders whose managers keep `manage` in `folder`, whatever its own
+   * grants say (D-040 3.5): those above it, from its parent up to the
+   * nearest personal folder (included, its managers reach under it); none
+   * for a personal folder itself.
+   */
+  managedFrom(folder: string): string[] {
+    const f = folder.normalize('NFC')
+    const cached = this.managedCache.get(f)
+    if (cached !== undefined) return cached
+    const out: string[] = []
+    if (!this.personal(f)) {
+      for (let a = parentFolder(f); a !== null; a = parentFolder(a)) {
+        out.push(a)
+        if (this.personal(a)) break
+      }
+    }
+    this.remember(this.managedCache, f, out)
+    return out
+  }
+
   /** The folder (itself or an ancestor) whose `ai: false` closes it to agents; null if none does. */
   aiClosedAt(folder: string): string | null {
     for (const d of selfAndAncestors(folder.normalize('NFC'))) {
@@ -295,6 +330,50 @@ export function levelIn(grants: Record<string, Level>, user: { username: string;
     if (k === me || groups.has(k)) level = maxLevel(level, l)
   }
   return level
+}
+
+/** A subject who manages a folder above one, and where that grant is written. */
+export interface ManagerAbove {
+  subject: string
+  /** The folder whose rule grants it `manage`. */
+  from: string
+  /** The rule's key as written (`personas/{user}`), when it isn't `from`. */
+  rule?: string
+}
+
+/** What reaches a folder: the grants governing it, and who keeps `manage` there from above (D-040 3.5). */
+export interface Reaching {
+  governing: Governing | null
+  /** Resolved (`{user}` is the person's name; a folder named like nobody: none). */
+  grants: Record<string, Level>
+  /** Whoever manages a folder of `RuleSet.managedFrom`, once per subject and rule. */
+  above: ManagerAbove[]
+}
+
+/** The grants that reach a folder under `set`, with `userExists` resolving `{user}` rules (`grantsAt`). */
+export function reachingGrants(set: RuleSet, folder: string, userExists: (name: string) => boolean): Reaching {
+  const governing = set.governing(folder)
+  const grants = governing ? grantsAt(governing, userExists) : {}
+  const above: ManagerAbove[] = []
+  const seen = new Set<string>()
+  for (const a of set.managedFrom(folder)) {
+    const g = set.governing(a)
+    if (!g || seen.has(g.at)) continue
+    seen.add(g.at)
+    for (const [subject, level] of Object.entries(grantsAt(g, userExists))) {
+      if (level === 'manage') above.push({ subject, from: g.at, ...(g.rule.folder !== g.at ? { rule: g.rule.folder } : {}) })
+    }
+  }
+  return { governing, grants, above }
+}
+
+/** A user's level in what reaches a folder: the highest its grants give them, or `manage` if they manage it from above. */
+export function levelInReach(reach: Reaching, user: { username: string; groups: readonly string[] }): Level | null {
+  const level = levelIn(reach.grants, user)
+  if (level === 'manage') return level
+  const me = subjectKey(user.username)
+  const groups = new Set(user.groups.map((g) => subjectKey('@' + g)))
+  return reach.above.some((m) => subjectKey(m.subject) === me || groups.has(subjectKey(m.subject))) ? 'manage' : level
 }
 
 // --- Writing thoth.yaml ---------------------------------------------------------

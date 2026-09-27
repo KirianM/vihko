@@ -12,9 +12,11 @@ import { HocuspocusProvider } from '@hocuspocus/provider'
 import * as Y from 'yjs'
 import { CLI, api, closeAll, connect, login, makeDirs, sleep, socket, startServer, typeLine, waitFor, open, type Srv } from './_collab.ts'
 
+// Noa (the admin) edits the root, not manages it: whoever manages it keeps
+// managing familia/ whatever its grants say (D-040 3.5), and he has to read it only.
 const RULES = `permissions:
   "":
-    grants: { noa: manage }
+    grants: { noa: edit }
   familia:
     grants: { laura: edit, noa: read }
   "personas/{user}":

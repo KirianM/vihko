@@ -76,12 +76,13 @@ export class PermissionHolds implements Holds {
     return join(this.opts.stateDir, FILE)
   }
 
-  /** What governs a folder now, as a key to compare: the resolved grants and whether agents are shut out. */
+  /** What governs a folder now, as a key to compare: the resolved grants, who manages it from above (D-040 3.5) and whether agents are shut out. */
   private signature(folder: string): string {
-    const { grants } = this.opts.engine.grantsAt(folder)
+    const { grants, above } = this.opts.engine.reaching(folder)
     const set = this.opts.engine.rules()
     const sorted = Object.entries(grants).map(([s, l]) => [subjectKey(s), l]).sort(([a], [b]) => (a! < b! ? -1 : 1))
-    return JSON.stringify([sorted, set?.aiClosedAt(folder) != null])
+    const managers = [...new Set(above.map((m) => subjectKey(m.subject)))].sort()
+    return JSON.stringify([sorted, managers, set?.aiClosedAt(folder) != null])
   }
 
   /**
