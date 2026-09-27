@@ -11,6 +11,7 @@ import * as Y from 'yjs'
 import { api, canEdit, type CommentOp, type CommentOriginal, type Level, type NoteLinks, type OutgoingLink, type User } from '../api.ts'
 import { errorText, useT } from '../i18n.tsx'
 import { useTheme } from '../theme.ts'
+import { Icon } from '../ui.tsx'
 import { baseHue, userColor } from '../userColor.ts'
 import type { Session } from './collab.ts'
 import { anchorChanged, commentContext, commentKey, displayDate, formatComment, parseThreads, commentPosition, removedThread, replyTo, resolveThread, type Change, type Thread } from './comments.ts'
@@ -457,6 +458,12 @@ function LinksTab({ links, onNavigate, onPickAmbiguous, onOpenCandidate }: {
                 <span className="link-name">{linkLabel(l)}</span>
                 <span className="link-badge">{t('editor.linkAmbiguous', { n: l.candidates?.length ?? 0 })}</span>
               </Button>
+            ) : l.status === 'no_access' ? (
+              // Exists, not the person's to read (D-024): no path, no title, nothing to create.
+              <div className="link-btn link-static">
+                <span className="link-name">{linkLabel(l)}</span>
+                <span className="link-badge">{Icon.lock}{t('editor.linkNoAccess')}</span>
+              </div>
             ) : (
               <div className="link-btn link-static">
                 <span className="link-name">{linkLabel(l)}</span>

@@ -60,7 +60,7 @@ function authorizeQuery(clientId: string, challenge: string, extra: Record<strin
  */
 async function consent(h: H, query: string, choice: { approve?: boolean; canWrite?: boolean; folders?: string[] } = {}, who: 'noa' | 'ana' = 'noa') {
   const as = who === 'noa' ? h.noa : h.ana
-  const r = await as('POST', '/api/oauth/authorize', { query, approve: choice.approve ?? true, ...(choice.canWrite === undefined ? {} : { canWrite: choice.canWrite }), ...(choice.folders ? { folders: choice.folders } : {}) })
+  const r = await as('POST', '/api/oauth/authorize', { query, approve: choice.approve ?? true, confirm: 'a-long-password', ...(choice.canWrite === undefined ? {} : { canWrite: choice.canWrite }), ...(choice.folders ? { folders: choice.folders } : {}) })
   return r
 }
 

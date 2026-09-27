@@ -96,6 +96,37 @@ test('§7.2: Laura shares a folder of hers with Noa to comment; he reads, can\'t
   } finally { await h.close() }
 })
 
+test('a personal folder ({user} rule) closed to agents or shared, then restored, never falls through to the root\'s grants', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    const folder = 'personas/laura'
+    const note = h.url('/api/note', { path: 'personas/laura/recetas/tarta.md' })
+    const before = (await h.laura('GET', h.url('/api/permissions', { folder }))).body
+    assert.deepEqual(before.userRule, { rule: 'personas/{user}', user: 'laura', grants: { laura: 'manage' } })
+    // Closed to agents: a literal rule with only `ai: false`; the {user} rule's grants stay.
+    const closed = await h.laura('PUT', '/api/permissions', { folder, ai: false, ifMatch: before.etag })
+    assert.equal(closed.status, 200, closed.text)
+    assert.deepEqual([closed.body.own, closed.body.ai], [{ rule: folder, user: null, grants: null, ai: true }, { closed: true, from: folder }])
+    assert.deepEqual(closed.body.effective, { from: folder, rule: 'personas/{user}', grants: { laura: 'manage' } })
+    assert.equal((await h.noa('GET', note)).status, 404, 'the root\'s manager gains nothing')
+    assert.equal((await h.laura('GET', note)).status, 200)
+    // Shared with Marta (own grants over the {user} rule), then back to the {user} rule.
+    const shared = await h.laura('PUT', '/api/permissions', { folder, grants: { laura: 'manage', marta: 'read' }, ifMatch: closed.body.etag })
+    assert.equal(shared.status, 200, shared.text)
+    assert.equal((await h.marta('GET', note)).status, 200)
+    const restored = await h.laura('PUT', '/api/permissions', { folder, grants: null, ifMatch: shared.body.etag })
+    assert.equal(restored.status, 200, restored.text)
+    assert.deepEqual(restored.body.effective.grants, { laura: 'manage' })
+    assert.equal((await h.marta('GET', note)).status, 404)
+    assert.equal((await h.noa('GET', note)).status, 404)
+    assert.deepEqual(restored.body.ai, { closed: true, from: folder }, 'closing to agents stays')
+    // Moved from thoth, the folder takes the {user} rule's grants along as a literal copy.
+    const moved = await h.laura('POST', '/api/folder/move', { from: 'personas/laura/recetas', to: 'personas/laura/cocina' })
+    assert.equal(moved.status, 200, moved.text)
+    assert.equal((await h.laura('GET', h.url('/api/note', { path: 'personas/laura/cocina/tarta.md' }))).status, 200)
+  } finally { await h.close() }
+})
+
 test('§7.3: moving a note says who loses or gains access before moving it', async () => {
   const h = await setup({ files: FILES })
   try {

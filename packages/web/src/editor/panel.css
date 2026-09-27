@@ -53,6 +53,9 @@
 .link-badge { font-size: 12px; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
 .link-ambiguous .link-badge { background: var(--warn-soft); color: var(--warn-ink); }
 .link-missing .link-badge { color: var(--danger); }
+.link-no_access .link-name { color: var(--muted); }
+.link-no_access .link-badge { display: inline-flex; align-items: center; gap: 3px; background: var(--chip); color: var(--muted); }
+.link-badge svg { width: 12px; height: 12px; }
 .link-candidates { list-style: none; margin: 0 0 4px; padding: 0 0 0 16px; }
 .link-candidate { color: var(--accent); font-size: 12px; padding: 4px 8px; }
 .backlink-context { font-family: var(--font-serif); font-size: 13px; line-height: 1.45; color: var(--ink-2); }

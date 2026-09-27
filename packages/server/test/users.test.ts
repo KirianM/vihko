@@ -61,7 +61,7 @@ test('an invitation: the admin creates someone, they choose their password with 
     }
     assert.deepEqual((await anon(s.app, 'POST', `/api/invite/${token}`, { password: 'another-long-password' })).body.error, 'invalid_link')
     const listed = (await s.noa('GET', '/api/admin/users')).body.users.find((u: any) => u.username === 'marta')
-    assert.deepEqual([listed.status, listed.link, listed.twoFactor], ['active', null, null])
+    assert.deepEqual([listed.status, listed.link, listed.twoFactor], ['active', null, { enabled: false, enabledAt: null }])
   } finally {
     await s.close()
   }
@@ -287,8 +287,8 @@ test('one\'s own account: sessions (the current one marked), closing the others,
 test('the admin\'s settings: members downloading from the local network, off by default', async () => {
   const s = await setup()
   try {
-    assert.deepEqual((await s.noa('GET', '/api/admin/settings')).body, { membersLocalDownloads: false })
-    assert.deepEqual((await s.noa('PUT', '/api/admin/settings', { membersLocalDownloads: true })).body, { membersLocalDownloads: true })
+    assert.deepEqual((await s.noa('GET', '/api/admin/settings')).body, { membersLocalDownloads: false, twoFactor: 'optional' })
+    assert.deepEqual((await s.noa('PUT', '/api/admin/settings', { membersLocalDownloads: true })).body, { membersLocalDownloads: true, twoFactor: 'optional' })
     assert.equal((await s.noa('PUT', '/api/admin/settings', { membersLocalDownloads: 'yes' })).status, 400)
     assert.equal((await s.noa('PUT', '/api/admin/settings', { other: true })).status, 400)
   } finally {
@@ -319,7 +319,7 @@ test('state.db: version 5 migrates keeping its users, with a copy before', () =>
   const file = join(dir, 'state.db')
   openState(file).close()
   const raw = new Database(file)
-  raw.exec(`drop table user_links; drop table group_members; drop table user_groups;
+  raw.exec(`drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
     alter table users drop column deleted_at; alter table sessions drop column user_agent;
     insert into users (id, username, password_hash, role, created_at) values ('01U', 'noa', 'x', 'admin', '2026-01-01T00:00:00Z');
     insert into users (id, username, password_hash, role, created_at, disabled) values ('02U', 'ana', 'x', 'member', '2026-01-01T00:00:00Z', 1);`)

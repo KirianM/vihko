@@ -40,7 +40,7 @@ export type ErrorCode =
   | 'too_many_attempts' // too many failed sign-ins (or first-boot tokens): wait `retryAfter` seconds (also Retry-After)
   | 'config_invalid' // thoth.yaml can't be changed by thoth as it is (not valid YAML, or its permissions are rejected): it's fixed by hand first
   | 'invalid_link' // a one-time link (invitation or reset) that doesn't work: unknown, used or expired, alike
-  | 'wrong_password' // changing one's password: the current one given isn't right
+  | 'wrong_password' // a password asked for with a session (changing it, confirming a key or an OAuth client) isn't right
   | 'last_admin' // the last active admin can't be demoted, disabled or deleted
   | 'not_disabled' // only a disabled user can be deleted
   | 'user_disabled' // a disabled user gets no link: enable them first
@@ -52,6 +52,13 @@ export type ErrorCode =
   | 'invalid_version' // purging: not a version id
   | 'not_a_version' // purging: that version doesn't write that note
   | 'history_moved' // purging: the history changed while it was being rewritten; nothing changed
+  | 'login_expired' // the second step of a sign-in came too late (or its pending sign-in is unknown): the password again
+  | 'invalid_code' // a second-factor code (or recovery code) that isn't right
+  | 'code_used' // a TOTP code already accepted once: wait for the next one
+  | 'confirmation_required' // creating a key or approving an OAuth client: the current code (or the password) is missing
+  | 'two_factor_disabled' // the admin turned the second factor off: it can't be set up
+  | 'two_factor_required' // the admin requires a second factor: one's own can't be turned off
+  | 'two_factor_off' // no second factor in force to change
 
 /**
  * Space-level alerts: what thoth has detected in the notes folder that needs

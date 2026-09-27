@@ -167,8 +167,8 @@ async function server(opts: { proxies?: string; rules?: Partial<LimitRules> } = 
   const loginLimiter = new LoginLimiter({ now: () => clock.t, rules: opts.rules })
   // Counts the password checks, to see that a refused attempt doesn't reach them.
   let checks = 0
-  const login = auth.login.bind(auth)
-  auth.login = (u, p) => { checks++; return login(u, p) }
+  const verify = auth.verifyLogin.bind(auth)
+  auth.verifyLogin = (u, p) => { checks++; return verify(u, p) }
   const app = createApp({
     auth, profiles: new Profiles(state), workspace: new Workspace({ notesDir }), notes, index, indexer, notesDir, runtime,
     trustedProxies: trustedProxiesFrom(opts.proxies), loginLimiter,

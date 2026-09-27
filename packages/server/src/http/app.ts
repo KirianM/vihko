@@ -50,6 +50,8 @@ import { written } from './written.ts'
 import { Users, UsersError } from '../users.ts'
 import { AdminSettings, AdminSettingsError } from '../adminSettings.ts'
 import { inviteRoutes, userRoutes, usersErrorStatus, type UserRoutesDeps } from './users.ts'
+import { TwoFactor } from '../twoFactor.ts'
+import { twoFactorHttp } from './twoFactor.ts'
 
 export const SESSION_COOKIE = 'thoth_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
@@ -144,6 +146,8 @@ export interface AppDeps {
   users?: Users
   /** The admin's settings (state.db). By default, over the same state.db as `auth`. */
   adminSettings?: AdminSettings
+  /** The second factor (state.db). By default, over the same state.db as `auth`, on the app's clock. */
+  twoFactor?: TwoFactor
   /** Only tests: how «Save a copy» resolves names and which addresses count as public. */
   imageFetchTesting?: FetchImageOptions['testing']
 }
@@ -230,6 +234,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
   const permissions = policy.permissions
   const permissionsFile = new PermissionsFile({ notesDir: deps.notesDir, workspace, engine: permissions, history: deps.history?.recorder, onChange: deps.onPermissionsChanged })
+  const twoFactor = deps.twoFactor ?? new TwoFactor(auth.state, { now })
   const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
   const scopedDeps: ScopedDeps = {
     notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links,
@@ -354,26 +359,38 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     })
   }
 
+  // The second factor (http/twoFactor.ts): after the password, the session or the second step.
+  const tf = twoFactorHttp({
+    auth, users, twoFactor, settings: adminSettings, limiter, deviceCookie: DEVICE_COOKIE, ipOf, tooMany, signedIn,
+    publicUrl: deps.publicUrl ?? null, now: () => now().getTime(),
+  })
+
+  // The password: the session, or (with a second factor) a pending sign-in
+  // that its second step completes (http/twoFactor.ts).
   app.post('/api/auth/login', authBody, async (c) => {
     const body = await c.req.json<{ username?: unknown; password?: unknown }>()
     const username = text(body?.username)
     const device = limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username)
     const attempt = limiter.begin({ ip: ipOf(c), account: username, device })
     if (!attempt.ok) return tooMany(c, attempt.retryAfter)
-    const s = await auth.login(username, text(body?.password), c.req.header('user-agent'))
-    if (!s) {
+    const user = await auth.verifyLogin(username, text(body?.password))
+    if (!user) {
       // The failure that starts a wait says so at once.
       const wait = attempt.failed()
       return wait > 0 ? tooMany(c, wait) : fail(c, 401, 'invalid_credentials', 'incorrect username or password')
     }
     attempt.passed()
-    signedIn(c, s.user.username, s)
-    return c.json({ user: s.user })
+    return tf.passwordAccepted(c, user)
   })
 
+  app.use('/api/auth/login/code', authBody)
+  app.use('/api/auth/2fa/*', authBody)
+  tf.publicRoutes(app)
+
   const userDeps: UserRoutesDeps = {
-    auth, users, settings: adminSettings, limiter, ipOf, signedIn, tooMany, publicUrl: deps.publicUrl ?? null,
+    auth, users, settings: adminSettings, limiter, ipOf, tooMany, publicUrl: deps.publicUrl ?? null,
     deviceOf: (c, username) => limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username),
+    passwordAccepted: tf.passwordAccepted,
   }
   // A one-time link (an invitation or a reset): no session yet.
   app.use('/api/invite/*', authBody)
@@ -737,15 +754,18 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   // Users, groups, one's own account and the admin's settings (http/users.ts).
   userRoutes(app, userDeps)
+  // One's own second factor, and the admin's reset of someone's.
+  tf.routes(app)
 
   if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, keyName: (id) => keys.nameOf(id) })
 
-  keyRoutes(app, { keys, integrations, publicUrl: oauth.publicUrl })
+  // Creating a key, and approving an OAuth client, confirm who is there (D-036).
+  keyRoutes(app, { keys, integrations, publicUrl: oauth.publicUrl, confirm: tf.confirmIdentity })
 
   permissionRoutes(app, { engine: permissions, file: permissionsFile, index, keys, policy, holds: deps.holds })
 
   // OAuth for the MCP server: its addresses for clients, and the consent page's (session).
-  oauthRoutes(app, { oauth, integrations, ui: deps.webDir !== undefined, clientAddress: ipOf })
+  oauthRoutes(app, { oauth, integrations, ui: deps.webDir !== undefined, clientAddress: ipOf, confirm: tf.confirmIdentity })
 
   app.all('/api/*', (c) => fail(c, 404, 'not_found', 'does not exist'))
 

@@ -83,7 +83,7 @@ async function server() {
   const srv = await startServer({ ...env, THOTH_HISTORY_QUIET_SECONDS: '0.3' })
   const cookie = await login(srv)
   const key = async (input: Record<string, unknown>) => {
-    const r = await api(srv, cookie, 'POST', '/api/keys', input)
+    const r = await api(srv, cookie, 'POST', '/api/keys', { confirm: 'a-long-password', ...input })
     assert.equal(r.status, 201)
     return r.body.token as string
   }

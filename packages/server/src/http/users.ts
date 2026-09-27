@@ -3,7 +3,8 @@
 //
 // Without a session (before the session middleware):
 //   GET    /api/invite/:token                  whom a link is for → { kind, username }; any link that doesn't work: 404 invalid_link
-//   POST   /api/invite/:token                  { password } → signs in (cookie) → { user }
+//   POST   /api/invite/:token                  { password } → signs in (cookie) → { user }, or the second
+//                                               factor's step first, as a sign-in (http/twoFactor.ts)
 // Anyone signed in:
 //   GET    /api/directory                      names of users and groups, to share with them
 //   GET    /api/account/sessions               own sessions, `current` marked
@@ -20,7 +21,7 @@
 //   DELETE /api/admin/users/:id/sessions       ends all their sessions
 //   GET    /api/admin/groups, POST { name }, PATCH /:id { name }, DELETE /:id
 //   POST   /api/admin/groups/:id/members { userId }, DELETE /api/admin/groups/:id/members/:userId
-//   GET    /api/admin/settings, PUT { membersLocalDownloads? }
+//   GET    /api/admin/settings, PUT { membersLocalDownloads?, twoFactor? }
 //
 // Guessing a link (or the current password) counts in the login limits, as a
 // password or the first-boot token does (loginLimit.ts).
@@ -45,9 +46,9 @@ export interface UserRoutesDeps {
   ipOf: (c: Context) => string
   /** The login limits' device for this username, from the request's cookie. */
   deviceOf: (c: Context, username: string) => string | null
-  /** Sets the session cookie (and the device's) of a user who just signed in. */
-  signedIn: (c: Context, username: string, session: { token: string; expiresAt: Date }) => void
   tooMany: (c: Context, retryAfter: number) => Response
+  /** After a password was chosen with a link: the session, or the second factor's step first (http/twoFactor.ts). */
+  passwordAccepted: (c: Context, user: User) => Response
   /** THOTH_PUBLIC_URL, if set: the address the links are given for. */
   publicUrl: string | null
 }
@@ -82,8 +83,8 @@ export function inviteRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
     if (!users.link(token)) return refused(c, a)
     a.passed()
     const user = await users.accept(token, password)
-    deps.signedIn(c, user.username, deps.auth.startSession(user.id, c.req.header('user-agent')))
-    return c.json({ user })
+    // A reset doesn't skip a second factor they have, and a required one is set up now.
+    return deps.passwordAccepted(c, user)
   })
 }
 

@@ -2,7 +2,9 @@
 // (claude.ai, mcp-remote…) sent the person here to ask for access to their
 // notes through MCP. They sign in if needed (App.tsx), see who asks and where
 // it will go back to, and choose as for a new key (D-035.3): read-only and
-// every folder unless they say otherwise. Approving makes an authorization, a
+// every folder unless they say otherwise. Approving asks for the current code
+// of their second factor (or their password without one), even with a
+// session (D-036). It makes an authorization, a
 // key of theirs named after the client, which «Agents and API» lists and can
 // revoke. The server checked the request before this page loaded; it checks
 // it again with the answer.
@@ -10,6 +12,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Button } from 'react-aria-components'
 import { ApiError, api, type OAuthRequest, type User } from './api.ts'
 import { FolderPicker, allFolders } from './Agents.tsx'
+import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { Brand, Icon, ThemeToggle } from './ui.tsx'
 import './actions.css'
@@ -60,6 +63,9 @@ export function Consent({ user, onSignOut }: { user: User; onSignOut: () => void
   const [busy, setBusy] = useState(false)
   const [leaving, setLeaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Saying yes is confirmed at the moment (D-036), even with a session: the current code, or the password.
+  const confirmWith = useConfirmWith()
+  const [confirm, setConfirm] = useState('')
 
   useEffect(() => {
     let live = true
@@ -77,11 +83,11 @@ export function Consent({ user, onSignOut }: { user: User; onSignOut: () => void
     setBusy(true)
     setError(null)
     try {
-      const { redirect } = await api.oauthDecide(query(), approve ? { approve, canWrite, folders: some ? folders : [] } : { approve })
+      const { redirect } = await api.oauthDecide(query(), approve ? { approve, canWrite, folders: some ? folders : [], confirm: confirm.trim() } : { approve })
       setLeaving(true)
       location.assign(redirect)
     } catch (err) {
-      setError(errorText(t, err))
+      setError(codeError(t, err))
       setBusy(false)
     }
   }
@@ -143,11 +149,12 @@ export function Consent({ user, onSignOut }: { user: User; onSignOut: () => void
             <span className="hint">{t('keys.foldersHint')}</span>
           </fieldset>
           <p className="hint">{t('consent.revocable')}</p>
+          <ConfirmField how={confirmWith} value={confirm} onChange={setConfirm} hint={t('consent.confirmHint')} />
           {error && <p className="error-text" role="alert">{error}</p>}
           {noneChosen && <p className="hint">{t('keys.foldersNeeded')}</p>}
           <div className="consent-actions">
             <Button className="btn btn-xl" onPress={() => void decide(false)} isDisabled={busy}>{t('consent.deny')}</Button>
-            <Button type="submit" className="btn btn-primary btn-xl" isDisabled={busy || noneChosen}>{t('consent.approve')}</Button>
+            <Button type="submit" className="btn btn-primary btn-xl" isDisabled={busy || noneChosen || !confirm.trim()}>{t('consent.approve')}</Button>
           </div>
         </form>
       )}

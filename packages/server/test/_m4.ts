@@ -109,7 +109,7 @@ export async function setup(opts: M4Setup = {}) {
   const withKey = (token: string) => (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>
     send(method, path, body, { authorization: `Bearer ${token}`, ...headers })
   const newKey = async (who: Name, input: Record<string, unknown>) => {
-    const r = await as(who)('POST', '/api/keys', input)
+    const r = await as(who)('POST', '/api/keys', { confirm: 'a-long-password', ...input })
     if (r.status !== 201) throw new Error(`key: ${r.status} ${r.text}`)
     return r.body as { key: { id: string }; token: string }
   }

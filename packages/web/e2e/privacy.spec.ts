@@ -59,9 +59,9 @@ test('with the integrations off, nothing gets in or out; and the UI talks only t
 test('with them, the keys that can read and how; a key can’t download images', async ({ browser, request }) => {
   const k = await admin(browser)
   await k.request.put('/api/admin/integrations', { data: { api: true, mcp: true } })
-  const mine = await (await k.request.post('/api/keys', { data: { name: 'Claude privacidad e2e', folders: ['proyectos'] } })).json() as { token: string }
+  const mine = await (await k.request.post('/api/keys', { data: { confirm: PASSWORD, name: 'Claude privacidad e2e', folders: ['proyectos'] } })).json() as { token: string }
   const ana = await signIn(browser, 'ana')
-  const hers = await (await ana.request.post('/api/keys', { data: { name: 'Blog privacidad e2e', canWrite: true } })).json() as { token: string }
+  const hers = await (await ana.request.post('/api/keys', { data: { confirm: PASSWORD, name: 'Blog privacidad e2e', canWrite: true } })).json() as { token: string }
   expect((await request.get(`${BASE_URL}/api/tree`, { headers: { Authorization: `Bearer ${mine.token}` } })).status()).toBe(200)
   // Downloading an image by URL is only for a person who asks: a key doesn't even find the route.
   const fetchByKey = await request.post(`${BASE_URL}/api/attachments/fetch`, { headers: { Authorization: `Bearer ${hers.token}` }, data: { note: 'Plan.md', url: 'http://127.0.0.1:9/x.png' } })

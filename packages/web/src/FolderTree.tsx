@@ -1,10 +1,14 @@
 // Folder tree: notes and folders (empty ones too), a context menu on every
 // row (right click, long press on a phone, the ⋯ button or the context-menu
 // key) and, with a pointer, drag and drop of notes and folders onto folders.
+// Each row offers only what the person may do there (D-038.5), folders with
+// permissions of their own or closed to agents carry a lock, and a folder
+// shown only as the way to something shared is muted, with no actions.
 import { useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import { Button, Collection, Menu, MenuItem, MenuTrigger, Popover, Tree, TreeItem, TreeItemContent, useDragAndDrop, type Key } from 'react-aria-components'
-import type { TreeNote } from './api.ts'
+import { atLeast, type Level, type TreeNote } from './api.ts'
 import { useT } from './i18n.tsx'
+import { LockBadges } from './Permissions.tsx'
 import { Icon } from './ui.tsx'
 
 export interface Node { id: string; name: string; path: string; children: Node[] | null }
@@ -43,7 +47,41 @@ export const ancestors = (path: string) => path.split('/').slice(0, -1).map((_, 
 
 export const parentOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 
-export type TreeAction = 'newNote' | 'newFolder' | 'moveFolder' | 'deleteFolder' | 'moveNote' | 'trashNote'
+export type TreeAction = 'newNote' | 'newFolder' | 'moveFolder' | 'deleteFolder' | 'permissions' | 'moveNote' | 'trashNote'
+
+/**
+ * What the person may do in a folder, and its marks. `level` null: no access
+ * of their own (a folder shown only as the way, or one the admin only names).
+ */
+export interface FolderInfo { level: Level | null; canEdit: boolean; own: boolean; ai: boolean; pathOnly: boolean }
+/** Without it (not loaded yet), the tree offers everything and the server answers. */
+export type FolderInfoOf = (path: string) => FolderInfo | undefined
+
+const noInfo: FolderInfoOf = () => undefined
+
+/** The menu's actions a row offers: those the person's level allows. */
+function rowActions(node: Node, info: FolderInfoOf): TreeAction[] {
+  if (node.children !== null) {
+    const f = info(node.path)
+    if (!f) return ['newNote', 'newFolder', 'moveFolder', 'deleteFolder']
+    const out: TreeAction[] = []
+    if (atLeast(f.level, 'edit')) out.push('newNote', 'newFolder')
+    if (f.canEdit) out.push('permissions')
+    if (f.level === 'manage') out.push('moveFolder', 'deleteFolder')
+    return out
+  }
+  const f = info(parentOf(node.path))
+  return !f || atLeast(f.level, 'edit') ? ['moveNote', 'trashNote'] : []
+}
+
+/** The node with this key (`n:path` or `d:path`), anywhere in the tree. */
+function find(list: Node[], key: string): Node | null {
+  for (const n of list) {
+    if (n.id === key) return n
+    if (n.children) { const f = find(n.children, key); if (f) return f }
+  }
+  return null
+}
 
 /** What is dragged: a tree key (`n:path` or `d:path`), never a file from outside. */
 const DRAG_TYPE = 'application/x-thoth-tree-key'
@@ -64,9 +102,10 @@ function canDrop(key: string, folder: string): boolean {
   return !(key.startsWith('d:') && (folder === path || folder.startsWith(path + '/')))
 }
 
-function RowMenu({ node, open, onOpenChange, onAction }: { node: Node; open: boolean; onOpenChange: (open: boolean) => void; onAction: (a: TreeAction) => void }) {
+function RowMenu({ node, actions, open, onOpenChange, onAction }: { node: Node; actions: TreeAction[]; open: boolean; onOpenChange: (open: boolean) => void; onAction: (a: TreeAction) => void }) {
   const t = useT()
   const folder = node.children !== null
+  const has = (a: TreeAction) => actions.includes(a)
   return (
     <MenuTrigger isOpen={open} onOpenChange={onOpenChange}>
       <Button className="tree-more" aria-label={t(folder ? 'folder.actions' : 'note.actions', { name: node.name })}>{Icon.more}</Button>
@@ -74,15 +113,16 @@ function RowMenu({ node, open, onOpenChange, onAction }: { node: Node; open: boo
         <Menu className="menu" onAction={(k) => onAction(k as TreeAction)}>
           {folder ? (
             <>
-              <MenuItem id="newNote" className="menu-item">{Icon.plus}{t('folder.newNote')}</MenuItem>
-              <MenuItem id="newFolder" className="menu-item">{Icon.folderPlus}{t('folder.newSub')}</MenuItem>
-              <MenuItem id="moveFolder" className="menu-item">{Icon.rename}{t('folder.renameMenu')}</MenuItem>
-              <MenuItem id="deleteFolder" className="menu-item menu-item-danger">{Icon.trash}{t('folder.delete')}</MenuItem>
+              {has('newNote') && <MenuItem id="newNote" className="menu-item">{Icon.plus}{t('folder.newNote')}</MenuItem>}
+              {has('newFolder') && <MenuItem id="newFolder" className="menu-item">{Icon.folderPlus}{t('folder.newSub')}</MenuItem>}
+              {has('permissions') && <MenuItem id="permissions" className="menu-item">{Icon.people}{t('folder.permissions')}</MenuItem>}
+              {has('moveFolder') && <MenuItem id="moveFolder" className="menu-item">{Icon.rename}{t('folder.renameMenu')}</MenuItem>}
+              {has('deleteFolder') && <MenuItem id="deleteFolder" className="menu-item menu-item-danger">{Icon.trash}{t('folder.delete')}</MenuItem>}
             </>
           ) : (
             <>
-              <MenuItem id="moveNote" className="menu-item">{Icon.rename}{t('note.rename')}</MenuItem>
-              <MenuItem id="trashNote" className="menu-item menu-item-danger">{Icon.trash}{t('note.trash')}</MenuItem>
+              {has('moveNote') && <MenuItem id="moveNote" className="menu-item">{Icon.rename}{t('note.rename')}</MenuItem>}
+              {has('trashNote') && <MenuItem id="trashNote" className="menu-item menu-item-danger">{Icon.trash}{t('note.trash')}</MenuItem>}
             </>
           )}
         </Menu>
@@ -91,7 +131,7 @@ function RowMenu({ node, open, onOpenChange, onAction }: { node: Node; open: boo
   )
 }
 
-export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAction, onDrop, draggable, emptyText }: {
+export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAction, onDrop, draggable, emptyText, folderInfo = noInfo }: {
   nodes: Node[]
   selected: string | null
   expanded: Set<Key>
@@ -104,6 +144,8 @@ export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAc
   /** Drag and drop with a pointer (off on a phone: a long press opens the menu there). */
   draggable: boolean
   emptyText: ReactNode
+  /** The person's level and the marks of each folder (`/api/permissions/folders` and the tree's `pathOnly`). */
+  folderInfo?: FolderInfoOf
 }) {
   const t = useT()
   const [menu, setMenu] = useState<string | null>(null)
@@ -122,6 +164,9 @@ export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAc
     getDropOperation: (target, types) => {
       if (!types.has(DRAG_TYPE) || !dragged.current) return 'cancel'
       if (target.type === 'item' && target.dropPosition !== 'on') return 'cancel'
+      // Only into a folder where the person edits (the server answers the rest: moving a folder needs `manage` in it).
+      const into = folderInfo(dropFolder(target))
+      if (into && !atLeast(into.level, 'edit')) return 'cancel'
       return canDrop(dragged.current, dropFolder(target)) ? 'move' : 'cancel'
     },
     onDrop: async (e) => {
@@ -144,10 +189,10 @@ export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAc
   }
 
   const cancelLongPress = () => { if (longPress.current) clearTimeout(longPress.current.timer); longPress.current = null }
-  const rowHandlers = (node: Node) => ({
-    onContextMenu: (e: { preventDefault(): void }) => { e.preventDefault(); cancelLongPress(); setMenu(node.id) },
+  const rowHandlers = (node: Node, menuable: boolean) => ({
+    onContextMenu: (e: { preventDefault(): void }) => { e.preventDefault(); cancelLongPress(); if (menuable) setMenu(node.id) },
     onPointerDown: (e: PointerEvent) => {
-      if (e.pointerType !== 'touch') return
+      if (e.pointerType !== 'touch' || !menuable) return
       cancelLongPress()
       longPress.current = { x: e.clientX, y: e.clientY, timer: setTimeout(() => { longPress.current = null; swallow.current = true; setMenu(node.id) }, LONG_PRESS_MS) }
     },
@@ -164,7 +209,8 @@ export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAc
     const row = (e.target as HTMLElement).closest<HTMLElement>('[data-key]')
     if (!row) return
     e.preventDefault()
-    setMenu(row.dataset.key!)
+    const node = find(nodes, row.dataset.key!)
+    if (node && rowActions(node, folderInfo).length) setMenu(node.id)
   }
 
   return (
@@ -174,7 +220,7 @@ export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAc
         aria-label={t('shell.folders')}
         items={nodes}
         // Rows are cached per item: the open menu lives outside them.
-        dependencies={[menu]}
+        dependencies={[menu, folderInfo]}
         selectionMode="single"
         selectedKeys={selected ? [`n:${selected}`] : []}
         expandedKeys={expanded}
@@ -187,17 +233,22 @@ export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAc
         renderEmptyState={() => <div className="empty">{emptyText}</div>}
       >
         {function render(node: Node) {
+          const info = node.children !== null ? folderInfo(node.path) : undefined
+          const actions = rowActions(node, folderInfo)
           return (
             <TreeItem id={node.id} textValue={node.name} className="tree-item">
               <TreeItemContent>
                 {({ level, hasChildItems }) => (
-                  <div className={`tree-row${menu === node.id ? ' tree-row-menu' : ''}`} style={{ paddingLeft: 8 + (level - 1) * 18 }} {...rowHandlers(node)}>
+                  <div className={`tree-row${menu === node.id ? ' tree-row-menu' : ''}${info?.pathOnly ? ' tree-row-path' : ''}`} style={{ paddingLeft: 8 + (level - 1) * 18 }}
+                    title={info?.pathOnly ? t('tree.pathOnly') : undefined} {...rowHandlers(node, actions.length > 0)}>
                     {hasChildItems
                       ? <Button slot="chevron" className="tree-chevron">{Icon.chevron}</Button>
                       : <span className="tree-chevron-space" />}
                     {node.children !== null && <span className="tree-icon">{Icon.folder}</span>}
                     <span className="tree-label">{node.name}</span>
-                    <RowMenu node={node} open={menu === node.id} onOpenChange={(o) => setMenu(o ? node.id : null)} onAction={(a) => { setMenu(null); onAction(a, node) }} />
+                    {info?.pathOnly && <span className="visually-hidden">{t('tree.pathOnly')}</span>}
+                    {info && <LockBadges own={info.own} ai={info.ai} />}
+                    {actions.length > 0 && <RowMenu node={node} actions={actions} open={menu === node.id} onOpenChange={(o) => setMenu(o ? node.id : null)} onAction={(a) => { setMenu(null); onAction(a, node) }} />}
                   </div>
                 )}
               </TreeItemContent>

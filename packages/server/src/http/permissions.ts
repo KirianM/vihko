@@ -17,7 +17,7 @@
 // folder, 404 if not.
 import type { Context, Hono } from 'hono'
 import {
-  LEVELS, USER_SEGMENT, WORKSPACE_FILE, atLeast, isSubject, parentFolder, subjectKey,
+  LEVELS, USER_SEGMENT, WORKSPACE_FILE, atLeast, grantsAt, isSubject, parentFolder, subjectKey,
   type Level, type RuleValue,
 } from '@thoth/core'
 import { AccessError, inFolders, type Access, type AccessPolicy } from '../access.ts'
@@ -79,6 +79,9 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
     const effective = engine.grantsAt(folder, users)
     const aiAt = set?.aiClosedAt(folder) ?? null
     const section = engine.section
+    // The `{user}` rule matching this folder, also under a literal one: what «restore» goes back to there.
+    const pattern = folder.includes(USER_SEGMENT) ? null : set?.userRule(folder) ?? null
+    const names = new Set(users.map((u) => subjectKey(u.username)))
     return {
       folder,
       /** The ETag of thoth.yaml: a change must name it (412 if the file changed). */
@@ -89,6 +92,10 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
       own: own ? { rule: own.rule.folder, user: own.user, grants: own.rule.grants, ai: own.rule.ai === false } : null,
       /** What it would inherit without grants of its own: from which folder, resolved. */
       inherited: inheritedFrom?.governing ? { from: inheritedFrom.governing.at, rule: inheritedFrom.governing.rule.folder, grants: inheritedFrom.grants } : null,
+      /** A `{user}` rule with grants matching this folder (resolved): it governs here unless a literal rule with grants does. */
+      userRule: pattern && pattern.rule.grants !== null
+        ? { rule: pattern.rule.folder, user: pattern.user, grants: grantsAt({ ...pattern, at: folder }, (n) => names.has(subjectKey(n))) }
+        : null,
       /** The grants that apply here (resolved: `{user}` is the person's name), and the folder they're written for. */
       effective: { from: effective.governing?.at ?? null, rule: effective.governing?.rule.folder ?? null, grants: effective.grants },
       /** Closed to agents (`ai: false`), and where that's set: here, or above (then it can't be undone here). */
