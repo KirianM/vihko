@@ -7,9 +7,9 @@
 // optional: the other specs sign in with a password alone.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { createHmac } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
-import { E2E_DIR, PUBLIC_URL } from './env.ts'
-import { signIn } from './helpers.ts'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { E2E_DIR, NOTES, PERMISSIONS, PUBLIC_URL } from './env.ts'
+import { signIn, writeWorkspace } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const LUCIA = 'tfa-lucia'
@@ -26,6 +26,8 @@ let keeper: Page
 
 test.beforeAll(async ({ browser }) => {
   mkdirSync(SHOTS, { recursive: true })
+  // A member sees nothing until something is granted (D-038): the two of them read everything.
+  writeFileSync(`${NOTES}/thoth.yaml`, PERMISSIONS.replace('ana: edit }', `ana: edit, ${LUCIA}: read, ${PABLO}: read }`))
   keeper = await signIn(browser, 'noa')
 })
 
@@ -38,6 +40,7 @@ test.afterAll(async () => {
     await admin.request.delete(`/api/admin/users/${u.id}`)
   }
   await admin.context().close()
+  writeWorkspace()
 })
 
 // --- TOTP, as the authenticator app computes it (RFC 6238) -------------------
