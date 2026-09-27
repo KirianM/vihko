@@ -27,8 +27,9 @@ import type { BlockList } from 'node:net'
 import { trustedProxiesFrom } from './http/clientIp.ts'
 import { WORKSPACE_FILE } from '@thoth/core'
 import { AccessPolicy } from './access.ts'
-import { PermissionsEngine, stateDirectory } from './permissions.ts'
+import { PermissionsEngine, groupSource, stateDirectory } from './permissions.ts'
 import { PermissionHolds } from './permissionHolds.ts'
+import { Users } from './users.ts'
 
 export interface Config {
   notesDir: string
@@ -135,8 +136,12 @@ async function run(config: Config, lock: StateLock) {
   const log = (msg: string) => console.log(`[thoth] ${msg}`)
   const workspace = new Workspace({ notesDir: config.notesDir, log })
   const indexer = new Indexer({ notesDir: config.notesDir, db: index, linkAliases: workspace.config.links.aliases })
-  // Who reads what (D-038): thoth.yaml's rules over state.db's users (and, with piece U, groups).
-  const permissions = new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(state) })
+  // Users and groups. Ending someone's sessions ends their live connections
+  // too (the hub exists further down). Their grants in thoth.yaml follow a
+  // deletion or a group's rename (http/app.ts fills those hooks in).
+  const users = new Users(auth, { hooks: { onSessionsEnded: (id) => hub.checkSessions(id) } })
+  // Who reads what (D-038): thoth.yaml's rules over state.db's users and groups.
+  const permissions = new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(state, groupSource(users)) })
   // Before the first scan: a note moved while the server was stopped is detected too.
   const holds = new PermissionHolds({ stateDir: config.stateDir, engine: permissions, log })
   const policy = new AccessPolicy({ index, permissions, holds })
@@ -216,7 +221,7 @@ async function run(config: Config, lock: StateLock) {
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const profiles = new Profiles(state)
   const app = createApp({
-    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies,
+    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users,
     policy, holds, onPermissionsChanged: () => hub.recheckAccess(),
     // The MCP server, at /mcp (off until the admin turns it on).
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log }) },
@@ -247,5 +252,5 @@ async function run(config: Config, lock: StateLock) {
     state.close()
     lock.release()
   }
-  return { app, stop, auth, hub, notes, server, workspace, history }
+  return { app, stop, auth, users, hub, notes, server, workspace, history }
 }

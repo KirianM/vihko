@@ -190,7 +190,7 @@ function KeyDialog({ edit, onClose, onCreated, onSaved }: {
 }
 
 /** A «Copy» button that says whether it worked (copy.ts: also on plain http). */
-function CopyButton({ text, label, primary }: { text: string; label: string; primary?: boolean }) {
+export function CopyButton({ text, label, primary }: { text: string; label: string; primary?: boolean }) {
   const t = useT()
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
   useEffect(() => {
@@ -392,7 +392,7 @@ function KeyCard({ k, owner, actions }: { k: KeyInfo; owner?: string; actions: R
 }
 
 /** A switch that saves at once; locked ones say why. */
-function Toggle({ label, hint, value, disabled, onChange }: { label: string; hint: string; value: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
+export function Toggle({ label, hint, value, disabled, onChange }: { label: string; hint: string; value: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
     <Switch className="switch" isSelected={value} isDisabled={disabled} onChange={onChange}>
       <span className="switch-track" aria-hidden="true"><span className="switch-thumb" /></span>

@@ -2,10 +2,12 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, type Key } from 'react-aria-components'
 import { seriesNeighbors } from '@thoth/core/series'
-import { ApiError, api, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
+import { ApiError, SESSION_ENDED_EVENT, api, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
 import { AlertsPage } from './Alerts.tsx'
 import { AgentsPage } from './Agents.tsx'
 import { PrivacyPage } from './Privacy.tsx'
+import { UsersPage } from './Users.tsx'
+import { AccountPage } from './Account.tsx'
 import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
@@ -38,7 +40,7 @@ type TreeDialog =
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 /** Views that aren't a note, in the URL as `?view=` (no router). */
-const VIEWS = ['avisos', 'changes', 'agents', 'privacy'] as const
+const VIEWS = ['avisos', 'changes', 'agents', 'privacy', 'users', 'account'] as const
 type View = (typeof VIEWS)[number]
 const inside = (path: string, folder: string) => path === folder || path.startsWith(folder + '/')
 
@@ -74,6 +76,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const showChanges = () => { setOpenPathState(null); setVersion(null); setView('changes') }
   const showAgents = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('agents') }
   const showPrivacy = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('privacy') }
+  const showUsers = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('users') }
+  const showAccount = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('account') }
   const historyStatus = useHistoryStatus()
   const historyOn = historyStatus !== null && historyStatus.mode !== 'off'
   /** The note at `?note=` doesn't exist, but its version was asked for: shown on its own (restoring creates it again). */
@@ -152,6 +156,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   }
   const todayRef = useRef<(() => void) | null>(null)
   todayRef.current = dailyOn ? () => void openToday() : null
+
+  // The hub says this session ended (disabled, sessions closed, a new password elsewhere): sign in again.
+  useEffect(() => {
+    const ended = () => onUnauthorized()
+    window.addEventListener(SESSION_ENDED_EVENT, ended)
+    return () => window.removeEventListener(SESSION_ENDED_EVENT, ended)
+  }, [onUnauthorized])
 
   // ⌘K / Ctrl+K opens the palette from anywhere, including from the editor.
   useEffect(() => {
@@ -419,6 +430,10 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <AgentsPage user={user} onUnauthorized={onUnauthorized} onPrivacy={showPrivacy} />
         ) : view === 'privacy' ? (
           <PrivacyPage user={user} onUnauthorized={onUnauthorized} onAgents={showAgents} />
+        ) : view === 'users' && user.role === 'admin' ? (
+          <UsersPage user={user} onUnauthorized={onUnauthorized} />
+        ) : view === 'account' ? (
+          <AccountPage user={user} onUnauthorized={onUnauthorized} />
         ) : view === 'changes' ? (
           <ChangesPage status={historyStatus} notes={notes} onOpenVersion={openVersion} onUnauthorized={onUnauthorized} />
         ) : openPath && version && missing === openPath ? (
@@ -562,6 +577,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           onSaved={(p) => { setProfile(p); setPrefsOpen(false) }}
           onAgents={showAgents}
           onPrivacy={showPrivacy}
+          onAccount={showAccount}
+          onUsers={user.role === 'admin' ? showUsers : null}
         />
       )}
     </div>

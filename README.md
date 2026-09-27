@@ -89,6 +89,7 @@ it's stopped):
 |---|---|
 | `thoth serve` | Starts the server (what the container runs) |
 | `thoth user create <name> [--admin]` | Creates a user; the password is read from standard input |
+| `thoth user reset-link <name>` | Prints a one-time link (7 days) for that user to choose a new password: the way back for an admin who lost theirs. Any earlier link of theirs stops working |
 | `thoth history purge <path> [--version <id>] [--dry-run]` | Rewrites the managed history without a file or folder, or without one version of a file |
 
 **`thoth history purge`** is for something that should never have been kept,

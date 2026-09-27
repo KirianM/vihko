@@ -1,6 +1,8 @@
 #!/usr/bin/env -S node --no-experimental-webstorage
 // thoth serve                         starts the server
 // thoth user create <name> [--admin]  creates a user; the password is read from stdin
+// thoth user reset-link <name>        a one-time link for them to choose a password
+//                                     (7 days; the way back for an admin who lost theirs)
 // thoth history purge <path> [--version <id>] [--dry-run]
 //                                     rewrites the managed history without a path
 //                                     (or one version's content of it); thoth stopped
@@ -12,13 +14,14 @@ import { join } from 'node:path'
 import { pathMatcher } from '@thoth/core'
 import { Auth, AuthError } from './auth.ts'
 import { configFromEnv, start } from './main.ts'
+import { Users, UsersError } from './users.ts'
 import { openState } from './state.ts'
 import { PurgeError, purgeHistory, type PurgeReport } from './history/purge.ts'
 import { describeLeftover } from './history/leftovers.ts'
 import { StateInUseError } from './lock.ts'
 import { Workspace } from './workspace.ts'
 
-const USAGE = 'usage: thoth serve | thoth user create <name> [--admin] | thoth history purge <path> [--version <id>] [--dry-run]'
+const USAGE = 'usage: thoth serve | thoth user create <name> [--admin] | thoth user reset-link <name> | thoth history purge <path> [--version <id>] [--dry-run]'
 
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = []
@@ -41,6 +44,24 @@ async function main(argv: string[]) {
       if (process.stdin.isTTY) process.stderr.write('password (read from stdin; end with Ctrl-D): ')
       const user = await new Auth(state).createUser(rest[0], await readStdin(), rest.includes('--admin') ? 'admin' : 'member')
       console.log(`user created: ${user.username} (${user.role})`)
+    } finally {
+      state.close()
+    }
+    return
+  }
+  if (cmd === 'user' && sub === 'reset-link' && rest[0] && rest.length === 1) {
+    const state = openState(join(config.stateDir, 'state.db'))
+    try {
+      const auth = new Auth(state)
+      const name = rest[0].normalize('NFC').trim()
+      const row = state.prepare('select id from users where username = ? and deleted_at is null').get(name) as { id: string } | undefined
+      if (!row) throw new UsersError('not_found', `no user ${name}`)
+      // Written straight into state.db: a running thoth reads it on the next request.
+      const link = new Users(auth).newLink(row.id)
+      const path = `/invite/${link.token}`
+      const base = config.publicUrl
+      console.log(`${link.kind === 'invite' ? 'invitation' : 'password reset'} link for ${name}, valid until ${link.expiresAt} (any earlier link of theirs no longer works):`)
+      console.log(base ? `${base}${path}` : `  <thoth's address>${path}`)
     } finally {
       state.close()
     }
@@ -110,6 +131,7 @@ function printReport(r: PurgeReport) {
 
 main(process.argv.slice(2)).catch((err) => {
   if (err instanceof AuthError) console.error(`error: ${err.message}`)
+  else if (err instanceof UsersError) console.error(`error (${err.code}): ${err.message}`)
   else if (err instanceof PurgeError || err instanceof StateInUseError) console.error(`error (${err.code}): ${err.message}`)
   else console.error(err)
   process.exit(1)

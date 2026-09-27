@@ -8,8 +8,8 @@ import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  Auth, Indexer, NoteService, Profiles, SESSION_COOKIE, Workspace, attachmentPath, createApp, fetchImage, openIndex, openState, sniffImage,
-  type ExternalImages, type Runtime,
+  AdminSettings, Auth, Indexer, NoteService, Profiles, SESSION_COOKIE, Workspace, attachmentPath, createApp, fetchImage, isPublicAddress, openIndex, openState, sniffImage,
+  type ExternalImages, type FetchImageOptions, type Runtime,
 } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
 
@@ -23,10 +23,12 @@ const WEBP = new TextEncoder().encode('RIFF\x10\x00\x00\x00WEBPVP8 ')
 const AVIF = Uint8Array.from([0, 0, 0, 0x1c, ...new TextEncoder().encode('ftypmif1\0\0\0\0mif1avifmiaf')])
 const SVG = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
 
-async function setup(opts: { maxImageBytes?: number; webDir?: string; externalImages?: ExternalImages } = {}) {
+async function setup(opts: { maxImageBytes?: number; webDir?: string; externalImages?: ExternalImages; role?: 'admin' | 'member'; fetchTesting?: FetchImageOptions['testing'] } = {}) {
   const dir = tempDir('thoth-images-')
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
+  // A member sees nothing until something is granted (D-038): noa edits everywhere.
+  if (opts.role === 'member') writeFileSync(join(notesDir, 'thoth.yaml'), 'permissions:\n  "": { grants: { noa: edit } }\n')
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
@@ -34,8 +36,8 @@ async function setup(opts: { maxImageBytes?: number; webDir?: string; externalIm
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
   runtime.rescan({})
   const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db: index, maxImageBytes: opts.maxImageBytes })
-  const app = createApp({ auth, profiles: new Profiles(state), workspace: new Workspace({ notesDir }), notes, index, indexer, notesDir, runtime, webDir: opts.webDir, externalImages: opts.externalImages })
-  await auth.createUser('noa', 'a-long-password', 'admin')
+  const app = createApp({ auth, profiles: new Profiles(state), workspace: new Workspace({ notesDir }), notes, index, indexer, notesDir, runtime, webDir: opts.webDir, externalImages: opts.externalImages, imageFetchTesting: opts.fetchTesting })
+  await auth.createUser('noa', 'a-long-password', opts.role ?? 'admin')
   const login = await app.request('/api/auth/login', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'noa', password: 'a-long-password' }),
   })
@@ -50,7 +52,7 @@ async function setup(opts: { maxImageBytes?: number; webDir?: string; externalIm
     return { status: res.status, body: await res.json() as any }
   }
   const get = (path: string, headers: Record<string, string> = {}) => app.request(path, { headers: { cookie, ...headers } })
-  return { notesDir, app, upload, post, get }
+  return { notesDir, app, upload, post, get, settings: new AdminSettings(state) }
 }
 
 /** A local HTTP server for the URL downloads; routes by path. */
@@ -185,6 +187,58 @@ test('by URL: a copy is downloaded and stored like an upload, following a few re
     assert.deepEqual([noNote.status, noNote.body.error], [404, 'not_found'])
 
     await assert.rejects(fetchImage(`${url}/slow`, { maxBytes: 100, timeoutMs: 200 }), (e: Error & { code?: string }) => e.code === 'fetch_failed' && /timed out/.test(e.message))
+  } finally {
+    server.closeAllConnections()
+    server.close()
+  }
+})
+
+test('by URL, a member: only public addresses (also after DNS and redirects), unless the admin opens the local network', async () => {
+  const { url, server } = await origin({
+    '/chart.png': (res) => { res.setHeader('content-type', 'image/png'); res.end(PNG) },
+    '/to-private': (res) => { res.statusCode = 302; res.setHeader('location', 'http://10.1.2.3/chart.png'); res.end() },
+    '/to-intranet': (res) => { res.statusCode = 302; res.setHeader('location', `http://intranet.example:${port}/chart.png`); res.end() },
+    '/to-public': (res) => { res.statusCode = 302; res.setHeader('location', `http://images.example:${port}/chart.png`); res.end() },
+  })
+  const port = new URL(url).port
+  // Names resolve here, not in DNS; 127.0.0.1 stands for a public address (the connection really goes there).
+  const names: Record<string, { address: string; family: number }[]> = {
+    'images.example': [{ address: '127.0.0.1', family: 4 }],
+    'intranet.example': [{ address: '192.168.1.20', family: 4 }],
+    'mixed.example': [{ address: '127.0.0.1', family: 4 }, { address: '10.0.0.7', family: 4 }],
+    'v6.example': [{ address: 'fd00::7', family: 6 }],
+  }
+  const testing: FetchImageOptions['testing'] = {
+    resolve: async (h) => names[h] ?? [],
+    isPublic: (ip) => ip === '127.0.0.1' || isPublicAddress(ip),
+  }
+  try {
+    const member = await setup({ role: 'member', fetchTesting: testing })
+    const code = async (u: string) => { const r = await member.post('/api/attachments/fetch', { note: 'Plan.md', url: u }); return [r.status, r.body.error] }
+    const ok = await member.post('/api/attachments/fetch', { note: 'Plan.md', url: `http://images.example:${port}/chart.png` })
+    assert.equal(ok.status, 201, 'a public address: downloaded, from the address that was checked')
+    for (const u of [
+      `http://intranet.example:${port}/chart.png`, `http://mixed.example:${port}/chart.png`, `http://v6.example:${port}/chart.png`,
+      `http://images.example:${port}/to-private`, `http://images.example:${port}/to-intranet`,
+      'http://10.0.0.1/x.png', 'http://[::1]/x.png', 'http://169.254.169.254/latest/meta-data', 'http://[::ffff:192.168.0.1]/x.png',
+    ]) assert.deepEqual(await code(u), [403, 'private_address'], u)
+    assert.equal((await member.post('/api/attachments/fetch', { note: 'Plan.md', url: `http://images.example:${port}/to-public` })).status, 201, 'a redirect to a public address is followed')
+
+    // Without the test's resolver: the system's, and loopback is not public.
+    const plain = await setup({ role: 'member' })
+    assert.deepEqual([(await plain.post('/api/attachments/fetch', { note: 'Plan.md', url: `http://localhost:${port}/chart.png` })).body.error], ['private_address'])
+    assert.deepEqual([(await plain.post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/chart.png` })).body.error], ['private_address'])
+    assert.deepEqual([(await plain.post('/api/attachments/fetch', { note: 'Plan.md', url: `http://0x7f000001:${port}/chart.png` })).body.error], ['private_address'], 'another way of writing 127.0.0.1')
+    // The admin lets members reach the local network.
+    plain.settings.set({ membersLocalDownloads: true })
+    assert.equal((await plain.post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/chart.png` })).status, 201)
+    plain.settings.set({ membersLocalDownloads: false })
+    assert.equal((await plain.post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/chart.png` })).status, 403)
+    // The thoth admin, from anywhere (the test above downloads from 127.0.0.1 as one).
+    const admin = await setup({ role: 'admin' })
+    assert.equal((await admin.post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/chart.png` })).status, 201)
+
+    await assert.rejects(fetchImage(`${url}/chart.png`, { maxBytes: 100, publicOnly: true }), (e: Error & { code?: string }) => e.code === 'private_address')
   } finally {
     server.closeAllConnections()
     server.close()

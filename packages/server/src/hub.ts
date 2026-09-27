@@ -22,7 +22,7 @@ import { WebSocketServer } from 'ws'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { contentHash, newUid, readFrontmatter, setFrontmatterKey } from '@thoth/core'
-import type { Auth, User } from './auth.ts'
+import { sessionIdOf, type Auth, type User } from './auth.ts'
 import { readStable, readText, replaceText } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
@@ -130,6 +130,14 @@ export const STALE_MESSAGE = 'thoth:stale-generation'
 export const ACCESS_MESSAGE = 'thoth:access'
 /** An orphan's copy was kept (`restore`) or discarded. */
 export const ORPHAN_RESOLVED_MESSAGE = 'thoth:orphan-resolved'
+/**
+ * To the editors of a session that just ended (the user was disabled or
+ * deleted, the admin closed their sessions, another session changed the
+ * password): the connection closes next, and the UI goes to sign in.
+ */
+export const SESSION_ENDED_MESSAGE = 'thoth:session-ended'
+/** The WebSocket close code that goes with it. */
+export const SESSION_ENDED_CODE = 4401
 
 /**
  * Every message of the collaboration protocol, and who it reaches (m4 §2):
@@ -164,6 +172,7 @@ export const HUB_MESSAGES = {
     [TRASHED_MESSAGE]: 'the note\'s editors: the trash entry and who deleted it',
     [STALE_MESSAGE]: 'one editor, before anything is synced: its own path',
     [ACCESS_MESSAGE]: 'one editor whose access changed: its own path and level',
+    [SESSION_ENDED_MESSAGE]: 'the editors of a session that ended: nothing but the type',
   },
 } as const
 
@@ -218,8 +227,9 @@ export interface HubHistory {
 /**
  * `generation`: the one the editor's copy belongs to (null: an empty copy, it
  * claims none). `level`: what the person had in the note when they connected.
+ * `session`: its session's public id (auth.ts `sessionIdOf`).
  */
-type Ctx = { user?: User; system?: Actor; generation?: string | null; level?: string }
+type Ctx = { user?: User; session?: string; system?: Actor; generation?: string | null; level?: string }
 
 // --- Utilities ---------------------------------------------------------------
 
@@ -377,6 +387,8 @@ export class CollabHub implements HotDocuments {
   private checkTimer: NodeJS.Timeout | null = null
   private accessTimer: NodeJS.Timeout | null = null
   private wss = new WebSocketServer({ noServer: true })
+  /** Open WebSockets, by user and session (its token, to tell whether it is still in force): ended at once when the session ends (`checkSessions`). */
+  private sockets = new Set<{ userId: string; session: string; token: string; close(code: number, reason: string): void }>()
   private log: (m: string) => void
 
   constructor(opts: HubOptions) {
@@ -466,9 +478,12 @@ export class CollabHub implements HotDocuments {
       if (!user) return reject(socket, 401)
       this.wss.handleUpgrade(req, socket, head, (ws) => {
         const request = new Request(url, { headers: req.headers as Record<string, string> })
-        const conn = this.hocuspocus.handleConnection(ws as never, request, { user })
+        const session = sessionIdOf(token!)
+        const conn = this.hocuspocus.handleConnection(ws as never, request, { user, session })
+        const live = { userId: user.id, session, token: token!, close: (code: number, reason: string) => ws.close(code, reason) }
+        this.sockets.add(live)
         ws.on('message', (data: Buffer) => conn.handleMessage(new Uint8Array(data)))
-        ws.on('close', (code: number, reason: Buffer) => conn.handleClose({ code, reason: reason.toString() }))
+        ws.on('close', (code: number, reason: Buffer) => { this.sockets.delete(live); conn.handleClose({ code, reason: reason.toString() }) })
       })
     })
     this.checkTimer = setInterval(() => {
@@ -537,6 +552,28 @@ export class CollabHub implements HotDocuments {
     for (const conn of doc.getConnections()) {
       const m = message((conn.context as Ctx).user)
       if (m) conn.sendStateless(JSON.stringify(m))
+    }
+  }
+
+  /**
+   * Some of a user's sessions ended (users.ts: disabled, deleted, closed, a
+   * new password): the connections of those no longer in force end now,
+   * their editors told first so the UI signs out. The others stay.
+   */
+  checkSessions(userId: string) {
+    const ending = [...this.sockets].filter((s) => s.userId === userId && !this.opts.auth.session(s.token))
+    if (ending.length === 0) return
+    const ended = new Set(ending.map((s) => s.session))
+    const payload = JSON.stringify({ type: SESSION_ENDED_MESSAGE })
+    for (const doc of this.hocuspocus.documents.values()) {
+      for (const c of doc.getConnections()) {
+        const ctx = c.context as Ctx
+        if (ctx.user?.id === userId && ctx.session && ended.has(ctx.session)) c.sendStateless(payload)
+      }
+    }
+    for (const s of ending) {
+      this.sockets.delete(s)
+      s.close(SESSION_ENDED_CODE, SESSION_ENDED_MESSAGE)
     }
   }
 

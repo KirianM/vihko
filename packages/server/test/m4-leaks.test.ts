@@ -184,6 +184,24 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'GET /api/permissions/access', method: 'GET', path: '/api/permissions/access' },
         { route: 'GET /api/permissions/access', method: 'GET', path: q('/api/permissions/access', { user: h.users.noa.id }) },
         { route: 'POST /api/permissions/holds/:id', method: 'POST', path: '/api/permissions/holds/nope', body: { action: 'release' } },
+        // Users and groups (piece U): names only, one's own account, and the admin's.
+        { route: 'GET /api/invite/:token', method: 'GET', path: '/api/invite/nope' },
+        { route: 'POST /api/invite/:token', method: 'POST', path: '/api/invite/nope', body: { password: 'a-long-password' } },
+        { route: 'GET /api/directory', method: 'GET', path: '/api/directory' },
+        { route: 'GET /api/account/sessions', method: 'GET', path: '/api/account/sessions' },
+        { route: 'DELETE /api/account/sessions/:id', method: 'DELETE', path: '/api/account/sessions/nope' },
+        { route: 'DELETE /api/account/sessions', method: 'DELETE', path: '/api/account/sessions' },
+        { route: 'POST /api/auth/password', method: 'POST', path: '/api/auth/password', body: { current: 'wrong', password: 'another-long-password' } },
+        ...([
+          ['GET', '/api/admin/users'], ['POST', '/api/admin/users/nope/link'], ['PUT', '/api/admin/users/nope/role'],
+          ['POST', '/api/admin/users/nope/disable'], ['POST', '/api/admin/users/nope/enable'], ['DELETE', '/api/admin/users/nope'],
+          ['DELETE', '/api/admin/users/nope/sessions'], ['GET', '/api/admin/groups'], ['POST', '/api/admin/groups'],
+          ['PATCH', '/api/admin/groups/nope'], ['DELETE', '/api/admin/groups/nope'], ['POST', '/api/admin/groups/nope/members'],
+          ['DELETE', '/api/admin/groups/nope/members/nope'], ['GET', '/api/admin/settings'], ['PUT', '/api/admin/settings'],
+        ] as const).map(([method, path]) => ({
+          route: `${method} ${path.replace(/\/nope(?=\/members\/)/, '/:id').replace(/members\/nope$/, 'members/:userId').replace(/\/nope/, '/:id')}`,
+          method, path, body: method === 'GET' || method === 'DELETE' ? undefined : {}, expect: who === 'agent' ? 404 : 403,
+        })),
         // Last: it ends the session.
         { route: 'POST /api/auth/logout', method: 'POST', path: '/api/auth/logout' },
       ]

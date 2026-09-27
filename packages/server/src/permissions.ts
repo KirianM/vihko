@@ -44,10 +44,19 @@ export interface GroupSource {
   groups(): string[]
 }
 
-/** The directory over state.db's users, and the groups `groups` gives (none by default). */
+/** The groups of users.ts (state.db), as the permissions read them. */
+export function groupSource(users: { groupsOf(userId: string): string[]; groups(): { name: string }[] }): GroupSource {
+  return { groupsOf: (id) => users.groupsOf(id), groups: () => users.groups().map((g) => g.name) }
+}
+
+/**
+ * The directory over state.db's users, and the groups `groups` gives (none by
+ * default). A deleted user is unknown: their name in a grant reaches nobody,
+ * and a `{user}` folder of theirs matches no one (D-038.8).
+ */
 export function stateDirectory(state: Db, groups: Partial<GroupSource> = {}): Directory {
   return {
-    users: () => state.prepare('select id, username, role from users order by username').all() as DirectoryUser[],
+    users: () => state.prepare('select id, username, role from users where deleted_at is null order by username').all() as DirectoryUser[],
     groupsOf: groups.groupsOf ?? (() => []),
     groups: groups.groups ?? (() => []),
   }
