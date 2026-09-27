@@ -768,7 +768,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // One's own second factor, and the admin's reset of someone's.
   tf.routes(app)
 
-  if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, keyName: (id) => keys.nameOf(id) })
+  if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, keyName: (id) => keys.nameOf(id), notices, confirm: tf.confirmIdentity })
 
   // Creating a key, and approving an OAuth client, confirm who is there (D-036).
   keyRoutes(app, { keys, integrations, publicUrl: oauth.publicUrl, confirm: tf.confirmIdentity })

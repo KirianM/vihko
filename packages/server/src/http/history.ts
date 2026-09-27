@@ -16,11 +16,12 @@
 //   POST /api/history/revert { path, id, ifMatch?, dryRun? }
 //   GET  /api/history/changes?cursor=&limit=&author=
 //   GET  /api/history/resolved?path=
-//   POST /api/history/purge { path, version?, dryRun? }   (`manage`, or the admin by name)
+//   POST /api/history/purge { path, version?, dryRun?, confirm? }   (`manage`, or the admin by name)
 //   DELETE /api/history/purges/:id                      (the admin: a purge's notice, dismissed)
 import type { Context, Hono } from 'hono'
 import { WORKSPACE_FILE, folderOf } from '@thoth/core'
-import { PurgeError, purgeTarget } from '../history/purge.ts'
+import { PurgeError, purgeTarget, type PurgeReport } from '../history/purge.ts'
+import { readablePath, type Notices } from '../notices.ts'
 import { parseAuthorKey, type Via } from '../actor.ts'
 import type { Auth, User } from '../auth.ts'
 import { AccessError, AgentDenied, type Access } from '../access.ts'
@@ -40,6 +41,10 @@ export interface HistoryRoutesDeps {
   auth: Auth
   /** A key's name (`Claude Code`), for agent authors; null if unknown. */
   keyName?: (id: string) => string | null
+  /** Notices addressed to one person: whoever wrote in what is purged is told (D-040 3.6). */
+  notices?: Notices
+  /** The confirmation at the moment (http/twoFactor.ts): the admin purging what they can't read (D-040 3.6). */
+  confirm?: (c: Context<Env>, confirm: unknown) => Promise<Response | null>
 }
 
 /**
@@ -232,10 +237,14 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
   // (a file or a folder) by the thoth admin, who needn't read it. With
   // `dryRun`, what it would take out, for the confirmation. The history
   // pauses while it's rewritten; the admin gets a notice (who and what,
-  // never the content). The answer names no other path the person can't
-  // read, and nothing of the content.
+  // never the content), and so does every other person who wrote in what
+  // went (D-040 3.6: its path only while they can read it). The admin
+  // purging anything they can't read (the path, or a file under it) confirms
+  // at the moment, as for a key (`confirmRequired` in the dry run says so).
+  // The answer names no other path the person can't read, and nothing of
+  // the content.
   app.post('/api/history/purge', async (c) => {
-    const body = await c.req.json<{ path?: unknown; version?: unknown; dryRun?: unknown }>()
+    const body = await c.req.json<{ path?: unknown; version?: unknown; dryRun?: unknown; confirm?: unknown }>()
     if (typeof body.path !== 'string' || (body.version !== undefined && typeof body.version !== 'string')) throw new HistoryError('invalid', 'expected a path and, optionally, a version')
     const access = c.get('access')
     const user = c.get('user')
@@ -247,7 +256,20 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
       if (!access.isAgent && access.canRead(path)) throw new AccessError('purging a note\'s history is for whoever manages its folder')
       throw new NoteError('not_found', `does not exist: ${path}`)
     }
-    const r = await history.purge({ path, version: body.version as string | undefined, dryRun: body.dryRun === true, exact: !admin, by: user.id })
+    const run = (dryRun: boolean) => history.purge({ path, version: body.version as string | undefined, dryRun, exact: !admin, by: user.id })
+    // Whether it takes out anything the person can't read: only the admin gets that far with it.
+    const blind = (p: PurgeReport) => !readablePath(access, p.path) || p.commits.some((v) => v.files.some((f) => !readablePath(access, f.path)))
+    let r: PurgeReport
+    if (body.dryRun === true) r = await run(true)
+    else {
+      if (admin && deps.confirm && blind(await run(true))) {
+        const refused = await deps.confirm(c, body.confirm)
+        if (refused) return refused
+      }
+      r = await run(false)
+      // Whoever else wrote in it (people, not agents) is told, without the content.
+      deps.notices?.purged(r.commits.flatMap((v) => v.people), user.id, r.path, r.version !== null)
+    }
     const shown = (list: string[]) => list.filter((p) => access.canRead(p))
     return c.json({
       path: r.path,
@@ -260,6 +282,8 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
       onDisk: r.stillOnDisk.length,
       sharedWith: shown(r.sharedWith),
       movedFrom: shown(r.movedFrom),
+      // The real purge will ask for the confirmation at the moment (the admin, something they can't read).
+      ...(r.dryRun ? { confirmRequired: admin && !!deps.confirm && blind(r) } : {}),
     })
   })
 
