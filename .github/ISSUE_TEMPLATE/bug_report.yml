@@ -1,0 +1,52 @@
+name: Bug report
+description: Something doesn't work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security vulnerabilities go through a private report, never an issue: see SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The image tag or the commit.
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How thoth runs
+      options:
+        - Docker (compose.yaml)
+        - Docker, another setup
+        - Node, from the source
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Browser and system
+      description: If it happens in the UI. Also where the notes live, if it matters (local disk, network share…).
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The server's output around the problem. Remove anything private first.
+      render: text
