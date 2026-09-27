@@ -4,6 +4,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { anchorChanged, goneThreads, normalizeAnchor, parseThreads, removedThread, reopener, resolveThread, type Change } from '@thoth/core'
+import { mother } from '../../../test/mother.ts'
+
+// Who wrote the comments (their usernames).
+const m = mother(import.meta.url)
+const AUTHOR = m.aUsername()
+const REPLIER = m.aUsername()
 
 test('whitespace and Unicode normalization are not changes', () => {
   assert.equal(normalizeAnchor('  We’ll\tuse\n Postgres  '), 'We’ll use Postgres')
@@ -24,9 +30,9 @@ test('a thread that had no text to anchor to never changes', () => {
 })
 
 const apply = (doc: string, c: Change) => doc.slice(0, c.from) + c.insert + doc.slice(c.to)
-const K = '<!-- @noa 2026-09-24T08:12Z · esto no, usa SQLite -->'
-const R = '<!-- @ana 2026-09-24T08:15Z · ↳ de acuerdo -->'
-const OTHER = '<!-- @ana 2026-09-26T10:00Z · otro -->'
+const K = `<!-- @${AUTHOR} 2026-09-24T08:12Z · esto no, usa SQLite -->`
+const R = `<!-- @${REPLIER} 2026-09-24T08:15Z · ↳ de acuerdo -->`
+const OTHER = `<!-- @${REPLIER} 2026-09-26T10:00Z · otro -->`
 /** Resolves thread `i` of `doc`: the text left, and the thread as it went. */
 const resolve = (doc: string, i = 0) => {
   const t = parseThreads(doc)[i]!
@@ -57,13 +63,13 @@ test('the threads that left a note: known by their first comment, wherever it is
   const doc = `Uno.${K}\n${R}\n\nDos.${OTHER}`
   assert.deepEqual(goneThreads(doc, doc), [])
   // A reply more or less: the thread is still there.
-  assert.deepEqual(goneThreads(doc, doc.replace(R, `${R}\n<!-- @noa 2026-09-24T09:00Z · ↳ hecho -->`)), [])
+  assert.deepEqual(goneThreads(doc, doc.replace(R, `${R}\n<!-- @${AUTHOR} 2026-09-24T09:00Z · ↳ hecho -->`)), [])
   assert.deepEqual(goneThreads(doc, doc.replace(`\n${R}`, '')), [])
   // Resolved: the whole thread, replies included, as it was.
   const gone = goneThreads(doc, resolve(doc).after)
   assert.equal(gone.length, 1)
-  assert.equal(gone[0]!.id, 'noa|2026-09-24T08:12Z|esto no, usa SQLite')
-  assert.deepEqual(gone[0]!.comments.map((c) => [c.author, c.text, c.reply]), [['noa', 'esto no, usa SQLite', false], ['ana', 'de acuerdo', true]])
+  assert.equal(gone[0]!.id, `${AUTHOR}|2026-09-24T08:12Z|esto no, usa SQLite`)
+  assert.deepEqual(gone[0]!.comments.map((c) => [c.author, c.text, c.reply]), [[AUTHOR, 'esto no, usa SQLite', false], [REPLIER, 'de acuerdo', true]])
   assert.equal(gone[0]!.anchor, 'Uno.')
   // Two threads that became one because the text between them went away: nothing resolved.
   const two = `Uno.${K} Dos.${OTHER}`

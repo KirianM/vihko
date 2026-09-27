@@ -1,6 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EMPTY_WORKSPACE, parseWorkspaceConfig, type ConfigError, type StrictSection } from '@thoth/core'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
+const USER = m.aUsername()
 
 const errors = (text: string) => {
   const r = parseWorkspaceConfig(text)
@@ -140,15 +144,15 @@ test('thoth.yaml: a wrong value in a known key still makes the file unusable', (
 })
 
 test('thoth.yaml: permissions is a strict section: rejected, nobody reads; missing, the implicit one', () => {
-  const r = parseWorkspaceConfig('templates: P\npermissions:\n  Privado: {grants: {noa: edit}}\n')
+  const r = parseWorkspaceConfig(`templates: P\npermissions:\n  Privado: {grants: {${USER}: edit}}\n`)
   assert.ok(r.ok)
   assert.deepEqual(r.warnings, [])
-  assert.deepEqual(r.sections.permissions, { kind: 'rules', rules: [{ folder: 'Privado', grants: { noa: 'edit' }, ai: null }] })
-  const bad = parseWorkspaceConfig('templates: P\npermissions:\n  Privado: {noa: edit}\n')
+  assert.deepEqual(r.sections.permissions, { kind: 'rules', rules: [{ folder: 'Privado', grants: { [USER]: 'edit' }, ai: null }] })
+  const bad = parseWorkspaceConfig(`templates: P\npermissions:\n  Privado: {${USER}: edit}\n`)
   assert.ok(bad.ok, 'never blocks the rest')
   assert.equal(bad.config.templates, 'P')
   assert.deepEqual(bad.sections.permissions, { kind: 'closed' })
-  assert.deepEqual(brief(bad.warnings), [['section_rejected', 'permissions', 2], ['unknown_key', 'permissions.Privado.noa', 3]])
+  assert.deepEqual(brief(bad.warnings), [['section_rejected', 'permissions', 2], ['unknown_key', `permissions.Privado.${USER}`, 3]])
   const none = parseWorkspaceConfig('templates: P\n')
   assert.ok(none.ok)
   assert.deepEqual(none.sections.permissions, { kind: 'implicit' })

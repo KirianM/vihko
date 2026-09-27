@@ -1,6 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { matchSeries, patternPeriod, patternTokens, seriesNeighbors, seriesPath, type Series } from '@thoth/core'
+import { mother } from '../../../test/mother.ts'
+
+// The people whose personal series the tests follow.
+const m = mother(import.meta.url)
+const USER = m.aUsername()
+const OTHER = m.aUsername()
 
 const series = (folder: string, name: string): Series => {
   const period = patternPeriod(patternTokens(`${folder}/${name}`).tokens)
@@ -25,19 +31,19 @@ test('series: the period comes from the tokens', () => {
 
 test('series: the path of a date, personal or shared', () => {
   const personal = series('Diario/{user}', '{YYYY}-{MM}-{DD}')
-  assert.equal(seriesPath(personal, day(2026, 9, 25), 'ana'), 'Diario/ana/2026-09-25.md')
+  assert.equal(seriesPath(personal, day(2026, 9, 25), USER), `Diario/${USER}/2026-09-25.md`)
   const shared = series('', '{YYYY}-{MM}-{DD}')
-  assert.equal(seriesPath(shared, day(2026, 9, 5), 'ana'), '2026-09-05.md')
+  assert.equal(seriesPath(shared, day(2026, 9, 5), USER), '2026-09-05.md')
   const weekly = series('Semanas', '{GGGG}-W{WW}')
-  assert.equal(seriesPath(weekly, day(2027, 1, 2), 'ana'), 'Semanas/2026-W53.md', 'the last days of the year can belong to the next or the previous ISO year')
-  assert.equal(seriesPath(weekly, day(2024, 12, 30), 'ana'), 'Semanas/2025-W01.md')
+  assert.equal(seriesPath(weekly, day(2027, 1, 2), USER), 'Semanas/2026-W53.md', 'the last days of the year can belong to the next or the previous ISO year')
+  assert.equal(seriesPath(weekly, day(2024, 12, 30), USER), 'Semanas/2025-W01.md')
   assert.equal(seriesPath(series('M', '{YYYY}-{MM}'), day(2026, 9, 25), 'x'), 'M/2026-09.md')
 })
 
 test('series: a path belongs to the series only if the pattern gives exactly it', () => {
   const s = series('Diario/{user}', '{YYYY}-{MM}-{DD}')
-  assert.deepEqual(matchSeries(s, 'Diario/ana/2026-09-25.md'), { date: day(2026, 9, 25), user: 'ana' })
-  for (const p of ['Diario/ana/2026-02-31.md', 'Diario/ana/2026-9-25.md', 'Diario/ana/2026-09-25 copia.md', 'Diario/2026-09-25.md', 'Otro/ana/2026-09-25.md', 'Diario/ana/sub/2026-09-25.md']) {
+  assert.deepEqual(matchSeries(s, `Diario/${USER}/2026-09-25.md`), { date: day(2026, 9, 25), user: USER })
+  for (const p of [`Diario/${USER}/2026-02-31.md`, `Diario/${USER}/2026-9-25.md`, `Diario/${USER}/2026-09-25 copia.md`, 'Diario/2026-09-25.md', `Otro/${USER}/2026-09-25.md`, `Diario/${USER}/sub/2026-09-25.md`]) {
     assert.equal(matchSeries(s, p), null, p)
   }
   const weekly = series('Semanas', '{GGGG}-W{WW}')
@@ -53,11 +59,11 @@ test('series: a path belongs to the series only if the pattern gives exactly it'
 test('series: previous and next are the nearest notes that exist, for the same person', () => {
   const s = series('Diario/{user}', '{YYYY}-{MM}-{DD}')
   const paths = [
-    'Diario/ana/2026-09-20.md', 'Diario/ana/2026-09-24.md', 'Diario/ana/2026-09-25.md', 'Diario/ana/2026-10-02.md',
-    'Diario/luis/2026-09-23.md', 'Diario/luis/2026-09-26.md', 'Diario/ana/notas.md', 'Plan.md',
+    `Diario/${USER}/2026-09-20.md`, `Diario/${USER}/2026-09-24.md`, `Diario/${USER}/2026-09-25.md`, `Diario/${USER}/2026-10-02.md`,
+    `Diario/${OTHER}/2026-09-23.md`, `Diario/${OTHER}/2026-09-26.md`, `Diario/${USER}/notas.md`, 'Plan.md',
   ]
-  assert.deepEqual(seriesNeighbors(s, paths, 'Diario/ana/2026-09-25.md'), { prev: 'Diario/ana/2026-09-24.md', next: 'Diario/ana/2026-10-02.md' })
-  assert.deepEqual(seriesNeighbors(s, paths, 'Diario/ana/2026-09-20.md'), { prev: null, next: 'Diario/ana/2026-09-24.md' })
-  assert.deepEqual(seriesNeighbors(s, paths, 'Diario/luis/2026-09-26.md'), { prev: 'Diario/luis/2026-09-23.md', next: null })
+  assert.deepEqual(seriesNeighbors(s, paths, `Diario/${USER}/2026-09-25.md`), { prev: `Diario/${USER}/2026-09-24.md`, next: `Diario/${USER}/2026-10-02.md` })
+  assert.deepEqual(seriesNeighbors(s, paths, `Diario/${USER}/2026-09-20.md`), { prev: null, next: `Diario/${USER}/2026-09-24.md` })
+  assert.deepEqual(seriesNeighbors(s, paths, `Diario/${OTHER}/2026-09-26.md`), { prev: `Diario/${OTHER}/2026-09-23.md`, next: null })
   assert.equal(seriesNeighbors(s, paths, 'Plan.md'), null)
 })
