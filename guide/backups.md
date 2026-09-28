@@ -12,7 +12,7 @@ consistent, and how to restore it.
 | **`state.db`** | `./state` (`/data/state`) | People, groups, passwords, sessions, invitations, API keys, OAuth clients, second factors and settings. It can't be rebuilt from the notes. |
 | **The history** | `state/history.git/` and `state/history/` | Every version of every note, when vihko manages the history (the default). It doesn't travel with the notes folder: copying the notes doesn't copy their history. |
 | **The trash** | `state/trash/` | Deleted notes and folders, which people can still restore. |
-| **Recovery logs** | `state/collab/` | Typing not yet written to a note when vihko stopped. Usually empty after a clean stop. |
+| **Editor states** | `state/collab/` | For each note opened in the editor, its saved editor state (`.ystate`): the note as its last editor left it, so that a browser that was offline merges its typing into the same note instead of adding a second copy. And, for a note open when vihko stopped, its recovery log (`.ylog`): typing not yet written to the file. It holds one `.ystate` for every note ever opened, so it's rarely empty. Back it up with the rest of the state volume. |
 | **`vihko.yaml` copies** | `state/config-backups/` | The file as it was before an upgrade rewrote it. See [Upgrading](upgrading.md#what-happens-at-start). |
 | **The second-factor key** | Wherever you keep `VIHKO_SECRET_KEY` or its file | Only if you use it. **Back it up apart from the state volume**, in a password manager for example: whoever has both can compute people's second-factor codes. See [The second-factor key](install.md#the-second-factor-key). |
 
@@ -29,7 +29,9 @@ in your notes folder, so it's backed up with the notes. See
 - **`index.db`** (and `index.db-wal`, `index.db-shm`): the search index. vihko
   rebuilds it from the notes when it's missing. Leaving it out makes backups
   smaller; including it does no harm.
-- **`vihko.lock`**: only there while vihko runs. Harmless either way.
+- **`vihko.lock`** and **`vihko.lock-journal`**: the lock that keeps a second
+  vihko off the state (the `-journal` only while vihko runs). Harmless either
+  way.
 
 ## Take a consistent copy
 

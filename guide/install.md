@@ -185,10 +185,12 @@ Back it up. See [Backups](backups.md).
 | `state.db` | Users, groups, sessions, invitations, API keys and OAuth clients, settings, second factors | Yes |
 | `history.git/`, `history/` | The history of your notes (a git repository), when the history is managed by vihko | Yes |
 | `trash/` | Deleted notes and folders, which people can restore from the UI | Yes |
-| `collab/` | Recovery logs of notes being edited, so a crash loses no typing | Yes |
+| `collab/` | Saved editor states of the notes opened in the editor (`.ystate`), and recovery logs of notes being edited (`.ylog`), so a crash loses no typing | Yes |
 | `config-backups/` | Copies of `vihko.yaml` made before vihko rewrote it after an upgrade | Yes |
+| `state.db.bak-v<N>` | A copy of `state.db` made before an upgrade migrated it. See [Rolling back](upgrading.md#rolling-back) | Optional |
 | `index.db` | The search index. Derived from the notes, rebuilt when needed | No |
-| `vihko.lock` | Keeps a second vihko process off the same state | No |
+| `state.db-wal`, `state.db-shm`, `index.db-wal`, `index.db-shm` | SQLite's companion files of the two databases, while vihko runs | With its database |
+| `vihko.lock`, `vihko.lock-journal` | Keep a second vihko process off the same state: an empty SQLite database that vihko holds locked while it runs (`-journal` is only there meanwhile) | No |
 
 **Keep it on local disk.** `state.db` and `index.db` are SQLite databases, and
 SQLite's locking is not reliable over NFS or SMB: two processes could both
