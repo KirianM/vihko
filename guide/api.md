@@ -164,6 +164,7 @@ their editor live.
 | `POST` | `/api/history/restore` | write | Bring back a version's text |
 | `POST` | `/api/history/revert` | write | Undo what one version changed |
 | `GET` | `/api/health` | none | The server answers (no key needed) |
+| `GET`, `POST` | `/api/setup` | none | [Create the first admin](#create-the-first-admin), with the token from the log |
 
 "read" routes work with any key; "write" routes need a key that may write,
 and `edit` for its person where the note is. Everything else in `/api` is for
@@ -434,6 +435,40 @@ the key's name.
 
 `GET /api/health` answers `{ "ok": true }` without a key, for monitoring and
 Docker's health check. It doesn't say which version runs.
+
+### Create the first admin
+
+On the first start, before anyone has an account, vihko prints a one-time
+token in its log ([Installation](install.md#first-start)). These two routes
+need neither a key nor a session (send them without `Authorization`), and do
+what the browser's «Create the
+administrator» page does, for a script that sets up a new installation:
+
+- `GET /api/setup` answers `{ "needed": true }` while there are no users, and
+  `{ "needed": false }` from then on.
+- `POST /api/setup` with `{ "token", "username", "password" }` creates the
+  admin.
+
+```sh
+curl -H "Content-Type: application/json" "$VIHKO/api/setup" \
+  -d '{"token": "<token from the log>", "username": "alex", "password": "a long passphrase"}'
+```
+
+```json
+{ "user": { "id": "…", "username": "alex", "role": "admin", "disabled": false } }
+```
+
+It creates the account and signs nobody in: sign in afterwards, in the
+browser. The token works once; once there's a user, it's gone for good.
+
+| Code | Status | When |
+|---|---|---|
+| `invalid_token` | 400 | Not the token of this start (each start while there are no users prints a new one) |
+| `invalid_username` | 400 | The username isn't 2 to 64 letters, digits, `.`, `_` or `-` |
+| `weak_password` | 400 | The password has fewer than 10 characters (or more than 1024) |
+| `invalid` | 400 | The body isn't JSON |
+| `already_setup` | 409 | There is a user already |
+| `too_many_attempts` | 429 | Too many wrong tokens from this address; `Retry-After` says when to try again |
 
 ## A complete example
 

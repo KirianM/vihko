@@ -29,19 +29,26 @@ identity provider.
    curl -fsSLO https://raw.githubusercontent.com/KirianM/vihko/main/compose.yaml
    ```
 
+   The `compose.yaml` on `main` always pulls the current release: its
+   `image:` line names it (see [The image and its tags](#the-image-and-its-tags)).
+
 2. Read [the compose file](#the-compose-file) below and adjust it: which
    image tag, which port, and where your notes are. To use a notes folder you
    already have, change `./notes` to its path.
 
-3. Create the two folders yourself, before the first start:
+3. Create the two folders yourself, before the first start, and write the
+   owner of the notes folder into `.env`, next to `compose.yaml`:
 
    ```sh
    mkdir notes state
+   printf 'VIHKO_UID=%s\nVIHKO_GID=%s\n' "$(stat -c %u notes)" "$(stat -c %g notes)" > .env
    ```
 
-   If a folder in a bind mount doesn't exist, Docker creates it owned by
-   `root`, and vihko (which doesn't run as root) can't write to it. See
-   [The user and file ownership](#the-user-and-file-ownership).
+   vihko runs as that user, and `state/` must belong to it too. If a folder
+   in a bind mount doesn't exist, Docker creates it owned by `root`, and vihko
+   (which doesn't run as root) can't write to it. **As root, or with notes you
+   already have**, follow [The user and file ownership](#the-user-and-file-ownership)
+   instead.
 
 4. Start it:
 
@@ -75,22 +82,27 @@ services:
       # VIHKO_HOST_PORT=8098 docker compose up -d (or put it in a .env file).
       # Don't expose it to the Internet without HTTPS in front (a reverse proxy).
       - "${VIHKO_HOST_PORT:-8080}:8080"
-      # Behind a reverse proxy on this host, only the proxy needs to reach it:
-      # this line instead of the one above.
+      # Only with a reverse proxy on THIS machine: this line instead of the one
+      # above, so that only the proxy reaches vihko. A proxy on another machine
+      # needs the line above. See guide/reverse-proxy.md.
       # - "127.0.0.1:${VIHKO_HOST_PORT:-8080}:8080"
     volumes:
       # Notes: any Markdown folder (local disk or NFS).
       - ./notes:/data/notes
       # State: ALWAYS on local disk (SQLite is not reliable over NFS).
       - ./state:/data/state
-    # User that writes your notes (1000:1000 by default).
-    # user: "1000:1000"
+    # The user vihko runs as: the owner of the notes folder (on NFS, the one the
+    # server imposes), set in .env; state/ must belong to the same user.
+    # See guide/install.md, "The user and file ownership".
+    user: "${VIHKO_UID:-1000}:${VIHKO_GID:-1000}"
     # environment:
     #   # Only behind a reverse proxy with HTTPS: the public address, for remote
     #   # MCP clients such as claude.ai (OAuth). See guide/reverse-proxy.md.
     #   VIHKO_PUBLIC_URL: https://notes.example.com
     #   # The reverse proxy's address as vihko sees it, so the login limits
     #   # count each client apart (X-Forwarded-For is believed only from it).
+    #   # A proxy on this machine or in this file: 172.16.0.0/12. On another
+    #   # machine: its address alone (such as 10.0.0.50), never a range.
     #   VIHKO_TRUSTED_PROXIES: 172.16.0.0/12
 ```
 
@@ -138,8 +150,10 @@ docker compose up -d
 
 vihko speaks plain HTTP. That's fine on a network you trust. **Never publish
 the port to the Internet without HTTPS in front**: put a reverse proxy before
-it and bind the port to `127.0.0.1` (the commented line). See
-[Reverse proxy](reverse-proxy.md).
+it. The commented `127.0.0.1` line is only for a proxy **on the same
+machine**: with it, nothing else can connect, a proxy on another machine
+included. For a proxy elsewhere on your network, keep the default line. See
+[Who reaches vihko's port](reverse-proxy.md#who-reaches-vihkos-port).
 
 ### The notes volume
 
@@ -171,10 +185,12 @@ Back it up. See [Backups](backups.md).
 | `state.db` | Users, groups, sessions, invitations, API keys and OAuth clients, settings, second factors | Yes |
 | `history.git/`, `history/` | The history of your notes (a git repository), when the history is managed by vihko | Yes |
 | `trash/` | Deleted notes and folders, which people can restore from the UI | Yes |
-| `collab/` | Recovery logs of notes being edited, so a crash loses no typing | Yes |
+| `collab/` | Saved editor states of the notes opened in the editor (`.ystate`), and recovery logs of notes being edited (`.ylog`), so a crash loses no typing | Yes |
 | `config-backups/` | Copies of `vihko.yaml` made before vihko rewrote it after an upgrade | Yes |
+| `state.db.bak-v<N>` | A copy of `state.db` made before an upgrade migrated it. See [Rolling back](upgrading.md#rolling-back) | Optional |
 | `index.db` | The search index. Derived from the notes, rebuilt when needed | No |
-| `vihko.lock` | Keeps a second vihko process off the same state | No |
+| `state.db-wal`, `state.db-shm`, `index.db-wal`, `index.db-shm` | SQLite's companion files of the two databases, while vihko runs | With its database |
+| `vihko.lock`, `vihko.lock-journal` | Keep a second vihko process off the same state: an empty SQLite database that vihko holds locked while it runs (`-journal` is only there meanwhile) | No |
 
 **Keep it on local disk.** `state.db` and `index.db` are SQLite databases, and
 SQLite's locking is not reliable over NFS or SMB: two processes could both
@@ -196,37 +212,80 @@ is yours to protect the same way, if others have accounts on the host.
 
 ### The user and file ownership
 
-The container runs as user `1000:1000` (called `node` in the image), not as
-root. That user must be able to read and write both folders, and every note
-vihko writes gets that owner.
+vihko doesn't run as root. It runs as the user in `user:`,
+`"${VIHKO_UID:-1000}:${VIHKO_GID:-1000}"`: the numeric ids in the `.env` file
+next to `compose.yaml`, or `1000:1000` (called `node` in the image) without
+them. That user must be able to write both folders, and every note vihko
+writes gets that owner. So:
 
-To run it as another user, typically the one that owns your notes, uncomment
-`user:` and give the numeric ids:
+- **`VIHKO_UID` and `VIHKO_GID` are the owner of your notes folder**, and
+- **the state folder belongs to that same user.**
 
-```yaml
-    user: "1001:1001"
-```
+Pick the case that is yours. Run the commands in the folder of
+`compose.yaml`.
 
-Then make both folders belong to it:
+**A new install, as your own user.** The folders you create are yours, and
+vihko runs as you:
 
 ```sh
-sudo chown -R 1001:1001 notes state
+mkdir notes state
+printf 'VIHKO_UID=%s\nVIHKO_GID=%s\n' "$(stat -c %u notes)" "$(stat -c %g notes)" > .env
 ```
 
-If you let Docker create the folders, they belong to `root` and vihko can't
-start: it restarts in a loop and the log shows `SqliteError: unable to open
-database file` (`SQLITE_CANTOPEN`). Stop it, fix the owner, start it:
+**A new install, as root** (a container or a virtual machine with no other
+user, say). Folders made by root would have vihko run as root, which it doesn't
+need. Give them to an ordinary user first: the one who will also edit the
+files, if there is one, or `1000:1000`:
+
+```sh
+mkdir notes state
+chown 1000:1000 notes state
+printf 'VIHKO_UID=%s\nVIHKO_GID=%s\n' "$(stat -c %u notes)" "$(stat -c %g notes)" > .env
+```
+
+**Notes you already have**, on this disk or on NFS. Point the notes volume at
+the folder in `compose.yaml` (`- /srv/notes:/data/notes`), write its owner
+into `.env`, and give the state folder the same owner. Leave the notes' owner
+as it is: on NFS, it's the one the server imposes (and the NFS client's root
+usually can't change it anyway).
+
+```sh
+mkdir state
+printf 'VIHKO_UID=%s\nVIHKO_GID=%s\n' "$(stat -c %u /srv/notes)" "$(stat -c %g /srv/notes)" > .env
+sudo chown "$(stat -c %u:%g /srv/notes)" state
+```
+
+`sudo` is needed there only when the notes aren't yours; as root, leave it
+out. If `stat` says the notes belong to root (`0`), don't run vihko as root:
+give the folder to an ordinary user first (on NFS, on the server). If vihko
+runs as root anyway, its log says so when it starts.
+
+On NFS, the export may map every write to one user (`all_squash`, `mapall`
+and similar). Then files get whatever owner the export imposes, and
+`VIHKO_UID` must be a user the export lets write: the owner `stat` shows is
+usually that one. See [Notes on NFS](operations.md#notes-on-nfs).
+
+**If a folder isn't writable by vihko's user**, vihko doesn't start: it
+restarts in a loop, and its log says which folder, whose it is, who vihko runs
+as, and the fix, in one line:
+
+```text
+[vihko] vihko can't write to the state folder /data/state: it belongs to 0:0 (mode 755) and vihko runs as 1000:1000. Fix: chown -R 1000:1000 the state volume's folder on the host (./state next to the example compose.yaml); see guide/install.md, "The user and file ownership"
+```
+
+(`/data/state` is the folder inside the container; on the host, it's the
+folder of the state volume.) Stop vihko, fix the owner or `.env`, start it:
 
 ```sh
 docker compose down
-sudo chown -R 1000:1000 notes state
+sudo chown -R 1000:1000 state
 docker compose up -d
 ```
 
-On NFS, the export may map every write to one user (`all_squash`, `mapall`
-and similar). Then files get whatever owner the export imposes, and `user:`
-must be a user the export lets write. See
-[Notes on NFS](operations.md#notes-on-nfs).
+**To run vihko as another user later**, change `.env`, and give the state
+folder, with everything in it, to the new user:
+`sudo chown -R <uid>:<gid> state`. The notes too, if they aren't that user's
+already.
 
 ### `environment:`
 
@@ -262,7 +321,9 @@ reach it on the host port you published.)
    of at least 10 characters. You're signed in.
 
 The token works once. While there are no users, vihko prints a new one every
-time it starts; once the admin exists, it prints none.
+time it starts; once the admin exists, it prints none. A script can do the
+same without the browser, with the `POST /api/setup` the log mentions: see
+[Create the first admin](api.md#create-the-first-admin).
 
 ### Or from the command line
 
@@ -283,6 +344,7 @@ lists every command.
 
 ### Next steps
 
+- Find your way around the app: [First steps in the app](first-steps.md).
 - Invite people: [Users and permissions](users-and-permissions.md).
 - Configure the workspace (daily notes, templates, where images go):
   [Configuration](configuration.md).
@@ -305,7 +367,7 @@ message in the log that names the variable. (`VIHKO_RESCAN_SECONDS`,
 | Variable | Default | What it does |
 |---|---|---|
 | `VIHKO_PUBLIC_URL` | unset | The `https://` address vihko is reached at from outside, behind a reverse proxy: the origin only, such as `https://notes.example.com`. It makes OAuth available for remote MCP clients (while the MCP server is on), and invitation and password-reset links use it. See [Reverse proxy](reverse-proxy.md) and [Agents](agents.md). |
-| `VIHKO_TRUSTED_PROXIES` | unset | Addresses or CIDR ranges of your reverse proxies, separated by commas or spaces (`172.16.0.0/12, 10.0.0.5`). Only from them does vihko believe `X-Forwarded-For`, to tell clients apart for the sign-in limits. Unset, every request counts as coming from the connection's address. See [Reverse proxy](reverse-proxy.md#tell-vihko-about-the-proxy). |
+| `VIHKO_TRUSTED_PROXIES` | unset | Addresses or CIDR ranges of your reverse proxies, separated by commas or spaces (`172.16.0.0/12, 10.0.0.50`). Only from them does vihko believe `X-Forwarded-For`, to tell clients apart for the sign-in limits. Unset, every request counts as coming from the connection's address. A proxy on another machine is its one address: a range such as `10.0.0.50/8` trusts the whole `10.0.0.0/8`. See [Reverse proxy](reverse-proxy.md#tell-vihko-about-the-proxy). |
 | `VIHKO_INTEGRATIONS` | unset | `off` keeps the API with keys and the MCP server off, whatever an admin turns on in the UI. The only other accepted value is unset. |
 | `VIHKO_EXTERNAL_IMAGES` | `allow` | `block` stops browsers loading images that notes link from other sites (which tells those sites who reads the note, and when); a box with the site's domain is shown instead. |
 | `VIHKO_MAX_IMAGE_MB` | `20` | The largest image vihko stores from an upload, a paste or a URL, in megabytes. |
@@ -331,6 +393,7 @@ Read by Compose, not by vihko:
 
 | Variable | Default | What it does |
 |---|---|---|
+| `VIHKO_UID`, `VIHKO_GID` | `1000` | The user and group vihko runs as, in the example `compose.yaml`: the owner of the notes folder. See [The user and file ownership](#the-user-and-file-ownership). |
 | `VIHKO_HOST_PORT` | `8080` | The host port in the example `compose.yaml`. |
 
 Other `VIHKO_*` variables you may see in the source code are for development
@@ -366,9 +429,9 @@ encrypted (AES-256-GCM).
        file: ./vihko_key.txt
    ```
 
-   The file must be readable by the container's user (`1000` unless you
-   changed `user:`): `chmod 600 vihko_key.txt` and
-   `sudo chown 1000:1000 vihko_key.txt`.
+   The file must be readable by vihko's user (`VIHKO_UID` in `.env`, which
+   also owns the state folder): `chmod 600 vihko_key.txt` and
+   `sudo chown "$(stat -c %u:%g state)" vihko_key.txt`.
 
 3. Restart vihko (`docker compose up -d`). The log says
    `VIHKO_SECRET_KEY: second factors are stored encrypted`, and how many it

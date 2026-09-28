@@ -36,9 +36,11 @@ test(`docker compose up over ${NOTES} notes: startup, search and kill -9`, { ski
   mkdirSync(ws.stateDir, { recursive: true })
   const port = freePort()
   const project = `vihko-acc-${port}`
-  // The example compose file as it is, plus the image to use and the user that owns the folders
-  // (and versions that close after 1 s without changes, to check the history without waiting).
-  writeFileSync(join(ws.root, 'compose.override.yaml'), `services:\n  vihko:\n    image: ${image}\n    user: "${process.getuid!()}:${process.getgid!()}"\n    environment:\n      VIHKO_HISTORY_QUIET_SECONDS: "1"\n`)
+  // The example compose file as it is, plus the image to use (and versions that close after 1 s
+  // without changes, to check the history without waiting).
+  writeFileSync(join(ws.root, 'compose.override.yaml'), `services:\n  vihko:\n    image: ${image}\n    environment:\n      VIHKO_HISTORY_QUIET_SECONDS: "1"\n`)
+  // The user that owns the folders, the way the installation guide sets it: its .env.
+  writeFileSync(join(ws.root, '.env'), `VIHKO_UID=${process.getuid!()}\nVIHKO_GID=${process.getgid!()}\n`)
   const compose = (args: string[], input?: string) => {
     const r = spawnSync('docker', ['compose', '-p', project, '--project-directory', ws.root, '-f', join(REPO, 'compose.yaml'), '-f', join(ws.root, 'compose.override.yaml'), ...args],
       { encoding: 'utf8', input, env: { ...process.env, VIHKO_HOST_PORT: String(port) } })

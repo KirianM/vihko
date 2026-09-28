@@ -223,11 +223,26 @@ folder is different from any other:
   `people/noa` to `archive/noa`) is refused, unless you manage that personal
   folder yourself: only its owner takes it out, seeing who gains access.
 
-The folder doesn't need to exist in advance. An admin who can edit `people/`
-can create `people/noa/` for a new person; then it disappears from the admin's
-own tree, since they can't read it. A daily-note series with `{user}` in its
-folder (see [Configuration](configuration.md#daily-daily-notes)) fits well
-inside it: `people/{user}/journal`.
+**The first time**, the folder doesn't exist yet, and nobody sees a folder
+that doesn't exist: until it does, a new person's tree says «You have no
+access to any folder yet» (unless something else is shared with them). Either
+of these creates it:
+
+- **Someone who can edit the folder above**, such as the admin who manages
+  the root: in the tree, `people`'s menu → «New folder inside…» → `noa`. It
+  disappears from the admin's own tree at once, since they can't read it, and
+  shows up in Noa's.
+- **The owner, by creating a note in it.** The `{user}` rule gives Noa
+  `manage` in `people/noa/` before it exists, so anything that creates a note
+  there creates the folder too: typing `people/noa/Plan` in «Search or
+  create…» (⌘K) and choosing «Create», a daily note of a series in
+  `people/{user}/…` («Today's note»), or an agent's key. Noa has to know the
+  path: nothing in the UI shows it before it exists, and «New note» only
+  appears once she can edit some folder she sees.
+
+A daily-note series with `{user}` in its folder (see
+[Configuration](configuration.md#daily-daily-notes)) fits well inside it:
+`people/{user}/journal`.
 
 To give someone else's personal folder to another person (after deleting
 someone, say), an admin writes a rule for that exact folder in `vihko.yaml`
