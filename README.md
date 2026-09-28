@@ -100,6 +100,7 @@ it's stopped):
 | `vihko user reset-link <name>` | Prints a one-time link (7 days) for that user to choose a new password: the way back for an admin who lost theirs. Any earlier link of theirs stops working. A second factor they have is still asked for after it |
 | `vihko user reset-2fa <name>` | Takes away that user's second factor (TOTP and recovery codes). With `reset-link`, the way back for an admin who lost both password and phone; also for whoever's second factor can't be read after `VIHKO_SECRET_KEY` was lost or changed |
 | `vihko history purge <path> [--version <id>] [--dry-run]` | Rewrites the managed history without a file or folder, or without one version of a file |
+| `vihko version` (or `vihko --version`) | Prints vihko's version |
 
 **`vihko history purge`** is for something that should never have been kept,
 such as a secret pasted into a note by mistake:

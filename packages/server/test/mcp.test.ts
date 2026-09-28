@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { VERSION } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -184,11 +185,13 @@ test('the instructions: who the key acts for and what it may do, and the workspa
   } finally { await h.close() }
 })
 
-test('the server\'s icon: the built UI\'s mark and app icon, as data URIs; none without a UI', async () => {
+test('the server\'s name, version and icon: the built UI\'s mark and app icon, as data URIs; none without a UI', async () => {
   const h = await setup({ files: FILES, ui: true })
   try {
     await h.enableMcp()
     const c = await h.mcp((await h.newKey({ name: m.aKeyName() })).token)
+    const info = c.client.getServerVersion()
+    assert.deepEqual([info?.name, info?.version], ['vihko', VERSION])
     const bytes = (path: string) => readFileSync(join(h.webDir!, path)).toString('base64')
     assert.deepEqual(c.client.getServerVersion()?.icons, [
       { src: `data:image/png;base64,${bytes('icons/icon-192.png')}`, mimeType: 'image/png', sizes: ['192x192'] },

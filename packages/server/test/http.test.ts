@@ -5,7 +5,7 @@ import { scryptSync } from 'node:crypto'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
-import { Auth, AuthError, Indexer, MAX_API_BODY, MAX_AUTH_BODY, MAX_PASSWORD, NoteService, Profiles, Workspace, SESSION_COOKIE, STATE_VERSION, createApp, ftsQuery, hashPassword, needsRehash, openIndex, openState, verifyPassword, type Runtime } from '@vihko/server'
+import { Auth, AuthError, Indexer, MAX_API_BODY, MAX_AUTH_BODY, MAX_PASSWORD, NoteService, Profiles, Workspace, SESSION_COOKIE, STATE_VERSION, VERSION, createApp, ftsQuery, hashPassword, needsRehash, openIndex, openState, verifyPassword, type Runtime } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { yamlKey } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
@@ -151,7 +151,7 @@ test('first boot: one-time token to create the admin', async () => {
 
 test('everything requires a session except health; login, session and logout', async () => {
   const { auth, req } = await setup()
-  assert.deepEqual((await req('GET', '/api/health')).body, { ok: true })
+  assert.deepEqual((await req('GET', '/api/health')).body, { ok: true, version: VERSION })
   const admin = m.aUser({ role: 'admin' })
   await auth.createUser(admin.username, admin.password, admin.role)
   for (const p of ['/api/tree', '/api/note?path=Plan.md', '/api/search?q=plan', '/api/alerts', '/api/auth/me']) {

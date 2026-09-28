@@ -8,7 +8,7 @@ import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  AdminSettings, Auth, Indexer, NoteService, Profiles, SESSION_COOKIE, Workspace, attachmentPath, createApp, fetchImage, isPublicAddress, openIndex, openState, sniffImage,
+  AdminSettings, Auth, Indexer, NoteService, Profiles, SESSION_COOKIE, VERSION, Workspace, attachmentPath, createApp, fetchImage, isPublicAddress, openIndex, openState, sniffImage,
   type ExternalImages, type FetchImageOptions, type Runtime,
 } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
@@ -260,7 +260,7 @@ test('external images: exposed to the UI, and the UI CSP follows the setting', a
   writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
   for (const [setting, allowed] of [['allow', true], ['block', false]] as const) {
     const { get } = await setup({ webDir, externalImages: setting, maxImageBytes: 1234 })
-    assert.deepEqual(await (await get('/api/config')).json(), { externalImages: setting, maxImageBytes: 1234, secretsEncrypted: false })
+    assert.deepEqual(await (await get('/api/config')).json(), { externalImages: setting, maxImageBytes: 1234, secretsEncrypted: false, version: VERSION })
     const csp = (await get('/')).headers.get('content-security-policy')!
     const img = /img-src ([^;]*)/.exec(csp)![1]!
     assert.equal(img.includes('https:'), allowed, csp)
