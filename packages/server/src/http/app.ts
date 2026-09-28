@@ -551,9 +551,15 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   // The workspace settings the UI needs from vihko.yaml (reloaded when it changes).
+  // Paths the person can't read aren't named (D-038): a series' template, the templates folder.
   app.get('/api/workspace', (c) => {
     const w = workspace.config
-    return c.json({ daily: w.daily, templates: w.templates, links: w.links })
+    const access = c.get('access')
+    return c.json({
+      daily: w.daily.map((s) => ({ ...s, template: s.template !== null && access.canRead(s.template) ? s.template : null })),
+      templates: w.templates !== null && access.level(w.templates) !== null ? w.templates : null,
+      links: w.links,
+    })
   })
 
   app.get('/api/profile', (c) => c.json(profiles.get(c.get('user').id)))
