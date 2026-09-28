@@ -332,6 +332,10 @@ test('CSRF: a write from another origin is rejected', async () => {
   const path = m.aNotePath()
   const r = await req('POST', '/api/note', { path, text: m.aSentence() }, { origin: 'https://malicious.example' })
   assert.equal(r.status, 403)
+  // An opaque origin (a sandboxed frame, a file) or one that isn't a URL is another origin too, not an error.
+  for (const origin of ['null', '://']) {
+    assert.deepEqual(errorOf(await req('POST', '/api/note', { path, text: m.aSentence() }, { origin })), [403, 'forbidden'], `Origin: ${origin}`)
+  }
   const same = await req('POST', '/api/note', { path, text: m.aSentence() }, { origin: 'http://localhost' })
   assert.equal(same.status, 201)
 })

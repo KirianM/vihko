@@ -34,6 +34,7 @@ import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
 import type { Via } from './actor.ts'
 import type { AccessPolicy } from './access.ts'
+import { sameHost } from './http/origin.ts'
 
 export const TEXT = 'md'
 /** Map in the document with the hub's metadata: `generation` (see `load`). */
@@ -480,28 +481,56 @@ export class CollabHub implements HotDocuments {
   /** Accepts WebSockets on `/collab` from users with a session and the same origin. */
   attach(server: Server, sessionCookie: string) {
     server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-      const url = new URL(req.url ?? '/', `http://${req.headers.host}`)
-      if (url.pathname !== COLLAB_PATH) return
-      const origin = req.headers.origin
-      if (origin && new URL(origin).host !== req.headers.host) return reject(socket, 403)
-      const token = parseCookie(req.headers.cookie ?? '', sessionCookie)
-      const user = this.opts.auth.session(token)
-      if (!user) return reject(socket, 401)
-      this.wss.handleUpgrade(req, socket, head, (ws) => {
-        const request = new Request(url, { headers: req.headers as Record<string, string> })
-        const session = sessionIdOf(token!)
-        const conn = this.hocuspocus.handleConnection(ws as never, request, { user, session })
-        const live = { userId: user.id, session, token: token!, close: (code: number, reason: string) => ws.close(code, reason) }
-        this.sockets.add(live)
-        ws.on('message', (data: Buffer) => conn.handleMessage(new Uint8Array(data)))
-        ws.on('close', (code: number, reason: Buffer) => { this.sockets.delete(live); conn.handleClose({ code, reason: reason.toString() }) })
-      })
+      // Whatever a client sends, it gets an answer: an exception here would
+      // be uncaught, and would take the whole server down.
+      try {
+        this.upgrade(req, socket, head, sessionCookie)
+      } catch (e) {
+        this.log(`a WebSocket upgrade failed: ${e}`)
+        socket.destroy()
+      }
     })
     this.checkTimer = setInterval(() => {
       for (const path of this.hot.keys()) this.checkExternal(path).catch((e) => this.log(`check of ${path}: ${e}`))
     }, this.opts.checkMs ?? 1000)
     // Groups and users change outside what vihko writes (piece U): looked at again now and then.
     if (this.opts.policy) this.accessTimer = setInterval(() => this.recheckAccess(), this.opts.accessCheckMs ?? 5000)
+  }
+
+  /**
+   * One upgrade request. Every header in it is the client's to write, and it
+   * hasn't signed in yet: the target is read against a fixed base (never
+   * the Host header), and an Origin that isn't a URL isn't this origin.
+   */
+  private upgrade(req: IncomingMessage, socket: Duplex, head: Buffer, sessionCookie: string) {
+    // Node's HTTP server stops listening for the socket's errors once it hands
+    // it over: a client that resets the connection would be an uncaught error.
+    socket.on('error', () => socket.destroy())
+    let url: URL
+    try {
+      url = new URL(req.url ?? '/', 'http://vihko.invalid')
+    } catch {
+      return reject(socket, 400)
+    }
+    // Nothing else here takes a WebSocket: answered, not left open.
+    if (url.pathname !== COLLAB_PATH) return reject(socket, 404)
+    const origin = req.headers.origin
+    if (origin && !sameHost(origin, req.headers.host)) return reject(socket, 403)
+    const token = parseCookie(req.headers.cookie ?? '', sessionCookie)
+    const user = this.opts.auth.session(token)
+    if (!user) return reject(socket, 401)
+    this.wss.handleUpgrade(req, socket, head, (ws) => {
+      const request = new Request(url, { headers: req.headers as Record<string, string> })
+      const session = sessionIdOf(token!)
+      const conn = this.hocuspocus.handleConnection(ws as never, request, { user, session })
+      const live = { userId: user.id, session, token: token!, close: (code: number, reason: string) => ws.close(code, reason) }
+      this.sockets.add(live)
+      // A frame the protocol doesn't allow: `ws` closes the connection and
+      // reports it here. Without a listener, the report would be uncaught.
+      ws.on('error', (e: Error) => this.log(`a WebSocket was closed: ${e.message}`))
+      ws.on('message', (data: Buffer) => conn.handleMessage(new Uint8Array(data)))
+      ws.on('close', (code: number, reason: Buffer) => { this.sockets.delete(live); conn.handleClose({ code, reason: reason.toString() }) })
+    })
   }
 
   // --- Access (D-038) ------------------------------------------------------------
@@ -1325,12 +1354,20 @@ function parseGeneration(token: string): string | null {
 function parseCookie(header: string, name: string): string | undefined {
   for (const part of header.split(';')) {
     const [k, ...v] = part.trim().split('=')
-    if (k === name) return decodeURIComponent(v.join('='))
+    if (k !== name) continue
+    // A value that isn't percent-encoded is no session vihko gave.
+    try {
+      return decodeURIComponent(v.join('='))
+    } catch {
+      return undefined
+    }
   }
   return undefined
 }
 
-function reject(socket: Duplex, status: 401 | 403) {
-  socket.write(`HTTP/1.1 ${status} ${status === 401 ? 'Unauthorized' : 'Forbidden'}\r\nConnection: close\r\n\r\n`)
+const REASONS = { 400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found' } as const
+
+function reject(socket: Duplex, status: keyof typeof REASONS) {
+  socket.write(`HTTP/1.1 ${status} ${REASONS[status]}\r\nConnection: close\r\n\r\n`)
   socket.destroy()
 }
