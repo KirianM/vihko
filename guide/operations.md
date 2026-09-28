@@ -131,13 +131,14 @@ docker compose logs -f vihko          # follow it
 docker compose logs --tail 50 vihko   # the last 50 lines
 ```
 
-A normal start:
+A normal start, after the first one:
 
 ```text
 [vihko] vihko 1.0.0-rc.1
-[vihko] no vihko.yaml: nothing configured
-[vihko] index ready: 1250 added, 0 changed, 0 removed, 0 unchanged
-[vihko] history sweep (enabled): 3 changes
+[vihko] vihko.yaml loaded
+[vihko] index ready: 0 added, 3 changed, 0 removed, 1247 unchanged
+[vihko] saved editor states: 41 of 42 match their file
+[vihko] history sweep (startup): 3 changes
 [vihko] listening on http://0.0.0.0:8080
 ```
 
@@ -146,8 +147,12 @@ The lines to know:
 | Line | What it means |
 |---|---|
 | `vihko <version>` | The first line of every start. |
+| `no vihko.yaml: nothing configured` | There's no [`vihko.yaml`](configuration.md): no daily notes or templates, and every admin manages the whole notes folder. |
+| `vihko.yaml loaded` | `vihko.yaml` was read and applies. Printed again whenever it changes. |
+| `vihko.yaml loaded without unknown_key at <key>, …` | It applies, except what the line lists: `unknown_key at <key>` is a key vihko doesn't know (a typo, or a setting of a newer vihko), which is ignored; `section_rejected at permissions` means the permissions section was rejected. The admins see each one, with its line, in the workspace alerts. See [When something is wrong](configuration.md#when-something-is-wrong). |
 | `index ready: …` | The first scan of the notes folder is done: notes added, changed, removed and unchanged since the index last saw them. |
-| `history sweep (…): N changes` | The notes folder compared with the history: N changes made while vihko wasn't looking (stopped, or missed) were saved as versions. |
+| `saved editor states: N of M match their file` | M notes have a saved editor state in `state/collab/` (every note opened in the editor has one), and N of them still match their file. The others changed while vihko was stopped, or the state was restored from a backup: each is loaded from its file the next time it's opened (`the saved document doesn't match the file`, below). Nothing to do. |
+| `history sweep (…): N changes` | The notes folder compared with the history: N changes vihko hadn't recorded were saved as versions. In brackets, when: `startup` (changes made while vihko was stopped), `enabled` (the first start with the history on: every note's starting point), `resumed` (the history had been off or unavailable), `periodic` (the regular check, hourly by default: `VIHKO_HISTORY_SWEEP_SECONDS`). Nothing is printed when there are no changes. |
 | `listening on http://0.0.0.0:8080` | Ready. The address is inside the container. |
 | `first boot: no users yet…` | No users yet; the next line has the one-time token. See [Installation](install.md#first-start). |
 | `public URL …` | `VIHKO_PUBLIC_URL` is set. |
@@ -159,12 +164,17 @@ The lines to know:
 | `vihko.yaml can't be used (…)` | A mistake in `vihko.yaml`: vihko keeps the last valid version. The admins see the details in the workspace alerts. See [Configuration](configuration.md). |
 | `moved outside vihko: a.md → b.md (…)` | A note was renamed or moved by another program; vihko followed it. |
 | `external change integrated into …` | A note open in an editor was changed by another program; the editors show the change. |
+| `<note>: the file changed after the note was closed, with vihko running; merged into its saved document` | Another program changed the note after its last editor closed it. When it's opened again, vihko merges that change into its saved editor state, so a browser that still had the note open offline merges its typing too. Normal when you also edit with other tools. |
+| `<note>: the saved document doesn't match the file; new generation` | The note's file changed while vihko was stopped (or the state volume was restored from a backup): it's loaded from its file. A browser that had it open offline keeps its unsent typing aside and asks what to do with it. |
 | `recovered … from the log (…)` | After a crash, typing that hadn't reached the file was recovered. |
 | `scan aborted: mass_delete` | A scan found most notes gone and stopped. See [Notes vanished](#notes-vanished-scan-stopped). |
 | `scan aborted: root_unavailable` | The notes folder isn't there (an unmounted share?). |
 | `history sweep: N of M files look deleted; not recorded (…)` | Same guard, for the history. |
 | `watcher: …` | The file watcher failed. The periodic rescan keeps vihko up to date meanwhile. |
 | `history unavailable: …` / `history available again` | The history couldn't save versions for a while; notes are saved as usual. |
+| `vihko runs as root (0:0), which it doesn't need: …` | `.env` (or its absence, as root) has vihko run as root. It works, but give the folders to an ordinary user: see [The user and file ownership](install.md#the-user-and-file-ownership). |
+| `the state folder … belongs to …, not to the user vihko runs as …, so vihko can't close it to other users of this system …` | vihko starts, but can't make the state folder private (mode `700`). The line says the `chown` that fixes it. |
+| `vihko can't write to the … folder …` / `vihko can't read the … folder …` / `the notes folder … doesn't exist …` | vihko stops, and Docker restarts it in a loop: see [Restarting in a loop](#restarting-in-a-loop-vihko-cant-write-to-the--folder). |
 
 Errors that stop vihko at start print the message and a stack trace. The
 first lines say what's wrong: see [Common problems](#common-problems).
