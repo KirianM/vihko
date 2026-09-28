@@ -2,7 +2,7 @@
 // never reaches these, http/routes.ts).
 //
 //   GET    /api/integrations            the switches, the lock, whether this user may create keys, and the public URL (OAuth)
-//   PUT    /api/admin/integrations      { api?, mcp?, membersCanCreateKeys?, oauthRegistration? }   the thoth admin only
+//   PUT    /api/admin/integrations      { api?, mcp?, membersCanCreateKeys?, oauthRegistration? }   the vihko admin only
 //   GET    /api/keys[?all=1]            this user's keys; with all=1, the admin gets everyone's
 //   POST   /api/keys                    { name, canWrite?, folders?, expiresAt?, confirm } → { key, token } (the token, once).
 //                                        `confirm`: the current TOTP code, or the password without a second factor (D-036)
@@ -20,7 +20,7 @@ type Env = { Variables: { user: User; token: string; access: Access } }
 export interface KeyRoutesDeps {
   keys: ApiKeys
   integrations: Integrations
-  /** THOTH_PUBLIC_URL, if set: OAuth is offered there while the MCP server is on. */
+  /** VIHKO_PUBLIC_URL, if set: OAuth is offered there while the MCP server is on. */
   publicUrl?: string | null
   /**
    * Confirms that the person is there now (the current TOTP code, or the

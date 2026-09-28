@@ -1,5 +1,5 @@
 {
-  "name": "@thoth/core",
+  "name": "@vihko/core",
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",

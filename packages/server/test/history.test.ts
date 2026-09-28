@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { chmodSync, existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Actor } from '@thoth/server'
+import type { Actor } from '@vihko/server'
 import { flakyGit, setup, sleep, who } from './_history.ts'
 import { yamlKey } from './_permissions.ts'
 import { tempDir } from './_tmp.ts'
@@ -26,7 +26,7 @@ test('the history starts with the whole folder as one system version', async () 
     assert.deepEqual(first.reason, { code: 'history_enabled' })
     assert.equal(who(first), 'system')
     const paths = first.files.map((f: any) => f.path)
-    for (const p of [NOTE, 'adjuntos/imagen.png', 'adjuntos/tablero.canvas', 'proyectos/thoth/Plan.sync-conflict-20260924-120000-ABCDEFG.md']) assert.ok(paths.includes(p), p)
+    for (const p of [NOTE, 'adjuntos/imagen.png', 'adjuntos/tablero.canvas', 'proyectos/vihko/Plan.sync-conflict-20260924-120000-ABCDEFG.md']) assert.ok(paths.includes(p), p)
     for (const p of paths) assert.ok(!p.split('/').some((s: string) => s.startsWith('.')) && !p.endsWith('~'), `ignored file in the history: ${p}`)
     assert.ok(first.files.every((f: any) => f.change === 'created'))
     assert.deepEqual(await h.admin('GET', '/api/history/status').then((r) => r.body), { mode: 'managed', available: true, error: null })
@@ -71,13 +71,13 @@ test('an open version closes after the quiet time, or at the maximum time while 
   } finally { await h.close() }
 })
 
-test('an external change closes what was pending; external changes in a row are one version, which a write of thoth\'s closes first; thoth\'s own writes never look external', async () => {
+test('an external change closes what was pending; external changes in a row are one version, which a write of vihko\'s closes first; vihko\'s own writes never look external', async () => {
   // A long quiet time: the external version must still be open when it's looked at.
   const h = await setup({ quietMs: 10_000 })
   const [admin1, outside1, outside2, admin2, outside3, admin3] = [m.aSentence(), m.aSentence(), m.aSentence(), m.aSentence(), m.aSentence(), m.aSentence()]
   try {
     await h.put(NOTE, (t) => t + `\n${admin1}\n`)
-    // The indexer sees thoth's own write, as the watcher and the rescan would.
+    // The indexer sees vihko's own write, as the watcher and the rescan would.
     h.indexer.indexPaths([NOTE], { detectMoves: true })
     h.indexer.scan()
     const file = join(h.notesDir, NOTE)
@@ -92,14 +92,14 @@ test('an external change closes what was pending; external changes in a row are 
     assert.deepEqual(open.pending.authors.map((a: any) => a.kind), ['external'])
     const mine = await h.admin('GET', `/api/history/version?path=${h.q(NOTE)}&id=${open.versions[0].id}`)
     assert.ok(mine.body.text.endsWith(`${admin1}\n`), 'the pending version keeps its own text')
-    // thoth writing the file closes the external version first, with both saves in it.
+    // vihko writing the file closes the external version first, with both saves in it.
     await h.put(NOTE, (t) => t + `${admin2}\n`)
     await h.settle()
     let { versions } = await h.versions(NOTE)
     assert.deepEqual(versions.map(who), [user(h.users.admin), 'external', user(h.users.admin), 'system'])
     assert.equal(versions[1].foundAtStartup, false)
     const ext = await h.admin('GET', `/api/history/version?path=${h.q(NOTE)}&id=${versions[1].id}`)
-    assert.ok(ext.body.text.endsWith(`${outside1}\n${outside2}\n`), 'the external version is the text right before thoth\'s write')
+    assert.ok(ext.body.text.endsWith(`${outside1}\n${outside2}\n`), 'the external version is the text right before vihko\'s write')
     // A cold write that reads a content the history doesn't know records it first as external.
     writeFileSync(file, readFileSync(file, 'utf8') + `${outside3}\n`)
     await h.put(NOTE, (t) => t + `${admin3}\n`)
@@ -192,7 +192,7 @@ test('a folder moved: the history of its notes follows it', async () => {
   } finally { await h.close() }
 })
 
-test('a note moved outside thoth is a move by external', async () => {
+test('a note moved outside vihko is a move by external', async () => {
   const h = await setup()
   try {
     // The name as it is on disk (NFC or NFD, whatever the copy kept).
@@ -245,12 +245,12 @@ test('files over the size limit stay out of the history, with an alert', async (
     const alerts = (await h.admin('GET', '/api/alerts')).body.alerts
     const a = alerts.find((x: any) => x.code === 'history_files_too_large')
     assert.deepEqual(a, { code: 'history_files_too_large', paths: [bigPath], limitMb: 0, actions: [] })
-    // A note written over the limit by thoth doesn't enter either.
+    // A note written over the limit by vihko doesn't enter either.
     await h.put(NOTE, (t) => t + 'x'.repeat(3000))
     await h.settle()
     assert.equal((await h.versions(NOTE)).versions.length, 1)
-    // A larger limit in thoth.yaml: the list follows it at once.
-    writeFileSync(join(h.notesDir, 'thoth.yaml'), 'history:\n  maxFileSize: 1\n')
+    // A larger limit in vihko.yaml: the list follows it at once.
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), 'history:\n  maxFileSize: 1\n')
     h.workspace.reload()
     await h.history.configure()
     assert.ok(!(await h.admin('GET', '/api/alerts')).body.alerts.some((x: any) => x.code === 'history_files_too_large'))
@@ -271,7 +271,7 @@ test('history.exclude keeps files out of the history without hiding them; a move
     const paths = first.files.map((f: any) => f.path)
     assert.ok(paths.includes(DRAFT) && paths.includes(NOTE))
     assert.ok(!paths.includes(BOOK) && !paths.includes(PDF), 'excluded files never enter')
-    // Not hidden from thoth: read, edited and indexed as ever.
+    // Not hidden from vihko: read, edited and indexed as ever.
     assert.equal((await h.admin('GET', `/api/note?path=${h.q(BOOK)}`)).status, 200)
     await h.put(BOOK, (t) => t + `${m.aSentence()}\n`)
     writeFileSync(join(h.notesDir, PDF), m.aSecret())
@@ -309,7 +309,7 @@ test('history.exclude keeps files out of the history without hiding them; a move
     assert.equal(who(folder), user(h.users.admin))
 
     // A new pattern applies at once; what the history holds stays.
-    writeFileSync(join(h.notesDir, 'thoth.yaml'), config + `    - ${JSON.stringify(drafts)}\n`)
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), config + `    - ${JSON.stringify(drafts)}\n`)
     h.workspace.reload()
     await h.history.configure()
     const before = (await h.versions(DRAFT)).versions.length
@@ -320,28 +320,28 @@ test('history.exclude keeps files out of the history without hiding them; a move
     assert.equal(secret.excluded, true)
 
     // An invalid pattern is a configuration error: the last valid list stays in force.
-    writeFileSync(join(h.notesDir, 'thoth.yaml'), `history:\n  exclude:\n    - ${JSON.stringify(`/${drafts}`)}\n`)
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), `history:\n  exclude:\n    - ${JSON.stringify(`/${drafts}`)}\n`)
     h.workspace.reload()
     await h.history.configure()
     assert.deepEqual(h.workspace.status.errors.map((e) => [e.code, e.at, e.detail]), [['invalid_pattern', 'history.exclude.0', `/${drafts}`]])
     assert.equal((await h.versions(DRAFT)).excluded, true)
 
     // Without the patterns, what is on disk enters the history at once.
-    writeFileSync(join(h.notesDir, 'thoth.yaml'), '')
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), '')
     h.workspace.reload()
     await h.history.configure()
     await h.settle()
     const now = (await h.changes()).changes[0]
     assert.equal(who(now), 'external')
     assert.deepEqual(now.files.map((f: any) => [f.path, f.change]).sort(), [
-      // (thoth.yaml changed too: its versions aren't listed to anyone, D-038.)
+      // (vihko.yaml changed too: its versions aren't listed to anyone, D-038.)
       [PDF, 'created'], [BOOK, 'created'], [DRAFT, 'modified'],
       ...inFolder.map((p) => [`${library}/${p}`, 'created']),
     ].sort())
   } finally { await h.close() }
 })
 
-test('history.exclude at startup: an excluded file changed while thoth was stopped is not recorded', async () => {
+test('history.exclude at startup: an excluded file changed while vihko was stopped is not recorded', async () => {
   const excluded = m.aFolder()
   const [diary, added] = [m.aNotePath(excluded), m.aNotePath(excluded)]
   const heading = `# ${m.aHeading()}\n`
@@ -428,7 +428,7 @@ test('diffs by words against the previous version, the current text or another v
     await h.settle()
     const { versions } = await h.versions('tags.md')
     const d = await h.admin('GET', `/api/history/diff?path=tags.md&id=${versions[0].id}`)
-    // thoth gave the note a uid in its first write: the frontmatter is the same in both.
+    // vihko gave the note a uid in its first write: the frontmatter is the same in both.
     const fm = d.body.ops[0][1] as string
     assert.match(fm, new RegExp(`^---\\nuid: \\w+\\n---\\n${w1} $`))
     assert.deepEqual(d.body.ops, [[0, fm], [-1, w2], [1, w4], [0, ` ${w3}\n`]])
@@ -499,7 +499,7 @@ test('«Recent changes» filters file by file with the permission check, and by 
 })
 
 test('a failing git never blocks a write: it is reported, and the history catches up when git is back', async () => {
-  const dir = tempDir('thoth-git-')
+  const dir = tempDir('vihko-git-')
   const { git, flag } = flakyGit(dir)
   const h = await setup({ git })
   try {
@@ -523,8 +523,8 @@ test('a failing git never blocks a write: it is reported, and the history catche
   } finally { await h.close(); rmSync(dir, { recursive: true, force: true }) }
 })
 
-test('the history\'s git gc runs in the foreground and ends with thoth: closing stops it, so no git outlives the state volume\'s lock', async () => {
-  const dir = tempDir('thoth-git-')
+test('the history\'s git gc runs in the foreground and ends with vihko: closing stops it, so no git outlives the state volume\'s lock', async () => {
+  const dir = tempDir('vihko-git-')
   const git = join(dir, 'git-gc.sh')
   const seen = join(dir, 'gc-args')
   // A gc that would run for a minute (the wrapper becomes it: its PID is the child's).
@@ -548,7 +548,7 @@ test('the history\'s git gc runs in the foreground and ends with thoth: closing 
 })
 
 test('git failing so long that the queue reaches its cap: the oldest versions merge into later ones, keeping contents and authors, with an alert while it lasts', async () => {
-  const dir = tempDir('thoth-git-')
+  const dir = tempDir('vihko-git-')
   const { git, flag } = flakyGit(dir)
   const h = await setup({ git, queueMax: 2 })
   const until = async (cond: () => Promise<boolean>, what: string) => {
@@ -608,23 +608,23 @@ test('git failing so long that the queue reaches its cap: the oldest versions me
   } finally { await h.close(); rmSync(dir, { recursive: true, force: true }) }
 })
 
-test('thoth.yaml turns the history off and on: nothing recorded meanwhile is attributed', async () => {
+test('vihko.yaml turns the history off and on: nothing recorded meanwhile is attributed', async () => {
   const h = await setup()
   try {
-    writeFileSync(join(h.notesDir, 'thoth.yaml'), 'history:\n  mode: off\n')
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), 'history:\n  mode: off\n')
     h.workspace.reload()
     await h.history.configure()
     assert.deepEqual((await h.admin('GET', '/api/history/status')).body, { mode: 'off', available: false, error: null })
     assert.equal((await h.admin('GET', `/api/history/versions?path=${h.q(NOTE)}`)).body.error, 'history_off')
     await h.put(NOTE, (t) => t + `\n${m.aSentence()}\n`)
-    writeFileSync(join(h.notesDir, 'thoth.yaml'), 'history:\n  mode: managed\n')
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), 'history:\n  mode: managed\n')
     h.workspace.reload()
     await h.history.configure()
     await h.settle()
     const { changes } = await h.changes()
     assert.deepEqual(changes[0].reason, { code: 'history_resumed' })
     assert.equal(who(changes[0]), 'system')
-    // thoth.yaml is in that version too, but it isn't listed to anyone (it holds the permissions, D-038).
+    // vihko.yaml is in that version too, but it isn't listed to anyone (it holds the permissions, D-038).
     assert.deepEqual(changes[0].files.map((f: any) => f.path).sort(), [NOTE])
     assert.equal(changes.length, 2)
   } finally { await h.close() }
@@ -645,11 +645,11 @@ test('unmanaged mode without a repository says so', async () => {
   } finally { await h.close() }
 })
 
-test('changes made while thoth was stopped are external, found at startup; what the journal left pending keeps its authors', async () => {
+test('changes made while vihko was stopped are external, found at startup; what the journal left pending keeps its authors', async () => {
   const h = await setup()
   await h.settle()
   const pendingText = m.aSentence()
-  // Something pending when thoth stops (closing doesn't commit it: the journal keeps it).
+  // Something pending when vihko stops (closing doesn't commit it: the journal keeps it).
   await h.put(NOTE, (t) => t + `\n${pendingText}\n`)
   await h.close()
   const file = join(h.notesDir, NOTE)

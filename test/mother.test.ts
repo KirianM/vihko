@@ -1,17 +1,17 @@
-// The mother itself: its values follow thoth's rules, names never repeat
-// under thoth's comparison, and the same seed gives the same values.
+// The mother itself: its values follow vihko's rules, names never repeat
+// under vihko's comparison, and the same seed gives the same values.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { classifyPath } from '@thoth/core'
-import { caseFold } from '@thoth/core/casefold'
+import { classifyPath } from '@vihko/core'
+import { caseFold } from '@vihko/core/casefold'
 import { subjectKey as coreSubjectKey } from '../packages/core/src/permissions.ts'
-import { MIN_PASSWORD as SERVER_MIN_PASSWORD, NAME_PATTERN as SERVER_NAME_PATTERN, NoteService } from '@thoth/server'
+import { MIN_PASSWORD as SERVER_MIN_PASSWORD, NAME_PATTERN as SERVER_NAME_PATTERN, NoteService } from '@vihko/server'
 import { MIN_PASSWORD, NAME_PATTERN, RESERVED, SEED, mother, subjectKey } from './mother.ts'
 
 const m = mother(import.meta.url)
 
-test("the mother's rules are thoth's own", () => {
+test("the mother's rules are vihko's own", () => {
   assert.equal(NAME_PATTERN.source, SERVER_NAME_PATTERN.source)
   assert.equal(NAME_PATTERN.flags, SERVER_NAME_PATTERN.flags)
   assert.equal(MIN_PASSWORD, SERVER_MIN_PASSWORD)
@@ -91,7 +91,7 @@ test('the same seed gives the same values; another seed, others', () => {
 const m = mother('same-seed')
 console.log(JSON.stringify([m.aUsername(), m.aPassword(), m.aGroupName(), m.aNotePath(m.aFolder()), m.aTag(), m.aSentence(), m.aTimeZone()]))`
   const run = (seed: string) => {
-    const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: new URL('..', import.meta.url), env: { ...process.env, THOTH_TEST_SEED: seed }, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: new URL('..', import.meta.url), env: { ...process.env, VIHKO_TEST_SEED: seed }, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     return r.stdout
   }

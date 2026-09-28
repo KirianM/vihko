@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { extract, isImageRef, markdownDest, resolveImageRef } from '@thoth/core'
+import { extract, isImageRef, markdownDest, resolveImageRef } from '@vihko/core'
 
 test('image references: by extension, ignoring query and anchor', () => {
   for (const r of ['a.png', 'b/C.JPG', 'x.webp?v=2', 'https://h/i.avif#f', 'd.svg']) assert.ok(isImageRef(r), r)
@@ -8,10 +8,10 @@ test('image references: by extension, ignoring query and anchor', () => {
 })
 
 test('relative references resolve against the note folder and never leave the root', () => {
-  assert.equal(resolveImageRef('proyectos/thoth/plan.md', 'plan-2026.png'), 'proyectos/thoth/plan-2026.png')
-  assert.equal(resolveImageRef('proyectos/thoth/plan.md', './img/a%20b.png'), 'proyectos/thoth/img/a b.png')
-  assert.equal(resolveImageRef('proyectos/thoth/plan.md', '../../x.png'), 'x.png')
-  assert.equal(resolveImageRef('proyectos/thoth/plan.md', '/adjuntos/x.png'), 'adjuntos/x.png')
+  assert.equal(resolveImageRef('proyectos/vihko/plan.md', 'plan-2026.png'), 'proyectos/vihko/plan-2026.png')
+  assert.equal(resolveImageRef('proyectos/vihko/plan.md', './img/a%20b.png'), 'proyectos/vihko/img/a b.png')
+  assert.equal(resolveImageRef('proyectos/vihko/plan.md', '../../x.png'), 'x.png')
+  assert.equal(resolveImageRef('proyectos/vihko/plan.md', '/adjuntos/x.png'), 'adjuntos/x.png')
   assert.equal(resolveImageRef('plan.md', '<mi imagen.png>'), 'mi imagen.png')
   assert.equal(resolveImageRef('a/plan.md', 'a%20b.png', { embed: true }), 'a/a%20b.png', 'embeds are not URL-decoded')
   for (const bad of ['../../x.png', '../../../x.png', 'https://h/x.png', '//h/x.png', 'data:image/png;base64,AA', '']) {

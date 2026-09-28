@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { Indexer, NoteService, openIndex, type Actor } from '@thoth/server'
+import { Indexer, NoteService, openIndex, type Actor } from '@vihko/server'
 import { setup as appSetup } from './_app.ts'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -31,7 +31,7 @@ const HEADING = m.aHeading()
 const sorted = (...texts: string[]) => [...texts].sort()
 
 function setup() {
-  const dir = tempDir('thoth-comment-anchors-')
+  const dir = tempDir('vihko-comment-anchors-')
   const notesDir = join(dir, 'notes')
   mkdirSync(notesDir, { recursive: true })
   let n = 0

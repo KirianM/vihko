@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { cpSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Indexer, NoteService, openIndex, type Actor } from '@thoth/server'
+import { Indexer, NoteService, openIndex, type Actor } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -16,10 +16,10 @@ const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
 // Over the test vault: its two notes named Tareas are the ambiguity; the new names are the mother's.
 const DIARY = 'diario/2026-09-24.md'
-const BOTH = ['proyectos/blog/Tareas.md', 'proyectos/thoth/Tareas.md']
+const BOTH = ['proyectos/blog/Tareas.md', 'proyectos/vihko/Tareas.md']
 
 function setup(extra: Record<string, string> = {}) {
-  const dir = tempDir('thoth-shifts-')
+  const dir = tempDir('vihko-shifts-')
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
   for (const [p, text] of Object.entries(extra)) writeFileSync(join(notesDir, p), text)
@@ -54,17 +54,17 @@ test('leaving a tie also resolves a link silently: it is listed with the note it
   const { notes } = setup()
   const r = await notes.move('proyectos/blog/Tareas.md', m.aNotePath('proyectos/blog'), { actor: me, dryRun: true })
   assert.deepEqual(r.shifted.map((g) => [g.path, g.changes.map((c) => [c.raw, c.code, c.after])]), [
-    [DIARY, [['[[Tareas]]', 'resolves', { status: 'resolved', path: 'proyectos/thoth/Tareas.md' }]]],
+    [DIARY, [['[[Tareas]]', 'resolves', { status: 'resolved', path: 'proyectos/vihko/Tareas.md' }]]],
   ])
 })
 
 test("the moved note's own ambiguous links count too, under its new path", async () => {
   const name = `${m.aTitle()}.md`
   const { notes } = setup({ [name]: `# ${m.aHeading()}\n\n- [[Tareas]] ${m.aSentence()}\n` })
-  const r = await notes.move(name, `proyectos/thoth/${name}`, { actor: me, dryRun: true })
+  const r = await notes.move(name, `proyectos/vihko/${name}`, { actor: me, dryRun: true })
   assert.deepEqual(r.shifted, [{
-    path: `proyectos/thoth/${name}`, links: 1,
-    changes: [{ raw: '[[Tareas]]', code: 'resolves', before: { status: 'ambiguous', candidates: BOTH }, after: { status: 'resolved', path: 'proyectos/thoth/Tareas.md' } }],
+    path: `proyectos/vihko/${name}`, links: 1,
+    changes: [{ raw: '[[Tareas]]', code: 'resolves', before: { status: 'ambiguous', candidates: BOTH }, after: { status: 'resolved', path: 'proyectos/vihko/Tareas.md' } }],
   }])
 })
 

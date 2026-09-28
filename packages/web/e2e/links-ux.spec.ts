@@ -1,5 +1,5 @@
 // Link fixes (D-031): an ambiguous link opens a picker of its candidates
-// (open one, or pin the link to it), and a note renamed outside thoth raises
+// (open one, or pin the link to it), and a note renamed outside vihko raises
 // an alert whose «Update links» rewrites the links left behind.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
@@ -18,7 +18,7 @@ test.beforeAll(() => { mkdirSync(`${NOTES}/${DIR}`, { recursive: true }); mkdirS
 const BEFORE = m.aWord()
 const AFTER = m.aSentence()
 /**
- * A note with an ambiguous [[Tareas]]: testdata/vault's proyectos/thoth and
+ * A note with an ambiguous [[Tareas]]: testdata/vault's proyectos/vihko and
  * proyectos/blog both have one, as close from here (an integration over the vault).
  */
 function ambiguousNote(name: string, text = `# ${name}\n\n${BEFORE} [[Tareas]] ${AFTER}\n`) {
@@ -41,7 +41,7 @@ test('the picker lists the candidates by title and path; «Pin» rewrites that l
   await expect(rows).toHaveCount(2)
   await expect(rows.nth(0)).toContainText('Tareas de blog')
   await expect(rows.nth(0)).toContainText('proyectos/blog/Tareas.md')
-  await expect(rows.nth(1)).toContainText('Tareas de thoth')
+  await expect(rows.nth(1)).toContainText('Tareas de vihko')
   await p.getByRole('button', { name: 'Fijar el enlace a proyectos/blog/Tareas.md' }).click()
   await expect(p).toHaveCount(0)
   await expect(k.getByRole('status').filter({ hasText: 'Fijado' })).toContainText('[[blog/Tareas]]')
@@ -59,13 +59,13 @@ test('opening a candidate goes there and offers «Pin this destination», which 
   const note = ambiguousNote(title, `# ${title}\n\n- [[Tareas|${label}]] ${rest}\n`)
   const k = await signIn(browser, ADMIN, note)
   await k.locator('.cm-wikilink-ambiguous a', { hasText: label }).click()
-  await picker(k).getByRole('row', { name: /Tareas de thoth/ }).click()
-  await expect(k.locator('.crumbs')).toHaveText('proyectos / thoth / Tareas')
+  await picker(k).getByRole('row', { name: /Tareas de vihko/ }).click()
+  await expect(k.locator('.crumbs')).toHaveText('proyectos / vihko / Tareas')
   const offer = k.locator('.pin-offer')
   await expect(offer).toContainText(`Has llegado desde «Tareas», un enlace ambiguo de «${title}».`)
   await offer.getByRole('button', { name: 'Fijar este destino' }).click()
-  await expect(offer).toContainText(`Fijado: en «${title}» el enlace ahora es [[thoth/Tareas|${label}]]`)
-  expect(disk(note)).toContain(`- [[thoth/Tareas|${label}]] ${rest}`)
+  await expect(offer).toContainText(`Fijado: en «${title}» el enlace ahora es [[vihko/Tareas|${label}]]`)
+  expect(disk(note)).toContain(`- [[vihko/Tareas|${label}]] ${rest}`)
   // Nothing is written without that press: going elsewhere drops the offer.
   await k.goto(`/?note=${encodeURIComponent(note)}`)
   await expect(k.locator('.pin-offer')).toHaveCount(0)
@@ -83,7 +83,7 @@ test('from the panel, with the keyboard: the picker opens on the link, arrows an
   await expect(p.getByRole('row').first()).toBeFocused()
   await k.keyboard.press('ArrowDown')
   await k.keyboard.press('Enter')
-  await expect(k.locator('.crumbs')).toHaveText('proyectos / thoth / Tareas')
+  await expect(k.locator('.crumbs')).toHaveText('proyectos / vihko / Tareas')
   await expect(k.locator('.pin-offer')).toBeVisible()
   expect(disk(note), 'opening writes nothing').toContain(`${BEFORE} [[Tareas]] ${AFTER}`)
   // Escape closes the picker without doing anything.
@@ -130,7 +130,7 @@ test('screenshots of the picker: light, dark and a phone', async ({ browser }) =
   await ctx.close()
 })
 
-// --- A note renamed outside thoth -------------------------------------------------
+// --- A note renamed outside vihko -------------------------------------------------
 
 test('renamed on disk: the alert says where it went and how many links point to the old path; «Update links» fixes them', async ({ browser }) => {
   // A note linked by name and by a heading, with a text of its own.
@@ -144,12 +144,12 @@ test('renamed on disk: the alert says where it went and how many links point to 
   // Another tool renames it.
   renameSync(`${NOTES}/${dest}`, `${NOTES}/${DIR}/${renamedName}.md`)
   await k.goto('/?view=avisos')
-  const card = k.locator('.alert-card', { hasText: 'se movió fuera de thoth' })
+  const card = k.locator('.alert-card', { hasText: 'se movió fuera de vihko' })
   await expect(async () => {
     await k.reload()
     await expect(card).toBeVisible({ timeout: 1000 })
   }).toPass({ timeout: 20_000 })
-  await expect(card.getByRole('heading')).toHaveText(`${dest} se movió fuera de thoth a ${DIR}/${renamedName}.md`)
+  await expect(card.getByRole('heading')).toHaveText(`${dest} se movió fuera de vihko a ${DIR}/${renamedName}.md`)
   await expect(card).toContainText('2 enlaces siguen apuntando a la ruta antigua')
   expect(disk(origin), 'nothing rewritten on its own').toContain(`[[${name}]] ${w1}`)
 
@@ -204,8 +204,8 @@ test('the open note renamed on disk: the editor follows it (URL, tree), keeps wh
   await expect(k.getByRole('row', { name, exact: true })).toHaveCount(0)
   await expect(k.locator('.cm-content')).toContainText(sent)
   await expect(k.getByRole('alert').filter({ hasText: 'se ha borrado fuera' })).toHaveCount(0)
-  const toast = k.getByRole('status').filter({ hasText: 'se ha movido fuera de thoth' })
-  await expect(toast).toHaveText(`«${name}» se ha movido fuera de thoth a ${renamed}: la nota lo ha seguido y lo que escribías está a salvo. 1 enlace sigue apuntando a la ruta antigua.`)
+  const toast = k.getByRole('status').filter({ hasText: 'se ha movido fuera de vihko' })
+  await expect(toast).toHaveText(`«${name}» se ha movido fuera de vihko a ${renamed}: la nota lo ha seguido y lo que escribías está a salvo. 1 enlace sigue apuntando a la ruta antigua.`)
   await k.screenshot({ path: `${SHOTS}/movida-fuera-abierta.png`, animations: 'disabled' })
 
   // Editing goes on at the new path; everything is there once, and the old path stays gone.
@@ -220,7 +220,7 @@ test('the open note renamed on disk: the editor follows it (URL, tree), keeps wh
 
   // «See alerts»: the alert offers to update the link left behind.
   await k.getByRole('button', { name: 'Ver avisos' }).click()
-  const card = k.locator('.alert-card', { hasText: `${note} se movió fuera de thoth` })
+  const card = k.locator('.alert-card', { hasText: `${note} se movió fuera de vihko` })
   await expect(card).toBeVisible()
   await card.getByRole('button', { name: 'Actualizar enlaces' }).click()
   await k.getByRole('dialog', { name: 'Actualizar enlaces' }).getByRole('button', { name: 'Actualizar 1 enlace' }).click()

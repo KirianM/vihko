@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { addDays, canonicalTimeZone, civilNow, formatDate, isValidDate, isoWeek, isoWeekStart } from '@thoth/core'
+import { addDays, canonicalTimeZone, civilNow, formatDate, isValidDate, isoWeek, isoWeekStart } from '@vihko/core'
 
 test('timezones: IANA names only', () => {
   assert.equal(canonicalTimeZone('Europe/Madrid'), 'Europe/Madrid')

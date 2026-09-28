@@ -6,8 +6,8 @@ import { markdownLinkNote, wikiLinkNote } from '../src/editor/createLink.ts'
 const NOTES: NoteEntry[] = [
   { path: 'Plan.md', title: 'Plan general' },
   { path: 'proyectos/blog/Plan.md', title: 'Plan' },
-  { path: 'proyectos/thoth/Plan.md', title: 'Plan' },
-  { path: 'proyectos/thoth/Tareas.md', title: 'Tareas' },
+  { path: 'proyectos/vihko/Plan.md', title: 'Plan' },
+  { path: 'proyectos/vihko/Tareas.md', title: 'Tareas' },
   { path: 'hogar/Proxy.md', title: 'Proxy', aliases: ['gw', 'Hipervisor'] },
   { path: 'hogar/enlaces.md', title: 'Enlaces' },
   { path: 'recetas/Café.md', title: 'Café' },
@@ -58,8 +58,8 @@ test('rank: accent- and case-insensitive, by title, file name and alias; the cur
 })
 
 test('rank: exact names first, then notes in the same folder, then shorter titles', () => {
-  const plans = catalog.rank('plan', 'proyectos/thoth/Tareas.md').map((m) => m.path)
-  assert.equal(plans[0], 'proyectos/thoth/Plan.md', 'same folder wins a tie')
+  const plans = catalog.rank('plan', 'proyectos/vihko/Tareas.md').map((m) => m.path)
+  assert.equal(plans[0], 'proyectos/vihko/Plan.md', 'same folder wins a tie')
   assert.deepEqual(plans.slice(1, 3), ['proyectos/blog/Plan.md', 'Plan.md'])
   assert.equal(plans.at(-1), 'planificación.md')
   assert.ok(catalog.rank('', 'x.md').length > 0, 'an empty query lists notes')
@@ -84,12 +84,12 @@ test('linkTarget: the shortest link that resolves from the current note', () => 
   assert.equal(catalog.linkTarget('hogar/enlaces.md', 'Plan.md'), 'Plan')
   assert.equal(catalog.linkTarget('proyectos/blog/x.md', 'Plan.md'), '/Plan')
   assert.equal(catalog.resolve('hogar/enlaces.md', 'gw'), 'hogar/Proxy.md')
-  assert.equal(catalog.resolve('hogar/enlaces.md', 'thoth/plan'), 'proyectos/thoth/Plan.md')
+  assert.equal(catalog.resolve('hogar/enlaces.md', 'vihko/plan'), 'proyectos/vihko/Plan.md')
   assert.equal(catalog.resolve('recetas/x.md', 'Nope'), null)
   assert.deepEqual(catalog.displays('hogar/Proxy.md'), ['Proxy', 'gw', 'Hipervisor'])
 })
 
-test('with aliases off (thoth.yaml), aliases are still suggested but only resolve as visible text', () => {
+test('with aliases off (vihko.yaml), aliases are still suggested but only resolve as visible text', () => {
   const off = new NoteCatalog(NOTES, { aliases: false })
   const gw = off.rank('hiper', 'x.md')[0]!
   assert.deepEqual([gw.path, gw.alias], ['hogar/Proxy.md', 'Hipervisor'], 'still suggested, inserted as [[Proxy|Hipervisor]]')
@@ -121,8 +121,8 @@ test('completionEnd: the rest of an old value up to ]] | or # is replaced; other
 })
 
 test('a broken wikilink creates its note where the link will find it', () => {
-  assert.deepEqual(wikiLinkNote('proyectos/thoth/notas.md', '[[Nota que no existe]]'),
-    { path: 'proyectos/thoth/Nota que no existe.md', title: 'Nota que no existe', raw: '[[Nota que no existe]]' })
+  assert.deepEqual(wikiLinkNote('proyectos/vihko/notas.md', '[[Nota que no existe]]'),
+    { path: 'proyectos/vihko/Nota que no existe.md', title: 'Nota que no existe', raw: '[[Nota que no existe]]' })
   assert.equal(wikiLinkNote('raiz.md', '[[Nueva#Sección|texto]]')?.path, 'Nueva.md')
   assert.equal(wikiLinkNote('a/b.md', '[[sub/Nueva]]')?.path, 'a/sub/Nueva.md')
   assert.equal(wikiLinkNote('a/b.md', '[[/otra/Nueva]]')?.path, 'otra/Nueva.md')

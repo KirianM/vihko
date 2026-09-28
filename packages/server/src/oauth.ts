@@ -1,13 +1,13 @@
 // OAuth 2.1 for the MCP server (m3 §7, D-035), so that remote clients such as
-// claude.ai can connect without anyone pasting a key. thoth is its own
+// claude.ai can connect without anyone pasting a key. vihko is its own
 // authorization server, as small as the flow allows:
 //
-// - It only exists when the server's administrator gives thoth a public HTTPS
-//   address (THOTH_PUBLIC_URL) and the MCP switch is on. Otherwise every
+// - It only exists when the server's administrator gives vihko a public HTTPS
+//   address (VIHKO_PUBLIC_URL) and the MCP switch is on. Otherwise every
 //   OAuth address answers 404 and `/mcp` takes keys only.
 // - Metadata: RFC 8414 (authorization server) and RFC 9728 (the protected
 //   resource, `<public>/mcp`, named in the `WWW-Authenticate` of its 401).
-// - Dynamic client registration (RFC 7591), which the thoth admin may turn
+// - Dynamic client registration (RFC 7591), which the vihko admin may turn
 //   off (clients already registered keep working). Public clients (`none`)
 //   and clients with a secret (`client_secret_post`/`_basic`). Registrations
 //   are limited per address (http/oauth.ts).
@@ -36,8 +36,8 @@ import type { Db } from './db.ts'
 import type { Integrations } from './integrations.ts'
 import { checkFolders, type ApiKeys } from './keys.ts'
 
-export const ACCESS_PREFIX = 'thoth_oat_'
-export const REFRESH_PREFIX = 'thoth_ort_'
+export const ACCESS_PREFIX = 'vihko_oat_'
+export const REFRESH_PREFIX = 'vihko_ort_'
 /** How long a code waits to be exchanged. */
 export const CODE_TTL_MS = 5 * 60_000
 /** How long an access token lives. */
@@ -61,7 +61,7 @@ const LOOPBACK = new Set(['127.0.0.1', '[::1]', 'localhost'])
 /** Schemes a redirect URI can never have: they'd run or read something in the browser. */
 const BANNED_SCHEMES = new Set(['javascript:', 'data:', 'vbscript:', 'file:', 'blob:', 'about:', 'filesystem:', 'ws:', 'wss:', 'ftp:'])
 
-/** The `error` codes of RFC 6749 §4.1.2.1 and §5.2, RFC 7591 §3.2.2 and RFC 8707 that thoth uses. */
+/** The `error` codes of RFC 6749 §4.1.2.1 and §5.2, RFC 7591 §3.2.2 and RFC 8707 that vihko uses. */
 export type OAuthErrorCode =
   | 'invalid_request' | 'invalid_client' | 'invalid_grant' | 'unauthorized_client' | 'unsupported_grant_type'
   | 'unsupported_response_type' | 'access_denied' | 'invalid_target' | 'invalid_redirect_uri' | 'invalid_client_metadata'
@@ -187,16 +187,16 @@ const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex')
 const random = () => randomBytes(32).toString('base64url')
 
 /**
- * THOTH_PUBLIC_URL: unset (no OAuth), or the HTTPS origin where thoth is
+ * VIHKO_PUBLIC_URL: unset (no OAuth), or the HTTPS origin where vihko is
  * reached from outside (behind a reverse proxy), with nothing after it.
  */
 export function publicUrlFrom(raw: string | undefined): string | null {
   const v = (raw ?? '').trim()
   if (!v) return null
   let u: URL
-  try { u = new URL(v) } catch { throw new Error(`THOTH_PUBLIC_URL must be an address such as https://notes.example.com, not "${raw}"`) }
-  if (u.protocol !== 'https:') throw new Error(`THOTH_PUBLIC_URL must be https: OAuth needs it (not "${raw}")`)
-  if (u.username || u.password || u.search || u.hash || u.pathname !== '/') throw new Error(`THOTH_PUBLIC_URL must be only the origin (https://host[:port]), where thoth answers at the root, not "${raw}"`)
+  try { u = new URL(v) } catch { throw new Error(`VIHKO_PUBLIC_URL must be an address such as https://notes.example.com, not "${raw}"`) }
+  if (u.protocol !== 'https:') throw new Error(`VIHKO_PUBLIC_URL must be https: OAuth needs it (not "${raw}")`)
+  if (u.username || u.password || u.search || u.hash || u.pathname !== '/') throw new Error(`VIHKO_PUBLIC_URL must be only the origin (https://host[:port]), where vihko answers at the root, not "${raw}"`)
   return u.origin
 }
 
@@ -205,7 +205,7 @@ export interface OAuthOptions {
   state: Db
   keys: ApiKeys
   integrations: Integrations
-  /** THOTH_PUBLIC_URL (publicUrlFrom); null: OAuth doesn't exist. */
+  /** VIHKO_PUBLIC_URL (publicUrlFrom); null: OAuth doesn't exist. */
   publicUrl: string | null
   now?: () => Date
   /** Fetches clients' metadata documents (cimd.ts). One of its own by default; tests pass one that may reach a local server. */
@@ -279,7 +279,7 @@ export class OAuthServer {
 
   /** RFC 9728. */
   resourceMetadata(): OAuthProtectedResourceMetadata {
-    return { resource: this.resource, authorization_servers: [this.issuer], bearer_methods_supported: ['header'], resource_name: 'thoth' }
+    return { resource: this.resource, authorization_servers: [this.issuer], bearer_methods_supported: ['header'], resource_name: 'vihko' }
   }
 
   // --- Clients --------------------------------------------------------------
@@ -377,7 +377,7 @@ export class OAuthServer {
 
   /**
    * The same checks before anyone signed in, which never fetch anything: a
-   * client named by a URL is only checked to be one thoth would fetch
+   * client named by a URL is only checked to be one vihko would fetch
    * (`later`: the rest waits for the consent page, with a session).
    */
   precheckAuthorize(param: (name: string) => string | null | undefined): AuthorizeCheck | { ok: 'later' } {
@@ -636,7 +636,7 @@ function checkRedirectUris(v: unknown): string[] {
   return out
 }
 
-/** `grant_types` and `response_types`, when given, only with what thoth does. */
+/** `grant_types` and `response_types`, when given, only with what vihko does. */
 function checkTypes(grantTypes: unknown, responseTypes: unknown) {
   for (const [field, v, allowed] of [['grant_types', grantTypes, ['authorization_code', 'refresh_token']], ['response_types', responseTypes, ['code']]] as const) {
     if (v === undefined) continue

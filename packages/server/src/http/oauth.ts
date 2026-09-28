@@ -1,4 +1,4 @@
-// OAuth's addresses (oauth.ts). None exists without THOTH_PUBLIC_URL or with
+// OAuth's addresses (oauth.ts). None exists without VIHKO_PUBLIC_URL or with
 // the MCP server off: 404, as for any address that doesn't. Nothing under
 // /oauth or /.well-known falls through to the UI, except the authorization
 // page itself, which the UI shows (web: Consent.tsx).

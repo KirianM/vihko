@@ -98,7 +98,7 @@ export function Consent({ user, onSignOut }: { user: User; onSignOut: () => void
       <Frame>
         <h1>{t('consent.problemTitle')}</h1>
         <p role="alert">{problem}</p>
-        <p><a href="/">{t('consent.toThoth')}</a></p>
+        <p><a href="/">{t('consent.toVihko')}</a></p>
       </Frame>
     )
   }

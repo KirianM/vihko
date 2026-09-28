@@ -7,10 +7,10 @@ import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { isIP, type LookupFunction } from 'node:net'
 import { posix } from 'node:path'
-import type { AttachmentsConfig } from '@thoth/core'
+import type { AttachmentsConfig } from '@vihko/core'
 import { isPublicAddress, type Resolver } from './cimd.ts'
 
-/** Types thoth stores, detected from the bytes (never from the name or the declared type). */
+/** Types vihko stores, detected from the bytes (never from the name or the declared type). */
 const STORED: { mime: string; ext: string; test: (b: Uint8Array) => boolean }[] = [
   { mime: 'image/png', ext: 'png', test: (b) => starts(b, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) },
   { mime: 'image/jpeg', ext: 'jpg', test: (b) => starts(b, [0xff, 0xd8, 0xff]) },
@@ -39,7 +39,7 @@ function isAvif(b: Uint8Array) {
   return false
 }
 
-/** The stored image type of these bytes, or null if it isn't one thoth accepts. */
+/** The stored image type of these bytes, or null if it isn't one vihko accepts. */
 export function sniffImage(bytes: Uint8Array): { mime: string; ext: string } | null {
   const t = STORED.find((s) => s.test(bytes))
   return t ? { mime: t.mime, ext: t.ext } : null
@@ -63,7 +63,7 @@ const pad = (n: number) => String(n).padStart(2, '0')
 
 /**
  * Where a new image for `notePath` goes, relative to the notes root. This is
- * the single place that decides it, by the `attachments` mode of thoth.yaml:
+ * the single place that decides it, by the `attachments` mode of vihko.yaml:
  * - next to the note (default), named after it and the time in UTC
  *   (`projects/plan.md` → `projects/plan-2026-09-25-1012.png`);
  * - in a fixed folder (`folder`), with the same name;
@@ -125,7 +125,7 @@ export interface FetchImageOptions {
  * headers), a bounded number of redirects, an image content type and bytes
  * that really are one of the stored types.
  *
- * Private and LAN addresses are allowed for the thoth admin (and for members
+ * Private and LAN addresses are allowed for the vihko admin (and for members
  * if the admin allows it): a chart from a service on the network may be worth
  * a copy. Otherwise `publicOnly`. It only runs on an explicit user action,
  * never for URLs found in notes (D-028).
@@ -196,7 +196,7 @@ function get(u: URL, opts: FetchImageOptions, signal: AbortSignal): Promise<Inco
   }
   return new Promise((resolve, reject) => {
     const req = (u.protocol === 'https:' ? httpsRequest : httpRequest)(u, {
-      method: 'GET', headers: { accept: 'image/*', 'user-agent': 'thoth' }, signal, agent: false, ...(lookup ? { lookup } : {}),
+      method: 'GET', headers: { accept: 'image/*', 'user-agent': 'vihko' }, signal, agent: false, ...(lookup ? { lookup } : {}),
     }, resolve)
     req.on('error', (err) => reject(blocked ?? err))
     req.end()

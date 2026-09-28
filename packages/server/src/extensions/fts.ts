@@ -1,5 +1,5 @@
 // Full-text search over title, aliases and body (comments and frontmatter left out).
-import { withoutRanges } from '@thoth/core'
+import { withoutRanges } from '@vihko/core'
 import type { Extension } from '../extension.ts'
 
 interface FtsRow { title: string; aliases: string; body: string }

@@ -1,4 +1,4 @@
-// Privacy: what leaves thoth, where to and when, in plain words (the model is
+// Privacy: what leaves vihko, where to and when, in plain words (the model is
 // Trilium's AI/Privacy.md). First how things stand on this server right now
 // (the switches, the keys that can read, external images); then what always
 // holds. Every sentence here is checked against the code: without
@@ -8,14 +8,14 @@
 // learns exists if it already has its name (`no_access`, `agent_denied`);
 // with OAuth, the person who signs in authorizes, and the addresses anyone
 // may call (metadata, registration) give access to nothing; the one request
-// thoth makes on its own is a client's metadata document, only when someone
+// vihko makes on its own is a client's metadata document, only when someone
 // signed in starts authorizing it, fenced as cimd.ts says; no telemetry, updates or
 // CDNs (the page's CSP only lets the browser talk to this server, images
 // linked from other sites aside); images are downloaded by URL only when a
 // person asks (a key can't); external images as the server's administrator
-// says (THOTH_EXTERNAL_IMAGES), with no referrer. And one's account: what the
+// says (VIHKO_EXTERNAL_IMAGES), with no referrer. And one's account: what the
 // admin can do to it is confirmed at the moment and told (D-040 3.1), the
-// second factor's policy (3.4a), how its secret is kept (THOTH_SECRET_KEY,
+// second factor's policy (3.4a), how its secret is kept (VIHKO_SECRET_KEY,
 // 3.4b) and a purge's notice to whoever wrote (3.6).
 import { useEffect, useState, type ReactNode } from 'react'
 import { ApiError, api, type Integrations, type KeyInfo, type KeyWithUser, type ServerConfig, type User } from './api.ts'
@@ -139,7 +139,7 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
             <li>{t('privacy.accountPolicy')}</li>
             <li>{config === null ? t('common.loading')
               : config.secretsEncrypted ? t('privacy.accountSecretEncrypted')
-                : withCode(t('privacy.accountSecretPlain'), { setting: 'THOTH_SECRET_KEY' })}</li>
+                : withCode(t('privacy.accountSecretPlain'), { setting: 'VIHKO_SECRET_KEY' })}</li>
             <li>{t('privacy.accountPurge')}</li>
           </ul>
         </section>
@@ -159,7 +159,7 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
             <li>{t('privacy.imagesFetch')}</li>
             <li>{config === null ? t('common.loading')
               : config.externalImages === 'block' ? t('privacy.imagesBlocked')
-                : withCode(t('privacy.imagesAllowed'), { setting: 'THOTH_EXTERNAL_IMAGES=block' })}</li>
+                : withCode(t('privacy.imagesAllowed'), { setting: 'VIHKO_EXTERNAL_IMAGES=block' })}</li>
           </ul>
         </section>
       </div>

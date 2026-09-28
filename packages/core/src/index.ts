@@ -7,7 +7,7 @@ export {
   extract, normalizeTag, withoutRanges,
   type ExtractOptions, type Extracted, type Heading, type ImageLink, type LinkRef, type Range, type TagRef,
 } from './markdown.ts'
-export { markdownParser, thothSyntax } from './syntax.ts'
+export { markdownParser, vihkoSyntax } from './syntax.ts'
 export { caseFold } from './casefold.ts'
 export { LinkIndex, joinPath, normKey, pathKeys, shortestTarget, type LinkIndexOptions, type NoteKeys, type Resolution } from './resolve.ts'
 export { classifyPath, conflictOriginal, isIgnoredDir, type PathKind } from './paths.ts'

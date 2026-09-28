@@ -90,8 +90,8 @@ test('an agent writing to an open note shows up in its awareness, and its text c
     editor.provider.on('stateless', ({ payload }: { payload: string }) => trashed.push(JSON.parse(payload)))
     const del = await api(srv, cookie, 'DELETE', `/api/note?path=${encodeURIComponent(NOTE)}`, undefined, key)
     assert.equal(del.status, 200, JSON.stringify(del.body))
-    await waitFor(() => trashed.some((m) => (m as { type: string }).type === 'thoth:trashed'), 'the editor is told')
-    assert.equal((trashed.find((m) => (m as { type: string }).type === 'thoth:trashed') as { by: string }).by, keyName)
+    await waitFor(() => trashed.some((m) => (m as { type: string }).type === 'vihko:trashed'), 'the editor is told')
+    assert.equal((trashed.find((m) => (m as { type: string }).type === 'vihko:trashed') as { by: string }).by, keyName)
   } finally { closeAll(); await srv.stop(); rmSync(dirname(notes), { recursive: true, force: true }) }
 })
 

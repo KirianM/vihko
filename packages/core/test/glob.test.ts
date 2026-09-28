@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { globProblem, pathMatcher } from '@thoth/core'
+import { globProblem, pathMatcher } from '@vihko/core'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)

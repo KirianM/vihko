@@ -33,20 +33,20 @@ const admins = new Map<string, NewUser>()
 
 /** A copy of the test vault and a state with a new admin (the mother's), who `login(srv)` signs in. */
 export function makeDirs() {
-  const dir = tempDir('thoth-hub-')
+  const dir = tempDir('vihko-hub-')
   const notes = join(dir, 'notes')
   cpSync(VAULT, notes, { recursive: true })
-  const env = { THOTH_NOTES_DIR: notes, THOTH_STATE_DIR: join(dir, 'state'), THOTH_HOST: '127.0.0.1', THOTH_PORT: String(nextPort++) }
+  const env = { VIHKO_NOTES_DIR: notes, VIHKO_STATE_DIR: join(dir, 'state'), VIHKO_HOST: '127.0.0.1', VIHKO_PORT: String(nextPort++) }
   const admin = m.aUser({ role: 'admin' })
   spawnSync(process.execPath, [CLI, 'user', 'create', admin.username, '--admin'], { env: { ...process.env, ...env }, input: admin.password })
-  admins.set(env.THOTH_STATE_DIR, admin)
+  admins.set(env.VIHKO_STATE_DIR, admin)
   return { notes, env, admin }
 }
 
 /** The admin of a server's state folder (made by makeDirs). */
 export function adminOf(srv: { env: Record<string, string> }): NewUser {
-  const admin = admins.get(srv.env.THOTH_STATE_DIR!)
-  if (!admin) throw new Error(`no admin made for ${srv.env.THOTH_STATE_DIR}`)
+  const admin = admins.get(srv.env.VIHKO_STATE_DIR!)
+  if (!admin) throw new Error(`no admin made for ${srv.env.VIHKO_STATE_DIR}`)
   return admin
 }
 
@@ -60,7 +60,7 @@ export async function startServer(env: Record<string, string>): Promise<Srv> {
   await waitFor(() => out.join('').includes('listening'), 'server startup')
   return {
     proc, out, env,
-    base: `http://127.0.0.1:${env.THOTH_PORT}`,
+    base: `http://127.0.0.1:${env.VIHKO_PORT}`,
     async stop(signal: NodeJS.Signals = 'SIGTERM') {
       if (proc.exitCode !== null) return
       const done = new Promise((r) => proc.once('exit', r))

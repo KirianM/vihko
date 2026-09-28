@@ -1,7 +1,7 @@
 // Link resolution. An in-memory key index: each note contributes all the
 // suffixes of its path without the extension, plus its aliases, normalized.
 // It's the model for the indexer's `link_keys` table and also serves the editor.
-// Browser-safe entry point (@thoth/core/resolve): no Node modules here.
+// Browser-safe entry point (@vihko/core/resolve): no Node modules here.
 import { caseFold } from './casefold.ts'
 import type { LinkRef } from './markdown.ts'
 
@@ -39,14 +39,14 @@ export function joinPath(dir: string, rel: string): string {
   return out.join('/') || '.'
 }
 
-/** Path keys for a note: all its suffixes (`plan`, `thoth/plan`, `projects/thoth/plan`). */
+/** Path keys for a note: all its suffixes (`plan`, `vihko/plan`, `projects/vihko/plan`). */
 export function pathKeys(path: string): string[] {
   const parts = normKey(stripMd(path)).split('/')
   return parts.map((_, i) => parts.slice(i).join('/'))
 }
 
 export interface LinkIndexOptions {
-  /** Whether aliases resolve links (thoth.yaml `links.aliases`, on by default). They're kept either way. */
+  /** Whether aliases resolve links (vihko.yaml `links.aliases`, on by default). They're kept either way. */
   aliases?: boolean
 }
 

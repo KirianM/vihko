@@ -10,11 +10,11 @@
 //   const member = m.aUser({ role: 'member' })   // { username, password, role }
 //   const path = m.aNotePath(m.aFolder())        // 'ocre/Mesa rústica.md'
 //
-// Every value satisfies thoth's own rules for its kind (a username matches
+// Every value satisfies vihko's own rules for its kind (a username matches
 // NAME_PATTERN, a password is at least MIN_PASSWORD long, a note path is a
 // valid `.md` path, a tag is a tag), and is Spanish-flavoured, so accents
 // and «ñ» are everywhere. Usernames and group names are unique in the process
-// under thoth's comparison (subjectKey), note and folder names and tags under
+// under vihko's comparison (subjectKey), note and folder names and tags under
 // its case folding, and none of them names anything in testdata/vault (the
 // tests copy it) nor a literal a test keeps (RESERVED).
 //
@@ -28,13 +28,13 @@ import { fileURLToPath } from 'node:url'
 import { caseFold } from '../packages/core/src/casefold.ts'
 import { testSeed } from './seed.ts'
 
-/** This run's seed (THOTH_TEST_SEED, or chosen now and put in the environment). */
+/** This run's seed (VIHKO_TEST_SEED, or chosen now and put in the environment). */
 export const SEED = testSeed()
 
-/** thoth's rules the values follow; mother.test.ts checks they are still the server's and core's. */
+/** vihko's rules the values follow; mother.test.ts checks they are still the server's and core's. */
 export const NAME_PATTERN = /^[\p{L}\p{N}._-]{2,64}$/u
 export const MIN_PASSWORD = 10
-/** How thoth compares user and group names (core's subjectKey). */
+/** How vihko compares user and group names (core's subjectKey). */
 export const subjectKey = (s: string) => s.normalize('NFC').toLowerCase()
 
 /**
@@ -204,7 +204,7 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
       return { username: m.aUsername(), password: m.aPassword(), role: opts.role ?? 'member' }
     },
 
-    /** A password thoth accepts (at least MIN_PASSWORD), never handed out before in this process. */
+    /** A password vihko accepts (at least MIN_PASSWORD), never handed out before in this process. */
     aPassword(): string {
       return draw('password', () => {
         const words = [pick(TEXT_WORDS), pick(TEXT_WORDS), pick(TEXT_WORDS)].map((w, i) => (i === int(0, 2) ? capital(w) : w))
@@ -212,7 +212,7 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
       }, (p) => p.length >= MIN_PASSWORD && fresh(taken.secrets, p))
     },
 
-    /** A password thoth rejects as too short (1 to MIN_PASSWORD - 1 characters). */
+    /** A password vihko rejects as too short (1 to MIN_PASSWORD - 1 characters). */
     aWeakPassword(): string {
       return pick(TEXT_WORDS).repeat(3).slice(0, int(1, MIN_PASSWORD - 1))
     },
@@ -268,7 +268,7 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
 
     /**
      * An ASCII identifier (a word without its accents, maybe with a
-     * `-word` or digits), unique in this process: for keys thoth takes as
+     * `-word` or digits), unique in this process: for keys vihko takes as
      * ids, such as a daily series' (letters, digits, `-`, `_`).
      */
     anId(): string {

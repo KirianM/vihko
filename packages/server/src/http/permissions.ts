@@ -3,7 +3,7 @@
 // never reaches it.
 //
 //   GET /api/permissions?folder=           the folder's rule: its own, inherited (with where from), a `{user}` rule, agents, and who has access
-//   PUT /api/permissions                   { folder, grants?, ai?, ifMatch } → the same, after writing thoth.yaml (412 if it changed)
+//   PUT /api/permissions                   { folder, grants?, ai?, ifMatch } → the same, after writing vihko.yaml (412 if it changed)
 //   GET /api/permissions/folders           folders with their lock (own rules, closed to agents): the admin, every folder's name; others, those they see
 //   GET /api/permissions/access?user=|key= the folders a person or a key reaches, and at what level
 //   POST /api/permissions/holds/:id        { action: 'move_permissions' | 'release' } notes held after an external move (permissionHolds.ts)
@@ -20,7 +20,7 @@ import type { Context, Hono } from 'hono'
 import {
   LEVELS, USER_SEGMENT, WORKSPACE_FILE, atLeast, grantsAt, isSubject, parentFolder, selfAndAncestors, subjectKey,
   type Level, type RuleValue,
-} from '@thoth/core'
+} from '@vihko/core'
 import { AccessError, inFolders, type Access, type AccessPolicy } from '../access.ts'
 import type { User } from '../auth.ts'
 import type { Db } from '../db.ts'
@@ -86,7 +86,7 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
     const personal = folder.includes(USER_SEGMENT) ? folder : set ? selfAndAncestors(folder).find((f) => set.personal(f)) ?? null : null
     return {
       folder,
-      /** The ETag of thoth.yaml: a change must name it (412 if the file changed). */
+      /** The ETag of vihko.yaml: a change must name it (412 if the file changed). */
       etag: file.read().etag,
       /** `implicit`: no section yet (every admin manages the root; the first change writes it); `closed`: rejected, nobody reads. */
       section: section.kind,
@@ -151,7 +151,7 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
       ai = body.ai as false | null
     }
     const ifMatch = typeof body.ifMatch === 'string' ? body.ifMatch.replace(/^W\//, '').replace(/^"|"$/g, '') : undefined
-    if (ifMatch === undefined) throw new RequestError(428, 'precondition_required', 'ifMatch: the ETag of thoth.yaml the change was planned on')
+    if (ifMatch === undefined) throw new RequestError(428, 'precondition_required', 'ifMatch: the ETag of vihko.yaml the change was planned on')
     const value: RuleValue = { grants, ai }
     await file.setRule(folder, value, { actor: c.get('access').actor, ifMatch })
     // The dialog after the change: whoever made it may have given their own `manage` away.
@@ -211,7 +211,7 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
     return c.json({ user: { id: who.id, username: who.username }, key: key ? { id: key.id, name: key.name } : null, folders })
   })
 
-  // Notes held after a move made outside thoth (permissionHolds.ts): the admin, or whoever manages the folder the rules were written for.
+  // Notes held after a move made outside vihko (permissionHolds.ts): the admin, or whoever manages the folder the rules were written for.
   app.post('/api/permissions/holds/:id', async (c) => {
     const { action } = await c.req.json<{ action?: unknown }>().catch(() => ({ action: undefined }))
     const hold = deps.holds?.get(c.req.param('id'))
@@ -227,7 +227,7 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
   })
 }
 
-/** For the alerts: rules written for folders that don't exist (a folder moved or deleted outside thoth). */
+/** For the alerts: rules written for folders that don't exist (a folder moved or deleted outside vihko). */
 export function rulesWithoutFolder(engine: PermissionsEngine, index: Db): string[] {
   const section = engine.section
   if (section.kind !== 'rules') return []

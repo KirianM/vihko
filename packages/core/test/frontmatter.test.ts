@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { FrontmatterError, readFrontmatter, setFrontmatterKey } from '@thoth/core'
+import { FrontmatterError, readFrontmatter, setFrontmatterKey } from '@vihko/core'
 
 const vault = (p: string) => readFileSync(new URL(`../../../testdata/vault/${p}`, import.meta.url), 'utf8')
 
@@ -90,7 +90,7 @@ test('multiline values are rejected', () => {
 })
 
 test('adding to a list: flow, block, from a scalar, and creating it', async () => {
-  const { addToFrontmatterList } = await import('@thoth/core')
+  const { addToFrontmatterList } = await import('@vihko/core')
   assert.equal(addToFrontmatterList('---\naliases: [a, b]  # c\n---\nx\n', 'aliases', 'Viejo'), '---\naliases: [a, b, Viejo]  # c\n---\nx\n')
   assert.equal(addToFrontmatterList('---\naliases: []\n---\n', 'aliases', 'V'), '---\naliases: [V]\n---\n')
   assert.equal(addToFrontmatterList('---\naliases:\n  - a\ntitle: t\n---\n', 'aliases', 'V'), '---\naliases:\n  - a\n  - V\ntitle: t\n---\n')

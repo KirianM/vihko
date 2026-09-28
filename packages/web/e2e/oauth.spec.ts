@@ -4,7 +4,7 @@
 // default). The browser goes back to the client with a code (or
 // access_denied), the code becomes tokens, and the authorization shows in
 // «Agents and API» as one more key, which revoking ends. Also on a phone,
-// and with a client this thoth doesn't know.
+// and with a client this vihko doesn't know.
 import { expect, test, type APIRequestContext, type Browser, type Page } from '@playwright/test'
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
@@ -114,7 +114,7 @@ test('a client asks: the person signs in, sees who asks, and approves it read-on
   await login(page, ADMIN)
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(`«${NAME}» quiere acceder a tus notas`)
-  await expect(page.getByText(`Si lo autorizas, podrá usar thoth por MCP en tu nombre (${ADMIN.username})`)).toBeVisible()
+  await expect(page.getByText(`Si lo autorizas, podrá usar vihko por MCP en tu nombre (${ADMIN.username})`)).toBeVisible()
   const who = page.locator('.consent-who')
   await expect(who).toContainText(NAME)
   await expect(who).toContainText(CALLBACK)
@@ -149,7 +149,7 @@ test('a client asks: the person signs in, sees who asks, and approves it read-on
   await expect(k).toContainText('Todas las que ve su usuario')
   await expect(k).toContainText(CALLBACK)
   await expect(k).toContainText('por MCP (OAuth)')
-  await expect(k).not.toContainText('thoth_…')
+  await expect(k).not.toContainText('vihko_…')
   // An authorization is revoked, never rotated: it has no key to rotate.
   await expect(k.getByRole('button', { name: 'Rotar' })).toHaveCount(0)
   await expect(k.getByRole('button', { name: 'Revocar' })).toBeVisible()
@@ -211,7 +211,7 @@ test('on a phone, in dark mode: the question fits and works', async ({ browser, 
   await page.goto(authorizePath(clientId, challenge, aState()))
   await login(page, MEMBER)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(`«${NAME}» quiere acceder a tus notas`)
-  await expect(page.getByText(`Si lo autorizas, podrá usar thoth por MCP en tu nombre (${MEMBER.username})`)).toBeVisible()
+  await expect(page.getByText(`Si lo autorizas, podrá usar vihko por MCP en tu nombre (${MEMBER.username})`)).toBeVisible()
   await page.getByRole('radio', { name: /Solo estas carpetas/ }).check()
   await expect(page.getByRole('checkbox', { name: 'proyectos', exact: true })).toBeVisible()
   await page.getByRole('radio', { name: 'Todas las carpetas que ves' }).check()
@@ -241,14 +241,14 @@ test('a client named by its metadata document: the page shows the domain that de
   const who = page.locator('.consent-who')
   await expect(who.locator('dt', { hasText: 'Dominio' })).toBeVisible()
   await expect(who).toContainText(host)
-  await expect(who).toContainText('thoth ha leído la descripción de la aplicación en este dominio')
+  await expect(who).toContainText('vihko ha leído la descripción de la aplicación en este dominio')
   await expect(who).not.toContainText('Sin comprobar')
   await expect(page.getByText('Volverá a un programa de este mismo ordenador')).toHaveCount(0)
   await page.screenshot({ path: `${SHOTS}/consent-cimd-light.png`, fullPage: true, animations: 'disabled' })
   await page.context().close()
 })
 
-test('a metadata document thoth won\'t fetch (its host is this machine): the page says so and sends the browser nowhere', async ({ browser }) => {
+test('a metadata document vihko won\'t fetch (its host is this machine): the page says so and sends the browser nowhere', async ({ browser }) => {
   const page = await signIn(browser, ADMIN)
   // `localhost` resolves to a loopback address, so the real server refuses to fetch it.
   await page.goto(authorizePath('https://localhost/oauth/client.json', pkce().challenge, aState()))
@@ -258,11 +258,11 @@ test('a metadata document thoth won\'t fetch (its host is this machine): the pag
   await page.context().close()
 })
 
-test('a client this thoth doesn\'t know: the page says so and sends the browser nowhere', async ({ browser }) => {
+test('a client this vihko doesn\'t know: the page says so and sends the browser nowhere', async ({ browser }) => {
   const page = await signIn(browser, ADMIN)
   await page.goto(authorizePath(m.anId(), pkce().challenge, aState()))
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('No se puede autorizar esta aplicación')
-  await expect(page.getByRole('alert')).toContainText('no está registrada en este thoth')
+  await expect(page.getByRole('alert')).toContainText('no está registrada en este vihko')
   await expect(page).toHaveURL(/\/oauth\/authorize\?/)
   await page.context().close()
 })

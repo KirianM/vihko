@@ -1,5 +1,5 @@
 {
-  "name": "@thoth/web",
+  "name": "@vihko/web",
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
@@ -33,7 +33,7 @@
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@hocuspocus/provider": "^4.7.0",
     "@lezer/highlight": "^1.2.4",
-    "@thoth/core": "*",
+    "@vihko/core": "*",
     "react": "^19.3.0",
     "react-aria-components": "^1.21.1",
     "react-dom": "^19.3.0",

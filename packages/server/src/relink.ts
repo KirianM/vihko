@@ -3,7 +3,7 @@
 // we check where it resolves after the change; if it differs, it's rewritten
 // with the shortest form that still points to its destination.
 import { posix } from 'node:path'
-import { extract, markdownDest, resolveImageRef, shortestTarget, type ImageLink, type LinkIndex, type LinkRef, type Resolution } from '@thoth/core'
+import { extract, markdownDest, resolveImageRef, shortestTarget, type ImageLink, type LinkIndex, type LinkRef, type Resolution } from '@vihko/core'
 
 export interface Replacement {
   from: number
@@ -164,7 +164,7 @@ function imageDest(img: ImageLink, src: string, path: string): string {
 }
 
 /**
- * Link resolution as it was before notes moved outside thoth (D-031.4): a
+ * Link resolution as it was before notes moved outside vihko (D-031.4): a
  * copy of `now` with each moved note back at its old path, its aliases and
  * headings as they are now.
  */

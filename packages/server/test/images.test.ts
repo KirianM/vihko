@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import {
   AdminSettings, Auth, Indexer, NoteService, Profiles, SESSION_COOKIE, Workspace, attachmentPath, createApp, fetchImage, isPublicAddress, openIndex, openState, sniffImage,
   type ExternalImages, type FetchImageOptions, type Runtime,
-} from '@thoth/server'
+} from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -18,7 +18,7 @@ const m = mother(import.meta.url)
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
-// Only the signatures matter to thoth: it never decodes the image.
+// Only the signatures matter to vihko: it never decodes the image.
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
 const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46])
 const GIF = new TextEncoder().encode('GIF89a\x01\x00\x01\x00')
@@ -27,12 +27,12 @@ const AVIF = Uint8Array.from([0, 0, 0, 0x1c, ...new TextEncoder().encode('ftypmi
 const SVG = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
 
 async function setup(opts: { maxImageBytes?: number; webDir?: string; externalImages?: ExternalImages; role?: 'admin' | 'member'; fetchTesting?: FetchImageOptions['testing'] } = {}) {
-  const dir = tempDir('thoth-images-')
+  const dir = tempDir('vihko-images-')
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
   const user = m.aUser({ role: opts.role ?? 'admin' })
   // A member sees nothing until something is granted (D-038): the user edits everywhere.
-  if (opts.role === 'member') writeFileSync(join(notesDir, 'thoth.yaml'), `permissions:\n  "": { grants: { ${JSON.stringify(user.username)}: edit } }\n`)
+  if (opts.role === 'member') writeFileSync(join(notesDir, 'vihko.yaml'), `permissions:\n  "": { grants: { ${JSON.stringify(user.username)}: edit } }\n`)
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
@@ -78,7 +78,7 @@ test('names: next to the note, from its name and the UTC time, with a suffix for
   assert.equal(attachmentPath(`${rootName}.md`, 'jpg', now), `${rootName}-2026-09-25-1012.jpg`)
   assert.equal(attachmentPath(`${dir}/${other}.md`, 'webp', now, 3), `${dir}/${other}-2026-09-25-1012-3.webp`)
   assert.equal(attachmentPath(`${name}.md`, 'png', new Date('2026-01-02T23:05:00+02:00')), `${name}-2026-01-02-2105.png`, 'UTC, not local time')
-  assert.equal(attachmentPath(`${dir}/${other}.md`, 'png', now, 2, { folder: fixed }), `${fixed}/${other}-2026-09-25-1012-2.png`, 'a fixed folder from thoth.yaml')
+  assert.equal(attachmentPath(`${dir}/${other}.md`, 'png', now, 2, { folder: fixed }), `${fixed}/${other}-2026-09-25-1012-2.png`, 'a fixed folder from vihko.yaml')
   assert.equal(attachmentPath(`${dir}/${other}.md`, 'png', now, 1, { folder: null, perNote: '.assets' }), `${dir}/${other}.assets/2026-09-25-1012.png`, 'the note\'s own folder')
   assert.equal(attachmentPath(`${rootName}.md`, 'png', now, 2, { folder: null, perNote: '_files' }), `${rootName}_files/2026-09-25-1012-2.png`)
 })
@@ -91,21 +91,21 @@ test('types are detected from the bytes; SVG and anything else is refused', () =
 // From here on, over a copy of the test vault: its notes are where images go.
 test('upload: stored next to the note, never overwrites, and the note is untouched', async () => {
   const { notesDir, upload } = await setup()
-  const before = readFileSync(join(notesDir, 'proyectos/thoth/notas.md'), 'utf8')
-  const a = await upload('proyectos/thoth/notas.md', PNG)
+  const before = readFileSync(join(notesDir, 'proyectos/vihko/notas.md'), 'utf8')
+  const a = await upload('proyectos/vihko/notas.md', PNG)
   assert.equal(a.status, 201)
-  assert.match(a.body.path, /^proyectos\/thoth\/notas-\d{4}-\d{2}-\d{2}-\d{4}\.png$/)
-  assert.equal(a.body.src, a.body.path.slice('proyectos/thoth/'.length))
+  assert.match(a.body.path, /^proyectos\/vihko\/notas-\d{4}-\d{2}-\d{2}-\d{4}\.png$/)
+  assert.equal(a.body.src, a.body.path.slice('proyectos/vihko/'.length))
   assert.deepEqual(readFileSync(join(notesDir, a.body.path)), Buffer.from(PNG))
 
   // Same minute: a suffix. A file someone else put there first is kept as is.
   const taken = a.body.path.replace(/\.png$/, '-2.png')
   writeFileSync(join(notesDir, taken), 'someone else')
-  const b = await upload('proyectos/thoth/notas.md', PNG)
+  const b = await upload('proyectos/vihko/notas.md', PNG)
   assert.equal(b.body.path, a.body.path.replace(/\.png$/, '-3.png'))
   assert.equal(readFileSync(join(notesDir, taken), 'utf8'), 'someone else')
-  assert.equal(readFileSync(join(notesDir, 'proyectos/thoth/notas.md'), 'utf8'), before)
-  assert.ok(!readdirSync(join(notesDir, 'proyectos/thoth')).some((f) => f.includes('.thoth-')), 'no temp files left')
+  assert.equal(readFileSync(join(notesDir, 'proyectos/vihko/notas.md'), 'utf8'), before)
+  assert.ok(!readdirSync(join(notesDir, 'proyectos/vihko')).some((f) => f.includes('.vihko-')), 'no temp files left')
 
   const root = await upload('Plan.md', JPEG)
   assert.match(root.body.path, /^Plan-.*\.jpg$/)
@@ -155,7 +155,7 @@ test('serving files: type, nosniff, revalidation, and the same path rules as not
   const [secret, link] = [`${m.aTitle()}.png`, m.aFolder()]
   mkdirSync(join(notesDir, hidden))
   writeFileSync(join(notesDir, hidden, 'x.png'), PNG)
-  const outside = tempDir('thoth-outside-')
+  const outside = tempDir('vihko-outside-')
   writeFileSync(join(outside, secret), PNG)
   symlinkSync(outside, join(notesDir, link))
   const status = async (p: string) => (await get(`/api/file?path=${encodeURIComponent(p)}`)).status
@@ -244,7 +244,7 @@ test('by URL, a member: only public addresses (also after DNS and redirects), un
     assert.equal((await plain.post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/chart.png` })).status, 201)
     plain.settings.set({ membersLocalDownloads: false })
     assert.equal((await plain.post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/chart.png` })).status, 403)
-    // The thoth admin, from anywhere (the test above downloads from 127.0.0.1 as one).
+    // The vihko admin, from anywhere (the test above downloads from 127.0.0.1 as one).
     const admin = await setup({ role: 'admin' })
     assert.equal((await admin.post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/chart.png` })).status, 201)
 
@@ -256,7 +256,7 @@ test('by URL, a member: only public addresses (also after DNS and redirects), un
 })
 
 test('external images: exposed to the UI, and the UI CSP follows the setting', async () => {
-  const webDir = tempDir('thoth-web-')
+  const webDir = tempDir('vihko-web-')
   writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
   for (const [setting, allowed] of [['allow', true], ['block', false]] as const) {
     const { get } = await setup({ webDir, externalImages: setting, maxImageBytes: 1234 })

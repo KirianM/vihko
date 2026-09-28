@@ -6,7 +6,7 @@ import { useSyncExternalStore } from 'react'
 
 export type ThemePref = 'system' | 'light' | 'dark'
 export type Theme = 'light' | 'dark'
-const KEY = 'thoth.theme'
+const KEY = 'vihko.theme'
 const media = window.matchMedia('(prefers-color-scheme: dark)')
 
 function readPref(): ThemePref {

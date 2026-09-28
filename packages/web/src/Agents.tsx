@@ -1,11 +1,11 @@
-// Settings → «Agents and API» (D-035): the thoth admin's switches for the API
+// Settings → «Agents and API» (D-035): the vihko admin's switches for the API
 // with keys and the MCP server (locked when the server's administrator sets
-// THOTH_INTEGRATIONS=off) and whether members may create keys; everyone's own
+// VIHKO_INTEGRATIONS=off) and whether members may create keys; everyone's own
 // keys, created read-only and for every folder unless they say otherwise, the
 // key shown once with ready-made MCP configurations, and rotated (a new
 // secret, the old one still valid for 10 minutes); and, for the admin,
 // everyone else's keys, which they may revoke. With a public URL
-// (THOTH_PUBLIC_URL), OAuth: where remote clients connect, the admin's switch
+// (VIHKO_PUBLIC_URL), OAuth: where remote clients connect, the admin's switch
 // for their registration, and each authorization among the keys (named after
 // its client, with where it goes back to). And, in plain words, what an agent
 // knows of a note hidden from it.
@@ -214,7 +214,7 @@ export function CopyButton({ text, label, primary }: { text: string; label: stri
   )
 }
 
-/** Where MCP clients reach this thoth. */
+/** Where MCP clients reach this vihko. */
 const mcpUrl = () => `${location.origin}/mcp`
 
 /**
@@ -224,22 +224,22 @@ const mcpUrl = () => `${location.origin}/mcp`
  * shows in the process list, as mcp-remote advises; on plain http it has to
  * be allowed), a generic `mcpServers` JSON and the HTTP API.
  */
-export function mcpConfigs(token: string, origin = location.origin, headerPath = '/path/to/thoth-mcp.txt') {
+export function mcpConfigs(token: string, origin = location.origin, headerPath = '/path/to/vihko-mcp.txt') {
   const url = `${origin}/mcp`
   const http = origin.startsWith('http:')
   const json = (v: unknown) => JSON.stringify(v, null, 2)
   return {
-    code: `claude mcp add --transport http thoth ${url} --header "Authorization: Bearer ${token}"`,
+    code: `claude mcp add --transport http vihko ${url} --header "Authorization: Bearer ${token}"`,
     desktop: json({
       mcpServers: {
-        thoth: {
+        vihko: {
           command: 'npx',
           args: ['-y', 'mcp-remote', url, '--header-file', headerPath, ...(http ? ['--allow-http'] : [])],
         },
       },
     }),
     header: `Authorization: Bearer ${token}`,
-    json: json({ mcpServers: { thoth: { type: 'http', url, headers: { Authorization: `Bearer ${token}` } } } }),
+    json: json({ mcpServers: { vihko: { type: 'http', url, headers: { Authorization: `Bearer ${token}` } } } }),
     api: `curl -H "Authorization: Bearer ${token}" ${origin}/api/tree`,
   }
 }
@@ -396,7 +396,7 @@ function KeyCard({ k, owner, actions }: { k: KeyInfo; owner?: string; actions: R
         {k.revokedAt && row('keys.revokedAt', dates.dateTime(k.revokedAt))}
         {k.client
           ? row('keys.returnsTo', <span className="key-folders">{k.client.redirectUris.map((u) => <span key={u} className="mono">{u}</span>)}</span>)
-          : row('keys.key', <span className="mono">thoth_…{k.last4}</span>)}
+          : row('keys.key', <span className="mono">vihko_…{k.last4}</span>)}
         {k.previousUntil && row('keys.previous', t('keys.previousUntil', { time: dates.time(k.previousUntil) }))}
       </dl>
       {actions && <div className="key-actions">{actions}</div>}

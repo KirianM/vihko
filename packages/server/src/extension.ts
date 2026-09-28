@@ -33,7 +33,7 @@
 // extension (embeddings) would keep `extract` cheap (chunking) and have its
 // writer queue `(path, hash)` in its own table, for a worker thread to fill
 // later and drop when the hash no longer matches. That mode isn't built yet.
-import type { Extracted } from '@thoth/core'
+import type { Extracted } from '@vihko/core'
 import type { Db } from './db.ts'
 
 /** What an extension sees of a note: its text and what the framework derived from it. */

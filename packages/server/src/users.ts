@@ -1,4 +1,4 @@
-// Users and groups (M4, D-038.3 and .8), which the thoth admin manages.
+// Users and groups (M4, D-038.3 and .8), which the vihko admin manages.
 //
 // - A new user has no password: the admin copies a one-time link for them
 //   (`/invite/<token>`) and the person chooses it there. The same kind of
@@ -16,15 +16,15 @@
 //   revoked key does); sessions, links, profile, memberships, second
 //   factor and notices go.
 // - The last active admin can't be demoted, disabled or deleted.
-// - Groups are permission subjects (`@name` in thoth.yaml): the admin
+// - Groups are permission subjects (`@name` in vihko.yaml): the admin
 //   creates, renames and fills them. Everyone signed in sees the names of
 //   users and groups (to share with them), never their state or role.
 //
-// Grants in thoth.yaml name users and groups: `hooks` let the permissions
+// Grants in vihko.yaml name users and groups: `hooks` let the permissions
 // writer follow a deletion or a rename (they run first; if one throws,
 // nothing changes here).
 import { createHash, randomBytes } from 'node:crypto'
-import { newUid, subjectKey } from '@thoth/core'
+import { newUid, subjectKey } from '@vihko/core'
 import type { Db } from './db.ts'
 import type { Actor } from './actor.ts'
 import { AuthError, MIN_PASSWORD, NAME_PATTERN, hashPassword, type Auth, type Role, type User } from './auth.ts'
@@ -35,7 +35,7 @@ export const LINK_DAYS = 7
 /** `invited`: never chose a password (a link may be pending). */
 export type UserStatus = 'active' | 'invited' | 'disabled'
 
-/** A user as the thoth admin sees them. */
+/** A user as the vihko admin sees them. */
 export interface UserInfo {
   id: string
   username: string
@@ -98,7 +98,7 @@ export class UsersError extends Error {
  * filled by the permissions writer (piece P); until then they do nothing.
  */
 export interface UserHooks {
-  /** Before a user is deleted: their grants in thoth.yaml go. If it throws, the user isn't deleted. */
+  /** Before a user is deleted: their grants in vihko.yaml go. If it throws, the user isn't deleted. */
   onUserDeleted?(username: string, by: Actor): void | Promise<void>
   /** Before a group is renamed: its grants follow it. If it throws, the group keeps its name. */
   onGroupRenamed?(from: string, to: string, by: Actor): void | Promise<void>
@@ -251,7 +251,7 @@ export class Users {
 
   /**
    * Deletes a disabled user, leaving their tombstone (id and name). Their
-   * grants in thoth.yaml go first (`onUserDeleted`); if that fails, nothing
+   * grants in vihko.yaml go first (`onUserDeleted`); if that fails, nothing
    * is deleted.
    */
   async remove(id: string, by: Actor): Promise<void> {

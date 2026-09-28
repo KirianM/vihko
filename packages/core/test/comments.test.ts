@@ -3,7 +3,7 @@
 // tested with the editor (packages/web/test/comments.test.ts).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { anchorChanged, goneThreads, normalizeAnchor, parseThreads, removedThread, reopener, resolveThread, type Change } from '@thoth/core'
+import { anchorChanged, goneThreads, normalizeAnchor, parseThreads, removedThread, reopener, resolveThread, type Change } from '@vihko/core'
 import { mother } from '../../../test/mother.ts'
 
 // Who wrote the comments (their usernames).

@@ -1,9 +1,9 @@
 // Images in notes: which references point to an image, how a note-relative
 // reference resolves to a path in the notes folder, and how a path is written
-// as a Markdown link destination. Browser-safe entry point (@thoth/core/images):
+// as a Markdown link destination. Browser-safe entry point (@vihko/core/images):
 // used by the indexer, the server and the editor. No Node modules here.
 
-/** Extensions shown as images (also those thoth never stores, like SVG: they can already be in a vault). */
+/** Extensions shown as images (also those vihko never stores, like SVG: they can already be in a vault). */
 export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg', 'bmp', 'ico'] as const
 
 const IMAGE_RE = new RegExp(`\\.(?:${IMAGE_EXTENSIONS.join('|')})$`, 'i')

@@ -1,6 +1,6 @@
 // Recently opened notes, for the palette with an empty query. It's a
 // convenience of this browser: if there's no storage, the list stays empty.
-const KEY = 'thoth.recent'
+const KEY = 'vihko.recent'
 const MAX = 8
 
 export function recentNotes(): string[] {

@@ -32,7 +32,7 @@ body:
   - type: dropdown
     id: deployment
     attributes:
-      label: How thoth runs
+      label: How vihko runs
       options:
         - Docker (compose.yaml)
         - Docker, another setup

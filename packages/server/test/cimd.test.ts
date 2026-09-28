@@ -1,5 +1,5 @@
 // OAuth Client ID Metadata Documents (cimd.ts, D-037): which addresses are
-// public, which client_ids thoth would fetch, and the fetch itself against a
+// public, which client_ids vihko would fetch, and the fetch itself against a
 // local HTTPS server with a throwaway certificate (for `cimd.test`), which the
 // fetcher may only reach through its testing options: loopback allowed, any
 // port, its CA trusted, and a resolver that says where `cimd.test` is. Then
@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:https'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import { CIMD_MAX_BYTES, CIMD_MAX_TTL_MS, CIMD_DEFAULT_TTL_MS, CimdError, ClientMetadataFetcher, cacheTtlMs, checkClientIdUrl, isPublicAddress, type Resolver } from '@thoth/server'
+import { CIMD_MAX_BYTES, CIMD_MAX_TTL_MS, CIMD_DEFAULT_TTL_MS, CimdError, ClientMetadataFetcher, cacheTtlMs, checkClientIdUrl, isPublicAddress, type Resolver } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -29,7 +29,7 @@ const CALLBACK = 'https://claude.example/api/mcp/auth_callback'
 
 /** A throwaway certificate for cimd.test, made with openssl; null if there's no openssl. */
 function certificate(): { key: string; cert: string } | null {
-  const dir = tempDir('thoth-cimd-cert-')
+  const dir = tempDir('vihko-cimd-cert-')
   const keyFile = join(dir, 'key.pem')
   const certFile = join(dir, 'cert.pem')
   const r = spawnSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-keyout', keyFile, '-out', certFile,
@@ -96,7 +96,7 @@ test('public addresses: private, loopback, link-local, CGNAT, multicast, documen
   ]) assert.ok(!isPublicAddress(ip), ip)
 })
 
-test('client_id URLs thoth would fetch: https, a host name, port 443, a path, nothing else odd', () => {
+test('client_id URLs vihko would fetch: https, a host name, port 443, a path, nothing else odd', () => {
   assert.equal(checkClientIdUrl('https://claude.ai/oauth/client.json').hostname, 'claude.ai')
   assert.ok(checkClientIdUrl('https://vscode.dev/oauth/client-metadata.json'))
   for (const [bad, why] of [
@@ -253,7 +253,7 @@ test('OAuth with a client named by its metadata document: advertised, fetched on
     assert.match(await page.text(), /id="root"/)
     assert.equal(site.hits['/client.json'], undefined)
     assert.equal(dns.calls.length, 0)
-    // A client_id thoth would never fetch is refused there already, sending the browser nowhere.
+    // A client_id vihko would never fetch is refused there already, sending the browser nowhere.
     const bad = await h.app.request(`/oauth/authorize?${q.replace(encodeURIComponent(clientId), encodeURIComponent('https://127.0.0.1/client.json'))}`, { headers: { accept: 'application/json' }, redirect: 'manual' })
     assert.equal(bad.status, 400)
     assert.equal(dns.calls.length, 0)

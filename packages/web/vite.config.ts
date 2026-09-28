@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs'
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// In development, the API and co-editing are served by the thoth server (npm run dev -w @thoth/server
-// or `thoth serve`); Vite only serves the UI and proxies the rest.
-const target = process.env.THOTH_DEV_SERVER ?? 'http://localhost:8080'
+// In development, the API and co-editing are served by the vihko server (npm run dev -w @vihko/server
+// or `vihko serve`); Vite only serves the UI and proxies the rest.
+const target = process.env.VIHKO_DEV_SERVER ?? 'http://localhost:8080'
 
 /**
  * Web app manifest and theme-color, with the colours from the design tokens.
@@ -17,8 +17,8 @@ function appManifest(): Plugin {
   const bg = tokens.color.tokens.find((t) => t.name === 'bg')!.value as Record<string, string>
   const manifest = JSON.stringify({
     id: '/',
-    name: 'thoth',
-    short_name: 'thoth',
+    name: 'vihko',
+    short_name: 'vihko',
     start_url: '/',
     scope: '/',
     display: 'standalone',
@@ -33,8 +33,8 @@ function appManifest(): Plugin {
   }, null, 2)
   const file = 'manifest.webmanifest'
   return {
-    name: 'thoth-manifest',
-    transformIndexHtml: (html) => html.replaceAll('__THOTH_BG_LIGHT__', bg.light!).replaceAll('__THOTH_BG_DARK__', bg.dark!),
+    name: 'vihko-manifest',
+    transformIndexHtml: (html) => html.replaceAll('__VIHKO_BG_LIGHT__', bg.light!).replaceAll('__VIHKO_BG_DARK__', bg.dark!),
     configureServer(server) {
       server.middlewares.use(`/${file}`, (_req, res) => {
         res.setHeader('Content-Type', 'application/manifest+json')

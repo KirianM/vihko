@@ -5,7 +5,7 @@
 // that touches the file, by the commit's author; moves are followed with
 // git's own rename detection (`--follow`, `-M`).
 //
-// thoth never writes to that repository: no commits, no refs, no index
+// vihko never writes to that repository: no commits, no refs, no index
 // refresh, no gc. Only reading commands, with optional locks off
 // (`--no-optional-locks`, `GIT_OPTIONAL_LOCKS=0`), no lazy fetch of missing
 // objects, no network, and nothing the repository could name to run (hooks,
@@ -18,7 +18,7 @@
 import { existsSync, realpathSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
-import type { Alert } from '@thoth/core'
+import type { Alert } from '@vihko/core'
 import { Git, GitError, Serial, readObjects, resolveRef } from './git.ts'
 import { historyPath, isTextPath } from './recorder.ts'
 import { wordStats } from './diff.ts'
@@ -514,7 +514,7 @@ export function repositoryOf(dir: string): string | null {
 }
 
 /**
- * git as thoth runs it on someone else's repository: nothing that writes or
+ * git as vihko runs it on someone else's repository: nothing that writes or
  * takes a lock, nothing from outside (no lazy fetch in a partial clone, no
  * transport), nothing the repository could name to run. Discovery stops at
  * the work tree (never a repository further up), and `safe.directory` names
@@ -549,7 +549,7 @@ function toGit(repo: Repo, path: string): string | null {
   return repo.prefix ? `${repo.prefix}/${path}` : path
 }
 
-/** A repository path in the notes folder; null outside it, or for what thoth ignores. */
+/** A repository path in the notes folder; null outside it, or for what vihko ignores. */
 function fromGit(repo: Repo, path: string): string | null {
   const rel = repo.prefix ? (path.startsWith(repo.prefix + '/') ? path.slice(repo.prefix.length + 1) : null) : path
   return rel !== null && historyPath(rel) ? rel : null

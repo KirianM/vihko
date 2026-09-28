@@ -1,4 +1,4 @@
-// Moves made outside thoth (D-031.4): a note that disappears from one path
+// Moves made outside vihko (D-031.4): a note that disappears from one path
 // and appears at another, in the same scan or watcher batch (or a few
 // seconds apart, for tools that write the copy and remove the original in
 // two steps), is the same note if both carry the same `uid` or, without a

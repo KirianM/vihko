@@ -4,8 +4,8 @@
 // link to it keeps its lock); a move that changes who sees a note asks first;
 // a member shares a folder of her own ({user} rule) with a third person, who
 // sees it after reloading, the folders above only as the way, and nothing to
-// do in it; the effective access of a folder, a person and a key; thoth.yaml
-// changed meanwhile, or not writable by thoth. On a phone and in dark mode
+// do in it; the effective access of a folder, a person and a key; vihko.yaml
+// changed meanwhile, or not writable by vihko. On a phone and in dark mode
 // too. It works in a folder of its own.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -21,9 +21,9 @@ const row = (page: Page, name: string) => page.getByRole('row').filter({ has: pa
 const userRow = (page: Page, name: string) => page.getByRole('row', { name: new RegExp(`^${literally(name)}(?![\\p{L}\\p{N}._-])`, 'u') })
 /** A row of the permissions dialog about someone: the one whose name is exactly theirs (a row's text starts with an avatar letter). */
 const about = (page: Page, name: string) => page.locator('.perm-name', { hasText: new RegExp(`^${literally(name)}$`, 'u') })
-/** A subject as thoth writes it in thoth.yaml: plain when that reads back the same, quoted otherwise. */
+/** A subject as vihko writes it in vihko.yaml: plain when that reads back the same, quoted otherwise. */
 const yamlSubject = (s: string) => (/^[\p{L}\p{N}_][\p{L}\p{N}._-]*$/u.test(s) && !/^(true|false|null|yes|no|on|off|y|n|~)$/i.test(s) && !/^[\d.+-]/.test(s) ? s : JSON.stringify(s))
-/** A folder as thoth writes it as a key of thoth.yaml (core's yamlKey with PLAIN_KEY). */
+/** A folder as vihko writes it as a key of vihko.yaml (core's yamlKey with PLAIN_KEY). */
 const yamlFolder = (s: string) => (/^[\p{L}\p{N}_][\p{L}\p{N}_ ./-]*(?<! )$/u.test(s) && !/^(true|false|null|yes|no|on|off|y|n|~)$/i.test(s) && !/^[\d.+-]/.test(s) ? s : JSON.stringify(s))
 /** The spec's folder, and what's in it: a team's folder, a shared one, the people's (with a kitchen and a diary in the member's). */
 const ROOT = m.aFolder()
@@ -80,7 +80,7 @@ async function openFolders(page: Page, ...names: string[]) {
   }
 }
 
-/** Waits until thoth has read thoth.yaml with the `{user}` rule (or without it). */
+/** Waits until vihko has read vihko.yaml with the `{user}` rule (or without it). */
 async function rulesInForce(page: Page, personal: boolean) {
   await expect.poll(async () => {
     const r = await page.request.get(`/api/permissions?folder=${encodeURIComponent(ADMINS)}`)
@@ -89,7 +89,7 @@ async function rulesInForce(page: Page, personal: boolean) {
 }
 
 test.beforeAll(async ({ browser }) => {
-  // Seven notes written (and kept in the history) and thoth.yaml read again: more than a click, under load.
+  // Seven notes written (and kept in the history) and vihko.yaml read again: more than a click, under load.
   test.setTimeout(90_000)
   mkdirSync(SHOTS, { recursive: true })
   k = await signIn(browser, ADMIN)
@@ -137,7 +137,7 @@ test('the admin takes a folder away from a member: a lock in the tree; she no lo
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(dialog.getByRole('status')).toHaveText('Guardado.')
   await expect(dialog.getByRole('button', { name: 'Restaurar herencia' })).toBeVisible()
-  expect(readFileSync(`${NOTES}/thoth.yaml`, 'utf8')).toBe(RULES + `  ${yamlFolder(`${ROOT}/${TEAM}`)}:\n    grants: { ${yamlSubject(ADMIN.username)}: manage }\n`)
+  expect(readFileSync(`${NOTES}/vihko.yaml`, 'utf8')).toBe(RULES + `  ${yamlFolder(`${ROOT}/${TEAM}`)}:\n    grants: { ${yamlSubject(ADMIN.username)}: manage }\n`)
   // Who has access, and why.
   await dialog.getByRole('tab', { name: 'Quién tiene acceso' }).click()
   // Its own grant, and managing the root, which reaches under it whatever this folder says (D-040 3.5).
@@ -291,7 +291,7 @@ test('a key\'s effective access, from «Agents and API»', async () => {
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
 })
 
-test('thoth.yaml changed meanwhile: the dialog loads it again and says so; one thoth can\'t write is explained', async () => {
+test('vihko.yaml changed meanwhile: the dialog loads it again and says so; one vihko can\'t write is explained', async () => {
   // From the header of a note in the folder.
   await k.goto(`/?note=${encodeURIComponent(INDEX_PATH)}`)
   await expect(k.locator('.cm-content')).toBeVisible()
@@ -300,16 +300,16 @@ test('thoth.yaml changed meanwhile: the dialog loads it again and says so; one t
   await dialog.getByRole('button', { name: 'Cambiar permisos' }).click()
   await dialog.getByRole('combobox', { name: `Nivel de ${MEMBER.username}`, exact: true }).selectOption('read')
   // Someone else edits the file meanwhile.
-  writeFileSync(`${NOTES}/thoth.yaml`, '# edited by hand\n' + readFileSync(`${NOTES}/thoth.yaml`, 'utf8'))
+  writeFileSync(`${NOTES}/vihko.yaml`, '# edited by hand\n' + readFileSync(`${NOTES}/vihko.yaml`, 'utf8'))
   await dialog.getByRole('button', { name: 'Guardar' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('thoth.yaml cambió mientras tanto')
+  await expect(dialog.getByRole('alert')).toContainText('vihko.yaml cambió mientras tanto')
   await expect(dialog).toContainText('Hereda de /')
-  // A section thoth can't use: it is fixed by hand.
-  const good = readFileSync(`${NOTES}/thoth.yaml`, 'utf8')
+  // A section vihko can't use: it is fixed by hand.
+  const good = readFileSync(`${NOTES}/vihko.yaml`, 'utf8')
   // The admin's level at the root, however the key is written, becomes one that doesn't exist.
   const broken = good.replace(new RegExp(`("?${literally(ADMIN.username)}"?): manage`, 'u'), '$1: owner')
   expect(broken).not.toBe(good)
-  writeFileSync(`${NOTES}/thoth.yaml`, broken)
+  writeFileSync(`${NOTES}/vihko.yaml`, broken)
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
   await rowMenu(k, SHARED, 'Permisos…')
   await dialog.getByRole('button', { name: 'Cambiar permisos' }).click()
@@ -317,7 +317,7 @@ test('thoth.yaml changed meanwhile: the dialog loads it again and says so; one t
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(dialog.getByRole('alert')).toContainText('Hay que corregirlo a mano')
   await shot(k, 'permissions-config-invalid-light')
-  writeFileSync(`${NOTES}/thoth.yaml`, good)
+  writeFileSync(`${NOTES}/vihko.yaml`, good)
   await dialog.getByRole('button', { name: 'Cancelar' }).click()
 })
 

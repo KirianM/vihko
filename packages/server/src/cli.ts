@@ -1,19 +1,19 @@
 #!/usr/bin/env -S node --no-experimental-webstorage
-// thoth serve                         starts the server
-// thoth user create <name> [--admin]  creates a user; the password is read from stdin
-// thoth user reset-link <name>        a one-time link for them to choose a password
+// vihko serve                         starts the server
+// vihko user create <name> [--admin]  creates a user; the password is read from stdin
+// vihko user reset-link <name>        a one-time link for them to choose a password
 //                                     (7 days; the way back for an admin who lost theirs)
-// thoth user reset-2fa <name>         takes their second factor away (with reset-link,
+// vihko user reset-2fa <name>         takes their second factor away (with reset-link,
 //                                     the way back for an admin who lost password and phone)
-// thoth history purge <path> [--version <id>] [--dry-run]
+// vihko history purge <path> [--version <id>] [--dry-run]
 //                                     rewrites the managed history without a path
-//                                     (or one version's content of it); thoth stopped
+//                                     (or one version's content of it); vihko stopped
 //
 // No Web Storage: the server doesn't use it, and lib0 (Yjs) probes for it on import,
 // which on Node 26 prints an ExperimentalWarning on every startup.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { pathMatcher } from '@thoth/core'
+import { pathMatcher } from '@vihko/core'
 import { Auth, AuthError, userIdByName } from './auth.ts'
 import { configFromEnv, start } from './main.ts'
 import { Users, UsersError } from './users.ts'
@@ -24,7 +24,7 @@ import { describeLeftover } from './history/leftovers.ts'
 import { StateInUseError } from './lock.ts'
 import { Workspace } from './workspace.ts'
 
-const USAGE = 'usage: thoth serve | thoth user create <name> [--admin] | thoth user reset-link <name> | thoth user reset-2fa <name> | thoth history purge <path> [--version <id>] [--dry-run]'
+const USAGE = 'usage: vihko serve | vihko user create <name> [--admin] | vihko user reset-link <name> | vihko user reset-2fa <name> | vihko history purge <path> [--version <id>] [--dry-run]'
 
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = []
@@ -60,12 +60,12 @@ async function main(argv: string[]) {
       const id = userIdByName(state, name)
       const row = id === null ? undefined : { id }
       if (!row) throw new UsersError('not_found', `no user ${name}`)
-      // Written straight into state.db: a running thoth reads it on the next request.
+      // Written straight into state.db: a running vihko reads it on the next request.
       const link = new Users(auth).newLink(row.id)
       const path = `/invite/${link.token}`
       const base = config.publicUrl
       console.log(`${link.kind === 'invite' ? 'invitation' : 'password reset'} link for ${name}, valid until ${link.expiresAt} (any earlier link of theirs no longer works):`)
-      console.log(base ? `${base}${path}` : `  <thoth's address>${path}`)
+      console.log(base ? `${base}${path}` : `  <vihko's address>${path}`)
     } finally {
       state.close()
     }
@@ -81,7 +81,7 @@ async function main(argv: string[]) {
       const id = userIdByName(state, name)
       const row = id === null ? undefined : { id }
       if (!row) throw new UsersError('not_found', `no user ${name}`)
-      // Written straight into state.db: a running thoth reads it on the next request.
+      // Written straight into state.db: a running vihko reads it on the next request.
       const had = new TwoFactor(state).disable(row.id)
       console.log(had ? `second factor removed for ${name}: they sign in with their password alone (or set up a new one, if it's required)` : `${name} had no second factor`)
     } finally {
@@ -92,7 +92,7 @@ async function main(argv: string[]) {
   if (cmd === 'history' && sub === 'purge') {
     const args = parsePurge(rest)
     if (!args) return usage()
-    // thoth.yaml says the mode (never the user's own repository) and what is excluded.
+    // vihko.yaml says the mode (never the user's own repository) and what is excluded.
     const { history } = new Workspace({ notesDir: config.notesDir }).config
     const report = await purgeHistory({
       stateDir: config.stateDir, notesDir: config.notesDir, path: args.path, version: args.version, dryRun: args.dryRun,
@@ -145,7 +145,7 @@ function printReport(r: PurgeReport) {
   }
   if (!r.dryRun) console.log('The history is compacted: nothing unreachable is left in it.')
   for (const p of r.stillOnDisk) {
-    console.log(`warning: ${p} is still in the notes folder: its content ${r.dryRun ? 'would enter' : 'enters'} the history again with its next version. Delete it, or add it to history.exclude in thoth.yaml.`)
+    console.log(`warning: ${p} is still in the notes folder: its content ${r.dryRun ? 'would enter' : 'enters'} the history again with its next version. Delete it, or add it to history.exclude in vihko.yaml.`)
   }
   if (r.sharedWith.length) console.log(`warning: the same content is also in the history under ${r.sharedWith.join(', ')}; it stays stored there. Purge those paths too.`)
   if (r.movedFrom.length) console.log(`note: before a move, it was ${r.movedFrom.join(', ')}; the versions from before are under that path.`)

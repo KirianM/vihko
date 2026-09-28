@@ -21,7 +21,7 @@ const NOTE = 'hogar/Proxy.md'
 function dirs() {
   const d = makeDirs()
   const member = m.aUser()
-  writeFileSync(join(d.notes, 'thoth.yaml'), `permissions:\n  "": { grants: { ${yamlKey(d.admin.username)}: manage, ${yamlKey(member.username)}: edit } }\n`)
+  writeFileSync(join(d.notes, 'vihko.yaml'), `permissions:\n  "": { grants: { ${yamlKey(d.admin.username)}: manage, ${yamlKey(member.username)}: edit } }\n`)
   return { ...d, member }
 }
 
@@ -58,7 +58,7 @@ test('disabling someone ends their open editor and their key at once', async () 
     const other = watch(bystander)
 
     assert.equal((await api(srv, admin, 'POST', `/api/admin/users/${created.body.user.id}/disable`)).status, 200)
-    await waitFor(() => seen.heard.includes('thoth:session-ended'), 'the editor is told its session ended')
+    await waitFor(() => seen.heard.includes('vihko:session-ended'), 'the editor is told its session ended')
     await waitFor(() => seen.status() === 'disconnected', 'and its connection closes')
     assert.equal((await api(srv, '', 'GET', '/api/tree', undefined, key)).status, 401, 'the key stops at once')
     // It tries to reconnect, and the hub refuses it: what it types never reaches anyone.
@@ -67,7 +67,7 @@ test('disabling someone ends their open editor and their key at once', async () 
     await new Promise((r) => setTimeout(r, 1500))
     assert.ok(!bystander.text().includes(afterDisable))
     assert.notEqual(seen.status(), 'connected')
-    assert.ok(!other.heard.includes('thoth:session-ended'), 'someone else\'s editor goes on')
+    assert.ok(!other.heard.includes('vihko:session-ended'), 'someone else\'s editor goes on')
     assert.equal(other.status(), 'connected')
   } finally {
     closeAll()
@@ -88,11 +88,11 @@ test('a new password ends the editors of the other sessions, not the one that ch
     const r = await api(srv, admin, 'POST', '/api/auth/password', { current: who.password, password: m.aPassword() })
     assert.equal(r.status, 200)
     await waitFor(() => thereSeen.status() === 'disconnected', 'the other session\'s editor closes')
-    assert.ok(thereSeen.heard.includes('thoth:session-ended'))
+    assert.ok(thereSeen.heard.includes('vihko:session-ended'))
     const stillHere = m.aUniqueWord()
     typeLine(here, stillHere)
     await waitFor(async () => (await api(srv, admin, 'GET', `/api/note?path=${encodeURIComponent(NOTE)}`)).body?.text?.includes(stillHere), 'this session keeps writing')
-    assert.ok(!hereSeen.heard.includes('thoth:session-ended'))
+    assert.ok(!hereSeen.heard.includes('vihko:session-ended'))
     assert.equal(hereSeen.status(), 'connected')
   } finally {
     closeAll()

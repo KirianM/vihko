@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { TwoFactor, base32Decode, base32Encode, hotp, openState, qrCode, qrModules, totp, type SetupData } from '@thoth/server'
+import { TwoFactor, base32Decode, base32Encode, hotp, openState, qrCode, qrModules, totp, type SetupData } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { tempDir } from './_tmp.ts'
 import { join } from 'node:path'
@@ -49,7 +49,7 @@ test('base32: the form authenticator apps take, ignoring case, spaces and paddin
 
 /** A store on a clock the test moves, with a user (state.db needs one): `name` is theirs. */
 async function store() {
-  const dir = tempDir('thoth-2fa-')
+  const dir = tempDir('vihko-2fa-')
   const state = openState(join(dir, 'state.db'))
   const clock = { t: Date.parse('2026-09-27T10:00:05Z') }
   const tf = new TwoFactor(state, { now: () => new Date(clock.t) })
@@ -64,7 +64,7 @@ test('setting it up: nothing is theirs until a code from the new secret is verif
   const host = m.aHost()
   const s = tf.beginSetup('u1', name, host)
   assert.match(s.secret, /^([A-Z2-7]{4} ){7}[A-Z2-7]{4}$/, '160 bits, in groups of four to type it')
-  assert.equal(s.uri, `otpauth://totp/thoth:${encodeURIComponent(name)}%40${host}?secret=${s.secret.replace(/ /g, '')}&issuer=thoth&algorithm=SHA1&digits=6&period=30`)
+  assert.equal(s.uri, `otpauth://totp/vihko:${encodeURIComponent(name)}%40${host}?secret=${s.secret.replace(/ /g, '')}&issuer=vihko&algorithm=SHA1&digits=6&period=30`)
   assert.ok(s.qr && s.qr.size >= 21)
   assert.equal(tf.enabled('u1'), false)
   assert.equal(tf.finishSetup('u1', '000000'), null, 'a wrong code')
@@ -127,11 +127,12 @@ test('recovery codes: ten, single use, stored only as a hash, and new ones end t
 
 test('the QR code: standard sizes, and the same modules as a code checked with a real decoder', () => {
   const digest = (text: string) => createHash('sha256').update(qrModules(text)!.map((r) => r.map((d) => (d ? '1' : '0')).join('')).join('\n')).digest('hex')
-  // Checked once against jsQR and module for module against qrcode-generator (the same data, error correction and layout):
-  // fixed vectors, so their texts stay literal (the secret is the RFC 4648 example «Hello!\xDE\xAD\xBE\xEF»).
-  assert.equal(digest('otpauth://totp/thoth:ana@notas.example.org?secret=JBSWY3DPEHPK3PXP&issuer=thoth'), '69bf57687eadbb356ccce5abc5fa85c17dd7a0de16de1ff25eebb0ee64956545')
+  // Checked against jsQR (each decodes to its text) and, 'HELLO WORLD' and the encoder itself, module for module against
+  // qrcode-generator (the same data, error correction and layout): fixed vectors, so their texts stay literal (the
+  // secret is the RFC 4648 example «Hello!\xDE\xAD\xBE\xEF»).
+  assert.equal(digest('otpauth://totp/vihko:ana@notas.example.org?secret=JBSWY3DPEHPK3PXP&issuer=vihko'), '212f8bb206559aa7f0e12718e449a365800d4b59237b6534dca854b5e8a49dcc')
   assert.equal(digest('HELLO WORLD'), '2d21897bf5a7ac606d02da07bdd5e7f02a8b90097f12404b1f7d764f18ef618c')
-  assert.equal(digest('thoth: añadir ñ €'), '9c03d900ffbdf9309da6ea271dbc74b804227683570f7f7389990b4029863abd', 'UTF-8')
+  assert.equal(digest('vihko: añadir ñ €'), 'df035e3ffb929de916970495ed8b9817122f2b5ba04026d72b0e138b0ce6f882', 'UTF-8')
   // Version 1 holds 14 bytes at level M; 15 need version 2. 2331 is the most version 40 holds.
   assert.equal(qrCode('x'.repeat(14))!.size, 21)
   assert.equal(qrCode('x'.repeat(15))!.size, 25)
@@ -149,7 +150,7 @@ test('the QR code: standard sizes, and the same modules as a code checked with a
 
 async function send(app: App, method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
   const res = await app.request(path, { method, headers: { 'content-type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body) })
-  return { status: res.status, body: await res.json().catch(() => null) as any, cookie: res.headers.getSetCookie().find((c) => c.startsWith('thoth_session='))?.split(';')[0] ?? null }
+  return { status: res.status, body: await res.json().catch(() => null) as any, cookie: res.headers.getSetCookie().find((c) => c.startsWith('vihko_session='))?.split(';')[0] ?? null }
 }
 
 /** Signs in with a password (the user's own by default): the session cookie, or the second step. */
@@ -274,7 +275,7 @@ test('the policy: a change is confirmed; required makes whoever has none set it 
     assert.equal((await send(h.app, 'POST', '/api/auth/login/code', { pending: first.body.pending, code: '123456' })).body.error, 'login_expired', 'a setup step is not a code step')
     const s = await send(h.app, 'POST', '/api/auth/2fa/setup', { pending: first.body.pending })
     assert.equal(s.status, 200)
-    assert.ok(s.body.uri.startsWith(`otpauth://totp/thoth:${encodeURIComponent(member)}%40localhost?secret=`), s.body.uri)
+    assert.ok(s.body.uri.startsWith(`otpauth://totp/vihko:${encodeURIComponent(member)}%40localhost?secret=`), s.body.uri)
     assert.equal((await send(h.app, 'POST', '/api/auth/2fa/enable', { pending: first.body.pending, code: '000000' })).body.error, 'invalid_code')
     const done = await send(h.app, 'POST', '/api/auth/2fa/enable', { pending: first.body.pending, code: totp(base32Decode(s.body.secret), h.clock.now.getTime()) })
     assert.equal(done.status, 200)
@@ -410,11 +411,11 @@ test('the CLI takes a second factor away (with reset-link, the way back for an a
     const admin = h.users.admin.username
     await enable(h, 'admin')
     assert.equal((await signIn(h, 'admin')).body.step, 'code')
-    const env = { ...process.env, THOTH_STATE_DIR: h.dir, THOTH_NOTES_DIR: h.notesDir }
+    const env = { ...process.env, VIHKO_STATE_DIR: h.dir, VIHKO_NOTES_DIR: h.notesDir }
     const r = spawnSync(process.execPath, ['--no-experimental-webstorage', CLI, 'user', 'reset-2fa', admin], { env, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     assert.ok(r.stdout.includes(`second factor removed for ${admin}`), r.stdout)
-    assert.equal((await signIn(h, 'admin')).body.user.username, admin, 'a running thoth reads it at once')
+    assert.equal((await signIn(h, 'admin')).body.user.username, admin, 'a running vihko reads it at once')
     const again = spawnSync(process.execPath, ['--no-experimental-webstorage', CLI, 'user', 'reset-2fa', admin], { env, encoding: 'utf8' })
     assert.ok(again.stdout.includes(`${admin} had no second factor`), again.stdout)
     const none = spawnSync(process.execPath, ['--no-experimental-webstorage', CLI, 'user', 'reset-2fa', m.aUsername()], { env, encoding: 'utf8' })

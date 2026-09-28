@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { hiddenFromAgents } from '@thoth/server'
+import { hiddenFromAgents } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -61,7 +61,7 @@ test('a key\'s folders match paths as the disk holds them (NFD), and a note hidd
     assert.deepEqual(tree.folders, [nfd])
     assert.equal((await key('GET', h.url('/api/note', { path: note }))).status, 200)
 
-    // Written outside thoth a moment ago, not indexed yet: its text decides.
+    // Written outside vihko a moment ago, not indexed yet: its text decides.
     // It names the note: told it exists and isn't for agents, and nothing else.
     writeFileSync(join(h.notesDir, nfd, name), `---\nai: false\n---\n${heading}`)
     const read = await key('GET', h.url('/api/note', { path: note }))

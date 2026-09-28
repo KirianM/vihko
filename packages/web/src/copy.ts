@@ -1,5 +1,5 @@
 // Copying text to the clipboard: the clipboard API where the page may use it
-// (https or localhost), a selection and `copy` otherwise (thoth on plain http
+// (https or localhost), a selection and `copy` otherwise (vihko on plain http
 // in a home network, where `navigator.clipboard` doesn't exist).
 
 /** Whether the text reached the clipboard. */

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { renderTemplate } from '@thoth/core'
+import { renderTemplate } from '@vihko/core'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)

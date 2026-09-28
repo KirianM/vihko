@@ -2,10 +2,10 @@
 
 ## What this is
 
-`thoth` (working name): a self-hosted, open source notes system over Markdown
-files, with its own web UI, multiple users with roles, note history, and a
-server-side index queryable from the UI and, optionally, from an API, MCP and
-webhooks. Anyone should be able to self-host it with Docker.
+`vihko` (Finnish for "notebook"): a self-hosted, open source notes system over
+Markdown files, with its own web UI, multiple users with roles, note history,
+and a server-side index queryable from the UI and, optionally, from an API, MCP
+and webhooks. Anyone should be able to self-host it with Docker.
 
 The plan is in `ROADMAP.md`.
 

@@ -19,7 +19,7 @@
 //   POST /api/history/purge { path, version?, dryRun?, confirm? }   (`manage`, or the admin by name)
 //   DELETE /api/history/purges/:id                      (the admin: a purge's notice, dismissed)
 import type { Context, Hono } from 'hono'
-import { WORKSPACE_FILE, folderOf } from '@thoth/core'
+import { WORKSPACE_FILE, folderOf } from '@vihko/core'
 import { PurgeError, purgeTarget, type PurgeReport } from '../history/purge.ts'
 import { readablePath, type Notices } from '../notices.ts'
 import { parseAuthorKey, type Via } from '../actor.ts'
@@ -77,7 +77,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
       case 'user': return { kind: 'user', id: a.id, name: nameOf(a.id), key }
       case 'agent': return { kind: 'agent', id: a.id, name: deps.keyName?.(a.id) ?? a.id, onBehalfOf: { id: a.onBehalfOf, name: nameOf(a.onBehalfOf) }, ...(a.via ? { via: a.via } : {}), key }
       case 'git': return { kind: 'git', id: a.email || undefined, name: a.name, key }
-      case 'system': return { kind: 'system', name: 'thoth', key }
+      case 'system': return { kind: 'system', name: 'vihko', key }
       case 'external': return { kind: 'external', name: '', key }
     }
   }
@@ -149,7 +149,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
       versions: page.versions.map((v) => ({ ...v, authors: v.authors.map(author), reason: reason(v.reason) })),
       next: page.next,
       pending: open ? { authors: open.authors.map(author), since: new Date(open.since).toISOString() } : null,
-      // Kept out of the managed history by thoth.yaml: what is listed is from before.
+      // Kept out of the managed history by vihko.yaml: what is listed is from before.
       excluded: history.excluded(path),
     })
   })
@@ -234,7 +234,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
   // still there), never anything else (with `path` alone, that file only,
   // not what is under it; with `version`, only that note's content in that
   // version, whatever else the version changed); or any path by its name
-  // (a file or a folder) by the thoth admin, who needn't read it. With
+  // (a file or a folder) by the vihko admin, who needn't read it. With
   // `dryRun`, what it would take out, for the confirmation. The history
   // pauses while it's rewritten; the admin gets a notice (who and what,
   // never the content), and so does every other person who wrote in what

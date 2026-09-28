@@ -5,7 +5,7 @@ import { scryptSync } from 'node:crypto'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
-import { Auth, Indexer, NoteService, Profiles, Workspace, SESSION_COOKIE, STATE_VERSION, createApp, ftsQuery, hashPassword, needsRehash, openIndex, openState, verifyPassword, type Runtime } from '@thoth/server'
+import { Auth, Indexer, NoteService, Profiles, Workspace, SESSION_COOKIE, STATE_VERSION, createApp, ftsQuery, hashPassword, needsRehash, openIndex, openState, verifyPassword, type Runtime } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { yamlKey } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
@@ -15,11 +15,11 @@ const m = mother(import.meta.url)
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
 async function setup(opts: { webDir?: string; config?: string } = {}) {
-  const dir = tempDir('thoth-http-')
+  const dir = tempDir('vihko-http-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
   cpSync(VAULT, notesDir, { recursive: true })
-  if (opts.config !== undefined) writeFileSync(join(notesDir, 'thoth.yaml'), opts.config)
+  if (opts.config !== undefined) writeFileSync(join(notesDir, 'vihko.yaml'), opts.config)
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
@@ -46,7 +46,7 @@ async function setup(opts: { webDir?: string; config?: string } = {}) {
 /** Status and code of an error response: the UI only needs the code. */
 const errorOf = (r: { status: number; body: { error?: string } | null }) => [r.status, r.body?.error]
 
-/** A hash as thoth made them before argon2id. */
+/** A hash as vihko made them before argon2id. */
 function legacyScrypt(password: string): string {
   const salt = Buffer.alloc(16, 7)
   const hash = scryptSync(password.normalize('NFC'), salt, 32, { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 })
@@ -77,7 +77,7 @@ test('passwords: scrypt hashes still verify and become argon2id on the next logi
   assert.ok(!(await verifyPassword(wrong, legacy)))
   assert.equal(needsRehash(legacy), true)
 
-  const state = openState(join(tempDir('thoth-auth-'), 'state.db'))
+  const state = openState(join(tempDir('vihko-auth-'), 'state.db'))
   const auth = new Auth(state)
   const user = await auth.createUser(admin.username, admin.password, admin.role)
   const stored = () => (state.prepare('select password_hash from users where id = ?').get(user.id) as { password_hash: string }).password_hash
@@ -198,7 +198,7 @@ test('links, backlinks with context, search and alerts', async () => {
   const links = await req('GET', '/api/note/links?path=diario/2026-09-24.md')
   const tareas = links.body.outgoing.find((l: { raw: string }) => l.raw === '[[Tareas]]')
   assert.equal(tareas.status, 'ambiguous')
-  assert.deepEqual(tareas.candidates, ['proyectos/blog/Tareas.md', 'proyectos/thoth/Tareas.md'])
+  assert.deepEqual(tareas.candidates, ['proyectos/blog/Tareas.md', 'proyectos/vihko/Tareas.md'])
 
   const back = await req('GET', '/api/note/links?path=hogar/Proxy.md')
   assert.ok(back.body.backlinks.some((b: { path: string; context: string }) => b.path === 'hogar/enlaces.md' && b.context.includes('[[Proxy#Red]]')))
@@ -240,7 +240,7 @@ test('comments inside a note stay out of backlink contexts and search', async ()
   const admin = m.aUser({ role: 'admin' })
   await auth.createUser(admin.username, admin.password, admin.role)
   await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
-  // A note linking to one of the vault's, with a comment (thoth's format) after the link's sentence.
+  // A note linking to one of the vault's, with a comment (vihko's format) after the link's sentence.
   const discussed = m.aNotePath('hogar')
   const line = `${m.aSentence(3).slice(0, -1)} [[Proxy]] ${m.aWord()}.`
   const commented = m.aUniqueWord()
@@ -260,15 +260,15 @@ test('workspace alerts: codes with their data and actions based on role', async 
   const alerts = async () => (await req('GET', '/api/alerts')).body.alerts as { code: string; [k: string]: unknown }[]
 
   await as('admin')
-  const conflict = 'proyectos/thoth/Plan.sync-conflict-20260924-120000-ABCDEFG.md'
+  const conflict = 'proyectos/vihko/Plan.sync-conflict-20260924-120000-ABCDEFG.md'
   assert.deepEqual(await alerts(), [
     { code: 'uid_conflict', uid: '01J8X4M2K9QZ', paths: ['uid/copia.md', 'uid/original.md'], actions: [] },
-    { code: 'sync_conflict', path: conflict, note: 'proyectos/thoth/Plan.md', actions: [] },
+    { code: 'sync_conflict', path: conflict, note: 'proyectos/vihko/Plan.md', actions: [] },
   ])
   const copy = await req('GET', `/api/conflict?path=${encodeURIComponent(conflict)}`)
   assert.equal(copy.status, 200)
   assert.match(copy.body.text, /\S/)
-  for (const p of ['Plan.md', '../fuera.md', `proyectos/thoth/${m.aTitle()}.sync-conflict-20260924-120000-ABCDEFG.md`]) {
+  for (const p of ['Plan.md', '../fuera.md', `proyectos/vihko/${m.aTitle()}.sync-conflict-20260924-120000-ABCDEFG.md`]) {
     assert.deepEqual(errorOf(await req('GET', `/api/conflict?path=${encodeURIComponent(p)}`)), [404, 'not_found'], `only detected copies: ${p}`)
   }
 
@@ -299,7 +299,7 @@ test('workspace alerts: codes with their data and actions based on role', async 
 })
 
 test("UI: static files, app routes serve index.html, and the API doesn't fall through to the UI", async () => {
-  const webDir = tempDir('thoth-web-')
+  const webDir = tempDir('vihko-web-')
   mkdirSync(join(webDir, 'assets'))
   writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
   writeFileSync(join(webDir, 'assets', 'app-abc123.js'), 'console.log(1)')
@@ -343,7 +343,7 @@ test('ftsQuery: quoted terms and a prefix on the last one', () => {
 })
 
 test('state.db: migrations, a copy before migrating, and rejecting future versions', () => {
-  const dir = tempDir('thoth-state-')
+  const dir = tempDir('vihko-state-')
   const file = join(dir, 'state.db')
   openState(file).close()
   const raw = new Database(file)

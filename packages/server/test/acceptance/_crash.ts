@@ -81,7 +81,7 @@ export const countLine = (s: string, l: string) => s.split(/\r?\n/).filter((x) =
  * available (a kill in the middle of a commit leaves git's locks, which the
  * restart must remove), and once the open versions close, the newest version
  * of each note is what its file holds, with no version repeated. Needs a
- * short quiet time (THOTH_HISTORY_QUIET_SECONDS). Failures, not thrown.
+ * short quiet time (VIHKO_HISTORY_QUIET_SECONDS). Failures, not thrown.
  */
 export async function historyAfterKills(srv: Srv, cookie: string, notesDir: string, paths: string[]): Promise<string[]> {
   const failures: string[] = []

@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
-import { STATE_VERSION, openState } from '@thoth/server'
+import { STATE_VERSION, openState } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -17,12 +17,12 @@ import { mother } from '../../../test/mother.ts'
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
 const m = mother(import.meta.url)
 
-/** How thoth lists names (SQLite's `collate nocase`): ASCII letters ignore case, everything else by code point. */
+/** How vihko lists names (SQLite's `collate nocase`): ASCII letters ignore case, everything else by code point. */
 const nocase = (a: string, b: string) => {
   const [x, y] = [a, b].map((s) => s.replace(/[A-Z]/g, (c) => c.toLowerCase())) as [string, string]
   return x < y ? -1 : x > y ? 1 : 0
 }
-/** The same name in other cases: thoth must take it for the same one. */
+/** The same name in other cases: vihko must take it for the same one. */
 const swapCase = (s: string) => [...s].map((c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase())).join('')
 
 /** Signs in with a password: the session cookie, or the status if it failed. */
@@ -195,7 +195,7 @@ test('disabling cuts sessions, keys and OAuth at once and keeps them for later; 
 
     // Deleted: the grants hook runs first; if it fails, nothing is deleted.
     const calls: string[] = []
-    s.services.users.hooks.onUserDeleted = () => { throw new Error('thoth.yaml could not be written') }
+    s.services.users.hooks.onUserDeleted = () => { throw new Error('vihko.yaml could not be written') }
     await s.admin('POST', `/api/admin/users/${member.id}/disable`)
     assert.equal((await s.admin('DELETE', `/api/admin/users/${member.id}`)).status, 500)
     assert.ok((await s.admin('GET', '/api/admin/users')).body.users.some((u: any) => u.username === member.username), 'still there')
@@ -323,13 +323,13 @@ test('the CLI gives a reset link (the way back for an admin who lost their passw
   try {
     const admin = s.users.admin.username
     const publicUrl = `https://${m.aHost()}`
-    const env = { ...process.env, THOTH_STATE_DIR: s.dir, THOTH_NOTES_DIR: s.notesDir, THOTH_PUBLIC_URL: publicUrl }
+    const env = { ...process.env, VIHKO_STATE_DIR: s.dir, VIHKO_NOTES_DIR: s.notesDir, VIHKO_PUBLIC_URL: publicUrl }
     const r = spawnSync(process.execPath, ['--no-experimental-webstorage', CLI, 'user', 'reset-link', admin], { env, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     const token = new RegExp(`${publicUrl.replace(/[.]/g, '\\.')}/invite/([A-Za-z0-9_-]{43})`).exec(r.stdout)?.[1]
     assert.ok(token, r.stdout)
     assert.ok(r.stdout.includes(`password reset link for ${admin}`), r.stdout)
-    assert.deepEqual((await anon(s.app, 'GET', `/api/invite/${token}`)).body, { kind: 'reset', username: admin }, 'a running thoth reads it at once')
+    assert.deepEqual((await anon(s.app, 'GET', `/api/invite/${token}`)).body, { kind: 'reset', username: admin }, 'a running vihko reads it at once')
     const none = spawnSync(process.execPath, ['--no-experimental-webstorage', CLI, 'user', 'reset-link', m.aUsername()], { env, encoding: 'utf8' })
     assert.equal(none.status, 1)
     assert.match(none.stderr, /not_found/)
@@ -339,7 +339,7 @@ test('the CLI gives a reset link (the way back for an admin who lost their passw
 })
 
 test('state.db: version 5 migrates keeping its users, with a copy before', () => {
-  const dir = tempDir('thoth-state-m4-')
+  const dir = tempDir('vihko-state-m4-')
   const file = join(dir, 'state.db')
   const [admin, member] = [m.aUsername(), m.aUsername()]
   openState(file).close()

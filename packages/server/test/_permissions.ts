@@ -12,7 +12,7 @@ export function everyone(admin: string, member: string): string {
   return `permissions:\n  "":\n    grants: { ${yamlKey(admin)}: manage, ${yamlKey(member)}: edit }\n`
 }
 
-/** A thoth.yaml with `everyone(admin, member)` added, unless it has permissions of its own. */
+/** A vihko.yaml with `everyone(admin, member)` added, unless it has permissions of its own. */
 export function withEveryone(config: string | undefined, admin: string, member: string): string {
   if (config !== undefined && /^permissions:/m.test(config)) return config
   const base = config ?? ''

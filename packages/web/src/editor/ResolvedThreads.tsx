@@ -89,7 +89,7 @@ export function useResolved(session: Session, threads: Thread[], enabled: boolea
     const onStateless = ({ payload }: { payload: string }) => {
       if (!waiting) return
       try {
-        if ((JSON.parse(payload) as { type?: string }).type === 'thoth:saved') load()
+        if ((JSON.parse(payload) as { type?: string }).type === 'vihko:saved') load()
       } catch { /* not a message of ours */ }
     }
     session.provider.on('stateless', onStateless)
@@ -136,7 +136,7 @@ function ago(t: Translate, iso: string, now = Date.now()) {
 function authorName(t: Translate, a: ResolvedBy) {
   if (a.kind === 'agent') return t('comments.resolved.agent', { name: a.name, user: a.onBehalfOf?.name ?? '' })
   if (a.kind === 'external') return t('comments.resolved.external')
-  if (a.kind === 'system') return 'thoth'
+  if (a.kind === 'system') return 'vihko'
   return a.name
 }
 

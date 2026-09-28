@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { matchSeries, patternPeriod, patternTokens, seriesNeighbors, seriesPath, type Series } from '@thoth/core'
+import { matchSeries, patternPeriod, patternTokens, seriesNeighbors, seriesPath, type Series } from '@vihko/core'
 import { mother } from '../../../test/mother.ts'
 
 // The people whose personal series the tests follow.

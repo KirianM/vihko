@@ -9,7 +9,7 @@
 // over HTTP as one exact operation the server builds, commenting.ts, and
 // reaches the document through the note service like any other write); with
 // `edit`, it writes. When someone's access changes while the note
-// is open (thoth.yaml, groups, a user disabled), their connection is told
+// is open (vihko.yaml, groups, a user disabled), their connection is told
 // (`ACCESS_MESSAGE`) and closed at once: they reopen it with what they have
 // now, or not at all. Every message the hub sends is classified in
 // `HUB_MESSAGES` (hubMessages.ts), for the leak tests.
@@ -27,7 +27,7 @@ import { dirname, join } from 'node:path'
 import { WebSocketServer } from 'ws'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import * as Y from 'yjs'
-import { baseHue, contentHash, isPersonHue, newUid, readFrontmatter, setFrontmatterKey } from '@thoth/core'
+import { baseHue, contentHash, isPersonHue, newUid, readFrontmatter, setFrontmatterKey } from '@vihko/core'
 import { sessionIdOf, type Auth, type User } from './auth.ts'
 import { readStable, readText, replaceText } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
@@ -37,7 +37,7 @@ import type { AccessPolicy } from './access.ts'
 
 export const TEXT = 'md'
 /** Map in the document with the hub's metadata: `generation` (see `load`). */
-export const META = 'thoth'
+export const META = 'vihko'
 export const COLLAB_PATH = '/collab'
 const HISTORY = 20
 
@@ -56,7 +56,7 @@ interface Hot {
   history: Base[]
   /** uid the note had when loaded, so it isn't lost if it's removed in the editor. */
   uid: string | null
-  /** The note was deleted from thoth: it's no longer flushed. */
+  /** The note was deleted from vihko: it's no longer flushed. */
   discarded: boolean
   /**
    * The file was deleted from outside while the note was open. Nothing is
@@ -113,35 +113,35 @@ function freshClientId(doc: Document): number {
 }
 
 /** Live message for editors of a note deleted from outside. */
-export const ORPHAN_MESSAGE = 'thoth:deleted-externally'
+export const ORPHAN_MESSAGE = 'vihko:deleted-externally'
 /** After every flush: `etag` is the hash of the text already on the file. The UI uses it to say "saved". */
-export const SAVED_MESSAGE = 'thoth:saved'
+export const SAVED_MESSAGE = 'vihko:saved'
 /**
  * The note was moved or renamed: editors reopen it at `to`. `external`: it
- * was moved outside thoth, and the hub followed it (`followMove`).
+ * was moved outside vihko, and the hub followed it (`followMove`).
  */
-export const MOVED_MESSAGE = 'thoth:moved'
-/** The note was moved to the trash from thoth: `id` is the entry, to restore it. */
-export const TRASHED_MESSAGE = 'thoth:trashed'
+export const MOVED_MESSAGE = 'vihko:moved'
+/** The note was moved to the trash from vihko: `id` is the entry, to restore it. */
+export const TRASHED_MESSAGE = 'vihko:trashed'
 /**
  * To an editor whose copy belongs to another generation of the document: it's
  * refused before anything is synced, and the editor opens the note again.
  */
-export const STALE_MESSAGE = 'thoth:stale-generation'
+export const STALE_MESSAGE = 'vihko:stale-generation'
 /**
  * To an editor whose access to the note changed while it was open (D-038):
  * `access` is what they have now (`none`, `read`, `comment` or `edit`); the
  * connection is closed right after, and they reopen it with that, if any.
  */
-export const ACCESS_MESSAGE = 'thoth:access'
+export const ACCESS_MESSAGE = 'vihko:access'
 /** An orphan's copy was kept (`restore`) or discarded. */
-export const ORPHAN_RESOLVED_MESSAGE = 'thoth:orphan-resolved'
+export const ORPHAN_RESOLVED_MESSAGE = 'vihko:orphan-resolved'
 /**
  * To the editors of a session that just ended (the user was disabled or
  * deleted, the admin closed their sessions, another session changed the
  * password): the connection closes next, and the UI goes to sign in.
  */
-export const SESSION_ENDED_MESSAGE = 'thoth:session-ended'
+export const SESSION_ENDED_MESSAGE = 'vihko:session-ended'
 /** The WebSocket close code that goes with it. */
 export const SESSION_ENDED_CODE = 4401
 
@@ -152,7 +152,7 @@ export const SESSION_ENDED_CODE = 4401
  *   could read the note when they opened it) may send. `edit`: applied only
  *   for a connection that may write, dropped for a read-only one; `read`:
  *   anyone connected; `ignored`: nothing is done with it.
- * - `outbound`, by thoth's own stateless messages: whom it goes to and what
+ * - `outbound`, by vihko's own stateless messages: whom it goes to and what
  *   it carries.
  */
 export const HUB_MESSAGES = {
@@ -194,7 +194,7 @@ export interface HubOptions {
   /**
    * How long the file of an open note can be missing before its editors are
    * told it was deleted (6 s): longer than the indexer's window to pair a
-   * disappearance with an appearance as a move made outside thoth, which the
+   * disappearance with an appearance as a move made outside vihko, which the
    * note follows instead.
    */
   orphanGraceMs?: number
@@ -210,7 +210,7 @@ export interface HubOptions {
    * a session opens and writes any note: only the hub's own tests do that.
    */
   policy?: AccessPolicy
-  /** How often every open connection's access is checked again, besides each change thoth makes (5 s). */
+  /** How often every open connection's access is checked again, besides each change vihko makes (5 s). */
   accessCheckMs?: number
 }
 
@@ -277,11 +277,11 @@ function record(type: 'S' | 'U' | 'F', payload: Uint8Array): Buffer {
 const HASH_LEN = contentHash('').length
 
 /**
- * Tests only: `THOTH_TEST_CRASH_AT=<point>` kills the process there, as a
+ * Tests only: `VIHKO_TEST_CRASH_AT=<point>` kills the process there, as a
  * `kill -9` landing at that exact moment would.
  */
 function crashPoint(point: string) {
-  if (process.env.THOTH_TEST_CRASH_AT === point) process.kill(process.pid, 'SIGKILL')
+  if (process.env.VIHKO_TEST_CRASH_AT === point) process.kill(process.pid, 'SIGKILL')
 }
 
 /**
@@ -385,8 +385,8 @@ export class CollabHub implements HotDocuments {
    * text each one holds (D-032.4): the ones it wrote, and the ones that still
    * matched their file after the first scan (`trustSavedStates`). Either way,
    * at that moment the file held nothing that the state lacks and an editor's
-   * copy may hold, and from then on thoth is running: a backup of the state
-   * volume is only restored with thoth stopped (and an older state no longer
+   * copy may hold, and from then on vihko is running: a backup of the state
+   * volume is only restored with vihko stopped (and an older state no longer
    * matches its file on startup). So whatever the file gets afterwards comes
    * from another tool, and merging it into the state (see `load`) repeats
    * nothing an editor holds. The hash also leaves out a state put back from
@@ -411,7 +411,7 @@ export class CollabHub implements HotDocuments {
     mkdirSync(this.logDir, { recursive: true })
     const debounce = opts.debounceMs ?? 1000
     this.hocuspocus = new Hocuspocus<Ctx>({
-      name: 'thoth',
+      name: 'vihko',
       quiet: true,
       debounce,
       maxDebounce: debounce * 10,
@@ -424,7 +424,7 @@ export class CollabHub implements HotDocuments {
         // a comment comes over HTTP (commenting.ts).
         connectionConfig.readOnly = level !== 'edit'
         context.level = level
-        // A note deleted or moved from thoth is not reopened: a reconnecting editor cannot resurrect it.
+        // A note deleted or moved from vihko is not reopened: a reconnecting editor cannot resurrect it.
         if (this.hot.get(documentName)?.discarded) throw new NoteError('not_found', `does not exist: ${documentName}`)
         if (!this.hot.has(documentName) && readText(this.file(documentName)) === null) {
           throw new NoteError('not_found', `does not exist: ${documentName}`)
@@ -500,7 +500,7 @@ export class CollabHub implements HotDocuments {
     this.checkTimer = setInterval(() => {
       for (const path of this.hot.keys()) this.checkExternal(path).catch((e) => this.log(`check of ${path}: ${e}`))
     }, this.opts.checkMs ?? 1000)
-    // Groups and users change outside what thoth writes (piece U): looked at again now and then.
+    // Groups and users change outside what vihko writes (piece U): looked at again now and then.
     if (this.opts.policy) this.accessTimer = setInterval(() => this.recheckAccess(), this.opts.accessCheckMs ?? 5000)
   }
 
@@ -521,7 +521,7 @@ export class CollabHub implements HotDocuments {
    * Checks every open connection against what its person may do now. Whoever
    * lost access, or whose access changed, is told (`ACCESS_MESSAGE`) and
    * closed at once, read-only first so nothing else they send goes in; they
-   * reopen it with what they have now. After each permissions change thoth
+   * reopen it with what they have now. After each permissions change vihko
    * makes, and every few seconds (groups, users).
    */
   recheckAccess() {
@@ -740,7 +740,7 @@ export class CollabHub implements HotDocuments {
   }
 
   /**
-   * The note is deleted from thoth: what is pending is flushed (so the trash gets
+   * The note is deleted from vihko: what is pending is flushed (so the trash gets
    * the latest text), it stops being flushed and its sessions are closed. With
    * `trash`, editors are told the trash entry so they can restore it.
    */
@@ -811,10 +811,10 @@ export class CollabHub implements HotDocuments {
     return result
   }
 
-  // --- Moves made outside thoth (D-031.4) ---------------------------------------
+  // --- Moves made outside vihko (D-031.4) ---------------------------------------
 
   /**
-   * Moves the indexer detected outside thoth. A note open in an editor (or
+   * Moves the indexer detected outside vihko. A note open in an editor (or
    * whose copy waits in its recovery log) follows its file instead of being
    * taken as deleted (D-022).
    */
@@ -826,13 +826,13 @@ export class CollabHub implements HotDocuments {
   }
 
   /**
-   * The note at `from` was moved outside thoth to `to`: as for a move from
-   * thoth, the document is closed and its editors reopen it at `to`. What was
+   * The note at `from` was moved outside vihko to `to`: as for a move from
+   * vihko, the document is closed and its editors reopen it at `to`. What was
    * typed and hadn't reached the file (while it was missing, nothing was
    * written) is written at `to`, merged with whatever the other tool changed on
    * the way; the old path is never written again. Only when the hub can tell
    * it's the same note: `to` has the note's `uid` or, without one, exactly the
-   * text last written. Otherwise the note stays as deleted outside thoth, with
+   * text last written. Otherwise the note stays as deleted outside vihko, with
    * its copy (D-022). Resolves to whether it followed.
    */
   async followMove(from: string, to: string): Promise<boolean> {
@@ -846,7 +846,7 @@ export class CollabHub implements HotDocuments {
         const target = this.file(to)
         const found = await readStable(target)
         if (found === null || !this.sameNote(h, found)) {
-          this.log(`${from}: ${to} doesn't look like the same note; it stays as deleted outside thoth`)
+          this.log(`${from}: ${to} doesn't look like the same note; it stays as deleted outside vihko`)
           return false
         }
         h.orphaned = true // written nowhere until it's decided where
@@ -895,7 +895,7 @@ export class CollabHub implements HotDocuments {
           this.announceOrphan(from, h)
           throw err
         }
-        this.log(`${from} was moved outside thoth to ${to} while open: the note follows it`)
+        this.log(`${from} was moved outside vihko to ${to} while open: the note follows it`)
         return true
       })
     } finally {
@@ -942,14 +942,14 @@ export class CollabHub implements HotDocuments {
       // - it continues as it was left: the file is still the text it matched,
       //   or was deleted and the document is kept as its copy (D-022);
       // - or it's a trusted state (`trusted`) and the file changed after it was
-      //   saved, with thoth running. The change is merged below as another
+      //   saved, with vihko running. The change is merged below as another
       //   tool's, and an editor's unsent typing merges with it (D-032.4). Only
       //   while the file is still the same note (the same `uid`, or none in
       //   either): another note put at that path isn't what those copies hold.
       // Otherwise the diff from the saved text to the file may add again text
       // that an editor's copy already holds in its own operations (the state is
       // older than the file: restored from a backup), and merging that copy
-      // would repeat it. A file changed with thoth stopped can't be told apart
+      // would repeat it. A file changed with vihko stopped can't be told apart
       // from that. A state saved before generations existed gets one too.
       let newGeneration = true
       const setGeneration = () => doc.transact(() => doc.getMap(META).set('generation', randomUUID()), 'generation')
@@ -973,7 +973,7 @@ export class CollabHub implements HotDocuments {
         if (!matches) {
           this.log(newGeneration
             ? `${path}: the saved document doesn't match the file; new generation`
-            : `${path}: the file changed after the note was closed, with thoth running; merged into its saved document`)
+            : `${path}: the file changed after the note was closed, with vihko running; merged into its saved document`)
         }
         if (newGeneration) setGeneration()
       } else {
@@ -1193,7 +1193,7 @@ export class CollabHub implements HotDocuments {
   private announceOrphan(path: string, h: Hot) {
     if (h.announced) return
     h.announced = true
-    this.log(`${path} was deleted outside thoth while the note was open: nothing is written until someone decides`)
+    this.log(`${path} was deleted outside vihko while the note was open: nothing is written until someone decides`)
     this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: ORPHAN_MESSAGE, path }))
   }
 
@@ -1253,7 +1253,7 @@ export class CollabHub implements HotDocuments {
    * On startup, once the first scan has brought the index up to date and
    * before any note is loaded: the saved states that still match their file
    * are trusted (see `trusted`). The index has each file's hash, so no note is
-   * read. One that doesn't match (the file changed with thoth stopped, or the
+   * read. One that doesn't match (the file changed with vihko stopped, or the
    * state was restored from a backup) is loaded as before, with a new
    * generation.
    */

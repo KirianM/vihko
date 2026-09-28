@@ -1,6 +1,6 @@
 // Server for the browser tests: a clean copy of testdata/vault, two users
-// (an admin and a member, env.ts) and thoth serving the compiled UI. Beside it, a
-// second one with THOTH_INTEGRATIONS=off (the API and MCP locked by the
+// (an admin and a member, env.ts) and vihko serving the compiled UI. Beside it, a
+// second one with VIHKO_INTEGRATIONS=off (the API and MCP locked by the
 // server's administrator), with one note and the same users.
 // Started by Playwright (webServer) or, if the browser runs elsewhere (the
 // Playwright Docker image), launched by hand: node packages/web/e2e/serve.ts
@@ -12,7 +12,7 @@ import { E2E_DIR, E2E_PORT, LOCKED_PORT, PERMISSIONS, PUBLIC_URL, USERS } from '
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const cli = root + 'packages/server/src/cli.ts'
-const env = { ...process.env, THOTH_NOTES_DIR: E2E_DIR + '/notes', THOTH_STATE_DIR: E2E_DIR + '/state' }
+const env = { ...process.env, VIHKO_NOTES_DIR: E2E_DIR + '/notes', VIHKO_STATE_DIR: E2E_DIR + '/state' }
 
 rmSync(E2E_DIR, { recursive: true, force: true })
 mkdirSync(E2E_DIR, { recursive: true })
@@ -20,13 +20,13 @@ mkdirSync(E2E_DIR, { recursive: true })
 const seed = testSeed()
 writeFileSync(E2E_DIR + '/seed', `${seed}\n`)
 console.log(seedLine(seed, 'node packages/web/e2e/serve.ts'))
-cpSync(root + 'testdata/vault', env.THOTH_NOTES_DIR, { recursive: true })
-const locked = { ...process.env, THOTH_NOTES_DIR: E2E_DIR + '/locked/notes', THOTH_STATE_DIR: E2E_DIR + '/locked/state' }
-mkdirSync(locked.THOTH_NOTES_DIR, { recursive: true })
-writeFileSync(locked.THOTH_NOTES_DIR + '/Bloqueada.md', '# Bloqueada\n')
+cpSync(root + 'testdata/vault', env.VIHKO_NOTES_DIR, { recursive: true })
+const locked = { ...process.env, VIHKO_NOTES_DIR: E2E_DIR + '/locked/notes', VIHKO_STATE_DIR: E2E_DIR + '/locked/state' }
+mkdirSync(locked.VIHKO_NOTES_DIR, { recursive: true })
+writeFileSync(locked.VIHKO_NOTES_DIR + '/Bloqueada.md', '# Bloqueada\n')
 for (const e of [env, locked]) {
   // Both users see everything (D-038: a member reads only what is granted).
-  writeFileSync(e.THOTH_NOTES_DIR + '/thoth.yaml', PERMISSIONS)
+  writeFileSync(e.VIHKO_NOTES_DIR + '/vihko.yaml', PERMISSIONS)
   for (const u of USERS) {
     execFileSync(process.execPath, ['--no-experimental-webstorage', cli, 'user', 'create', u.username, ...(u.role === 'admin' ? ['--admin'] : [])], { env: e, input: u.password })
   }
@@ -34,12 +34,12 @@ for (const e of [env, locked]) {
 // An open version of what's typed closes after 3 s of calm instead of 30: the history specs don't wait half a minute.
 const servers = [
   spawn(process.execPath, ['--no-experimental-webstorage', cli, 'serve'], {
-    // THOTH_PUBLIC_URL: OAuth exists (while MCP is on). Its address only goes into the metadata and redirects: the specs reach this server directly.
-    env: { ...env, THOTH_HOST: '127.0.0.1', THOTH_PORT: String(E2E_PORT), THOTH_RESCAN_SECONDS: '5', THOTH_HISTORY_QUIET_SECONDS: '3', THOTH_PUBLIC_URL: PUBLIC_URL },
+    // VIHKO_PUBLIC_URL: OAuth exists (while MCP is on). Its address only goes into the metadata and redirects: the specs reach this server directly.
+    env: { ...env, VIHKO_HOST: '127.0.0.1', VIHKO_PORT: String(E2E_PORT), VIHKO_RESCAN_SECONDS: '5', VIHKO_HISTORY_QUIET_SECONDS: '3', VIHKO_PUBLIC_URL: PUBLIC_URL },
     stdio: 'inherit',
   }),
   spawn(process.execPath, ['--no-experimental-webstorage', cli, 'serve'], {
-    env: { ...locked, THOTH_HOST: '127.0.0.1', THOTH_PORT: String(LOCKED_PORT), THOTH_INTEGRATIONS: 'off' },
+    env: { ...locked, VIHKO_HOST: '127.0.0.1', VIHKO_PORT: String(LOCKED_PORT), VIHKO_INTEGRATIONS: 'off' },
     stdio: 'inherit',
   }),
 ]

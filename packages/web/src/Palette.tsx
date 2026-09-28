@@ -6,7 +6,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import {
   Autocomplete, Button, Dialog, Header, Input, ListBox, ListBoxItem, ListBoxSection, Modal, ModalOverlay, TextField, type Key,
 } from 'react-aria-components'
-import { hasSearchFilter } from '@thoth/core/query'
+import { hasSearchFilter } from '@vihko/core/query'
 import { api, type SearchResult, type TreeNote } from './api.ts'
 import { commands, type CommandContext } from './commands.ts'
 import { errorText, useT } from './i18n.tsx'
@@ -87,7 +87,7 @@ interface Props {
   folder: string
   openPath: string | null
   notes: TreeNote[] | null
-  /** Template notes (from the templates folder in thoth.yaml), offered when creating. */
+  /** Template notes (from the templates folder in vihko.yaml), offered when creating. */
   templates: string[]
   /** Opens today's note; null while daily notes are off. */
   onToday: (() => void) | null

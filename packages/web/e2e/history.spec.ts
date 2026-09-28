@@ -1,8 +1,8 @@
 // The history (M2) in the browser: the «History» tab with each version's
-// author (a person, outside thoth, the system after a rename), a version with
+// author (a person, outside vihko, the system after a rename), a version with
 // its diff, restoring it with two people in the note, «Recent changes» with
 // its author filter, a phone and the dark theme. The e2e server closes a
-// typed version after 3 s of calm (THOTH_HISTORY_QUIET_SECONDS).
+// typed version after 3 s of calm (VIHKO_HISTORY_QUIET_SECONDS).
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
@@ -21,7 +21,7 @@ const INDEX = m.aNotePath(DIR)
 const IMAGE_NAME = `${m.aUniqueWord()}.png`
 const IMAGE = `${DIR}/${IMAGE_NAME}`
 const SHOTS = `${E2E_DIR}/shots`
-/** The note's first line; what is typed in thoth, and what another editor adds. */
+/** The note's first line; what is typed in vihko, and what another editor adds. */
 const FIRST = m.aSentence()
 const TYPED = m.aSentence()
 const OUTSIDE = m.aSentence()
@@ -86,12 +86,12 @@ test.beforeAll(async ({ browser }) => {
   await expect.poll(async () => (await newest(k, NOTE))?.change, SLOW).toBe('created')
 })
 
-test('a note written by another tool: «Outside thoth», created', async () => {
+test('a note written by another tool: «Outside vihko», created', async () => {
   await k.goto(`/?note=${q(NOTE)}`)
   await expect(k.locator('.cm-content')).toBeVisible()
   await openHistory(k)
   const first = rows(k).first()
-  await expect(first).toContainText('Fuera de thoth')
+  await expect(first).toContainText('Fuera de vihko')
   await expect(first).toContainText('Creada')
   await expect(panelOf(k).getByRole('heading', { name: 'Hoy' })).toBeVisible()
 })
@@ -112,12 +112,12 @@ test('typing in the editor: «In progress», then a version by whoever typed it'
   await expect(mine.locator('.h-counts > [aria-hidden]')).toHaveAttribute('title', /^\d+ palabras y signos añadidos/)
 })
 
-test('a change made with another editor shows up as «Outside thoth»', async () => {
+test('a change made with another editor shows up as «Outside vihko»', async () => {
   await expect.poll(() => read(NOTE)).toContain(TYPED)
   writeFileSync(`${NOTES}/${NOTE}`, read(NOTE) + `\n${OUTSIDE}\n`)
   await expect.poll(() => editorText(k)).toContain(OUTSIDE)
   const first = rows(k).first()
-  await expect(first).toContainText('Fuera de thoth', SLOW)
+  await expect(first).toContainText('Fuera de vihko', SLOW)
   await expect(first).not.toContainText('Creada')
   await expect(first.locator('.h-add')).toHaveText(/^\+\d+$/)
   await k.screenshot({ path: `${SHOTS}/history-tab-light.png`, animations: 'disabled' })
@@ -236,7 +236,7 @@ test('a rename: the move by whoever did it, and the links rewritten by the syste
   await openHistory(k)
   const system = rows(k).first()
   await expect(system).toContainText(`Enlaces actualizados al renombrar «${TITLE}» como «${RENAMED_TITLE}», por ${ADMIN.username}`, SLOW)
-  // The system: thoth's mark and the words, no person's dot.
+  // The system: vihko's mark and the words, no person's dot.
   await expect(system.locator('.h-system svg')).toBeVisible()
   await expect(system.locator('.h-dot')).toHaveCount(0)
   await system.click()
@@ -254,14 +254,14 @@ test('«Recent changes»: by day, with authors and files, filtered by author; a 
   await k.screenshot({ path: `${SHOTS}/history-changes-light.png`, animations: 'disabled' })
 
   const filter = k.getByLabel('Autor')
-  await filter.selectOption({ label: 'Fuera de thoth' })
-  await expect(cards.first()).toContainText('Fuera de thoth')
-  await expect(cards.filter({ hasNotText: 'Fuera de thoth' })).toHaveCount(0)
+  await filter.selectOption({ label: 'Fuera de vihko' })
+  await expect(cards.first()).toContainText('Fuera de vihko')
+  await expect(cards.filter({ hasNotText: 'Fuera de vihko' })).toHaveCount(0)
   await expect(cards.filter({ has: k.locator('.h-dot') })).toHaveCount(0)
 
   await filter.selectOption({ label: ADMIN.username })
   await expect(cards.first()).toContainText(ADMIN.username)
-  await expect(cards.filter({ hasText: 'Fuera de thoth' })).toHaveCount(0)
+  await expect(cards.filter({ hasText: 'Fuera de vihko' })).toHaveCount(0)
   // Every card is theirs: their name as its author, or the system's words «…, por <them>».
   await expect(cards.filter({ hasNot: named(k, ADMIN.username) }).filter({ hasNotText: `por ${ADMIN.username}` })).toHaveCount(0)
 

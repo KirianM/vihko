@@ -1,6 +1,6 @@
 // Comment threads resolved from a note (D-023, D-032.5): the ones that left it
 // in the last 30 days, found by comparing its versions. Only through the
-// HistoryReader interface, so it works on any history (thoth's own, or the
+// HistoryReader interface, so it works on any history (vihko's own, or the
 // notes folder's git in unmanaged mode).
 //
 // - A thread was resolved by the version that removed it: its first comment
@@ -20,7 +20,7 @@
 //   false`, and the next one goes on. Reading a version costs a few git calls
 //   (~30 ms): a note with hundreds of edits in the month takes a few requests
 //   the first time.
-import { commentKey, goneThreads, parseComments, parseThreads, removedThread, reopener, type RemovedThread } from '@thoth/core/comments'
+import { commentKey, goneThreads, parseComments, parseThreads, removedThread, reopener, type RemovedThread } from '@vihko/core/comments'
 import type { AuthorRef, HistoryReader, RawVersion } from './reader.ts'
 
 export const RESOLVED_WINDOW_MS = 30 * 24 * 60 * 60 * 1000

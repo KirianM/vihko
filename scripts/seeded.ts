@@ -1,5 +1,5 @@
 // Runs a command with the run's seed for the test data (test/seed.ts): the
-// given THOTH_TEST_SEED or a new one, printed before it starts and again if
+// given VIHKO_TEST_SEED or a new one, printed before it starts and again if
 // it fails. `npm run acceptance` and `npm run load` go through it, so every
 // test process of the run draws the same data.
 //

@@ -7,7 +7,7 @@
 // (extension.ts), run in the order of their dependencies.
 import { readFileSync, readdirSync, statSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
-import { classifyPath, contentHash, extract, isIgnoredDir, readFrontmatter, type Extracted, type LinkIndex } from '@thoth/core'
+import { classifyPath, contentHash, extract, isIgnoredDir, readFrontmatter, type Extracted, type LinkIndex } from '@vihko/core'
 import type { Db } from './db.ts'
 import { ExtensionHost, type Extension, type NoteSnapshot } from './extension.ts'
 import { builtinExtensions, type LinksExtension } from './extensions/index.ts'
@@ -23,20 +23,20 @@ export interface IndexerOptions {
   keys?: Partial<FrontmatterKeys>
   /** Extensions besides the built-in ones. */
   extensions?: readonly Extension[]
-  /** Whether aliases resolve links (thoth.yaml `links.aliases`; on by default). `setLinkAliases` changes it. */
+  /** Whether aliases resolve links (vihko.yaml `links.aliases`; on by default). `setLinkAliases` changes it. */
   linkAliases?: boolean
   /**
    * How long a note that left (or entered) the index in one watcher batch can
-   * still pair with one in a later batch as a move made outside thoth (5 s).
+   * still pair with one in a later batch as a move made outside vihko (5 s).
    */
   moveWindowMs?: number
   /** The clock (tests). */
   now?: () => number
-  /** Moves made outside thoth, as a scan or a watcher batch detects them. */
+  /** Moves made outside vihko, as a scan or a watcher batch detects them. */
   onMoves?: (moves: DetectedMove[]) => void
 }
 
-/** Names of the frontmatter keys thoth understands (configurable). */
+/** Names of the frontmatter keys vihko understands (configurable). */
 export interface FrontmatterKeys {
   uid: string
   title: string
@@ -51,7 +51,7 @@ export interface ScanReport {
   changed: string[]
   removed: string[]
   /**
-   * Notes that moved outside thoth (moves.ts): the index keeps them as the
+   * Notes that moved outside vihko (moves.ts): the index keeps them as the
    * same note at a new path, not as a removal and an addition, so they are
    * in neither of those lists.
    */
@@ -105,7 +105,7 @@ export class Indexer {
     this.onMoves = opts.onMoves ?? null
   }
 
-  /** Called with the moves made outside thoth that a scan or a watcher batch detects. */
+  /** Called with the moves made outside vihko that a scan or a watcher batch detects. */
   onMoves: ((moves: DetectedMove[]) => void) | null
 
   /**
@@ -134,7 +134,7 @@ export class Indexer {
   }
 
   /**
-   * Turns alias resolution on or off (thoth.yaml changed) and resolves every
+   * Turns alias resolution on or off (vihko.yaml changed) and resolves every
    * link again with the keys already indexed: no note is read or reindexed.
    */
   setLinkAliases(on: boolean) {
@@ -201,7 +201,7 @@ export class Indexer {
   }
 
   /**
-   * Brings specific folders up to date (thoth's own folder operations): one
+   * Brings specific folders up to date (vihko's own folder operations): one
    * that exists is recorded with its ancestors and its subfolders; one that no
    * longer does goes, with everything recorded under it. A full scan does the
    * same for all.
@@ -226,7 +226,7 @@ export class Indexer {
   /**
    * Reindexes specific paths. Doesn't apply the mass-deletion guard. With
    * `detectMoves` (watcher events, which may be someone else's rename), a
-   * note leaving one path and entering another is paired as a move; thoth's
+   * note leaving one path and entering another is paired as a move; vihko's
    * own writes leave it off: its moves are its own.
    */
   indexPaths(paths: Iterable<string>, { detectMoves = false }: { detectMoves?: boolean } = {}): ScanReport {
@@ -254,7 +254,7 @@ export class Indexer {
     this.apply(upserts, touch, removed, null, conflictsNow, conflictsGone)
     this.applied(upserts, report)
     if (detectMoves) this.announce(report)
-    // A note in a folder the index hadn't seen yet (created by thoth or from outside).
+    // A note in a folder the index hadn't seen yet (created by vihko or from outside).
     if (report.added.length) {
       const ins = this.db.prepare('insert or ignore into folders (path) values (?)')
       this.db.transaction(() => { for (const p of report.added) for (const a of ancestorsOf(p)) ins.run(a) })()

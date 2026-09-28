@@ -4,7 +4,7 @@
 // member (new ones every time, _people.ts).
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, mountMcp, openIndex, openState, toolData, type ClientMetadataFetcher, type Runtime } from '@thoth/server'
+import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, mountMcp, openIndex, openState, toolData, type ClientMetadataFetcher, type Runtime } from '@vihko/server'
 import { Client, StreamableHTTPClientTransport, type VersionNegotiationMode } from '@modelcontextprotocol/client'
 import { tempDir } from './_tmp.ts'
 import { withEveryone } from './_permissions.ts'
@@ -16,12 +16,12 @@ export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAA
 export interface AgentSetup {
   /** Files to add (a function of the people's usernames when their paths or texts name them). */
   files?: ByNames<Record<string, string | Uint8Array>>
-  /** thoth.yaml (a function of the people's usernames when it names them). */
+  /** vihko.yaml (a function of the people's usernames when it names them). */
   config?: ByNames<string>
-  /** Locked off by the server's administrator (THOTH_INTEGRATIONS=off). */
+  /** Locked off by the server's administrator (VIHKO_INTEGRATIONS=off). */
   locked?: boolean
   now?: Date
-  /** THOTH_PUBLIC_URL: with it, OAuth for the MCP server (while it's on). */
+  /** VIHKO_PUBLIC_URL: with it, OAuth for the MCP server (while it's on). */
   publicUrl?: string
   /** A stand-in for the built UI (one index.html), for the pages the UI serves. */
   ui?: boolean
@@ -30,7 +30,7 @@ export interface AgentSetup {
 }
 
 export async function setup(opts: AgentSetup = {}) {
-  const dir = tempDir('thoth-agents-')
+  const dir = tempDir('vihko-agents-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
   mkdirSync(notesDir, { recursive: true })
@@ -42,7 +42,7 @@ export async function setup(opts: AgentSetup = {}) {
     writeFileSync(join(notesDir, p), content)
   }
   // Both users see everything unless the test brings its own permissions (_permissions.ts).
-  writeFileSync(join(notesDir, 'thoth.yaml'), withEveryone(opts.config === undefined ? undefined : byNames(opts.config, names), names.admin, names.member))
+  writeFileSync(join(notesDir, 'vihko.yaml'), withEveryone(opts.config === undefined ? undefined : byNames(opts.config, names), names.admin, names.member))
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
@@ -125,8 +125,8 @@ export async function setup(opts: AgentSetup = {}) {
    * its requests go to the app, not the network). `mode`: the protocol era.
    */
   const mcp = async (token: string, mode: VersionNegotiationMode = 'auto') => {
-    const client = new Client({ name: 'thoth-tests', version: '1' }, { versionNegotiation: { mode } })
-    const transport = new StreamableHTTPClientTransport(new URL('http://thoth.test/mcp'), {
+    const client = new Client({ name: 'vihko-tests', version: '1' }, { versionNegotiation: { mode } })
+    const transport = new StreamableHTTPClientTransport(new URL('http://vihko.test/mcp'), {
       fetch: (u, init) => Promise.resolve(app.request(String(u), init)),
       requestInit: { headers: { authorization: `Bearer ${token}` } },
     })

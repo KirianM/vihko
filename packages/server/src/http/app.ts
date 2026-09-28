@@ -11,7 +11,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { join, posix, sep } from 'node:path'
-import { WORKSPACE_FILE, classifyPath, conflictOriginal, type Alert, type ErrorCode } from '@thoth/core'
+import { WORKSPACE_FILE, classifyPath, conflictOriginal, type Alert, type ErrorCode } from '@vihko/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
@@ -54,9 +54,9 @@ import { TwoFactor } from '../twoFactor.ts'
 import { twoFactorHttp } from './twoFactor.ts'
 import { Notices, noticeAlert } from '../notices.ts'
 
-export const SESSION_COOKIE = 'thoth_session'
+export const SESSION_COOKIE = 'vihko_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
-export const DEVICE_COOKIE = 'thoth_device'
+export const DEVICE_COOKIE = 'vihko_device'
 const DEVICE_DAYS = 365
 /** Login and first-boot bodies: a name, a password and a token fit well within this. */
 const AUTH_BODY = 16 * 1024
@@ -78,7 +78,7 @@ export interface AppDeps {
   auth: Auth
   /** Each person's timezone and preferences (state.db). */
   profiles: Profiles
-  /** thoth.yaml, as currently in force. */
+  /** vihko.yaml, as currently in force. */
   workspace: Workspace
   notes: NoteService
   index: Db
@@ -99,7 +99,7 @@ export interface AppDeps {
    * answers with a job instead of the report (1 s by default).
    */
   moveWaitMs?: number
-  /** Notes moved outside thoth, pending a link update (D-031.4). */
+  /** Notes moved outside vihko, pending a link update (D-031.4). */
   externalMoves?: ExternalMoves
   /** Note history (M2). Without it, the history API doesn't exist. */
   history?: History
@@ -113,9 +113,9 @@ export interface AppDeps {
    * collaboration hub, main.ts). One of its own over `index` by default.
    */
   policy?: AccessPolicy
-  /** Notes held after moves made outside thoth (permissionHolds.ts). */
+  /** Notes held after moves made outside vihko (permissionHolds.ts). */
   holds?: PermissionHolds
-  /** After thoth changes the permissions (thoth.yaml): open editors are checked again. */
+  /** After vihko changes the permissions (vihko.yaml): open editors are checked again. */
   onPermissionsChanged?: () => void
   /** Agent keys (state.db). By default, over the same state.db as `auth`. */
   keys?: ApiKeys
@@ -124,12 +124,12 @@ export interface AppDeps {
   /** More routes outside /api (the MCP server), mounted before the UI's catch-all. */
   routes?: (app: Hono<Env>, services: Services) => void
   /**
-   * THOTH_PUBLIC_URL: the HTTPS origin thoth is reached at from outside. With
+   * VIHKO_PUBLIC_URL: the HTTPS origin vihko is reached at from outside. With
    * it (and the MCP server on), OAuth exists for `/mcp` (oauth.ts).
    */
   publicUrl?: string | null
   /**
-   * THOTH_TRUSTED_PROXIES: the reverse proxies whose X-Forwarded-For is
+   * VIHKO_TRUSTED_PROXIES: the reverse proxies whose X-Forwarded-For is
    * believed, for the login limits (clientIp.ts). Without them, the socket's address.
    */
   trustedProxies?: BlockList | null
@@ -164,7 +164,7 @@ export interface Services {
   keys: ApiKeys
   integrations: Integrations
   policy: AccessPolicy
-  /** thoth.yaml's permissions, as thoth writes them (piece U: `removeSubjectGrants` when a user is deleted). */
+  /** vihko.yaml's permissions, as vihko writes them (piece U: `removeSubjectGrants` when a user is deleted). */
   permissionsFile: PermissionsFile
   scoped(access: Access): ScopedNotes
   history?: History
@@ -244,8 +244,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links,
     permissions, permissionsFile, keys: () => keys.listAll(), orphans: deps.orphans, externalMoves: deps.externalMoves,
   }
-  // A user deleted, a group renamed or deleted: their grants in thoth.yaml
-  // follow, first (if thoth.yaml can't be written, nothing changes).
+  // A user deleted, a group renamed or deleted: their grants in vihko.yaml
+  // follow, first (if vihko.yaml can't be written, nothing changes).
   users.hooks.onUserDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(name, { actor: by }) }
   users.hooks.onGroupRenamed ??= async (from, to, by) => { await permissionsFile.renameSubject(`@${from}`, `@${to}`, { actor: by }) }
   users.hooks.onGroupDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(`@${name}`, { actor: by }) }
@@ -430,7 +430,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.get('/api/auth/me', (c) => c.json({ user: c.get('user') }))
 
   // What the UI needs to know about this installation's settings.
-  // `secretsEncrypted`: THOTH_SECRET_KEY is set (the privacy page says how the second factor's secret is kept).
+  // `secretsEncrypted`: VIHKO_SECRET_KEY is set (the privacy page says how the second factor's secret is kept).
   app.get('/api/config', (c) => c.json({ externalImages, maxImageBytes: notes.maxImageBytes, secretsEncrypted: twoFactor.encrypted }))
 
   // Notes and folders: a folder with no notes (just created, or emptied) still shows.
@@ -506,7 +506,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return c.json(written(c, await scoped(c).create(path, { text, template, freshUid })), 201)
   })
 
-  // The workspace settings the UI needs from thoth.yaml (reloaded when it changes).
+  // The workspace settings the UI needs from vihko.yaml (reloaded when it changes).
   app.get('/api/workspace', (c) => {
     const w = workspace.config
     return c.json({ daily: w.daily, templates: w.templates, links: w.links })
@@ -587,7 +587,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return c.json(r)
   })
 
-  // Updates the links after notes moved outside thoth (D-031.4), as a move
+  // Updates the links after notes moved outside vihko (D-031.4), as a move
   // would, for the moves the person may make; with `dryRun`, only what it
   // would do. With `background`, as a move job. The report names only what
   // they can see.
@@ -616,7 +616,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // request from a user: the server never fetches URLs written in notes.
   // Nothing is downloaded for a note that doesn't exist or they can't write.
   // Members only from public addresses, unless the admin lets them reach the
-  // local network (D-038.6); the thoth admin, from anywhere.
+  // local network (D-038.6); the vihko admin, from anywhere.
   app.post('/api/attachments/fetch', async (c) => {
     const { note, url } = await c.req.json<{ note: string; url: string }>()
     const publicOnly = c.get('user').role !== 'admin' && !adminSettings.view().membersLocalDownloads
@@ -631,7 +631,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const path = c.req.query('path') ?? ''
     const norm = posix.normalize(path)
     if (!path || norm !== path || path.startsWith('/') || norm.split('/').includes('..')) return fail(c, 400, 'invalid_path', `invalid file path: ${path}`)
-    // thoth.yaml isn't content: once it holds permissions (M4), it's not for every reader.
+    // vihko.yaml isn't content: once it holds permissions (M4), it's not for every reader.
     if (classifyPath(norm) !== 'other' || norm === WORKSPACE_FILE) return fail(c, 404, 'not_found', `not a servable file: ${path}`)
     // An agent: only in its folders, and only a file a note it can read uses.
     scoped(c).assertFile(norm)
@@ -677,7 +677,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Workspace alerts: codes with their data, never text. Admin actions are
   // only offered to those who can perform them; the endpoint enforces it again.
   // A note's alert goes to whoever can read the note, with only what they can
-  // see; the system's (the scan, git, sign-ins, thoth.yaml and its
+  // see; the system's (the scan, git, sign-ins, vihko.yaml and its
   // permissions), to the admin, without paths of notes they can't read (D-038).
   const nameOf = (id: string) => auth.username(id) ?? id
   app.get('/api/alerts', (c) => {
@@ -738,7 +738,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     // Someone may be guessing passwords: only for admins, who can do something about it.
     const guessing = admin ? limiter.summary() : null
     if (guessing) alerts.push({ code: 'login_attempts_blocked', ...guessing, actions: [] })
-    // Second factors that can't be read with the THOTH_SECRET_KEY in force (twoFactor.ts).
+    // Second factors that can't be read with the VIHKO_SECRET_KEY in force (twoFactor.ts).
     const unreadable = admin ? twoFactor.unreadable() : []
     if (unreadable.length) alerts.push({ code: 'two_factor_unreadable', users: unreadable.map(nameOf).sort(), actions: [] })
     // Notices addressed to this person (notices.ts), last: what others did to their account or their writing.

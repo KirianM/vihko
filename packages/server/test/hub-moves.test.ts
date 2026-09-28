@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { readFrontmatter } from '@thoth/core'
+import { readFrontmatter } from '@vihko/core'
 import { api, closeAll, connect, login, makeDirs, sleep, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -74,7 +74,7 @@ async function renamedWhileTyping(uid: boolean) {
     const decrement = a.provider.decrementUnsyncedChanges.bind(a.provider)
     a.provider.decrementUnsyncedChanges = () => { acks++; decrement() }
     const typed: string[] = []
-    const moved = () => ma.some((m) => m.type === 'thoth:moved') && mb.some((m) => m.type === 'thoth:moved')
+    const moved = () => ma.some((m) => m.type === 'vihko:moved') && mb.some((m) => m.type === 'vihko:moved')
     let renamed = false
     const typing = (async () => {
       for (let n = 0; !moved() && n < 500; n++) {
@@ -92,9 +92,9 @@ async function renamedWhileTyping(uid: boolean) {
     await waitFor(moved, 'both editors told it moved', 15000)
     await typing
     assert.ok(renamed)
-    const msg = ma.find((m) => m.type === 'thoth:moved')!
-    assert.deepEqual(msg, { type: 'thoth:moved', from: NOTE, to: TO, external: true })
-    assert.ok(!ma.some((m) => m.type === 'thoth:deleted-externally'), 'never announced as deleted')
+    const msg = ma.find((m) => m.type === 'vihko:moved')!
+    assert.deepEqual(msg, { type: 'vihko:moved', from: NOTE, to: TO, external: true })
+    assert.ok(!ma.some((m) => m.type === 'vihko:deleted-externally'), 'never announced as deleted')
     a.close(); b.close()
     const acked = typed.slice(0, acks)
     assert.ok(acked.length > 10, `typing went on after the rename (${acked.length} acknowledged)`)
@@ -123,7 +123,7 @@ test('renamed on disk while typing, with a uid (edited on the way too): the edit
 
 test('renamed on disk while typing, without a uid (identical text): the editors follow, nothing lost or repeated', () => renamedWhileTyping(false))
 
-test('renamed and changed on disk without a uid: not provably the same note, so it stays as deleted outside thoth', async () => {
+test('renamed and changed on disk without a uid: not provably the same note, so it stays as deleted outside vihko', async () => {
   const { notes, env } = makeDirs()
   const srv = await startServer(env)
   const from = join(notes, NOTE)
@@ -135,8 +135,8 @@ test('renamed and changed on disk without a uid: not provably the same note, so 
     const changed = readFileSync(from, 'utf8') + `${MARK.changed}\n`
     writeFileSync(to, changed)
     rmSync(from)
-    await waitFor(() => got.some((m) => m.type === 'thoth:deleted-externally'), 'deleted notice', 15000)
-    assert.ok(!got.some((m) => m.type === 'thoth:moved'))
+    await waitFor(() => got.some((m) => m.type === 'vihko:deleted-externally'), 'deleted notice', 15000)
+    assert.ok(!got.some((m) => m.type === 'vihko:moved'))
     typeLine(a, MARK.keptAside)
     await sleep(1500)
     assert.ok(!existsSync(from), 'not recreated')

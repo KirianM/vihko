@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { LinkIndex, caseFold, extract, normKey, parseSearchQuery } from '@thoth/core'
+import { LinkIndex, caseFold, extract, normKey, parseSearchQuery } from '@vihko/core'
 
 test('caseFold: full Unicode case folding, not just lowercase', () => {
   assert.equal(caseFold('Straße'), caseFold('STRASSE'), 'ß folds to ss')

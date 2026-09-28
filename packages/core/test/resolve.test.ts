@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { posix } from 'node:path'
-import { LinkIndex, extract, joinPath, shortestTarget, type Resolution } from '@thoth/core'
+import { LinkIndex, extract, joinPath, shortestTarget, type Resolution } from '@vihko/core'
 
 const ROOT = fileURLToPath(new URL('../../../testdata/vault/', import.meta.url))
 
@@ -41,15 +41,15 @@ function assertResolves(r: Resolution | undefined, expected: { status: string; p
 }
 
 test('same folder, uppercase, display text, embed and self-reference', () => {
-  const r = resolveAll('proyectos/thoth/notas.md')
-  for (const raw of ['[[Plan]]', '[[plan]]', '[[Plan|el plan]]', '![[Plan]]']) assertResolves(r.get(raw), ok('proyectos/thoth/Plan.md'))
-  assertResolves(r.get('[[notas]]'), ok('proyectos/thoth/notas.md'))
+  const r = resolveAll('proyectos/vihko/notas.md')
+  for (const raw of ['[[Plan]]', '[[plan]]', '[[Plan|el plan]]', '![[Plan]]']) assertResolves(r.get(raw), ok('proyectos/vihko/Plan.md'))
+  assertResolves(r.get('[[notas]]'), ok('proyectos/vihko/notas.md'))
 })
 
 test('tie-break by depth and real ambiguity', () => {
   const r = resolveAll('diario/2026-09-24.md')
   assertResolves(r.get('[[Plan]]'), ok('Plan.md'))
-  assertResolves(r.get('[[Tareas]]'), { status: 'ambiguous', candidates: ['proyectos/blog/Tareas.md', 'proyectos/thoth/Tareas.md'] })
+  assertResolves(r.get('[[Tareas]]'), { status: 'ambiguous', candidates: ['proyectos/blog/Tareas.md', 'proyectos/vihko/Tareas.md'] })
   assertResolves(r.get('[[proyectos/blog/Plan]]'), ok('proyectos/blog/Plan.md'))
   assertResolves(r.get('[[blog/Plan]]'), ok('proyectos/blog/Plan.md'))
 })
@@ -73,7 +73,7 @@ test('alias, name priority, anchors, broken links and relative Markdown', () => 
   assertResolves(r.get('[[Proxy#No existe]]'), ok('hogar/Proxy.md', 'missing'))
   assertResolves(r.get('[[Nota que no existe]]'), { status: 'missing' })
   assertResolves(r.get('[Proxy en Markdown](Proxy.md)'), ok('hogar/Proxy.md'))
-  assertResolves(r.get('[Plan de thoth](../proyectos/thoth/Plan.md)'), ok('proyectos/thoth/Plan.md'))
+  assertResolves(r.get('[Plan de vihko](../proyectos/vihko/Plan.md)'), ok('proyectos/vihko/Plan.md'))
   assertResolves(r.get('[roto](no-existe.md)'), { status: 'missing' })
 })
 
@@ -117,11 +117,11 @@ test('joinPath matches posix.join for relative note paths', () => {
 })
 
 test('shortestTarget: the name, a longer suffix if ambiguous, the absolute path if unreachable', () => {
-  // From the vault: three Plan.md (root, proyectos/blog, proyectos/thoth).
+  // From the vault: three Plan.md (root, proyectos/blog, proyectos/vihko).
   assert.equal(shortestTarget(index, 'hogar/enlaces.md', 'Plan.md'), 'Plan')
   assert.equal(shortestTarget(index, 'hogar/enlaces.md', 'proyectos/blog/Plan.md'), 'blog/Plan')
   assert.equal(shortestTarget(index, 'proyectos/blog/Tareas.md', 'proyectos/blog/Plan.md'), 'Plan')
-  assert.equal(shortestTarget(index, 'proyectos/blog/Tareas.md', 'proyectos/thoth/Plan.md'), 'thoth/Plan')
+  assert.equal(shortestTarget(index, 'proyectos/blog/Tareas.md', 'proyectos/vihko/Plan.md'), 'vihko/Plan')
   // The root Plan.md loses by proximity to blog/Plan.md and has no longer suffix.
   assert.equal(shortestTarget(index, 'proyectos/blog/Tareas.md', 'Plan.md'), '/Plan')
   assert.equal(shortestTarget(index, 'Plan.md', 'hogar/Proxy.md'), 'Proxy')

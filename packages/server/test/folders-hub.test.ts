@@ -22,7 +22,7 @@ test('moving a folder with open notes: each editor follows its note, nothing typ
     const a = await connect(srv, cookie, 'hogar/Proxy.md')
     const b = await connect(srv, cookie, 'hogar/Red.md')
     const moved: { from: string; to: string }[] = []
-    for (const c of [a, b]) c.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'thoth:moved') moved.push({ from: m.from, to: m.to }) })
+    for (const c of [a, b]) c.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'vihko:moved') moved.push({ from: m.from, to: m.to }) })
     typeLine(a, MARK.unflushedA) // still in the debounce: the move flushes it first
     typeLine(b, MARK.unflushedB)
     await waitFor(() => a.provider.unsyncedChanges === 0 && b.provider.unsyncedChanges === 0, 'sent to the server')
@@ -50,7 +50,7 @@ test('moving a folder with open notes: each editor follows its note, nothing typ
     await sleep(1500) // a watcher round and a hub check
     assert.ok(!existsSync(join(notes, 'hogar')), 'the old folder is not recreated')
     const alerts = (await api(srv, cookie, 'GET', '/api/alerts')).body.alerts as { code: string }[]
-    assert.deepEqual(alerts.filter((x) => x.code === 'orphaned_note' || x.code === 'scan_aborted_mass_delete'), [], 'seen as thoth\'s own move')
+    assert.deepEqual(alerts.filter((x) => x.code === 'orphaned_note' || x.code === 'scan_aborted_mass_delete'), [], 'seen as vihko\'s own move')
     const tree = (await api(srv, cookie, 'GET', '/api/tree')).body
     assert.ok(tree.folders.includes(to) && !tree.folders.includes('hogar'))
   } finally { closeAll(); await srv.stop() }

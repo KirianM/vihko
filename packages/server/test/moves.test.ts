@@ -1,4 +1,4 @@
-// Moves made outside thoth (D-031.4): a note leaving one path and entering
+// Moves made outside vihko (D-031.4): a note leaving one path and entering
 // another in the same batch (or a few seconds apart) with the same `uid`, or
 // the same content without one, is the same note. Never a guess.
 import { test } from 'node:test'
@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { cpSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Indexer, NoteService, matchMoves, openIndex, type DetectedMove, type MoveCandidate } from '@thoth/server'
+import { Indexer, NoteService, matchMoves, openIndex, type DetectedMove, type MoveCandidate } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -45,7 +45,7 @@ test('pairing: never a guess when several notes could be the one', () => {
 // Over a copy of the test vault; the notes the tests add and move are the mother's.
 
 function indexed(opts: { now?: () => number } = {}) {
-  const dir = tempDir('thoth-xmove-')
+  const dir = tempDir('vihko-xmove-')
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
   const db = openIndex(join(dir, 'index.db'))
@@ -131,20 +131,20 @@ test('watcher batches: a removal and an addition a moment apart pair within the 
   assert.equal(moves.length, 1)
 })
 
-test("thoth's own writes are not someone else's move", async () => {
+test("vihko's own writes are not someone else's move", async () => {
   const { dir, notesDir, db, indexer, moves } = indexed()
   const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db })
   const [archive, infra] = [m.aFolder(), m.aFolder()]
-  await notes.move('proyectos/thoth/Plan.md', `${archive}/Plan.md`, { actor: { kind: 'user', id: USER_ID } })
+  await notes.move('proyectos/vihko/Plan.md', `${archive}/Plan.md`, { actor: { kind: 'user', id: USER_ID } })
   await notes.moveFolder('hogar', infra, { actor: { kind: 'user', id: USER_ID } })
   // What the watcher would see afterwards changes nothing.
-  indexer.indexPaths(['proyectos/thoth/Plan.md', `${archive}/Plan.md`, 'hogar/Proxy.md', `${infra}/Proxy.md`], { detectMoves: true })
+  indexer.indexPaths(['proyectos/vihko/Plan.md', `${archive}/Plan.md`, 'hogar/Proxy.md', `${infra}/Proxy.md`], { detectMoves: true })
   indexer.scan()
   assert.deepEqual(moves, [])
 })
 
 test('a folder renamed with another tool is a move of its notes, not a mass deletion', () => {
-  const dir = tempDir('thoth-xmove-mass-')
+  const dir = tempDir('vihko-xmove-mass-')
   const notesDir = join(dir, 'notes')
   const [from, to] = [m.aFolder(), m.aFolder()]
   mkdirSync(join(notesDir, from), { recursive: true })

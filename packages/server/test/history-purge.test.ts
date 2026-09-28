@@ -1,4 +1,4 @@
-// `thoth history purge`, from the command line with thoth stopped: a path or
+// `vihko history purge`, from the command line with vihko stopped: a path or
 // one version's content out of the managed history, and out of the
 // repository's objects; everything else as it was; the lock against a
 // running server; and a purge killed half way.
@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { Git } from '@thoth/server'
+import { Git } from '@vihko/server'
 import { CLI, makeDirs, startServer } from './_collab.ts'
 import { setup, who } from './_history.ts'
 import { mother } from '../../../test/mother.ts'
@@ -55,7 +55,7 @@ function purge(env: Record<string, string>, args: string[], extra: Record<string
   return { status: r.status, signal: r.signal, out: r.stdout + r.stderr }
 }
 
-const envOf = (h: { notesDir: string; stateDir: string }) => ({ THOTH_NOTES_DIR: h.notesDir, THOTH_STATE_DIR: h.stateDir })
+const envOf = (h: { notesDir: string; stateDir: string }) => ({ VIHKO_NOTES_DIR: h.notesDir, VIHKO_STATE_DIR: h.stateDir })
 
 test('purging a path: gone from every version, the journal and the repository; the rest keeps its authors, dates, trailers and moves', async () => {
   const h = await setup({ quietMs: 60_000, files: { [KEY_NOTE]: `# ${m.aHeading()}\n` } })
@@ -74,7 +74,7 @@ test('purging a path: gone from every version, the journal and the repository; t
     assert.equal((await h.admin('POST', '/api/note/move', { from: NOTE, to: MOVED })).status, 200)
     await h.settle()
     history = (await h.versions(MOVED)).versions.map((v) => [v.change, v.path, v.from ?? null, who(v), v.at, v.reason?.code ?? null])
-    // Still open when thoth stops: only in the journal.
+    // Still open when vihko stops: only in the journal.
     await h.put(KEY_NOTE, (t) => t + `${PENDING}\n`)
     assert.ok(readFileSync(join(h.stateDir, 'history/journal.json'), 'utf8').includes(PENDING))
   } finally { await h.close() }
@@ -111,11 +111,11 @@ test('purging a path: gone from every version, the journal and the repository; t
     assert.equal(after[i]!.author, kept[i]!.author)
     assert.equal(after[i]!.message, kept[i]!.message.replace(/\b[0-9a-f]{40}\b/g, (id) => renamed.get(id) ?? id))
   }
-  const restore = after.find((c) => c.message.includes('Thoth-Restored-From'))!
-  const from = /Thoth-Restored-From: ([0-9a-f]{40})/.exec(restore.message)![1]!
+  const restore = after.find((c) => c.message.includes('Vihko-Restored-From'))!
+  const from = /Vihko-Restored-From: ([0-9a-f]{40})/.exec(restore.message)![1]!
   assert.ok(after.some((c) => c.id === from) && !before.some((c) => c.id === from), 'the restored version is the rewritten one')
 
-  // thoth starts again: what is still on disk isn't recorded as a change made while it was stopped.
+  // vihko starts again: what is still on disk isn't recorded as a change made while it was stopped.
   const again = await setup({ dir: h.dir })
   try {
     assert.equal((await again.changes()).changes.length, after.length)
@@ -195,8 +195,8 @@ test('a purged note that was moved or copied: the report says where the same con
     assert.equal((await h.admin('POST', '/api/note/move', { from: OLD, to: NEW })).status, 200)
     await h.settle()
   } finally { await h.close() }
-  const moves = async () => (await commits(h.stateDir)).flatMap((c) => c.message.split('\n').filter((l) => l.startsWith('Thoth-Move:')))
-  assert.deepEqual(await moves(), [`Thoth-Move: ${OLD}\t${NEW}`])
+  const moves = async () => (await commits(h.stateDir)).flatMap((c) => c.message.split('\n').filter((l) => l.startsWith('Vihko-Move:')))
+  assert.deepEqual(await moves(), [`Vihko-Move: ${OLD}\t${NEW}`])
   const r = purge(envOf(h), [NEW])
   assert.equal(r.status, 0, r.out)
   assert.match(r.out, new RegExp(`^note: before a move, it was ${re(OLD)}`, 'm'))
@@ -208,7 +208,7 @@ test('a purged note that was moved or copied: the report says where the same con
   assert.ok((await objects(h.stateDir)).includes(SHARED_SECRET), 'still stored under the other path, as reported')
 })
 
-test('the purge refuses while thoth runs (and a second server refuses too), in unmanaged mode, and with bad input; a kill -9 frees the lock', async () => {
+test('the purge refuses while vihko runs (and a second server refuses too), in unmanaged mode, and with bad input; a kill -9 frees the lock', async () => {
   const { notes, env } = makeDirs()
   const srv = await startServer(env)
   try {
@@ -216,17 +216,17 @@ test('the purge refuses while thoth runs (and a second server refuses too), in u
     const running = purge(env, [NOTE])
     assert.equal(running.status, 1, running.out)
     assert.match(running.out, /error \(state_in_use\)/)
-    assert.equal(purge(env, [NOTE, '--dry-run']).status, 0, 'a dry run only reads: it works with thoth running')
-    const second = spawnSync(process.execPath, [CLI, 'serve'], { env: { ...process.env, ...env, THOTH_PORT: String(Number(env.THOTH_PORT) + 1) }, encoding: 'utf8', timeout: 30_000 })
+    assert.equal(purge(env, [NOTE, '--dry-run']).status, 0, 'a dry run only reads: it works with vihko running')
+    const second = spawnSync(process.execPath, [CLI, 'serve'], { env: { ...process.env, ...env, VIHKO_PORT: String(Number(env.VIHKO_PORT) + 1) }, encoding: 'utf8', timeout: 30_000 })
     assert.equal(second.status, 1, second.stdout + second.stderr)
     assert.match(second.stderr, /state_in_use/)
   } finally { await srv.stop('SIGKILL') }
 
-  writeFileSync(join(notes, 'thoth.yaml'), 'history:\n  mode: unmanaged\n')
+  writeFileSync(join(notes, 'vihko.yaml'), 'history:\n  mode: unmanaged\n')
   const unmanaged = purge(env, [NOTE])
   assert.equal(unmanaged.status, 1)
   assert.match(unmanaged.out, /error \(history_unmanaged\)/)
-  rmSync(join(notes, 'thoth.yaml'))
+  rmSync(join(notes, 'vihko.yaml'))
 
   for (const [args, code] of [
     [['--version', '--output=/tmp/x', NOTE], 'invalid_version'],
@@ -240,7 +240,7 @@ test('the purge refuses while thoth runs (and a second server refuses too), in u
   }
   assert.equal(purge(env, []).status, 2)
   assert.equal(purge(env, [NOTE, m.aNotePath()]).status, 2)
-  const id = (await commits(env.THOTH_STATE_DIR)).at(-1)!.id
+  const id = (await commits(env.VIHKO_STATE_DIR)).at(-1)!.id
   const other = purge(env, [m.aNotePath(), '--version', id])
   assert.match(other.out, /error \(not_a_version\)/)
 
@@ -272,7 +272,7 @@ test('what a crash left in the repository goes before a purge: fast-import\'s ke
   assert.match(second.out, /^note: removed a stale git lock left by a crash: refs\/heads\/main\.lock$/m)
   assert.match(second.out, /^note: removed a stale git lock left by a crash: HEAD\.lock$/m)
   assert.ok(!(await objects(h.stateDir)).includes(OTHER_SECRET))
-  // A dry run may run next to thoth: it touches nothing.
+  // A dry run may run next to vihko: it touches nothing.
   writeFileSync(join(gitDir, 'packed-refs.lock'), '')
   assert.equal(purge(env, [NOTE, '--dry-run']).status, 0)
   assert.ok(existsSync(join(gitDir, 'packed-refs.lock')))
@@ -289,12 +289,12 @@ test('a purge killed half way leaves the history as it was, or finished but not 
   const env = envOf(h)
   const original = await head(h.stateDir)
   for (const point of ['purge-importing', 'purge-imported']) {
-    const r = purge(env, [SECRETS], { THOTH_TEST_CRASH_AT: point })
+    const r = purge(env, [SECRETS], { VIHKO_TEST_CRASH_AT: point })
     assert.equal(r.signal, 'SIGKILL', `${point}: ${r.out}`)
     assert.equal(await head(h.stateDir), original, `${point}: the history as it was`)
     assert.ok((await objects(h.stateDir)).includes(SECRET))
   }
-  const moved = purge(env, [SECRETS], { THOTH_TEST_CRASH_AT: 'purge-moved' })
+  const moved = purge(env, [SECRETS], { VIHKO_TEST_CRASH_AT: 'purge-moved' })
   assert.equal(moved.signal, 'SIGKILL', moved.out)
   assert.notEqual(await head(h.stateDir), original, 'the history moved in one step')
   assert.ok((await objects(h.stateDir)).includes(SECRET), 'but it was not compacted yet')

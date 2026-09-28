@@ -1,9 +1,9 @@
-// The history (D-016, D-032): its mode (thoth.yaml `history.mode`), the
+// The history (D-016, D-032): its mode (vihko.yaml `history.mode`), the
 // recorder that keeps the managed repository, and the reader the API uses for
 // the mode in force: the managed repository, or the user's own git
 // (unmanaged). The two are never mixed: switching modes keeps the managed
 // repository as it is, and nothing is ever written to the user's.
-import { pathMatcher, type Alert, type HistoryConfig, type HistoryMode } from '@thoth/core'
+import { pathMatcher, type Alert, type HistoryConfig, type HistoryMode } from '@vihko/core'
 import type { Author } from '../actor.ts'
 import { Recorder, type RecorderOptions } from './recorder.ts'
 import { ManagedReader } from './managed.ts'
@@ -13,7 +13,7 @@ import { purgeRunning, type PurgeReport } from './purge.ts'
 import { PurgeNotices, type PurgeNotice } from './notices.ts'
 
 export interface HistoryOptions extends Omit<RecorderOptions, 'maxFileBytes'> {
-  /** thoth.yaml's `history`, as currently in force. */
+  /** vihko.yaml's `history`, as currently in force. */
   config: () => HistoryConfig
 }
 
@@ -67,7 +67,7 @@ export class History {
   }
 
   /**
-   * thoth.yaml was read again: the mode, and a new size limit or exclusion
+   * vihko.yaml was read again: the mode, and a new size limit or exclusion
    * list, which apply at once (a sweep records what enters the history now).
    */
   async configure() {
@@ -108,7 +108,7 @@ export class History {
 
   /** The reader for the mode in force. Throws a HistoryError when there is none. */
   reader(): HistoryReader {
-    if (this.mode === 'off') throw new HistoryError('history_off', 'history is off in thoth.yaml')
+    if (this.mode === 'off') throw new HistoryError('history_off', 'history is off in vihko.yaml')
     if (this.mode === 'unmanaged') return this.unmanaged
     return this.managed
   }
@@ -120,7 +120,7 @@ export class History {
 
   /**
    * Purges a path (a file or a folder; with `exact`, that file alone) or one
-   * version of a file from the managed history, while thoth runs (D-038.9):
+   * version of a file from the managed history, while vihko runs (D-038.9):
    * history/purge.ts `purgeRunning`, one at a time. Whoever may ask is the
    * caller's to judge. `by`: the user, for the admin's notice.
    */

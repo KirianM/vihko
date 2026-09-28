@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { Indexer, openIndex } from '@thoth/server'
+import { Indexer, openIndex } from '@vihko/server'
 import { api, closeAll, connect, login } from '../_collab.ts'
 import { NOTES, PASSWORD, USER, cleanup, memory, metric, percentile, startServer, timed, workspace, type Server } from './_harness.ts'
 

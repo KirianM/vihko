@@ -1,5 +1,5 @@
 // Path patterns relative to the root of the notes folder, for `history.exclude`
-// in thoth.yaml. A minimal glob of thoth's own, with no dependency:
+// in vihko.yaml. A minimal glob of vihko's own, with no dependency:
 //
 //   *    any characters within one folder or file name (never `/`)
 //   ?    exactly one character (never `/`)
@@ -12,7 +12,7 @@
 // a name stored decomposed (NFD) by another. Case matters.
 //
 // Anything else is taken literally, except what other globs give a meaning
-// thoth doesn't: `[…]`, `{…}`, a leading `!` and `\`. A pattern with them is
+// vihko doesn't: `[…]`, `{…}`, a leading `!` and `\`. A pattern with them is
 // invalid rather than silently matching nothing.
 
 /** Why a pattern is invalid (developer-facing; the UI words the config code). */

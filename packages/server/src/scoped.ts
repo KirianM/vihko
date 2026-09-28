@@ -8,7 +8,7 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { anchorChanged, classifyPath, contentHash, extract, folderOf, parentFolder, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type Range } from '@thoth/core'
+import { anchorChanged, classifyPath, contentHash, extract, folderOf, parentFolder, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type Range } from '@vihko/core'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
@@ -36,22 +36,22 @@ export { HIGHLIGHT_END, HIGHLIGHT_START }
 
 export interface ScopedDeps {
   notes: NoteService
-  /** The rules of thoth.yaml, for what moves with a folder and the audience of a move. */
+  /** The rules of vihko.yaml, for what moves with a folder and the audience of a move. */
   permissions?: PermissionsEngine
-  /** thoth.yaml's permissions, rewritten when a folder moves or is deleted from thoth. */
+  /** vihko.yaml's permissions, rewritten when a folder moves or is deleted from vihko. */
   permissionsFile?: PermissionsFile
   /** Every key, for how many gain or lose access with a move. */
   keys?: () => KeyWithUser[]
   /** Notes deleted from outside with an open copy (the collaboration hub). */
   orphans?: Orphans
-  /** Notes moved outside thoth, pending a link update. */
+  /** Notes moved outside vihko, pending a link update. */
   externalMoves?: ExternalMoves
   log?: (msg: string) => void
   index: Db
   notesDir: string
   daily: DailyNotes
   profiles: Profiles
-  /** Where new images go (thoth.yaml), to know whether an agent may put one there. */
+  /** Where new images go (vihko.yaml), to know whether an agent may put one there. */
   attachments: () => AttachmentsConfig
   now: () => Date
   /** How links resolve over every indexed note (the indexer's), for `resolveLink`. */
@@ -111,7 +111,7 @@ export function nowHiddenMessage(reason: DenyReason): string {
     ? 'it is now marked as hidden from agents (`ai: false`, or a frontmatter that can\'t be read)'
     : 'it is now outside the folders of this key'
   return `The change was written. The note is no longer available to agents: ${why}. `
-    + 'From now on you can\'t read or change it, and an agent can\'t undo this: only a person can, from thoth\'s interface. '
+    + 'From now on you can\'t read or change it, and an agent can\'t undo this: only a person can, from vihko\'s interface. '
     + 'Don\'t write it again or create a note to replace it, and leave the links to it as they are.'
 }
 
@@ -645,7 +645,7 @@ export class ScopedNotes {
 
   /**
    * A move's report (a note's, a folder's, or the links after moves made
-   * outside thoth) with only what the principal can see (D-018): `hidden`
+   * outside vihko) with only what the principal can see (D-018): `hidden`
    * says something was left out, never what or how much. `back` gives a
    * path's name before the move (a folder move's notes are listed at their
    * new paths, and whether they're seen is judged where they were).
@@ -686,7 +686,7 @@ export class ScopedNotes {
 
   /**
    * Stores an image for a note it can write (D-028). An agent can't put one
-   * outside its key's folders (the attachments folder of thoth.yaml may be).
+   * outside its key's folders (the attachments folder of vihko.yaml may be).
    */
   async attach(note: string, bytes: Uint8Array) {
     const p = this.writable(note)
@@ -718,7 +718,7 @@ export class ScopedNotes {
   /**
    * Where the user's note for today is and whether it exists. Asking for
    * today's note names it, as reading it by its path would: in a folder the
-   * person can't read, `not_found` without its path (thoth.yaml made it, not
+   * person can't read, `not_found` without its path (vihko.yaml made it, not
    * them). For an agent, if it exists but is hidden from it (`ai: false`, a
    * frontmatter that can't be read, outside the key's folders, or its user
    * can't see it), `agent_denied` with the reason (D-035, D-037), never its
@@ -756,7 +756,7 @@ export class ScopedNotes {
   // Creating one needs `edit` where it goes; renaming, moving or deleting
   // one, `manage` in it (and `edit` in its new parent). A folder the person
   // can't see doesn't exist for them; one they see but can't change this
-  // way is `forbidden`. Its rules in thoth.yaml go with it.
+  // way is `forbidden`. Its rules in vihko.yaml go with it.
 
   /** Unless the person has `need` in `folder`: `forbidden` if they see it, `not_found` if not. */
   private assertFolder(folder: string, need: 'edit' | 'manage') {
@@ -773,13 +773,13 @@ export class ScopedNotes {
     return this.deps.notes.createFolder(p, this.access.actor)
   }
 
-  /** Deletes an empty folder: `manage` in it. Its rules in thoth.yaml go too. */
+  /** Deletes an empty folder: `manage` in it. Its rules in vihko.yaml go too. */
   async deleteFolder(path: string): Promise<{ path: string }> {
     const p = NoteService.checkFolder(path)
     this.assertFolder(p, 'manage')
     const r = this.deps.notes.deleteFolder(p, this.access.actor)
     await this.deps.permissionsFile?.removeRules(p, { actor: this.access.actor })
-      .catch((err) => this.deps.log?.(`permissions of the deleted folder ${p} stay in thoth.yaml: ${err instanceof Error ? err.message : String(err)}`))
+      .catch((err) => this.deps.log?.(`permissions of the deleted folder ${p} stay in vihko.yaml: ${err instanceof Error ? err.message : String(err)}`))
     return r
   }
 
@@ -828,7 +828,7 @@ export class ScopedNotes {
     }
     if (copied) {
       await file!.removeRules(f, { actor })
-        .catch((err) => this.deps.log?.(`the old rules of ${f} stay in thoth.yaml after it moved to ${t}: ${err instanceof Error ? err.message : String(err)}`))
+        .catch((err) => this.deps.log?.(`the old rules of ${f} stay in vihko.yaml after it moved to ${t}: ${err instanceof Error ? err.message : String(err)}`))
     }
     return mask(report)
   }
@@ -887,7 +887,7 @@ export class ScopedNotes {
   }
 
   /**
-   * Notes moved outside thoth whose links are left behind (D-031.4), as the
+   * Notes moved outside vihko whose links are left behind (D-031.4), as the
    * person sees them: only moves they can see at both ends, and only the
    * links in notes they can read.
    */
@@ -896,7 +896,7 @@ export class ScopedNotes {
   }
 
   /**
-   * Updates the links after notes moved outside thoth (D-031.4), as a thoth
+   * Updates the links after notes moved outside vihko (D-031.4), as a vihko
    * move would, for the moves the person may make: `edit` where each note
    * was and is. The rewrites reach notes they can't see, as the system
    * (D-018); the report doesn't name them.

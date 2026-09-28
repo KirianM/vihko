@@ -12,7 +12,7 @@
 // - Recovery codes are kept only as their sha256 (with the user's id), and
 //   each one works once. Making new ones ends the old ones.
 // - The TOTP secret has to be kept (it computes the codes), in state.db,
-//   which is backed up and never served. With THOTH_SECRET_KEY (secretKey.ts)
+//   which is backed up and never served. With VIHKO_SECRET_KEY (secretKey.ts)
 //   it's kept encrypted, and one encrypted with another key (or with none
 //   set) can't be read: that person's TOTP codes fail, their recovery codes
 //   still work, and `unreadable` tells the admin (D-040 3.4b).
@@ -33,7 +33,7 @@ export const RECOVERY_CODES = 10
 const SETUP_MS = 15 * 60_000
 /** Letters of a recovery code: no 0/o, 1/i/l or u, that can be misread. */
 const RECOVERY_ALPHABET = 'abcdefghjkmnpqrstvwxyz23456789'
-const ISSUER = 'thoth'
+const ISSUER = 'vihko'
 
 export type TwoFactorPolicy = 'required' | 'optional' | 'disabled'
 export const POLICIES: readonly TwoFactorPolicy[] = ['required', 'optional', 'disabled']
@@ -148,7 +148,7 @@ const recoveryHash = (userId: string, code: string) => createHash('sha256').upda
 export class TwoFactor {
   private db: Db
   private now: () => Date
-  /** THOTH_SECRET_KEY, derived: secrets are stored encrypted with it (null: plaintext, as before). */
+  /** VIHKO_SECRET_KEY, derived: secrets are stored encrypted with it (null: plaintext, as before). */
   private box: SecretBox | null
   /** Secrets being set up, by user: not theirs until a code from them is verified. */
   private pending = new Map<string, { secret: Buffer; until: number }>()
@@ -159,7 +159,7 @@ export class TwoFactor {
     this.box = opts.box ?? null
   }
 
-  /** Whether secrets are stored encrypted (THOTH_SECRET_KEY is set). */
+  /** Whether secrets are stored encrypted (VIHKO_SECRET_KEY is set). */
   get encrypted(): boolean {
     return this.box !== null
   }
@@ -214,7 +214,7 @@ export class TwoFactor {
   }
 
   /**
-   * A new secret for `account` (their name; `host`: where thoth is reached,
+   * A new secret for `account` (their name; `host`: where vihko is reached,
    * so that two installations tell apart in the app). It isn't theirs until
    * `finishSetup` verifies a code from it; a new one replaces it.
    */
@@ -259,7 +259,7 @@ export class TwoFactor {
     if (!row) return { ok: false, reason: 'invalid' }
     const t = asTotp(code)
     if (t) {
-      // A secret that can't be read (another THOTH_SECRET_KEY) matches no code.
+      // A secret that can't be read (another VIHKO_SECRET_KEY) matches no code.
       const secret = this.secretOf(userId, row.secret)
       const step = secret ? matchStep(secret, t, this.now().getTime()) : null
       if (step === null) return { ok: false, reason: 'invalid' }

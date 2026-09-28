@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { EMPTY_WORKSPACE, parseWorkspaceConfig, type ConfigError, type StrictSection } from '@thoth/core'
+import { EMPTY_WORKSPACE, parseWorkspaceConfig, type ConfigError, type StrictSection } from '@vihko/core'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -19,11 +19,11 @@ const warnings = (text: string, strict?: readonly StrictSection[]) => {
   return brief(r.warnings)
 }
 
-test('thoth.yaml: empty or just comments is valid and turns nothing on', () => {
+test('vihko.yaml: empty or just comments is valid and turns nothing on', () => {
   for (const text of ['', '# nothing yet\n', '---\n']) assert.deepEqual(parseWorkspaceConfig(text), { ok: true, config: EMPTY_WORKSPACE, warnings: [], sections: { permissions: { kind: 'implicit' } } })
 })
 
-test('thoth.yaml: series, templates and attachments', () => {
+test('vihko.yaml: series, templates and attachments', () => {
   const r = parseWorkspaceConfig(`# Workspace settings
 version: 1
 templates: Plantillas/
@@ -51,7 +51,7 @@ attachments:
   ])
 })
 
-test('thoth.yaml: links.aliases turns alias resolution off; on by default', () => {
+test('vihko.yaml: links.aliases turns alias resolution off; on by default', () => {
   assert.equal(EMPTY_WORKSPACE.links.aliases, true)
   const off = parseWorkspaceConfig('links:\n  aliases: false\n')
   assert.ok(off.ok)
@@ -63,7 +63,7 @@ test('thoth.yaml: links.aliases turns alias resolution off; on by default', () =
   assert.deepEqual(warnings('links:\n  alias: false\n'), [['unknown_key', 'links.alias', 2]])
 })
 
-test('thoth.yaml: history is managed with a 20 MB limit unless it says otherwise', () => {
+test('vihko.yaml: history is managed with a 20 MB limit unless it says otherwise', () => {
   assert.deepEqual(EMPTY_WORKSPACE.history, { mode: 'managed', maxFileSize: 20, exclude: [] })
   const r = parseWorkspaceConfig('history:\n  mode: off\n  maxFileSize: 2.5\n')
   assert.ok(r.ok)
@@ -78,7 +78,7 @@ test('thoth.yaml: history is managed with a 20 MB limit unless it says otherwise
   assert.deepEqual(warnings('history:\n  retention: forever\n'), [['unknown_key', 'history.retention', 2]])
 })
 
-test('thoth.yaml: mcp.instructions names a note of the workspace, none by default', () => {
+test('vihko.yaml: mcp.instructions names a note of the workspace, none by default', () => {
   assert.deepEqual(EMPTY_WORKSPACE.mcp, { instructions: null })
   const r = parseWorkspaceConfig('mcp:\n  instructions: Agentes/Instrucciones\n')
   assert.ok(r.ok)
@@ -92,7 +92,7 @@ test('thoth.yaml: mcp.instructions names a note of the workspace, none by defaul
   assert.deepEqual(warnings('mcp:\n  instruction: x\n'), [['unknown_key', 'mcp.instruction', 2]])
 })
 
-test('thoth.yaml: history.exclude is a list of path patterns; a bad one is an error on its own line', () => {
+test('vihko.yaml: history.exclude is a list of path patterns; a bad one is an error on its own line', () => {
   const r = parseWorkspaceConfig('history:\n  exclude:\n    - biblioteca/**\n    - "**/*.pdf"\n    - borradores/secreto.md\n')
   assert.ok(r.ok)
   assert.deepEqual(r.config.history.exclude, ['biblioteca/**', '**/*.pdf', 'borradores/secreto.md'])
@@ -111,13 +111,13 @@ test('thoth.yaml: history.exclude is a list of path patterns; a bad one is an er
   assert.deepEqual(errors('history:\n  exclude:\n    a: b\n'), [['invalid_type', 'history.exclude', 2]])
 })
 
-test('thoth.yaml: YAML errors carry their line', () => {
+test('vihko.yaml: YAML errors carry their line', () => {
   assert.deepEqual(errors('daily:\n  diario:\n    folder: [unclosed\n'), [['yaml', null, 4]])
   assert.deepEqual(errors('templates: a\ntemplates: b\n'), [['yaml', null, 2]], 'duplicate keys')
   assert.deepEqual(errors('- a\n- b\n'), [['not_a_map', null, 1]])
 })
 
-test('thoth.yaml: unknown keys are reported and ignored; the rest applies', () => {
+test('vihko.yaml: unknown keys are reported and ignored; the rest applies', () => {
   const r = parseWorkspaceConfig('templtes: Plantillas\ntemplates: P\nattachments:\n  fodler: x\n  folder: A\ndaily:\n  d:\n    folder: D\n    fromat: x\n')
   assert.ok(r.ok)
   assert.deepEqual(brief(r.warnings), [['unknown_key', 'templtes', 1], ['unknown_key', 'attachments.fodler', 4], ['unknown_key', 'daily.d.fromat', 9]])
@@ -126,7 +126,7 @@ test('thoth.yaml: unknown keys are reported and ignored; the rest applies', () =
   assert.deepEqual(r.config.daily.map((s) => s.folder), ['D'])
 })
 
-test('thoth.yaml: version is optional; a newer one warns and applies what is understood', () => {
+test('vihko.yaml: version is optional; a newer one warns and applies what is understood', () => {
   assert.deepEqual(warnings('version: 1\ntemplates: P\n'), [])
   const r = parseWorkspaceConfig('version: 2\ntemplates: P\nnewer_feature: true\n')
   assert.ok(r.ok)
@@ -136,14 +136,14 @@ test('thoth.yaml: version is optional; a newer one warns and applies what is und
   for (const bad of ['0', '-1', '1.5', 'dos', '"1"']) assert.deepEqual(errors(`version: ${bad}\n`), [['invalid_version', 'version', 1]], bad)
 })
 
-test('thoth.yaml: a wrong value in a known key still makes the file unusable', () => {
+test('vihko.yaml: a wrong value in a known key still makes the file unusable', () => {
   const r = parseWorkspaceConfig('unknown: 1\ntemplates: ../fuera\n')
   assert.ok(!r.ok)
   assert.deepEqual(brief(r.errors), [['invalid_path', 'templates', 2]])
   assert.deepEqual(brief(r.warnings), [['unknown_key', 'unknown', 1]])
 })
 
-test('thoth.yaml: permissions is a strict section: rejected, nobody reads; missing, the implicit one', () => {
+test('vihko.yaml: permissions is a strict section: rejected, nobody reads; missing, the implicit one', () => {
   const r = parseWorkspaceConfig(`templates: P\npermissions:\n  Privado: {grants: {${USER}: edit}}\n`)
   assert.ok(r.ok)
   assert.deepEqual(r.warnings, [])
@@ -174,7 +174,7 @@ const FAKE: StrictSection<{ shared: string[] }> = {
   },
 }
 
-test('thoth.yaml: a strict section with any doubt is rejected alone and fails closed', () => {
+test('vihko.yaml: a strict section with any doubt is rejected alone and fails closed', () => {
   const good = parseWorkspaceConfig('templates: P\nsharing:\n  shared: [Público]\n', [FAKE])
   assert.ok(good.ok)
   assert.deepEqual(good.sections, { sharing: { shared: ['Público'] } })
@@ -197,7 +197,7 @@ test('thoth.yaml: a strict section with any doubt is rejected alone and fails cl
   assert.deepEqual(missing.sections, { sharing: { shared: [] } }, 'missing: closed too')
 })
 
-test('thoth.yaml: paths stay inside the notes folder and out of hidden folders', () => {
+test('vihko.yaml: paths stay inside the notes folder and out of hidden folders', () => {
   for (const bad of ['../fuera', '/abs', '.oculta', 'a/../b', 'a//b', 'a/./b']) {
     assert.deepEqual(errors(`templates: "${bad}"\n`), [['invalid_path', 'templates', 1]], bad)
   }
@@ -207,7 +207,7 @@ test('thoth.yaml: paths stay inside the notes folder and out of hidden folders',
   assert.deepEqual(errors('daily:\n  d:\n    folder: D\n    template: .t/x\n'), [['invalid_path', 'daily.d.template', 4]])
 })
 
-test('thoth.yaml: series patterns must name exactly one note per period', () => {
+test('vihko.yaml: series patterns must name exactly one note per period', () => {
   assert.deepEqual(errors('daily:\n  d:\n    folder: D\n    name: "{MM}-{DD}"\n'), [['pattern_period', 'daily.d.name', 4]])
   assert.deepEqual(errors('daily:\n  d:\n    folder: D\n    name: "{YYYY}-W{WW}"\n'), [['pattern_period', 'daily.d.name', 4]])
   assert.deepEqual(errors('daily:\n  d:\n    folder: D\n    name: "{YYYY}-{mm}-{DD}"\n'), [['pattern_token', 'daily.d.name', 4]], 'no period error on top of it')
@@ -215,14 +215,14 @@ test('thoth.yaml: series patterns must name exactly one note per period', () => 
   assert.deepEqual(errors('daily:\n  d: Diario\n'), [['not_a_map', 'daily.d', 2]])
 })
 
-test('thoth.yaml: every error is reported at once', () => {
+test('vihko.yaml: every error is reported at once', () => {
   assert.deepEqual(errors('templtes: x\ntemplates: ../x\ndaily:\n  d:\n    folder: D\n    name: "{MM}"\n'), [
     ['invalid_path', 'templates', 2],
     ['pattern_period', 'daily.d.name', 6],
   ])
 })
 
-test('thoth.yaml: attachments modes', () => {
+test('vihko.yaml: attachments modes', () => {
   const att = (text: string) => {
     const r = parseWorkspaceConfig(text)
     assert.ok(r.ok, JSON.stringify(r))

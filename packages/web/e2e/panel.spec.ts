@@ -87,10 +87,10 @@ test('links: outgoing with their status, ambiguous with candidates, and navigati
 })
 
 test('links: backlinks with context', async () => {
-  await k.goto('/?note=proyectos/thoth/Plan.md')
+  await k.goto('/?note=proyectos/vihko/Plan.md')
   await k.getByRole('tab', { name: /Enlaces/ }).click()
-  const backlink = k.locator('.backlink', { hasText: 'Notas de thoth' }).first()
-  await expect(backlink).toContainText('resuelve a proyectos/thoth/Plan.md')
+  const backlink = k.locator('.backlink', { hasText: 'Notas de vihko' }).first()
+  await expect(backlink).toContainText('resuelve a proyectos/vihko/Plan.md')
   await expect(backlink.locator('mark')).toHaveText('[[Plan]]')
   await backlink.click()
   await expect(k.locator('.crumbs b')).toHaveText('notas')

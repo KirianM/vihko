@@ -94,9 +94,9 @@ test('what happened to the file: created, renamed or moved, deleted, restored (f
   assert.equal(changeText(t, { change: 'modified', path: 'a.md', reason: { code: 'reverted', id: 'c', at: 'T' } }, date), 'history.change.revertedFrom{"date":"<T>"}')
 })
 
-test('the author filter: people, agents (all of them too, when there are several), outside thoth, the system', () => {
+test('the author filter: people, agents (all of them too, when there are several), outside vihko, the system', () => {
   const authors: HistoryAuthor[] = [
-    { kind: 'system', name: 'thoth', key: 'system' },
+    { kind: 'system', name: 'vihko', key: 'system' },
     { kind: 'external', name: '', key: 'external' },
     { kind: 'agent', id: 'K2', name: OTHER_AGENT, onBehalfOf: { id: 'U1', name: ADMIN }, key: 'agent:K2' },
     { kind: 'user', id: 'U2', name: MEMBER, key: 'user:U2' },

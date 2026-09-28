@@ -83,7 +83,7 @@ test('sync conflict: viewing the copy and opening the note; a member sees it too
   await a.goto('/?view=avisos')
   const sync = card(a, 'Conflicto de sincronización')
   await expect(sync).toContainText('Plan.sync-conflict-20260924-120000-ABCDEFG.md')
-  await expect(sync).toContainText('proyectos / thoth / Plan')
+  await expect(sync).toContainText('proyectos / vihko / Plan')
   await sync.getByRole('button', { name: 'Ver la copia' }).click()
   await expect(sync.locator('pre')).toContainText(/\S/)
   await sync.getByRole('button', { name: 'Ocultar la copia' }).click()
@@ -102,7 +102,7 @@ const FIXTURE = [
   { ...SCAN, actions: ['rescan', 'confirm_removal'] },
   { code: 'orphaned_note', path: 'hogar/Proxy.md', actions: ['keep_copy', 'discard_copy'] },
   { code: 'uid_conflict', uid: '01J8X4M2K9QZ', paths: ['uid/copia.md', 'uid/original.md'], actions: [] },
-  { code: 'sync_conflict', path: 'proyectos/thoth/Plan.sync-conflict-20260924-120000-ABCDEFG.md', note: 'proyectos/thoth/Plan.md', actions: [] },
+  { code: 'sync_conflict', path: 'proyectos/vihko/Plan.sync-conflict-20260924-120000-ABCDEFG.md', note: 'proyectos/vihko/Plan.md', actions: [] },
 ]
 const mockAlerts = (page: Page, alerts: unknown[]) =>
   page.route('**/api/alerts', (route) => route.fulfill({ json: { alerts } }))
@@ -152,7 +152,7 @@ test('history alerts: git failing (with its detail), versions merged at the cap,
   const git = card(k, 'no puede guardar versiones')
   await expect(git).toContainText('Las notas se siguen guardando con normalidad')
   await expect(git.locator('.alert-copy')).toBeHidden()
-  await git.getByText('Detalle para quien administra thoth').click()
+  await git.getByText('Detalle para quien administra vihko').click()
   await expect(git.locator('.alert-copy')).toContainText(detail)
   const merged = card(k, 'ha juntado')
   await expect(merged.getByRole('heading')).toHaveText(`El historial ha juntado ${versions} versiones`)
@@ -190,7 +190,7 @@ test('agents without a managed history: which door is open and what it means', a
   await k.context().close()
 })
 
-test('permissions: rejected, notes held after a move outside thoth, and images all in one folder', async ({ browser }) => {
+test('permissions: rejected, notes held after a move outside vihko, and images all in one folder', async ({ browser }) => {
   const k = await signIn(browser, ADMIN)
   const parent = m.aFolder()
   const held = { id: m.aSecret(8), folder: `${parent}/${m.aFolder()}`, to: `${parent}/${m.aFolder()}`, notes: m.anInt(2, 40) }
@@ -205,7 +205,7 @@ test('permissions: rejected, notes held after a move outside thoth, and images a
   await k.route('**/api/permissions/holds/*', (route) => { sent.push({ url: route.request().url(), body: route.request().postDataJSON() }); return route.fulfill({ json: { ok: true } }) })
   await k.goto('/?view=avisos')
   const rejected = card(k, 'no se pueden usar')
-  await expect(rejected.getByRole('heading')).toHaveText('Los permisos de thoth.yaml no se pueden usar')
+  await expect(rejected.getByRole('heading')).toHaveText('Los permisos de vihko.yaml no se pueden usar')
   await expect(rejected).toContainText('nadie puede leer ninguna nota')
   const many = card(k, `${held.notes} notas retenidas`)
   await expect(many).toContainText(held.folder)

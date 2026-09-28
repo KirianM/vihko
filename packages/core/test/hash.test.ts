@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { contentHash } from '@thoth/core'
+import { contentHash } from '@vihko/core'
 
 test('contentHash matches sha256 and carries an algorithm prefix', () => {
   // Reference value: printf 'hola\n' | sha256sum

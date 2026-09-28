@@ -3,8 +3,8 @@
 // (the 30-day window, what is still open, and how much it reads).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseThreads, reopener, resolveThread, type Change } from '@thoth/core'
-import { wordStats, type AuthorRef, type HistoryReader, type RawVersion } from '@thoth/server'
+import { parseThreads, reopener, resolveThread, type Change } from '@vihko/core'
+import { wordStats, type AuthorRef, type HistoryReader, type RawVersion } from '@vihko/server'
 import { ResolvedThreads } from '../src/history/resolved.ts'
 import { setup } from './_history.ts'
 import { yamlKey } from './_permissions.ts'

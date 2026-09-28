@@ -49,7 +49,7 @@ export interface Version {
   at: string
   authors: HistoryAuthor[]
   reason: Reason | null
-  /** An external change found when thoth started («while thoth was stopped»). */
+  /** An external change found when vihko started («while vihko was stopped»). */
   foundAtStartup: boolean
   /** The note's path in this version. */
   path: string
@@ -64,7 +64,7 @@ export interface Version {
 /** What is still being written into the note and isn't a version yet. */
 export interface Pending { authors: HistoryAuthor[]; since: string }
 
-/** `excluded`: thoth.yaml keeps the file out of the history (`history.exclude`); what is listed is from before. */
+/** `excluded`: vihko.yaml keeps the file out of the history (`history.exclude`); what is listed is from before. */
 export interface VersionPage { versions: Version[]; next: string | null; pending: Pending | null; excluded: boolean }
 
 export type DiffOp = [-1 | 0 | 1, string]

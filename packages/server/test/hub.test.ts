@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import WebSocket from 'ws'
 import * as Y from 'yjs'
-import { contentHash, readFrontmatter } from '@thoth/core'
+import { contentHash, readFrontmatter } from '@vihko/core'
 import { NoteLink, type Lineage } from '../../web/src/editor/lineage.ts'
 import { api, closeAll, connect, login, makeDirs, open, sleep, socket, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
 import { mother } from '../../../test/mother.ts'
@@ -55,7 +55,7 @@ test('two clients, the API and an external editor on an open note; the file conv
     const a = await connect(srv, cookie, NOTE)
     const b = await connect(srv, cookie, NOTE)
     const saved: string[] = []
-    a.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'thoth:saved') saved.push(m.etag) })
+    a.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'vihko:saved') saved.push(m.etag) })
     for (let i = 0; i < 20; i++) { typeLine(a, `A-${i}`); typeLine(b, `B-${i}`); await sleep(5) }
     // Editing via the API with the note hot: goes through the live document. While
     // the clients are writing, the ETag keeps changing: it's retried like a real client would.
@@ -79,7 +79,7 @@ test('two clients, the API and an external editor on an open note; the file conv
     await waitFor(() => readFileSync(file, 'utf8') === final, 'final flush')
     const fm = readFrontmatter(final)
     assert.deepEqual(fm.data.aliases, ['gw', 'Hipervisor'], 'the original frontmatter is kept')
-    assert.match(String(fm.data.uid), /^[0-9A-Z]{26}$/, 'gets a uid when thoth writes it')
+    assert.match(String(fm.data.uid), /^[0-9A-Z]{26}$/, 'gets a uid when vihko writes it')
   } finally { closeAll(); await srv.stop() }
 })
 
@@ -120,7 +120,7 @@ test('server crash with unflushed edits: they recover on startup', async () => {
     srv = await startServer(env)
     await waitFor(() => readFileSync(file, 'utf8').includes(`${MARK.unflushed}-9`), 'recovery')
     for (let i = 0; i < 10; i++) assert.ok(readFileSync(file, 'utf8').includes(`${MARK.unflushed}-${i}\n`))
-    await waitFor(() => readdirSync(join(env.THOTH_STATE_DIR!, 'collab')).every((f) => !f.endsWith('.ylog')), 'log recovered and removed')
+    await waitFor(() => readdirSync(join(env.VIHKO_STATE_DIR!, 'collab')).every((f) => !f.endsWith('.ylog')), 'log recovered and removed')
   } finally { closeAll(); await srv.stop() }
 })
 
@@ -166,7 +166,7 @@ test('WebSocket: rejected without a session, from another origin, or for a nonex
     open.push(p, wsp)
     await sleep(800)
     assert.equal(p.isSynced, false)
-    assert.ok(!existsSync(join(env.THOTH_NOTES_DIR!, missing)))
+    assert.ok(!existsSync(join(env.VIHKO_NOTES_DIR!, missing)))
     wsp.destroy()
   } finally { closeAll(); await srv.stop() }
 })
@@ -184,16 +184,16 @@ test('external deletion with the note open: live notice, not recreated, and the 
     const file = join(notes, NOTE)
     await waitFor(() => readFileSync(file, 'utf8').includes(`${MARK.before}\n`), 'flush')
     rmSync(file) // someone deletes it with the file explorer
-    await waitFor(() => messages.includes('thoth:deleted-externally'), 'live notice', 15000) // after the grace for a move (6 s)
+    await waitFor(() => messages.includes('vihko:deleted-externally'), 'live notice', 15000) // after the grace for a move (6 s)
     typeLine(a, MARK.afterDelete)
     await sleep(2500)
-    assert.ok(!existsSync(file), "thoth doesn't undo the deletion on its own")
+    assert.ok(!existsSync(file), "vihko doesn't undo the deletion on its own")
     assert.deepEqual(await orphaned(srv, cookie), [NOTE])
     const r = await api(srv, cookie, 'POST', '/api/note/orphan', { path: NOTE, action: 'restore' })
     assert.equal(r.status, 200)
     const back = readFileSync(file, 'utf8')
     assert.ok(back.includes(`${MARK.before}\n`) && back.includes(`${MARK.afterDelete}\n`), 'the copy keeps everything that was written')
-    await waitFor(() => messages.includes('thoth:orphan-resolved'), 'resolution notice')
+    await waitFor(() => messages.includes('vihko:orphan-resolved'), 'resolution notice')
     typeLine(a, MARK.stillEditing)
     await waitFor(() => readFileSync(file, 'utf8').includes(MARK.stillEditing), 'flushes normally again')
     assert.deepEqual(await orphaned(srv, cookie), [])
@@ -215,7 +215,7 @@ test('external deletion with the note open: discarding accepts the deletion as f
     await sleep(1500)
     assert.ok(!existsSync(file))
     assert.deepEqual(await orphaned(srv, cookie), [])
-    await waitFor(() => readdirSync(join(env.THOTH_STATE_DIR!, 'collab')).length === 0, 'log removed')
+    await waitFor(() => readdirSync(join(env.VIHKO_STATE_DIR!, 'collab')).length === 0, 'log removed')
   } finally { closeAll(); await srv.stop() }
 })
 
@@ -227,7 +227,7 @@ test('discarding the copy of a note deleted outside: once recreated, it reopens 
     const ws = socket(srv, cookie) // one socket for every note, like the web UI
     const a = await connect(srv, cookie, NOTE, ws)
     const resolved: string[] = []
-    a.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'thoth:orphan-resolved') resolved.push(m.action) })
+    a.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'vihko:orphan-resolved') resolved.push(m.action) })
     const file = join(notes, NOTE)
     rmSync(file)
     await waitFor(async () => (await orphaned(srv, cookie)).length === 1, 'alert', 15000)
@@ -286,7 +286,7 @@ test('renaming an open note: editors are told, nothing is lost and the old path 
     const a = await connect(srv, cookie, NOTE)
     const b = await connect(srv, cookie, NOTE)
     const moved: { from: string; to: string }[] = []
-    for (const c of [a, b]) c.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'thoth:moved') moved.push(m) })
+    for (const c of [a, b]) c.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'vihko:moved') moved.push(m) })
     typeLine(a, MARK.unflushed) // still in the debounce: the move flushes it first
     await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
     const preview = await api(srv, cookie, 'POST', '/api/note/move', { from: NOTE, to: TO, dryRun: true })
@@ -296,7 +296,7 @@ test('renaming an open note: editors are told, nothing is lost and the old path 
     assert.equal(r.status, 200)
     assert.deepEqual(r.body.relinked.map((x: { path: string }) => x.path), preview.body.relinked.map((x: { path: string }) => x.path))
     await waitFor(() => moved.length === 2, 'both editors told')
-    assert.deepEqual(moved[0], { type: 'thoth:moved', from: NOTE, to: TO })
+    assert.deepEqual(moved[0], { type: 'vihko:moved', from: NOTE, to: TO })
     assert.ok(!existsSync(join(notes, NOTE)))
     assert.ok(readFileSync(join(notes, TO), 'utf8').includes(`${MARK.unflushed}\n`))
     assert.ok(readFileSync(join(notes, 'hogar/enlaces.md'), 'utf8').includes(`[[${name}#Red]]`))
@@ -323,8 +323,8 @@ test('trashing an open note tells its editors the entry, and restoring it reopen
     await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
     const del = await api(srv, cookie, 'DELETE', `/api/note?path=${encodeURIComponent(NOTE)}`)
     assert.equal(del.status, 200)
-    await waitFor(() => messages.some((m) => m.type === 'thoth:trashed'), 'trash notice')
-    assert.deepEqual(messages.find((m) => m.type === 'thoth:trashed'), { type: 'thoth:trashed', path: NOTE, id: del.body.id, by: admin.username })
+    await waitFor(() => messages.some((m) => m.type === 'vihko:trashed'), 'trash notice')
+    assert.deepEqual(messages.find((m) => m.type === 'vihko:trashed'), { type: 'vihko:trashed', path: NOTE, id: del.body.id, by: admin.username })
     // The editor is still around and retries: it does not resurrect the note, not even by typing.
     typeLine(a, MARK.afterDelete)
     await sleep(1500)
@@ -403,7 +403,7 @@ test('same generation: offline typing survives network drops and server restarts
 })
 
 // If the hub has to start the document again without a saved state that
-// continues it (lost, or not matching the file on startup: changed with thoth
+// continues it (lost, or not matching the file on startup: changed with vihko
 // stopped, or restored from a backup), a tab's old copy would add its text a
 // second time. The hub refuses it; the tab reopens the note and sets aside
 // what it hadn't sent.
@@ -413,7 +413,7 @@ test('a copy from another generation is refused: no duplication, and what was no
   const file = join(notes, NOTE)
   // The hub's saved state: the document as it was left (.ystate) or, if the
   // process ended before unloading it, its recovery log (.ylog).
-  const saved = ['.ystate', '.ylog'].map((ext) => join(env.THOTH_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + ext))
+  const saved = ['.ystate', '.ylog'].map((ext) => join(env.VIHKO_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + ext))
   const takeState = () => new Map(saved.filter((f) => existsSync(f)).map((f) => [f, readFileSync(f)]))
   const putState = (files: Map<string, Buffer>) => {
     for (const f of saved) rmSync(f, { force: true })
@@ -479,13 +479,13 @@ test('a copy from another generation is refused: no duplication, and what was no
 
 // A saved state the hub trusts (written during this run, or matching its file
 // on startup) carries its generation on although the file changed after the
-// note was closed, while thoth was running: the change is merged into it as
+// note was closed, while vihko was running: the change is merged into it as
 // another editor's, and what a tab typed offline merges as usual (D-032.4).
-test('changed outside while thoth runs and the note is closed: what a tab typed offline merges, without a copy or duplicates', async () => {
+test('changed outside while vihko runs and the note is closed: what a tab typed offline merges, without a copy or duplicates', async () => {
   const { notes, env } = makeDirs()
   let srv = await startServer(env)
   const file = join(notes, NOTE)
-  const saved = (ext: string) => join(env.THOTH_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + ext)
+  const saved = (ext: string) => join(env.VIHKO_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + ext)
   try {
     const cookie = await login(srv)
     const a = follow(srv, cookie, NOTE)
@@ -535,14 +535,14 @@ test('changed outside while thoth runs and the note is closed: what a tab typed 
 
 // What a trusted state doesn't cover. Another note put at its path isn't what
 // the tab was writing; and an older state put back from outside is caught by
-// its hash, even while thoth runs (a backup is restored with thoth stopped, and
+// its hash, even while vihko runs (a backup is restored with vihko stopped, and
 // then it doesn't match its file on startup: the test above this one).
 test('a trusted state starts a new generation for another note at its path, or when an older state is put back', async () => {
   const { notes, env } = makeDirs()
   const srv = await startServer(env)
   const file = join(notes, NOTE)
-  const state = join(env.THOTH_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + '.ystate')
-  const log = join(env.THOTH_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + '.ylog')
+  const state = join(env.VIHKO_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + '.ystate')
+  const log = join(env.VIHKO_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + '.ylog')
   try {
     const a = follow(srv, await login(srv), NOTE)
     await waitFor(a.settled, 'sync')
@@ -588,7 +588,7 @@ test('a trusted state starts a new generation for another note at its path, or w
 test('killed while a flush rewrites the recovery log: nothing acknowledged is lost', async () => {
   const { notes, env } = makeDirs()
   const file = join(notes, NOTE)
-  let srv = await startServer({ ...env, THOTH_TEST_CRASH_AT: 'log-rewrite' })
+  let srv = await startServer({ ...env, VIHKO_TEST_CRASH_AT: 'log-rewrite' })
   const alive = () => srv.proc.exitCode === null && srv.proc.signalCode === null
   try {
     const cookie = await login(srv)
@@ -657,8 +657,8 @@ test('killed after a flush replaced the file but before the log recorded it: not
     rec('F', Buffer.from(contentHash(flushed), 'latin1')),
     ...updates.slice(atFlush).map((u) => rec('U', u)),
   ])
-  mkdirSync(join(env.THOTH_STATE_DIR!, 'collab'), { recursive: true })
-  writeFileSync(join(env.THOTH_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + '.ylog'), log)
+  mkdirSync(join(env.VIHKO_STATE_DIR!, 'collab'), { recursive: true })
+  writeFileSync(join(env.VIHKO_STATE_DIR!, 'collab', encodeURIComponent(NOTE) + '.ylog'), log)
   writeFileSync(file, flushed)
   const srv = await startServer(env)
   try {

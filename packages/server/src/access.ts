@@ -5,13 +5,13 @@
 // in the query itself (`notesWhere`), which runs the same function: counts,
 // snippets and pages never see what the principal can't.
 //
-// - A user has, in each folder, the level the rules of thoth.yaml give them
+// - A user has, in each folder, the level the rules of vihko.yaml give them
 //   (permissions.ts): read < comment < edit < manage. An image or any other
 //   file has the permission of the folder it's in. Being an admin grants
 //   nothing here (D-038.1): the admin reads only what is granted.
 // - An agent (a key, D-035) sees what its user sees, limited to the key's
 //   folders (none = all), and never a note with `ai: false`, in a folder
-//   closed to agents (`ai: false` in thoth.yaml) or whose frontmatter can't
+//   closed to agents (`ai: false` in vihko.yaml) or whose frontmatter can't
 //   be read (the most restricted, D-014). It writes only with a key that may
 //   and where its user has `edit`.
 //
@@ -25,7 +25,7 @@
 // redirect or duplicate it. The denial carries nothing of the note. Lists
 // still never show it: the agent only learns it exists if it already has
 // its name.
-import { WORKSPACE_FILE, atLeast, classifyPath, folderOf, readFrontmatter, type Level } from '@thoth/core'
+import { WORKSPACE_FILE, atLeast, classifyPath, folderOf, readFrontmatter, type Level } from '@vihko/core'
 import type { Actor, Via } from './actor.ts'
 import type { User } from './auth.ts'
 import type { Db } from './db.ts'
@@ -67,7 +67,7 @@ export class AccessError extends Error {
 
 /**
  * Why a note an agent named isn't for it: `ai: false` (in the note, a
- * frontmatter that can't be read, or its folder in thoth.yaml), out of its
+ * frontmatter that can't be read, or its folder in vihko.yaml), out of its
  * key's folders, or its user can't see it.
  */
 export type DenyReason = 'ai_false' | 'outside_key_folders' | 'user_no_access'
@@ -97,7 +97,7 @@ export interface Holds {
 export interface AccessPolicyOptions {
   /** index.db: the notes' frontmatter as last indexed, and which notes use each file. */
   index: Db
-  /** The rules of thoth.yaml resolved against users and groups. */
+  /** The rules of vihko.yaml resolved against users and groups. */
   permissions: PermissionsEngine
   /** Notes nobody reads until someone decides (external moves out of a folder with its own rules). */
   holds?: Holds
@@ -106,7 +106,7 @@ export interface AccessPolicyOptions {
 }
 
 /** Name of the SQL function `notesWhere` uses: (path, fm_json, fm_error, access id) → 0/1. */
-const SQL_FN = 'thoth_visible'
+const SQL_FN = 'vihko_visible'
 /** Accesses the SQL function can reach at once (one per request in flight, and some). */
 const LIVE_ACCESSES = 1024
 
@@ -236,7 +236,7 @@ export class Access {
 
   /**
    * Whether the user reaches `need` where `path` is, and the path isn't held
-   * from everyone. thoth.yaml is never anyone's: it holds the permissions
+   * from everyone. vihko.yaml is never anyone's: it holds the permissions
    * (it's edited through them, or on the disk).
    */
   private userCan(path: string, need: Level): boolean {
@@ -249,7 +249,7 @@ export class Access {
     return this.principal.kind === 'user' || inFolders(path, this.principal.key.folders)
   }
 
-  /** Whether a folder (or one above it) is closed to agents in thoth.yaml: never for a user. */
+  /** Whether a folder (or one above it) is closed to agents in vihko.yaml: never for a user. */
   closedToAgent(folder: string): boolean {
     return this.principal.kind === 'agent' && this.viewer.aiClosed(folder)
   }

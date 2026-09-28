@@ -1,12 +1,12 @@
 // The two people most setups sign in: an admin and a member, new ones (the
-// mother's) for every setup. A setup's thoth.yaml or files may name them:
+// mother's) for every setup. A setup's vihko.yaml or files may name them:
 // then the test gives a function of their usernames instead of a text.
-import type { Auth, User } from '@thoth/server'
+import type { Auth, User } from '@vihko/server'
 import { mother, type NewUser } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
-/** A user of a setup: as thoth has it, and the password they sign in with. */
+/** A user of a setup: as vihko has it, and the password they sign in with. */
 export type Person = User & { password: string }
 
 /** The usernames of a setup's people, for what names them. */

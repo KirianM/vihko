@@ -1,12 +1,12 @@
-// Notes moved outside thoth (D-031.4): the alert, which follows the files,
-// and «Update links», which runs the same rewrites as a thoth move. Nothing
+// Notes moved outside vihko (D-031.4): the alert, which follows the files,
+// and «Update links», which runs the same rewrites as a vihko move. Nothing
 // is rewritten on its own.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Auth, ExternalMoves, Indexer, NoteService, Profiles, Watcher, Workspace, createApp, openIndex, openState, type Runtime } from '@thoth/server'
+import { Auth, ExternalMoves, Indexer, NoteService, Profiles, Watcher, Workspace, createApp, openIndex, openState, type Runtime } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -17,7 +17,7 @@ const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 // --- The alert and «Update links» ------------------------------------------------
 
 async function app(opts: { moveWaitMs?: number } = {}) {
-  const dir = tempDir('thoth-xmove-app-')
+  const dir = tempDir('vihko-xmove-app-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
   cpSync(VAULT, notesDir, { recursive: true })

@@ -10,7 +10,7 @@ import { DIR, FILES, GROUP, MEMBER, OTHER, PATH, setup } from './_m4.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
-/** Who gains access when the admin's plan goes to the shared folder: both members, in the order thoth lists them (by name). */
+/** Who gains access when the admin's plan goes to the shared folder: both members, in the order vihko lists them (by name). */
 const GAINERS = [MEMBER.username, OTHER.username].sort((a, b) => a.localeCompare(b))
 /** The admin's note that the agent moves to the shared folder. */
 const PLAN = { from: PATH.adminPlan, to: m.aNotePath(DIR.shared) }

@@ -3,8 +3,8 @@
 // note goes. The editor only shows the badge; creating is the note view's job.
 import { Facet } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
-import { joinPath } from '@thoth/core/resolve'
-import { resolveImageRef } from '@thoth/core/images'
+import { joinPath } from '@vihko/core/resolve'
+import { resolveImageRef } from '@vihko/core/images'
 
 /** A broken link the person asked to create: where the note goes and its title. */
 export interface NewLinkedNote {

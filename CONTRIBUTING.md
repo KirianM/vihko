@@ -2,7 +2,7 @@
 
 ## Pull requests
 
-thoth is not accepting external pull requests for now. Issues are welcome:
+vihko is not accepting external pull requests for now. Issues are welcome:
 bug reports, questions and ideas. Security vulnerabilities are reported
 privately, never in an issue: see [SECURITY.md](SECURITY.md).
 
@@ -13,13 +13,13 @@ privately, never in an issue: see [SECURITY.md](SECURITY.md).
   properties).
 - `npm ci`, `npm run typecheck`, `npm run build` (UI), `npm test`.
 - UI development: run the server in one terminal
-  (`THOTH_NOTES_DIR=… THOTH_STATE_DIR=… packages/server/src/cli.ts serve`)
-  and `npm run dev -w @thoth/web` in another; Vite forwards `/api` and
-  `/collab` to port 8080 (`THOTH_DEV_SERVER` for another one).
+  (`VIHKO_NOTES_DIR=… VIHKO_STATE_DIR=… packages/server/src/cli.ts serve`)
+  and `npm run dev -w @vihko/web` in another; Vite forwards `/api` and
+  `/collab` to port 8080 (`VIHKO_DEV_SERVER` for another one).
 - Browser tests (`packages/web/e2e`, Playwright): `npm run build` and
-  `npm run e2e -w @thoth/web`, which starts a server with a copy of
+  `npm run e2e -w @vihko/web`, which starts a server with a copy of
   `testdata/vault` and two users. If your machine cannot run Chromium, keep the
-  server on the host (`npm run e2e:serve -w @thoth/web`) and run the browser in
+  server on the host (`npm run e2e:serve -w @vihko/web`) and run the browser in
   the official image, with the same version as `@playwright/test`:
 
   ```sh
@@ -35,7 +35,7 @@ privately, never in an issue: see [SECURITY.md](SECURITY.md).
   Every spec runs on that one server, one after another, so a spec never
   depends on another one: grants beyond the baseline (the admin manages the
   root, the member edits it: `ADMIN` and `MEMBER` of `e2e/env.ts`) go through
-  `usePermissions()` of `e2e/helpers.ts`, which waits until thoth has read
+  `usePermissions()` of `e2e/helpers.ts`, which waits until vihko has read
   them and is called again at the end to put the baseline back; a spec's own
   values come from `specMother(import.meta.url)` of `e2e/env.ts` (a deleted
   user's name stays reserved, and a retry, in a new worker, draws other ones);
@@ -50,33 +50,33 @@ mother(import.meta.url)`, then `m.aUser({ role: 'admin' })`, `m.aPassword()`,
 `m.aGroupName()`, `m.aNotePath(m.aFolder())`, `m.aTag()`, `m.aSentence()`…).
 Its values are invented with [faker](https://fakerjs.dev) (a development
 dependency only), Spanish-flavoured so accents and «ñ» show up, and follow
-thoth's rules for their kind: a username matches thoth's pattern and is unique
-under thoth's comparison, a password is long enough, a note path is valid.
+vihko's rules for their kind: a username matches vihko's pattern and is unique
+under vihko's comparison, a password is long enough, a note path is valid.
 Tests speak of roles ("the admin", "a member") and build their expectations
 from the values they were given. A literal stays only where it is the case
 under test (a parser edge case, Unicode folding, a format's test vector) or
 in an integration test on the fixed vault (`testdata/vault`), with a comment
 saying why.
 
-The values change on every run, from one seed per run: `THOTH_TEST_SEED`, or
+The values change on every run, from one seed per run: `VIHKO_TEST_SEED`, or
 a random one. `npm test`, `npm run acceptance`, the Playwright suites and
 their servers, and every job of `npm run ci` print it and hand the same seed
 to every test process, so the same seed gives the same values. To reproduce
 a failure, run again with the seed it printed:
 
 ```sh
-THOTH_TEST_SEED=1234567 npm test -- packages/server/test/users.test.ts
-THOTH_TEST_SEED=1234567 npm run ci -- --jobs e2e --grep 'users\.spec'
+VIHKO_TEST_SEED=1234567 npm test -- packages/server/test/users.test.ts
+VIHKO_TEST_SEED=1234567 npm run ci -- --jobs e2e --grep 'users\.spec'
 ```
 
 Each file draws from its own stream (the seed and the file's path), so a file
 run alone gets the values it got in the full run (the whole file: with
 `--test-name-pattern` the tests left out draw nothing, and the rest may get
 other values). A test that fails with some
-seeds only has a hidden assumption about its data: fix the test (or thoth),
+seeds only has a hidden assumption about its data: fix the test (or vihko),
 never pin the seed. A browser server started by hand writes its seed next to
 its data (`.data/e2e/seed`), and Playwright pointed at it with `E2E_BASE_URL`
-reads it when `THOTH_TEST_SEED` isn't set.
+reads it when `VIHKO_TEST_SEED` isn't set.
 
 ## Acceptance
 
@@ -93,12 +93,12 @@ realistic notes (seeded, with `testdata/vault` inside as the edge cases;
   (`ACCEPTANCE_GIT_COMMITS` commits, 2,000 by default), which must stay byte
   for byte the same; and the same startup, search and kill -9 against the
   Docker image with `compose.yaml` (skipped without Docker; builds
-  `thoth:acceptance` unless `ACCEPTANCE_IMAGE` names an image). It prints the
+  `vihko:acceptance` unless `ACCEPTANCE_IMAGE` names an image). It prints the
   numbers.
-- `npm run acceptance:ui -w @thoth/web` (after `npm run build`): search, edit,
+- `npm run acceptance:ui -w @vihko/web` (after `npm run build`): search, edit,
   a change from another editor and a rename from the UI, in a browser. Without
   Chromium on the machine, as with `e2e`: `npm run acceptance:serve -w
-  @thoth/web` and the Playwright image with `ACC_BASE_URL`.
+  @vihko/web` and the Playwright image with `ACC_BASE_URL`.
 
 CI runs both on every pull request (see below). Before closing a milestone,
 run them on a real machine with more rounds and write the numbers down:
@@ -130,10 +130,10 @@ npm run ci -- --clean             # remove the folders and logs of earlier runs
 
 - **check**: `npm ci`, typecheck, build, `npm test`.
 - **acceptance**: `npm run acceptance` with `ACCEPTANCE_DOCKER=0`.
-- **docker**: builds the image (`thoth-ci:<run>`), starts it, waits for its
+- **docker**: builds the image (`vihko-ci:<run>`), starts it, waits for its
   `HEALTHCHECK` and checks it serves the UI, then the Docker acceptance with
   `ACCEPTANCE_IMAGE`.
-- **e2e**: `npm run e2e` and `npm run acceptance:ui` of `@thoth/web`, with the
+- **e2e**: `npm run e2e` and `npm run acceptance:ui` of `@vihko/web`, with the
   servers on the host and the browser in the Playwright image of the installed
   `@playwright/test` (`--network host`).
 
@@ -150,10 +150,10 @@ A browser test that fails runs once more, with a Playwright trace (traces are
 recorded only then: recording every test slowed them all and could fail a
 passing test at its teardown). If it passes then, it is flaky: the job passes,
 but its line, the summary and the posted status name it. A flaky test is a bug
-to look at, in the test or in thoth, not noise.
+to look at, in the test or in vihko, not noise.
 
-Each run works in its own folder on local disk (`/var/tmp/thoth-ci/<run>`, or
-`THOTH_CI_DIR`; never NFS, and not a tmpfs `/tmp`): a git worktree of the
+Each run works in its own folder on local disk (`/var/tmp/vihko-ci/<run>`, or
+`VIHKO_CI_DIR`; never NFS, and not a tmpfs `/tmp`): a git worktree of the
 commit (with `--pr`, the pull request's head merged onto its base, fetched
 first; a conflict fails the run), its own `TMPDIR` and test data. It never
 writes into your checkout. It picks free ports of its own, and names its

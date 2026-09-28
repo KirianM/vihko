@@ -2,8 +2,8 @@
 // cursor asks for, how notes, headings and tags rank against what was typed,
 // and the shortest link that reaches a note from the current one (D-019).
 // Plain data in and out, so it can be tested on its own.
-import { caseFold } from '@thoth/core/casefold'
-import { LinkIndex, shortestTarget } from '@thoth/core/resolve'
+import { caseFold } from '@vihko/core/casefold'
+import { LinkIndex, shortestTarget } from '@vihko/core/resolve'
 
 /** A note as the tree lists it. */
 export interface NoteEntry { path: string; title: string; aliases?: readonly string[] }
@@ -94,7 +94,7 @@ export class NoteCatalog {
   private readonly index: LinkIndex
   private readonly collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
-  /** `aliases`: whether aliases resolve links (thoth.yaml). Either way they're suggested, and inserted as `[[Note|alias]]`. */
+  /** `aliases`: whether aliases resolve links (vihko.yaml). Either way they're suggested, and inserted as `[[Note|alias]]`. */
   constructor(notes: readonly NoteEntry[], opts: { aliases?: boolean } = {}) {
     this.index = new LinkIndex({ aliases: opts.aliases ?? true })
     this.prepared = notes.map((note) => ({

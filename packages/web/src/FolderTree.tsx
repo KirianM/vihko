@@ -84,7 +84,7 @@ function find(list: Node[], key: string): Node | null {
 }
 
 /** What is dragged: a tree key (`n:path` or `d:path`), never a file from outside. */
-const DRAG_TYPE = 'application/x-thoth-tree-key'
+const DRAG_TYPE = 'application/x-vihko-tree-key'
 const LONG_PRESS_MS = 500
 
 /** The folder a drop lands in: on a folder, into it; on or next to a note, into that note's folder. */

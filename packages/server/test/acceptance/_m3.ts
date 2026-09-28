@@ -12,7 +12,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { toolData } from '@thoth/server'
+import { toolData } from '@vihko/server'
 import type * as Y from 'yjs'
 import { api, closeAll, connect, waitFor, type Srv } from '../_collab.ts'
 

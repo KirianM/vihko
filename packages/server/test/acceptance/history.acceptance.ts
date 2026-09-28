@@ -18,7 +18,7 @@ const who = (v: { authors: { kind: string; name: string }[] }) => v.authors.map(
 
 test(`history over ${NOTES} notes: startup, write latency, and every change seen with its author and undone`, { timeout: 600_000 }, async () => {
   const ws = workspace('history')
-  const env = { ...ws.env, THOTH_HISTORY_QUIET_SECONDS: '1', THOTH_RESCAN_SECONDS: '5' }
+  const env = { ...ws.env, VIHKO_HISTORY_QUIET_SECONDS: '1', VIHKO_RESCAN_SECONDS: '5' }
   let srv: Server | null = null
   try {
     // 1. First start: the index and the first commit of the whole folder.
@@ -45,11 +45,11 @@ test(`history over ${NOTES} notes: startup, write latency, and every change seen
       return lat
     }
     const on = await edits(notes.slice(0, 30), 'EDIT-HISTORY-ON')
-    writeFileSync(join(ws.notesDir, 'thoth.yaml'), 'history:\n  mode: off\n')
+    writeFileSync(join(ws.notesDir, 'vihko.yaml'), 'history:\n  mode: off\n')
     await waitFor(async () => (await api(srv!, cookie, 'GET', '/api/history/status')).body.mode === 'off', 'history off', 20_000)
     const off = await edits(notes.slice(30), 'EDIT-HISTORY-OFF')
     metric('write with history p50', percentile(on, 50), 'ms', { p95: Math.round(percentile(on, 95) * 10) / 10, offP50: Math.round(percentile(off, 50) * 10) / 10, offP95: Math.round(percentile(off, 95) * 10) / 10 })
-    writeFileSync(join(ws.notesDir, 'thoth.yaml'), 'history:\n  mode: managed\n')
+    writeFileSync(join(ws.notesDir, 'vihko.yaml'), 'history:\n  mode: managed\n')
     await waitFor(async () => (await api(srv!, cookie, 'GET', '/api/history/status')).body.mode === 'managed', 'history on', 20_000)
     // Resuming records what changed while it was off, as nobody's.
     await waitFor(async () => (await changes())[0]?.reason?.code === 'history_resumed', 'resumed', 20_000)

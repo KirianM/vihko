@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Client, StreamableHTTPClientTransport, type VersionNegotiationMode } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
-import { toolData } from '@thoth/server'
+import { toolData } from '@vihko/server'
 import { api, login, makeDirs, startServer, waitFor } from './_collab.ts'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -88,8 +88,8 @@ async function exercise(call: Call, tag: string, write: boolean): Promise<string
 
 async function server() {
   const { notes, env, admin } = makeDirs()
-  writeFileSync(join(notes, 'thoth.yaml'), 'daily:\n  diario:\n    folder: diario\n')
-  const srv = await startServer({ ...env, THOTH_HISTORY_QUIET_SECONDS: '0.3' })
+  writeFileSync(join(notes, 'vihko.yaml'), 'daily:\n  diario:\n    folder: diario\n')
+  const srv = await startServer({ ...env, VIHKO_HISTORY_QUIET_SECONDS: '0.3' })
   const cookie = await login(srv)
   const key = async (input: Record<string, unknown>) => {
     const r = await api(srv, cookie, 'POST', '/api/keys', { confirm: admin.password, ...input })
@@ -108,7 +108,7 @@ async function server() {
 
 /** The SDK's client, over HTTP. */
 async function sdk(url: string, token: string, mode: VersionNegotiationMode) {
-  const client = new Client({ name: 'thoth-ci', version: '1' }, { versionNegotiation: { mode } })
+  const client = new Client({ name: 'vihko-ci', version: '1' }, { versionNegotiation: { mode } })
   await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { authorization: `Bearer ${token}` } } }))
   return {
     client,
@@ -162,7 +162,7 @@ function inspector(home: string, url: string, token: string, era: 'legacy' | 'mo
 
 test('MCP Inspector in CLI mode, in both protocol eras', { timeout: 300_000 }, async () => {
   const s = await server()
-  const home = tempDir('thoth-inspector-')
+  const home = tempDir('vihko-inspector-')
   try {
     for (const era of ['legacy', 'modern'] as const) {
       const list = async (token: string) => {
@@ -194,7 +194,7 @@ test('MCP Inspector in CLI mode, in both protocol eras', { timeout: 300_000 }, a
 
 test('mcp-remote, the stdio bridge to a remote server', { timeout: 180_000 }, async () => {
   const s = await server()
-  const home = tempDir('thoth-mcp-remote-')
+  const home = tempDir('vihko-mcp-remote-')
   const connect = async (token: string) => {
     // The key in a file, as its docs advise: never in the process list.
     const headers = join(home, `headers-${token.slice(-6)}.txt`)
@@ -207,7 +207,7 @@ test('mcp-remote, the stdio bridge to a remote server', { timeout: 180_000 }, as
     })
     const err: string[] = []
     transport.stderr?.on('data', (d) => err.push(String(d)))
-    const client = new Client({ name: 'thoth-ci', version: '1' })
+    const client = new Client({ name: 'vihko-ci', version: '1' })
     await client.connect(transport).catch((e) => { throw new Error(`${e}\n${err.join('')}`) })
     return { client, err, call: (async (name, args) => parse(await client.callTool({ name, arguments: args }) as never)) as Call }
   }

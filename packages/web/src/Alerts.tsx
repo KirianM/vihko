@@ -1,4 +1,4 @@
-// Workspace alerts: what thoth has detected in the notes folder that needs a
+// Workspace alerts: what vihko has detected in the notes folder that needs a
 // decision. The server gives codes, data and the actions allowed to whoever is
 // looking; here they're worded and only those actions are offered. Notices
 // addressed to the person (M4.1: what the admin did to their account, a purge
@@ -9,7 +9,7 @@ import { ApiError, api, type Alert, type MoveJob, type MovedRelinkReport } from 
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { MenuButton, ThemeToggle, noteName as fileName } from './ui.tsx'
 import { SearchButton } from './Palette.tsx'
-import type { ConfigError } from '@thoth/core/codes'
+import type { ConfigError } from '@vihko/core/codes'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
 import { ShiftPreview } from './Shifts.tsx'
 import { useDates } from './history/ui.tsx'
@@ -64,8 +64,8 @@ const icons = {
 const linkCount = (r: MovedRelinkReport) => r.relinked.reduce((n, x) => n + x.links, 0)
 
 /**
- * «Update links» for notes moved outside thoth (D-031.4): the preview (what a
- * thoth move would have rewritten) and, on confirming, the rewrite itself; a
+ * «Update links» for notes moved outside vihko (D-031.4): the preview (what a
+ * vihko move would have rewritten) and, on confirming, the rewrite itself; a
  * long one hands its job to `onStarted`.
  */
 function RelinkDialog({ alert, onClose, onDone, onStarted }: {
@@ -204,7 +204,7 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
   )
   const adminOnly = <span className="alert-hint">{t('alerts.adminOnly')}</span>
 
-  /** thoth.yaml problems: line and key path, then what's wrong. */
+  /** vihko.yaml problems: line and key path, then what's wrong. */
   const configList = (list: ConfigError[]) => (
     <ul className="alert-paths alert-config">
       {list.map((e, j) => (

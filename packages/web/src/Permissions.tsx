@@ -5,8 +5,8 @@
 // folders, as a tree), and the admin's list of every folder's name to open
 // its permissions (D-038.1: names, never contents).
 //
-// Changes are a draft saved at once with thoth.yaml's ETag: if the file
-// changed meanwhile (412), the dialog loads it again and says so; if thoth
+// Changes are a draft saved at once with vihko.yaml's ETag: if the file
+// changed meanwhile (412), the dialog loads it again and says so; if vihko
 // can't write it as it is (409 `config_invalid`), it's fixed by hand.
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Input, Tab, TabList, TabPanel, Tabs, TextField } from 'react-aria-components'
@@ -173,7 +173,7 @@ export function PermissionsDialog({ folder: start, me, canOpen, onClose, onChang
       setNotice(t('perm.saved'))
     } catch (err) {
       if (err instanceof ApiError && err.code === 'precondition_failed') {
-        // thoth.yaml changed meanwhile (another person, an editor): what it says now, and nothing was saved.
+        // vihko.yaml changed meanwhile (another person, an editor): what it says now, and nothing was saved.
         await load(folder)
         setNotice(null)
         setError(t('perm.stale'))

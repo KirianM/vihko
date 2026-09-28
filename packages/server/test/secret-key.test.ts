@@ -1,26 +1,26 @@
-// THOTH_SECRET_KEY (M4.1, D-040 3.4b): the TOTP secrets in state.db stored
+// VIHKO_SECRET_KEY (M4.1, D-040 3.4b): the TOTP secrets in state.db stored
 // encrypted with a key outside it. Every transition: none → key (the
 // plaintext ones are encrypted at startup), key → the same key, key → none
-// or another key (thoth starts, the admin is told, those codes can't be
+// or another key (vihko starts, the admin is told, those codes can't be
 // checked, recovery codes still work, and a reset fixes it), and back to the
-// right key. The key never reaches state.db, the logs or thoth's children.
+// right key. The key never reaches state.db, the logs or vihko's children.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { MIN_SECRET_KEY, SecretBox, TwoFactor, base32Decode, isSealed, openState, secretBoxFrom, totp, type SetupData } from '@thoth/server'
+import { MIN_SECRET_KEY, SecretBox, TwoFactor, base32Decode, isSealed, openState, secretBoxFrom, totp, type SetupData } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
-/** THOTH_SECRET_KEY, and another one: long enough (MIN_SECRET_KEY), and different. */
+/** VIHKO_SECRET_KEY, and another one: long enough (MIN_SECRET_KEY), and different. */
 const KEY = m.aSecret(m.anInt(MIN_SECRET_KEY, 64))
 const OTHER = m.aSecret(m.anInt(MIN_SECRET_KEY, 64))
-/** A TOTP secret as thoth stores it without a key: base32. */
+/** A TOTP secret as vihko stores it without a key: base32. */
 const TOTP_SECRET = m.faker.string.fromCharacters('ABCDEFGHIJKLMNOPQRSTUVWXYZ234567', 32)
 
 test('the box: AES-256-GCM with a nonce each time, bound to its owner; another key, another owner or a change open nothing', () => {
@@ -44,27 +44,27 @@ test('the box: AES-256-GCM with a nonce each time, bound to its owner; another k
 })
 
 test('the key from the environment or a Docker secret\'s file; both, a file that can\'t be read or a short key stop the start', () => {
-  const dir = tempDir('thoth-key-')
+  const dir = tempDir('vihko-key-')
   const file = join(dir, 'secret')
   writeFileSync(file, `${KEY}\n`)
   assert.equal(secretBoxFrom({}), null)
-  assert.equal(secretBoxFrom({ THOTH_SECRET_KEY: '' }), null)
-  assert.equal(secretBoxFrom({ THOTH_SECRET_KEY: KEY })!.id, new SecretBox(KEY).id)
-  assert.equal(secretBoxFrom({ THOTH_SECRET_KEY_FILE: file })!.id, new SecretBox(KEY).id, 'its trailing newline is not part of the key')
-  assert.throws(() => secretBoxFrom({ THOTH_SECRET_KEY: KEY, THOTH_SECRET_KEY_FILE: file }), /not both/)
-  const unreadable = (() => { try { secretBoxFrom({ THOTH_SECRET_KEY_FILE: join(dir, 'missing') }); return null } catch (err) { return err as Error } })()
+  assert.equal(secretBoxFrom({ VIHKO_SECRET_KEY: '' }), null)
+  assert.equal(secretBoxFrom({ VIHKO_SECRET_KEY: KEY })!.id, new SecretBox(KEY).id)
+  assert.equal(secretBoxFrom({ VIHKO_SECRET_KEY_FILE: file })!.id, new SecretBox(KEY).id, 'its trailing newline is not part of the key')
+  assert.throws(() => secretBoxFrom({ VIHKO_SECRET_KEY: KEY, VIHKO_SECRET_KEY_FILE: file }), /not both/)
+  const unreadable = (() => { try { secretBoxFrom({ VIHKO_SECRET_KEY_FILE: join(dir, 'missing') }); return null } catch (err) { return err as Error } })()
   assert.match(unreadable?.message ?? '', /can't be read \(ENOENT\)/)
   const short = m.aSecret(m.anInt(8, MIN_SECRET_KEY - 1))
-  assert.throws(() => secretBoxFrom({ THOTH_SECRET_KEY: short }), (err: Error) => !err.message.includes(short), 'never says the key')
-  // Read from the process's environment, it leaves it: nothing thoth runs inherits it.
-  process.env.THOTH_SECRET_KEY = KEY
+  assert.throws(() => secretBoxFrom({ VIHKO_SECRET_KEY: short }), (err: Error) => !err.message.includes(short), 'never says the key')
+  // Read from the process's environment, it leaves it: nothing vihko runs inherits it.
+  process.env.VIHKO_SECRET_KEY = KEY
   assert.ok(secretBoxFrom())
-  assert.equal(process.env.THOTH_SECRET_KEY, undefined)
+  assert.equal(process.env.VIHKO_SECRET_KEY, undefined)
 })
 
 /** state.db with two users (u1 and u2, `names`), on a clock the test moves. */
 function store() {
-  const dir = tempDir('thoth-2fa-key-')
+  const dir = tempDir('vihko-2fa-key-')
   const file = join(dir, 'state.db')
   const state = openState(file)
   const names = { u1: m.aUsername(), u2: m.aUsername() }
@@ -103,7 +103,7 @@ test('transitions: plaintext, encrypted at startup with a key, unreadable withou
   assert.ok(isSealed(s.stored('u2')))
   assert.deepEqual(keyed.unreadable(), [])
 
-  // The key gone (or another one): thoth still works; those codes can't be checked, recovery codes can.
+  // The key gone (or another one): vihko still works; those codes can't be checked, recovery codes can.
   for (const other of [null, new SecretBox(OTHER)]) {
     const without = s.tf(other)
     assert.deepEqual(without.unreadable().sort(), ['u1', 'u2'])
@@ -119,7 +119,7 @@ test('transitions: plaintext, encrypted at startup with a key, unreadable withou
   assert.deepEqual(s.tf(box).unreadable(), [])
   assert.equal(s.tf(box).verify('u1', s.code(first)).ok, true)
 
-  // `thoth user reset-2fa` (or the admin's reset) takes an unreadable one away.
+  // `vihko user reset-2fa` (or the admin's reset) takes an unreadable one away.
   assert.equal(s.tf(null).disable('u2'), true)
   assert.deepEqual(s.tf(null).unreadable(), ['u1'])
 
@@ -134,7 +134,7 @@ test('the admin is told whose second factor can\'t be read; that person signs in
   try {
     const s = await h.member('POST', '/api/account/2fa/setup', { password: h.users.member.password })
     const r = await h.member('POST', '/api/account/2fa/enable', { code: totp(base32Decode(s.body.secret), h.clock.now.getTime()) })
-    // Encrypted with a key this thoth doesn't have (as after THOTH_SECRET_KEY changed).
+    // Encrypted with a key this vihko doesn't have (as after VIHKO_SECRET_KEY changed).
     assert.equal(new TwoFactor(h.auth.state, { box: new SecretBox(OTHER) }).sealPlaintext(), 1)
     const alerts = async (as: typeof h.admin) => ((await as('GET', '/api/alerts')).body.alerts as { code: string; users?: string[] }[]).filter((a) => a.code === 'two_factor_unreadable')
     assert.deepEqual(await alerts(h.admin), [{ code: 'two_factor_unreadable', users: [h.users.member.username], actions: [] }])
@@ -153,7 +153,7 @@ test('the admin is told whose second factor can\'t be read; that person signs in
   } finally { await h.close() }
 })
 
-/** Runs `thoth serve` until it listens, then stops it: its log. */
+/** Runs `vihko serve` until it listens, then stops it: its log. */
 async function serve(env: Record<string, string>): Promise<{ log: string; code: number | null }> {
   const p = spawn(process.execPath, ['--no-experimental-webstorage', CLI, 'serve'], { env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
   let log = ''
@@ -168,8 +168,8 @@ async function serve(env: Record<string, string>): Promise<{ log: string; code: 
   return { log, code: await done }
 }
 
-test('startup: with the key, the plaintext secrets are encrypted and it says so; with another, thoth starts and says whose can\'t be read; never the key', async () => {
-  const dir = tempDir('thoth-serve-key-')
+test('startup: with the key, the plaintext secrets are encrypted and it says so; with another, vihko starts and says whose can\'t be read; never the key', async () => {
+  const dir = tempDir('vihko-serve-key-')
   const notes = join(dir, 'notes')
   const stateDir = join(dir, 'state')
   mkdirSync(notes, { recursive: true })
@@ -178,9 +178,9 @@ test('startup: with the key, the plaintext secrets are encrypted and it says so;
   state.prepare("insert into users (id, username, password_hash, role, created_at) values ('u1', ?, 'x', 'admin', '2026-01-01T00:00:00Z')").run(m.aUsername())
   state.prepare("insert into two_factor (user_id, secret, enabled_at) values ('u1', ?, '2026-01-01T00:00:00Z')").run(TOTP_SECRET)
   state.close()
-  const base = { THOTH_NOTES_DIR: notes, THOTH_STATE_DIR: stateDir, THOTH_HOST: '127.0.0.1', THOTH_PORT: '0', THOTH_WEB_DIR: join(dir, 'no-ui') }
+  const base = { VIHKO_NOTES_DIR: notes, VIHKO_STATE_DIR: stateDir, VIHKO_HOST: '127.0.0.1', VIHKO_PORT: '0', VIHKO_WEB_DIR: join(dir, 'no-ui') }
 
-  const first = await serve({ ...base, THOTH_SECRET_KEY: KEY })
+  const first = await serve({ ...base, VIHKO_SECRET_KEY: KEY })
   assert.match(first.log, /second factors are stored encrypted \(1 encrypted now\)/)
   assert.ok(!first.log.includes(KEY))
   const check = openState(join(stateDir, 'state.db'))
@@ -188,17 +188,17 @@ test('startup: with the key, the plaintext secrets are encrypted and it says so;
   check.close()
   assert.ok(isSealed(sealed))
 
-  const again = await serve({ ...base, THOTH_SECRET_KEY: KEY })
+  const again = await serve({ ...base, VIHKO_SECRET_KEY: KEY })
   assert.match(again.log, /second factors are stored encrypted\n/, 'nothing left to encrypt')
 
   const keyFile = join(dir, 'other')
   writeFileSync(keyFile, OTHER)
-  const other = await serve({ ...base, THOTH_SECRET_KEY_FILE: keyFile })
+  const other = await serve({ ...base, VIHKO_SECRET_KEY_FILE: keyFile })
   assert.match(other.log, /listening on/, 'it starts')
-  assert.match(other.log, /1 second factor\(s\) can't be read with this THOTH_SECRET_KEY/)
+  assert.match(other.log, /1 second factor\(s\) can't be read with this VIHKO_SECRET_KEY/)
   assert.ok(!other.log.includes(OTHER))
 
   const none = await serve(base)
   assert.match(none.log, /listening on/)
-  assert.match(none.log, /can't be read without THOTH_SECRET_KEY/)
+  assert.match(none.log, /can't be read without VIHKO_SECRET_KEY/)
 })

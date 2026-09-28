@@ -1,5 +1,5 @@
 name: Idea
-description: Something thoth could do, or do differently.
+description: Something vihko could do, or do differently.
 labels: [enhancement]
 body:
   - type: textarea

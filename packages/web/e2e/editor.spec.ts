@@ -1,5 +1,5 @@
 // End-to-end co-editing: two people on the same note, the file on disk as
-// the source of truth, changes and deletions made outside thoth.
+// the source of truth, changes and deletions made outside vihko.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { ADMIN, MEMBER, NOTES, specMother } from './env.ts'
@@ -55,7 +55,7 @@ test('two people write at the same time and the file converges with an intact ui
   await expect(k.locator('.cm-ySelectionCaret').first()).toBeAttached()
 })
 
-test('a change made outside thoth shows up live', async () => {
+test('a change made outside vihko shows up live', async () => {
   const outside = m.aUniqueWord()
   writeFileSync(FILE, disk().replace('## Almacenamiento', `## Almacenamiento (${outside})`))
   await expect.poll(() => editorText(a)).toContain(`(${outside})`)

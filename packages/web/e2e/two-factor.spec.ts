@@ -149,8 +149,8 @@ test('a member sets it up from «Account»: nothing is on until a code from the 
   const secret = (await dialog.getByLabel('Clave secreta').innerText()).trim()
   expect(secret).toMatch(/^([A-Z2-7]{4} ){7}[A-Z2-7]{4}$/)
   const uri = await dialog.getByRole('link', { name: 'Abrir en la app de este dispositivo' }).getAttribute('href')
-  // Named after the installation's public address (THOTH_PUBLIC_URL), so that two thoths tell apart in the app.
-  expect(uri).toBe(`otpauth://totp/thoth:${encodeURIComponent(PERSON.username)}%40${new URL(PUBLIC_URL).host}?secret=${secret.replace(/ /g, '')}&issuer=thoth&algorithm=SHA1&digits=6&period=30`)
+  // Named after the installation's public address (VIHKO_PUBLIC_URL), so that two vihko installations tell apart in the app.
+  expect(uri).toBe(`otpauth://totp/vihko:${encodeURIComponent(PERSON.username)}%40${new URL(PUBLIC_URL).host}?secret=${secret.replace(/ /g, '')}&issuer=vihko&algorithm=SHA1&digits=6&period=30`)
   await page.screenshot({ path: `${SHOTS}/twofa-setup-light.png`, animations: 'disabled' })
   // A wrong code turns nothing on.
   await dialog.getByLabel('Código de verificación').fill('000000')
@@ -258,7 +258,7 @@ test('required: an invited member sets it up before getting in; the admin sees w
   await phone.getByLabel('Repite la contraseña').fill(INVITED.password)
   await phone.getByRole('button', { name: 'Guardar y entrar' }).click()
   await expect(phone.getByRole('heading', { level: 1 })).toHaveText('Activa la verificación en dos pasos')
-  await expect(phone.getByText(`Quien administra thoth la exige para entrar, ${INVITED.username}.`)).toBeVisible()
+  await expect(phone.getByText(`Quien administra vihko la exige para entrar, ${INVITED.username}.`)).toBeVisible()
   await expect(phone.getByRole('treegrid')).toHaveCount(0)
   expect((await phone.request.get('/api/auth/me')).status(), 'no session before it is set up').toBe(401)
   await expect(phone.getByRole('img', { name: 'Código QR para la app de autenticación' })).toBeVisible()

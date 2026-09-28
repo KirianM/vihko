@@ -1,4 +1,4 @@
-// OAuth 2.1 for the MCP server (m3 §7): only with THOTH_PUBLIC_URL and the
+// OAuth 2.1 for the MCP server (m3 §7): only with VIHKO_PUBLIC_URL and the
 // MCP server on; metadata (RFC 8414, RFC 9728), dynamic registration (RFC
 // 7591, which the admin may turn off), authorization code with PKCE S256,
 // consent as a key (read-only and every folder unless chosen otherwise),
@@ -7,7 +7,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash, randomBytes } from 'node:crypto'
-import { OAuthServer, REGISTRATIONS_PER_HOUR, REGISTRATION_ADDRESSES, WindowLimit, publicUrlFrom, sameRedirect } from '@thoth/server'
+import { OAuthServer, REGISTRATIONS_PER_HOUR, REGISTRATION_ADDRESSES, WindowLimit, publicUrlFrom, sameRedirect } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -27,7 +27,7 @@ const FILES = {
 }
 /** The name clients register with unless a test gives one. */
 const CLIENT = m.aKeyName()
-/** The `state` a client sends and gets back: opaque to thoth. */
+/** The `state` a client sends and gets back: opaque to vihko. */
 const STATE = m.aSecret(12)
 const READ = ['changes_since', 'daily_note', 'get_note', 'history', 'list_folder', 'related', 'resolve_link', 'search']
 const ALL = [...READ, 'create_note', 'delete', 'edit_note', 'move', 'revert_change'].sort()
@@ -96,14 +96,14 @@ const mcpPost = (h: H, token: string | null, headers: Record<string, string> = {
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...(token === null ? {} : { authorization: `Bearer ${token}` }), ...headers },
   })
 
-test('THOTH_PUBLIC_URL: only an https origin', () => {
+test('VIHKO_PUBLIC_URL: only an https origin', () => {
   assert.equal(publicUrlFrom(undefined), null)
   assert.equal(publicUrlFrom(' '), null)
   assert.equal(publicUrlFrom('https://notas.example.org'), PUBLIC)
   assert.equal(publicUrlFrom('https://notas.example.org/'), PUBLIC)
   assert.equal(publicUrlFrom('https://notas.example.org:8443'), 'https://notas.example.org:8443')
-  for (const bad of ['http://notas.example.org', 'notas.example.org', 'https://notas.example.org/thoth', 'https://notas.example.org/?x=1', 'https://u:p@notas.example.org']) {
-    assert.throws(() => publicUrlFrom(bad), /THOTH_PUBLIC_URL/, bad)
+  for (const bad of ['http://notas.example.org', 'notas.example.org', 'https://notas.example.org/vihko', 'https://notas.example.org/?x=1', 'https://u:p@notas.example.org']) {
+    assert.throws(() => publicUrlFrom(bad), /VIHKO_PUBLIC_URL/, bad)
   }
 })
 
@@ -118,7 +118,7 @@ test('redirect URIs: exactly as registered; a loopback one on any port', () => {
   assert.ok(!sameRedirect('http://localhost:3334/oauth/callback', 'http://localhost:4040/other'))
 })
 
-test('without THOTH_PUBLIC_URL, or with the MCP server off, OAuth doesn\'t exist: 404 everywhere; /mcp takes keys only', async () => {
+test('without VIHKO_PUBLIC_URL, or with the MCP server off, OAuth doesn\'t exist: 404 everywhere; /mcp takes keys only', async () => {
   for (const variant of ['no public URL', 'MCP off'] as const) {
     const h = await setup({ files: FILES, ui: true, ...(variant === 'MCP off' ? { publicUrl: PUBLIC } : {}) })
     try {
@@ -145,7 +145,7 @@ test('without THOTH_PUBLIC_URL, or with the MCP server off, OAuth doesn\'t exist
       const none = await mcpPost(h, null)
       assert.equal(none.status, 401)
       assert.equal(none.headers.get('www-authenticate'), 'Bearer')
-      const fake = await mcpPost(h, `thoth_oat_${randomBytes(32).toString('base64url')}`)
+      const fake = await mcpPost(h, `vihko_oat_${randomBytes(32).toString('base64url')}`)
       assert.equal(fake.status, 401)
       assert.equal(fake.headers.get('www-authenticate'), 'Bearer error="invalid_token"')
       const { token } = await h.newKey({ name: m.aKeyName() })
@@ -163,7 +163,7 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     assert.equal(first.status, 401)
     assert.equal(first.headers.get('www-authenticate'), `Bearer resource_metadata="${PUBLIC}/.well-known/oauth-protected-resource/mcp"`)
     const prm = await raw(h, 'GET', '/.well-known/oauth-protected-resource/mcp')
-    assert.deepEqual(prm.body, { resource: RESOURCE, authorization_servers: [PUBLIC], bearer_methods_supported: ['header'], resource_name: 'thoth' })
+    assert.deepEqual(prm.body, { resource: RESOURCE, authorization_servers: [PUBLIC], bearer_methods_supported: ['header'], resource_name: 'vihko' })
     const as = (await raw(h, 'GET', '/.well-known/oauth-authorization-server')).body
     assert.equal(as.issuer, PUBLIC)
     assert.equal(as.authorization_endpoint, `${PUBLIC}/oauth/authorize`)
@@ -204,8 +204,8 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     assert.equal(tokens.body.token_type, 'Bearer')
     assert.equal(tokens.body.expires_in, 3600)
     assert.equal(tokens.body.scope, 'read')
-    assert.match(tokens.body.access_token, /^thoth_oat_/)
-    assert.match(tokens.body.refresh_token, /^thoth_ort_/)
+    assert.match(tokens.body.access_token, /^vihko_oat_/)
+    assert.match(tokens.body.refresh_token, /^vihko_ort_/)
     // A code works once; used again, what it gave goes too.
     const again = await exchange({})
     assert.equal(again.body.error, 'invalid_grant')

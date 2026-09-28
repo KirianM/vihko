@@ -1,6 +1,6 @@
-// thoth.yaml, the person's timezone, templates and the daily note (D-030):
+// vihko.yaml, the person's timezone, templates and the daily note (D-030):
 // «Today» creates the note from its template in its series folder and then
-// only opens it; previous/next in the header; an unknown key in thoth.yaml is
+// only opens it; previous/next in the header; an unknown key in vihko.yaml is
 // ignored with a warning, an invalid file is an alert and the last good one
 // keeps working; two timezones, two dates.
 import { expect, test, type Browser, type Page } from '@playwright/test'
@@ -12,7 +12,7 @@ type Person = { username: string; password: string }
 
 const SHOTS = `${E2E_DIR}/shots`
 const m = specMother(import.meta.url)
-/** A series id (thoth's: ASCII letters, digits, `_` and `-`). */
+/** A series id (vihko's: ASCII letters, digits, `_` and `-`). */
 const seriesId = () => m.anId()
 /** The templates folder, the template, and two series: each person's own, and a team one. */
 const TEMPLATES = m.aFolder()
@@ -53,7 +53,7 @@ test.beforeAll(() => {
 })
 
 // The other tests share the notes folder and the users: everything is left as it was.
-// Notes that were open in an editor go through thoth's trash, so none is left as a pending copy.
+// Notes that were open in an editor go through vihko's trash, so none is left as a pending copy.
 test.afterAll(async ({ browser }) => {
   writeWorkspace()
   const dirs = [TEMPLATES, OWN.folder, TEAM.folder]
@@ -130,7 +130,7 @@ test('«Today» creates the note from the template in the series folder, then on
   await expect.poll(() => readFileSync(`${NOTES}/${path}`, 'utf8')).toContain(again)
   await k.goto('/?note=Plan.md')
   await expect(k.locator('.crumbs b')).toHaveText('Plan')
-  await expect(todayButton(k)).toBeVisible() // thoth.yaml read: the shortcut is live
+  await expect(todayButton(k)).toBeVisible() // vihko.yaml read: the shortcut is live
   await k.keyboard.press('Control+Alt+d')
   await expect(k.locator('.crumbs b')).toHaveText(today)
   await expect.poll(() => editorText(k)).toContain(again)
@@ -199,7 +199,7 @@ test('preferences: series and «open on start», which never creates a note', as
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(dialog).toHaveCount(0)
 
-  // The team series has no note today yet: opening thoth doesn't create it.
+  // The team series has no note today yet: opening vihko doesn't create it.
   await k.goto('/')
   await expect(k.getByRole('treegrid')).toBeVisible()
   await expect(k.getByText('Elige una nota en el árbol.')).toBeVisible()
@@ -209,7 +209,7 @@ test('preferences: series and «open on start», which never creates a note', as
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
   await expect(k.locator('.crumbs-path')).toContainText(TEAM.folder)
   expect(readFileSync(`${NOTES}/${TEAM.folder}/${dateIn(EAST)}.md`, 'utf8')).toMatch(/^---\nuid: \w+\n---\n$/)
-  // Now it exists, so opening thoth opens it; a note in the URL wins.
+  // Now it exists, so opening vihko opens it; a note in the URL wins.
   await k.goto('/')
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
   await k.goto('/?note=Plan.md')
@@ -217,7 +217,7 @@ test('preferences: series and «open on start», which never creates a note', as
   void browser
 })
 
-test('thoth.yaml: an unknown key is ignored with a warning; an invalid file keeps the last good one', async () => {
+test('vihko.yaml: an unknown key is ignored with a warning; an invalid file keeps the last good one', async () => {
   // A misspelt key: left out, and the rest applies.
   writeWorkspace(CONFIG.replace('templates:', 'templtes:'))
   await expect(async () => {
@@ -226,7 +226,7 @@ test('thoth.yaml: an unknown key is ignored with a warning; an invalid file keep
   }).toPass({ timeout: 20_000 })
   const warnings = k.locator('.alert-card', { hasText: 'salvo algunas partes' })
   await expect(warnings).toContainText('Lo que aparece aquí no se aplica')
-  await expect(warnings.getByRole('listitem')).toHaveText('línea 2 · templtes Clave desconocida (¿una errata, o de una versión más nueva de thoth?): se ignora.')
+  await expect(warnings.getByRole('listitem')).toHaveText('línea 2 · templtes Clave desconocida (¿una errata, o de una versión más nueva de vihko?): se ignora.')
   await k.screenshot({ path: `${SHOTS}/config-warnings-light.png` })
   await todayButton(k).click()
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
@@ -238,7 +238,7 @@ test('thoth.yaml: an unknown key is ignored with a warning; an invalid file keep
     await expect(k.locator('.alert-card', { hasText: 'no se puede usar' })).toBeVisible({ timeout: 1000 })
   }).toPass({ timeout: 20_000 })
   const card = k.locator('.alert-card', { hasText: 'no se puede usar' })
-  await expect(card).toContainText('thoth sigue con la última versión válida')
+  await expect(card).toContainText('vihko sigue con la última versión válida')
   await expect(card.getByRole('listitem')).toHaveText(`línea 10 · daily.${TEAM.id}.folder Ruta no válida: relativa a la carpeta de notas, sin «..» ni carpetas ocultas.`)
   await k.screenshot({ path: `${SHOTS}/daily-alert-light.png` })
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()

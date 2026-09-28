@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   PermissionsFileError, RuleSet, grantsAt, levelIn, levelInReach, moveRules, parseWorkspaceConfig, reachingGrants, removeRules, rewriteSubject, setRule,
   type ConfigError, type Level, type PermissionRule,
-} from '@thoth/core'
+} from '@vihko/core'
 import { mother } from '../../../test/mother.ts'
 
 // The people and groups of the rules: the admin who manages the root, a

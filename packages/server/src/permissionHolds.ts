@@ -1,6 +1,6 @@
 // Notes that left a folder with rules of its own through a move made outside
-// thoth (a shell, another editor): fail closed (m4 §1, D-014). The rules of
-// thoth.yaml name folders; a folder renamed from outside leaves its rules at
+// vihko (a shell, another editor): fail closed (m4 §1, D-014). The rules of
+// vihko.yaml name folders; a folder renamed from outside leaves its rules at
 // a path that no longer exists, and what it held would inherit from its new
 // parent, which may be more open. When the indexer pairs such a move (M1's
 // detection: the same `uid`, or the same text), the note is held: nobody
@@ -24,7 +24,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { folderOf, subjectKey, type Alert } from '@thoth/core'
+import { folderOf, subjectKey, type Alert } from '@vihko/core'
 import type { Holds } from './access.ts'
 import { readText } from './fsutil.ts'
 import type { PermissionsEngine } from './permissions.ts'
@@ -86,7 +86,7 @@ export class PermissionHolds implements Holds {
   }
 
   /**
-   * Moves the indexer detected outside thoth: those that took a note out of
+   * Moves the indexer detected outside vihko: those that took a note out of
    * the reach of the rules that governed it, into a folder where other rules
    * apply, hold it. A held note that moves again stays held at its new path.
    */
@@ -119,7 +119,7 @@ export class PermissionHolds implements Holds {
     for (const h of fresh.values()) {
       this.list.push(h)
       changed = true
-      this.opts.log?.(`${h.notes.length} note(s) moved outside thoth out of ${h.folder || 'the root'}, which has permissions of its own: nobody reads them until someone decides (move its permissions${h.to ? ` to ${h.to}` : ''}, or release them)`)
+      this.opts.log?.(`${h.notes.length} note(s) moved outside vihko out of ${h.folder || 'the root'}, which has permissions of its own: nobody reads them until someone decides (move its permissions${h.to ? ` to ${h.to}` : ''}, or release them)`)
     }
     if (changed) { this.reindex(); this.save() }
   }

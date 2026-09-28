@@ -10,12 +10,12 @@
 // same reason it is left out of `dumpIndex`, which compares rebuilds.
 //
 // A thread is known by its id (first comment's author, date and text, and
-// occurrence; see @thoth/core/comments). Moving a note within one batch
-// (thoth's own moves index the old and new path together) keeps its baselines:
+// occurrence; see @vihko/core/comments). Moving a note within one batch
+// (vihko's own moves index the old and new path together) keeps its baselines:
 // rows removed with the old path wait until the end of the batch for a note
 // that has the same thread. A move seen as two batches (another tool renaming
-// while thoth is off) starts over, like a rebuild.
-import { parseThreads } from '@thoth/core'
+// while vihko is off) starts over, like a rebuild.
+import { parseThreads } from '@vihko/core'
 import type { Extension } from '../extension.ts'
 
 interface ThreadAnchor { thread: string; anchor: string }

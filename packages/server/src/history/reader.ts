@@ -9,7 +9,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { Author } from '../actor.ts'
 
 /**
- * An author as a reader gives it: one of thoth's (users by id, their name is
+ * An author as a reader gives it: one of vihko's (users by id, their name is
  * resolved from state.db by the API), or a git author (unmanaged mode).
  */
 export type AuthorRef = Author | { kind: 'git'; name: string; email: string }
@@ -25,7 +25,7 @@ export interface RawVersion {
   authors: AuthorRef[]
   /** Why (code and data, `by` as an author key such as `user <id>`); null for a plain edit. */
   reason: Record<string, unknown> | null
-  /** An external change found when thoth started («with thoth stopped»). */
+  /** An external change found when vihko started («with vihko stopped»). */
   foundAtStartup: boolean
   /** The note's path in this version. */
   path: string

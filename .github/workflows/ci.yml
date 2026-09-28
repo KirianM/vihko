@@ -41,11 +41,11 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Chromium and its libraries
-        run: npx -w @thoth/web playwright install --with-deps chromium
+        run: npx -w @vihko/web playwright install --with-deps chromium
       - name: Browser tests
-        run: npm run e2e -w @thoth/web
+        run: npm run e2e -w @vihko/web
       - name: Browser acceptance (generated 1,000-note vault)
-        run: npm run acceptance:ui -w @thoth/web
+        run: npm run acceptance:ui -w @vihko/web
       - name: Report on failure
         if: failure()
         uses: actions/upload-artifact@v7
@@ -83,15 +83,15 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Build the image
-        run: docker build -t thoth:ci .
+        run: docker build -t vihko:ci .
       - name: Starts and answers the healthcheck
         run: |
-          docker run -d --name thoth -p 8080:8080 thoth:ci
+          docker run -d --name vihko -p 8080:8080 vihko:ci
           for i in $(seq 1 30); do
             curl -fs http://127.0.0.1:8080/api/health && break
             sleep 1
           done
-          docker logs thoth
+          docker logs vihko
           curl -fs http://127.0.0.1:8080/api/health
       - name: Serves the UI
         run: curl -fs http://127.0.0.1:8080/ | grep -q 'id="root"'
@@ -99,4 +99,4 @@ jobs:
       - name: Acceptance with docker compose (startup, search, kill -9)
         run: node --test --test-force-exit packages/server/test/acceptance/docker.acceptance.ts
         env:
-          ACCEPTANCE_IMAGE: thoth:ci
+          ACCEPTANCE_IMAGE: vihko:ci

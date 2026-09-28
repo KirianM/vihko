@@ -186,7 +186,7 @@ export function filterLabel(t: T, a: HistoryAuthor): string {
   return a.name
 }
 
-/** The filter's options: people, agents (all of them too, if there are several), outside thoth, the system and git authors. */
+/** The filter's options: people, agents (all of them too, if there are several), outside vihko, the system and git authors. */
 export function filterOptions(t: T, authors: readonly HistoryAuthor[]): { key: string; label: string }[] {
   const order = { user: 0, agent: 1, external: 3, system: 4, git: 5 } as const
   const seen = new Map<string, HistoryAuthor>()

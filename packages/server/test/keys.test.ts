@@ -3,12 +3,12 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { ApiKeys, Auth, Integrations, LAST_USED_EVERY_MS, ROTATION_GRACE_MS, integrationsLockedFrom, keyIdOf, openState } from '@thoth/server'
+import { ApiKeys, Auth, Integrations, LAST_USED_EVERY_MS, ROTATION_GRACE_MS, integrationsLockedFrom, keyIdOf, openState } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
-/** SQLite's `collate nocase` order, which thoth lists usernames in: ASCII letters folded, then bytes. */
+/** SQLite's `collate nocase` order, which vihko lists usernames in: ASCII letters folded, then bytes. */
 const nocase = (a: string, b: string) => Buffer.compare(Buffer.from(a.replace(/[A-Z]/g, (c) => c.toLowerCase())), Buffer.from(b.replace(/[A-Z]/g, (c) => c.toLowerCase())))
 
 /** Each test's folder, removed at the end. */
@@ -16,7 +16,7 @@ const dirs: string[] = []
 after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }) })
 
 async function setup() {
-  const dir = tempDir('thoth-keys-')
+  const dir = tempDir('vihko-keys-')
   dirs.push(dir)
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
@@ -27,11 +27,11 @@ async function setup() {
   return { state, auth, keys, admin, clock }
 }
 
-test('a key: thoth_<id>_<secret>, shown once; only the sha256 of the secret and its last 4 characters are kept', async () => {
+test('a key: vihko_<id>_<secret>, shown once; only the sha256 of the secret and its last 4 characters are kept', async () => {
   const { state, keys, admin } = await setup()
   const name = m.aKeyName()
   const { key, token } = keys.create(admin, { name })
-  const parts = /^thoth_([0-9A-Z]{26})_([A-Za-z0-9_-]{43})$/.exec(token)
+  const parts = /^vihko_([0-9A-Z]{26})_([A-Za-z0-9_-]{43})$/.exec(token)
   assert.ok(parts, token)
   assert.equal(Buffer.from(parts[2]!, 'base64url').length, 32, '256 bits of secret')
   assert.equal(keyIdOf(token), key.id)
@@ -56,7 +56,7 @@ test('authenticating: the right secret of a live key of an enabled user, and not
   const p = keys.authenticate(token, 'api')
   assert.deepEqual(p, { kind: 'agent', via: 'api', user: { ...admin }, key: { id: key.id, name, canWrite: true, folders: [folder] } })
   const wrong = token.slice(0, -1) + (token.endsWith('A') ? 'B' : 'A')
-  for (const bad of [wrong, '', 'thoth_', token + 'x', token.replace('thoth_', 'toth_'), `thoth_${'0'.repeat(26)}_${token.slice(-43)}`]) {
+  for (const bad of [wrong, '', 'vihko_', token + 'x', token.replace('vihko_', 'toth_'), `vihko_${'0'.repeat(26)}_${token.slice(-43)}`]) {
     assert.equal(keys.authenticate(bad, 'api'), null, bad)
   }
   assert.equal(keys.authenticate(token, 'telnet' as 'api'), null)
@@ -167,7 +167,7 @@ test('the admin sees everyone\'s keys with their user; names stay for the histor
   const a = keys.create(member, { name: botName }).key
   keys.create(admin, { name: adminKey })
   assert.deepEqual(keys.list(member.id).map((k) => k.name), [botName])
-  // By username, as thoth lists them.
+  // By username, as vihko lists them.
   const expected = [[member.username, botName], [admin.username, adminKey]].sort(([x], [y]) => nocase(x!, y!))
   assert.deepEqual(keys.listAll().map((k) => [k.user.username, k.name]), expected)
   keys.revoke(a.id)
@@ -175,7 +175,7 @@ test('the admin sees everyone\'s keys with their user; names stay for the histor
   assert.equal(keys.nameOf(m.faker.string.ulid()), null)
 })
 
-test('integration switches: off by default, members may create keys; THOTH_INTEGRATIONS=off locks the API and MCP off', async () => {
+test('integration switches: off by default, members may create keys; VIHKO_INTEGRATIONS=off locks the API and MCP off', async () => {
   const { state } = await setup()
   const open = new Integrations(state)
   assert.deepEqual(open.view(), { api: false, mcp: false, membersCanCreateKeys: true, oauthRegistration: true, locked: false })

@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
-import { Git, removeCrashLeftovers } from '@thoth/server'
+import { Git, removeCrashLeftovers } from '@vihko/server'
 import { flakyGit, setup, who } from './_history.ts'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -68,7 +68,7 @@ test('what a crash leaves in the repository is removed, and nothing else: locks 
   assert.deepEqual(removeCrashLeftovers(join(h.stateDir, 'no-repository')), [])
 })
 
-test('while a git gc that outlived thoth still runs, its locks are its own: nothing is removed until it ends', async () => {
+test('while a git gc that outlived vihko still runs, its locks are its own: nothing is removed until it ends', async () => {
   const h = await setup()
   await h.close()
   const gitDir = join(h.stateDir, 'history.git')
@@ -90,9 +90,9 @@ test('while a git gc that outlived thoth still runs, its locks are its own: noth
 })
 
 test('stale locks from a kill -9 before startup (main.lock, index.lock, HEAD.lock): the history is available, and what the journal held reaches git once, with its authors', async () => {
-  const dir = tempDir('thoth-git-')
+  const dir = tempDir('vihko-git-')
   const { git, flag } = flakyGit(dir)
-  // Long quiet time: the member's version is still open when thoth stops.
+  // Long quiet time: the member's version is still open when vihko stops.
   const h = await setup({ git, quietMs: 60_000 })
   const [QUEUED, OPEN] = [m.aUniqueWord(), m.aUniqueWord()]
   let total: number

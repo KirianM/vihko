@@ -95,7 +95,7 @@ export function Setup({ onDone }: { onDone: (u: User) => void }) {
   return (
     <Frame>
       <h1>{t('setup.title')}</h1>
-      <p>{t('setup.intro', { cmd: 'docker compose logs thoth' })}</p>
+      <p>{t('setup.intro', { cmd: 'docker compose logs vihko' })}</p>
       <Form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         <TextField className="field" name="token" isRequired defaultValue={tokenFromUrl}>
           <Label>{t('setup.token')}</Label>
@@ -204,7 +204,7 @@ export function Invite({ token, onDone, onLogin }: { token: string; onDone: (u: 
 }
 
 /**
- * `intro`: why signing in is asked for, when it isn't just to open thoth (an
+ * `intro`: why signing in is asked for, when it isn't just to open vihko (an
  * OAuth authorization). After the password, the second factor if it applies
  * (a code, or setting it up if the admin requires it).
  */

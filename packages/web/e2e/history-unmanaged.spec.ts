@@ -1,4 +1,4 @@
-// The history in unmanaged mode (thoth.yaml `history.mode: unmanaged`): the
+// The history in unmanaged mode (vihko.yaml `history.mode: unmanaged`): the
 // notes folder's own git repository, read and never written. A commit shows
 // up with its author, the tab says only what has been committed shows up,
 // and what is typed doesn't become a version. At the end the folder goes
@@ -21,7 +21,7 @@ let k: Page
 test.beforeAll(async ({ browser }) => {
   mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
   writeFileSync(`${NOTES}/${NOTE}`, `# ${m.aHeading()}\n\n${TEXT}\n`)
-  // The folder is a repository with one commit, by someone (a git author, not a thoth user), of this note only.
+  // The folder is a repository with one commit, by someone (a git author, not a vihko user), of this note only.
   const repo = userGit(NOTES, { since: Date.now() - 120_000 })
   repo.run(['add', '--', NOTE])
   repo.commit(m.aSentence(), AUTHOR, { add: false })

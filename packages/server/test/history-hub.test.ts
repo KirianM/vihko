@@ -20,13 +20,13 @@ const [OUTSIDE_1, OUTSIDE_2, MEMBER_TYPED_1, BEFORE_KILL, MID_GIT, FROM_THE_API,
 // What is typed or written is the mother's.
 const NOTE = 'hogar/Proxy.md'
 const q = encodeURIComponent
-const FAST = { THOTH_HISTORY_QUIET_SECONDS: '0.4', THOTH_HISTORY_MAX_SECONDS: '30' }
+const FAST = { VIHKO_HISTORY_QUIET_SECONDS: '0.4', VIHKO_HISTORY_MAX_SECONDS: '30' }
 
 /** A member (new) beside the admin of makeDirs; both edit everything, as before M4 (_permissions.ts). */
 function withMember(env: Record<string, string>, admin: NewUser): NewUser {
   const member = m.aUser({ role: 'member' })
   spawnSync(process.execPath, [CLI, 'user', 'create', member.username], { env: { ...process.env, ...env }, input: member.password })
-  writeFileSync(join(env.THOTH_NOTES_DIR!, 'thoth.yaml'), everyone(admin.username, member.username))
+  writeFileSync(join(env.VIHKO_NOTES_DIR!, 'vihko.yaml'), everyone(admin.username, member.username))
   return member
 }
 
@@ -45,7 +45,7 @@ async function textOf(srv: Srv, cookie: string, path: string, id: string) {
 test('someone who starts writing where another was closes their version first, with the text from before; whoever was writing goes on with them', async () => {
   const { notes, env, admin } = makeDirs()
   const member = withMember(env, admin)
-  const srv = await startServer({ ...env, ...FAST, THOTH_HISTORY_QUIET_SECONDS: '1.5' })
+  const srv = await startServer({ ...env, ...FAST, VIHKO_HISTORY_QUIET_SECONDS: '1.5' })
   try {
     const k = await login(srv)
     const a = await login(srv, member)
@@ -135,7 +135,7 @@ test('an external change to an open note is its own version, after what was type
 test('external changes in a row to an open note are one version; typing in it closes that version first', async () => {
   const { notes, env } = makeDirs()
   // A quiet time long enough for both external saves to fall in one version.
-  const srv = await startServer({ ...env, ...FAST, THOTH_HISTORY_QUIET_SECONDS: '4' })
+  const srv = await startServer({ ...env, ...FAST, VIHKO_HISTORY_QUIET_SECONDS: '4' })
   try {
     const k = await login(srv)
     const ck = await connect(srv, k, NOTE)
@@ -188,21 +188,21 @@ test('a rename rewrites the links of an open note in the same system commit, and
 // The write that sets a crash off may get no answer: under load, the kill can
 // come before its response leaves (what the test checks is what survives).
 // The crash point only fires for a commit touching tags.md, never for one
-// the system makes at startup (THOTH_TEST_CRASH_PATH).
+// the system makes at startup (VIHKO_TEST_CRASH_PATH).
 async function crashAt(point: string, act: (srv: Srv, cookie: string) => Promise<void>, dead?: (stateDir: string) => void) {
   const { notes, env } = makeDirs()
   // First start: the history begins (its own commit), with no crash point.
   let srv = await startServer({ ...env, ...FAST })
   await srv.stop()
-  srv = await startServer({ ...env, ...FAST, THOTH_TEST_CRASH_AT: point, THOTH_TEST_CRASH_PATH: 'tags.md' })
+  srv = await startServer({ ...env, ...FAST, VIHKO_TEST_CRASH_AT: point, VIHKO_TEST_CRASH_PATH: 'tags.md' })
   const cookie = await login(srv)
   await act(srv, cookie)
   await waitFor(() => srv.proc.signalCode !== null || srv.proc.exitCode !== null, `killed at ${point}`, 15_000)
   assert.equal(srv.proc.signalCode, 'SIGKILL')
   closeAll()
-  dead?.(env.THOTH_STATE_DIR)
+  dead?.(env.VIHKO_STATE_DIR)
   srv = await startServer({ ...env, ...FAST })
-  return { srv, cookie: await login(srv), notes, stateDir: env.THOTH_STATE_DIR }
+  return { srv, cookie: await login(srv), notes, stateDir: env.VIHKO_STATE_DIR }
 }
 
 test('kill -9 after a version is journaled and before git has it: the version keeps its author', async () => {
@@ -274,10 +274,10 @@ test('kill -9 while git commits a version, holding its locks: the restart remove
   } finally { closeAll(); await srv.stop() }
 })
 
-test('kill -9 while an external version is open: it comes back as seen while thoth ran, not as found at startup', async () => {
+test('kill -9 while an external version is open: it comes back as seen while vihko ran, not as found at startup', async () => {
   const { srv, cookie } = await crashAt('history-external', async (s) => {
     // Another editor saves; the watcher sees it and the version opens (journaled) before the kill.
-    writeFileSync(join(s.env.THOTH_NOTES_DIR!, 'tags.md'), `${SAVED_OUTSIDE}\n`)
+    writeFileSync(join(s.env.VIHKO_NOTES_DIR!, 'tags.md'), `${SAVED_OUTSIDE}\n`)
   })
   try {
     await waitFor(async () => (await versionsOf(srv, cookie, 'tags.md')).versions.length === 2, 'the external version closes after the restart')

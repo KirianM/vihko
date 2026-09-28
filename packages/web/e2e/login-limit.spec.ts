@@ -18,7 +18,7 @@ let clientId = ''
 
 test.beforeAll(async ({ browser, request }) => {
   mkdirSync(SHOTS, { recursive: true })
-  // The consent page exists while the MCP server is on (the test server has THOTH_PUBLIC_URL).
+  // The consent page exists while the MCP server is on (the test server has VIHKO_PUBLIC_URL).
   const k = await signIn(browser, ADMIN)
   expect((await k.request.put('/api/admin/integrations', { data: { mcp: true, oauthRegistration: true } })).status()).toBe(200)
   await k.context().close()
@@ -67,7 +67,7 @@ test('login: after five failures the wait shows, the button waits with it, and i
 
 test('OAuth consent: signing in there shows the wait too, in minutes (English)', async ({ browser }) => {
   const ctx = await browser.newContext()
-  await ctx.addInitScript(() => localStorage.setItem('thoth.lang', 'en'))
+  await ctx.addInitScript(() => localStorage.setItem('vihko.lang', 'en'))
   const page = await ctx.newPage()
   // A wait longer than a minute, as the server gives after many failures.
   await page.route('**/api/auth/login', (route) => route.fulfill({
@@ -96,7 +96,7 @@ test('the admin’s alert when someone may be guessing passwords', async ({ brow
   const card = k.locator('.alert-card', { hasText: 'intentos de entrar' })
   // The date in the person's timezone (another spec may have changed it): 25, 26 or 27 September.
   await expect(card.getByRole('heading')).toHaveText(new RegExp(`^${attempts} intentos de entrar fallidos o frenados desde el 2[5-7] sept, \\d{2}:\\d{2}$`))
-  await expect(card).toContainText('THOTH_TRUSTED_PROXIES')
+  await expect(card).toContainText('VIHKO_TRUSTED_PROXIES')
   await k.screenshot({ path: `${SHOTS}/avisos-login.png`, fullPage: true, animations: 'disabled' })
   await k.context().close()
 })

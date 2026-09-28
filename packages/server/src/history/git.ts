@@ -3,8 +3,8 @@
 // environment (no system or user configuration, no hooks, no automatic gc),
 // NUL-separated outputs, and a time limit on every call.
 //
-// thoth hands git the contents itself (`fast-import`) instead of letting it
-// walk the notes folder: what is stored is exactly what thoth wrote or read,
+// vihko hands git the contents itself (`fast-import`) instead of letting it
+// walk the notes folder: what is stored is exactly what vihko wrote or read,
 // and git never stats thousands of files on a network filesystem.
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -86,7 +86,7 @@ export class Git {
       'core.hooksPath': '/dev/null',
       'core.quotePath': 'false',
       'gc.auto': '0',
-      // Only this repository, never a wildcard: it is thoth's own, in the state volume.
+      // Only this repository, never a wildcard: it is vihko's own, in the state volume.
       'safe.directory': opts.gitDir,
       'core.fsync': 'committed',
       'core.fsyncMethod': 'fsync',
@@ -257,7 +257,7 @@ export async function fastImport(git: Git, ref: string, parent: string | null, c
         const msg = Buffer.from(c.message, 'utf8')
         await write(stdin, `commit ${ref}\nmark :${i + 1}\n`
           + `author ${ident(c.author.name)} <${ident(c.author.email)}> ${Math.floor(c.authorTime)} +0000\n`
-          + `committer thoth <thoth@thoth.invalid> ${Math.floor(c.committerTime)} +0000\n`
+          + `committer vihko <vihko@vihko.invalid> ${Math.floor(c.committerTime)} +0000\n`
           + `data ${msg.byteLength}\n`)
         await write(stdin, msg)
         await write(stdin, '\n')

@@ -1,4 +1,4 @@
-// Extraction of links, tags and headings on top of thoth's syntax (syntax.ts).
+// Extraction of links, tags and headings on top of vihko's syntax (syntax.ts).
 import { markdownParser } from './syntax.ts'
 import { readFrontmatter } from './frontmatter.ts'
 import { isImageRef } from './images.ts'
@@ -77,7 +77,7 @@ export interface Extracted {
   tags: TagRef[]
   headings: Heading[]
   /**
-   * HTML comments (`<!-- -->`), where thoth keeps the comments between people
+   * HTML comments (`<!-- -->`), where vihko keeps the comments between people
    * and agents. Viewers hide them, so they aren't body text: not searchable, not
    * part of heading texts or backlink contexts. Never inside code.
    */

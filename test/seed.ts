@@ -1,13 +1,13 @@
 // The seed of a test run. Every test process of one run draws its data from
-// the same seed (THOTH_TEST_SEED), so a failure can be reproduced by running
-// again with it: `THOTH_TEST_SEED=<n> npm test`. The entry points (npm test,
+// the same seed (VIHKO_TEST_SEED), so a failure can be reproduced by running
+// again with it: `VIHKO_TEST_SEED=<n> npm test`. The entry points (npm test,
 // the acceptance suite, Playwright and its servers, scripts/ci.ts) choose it
 // once, print it and hand it down in the environment; a test file run on its
 // own chooses one for itself. No imports but Node's: the Playwright
 // configurations and the scripts load it.
 import { randomInt } from 'node:crypto'
 
-export const SEED_VARIABLE = 'THOTH_TEST_SEED'
+export const SEED_VARIABLE = 'VIHKO_TEST_SEED'
 
 /** A seed from the variable's text; throws on anything but a non-negative integer. */
 export function parseSeed(text: string): number {
@@ -16,7 +16,7 @@ export function parseSeed(text: string): number {
 }
 
 /**
- * This run's seed: THOTH_TEST_SEED, or a new one, which is then put in this
+ * This run's seed: VIHKO_TEST_SEED, or a new one, which is then put in this
  * process's environment so that everything it starts gets the same one.
  */
 export function testSeed(): number {

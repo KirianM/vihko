@@ -1,12 +1,12 @@
-# thoth
+# vihko
 
-> Working name. Thoth: scribe, knowledge and writing.
+> *Vihko* is Finnish for "notebook". Say it VIH-koh.
 
 A self-hosted, open source notes system over plain Markdown files, with its own
 web UI, multiple users, live collaboration, and a server-side index you can
 query from the UI and, optionally, from an API, MCP and webhooks.
 
-Your notes stay a folder of `.md` files. If thoth disappears, you lose nothing.
+Your notes stay a folder of `.md` files. If vihko disappears, you lose nothing.
 
 ## The problem it solves
 
@@ -19,7 +19,7 @@ Existing projects all fail at the same point, for the same reason:
   permissions and history, and lose portability and interchangeable editors
   (Trilium, Outline, Docmost).
 
-thoth takes a third path: **files as the source of truth + an index on the
+vihko takes a third path: **files as the source of truth + an index on the
 server**, giving up full offline mode.
 
 ## What it is and isn't
@@ -37,13 +37,13 @@ server**, giving up full offline mode.
 ```sh
 mkdir -p notes state        # the two volumes, owned by you (Docker would create them as root)
 docker compose up -d        # with the example compose.yaml (adjust the volumes)
-docker compose logs thoth   # the first start prints a one-time token to create the admin
+docker compose logs vihko   # the first start prints a one-time token to create the admin
 # or create the admin from the command line:
-docker compose exec -T thoth thoth user create <name> --admin <<< 'password'
+docker compose exec -T vihko vihko user create <name> --admin <<< 'password'
 ```
 
 The UI is at `http://<server>:8080`. If that port is taken,
-`THOTH_HOST_PORT=8098 docker compose up -d`.
+`VIHKO_HOST_PORT=8098 docker compose up -d`.
 
 ### Volumes
 
@@ -68,33 +68,33 @@ All optional:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `THOTH_NOTES_DIR` | `/data/notes` | Notes folder |
-| `THOTH_STATE_DIR` | `/data/state` | Local state |
-| `THOTH_HOST` / `THOTH_PORT` | `0.0.0.0` / `8080` | Where it listens |
-| `THOTH_RESCAN_SECONDS` | `60` | Full rescan interval |
-| `THOTH_WEB_DIR` | `packages/web/dist` | Built UI; without it the server only exposes the API |
-| `THOTH_MAX_IMAGE_MB` | `20` | Largest image stored from an upload, a paste or a URL |
-| `THOTH_EXTERNAL_IMAGES` | `allow` | `block` stops the browser loading images that notes link from other sites; a box with the domain is shown instead |
-| `THOTH_INTEGRATIONS` | unset | `off` keeps the API with keys and the MCP server off whatever the admin turns on in the UI |
-| `THOTH_PUBLIC_URL` | unset | The `https://` address thoth is reached at from outside, behind a reverse proxy (origin only). Turns on OAuth for the MCP server while it's on, for remote assistants such as claude.ai; see [Remote MCP](#remote-mcp-with-a-public-url-oauth) |
-| `THOTH_TRUSTED_PROXIES` | unset | Addresses or CIDR ranges of your reverse proxies (`172.16.0.0/12, 10.0.0.5`). Only from them is `X-Forwarded-For` believed, to tell clients apart for the [login limits](#login-limits); unset, the connection's address counts and the header is ignored |
-| `THOTH_SECRET_KEY` / `THOTH_SECRET_KEY_FILE` | unset | A key (32 characters or more) that encrypts the second factor's secrets in `state.db`, or the file that holds it (a Docker secret). See [The second factor's key](#the-second-factors-key) |
+| `VIHKO_NOTES_DIR` | `/data/notes` | Notes folder |
+| `VIHKO_STATE_DIR` | `/data/state` | Local state |
+| `VIHKO_HOST` / `VIHKO_PORT` | `0.0.0.0` / `8080` | Where it listens |
+| `VIHKO_RESCAN_SECONDS` | `60` | Full rescan interval |
+| `VIHKO_WEB_DIR` | `packages/web/dist` | Built UI; without it the server only exposes the API |
+| `VIHKO_MAX_IMAGE_MB` | `20` | Largest image stored from an upload, a paste or a URL |
+| `VIHKO_EXTERNAL_IMAGES` | `allow` | `block` stops the browser loading images that notes link from other sites; a box with the domain is shown instead |
+| `VIHKO_INTEGRATIONS` | unset | `off` keeps the API with keys and the MCP server off whatever the admin turns on in the UI |
+| `VIHKO_PUBLIC_URL` | unset | The `https://` address vihko is reached at from outside, behind a reverse proxy (origin only). Turns on OAuth for the MCP server while it's on, for remote assistants such as claude.ai; see [Remote MCP](#remote-mcp-with-a-public-url-oauth) |
+| `VIHKO_TRUSTED_PROXIES` | unset | Addresses or CIDR ranges of your reverse proxies (`172.16.0.0/12, 10.0.0.5`). Only from them is `X-Forwarded-For` believed, to tell clients apart for the [login limits](#login-limits); unset, the connection's address counts and the header is ignored |
+| `VIHKO_SECRET_KEY` / `VIHKO_SECRET_KEY_FILE` | unset | A key (32 characters or more) that encrypts the second factor's secrets in `state.db`, or the file that holds it (a Docker secret). See [The second factor's key](#the-second-factors-key) |
 
 ### Command line
 
-The image's `thoth` command, run inside the container (`docker compose exec
-thoth thoth …` while it runs, `docker compose run --rm thoth thoth …` while
+The image's `vihko` command, run inside the container (`docker compose exec
+vihko vihko …` while it runs, `docker compose run --rm vihko vihko …` while
 it's stopped):
 
 | Command | What it does |
 |---|---|
-| `thoth serve` | Starts the server (what the container runs) |
-| `thoth user create <name> [--admin]` | Creates a user; the password is read from standard input |
-| `thoth user reset-link <name>` | Prints a one-time link (7 days) for that user to choose a new password: the way back for an admin who lost theirs. Any earlier link of theirs stops working. A second factor they have is still asked for after it |
-| `thoth user reset-2fa <name>` | Takes away that user's second factor (TOTP and recovery codes). With `reset-link`, the way back for an admin who lost both password and phone; also for whoever's second factor can't be read after `THOTH_SECRET_KEY` was lost or changed |
-| `thoth history purge <path> [--version <id>] [--dry-run]` | Rewrites the managed history without a file or folder, or without one version of a file |
+| `vihko serve` | Starts the server (what the container runs) |
+| `vihko user create <name> [--admin]` | Creates a user; the password is read from standard input |
+| `vihko user reset-link <name>` | Prints a one-time link (7 days) for that user to choose a new password: the way back for an admin who lost theirs. Any earlier link of theirs stops working. A second factor they have is still asked for after it |
+| `vihko user reset-2fa <name>` | Takes away that user's second factor (TOTP and recovery codes). With `reset-link`, the way back for an admin who lost both password and phone; also for whoever's second factor can't be read after `VIHKO_SECRET_KEY` was lost or changed |
+| `vihko history purge <path> [--version <id>] [--dry-run]` | Rewrites the managed history without a file or folder, or without one version of a file |
 
-**`thoth history purge`** is for something that should never have been kept,
+**`vihko history purge`** is for something that should never have been kept,
 such as a secret pasted into a note by mistake:
 
 - `<path>` is a file or a folder, relative to the notes folder: it goes from
@@ -103,10 +103,10 @@ such as a secret pasted into a note by mistake:
   file has in that version goes: wherever the file held it, it holds what it
   had right before. `--dry-run` lists the commits and files it would change,
   and changes nothing.
-- thoth must be stopped: the server and the command take the same lock in the
-  state volume (`thoth.lock`), which is released however a process ends, so
-  it refuses while thoth runs (and a second server refuses to start on the
-  same state volume). `--dry-run` only reads, and works with thoth running.
+- vihko must be stopped: the server and the command take the same lock in the
+  state volume (`vihko.lock`), which is released however a process ends, so
+  it refuses while vihko runs (and a second server refuses to start on the
+  same state volume). `--dry-run` only reads, and works with vihko running.
 - Only the managed history: in unmanaged mode the repository is yours and it
   refuses. Everything else keeps its authors, dates and moves; a commit left
   with no change is dropped, and the versions after the first rewritten one
@@ -122,7 +122,7 @@ such as a secret pasted into a note by mistake:
 
 No reverse proxy is required: it works over plain HTTP on a LAN. HTTPS and
 public exposure only matter if you enable remote MCP for external clients, or
-to install thoth as an app: browsers only offer to install a web app served
+to install vihko as an app: browsers only offer to install a web app served
 over HTTPS (or from `localhost`). Over plain HTTP the UI works the same in the
 browser, including on a phone, and a home-screen shortcut opens it in a
 browser tab. There is no offline mode either way.
@@ -134,9 +134,9 @@ made in Settings → Agents and API (it shows ready-made configurations for
 Claude Code, Claude Desktop and others). A remote assistant such as
 claude.ai (web, desktop or mobile) is different: it connects from its own
 servers, not from your computer, and signs in with OAuth instead of a key.
-For that, thoth needs a public HTTPS address:
+For that, vihko needs a public HTTPS address:
 
-1. **Put thoth behind a reverse proxy with HTTPS**, on a name the internet can
+1. **Put vihko behind a reverse proxy with HTTPS**, on a name the internet can
    reach. The whole application goes through it: the authorization page is
    the UI, with its login. With [Caddy](https://caddyserver.com), which gets
    the certificate and passes WebSockets and `X-Forwarded-Proto` on its own:
@@ -148,24 +148,24 @@ For that, thoth needs a public HTTPS address:
    ```
 
    With another proxy: keep the `Host` header, set `X-Forwarded-Proto: https`
-   (thoth marks its session cookie `Secure` from it), allow WebSocket upgrades
+   (vihko marks its session cookie `Secure` from it), allow WebSocket upgrades
    (`/collab`, the live editor) and keep request timeouts above 60 seconds
    (`/mcp` may wait up to 30 seconds for a change). Declare the proxy's
-   address in `THOTH_TRUSTED_PROXIES` (as thoth sees it: `127.0.0.1` on the
+   address in `VIHKO_TRUSTED_PROXIES` (as vihko sees it: `127.0.0.1` on the
    same host, the Docker network's range such as `172.16.0.0/12` in a
    container), so the [login limits](#login-limits) count each client apart
    and not everyone as the proxy.
-2. **Give thoth that address**: `THOTH_PUBLIC_URL=https://notes.example.com`
+2. **Give vihko that address**: `VIHKO_PUBLIC_URL=https://notes.example.com`
    (the origin only, `https`), and restart it. In `compose.yaml`, under
    `environment:`.
-3. **Turn on the MCP server**, as the thoth admin, in Settings → Agents and
-   API. OAuth only exists while both hold: without `THOTH_PUBLIC_URL`, or with
-   the MCP server off (or `THOTH_INTEGRATIONS=off`), every OAuth address
+3. **Turn on the MCP server**, as the vihko admin, in Settings → Agents and
+   API. OAuth only exists while both hold: without `VIHKO_PUBLIC_URL`, or with
+   the MCP server off (or `VIHKO_INTEGRATIONS=off`), every OAuth address
    answers 404 and `/mcp` takes keys only.
 4. **Add it to claude.ai** as a custom connector (Settings → Connectors → Add
    custom connector) with the URL `https://notes.example.com/mcp`. Claude
    introduces itself (it registers, or names itself by the address of its
-   description) and sends you to thoth: sign in, check who asks (the app's
+   description) and sends you to vihko: sign in, check who asks (the app's
    domain, when it has one) and what it may do (read-only and every folder
    unless you choose otherwise), and authorize it. Other clients that speak
    MCP with OAuth, such as `mcp-remote`, work the same way.
@@ -181,13 +181,13 @@ passwords): the OAuth metadata (`/.well-known/oauth-*`), client registration
 gives access to any note without a person approving it. Registration is open
 by default, as claude.ai needs it, and limited to 5 clients an hour from each
 address (then `429` with `Retry-After`; with a proxy, see
-`THOTH_TRUSTED_PROXIES` above); once your clients are connected, the thoth
+`VIHKO_TRUSTED_PROXIES` above); once your clients are connected, the vihko
 admin can turn it off in Agents and API, and those clients keep working.
 
 An app can also name itself by an `https` address that describes it (a
 *Client ID Metadata Document*, which the MCP authorization specification of
-2026-07-28 prefers to registration). Then thoth fetches that address, and
-it's the only request thoth ever makes on its own: only when someone signed
+2026-07-28 prefers to registration). Then vihko fetches that address, and
+it's the only request vihko ever makes on its own: only when someone signed
 in starts authorizing that app, only over `https` on port 443, never to an
 address that isn't public (private, loopback, link-local and the like,
 checked after resolving the name, and the connection goes to the address
@@ -214,11 +214,11 @@ browser that has signed in before, only its own failures count, so nobody can
 lock you out by failing with your name. From a new browser, while someone keeps
 guessing your name, you wait the username's part: a minute at most. A counter
 is forgotten an hour after its last failure. With many failures in the past
-day, the thoth admin gets an alert.
+day, the vihko admin gets an alert.
 
-The counters live in memory: restarting thoth forgets them (and browsers sign
+The counters live in memory: restarting vihko forgets them (and browsers sign
 in as new ones once). Their number is capped, so made-up usernames can't fill
-the memory. Behind a reverse proxy, set `THOTH_TRUSTED_PROXIES`, or every
+the memory. Behind a reverse proxy, set `VIHKO_TRUSTED_PROXIES`, or every
 client counts as the proxy's address.
 
 Codes of the second factor (a TOTP code or a recovery code, at sign-in or when
@@ -228,37 +228,37 @@ fresh guesses at the code.
 
 ### The second factor's key
 
-To check someone's second-factor codes, thoth has to keep the secret their
+To check someone's second-factor codes, vihko has to keep the secret their
 authenticator app was given, in `state.db`. Without a key it's kept as it is:
 anyone with a copy of `state.db` (a backup) could compute that person's codes.
-With `THOTH_SECRET_KEY`, the secrets are stored encrypted (AES-256-GCM, with a
+With `VIHKO_SECRET_KEY`, the secrets are stored encrypted (AES-256-GCM, with a
 key derived from yours), and a copy of `state.db` alone is not enough.
 
 ```sh
 openssl rand -base64 32   # a key; keep it apart from the backups of the state volume
 ```
 
-- Give it as `THOTH_SECRET_KEY`, or in a file named by `THOTH_SECRET_KEY_FILE`
+- Give it as `VIHKO_SECRET_KEY`, or in a file named by `VIHKO_SECRET_KEY_FILE`
   (a Docker secret: `/run/secrets/…`), not both. A key shorter than 32
-  characters, or a file that can't be read, stops thoth from starting.
-- thoth never writes the key to disk or to its log, and takes it out of its
+  characters, or a file that can't be read, stops vihko from starting.
+- vihko never writes the key to disk or to its log, and takes it out of its
   environment once read.
 - Setting it on an installation that already has second factors: they are
-  encrypted when thoth starts (the log says how many). Without it, they're
+  encrypted when vihko starts (the log says how many). Without it, they're
   stored as before; both kinds can coexist.
 - **If the key is lost or changed**, the secrets encrypted with the old one
-  can't be read. thoth still starts, and tells the admin in «Alerts» whose
+  can't be read. vihko still starts, and tells the admin in «Alerts» whose
   second factor can't be checked. Those people can still sign in with a
-  recovery code; otherwise `thoth user reset-2fa <name>` (or the admin, in
+  recovery code; otherwise `vihko user reset-2fa <name>` (or the admin, in
   «Users and groups») takes theirs away so they set it up again. Putting the
   old key back makes them readable again.
 
-## Workspace configuration: `thoth.yaml`
+## Workspace configuration: `vihko.yaml`
 
 Settings that belong to the notes rather than to the installation live in
-`thoth.yaml`, at the root of the notes folder, so they travel and are
+`vihko.yaml`, at the root of the notes folder, so they travel and are
 versioned with the notes. It is optional: without it nothing is turned on.
-thoth reads it at start, when it changes, and on every rescan; the only part
+vihko reads it at start, when it changes, and on every rescan; the only part
 it writes is `permissions`, from the permissions dialog. It doesn't show up
 as a note, and it's served to nobody (it holds the permissions).
 
@@ -332,18 +332,18 @@ permissions:                # who reads what, per folder; without it, every admi
   within one name, `**` for any number of folders. A pattern covers what is
   under it, so `Library`, `Library/` and `Library/**` all exclude that folder;
   `*.pdf` only matches at the root, `**/*.pdf` everywhere. Excluded files
-  aren't hidden from thoth, only their changes aren't saved as versions, and
+  aren't hidden from vihko, only their changes aren't saved as versions, and
   the note's history tab says so. Changing the list applies at once; what
-  the history already holds stays (`thoth history purge` removes it). A note
+  the history already holds stays (`vihko history purge` removes it). A note
   moved into an excluded folder leaves the history; moved out, it enters.
 - **Versions and unknown keys:** `version` (1 if missing) says which format
-  the file follows. A key thoth doesn't know (a typo, or a setting from a
-  newer thoth) is ignored and listed in a workspace alert with its line; the
-  rest of the file applies. A `version` newer than thoth's gets the same
+  the file follows. A key vihko doesn't know (a typo, or a setting from a
+  newer vihko) is ignored and listed in a workspace alert with its line; the
+  rest of the file applies. A `version` newer than vihko's gets the same
   treatment: what it understands applies, and the alert says so.
-- **Errors** don't stop thoth: a file that isn't valid YAML, or a known key
+- **Errors** don't stop vihko: a file that isn't valid YAML, or a known key
   with a wrong value (a path outside the notes folder, a bad series pattern),
-  shows up as a workspace alert with the reason and line, and thoth keeps
+  shows up as a workspace alert with the reason and line, and vihko keeps
   using the last valid version it read.
 - **Permissions** (`permissions`) are per folder: each key is a folder
   (`""` the root, and a `{user}` segment makes a rule hold for each user),
@@ -357,12 +357,12 @@ permissions:                # who reads what, per folder; without it, every admi
   from above gets into one. Nobody reads what isn't granted or managed from
   above, the admin included: an admin who manages the root reads everything
   but other people's personal folders, unless they're shared with them.
-  Without the section, every admin manages the root. thoth writes this
+  Without the section, every admin manages the root. vihko writes this
   section itself from the permissions dialog (only the entries that change;
   the rest of the file stays as it was) and moves a folder's rules when the
-  folder moves from thoth.
+  folder moves from vihko.
 - **Security sections are strict.** Anything doubtful in `permissions` (an
-  unknown key included) rejects that section alone: if thoth starts that
+  unknown key included) rejects that section alone: if vihko starts that
   way, nobody reads any note until it's fixed; if it happens while running,
   the last valid permissions stay. Grants to users or groups that don't
   exist are ignored with a warning, so deleting someone never invalidates

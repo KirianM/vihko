@@ -32,7 +32,7 @@ const MIGRATIONS: string[] = [
      daily_series text,
      open_daily   integer not null default 0
    );`,
-  // Installation settings set from the UI by the thoth admin (the integration
+  // Installation settings set from the UI by the vihko admin (the integration
   // switches, D-035.1): no row = the default. And agent keys (D-035.2): only
   // the sha256 of the secret and its last 4 characters; `folders` is a JSON
   // list (empty = every folder the user sees).
@@ -167,7 +167,7 @@ export function openState(file: string): Db {
   const current = db.pragma('user_version', { simple: true }) as number
   if (current > MIGRATIONS.length) {
     db.close()
-    throw new Error(`state.db is at version ${current}, newer than this install (${MIGRATIONS.length}). Did you roll back to an older version of thoth?`)
+    throw new Error(`state.db is at version ${current}, newer than this install (${MIGRATIONS.length}). Did you roll back to an older version of vihko?`)
   }
   if (current < MIGRATIONS.length) {
     if (existed && current > 0) {

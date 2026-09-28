@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { api, closeAll, login } from '../_collab.ts'
-import { Indexer, dumpIndex, openIndex } from '@thoth/server'
+import { Indexer, dumpIndex, openIndex } from '@vihko/server'
 import { PASSWORD, ROUNDS, USER, cleanup, metric, startServer, workspace, type Server } from './_harness.ts'
 import { AGENT_MARK, historyAfterKills, killRound } from './_crash.ts'
 
@@ -14,7 +14,7 @@ test(`kill -9 while two people type and an agent edits: ${ROUNDS} rounds`, { tim
   const ws = workspace('crash')
   const [hot, cold] = ws.vault.editable as [string, string]
   // Versions that close after 1 s without changes: more commits for a kill to land in, and the history checked without waiting.
-  const env = { ...ws.env, THOTH_HISTORY_QUIET_SECONDS: '1' }
+  const env = { ...ws.env, VIHKO_HISTORY_QUIET_SECONDS: '1' }
   let srv: Server = await startServer(env)
   const failures: string[] = []
   try {

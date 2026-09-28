@@ -26,7 +26,7 @@
 // One that passes then is flaky: the job passes, and the summary, the job's
 // line and the posted status say which, so it's never silent.
 //
-// Each run has its own folder (THOTH_CI_DIR, /var/tmp/thoth-ci by default:
+// Each run has its own folder (VIHKO_CI_DIR, /var/tmp/vihko-ci by default:
 // local disk, never NFS nor a tmpfs /tmp) with a git worktree, TMPDIR, test
 // data and logs; free ports of its own; and containers and an image named after
 // it. Whatever happens (a failure, a timeout, Ctrl-C), it stops its processes,
@@ -35,7 +35,7 @@
 // A run killed outright (kill -9) is cleaned up by the next one.
 //
 // The tests draw their data (people, passwords, notes…) from one seed per
-// run (test/seed.ts): THOTH_TEST_SEED, or a new one. Every job gets the same,
+// run (test/seed.ts): VIHKO_TEST_SEED, or a new one. Every job gets the same,
 // the Playwright container included; the run prints it, and the summary and
 // a failure give it with the command that runs again with the same data.
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
@@ -68,7 +68,7 @@ A failed run prints the command that runs again only what failed. Browser tests
 that fail run once more; one that passes then is reported as flaky.`
 
 const REPO = dirname(fileURLToPath(new URL('.', import.meta.url)))
-const BASE = process.env.THOTH_CI_DIR ?? '/var/tmp/thoth-ci'
+const BASE = process.env.VIHKO_CI_DIR ?? '/var/tmp/vihko-ci'
 /** Logs of finished runs are kept this long. */
 const LOG_DAYS = 7
 
@@ -109,7 +109,7 @@ const CONTEXT = partial ? 'ci/local-partial' : 'ci/local'
  * than a slower one.
  */
 const parallel = opt.parallel === true && jobs.length > 1
-/** The test data's seed, for every job (the environment of each is built without THOTH_ variables, so it's put back there). */
+/** The test data's seed, for every job (the environment of each is built without VIHKO_ variables, so it's put back there). */
 const SEED = testSeed()
 
 function usage(message: string): never {
@@ -125,8 +125,8 @@ const ID = `${stamp}-${opt.pr ? `pr${opt.pr}` : opt.ref ? 'ref' : 'head'}-${rand
 const RUN = join(BASE, ID)
 const TREE = join(RUN, 'repo')
 const LOGS = join(RUN, 'logs')
-const IMAGE = `thoth-ci:${ID}`
-const LABEL = `thoth-ci=${ID}`
+const IMAGE = `vihko-ci:${ID}`
+const LABEL = `vihko-ci=${ID}`
 /** Git refuses a work tree whose repository belongs to another user (NFS maps it to nobody): this one is ours. */
 const SAFE = ['-c', `safe.directory=${TREE}`]
 
@@ -216,7 +216,7 @@ async function main(): Promise<number> {
     docker: { DOCKER_PORT: docker! },
     e2e: { E2E_PORT: e2e!, E2E_LOCKED_PORT: locked!, E2E_EXTERNAL_PORT: external!, ACC_PORT: acc! },
   }
-  say(`thoth CI · ${ID}`)
+  say(`vihko CI · ${ID}`)
   say(`  folder  ${RUN}`)
   say(`  jobs    ${jobs.join(', ')} (${parallel ? 'in parallel' : 'one after another'})`)
   if (opt.grep !== undefined) say(`  grep    ${opt.grep} (only the tests it matches)`)
@@ -302,9 +302,9 @@ async function resolve(c: Ctx, notes: string[]): Promise<Target> {
   const pr = JSON.parse(must(capture('gh', ['pr', 'view', opt.pr, '--json', 'number,title,headRefOid,baseRefName,state']), `gh pr view ${opt.pr}`)) as
     { number: number; title: string; headRefOid: string; baseRefName: string; state: string }
   if (pr.state !== 'OPEN') notes.push(`note: #${pr.number} is ${pr.state.toLowerCase()}`)
-  await run(c, 'git', [...SAFE, 'fetch', '--no-tags', 'origin', `+refs/pull/${pr.number}/head:refs/thoth-ci/${ID}`, `+refs/heads/${pr.baseRefName}:refs/remotes/origin/${pr.baseRefName}`],
+  await run(c, 'git', [...SAFE, 'fetch', '--no-tags', 'origin', `+refs/pull/${pr.number}/head:refs/vihko-ci/${ID}`, `+refs/heads/${pr.baseRefName}:refs/remotes/origin/${pr.baseRefName}`],
     { cwd: REPO, limitMs: 5 * 60_000, label: 'git fetch' })
-  const head = must(git(['rev-parse', `refs/thoth-ci/${ID}`]), 'git rev-parse')
+  const head = must(git(['rev-parse', `refs/vihko-ci/${ID}`]), 'git rev-parse')
   if (head !== pr.headRefOid) notes.push(`note: #${pr.number} moved while the run started; it tested ${head.slice(0, 7)}`)
   const base = must(git(['rev-parse', `refs/remotes/origin/${pr.baseRefName}`]), 'git rev-parse')
   return {
@@ -320,7 +320,7 @@ async function checkout(c: Ctx, t: Target) {
   await run(c, 'git', [...SAFE, 'worktree', 'add', '--detach', TREE, m ? m.base : t.sha], { cwd: REPO, label: 'git worktree add' })
   if (!m) return
   try {
-    await run(c, 'git', [...SAFE, '-c', 'user.name=thoth CI', '-c', 'user.email=ci@localhost', 'merge', '--no-ff', '--no-edit', '-m', `Merge #${m.number} into ${m.baseName}`, t.sha],
+    await run(c, 'git', [...SAFE, '-c', 'user.name=vihko CI', '-c', 'user.email=ci@localhost', 'merge', '--no-ff', '--no-edit', '-m', `Merge #${m.number} into ${m.baseName}`, t.sha],
       { cwd: TREE, label: 'git merge' })
   } catch (err) {
     if (abort.signal.aborted) throw err
@@ -345,7 +345,7 @@ const JOB: Record<Job, (c: Ctx) => Promise<void>> = {
 
   async docker(c) {
     await run(c, 'docker', ['build', '--pull', '--progress=plain', '--label', LABEL, '-t', IMAGE, '.'])
-    const name = `thoth-ci-${ID}`
+    const name = `vihko-ci-${ID}`
     const base = `http://127.0.0.1:${c.env.DOCKER_PORT}`
     // Its own HEALTHCHECK, every 2 s instead of 30 so it answers soon.
     await run(c, 'docker', ['run', '-d', '--name', name, '--label', LABEL, '-p', `127.0.0.1:${c.env.DOCKER_PORT}:8080`, '--health-interval', '2s', IMAGE], { limitMs: 60_000 })
@@ -399,14 +399,14 @@ async function withServer(c: Ctx, args: string[], env: Record<string, string>, u
   }
 }
 
-/** `npm run <script> -w @thoth/web` in the Playwright image of the installed @playwright/test (with --grep, only its tests). */
+/** `npm run <script> -w @vihko/web` in the Playwright image of the installed @playwright/test (with --grep, only its tests). */
 function playwright(c: Ctx, env: Record<string, string>, script: string) {
   const version = (JSON.parse(readFileSync(join(TREE, 'node_modules/@playwright/test/package.json'), 'utf8')) as { version: string }).version
   const image = `mcr.microsoft.com/playwright:v${version}-noble`
   const vars = Object.entries({ HOME: '/tmp', CI: 'true', NPM_CONFIG_UPDATE_NOTIFIER: 'false', [SEED_VARIABLE]: String(SEED), ...env }).flatMap(([k, v]) => ['-e', `${k}=${v}`])
   const grep = opt.grep === undefined ? [] : ['--', '--grep', opt.grep]
   return run(c, 'docker', [
-    'run', '--rm', '--init', '--name', `thoth-ci-${ID}-${script.replace(/\W/g, '-')}`, '--label', LABEL,
+    'run', '--rm', '--init', '--name', `vihko-ci-${ID}-${script.replace(/\W/g, '-')}`, '--label', LABEL,
     '--network', 'host', '--user', `${process.getuid!()}:${process.getgid!()}`, ...vars,
     '-v', `${RUN}:${RUN}`, '-w', join(TREE, 'packages/web'), image, 'npm', 'run', script, ...grep,
   ], { label: `npm run ${script} (${basename(image)})` })
@@ -490,7 +490,7 @@ const line = (r: Result) => `  ${r.stage.padEnd(11)}${r.status.padEnd(10)}${r.st
  */
 function environment(stage: Stage, ports: Record<string, number>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
-  for (const [k, v] of Object.entries(process.env)) if (!/^(npm_|E2E_|ACC_|ACCEPTANCE_|THOTH_|INIT_CWD$)/.test(k)) env[k] = v
+  for (const [k, v] of Object.entries(process.env)) if (!/^(npm_|E2E_|ACC_|ACCEPTANCE_|VIHKO_|INIT_CWD$)/.test(k)) env[k] = v
   const tmp = join(RUN, 'tmp', stage)
   mkdirSync(tmp, { recursive: true })
   const own: Record<string, string> = { PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ''}`, TMPDIR: tmp, TMP: tmp, TEMP: tmp, CI: 'true', [SEED_VARIABLE]: String(SEED) }
@@ -690,7 +690,7 @@ async function cleanup(id: string, dir: string, keep: boolean): Promise<string[]
   const stopped = await sweep(dir)
   if (stopped) done.push(`${stopped} processes stopped`)
 
-  const containers = new Set(capture('docker', ['ps', '-aq', '--filter', `label=thoth-ci=${id}`]).out.split('\n').filter(Boolean))
+  const containers = new Set(capture('docker', ['ps', '-aq', '--filter', `label=vihko-ci=${id}`]).out.split('\n').filter(Boolean))
   const projects = new Set<string>()
   const compose = capture('docker', ['ps', '-a', '--filter', 'label=com.docker.compose.project', '--format', '{{.ID}}\t{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.project.working_dir"}}'])
   for (const row of compose.out.split('\n')) {
@@ -708,12 +708,12 @@ async function cleanup(id: string, dir: string, keep: boolean): Promise<string[]
     const networks = capture('docker', ['network', 'ls', '-q', '--filter', `label=com.docker.compose.project=${project}`]).out.split('\n').filter(Boolean)
     if (networks.length) capture('docker', ['network', 'rm', ...networks])
   }
-  if (capture('docker', ['image', 'inspect', `thoth-ci:${id}`]).ok) {
-    capture('docker', ['image', 'rm', '-f', `thoth-ci:${id}`])
+  if (capture('docker', ['image', 'inspect', `vihko-ci:${id}`]).ok) {
+    capture('docker', ['image', 'rm', '-f', `vihko-ci:${id}`])
     done.push('image removed')
   }
 
-  const ref = `refs/thoth-ci/${id}`
+  const ref = `refs/vihko-ci/${id}`
   if (capture('git', ['show-ref', '--verify', '--quiet', ref]).ok) capture('git', ['update-ref', '-d', ref])
   if (keep) return done
 

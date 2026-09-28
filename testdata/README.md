@@ -12,11 +12,11 @@ with an editor that normalises them.
 
 | From | Link | Expected |
 |---|---|---|
-| `proyectos/thoth/notas.md` | `[[Plan]]`, `[[plan]]`, `[[Plan\|el plan]]` | `proyectos/thoth/Plan.md` (same folder; case-insensitive) |
-| `proyectos/thoth/notas.md` | `![[Plan]]` | Same: the embed is indexed as a link (rendering it is out of scope) |
-| `proyectos/thoth/notas.md` | `[[notas]]` | Resolves to itself |
+| `proyectos/vihko/notas.md` | `[[Plan]]`, `[[plan]]`, `[[Plan\|el plan]]` | `proyectos/vihko/Plan.md` (same folder; case-insensitive) |
+| `proyectos/vihko/notas.md` | `![[Plan]]` | Same: the embed is indexed as a link (rendering it is out of scope) |
+| `proyectos/vihko/notas.md` | `[[notas]]` | Resolves to itself |
 | `diario/2026-09-24.md` | `[[Plan]]` | `Plan.md`: all three candidates share the root, and the root one is 0 levels below it versus 2 |
-| `diario/2026-09-24.md` | `[[Tareas]]` | **Ambiguous** with two candidates at the same distance: `proyectos/thoth/Tareas.md` and `proyectos/blog/Tareas.md` |
+| `diario/2026-09-24.md` | `[[Tareas]]` | **Ambiguous** with two candidates at the same distance: `proyectos/vihko/Tareas.md` and `proyectos/blog/Tareas.md` |
 | `diario/2026-09-24.md` | `[[proyectos/blog/Plan]]`, `[[blog/Plan]]` | `proyectos/blog/Plan.md` (path and path suffix) |
 | `recetas/índice.md` | `[[Café]]`, `[[CAFÉ]]` | `recetas/Café.md`, whose name is NFD |
 | `recetas/índice.md` | `[[Notas de reunión (2026)]]` | `recetas/Notas de reunión (2026).md` |
@@ -25,7 +25,7 @@ with an editor that normalises them.
 | `hogar/enlaces.md` | `[[Proxy#Red]]` | Resolved, existing anchor |
 | `hogar/enlaces.md` | `[[Proxy#No existe]]` | Resolved with a **broken anchor** |
 | `hogar/enlaces.md` | `[[Nota que no existe]]` | **Broken**; the literal text is kept |
-| `hogar/enlaces.md` | `[…](Proxy.md)`, `[…](../proyectos/thoth/Plan.md)` | Resolved (relative Markdown links) |
+| `hogar/enlaces.md` | `[…](Proxy.md)`, `[…](../proyectos/vihko/Plan.md)` | Resolved (relative Markdown links) |
 | `hogar/enlaces.md` | `[roto](no-existe.md)` | Broken |
 | `hogar/enlaces.md` | `[externo](https://example.com/#ancla)` | External link: neither a note link nor a tag |
 | `codigo.md` | Everything in inline code, fenced or indented blocks | Neither links nor tags. Outside code, `[[Plan]]` resolves to `Plan.md` (same folder) and `#hogar` is a tag |
@@ -44,7 +44,7 @@ with an editor that normalises them.
 | File | Expected |
 |---|---|
 | `frontmatter/exotico.md` | Comments, flow list, quotes, multi-line text, YAML anchors and unknown keys. Adding `uid` with a textual patch leaves **every other byte intact** |
-| `frontmatter/invalido.md` | `frontmatter_error`. Indexed as body, treated as the most restricted note, and thoth **never** writes to it |
+| `frontmatter/invalido.md` | `frontmatter_error`. Indexed as body, treated as the most restricted note, and vihko **never** writes to it |
 | `frontmatter/sin-frontmatter.md` | Valid note without metadata. Adding `uid` creates the block without touching the body |
 | `frontmatter/solo-frontmatter.md` | Valid note with an empty body |
 | `frontmatter/vacia.md` | Valid empty note (0 bytes) |
@@ -70,6 +70,6 @@ with an editor that normalises them.
 | `.obsidian/`, `.trash/`, `.stfolder/` | Other tools' folders |
 | `hogar/.Proxy.md.swp`, `hogar/Proxy.md~` | Editor temp files and backups |
 | `hogar/.nfs00000000000268f3000008ac` | NFS silly rename |
-| `hogar/.Proxy.md.thoth-1234-0` | thoth's own temp file |
-| `proyectos/thoth/Plan.sync-conflict-….md` | Syncthing conflict: shown as an **alert**, not indexed as a note |
+| `hogar/.Proxy.md.vihko-1234-0` | vihko's own temp file |
+| `proyectos/vihko/Plan.sync-conflict-….md` | Syncthing conflict: shown as an **alert**, not indexed as a note |
 | `adjuntos/imagen.png`, `adjuntos/tablero.canvas` | Not notes |

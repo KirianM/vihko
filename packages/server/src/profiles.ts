@@ -2,15 +2,15 @@
 // "today" is for them (for the UI and, later, for agents acting on their
 // behalf), and their daily-note preferences (D-030). Preferences, never note
 // content.
-import { canonicalTimeZone, civilNow, type CivilDateTime } from '@thoth/core'
+import { canonicalTimeZone, civilNow, type CivilDateTime } from '@vihko/core'
 import type { Db } from './db.ts'
 
 export interface Profile {
   /** IANA timezone; null until the browser reports one on the first sign-in. */
   timezone: string | null
-  /** Id of the daily-note series their «Today» uses; null = the first one in thoth.yaml. */
+  /** Id of the daily-note series their «Today» uses; null = the first one in vihko.yaml. */
   dailySeries: string | null
-  /** Open today's note (only if it exists) when thoth opens with nothing else asked for. */
+  /** Open today's note (only if it exists) when vihko opens with nothing else asked for. */
   openDailyOnStart: boolean
 }
 

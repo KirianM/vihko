@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { Indexer, Watcher, openIndex } from '@thoth/server'
+import { Indexer, Watcher, openIndex } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -18,7 +18,7 @@ async function waitFor(cond: () => boolean, what: string, timeout = 5000) {
 }
 
 test('the watcher indexes additions, changes, removals and renamed folders', async () => {
-  const dir = tempDir('thoth-watch-')
+  const dir = tempDir('vihko-watch-')
   const notes = join(dir, 'notes')
   const [a, b, name] = [m.aFolder(), m.aFolder(), `${m.aTitle()}.md`]
   const [title, retitled] = [m.aHeading(), m.aHeading()]
@@ -51,7 +51,7 @@ test('the watcher indexes additions, changes, removals and renamed folders', asy
 })
 
 test('the periodic rescan picks up changes the watcher misses', async () => {
-  const dir = tempDir('thoth-rescan-')
+  const dir = tempDir('vihko-rescan-')
   const notes = join(dir, 'notes')
   mkdirSync(notes)
   const db = openIndex(join(dir, 'index.db'))

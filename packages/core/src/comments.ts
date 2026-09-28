@@ -15,7 +15,7 @@
 //   left a note are found by comparing its versions, and reopening puts one
 //   back as it was, right after the text it commented.
 //
-// Browser-safe entry point (@thoth/core/comments): the editor, the indexer and
+// Browser-safe entry point (@vihko/core/comments): the editor, the indexer and
 // the history read threads with the same code. No Node modules here.
 
 export interface Comment {

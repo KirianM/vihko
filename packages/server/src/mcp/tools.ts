@@ -21,7 +21,7 @@
 // so that the agent doesn't take it for a failure and try again; from then on
 // the note is like any other hidden one.
 import { randomBytes } from 'node:crypto'
-import { contentHash, readFrontmatter } from '@thoth/core'
+import { contentHash, readFrontmatter } from '@vihko/core'
 import type { CallToolResult, McpServer, StandardSchemaWithJSON, ToolAnnotations } from '@modelcontextprotocol/server'
 import { z } from 'zod'
 import { AccessError, AgentDenied, type Access } from '../access.ts'
@@ -580,8 +580,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     const r = read(t.path)
     return reply({ series: t.series, path: r.path, exists: true, etag: r.etag }, noteText(`The text of ${r.path}`, r.text))
   }
-  const DAILY = 'The daily note for today of the person you act for (their series and time zone, from thoth.yaml and their profile)'
-  const series = z.string().optional().describe('Another series than the person\'s own, by its id in thoth.yaml.')
+  const DAILY = 'The daily note for today of the person you act for (their series and time zone, from vihko.yaml and their profile)'
+  const series = z.string().optional().describe('Another series than the person\'s own, by its id in vihko.yaml.')
 
   if (!access.mayWrite) {
     server.registerTool('daily_note', {
@@ -613,7 +613,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   /** Once it is hidden from agents, nothing an agent can do brings it back (D-035). */
   const HIDING = 'If what you write hides the note from agents (`ai: false` in its frontmatter), the write still goes through and answers `now_hidden: true` with the `reason`: '
-    + 'from then on the note is not available to you or any agent, and no agent can undo that; only a person can, from thoth\'s interface.'
+    + 'from then on the note is not available to you or any agent, and no agent can undo that; only a person can, from vihko\'s interface.'
 
   server.registerTool('create_note', {
     title: 'Create a note',
@@ -691,13 +691,13 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('move', {
     title: 'Move or rename a note',
-    description: 'Moves or renames a note within your folders, never overwriting. thoth rewrites every link that would otherwise lead elsewhere, in every note, and the moved note\'s own relative links. With dry_run, only what it would do. The report: '
+    description: 'Moves or renames a note within your folders, never overwriting. vihko rewrites every link that would otherwise lead elsewhere, in every note, and the moved note\'s own relative links. With dry_run, only what it would do. The report: '
       + '`relinked`, the notes whose links were rewritten (or would be), each change with its text before and after; '
       + '`shifted`, links it doesn\'t rewrite whose destination changes all the same (`code`: resolves, ambiguous, retargets or breaks), for you to check; '
       + '`kept`, links to it that keep working untouched (`via`: its name or path, or an alias); '
       + '`failed`, notes that couldn\'t be rewritten; '
       + '`alias_added`, the old name, added to the note\'s aliases when a rewrite failed, so that the links left behind still lead to it (null otherwise); '
-      + '`hidden`, true when notes you can\'t see link to it too (thoth rewrites them as well, without naming them); '
+      + '`hidden`, true when notes you can\'t see link to it too (vihko rewrites them as well, without naming them); '
       + '`images`, what happened to the note\'s images; '
       + '`audience` (with dry_run), who gains or loses access to it in its new folder: people and groups by name, keys counted. '
       + 'Who can see a note depends on its folder. A move that would open it to anyone who can\'t see it now fails with `audience_widens` and that `audience`: '

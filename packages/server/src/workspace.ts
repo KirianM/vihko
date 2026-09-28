@@ -1,19 +1,19 @@
-// The workspace configuration (thoth.yaml at the root of the notes folder),
+// The workspace configuration (vihko.yaml at the root of the notes folder),
 // read at start and again whenever the watcher or the periodic rescan says
-// it may have changed (and at once after thoth writes its `permissions`,
+// it may have changed (and at once after vihko writes its `permissions`,
 // permissionsFile.ts). A file that can't be used never stops the server:
-// thoth keeps the last valid configuration it read and raises a workspace
+// vihko keeps the last valid configuration it read and raises a workspace
 // alert until the file is fixed. Parts of a usable file that were left out
 // (unknown keys, a rejected strict section) raise another.
 //
 // Permissions always fail closed (D-038): a section rejected (or a file that
-// can't be used) when thoth starts leaves nobody reading anything until it's
+// can't be used) when vihko starts leaves nobody reading anything until it's
 // fixed; once a valid one was in force, it stays while the file is wrong. No
 // file, or a file without the section: the implicit one (every admin
 // manages the root).
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { CLOSED_PERMISSIONS, EMPTY_WORKSPACE, IMPLICIT_PERMISSIONS, WORKSPACE_FILE, parseWorkspaceConfig, type ConfigError, type Permissions, type WorkspaceConfig } from '@thoth/core'
+import { CLOSED_PERMISSIONS, EMPTY_WORKSPACE, IMPLICIT_PERMISSIONS, WORKSPACE_FILE, parseWorkspaceConfig, type ConfigError, type Permissions, type WorkspaceConfig } from '@vihko/core'
 
 export interface WorkspaceOptions {
   notesDir: string
