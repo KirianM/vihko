@@ -311,9 +311,10 @@ write to the notes, and each keep its own history of them.
 - The history grows with every version, attachments included (up to 20 MB
   each by default). Files you don't need versions of can be kept out with
   `history.exclude`: see [History](history.md).
-- The trash keeps deleted notes (with their images) until you remove them.
-  There's no way to empty it from the UI yet: each entry is a folder in
-  `state/trash/`; with vihko stopped, delete the ones you don't need.
+- The trash keeps deleted notes (with their images) and the files of deleted
+  folders until you remove them. There's no way to empty it from the UI yet:
+  each entry is a folder in `state/trash/`; with vihko stopped, delete the
+  ones you don't need.
 - Every `state.db` migration leaves a `state.db.bak-v<N>` copy; remove old
   ones once you're happy with an update.
 

@@ -19,7 +19,7 @@ import type { DailyNotes } from './daily.ts'
 import { planEdits, type EditOp } from './edits.ts'
 import { CommentError, commentSplices, type CommentOp } from './commenting.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START, search, type SearchResult } from './http/search.ts'
-import { NoteError, NoteService, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type TrashEntry, type TrashRestoreReport } from './notes.ts'
+import { FolderNotEmpty, NoteError, NoteService, type FolderContents, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type TrashEntry, type TrashRestoreReport } from './notes.ts'
 import { audienceChange, ruleMove, type AudienceChange } from './audience.ts'
 import type { ExternalMoves, PendingExternalMove } from './externalMoves.ts'
 import type { Orphans } from './http/app.ts'
@@ -58,6 +58,22 @@ export interface ScopedDeps {
   /** How links resolve over every indexed note (the indexer's), for `resolveLink`. */
   links?: () => LinkIndex
 }
+
+/**
+ * What a folder holds, as `not_empty` tells whoever tried to delete it
+ * (scoped `contentsView`): paths relative to the folder, each list capped at
+ * FOLDER_LIST_CAP; `kept` blocks it (vihko never touches those), and so does
+ * `locked`, how many things in it the person can't edit.
+ */
+export interface FolderContentsView {
+  notes: { total: number; paths: string[] }
+  files: { total: number; paths: string[] }
+  kept: { total: number; paths: string[] }
+  locked: number
+}
+
+/** How many paths of each kind a folder's contents name. */
+export const FOLDER_LIST_CAP = 20
 
 /** A request that can't be served as it is: the status and the code the API answers with. */
 export class RequestError extends Error {
@@ -775,14 +791,54 @@ export class ScopedNotes {
     return this.deps.notes.createFolder(p, this.access.actor)
   }
 
-  /** Deletes an empty folder: `manage` in it. Its rules in vihko.yaml go too. */
-  async deleteFolder(path: string): Promise<{ path: string }> {
+  /**
+   * Deletes a folder: `manage` in it. Its rules in vihko.yaml go too. Empty
+   * (but for the system's clutter), it just goes; otherwise `not_empty` with
+   * what it holds (`FolderContentsView`), unless `trash`: then its notes and
+   * files go to the trash first (notes.ts `trashFolder`), provided the person
+   * may edit every one of them and nothing in it is what vihko never touches.
+   */
+  async deleteFolder(path: string, opts: { trash?: boolean } = {}): Promise<{ path: string; trashed: TrashEntry[] }> {
     const p = NoteService.checkFolder(path)
     this.assertFolder(p, 'manage')
-    const r = this.deps.notes.deleteFolder(p, this.access.actor)
+    const view = () => this.contentsView(p, this.deps.notes.folderContents(p))
+    const now = view()
+    const blocked = now.kept.total > 0 || now.locked > 0
+    if (blocked || (!opts.trash && (now.notes.total > 0 || now.files.total > 0))) throw new FolderNotEmpty(p, now)
+    const canWrite = (f: string) => this.access.canWrite(f)
+    let r: { path: string; trashed: TrashEntry[] }
+    try {
+      r = opts.trash ? await this.deps.notes.trashFolder(p, this.access.actor, { canWrite }) : { ...this.deps.notes.deleteFolder(p, this.access.actor), trashed: [] }
+    } catch (err) {
+      // Something landed in it meanwhile: say what it holds now.
+      if (err instanceof NoteError && err.code === 'not_empty' && !(err instanceof FolderNotEmpty)) {
+        let latest: FolderContentsView | null = null
+        try { latest = view() } catch { /* gone meanwhile */ }
+        if (latest) throw new FolderNotEmpty(p, latest)
+      }
+      throw err
+    }
     await this.deps.permissionsFile?.removeRules(p, { actor: this.access.actor })
       .catch((err) => this.deps.log?.(`permissions of the deleted folder ${p} stay in vihko.yaml: ${err instanceof Error ? err.message : String(err)}`))
     return r
+  }
+
+  /**
+   * What a folder holds, as the person may be told: its notes, files and
+   * what vihko never touches, each list capped (`total` says how many), with
+   * paths relative to the folder; what they can't edit only as a count
+   * (`locked`), never named.
+   */
+  private contentsView(folder: string, c: FolderContents): FolderContentsView {
+    let locked = 0
+    const theirs = (list: string[]) => {
+      const mine = list.filter((rel) => this.access.canWrite(`${folder}/${rel.replace(/\/$/, '')}`) || (locked++, false))
+      return { total: mine.length, paths: mine.slice(0, FOLDER_LIST_CAP) }
+    }
+    const notes = theirs(c.notes)
+    const files = theirs(c.files)
+    const kept = theirs(c.kept)
+    return { notes, files, kept, locked }
   }
 
   /**

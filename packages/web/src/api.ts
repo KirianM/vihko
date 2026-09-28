@@ -11,12 +11,15 @@ export class ApiError extends Error {
   readonly etag: string | null
   /** Seconds to wait before trying again (429, from Retry-After), or null. */
   readonly retryAfter: number | null
-  constructor(status: number, code: string, message: string, etag: string | null = null, retryAfter: number | null = null) {
+  /** The error's whole answer, for the codes that carry more (`not_empty`'s `contents`). */
+  readonly data: Record<string, unknown> | null
+  constructor(status: number, code: string, message: string, etag: string | null = null, retryAfter: number | null = null, data: Record<string, unknown> | null = null) {
     super(message)
     this.status = status
     this.code = code
     this.etag = etag
     this.retryAfter = retryAfter
+    this.data = data
   }
 }
 
@@ -38,7 +41,7 @@ export async function request<T>(method: string, path: string, body?: unknown, h
   if (!res.ok) {
     const wait = Number(res.headers.get('retry-after'))
     throw new ApiError(res.status, String(data?.error ?? 'internal'), String(data?.message ?? res.statusText), (data?.etag as string | null) ?? null,
-      Number.isFinite(wait) && wait > 0 ? Math.ceil(wait) : null)
+      Number.isFinite(wait) && wait > 0 ? Math.ceil(wait) : null, data)
   }
   return data as T
 }
@@ -176,6 +179,18 @@ export interface TagCount { tag: string; count: number; total: number }
  * images only it used), or files alone (`kind: 'files'`, `path` their folder).
  */
 export interface TrashEntry { id: string; path: string; deletedAt: string; kind?: 'files'; files?: { path: string }[] }
+/**
+ * What a folder holds, as `not_empty` says when it can't just be deleted
+ * (paths relative to it, each list capped: `total` says how many). `kept`:
+ * what vihko never touches (hidden folders, links); `locked`: how many
+ * things in it the person can't edit. Either keeps the folder from going.
+ */
+export interface FolderContents {
+  notes: { total: number; paths: string[] }
+  files: { total: number; paths: string[] }
+  kept: { total: number; paths: string[] }
+  locked: number
+}
 /** Installation settings the UI needs. */
 export interface ServerConfig {
   externalImages: 'allow' | 'block'
@@ -347,8 +362,13 @@ export const api = {
   /** Notes and folders (empty ones included); `pathOnly`: folders shown only as the way to what the person sees. */
   tree: () => request<{ notes: TreeNote[]; folders: string[]; pathOnly: string[] }>('GET', '/api/tree'),
   createFolder: (path: string) => request<{ path: string }>('POST', '/api/folder', { path }),
-  /** Only an empty folder (`not_empty` otherwise). */
-  deleteFolder: (path: string) => request<{ path: string }>('DELETE', `/api/folder?path=${encodeURIComponent(path)}`),
+  /**
+   * An empty folder; with `trash`, its notes and files go to the trash first
+   * (`trashed`, the entries). Otherwise `not_empty`, with what it holds in the
+   * error's `data.contents` (FolderContents).
+   */
+  deleteFolder: (path: string, trash = false) =>
+    request<{ path: string; trashed: TrashEntry[] }>('DELETE', `/api/folder?path=${encodeURIComponent(path)}${trash ? '&trash=true' : ''}`),
   moveFolder: (from: string, to: string, dryRun = false) => request<FolderMoveReport>('POST', '/api/folder/move', { from, to, dryRun }),
   /** Moves a folder; if rewriting the links takes long, they go on in the background (a job). */
   startMoveFolder: (from: string, to: string) => request<FolderMoveReport | { job: MoveJob }>('POST', '/api/folder/move', { from, to, background: true }).then(started<FolderMoveReport>),

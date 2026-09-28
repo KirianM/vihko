@@ -1,9 +1,10 @@
 // Deleting a note takes to the trash the images next to it that only it uses
 // (D-028: what moving it would take along), in the same entry, and restoring
-// it brings them back, never over another file.
+// it brings them back, never over another file. A folder with files that
+// aren't notes can go to the trash whole, notes and files, in one step.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { readFrontmatter, type AttachmentsConfig } from '@vihko/core'
 import { Indexer, NoteError, NoteService, openIndex, type Actor } from '@vihko/server'
@@ -178,4 +179,74 @@ test('images the one deleting may not write stay; restored where they may not wr
   assert.deepEqual([later.etag, later.files], [null, [{ from: `${DIR}/${B}.png`, to: `${DIR}/${B}.png` }]])
   assert.ok(has(`${DIR}/${B}.png`))
   assert.deepEqual(notes.trash(), [])
+})
+
+test('a folder\'s contents, by what deleting it means for each', () => {
+  const [DIR, SUB, NOTE, IMG, PDF] = [token(), token(), token(), token(), token()]
+  const { notes, notesDir } = setup({
+    [`${DIR}/${NOTE}.md`]: m.aSentence(), [`${DIR}/${SUB}/${IMG}.png`]: png(), [`${DIR}/${PDF}.pdf`]: m.aSentence(),
+    // Literal names: the operating systems' clutter, hidden files and another tool's folder are the case under test.
+    [`${DIR}/.DS_Store`]: '', [`${DIR}/${SUB}/Thumbs.db`]: '', [`${DIR}/._${IMG}.png`]: '', [`${DIR}/.keep`]: '', [`${DIR}/${NOTE}.md~`]: m.aSentence(),
+    [`${DIR}/.git/HEAD`]: m.aSentence(), [`${DIR}/${SUB}/empty/`]: '',
+  })
+  symlinkSync(join(notesDir, DIR, SUB), join(notesDir, DIR, 'link'))
+  const c = notes.folderContents(DIR)
+  assert.deepEqual(c.notes, [`${NOTE}.md`])
+  assert.deepEqual(c.files, [`.keep`, `${NOTE}.md~`, `${PDF}.pdf`, `${SUB}/${IMG}.png`].sort())
+  assert.deepEqual(c.kept, ['.git/', 'link'].sort())
+  assert.deepEqual(c.junk, ['.DS_Store', `._${IMG}.png`, `${SUB}/Thumbs.db`].sort())
+})
+
+test('a folder with only clutter and empty subfolders is deleted; anything else stops it', () => {
+  const [DIR, KEPT, SUB] = [token(), token(), token()]
+  const { notes, has } = setup({ [`${DIR}/.DS_Store`]: '', [`${DIR}/${SUB}/desktop.ini`]: '', [`${KEPT}/.keep`]: '' })
+  notes.deleteFolder(DIR, me)
+  assert.ok(!has(DIR))
+  assert.throws(() => notes.deleteFolder(KEPT, me), code('not_empty'), 'a hidden file someone put there is not clutter')
+  assert.ok(has(`${KEPT}/.keep`))
+})
+
+test('a folder goes to the trash whole: each note with its images, the rest as files alone; all of it comes back', async () => {
+  const [DIR, SUB, ONE, TWO, OWN, BOTH, LOOSE, PDF, OUT, OUTSIDE] = tokens(10)
+  const files: Record<string, string | Buffer> = {
+    [`${DIR}/${ONE}.md`]: `![](${OWN}.png) ![](${BOTH}.png)\n`,
+    [`${DIR}/${SUB}/${TWO}.md`]: `![](../${BOTH}.png)\n`,
+    [`${DIR}/${OWN}.png`]: png(), [`${DIR}/${BOTH}.png`]: png(), [`${DIR}/${LOOSE}.png`]: png(), [`${DIR}/${SUB}/${PDF}.pdf`]: m.aSentence(),
+    // An image a note outside uses: it goes too (the person saw it listed), and comes back.
+    [`${DIR}/${OUTSIDE}.png`]: png(), [`${OUT}.md`]: `![](${DIR}/${OUTSIDE}.png)\n`,
+    [`${DIR}/.keep`]: '', [`${DIR}/.DS_Store`]: '',
+  }
+  const { notes, has, notesDir, folders } = setup(files)
+  const r = await notes.trashFolder(DIR, me)
+  assert.equal(r.path, DIR)
+  assert.ok(!has(DIR) && !folders().includes(DIR))
+  const byPath = new Map(r.trashed.map((e) => [e.path, e]))
+  assert.deepEqual([...byPath.keys()].sort(), [DIR, `${DIR}/${ONE}.md`, `${DIR}/${SUB}/${TWO}.md`].sort())
+  const own = (note: string) => byPath.get(note)!.files?.map((f) => f.path) ?? []
+  assert.ok(own(`${DIR}/${ONE}.md`).includes(`${DIR}/${OWN}.png`))
+  // The image both notes use: with the note next to it if that one is deleted second (by path), when it's its
+  // only user; otherwise (the other note, a folder below, never takes it) with the rest.
+  const oneLast = [`${DIR}/${ONE}.md`, `${DIR}/${SUB}/${TWO}.md`].sort()[1] === `${DIR}/${ONE}.md`
+  assert.equal(own(oneLast ? `${DIR}/${ONE}.md` : DIR).includes(`${DIR}/${BOTH}.png`), true)
+  const rest = byPath.get(DIR)!
+  assert.equal(rest.kind, 'files')
+  const all = r.trashed.flatMap((e) => e.files?.map((f) => f.path) ?? [])
+  for (const p of [`${DIR}/${BOTH}.png`, `${DIR}/${LOOSE}.png`, `${DIR}/${SUB}/${PDF}.pdf`, `${DIR}/${OUTSIDE}.png`, `${DIR}/.keep`]) assert.ok(all.includes(p), p)
+  assert.ok(!all.includes(`${DIR}/.DS_Store`), 'clutter is just removed')
+
+  for (const e of r.trashed) await notes.restore(e.id, me)
+  for (const [p, content] of Object.entries(files)) {
+    if (p.endsWith('.DS_Store')) continue
+    assert.ok(has(p), p)
+    if (!p.endsWith('.md')) assert.ok(readFileSync(join(notesDir, p)).equals(Buffer.from(content)), p)
+  }
+  assert.deepEqual(notes.trash(), [])
+})
+
+test('what vihko never touches stops a folder from going to the trash, before anything moves', async () => {
+  const [DIR, NOTE] = [token(), token()]
+  const { notes, has, trashDirs } = setup({ [`${DIR}/${NOTE}.md`]: m.aSentence(), [`${DIR}/.obsidian/app.json`]: '{}' })
+  await assert.rejects(notes.trashFolder(DIR, me), code('not_empty'))
+  assert.ok(has(`${DIR}/${NOTE}.md`) && has(`${DIR}/.obsidian/app.json`))
+  assert.deepEqual(trashDirs(), [])
 })

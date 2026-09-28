@@ -1,9 +1,12 @@
 // Through the API: a note deleted with its images is one version and one
-// trash entry; an agent's deletion takes only the images it may write.
+// trash entry; a folder that holds more than notes says what blocks it
+// (capped, relative to it, never what the person can't edit) and can go to
+// the trash whole; an agent's deletion takes only the images it may write.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { FOLDER_LIST_CAP } from '@vihko/server'
 import { PNG, setup } from './_agents.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -36,6 +39,65 @@ test('a note and the images only it uses are deleted in one version, and restore
     assert.equal(back.status, 200, back.text)
     assert.deepEqual([back.body.path, back.body.files, back.body.left], [note, [{ from: `${DIR}/${OWN}.png`, to: `${DIR}/${OWN}.png` }], []])
     assert.ok(readFileSync(join(h.notesDir, DIR, `${OWN}.png`)).equals(PNG))
+  } finally { await h.close() }
+})
+
+test('deleting a folder with files in it says what they are; with trash=true they go to the trash with its notes', async () => {
+  const [DIR, SUB, NOTE] = [token(), token(), token()]
+  const images = Array.from({ length: FOLDER_LIST_CAP + 3 }, () => `${SUB}/${token()}.png`)
+  const h = await setup({ files: {
+    [`${DIR}/${NOTE}.md`]: `# ${m.aHeading()}\n`,
+    ...Object.fromEntries(images.map((p) => [`${DIR}/${p}`, PNG])),
+    // Literal: another tool's folder, which vihko never touches, is the case under test.
+    [`${DIR}/.git/HEAD`]: m.aSentence(),
+  } })
+  try {
+    const plain = await h.admin('DELETE', `/api/folder${q(DIR)}`)
+    assert.equal(plain.status, 409)
+    assert.equal(plain.body.error, 'not_empty')
+    const c = plain.body.contents
+    assert.deepEqual(c.notes, { total: 1, paths: [`${NOTE}.md`] })
+    assert.equal(c.files.total, images.length)
+    assert.deepEqual(c.files.paths, [...images].sort().slice(0, FOLDER_LIST_CAP), 'capped, relative to the folder')
+    assert.deepEqual(c.kept, { total: 1, paths: ['.git/'] })
+    assert.equal(c.locked, 0)
+
+    // While vihko can't take everything, nothing moves.
+    const refused = await h.admin('DELETE', `/api/folder${q(DIR, '&trash=true')}`)
+    assert.deepEqual([refused.status, refused.body.error, refused.body.contents.kept.total], [409, 'not_empty', 1])
+    assert.ok(existsSync(join(h.notesDir, DIR, `${NOTE}.md`)))
+    assert.deepEqual((await h.admin('GET', '/api/trash')).body.entries, [])
+
+    rmSync(join(h.notesDir, DIR, '.git'), { recursive: true })
+    // Only whoever manages the folder deletes it: the member edits it.
+    assert.equal((await h.member('DELETE', `/api/folder${q(DIR, '&trash=true')}`)).status, 403)
+    const done = await h.admin('DELETE', `/api/folder${q(DIR, '&trash=true')}`)
+    assert.equal(done.status, 200, done.text)
+    assert.ok(!existsSync(join(h.notesDir, DIR)))
+    const ids = (done.body.trashed as { id: string }[]).map((e) => e.id)
+    assert.deepEqual((await h.admin('GET', '/api/trash')).body.entries.map((e: { id: string }) => e.id).sort(), [...ids].sort())
+    assert.ok(!(await h.admin('GET', '/api/tree')).body.folders.includes(DIR))
+
+    for (const id of ids) assert.equal((await h.admin('POST', `/api/trash/${id}/restore`, {})).status, 200)
+    assert.ok(existsSync(join(h.notesDir, DIR, `${NOTE}.md`)))
+    for (const p of images) assert.ok(readFileSync(join(h.notesDir, DIR, p)).equals(PNG), p)
+  } finally { await h.close() }
+})
+
+test('what the person can\'t edit in the folder is only counted, and keeps it from going', async () => {
+  const [DIR, NOTE, THEIRS, IMG] = [token(), token(), token(), token()]
+  const h = await setup({
+    config: (n) => `permissions:\n  "":\n    grants: { ${JSON.stringify(n.admin)}: manage, ${JSON.stringify(n.member)}: edit }\n  ${DIR}/{user}:\n    grants: { "{user}": manage }\n`,
+    files: (n) => ({ [`${DIR}/${NOTE}.md`]: m.aSentence(), [`${DIR}/${IMG}.png`]: PNG, [`${DIR}/${n.member}/${THEIRS}.md`]: m.aSentence() }),
+  })
+  try {
+    const r = await h.admin('DELETE', `/api/folder${q(DIR, '&trash=true')}`)
+    assert.equal(r.status, 409)
+    assert.deepEqual(r.body.contents.notes, { total: 1, paths: [`${NOTE}.md`] })
+    assert.deepEqual(r.body.contents.files, { total: 1, paths: [`${IMG}.png`] })
+    assert.equal(r.body.contents.locked, 1)
+    assert.ok(!r.text.includes(THEIRS) && !r.text.includes(h.users.member.username), 'never named')
+    assert.ok(existsSync(join(h.notesDir, DIR, `${NOTE}.md`)))
   } finally { await h.close() }
 })
 

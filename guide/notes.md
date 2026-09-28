@@ -246,8 +246,27 @@ vihko never empties the trash on its own. Each entry sits in its own folder unde
 `trash/` in the state volume (`note.md`, its images under `files/`, and a
 `meta.json` that lists them); delete those by hand if you need the space.
 
-A folder can only be deleted when it's empty: its notes are never deleted with
-it. Move them out or send them to the trash first.
+### Deleting a folder
+
+«Delete folder» deletes an empty folder at once. Empty subfolders go with it,
+and so does the clutter operating systems leave (`.DS_Store`, `._*` files,
+`Thumbs.db`, `desktop.ini`), which vihko removes without asking.
+
+If the folder holds notes or other files, the dialog lists them first
+(hidden files such as `.keep` included) and offers to send them to the trash
+along with the folder, in one step: each note goes as if deleted on its own,
+with its images, and the other files as one more entry. «Restore» on the
+notice that follows brings all of it back.
+
+Two things keep a folder from being deleted, and the dialog says which:
+
+- **What vihko never touches**: a hidden folder inside it (`.git/`,
+  `.obsidian/`, another program's) or a symbolic link. vihko doesn't read,
+  move or delete those; remove them with another tool first.
+- **Things you can't edit**, such as someone's personal folder inside it:
+  counted, never named.
+
+Deleting a folder takes `manage` in it, as renaming or moving it does.
 
 ## Files changed outside vihko
 
@@ -276,7 +295,8 @@ Edit, add, move or delete files with any tool while vihko runs:
 - It never overwrites an image, or a note when creating one: a taken name gets
   a number.
 - It never deletes a note outright: deleting goes to the trash, and so do the
-  images that go with it.
+  images and files that go with it. The only thing it removes outright is the
+  operating systems' clutter in a folder you delete (`.DS_Store` and the like).
 - It never writes into a git repository you keep in the notes folder (with
   `history.mode: unmanaged` it only reads it).
 - It never keeps note content anywhere but the files, apart from what it

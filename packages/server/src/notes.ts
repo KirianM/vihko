@@ -3,7 +3,7 @@
 // (fsutil.ts), lazy `uid` and deletion to trash.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, resolve } from 'node:path'
-import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, folderOf, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
+import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, folderOf, isIgnoredDir, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
 import { commitText, createFile, followable, isPlainFile, linkNew, readStable, readText } from './fsutil.ts'
 import { attachmentPath, noteAttachmentsDir, sniffImage, suffixedName } from './attachments.ts'
 import { applyReplacements, beforeMoves, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
@@ -250,6 +250,31 @@ export interface TrashRestoreReport {
   etag: string | null
   files: { from: string; to: string }[]
   left: string[]
+}
+
+/**
+ * What a folder holds, by what deleting it means for each (paths relative to
+ * it). `notes` and `files` can go to the trash with it (`files` includes
+ * hidden files, such as `.keep`). `kept`: what vihko never touches, hidden
+ * folders (`.git/`, `.obsidian/`, listed with a trailing `/`) and symbolic
+ * links: while there is one, the folder stays. `junk`: the operating
+ * system's clutter (`.DS_Store`, `Thumbs.db`…), removed with the folder
+ * without asking.
+ */
+export interface FolderContents {
+  notes: string[]
+  files: string[]
+  kept: string[]
+  junk: string[]
+}
+
+/** A folder that can't be deleted as asked because of what it holds (`contents`, as the caller may show it). */
+export class FolderNotEmpty extends NoteError {
+  readonly contents: unknown
+  constructor(path: string, contents: unknown) {
+    super('not_empty', `the folder is not empty: ${path}`)
+    this.contents = contents
+  }
 }
 
 export class NoteService {
@@ -880,26 +905,100 @@ export class NoteService {
     return { path }
   }
 
-  /**
-   * Deletes a folder only if it holds no file at all (empty subfolders go with
-   * it). Notes and images are never deleted along with a folder: they are moved
-   * or sent to the trash one by one first.
-   */
-  deleteFolder(path: string, _actor: Actor): { path: string } {
+  /** What a folder holds (see FolderContents), never looking inside what vihko doesn't follow. */
+  folderContents(path: string): FolderContents {
     const dir = this.dir(path)
     if (!isDirectory(dir)) throw new NoteError('not_found', `no such folder: ${path}`)
-    const dirs: string[] = []
-    const visit = (d: string) => {
-      for (const e of readdirSync(d, { withFileTypes: true })) {
-        if (!e.isDirectory()) throw new NoteError('not_empty', `the folder is not empty: ${path}`)
-        visit(join(d, e.name))
+    const out: FolderContents = { notes: [], files: [], kept: [], junk: [] }
+    const visit = (rel: string) => {
+      for (const e of readdirSync(rel ? join(dir, rel) : dir, { withFileTypes: true })) {
+        const r = rel ? `${rel}/${e.name}` : e.name
+        if (e.isDirectory()) {
+          if (isIgnoredDir(e.name)) out.kept.push(`${r}/`)
+          else visit(r)
+        } else if (!e.isFile()) out.kept.push(r) // a symbolic link (or stranger): never followed, never removed
+        else if (isJunk(e.name)) out.junk.push(r)
+        else if (classifyPath(`${path}/${r}`) === 'note') out.notes.push(r)
+        else out.files.push(r)
       }
-      dirs.push(d)
     }
-    visit(dir)
-    // Deepest first. Something created meanwhile stops it (rmdir never removes files).
+    visit('')
+    for (const list of Object.values(out)) list.sort()
+    return out
+  }
+
+  /**
+   * Deletes a folder that holds nothing but empty subfolders and the
+   * system's clutter (FolderContents `junk`), which go with it. Anything else
+   * stops it with `not_empty`: to take the notes and files along, `trashFolder`.
+   */
+  deleteFolder(path: string, _actor: Actor): { path: string } {
+    const c = this.folderContents(path)
+    if (c.notes.length || c.files.length || c.kept.length) throw new NoteError('not_empty', `the folder is not empty: ${path}`)
+    this.removeFolder(path, c.junk)
+    return { path }
+  }
+
+  /**
+   * Deletes a folder with everything in it that vihko handles: each note goes
+   * to the trash as if deleted on its own (with its images, one entry each),
+   * then the other files left, hidden ones included, as one entry of files
+   * alone; then the folder, with its clutter. What vihko never touches
+   * (FolderContents `kept`) stops it before anything moves. `canWrite` is
+   * passed on to each note's deletion. One version in the history.
+   */
+  async trashFolder(path: string, actor: Actor, opts: { canWrite?: (path: string) => boolean } = {}): Promise<{ path: string; trashed: TrashEntry[] }> {
+    const c = this.folderContents(path)
+    if (c.kept.length) throw new NoteError('not_empty', `the folder holds what vihko never touches: ${path}`)
+    return this.history.operation(actor, null, async () => {
+      const trashed: TrashEntry[] = []
+      for (const rel of c.notes) {
+        try {
+          trashed.push(await this.delete(`${path}/${rel}`, { actor, canWrite: opts.canWrite }))
+        } catch (err) {
+          if (!(err instanceof NoteError && err.code === 'not_found')) throw err // gone meanwhile: nothing to trash
+        }
+      }
+      // What is left once the notes took their images: anything that came meanwhile is seen here.
+      const rest = this.folderContents(path)
+      if (rest.notes.length || rest.kept.length) throw new NoteError('not_empty', `the folder is not empty: ${path}`)
+      if (rest.files.length) {
+        const entry = this.trashFiles(path, rest.files.map((r) => `${path}/${r}`), actor)
+        if (entry) trashed.push(entry)
+      }
+      this.removeFolder(path, rest.junk)
+      return { path, trashed }
+    })
+  }
+
+  /** Files alone to the trash, as one entry (`kind: 'files'`, `path` the folder they're in); null if none was left to take. */
+  private trashFiles(folder: string, paths: readonly string[], actor: Actor): TrashEntry | null {
+    const w = this.history.prepare(paths.map((p) => ({ path: p, after: null })), { actor, immediate: true })
+    const files = this.setAside(paths)
+    if (files.length === 0) {
+      w.abort()
+      return null
+    }
+    const entry: TrashEntry = { id: newUid(), kind: 'files', path: folder, deletedAt: new Date().toISOString(), actor }
     try {
-      for (const d of dirs) rmdirSync(d)
+      this.toTrash(entry, null, files)
+    } catch (err) {
+      this.putBack(files)
+      w.abort()
+      throw err
+    }
+    w.done(files.map((f) => ({ path: f.path, after: null })))
+    for (const f of files) rmSync(f.aside, { force: true })
+    this.opts.indexer.indexPaths(files.map((f) => f.path))
+    return entry
+  }
+
+  /** Removes a folder of empty subfolders, after its clutter. Something created meanwhile stops it (rmdir never removes a file). */
+  private removeFolder(path: string, junk: readonly string[]) {
+    const dir = this.dir(path)
+    try {
+      for (const j of junk) rmSync(join(dir, j), { force: true })
+      removeEmptyTree(dir)
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code
       if (code === 'ENOTEMPTY' || code === 'EEXIST') throw new NoteError('not_empty', `the folder is not empty: ${path}`)
@@ -907,7 +1006,6 @@ export class NoteService {
     } finally {
       this.opts.indexer.indexFolders([path])
     }
-    return { path }
   }
 
   /**
@@ -1443,6 +1541,13 @@ function removeEmptyTree(dir: string) {
   for (const e of readdirSync(dir, { withFileTypes: true })) if (e.isDirectory()) removeEmptyTree(join(dir, e.name))
   rmdirSync(dir)
 }
+
+/**
+ * The operating system's clutter in a folder, never anyone's content: macOS's
+ * `.DS_Store` and `._*` (AppleDouble) files, Windows's `Thumbs.db` and
+ * `desktop.ini`. A folder is deleted with it.
+ */
+const isJunk = (name: string) => name === '.DS_Store' || name.startsWith('._') || /^(thumbs\.db|desktop\.ini)$/i.test(name)
 
 let asides = 0
 
