@@ -253,11 +253,14 @@ live in the state volume, on local disk, so they're as fast as anywhere.
 - **Mount with `hard`**, not `soft`. With `soft`, a server hiccup can turn
   into a failed or partial write with no visible error; with `hard`, the
   write waits until the server is back.
-- **Mind the owner.** vihko writes as `1000:1000` unless you set `user:` in
-  `compose.yaml`. If the export maps every client user to one account
-  (`all_squash`, `mapall` and similar), files get that owner whatever vihko
-  runs as; make sure that account can write the folder. Otherwise, set `user:`
-  to the numeric ids that own the notes on the share.
+- **Mind the owner.** vihko writes as `VIHKO_UID:VIHKO_GID` from `.env`
+  (`1000:1000` without them): the numeric ids that own the notes on the share,
+  as `stat -c %u:%g` shows them from this host. If the export maps every
+  client user to one account (`all_squash`, `mapall` and similar), files get
+  that owner whatever vihko runs as; make sure that account can write the
+  folder. Don't `chown` the share from here; give the local state folder the
+  same owner instead. See
+  [The user and file ownership](install.md#the-user-and-file-ownership).
 - **Start vihko only once the share is mounted.** If vihko starts before the
   mount, it sees the empty folder under the mount point: the scan guard above
   keeps your index, but new notes would be written to the local disk and
@@ -334,21 +337,29 @@ docker compose up -d
 
 `sudo ss -ltnp 'sport = :8080'` shows who has it.
 
-### Restarting in a loop, "unable to open database file"
+### Restarting in a loop, "vihko can't write to the … folder"
 
 ```text
-SqliteError: unable to open database file
-  code: 'SQLITE_CANTOPEN'
+[vihko] vihko can't write to the state folder /data/state: it belongs to 0:0 (mode 755) and vihko runs as 1000:1000. Fix: chown -R 1000:1000 the state volume's folder on the host (./state next to the example compose.yaml); see guide/install.md, "The user and file ownership"
 ```
 
-vihko can't write to the state volume, usually because Docker created the
-folder as root. Fix the owner (`1000:1000`, or the ids in `user:`):
+vihko's user (`VIHKO_UID:VIHKO_GID` in `.env`) can't write to one of its
+folders, usually because it was created as root (by you, or by Docker when the
+folder didn't exist). The line says which folder, and the fix: give the
+folder to vihko's user, or set `.env` to the owner of your notes. For the
+state folder, for example:
 
 ```sh
 docker compose down
-sudo chown -R 1000:1000 notes state
+sudo chown -R 1000:1000 state
 docker compose up -d
 ```
+
+1.0.0-rc.1 said it differently: a warning that the state folder "can be read
+by other users of this system", then `SqliteError: unable to open database
+file` (`SQLITE_CANTOPEN`). The fix is the same. That error can still show
+when the folder is right but a file in it isn't (one copied in as root
+without `-p`): `sudo chown -R` on the state folder fixes both.
 
 ### Saving a note fails, `EACCES` in the log
 
@@ -361,8 +372,11 @@ has:
   path: '/data/notes/.Inbox.md.vihko-1-0-f433221f'
 ```
 
-vihko can read the notes folder but not write to it. Give the folder (and
-every subfolder) to vihko's user, or set `user:` to the user that owns it. On
+vihko can read the notes folder, or that subfolder, but not write to it
+(vihko checks the notes folder itself when it starts, not every subfolder).
+Give the folder, and every subfolder, to vihko's user, or set `VIHKO_UID` and
+`VIHKO_GID` in `.env` to the user that owns them (see
+[The user and file ownership](install.md#the-user-and-file-ownership)). On
 NFS, check how the export maps users (see [Notes on NFS](#notes-on-nfs)).
 
 ### The state volume is on NFS

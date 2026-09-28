@@ -17,7 +17,8 @@ consistent, and how to restore it.
 | **The second-factor key** | Wherever you keep `VIHKO_SECRET_KEY` or its file | Only if you use it. **Back it up apart from the state volume**, in a password manager for example: whoever has both can compute people's second-factor codes. See [The second-factor key](install.md#the-second-factor-key). |
 
 In short: the whole notes folder and the whole state volume, plus the key if
-you have one.
+you have one. Keep a copy of `compose.yaml` and `.env` too: small, and they
+say which user vihko runs as (`VIHKO_UID`, `VIHKO_GID`) and how it's set up.
 
 If the history is in *unmanaged* mode, vihko reads the git repository you keep
 in your notes folder, so it's backed up with the notes. See
@@ -140,9 +141,13 @@ back up, restore into a scratch folder and start a separate vihko on it:
 mkdir /tmp/vihko-restore-test && cd /tmp/vihko-restore-test
 sudo tar -xzpf /backups/vihko-2026-10-01.tar.gz
 docker run -d --name vihko-restore-test -p 127.0.0.1:8099:8080 \
+  --user "$(stat -c %u:%g state)" \
   -v "$PWD/notes:/data/notes" -v "$PWD/state:/data/state" \
   ghcr.io/kirianm/vihko:1
 ```
+
+(`--user`: the owner of the restored state folder, which is the user vihko ran
+as, `VIHKO_UID:VIHKO_GID` in your `.env`.)
 
 Open `http://127.0.0.1:8099` on the server (or through an SSH tunnel), sign in
 with your usual account, open a few notes and their history. Then remove it:
