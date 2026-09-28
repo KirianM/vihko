@@ -56,6 +56,7 @@ import { TwoFactor } from '../twoFactor.ts'
 import { twoFactorHttp } from './twoFactor.ts'
 import { Notices, noticeAlert } from '../notices.ts'
 import { VERSION } from '../version.ts'
+import type { ConfigMigrations } from '../configMigrations.ts'
 
 export const SESSION_COOKIE = 'vihko_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
@@ -165,6 +166,8 @@ export interface AppDeps {
   twoFactor?: TwoFactor
   /** Notices addressed to one person (state.db). By default, over the same state.db as `auth`, on the app's clock. */
   notices?: Notices
+  /** vihko.yaml rewritten to the current format at start (configMigrations.ts): the admins' alerts. */
+  configMigrations?: ConfigMigrations
   /** Only tests: how «Save a copy» resolves names and which addresses count as public. */
   imageFetchTesting?: FetchImageOptions['testing']
 }
@@ -746,6 +749,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const ws = workspace.status
     if (admin) {
       if (ws.errors.length) alerts.push({ code: 'config_invalid', file: WORKSPACE_FILE, errors: ws.errors, fallback: ws.fallback, actions: [] })
+      // vihko rewrote the file at start, or couldn't (D-042.6).
+      for (const a of deps.configMigrations?.alerts() ?? []) alerts.push(a)
       // What the file leaves out, and the grants and rules that name nothing that exists.
       const missing = rulesWithoutFolder(permissions, index).map((f) => ({ code: 'missing_folder' as const, at: `permissions.${f}`, line: null, detail: f }))
       const warnings = [...ws.warnings, ...permissions.unknownSubjects(), ...missing]
@@ -805,6 +810,12 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const body = await c.req.json<{ force?: boolean; confirmRemoval?: number }>().catch(() => ({}) as { force?: boolean; confirmRemoval?: number })
     const confirmRemoval = Number.isInteger(body.confirmRemoval) ? body.confirmRemoval : undefined
     return c.json(deps.runtime.rescan({ force: body.force === true, confirmRemoval }))
+  })
+
+  // The alert of a rewrite of vihko.yaml at start, dismissed (for every admin).
+  app.delete('/api/admin/config-migrations/:id', adminOnly, (c) => {
+    if (!deps.configMigrations?.dismiss(c.req.param('id') ?? '')) return fail(c, 404, 'not_found', 'no such alert')
+    return c.json({ ok: true })
   })
 
   // Users, groups, one's own account and the admin's settings (http/users.ts).

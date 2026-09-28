@@ -9,7 +9,7 @@ import { ApiError, api, type Alert, type MoveJob, type MovedRelinkReport } from 
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { MenuButton, ThemeToggle, noteName as fileName } from './ui.tsx'
 import { SearchButton } from './Palette.tsx'
-import type { ConfigError } from '@vihko/core/codes'
+import type { ConfigError, ConfigMigrationRef } from '@vihko/core/codes'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
 import { ShiftPreview } from './Shifts.tsx'
 import { useDates } from './history/ui.tsx'
@@ -218,6 +218,13 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
     </ul>
   )
 
+  /** vihko.yaml's format migrations: each one's id and its line (in English, as the log has it). */
+  const migrationList = (list: ConfigMigrationRef[]) => (
+    <ul className="alert-paths alert-config">
+      {list.map((mg) => <li key={mg.id}><span className="mono">{mg.id}</span> {mg.description}</li>)}
+    </ul>
+  )
+
   function card(a: Alert, i: number) {
     const id = `alert-${i}`
     const key = `${a.code}:${'id' in a ? a.id : 'path' in a ? a.path : 'uid' in a ? a.uid : 'series' in a ? a.series : ''}`
@@ -312,6 +319,31 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           title: rich(t('alerts.configWarningsTitle'), { file: <span className="mono">{a.file}</span> }),
           body: t('alerts.configWarningsBody'),
           extra: configList(a.warnings),
+          actions: null,
+        })
+      case 'config_migrated':
+        return frame({
+          icon: icons.config,
+          title: rich(t('alerts.configMigratedTitle'), { file: <span className="mono">{a.file}</span> }),
+          body: rich(t('alerts.configMigratedBody'), { when: dates.dateTime(a.at), backup: <span className="mono">{a.backup}</span> }),
+          extra: migrationList(a.migrations),
+          actions: <Button className="btn" isDisabled={busy} onPress={() => act(() => api.dismissConfigMigration(a.id))}>{t('alerts.dismiss')}</Button>,
+        })
+      case 'config_migration_failed':
+        return frame({
+          icon: icons.config,
+          tone: 'warn',
+          title: rich(t('alerts.configMigrationFailedTitle'), { file: <span className="mono">{a.file}</span> }),
+          body: t('alerts.configMigrationFailedBody'),
+          extra: (
+            <>
+              {a.migration && migrationList([a.migration])}
+              <details>
+                <summary>{t('alerts.historyDetail')}</summary>
+                <pre className="alert-copy">{a.detail}</pre>
+              </details>
+            </>
+          ),
           actions: null,
         })
       case 'config_template_missing':
