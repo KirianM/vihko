@@ -42,12 +42,12 @@ test('the CLI prints it alone, for scripts: vihko --version, vihko version', () 
   }
 })
 
-test('the server says it: its first log line, and GET /api/health', async () => {
+test('the server says it in its first log line, and never to whoever reaches the port', async () => {
   const srv = await startServer(makeDirs().env)
   try {
     assert.equal(srv.out.join('').split('\n')[0], `[vihko] vihko ${VERSION}`)
     const health = await fetch(`${srv.base}/api/health`)
     assert.equal(health.status, 200)
-    assert.deepEqual(await health.json(), { ok: true, version: VERSION })
+    assert.deepEqual(await health.json(), { ok: true })
   } finally { await srv.stop() }
 })
