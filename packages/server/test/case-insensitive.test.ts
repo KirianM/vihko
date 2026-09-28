@@ -46,6 +46,7 @@ if (!INSIDE) {
   const m = mother(import.meta.url)
   // Imported here: only the run inside the namespace builds the scenario.
   const { DIR, FILES, MEMBER, PATH, WORD, home, setup } = await import('./_m4.ts')
+  const { rootIgnoresCase } = await import('@vihko/server')
   /** The same path with the people's folder spelled in capitals: on this disk, the same file. */
   const alias = (path: string) => {
     const other = path.replace(DIR.people, DIR.people.toUpperCase())
@@ -87,6 +88,22 @@ if (!INSIDE) {
       assert.equal(moved.status, 404, moved.text)
       assert.equal(readFileSync(join(h.notesDir, PATH.cake), 'utf8'), cakeBefore)
       assert.ok(existsSync(join(h.notesDir, PATH.settings)), 'nothing moved')
+
+      // Told once, from the root: this folder ignores case.
+      assert.equal(rootIgnoresCase(h.notesDir), true)
+
+      // What reports another spelling (a watcher, a sync tool's rename) indexes and versions nothing under it.
+      const others = [alias(PATH.cake), alias(PATH.memberPhoto)]
+      h.indexer.indexPaths(others, { detectMoves: true })
+      h.indexer.indexFolders([alias(own)])
+      await h.history.recorder.observePaths(others)
+      await h.settle()
+      const found = await h.admin('GET', q('/api/search', { q: WORD.cake }))
+      assert.deepEqual(found.body.results, [], 'nothing of the personal folder is searchable')
+      const tree = await h.admin('GET', '/api/tree')
+      assert.ok(!tree.text.includes(DIR.people.toUpperCase()), 'no folder under the other spelling')
+      const { changes } = await h.history.reader().changes({ limit: 200, canRead: () => true })
+      for (const p of others) assert.ok(!changes.some((c) => c.files.some((f) => f.path === p)), p)
 
       // vihko.yaml, spelled otherwise, is still nobody's.
       for (const who of ['admin', 'member'] as const) {

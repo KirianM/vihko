@@ -38,6 +38,40 @@ function namesIn(dir: string, fresh = false): Set<string> | null {
   return names
 }
 
+/** Whether each notes root ignores case, once told; while it can't be told, when it was last looked at. */
+const rootCase = new Map<string, boolean | number>()
+/** How long an undecided root waits before its names are looked at again. */
+const UNDECIDED_MS = 10_000
+
+const otherCase = (name: string) => name.replace(/[A-Za-z]/g, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()))
+
+/**
+ * Whether the filesystem of `root` ignores case: true or false once told,
+ * null while it can't be. Told once, from a name at the root with ASCII
+ * letters: whether it also opens with each letter's case swapped. Read only.
+ * An undecided root (none of its names has such letters) is looked at again
+ * every few seconds. Per-folder case-insensitivity under a case-sensitive
+ * root (ext4's `chattr +F` on a subfolder) isn't seen: unsupported.
+ */
+export function rootIgnoresCase(root: string): boolean | null {
+  const known = rootCase.get(root)
+  if (typeof known === 'boolean') return known
+  if (known !== undefined && Date.now() - known < UNDECIDED_MS) return null
+  let names: string[]
+  try { names = readdirSync(root) } catch { return null }
+  const all = new Set(names)
+  for (const name of names) {
+    const other = otherCase(name)
+    if (other === name || all.has(other)) continue
+    let opens = true
+    try { lstatSync(join(root, other)) } catch { opens = false }
+    rootCase.set(root, opens)
+    return opens
+  }
+  rootCase.set(root, Date.now())
+  return null
+}
+
 /**
  * Whether `rel` (a `/`-separated path under `root`) is spelled as the disk
  * spells what exists of it: each part that exists is listed in its folder
@@ -47,8 +81,13 @@ function namesIn(dir: string, fresh = false): Set<string> | null {
  * datasets) `People/noa/diary.md` also opens `people/noa/diary.md`, while
  * the permissions, which go by the path as written, would judge another
  * folder: such a path doesn't exist for vihko.
+ *
+ * On a root known to be case-sensitive (rootIgnoresCase) every spelling is
+ * its own path, and nothing is looked at: no cost, on NFS either. Only a
+ * case-insensitive root, or one not told yet, has its folders listed.
  */
 export function spelledAsOnDisk(root: string, rel: string): boolean {
+  if (rootIgnoresCase(root) === false) return true
   let dir = root
   for (const part of rel.split('/')) {
     if (part === '' || part === '.') continue

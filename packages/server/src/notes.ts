@@ -1033,7 +1033,7 @@ export class NoteService {
     const w = this.history.prepare([{ path, after: bytes }], { actor, immediate: true })
     let created: boolean
     try {
-      created = createFile(join(this.opts.notesDir, path), bytes)
+      created = createFile(join(this.opts.notesDir, this.spelled(path)), bytes)
     } catch (err) {
       w.abort()
       throw err
