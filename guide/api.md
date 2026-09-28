@@ -91,6 +91,7 @@ The codes you can meet with a key:
 | `history_off` | 409 | `vihko.yaml` turns the history off |
 | `too_large` | 413 | An image over the size limit |
 | `unsupported_type` | 415 | An upload that isn't a PNG, JPEG, GIF, WebP or AVIF image |
+| `busy` | 429 | Too many images being uploaded at once; `Retry-After` says when to try again |
 | `precondition_required` | 428 | A write that needs `If-Match` (or `ifMatch`) and has none |
 | `precondition_failed` | 412 | The note changed since that ETag; `etag` is the current one |
 | `history_unavailable` | 503 | The history can't be read right now |
@@ -130,6 +131,7 @@ their editor live.
 |---|---|
 | Request body | 20 MiB (`413`) |
 | Image upload | `VIHKO_MAX_IMAGE_MB`, 20 MB by default (`413 too_large`) |
+| Images received at once | 2 per person, 8 in all, uploads and copies from a URL together (`429 busy`) |
 | Search results | 50 with words, 500 with filters alone |
 | History pages | 50 versions or changes at most |
 

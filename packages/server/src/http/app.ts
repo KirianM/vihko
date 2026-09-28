@@ -77,6 +77,10 @@ export const MAX_AUTH_BODY = 16 * 1024
  */
 export const MAX_API_BODY = 20 * 1024 * 1024
 
+/** Images received at once (uploads and copies from a URL, each held whole in memory): by one person, and in all. */
+export const IMAGES_PER_USER = 2
+export const IMAGES_IN_FLIGHT = 8
+
 export interface Runtime {
   lastScan: ScanReport | null
   rescan(opts: ScanOptions): ScanReport
@@ -661,9 +665,33 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return 'job' in r ? c.json(r, 202) : c.json(r.report)
   })
 
+  // Images being received (an upload's body, a copy downloading) are held in
+  // memory whole, up to the size limit each: only a few at a time, per person
+  // and in all, so that many at once can't exhaust the server's memory.
+  // Beyond that, 429 with Retry-After; nothing is read.
+  const receiving = { total: 0, byUser: new Map<string, number>() }
+  const imageSlot = async (c: Context<Env>, next: () => Promise<void>) => {
+    const id = c.get('user').id
+    const mine = receiving.byUser.get(id) ?? 0
+    if (mine >= IMAGES_PER_USER || receiving.total >= IMAGES_IN_FLIGHT) {
+      c.header('Retry-After', '1')
+      return fail(c, 429, 'busy', 'too many images are being received at once: try again in a moment')
+    }
+    receiving.byUser.set(id, mine + 1)
+    receiving.total++
+    try {
+      await next()
+    } finally {
+      receiving.total--
+      const left = (receiving.byUser.get(id) ?? 1) - 1
+      if (left > 0) receiving.byUser.set(id, left)
+      else receiving.byUser.delete(id)
+    }
+  }
+
   // Images (D-028). Upload and paste are the same: the raw bytes of the file
   // in the body. It is stored next to the note and the editor links it.
-  app.post('/api/attachments',
+  app.post('/api/attachments', imageSlot,
     bodyLimit({ maxSize: notes.maxImageBytes, onError: (c) => fail(c, 413, 'too_large', `the limit is ${notes.maxImageBytes} bytes`) }),
     async (c) => {
       const bytes = new Uint8Array(await c.req.arrayBuffer())
@@ -675,7 +703,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Nothing is downloaded for a note that doesn't exist or they can't write.
   // Members only from public addresses, unless the admin lets them reach the
   // local network (D-038.6); the vihko admin, from anywhere.
-  app.post('/api/attachments/fetch', async (c) => {
+  app.post('/api/attachments/fetch', imageSlot, async (c) => {
     const { note, url } = await c.req.json<{ note: string; url: string }>()
     const publicOnly = c.get('user').role !== 'admin' && !adminSettings.view().membersLocalDownloads
     const r = await scoped(c).attachFromUrl(note ?? '', async () => (await fetchImage(String(url ?? ''), { maxBytes: notes.maxImageBytes, publicOnly, testing: deps.imageFetchTesting })).bytes)

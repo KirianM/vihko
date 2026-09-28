@@ -350,6 +350,34 @@ test("deleted with the server down and pending edits: it isn't emptied or recrea
   } finally { closeAll(); await srv.stop() }
 })
 
+test('a note whose path is too long to name its recovery log opens, and its copy is recovered after a crash', async () => {
+  const { notes, env } = makeDirs()
+  // Deep and long: URL-encoded, the path is far past the 255 bytes a file name may take (each name on its own fits).
+  const note = `${Array.from({ length: 6 }, () => `${m.aTitle()} ${m.aTitle()}`).join('/')}/${m.aTitle()}.md`
+  assert.ok(Buffer.byteLength(encodeURIComponent(note)) > 255)
+  mkdirSync(join(notes, note, '..'), { recursive: true })
+  writeFileSync(join(notes, note), `# ${m.aHeading()}\n\n${m.aSentence()}\n`)
+  const port = String(42450 + Math.floor(Math.random() * 40))
+  let srv = await startServer({ ...env, VIHKO_PORT: port })
+  const pending = m.aUniqueWord()
+  try {
+    const cookie = await login(srv)
+    const a = await connect(srv, cookie, note)
+    typeLine(a, pending)
+    await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
+    await sleep(100)
+    a.close()
+    await srv.stop('SIGKILL')
+    rmSync(join(notes, note)) // deleted while the server is down: its copy waits in the log
+    srv = await startServer({ ...env, VIHKO_PORT: port })
+    await sleep(1500)
+    const cookie2 = await login(srv)
+    assert.deepEqual(await orphaned(srv, cookie2), [note])
+    assert.equal((await api(srv, cookie2, 'POST', '/api/note/orphan', { path: note, action: 'restore' })).status, 200)
+    assert.ok(readFileSync(join(notes, note), 'utf8').includes(`${pending}\n`))
+  } finally { closeAll(); await srv.stop() }
+})
+
 test('renaming an open note: editors are told, nothing is lost and the old path does not reopen', async () => {
   const { notes, env } = makeDirs()
   const srv = await startServer(env)

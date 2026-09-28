@@ -173,6 +173,17 @@ export function sessionIdOf(token: string): string {
 /** A username (or a group name, users.ts): letters, digits, `.`, `_` or `-`, 2 to 64. */
 export const NAME_PATTERN = /^[\p{L}\p{N}._-]{2,64}$/u
 
+/**
+ * Names every JavaScript object already has (`__proto__`, `constructor`,
+ * `toString`…), and `prototype`: a user or group named so would be a key of
+ * the grants, and of other maps keyed by name, that is dropped or misread.
+ * Compared without case, as names are.
+ */
+const OBJECT_NAMES = new Set([...Object.getOwnPropertyNames(Object.prototype), 'prototype'].map((n) => n.toLowerCase()))
+
+/** Whether `name` may be a user's or a group's: NAME_PATTERN, and none of the names objects already have. */
+export const validName = (name: string) => NAME_PATTERN.test(name) && !OBJECT_NAMES.has(name.toLowerCase())
+
 function rowToUser(r: { id: string; username: string; role: Role; disabled: number }): User {
   return { id: r.id, username: r.username, role: r.role, disabled: !!r.disabled }
 }
@@ -229,7 +240,7 @@ export class Auth {
    */
   newUsername(username: string): string {
     const name = username.normalize('NFC').trim()
-    if (!NAME_PATTERN.test(name)) throw new AuthError('invalid_username', 'invalid username (2-64 letters, digits, ".", "_" or "-")')
+    if (!validName(name)) throw new AuthError('invalid_username', 'invalid username (2-64 letters, digits, ".", "_" or "-", and not a name JavaScript objects have)')
     // Taken as the permissions compare names (any case, in any script): SQLite's
     // nocase only folds ASCII, and «ángela» would inherit «Ángela»'s grants.
     const key = subjectKey(name)

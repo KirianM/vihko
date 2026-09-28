@@ -8,7 +8,7 @@ import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  AdminSettings, Auth, Indexer, NoteService, Profiles, SESSION_COOKIE, VERSION, Workspace, attachmentPath, createApp, fetchImage, isPublicAddress, openIndex, openState, sniffImage,
+  AdminSettings, Auth, IMAGES_PER_USER, Indexer, NoteService, Profiles, SESSION_COOKIE, VERSION, Workspace, attachmentPath, createApp, fetchImage, isPublicAddress, openIndex, openState, sniffImage,
   type ExternalImages, type FetchImageOptions, type Runtime,
 } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
@@ -162,6 +162,31 @@ test('serving files: type, nosniff, revalidation, and the same path rules as not
   for (const p of ['../x.png', '/etc/passwd', 'a/../../x.png', 'a//b.png', '']) assert.equal(await status(p), 400, p)
   for (const p of ['Plan.md', `${hidden}/x.png`, `${link}/${secret}`, `${m.aTitle()}.png`, 'adjuntos']) assert.equal(await status(p), 404, p)
   assert.equal((await app.request(`/api/file?path=${encodeURIComponent(up.body.path)}`)).status, 401, 'needs a session')
+})
+
+test('only a few images are received at once per person: beyond that, 429 and nothing is read', async () => {
+  const held: import('node:http').ServerResponse[] = []
+  const { url, server } = await origin({ '/held.png': (res) => { held.push(res) } })
+  try {
+    const { post, upload } = await setup()
+    const waiting = Array.from({ length: IMAGES_PER_USER }, () => post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/held.png` }))
+    const start = Date.now()
+    while (held.length < IMAGES_PER_USER) {
+      if (Date.now() - start > 5000) throw new Error('the downloads never reached the origin')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    const more = await post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/held.png` })
+    assert.deepEqual([more.status, more.body.error], [429, 'busy'])
+    const up = await upload('Plan.md', new Uint8Array(PNG))
+    assert.deepEqual([up.status, up.body.error], [429, 'busy'], 'an upload waits its turn as well')
+    assert.equal(held.length, IMAGES_PER_USER, 'nothing more was asked of the origin')
+    for (const res of held) { res.setHeader('content-type', 'image/png'); res.end(PNG) }
+    for (const r of await Promise.all(waiting)) assert.equal(r.status, 201)
+    // Once they're in, the slots are free again.
+    assert.equal((await upload('Plan.md', new Uint8Array(PNG))).status, 201)
+  } finally {
+    server.close()
+  }
 })
 
 test('by URL: a copy is downloaded and stored like an upload, following a few redirects', async () => {

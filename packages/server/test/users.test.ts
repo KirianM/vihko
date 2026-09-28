@@ -37,6 +37,24 @@ async function anon(app: { request: (p: string, i: RequestInit) => Response | Pr
   return { status: res.status, body: await res.json().catch(() => null) as any, cookie: res.headers.get('set-cookie') }
 }
 
+// Names become keys of the grants (and other maps keyed by name): the names
+// JavaScript objects already have would be dropped or misread there. The
+// values are the case under test, hence literal.
+test('names objects already have are no user or group name, in any case', async () => {
+  const s = await setup()
+  try {
+    for (const name of ['__proto__', 'constructor', 'prototype', 'toString', 'HasOwnProperty', '__PROTO__']) {
+      const user = await s.admin('POST', '/api/admin/users', { username: name, role: 'member' })
+      assert.deepEqual([user.status, user.body.error], [400, 'invalid_username'], name)
+      const group = await s.admin('POST', '/api/admin/groups', { name })
+      assert.deepEqual([group.status, group.body.error], [400, 'invalid_group_name'], name)
+    }
+    // One that only contains such a name is fine.
+    const fine = `${m.aUsername()}_constructor`
+    assert.equal((await s.admin('POST', '/api/admin/users', { username: fine, role: 'member' })).status, 201)
+  } finally { await s.close() }
+})
+
 test('an invitation: the admin creates someone, they choose their password with the link once, and they are in', async () => {
   const s = await setup()
   try {
