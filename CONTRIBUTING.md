@@ -12,6 +12,11 @@ privately, never in an issue: see [SECURITY.md](SECURITY.md).
   the server: only erasable syntax (no `enum`, `namespace` or parameter
   properties).
 - `npm ci`, `npm run typecheck`, `npm run build` (UI), `npm test`.
+- Dependencies' install scripts run only when `allowScripts` in the root
+  `package.json` approves them by name (today, `better-sqlite3`'s build).
+  `.npmrc` sets `strict-allow-scripts`, so a new one fails the install
+  (`ESTRICTALLOWSCRIPTS`) instead of running with a warning. Read the script
+  before approving it (`true`) or denying it (`false`) there.
 - UI development: run the server in one terminal
   (`VIHKO_NOTES_DIR=… VIHKO_STATE_DIR=… packages/server/src/cli.ts serve`)
   and `npm run dev -w @vihko/web` in another; Vite forwards `/api` and

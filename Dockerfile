@@ -17,7 +17,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 make g++ \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY package.json package-lock.json ./
+# .npmrc: only the install scripts package.json's allowScripts approves run.
+COPY package.json package-lock.json .npmrc ./
 COPY packages/core/package.json packages/core/
 COPY packages/server/package.json packages/server/
 # Server production dependencies only. No build step: Node runs the
