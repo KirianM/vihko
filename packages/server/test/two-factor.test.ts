@@ -405,6 +405,40 @@ test('confirming counts in the login limits: guessing the code with a session le
   } finally { await h.close() }
 })
 
+test('setting it up counts wrong codes too: a session alone can\'t guess the first code of a secret its owner is setting up', async () => {
+  const h = await setup()
+  try {
+    // The owner began it (with the password); someone with only the session guesses.
+    const s = await h.member('POST', '/api/account/2fa/setup', { password: h.users.member.password })
+    assert.equal(s.status, 200)
+    const secret = base32Decode(s.body.secret)
+    const t = h.clock.now.getTime()
+    const right = new Set([-1, 0, 1].map((step) => totp(secret, t + step * 30_000)))
+    /** A wrong code: any other six digits. */
+    const wrong = () => {
+      let c: string
+      do c = String(m.faker.number.int({ max: 999_999 })).padStart(6, '0'); while (right.has(c))
+      return c
+    }
+    const answers: number[] = []
+    for (let i = 0; i < 6; i++) answers.push((await h.member('POST', '/api/account/2fa/enable', { code: wrong() })).status)
+    assert.deepEqual(answers, [400, 400, 400, 400, 400, 429], 'five free failures, then a wait')
+    assert.equal((await h.member('POST', '/api/account/2fa/enable', { code: totp(secret, t) })).status, 429, 'refused while waiting, even the right code')
+
+    // The same on the sign-in's setup step (the policy requires it).
+    await h.admin('PUT', '/api/admin/settings', { twoFactor: 'required', confirm: h.users.admin.password })
+    const first = await signIn(h, 'admin')
+    assert.equal(first.body.step, 'setup')
+    const own = await send(h.app, 'POST', '/api/auth/2fa/setup', { pending: first.body.pending })
+    assert.equal(own.status, 200)
+    right.clear()
+    for (const step of [-1, 0, 1]) right.add(totp(base32Decode(own.body.secret), t + step * 30_000))
+    const statuses: number[] = []
+    for (let i = 0; i < 6; i++) statuses.push((await send(h.app, 'POST', '/api/auth/2fa/enable', { pending: first.body.pending, code: wrong() })).status)
+    assert.deepEqual(statuses, [400, 400, 400, 400, 400, 429])
+  } finally { await h.close() }
+})
+
 test('the CLI takes a second factor away (with reset-link, the way back for an admin who lost password and phone)', async () => {
   const h = await setup()
   try {

@@ -140,16 +140,30 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
    * One attempt at a secret (a code or a password), counted in the login
    * limits under `account`: null if it was right, the response otherwise.
    */
-  const attempt = async (c: Context, account: string, username: string, check: () => Promise<string | null> | string | null, status: 401 | 403): Promise<Response | null> => {
+  const attempt = async (c: Context, account: string, username: string, check: () => Promise<string | null> | string | null, status: 400 | 401 | 403, message?: string): Promise<Response | null> => {
     const a = limiter.begin({ ip: deps.ipOf(c), account, device: deviceOf(c, username) })
     if (!a.ok) return deps.tooMany(c, a.retryAfter)
     const error = await check()
     if (error) {
       const wait = a.failed()
-      return wait > 0 ? deps.tooMany(c, wait) : fail(c, status, error, error === 'wrong_password' ? 'the password is not right' : 'the code is not right, or was already used')
+      return wait > 0 ? deps.tooMany(c, wait) : fail(c, status, error, message ?? (error === 'wrong_password' ? 'the password is not right' : 'the code is not right, or was already used'))
     }
     a.passed()
     return null
+  }
+  /**
+   * The first code from a secret being set up: counted like any other code.
+   * Whoever holds only the session (not the password that began the setup,
+   * nor the app it was scanned into) gets no free guesses at making it theirs.
+   * The recovery codes if it was right; the response otherwise.
+   */
+  const finishSetup = async (c: Context, user: User, code: unknown): Promise<{ codes: string[] } | Response> => {
+    let codes = null as string[] | null
+    const refused = await attempt(c, secondFactorAccount(user.username), user.username, () => {
+      codes = twoFactor.finishSetup(user.id, code)
+      return codes ? null : 'invalid_code'
+    }, 400, 'the code is not right: check the time on the device')
+    return refused ?? { codes: codes! }
   }
   /** A code of theirs: TOTP, or also a recovery code (spent). Null if right; the error code otherwise. */
   const checkCode = (userId: string, code: unknown, recovery: boolean): string | null => {
@@ -225,11 +239,11 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
         const b = await body(c)
         const user = who(b.pending, 'setup')
         if (!user) return expired(c)
-        const codes = twoFactor.finishSetup(user.id, b.code)
-        if (!codes) return fail(c, 400, 'invalid_code', 'the code is not right: check the time on the device')
+        const done = await finishSetup(c, user, b.code)
+        if (done instanceof Response) return done
         pending.end(b.pending as string)
         startSession(c, user)
-        return c.json({ user, recoveryCodes: codes })
+        return c.json({ user, recoveryCodes: done.codes })
       })
     },
 
@@ -261,9 +275,9 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
       app.post('/api/account/2fa/enable', async (c) => {
         const off = offered(c)
         if (off) return off
-        const codes = twoFactor.finishSetup(me(c).id, (await body(c)).code)
-        if (!codes) return fail(c, 400, 'invalid_code', 'the code is not right: check the time on the device')
-        return c.json({ recoveryCodes: codes })
+        const done = await finishSetup(c, me(c), (await body(c)).code)
+        if (done instanceof Response) return done
+        return c.json({ recoveryCodes: done.codes })
       })
 
       // New recovery codes: a current code, or the password (for whoever used
