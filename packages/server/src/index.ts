@@ -40,7 +40,7 @@ export { ApiKeys, KEY_PREFIX, KeyError, LAST_USED_EVERY_MS, ROTATION_GRACE_MS, c
 export { Integrations, IntegrationsError, integrationsLockedFrom, type IntegrationSettings, type IntegrationsView } from './integrations.ts'
 export { RequestError, SUBSTITUTIONS, ScopedNotes, nowHiddenMessage, type EditPreview, type NowHidden, type OutgoingLink, type ResolvedLink, type ScopedDeps, type ScopedMoveReport, type ScopedRevertReport, type Written } from './scoped.ts'
 export { historyFor } from './agentHistory.ts'
-export { MCP_PATH, mountMcp, type McpOptions } from './mcp/server.ts'
+export { MCP_PATH, markIcons, mountMcp, type McpIcon, type McpOptions } from './mcp/server.ts'
 export { TextCache } from './mcp/texts.ts'
 export { TOOL_NEEDS, toolData } from './mcp/tools.ts'
 export { ROUTES, ROUTE_NEEDS, keyRouteClass, type RouteClass, type RouteNeeds } from './http/routes.ts'

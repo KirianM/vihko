@@ -2,9 +2,10 @@
 // leak tests): a small vault built for them, the history (managed, short
 // timings), the API with keys, and two users signed in: an admin and a
 // member (new ones every time, _people.ts).
+import { randomBytes } from 'node:crypto'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, mountMcp, openIndex, openState, toolData, type ClientMetadataFetcher, type Runtime } from '@vihko/server'
+import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, Profiles, Workspace, createServer, markIcons, mountMcp, openIndex, openState, toolData, type ClientMetadataFetcher, type Runtime } from '@vihko/server'
 import { Client, StreamableHTTPClientTransport, type VersionNegotiationMode } from '@modelcontextprotocol/client'
 import { tempDir } from './_tmp.ts'
 import { withEveryone } from './_permissions.ts'
@@ -71,10 +72,14 @@ export async function setup(opts: AgentSetup = {}) {
     webDir = join(dir, 'web')
     mkdirSync(webDir)
     writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
+    // The mark as the build leaves it: any bytes stand in for the drawing.
+    writeFileSync(join(webDir, 'favicon.svg'), randomBytes(64))
+    mkdirSync(join(webDir, 'icons'))
+    writeFileSync(join(webDir, 'icons', 'icon-192.png'), randomBytes(64))
   }
   const { app, services } = createServer({
     auth, profiles, workspace, notes, index, indexer, notesDir, runtime, history, keys, integrations, now: () => clock.now, publicUrl: opts.publicUrl ?? null, webDir, clientMetadata: opts.clientMetadata,
-    routes: (a, s) => { mountMcp(a, s, { auth, workspace, pollMs: 25 }) },
+    routes: (a, s) => { mountMcp(a, s, { auth, workspace, pollMs: 25, icons: markIcons(webDir) }) },
   })
 
   const cookies = {} as Record<keyof typeof users, string>
@@ -159,5 +164,5 @@ export async function setup(opts: AgentSetup = {}) {
     state.close()
     rmSync(dir, { recursive: true, force: true })
   }
-  return { dir, notesDir, index, app, services, cookies, auth, keys, integrations, history, notes, indexer, runtime, workspace, users, clock, as, admin, member: as('member'), withKey, newKey, enableApi, enableMcp, mcp, settle, url, close }
+  return { dir, notesDir, webDir, index, app, services, cookies, auth, keys, integrations, history, notes, indexer, runtime, workspace, users, clock, as, admin, member: as('member'), withKey, newKey, enableApi, enableMcp, mcp, settle, url, close }
 }

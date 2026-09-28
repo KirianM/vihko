@@ -1,6 +1,13 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/mark-dark.svg">
+  <img src=".github/assets/mark-light.svg" alt="" width="72" height="72">
+</picture>
+
 # vihko
 
-> *Vihko* is Finnish for "notebook". Say it VIH-koh.
+> *Vihko* is Finnish for "notebook". Say it VIH-koh. The mark is one seen
+> end-on, open on its spine, with the diamond that marks an AI agent's work
+> in the app.
 
 A self-hosted, open source notes system over plain Markdown files, with its own
 web UI, multiple users, live collaboration, and a server-side index you can

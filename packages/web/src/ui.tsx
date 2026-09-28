@@ -6,10 +6,10 @@ import { useTheme } from './theme.ts'
 
 export function Mark({ size = 22 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M4 20c4-1 7-4 8-9 1 5 4 8 8 9" />
-      <path d="M12 11V3" />
-      <circle cx="12" cy="3" r="1" />
+    // A notebook open on its spine, seen end-on (the V), and the agents' diamond above it.
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2.5 6 H7 L12 13.5 L17 6 H21.5 L12 20.5 Z" />
+      <path d="M12 3.5 L14.5 6 L12 8.5 L9.5 6 Z" />
     </svg>
   )
 }

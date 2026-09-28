@@ -184,6 +184,27 @@ test('the instructions: who the key acts for and what it may do, and the workspa
   } finally { await h.close() }
 })
 
+test('the server\'s icon: the built UI\'s mark and app icon, as data URIs; none without a UI', async () => {
+  const h = await setup({ files: FILES, ui: true })
+  try {
+    await h.enableMcp()
+    const c = await h.mcp((await h.newKey({ name: m.aKeyName() })).token)
+    const bytes = (path: string) => readFileSync(join(h.webDir!, path)).toString('base64')
+    assert.deepEqual(c.client.getServerVersion()?.icons, [
+      { src: `data:image/png;base64,${bytes('icons/icon-192.png')}`, mimeType: 'image/png', sizes: ['192x192'] },
+      { src: `data:image/svg+xml;base64,${bytes('favicon.svg')}`, mimeType: 'image/svg+xml', sizes: ['any'] },
+    ])
+    await c.close()
+  } finally { await h.close() }
+  const bare = await setup({ files: FILES })
+  try {
+    await bare.enableMcp()
+    const c = await bare.mcp((await bare.newKey({ name: m.aKeyName() })).token)
+    assert.equal(c.client.getServerVersion()?.icons, undefined)
+    await c.close()
+  } finally { await bare.close() }
+})
+
 test('reading: search, get_note, list_folder, related and resolve_link', async () => {
   const h = await setup({ files: FILES })
   try {

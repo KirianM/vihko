@@ -15,8 +15,8 @@ const tokens = JSON.parse(readFileSync(here('src/theme/tokens.json'), 'utf8')) a
 const color = (name: string) => (tokens.color.tokens.find((t) => t.name === name)!.value as Record<string, string>).light!
 const bg = color('bg')
 const accent = color('accent')
-// The mark's shapes (the same as Mark in src/ui.tsx), without the favicon's colour.
-const shapes = readFileSync(here('public/favicon.svg'), 'utf8').match(/<svg[^>]*>([\s\S]*)<\/svg>/)![1]!
+// The mark's shapes (the same as Mark in src/ui.tsx), without the favicon's colour and its dark-tab style.
+const shapes = readFileSync(here('public/favicon.svg'), 'utf8').match(/<svg[^>]*>([\s\S]*)<\/svg>/)![1]!.replace(/<style>[\s\S]*?<\/style>/, '')
 
 /**
  * @param mark share of the side taken by the mark (maskable icons keep it inside the central safe circle)
@@ -27,7 +27,7 @@ const svg = (size: number, mark: number, radius: number) => {
   const o = (size - m) / 2
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
   <rect width="${size}" height="${size}" rx="${size * radius}" fill="${bg}"/>
-  <svg x="${o}" y="${o}" width="${m}" height="${m}" viewBox="0 0 24 24" fill="none" stroke="${accent}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${shapes}</svg>
+  <svg x="${o}" y="${o}" width="${m}" height="${m}" viewBox="0 0 24 24" color="${accent}" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round">${shapes}</svg>
 </svg>`
 }
 
