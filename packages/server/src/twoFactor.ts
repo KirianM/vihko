@@ -9,8 +9,12 @@
 //   once a code from it has been verified (Trilium's wizard): an app that
 //   was never scanned can't lock anyone out. Doing it again replaces the
 //   authenticator (the old one works until the new one is verified).
-// - Recovery codes are kept only as their sha256 (with the user's id), and
-//   each one works once. Making new ones ends the old ones.
+// - Recovery codes are kept only as a slow hash (auth.ts `slowHash`: the
+//   password's argon2id), with one salt for each batch of ten: a copy of
+//   state.db doesn't give them away cheaply, and checking a guess takes one
+//   slow hash, compared with every code of the batch. Codes made before that
+//   (a sha256 with the user's id) still work until new ones replace them.
+//   Each one works once. Making new ones ends the old ones.
 // - The TOTP secret has to be kept (it computes the codes), in state.db,
 //   which is backed up and never served. With VIHKO_SECRET_KEY (secretKey.ts)
 //   it's kept encrypted, and one encrypted with another key (or with none
@@ -20,6 +24,7 @@
 //   or disabled. Disabled, nobody new sets one up; whoever has one is still
 //   asked for it (D-040 3.4a).
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
+import { hashLike, sameText, slowHash } from './auth.ts'
 import type { Db } from './db.ts'
 import { qrCode, type QrCode } from './qr.ts'
 import { isSealed, type SecretBox } from './secretKey.ts'
@@ -143,7 +148,33 @@ export interface SetupData {
 /** A code checked: `used` is a TOTP code already accepted once (or an earlier one). */
 export type CodeResult = { ok: true; recovery: boolean; recoveryCodesLeft: number } | { ok: false; reason: 'invalid' | 'used' }
 
-const recoveryHash = (userId: string, code: string) => createHash('sha256').update(`${userId}\n${code}`).digest('hex')
+/** How recovery codes were kept before D-046.4: a sha256 with the user's id (hex). */
+const legacyRecoveryHash = (userId: string, code: string) => createHash('sha256').update(`${userId}\n${code}`).digest('hex')
+const LEGACY_RECOVERY = /^[0-9a-f]{64}$/
+
+/**
+ * The unused recovery code among `stored` that `code` is (a code from
+ * `asRecovery`), or null. One slow hash for each salt among them (a batch has
+ * one), compared with every code that has it; the old kind, by its sha256.
+ * Every stored code is compared, in constant time.
+ */
+async function matchRecovery(userId: string, code: string, stored: string[]): Promise<string | null> {
+  const bySalt = new Map<string, string[]>()
+  for (const s of stored) {
+    if (LEGACY_RECOVERY.test(s)) continue
+    const salted = s.slice(0, s.lastIndexOf('$'))
+    bySalt.set(salted, [...(bySalt.get(salted) ?? []), s])
+  }
+  let found: string | null = null
+  const legacy = legacyRecoveryHash(userId, code)
+  for (const s of stored) if (LEGACY_RECOVERY.test(s) && sameText(legacy, s) && found === null) found = s
+  for (const batch of bySalt.values()) {
+    const guess = await hashLike(code, batch[0]!)
+    if (guess === null) continue
+    for (const s of batch) if (sameText(guess, s) && found === null) found = s
+  }
+  return found
+}
 
 export class TwoFactor {
   private db: Db
@@ -234,27 +265,30 @@ export class TwoFactor {
    * it theirs (replacing an earlier one) with new recovery codes, which come
    * back this once. Null if the code is wrong, or there is nothing being set up.
    */
-  finishSetup(userId: string, code: unknown): string[] | null {
+  async finishSetup(userId: string, code: unknown): Promise<string[] | null> {
     const p = this.pending.get(userId)
     const c = asTotp(code)
     const now = this.now()
     if (!p || p.until <= now.getTime() || !c) return null
     const step = matchStep(p.secret, c, now.getTime())
     if (step === null) return null
+    // Gone before anything waits: the same code sent twice sets it up once.
     this.pending.delete(userId)
-    return this.db.transaction(() => {
+    const batch = await recoveryBatch()
+    this.db.transaction(() => {
       this.db.prepare(`insert into two_factor (user_id, secret, enabled_at, last_step) values (?, ?, ?, ?)
         on conflict(user_id) do update set secret = excluded.secret, enabled_at = excluded.enabled_at, last_step = excluded.last_step`)
         .run(userId, this.stored(userId, base32Encode(p.secret)), now.toISOString(), step)
-      return this.newRecoveryCodes(userId)
+      this.putRecoveryCodes(userId, batch.hashes)
     })()
+    return batch.codes
   }
 
   /**
    * Checks a code: a TOTP code, or (with `recovery`) a recovery code, which
    * is spent. A TOTP code is accepted once.
    */
-  verify(userId: string, code: unknown, opts: { recovery?: boolean } = {}): CodeResult {
+  async verify(userId: string, code: unknown, opts: { recovery?: boolean } = {}): Promise<CodeResult> {
     const row = this.db.prepare('select secret, last_step from two_factor where user_id = ?').get(userId) as { secret: string; last_step: number } | undefined
     if (!row) return { ok: false, reason: 'invalid' }
     const t = asTotp(code)
@@ -269,15 +303,25 @@ export class TwoFactor {
     }
     const r = opts.recovery ? asRecovery(code) : null
     if (!r) return { ok: false, reason: 'invalid' }
-    const spent = this.db.prepare('update recovery_codes set used_at = ? where user_id = ? and code_hash = ? and used_at is null')
-      .run(this.now().toISOString(), userId, recoveryHash(userId, r)).changes > 0
+    const unused = (this.db.prepare('select code_hash from recovery_codes where user_id = ? and used_at is null').all(userId) as { code_hash: string }[]).map((x) => x.code_hash)
+    const match = await matchRecovery(userId, r, unused)
+    // Spent only if still unused now: one request wins if two race with the same code.
+    const spent = match !== null && this.db.prepare('update recovery_codes set used_at = ? where user_id = ? and code_hash = ? and used_at is null')
+      .run(this.now().toISOString(), userId, match).changes > 0
     return spent ? { ok: true, recovery: true, recoveryCodesLeft: this.status(userId).recoveryCodesLeft } : { ok: false, reason: 'invalid' }
   }
 
   /** New recovery codes (the old ones stop working), shown this once. Null if they have no second factor. */
-  regenerate(userId: string): string[] | null {
+  async regenerate(userId: string): Promise<string[] | null> {
     if (!this.enabled(userId)) return null
-    return this.db.transaction(() => this.newRecoveryCodes(userId))()
+    const batch = await recoveryBatch()
+    // Taken away while the codes were being hashed: nothing to make them for.
+    const made = this.db.transaction(() => {
+      if (!this.enabled(userId)) return false
+      this.putRecoveryCodes(userId, batch.hashes)
+      return true
+    })()
+    return made ? batch.codes : null
   }
 
   /** Takes the second factor away (theirs, or the admin's reset). Whether there was one. */
@@ -289,15 +333,27 @@ export class TwoFactor {
     })()
   }
 
-  private newRecoveryCodes(userId: string): string[] {
-    const codes = Array.from({ length: RECOVERY_CODES }, () => {
-      let c = ''
-      for (let i = 0; i < 10; i++) c += RECOVERY_ALPHABET[randomInt(RECOVERY_ALPHABET.length)]
-      return c
-    })
+  /** A user's recovery codes become these (hashes from `recoveryBatch`): the ones before end. In a transaction. */
+  private putRecoveryCodes(userId: string, hashes: string[]) {
     this.db.prepare('delete from recovery_codes where user_id = ?').run(userId)
     const put = this.db.prepare('insert into recovery_codes (user_id, code_hash) values (?, ?)')
-    for (const c of codes) put.run(userId, recoveryHash(userId, c))
-    return codes.map((c) => `${c.slice(0, 5)}-${c.slice(5)}`)
+    for (const h of hashes) put.run(userId, h)
   }
+}
+
+/**
+ * Ten new recovery codes, as they're shown (with a dash in the middle), and
+ * their slow hashes with one salt for all of them (D-046.4).
+ */
+async function recoveryBatch(): Promise<{ codes: string[]; hashes: string[] }> {
+  const codes = new Set<string>()
+  // Never the same one twice in a batch (it's stored once per user).
+  while (codes.size < RECOVERY_CODES) {
+    let c = ''
+    for (let i = 0; i < 10; i++) c += RECOVERY_ALPHABET[randomInt(RECOVERY_ALPHABET.length)]
+    codes.add(c)
+  }
+  const salt = randomBytes(16)
+  const hashes = await Promise.all([...codes].map((c) => slowHash(c, salt)))
+  return { codes: [...codes].map((c) => `${c.slice(0, 5)}-${c.slice(5)}`), hashes }
 }

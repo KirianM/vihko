@@ -222,7 +222,7 @@ test('HTTP: 429 too_many_attempts with Retry-After, without checking the passwor
   assert.ok(cookieOf(ok.headers, SESSION_COOKIE))
   const device = ok.headers.getSetCookie().find((c) => c.startsWith(DEVICE_COOKIE + '='))!
   assert.match(device, /HttpOnly/)
-  assert.match(device, /Path=\/api\/auth/)
+  assert.match(device, /Path=\/api(;|$)/)
   for (let i = 0; i < 5; i++) assert.equal((await s.signIn('203.0.113.9', admin.username, wrong)).status, 401, 'cleared by the success')
 })
 
@@ -254,6 +254,40 @@ test('HTTP: the owner signs in from a known browser while someone else guesses t
   const known = await s.signIn('192.168.1.20', admin.username, admin.password, { cookie: device })
   assert.equal(known.status, 200, 'the known browser does not')
   assert.equal((await s.signIn('192.168.1.20', admin.username, admin.password, { cookie: `${DEVICE_COOKIE}=${m.aSecret(20)}.${m.aSecret(20)}` })).status, 429)
+})
+
+/**
+ * The cookies a browser keeps from some responses, and sends back as it
+ * would: each only to the paths its Path covers (RFC 6265 §5.1.4).
+ */
+function browser() {
+  const jar = new Map<string, { value: string; path: string }>()
+  return {
+    keep(headers: Headers) {
+      for (const c of headers.getSetCookie()) {
+        const [pair = '', ...attrs] = c.split(/;\s*/)
+        const [name = '', value = ''] = pair.split('=')
+        const path = attrs.find((a) => /^path=/i.test(a))?.slice(5) ?? '/'
+        if (/max-age=0/i.test(c)) jar.delete(`${name} ${path}`)
+        else jar.set(`${name} ${path}`, { value, path })
+      }
+    },
+    cookie(to: string): string {
+      return [...jar].filter(([, c]) => to === c.path || to.startsWith(c.path.endsWith('/') ? c.path : c.path + '/'))
+        .map(([k, c]) => `${k.split(' ')[0]}=${c.value}`).join('; ')
+    },
+  }
+}
+
+test('HTTP: the known browser confirms at the moment (a new key) while someone else guesses the name', async () => {
+  const s = await server()
+  const admin = m.aUser({ role: 'admin' })
+  await s.auth.createUser(admin.username, admin.password, admin.role)
+  const b = browser()
+  b.keep((await s.signIn('192.168.1.10', admin.username, admin.password)).headers)
+  for (let i = 0; i < 40; i++) await s.signIn(`10.0.${i}.1`, admin.username, m.aPassword())
+  const key = await s.send('192.168.1.20', 'POST', '/api/keys', { name: m.aKeyName(), confirm: admin.password }, { cookie: b.cookie('/api/keys') })
+  assert.equal(key.status, 201, 'the device cookie reaches the confirmation too')
 })
 
 test('HTTP: invented names cannot fill memory', async () => {

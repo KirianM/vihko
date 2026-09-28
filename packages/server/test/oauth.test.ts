@@ -248,6 +248,11 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     assert.equal(keys.length, 1)
     assert.equal(keys[0].id, key.id)
     assert.deepEqual([keys[0].name, keys[0].canWrite, keys[0].folders], [renamed, true, [FOLDER.own]])
+    // Edited in «Agents and API»: narrowing it is free; letting it reach more is confirmed, as a new key (D-046.2).
+    assert.equal((await h.admin('PATCH', `/api/keys/${key.id}`, { canWrite: false })).status, 200)
+    const wider = await h.admin('PATCH', `/api/keys/${key.id}`, { folders: [] })
+    assert.deepEqual([wider.status, wider.body.error], [400, 'confirmation_required'])
+    assert.deepEqual((await h.admin('PATCH', `/api/keys/${key.id}`, { canWrite: true, confirm: h.users.admin.password })).body.key.canWrite, true)
     // The history names the authorization, on the admin's behalf, via OAuth.
     await h.settle()
     const versions = (await h.admin('GET', h.url('/api/history/versions', { path: written }))).body.versions

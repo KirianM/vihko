@@ -77,6 +77,21 @@ test('an invitation: the admin creates someone, they choose their password with 
   }
 })
 
+test('the API never sets a new user\'s password: they choose it with their link (the CLI is for whoever operates the server)', async () => {
+  const s = await setup()
+  try {
+    for (const role of ['member', 'admin'] as const) {
+      const newcomer = m.aUser({ role })
+      const refused = await s.admin('POST', '/api/admin/users', { username: newcomer.username, role, password: newcomer.password, confirm: s.users.admin.password })
+      assert.deepEqual([refused.status, refused.body.error], [400, 'invalid'], role)
+      assert.ok(!(await s.admin('GET', '/api/admin/users')).body.users.some((u: any) => u.username === newcomer.username), 'nobody created')
+      assert.equal(await login(s.app, newcomer.username, newcomer.password), 401)
+    }
+  } finally {
+    await s.close()
+  }
+})
+
 test('links: a new one ends the previous one, they expire after 7 days, a reset ends the sessions, and none for someone disabled', async () => {
   const s = await setup()
   try {
@@ -150,7 +165,7 @@ test('the last active admin can\'t be demoted, disabled or deleted; with another
     }
     // An invited admin can't sign in yet: they don't count.
     const second = m.aUser({ role: 'admin' })
-    const invited = (await s.admin('POST', '/api/admin/users', { username: second.username, role: 'admin' })).body
+    const invited = (await s.admin('POST', '/api/admin/users', { username: second.username, role: 'admin', confirm })).body
     assert.equal((await s.admin('PUT', `/api/admin/users/${id}/role`, { role: 'member', confirm })).body.error, 'last_admin')
     await anon(s.app, 'POST', `/api/invite/${invited.link.token}`, { password: second.password })
     const demoted = await s.admin('PUT', `/api/admin/users/${id}/role`, { role: 'member', confirm })
@@ -301,6 +316,24 @@ test('one\'s own account: sessions (the current one marked), closing the others,
     assert.equal((await s.member('GET', '/api/tree')).status, 200, 'this one stays')
     assert.equal(await login(s.app, username, password), 401)
     assert.equal(typeof await login(s.app, username, renewed), 'string')
+  } finally {
+    await s.close()
+  }
+})
+
+test('a new password of one\'s own ends a reset link made for them: nobody gets in with it afterwards', async () => {
+  const s = await setup()
+  try {
+    const { id, username, password } = s.users.member
+    const reset = (await s.admin('POST', `/api/admin/users/${id}/link`, { confirm: s.users.admin.password })).body.link
+    assert.equal(reset.kind, 'reset')
+    const renewed = m.aPassword()
+    assert.equal((await s.member('POST', '/api/auth/password', { current: password, password: renewed })).status, 200)
+    assert.deepEqual((await anon(s.app, 'GET', `/api/invite/${reset.token}`)).body.error, 'invalid_link')
+    const taken = await anon(s.app, 'POST', `/api/invite/${reset.token}`, { password: m.aPassword() })
+    assert.deepEqual([taken.status, taken.body.error], [404, 'invalid_link'])
+    assert.equal(typeof await login(s.app, username, renewed), 'string', 'their own password still works')
+    assert.equal((await s.admin('GET', '/api/admin/users')).body.users.find((u: any) => u.id === id).link, null)
   } finally {
     await s.close()
   }

@@ -45,8 +45,9 @@ test('disabling someone ends their open editor and their key at once', async () 
   const srv = await startServer(env)
   try {
     const admin = await login(srv)
-    const created = await api(srv, admin, 'POST', '/api/admin/users', { username: member.username, role: 'member', password: member.password })
+    const created = await api(srv, admin, 'POST', '/api/admin/users', { username: member.username, role: 'member' })
     assert.equal(created.status, 201)
+    assert.equal((await api(srv, '', 'POST', `/api/invite/${created.body.link.token}`, { password: member.password })).status, 200)
     assert.equal((await api(srv, admin, 'PUT', '/api/admin/integrations', { api: true })).status, 200)
     const session = await signIn(srv, member.username, member.password)
     const key = { authorization: `Bearer ${(await api(srv, session, 'POST', '/api/keys', { name: m.aKeyName(), canWrite: true, confirm: member.password })).body.token}` }

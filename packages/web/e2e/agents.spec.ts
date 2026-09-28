@@ -1,6 +1,7 @@
 // «Agents and API» (D-035): the admin turns the integrations on, creates a
 // read-only key limited to a folder (shown once, with its MCP
-// configurations), uses it over HTTP, revokes it; a member without the
+// configurations), uses it over HTTP, edits it (letting it write is
+// confirmed, a shorter expiry isn't), revokes it; a member without the
 // setting can't create keys; the server's lock (VIHKO_INTEGRATIONS=off); and
 // the page on a phone, in dark mode.
 import { expect, test, type Browser, type Page } from '@playwright/test'
@@ -179,14 +180,26 @@ test('the key works over HTTP: read-only in its folder; edited, it writes there 
   await page.goto('/?view=agents')
   await expect(card(page, KEY)).toContainText('por la API')
 
-  // Edited: it may write now, still only in its folder, and an expiry.
+  // Edited: an expiry lets it do less, and asks nothing more.
   await card(page, KEY).getByRole('button', { name: 'Editar' }).click()
   const dialog = page.getByRole('dialog', { name: `Editar «${KEY}»` })
   await expect(dialog.getByRole('radio', { name: /Solo estas carpetas/ })).toBeChecked()
   await expect(dialog.getByRole('checkbox', { name: 'proyectos', exact: true })).toBeChecked()
   await expect(dialog.getByRole('combobox', { name: 'Caducidad' })).toHaveValue('keep')
-  await dialog.getByRole('checkbox', { name: /Puede escribir/ }).check()
   await dialog.getByRole('combobox', { name: 'Caducidad' }).selectOption('7')
+  await expect(dialog.getByLabel('Tu contraseña')).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Guardar cambios' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(card(page, KEY)).toContainText('Caduca el')
+  // It may write now, still only in its folder: that lets it do more, and is confirmed as a new key is (D-046.2).
+  await card(page, KEY).getByRole('button', { name: 'Editar' }).click()
+  await dialog.getByRole('checkbox', { name: /Puede escribir/ }).check()
+  const secret = dialog.getByLabel('Tu contraseña')
+  await expect(secret).toBeVisible()
+  await expect(dialog).toContainText('Con este cambio la clave podrá hacer más')
+  await expect(dialog.getByRole('button', { name: 'Guardar cambios' })).toBeDisabled()
+  await page.screenshot({ path: `${SHOTS}/agents-edit-wider.png`, animations: 'disabled' })
+  await secret.fill(ADMIN.password)
   await dialog.getByRole('button', { name: 'Guardar cambios' }).click()
   await expect(dialog).toBeHidden()
   await expect(card(page, KEY)).toContainText('Lee y escribe')

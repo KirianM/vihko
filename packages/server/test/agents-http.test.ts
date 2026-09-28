@@ -89,6 +89,39 @@ test('VIHKO_INTEGRATIONS=off: keys get 404 whatever state.db says, and the switc
   } finally { await h.close() }
 })
 
+test('changing a key: letting it do more is confirmed at the moment, as a new key is; narrowing or renaming it is not (D-046.2)', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    const password = h.users.admin.password
+    const now = h.clock.now.getTime()
+    const at = (days: number) => new Date(now + days * 86_400_000).toISOString()
+    const key = (await h.admin('POST', '/api/keys', { confirm: password, name: m.aKeyName(), folders: [DIR], expiresAt: at(30) })).body.key
+    const patch = (b: Record<string, unknown>) => h.admin('PATCH', `/api/keys/${key.id}`, b)
+    const current = async () => (await h.admin('GET', '/api/keys')).body.keys.find((k: any) => k.id === key.id)
+
+    // Free: a new name, the same settings, an earlier expiry.
+    const renamed = m.aKeyName()
+    assert.equal((await patch({ name: renamed, canWrite: false, folders: [DIR] })).body.key.name, renamed)
+    assert.equal((await patch({ expiresAt: at(20) })).body.key.expiresAt, at(20))
+
+    // Each way of letting it do more is asked for, and nothing changes until it's confirmed (not even the name sent with it).
+    const before = await current()
+    for (const change of [{ canWrite: true }, { folders: [] }, { folders: [DIR, OUT_DIR] }, { folders: [OUT_DIR] }, { expiresAt: at(25) }, { expiresAt: null }]) {
+      const missing = await patch({ ...change, name: m.aKeyName() })
+      assert.deepEqual([missing.status, missing.body.error, missing.body.with], [400, 'confirmation_required', 'password'], JSON.stringify(change))
+    }
+    // A wrong password doesn't do (and counts in the login limits, as any confirmation).
+    assert.equal((await patch({ canWrite: true, confirm: m.aPassword() })).body.error, 'wrong_password')
+    assert.deepEqual(await current(), before)
+    // A change that can't be made is refused before anything is asked.
+    assert.equal((await patch({ folders: [`../${OUT_DIR}`] })).body.error, 'invalid_path')
+    const wider = await patch({ canWrite: true, folders: [], expiresAt: null, confirm: password })
+    assert.deepEqual([wider.status, wider.body.key.canWrite, wider.body.key.folders, wider.body.key.expiresAt], [200, true, [], null])
+    // Narrowing it back asks nothing.
+    assert.equal((await patch({ canWrite: false, folders: [DIR], expiresAt: at(7) })).status, 200)
+  } finally { await h.close() }
+})
+
 test('keys over the UI: created once with their token, listed without it, changed and revoked by their owner; the admin sees and revokes all', async () => {
   const h = await setup({ files: FILES })
   try {
@@ -104,7 +137,7 @@ test('keys over the UI: created once with their token, listed without it, change
     assert.deepEqual((await h.admin('POST', '/api/keys', { confirm: h.users.admin.password, name: '' })).body.error, 'invalid')
     assert.deepEqual((await h.admin('POST', '/api/keys', { confirm: h.users.admin.password, name: m.aKeyName(), folders: [`../${OUT_DIR}`] })).body.error, 'invalid_path')
     const renamed = m.aKeyName()
-    const changed = await h.admin('PATCH', `/api/keys/${key.id}`, { name: renamed, canWrite: false, folders: [] })
+    const changed = await h.admin('PATCH', `/api/keys/${key.id}`, { name: renamed, canWrite: false, folders: [], confirm: h.users.admin.password })
     assert.deepEqual([changed.body.key.name, changed.body.key.canWrite, changed.body.key.folders], [renamed, false, []])
 
     // The member's keys are theirs: the admin sees them with ?all=1 and may revoke, not change them.

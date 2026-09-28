@@ -55,7 +55,10 @@ send it yourself over a channel you trust.
 1. Go to Preferences → Users and groups → **New user**.
 2. Type a username and choose a role. The username is 2 to 64 letters,
    digits, `.`, `_` or `-`, and can't be changed later. Names are unique
-   ignoring case (`Noa` and `noa` are the same person).
+   ignoring case (`Noa` and `noa` are the same person). A new admin, like
+   making someone admin, asks you to confirm at the moment (see
+   [Confirming at the moment](#confirming-at-the-moment)), and the other
+   admins get a notice.
 3. Press «Create and get the link», copy the link and send it.
 
 The person opens the link, chooses their password (at least 10 characters) and
@@ -76,7 +79,9 @@ have no access to any folder yet» instead of the folder tree.
 ### From the command line
 
 The same without the UI, inside the container (`docker compose exec vihko …`
-while it runs):
+while it runs). This is the only way to give someone a password yourself:
+it's for whoever runs the server, and neither the UI nor vihko's HTTP API
+does it (they only make links).
 
 ```sh
 # Create a user; the password is read from standard input
@@ -103,7 +108,8 @@ still asked for after the reset.
 ## Passwords and sessions
 
 - **Changing your password:** Preferences → Account → Password. It asks for the
-  current one and signs out your other sessions.
+  current one, signs out your other sessions, and ends any reset link made for
+  you.
 - **Sessions:** Account lists the browsers you're signed in from. A session
   unused for 30 days expires. You can sign out any of them, or all the others.
 - **A forgotten password:** the admin makes a reset link (the user's
@@ -283,7 +289,8 @@ Both are in the user's «Actions» menu.
 - Their agent keys and the apps they authorized stop working while they're
   disabled.
 - Their permissions, keys and groups are kept. Enabling them again makes
-  everything work again (they sign in again).
+  everything work again (they sign in again). Enabling an admin asks you to
+  confirm at the moment, as making someone admin does.
 
 **Delete** (only someone already disabled; it can't be undone):
 
@@ -343,14 +350,17 @@ From then on, signing in asks for the app's code after the password. «No phone?
 Use a recovery code» takes one of those instead; each works once. In Account you
 can make new recovery codes (the old ones stop working), change to another app
 (the old one works until the new one is verified) or turn it off (unless it's
-required).
+required). Each of these asks for a code of your second factor, the app's or a
+recovery code, and never for your password: someone who found your session
+open, and knows your password, still can't take your second factor over.
 
 If the app's codes never work, check that the phone sets its time
 automatically.
 
 ### Lost phone
 
-- With a recovery code: sign in with it, then change the app in Account.
+- With recovery codes: sign in with one, then change the app in Account with
+  another (and make new codes once the new app works).
 - Without one: ask an admin. In the user's «Actions», «Reset two-step
   verification» takes it away; the person signs in with their password alone
   and sets it up again (at once, if it's required). Their open sessions and
@@ -369,14 +379,20 @@ volume. How to set it, and what happens if it's lost or changed (vihko starts,
 alerts the admins, and those people use a recovery code or get their second
 factor reset), is in [Install](install.md).
 
+Recovery codes need no key: vihko keeps them as passwords are kept, only as a
+slow hash, so a copy of `state.db` doesn't give them away either. (Codes made
+by an earlier version were kept with a faster hash; they keep working, and
+making new ones replaces them.)
+
 ### Confirming at the moment
 
 Some actions ask you to prove it's you even though you're signed in: the
 app's code, or your password if you have no second factor.
 
-- creating or rotating an agent key, and authorizing an app (OAuth);
+- creating or rotating an agent key, changing one so it can do more, and
+  authorizing an app (OAuth);
 - an admin making a reset link for someone, resetting someone's second factor,
-  or changing someone's role;
+  changing someone's role, creating a new admin, or enabling a disabled one;
 - an admin changing the second-factor policy;
 - an admin purging from the history something they can't read.
 
@@ -419,6 +435,8 @@ when they sign in and in the alerts until they dismiss them:
 
 - an admin made a reset link for them, reset their second factor, or changed
   their role (the other admins get one too);
+- to every other admin: an admin created a new admin («Lead made Noa an
+  admin», as for a role change);
 - someone purged from the history a note or a version they wrote in (see
   [History](history.md#purging)).
 

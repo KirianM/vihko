@@ -6,7 +6,9 @@
 //   GET    /api/keys[?all=1]            this user's keys; with all=1, the admin gets everyone's
 //   POST   /api/keys                    { name, canWrite?, folders?, expiresAt?, confirm } → { key, token } (the token, once).
 //                                        `confirm`: the current TOTP code, or the password without a second factor (D-036)
-//   PATCH  /api/keys/:id                { name?, canWrite?, folders?, expiresAt? } its owner
+//   PATCH  /api/keys/:id                { name?, canWrite?, folders?, expiresAt?, confirm? } its owner (an OAuth authorization too).
+//                                        A change that lets it do more (writing, more folders, a later expiry or none)
+//                                        takes `confirm`, as a new key does (D-046.2); narrowing or renaming, nothing
 //   POST   /api/keys/:id/rotate         { confirm } → { key, token }: a new secret (once); the old one works 10 more minutes. Its owner
 //   DELETE /api/keys/:id                revokes it: its owner or the admin
 import type { Context, Hono } from 'hono'
@@ -82,7 +84,13 @@ export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
     const key = own(c)
     if (!mayCreate(c)) return c.json({ error: 'forbidden', message: 'members may not change keys here' }, 403)
     const b = await body(c)
-    return c.json({ key: keys.update(key.id, { name: b.name, canWrite: b.canWrite, folders: b.folders, expiresAt: b.expiresAt }) })
+    const input: KeyInput = { name: b.name, canWrite: b.canWrite, folders: b.folders, expiresAt: b.expiresAt }
+    // Letting it do more is as good as a new key: confirmed the same way (D-046.2).
+    if (keys.widens(key.id, input)) {
+      const refused = await deps.confirm(c, b.confirm)
+      if (refused) return refused
+    }
+    return c.json({ key: keys.update(key.id, input) })
   })
 
   // Only its owner: a new secret is theirs to see (the admin revokes, never rotates, someone else's).

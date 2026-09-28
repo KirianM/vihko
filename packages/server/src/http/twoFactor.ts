@@ -16,9 +16,11 @@
 //
 // With a session:
 //   GET  /api/account/2fa                   the policy, whether it's set up, recovery codes left, and what confirms (`code` or `password`)
-//   POST /api/account/2fa/setup {password}  a new secret (and its QR code) to set up or replace it
+//   POST /api/account/2fa/setup {password}  a new secret (and its QR code) to set it up
+//   POST /api/account/2fa/setup {code}      the same, to replace the authenticator: a code of the one in force
+//                                           (the app's, or a recovery code), never the password (D-046.3)
 //   POST /api/account/2fa/enable {code}     verifies a code from it: now it's theirs → { recoveryCodes } (shown once)
-//   POST /api/account/2fa/recovery {confirm}  new recovery codes; `confirm`: a current code or the password
+//   POST /api/account/2fa/recovery {confirm}  new recovery codes; `confirm`: the app's code or a recovery code (D-046.3)
 //   POST /api/account/2fa/disable {code}    only while the policy isn't `required`; a code or a recovery code
 //   POST /api/admin/users/:id/2fa/reset {confirm}  the vihko admin takes someone's second factor away
 //
@@ -41,7 +43,7 @@ import type { Access } from '../access.ts'
 import type { AdminSettings } from '../adminSettings.ts'
 import type { LoginLimiter } from '../loginLimit.ts'
 import type { Notices } from '../notices.ts'
-import { asTotp, type TwoFactor } from '../twoFactor.ts'
+import type { TwoFactor } from '../twoFactor.ts'
 import type { Users } from '../users.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
@@ -140,20 +142,34 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
    * One attempt at a secret (a code or a password), counted in the login
    * limits under `account`: null if it was right, the response otherwise.
    */
-  const attempt = async (c: Context, account: string, username: string, check: () => Promise<string | null> | string | null, status: 401 | 403): Promise<Response | null> => {
+  const attempt = async (c: Context, account: string, username: string, check: () => Promise<string | null> | string | null, status: 400 | 401 | 403, message?: string): Promise<Response | null> => {
     const a = limiter.begin({ ip: deps.ipOf(c), account, device: deviceOf(c, username) })
     if (!a.ok) return deps.tooMany(c, a.retryAfter)
     const error = await check()
     if (error) {
       const wait = a.failed()
-      return wait > 0 ? deps.tooMany(c, wait) : fail(c, status, error, error === 'wrong_password' ? 'the password is not right' : 'the code is not right, or was already used')
+      return wait > 0 ? deps.tooMany(c, wait) : fail(c, status, error, message ?? (error === 'wrong_password' ? 'the password is not right' : 'the code is not right, or was already used'))
     }
     a.passed()
     return null
   }
+  /**
+   * The first code from a secret being set up: counted like any other code.
+   * Whoever holds only the session (not the password that began the setup,
+   * nor the app it was scanned into) gets no free guesses at making it theirs.
+   * The recovery codes if it was right; the response otherwise.
+   */
+  const finishSetup = async (c: Context, user: User, code: unknown): Promise<{ codes: string[] } | Response> => {
+    let codes = null as string[] | null
+    const refused = await attempt(c, secondFactorAccount(user.username), user.username, async () => {
+      codes = await twoFactor.finishSetup(user.id, code)
+      return codes ? null : 'invalid_code'
+    }, 400, 'the code is not right: check the time on the device')
+    return refused ?? { codes: codes! }
+  }
   /** A code of theirs: TOTP, or also a recovery code (spent). Null if right; the error code otherwise. */
-  const checkCode = (userId: string, code: unknown, recovery: boolean): string | null => {
-    const r = twoFactor.verify(userId, code, { recovery })
+  const checkCode = async (userId: string, code: unknown, recovery: boolean): Promise<string | null> => {
+    const r = await twoFactor.verify(userId, code, { recovery })
     return r.ok ? null : r.reason === 'used' ? 'code_used' : 'invalid_code'
   }
 
@@ -203,8 +219,8 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
         if (!user) return expired(c)
         /** With a recovery code: how many are left, for the page to say so. */
         const recovery: { left?: number } = {}
-        const refused = await attempt(c, secondFactorAccount(user.username), user.username, () => {
-          const r = twoFactor.verify(user.id, b.code, { recovery: true })
+        const refused = await attempt(c, secondFactorAccount(user.username), user.username, async () => {
+          const r = await twoFactor.verify(user.id, b.code, { recovery: true })
           if (r.ok && r.recovery) recovery.left = r.recoveryCodesLeft
           return r.ok ? null : r.reason === 'used' ? 'code_used' : 'invalid_code'
         }, 401)
@@ -225,11 +241,11 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
         const b = await body(c)
         const user = who(b.pending, 'setup')
         if (!user) return expired(c)
-        const codes = twoFactor.finishSetup(user.id, b.code)
-        if (!codes) return fail(c, 400, 'invalid_code', 'the code is not right: check the time on the device')
+        const done = await finishSetup(c, user, b.code)
+        if (done instanceof Response) return done
         pending.end(b.pending as string)
         startSession(c, user)
-        return c.json({ user, recoveryCodes: codes })
+        return c.json({ user, recoveryCodes: done.codes })
       })
     },
 
@@ -241,19 +257,37 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
         ? fail(c, 409, 'two_factor_disabled', 'the admin turned the second factor off for new setups')
         : null)
 
+      /** Their password, counted as a sign-in's: null if right, the response otherwise. */
+      const withPassword = (c: Context<Env>, u: User, password: unknown) =>
+        attempt(c, u.username, u.username, async () => (typeof password === 'string' && (await auth.checkPassword(u.id, password)) ? null : 'wrong_password'), 403)
+      /**
+       * A code of their second factor (the app's, or a recovery code, which is
+       * spent), counted as the second step's: null if right, the response
+       * otherwise; none given, what is asked for.
+       */
+      const withCode = async (c: Context<Env>, u: User, code: unknown) => {
+        if (typeof code !== 'string' || !code.trim()) {
+          return c.json({ error: 'confirmation_required', message: 'confirm with a code of the second factor: the app\'s, or a recovery code', with: 'code' }, 400)
+        }
+        return attempt(c, secondFactorAccount(u.username), u.username, () => checkCode(u.id, code, true), 403)
+      }
+
       app.get('/api/account/2fa', (c) => {
         const u = me(c)
         return c.json({ policy: settings.twoFactorPolicy(), ...twoFactor.status(u.id), confirmWith: inForce(u.id) ? 'code' : 'password' })
       })
 
-      // Setting it up (or replacing the authenticator) asks for the password:
-      // a session left open must not be able to lock its owner out.
+      // Setting it up asks for the password: a session left open must not be
+      // able to lock its owner out. Replacing the authenticator asks for a
+      // code of the second factor in force (the app's, or a recovery code,
+      // spent), never the password, which a session left open may know too
+      // (D-046.3). Without phone or codes, the admin's reset is the way back.
       app.post('/api/account/2fa/setup', async (c) => {
         const off = offered(c)
         if (off) return off
         const u = me(c)
         const b = await body(c)
-        const refused = await attempt(c, u.username, u.username, async () => (typeof b.password === 'string' && (await auth.checkPassword(u.id, b.password)) ? null : 'wrong_password'), 403)
+        const refused = inForce(u.id) ? await withCode(c, u, b.code) : await withPassword(c, u, b.password)
         if (refused) return refused
         return c.json(twoFactor.beginSetup(u.id, u.username, host(c)))
       })
@@ -261,22 +295,19 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
       app.post('/api/account/2fa/enable', async (c) => {
         const off = offered(c)
         if (off) return off
-        const codes = twoFactor.finishSetup(me(c).id, (await body(c)).code)
-        if (!codes) return fail(c, 400, 'invalid_code', 'the code is not right: check the time on the device')
-        return c.json({ recoveryCodes: codes })
+        const done = await finishSetup(c, me(c), (await body(c)).code)
+        if (done instanceof Response) return done
+        return c.json({ recoveryCodes: done.codes })
       })
 
-      // New recovery codes: a current code, or the password (for whoever used
-      // up their codes, or is without their phone).
+      // New recovery codes: a code of the second factor (the app's, or a
+      // recovery code, spent), never the password (D-046.3).
       app.post('/api/account/2fa/recovery', async (c) => {
         const u = me(c)
         if (!inForce(u.id)) return fail(c, 409, 'two_factor_off', 'no second factor in force')
-        const { confirm } = await body(c)
-        const refused = asTotp(confirm)
-          ? await attempt(c, secondFactorAccount(u.username), u.username, () => checkCode(u.id, confirm, false), 403)
-          : await attempt(c, u.username, u.username, async () => (typeof confirm === 'string' && (await auth.checkPassword(u.id, confirm)) ? null : 'wrong_password'), 403)
+        const refused = await withCode(c, u, (await body(c)).confirm)
         if (refused) return refused
-        return c.json({ recoveryCodes: twoFactor.regenerate(u.id) })
+        return c.json({ recoveryCodes: await twoFactor.regenerate(u.id) })
       })
 
       app.post('/api/account/2fa/disable', async (c) => {

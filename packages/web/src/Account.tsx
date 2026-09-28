@@ -84,12 +84,13 @@ function PasswordForm({ onUnauthorized }: { onUnauthorized: () => void }) {
 type TwoFactorDialog = 'setup' | 'recovery' | 'disable'
 
 /**
- * Setting it up (or changing the app): the password first, then the QR code
- * and a first code, then the recovery codes.
+ * Setting it up: the password first, then the QR code and a first code, then
+ * the recovery codes. Changing the app: the same, but a code of the one in
+ * force (the app's, or a recovery code) instead of the password (D-046.3).
  */
 function SetupDialog({ replacing, onClose, onDone }: { replacing: boolean; onClose: () => void; onDone: () => void }) {
   const t = useT()
-  const [password, setPassword] = useState('')
+  const [secret, setSecret] = useState('')
   const [started, setStarted] = useState<Awaited<ReturnType<typeof api.startTwoFactor>> | null>(null)
   const [codes, setCodes] = useState<string[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -98,7 +99,7 @@ function SetupDialog({ replacing, onClose, onDone }: { replacing: boolean; onClo
     e.preventDefault()
     setBusy(true)
     setError(null)
-    try { setStarted(await api.startTwoFactor(password)) } catch (err) { setError(errorText(t, err)) }
+    try { setStarted(await api.startTwoFactor(replacing ? { code: secret.trim() } : { password: secret })) } catch (err) { setError(codeError(t, err)) }
     setBusy(false)
   }
   let body: ReactNode
@@ -108,14 +109,18 @@ function SetupDialog({ replacing, onClose, onDone }: { replacing: boolean; onClo
     body = (
       <form className="account-form" onSubmit={start}>
         <p className="dialog-text">{t(replacing ? 'twofa.replaceIntro' : 'twofa.setupIntro')}</p>
-        <TextField className="field" type="password" isRequired value={password} onChange={setPassword} autoComplete="current-password" autoFocus>
-          <Label>{t('account.current')}</Label>
-          <Input />
-        </TextField>
+        {replacing
+          ? <CodeField recovery label={t('twofa.codeOrRecovery')} hint={t('twofa.codeOrRecoveryHint')} value={secret} onChange={setSecret} autoFocus />
+          : (
+            <TextField className="field" type="password" isRequired value={secret} onChange={setSecret} autoComplete="current-password" autoFocus>
+              <Label>{t('account.current')}</Label>
+              <Input />
+            </TextField>
+          )}
         {error && <p className="error-text" role="alert">{error}</p>}
         <div className="account-actions">
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className="btn btn-primary" isDisabled={busy || !password}>{t('twofa.next')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={busy || !secret.trim()}>{t('twofa.next')}</Button>
         </div>
       </form>
     )
@@ -135,7 +140,7 @@ function SetupDialog({ replacing, onClose, onDone }: { replacing: boolean; onClo
   )
 }
 
-/** A dialog that asks for one secret (a code, or a code or the password) and then does something. */
+/** A dialog that asks for one secret (the app's code or a recovery code, or the password) and then does something. */
 function AskDialog({ title, text, label, hint, recovery, confirm, danger, onClose, onConfirm }: {
   title: string
   text: string
@@ -219,7 +224,7 @@ function TwoFactorSection({ onUnauthorized }: { onUnauthorized: () => void }) {
       </Dialog>
     )
   } else if (open === 'recovery') {
-    dialog = <AskDialog title={t('twofa.newCodesTitle')} text={t('twofa.newCodesBody')} label={t('twofa.codeOrPassword')} hint={t('twofa.codeOrPasswordHint')}
+    dialog = <AskDialog title={t('twofa.newCodesTitle')} text={t('twofa.newCodesBody')} label={t('twofa.codeOrRecovery')} hint={t('twofa.codeOrRecoveryHint')} recovery
       confirm={t('twofa.newCodesConfirm')} onClose={close} onConfirm={async (v) => setCodes(await api.newRecoveryCodes(v))} />
   } else if (open === 'disable') {
     dialog = <AskDialog title={t('twofa.disableTitle')} text={t('twofa.disableBody')} label={t('twofa.codeOrRecovery')} recovery danger

@@ -14,7 +14,8 @@
 //   DELETE /api/account/notices/:id            one of one's own notices (notices.ts), dismissed
 // The vihko admin:
 //   GET    /api/admin/users                    everyone (state, role, groups, pending link, sessions)
-//   POST   /api/admin/users                    { username, role } → { user, link }  (with `password`: no link, as before M4)
+//   POST   /api/admin/users                    { username, role, confirm? } → { user, link }  (a new admin, with `confirm`;
+//                                               never a password: 400 invalid)
 //   POST   /api/admin/users/:id/link           a new link (an invitation, or a reset if they have a password) → { link };
 //                                               a reset, with `confirm`
 //   PUT    /api/admin/users/:id/role           { role, confirm }
@@ -30,7 +31,7 @@
 // client's address only.
 //
 // What lets the admin into someone else's account, or changes what they may
-// do (a reset link, a new role; the second factor's reset is in
+// do (a reset link, a new role, a new admin; the second factor's reset is in
 // http/twoFactor.ts), and a new policy for the second factor, ask for the
 // confirmation at the moment (D-036, D-040 3.1 and 3.4a: the current code, or
 // the password without a second factor): a session left open is not enough.
@@ -179,14 +180,21 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
 
   app.get('/api/admin/users', admin, (c) => c.json({ users: users.list() }))
 
+  // Only ever with a link: the person chooses their password, and the admin
+  // never knows it (D-038.3, D-046.1). Whoever operates the server has the CLI.
+  // A new admin is confirmed at the moment, as making someone admin is: the
+  // name is checked first, so a code isn't spent on one that's taken.
   app.post('/api/admin/users', admin, async (c) => {
     const b = await body(c)
-    // With a password, as before M4 (a script, the tests): no link.
-    if (b.password !== undefined) {
-      const u = await auth.createUser(String(b.username ?? ''), typeof b.password === 'string' ? b.password : '', b.role === 'admin' ? 'admin' : 'member')
-      return c.json({ user: users.get(u.id) }, 201)
+    if (b.password !== undefined) throw new UsersError('invalid', 'a new user chooses their password with their link (the CLI sets one: vihko user create)')
+    if (b.role === 'admin') {
+      auth.newUsername(String(b.username ?? ''))
+      const refused = await deps.confirm(c, b.confirm)
+      if (refused) return refused
     }
     const r = await users.create(String(b.username ?? ''), b.role ?? 'member')
+    // The other admins are told, as when someone is made admin.
+    if (r.user.role === 'admin') notices.toOtherAdmins(r.user.id, c.get('user').id, 'role_changed', 'admin')
     return c.json({ user: r.user, link: link(r.link) }, 201)
   })
 
@@ -220,7 +228,19 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
 
   app.post('/api/admin/users/:id/disable', admin, (c) => c.json({ user: users.disable(param(c, 'id')) }))
 
-  app.post('/api/admin/users/:id/enable', admin, (c) => c.json({ user: users.enable(param(c, 'id')) }))
+  // Bringing a disabled admin back is as good as making one: confirmed at the
+  // moment, so a session left open can't revive an admin account (D-046.1).
+  // A member, or someone not disabled, asks nothing.
+  app.post('/api/admin/users/:id/enable', admin, async (c) => {
+    const id = param(c, 'id')
+    const before = users.get(id)
+    if (!before) throw new UsersError('not_found', `no user ${id}`)
+    if (before.role === 'admin' && before.status === 'disabled') {
+      const refused = await deps.confirm(c, (await body(c, true)).confirm)
+      if (refused) return refused
+    }
+    return c.json({ user: users.enable(id) })
+  })
 
   app.delete('/api/admin/users/:id', admin, async (c) => {
     await users.remove(param(c, 'id'), c.get('access').actor)

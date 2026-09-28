@@ -130,7 +130,8 @@ const MIGRATIONS: string[] = [
   // The second factor (D-036, twoFactor.ts): a user's TOTP secret (base32;
   // it has to be kept as it is to compute the codes) and the last step
   // whose code was accepted, so that none works twice. Recovery codes, only
-  // as their sha256, each one used once.
+  // as a hash (a sha256 then; a slow hash with a salt per batch since
+  // D-046.4, in the same column), each one used once.
   `create table two_factor (
      user_id    text primary key references users(id) on delete cascade,
      secret     text not null,

@@ -15,7 +15,8 @@
     "./series": "./src/series.ts",
     "./query": "./src/query.ts",
     "./casefold": "./src/casefold.ts",
-    "./hue": "./src/hue.ts"
+    "./hue": "./src/hue.ts",
+    "./keyScope": "./src/keyScope.ts"
   },
   "dependencies": {
     "@lezer/common": "^1.5.3",
