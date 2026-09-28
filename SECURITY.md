@@ -15,13 +15,17 @@ prefer otherwise.
 
 ## Supported versions
 
-vihko has no releases yet: fixes go to `main`. Once there are releases, the
-latest one gets security fixes.
+Security fixes go to `main` and come out in a new release of the latest
+version: the image tags `1` and `latest` pick them up (see
+[Upgrading](guide/upgrading.md)). Older releases and release candidates get
+no fixes of their own: update to the latest release of your major version,
+which never needs anything done by hand.
 
 ## Scope
 
 In scope: the server, the web UI, the API, the MCP server, the Docker image
-and `compose.yaml` as published here.
+(`ghcr.io/kirianm/vihko`) and `compose.yaml` as published here, and the
+workflows in `.github/` that build and publish them.
 
 Out of scope: deployments that depart from the documentation (for example,
 exposing plain HTTP to the internet without a TLS proxy), denial of service by

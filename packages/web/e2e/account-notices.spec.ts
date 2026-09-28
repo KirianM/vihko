@@ -7,8 +7,8 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { createHmac } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
-import { ADMIN, E2E_DIR, specMother } from './env.ts'
-import { literally, signIn, usePermissions } from './helpers.ts'
+import { ADMIN, E2E_DIR, freshFolder, specMother } from './env.ts'
+import { literally, newUser, signIn, usePermissions } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
@@ -16,10 +16,10 @@ const SHOTS = `${E2E_DIR}/shots`
 const PERSON = m.aUser({ role: 'member' })
 const OTHER_ADMIN = m.aUser({ role: 'admin' })
 /** A folder of this spec, and a note in it the member writes in. */
-const SHARED_DIR = m.aFolder()
+const SHARED_DIR = freshFolder(() => m.aFolder())
 const SHARED = m.aNotePath(SHARED_DIR)
 // A personal folder: the only kind the admin, managing the root, can't read (D-040 3.5).
-const PEOPLE = m.aFolder()
+const PEOPLE = freshFolder(() => m.aFolder())
 const PRIVATE = m.aNotePath(`${PEOPLE}/${PERSON.username}`)
 /** A word in each note: a notice must never carry what the notes said. */
 const SHARED_WORD = m.aUniqueWord()
@@ -34,9 +34,7 @@ test.beforeAll(async ({ browser }) => {
   // The member edits everywhere and has a folder of her own that nobody else reads, the admin included.
   await usePermissions({ grants: { [PERSON.username]: 'edit', [OTHER_ADMIN.username]: 'read' }, rules: { [`${PEOPLE}/{user}`]: { '{user}': 'manage' } } })
   admin = await signIn(browser, ADMIN)
-  for (const u of [PERSON, OTHER_ADMIN]) {
-    expect((await admin.request.post('/api/admin/users', { data: { username: u.username, role: u.role, password: u.password } })).status()).toBe(201)
-  }
+  for (const u of [PERSON, OTHER_ADMIN]) await newUser(admin, u)
 })
 
 test.afterAll(async ({ browser }) => {

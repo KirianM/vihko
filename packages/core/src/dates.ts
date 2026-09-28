@@ -96,7 +96,10 @@ const pad = (n: number, width = 2) => String(n).padStart(width, '0')
  */
 export function formatDate(format: string, dt: CivilDate & Partial<CivilDateTime>): string {
   const week = () => isoWeek(dt)
-  return format.replace(/\[([^\]]*)\]|YYYY|GGGG|YY|MM|M|DD|D|WW|W|HH|mm/g, (tok, literal: string | undefined) => {
+  // A `[` with no `]` after it is plain text: past the last `]` none is looked
+  // for (from every `[` there, that search ran to the end, in quadratic time).
+  const close = format.lastIndexOf(']') + 1
+  const token = (tok: string, literal: string | undefined) => {
     if (literal !== undefined) return literal
     switch (tok) {
       case 'YYYY': return pad(dt.year, 4)
@@ -111,5 +114,7 @@ export function formatDate(format: string, dt: CivilDate & Partial<CivilDateTime
       case 'HH': return pad(dt.hour ?? 0)
       default: return pad(dt.minute ?? 0) // mm
     }
-  })
+  }
+  return format.slice(0, close).replace(/\[([^\]]*)\]|YYYY|GGGG|YY|MM|M|DD|D|WW|W|HH|mm/g, token)
+    + format.slice(close).replace(/YYYY|GGGG|YY|MM|M|DD|D|WW|W|HH|mm/g, (tok) => token(tok, undefined))
 }

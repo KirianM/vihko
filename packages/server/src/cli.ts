@@ -12,7 +12,6 @@
 //
 // No Web Storage: the server doesn't use it, and lib0 (Yjs) probes for it on import,
 // which on Node 26 prints an ExperimentalWarning on every startup.
-import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathMatcher } from '@vihko/core'
 import { Auth, AuthError, userIdByName } from './auth.ts'
@@ -22,7 +21,7 @@ import { TwoFactor } from './twoFactor.ts'
 import { openState } from './state.ts'
 import { PurgeError, purgeHistory, type PurgeReport } from './history/purge.ts'
 import { describeLeftover } from './history/leftovers.ts'
-import { StateInUseError } from './lock.ts'
+import { StateInUseError, prepareStateDir } from './lock.ts'
 import { Workspace } from './workspace.ts'
 import { VERSION } from './version.ts'
 
@@ -48,7 +47,7 @@ async function main(argv: string[]) {
     return
   }
   if (cmd === 'user' && sub === 'create' && rest[0]) {
-    mkdirSync(config.stateDir, { recursive: true }) // may be the first thing that runs on a new install
+    prepareStateDir(config.stateDir) // may be the first thing that runs on a new install
     const state = openState(join(config.stateDir, 'state.db'))
     try {
       if (process.stdin.isTTY) process.stderr.write('password (read from stdin; end with Ctrl-D): ')

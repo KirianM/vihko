@@ -14,6 +14,13 @@
 // A hold also lifts by itself once the rules that govern the note where it is
 // now are the ones that governed it before (someone moved the rules by hand).
 //
+// Who decides (D-046.4): notes that came from a personal folder (a `{user}`
+// rule's, or anything inside one) are decided only by whoever manages that
+// personal folder now, its owner; the admin sees that they're held, and the
+// personal folder's name, nothing else. If nobody manages it (the owner was
+// deleted), they stay held: someone with disk access puts them back. Any
+// other hold: the admin, or whoever manages the folder the rules were for.
+//
 // Only what M1's detection pairs is held: a note it can't pair (no `uid`, and
 // changed on the way) is taken as a new note and inherits from where it is,
 // from the moment the watcher (or the rescan, on NFS) sees it. That, and the
@@ -24,7 +31,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { folderOf, subjectKey, type Alert } from '@vihko/core'
+import { folderOf, selfAndAncestors, subjectKey, type Alert } from '@vihko/core'
 import type { Holds } from './access.ts'
 import { readText } from './fsutil.ts'
 import type { PermissionsEngine } from './permissions.ts'
@@ -41,6 +48,36 @@ export interface Hold {
   /** What governed them before: its grants and whether closed to agents, to tell when that holds again. */
   was: string
   at: string
+  /** The personal folder the notes came from (they were in it, or in a folder inside it); null if none. Only whoever manages it decides (D-046.4). */
+  personal: string | null
+}
+
+/** Who is looking at a hold: whether they're an admin, and where they manage. */
+export interface HoldViewer {
+  admin: boolean
+  canManage: (folder: string) => boolean
+}
+
+/** What a person may do with a hold. */
+export interface HoldAccess {
+  /** Whether they're told it exists (its alert). */
+  sees: boolean
+  /** Whether they may release it or move its permissions. */
+  decides: boolean
+  /** Whether they see the folder the rules were for and where the notes went, not only the personal folder they came from. */
+  details: boolean
+}
+
+/**
+ * D-046.4: a hold from a personal folder is decided by whoever manages that
+ * personal folder, and nobody else (not the admin, who sees only that it
+ * exists); any other, by the admin or whoever manages the folder the rules
+ * were for.
+ */
+export function holdAccess(h: Hold, who: HoldViewer): HoldAccess {
+  const manages = who.canManage(h.folder)
+  const decides = h.personal !== null ? who.canManage(h.personal) : who.admin || manages
+  return { sees: decides || manages || who.admin, decides, details: decides || manages }
 }
 
 const FILE = 'permission-holds.json'
@@ -62,8 +99,9 @@ export class PermissionHolds implements Holds {
     const saved = readText(this.file)
     if (saved !== null) {
       try {
-        const data = JSON.parse(saved) as { holds?: Hold[] }
-        if (Array.isArray(data.holds)) this.list = data.holds
+        const data = JSON.parse(saved) as { holds?: (Omit<Hold, 'personal'> & { personal?: string | null })[] }
+        // Held before D-046.4 recorded where they came from: the folder the rules were for tells.
+        if (Array.isArray(data.holds)) this.list = data.holds.map((h) => ({ ...h, personal: h.personal === undefined ? this.personalOf(h.folder) : h.personal }))
       } catch {
         // Unreadable: nothing is known to be held. Logged: whoever reads the log can check the folders.
         opts.log?.(`${FILE} is not valid JSON: starting without held notes`)
@@ -74,6 +112,12 @@ export class PermissionHolds implements Holds {
 
   private get file() {
     return join(this.opts.stateDir, FILE)
+  }
+
+  /** The personal folder `folder` is (or is in), under the rules in force; null if none. */
+  private personalOf(folder: string): string | null {
+    const set = this.opts.engine.rules()
+    return set ? selfAndAncestors(folder).find((d) => set.personal(d)) ?? null : null
   }
 
   /** What governs a folder now, as a key to compare: the resolved grants, who manages it from above (D-040 3.5) and whether agents are shut out. */
@@ -108,8 +152,11 @@ export class PermissionHolds implements Holds {
       if (within(folderOf(t))) continue
       const was = this.signature(folderOf(f))
       if (was === this.signature(folderOf(t))) continue
-      let h = fresh.get(g.at)
-      if (!h) fresh.set(g.at, (h = { id: randomUUID(), folder: g.at, to: null, notes: [], was, at: (this.opts.now?.() ?? new Date()).toISOString() }))
+      // One hold per folder of rules and personal folder left: each is decided by whoever that one is for.
+      const personal = this.personalOf(folderOf(f))
+      const key = JSON.stringify([g.at, personal])
+      let h = fresh.get(key)
+      if (!h) fresh.set(key, (h = { id: randomUUID(), folder: g.at, to: null, notes: [], was, at: (this.opts.now?.() ?? new Date()).toISOString(), personal }))
       h.notes.push(t)
       // Where the folder went: `a/x/n.md` → `b/y/x/n.md` says `a` became `b/y`, if every note agrees.
       const rest = f.slice(g.at === '' ? 0 : g.at.length + 1)
@@ -144,22 +191,29 @@ export class PermissionHolds implements Holds {
   }
 
   /**
-   * The holds still in force, as alerts for `sees` (the admin, or whoever
-   * manages the folder): the folders' names and how many notes, never their
-   * paths. Holds whose notes are gone or already governed as before are
-   * dropped.
+   * The holds still in force, as alerts for `who` (`holdAccess`): the
+   * folders' names and how many notes, never their paths. Whoever doesn't
+   * decide a personal one and doesn't manage its folder (the admin) gets the
+   * personal folder's name alone, and no action. Holds whose notes are gone
+   * or already governed as before are dropped.
    */
-  alerts(exists: (path: string) => boolean, sees: (h: Hold) => boolean): Alert[] {
+  alerts(exists: (path: string) => boolean, who: HoldViewer): Alert[] {
     const before = this.list.length
     this.list = this.list.filter((h) => {
       h.notes = h.notes.filter((n) => exists(n))
       return h.notes.some((n) => this.signature(folderOf(n)) !== h.was)
     })
     if (this.list.length !== before) { this.reindex(); this.save() }
-    return this.list.filter(sees).map((h) => ({
-      code: 'permissions_held' as const, id: h.id, folder: h.folder, to: h.to, notes: h.notes.length,
-      actions: [...(h.to !== null ? ['move_permissions' as const] : []), 'release' as const],
-    }))
+    return this.list.flatMap((h) => {
+      const may = holdAccess(h, who)
+      if (!may.sees) return []
+      return [{
+        code: 'permissions_held' as const, id: h.id,
+        folder: may.details ? h.folder : h.personal ?? h.folder, to: may.details ? h.to : null,
+        notes: h.notes.length, personal: h.personal !== null,
+        actions: may.decides ? [...(h.to !== null ? ['move_permissions' as const] : []), 'release' as const] : [],
+      }]
+    })
   }
 
   private reindex() {

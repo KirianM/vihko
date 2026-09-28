@@ -22,7 +22,11 @@ export const DEFAULT_DATE_FORMAT = 'YYYY-MM-DD'
  * title that contains `{{date}}` stays literal).
  */
 export function renderTemplate(text: string, vars: TemplateVars): string {
-  return text.replace(/\{\{\s*([A-Za-z]+)(?::([^{}]*?))?\s*\}\}/g, (whole, name: string, format: string | undefined) => {
+  // The format is taken whole, never given back a character at a time (`(?=(…))\2`
+  // holds what it took): a lazy `[^{}]*?` before `\s*}}` went over every space of
+  // a long run again from each of them, in quadratic time.
+  return text.replace(/\{\{\s*([A-Za-z]+)(?::(?=([^{}]*))\2)?\s*\}\}/g, (whole, name: string, taken: string | undefined) => {
+    const format = taken?.trimEnd()
     switch (name) {
       case 'date': return formatDate(format === undefined ? DEFAULT_DATE_FORMAT : format, vars.now)
       case 'user': return format === undefined ? vars.user : whole

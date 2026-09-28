@@ -1,5 +1,5 @@
 // Extraction of links, tags and headings on top of vihko's syntax (syntax.ts).
-import { markdownParser } from './syntax.ts'
+import { markdownParser, withoutClosingHashes } from './syntax.ts'
 import { readFrontmatter } from './frontmatter.ts'
 import { isImageRef } from './images.ts'
 import { caseFold } from './casefold.ts'
@@ -142,7 +142,7 @@ export function withoutRanges(text: string, ranges: readonly Range[], from = 0, 
 
 function headingText(raw: string, setext: boolean) {
   if (setext) return raw.split('\n')[0]!.trim()
-  return raw.replace(/^#{1,6}[ \t]*/, '').replace(/[ \t]+#+[ \t]*$/, '').trim()
+  return withoutClosingHashes(raw.replace(/^#{1,6}[ \t]*/, '')).trim()
 }
 
 function frontmatterTags(value: unknown): string[] {

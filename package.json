@@ -25,6 +25,7 @@
   },
   "allowScripts": {
     "better-sqlite3": true,
-    "@modelcontextprotocol/inspector": false
+    "@modelcontextprotocol/inspector": false,
+    "fsevents": false
   }
 }

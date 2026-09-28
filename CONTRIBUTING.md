@@ -12,6 +12,11 @@ privately, never in an issue: see [SECURITY.md](SECURITY.md).
   the server: only erasable syntax (no `enum`, `namespace` or parameter
   properties).
 - `npm ci`, `npm run typecheck`, `npm run build` (UI), `npm test`.
+- Dependencies' install scripts run only when `allowScripts` in the root
+  `package.json` approves them by name (today, `better-sqlite3`'s build).
+  `.npmrc` sets `strict-allow-scripts`, so a new one fails the install
+  (`ESTRICTALLOWSCRIPTS`) instead of running with a warning. Read the script
+  before approving it (`true`) or denying it (`false`) there.
 - UI development: run the server in one terminal
   (`VIHKO_NOTES_DIR=… VIHKO_STATE_DIR=… packages/server/src/cli.ts serve`)
   and `npm run dev -w @vihko/web` in another; Vite forwards `/api` and
@@ -245,7 +250,9 @@ A moving tag only goes forward: a fix for an older line (`v1.1.5` once
    git push origin v1.2.3
    ```
 
-5. Follow the run (`gh run watch`, or the Actions tab). If the check job
+5. Follow the run (`gh run watch`, or the Actions tab). The image job waits in
+   the `release` environment until the maintainer approves it on the run's
+   page: nothing is published before that. If the check job
    fails, nothing was published: delete the tag (`git push --delete origin
    v1.2.3`, `git tag -d v1.2.3`), fix it in a pull request and tag again. If a
    later job fails, run it again from the Actions tab.

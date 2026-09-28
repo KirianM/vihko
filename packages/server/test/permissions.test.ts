@@ -3,10 +3,11 @@
 // the trash, the history at `edit`, and what fails closed.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { ADMIN, DIR, FILES, GROUP, MEMBER, NAME, NOBODY, OTHER, PATH, RULES, TAG, WORD, home, setup, type Name } from './_m4.ts'
 import { yamlKey } from './_permissions.ts'
+import { PermissionHolds } from '@vihko/server'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -390,6 +391,48 @@ test('permissions fail closed: rejected at start, nobody reads; rejected while r
   } finally { await h.close() }
 })
 
+test('the workspace settings name no template or templates folder the person can\'t read', async () => {
+  const templates = `${DIR.admin}/${m.aFolder()}`
+  const template = m.aNotePath(templates)
+  const series = m.anId()
+  const config = `templates: ${JSON.stringify(templates)}\ndaily:\n  ${series}:\n    folder: ${JSON.stringify(`${DIR.shared}/${m.aFolder()}`)}\n    template: ${JSON.stringify(template.replace(/\.md$/, ''))}\n` + RULES
+  const h = await setup({ files: { ...FILES, [template]: noteText() }, config })
+  try {
+    const admin = (await h.admin('GET', '/api/workspace')).body
+    assert.deepEqual([admin.templates, admin.daily[0].template], [templates, template], 'the admin reads that folder')
+    const member = await h.member('GET', '/api/workspace')
+    assert.deepEqual([member.body.templates, member.body.daily[0].template], [null, null])
+    assert.ok(!member.text.includes(DIR.admin), member.text)
+    assert.equal(member.body.daily[0].id, series, 'the series itself is there')
+  } finally { await h.close() }
+})
+
+test('vihko.yaml emptied or deleted while running: the implicit rule only once it stays so, never for a half-saved file', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    const file = join(h.notesDir, 'vihko.yaml')
+    const adminReads = async () => (await h.admin('GET', h.url('/api/note', { path: PATH.cake }))).status
+    assert.equal(await adminReads(), 404)
+    // An editor that truncates the file and writes it again: for a moment it's empty, then whole again.
+    writeFileSync(file, '')
+    h.workspace.reload()
+    assert.equal(await adminReads(), 404, 'an empty file for a moment opens nothing')
+    writeFileSync(file, RULES)
+    h.workspace.reload()
+    assert.equal(await adminReads(), 404)
+    // Deleted, and it stays deleted: the implicit rule applies after a moment (every admin manages the root, with no personal folders).
+    rmSync(file)
+    h.workspace.reload()
+    assert.equal(await adminReads(), 404, 'not at once')
+    const kind = () => h.workspace.permissions.kind
+    assert.equal(kind(), 'rules')
+    const until = Date.now() + 10_000
+    while (kind() !== 'implicit' && Date.now() < until) await new Promise((r) => setTimeout(r, 100))
+    assert.equal(kind(), 'implicit', 'once it stayed so')
+    assert.equal(await adminReads(), 200)
+  } finally { await h.close() }
+})
+
 test('folders: create with edit, move and delete with manage; their rules go with them, and a move says whose access changes', async () => {
   const tripsName = m.aFolder()
   const trips = `${DIR.shared}/${tripsName}`
@@ -430,6 +473,41 @@ test('folders: create with edit, move and delete with manage; their rules go wit
     assert.equal((await h.admin('POST', '/api/folder', { path: empty })).status, 201)
     assert.equal((await h.member('DELETE', h.url('/api/folder', { path: empty }))).status, 404)
     assert.equal((await h.admin('DELETE', h.url('/api/folder', { path: empty }))).status, 200)
+  } finally { await h.close() }
+})
+
+test('a folder moved from above a personal folder never takes it out of its {user} rule, unless whoever moves it manages it', async () => {
+  // Personal folders deeper than a folder managed from above: each person's journal in their own shared folder.
+  const journal = m.aFolder()
+  const config = `permissions:\n  "":\n    grants: { ${yamlKey(A)}: manage, ${yamlKey(`@${GROUP}`)}: edit }\n  ${yamlKey(`${DIR.people}/{user}/${journal}`)}:\n    grants: { "{user}": manage }\n`
+  const word = m.aUniqueWord()
+  const entry = m.aNotePath(`${HOME.member}/${journal}`)
+  const h = await setup({ files: { [entry]: noteText(word), [m.aNotePath(HOME.member)]: noteText() }, config })
+  try {
+    const read = (path: string) => h.admin('GET', h.url('/api/note', { path }))
+    assert.equal((await read(entry)).status, 404, 'the admin doesn\'t read the member\'s journal')
+    // The admin manages the member's folder (it isn't personal), but moving it out of the rule's reach would open the journal to them.
+    const away = `${DIR.shared}/${m.aFolder()}`
+    for (const dryRun of [true, false]) {
+      const r = await h.admin('POST', '/api/folder/move', { from: HOME.member, to: away, dryRun })
+      assert.deepEqual([r.status, r.body.error], [403, 'forbidden'], `${dryRun}: ${r.text}`)
+    }
+    assert.equal((await read(entry.replace(HOME.member, away))).status, 404)
+    assert.ok(readFileSync(join(h.notesDir, entry), 'utf8').includes(word), 'nothing moved')
+    // Moving the folder the rule is written under takes the rule along: the journal stays personal where it goes.
+    const archive = `${m.aFolder()}/${DIR.people}`
+    const moved = await h.admin('POST', '/api/folder/move', { from: DIR.people, to: archive })
+    assert.equal(moved.status, 200, moved.text)
+    const there = entry.replace(DIR.people, archive)
+    assert.equal((await read(there)).status, 404)
+    assert.equal((await h.member('GET', h.url('/api/note', { path: there }))).status, 200)
+    // Its owner may take it out: they see who gains access first.
+    const out = `${DIR.shared}/${m.aFolder()}`
+    const from = `${archive}/${M}/${journal}`
+    const dry = await h.member('POST', '/api/folder/move', { from, to: out, dryRun: true })
+    assert.equal(dry.status, 200, dry.text)
+    assert.ok(dry.body.audience.users.gain.some((u: { username: string }) => u.username === A), JSON.stringify(dry.body.audience))
+    assert.equal((await h.member('POST', '/api/folder/move', { from, to: out })).status, 200)
   } finally { await h.close() }
 })
 
@@ -485,6 +563,11 @@ test('history at edit: «Recent changes» only where one edits, authors without 
   } finally { await h.close() }
 })
 
+type HeldAlert = { code: 'permissions_held'; id: string; folder: string; to: string | null; notes: number; personal: boolean; actions: string[] }
+/** The holds someone is told of, as alerts. */
+const heldAlerts = async (who: Name, h: Awaited<ReturnType<typeof setup>>) =>
+  ((await h.as(who)('GET', '/api/alerts')).body.alerts as { code: string }[]).filter((a): a is HeldAlert => a.code === 'permissions_held')
+
 test('a note moved outside vihko out of a folder with its own rules is held from everyone until someone decides', async () => {
   const h = await setup({ files: FILES })
   try {
@@ -496,10 +579,17 @@ test('a note moved outside vihko out of a folder with its own rules is held from
       assert.equal((await h.as(who)('GET', h.url('/api/note', { path: landed }))).status, 404, who)
       assert.ok(!(await h.as(who)('GET', '/api/tree')).body.notes.some((n: { path: string }) => n.path === landed), who)
     }
-    const held = ((await h.member('GET', '/api/alerts')).body.alerts as { code: string; id: string; folder: string; to: string | null; notes: number; actions: string[] }[]).find((a) => a.code === 'permissions_held')!
-    assert.deepEqual({ ...held, id: '' }, { code: 'permissions_held', id: '', folder: HOME.member, to: null, notes: 1, actions: ['release'] })
-    assert.equal(((await h.other('GET', '/api/alerts')).body.alerts as { code: string }[]).some((a) => a.code === 'permissions_held'), false, 'only the admin and whoever manages that folder')
+    const held = (await heldAlerts('member', h))[0]!
+    assert.deepEqual({ ...held, id: '' }, { code: 'permissions_held', id: '', folder: HOME.member, to: null, notes: 1, personal: true, actions: ['release'] })
+    assert.deepEqual(await heldAlerts('other', h), [], 'only the admin and whoever manages that folder')
     assert.equal((await h.other('POST', `/api/permissions/holds/${held.id}`, { action: 'release' })).status, 404)
+    // It came from the member's personal folder (D-046.4): the admin is told it exists, and can't let it go.
+    assert.deepEqual(await heldAlerts('admin', h), [{ ...held, actions: [] }])
+    for (const action of ['release', 'move_permissions']) {
+      const r = await h.admin('POST', `/api/permissions/holds/${held.id}`, { action })
+      assert.deepEqual([r.status, r.body.error], [403, 'hold_owner_only'], action)
+    }
+    assert.equal((await h.admin('GET', h.url('/api/note', { path: landed }))).status, 404, 'still held')
     assert.equal((await h.member('POST', `/api/permissions/holds/${held.id}`, { action: 'release' })).status, 200)
     assert.equal((await h.other('GET', h.url('/api/note', { path: landed }))).status, 200, 'released: the folder it\'s in applies')
   } finally { await h.close() }
@@ -516,8 +606,8 @@ test('a folder with its own rules renamed outside vihko: its notes are held, and
     h.runtime.rescan({})
     assert.equal((await h.other('GET', note)).status, 404, 'it would have inherited the shared folder\'s grants: held instead')
     assert.equal((await h.member('GET', note)).status, 404)
-    const held = ((await h.admin('GET', '/api/alerts')).body.alerts as { code: string; id: string; to: string | null; actions: string[] }[]).find((a) => a.code === 'permissions_held')!
-    assert.deepEqual([held.to, held.actions], [routes, ['move_permissions', 'release']])
+    const held = (await heldAlerts('admin', h))[0]!
+    assert.deepEqual([held.to, held.personal, held.actions], [routes, false, ['move_permissions', 'release']], 'not from a personal folder: the admin decides too')
     const warnings = ((await h.admin('GET', '/api/alerts')).body.alerts as { code: string; warnings?: { code: string; detail: string }[] }[]).find((a) => a.code === 'config_warnings')?.warnings ?? []
     assert.ok(warnings.some((w) => w.code === 'missing_folder' && w.detail === trips))
     const r = await h.member('POST', `/api/permissions/holds/${held.id}`, { action: 'move_permissions' })
@@ -525,5 +615,72 @@ test('a folder with its own rules renamed outside vihko: its notes are held, and
     assert.match(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8'), new RegExp(ruleRe(routes, [[M, 'manage']]), 'u'))
     assert.equal((await h.member('GET', note)).status, 200)
     assert.equal((await h.other('GET', note)).status, 404, 'the same audience as before')
+  } finally { await h.close() }
+})
+
+test('held from a subfolder a personal folder shares: its owner decides; whoever it\'s shared with, told, doesn\'t; the admin learns only the personal folder', async () => {
+  // A folder inside the member's own, shared with the other one as manager, with a note (and its uid) that goes elsewhere.
+  const shared = `${HOME.member}/${m.aFolder()}`
+  const title = m.aTitle()
+  const word = m.aUniqueWord()
+  // The whole folder moves, into another one where the shared folder's grants apply.
+  const moved = `${DIR.shared}/${m.aFolder()}/${basename(shared)}`
+  const landed = `${moved}/${title}.md`
+  const h = await setup({
+    files: { ...FILES, [`${shared}/${title}.md`]: `---\nuid: ${m.faker.string.ulid()}\n---\n# ${title}\n\n${m.aSentence()} ${word}.\n` },
+    config: RULES + rule(shared, [[M, 'manage'], [O, 'manage']]),
+  })
+  try {
+    mkdirSync(dirname(join(h.notesDir, moved)))
+    renameSync(join(h.notesDir, shared), join(h.notesDir, moved))
+    h.runtime.rescan({})
+    const owner = (await heldAlerts('member', h))[0]!
+    assert.deepEqual({ ...owner, id: '' }, { code: 'permissions_held', id: '', folder: shared, to: moved, notes: 1, personal: true, actions: ['move_permissions', 'release'] })
+    // Whoever it was shared with manages the folder: told where it went, with nothing to decide.
+    assert.deepEqual(await heldAlerts('other', h), [{ ...owner, actions: [] }])
+    // The admin: that there are held notes in the member's personal folder, nothing inside it, nor where they went.
+    const alerts = await h.admin('GET', '/api/alerts')
+    assert.deepEqual(alerts.body.alerts.filter((a: { code: string }) => a.code === 'permissions_held'), [{ ...owner, folder: HOME.member, to: null, actions: [] }])
+    for (const mark of [`${title}.md`, word]) assert.ok(!alerts.text.includes(mark), mark)
+    for (const who of ['admin', 'other'] as const) {
+      const r = await h.as(who)('POST', `/api/permissions/holds/${owner.id}`, { action: 'release' })
+      assert.deepEqual([r.status, r.body.error], [403, 'hold_owner_only'], who)
+    }
+    for (const who of ['admin', 'member', 'other'] as const) assert.equal((await h.as(who)('GET', h.url('/api/note', { path: landed }))).status, 404, who)
+    assert.equal((await h.member('POST', `/api/permissions/holds/${owner.id}`, { action: 'release' })).status, 200)
+    assert.deepEqual(await heldAlerts('admin', h), [])
+    assert.equal((await h.other('GET', h.url('/api/note', { path: landed }))).status, 200, 'released by the owner: the folder it\'s in applies')
+  } finally { await h.close() }
+})
+
+test('held from a personal folder whose owner is deleted: nobody can release it, and the admin keeps seeing it', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    const landed = `${DIR.shared}/${basename(PATH.cake)}`
+    renameSync(join(h.notesDir, PATH.cake), join(h.notesDir, landed))
+    h.runtime.rescan({})
+    const held = (await heldAlerts('admin', h))[0]!
+    assert.equal((await h.admin('POST', `/api/admin/users/${h.users.member.id}/disable`)).status, 200)
+    assert.equal((await h.admin('DELETE', `/api/admin/users/${h.users.member.id}`)).status, 200)
+    assert.deepEqual(await heldAlerts('admin', h), [held], 'nobody manages that personal folder now: still held')
+    const r = await h.admin('POST', `/api/permissions/holds/${held.id}`, { action: 'release' })
+    assert.deepEqual([r.status, r.body.error], [403, 'hold_owner_only'])
+    for (const who of ['admin', 'other'] as const) assert.equal((await h.as(who)('GET', h.url('/api/note', { path: landed }))).status, 404, who)
+  } finally { await h.close() }
+})
+
+test('holds saved before they recorded where they came from: the folder the rules were for tells whether it was a personal one', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    const at = new Date().toISOString()
+    const saved = [
+      { id: m.anId(), folder: HOME.member, to: null, notes: [`${DIR.shared}/${basename(PATH.cake)}`], was: '', at },
+      { id: m.anId(), folder: DIR.shared, to: null, notes: [`${DIR.admin}/${basename(PATH.list)}`], was: '', at },
+    ]
+    const dir = join(h.dir, 'old-state')
+    mkdirSync(dir)
+    writeFileSync(join(dir, 'permission-holds.json'), JSON.stringify({ holds: saved }))
+    const holds = new PermissionHolds({ stateDir: dir, engine: h.permissions })
+    assert.deepEqual(saved.map((s) => holds.get(s.id)?.personal), [HOME.member, null])
   } finally { await h.close() }
 })

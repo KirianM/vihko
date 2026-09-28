@@ -42,12 +42,13 @@
 //   never content or authors, and there is an alert while it lasts
 //   (`history_versions_merged`).
 import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync, writeSync } from 'node:fs'
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { lstat, readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { WORKSPACE_FILE, classifyPath, isIgnoredDir, type Alert, type HistoryMode } from '@vihko/core'
 import { authorKey, authorOf, parseAuthorKey, reasonJson, type Actor, type Author, type Reason } from '../actor.ts'
 import { Git, GitError, Serial, blobOid, fastImport, readTree, resolveRef, type FastCommit, type FastOp } from './git.ts'
 import { removeCrashLeftovers } from './leftovers.ts'
+import { followable } from '../fsutil.ts'
 import { formatMessage } from './trailers.ts'
 
 export const HISTORY_REF = 'refs/heads/main'
@@ -872,7 +873,9 @@ export class Recorder {
       seen.add(rel)
       const abs = join(this.opts.notesDir, rel)
       let st
-      try { st = await stat(abs) } catch { st = null }
+      try { st = await lstat(abs) } catch { st = null }
+      // A path vihko doesn't follow (fsutil.ts followable: a symbolic link, another spelling) isn't there for the history.
+      if (st && !followable(this.opts.notesDir, rel)) st = null
       if (st?.isDirectory()) {
         for (const f of await listFiles(abs, rel)) await add(f)
         return
@@ -1045,7 +1048,7 @@ export class Recorder {
     await pool(files, async (rel) => {
       const abs = join(this.opts.notesDir, rel)
       let st
-      try { st = await stat(abs, { bigint: false }) } catch { return }
+      try { st = await lstat(abs, { bigint: false }) } catch { return }
       if (!st.isFile()) return
       if (st.size > max) { tooLarge.set(rel, st.size); return }
       const cached = this.statCache.get(rel)

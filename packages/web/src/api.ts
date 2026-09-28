@@ -403,7 +403,8 @@ export const api = {
   /** A new key: the token comes back this once and never again. */
   /** `confirm`: the current code, or the password without a second factor (D-036). */
   createKey: (input: KeyInput & { name: string; confirm: string }) => request<{ key: KeyInfo; token: string }>('POST', '/api/keys', input),
-  updateKey: (id: string, patch: KeyInput) => request<{ key: KeyInfo }>('PATCH', `/api/keys/${encodeURIComponent(id)}`, patch).then((r) => r.key),
+  /** A change that lets it do more (writing, more folders, a later expiry or none) takes `confirm`, as a new key does. */
+  updateKey: (id: string, patch: KeyInput & { confirm?: string }) => request<{ key: KeyInfo }>('PATCH', `/api/keys/${encodeURIComponent(id)}`, patch).then((r) => r.key),
   /** Its owner, or the vihko admin for anyone's. */
   rotateKey: (id: string, confirm: string) => request<{ key: KeyInfo; token: string }>('POST', `/api/keys/${encodeURIComponent(id)}/rotate`, { confirm }),
   revokeKey: (id: string) => request<{ key: KeyInfo }>('DELETE', `/api/keys/${encodeURIComponent(id)}`).then((r) => r.key),
@@ -428,13 +429,17 @@ export const api = {
   /** Other sessions end; `wrong_password` if `current` isn't right. */
   changePassword: (current: string, password: string) => request<{ ok: true }>('POST', '/api/auth/password', { current, password }),
   users: () => request<{ users: UserInfo[] }>('GET', '/api/admin/users').then((r) => r.users),
-  createUser: (username: string, role: UserInfo['role']) => request<{ user: UserInfo; link: NewLink }>('POST', '/api/admin/users', { username, role }),
+  /** A new admin, with `confirm`: the admin's current code, or their password without a second factor. */
+  createUser: (username: string, role: UserInfo['role'], confirm?: string) =>
+    request<{ user: UserInfo; link: NewLink }>('POST', '/api/admin/users', { username, role, ...(confirm === undefined ? {} : { confirm }) }),
   /** A new link for them (an invitation, or a reset if they have a password); the earlier one stops working. */
   /** A new link; a reset (they have a password) is confirmed with `confirm` (D-040 3.1). */
   userLink: (id: string, confirm?: string) => request<{ link: NewLink; user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/link`, confirm ? { confirm } : {}),
   setRole: (id: string, role: UserInfo['role'], confirm: string) => request<{ user: UserInfo }>('PUT', `/api/admin/users/${encodeURIComponent(id)}/role`, { role, confirm }).then((r) => r.user),
   disableUser: (id: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/disable`).then((r) => r.user),
-  enableUser: (id: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/enable`).then((r) => r.user),
+  /** A disabled admin, with `confirm`: the admin's current code, or their password without a second factor. */
+  enableUser: (id: string, confirm?: string) =>
+    request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/enable`, confirm === undefined ? undefined : { confirm }).then((r) => r.user),
   deleteUser: (id: string) => request<{ ok: true }>('DELETE', `/api/admin/users/${encodeURIComponent(id)}`),
   endUserSessions: (id: string) => request<{ ended: number }>('DELETE', `/api/admin/users/${encodeURIComponent(id)}/sessions`),
   groups: () => request<{ groups: GroupInfo[] }>('GET', '/api/admin/groups').then((r) => r.groups),
@@ -459,11 +464,14 @@ export const api = {
   /** Takes someone's second factor away (the vihko admin). */
   resetTwoFactor: (id: string, confirm: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/2fa/reset`, { confirm }).then((r) => r.user),
   twoFactor: () => request<TwoFactorInfo>('GET', '/api/account/2fa'),
-  /** A new secret to set it up (or to replace the authenticator): the password is asked for. */
-  startTwoFactor: (password: string) => request<TwoFactorSetup>('POST', '/api/account/2fa/setup', { password }),
+  /**
+   * A new secret: to set it up, with the password; to replace the
+   * authenticator, with a code of the one in force (the app's, or a recovery code).
+   */
+  startTwoFactor: (proof: { password: string } | { code: string }) => request<TwoFactorSetup>('POST', '/api/account/2fa/setup', proof),
   /** A code from the new secret: now it's theirs; the recovery codes, shown once. */
   enableTwoFactor: (code: string) => request<{ recoveryCodes: string[] }>('POST', '/api/account/2fa/enable', { code }).then((r) => r.recoveryCodes),
-  /** New recovery codes (the old ones stop working); `confirm`: a current code or the password. */
+  /** New recovery codes (the old ones stop working); `confirm`: the app's code or a recovery code, never the password. */
   newRecoveryCodes: (confirm: string) => request<{ recoveryCodes: string[] }>('POST', '/api/account/2fa/recovery', { confirm }).then((r) => r.recoveryCodes),
   /** Only while the admin doesn't require it; a code or a recovery code. */
   disableTwoFactor: (code: string) => request<{ ok: true }>('POST', '/api/account/2fa/disable', { code }),

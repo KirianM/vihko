@@ -2,7 +2,7 @@
 // requiring that the rest of the note hasn't changed. This is what lets an
 // agent write to a note while someone else is editing it (the ETag changes
 // on every keystroke, so a full replacement with If-Match would never match).
-import { FrontmatterError, extract, normKey, setFrontmatterKey, type ScalarValue } from '@vihko/core'
+import { FrontmatterError, extract, normKey, setFrontmatterKey, withoutClosingHashes, type ScalarValue } from '@vihko/core'
 import { NoteError } from './notes.ts'
 
 export type EditOp =
@@ -131,7 +131,7 @@ function section(text: string, heading: string, i: number): { bodyStart: number;
   if (typeof heading !== 'string' || !heading.trim()) throw new NoteError('edit_mismatch', `operation ${i}: empty heading`)
   const m = /^\s*(#{1,6})\s+(.*)$/.exec(heading)
   const level = m ? m[1]!.length : null
-  const want = normKey((m ? m[2]! : heading).replace(/\s+#+\s*$/, ''))
+  const want = normKey(withoutClosingHashes(m ? m[2]! : heading, /\s/))
   const headings = extract(text).headings
   const found = headings.filter((h) => normKey(h.text) === want && (level === null || h.level === level))
   if (found.length !== 1) {

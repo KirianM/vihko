@@ -11,6 +11,7 @@
 // knows of a note hidden from it.
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, Switch, Tab, TabList, TabPanel, Tabs, Text, TextField } from 'react-aria-components'
+import { keyWidens } from '@vihko/core/keyScope'
 import { ApiError, api, type Integrations, type KeyInfo, type KeyWithUser, type User } from './api.ts'
 import { copyText } from './copy.ts'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
@@ -113,7 +114,7 @@ function KeyDialog({ edit, onClose, onCreated, onSaved }: {
   const [all, setAll] = useState<string[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // A new key is confirmed at the moment (D-036): the current code, or the password.
+  // A new key, or a change that lets one do more, is confirmed at the moment (D-036, D-046.2): the current code, or the password.
   const confirmWith = useConfirmWith()
   const [confirm, setConfirm] = useState('')
 
@@ -126,16 +127,18 @@ function KeyDialog({ edit, onClose, onCreated, onSaved }: {
   }, [])
 
   const noneChosen = some && folders.length === 0
+  const input = () => ({ name: name.trim(), canWrite, folders: some ? folders : [], ...(preset === 'keep' ? {} : { expiresAt: expiryFrom(preset) }) })
+  // A change that lets the key do more is confirmed as a new key is (D-046.2); narrowing or renaming it, not.
+  const asks = !edit || keyWidens(edit, input())
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (busy || !name.trim() || noneChosen || (!edit && !confirm.trim())) return
+    if (busy || !name.trim() || noneChosen || (asks && !confirm.trim())) return
     setBusy(true)
     setError(null)
-    const input = { name: name.trim(), canWrite, folders: some ? folders : [], ...(preset === 'keep' ? {} : { expiresAt: expiryFrom(preset) }) }
     try {
-      if (edit) onSaved(await api.updateKey(edit.id, input))
+      if (edit) onSaved(await api.updateKey(edit.id, { ...input(), ...(asks ? { confirm: confirm.trim() } : {}) }))
       else {
-        const r = await api.createKey({ ...input, confirm: confirm.trim() })
+        const r = await api.createKey({ ...input(), confirm: confirm.trim() })
         onCreated(r.key, r.token)
       }
     } catch (err) {
@@ -182,13 +185,13 @@ function KeyDialog({ edit, onClose, onCreated, onSaved }: {
               {PRESETS.map((p) => <option key={p} value={p}>{t(presetKey[p])}</option>)}
             </select>
           </label>
-          {!edit && <ConfirmField how={confirmWith} value={confirm} onChange={setConfirm} hint={t('keys.confirmHint')} />}
+          {asks && <ConfirmField how={confirmWith} value={confirm} onChange={setConfirm} hint={t(edit ? 'keys.confirmWiderHint' : 'keys.confirmHint')} />}
         </div>
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}
         <div className="dialog-actions">
           {noneChosen && <span className="hint key-need">{t('keys.foldersNeeded')}</span>}
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className="btn btn-primary" isDisabled={busy || !name.trim() || noneChosen || (!edit && !confirm.trim())}>{t(edit ? 'keys.save' : 'keys.create')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={busy || !name.trim() || noneChosen || (asks && !confirm.trim())}>{t(edit ? 'keys.save' : 'keys.create')}</Button>
         </div>
       </form>
     </Dialog>

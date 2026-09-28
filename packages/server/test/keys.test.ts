@@ -123,6 +123,19 @@ test('rotating: a new secret shown once, the same key otherwise; the old one wor
   assert.throws(() => keys.rotate(m.faker.string.ulid()), { code: 'not_found' })
 })
 
+test('an expired key stays expired: no new expiry, no expiry removed, nothing else changed', async () => {
+  const { keys, admin, clock } = await setup()
+  const { key, token } = keys.create(admin, { name: m.aKeyName(), expiresAt: new Date(clock.now.getTime() + 60_000).toISOString() })
+  clock.now = new Date(clock.now.getTime() + 60_000)
+  assert.equal(keys.authenticate(token, 'api'), null)
+  const later = new Date(clock.now.getTime() + 86_400_000).toISOString()
+  for (const change of [{ expiresAt: later }, { expiresAt: null }, { canWrite: true }, { name: m.aKeyName() }]) {
+    assert.throws(() => keys.update(key.id, change), { code: 'invalid' }, JSON.stringify(change))
+  }
+  assert.deepEqual([keys.get(key.id)!.status, keys.get(key.id)!.canWrite], ['expired', false])
+  assert.equal(keys.authenticate(token, 'api'), null, 'its secret works no more')
+})
+
 test('last use: written at most every 5 minutes, or when the way in changes', async () => {
   const { keys, admin, clock } = await setup()
   const { key, token } = keys.create(admin, { name: m.aKeyName() })

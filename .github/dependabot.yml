@@ -3,12 +3,18 @@
 # Node major upgrades (runtime, image and @types/node) are NOT proposed by
 # Dependabot: they are decided by hand following the LTS schedule, because odd
 # Node versions have no LTS and are not used.
+#
+# A new version is proposed a week after it is published (cooldown), so a
+# compromised release that gets pulled within days never reaches us. Security
+# updates don't wait.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
@@ -21,10 +27,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     ignore:
       - dependency-name: node
         update-types: ["version-update:semver-major"]

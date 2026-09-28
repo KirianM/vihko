@@ -39,7 +39,8 @@ export interface Thread {
   anchorTo: number
 }
 
-const COMMENT = /<!--[ \t]*@([\p{L}\p{N}._-]+)[ \t]+(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?(?: ?(?:Z|[+-]\d{2}:?\d{2}))?)?)[ \t]*·[ \t]*([\s\S]*?)[ \t]*-->/gu
+/** A comment up to its `·`, tried only where a `<!--` is (sticky): its text runs to the first `-->`. */
+const HEAD = /<!--[ \t]*@([\p{L}\p{N}._-]+)[ \t]+(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?(?: ?(?:Z|[+-]\d{2}:?\d{2}))?)?)[ \t]*·/uy
 const REPLY = /^↳[ \t]*/
 const FENCE = /^[ \t]{0,3}(`{3,}|~{3,})/
 /** End of sentence: a closing mark followed by whitespace. */
@@ -67,31 +68,72 @@ function fencedRanges(doc: string): [number, number][] {
   return out
 }
 
+/**
+ * The comments of `doc`, in order. Found by hand in linear time: a single
+ * pattern with `[\s\S]*?` up to `-->` went back over the rest of the note
+ * from every comment left open, and over every space of a long run, and a
+ * note written that way kept the server busy for minutes.
+ */
 export function parseComments(doc: string): Comment[] {
   const fences = fencedRanges(doc)
   const out: Comment[] = []
-  for (const m of doc.matchAll(COMMENT)) {
-    const from = m.index
-    if (fences.some(([a, b]) => from >= a && from < b)) continue
-    const body = m[3]!.trim()
-    out.push({
-      from,
-      to: from + m[0].length,
-      author: m[1]!,
-      date: m[2]!,
-      text: body.replace(REPLY, ''),
-      reply: REPLY.test(body),
-    })
+  let fence = 0
+  for (let from = doc.indexOf('<!--'); from !== -1;) {
+    HEAD.lastIndex = from
+    const m = HEAD.exec(doc)
+    if (!m) { from = doc.indexOf('<!--', from + 1); continue }
+    const end = doc.indexOf('-->', HEAD.lastIndex)
+    if (end === -1) break // nothing after this closes a comment either
+    // Fences are in order, and so are comments: the one that could hold this is the first that doesn't end before it.
+    while (fence < fences.length && fences[fence]![1] <= from) fence++
+    if (!(fence < fences.length && fences[fence]![0] <= from)) {
+      const body = doc.slice(HEAD.lastIndex, end).trim()
+      out.push({ from, to: end + 3, author: m[1]!, date: m[2]!, text: body.replace(REPLY, ''), reply: REPLY.test(body) })
+    }
+    from = doc.indexOf('<!--', end + 3)
   }
   return out
+}
+
+/** The last index of `list` (in order) for which `test` holds, when it holds for a prefix of it; -1 if for none. */
+function lastBefore<T>(list: readonly T[], test: (x: T) => boolean): number {
+  let lo = 0
+  let hi = list.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (test(list[mid]!)) lo = mid + 1
+    else hi = mid
+  }
+  return lo - 1
+}
+
+/**
+ * `doc.slice(from, pos)` as `joins` judges it: read back from `pos` only
+ * while it could still join (spaces, tabs, one line break); a mark past that.
+ */
+function blanksBefore(doc: string, pos: number, from: number): string {
+  let i = pos
+  let breaks = 0
+  while (i > from && (doc[i - 1] === ' ' || doc[i - 1] === '\t' || (doc[i - 1] === '\n' && ++breaks <= 1))) i--
+  return i > from ? 'x' + doc.slice(i, pos) : doc.slice(i, pos)
+}
+
+/** `doc.slice(pos, to)` as `joins` judges it, read forward (see blanksBefore). */
+function blanksAfter(doc: string, pos: number, to: number): string {
+  let i = pos
+  let breaks = 0
+  while (i < to && (doc[i] === ' ' || doc[i] === '\t' || (doc[i] === '\n' && ++breaks <= 1))) i++
+  return i < to ? doc.slice(pos, i) + 'x' : doc.slice(pos, i)
 }
 
 /** Between two comments of the same thread there's only room for whitespace and, at most, one line break. */
 const joins = (between: string) => /^[ \t]*(?:\n[ \t]*)?$/.test(between)
 
 function anchorOf(doc: string, at: number, floor: number): [number, number] {
-  const lineStart = doc.lastIndexOf('\n', at - 1) + 1
-  let start = Math.max(lineStart, floor)
+  // Where its line starts, looked for only back to `floor`: many comments on one long line stay linear.
+  const nl = doc.slice(floor, at).lastIndexOf('\n')
+  let start = nl === -1 ? floor : floor + nl + 1
+  const lineStart = nl !== -1 || floor === 0 || doc[floor - 1] === '\n' ? start : -1
   // The sentence the text ends in: last sentence end before the end (not counting
   // the mark that the commented text itself ends with).
   const before = doc.slice(start, at)
@@ -157,7 +199,7 @@ export function formatDate(d: Date): string {
 
 /** One line, with nothing that closes the comment early. */
 export function cleanText(text: string): string {
-  return text.replace(/\s+/g, ' ').trim().replace(/--+>/g, (m) => m.slice(0, -1) + ' >')
+  return text.replace(/\s+/g, ' ').trim().replace(/(?<=--)>/g, ' >')
 }
 
 export function formatComment(author: string, date: Date, text: string, reply = false): string {
@@ -188,11 +230,16 @@ export interface Change {
   insert: string
 }
 
+const blank = (c: string) => c !== '\n' && c.trim() === ''
+
 /** Resolving deletes the thread. If it took up the whole line, the line goes too. */
 export function resolveThread(doc: string, thread: Thread): Change {
-  const lineStart = doc.lastIndexOf('\n', thread.from - 1) + 1
-  const lineEnd = doc.indexOf('\n', thread.to) === -1 ? doc.length : doc.indexOf('\n', thread.to)
-  if (doc.slice(lineStart, thread.from).trim() === '' && doc.slice(thread.to, lineEnd).trim() === '') {
+  // Only over the blanks around it: many threads on one long line stay linear.
+  let lineStart = thread.from
+  while (lineStart > 0 && blank(doc[lineStart - 1]!)) lineStart--
+  let lineEnd = thread.to
+  while (lineEnd < doc.length && blank(doc[lineEnd]!)) lineEnd++
+  if ((lineStart === 0 || doc[lineStart - 1] === '\n') && (lineEnd === doc.length || doc[lineEnd] === '\n')) {
     if (lineEnd < doc.length) return { from: lineStart, to: lineEnd + 1, insert: '' }
     if (lineStart > 0) return { from: lineStart - 1, to: lineEnd, insert: '' }
     return { from: lineStart, to: lineEnd, insert: '' }
@@ -231,8 +278,13 @@ export function removedThread(doc: string, t: Thread): RemovedThread {
   let start = t.anchorFrom
   if (t.anchorTo === t.anchorFrom) {
     // From the nearest line above with something on it, blank lines in between included.
+    // Its own line's start is looked for only as far back as the context can reach:
+    // further back, the context is cut anyway (and one long line of threads stays linear).
     start = 0
-    for (let line = doc.lastIndexOf('\n', t.from - 1) + 1; line > 0;) {
+    const reach = Math.max(0, cut.from - MAX_CONTEXT - 1)
+    const nl = doc.slice(reach, t.from).lastIndexOf('\n')
+    const lineFrom = nl !== -1 ? reach + nl + 1 : reach === 0 ? 0 : -1
+    for (let line = lineFrom; line > 0;) {
       const above = doc.lastIndexOf('\n', line - 2) + 1
       if (doc.slice(above, line - 1).trim() !== '') { start = above; break }
       line = above
@@ -272,7 +324,7 @@ const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /** A context as a pattern: runs of whitespace inside it may differ (a reflowed paragraph); the ones it ends with may not. */
 function contextPattern(context: string): RegExp {
-  const tail = /\s*$/.exec(context)!.index
+  const tail = context.trimEnd().length
   const body = context.slice(0, tail).split(/(\s+)/).map((p, i) => (i % 2 ? '\\s+' : escapeRegExp(p))).join('')
   return new RegExp(body + escapeRegExp(context.slice(tail)), 'g')
 }
@@ -286,15 +338,23 @@ function contextPattern(context: string): RegExp {
  */
 export function reopener(doc: string): (r: RemovedThread) => Change | null {
   const comments = parseComments(doc)
-  const fences = fencedRanges(doc)
-  const blocked = (pos: number) => comments.some((c) => pos > c.from && pos < c.to) || fences.some(([a, b]) => pos > a && pos < b)
+  const fences = fencedRanges(doc).map(([from, to]) => ({ from, to }))
+  // Both in order and apart: each place is looked up (binary search), and only the
+  // blanks next to it are read, so many places and many comments stay fast.
+  const inside = (ranges: readonly { from: number; to: number }[], pos: number) => {
+    const i = lastBefore(ranges, (r) => r.from < pos)
+    return i !== -1 && pos < ranges[i]!.to
+  }
+  const blocked = (pos: number) => inside(comments, pos) || inside(fences, pos)
   const merges = (pos: number, removed: string) => {
     const first = removed.indexOf('<!--')
     const last = removed.lastIndexOf('-->') + 3
-    const before = comments.findLast((c) => c.to <= pos)
-    const after = comments.find((c) => c.from >= pos)
-    return (before !== undefined && joins(doc.slice(before.to, pos) + removed.slice(0, first)))
-      || (after !== undefined && joins(removed.slice(last) + doc.slice(pos, after.from)))
+    const b = lastBefore(comments, (c) => c.to <= pos)
+    const a = lastBefore(comments, (c) => c.from < pos) + 1
+    const before = b === -1 ? undefined : comments[b]
+    const after = a < comments.length ? comments[a] : undefined
+    return (before !== undefined && joins(blanksBefore(doc, pos, before.to) + removed.slice(0, first)))
+      || (after !== undefined && joins(removed.slice(last) + blanksAfter(doc, pos, after.from)))
   }
   return (r) => {
     const { context, removed, at } = r.place

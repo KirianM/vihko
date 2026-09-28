@@ -7,7 +7,8 @@
 //   second factor away or changed their role (D-040 3.1). The admin still
 //   may, but never unnoticed.
 // - `user_account_changed`: the same, for every other admin: who did it to
-//   whom, and when.
+//   whom, and when. Also a new admin (D-046.1), told as a role change to
+//   admin is.
 // - `history_purged_authored`: someone purged from the history a note (or a
 //   version of it) they wrote in (D-040 3.6). The path is kept, and shown
 //   only while they can still read it (the caller judges, on each request).
@@ -115,6 +116,15 @@ export class Notices {
    */
   accountChanged(userId: string, by: string, change: AccountChange, role: Role | null = null) {
     if (userId !== by) this.add(userId, { code: 'account_changed', change, by, role })
+    this.toOtherAdmins(userId, by, change, role)
+  }
+
+  /**
+   * Only every other admin is told (not the one who did it, nor the person):
+   * a new admin (D-046.1) is told as a role change to admin is, and the
+   * person, just invited, has no account yet to be told about.
+   */
+  toOtherAdmins(userId: string, by: string, change: AccountChange, role: Role | null = null) {
     const admins = this.db.prepare(`select id from users where role = 'admin' and deleted_at is null and id != ? and id != ?`).all(by, userId) as { id: string }[]
     for (const a of admins) this.add(a.id, { code: 'user_account_changed', change, by, user: userId, role })
   }

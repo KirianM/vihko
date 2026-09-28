@@ -451,12 +451,15 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
         })
       case 'permissions_held': {
         const folder = <span className="mono">{a.folder || '/'}</span>
+        // From a personal folder, and not theirs to decide (D-046.4): only that it exists, and whose it is to decide.
+        const theirs = !a.personal || a.actions.length > 0
         return frame({
           icon: icons.moved,
           tone: 'warn',
           title: a.notes === 1 ? t('alerts.heldTitleOne') : t('alerts.heldTitle', { n: a.notes }),
-          body: a.to !== null ? rich(t('alerts.heldBodyTo'), { folder, to: <span className="mono">{a.to}</span> }) : rich(t('alerts.heldBody'), { folder }),
-          actions: (
+          body: !theirs ? rich(t('alerts.heldPersonal'), { folder })
+            : a.to !== null ? rich(t('alerts.heldBodyTo'), { folder, to: <span className="mono">{a.to}</span> }) : rich(t('alerts.heldBody'), { folder }),
+          actions: !theirs ? null : (
             <>
               {a.actions.includes('move_permissions') && <Button className="btn btn-primary" isDisabled={busy} onPress={() => act(() => api.held(a.id, 'move_permissions'))}>{t('alerts.heldMove')}</Button>}
               {a.actions.includes('release') && <Button className="btn" isDisabled={busy} onPress={() => act(() => api.held(a.id, 'release'))}>{t('alerts.heldRelease')}</Button>}

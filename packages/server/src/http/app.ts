@@ -9,8 +9,8 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
-import { readFileSync, realpathSync, statSync } from 'node:fs'
-import { join, posix, sep } from 'node:path'
+import { readFileSync, statSync } from 'node:fs'
+import { join, posix } from 'node:path'
 import { WORKSPACE_FILE, classifyPath, conflictOriginal, type Alert, type ErrorCode } from '@vihko/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
@@ -48,6 +48,7 @@ import type { BlockList } from 'node:net'
 import { LoginLimiter, SETUP_ACCOUNT, type AttemptResult } from '../loginLimit.ts'
 import { clientIp, ipKey } from './clientIp.ts'
 import { written } from './written.ts'
+import { followable } from '../fsutil.ts'
 import { sameHost } from './origin.ts'
 import { Users, UsersError } from '../users.ts'
 import { AdminSettings, AdminSettingsError } from '../adminSettings.ts'
@@ -75,6 +76,10 @@ export const MAX_AUTH_BODY = 16 * 1024
  * their own limit (`maxImageBytes`), on their route.
  */
 export const MAX_API_BODY = 20 * 1024 * 1024
+
+/** Images received at once (uploads and copies from a URL, each held whole in memory): by one person, and in all. */
+export const IMAGES_PER_USER = 2
+export const IMAGES_IN_FLIGHT = 8
 
 export interface Runtime {
   lastScan: ScanReport | null
@@ -308,10 +313,14 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // without a policy of its own (the API's JSON, errors) is no page: opened
   // on its own, or framed, it can run and load nothing. The UI and the files
   // from the notes folder set theirs.
+  // Nor is it kept by any cache, the browser's disk or a proxy's: it holds
+  // notes, names and keys (unless it says otherwise, as OAuth's do).
   app.use('*', async (c, next) => {
     await next()
     c.header('X-Content-Type-Options', 'nosniff')
-    if (!c.res.headers.has('Content-Security-Policy')) c.header('Content-Security-Policy', API_CSP)
+    if (c.res.headers.has('Content-Security-Policy')) return
+    c.header('Content-Security-Policy', API_CSP)
+    if (!c.res.headers.has('Cache-Control')) c.header('Cache-Control', 'no-store')
   })
 
   // No body over MAX_API_BODY, before anything else (who is asking included).
@@ -395,14 +404,17 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       secure: isHttps(c),
       expires: s.expiresAt,
     })
-    // This browser is known for this account from now on: other people's failures don't hold it back.
+    // This browser is known for this account from now on: other people's failures don't hold it back,
+    // at a sign-in or when confirming at the moment (keys, OAuth, the admin's actions: all under /api).
     setCookie(c, DEVICE_COOKIE, limiter.deviceToken(username), {
       httpOnly: true,
       sameSite: 'Lax',
-      path: '/api/auth',
+      path: '/api',
       secure: isHttps(c),
       maxAge: DEVICE_DAYS * 86_400,
     })
+    // The one an earlier version left under /api/auth would be sent first there, and outlive a restart's new key.
+    deleteCookie(c, DEVICE_COOKIE, { path: '/api/auth', secure: isHttps(c) })
   }
 
   // The second factor (http/twoFactor.ts): after the password, the session or the second step.
@@ -551,9 +563,15 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   // The workspace settings the UI needs from vihko.yaml (reloaded when it changes).
+  // Paths the person can't read aren't named (D-038): a series' template, the templates folder.
   app.get('/api/workspace', (c) => {
     const w = workspace.config
-    return c.json({ daily: w.daily, templates: w.templates, links: w.links })
+    const access = c.get('access')
+    return c.json({
+      daily: w.daily.map((s) => ({ ...s, template: s.template !== null && access.canRead(s.template) ? s.template : null })),
+      templates: w.templates !== null && access.level(w.templates) !== null ? w.templates : null,
+      links: w.links,
+    })
   })
 
   app.get('/api/profile', (c) => c.json(profiles.get(c.get('user').id)))
@@ -647,9 +665,33 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return 'job' in r ? c.json(r, 202) : c.json(r.report)
   })
 
+  // Images being received (an upload's body, a copy downloading) are held in
+  // memory whole, up to the size limit each: only a few at a time, per person
+  // and in all, so that many at once can't exhaust the server's memory.
+  // Beyond that, 429 with Retry-After; nothing is read.
+  const receiving = { total: 0, byUser: new Map<string, number>() }
+  const imageSlot = async (c: Context<Env>, next: () => Promise<void>) => {
+    const id = c.get('user').id
+    const mine = receiving.byUser.get(id) ?? 0
+    if (mine >= IMAGES_PER_USER || receiving.total >= IMAGES_IN_FLIGHT) {
+      c.header('Retry-After', '1')
+      return fail(c, 429, 'busy', 'too many images are being received at once: try again in a moment')
+    }
+    receiving.byUser.set(id, mine + 1)
+    receiving.total++
+    try {
+      await next()
+    } finally {
+      receiving.total--
+      const left = (receiving.byUser.get(id) ?? 1) - 1
+      if (left > 0) receiving.byUser.set(id, left)
+      else receiving.byUser.delete(id)
+    }
+  }
+
   // Images (D-028). Upload and paste are the same: the raw bytes of the file
   // in the body. It is stored next to the note and the editor links it.
-  app.post('/api/attachments',
+  app.post('/api/attachments', imageSlot,
     bodyLimit({ maxSize: notes.maxImageBytes, onError: (c) => fail(c, 413, 'too_large', `the limit is ${notes.maxImageBytes} bytes`) }),
     async (c) => {
       const bytes = new Uint8Array(await c.req.arrayBuffer())
@@ -661,7 +703,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Nothing is downloaded for a note that doesn't exist or they can't write.
   // Members only from public addresses, unless the admin lets them reach the
   // local network (D-038.6); the vihko admin, from anywhere.
-  app.post('/api/attachments/fetch', async (c) => {
+  app.post('/api/attachments/fetch', imageSlot, async (c) => {
     const { note, url } = await c.req.json<{ note: string; url: string }>()
     const publicOnly = c.get('user').role !== 'admin' && !adminSettings.view().membersLocalDownloads
     const r = await scoped(c).attachFromUrl(note ?? '', async () => (await fetchImage(String(url ?? ''), { maxBytes: notes.maxImageBytes, publicOnly, testing: deps.imageFetchTesting })).bytes)
@@ -670,21 +712,20 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   // A file in the notes folder that isn't a note (images and other attachments).
   // Same path rules as notes: relative, inside the root, no hidden or ignored
-  // segments, and no symlink leading out of the folder.
+  // segments, and only a path vihko follows (fsutil.ts followable).
   app.get('/api/file', (c) => {
     const path = c.req.query('path') ?? ''
     const norm = posix.normalize(path)
     if (!path || norm !== path || path.startsWith('/') || norm.split('/').includes('..')) return fail(c, 400, 'invalid_path', `invalid file path: ${path}`)
     // vihko.yaml isn't content: once it holds permissions (M4), it's not for every reader.
     if (classifyPath(norm) !== 'other' || norm === WORKSPACE_FILE) return fail(c, 404, 'not_found', `not a servable file: ${path}`)
+    // Through a symbolic link, or spelled otherwise than on the disk (a case-insensitive filesystem): not there.
+    if (!followable(deps.notesDir, norm)) return fail(c, 404, 'not_found', `does not exist: ${path}`)
     // An agent: only in its folders, and only a file a note it can read uses.
     scoped(c).assertFile(norm)
-    let file: string
+    const file = join(deps.notesDir, norm)
     let st: ReturnType<typeof statSync>
     try {
-      const root = realpathSync(deps.notesDir)
-      file = realpathSync(join(deps.notesDir, norm))
-      if (!file.startsWith(root + sep)) return fail(c, 404, 'not_found', `outside the notes folder: ${path}`)
       st = statSync(file)
     } catch {
       return fail(c, 404, 'not_found', `does not exist: ${path}`)
@@ -699,7 +740,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     c.header('X-Content-Type-Options', 'nosniff')
     c.header('Content-Security-Policy', FILE_CSP)
     if (!type.startsWith('image/')) c.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(posix.basename(norm))}`)
-    if (c.req.header('if-none-match')?.split(/\s*,\s*/).includes(etag)) return c.body(null, 304)
+    if (c.req.header('if-none-match')?.split(',').map((t) => t.trim()).includes(etag)) return c.body(null, 304)
     c.header('Content-Type', type)
     return c.body(readFileSync(file))
   })
@@ -763,7 +804,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       const shared = workspace.config.attachments.folder
       if (shared !== null && permissions.directory.users().length > 1) alerts.push({ code: 'attachments_shared_folder', folder: shared, actions: [] })
     }
-    for (const a of deps.holds?.alerts((p) => noteExists.get(p) !== undefined, (h) => admin || access.canManage(h.folder)) ?? []) alerts.push(a)
+    for (const a of deps.holds?.alerts((p) => noteExists.get(p) !== undefined, { admin, canManage: (f) => access.canManage(f) }) ?? []) alerts.push(a)
     for (const { path } of index.prepare("select path from alerts where kind = 'sync_conflict' order by path").all() as { path: string }[]) {
       if (!access.canRead(path)) continue
       const note = conflictOriginal(path)

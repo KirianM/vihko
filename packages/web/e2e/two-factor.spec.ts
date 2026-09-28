@@ -1,7 +1,8 @@
 // The second factor (D-036) in a real browser: a member sets it up from
 // «Account» with a code this test computes from the secret on the page,
-// signs in with a code and with a recovery code, and confirms a new key with
-// the current code. Then the admin makes it required: someone invited sets
+// signs in with a code and with a recovery code, confirms a new key with the
+// current code, and makes new recovery codes and changes the app with a
+// recovery code (never the password). Then the admin makes it required: someone invited sets
 // it up before getting in (on a phone, in dark mode), and the admin resets
 // it. Users of their own, removed at the end, and the policy back to
 // optional: the other specs sign in with a password alone.
@@ -9,7 +10,7 @@ import { expect, test, type Browser, type Page } from '@playwright/test'
 import { createHmac } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, E2E_DIR, PUBLIC_URL, specMother } from './env.ts'
-import { literally, signIn, usePermissions } from './helpers.ts'
+import { literally, newUser, signIn, usePermissions } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
@@ -126,7 +127,7 @@ let session: Page
 
 test('a member sets it up from «Account»: nothing is on until a code from the app is verified; then the recovery codes, once', async ({ browser }) => {
   const admin = await signIn(browser, ADMIN)
-  expect((await admin.request.post('/api/admin/users', { data: { username: PERSON.username, role: 'member', password: PERSON.password } })).status()).toBe(201)
+  await newUser(admin, PERSON)
   await admin.context().close()
 
   const page = await password(browser, PERSON.username, PERSON.password)
@@ -233,6 +234,55 @@ test('a new key asks for the app\'s current code, even with a session; the passw
   const shown = page.getByRole('dialog', { name: `Clave para «${keyName}»` })
   await expect(shown.locator('.token')).toBeVisible()
   await shown.getByRole('button', { name: 'Ya la he guardado' }).click()
+  await page.context().close()
+})
+
+test('new recovery codes and another app ask for a code of the second factor, never the password (here, recovery codes: no phone at hand)', async ({ browser }) => {
+  const page = await password(browser, PERSON.username, PERSON.password)
+  await page.getByRole('button', { name: '¿No tienes el móvil? Usa un código de recuperación' }).click()
+  await page.getByLabel('Código de recuperación').fill(recovery[1]!)
+  await page.getByRole('button', { name: 'Verificar' }).click()
+  await page.getByRole('button', { name: 'Continuar' }).click()
+  await expect(page.getByRole('treegrid')).toBeVisible()
+  await openSettings(page, 'Cuenta', 'account')
+  const section = page.getByRole('region', { name: 'Verificación en dos pasos' })
+
+  // New recovery codes: the password doesn't do; a recovery code does.
+  await section.getByRole('button', { name: 'Nuevos códigos de recuperación' }).click()
+  const ask = page.getByRole('dialog')
+  const field = ask.getByLabel('Código de la app o de recuperación')
+  await expect(ask).toContainText('Sin el móvil a mano, uno de tus códigos de recuperación')
+  await field.fill(PERSON.password)
+  await ask.getByRole('button', { name: 'Crear códigos nuevos' }).click()
+  await expect(ask.getByRole('alert')).toContainText('El código no es correcto')
+  await field.fill(recovery[2]!)
+  await ask.getByRole('button', { name: 'Crear códigos nuevos' }).click()
+  const fresh = page.getByRole('dialog', { name: 'Guarda tus códigos de recuperación' })
+  await expect(fresh.getByRole('list', { name: 'Códigos de recuperación' }).getByRole('listitem')).toHaveCount(10)
+  recovery = (await fresh.getByRole('list', { name: 'Códigos de recuperación' }).getByRole('listitem').allInnerTexts()).map((c) => c.trim())
+  await fresh.getByRole('button', { name: 'Ya los he guardado' }).click()
+  await expect(section).toContainText('Te quedan 10 códigos de recuperación.')
+
+  // Another app: a code of the one in force (a recovery code here), not the password.
+  await section.getByRole('button', { name: 'Cambiar de app' }).click()
+  const replace = page.getByRole('dialog', { name: 'Cambiar de app de autenticación' })
+  await expect(replace.getByLabel('Contraseña actual')).toHaveCount(0)
+  const code = replace.getByLabel('Código de la app o de recuperación')
+  await code.fill(PERSON.password)
+  await replace.getByRole('button', { name: 'Seguir' }).click()
+  await expect(replace.getByRole('alert')).toContainText('El código no es correcto')
+  await page.screenshot({ path: `${SHOTS}/twofa-replace-light.png`, animations: 'disabled' })
+  await code.fill(recovery[0]!)
+  await replace.getByRole('button', { name: 'Seguir' }).click()
+  await expect(replace.getByRole('img', { name: 'Código QR para la app de autenticación' })).toBeVisible()
+  app = authenticator(await replace.getByLabel('Clave secreta').innerText())
+  await replace.getByLabel('Código de verificación').fill(await app.next())
+  await replace.getByRole('button', { name: 'Verificar y activar' }).click()
+  const codes = page.getByRole('dialog', { name: 'Guarda tus códigos de recuperación' })
+  await expect(codes.getByRole('list', { name: 'Códigos de recuperación' }).getByRole('listitem')).toHaveCount(10)
+  recovery = (await codes.getByRole('list', { name: 'Códigos de recuperación' }).getByRole('listitem').allInnerTexts()).map((c) => c.trim())
+  await codes.getByRole('button', { name: 'Ya los he guardado' }).click()
+  await expect(section).toContainText('Te quedan 10 códigos de recuperación.')
   await page.context().close()
 })
 

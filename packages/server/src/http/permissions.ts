@@ -18,7 +18,7 @@
 // folder, 404 if not.
 import type { Context, Hono } from 'hono'
 import {
-  LEVELS, USER_SEGMENT, WORKSPACE_FILE, atLeast, grantsAt, isSubject, parentFolder, selfAndAncestors, subjectKey,
+  LEVELS, USER_SEGMENT, WORKSPACE_FILE, atLeast, grantsAt, isSubject, parentFolder, selfAndAncestors, subjectKey, trimSlashes,
   type Level, type RuleValue,
 } from '@vihko/core'
 import { AccessError, inFolders, type Access, type AccessPolicy } from '../access.ts'
@@ -26,7 +26,7 @@ import type { User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { ApiKeys } from '../keys.ts'
 import { NoteError } from '../notes.ts'
-import type { PermissionHolds } from '../permissionHolds.ts'
+import { holdAccess, type PermissionHolds } from '../permissionHolds.ts'
 import type { PermissionsEngine } from '../permissions.ts'
 import type { PermissionsFile } from '../permissionsFile.ts'
 import { RequestError } from '../scoped.ts'
@@ -45,7 +45,7 @@ export interface PermissionRoutesDeps {
 /** A folder named in a request: `""` is the root; a `{user}` rule's key is allowed (the admin's). */
 function folderParam(raw: unknown): string {
   if (typeof raw !== 'string') throw new RequestError(400, 'invalid', 'folder must be a folder path ("" for the root)')
-  const f = raw.normalize('NFC').replace(/^\/+|\/+$/g, '')
+  const f = trimSlashes(raw.normalize('NFC'))
   if (f !== '' && (/[\\\u0000-\u001f]/.test(f) || !f.split('/').every((s) => s !== '' && !s.startsWith('.') && s !== '..' && s.trim() === s))) {
     throw new NoteError('invalid_path', `invalid folder path: ${raw}`)
   }
@@ -211,11 +211,15 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
     return c.json({ user: { id: who.id, username: who.username }, key: key ? { id: key.id, name: key.name } : null, folders })
   })
 
-  // Notes held after a move made outside vihko (permissionHolds.ts): the admin, or whoever manages the folder the rules were written for.
+  // Notes held after a move made outside vihko (permissionHolds.ts): the admin, or whoever manages the folder the rules were written for;
+  // from a personal folder, only whoever manages that one (D-046.4). Whoever isn't told of the hold is told nothing.
   app.post('/api/permissions/holds/:id', async (c) => {
     const { action } = await c.req.json<{ action?: unknown }>().catch(() => ({ action: undefined }))
     const hold = deps.holds?.get(c.req.param('id'))
-    if (!hold || !(isAdmin(c) || c.get('access').canManage(hold.folder))) throw new NoteError('not_found', 'no such hold')
+    const access = c.get('access')
+    const may = hold ? holdAccess(hold, { admin: isAdmin(c), canManage: (f) => access.canManage(f) }) : null
+    if (!hold || !may?.sees) throw new NoteError('not_found', 'no such hold')
+    if (!may.decides) throw new RequestError(403, 'hold_owner_only', 'these notes left a personal folder: only whoever manages it decides')
     if (action === 'release') { deps.holds!.release(hold.id); return c.json({ ok: true }) }
     if (action === 'move_permissions') {
       if (hold.to === null) throw new RequestError(400, 'invalid', 'where its notes went is not known: move the rules by hand')

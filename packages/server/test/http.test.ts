@@ -393,6 +393,39 @@ test('headers: every answer is nosniff, and one that is not the UI can run nothi
   assert.match(home.headers.get('content-security-policy')!, /default-src 'self'/)
 })
 
+test('headers: no cache keeps what the API answers, the UI and files keep their own rules', async () => {
+  const webDir = tempDir('vihko-web-')
+  mkdirSync(join(webDir, 'assets'))
+  writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
+  writeFileSync(join(webDir, 'assets', 'app-abc123.js'), 'console.log(1)')
+  const { auth, notesDir, req, raw } = await setup({ webDir })
+  const admin = m.aUser({ role: 'admin' })
+  await auth.createUser(admin.username, admin.password, admin.role)
+  const unauthorized = await raw('/api/tree')
+  await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
+  const path = m.aNotePath()
+  const created = await req('POST', '/api/note', { path, text: m.aParagraph() })
+  assert.equal(created.status, 201)
+  const image = `${m.aUniqueWord()}.png`
+  writeFileSync(join(notesDir, image), Buffer.from('89504e470d0a1a0a', 'hex'))
+  const answers = {
+    unauthorized,
+    health: await raw('/api/health'),
+    tree: await raw('/api/tree'),
+    note: await raw(`/api/note?path=${encodeURIComponent(path)}`),
+    search: await raw(`/api/search?q=${encodeURIComponent(m.aWord())}`),
+    me: await raw('/api/auth/me'),
+    missing: await raw(`/api/${m.aUniqueWord()}`),
+  }
+  for (const [what, res] of Object.entries(answers)) assert.equal(res.headers.get('cache-control'), 'no-store', what)
+  assert.equal(answers.note.status, 200, 'the note is read')
+  assert.equal(created.headers.get('cache-control'), 'no-store', 'a write')
+  // An image from the notes folder is revalidated (304 when unchanged), never shared.
+  assert.equal((await raw(`/api/file?path=${encodeURIComponent(image)}`)).headers.get('cache-control'), 'private, no-cache')
+  assert.equal((await raw('/')).headers.get('cache-control'), 'no-cache')
+  assert.match((await raw('/assets/app-abc123.js')).headers.get('cache-control')!, /immutable/)
+})
+
 test('CSRF: a write from another origin is rejected', async () => {
   const { auth, req } = await setup()
   const admin = m.aUser({ role: 'admin' })

@@ -11,7 +11,7 @@
 // construction. Reads stay sync: they are served from the client's cache in
 // well under a millisecond, and going through the thread pool made a big
 // rename on local disk slower (2.1 → 2.7 s) for nothing on NFS.
-import { closeSync, fsyncSync, linkSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs'
+import { closeSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeSync } from 'node:fs'
 import { link, open, rename, rm } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
@@ -19,6 +19,144 @@ import { contentHash } from '@vihko/core'
 
 let counter = 0
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** A folder's entries as last listed (NFC), with what tells whether it changed since. */
+const listed = new Map<string, { key: string; names: Set<string> }>()
+
+/** The names in a folder (NFC), from the cache while the folder is unchanged; null if it isn't a folder. */
+function namesIn(dir: string, fresh = false): Set<string> | null {
+  let st: ReturnType<typeof statSync>
+  try { st = statSync(dir) } catch { return null }
+  if (!st.isDirectory()) return null
+  const key = `${st.ino}:${st.mtimeMs}:${st.ctimeMs}`
+  const known = listed.get(dir)
+  if (!fresh && known?.key === key) return known.names
+  let names: Set<string>
+  try { names = new Set(readdirSync(dir).map((n) => n.normalize('NFC'))) } catch { return null }
+  if (listed.size > 2000) listed.clear()
+  listed.set(dir, { key, names })
+  return names
+}
+
+/** Whether each notes root ignores case, once told; while it can't be told, when it was last looked at. */
+const rootCase = new Map<string, boolean | number>()
+/** How long an undecided root waits before its names are looked at again. */
+const UNDECIDED_MS = 10_000
+
+const otherCase = (name: string) => name.replace(/[A-Za-z]/g, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()))
+
+/**
+ * Whether the filesystem of `root` ignores case: true or false once told,
+ * null while it can't be. Told once, from a name at the root with ASCII
+ * letters: whether it also opens with each letter's case swapped. Read only.
+ * An undecided root (none of its names has such letters) is looked at again
+ * every few seconds. Per-folder case-insensitivity under a case-sensitive
+ * root (ext4's `chattr +F` on a subfolder) isn't seen: unsupported.
+ */
+export function rootIgnoresCase(root: string): boolean | null {
+  const known = rootCase.get(root)
+  if (typeof known === 'boolean') return known
+  if (known !== undefined && Date.now() - known < UNDECIDED_MS) return null
+  let names: string[]
+  try { names = readdirSync(root) } catch { return null }
+  const all = new Set(names)
+  for (const name of names) {
+    const other = otherCase(name)
+    if (other === name || all.has(other)) continue
+    let opens = true
+    try { lstatSync(join(root, other)) } catch { opens = false }
+    rootCase.set(root, opens)
+    return opens
+  }
+  rootCase.set(root, Date.now())
+  return null
+}
+
+/**
+ * Whether `rel` (a `/`-separated path under `root`) is spelled as the disk
+ * spells what exists of it: each part that exists is listed in its folder
+ * under that very name (compared in NFC: disks may hold NFD). A part that
+ * doesn't exist yet (a new note's) passes. On a case-insensitive filesystem
+ * (macOS or Windows folders shared into a container, SMB, some NFS
+ * datasets) `People/noa/diary.md` also opens `people/noa/diary.md`, while
+ * the permissions, which go by the path as written, would judge another
+ * folder: such a path doesn't exist for vihko.
+ *
+ * On a root known to be case-sensitive (rootIgnoresCase) every spelling is
+ * its own path, and nothing is looked at: no cost, on NFS either. Only a
+ * case-insensitive root, or one not told yet, has its folders listed.
+ */
+export function spelledAsOnDisk(root: string, rel: string): boolean {
+  if (rootIgnoresCase(root) === false) return true
+  let dir = root
+  for (const part of rel.split('/')) {
+    if (part === '' || part === '.') continue
+    const names = namesIn(dir)
+    // Nothing further exists: the rest will be made with this spelling.
+    if (names === null) return true
+    const name = part.normalize('NFC')
+    if (!names.has(name)) {
+      try { lstatSync(join(dir, part)) } catch { return true }
+      // It exists: listed under another spelling, unless it was made since the folder was listed.
+      if (!namesIn(dir, true)?.has(name)) return false
+    }
+    dir = join(dir, part)
+  }
+  return true
+}
+
+/** The notes root as the filesystem names it, once found (a root that is itself a link, or a mount, is fine). */
+const realRoots = new Map<string, string>()
+
+/**
+ * Whether `rel` (a path under `root`, with `/`) names its file without going
+ * through a symbolic link: no segment of it, the last one included, is one.
+ * The part that doesn't exist yet (a note about to be created) has none.
+ *
+ * vihko never follows a link in the notes folder. Its walks skip them, so
+ * they are in no tree or index; and followed, a link would read or write
+ * outside the folder (the state volume, any file of the server), or in a
+ * folder whose permissions aren't those of the path that names it.
+ */
+export function linkFree(root: string, rel: string): boolean {
+  let base = realRoots.get(root)
+  if (base === undefined) {
+    try { base = realpathSync.native(root) } catch { return false }
+    realRoots.set(root, base)
+  }
+  for (let p = rel; ;) {
+    const abs = p ? join(root, p) : root
+    try {
+      return realpathSync.native(abs) === (p ? join(base, p) : base)
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if ((code !== 'ENOENT' && code !== 'ENOTDIR') || !p) return false
+      // Something is there that leads nowhere: a link to a missing target.
+      try { lstatSync(abs); return false } catch { /* not there: its parent decides */ }
+      const slash = p.lastIndexOf('/')
+      p = slash === -1 ? '' : p.slice(0, slash)
+    }
+  }
+}
+
+/**
+ * Whether vihko follows `rel` under `root`: the one check at every door that
+ * takes a path. Never through a symbolic link (linkFree), and on a
+ * case-insensitive root only as the disk spells each name (spelledAsOnDisk).
+ * A path it doesn't follow isn't there for vihko.
+ */
+export function followable(root: string, rel: string): boolean {
+  return linkFree(root, rel) && spelledAsOnDisk(root, rel)
+}
+
+/** Whether `rel` is a regular file that vihko follows (see followable). */
+export function isPlainFile(root: string, rel: string): boolean {
+  try {
+    return lstatSync(join(root, rel)).isFile() && followable(root, rel)
+  } catch {
+    return false
+  }
+}
 
 /** File contents, or null if it doesn't exist. */
 export function readText(file: string): string | null {

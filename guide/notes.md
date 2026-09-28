@@ -15,10 +15,17 @@ what it never touches.
 | A file ending in `.md` (any case) | A note: indexed, searchable, editable |
 | Any other file (images, PDFs…) | A file: shown and linked, with the permissions of its folder |
 | A name starting with `.` (`.git/`, `.obsidian/`, `.trash/`) or ending in `~` | Ignored, with everything under it |
+| A symbolic link, to a file or a folder | Ignored: vihko never reads, serves, indexes or writes through one |
 | A Syncthing conflict copy (`Plan.sync-conflict-20260928-101200-ABCDEFG.md`) | Not indexed; an alert points to it next to the original |
 | `vihko.yaml` at the root | The [workspace configuration](configuration.md), hidden from everyone |
 
 vihko imposes no structure: any folders, any names. Nothing needs frontmatter.
+
+Names are taken exactly as the disk spells them. On a filesystem that ignores
+case (a macOS or Windows folder shared into the container, an SMB share),
+`Projects/plan.md` would open `projects/plan.md`, but the permissions of a
+folder go by its name as written: vihko answers only to the spelling on disk,
+and any other spelling doesn't exist for it.
 
 vihko keeps nothing of its own in the notes folder. Its database, index,
 history, trash and editor recovery files live in the state volume. The only

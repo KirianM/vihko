@@ -1,15 +1,16 @@
 // Workspace alerts: what the server detects in the notes folder, the actions
 // depending on role, and the sidebar count.
 import { expect, test, type Page } from '@playwright/test'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
-import { literally, signIn } from './helpers.ts'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, freshFolder, specMother } from './env.ts'
+import { literally, signIn, usePermissions } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 /** A path as the UI shows it: `a/b.md` → `a / b`. */
 const label = (path: string) => path.replace(/\.md$/i, '').split('/').join(' / ')
 
-const FOLDER = m.aFolder()
+const FOLDER = freshFolder(() => m.aFolder())
 const DIR = `${NOTES}/${FOLDER}`
 const SHOTS = `${E2E_DIR}/shots`
 
@@ -196,9 +197,9 @@ test('permissions: rejected, notes held after a move outside vihko, and images a
   const held = { id: m.aSecret(8), folder: `${parent}/${m.aFolder()}`, to: `${parent}/${m.aFolder()}`, notes: m.anInt(2, 40) }
   await mockAlerts(k, [
     { code: 'permissions_rejected', fallback: 'closed', actions: [] },
-    { code: 'permissions_held', ...held, actions: ['move_permissions', 'release'] },
-    // One note, without a destination: nothing to move the permissions to.
-    { code: 'permissions_held', id: m.aSecret(8), folder: `${m.aFolder()}/${m.aUsername()}`, to: null, notes: 1, actions: ['release'] },
+    { code: 'permissions_held', ...held, personal: false, actions: ['move_permissions', 'release'] },
+    // One note, without a destination: nothing to move the permissions to (the owner of the personal folder it came from sees it so).
+    { code: 'permissions_held', id: m.aSecret(8), folder: `${m.aFolder()}/${m.aUsername()}`, to: null, notes: 1, personal: true, actions: ['release'] },
     { code: 'attachments_shared_folder', folder: m.aFolder(), actions: [] },
   ])
   const sent: { url: string; body: unknown }[] = []
@@ -224,6 +225,74 @@ test('permissions: rejected, notes held after a move outside vihko, and images a
   await k.setViewportSize({ width: 390, height: 844 })
   expect(await k.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   await k.context().close()
+})
+
+test('notes held after leaving a personal folder: its owner releases them; the admin is told they exist, and nothing more', async ({ browser }) => {
+  test.setTimeout(120_000)
+  // A `{user}` rule inside the spec's folder: the member's personal folder, with a note (and its uid) that another program moves out.
+  const people = `${FOLDER}/${m.aFolder()}`
+  const mine = `${people}/${MEMBER.username}`
+  const title = m.aTitle()
+  const word = m.aUniqueWord()
+  const from = `${mine}/${m.aFolder()}/${title}.md`
+  const landed = `${FOLDER}/${m.aFolder()}/${title}.md`
+  const owner = await signIn(browser, MEMBER)
+  const admin = await signIn(browser, ADMIN)
+  /** Whether vihko has read vihko.yaml with the `{user}` rule (the root's grants stay the same: usePermissions can't tell). */
+  const personalRule = async () => {
+    const r = await admin.request.get(`/api/permissions?folder=${encodeURIComponent(mine)}`)
+    return r.ok() && (await r.json()).userRule !== null
+  }
+  await usePermissions({ rules: { [`${people}/{user}`]: { '{user}': 'manage' } } })
+  try {
+    await expect.poll(personalRule, { timeout: 15_000 }).toBe(true)
+    mkdirSync(dirname(`${NOTES}/${from}`), { recursive: true })
+    writeFileSync(`${NOTES}/${from}`, `---\nuid: ${m.faker.string.ulid()}\n---\n# ${title}\n\n${m.aSentence()} ${word}.\n`)
+    const note = (path: string) => `/api/note?path=${encodeURIComponent(path)}`
+    // Indexed (the tree lists it): only a note vihko knew can be recognised where it lands.
+    const indexed = async () => ((await (await owner.request.get('/api/tree')).json()).notes as { path: string }[]).some((n) => n.path === from)
+    await expect.poll(indexed, { timeout: 20_000 }).toBe(true)
+    mkdirSync(dirname(`${NOTES}/${landed}`), { recursive: true })
+    renameSync(`${NOTES}/${from}`, `${NOTES}/${landed}`)
+
+    // The admin: one held note from that personal folder, whose it is to decide, and no button.
+    await admin.goto('/?view=avisos')
+    await waitForCard(admin, mine)
+    const told = card(admin, mine)
+    await expect(told.getByRole('heading')).toHaveText('Una nota retenida tras moverse fuera de vihko')
+    await expect(told).toContainText('Salieron de una carpeta personal')
+    await expect(told).toContainText('solo ella puede soltarlas')
+    await expect(told.getByRole('button')).toHaveCount(0)
+    await expect(told).not.toContainText(word)
+    await expect(told).not.toContainText(`${title}.md`)
+    await admin.setViewportSize({ width: 1440, height: 900 })
+    await admin.screenshot({ path: `${SHOTS}/avisos-retenida-personal.png`, fullPage: true, animations: 'disabled' })
+    // Nor through the API.
+    const held = ((await (await admin.request.get('/api/alerts')).json()).alerts as { code: string; id: string; folder: string }[])
+      .find((a) => a.code === 'permissions_held' && a.folder === mine)!
+    const refused = await admin.request.post(`/api/permissions/holds/${held.id}`, { data: { action: 'release' } })
+    expect([refused.status(), (await refused.json()).error]).toEqual([403, 'hold_owner_only'])
+    expect((await admin.request.get(note(landed))).status()).toBe(404)
+
+    // The owner: the same alert, with «Release them».
+    await owner.goto('/?view=avisos')
+    await waitForCard(owner, mine)
+    const theirs = card(owner, mine)
+    await expect(theirs).not.toContainText('Salieron de una carpeta personal')
+    await expect(theirs.getByRole('button', { name: 'Mover sus permisos' })).toHaveCount(0)
+    await theirs.getByRole('button', { name: 'Soltarlas' }).click()
+    await expect(theirs).toHaveCount(0)
+    // Released: the folder it's in applies (the member edits there), and the admin's alert is gone.
+    await owner.goto(`/?note=${encodeURIComponent(landed)}`)
+    await expect(owner.locator('.cm-content')).toContainText(word)
+    await admin.goto('/?view=avisos')
+    await expect(card(admin, mine)).toHaveCount(0)
+  } finally {
+    await usePermissions()
+    await expect.poll(personalRule, { timeout: 15_000 }).toBe(false)
+    await owner.context().close()
+    await admin.context().close()
+  }
 })
 
 test('vihko.yaml rewritten to the current format at start: what changed and where the copy is, until dismissed; and a start that couldn\'t', async ({ browser }) => {

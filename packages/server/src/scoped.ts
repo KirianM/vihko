@@ -8,11 +8,12 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { anchorChanged, classifyPath, contentHash, extract, folderOf, parentFolder, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type Range } from '@vihko/core'
+import { RuleSet, anchorChanged, classifyPath, contentHash, extract, folderOf, parentFolder, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type Range } from '@vihko/core'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
 import { attachmentPath } from './attachments.ts'
+import { isPlainFile } from './fsutil.ts'
 import type { Db } from './db.ts'
 import type { DailyNotes } from './daily.ts'
 import { planEdits, type EditOp } from './edits.ts'
@@ -368,7 +369,7 @@ export class ScopedNotes {
       let src = sources.get(l.src_path)
       if (!src) {
         let text = ''
-        try { text = readFileSync(join(notesDir, l.src_path), 'utf8') } catch {}
+        try { text = readFileSync(NoteService.fileIn(notesDir, l.src_path), 'utf8') } catch {}
         sources.set(l.src_path, (src = { text, comments: extract(text).comments }))
       }
       // Its text says more than the index: a note hidden since it was indexed isn't a source.
@@ -802,6 +803,18 @@ export class ScopedNotes {
     const engine = this.deps.permissions
     const under = (this.deps.index.prepare("select path from folders where path = ? or path like ? escape '\\'").all(f, likePrefix(f)) as { path: string }[]).map((r) => r.path)
     const plan = engine ? ruleMove(engine, f, t, under) : { extra: [], rules: null }
+    // A personal folder inside it stays personal where it goes (D-040 3.5): taken out of its `{user}` rule, only
+    // the literal copy of its grants would go with it, and whoever manages the folders above would reach it.
+    // Only whoever manages it (its owner) may take it out, as they may move it themselves.
+    const now = engine?.rules() ?? null
+    if (now && plan.rules) {
+      const then = new RuleSet(plan.rules)
+      for (const d of under) {
+        if (now.personal(d) && !then.personal(t + d.slice(f.length)) && !this.access.canManage(d)) {
+          throw new AccessError('this move would take a personal folder in it out of its {user} rule: only whoever manages that folder may')
+        }
+      }
+    }
     const mask = (r: FolderMoveReport) => {
       const { filePaths, ...rest } = r
       const masked = this.maskReport(rest, back)
@@ -871,7 +884,7 @@ export class ScopedNotes {
     const known = classifyPath(path) === 'conflict' && this.access.canRead(path)
       && this.deps.index.prepare("select 1 from alerts where path = ? and kind = 'sync_conflict'").get(path)
     let text: string | null = null
-    if (known) try { text = readFileSync(join(this.deps.notesDir, path), 'utf8') } catch { /* no longer exists */ }
+    if (known && isPlainFile(this.deps.notesDir, path)) try { text = readFileSync(join(this.deps.notesDir, path), 'utf8') } catch { /* no longer exists */ }
     if (text === null) throw new NoteError('not_found', `there's no conflict copy at ${path}`)
     return { path, text }
   }

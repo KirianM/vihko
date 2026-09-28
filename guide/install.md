@@ -65,6 +65,11 @@ services:
     # is a new major, which you choose by changing the tag.
     image: ghcr.io/kirianm/vihko:1.0.0-rc.1
     restart: unless-stopped
+    # Hardening: nothing is written outside the two volumes, no Linux
+    # capabilities, and no way to gain privileges. vihko needs none of them.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     ports:
       # Host port: 8080 unless you say otherwise. If it is taken,
       # VIHKO_HOST_PORT=8098 docker compose up -d (or put it in a .env file).
@@ -111,6 +116,14 @@ yourself. If vihko can't start (a wrong variable, a folder it can't write),
 Docker keeps restarting it: read the log (`docker compose logs vihko`) to see
 why.
 
+### `read_only`, `cap_drop` and `security_opt`
+
+Hardening that costs nothing: the container's own files are read-only (vihko
+only writes to its two volumes), it holds no Linux capabilities, and nothing
+inside it can gain privileges. If something in the container broke because of
+them, vihko would fail at start and say what it couldn't write; you can remove
+the three lines, but you shouldn't need to.
+
 ### The port
 
 vihko listens on port 8080 inside the container. The line
@@ -139,6 +152,14 @@ filesystem, vihko sees changes made from other machines through a periodic
 rescan, every 60 seconds by default; see
 [Notes on NFS](operations.md#notes-on-nfs).
 
+Prefer a case-sensitive filesystem for it. A folder that ignores case (one
+shared from macOS or Windows into the container, an SMB share) works: vihko
+tells so once, from the names at the folder's root, and then answers only to each
+name as the disk spells it (see [Notes and Markdown](notes.md)), which costs a
+folder listing now and then. A case-sensitive root whose subfolders ignore
+case (ext4's `chattr +F` on a subfolder) isn't supported: vihko doesn't see it,
+and there another spelling of a folder would reach it past its permissions.
+
 Back it up. See [Backups](backups.md).
 
 ### The state volume
@@ -165,6 +186,13 @@ concerned.
 A Docker named volume works too (`- vihko-state:/data/state`, with a
 `volumes:` section); a folder next to `compose.yaml` is simply easier to back
 up.
+
+**It's private.** Everything in it, the history of personal folders included,
+is readable by whoever can open the folder on the host: vihko's permissions
+only apply to people who go through vihko. vihko closes the folder to other
+users of the host when it starts (mode `700`, owner only). If it can't,
+because the folder belongs to another user, the log says so. The notes folder
+is yours to protect the same way, if others have accounts on the host.
 
 ### The user and file ownership
 

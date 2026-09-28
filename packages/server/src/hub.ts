@@ -19,7 +19,7 @@
 // id and name the server knows, whatever the client says (`signPresence`).
 import { Hocuspocus, type Connection, type Document } from '@hocuspocus/server'
 import diff from 'fast-diff'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { closeSync, constants, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
@@ -29,7 +29,7 @@ import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwareness
 import * as Y from 'yjs'
 import { baseHue, contentHash, isPersonHue, newUid, readFrontmatter, setFrontmatterKey } from '@vihko/core'
 import { sessionIdOf, type Auth, type User } from './auth.ts'
-import { readStable, readText, replaceText } from './fsutil.ts'
+import { followable, readStable, readText, replaceText } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
 import type { Via } from './actor.ts'
@@ -275,14 +275,53 @@ function diffCost(a: string, b: string) {
 
 // Recovery log: [type:1][len:4 BE][payload]. 'S' = snapshot (hash + flushed state),
 // 'U' = update, 'F' = a flush about to replace the file (hash of the text, which is
-// the document's state at that point of the log).
-function record(type: 'S' | 'U' | 'F', payload: Uint8Array): Buffer {
+// the document's state at that point of the log), 'P' = the note's path, in the
+// files of a note whose path is too long to be their name (logBase).
+function record(type: 'S' | 'U' | 'F' | 'P', payload: Uint8Array): Buffer {
   const head = Buffer.alloc(5)
   head.write(type, 0, 'latin1')
   head.writeUInt32BE(payload.length, 1)
   return Buffer.concat([head, payload])
 }
 const HASH_LEN = contentHash('').length
+
+/** The longest name a log or state file gets from its note's path; its `.ystate.tmp` still fits in 255 bytes. */
+const MAX_LOG_NAME = 240
+
+/**
+ * The name (without extension) of a note's recovery log and saved state: its
+ * path URL-encoded, or, when that would be too long for a file name (a path of
+ * a few dozen letters of many scripts is), `#` and the path's SHA-256. A
+ * name that is a hash holds the path in a 'P' record; `#` never starts an
+ * encoded path, so the two never meet.
+ */
+function logBase(path: string): string {
+  const encoded = encodeURIComponent(path)
+  return Buffer.byteLength(encoded) <= MAX_LOG_NAME ? encoded : `#${createHash('sha256').update(path).digest('hex')}`
+}
+
+/** The records that name the note in its files: its path, when the name is a hash. */
+const pathRecords = (path: string): Buffer[] => (logBase(path).startsWith('#') ? [record('P', Buffer.from(path, 'utf8'))] : [])
+
+/** The note a log or state file (`name` in `dir`, with `ext`) is for; null if it isn't one of the hub's. */
+function logNote(dir: string, name: string, ext: string): string | null {
+  const base = name.slice(0, -ext.length)
+  if (!base.startsWith('#')) {
+    try { return decodeURIComponent(base) } catch { return null }
+  }
+  let buf: Buffer
+  try { buf = readFileSync(join(dir, name)) } catch { return null }
+  for (let off = 0; off + 5 <= buf.length;) {
+    const len = buf.readUInt32BE(off + 1)
+    if (off + 5 + len > buf.length) break
+    if (buf.toString('latin1', off, off + 1) === 'P') {
+      const path = buf.toString('utf8', off + 5, off + 5 + len)
+      return logBase(path) === base ? path : null
+    }
+    off += 5 + len
+  }
+  return null
+}
 
 /**
  * Tests only: `VIHKO_TEST_CRASH_AT=<point>` kills the process there, as a
@@ -337,7 +376,7 @@ function readLog(file: string): Log | null {
       lastSnapshot = payload.subarray(HASH_LEN)
       updates.push(lastSnapshot)
     } else if (type === 'F') flushes.push({ hash: payload.toString('latin1'), at: updates.length })
-    else updates.push(payload)
+    else if (type !== 'P') updates.push(payload)
     off += 5 + len
   }
   return lastSnapshot ? { updates, lastSnapshot, lastHash, flushes } : null
@@ -425,6 +464,8 @@ export class CollabHub implements HotDocuments {
       maxDebounce: debounce * 10,
       onConnect: async ({ documentName, context, connectionConfig }) => {
         NoteService.checkPath(documentName)
+        // Spelled otherwise than on the disk (a case-insensitive filesystem), it would open a file its permissions don't govern.
+        if (!followable(this.opts.notesDir, documentName)) throw new NoteError('not_found', `does not exist: ${documentName}`)
         // A note one can't read doesn't exist for them: the same answer as a note that isn't there.
         const level = this.levelOf(context.user, documentName)
         if (level === 'none') throw new NoteError('not_found', `does not exist: ${documentName}`)
@@ -464,11 +505,21 @@ export class CollabHub implements HotDocuments {
   }
 
   private file(path: string) {
-    return join(this.opts.notesDir, NoteService.checkPath(path))
+    return NoteService.fileIn(this.opts.notesDir, path)
+  }
+
+  /** The note's text on disk; null if there is none for vihko (missing, or reached through a symbolic link). */
+  private textOrNull(path: string): string | null {
+    try {
+      return readText(this.file(path))
+    } catch (err) {
+      if (err instanceof NoteError && err.code === 'not_found') return null
+      throw err
+    }
   }
 
   private logPath(path: string) {
-    return join(this.logDir, encodeURIComponent(path) + '.ylog')
+    return join(this.logDir, logBase(path) + '.ylog')
   }
 
   /**
@@ -480,7 +531,7 @@ export class CollabHub implements HotDocuments {
    * when the file changed meanwhile if the state is trusted (`trusted`).
    */
   private statePath(path: string) {
-    return join(this.logDir, encodeURIComponent(path) + '.ystate')
+    return join(this.logDir, logBase(path) + '.ystate')
   }
 
   // --- Connections -------------------------------------------------------------
@@ -1019,7 +1070,7 @@ export class CollabHub implements HotDocuments {
         flushedText = disk
         flushedHash = diskHash
       }
-      const records = [snapshotRecord(flushedHash, snapshot)]
+      const records = [...pathRecords(path), snapshotRecord(flushedHash, snapshot)]
       if (recovered || (previous && newGeneration)) records.push(record('U', Y.encodeStateAsUpdate(doc)))
       const logFd = replaceLog(logFile, records)
       const h: Hot = {
@@ -1170,7 +1221,7 @@ export class CollabHub implements HotDocuments {
       this.remember(path, h)
       // The log starts again from what the file now holds, followed by what
       // arrived while it was being written.
-      const records = [snapshotRecord(hash, snap)]
+      const records = [...pathRecords(path), snapshotRecord(hash, snap)]
       if (text !== h.doc.getText(TEXT).toString()) {
         records.push(record('U', Y.encodeStateAsUpdate(h.doc, Y.encodeStateVectorFromUpdate(snap))))
       }
@@ -1194,7 +1245,8 @@ export class CollabHub implements HotDocuments {
       const state = this.statePath(path)
       if (clean) {
         // Kept before the log goes: at every moment one of the two is on disk.
-        writeFileSync(state + '.tmp', snapshotRecord(h.flushedHash, Y.encodeStateAsUpdate(h.doc)))
+        // Its first record is the snapshot (savedHash reads it alone), then the path if the name is a hash.
+        writeFileSync(state + '.tmp', Buffer.concat([snapshotRecord(h.flushedHash, Y.encodeStateAsUpdate(h.doc)), ...pathRecords(path)]))
         renameSync(state + '.tmp', state)
         this.trusted.set(path, h.flushedHash)
       } else {
@@ -1238,8 +1290,9 @@ export class CollabHub implements HotDocuments {
     const out = new Set<string>()
     for (const [path, h] of this.hot) if (h.orphaned && h.announced && !h.discarded) out.add(path)
     for (const f of readdirSync(this.logDir).filter((x) => x.endsWith('.ylog'))) {
-      const path = decodeURIComponent(f.slice(0, -'.ylog'.length))
-      if (!this.hot.has(path) && readText(this.file(path)) === null) out.add(path)
+      const path = logNote(this.logDir, f, '.ylog')
+      if (path === null) continue
+      if (!this.hot.has(path) && this.textOrNull(path) === null) out.add(path)
     }
     return [...out].sort()
   }
@@ -1298,12 +1351,8 @@ export class CollabHub implements HotDocuments {
     for (const f of readdirSync(this.logDir)) {
       if (!f.endsWith('.ystate')) continue
       states++
-      let path: string
-      try {
-        path = decodeURIComponent(f.slice(0, -'.ystate'.length))
-      } catch {
-        continue // not one of the hub's
-      }
+      const path = logNote(this.logDir, f, '.ystate')
+      if (path === null) continue // not one of the hub's
       const hash = savedHash(join(this.logDir, f))
       if (hash !== null && hash === this.opts.indexer.hashOf(path)) this.trusted.set(path, hash)
     }
@@ -1313,7 +1362,8 @@ export class CollabHub implements HotDocuments {
   /** On startup: every pending log is a note with unflushed edits. */
   async recoverAll() {
     for (const f of readdirSync(this.logDir).filter((x) => x.endsWith('.ylog'))) {
-      const path = decodeURIComponent(f.slice(0, -'.ylog'.length))
+      const path = logNote(this.logDir, f, '.ylog')
+      if (path === null) continue
       try {
         const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: { code: 'crash_recovery' } } })
         await conn.disconnect()

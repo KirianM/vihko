@@ -13,6 +13,10 @@ of `compose.yaml`:
 
 Add `-T` to `exec` when you pipe something into it (a password).
 
+Run it as the container's own user, as these commands do. Not with `-u root`:
+whatever it creates in the state volume would then belong to root, and vihko,
+which doesn't run as root, might not be able to write there afterwards.
+
 | Command | What it does | vihko running? |
 |---|---|---|
 | `vihko serve` | Starts the server. It's what the container runs. | — |
@@ -36,8 +40,10 @@ read -rs -p 'Password: ' pw && echo && printf '%s\n' "$pw" | docker compose exec
 user created: alex (admin)
 ```
 
-Usernames have 2 to 64 letters, digits, `.`, `_` or `-`; passwords at least 10
-characters. Usually you invite people from the UI instead, and they choose
+Usernames have 2 to 64 letters, digits, `.`, `_` or `-`, and can't be one of
+the few names JavaScript objects already have (`__proto__`, `constructor`,
+`prototype`, `toString`…); the same goes for group names. Passwords have at
+least 10 characters. Usually you invite people from the UI instead, and they choose
 their own password: see [Users and permissions](users-and-permissions.md).
 
 ### Reset a lost password
@@ -422,3 +428,18 @@ Wait for the next rescan (`VIHKO_RESCAN_SECONDS`, 60 by default): changes
 made from another machine on a network share are only seen then. Check the
 log for `watcher:` or `scan aborted` lines, and that the file isn't hidden
 (a name starting with a dot) or outside the notes folder.
+
+## Known limits
+
+vihko trusts the people who sign in not to exhaust the server on purpose.
+Images are limited (two at a time per person, eight in all, and a size per
+image), request bodies too, but some things aren't capped yet:
+
+- how many live editing connections and open notes one person can hold at
+  once (each open note is checked on disk every second, which weighs more on
+  a network share);
+- how many images a person uploads in total over time.
+
+If someone abuses that, disable their account (Preferences → Users and
+groups): their connections close at once. Caps for these are planned after
+1.0.

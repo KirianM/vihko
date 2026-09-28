@@ -29,6 +29,7 @@ export type ErrorCode =
   | 'too_large' // an image over the size limit
   | 'unsupported_type' // not an image type vihko stores
   | 'fetch_failed' // an image URL could not be downloaded
+  | 'busy' // too many images being received at once (uploads and copies from a URL): try again in a moment (Retry-After)
   | 'not_configured' // a feature that vihko.yaml doesn't turn on (daily notes with no series)
   | 'not_empty' // a folder that still holds files can't be deleted
   | 'history_off' // vihko.yaml turns the history off
@@ -61,6 +62,7 @@ export type ErrorCode =
   | 'two_factor_disabled' // the admin turned the second factor off: it can't be set up
   | 'two_factor_required' // the admin requires a second factor: one's own can't be turned off
   | 'two_factor_off' // no second factor in force to change
+  | 'hold_owner_only' // notes held after leaving a personal folder: only whoever manages that folder releases them (D-046.4)
 
 /**
  * Space-level alerts: what vihko has detected in the notes folder that needs
@@ -165,9 +167,12 @@ export type Alert =
    * own, into a folder where others apply: nobody reads them until someone
    * decides. `move_permissions` moves the folder's rules to `to` (where the
    * notes went); `release` accepts what they get where they are. `notes`:
-   * how many. For the admin and whoever manages `folder`.
+   * how many. For the admin and whoever manages `folder`. With `personal`,
+   * they came from a personal folder (D-046.4): only whoever manages it
+   * decides; anyone else gets that folder as `folder`, no `to` and no
+   * actions.
    */
-  | { code: 'permissions_held'; id: string; folder: string; to: string | null; notes: number; actions: ('move_permissions' | 'release')[] }
+  | { code: 'permissions_held'; id: string; folder: string; to: string | null; notes: number; personal: boolean; actions: ('move_permissions' | 'release')[] }
   /**
    * New images go to one folder for everyone (`attachments.mode: folder`),
    * with more than one person: the image of a private note lands where

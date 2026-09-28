@@ -18,6 +18,7 @@ import { patternPeriod, patternTokens, seriesPath, type Series } from './series.
 import { classifyPath } from './paths.ts'
 import { globProblem } from './glob.ts'
 import { toData } from './frontmatter.ts'
+import { trimTrailingSlashes } from './paths.ts'
 
 /** Name of the file at the root of the notes folder. */
 export const WORKSPACE_FILE = 'vihko.yaml'
@@ -256,7 +257,7 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
 
   const folder = (value: unknown, at: string[]): string | null => {
     if (typeof value !== 'string') { fail('invalid_type', at, 'string'); return null }
-    const f = value.trim().replace(/\/+$/, '')
+    const f = trimTrailingSlashes(value.trim())
     if (!f || !isFolder(f)) { fail('invalid_path', at); return null }
     return f
   }
@@ -388,7 +389,7 @@ function parseSeries(id: string, raw: Record<string, unknown>, at: string[], fai
     return String(v).trim()
   }
 
-  const folder = (str('folder') ?? '').replace(/\/+$/, '')
+  const folder = trimTrailingSlashes(str('folder') ?? '')
   const name = str('name') ?? DEFAULT_NAME
   const label = str('label') || null
   let template = str('template') ?? null

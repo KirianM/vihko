@@ -46,6 +46,26 @@ export async function signIn(browser: Browser, user: { username: string; passwor
   return page
 }
 
+/**
+ * Someone new, created by the admin (`admin`: a page with their session) and
+ * signed up through their link with their password, as a person would: the
+ * API never takes a new user's password (D-046.1). A new admin is confirmed
+ * with the admin's password (the servers' admin has no second factor).
+ */
+export async function newUser(admin: Page, user: { username: string; password: string; role?: 'admin' | 'member' }) {
+  const role = user.role ?? 'member'
+  const r = await admin.request.post('/api/admin/users', { data: { username: user.username, role, ...(role === 'admin' ? { confirm: ADMIN.password } : {}) } })
+  expect(r.status(), await r.text()).toBe(201)
+  const { link } = await r.json() as { link: { token: string } }
+  const api = await request.newContext({ baseURL: BASE_URL })
+  try {
+    const accepted = await api.post(`/api/invite/${link.token}`, { data: { password: user.password } })
+    expect(accepted.status(), await accepted.text()).toBe(200)
+  } finally {
+    await api.dispose()
+  }
+}
+
 /** `text` for a regular expression that matches it literally (generated names have dots; valid with the `u` flag too). */
 export const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 

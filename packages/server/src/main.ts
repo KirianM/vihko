@@ -16,7 +16,7 @@ import { Watcher } from './watcher.ts'
 import { ExternalMoves } from './externalMoves.ts'
 import { CollabHub } from './hub.ts'
 import { History } from './history/index.ts'
-import { lockState, type StateLock } from './lock.ts'
+import { lockState, prepareStateDir, type StateLock } from './lock.ts'
 import { ApiKeys } from './keys.ts'
 import { markIcons, mountMcp } from './mcp/server.ts'
 import { Integrations, integrationsLockedFrom } from './integrations.ts'
@@ -142,8 +142,9 @@ export interface StartOptions {
 
 export async function start(config: Config, opts: StartOptions = {}) {
   console.log(`[vihko] vihko ${VERSION}`)
+  // vihko's alone, closed to other users of the host.
+  prepareStateDir(config.stateDir, (msg) => console.log(`[vihko] ${msg}`))
   // One process at a time on the state volume (a second server, or `vihko history purge`).
-  mkdirSync(config.stateDir, { recursive: true })
   const lock = lockState(config.stateDir)
   try {
     return await run(config, lock, opts)
@@ -162,7 +163,8 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   // vihko.yaml in the current format before it's read (D-042.6): only here, never while it runs.
   const configMigrations = new ConfigMigrations({ notesDir: config.notesDir, stateDir: config.stateDir, migrations: opts.workspaceMigrations, log })
   await configMigrations.run()
-  const workspace = new Workspace({ notesDir: config.notesDir, log })
+  // A file left without permissions applies once it stays so: then everything that depends on it hears.
+  const workspace = new Workspace({ notesDir: config.notesDir, log, onSettle: () => reloadWorkspace() })
   const indexer = new Indexer({ notesDir: config.notesDir, db: index, linkAliases: workspace.config.links.aliases })
   // Users and groups. Ending someone's sessions ends their live connections
   // too (the hub exists further down). Their grants in vihko.yaml follow a
