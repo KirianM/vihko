@@ -157,6 +157,37 @@ test('external changes in a row to an open note are one version; typing in it cl
   } finally { closeAll(); await srv.stop() }
 })
 
+test('another program undoing its own change on an open note: only external versions, and vihko writes nothing of its own', async () => {
+  const { notes, env } = makeDirs()
+  const srv = await startServer({ ...env, ...FAST })
+  try {
+    const k = await login(srv)
+    const ck = await connect(srv, k, NOTE)
+    const file = join(notes, NOTE)
+    const original = readFileSync(file, 'utf8')
+    const [first, second] = [m.aUniqueWord(), m.aUniqueWord()]
+    const b = original.replace('## Red', `## Red (${first})`)
+    const c = b.replace(`(${first})`, `(${first}) (${second})`)
+    for (const text of [b, c]) {
+      writeFileSync(file, text)
+      await waitFor(() => ck.text() === text, 'the save reaches the editor')
+    }
+    writeFileSync(file, b) // it removes what it added last
+    await sleep(2500) // past the hub's check of the file and its flush debounce (1 s each)
+    const shown = ck.text()
+    ck.close()
+    await waitFor(() => !existsSync(join(env.VIHKO_STATE_DIR!, 'collab', `${q(NOTE)}.ylog`)), 'the note is closed')
+    await waitFor(async () => (await versionsOf(srv, k, NOTE)).pending === null, 'the versions close')
+    const { versions } = await versionsOf(srv, k, NOTE)
+    // The vault's own version (history enabled), then only what the program saved.
+    assert.ok(versions.every((v: any) => v.reason?.code !== 'recovered'), JSON.stringify(versions.map((v: any) => [who(v), v.reason])))
+    assert.deepEqual(versions.slice(0, -1).map(who), versions.slice(0, -1).map(() => 'external'))
+    assert.equal(await textOf(srv, k, NOTE, versions[0].id), b)
+    assert.equal(readFileSync(file, 'utf8'), b, 'the file keeps the revert')
+    assert.equal(shown, b, 'the revert reached the editor')
+  } finally { closeAll(); await srv.stop() }
+})
+
 test('a rename rewrites the links of an open note in the same system commit, and restoring an open note changes it for its editors at once', async () => {
   const { env } = makeDirs()
   const srv = await startServer({ ...env, ...FAST })

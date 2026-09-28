@@ -49,7 +49,12 @@ export const COLLAB_PATH = '/collab'
 export const MAX_WS_MESSAGE = 20 * 1024 * 1024
 const HISTORY = 20
 
-interface Base { snapshot: Uint8Array; text: string; hash: string }
+/**
+ * A state of the file the hub knows was on disk. `external`: another program
+ * saved it (the hub merged it); otherwise vihko wrote it, or found it when
+ * the note was opened.
+ */
+interface Base { snapshot: Uint8Array; text: string; hash: string; external?: boolean }
 
 interface Hot {
   doc: Y.Doc
@@ -60,7 +65,7 @@ interface Hot {
   snapshot: Uint8Array
   flushedText: string
   flushedHash: string
-  /** Last flushed states: an external editor may save starting from an old one. */
+  /** Last states on disk, oldest first: an external editor may save starting from an old one (see `mergeBase`). */
   history: Base[]
   /** uid the note had when loaded, so it isn't lost if it's removed in the editor. */
   uid: string | null
@@ -267,9 +272,14 @@ export function generationOf(doc: Y.Doc): string | null {
   return typeof g === 'string' ? g : null
 }
 
+/**
+ * How much text changes from `a` to `b`. With the semantic cleanup: a raw
+ * character diff between two different words finds letters they share,
+ * so a line replaced by another could cost less than a line added.
+ */
 function diffCost(a: string, b: string) {
   let n = 0
-  for (const [op, chunk] of diff(a, b)) if (op !== diff.EQUAL) n += chunk.length
+  for (const [op, chunk] of diff(a, b, undefined, true)) if (op !== diff.EQUAL) n += chunk.length
   return n
 }
 
@@ -1181,23 +1191,69 @@ export class CollabHub implements HotDocuments {
   }
 
   /**
-   * Integrates an external change into the live document, from the closest
-   * recent flush. `onDisk`: `newText` is what's now on disk (not when it was
-   * rescued from a write that our own rename overwrote).
+   * The state another program's save (`newText`) most likely started from:
+   * its diff to `newText` is what that program changed, and is all that the
+   * merge applies to the live document.
+   *
+   * Two cases produce the same bytes and must end differently:
+   * - A stale buffer: the program loaded the file, vihko then wrote what
+   *   was typed, and the program saves its old buffer (with or without
+   *   changes of its own). What vihko wrote must survive: the base is the
+   *   state the program loaded, older than the last one on disk.
+   * - A revert: the program saved a change, vihko merged it, and the
+   *   program undoes it (A→B→C→B). Its save starts from its own last save
+   *   (C), and the undo must win. Taking the older state that equals the
+   *   new text (B) as the base would change nothing in the document and then
+   *   write C back over the revert.
+   *
+   * The rule: a program that saved the file had in its buffer what it saved,
+   * so its next save starts from there or later. The candidates are the
+   * last state another program saved and every state after it (vihko's
+   * writes it may have reloaded, and the latest), never one before it; among
+   * them, the closest to `newText`, the latest on a tie. With no external
+   * save seen since the note was opened, every recent state is a candidate,
+   * as the program may have loaded any of them.
+   *
+   * What it can't tell apart: an editor that reloaded vihko's write and
+   * deleted exactly what vihko wrote looks like a stale buffer, and vihko's
+   * text is kept (nothing is lost; it can be deleted again from vihko). And
+   * two programs saving the same open note, one from a buffer older than
+   * the other's save, are taken as one: the later save wins over the
+   * earlier one, as it would on disk without vihko.
    */
-  private mergeExternal(path: string, h: Hot, newText: string, newHash: string, onDisk = true) {
-    let base = h.history[h.history.length - 1]!
+  private mergeBase(h: Hot, newText: string): Base {
+    const lastExternal = h.history.findLastIndex((b) => b.external)
+    const candidates = h.history.slice(Math.max(lastExternal, 0))
+    let base = candidates.at(-1)!
     let best = diffCost(base.text, newText)
-    for (const b of h.history) {
+    for (const b of candidates.slice(0, -1).reverse()) {
       const c = diffCost(b.text, newText)
       if (c < best) { best = c; base = b }
     }
+    return base
+  }
+
+  /**
+   * Integrates an external change into the live document, from the state the
+   * other program started from (`mergeBase`). `onDisk`: `newText` is what's
+   * now on disk (not when it was rescued from a write that our own rename
+   * overwrote). Afterwards the document holds that program's text plus only
+   * what vihko has that it lacks (typing not yet written, or written after
+   * the program loaded the file), and the file state the hub keeps is what's
+   * on disk: a flush writes only when the document differs from it. When it
+   * does, and the merge itself changed nothing in the document (a stale
+   * buffer saved unchanged), a flush is scheduled so the file gets vihko's
+   * text back.
+   */
+  private mergeExternal(path: string, h: Hot, newText: string, newHash: string, onDisk = true) {
+    const base = this.mergeBase(h, newText)
     const fork = new Y.Doc()
     Y.applyUpdate(fork, base.snapshot)
     const sv = Y.encodeStateVector(fork)
     const ftext = fork.getText(TEXT)
     if (ftext.toString() !== base.text) throw new Error('snapshot and base text do not match')
     fork.transact(() => applyTextDiff(ftext, base.text, newText))
+    const before = h.doc.getText(TEXT).toString()
     Y.applyUpdate(h.doc, Y.encodeStateAsUpdate(fork, sv), 'external')
     this.log(`external change integrated into ${path}${onDisk ? '' : ' (rescued from the rename)'}`)
     if (!onDisk) return
@@ -1205,13 +1261,25 @@ export class CollabHub implements HotDocuments {
     h.snapshot = Y.encodeStateAsUpdate(fork)
     h.flushedText = newText
     h.flushedHash = newHash
-    this.remember(path, h)
+    this.remember(path, h, true)
     writeSync(h.logFd, snapshotRecord(newHash, h.snapshot))
+    const now = h.doc.getText(TEXT).toString()
+    if (now === before && now !== newText) this.storeLater(path)
   }
 
-  /** Records the file's new state and tells the open editors it's now on disk. */
-  private remember(path: string, h: Hot) {
-    h.history.push({ snapshot: h.snapshot, text: h.flushedText, hash: h.flushedHash })
+  /** Has the document written to its file after the usual debounce, as a change in it would. */
+  private storeLater(path: string) {
+    const document = this.hocuspocus.documents.get(path)
+    if (!document) return
+    this.hocuspocus.storeDocumentHooks(document, {
+      instance: this.hocuspocus, clientsCount: document.getConnectionsCount(), document,
+      lastContext: {}, lastTransactionOrigin: 'external', documentName: path,
+    }).catch((e: unknown) => this.log(`flush of ${path}: ${e}`))
+  }
+
+  /** Records the file's new state (`external`: another program saved it) and tells the open editors it's now on disk. */
+  private remember(path: string, h: Hot, external = false) {
+    h.history.push({ snapshot: h.snapshot, text: h.flushedText, hash: h.flushedHash, ...(external ? { external: true } : {}) })
     if (h.history.length > HISTORY) h.history.shift()
     this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: SAVED_MESSAGE, path, etag: h.flushedHash }))
   }
