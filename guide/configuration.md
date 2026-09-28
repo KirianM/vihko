@@ -475,8 +475,18 @@ a wrong setting meant.
 | Rules for a folder that doesn't exist | Kept, with a warning |
 | A series' template that doesn't exist | Its notes are created empty, with an alert |
 
-Every error in the file is listed at once, each with its line. Fixing the file
-is enough: vihko picks it up within seconds, without a restart.
+What the alerts list depends on whether the file can be used:
+
+- **It can't be used**: every mistake that makes it unusable is listed at
+  once, each with its line (and in the log). Not valid YAML stops the reading
+  at the first syntax mistake, so only that one is listed. The file's
+  warnings (an unknown key, what's wrong in `permissions`) aren't listed yet:
+  the warnings you see are those of the version in force, the last valid one.
+  Fix the errors, and the file's own warnings show up.
+- **It can be used**: every warning is listed at once, each with its line.
+
+Fixing the file is enough: vihko picks it up within seconds, without a
+restart, and lists whatever is left.
 
 ## Format changes on upgrade
 
