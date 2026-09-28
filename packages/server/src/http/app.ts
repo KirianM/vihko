@@ -699,7 +699,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     c.header('X-Content-Type-Options', 'nosniff')
     c.header('Content-Security-Policy', FILE_CSP)
     if (!type.startsWith('image/')) c.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(posix.basename(norm))}`)
-    if (c.req.header('if-none-match')?.split(/\s*,\s*/).includes(etag)) return c.body(null, 304)
+    if (c.req.header('if-none-match')?.split(',').map((t) => t.trim()).includes(etag)) return c.body(null, 304)
     c.header('Content-Type', type)
     return c.body(readFileSync(file))
   })

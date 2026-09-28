@@ -7,6 +7,7 @@
 // this file: it imports nothing but case folding, so the Markdown parser stays
 // in the editor's chunk.
 import { caseFold } from './casefold.ts'
+import { trimSlashes, trimTrailingSlashes } from './paths.ts'
 
 /** The same normalisation as `normalizeTag` in markdown.ts (D-019: case-insensitive, full case folding). */
 const normalizeTag = (t: string) => caseFold(t.replace(/^#/, ''))
@@ -32,7 +33,7 @@ export function parseSearchQuery(input: string): ParsedQuery {
   const text = input.normalize('NFC').replace(FILTER, (_m, lead: string, neg: string, kind: string, quoted: string | undefined, bare: string | undefined) => {
     const k = kind.toLowerCase() as SearchFilter['kind']
     const raw = (quoted ?? bare ?? '').trim()
-    const value = k === 'tag' ? normalizeTag(raw).replace(/\/+$/, '') : raw.replace(/^\/+|\/+$/g, '')
+    const value = k === 'tag' ? trimTrailingSlashes(normalizeTag(raw)) : trimSlashes(raw)
     if (value) filters.push({ kind: k, value, negate: neg === '-' })
     return lead
   })

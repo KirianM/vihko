@@ -28,7 +28,7 @@
 //   which the report warns about.
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { isIgnoredDir, type HistoryMode } from '@vihko/core'
+import { isIgnoredDir, trimTrailingSlashes, type HistoryMode } from '@vihko/core'
 import { lockState, type StateLock } from '../lock.ts'
 import { Git, GitError, blobOid, quotePath, readTree, resolveRef, write } from './git.ts'
 import { removeCrashLeftovers, type Leftover } from './leftovers.ts'
@@ -131,7 +131,7 @@ const FORMAT = '--format=%x1e%H%x1f%P%x1f%an <%ae> %ad%x1f%cn <%ce> %cd%x1f%B%x1
 
 /** The path as given, checked: relative to the notes root, no `.`/`..`, no empty segment. */
 export function purgeTarget(raw: string): string {
-  const p = raw.replace(/\/+$/, '')
+  const p = trimTrailingSlashes(raw)
   if (p === '' || p.startsWith('/') || /[\u0000-\u001f\u007f\\]/.test(p) || p.split('/').some((s) => s === '' || s === '.' || s === '..')) {
     throw new PurgeError('invalid_path', `not a path relative to the notes folder: ${JSON.stringify(raw)}`)
   }

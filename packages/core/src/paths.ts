@@ -36,3 +36,23 @@ export const hasControlCharacter = (path: string) => /[\u0000-\u001f\u007f]/.tes
 
 /** true if a directory shouldn't be traversed (saves descending into `.git/` and similar). */
 export const isIgnoredDir = (name: string) => name.startsWith('.')
+
+const SLASH = 47 // /
+
+/**
+ * `s` without the `/` it ends with, however many. A loop, not `/\/+$/`:
+ * that pattern tries every `/` of a long run that doesn't end the text,
+ * in quadratic time, and these are names anyone can write.
+ */
+export function trimTrailingSlashes(s: string): string {
+  let end = s.length
+  while (end > 0 && s.charCodeAt(end - 1) === SLASH) end--
+  return end === s.length ? s : s.slice(0, end)
+}
+
+/** `s` without the `/` it starts or ends with (`/^\/+|\/+$/g`, in linear time). */
+export function trimSlashes(s: string): string {
+  let start = 0
+  while (start < s.length && s.charCodeAt(start) === SLASH) start++
+  return trimTrailingSlashes(start === 0 ? s : s.slice(start))
+}

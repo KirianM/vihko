@@ -21,7 +21,7 @@
 // so that the agent doesn't take it for a failure and try again; from then on
 // the note is like any other hidden one.
 import { randomBytes } from 'node:crypto'
-import { contentHash, readFrontmatter } from '@vihko/core'
+import { contentHash, readFrontmatter, trimSlashes } from '@vihko/core'
 import type { CallToolResult, McpServer, StandardSchemaWithJSON, ToolAnnotations } from '@modelcontextprotocol/server'
 import { z } from 'zod'
 import { AccessError, AgentDenied, type Access } from '../access.ts'
@@ -406,7 +406,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     }), { ...NAME_ALIASES, path: 'folder' }),
     annotations: READ,
   }, run(({ folder, recursive, limit, offset }) => {
-    const f = folder.trim().replace(/^\/+|\/+$/g, '')
+    const f = trimSlashes(folder.trim())
     if (f) NoteService.checkFolder(f)
     const tree = scoped.tree()
     const under = (p: string) => f === '' || p.startsWith(f + '/')

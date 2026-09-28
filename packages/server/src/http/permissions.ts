@@ -18,7 +18,7 @@
 // folder, 404 if not.
 import type { Context, Hono } from 'hono'
 import {
-  LEVELS, USER_SEGMENT, WORKSPACE_FILE, atLeast, grantsAt, isSubject, parentFolder, selfAndAncestors, subjectKey,
+  LEVELS, USER_SEGMENT, WORKSPACE_FILE, atLeast, grantsAt, isSubject, parentFolder, selfAndAncestors, subjectKey, trimSlashes,
   type Level, type RuleValue,
 } from '@vihko/core'
 import { AccessError, inFolders, type Access, type AccessPolicy } from '../access.ts'
@@ -45,7 +45,7 @@ export interface PermissionRoutesDeps {
 /** A folder named in a request: `""` is the root; a `{user}` rule's key is allowed (the admin's). */
 function folderParam(raw: unknown): string {
   if (typeof raw !== 'string') throw new RequestError(400, 'invalid', 'folder must be a folder path ("" for the root)')
-  const f = raw.normalize('NFC').replace(/^\/+|\/+$/g, '')
+  const f = trimSlashes(raw.normalize('NFC'))
   if (f !== '' && (/[\\\u0000-\u001f]/.test(f) || !f.split('/').every((s) => s !== '' && !s.startsWith('.') && s !== '..' && s.trim() === s))) {
     throw new NoteError('invalid_path', `invalid folder path: ${raw}`)
   }
