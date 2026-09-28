@@ -25,8 +25,10 @@ services:
       - ./notes:/data/notes
       # State: ALWAYS on local disk (SQLite is not reliable over NFS).
       - ./state:/data/state
-    # User that writes your notes (1000:1000 by default).
-    # user: "1000:1000"
+    # The user vihko runs as: the owner of the notes folder (on NFS, the one the
+    # server imposes), set in .env; state/ must belong to the same user.
+    # See guide/install.md, "The user and file ownership".
+    user: "${VIHKO_UID:-1000}:${VIHKO_GID:-1000}"
     # environment:
     #   # Only behind a reverse proxy with HTTPS: the public address, for remote
     #   # MCP clients such as claude.ai (OAuth). See guide/reverse-proxy.md.
