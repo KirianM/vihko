@@ -16,7 +16,8 @@ import { Watcher } from './watcher.ts'
 import { ExternalMoves } from './externalMoves.ts'
 import { CollabHub } from './hub.ts'
 import { History } from './history/index.ts'
-import { lockState, prepareStateDir, type StateLock } from './lock.ts'
+import { lockState, type StateLock } from './lock.ts'
+import { StartupError, checkVolumes, prepareStateDir, rootWarning } from './volumes.ts'
 import { ApiKeys } from './keys.ts'
 import { markIcons, mountMcp } from './mcp/server.ts'
 import { Integrations, integrationsLockedFrom } from './integrations.ts'
@@ -142,6 +143,10 @@ export interface StartOptions {
 
 export async function start(config: Config, opts: StartOptions = {}) {
   console.log(`[vihko] vihko ${VERSION}`)
+  // Both folders writable by the user vihko runs as, before anything is opened in them.
+  checkVolumes(config)
+  const root = rootWarning()
+  if (root) console.log(`[vihko] ${root}`)
   // vihko's alone, closed to other users of the host.
   prepareStateDir(config.stateDir, (msg) => console.log(`[vihko] ${msg}`))
   // One process at a time on the state volume (a second server, or `vihko history purge`).
@@ -267,7 +272,14 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   hub.attach(server, SESSION_COOKIE)
   // serve() opens the port asynchronously: only announced once it's actually listening.
-  if (!server.listening) await new Promise<void>((resolve, reject) => { server.once('listening', resolve); server.once('error', reject) })
+  if (!server.listening) {
+    await new Promise<void>((resolve, reject) => {
+      server.once('listening', resolve)
+      server.once('error', (err: NodeJS.ErrnoException) => reject(err.code === 'EADDRINUSE'
+        ? new StartupError([`port ${config.port} on ${config.host} is in use by another program: stop it, or choose another port with VIHKO_PORT`])
+        : err))
+    })
+  }
   log(`listening on http://${config.host}:${config.port}`)
   if (config.integrationsLocked) log('VIHKO_INTEGRATIONS=off: the API with keys and the MCP server stay off')
   if (config.publicUrl) log(`public URL ${config.publicUrl}: OAuth for ${config.publicUrl}/mcp while the MCP server is on`)
