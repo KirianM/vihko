@@ -29,7 +29,7 @@ import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwareness
 import * as Y from 'yjs'
 import { baseHue, contentHash, isPersonHue, newUid, readFrontmatter, setFrontmatterKey } from '@vihko/core'
 import { sessionIdOf, type Auth, type User } from './auth.ts'
-import { readStable, readText, replaceText } from './fsutil.ts'
+import { readStable, readText, replaceText, spelledAsOnDisk } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
 import type { Via } from './actor.ts'
@@ -425,6 +425,8 @@ export class CollabHub implements HotDocuments {
       maxDebounce: debounce * 10,
       onConnect: async ({ documentName, context, connectionConfig }) => {
         NoteService.checkPath(documentName)
+        // Spelled otherwise than on the disk (a case-insensitive filesystem), it would open a file its permissions don't govern.
+        if (!spelledAsOnDisk(this.opts.notesDir, documentName)) throw new NoteError('not_found', `does not exist: ${documentName}`)
         // A note one can't read doesn't exist for them: the same answer as a note that isn't there.
         const level = this.levelOf(context.user, documentName)
         if (level === 'none') throw new NoteError('not_found', `does not exist: ${documentName}`)

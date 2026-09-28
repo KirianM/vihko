@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, resolve } from 'node:path'
 import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
-import { commitText, createFile, linkNew, readStable, readText } from './fsutil.ts'
+import { commitText, createFile, linkNew, readStable, readText, spelledAsOnDisk } from './fsutil.ts'
 import { attachmentPath, noteAttachmentsDir, sniffImage, suffixedName } from './attachments.ts'
 import { applyReplacements, beforeMoves, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
 import type { Indexer } from './indexer.ts'
@@ -258,7 +258,17 @@ export class NoteService {
   }
 
   private file(path: string) {
-    return join(this.opts.notesDir, NoteService.checkPath(path))
+    return join(this.opts.notesDir, this.spelled(NoteService.checkPath(path)))
+  }
+
+  /**
+   * A path as the disk spells it (fsutil.ts `spelledAsOnDisk`): on a
+   * case-insensitive filesystem another spelling would reach a file whose
+   * permissions are another folder's. Such a path doesn't exist.
+   */
+  private spelled(path: string): string {
+    if (!spelledAsOnDisk(this.opts.notesDir, path)) throw new NoteError('not_found', `does not exist: ${path}`)
+    return path
   }
 
   /** The file for a note vihko is about to name. */
@@ -722,7 +732,7 @@ export class NoteService {
   }
 
   private dir(path: string) {
-    return join(this.opts.notesDir, NoteService.checkFolder(path))
+    return join(this.opts.notesDir, this.spelled(NoteService.checkFolder(path)))
   }
 
   /** The directory for a folder vihko is about to name. */
@@ -1119,8 +1129,9 @@ export class NoteService {
         const source = resolveImageRef(version.path, img.dest, { embed })
         if (target === null || source === null || seen.has(target) || classifyPath(target) !== 'other') continue
         seen.add(target)
-        // Where whoever restores can't write: as if the history didn't have it (nothing of that folder is said).
-        if (opts.canWrite && !opts.canWrite(target)) { images.missing.push({ path: target, reason: 'not_in_history' }); continue }
+        // Where whoever restores can't write, or spelled otherwise than the disk has it (its permissions would be
+        // another folder's): as if the history didn't have it (nothing of that folder is said).
+        if ((opts.canWrite && !opts.canWrite(target)) || !spelledAsOnDisk(this.opts.notesDir, target)) { images.missing.push({ path: target, reason: 'not_in_history' }); continue }
         const bytes = await opts.file(source)
         const abs = join(this.opts.notesDir, target)
         if (this.isFile(target)) {

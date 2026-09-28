@@ -11,7 +11,7 @@
 // construction. Reads stay sync: they are served from the client's cache in
 // well under a millisecond, and going through the thread pool made a big
 // rename on local disk slower (2.1 → 2.7 s) for nothing on NFS.
-import { closeSync, fsyncSync, linkSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs'
+import { closeSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeSync } from 'node:fs'
 import { link, open, rename, rm } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
@@ -19,6 +19,52 @@ import { contentHash } from '@vihko/core'
 
 let counter = 0
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** A folder's entries as last listed (NFC), with what tells whether it changed since. */
+const listed = new Map<string, { key: string; names: Set<string> }>()
+
+/** The names in a folder (NFC), from the cache while the folder is unchanged; null if it isn't a folder. */
+function namesIn(dir: string, fresh = false): Set<string> | null {
+  let st: ReturnType<typeof statSync>
+  try { st = statSync(dir) } catch { return null }
+  if (!st.isDirectory()) return null
+  const key = `${st.ino}:${st.mtimeMs}:${st.ctimeMs}`
+  const known = listed.get(dir)
+  if (!fresh && known?.key === key) return known.names
+  let names: Set<string>
+  try { names = new Set(readdirSync(dir).map((n) => n.normalize('NFC'))) } catch { return null }
+  if (listed.size > 2000) listed.clear()
+  listed.set(dir, { key, names })
+  return names
+}
+
+/**
+ * Whether `rel` (a `/`-separated path under `root`) is spelled as the disk
+ * spells what exists of it: each part that exists is listed in its folder
+ * under that very name (compared in NFC: disks may hold NFD). A part that
+ * doesn't exist yet (a new note's) passes. On a case-insensitive filesystem
+ * (macOS or Windows folders shared into a container, SMB, some NFS
+ * datasets) `People/noa/diary.md` also opens `people/noa/diary.md`, while
+ * the permissions, which go by the path as written, would judge another
+ * folder: such a path doesn't exist for vihko.
+ */
+export function spelledAsOnDisk(root: string, rel: string): boolean {
+  let dir = root
+  for (const part of rel.split('/')) {
+    if (part === '' || part === '.') continue
+    const names = namesIn(dir)
+    // Nothing further exists: the rest will be made with this spelling.
+    if (names === null) return true
+    const name = part.normalize('NFC')
+    if (!names.has(name)) {
+      try { lstatSync(join(dir, part)) } catch { return true }
+      // It exists: listed under another spelling, unless it was made since the folder was listed.
+      if (!namesIn(dir, true)?.has(name)) return false
+    }
+    dir = join(dir, part)
+  }
+  return true
+}
 
 /** File contents, or null if it doesn't exist. */
 export function readText(file: string): string | null {
