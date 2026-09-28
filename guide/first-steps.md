@@ -26,9 +26,10 @@ The UI is in English or Spanish, following your browser's language.
   when none is open); the list says where: «Create “Plan” in projects».
 - **In a given folder:** open the folder's menu in the tree (right-click the
   folder, press its `⋯` button, or long-press it on a phone) → **New note
-  here**. Or type a path in New note:
-  `projects/Plan` creates `Plan` in the folder `projects` (from the root of
-  the notes), and creates the folder if it's missing.
+  here**. Or type a path in New note: `projects/Plan` creates `Plan` in the
+  folder `projects` inside the current folder, and `/projects/Plan` counts
+  from the root of the notes; missing folders are created, and the list says
+  where the note will go. The note's heading is only its name (`# Plan`).
 - **From a template:** when `vihko.yaml` names a templates folder, New note
   also lists «From a template» (see [Configuration](configuration.md#templates)).
 
@@ -135,14 +136,18 @@ Your name, at the bottom of the sidebar, opens **Preferences**:
 - **Timezone**: what day «today» is for you.
 - **Daily note series**, and «Open today's note when vihko opens», when
   `vihko.yaml` declares daily notes ([Configuration](configuration.md#daily-daily-notes)).
-- **Account**: your password, the browsers you're signed in from, and
-  two-step verification.
+- **Account**: the language, your password, the browsers you're signed in
+  from, and two-step verification.
 - **Users and groups** (admins): people, groups, and the settings.
 - **Agents and API**: keys for scripts and assistants ([Agents](agents.md)).
 - **Privacy**: what agents can see of your notes.
 
 The sun or moon button, in the note's header, switches between the light and
 dark theme (so does `>` in the ⌘K box).
+
+vihko speaks English and Spanish. It starts in your browser's language; to
+change it, go to Preferences → Account → Language, or type `>language` in the
+⌘K box. The choice is saved in your account and follows you to every browser.
 
 ## On a phone
 

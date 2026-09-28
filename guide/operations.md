@@ -152,11 +152,13 @@ The lines to know:
 | `vihko.yaml loaded without unknown_key at <key>, …` | It applies, except what the line lists: `unknown_key at <key>` is a key vihko doesn't know (a typo, or a setting of a newer vihko), which is ignored; `section_rejected at permissions` means the permissions section was rejected. The admins see each one, with its line, in the workspace alerts. See [When something is wrong](configuration.md#when-something-is-wrong). |
 | `index ready: …` | The first scan of the notes folder is done: notes added, changed, removed and unchanged since the index last saw them. |
 | `saved editor states: N of M match their file` | M notes have a saved editor state in `state/collab/` (every note opened in the editor has one), and N of them still match their file. The others changed while vihko was stopped, or the state was restored from a backup: each is loaded from its file the next time it's opened (`the saved document doesn't match the file`, below). Nothing to do. |
+| `removed N saved editor state(s) whose note no longer exists` | Saved editor states of notes deleted or moved away while vihko was stopped were cleaned up. A pending recovery is never removed. Nothing to do. |
 | `history sweep (…): N changes` | The notes folder compared with the history: N changes vihko hadn't recorded were saved as versions. In brackets, when: `startup` (changes made while vihko was stopped), `enabled` (the first start with the history on: every note's starting point), `resumed` (the history had been off or unavailable), `periodic` (the regular check, hourly by default: `VIHKO_HISTORY_SWEEP_SECONDS`). Nothing is printed when there are no changes. |
 | `listening on http://0.0.0.0:8080` | Ready. The address is inside the container. |
 | `first boot: no users yet…` | No users yet; the next line has the one-time token. See [Installation](install.md#first-start). |
 | `public URL …` | `VIHKO_PUBLIC_URL` is set. |
 | `VIHKO_TRUSTED_PROXIES is unset: …` | You set a public URL but not the proxy's address. See [Reverse proxy](reverse-proxy.md#tell-vihko-about-the-proxy). |
+| `VIHKO_TRUSTED_PROXIES: <range> is a wide range: …` | An entry covers more than a /12 (IPv4) or a /48 (IPv6): every device in it is believed as a proxy and could slip past the sign-in limits. Give the proxy's own address. See [Reverse proxy](reverse-proxy.md#tell-vihko-about-the-proxy). |
 | `VIHKO_INTEGRATIONS=off: …` | The API with keys and the MCP server are locked off. |
 | `VIHKO_SECRET_KEY: second factors are stored encrypted` | The key is in use. |
 | `N second factor(s) can't be read …` | The key is missing or different from the one they were encrypted with. See [The second-factor key](install.md#the-second-factor-key). |
