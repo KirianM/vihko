@@ -203,6 +203,9 @@ function uiHeaders(external: ExternalImages) {
 // an SVG opened on its own (sandboxed, no scripts).
 const FILE_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
 
+// Everything else (the API's JSON, errors, /mcp): nothing in it is a page.
+const API_CSP = "default-src 'none'; frame-ancestors 'none'"
+
 /**
  * `user`: who the request acts for (a key's user, for an agent); `access`:
  * who is asking and what they may reach; `token`: the session (cookie only).
@@ -290,6 +293,16 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof SyntaxError) return fail(c, 400, 'invalid', err.message)
     console.error(err)
     return fail(c, 500, 'internal', 'internal error')
+  })
+
+  // Every answer, whatever answered it: never sniffed as another type. One
+  // without a policy of its own (the API's JSON, errors) is no page: opened
+  // on its own, or framed, it can run and load nothing. The UI and the files
+  // from the notes folder set theirs.
+  app.use('*', async (c, next) => {
+    await next()
+    c.header('X-Content-Type-Options', 'nosniff')
+    if (!c.res.headers.has('Content-Security-Policy')) c.header('Content-Security-Policy', API_CSP)
   })
 
   // No body over MAX_API_BODY, before anything else (who is asking included).

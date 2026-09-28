@@ -363,6 +363,29 @@ test("UI: static files, app routes serve index.html, and the API doesn't fall th
   assert.deepEqual([missing.status, missing.body.error], [404, 'not_found'], "an unknown API route doesn't return the UI")
 })
 
+test('headers: every answer is nosniff, and one that is not the UI can run nothing', async () => {
+  const webDir = tempDir('vihko-web-')
+  writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
+  const { auth, req, raw } = await setup({ webDir })
+  const admin = m.aUser({ role: 'admin' })
+  await auth.createUser(admin.username, admin.password, admin.role)
+  const api = {
+    health: await raw('/api/health'),
+    unauthorized: await raw('/api/notes'),
+    tooLarge: (await req('POST', '/api/auth/login', m.aPassword().repeat(MAX_AUTH_BODY), {}, true)).headers,
+  }
+  await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
+  const signedIn = { notes: await raw('/api/notes'), missing: await raw(`/api/${m.aUniqueWord()}`) }
+  for (const [what, headers] of Object.entries({ ...api, ...signedIn }).map(([k, v]) => [k, v instanceof Response ? v.headers : v] as const)) {
+    assert.equal(headers.get('x-content-type-options'), 'nosniff', what)
+    assert.equal(headers.get('content-security-policy'), "default-src 'none'; frame-ancestors 'none'", what)
+  }
+  // The UI keeps its own policy.
+  const home = await raw('/')
+  assert.equal(home.headers.get('x-content-type-options'), 'nosniff')
+  assert.match(home.headers.get('content-security-policy')!, /default-src 'self'/)
+})
+
 test('CSRF: a write from another origin is rejected', async () => {
   const { auth, req } = await setup()
   const admin = m.aUser({ role: 'admin' })
