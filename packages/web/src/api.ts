@@ -171,7 +171,11 @@ export interface MovedRelinkReport {
 export type MoveStart<R> = { report: R } | { job: MoveJob }
 /** A tag in use, with the notes that carry it (`count`) and it or any tag nested under it (`total`). */
 export interface TagCount { tag: string; count: number; total: number }
-export interface TrashEntry { id: string; path: string; deletedAt: string }
+/**
+ * A trash entry: a note (`path`) with the files that went with it (its
+ * images only it used), or files alone (`kind: 'files'`, `path` their folder).
+ */
+export interface TrashEntry { id: string; path: string; deletedAt: string; kind?: 'files'; files?: { path: string }[] }
 /** Installation settings the UI needs. */
 export interface ServerConfig {
   externalImages: 'allow' | 'block'
@@ -392,7 +396,8 @@ export const api = {
   uploadImage: (note: string, file: Blob) =>
     request<Attachment>('POST', `/api/attachments?note=${encodeURIComponent(note)}`, file, { 'content-type': file.type || 'application/octet-stream' }),
   fetchImage: (note: string, url: string) => request<Attachment>('POST', '/api/attachments/fetch', { note, url }),
-  restore: (id: string) => request<{ path: string; etag: string }>('POST', `/api/trash/${encodeURIComponent(id)}/restore`),
+  /** A trash entry back: `files` where each landed (another name if its own was taken), `left` those that stay in the trash. */
+  restore: (id: string) => request<{ path: string; etag: string | null; files: { from: string; to: string }[]; left: string[] }>('POST', `/api/trash/${encodeURIComponent(id)}/restore`),
   integrations: () => request<Integrations>('GET', '/api/integrations'),
   /** The vihko admin only; turning the API or MCP on while the server locks them gives `integrations_locked`. */
   setIntegrations: (patch: Partial<Pick<Integrations, 'api' | 'mcp' | 'membersCanCreateKeys' | 'oauthRegistration'>>) => request<Integrations>('PUT', '/api/admin/integrations', patch),

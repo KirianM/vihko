@@ -19,7 +19,7 @@ import type { DailyNotes } from './daily.ts'
 import { planEdits, type EditOp } from './edits.ts'
 import { CommentError, commentSplices, type CommentOp } from './commenting.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START, search, type SearchResult } from './http/search.ts'
-import { NoteError, NoteService, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type TrashEntry } from './notes.ts'
+import { NoteError, NoteService, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type TrashEntry, type TrashRestoreReport } from './notes.ts'
 import { audienceChange, ruleMove, type AudienceChange } from './audience.ts'
 import type { ExternalMoves, PendingExternalMove } from './externalMoves.ts'
 import type { Orphans } from './http/app.ts'
@@ -612,7 +612,8 @@ export class ScopedNotes {
   async delete(path: string, opts: { ifMatch?: string }) {
     const p = this.writable(path)
     this.visible(p)
-    return this.guardAsync(p, () => this.deps.notes.delete(p, { ifMatch: opts.ifMatch, actor: this.access.actor }))
+    // Its images go with it only where the principal may write (an agent: within its key's folders).
+    return this.guardAsync(p, () => this.deps.notes.delete(p, { ifMatch: opts.ifMatch, actor: this.access.actor, canWrite: (f) => this.access.canWrite(f) }))
   }
 
   /**
@@ -866,17 +867,34 @@ export class ScopedNotes {
     return this.attach(p, await fetch())
   }
 
-  /** The trash: what was deleted where the person would have `edit` now (D-038). */
+  /**
+   * The trash: what was deleted where the person would have `edit` now
+   * (D-038): a note where they could edit it, files alone where they could
+   * edit any of them; of an entry's files, only those.
+   */
   trash(): TrashEntry[] {
-    return this.deps.notes.trash().filter((e) => this.access.canWrite(e.path))
+    return this.deps.notes.trash().flatMap((e) => {
+      const files = e.files?.filter((f) => this.access.canWrite(f.path))
+      if (e.kind === 'files' ? !files?.length : !this.access.canWrite(e.path)) return []
+      return [files ? { ...e, files } : e]
+    })
   }
 
-  /** Restores a note from the trash (to its path, or `to`): an entry it may see, to where it may write. */
-  async restoreTrash(id: string, to?: string): Promise<{ path: string; etag: string }> {
-    const entry = this.deps.notes.trash().find((e) => e.id === id)
-    if (!entry || !this.access.canWrite(entry.path)) throw new NoteError('not_found', `not in the trash: ${id}`)
+  /**
+   * Restores from the trash: a note (to its path, or `to`) with its files, or
+   * files alone, an entry it may see, to where it may write. Files it can't
+   * write stay in the trash.
+   */
+  async restoreTrash(id: string, to?: string): Promise<TrashRestoreReport> {
+    const entry = this.trash().find((e) => e.id === id)
+    if (!entry) throw new NoteError('not_found', `not in the trash: ${id}`)
+    const canWrite = (p: string) => this.access.canWrite(p)
+    if (entry.kind === 'files') {
+      if (to !== undefined && to !== entry.path) throw new RequestError(400, 'invalid', 'files alone go back where they were: no `to`')
+      return this.deps.notes.restore(id, this.access.actor, undefined, { canWrite })
+    }
     const dest = this.writable(to ?? entry.path)
-    return this.guardAsync(dest, () => this.deps.notes.restore(id, this.access.actor, dest))
+    return this.guardAsync(dest, () => this.deps.notes.restore(id, this.access.actor, dest, { canWrite }))
   }
 
   /** A sync tool's conflict copy the indexer found, in a folder the person can read. */

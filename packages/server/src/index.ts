@@ -15,7 +15,7 @@ export { planRevert, revertVersion, type RevertPlan, type RevertReport, type Rev
 export { Git, GitError, blobOid } from './history/git.ts'
 export { describeLeftover, removeCrashLeftovers, type Leftover, type LeftoverKind } from './history/leftovers.ts'
 export { historyRoutes, type ApiAuthor, type HistoryRoutesDeps } from './http/history.ts'
-export { DEFAULT_MAX_IMAGE_BYTES, NoteError, NoteService, type Actor, type Change, type HotDocuments, type NoteErrorCode, type FolderMoveReport, type MoveHooks, type MoveReport, type MovedRelinkReport, type NoteRead, type NoteServiceOptions, type ShiftGroup, type TrashEntry } from './notes.ts'
+export { DEFAULT_MAX_IMAGE_BYTES, NoteError, NoteService, type TrashRestoreReport, type Actor, type Change, type HotDocuments, type NoteErrorCode, type FolderMoveReport, type MoveHooks, type MoveReport, type MovedRelinkReport, type NoteRead, type NoteServiceOptions, type ShiftGroup, type TrashEntry } from './notes.ts'
 export { commitText, createFile, readStable, readText, replaceText, rootIgnoresCase, spelledAsOnDisk, writeTmp, type CommitResult, type ReplaceResult } from './fsutil.ts'
 export { applyReplacements, beforeMoves, planLinks, planRelinks, rewriteLink, type LinkState, type Replacement, type Shift, type ShiftCode } from './relink.ts'
 export { Auth, AuthError, MAX_PASSWORD, MIN_PASSWORD, NAME_PATTERN, hashPassword, needsRehash, sessionIdOf, userIdByName, verifyPassword, type Role, type SessionInfo, type User } from './auth.ts'

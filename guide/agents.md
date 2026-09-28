@@ -435,7 +435,9 @@ history, and a few rules:
 
 - `create_note` never overwrites an existing note.
 - Replacing text needs the ETag of the text the agent read.
-- `delete` moves the note to the trash, where a person can restore it.
+- `delete` moves the note to the trash, where a person can restore it, with
+  the images next to it that no other note uses (only those in the key's
+  folders and out of folders closed to agents).
 - A move that would show the note to anyone who can't see it now fails with
   `audience_widens` and who would gain access. The server tells the agent to
   ask you first, and to confirm only after you agree.

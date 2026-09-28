@@ -1,9 +1,9 @@
 // Note service: the system's only write point (UI, API and MCP all go
 // through here). Optimistic concurrency by hash, safe writes
 // (fsutil.ts), lazy `uid` and deletion to trash.
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, resolve } from 'node:path'
-import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
+import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, folderOf, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
 import { commitText, createFile, followable, isPlainFile, linkNew, readStable, readText } from './fsutil.ts'
 import { attachmentPath, noteAttachmentsDir, sniffImage, suffixedName } from './attachments.ts'
 import { applyReplacements, beforeMoves, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
@@ -216,12 +216,40 @@ export interface RestoreReport {
   images: { restored: string[]; missing: { path: string; reason: 'not_in_history' | 'exists' }[] }
 }
 
+/**
+ * An entry in the trash: a note, with the files that went with it, or
+ * (`kind: 'files'`) files alone.
+ */
 export interface TrashEntry {
   id: string
+  /** The note's path; for files alone, the folder they were deleted from ('' for the root). */
   path: string
   deletedAt: string
   actor: Actor
-  etag: string
+  /** The note's ETag when it was deleted; absent for files alone. */
+  etag?: string
+  /** Files alone: what a folder sent to the trash with its notes held besides them, or a note's images that couldn't be restored with it. */
+  kind?: 'files'
+  /**
+   * Files in the entry, by where they were: a note's images that no other note
+   * used (D-028, what moving the note would take along), or a folder's files.
+   * `stored`: its name in the entry's folder in the trash.
+   */
+  files?: { path: string; stored: string }[]
+}
+
+/**
+ * What restoring from the trash did: where the note is and its ETag (null
+ * for files alone), the files that came back (`to` differs from `from` when
+ * that name was taken meanwhile: it got a suffix and the note links it
+ * there), and those left in the trash (`left`: where whoever restores can't
+ * write, or where no name is free).
+ */
+export interface TrashRestoreReport {
+  path: string
+  etag: string | null
+  files: { from: string; to: string }[]
+  left: string[]
 }
 
 export class NoteService {
@@ -358,8 +386,13 @@ export class NoteService {
     return { etag: contentHash(next) }
   }
 
-  /** Moves the note to the state volume's trash. */
-  async delete(path: string, opts: { ifMatch?: string; actor: Actor }): Promise<TrashEntry> {
+  /**
+   * Moves the note to the state volume's trash, with the files that go with
+   * it (`filesGoingWith`: its images no other note uses, as a move would take
+   * them), all in one entry and one version. `canWrite` says which files the
+   * one deleting may take (an agent, within its key's folders).
+   */
+  async delete(path: string, opts: { ifMatch?: string; actor: Actor; canWrite?: (path: string) => boolean }): Promise<TrashEntry> {
     const file = this.file(path)
     const id = newUid()
     // Open in the editor: flush what is pending and close it, telling its editors the trash entry.
@@ -368,11 +401,13 @@ export class NoteService {
     if (current === null) throw new NoteError('not_found', `does not exist: ${path}`)
     const hash = contentHash(current)
     if (opts.ifMatch !== undefined && opts.ifMatch !== hash) throw new NoteError('precondition_failed', `the note has changed: ${path}`, hash)
+    const going = this.filesGoingWith(current, path, opts.canWrite ?? (() => true))
 
     // First it's set aside within the same filesystem (atomic rename), then we
     // check that what was set aside is what was meant to be deleted.
-    const aside = join(dirname(file), `.${posix.basename(path)}.vihko-del-${process.pid}-${Date.now()}`)
-    const w = this.history.prepare([{ path, before: current, after: null }], { actor: opts.actor, immediate: true })
+    const aside = asideOf(file)
+    const deleted = (files: readonly string[]): FileChange[] => [{ path, before: current, after: null }, ...files.map((p) => ({ path: p, after: null }))]
+    const w = this.history.prepare(deleted(going), { actor: opts.actor, immediate: true })
     try {
       renameSync(file, aside)
     } catch (err) {
@@ -385,15 +420,101 @@ export class NoteService {
       w.abort()
       throw new NoteError('precondition_failed', `the note changed during deletion: ${path}`, moved === null ? null : contentHash(moved))
     }
-    w.done()
+    const files = this.setAside(going)
     const entry: TrashEntry = { id, path, deletedAt: new Date().toISOString(), actor: opts.actor, etag: hash }
-    const dir = join(this.opts.stateDir, 'trash', entry.id)
-    mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, 'note.md'), moved)
-    writeFileSync(join(dir, 'meta.json'), JSON.stringify(entry, null, 2))
+    try {
+      this.toTrash(entry, moved, files)
+    } catch (err) {
+      // The trash can't take it (a full disk): everything goes back.
+      this.putBack(files)
+      this.putBack([{ path, aside }])
+      w.abort()
+      throw err
+    }
+    w.done(files.length === going.length ? undefined : deleted(files.map((f) => f.path)))
     rmSync(aside)
-    this.opts.indexer.indexPaths([path])
+    for (const f of files) rmSync(f.aside, { force: true })
+    this.removeEmptyAssets(path)
+    this.opts.indexer.indexPaths([path, ...files.map((f) => f.path)])
     return entry
+  }
+
+  /**
+   * What goes to the trash with a note: what a move of the note would take
+   * along (D-028), the images next to it that no other note uses and, in
+   * `per-note` mode, the files in its own folder of images that no other note
+   * uses. Never a file in the shared attachments folder of vihko.yaml, nor
+   * one `canWrite` refuses.
+   */
+  private filesGoingWith(text: string, path: string, canWrite: (path: string) => boolean): string[] {
+    const shared = this.opts.attachments?.().folder ?? null
+    const inShared = (p: string) => shared !== null && p.startsWith(shared + '/')
+    // Its folder of images, unless it holds notes (as when moving) or is a link vihko doesn't follow.
+    const assets = this.assetsOf(path)
+    const own = assets !== null && !assets.holdsNotes && followable(this.opts.notesDir, assets.dir) ? assets.dir : null
+    const going = new Set<string>()
+    for (const img of this.imagesOf(text, path)) {
+      if ((img.beside || (own !== null && img.path.startsWith(own + '/'))) && !img.shared()) going.add(img.path)
+    }
+    if (own !== null) {
+      for (const rel of assets!.files) {
+        const p = `${own}/${rel}`
+        if (classifyPath(p) === 'other' && !this.usedByOthers(p, path)) going.add(p)
+      }
+    }
+    return [...going].filter((p) => !inShared(p) && canWrite(p) && this.isFile(p)).sort()
+  }
+
+  /** Sets files aside next to where they are (a hidden name, same filesystem); one gone meanwhile is left out. */
+  private setAside(paths: readonly string[]): { path: string; aside: string }[] {
+    const out: { path: string; aside: string }[] = []
+    for (const path of paths) {
+      const abs = join(this.opts.notesDir, path)
+      const aside = asideOf(abs)
+      try {
+        renameSync(abs, aside)
+        out.push({ path, aside })
+      } catch { /* gone meanwhile: nothing to take */ }
+    }
+    return out
+  }
+
+  /** Puts files set aside back under their names, never over a file that took one meanwhile (that one stays aside, hidden). */
+  private putBack(files: readonly { path: string; aside: string }[]) {
+    for (const f of files) {
+      try {
+        if (linkNew(f.aside, join(this.opts.notesDir, f.path))) rmSync(f.aside)
+      } catch { /* left aside, whole */ }
+    }
+  }
+
+  /** Writes a trash entry: the note's text (unless it's files alone), the files set aside, and meta.json last (what makes it an entry). */
+  private toTrash(entry: TrashEntry, text: string | null, files: readonly { path: string; aside: string }[]) {
+    const dir = join(this.opts.stateDir, 'trash', entry.id)
+    try {
+      mkdirSync(dir, { recursive: true })
+      if (text !== null) writeFileSync(join(dir, 'note.md'), text)
+      if (files.length) {
+        mkdirSync(join(dir, 'files'))
+        entry.files = files.map((f, i) => ({ path: f.path, stored: `files/${i + 1}-${posix.basename(f.path)}` }))
+        files.forEach((f, i) => copyFileSync(f.aside, join(dir, entry.files![i]!.stored)))
+      }
+      writeFileSync(join(dir, 'meta.json'), JSON.stringify(entry, null, 2))
+    } catch (err) {
+      delete entry.files
+      rmSync(dir, { recursive: true, force: true })
+      throw err
+    }
+  }
+
+  /** In `per-note` mode, the note's folder of images once nothing is left in it (empty subfolders go too). */
+  private removeEmptyAssets(path: string) {
+    const assets = this.assetsOf(path)
+    if (assets === null || assets.files.length || !followable(this.opts.notesDir, assets.dir)) return
+    try {
+      removeEmptyTree(join(this.opts.notesDir, assets.dir))
+    } catch { /* something landed in it meanwhile: it stays */ }
+    this.opts.indexer.indexFolders([assets.dir])
   }
 
   /**
@@ -896,20 +1017,14 @@ export class NoteService {
    */
   private planImages(text: string, from: string, to: string, assetsDir: string | null): Pick<MoveReport['images'], 'moved' | 'stayed'> & { unplaceable: MoveReport['images']['failed'] } {
     const plan: ReturnType<NoteService['planImages']> = { moved: [], stayed: [], unplaceable: [] }
-    const dir = posix.dirname(from)
     const toDir = posix.dirname(to)
-    if (dir === toDir) return plan
-    const users = this.opts.db.prepare('select distinct src_path from images where path = ?')
-    const seen = new Set<string>()
+    if (posix.dirname(from) === toDir) return plan
     const taken = new Set<string>()
-    for (const img of extract(text).images) {
-      const path = resolveImageRef(from, img.dest, { embed: img.kind === 'embed' || img.kind === 'wiki' })
-      if (path === null || seen.has(path)) continue
-      seen.add(path)
-      if (!this.isFile(path)) continue // a broken reference: nothing to move, its link keeps its target
+    for (const img of this.imagesOf(text, from)) {
+      const path = img.path
       if (assetsDir !== null && path.startsWith(assetsDir + '/')) continue // goes with its folder
-      if (posix.dirname(path) !== dir) { plan.stayed.push({ path, reason: 'elsewhere' }); continue }
-      if ((users.all(path) as { src_path: string }[]).some((r) => r.src_path !== from)) { plan.stayed.push({ path, reason: 'shared' }); continue }
+      if (!img.beside) { plan.stayed.push({ path, reason: 'elsewhere' }); continue }
+      if (img.shared()) { plan.stayed.push({ path, reason: 'shared' }); continue }
       const free = firstName(path, toDir, (dest) => !taken.has(dest) && !existsSync(join(this.opts.notesDir, dest)))
       if (free === undefined) {
         plan.unplaceable.push({ path, to: null, outcome: 'stayed', error: 'exists', message: `no free name for ${path} in ${toDir}` })
@@ -922,6 +1037,41 @@ export class NoteService {
   }
 
   /**
+   * The images a note's text references that exist, each once: whether each
+   * is next to the note (in its folder) and whether another note uses it too
+   * (by the index; asked only when it matters).
+   */
+  private imagesOf(text: string, notePath: string): { path: string; beside: boolean; shared: () => boolean }[] {
+    const dir = posix.dirname(notePath)
+    const out: { path: string; beside: boolean; shared: () => boolean }[] = []
+    const seen = new Set<string>()
+    for (const img of extract(text).images) {
+      const path = resolveImageRef(notePath, img.dest, { embed: img.kind === 'embed' || img.kind === 'wiki' })
+      if (path === null || seen.has(path)) continue
+      seen.add(path)
+      if (!this.isFile(path)) continue // a broken reference: nothing of the note's there
+      out.push({ path, beside: posix.dirname(path) === dir, shared: () => this.usedByOthers(path, notePath) })
+    }
+    return out
+  }
+
+  /** Whether a note other than `notePath` uses the file at `path` (by the index). */
+  private usedByOthers(path: string, notePath: string): boolean {
+    const users = this.opts.db.prepare('select distinct src_path from images where path = ?').all(path) as { src_path: string }[]
+    return users.some((r) => r.src_path !== notePath)
+  }
+
+  /** In `per-note` mode, the note's own folder of images if it exists: the files in it (relative to it, hidden ones included) and whether any is a note. */
+  private assetsOf(notePath: string): { dir: string; files: string[]; holdsNotes: boolean } | null {
+    const suffix = this.opts.attachments?.().perNote
+    if (suffix === undefined) return null
+    const dir = noteAttachmentsDir(notePath, suffix)
+    if (classifyPath(dir) !== 'other' || !isDirectory(join(this.opts.notesDir, dir))) return null
+    const files = listFiles(join(this.opts.notesDir, dir))
+    return { dir, files, holdsNotes: files.some((p) => classifyPath(`${dir}/${p}`) === 'note') }
+  }
+
+  /**
    * In `per-note` mode, whether the note's folder of images goes with it: it
    * exists and the note's name or folder changes. It stays (in `failed`) if
    * the name it would take is taken, or if it holds notes (moving those is a
@@ -930,17 +1080,17 @@ export class NoteService {
   private planAssets(from: string, to: string): { folder: MoveReport['images']['folder']; failed: MoveReport['images']['failed'] } {
     const suffix = this.opts.attachments?.().perNote
     if (suffix === undefined) return { folder: null, failed: [] }
-    const src = noteAttachmentsDir(from, suffix)
     const dst = noteAttachmentsDir(to, suffix)
-    if (src === dst || classifyPath(src) !== 'other' || !isDirectory(join(this.opts.notesDir, src))) return { folder: null, failed: [] }
-    const files = listFiles(join(this.opts.notesDir, src))
-    if (files.some((p) => classifyPath(`${src}/${p}`) === 'note')) {
+    const assets = noteAttachmentsDir(from, suffix) === dst ? null : this.assetsOf(from)
+    if (assets === null) return { folder: null, failed: [] }
+    const src = assets.dir
+    if (assets.holdsNotes) {
       return { folder: null, failed: [{ path: src, to: null, outcome: 'stayed', error: 'not_empty', message: `${src} holds notes: it stays` }] }
     }
     if (classifyPath(dst) !== 'other' || existsSync(join(this.opts.notesDir, dst))) {
       return { folder: null, failed: [{ path: src, to: null, outcome: 'stayed', error: 'exists', message: `${dst} already exists: ${src} stays` }] }
     }
-    return { folder: { from: src, to: dst, files: files.length }, failed: [] }
+    return { folder: { from: src, to: dst, files: assets.files.length }, failed: [] }
   }
 
   /**
@@ -1064,26 +1214,125 @@ export class NoteService {
     })
   }
 
-  /** Restores from the trash to its original path (or to `to`). Never overwrites. */
-  async restore(id: string, actor: Actor, to?: string): Promise<{ path: string; etag: string }> {
+  /**
+   * Restores from the trash to its original path (or to `to`), with its
+   * files. Never overwrites: a note whose name is taken isn't restored
+   * (`exists`); a file whose name is taken comes back with a suffix, and the
+   * note links it there (as when moving a note, D-028); an identical file
+   * already there counts as restored. The files go back next to the note,
+   * wherever it goes (in `per-note` mode, into its folder of images). Files
+   * `canWrite` refuses stay in the trash, as an entry of files alone. Files
+   * alone come back where they were (`to` doesn't apply).
+   */
+  async restore(id: string, actor: Actor, to?: string, opts: { canWrite?: (path: string) => boolean } = {}): Promise<TrashRestoreReport> {
     const entry = this.trashEntry(id)
     const dir = this.trashDir(id)
-    const text = dir === null ? null : readText(join(dir, 'note.md'))
-    if (entry === null || dir === null || text === null) throw new NoteError('not_found', `not in the trash: ${id}`)
+    if (entry === null || dir === null) throw new NoteError('not_found', `not in the trash: ${id}`)
+    const canWrite = opts.canWrite ?? (() => true)
+    const reason: Reason = { code: 'trash_restored', id }
+    if (entry.kind === 'files') {
+      const back = this.placeBack(dir, entry.files ?? [], (p) => p, canWrite)
+      // Recorded right after they land, before anything else runs (no await in between): never taken for an outside change.
+      if (back.created.length) this.history.prepare(back.created.map((b) => ({ path: b.to, after: b.bytes })), { actor, reason, immediate: true }).done()
+      this.settleEntry(entry, dir, null, back.left)
+      this.opts.indexer.indexPaths(back.placed.map((p) => p.to))
+      return { path: entry.path, etag: null, files: back.placed.map(({ from, to }) => ({ from, to })), left: back.left.map((f) => f.path) }
+    }
+    const text = readText(join(dir, 'note.md'))
+    if (text === null) throw new NoteError('not_found', `not in the trash: ${id}`)
     const path = to ?? entry.path
     // Back under its own name, whatever it is; a new one is vihko's to give.
     const file = path === entry.path ? this.file(path) : this.newFile(path)
-    mkdirSync(dirname(file), { recursive: true })
-    const w = this.history.prepare([{ path, after: text }], { actor, reason: { code: 'trash_restored', id }, immediate: true })
-    const r = await commitText(file, text, null).catch((err) => { w.abort(); throw err })
+    if (readText(file) !== null) throw new NoteError('exists', `already exists: ${path}`)
+
+    // Its files first, next to where the note goes, under free names; then the
+    // note, linking each where it landed. If the note can't go back, neither do they.
+    const perNote = this.opts.attachments?.().perNote
+    const relocate = (p: string) => {
+      if (path === entry.path) return p
+      const assets = perNote === undefined ? null : noteAttachmentsDir(entry.path, perNote)
+      if (assets !== null && p.startsWith(assets + '/')) return noteAttachmentsDir(path, perNote!) + p.slice(assets.length)
+      return posix.join(posix.dirname(path), posix.relative(posix.dirname(entry.path), p))
+    }
+    const back = this.placeBack(dir, entry.files ?? [], relocate, canWrite)
+    const at = new Map(back.placed.map((p) => [p.from, p.to]))
+    const landed = new Set(at.values())
+    const final = applyReplacements(text, planImageRelinks(text, entry.path, path, (p) => at.get(p) ?? p, (want) => landed.has(want)))
+    const unplace = () => { for (const b of back.created) rmSync(join(this.opts.notesDir, b.to), { force: true }) }
+    try {
+      mkdirSync(dirname(file), { recursive: true })
+    } catch (err) {
+      unplace()
+      throw err
+    }
+    const w = this.history.prepare([{ path, after: final }, ...back.created.map((b) => ({ path: b.to, after: b.bytes }))], { actor, reason, immediate: true })
+    const r = await commitText(file, final, null).catch((err) => { unplace(); w.abort(); throw err })
     if (!r.ok) {
+      unplace()
       w.abort()
       throw new NoteError('exists', `already exists: ${path}`)
     }
     w.done()
-    rmSync(dir, { recursive: true })
-    this.opts.indexer.indexPaths([path])
-    return { path, etag: contentHash(text) }
+    this.settleEntry(entry, dir, path, back.left)
+    this.opts.indexer.indexPaths([path, ...back.placed.map((p) => p.to)])
+    return { path, etag: contentHash(final), files: back.placed.map(({ from, to }) => ({ from, to })), left: back.left.map((f) => f.path) }
+  }
+
+  /**
+   * Puts a trash entry's files back, each at `relocate(its path)` or, if that
+   * name is taken by another file, the first free one with a suffix; an
+   * identical file already there counts as it (`placed`, not `created`).
+   * Those `canWrite` refuses, where vihko doesn't follow the path, or with no
+   * free name are `left`.
+   */
+  private placeBack(dir: string, files: readonly { path: string; stored: string }[], relocate: (path: string) => string, canWrite: (path: string) => boolean) {
+    const placed: { from: string; to: string }[] = []
+    const created: { to: string; bytes: Uint8Array }[] = []
+    const left: { path: string; stored: string }[] = []
+    for (const f of files) {
+      const want = relocate(f.path)
+      const bytes = (() => { try { return readFileSync(join(dir, f.stored)) } catch { return null } })()
+      if (bytes === null) continue // not in the entry any more: nothing to bring back
+      if (classifyPath(want) === 'note' || want.startsWith('../') || !canWrite(want)) { left.push(f); continue }
+      const where = posix.dirname(want)
+      try {
+        mkdirSync(join(this.opts.notesDir, where), { recursive: true })
+      } catch {
+        left.push(f)
+        continue
+      }
+      let made = false
+      const to = firstName(want, where, (candidate) => {
+        if (!followable(this.opts.notesDir, candidate)) return false
+        if (this.isFile(candidate)) return readFileSync(join(this.opts.notesDir, candidate)).equals(bytes)
+        try {
+          return (made = createFile(join(this.opts.notesDir, candidate), bytes))
+        } catch {
+          return false
+        }
+      })
+      if (to === undefined) { left.push(f); continue }
+      placed.push({ from: f.path, to })
+      if (made) created.push({ to, bytes })
+    }
+    return { placed, created, left }
+  }
+
+  /**
+   * After a restore: the entry goes, or, with files left, stays as files
+   * alone (in the folder the note was restored to, or where they were).
+   */
+  private settleEntry(entry: TrashEntry, dir: string, restoredTo: string | null, left: { path: string; stored: string }[]) {
+    if (left.length === 0) {
+      rmSync(dir, { recursive: true })
+      return
+    }
+    const kept = new Set(left.map((f) => f.stored))
+    for (const f of entry.files ?? []) if (!kept.has(f.stored)) rmSync(join(dir, f.stored), { force: true })
+    rmSync(join(dir, 'note.md'), { force: true })
+    const folder = entry.kind === 'files' ? entry.path : folderOf(restoredTo ?? entry.path)
+    const rest: TrashEntry = { id: entry.id, kind: 'files', path: folder, deletedAt: entry.deletedAt, actor: entry.actor, files: left }
+    writeFileSync(join(dir, 'meta.json'), JSON.stringify(rest, null, 2))
   }
 
   /**
@@ -1188,6 +1437,17 @@ function listFiles(dir: string, rel = ''): string[] {
 function isDirectory(path: string): boolean {
   try { return statSync(path).isDirectory() } catch { return false }
 }
+
+/** Removes `dir` and its empty subfolders, deepest first; a file anywhere stops it (ENOTEMPTY). Never follows a link. */
+function removeEmptyTree(dir: string) {
+  for (const e of readdirSync(dir, { withFileTypes: true })) if (e.isDirectory()) removeEmptyTree(join(dir, e.name))
+  rmdirSync(dir)
+}
+
+let asides = 0
+
+/** A hidden name next to `file` to set it aside while it goes to the trash (same filesystem: an atomic rename). */
+const asideOf = (file: string) => join(dirname(file), `.${posix.basename(file)}.vihko-del-${process.pid}-${Date.now()}-${++asides}`)
 
 const likePrefix = (dir: string) => dir.replace(/[\\%_]/g, (c) => '\\' + c) + '/%'
 
