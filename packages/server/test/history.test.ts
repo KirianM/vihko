@@ -511,6 +511,10 @@ test('a failing git never blocks a write: it is reported, and the history catche
     const status = (await h.admin('GET', '/api/history/status')).body
     assert.equal(status.available, false)
     assert.equal(status.error.code, 'git_failed')
+    // Why, as a code: what git said stays on the server (the log, the admin's alert).
+    for (const body of [status, (await h.member('GET', '/api/history/status')).body]) {
+      assert.doesNotMatch(JSON.stringify(body), /simulated failure|exited with|git /)
+    }
     const alert = (await h.admin('GET', '/api/alerts')).body.alerts.find((a: any) => a.code === 'history_unavailable')
     assert.match(alert.detail, /simulated failure/)
     assert.ok(readFileSync(join(h.notesDir, NOTE), 'utf8').includes(written), 'the note was written')
