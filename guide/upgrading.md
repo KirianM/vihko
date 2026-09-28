@@ -143,6 +143,9 @@ To go back:
    ```
 
    If the update made no new copy, `state.db` didn't change: skip to step 5.
+   vihko keeps the state folder closed to every user but its own: if that
+   isn't yours, put `sudo` in front of this step's and the next ones'
+   commands.
 
 3. **Put the copy back**, keeping the newer database aside:
 
