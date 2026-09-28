@@ -172,6 +172,12 @@ test('notes over HTTP: read, create, write with If-Match, move and delete', asyn
   assert.deepEqual(errorOf(await req('POST', '/api/note', { path: fresh, text: `# ${m.aHeading()}\n` })), [409, 'exists'])
   assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(`../${m.aNotePath()}`)}`)), [400, 'invalid_path'])
   assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(m.aNotePath())}`)), [404, 'not_found'])
+  // A name with a control character (a tab, the case under test) is refused with its own code; NUL can't name a file at all.
+  const tabbed = m.aNotePath().replace(/\.md$/, `\t${m.aWord()}.md`)
+  assert.deepEqual(errorOf(await req('POST', '/api/note', { path: tabbed, text: `# ${m.aHeading()}\n` })), [400, 'control_characters'])
+  assert.deepEqual(errorOf(await req('POST', '/api/note/move', { from: fresh, to: tabbed })), [400, 'control_characters'])
+  assert.deepEqual(errorOf(await req('POST', '/api/folder', { path: `${m.aFolder()}\t${m.aWord()}` })), [400, 'control_characters'])
+  assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(`${m.aFolder()}/\u0000.md`)}`)), [400, 'invalid_path'])
   const notJson = await req('POST', '/api/note', '{no es json', {}, true)
   assert.deepEqual(errorOf(notJson), [400, 'invalid'], "a body that isn't JSON isn't an internal error")
 
