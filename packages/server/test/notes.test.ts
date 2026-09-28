@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { contentHash, readFrontmatter } from '@vihko/core'
 import { Indexer, NoteError, NoteService, openIndex, type Actor } from '@vihko/server'
@@ -96,6 +96,35 @@ test('delete goes to the state volume trash and can be restored', async () => {
   const back = await notes.restore(entry.id, me, m.aNotePath('hogar'))
   assert.equal(notes.read(back.path).text, r.text)
   assert.deepEqual(notes.trash(), [])
+})
+
+test('a trash id is never a path: nothing outside the trash is read, restored or removed through it', async () => {
+  const { notesDir, stateDir, notes } = setup()
+  const entry = await notes.delete('hogar/Red.md', { actor: me })
+  // Something shaped like an entry, outside the trash: one folder up, and the state volume itself.
+  const outside = join(stateDir, m.aFolder())
+  const planted = (dir: string) => {
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'meta.json'), JSON.stringify({ ...entry, path: m.aNotePath(m.aFolder()) }))
+    writeFileSync(join(dir, 'note.md'), `${m.aParagraph()}\n`)
+  }
+  planted(outside)
+  planted(stateDir)
+  // Each kind of id that would leave the trash (the case under test).
+  for (const bad of [`../${basename(outside)}`, '..', outside, `${entry.id}/..`, `${entry.id}/../${entry.id}`]) {
+    assert.equal(await errCode(notes.restore(bad, me)), 'not_found', bad)
+    assert.ok(existsSync(join(outside, 'meta.json')) && existsSync(join(stateDir, 'meta.json')), `nothing removed through ${bad}`)
+  }
+  assert.ok(!existsSync(join(notesDir, 'hogar/Red.md')))
+
+  // What else lands in the trash folder isn't an entry, and doesn't break the list.
+  writeFileSync(join(stateDir, 'trash', m.aFolder()), m.aParagraph())
+  mkdirSync(join(stateDir, 'trash', m.faker.string.ulid()))
+  const other = join(stateDir, 'trash', m.faker.string.ulid())
+  mkdirSync(other)
+  writeFileSync(join(other, 'meta.json'), '{')
+  assert.deepEqual(notes.trash().map((t) => t.id), [entry.id])
+  assert.equal((await notes.restore(entry.id, me)).path, 'hogar/Red.md')
 })
 
 test('invalid paths', async () => {
