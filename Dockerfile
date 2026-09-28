@@ -4,9 +4,15 @@
 #   /data/state  local state: state.db, index.db, trash, collaboration logs and
 #                the note history (history.git); local disk, never NFS: SQLite
 #                locking over NFS is unreliable
+#
+# Built for linux/amd64 and linux/arm64 (.github/workflows/release.yml, which
+# also sets the OCI labels and annotations: version, revision, source,
+# licence).
 
 FROM node:26-trixie-slim AS deps
-# better-sqlite3 compiles on install: build tools only in this stage.
+# better-sqlite3 compiles on install when it finds no prebuilt binary, for the
+# image's own architecture (emulated for arm64 on an amd64 machine): build
+# tools only in this stage.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 make g++ \
  && rm -rf /var/lib/apt/lists/*
@@ -19,8 +25,10 @@ COPY packages/server/package.json packages/server/
 RUN npm ci --omit=dev --workspace @vihko/server --include-workspace-root=false \
  && npm cache clean --force
 
-FROM node:26-trixie-slim AS web
-# The UI is built here; only the static files reach the final image.
+FROM --platform=$BUILDPLATFORM node:26-trixie-slim AS web
+# The UI is built here; only the static files reach the final image. They are
+# the same for every architecture, so this stage runs natively on the build
+# machine, not emulated.
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/core/package.json packages/core/
