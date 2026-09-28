@@ -92,38 +92,65 @@ const b64 = (b: Buffer) => b.toString('base64').replace(/=+$/, '')
 export async function hashPassword(password: string): Promise<string> {
   // Every new password is hashed here: checked for length here too, whoever calls.
   tooLong(password)
-  const salt = randomBytes(16)
+  return slowHash(password, randomBytes(16))
+}
+
+/**
+ * A slow hash of `secret` with the salt given, in the form of a password's
+ * (argon2id; scrypt without Argon2 in this Node). For secrets that share one
+ * salt, as a batch of recovery codes does (twoFactor.ts): then one hash of a
+ * guess checks it against all of them.
+ */
+export async function slowHash(secret: string, salt: Buffer): Promise<string> {
   if (!argon2Async) {
-    const hash = await scryptAsync(password.normalize('NFC'), salt, KEYLEN, { N, r: R, p: P, maxmem: MAXMEM })
+    const hash = await scryptAsync(secret.normalize('NFC'), salt, KEYLEN, { N, r: R, p: P, maxmem: MAXMEM })
     return `scrypt$${N}$${R}$${P}$${salt.toString('base64')}$${hash.toString('base64')}`
   }
-  const hash = await argon2Async({ message: password.normalize('NFC'), nonce: salt, parallelism: ARGON2.p, tagLength: KEYLEN, memory: ARGON2.m, passes: ARGON2.t })
+  const hash = await argon2Async({ message: secret.normalize('NFC'), nonce: salt, parallelism: ARGON2.p, tagLength: KEYLEN, memory: ARGON2.m, passes: ARGON2.t })
   return `$argon2id$v=${ARGON2_VERSION}$m=${ARGON2.m},t=${ARGON2.t},p=${ARGON2.p}$${b64(salt)}$${b64(hash)}`
 }
 
 const ARGON2_HASH = /^\$argon2id\$v=(\d+)\$m=(\d+),t=(\d+),p=(\d+)\$([A-Za-z0-9+/]+)\$([A-Za-z0-9+/]+)$/
 
+/**
+ * The hash `secret` has with the algorithm, parameters and salt of `stored`
+ * (a hash from `hashPassword` or `slowHash`), in the same form: equal to
+ * `stored` if and only if `secret` is what it was made from. Null when
+ * `stored` isn't a hash vihko can compute (unknown, malformed, or an Argon2
+ * this Node lacks).
+ */
+export async function hashLike(secret: string, stored: string): Promise<string | null> {
+  const prefix = stored.slice(0, stored.lastIndexOf('$'))
+  const a = ARGON2_HASH.exec(stored)
+  if (a) {
+    const [, v, m, t, p, salt, hash] = a
+    if (!argon2Async || Number(v) !== ARGON2_VERSION) return null
+    const actual = await argon2Async({
+      message: secret.normalize('NFC'), nonce: Buffer.from(salt!, 'base64'), parallelism: Number(p), tagLength: Buffer.from(hash!, 'base64').length, memory: Number(m), passes: Number(t),
+    })
+    return `${prefix}$${b64(actual)}`
+  }
+  const [alg, n, r, p, salt, hash] = stored.split('$')
+  if (alg !== 'scrypt' || !salt || !hash) return null
+  const actual = await scryptAsync(secret.normalize('NFC'), Buffer.from(salt, 'base64'), Buffer.from(hash, 'base64').length, {
+    N: Number(n), r: Number(r), p: Number(p), maxmem: MAXMEM,
+  })
+  return `${prefix}$${actual.toString('base64')}`
+}
+
+/** Whether two texts are the same, compared in constant time for their length. */
+export function sameText(a: string, b: string): boolean {
+  const x = Buffer.from(a)
+  const y = Buffer.from(b)
+  return x.length === y.length && timingSafeEqual(x, y)
+}
+
 /** Whether `password` matches a stored hash of either kind. An unknown or malformed hash never matches. */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   // Longer than any password vihko accepts: refused without any work.
   if (password.length > MAX_PASSWORD) return false
-  const a = ARGON2_HASH.exec(stored)
-  if (a) {
-    const [, v, m, t, p, salt, hash] = a
-    if (!argon2Async || Number(v) !== ARGON2_VERSION) return false
-    const expected = Buffer.from(hash!, 'base64')
-    const actual = await argon2Async({
-      message: password.normalize('NFC'), nonce: Buffer.from(salt!, 'base64'), parallelism: Number(p), tagLength: expected.length, memory: Number(m), passes: Number(t),
-    })
-    return timingSafeEqual(actual, expected)
-  }
-  const [alg, n, r, p, salt, hash] = stored.split('$')
-  if (alg !== 'scrypt' || !salt || !hash) return false
-  const expected = Buffer.from(hash, 'base64')
-  const actual = await scryptAsync(password.normalize('NFC'), Buffer.from(salt, 'base64'), expected.length, {
-    N: Number(n), r: Number(r), p: Number(p), maxmem: MAXMEM,
-  })
-  return timingSafeEqual(actual, expected)
+  const actual = await hashLike(password, stored)
+  return actual !== null && sameText(actual, stored)
 }
 
 /** Whether a stored hash (already verified) should be replaced: an older algorithm or weaker parameters. */

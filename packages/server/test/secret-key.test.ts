@@ -79,12 +79,12 @@ function store() {
   return { file, state, names, tf, code, next, stored }
 }
 
-test('transitions: plaintext, encrypted at startup with a key, unreadable without it or with another, readable again with it; a reset fixes it', () => {
+test('transitions: plaintext, encrypted at startup with a key, unreadable without it or with another, readable again with it; a reset fixes it', async () => {
   const s = store()
   // No key: plaintext, as before.
   const plain = s.tf(null)
   const first = plain.beginSetup('u1', s.names.u1)
-  const recovery = plain.finishSetup('u1', s.code(first))!
+  const recovery = (await plain.finishSetup('u1', s.code(first)))!
   assert.equal(s.stored('u1'), first.secret.replace(/ /g, ''))
   assert.equal(plain.sealPlaintext(), 0, 'without a key, nothing to do')
   assert.deepEqual(plain.unreadable(), [])
@@ -96,10 +96,10 @@ test('transitions: plaintext, encrypted at startup with a key, unreadable withou
   assert.equal(keyed.sealPlaintext(), 0, 'the same key again: nothing left to encrypt')
   assert.ok(isSealed(s.stored('u1')) && !s.stored('u1').includes(first.secret.replace(/ /g, '')))
   s.next()
-  assert.equal(keyed.verify('u1', s.code(first)).ok, true)
+  assert.equal((await keyed.verify('u1', s.code(first))).ok, true)
   // A new one with the key is stored encrypted from the start, and both coexist with plaintext ones.
   const second = keyed.beginSetup('u2', s.names.u2)
-  keyed.finishSetup('u2', s.code(second))
+  await keyed.finishSetup('u2', s.code(second))
   assert.ok(isSealed(s.stored('u2')))
   assert.deepEqual(keyed.unreadable(), [])
 
@@ -109,15 +109,15 @@ test('transitions: plaintext, encrypted at startup with a key, unreadable withou
     assert.deepEqual(without.unreadable().sort(), ['u1', 'u2'])
     assert.equal(without.sealPlaintext(), 0, 'what another key encrypted is left as it is')
     s.next()
-    assert.deepEqual(without.verify('u1', s.code(first)), { ok: false, reason: 'invalid' })
+    assert.deepEqual(await without.verify('u1', s.code(first)), { ok: false, reason: 'invalid' })
     assert.equal(without.enabled('u1'), true, 'still theirs: asked for at sign-in, never skipped')
   }
-  assert.equal(s.tf(null).verify('u1', recovery[0], { recovery: true }).ok, true, 'a recovery code still works')
+  assert.equal((await s.tf(null).verify('u1', recovery[0], { recovery: true })).ok, true, 'a recovery code still works')
 
   // The right key back: everything is readable again.
   s.next()
   assert.deepEqual(s.tf(box).unreadable(), [])
-  assert.equal(s.tf(box).verify('u1', s.code(first)).ok, true)
+  assert.equal((await s.tf(box).verify('u1', s.code(first))).ok, true)
 
   // `vihko user reset-2fa` (or the admin's reset) takes an unreadable one away.
   assert.equal(s.tf(null).disable('u2'), true)

@@ -159,15 +159,15 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
    */
   const finishSetup = async (c: Context, user: User, code: unknown): Promise<{ codes: string[] } | Response> => {
     let codes = null as string[] | null
-    const refused = await attempt(c, secondFactorAccount(user.username), user.username, () => {
-      codes = twoFactor.finishSetup(user.id, code)
+    const refused = await attempt(c, secondFactorAccount(user.username), user.username, async () => {
+      codes = await twoFactor.finishSetup(user.id, code)
       return codes ? null : 'invalid_code'
     }, 400, 'the code is not right: check the time on the device')
     return refused ?? { codes: codes! }
   }
   /** A code of theirs: TOTP, or also a recovery code (spent). Null if right; the error code otherwise. */
-  const checkCode = (userId: string, code: unknown, recovery: boolean): string | null => {
-    const r = twoFactor.verify(userId, code, { recovery })
+  const checkCode = async (userId: string, code: unknown, recovery: boolean): Promise<string | null> => {
+    const r = await twoFactor.verify(userId, code, { recovery })
     return r.ok ? null : r.reason === 'used' ? 'code_used' : 'invalid_code'
   }
 
@@ -217,8 +217,8 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
         if (!user) return expired(c)
         /** With a recovery code: how many are left, for the page to say so. */
         const recovery: { left?: number } = {}
-        const refused = await attempt(c, secondFactorAccount(user.username), user.username, () => {
-          const r = twoFactor.verify(user.id, b.code, { recovery: true })
+        const refused = await attempt(c, secondFactorAccount(user.username), user.username, async () => {
+          const r = await twoFactor.verify(user.id, b.code, { recovery: true })
           if (r.ok && r.recovery) recovery.left = r.recoveryCodesLeft
           return r.ok ? null : r.reason === 'used' ? 'code_used' : 'invalid_code'
         }, 401)
@@ -290,7 +290,7 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
           ? await attempt(c, secondFactorAccount(u.username), u.username, () => checkCode(u.id, confirm, false), 403)
           : await attempt(c, u.username, u.username, async () => (typeof confirm === 'string' && (await auth.checkPassword(u.id, confirm)) ? null : 'wrong_password'), 403)
         if (refused) return refused
-        return c.json({ recoveryCodes: twoFactor.regenerate(u.id) })
+        return c.json({ recoveryCodes: await twoFactor.regenerate(u.id) })
       })
 
       app.post('/api/account/2fa/disable', async (c) => {

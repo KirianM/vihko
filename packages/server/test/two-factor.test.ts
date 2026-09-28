@@ -67,62 +67,104 @@ test('setting it up: nothing is theirs until a code from the new secret is verif
   assert.equal(s.uri, `otpauth://totp/vihko:${encodeURIComponent(name)}%40${host}?secret=${s.secret.replace(/ /g, '')}&issuer=vihko&algorithm=SHA1&digits=6&period=30`)
   assert.ok(s.qr && s.qr.size >= 21)
   assert.equal(tf.enabled('u1'), false)
-  assert.equal(tf.finishSetup('u1', '000000'), null, 'a wrong code')
-  assert.equal(tf.finishSetup('u1', code(s, 2)), null, 'two steps ahead: outside the window')
+  assert.equal(await tf.finishSetup('u1', '000000'), null, 'a wrong code')
+  assert.equal(await tf.finishSetup('u1', code(s, 2)), null, 'two steps ahead: outside the window')
   assert.equal(tf.enabled('u1'), false)
-  const codes = tf.finishSetup('u1', code(s))
+  const codes = await tf.finishSetup('u1', code(s))
   assert.ok(codes)
   assert.equal(codes.length, 10)
   assert.ok(codes.every((c) => /^[a-z2-9]{5}-[a-z2-9]{5}$/.test(c)))
   assert.deepEqual(tf.status('u1'), { enabled: true, enabledAt: new Date(clock.t).toISOString(), recoveryCodesLeft: 10 })
-  assert.deepEqual(tf.verify('u1', code(s)), { ok: false, reason: 'used' }, 'the code that set it up is spent')
+  assert.deepEqual(await tf.verify('u1', code(s)), { ok: false, reason: 'used' }, 'the code that set it up is spent')
   advance(1)
-  assert.equal(tf.verify('u1', code(s)).ok, true)
+  assert.equal((await tf.verify('u1', code(s))).ok, true)
 
   // A new setup replaces nothing until verified, and one that waits too long is forgotten.
   const again = tf.beginSetup('u1', name)
   clock.t += 15 * 60_000
-  assert.equal(tf.finishSetup('u1', code(again)), null)
-  assert.equal(tf.verify('u1', code(s)).ok, true, 'the old secret is still theirs')
+  assert.equal(await tf.finishSetup('u1', code(again)), null)
+  assert.equal((await tf.verify('u1', code(s))).ok, true, 'the old secret is still theirs')
 })
 
 test('TOTP: one step either side is accepted, two are not; a code, or an earlier one, never works twice', async () => {
   const { tf, code, advance, name } = await store()
   const s = tf.beginSetup('u1', name)
-  tf.finishSetup('u1', code(s))
+  await tf.finishSetup('u1', code(s))
   advance(10)
-  assert.deepEqual(tf.verify('u1', code(s, -2)), { ok: false, reason: 'invalid' })
-  assert.deepEqual(tf.verify('u1', code(s, 2)), { ok: false, reason: 'invalid' })
-  assert.equal(tf.verify('u1', code(s, -1)).ok, true, 'the previous step: a clock a little behind')
-  assert.equal(tf.verify('u1', code(s, 1)).ok, true, 'the next step: a clock a little ahead')
-  assert.deepEqual(tf.verify('u1', code(s)), { ok: false, reason: 'used' }, 'now is earlier than the step already accepted')
-  assert.deepEqual(tf.verify('u1', code(s, 1)), { ok: false, reason: 'used' }, 'the same code again')
+  assert.deepEqual(await tf.verify('u1', code(s, -2)), { ok: false, reason: 'invalid' })
+  assert.deepEqual(await tf.verify('u1', code(s, 2)), { ok: false, reason: 'invalid' })
+  assert.equal((await tf.verify('u1', code(s, -1))).ok, true, 'the previous step: a clock a little behind')
+  assert.equal((await tf.verify('u1', code(s, 1))).ok, true, 'the next step: a clock a little ahead')
+  assert.deepEqual(await tf.verify('u1', code(s)), { ok: false, reason: 'used' }, 'now is earlier than the step already accepted')
+  assert.deepEqual(await tf.verify('u1', code(s, 1)), { ok: false, reason: 'used' }, 'the same code again')
   advance(2)
-  assert.equal(tf.verify('u1', code(s)).ok, true)
-  assert.deepEqual(tf.verify('u1', ` ${code(s).slice(0, 3)} ${code(s).slice(3)} `), { ok: false, reason: 'used' }, 'spaces are ignored')
-  for (const junk of ['', '12345', '1234567', 'abcdef', null, 123456]) assert.deepEqual(tf.verify('u1', junk), { ok: false, reason: 'invalid' })
+  assert.equal((await tf.verify('u1', code(s))).ok, true)
+  assert.deepEqual(await tf.verify('u1', ` ${code(s).slice(0, 3)} ${code(s).slice(3)} `), { ok: false, reason: 'used' }, 'spaces are ignored')
+  for (const junk of ['', '12345', '1234567', 'abcdef', null, 123456]) assert.deepEqual(await tf.verify('u1', junk), { ok: false, reason: 'invalid' })
 })
 
 test('recovery codes: ten, single use, stored only as a hash, and new ones end the old ones', async () => {
   const { tf, state, code, name } = await store()
   const s = tf.beginSetup('u1', name)
-  const codes = tf.finishSetup('u1', code(s))!
+  const codes = (await tf.finishSetup('u1', code(s)))!
   const stored = state.prepare('select code_hash from recovery_codes').all() as { code_hash: string }[]
   assert.equal(stored.length, 10)
+  assert.equal(new Set(codes).size, 10, 'ten different ones')
   const dump = JSON.stringify(state.prepare('select * from recovery_codes').all())
   for (const c of codes) assert.ok(!dump.includes(c) && !dump.includes(c.replace('-', '')), 'never in the clear')
-  assert.deepEqual(tf.verify('u1', codes[0]), { ok: false, reason: 'invalid' }, 'not where a TOTP code is asked for')
-  assert.deepEqual(tf.verify('u1', codes[0], { recovery: true }), { ok: true, recovery: true, recoveryCodesLeft: 9 })
-  assert.deepEqual(tf.verify('u1', codes[0], { recovery: true }), { ok: false, reason: 'invalid' }, 'once')
-  assert.equal(tf.verify('u1', ` ${codes[1]!.toUpperCase().replace('-', ' ')} `, { recovery: true }).ok, true, 'any case, with or without its dash')
-  const fresh = tf.regenerate('u1')!
+  assert.deepEqual(await tf.verify('u1', codes[0]), { ok: false, reason: 'invalid' }, 'not where a TOTP code is asked for')
+  assert.deepEqual(await tf.verify('u1', codes[0], { recovery: true }), { ok: true, recovery: true, recoveryCodesLeft: 9 })
+  assert.deepEqual(await tf.verify('u1', codes[0], { recovery: true }), { ok: false, reason: 'invalid' }, 'once')
+  assert.equal((await tf.verify('u1', ` ${codes[1]!.toUpperCase().replace('-', ' ')} `, { recovery: true })).ok, true, 'any case, with or without its dash')
+  const fresh = (await tf.regenerate('u1'))!
   assert.equal(tf.status('u1').recoveryCodesLeft, 10)
-  assert.deepEqual(tf.verify('u1', codes[2], { recovery: true }), { ok: false, reason: 'invalid' }, 'the old ones no longer work')
-  assert.equal(tf.verify('u1', fresh[2], { recovery: true }).ok, true)
+  assert.deepEqual(await tf.verify('u1', codes[2], { recovery: true }), { ok: false, reason: 'invalid' }, 'the old ones no longer work')
+  assert.equal((await tf.verify('u1', fresh[2], { recovery: true })).ok, true)
   assert.equal(tf.disable('u1'), true)
   assert.deepEqual(tf.status('u1'), { enabled: false, enabledAt: null, recoveryCodesLeft: 0 })
   assert.equal((state.prepare('select count(*) n from recovery_codes').get() as { n: number }).n, 0)
-  assert.equal(tf.regenerate('u1'), null)
+  assert.equal(await tf.regenerate('u1'), null)
+})
+
+/** A stored recovery code's hash as parts: algorithm and parameters, salt, hash (auth.ts's PHC-like form). */
+const hashParts = (h: string) => {
+  const parts = h.split('$')
+  return { salted: parts.slice(0, -1).join('$'), salt: parts.at(-2)!, hash: parts.at(-1)! }
+}
+
+test('recovery codes: a slow hash, with one salt for each batch and a new salt for the next (D-046.4)', async () => {
+  const { tf, state, code, name } = await store()
+  const s = tf.beginSetup('u1', name)
+  const codes = (await tf.finishSetup('u1', code(s)))!
+  const stored = () => (state.prepare('select code_hash from recovery_codes where user_id = ?').all('u1') as { code_hash: string }[]).map((r) => r.code_hash)
+  const first = stored()
+  // The password's algorithm: argon2id (scrypt only in a Node without it), never a plain sha256.
+  for (const h of first) assert.match(h, /^(\$argon2id\$v=19\$m=\d+,t=\d+,p=\d+|scrypt\$\d+\$\d+\$\d+)\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+$/)
+  assert.equal(new Set(first.map((h) => hashParts(h).salted)).size, 1, 'one salt (and parameters) for the batch')
+  assert.equal(new Set(first.map((h) => hashParts(h).hash)).size, 10, 'each code its own hash')
+  assert.equal(Buffer.from(hashParts(first[0]!).salt, 'base64').length, 16, 'a salt of 128 bits')
+  // A salt that isn't the user's id: two people with the same code would store different hashes, and a batch's salt changes.
+  await tf.regenerate('u1')
+  const second = stored()
+  assert.notEqual(hashParts(second[0]!).salt, hashParts(first[0]!).salt, 'a new batch, a new salt')
+  assert.equal((await tf.verify('u1', codes[0], { recovery: true })).ok, false)
+})
+
+test('recovery codes kept as a sha256 (before D-046.4) still work, each once, until new ones replace them', async () => {
+  const { tf, state, code, name } = await store()
+  const s = tf.beginSetup('u1', name)
+  await tf.finishSetup('u1', code(s))
+  // Codes as an earlier vihko stored them: a sha256 of the user's id and the code, in hex.
+  const old = Array.from({ length: 3 }, () => m.faker.string.fromCharacters('abcdefghjkmnpqrstvwxyz23456789', 10))
+  state.prepare('delete from recovery_codes').run()
+  for (const c of old) state.prepare('insert into recovery_codes (user_id, code_hash) values (?, ?)').run('u1', createHash('sha256').update(`u1\n${c}`).digest('hex'))
+  assert.deepEqual(await tf.verify('u1', `${old[0]!.slice(0, 5)}-${old[0]!.slice(5)}`, { recovery: true }), { ok: true, recovery: true, recoveryCodesLeft: 2 })
+  assert.deepEqual(await tf.verify('u1', old[0], { recovery: true }), { ok: false, reason: 'invalid' }, 'once')
+  assert.equal((await tf.verify('u1', old[1], { recovery: true })).ok, true)
+  // New ones are slow hashes, and the old ones stop working.
+  const fresh = (await tf.regenerate('u1'))!
+  assert.equal((await tf.verify('u1', old[2], { recovery: true })).ok, false)
+  assert.equal((await tf.verify('u1', fresh[0], { recovery: true })).ok, true)
 })
 
 test('the QR code: standard sizes, and the same modules as a code checked with a real decoder', () => {

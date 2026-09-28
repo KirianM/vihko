@@ -374,6 +374,11 @@ volume. How to set it, and what happens if it's lost or changed (vihko starts,
 alerts the admins, and those people use a recovery code or get their second
 factor reset), is in [Install](install.md).
 
+Recovery codes need no key: vihko keeps them as passwords are kept, only as a
+slow hash, so a copy of `state.db` doesn't give them away either. (Codes made
+by an earlier version were kept with a faster hash; they keep working, and
+making new ones replaces them.)
+
 ### Confirming at the moment
 
 Some actions ask you to prove it's you even though you're signed in: the
