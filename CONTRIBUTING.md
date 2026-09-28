@@ -120,12 +120,13 @@ those locally) and when started by hand.
 npm run ci                        # the last commit of this checkout
 npm run ci -- --pr 72             # pull request 72 merged onto its base, as GitHub tests it
 npm run ci -- --pr 72 --post      # …and pending, then success or failure, as ci/local on its head commit
+npm run ci -- --pr 72 --trust     # a pull request whose author has no write access (read it first)
 npm run ci -- --ref origin/main   # a commit (after git fetch, the latest main)
 npm run ci -- --jobs check,e2e    # some jobs only
 npm run ci -- --jobs e2e --grep 'two-factor\.spec'   # only the tests matching a pattern
 npm run ci -- --parallel          # the jobs at the same time (faster, see below)
 npm run ci -- --keep              # keep the run's folder to debug
-npm run ci -- --clean             # remove the folders and logs of earlier runs
+npm run ci -- --clean             # remove the folders and logs of earlier runs (not the npm cache)
 ```
 
 - **check**: `npm ci`, typecheck, build, `npm test`.
@@ -136,6 +137,24 @@ npm run ci -- --clean             # remove the folders and logs of earlier runs
 - **e2e**: `npm run e2e` and `npm run acceptance:ui` of `@vihko/web`, with the
   servers on the host and the browser in the Playwright image of the installed
   `@playwright/test` (`--network host`).
+
+A pull request's code (its tests, npm scripts and Dockerfile) runs on the
+machine as whoever runs the CI. So `--pr` first asks GitHub, through `gh`,
+whether the pull request's author has write access to the repository (admin,
+maintain or write: someone who could push that code anyway); if not, or if
+GitHub can't say (an app such as Dependabot, an error), the run is refused
+before anything is fetched, saying why. `--trust` runs it anyway: use it only
+after reading the changes. Then, for every target, the code under test gets a
+minimal environment: the locale, `TZ`, `DOCKER_HOST`, proxy and CA variables,
+and nothing else of yours (no `GH_TOKEN` or `GITHUB_TOKEN`, no SSH agent, no
+`XDG_RUNTIME_DIR`), with a home folder of its own in the run's folder, so your
+`gh`, SSH, npm and Docker credentials are not found by default. npm's cache is
+one shared by the runs (`npm-cache` in `VIHKO_CI_DIR`, kept by `--clean`).
+Fetching the pull request and `--post` use your credentials, in the script's
+own process, never in the code under test. The Playwright container gets only
+the run's folder and the variables it needs. This is not a sandbox: the code
+still runs as your user and can use Docker, so the author check is what
+protects you.
 
 To run again only what failed, a failed run prints the command: the same
 target, the failed jobs and, for browser tests, `--grep` with their spec
@@ -155,7 +174,7 @@ to look at, in the test or in vihko, not noise.
 Each run works in its own folder on local disk (`/var/tmp/vihko-ci/<run>`, or
 `VIHKO_CI_DIR`; never NFS, and not a tmpfs `/tmp`): a git worktree of the
 commit (with `--pr`, the pull request's head merged onto its base, fetched
-first; a conflict fails the run), its own `TMPDIR` and test data. It never
+first; a conflict fails the run), its own `TMPDIR`, home folder and test data. It never
 writes into your checkout. It picks free ports of its own, and names its
 containers and image after itself, so runs, agents and other services on the
 machine don't collide. The dependencies are installed and the UI built once,

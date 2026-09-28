@@ -5,6 +5,7 @@
 //
 //   npm run ci                       the last commit of this checkout
 //   npm run ci -- --pr 72            pull request 72 merged onto its base, as GitHub tests it
+//   npm run ci -- --pr 72 --trust    …even though its author has no write access (read it first)
 //   npm run ci -- --ref origin/main  a commit (fetch first to test the latest main)
 //   npm run ci -- --jobs check,e2e   some jobs only
 //   npm run ci -- --jobs e2e --grep 'two-factor\.spec'
@@ -38,6 +39,14 @@
 // run (test/seed.ts): VIHKO_TEST_SEED, or a new one. Every job gets the same,
 // the Playwright container included; the run prints it, and the summary and
 // a failure give it with the command that runs again with the same data.
+//
+// The code under test is not trusted with this process's credentials
+// (scripts/ci-guard.ts). A pull request runs only if its author has write
+// access to the repository, which GitHub is asked, or with --trust. Every job
+// (and the setup's `npm ci`, which runs install scripts) gets a minimal
+// environment: no GH_TOKEN or SSH agent, a home folder of its own in the run's
+// folder, a shared npm cache in VIHKO_CI_DIR. What needs credentials, fetching
+// the pull request and posting the status, is done here, never by that code.
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs'
@@ -46,14 +55,18 @@ import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { SEED_VARIABLE, testSeed } from '../test/seed.ts'
+import { type Answer, jobEnvironment, permissionPath, pullRequestVerdict } from './ci-guard.ts'
 
 const JOBS = ['check', 'acceptance', 'docker', 'e2e'] as const
 type Job = (typeof JOBS)[number]
 type Stage = 'setup' | Job
 /** Minutes: the workflow's timeout-minutes. Setup is the `npm ci` and build every job there starts with. */
 const LIMIT: Record<Stage, number> = { setup: 15, check: 20, acceptance: 30, docker: 30, e2e: 45 }
-const USAGE = `Usage: npm run ci -- [--pr N | --ref COMMIT] [--jobs ${JOBS.join(',')}] [--grep PATTERN] [--keep] [--post] [--parallel] | --clean`
-const HELP = `  --pr N          pull request N merged onto its base, as GitHub tests it
+const USAGE = `Usage: npm run ci -- [--pr N [--trust] | --ref COMMIT] [--jobs ${JOBS.join(',')}] [--grep PATTERN] [--keep] [--post] [--parallel] | --clean`
+const HELP = `  --pr N          pull request N merged onto its base, as GitHub tests it; only if its
+                  author has write access to the repository (GitHub is asked)
+  --trust         with --pr: run it even though its author has no write access. Its
+                  code runs on this machine as you: read its changes first
   --ref COMMIT    a commit (fetch first to test the latest main); by default, this checkout's HEAD
   --jobs LIST     some jobs only, e.g. e2e or check,e2e
   --grep PATTERN  only the tests matching this regular expression: Playwright matches the
@@ -72,11 +85,14 @@ const BASE = process.env.VIHKO_CI_DIR ?? '/var/tmp/vihko-ci'
 /** Logs of finished runs are kept this long. */
 const LOG_DAYS = 7
 
-let opt: { pr?: string; ref?: string; jobs?: string; grep?: string; keep?: boolean; post?: boolean; parallel?: boolean; clean?: boolean; help?: boolean }
+/** npm's cache for the jobs, shared by every run: not the one in your home folder, which the jobs don't get. */
+const NPM_CACHE = 'npm-cache'
+
+let opt: { pr?: string; trust?: boolean; ref?: string; jobs?: string; grep?: string; keep?: boolean; post?: boolean; parallel?: boolean; clean?: boolean; help?: boolean }
 try {
   opt = parseArgs({
     options: {
-      pr: { type: 'string' }, ref: { type: 'string' }, jobs: { type: 'string' }, grep: { type: 'string' }, keep: { type: 'boolean' }, post: { type: 'boolean' },
+      pr: { type: 'string' }, trust: { type: 'boolean' }, ref: { type: 'string' }, jobs: { type: 'string' }, grep: { type: 'string' }, keep: { type: 'boolean' }, post: { type: 'boolean' },
       parallel: { type: 'boolean' }, clean: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
     },
   }).values
@@ -93,6 +109,7 @@ const unknown = selected.filter((j) => !(JOBS as readonly string[]).includes(j))
 if (unknown.length || selected.length === 0) usage(`unknown jobs: ${unknown.join(', ') || '(none)'}`)
 if (opt.pr !== undefined && !/^\d+$/.test(opt.pr)) usage('--pr takes a pull request number')
 if (opt.pr !== undefined && opt.ref !== undefined) usage('--pr or --ref, not both')
+if (opt.trust && opt.pr === undefined) usage('--trust goes with --pr (the author of a pull request)')
 if (opt.grep !== undefined) {
   try { new RegExp(opt.grep) } catch (err) { usage(`--grep: ${(err as Error).message}`) }
   if (opt.grep === '') usage('--grep takes a pattern')
@@ -149,7 +166,7 @@ const shell = (s: string) => (/^[\w.,/:=@%+-]+$/.test(s) ? s : `'${s.replace(/'/
  */
 function rerun(failed: Result[]): string | null {
   if (!failed.length || failed.some((r) => r.stage === 'setup')) return null
-  const args = [...(opt.pr ? ['--pr', opt.pr] : opt.ref ? ['--ref', opt.ref] : []), '--jobs', failed.map((r) => r.stage).join(',')]
+  const args = [...(opt.pr ? ['--pr', opt.pr, ...(opt.trust ? ['--trust'] : [])] : opt.ref ? ['--ref', opt.ref] : []), '--jobs', failed.map((r) => r.stage).join(',')]
   const e2e = failed.find((r) => r.stage === 'e2e')
   const files = e2e ? [...new Set(playwrightSummary(e2e.log).failed.map((t) => /([^/\s]+\.spec\.ts):\d+/.exec(t)?.[1]).filter((f): f is string => !!f))] : []
   // A pattern only when the browser tests are all that failed: it would filter the others' tests too.
@@ -205,6 +222,9 @@ const clock = (ms: number) => {
 const time = () => new Date().toTimeString().slice(0, 8)
 
 async function main(): Promise<number> {
+  // Before anything is written or fetched: a pull request whose code may not run here stops the run.
+  const admitted = opt.pr ? admit(opt.pr) : null
+  if (opt.pr && !admitted) return 2
   await tidy(false)
   mkdirSync(RUN, { recursive: true })
   writeFileSync(join(RUN, 'run.json'), JSON.stringify({ id: ID, pid: process.pid, keep: opt.keep === true }) + '\n')
@@ -217,6 +237,7 @@ async function main(): Promise<number> {
     e2e: { E2E_PORT: e2e!, E2E_LOCKED_PORT: locked!, E2E_EXTERNAL_PORT: external!, ACC_PORT: acc! },
   }
   say(`vihko CI · ${ID}`)
+  if (admitted) say(`  pr      ${admitted.why}`)
   say(`  folder  ${RUN}`)
   say(`  jobs    ${jobs.join(', ')} (${parallel ? 'in parallel' : 'one after another'})`)
   if (opt.grep !== undefined) say(`  grep    ${opt.grep} (only the tests it matches)`)
@@ -226,11 +247,11 @@ async function main(): Promise<number> {
 
   const t0 = Date.now()
   const results: Result[] = []
-  const notes: string[] = []
+  const notes: string[] = opt.trust && admitted ? [`note: ${admitted.why}`] : []
   const s: { target: Target | null; posted: boolean } = { target: null, posted: false }
   try {
     const setup = await stage('setup', {}, async (c) => {
-      const target = await resolve(c, notes)
+      const target = await resolve(c, notes, admitted?.pr)
       s.target = target
       note(c, `testing ${target.what}`)
       if (opt.post) {
@@ -290,20 +311,42 @@ async function main(): Promise<number> {
 // What to test
 
 interface Target { what: string; sha: string; merge?: { number: number; base: string; baseName: string } }
+interface PullRequest { number: number; title: string; headRefOid: string; baseRefName: string; state: string; author: { login: string } }
+
+/**
+ * The pull request, if its code may run here: its author has write access
+ * (GitHub is asked), or --trust (scripts/ci-guard.ts). Null, having said
+ * why, if not.
+ */
+function admit(number: string): { pr: PullRequest; why: string } | null {
+  const view = capture('gh', ['pr', 'view', number, '--json', 'number,title,headRefOid,baseRefName,state,author'])
+  if (!view.ok) {
+    say(`gh pr view ${number}: ${view.err || 'failed'}`)
+    return null
+  }
+  const pr = JSON.parse(view.out) as PullRequest
+  const path = permissionPath(pr.author.login)
+  const answer: Answer | null = path ? capture('gh', ['api', path]) : null
+  const verdict = pullRequestVerdict(pr.number, pr.author.login, answer, opt.trust === true)
+  if (!verdict.run) {
+    say(verdict.why)
+    return null
+  }
+  return { pr, why: verdict.why }
+}
 
 /** The commit the status goes on, and what the run tests, told in words. */
-async function resolve(c: Ctx, notes: string[]): Promise<Target> {
-  if (!opt.pr) {
+async function resolve(c: Ctx, notes: string[], pr: PullRequest | undefined): Promise<Target> {
+  if (!pr) {
     const rev = opt.ref ?? 'HEAD'
     const sha = must(git(['rev-parse', '--verify', '--end-of-options', `${rev}^{commit}`]), `git rev-parse ${rev}`)
     if (!opt.ref && git(['status', '--porcelain', '--untracked-files=no']).out) notes.push('note: this checkout has uncommitted changes; the run tested its last commit, without them')
     return { what: `${rev} ${sha.slice(0, 7)}${opt.ref ? '' : ` of ${REPO}`}`, sha }
   }
-  const pr = JSON.parse(must(capture('gh', ['pr', 'view', opt.pr, '--json', 'number,title,headRefOid,baseRefName,state']), `gh pr view ${opt.pr}`)) as
-    { number: number; title: string; headRefOid: string; baseRefName: string; state: string }
   if (pr.state !== 'OPEN') notes.push(`note: #${pr.number} is ${pr.state.toLowerCase()}`)
+  // With this process's environment: fetching may need your credentials (the jobs never get them).
   await run(c, 'git', [...SAFE, 'fetch', '--no-tags', 'origin', `+refs/pull/${pr.number}/head:refs/vihko-ci/${ID}`, `+refs/heads/${pr.baseRefName}:refs/remotes/origin/${pr.baseRefName}`],
-    { cwd: REPO, limitMs: 5 * 60_000, label: 'git fetch' })
+    { cwd: REPO, limitMs: 5 * 60_000, label: 'git fetch', trusted: true })
   const head = must(git(['rev-parse', `refs/vihko-ci/${ID}`]), 'git rev-parse')
   if (head !== pr.headRefOid) notes.push(`note: #${pr.number} moved while the run started; it tested ${head.slice(0, 7)}`)
   const base = must(git(['rev-parse', `refs/remotes/origin/${pr.baseRefName}`]), 'git rev-parse')
@@ -317,11 +360,12 @@ async function resolve(c: Ctx, notes: string[]): Promise<Target> {
 /** The worktree on local disk: the commit, or the pull request merged onto its base as GitHub does. */
 async function checkout(c: Ctx, t: Target) {
   const m = t.merge
-  await run(c, 'git', [...SAFE, 'worktree', 'add', '--detach', TREE, m ? m.base : t.sha], { cwd: REPO, label: 'git worktree add' })
+  // Git with this process's environment, as `git` of your checkout: its configuration and hooks are yours, never the commit's.
+  await run(c, 'git', [...SAFE, 'worktree', 'add', '--detach', TREE, m ? m.base : t.sha], { cwd: REPO, label: 'git worktree add', trusted: true })
   if (!m) return
   try {
     await run(c, 'git', [...SAFE, '-c', 'user.name=vihko CI', '-c', 'user.email=ci@localhost', 'merge', '--no-ff', '--no-edit', '-m', `Merge #${m.number} into ${m.baseName}`, t.sha],
-      { cwd: TREE, label: 'git merge' })
+      { cwd: TREE, label: 'git merge', trusted: true })
   } catch (err) {
     if (abort.signal.aborted) throw err
     const conflicts = git(['diff', '--name-only', '--diff-filter=U'], TREE).out.split('\n').filter(Boolean)
@@ -484,25 +528,31 @@ const skipped = (stage: Job): Result => {
 const line = (r: Result) => `  ${r.stage.padEnd(11)}${r.status.padEnd(10)}${r.status === 'SKIPPED' ? '' : clock(r.ms).padStart(7)}${r.why && r.status === 'FAILED' ? `  ${r.why.split('\n')[0]}` : ''}${r.info ? `  (${r.info})` : ''}`
 
 /**
- * The environment of a stage: this one without what could steer the tests
- * (their ports and folders, npm's own variables), Node first in PATH, CI set
- * as on GitHub, its own TMPDIR and the run's ports.
+ * The environment of a stage, for the code under test: only the few
+ * variables of this one it needs (scripts/ci-guard.ts: no tokens, no SSH
+ * agent, nothing that steers the tests), Node first in PATH, a home folder
+ * and TMPDIR of its own, the shared npm cache, CI set as on GitHub, the
+ * run's seed and ports.
  */
 function environment(stage: Stage, ports: Record<string, number>): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {}
-  for (const [k, v] of Object.entries(process.env)) if (!/^(npm_|E2E_|ACC_|ACCEPTANCE_|VIHKO_|INIT_CWD$)/.test(k)) env[k] = v
   const tmp = join(RUN, 'tmp', stage)
-  mkdirSync(tmp, { recursive: true })
-  const own: Record<string, string> = { PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ''}`, TMPDIR: tmp, TMP: tmp, TEMP: tmp, CI: 'true', [SEED_VARIABLE]: String(SEED) }
+  const home = join(RUN, 'home', stage)
+  const cache = join(BASE, NPM_CACHE)
+  for (const dir of [tmp, home, cache]) mkdirSync(dir, { recursive: true })
+  const own: Record<string, string> = {
+    PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ''}`, HOME: home, TMPDIR: tmp, TMP: tmp, TEMP: tmp,
+    npm_config_cache: cache, CI: 'true', [SEED_VARIABLE]: String(SEED),
+  }
   for (const [k, v] of Object.entries(ports)) own[k] = String(v)
-  return { ...env, ...own }
+  return jobEnvironment(process.env, own)
 }
 
 function note(c: Ctx, text: string) {
   writeSync(c.fd, text.endsWith('\n') ? text : text + '\n')
 }
 
-interface RunOpts { cwd?: string; env?: Record<string, string>; limitMs?: number; label?: string }
+/** `trusted`: a command of this script's own (git), with this process's environment instead of the stage's. */
+interface RunOpts { cwd?: string; env?: Record<string, string>; limitMs?: number; label?: string; trusted?: boolean }
 
 /** Runs a command to its end, with its output in the stage's log and within the stage's time. */
 async function run(c: Ctx, cmd: string, args: string[], o: RunOpts = {}): Promise<void> {
@@ -539,7 +589,7 @@ function firstFailingTest(log: string): string | null {
 /** Starts a command in a process group of its own (so it can be stopped whole), its output into the stage's log. */
 function launch(c: Ctx, cmd: string, args: string[], o: RunOpts, suffix = ''): ChildProcess {
   note(c, `\n[${time()}] $ ${[cmd === process.execPath ? 'node' : cmd, ...args].join(' ')} ${suffix}`.trimEnd())
-  const child = spawn(cmd, args, { cwd: o.cwd ?? TREE, env: { ...c.env, ...o.env }, stdio: ['ignore', c.fd, c.fd], detached: true })
+  const child = spawn(cmd, args, { cwd: o.cwd ?? TREE, env: { ...(o.trusted ? process.env : c.env), ...o.env }, stdio: ['ignore', c.fd, c.fd], detached: true })
   child.on('error', (err) => note(c, `${cmd}: ${err.message}`))
   c.procs.add(child)
   return child
@@ -724,18 +774,20 @@ async function cleanup(id: string, dir: string, keep: boolean): Promise<string[]
     done.push('worktree removed')
   }
   capture('git', ['worktree', 'prune'])
-  for (const sub of ['tmp', 'data', 'run.json']) rmSync(join(dir, sub), { recursive: true, force: true, maxRetries: 3 })
+  for (const sub of ['tmp', 'home', 'data', 'run.json']) rmSync(join(dir, sub), { recursive: true, force: true, maxRetries: 3 })
   return done
 }
 
 /**
  * Earlier runs: one whose process is gone but whose folder is still there (it
  * was killed outright) is cleaned up; logs older than LOG_DAYS are removed.
- * `all` (--clean) also removes the folders kept with --keep.
+ * `all` (--clean) also removes the folders kept with --keep. The npm cache
+ * shared by the runs stays.
  */
 async function tidy(all: boolean) {
   if (!existsSync(BASE)) return
   for (const name of readdirSync(BASE)) {
+    if (name === NPM_CACHE) continue
     const dir = join(BASE, name)
     let info: { pid: number; keep: boolean } | null = null
     try { info = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')) } catch {}
@@ -743,7 +795,7 @@ async function tidy(all: boolean) {
     try { age = Date.now() - statSync(dir).mtimeMs } catch { continue }
     if (info && running(info.pid)) continue
     if (!info && existsSync(join(dir, 'repo')) && age < 3_600_000) continue // just starting, or written by hand
-    if (existsSync(join(dir, 'repo')) || existsSync(join(dir, 'tmp')) || existsSync(join(dir, 'data'))) {
+    if (['repo', 'tmp', 'home', 'data'].some((sub) => existsSync(join(dir, sub)))) {
       if (info?.keep && !all) continue
       const done = await cleanup(name, dir, false)
       say(`${info?.keep ? 'kept' : 'left behind'}: ${dir} (${done.join('; ') || 'removed'})`)
