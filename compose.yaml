@@ -17,8 +17,9 @@ services:
       # VIHKO_HOST_PORT=8098 docker compose up -d (or put it in a .env file).
       # Don't expose it to the Internet without HTTPS in front (a reverse proxy).
       - "${VIHKO_HOST_PORT:-8080}:8080"
-      # Behind a reverse proxy on this host, only the proxy needs to reach it:
-      # this line instead of the one above.
+      # Only with a reverse proxy on THIS machine: this line instead of the one
+      # above, so that only the proxy reaches vihko. A proxy on another machine
+      # needs the line above. See guide/reverse-proxy.md.
       # - "127.0.0.1:${VIHKO_HOST_PORT:-8080}:8080"
     volumes:
       # Notes: any Markdown folder (local disk or NFS).
@@ -35,4 +36,6 @@ services:
     #   VIHKO_PUBLIC_URL: https://notes.example.com
     #   # The reverse proxy's address as vihko sees it, so the login limits
     #   # count each client apart (X-Forwarded-For is believed only from it).
+    #   # A proxy on this machine or in this file: 172.16.0.0/12. On another
+    #   # machine: its address alone (such as 10.0.0.50), never a range.
     #   VIHKO_TRUSTED_PROXIES: 172.16.0.0/12

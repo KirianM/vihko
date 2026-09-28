@@ -418,6 +418,12 @@ Run `vihko user reset-2fa <name>` ([above](#reset-a-second-factor)), or ask an
 admin to remove it in «Users and groups». The person signs in with their
 password and sets up a new second factor.
 
+### The proxy answers 502 Bad Gateway
+
+The reverse proxy can't connect to vihko. The usual cause: vihko's port is
+bound to `127.0.0.1` while the proxy runs on another machine. See
+[The proxy can't reach vihko](reverse-proxy.md#the-proxy-cant-reach-vihko-502-bad-gateway).
+
 ### Signing in fails with 403 behind a proxy
 
 The proxy doesn't keep the `Host` header. See

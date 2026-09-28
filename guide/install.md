@@ -82,8 +82,9 @@ services:
       # VIHKO_HOST_PORT=8098 docker compose up -d (or put it in a .env file).
       # Don't expose it to the Internet without HTTPS in front (a reverse proxy).
       - "${VIHKO_HOST_PORT:-8080}:8080"
-      # Behind a reverse proxy on this host, only the proxy needs to reach it:
-      # this line instead of the one above.
+      # Only with a reverse proxy on THIS machine: this line instead of the one
+      # above, so that only the proxy reaches vihko. A proxy on another machine
+      # needs the line above. See guide/reverse-proxy.md.
       # - "127.0.0.1:${VIHKO_HOST_PORT:-8080}:8080"
     volumes:
       # Notes: any Markdown folder (local disk or NFS).
@@ -100,6 +101,8 @@ services:
     #   VIHKO_PUBLIC_URL: https://notes.example.com
     #   # The reverse proxy's address as vihko sees it, so the login limits
     #   # count each client apart (X-Forwarded-For is believed only from it).
+    #   # A proxy on this machine or in this file: 172.16.0.0/12. On another
+    #   # machine: its address alone (such as 10.0.0.50), never a range.
     #   VIHKO_TRUSTED_PROXIES: 172.16.0.0/12
 ```
 
@@ -147,8 +150,10 @@ docker compose up -d
 
 vihko speaks plain HTTP. That's fine on a network you trust. **Never publish
 the port to the Internet without HTTPS in front**: put a reverse proxy before
-it and bind the port to `127.0.0.1` (the commented line). See
-[Reverse proxy](reverse-proxy.md).
+it. The commented `127.0.0.1` line is only for a proxy **on the same
+machine**: with it, nothing else can connect, a proxy on another machine
+included. For a proxy elsewhere on your network, keep the default line. See
+[Who reaches vihko's port](reverse-proxy.md#who-reaches-vihkos-port).
 
 ### The notes volume
 
@@ -357,7 +362,7 @@ message in the log that names the variable. (`VIHKO_RESCAN_SECONDS`,
 | Variable | Default | What it does |
 |---|---|---|
 | `VIHKO_PUBLIC_URL` | unset | The `https://` address vihko is reached at from outside, behind a reverse proxy: the origin only, such as `https://notes.example.com`. It makes OAuth available for remote MCP clients (while the MCP server is on), and invitation and password-reset links use it. See [Reverse proxy](reverse-proxy.md) and [Agents](agents.md). |
-| `VIHKO_TRUSTED_PROXIES` | unset | Addresses or CIDR ranges of your reverse proxies, separated by commas or spaces (`172.16.0.0/12, 10.0.0.5`). Only from them does vihko believe `X-Forwarded-For`, to tell clients apart for the sign-in limits. Unset, every request counts as coming from the connection's address. See [Reverse proxy](reverse-proxy.md#tell-vihko-about-the-proxy). |
+| `VIHKO_TRUSTED_PROXIES` | unset | Addresses or CIDR ranges of your reverse proxies, separated by commas or spaces (`172.16.0.0/12, 10.0.0.50`). Only from them does vihko believe `X-Forwarded-For`, to tell clients apart for the sign-in limits. Unset, every request counts as coming from the connection's address. A proxy on another machine is its one address: a range such as `10.0.0.50/8` trusts the whole `10.0.0.0/8`. See [Reverse proxy](reverse-proxy.md#tell-vihko-about-the-proxy). |
 | `VIHKO_INTEGRATIONS` | unset | `off` keeps the API with keys and the MCP server off, whatever an admin turns on in the UI. The only other accepted value is unset. |
 | `VIHKO_EXTERNAL_IMAGES` | `allow` | `block` stops browsers loading images that notes link from other sites (which tells those sites who reads the note, and when); a box with the site's domain is shown instead. |
 | `VIHKO_MAX_IMAGE_MB` | `20` | The largest image vihko stores from an upload, a paste or a URL, in megabytes. |
