@@ -29,7 +29,7 @@ import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwareness
 import * as Y from 'yjs'
 import { baseHue, contentHash, isPersonHue, newUid, readFrontmatter, setFrontmatterKey } from '@vihko/core'
 import { sessionIdOf, type Auth, type User } from './auth.ts'
-import { readStable, readText, replaceText, spelledAsOnDisk } from './fsutil.ts'
+import { followable, readStable, readText, replaceText } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
 import type { Via } from './actor.ts'
@@ -426,7 +426,7 @@ export class CollabHub implements HotDocuments {
       onConnect: async ({ documentName, context, connectionConfig }) => {
         NoteService.checkPath(documentName)
         // Spelled otherwise than on the disk (a case-insensitive filesystem), it would open a file its permissions don't govern.
-        if (!spelledAsOnDisk(this.opts.notesDir, documentName)) throw new NoteError('not_found', `does not exist: ${documentName}`)
+        if (!followable(this.opts.notesDir, documentName)) throw new NoteError('not_found', `does not exist: ${documentName}`)
         // A note one can't read doesn't exist for them: the same answer as a note that isn't there.
         const level = this.levelOf(context.user, documentName)
         if (level === 'none') throw new NoteError('not_found', `does not exist: ${documentName}`)
@@ -466,7 +466,17 @@ export class CollabHub implements HotDocuments {
   }
 
   private file(path: string) {
-    return join(this.opts.notesDir, NoteService.checkPath(path))
+    return NoteService.fileIn(this.opts.notesDir, path)
+  }
+
+  /** The note's text on disk; null if there is none for vihko (missing, or reached through a symbolic link). */
+  private textOrNull(path: string): string | null {
+    try {
+      return readText(this.file(path))
+    } catch (err) {
+      if (err instanceof NoteError && err.code === 'not_found') return null
+      throw err
+    }
   }
 
   private logPath(path: string) {
@@ -1241,7 +1251,7 @@ export class CollabHub implements HotDocuments {
     for (const [path, h] of this.hot) if (h.orphaned && h.announced && !h.discarded) out.add(path)
     for (const f of readdirSync(this.logDir).filter((x) => x.endsWith('.ylog'))) {
       const path = decodeURIComponent(f.slice(0, -'.ylog'.length))
-      if (!this.hot.has(path) && readText(this.file(path)) === null) out.add(path)
+      if (!this.hot.has(path) && this.textOrNull(path) === null) out.add(path)
     }
     return [...out].sort()
   }

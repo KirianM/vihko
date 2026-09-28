@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, resolve } from 'node:path'
 import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
-import { commitText, createFile, linkNew, readStable, readText, spelledAsOnDisk } from './fsutil.ts'
+import { commitText, createFile, followable, isPlainFile, linkNew, readStable, readText } from './fsutil.ts'
 import { attachmentPath, noteAttachmentsDir, sniffImage, suffixedName } from './attachments.ts'
 import { applyReplacements, beforeMoves, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
 import type { Indexer } from './indexer.ts'
@@ -258,17 +258,19 @@ export class NoteService {
   }
 
   private file(path: string) {
-    return join(this.opts.notesDir, this.spelled(NoteService.checkPath(path)))
+    return NoteService.fileIn(this.opts.notesDir, path)
   }
 
   /**
-   * A path as the disk spells it (fsutil.ts `spelledAsOnDisk`): on a
-   * case-insensitive filesystem another spelling would reach a file whose
-   * permissions are another folder's. Such a path doesn't exist.
+   * The file of note `path` in `notesDir`: checkPath, and only a path vihko
+   * follows (fsutil.ts followable: no symbolic link on the way, and on a
+   * case-insensitive filesystem the disk's spelling of each name). Any other
+   * doesn't exist for vihko, as it isn't in its index.
    */
-  private spelled(path: string): string {
-    if (!spelledAsOnDisk(this.opts.notesDir, path)) throw new NoteError('not_found', `does not exist: ${path}`)
-    return path
+  static fileIn(notesDir: string, path: string): string {
+    const norm = NoteService.checkPath(path)
+    if (!followable(notesDir, norm)) throw new NoteError('not_found', `does not exist: ${path}`)
+    return join(notesDir, norm)
   }
 
   /** The file for a note vihko is about to name. */
@@ -732,7 +734,9 @@ export class NoteService {
   }
 
   private dir(path: string) {
-    return join(this.opts.notesDir, this.spelled(NoteService.checkFolder(path)))
+    const norm = NoteService.checkFolder(path)
+    if (!followable(this.opts.notesDir, norm)) throw new NoteError('not_found', `does not exist: ${path}`)
+    return join(this.opts.notesDir, norm)
   }
 
   /** The directory for a folder vihko is about to name. */
@@ -1003,7 +1007,7 @@ export class NoteService {
   }
 
   private isFile(path: string): boolean {
-    try { return statSync(join(this.opts.notesDir, path)).isFile() } catch { return false }
+    return isPlainFile(this.opts.notesDir, path)
   }
 
   /**
@@ -1021,11 +1025,17 @@ export class NoteService {
     const config = this.opts.attachments?.() ?? { folder: null }
     for (let n = 1; n <= 1000; n++) {
       const path = attachmentPath(notePath, type.ext, now, n, config)
-      const file = join(this.opts.notesDir, path)
+      const file = this.otherFile(path)
       mkdirSync(dirname(file), { recursive: true })
       if (this.createNewFile(path, bytes, actor)) return { path, src: posix.relative(posix.dirname(notePath), path) }
     }
     throw new NoteError('exists', `no free name for an image of ${notePath}`)
+  }
+
+  /** The file for `path`, a file that isn't a note, only if vihko follows it (see fileIn). */
+  private otherFile(path: string): string {
+    if (!followable(this.opts.notesDir, path)) throw new NoteError('not_found', `does not exist: ${path}`)
+    return join(this.opts.notesDir, path)
   }
 
   /** Creates a file that isn't a note, never over another; false if the name is taken. */
@@ -1033,7 +1043,7 @@ export class NoteService {
     const w = this.history.prepare([{ path, after: bytes }], { actor, immediate: true })
     let created: boolean
     try {
-      created = createFile(join(this.opts.notesDir, this.spelled(path)), bytes)
+      created = createFile(this.otherFile(path), bytes)
     } catch (err) {
       w.abort()
       throw err
@@ -1129,9 +1139,9 @@ export class NoteService {
         const source = resolveImageRef(version.path, img.dest, { embed })
         if (target === null || source === null || seen.has(target) || classifyPath(target) !== 'other') continue
         seen.add(target)
-        // Where whoever restores can't write, or spelled otherwise than the disk has it (its permissions would be
-        // another folder's): as if the history didn't have it (nothing of that folder is said).
-        if ((opts.canWrite && !opts.canWrite(target)) || !spelledAsOnDisk(this.opts.notesDir, target)) { images.missing.push({ path: target, reason: 'not_in_history' }); continue }
+        // Where whoever restores can't write, or where vihko doesn't follow the path (a symbolic link on the way,
+        // or another spelling: its permissions would be another folder's): as if the history didn't have it.
+        if ((opts.canWrite && !opts.canWrite(target)) || !followable(this.opts.notesDir, target)) { images.missing.push({ path: target, reason: 'not_in_history' }); continue }
         const bytes = await opts.file(source)
         const abs = join(this.opts.notesDir, target)
         if (this.isFile(target)) {

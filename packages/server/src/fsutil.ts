@@ -11,7 +11,7 @@
 // construction. Reads stay sync: they are served from the client's cache in
 // well under a millisecond, and going through the thread pool made a big
 // rename on local disk slower (2.1 → 2.7 s) for nothing on NFS.
-import { closeSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeSync } from 'node:fs'
+import { closeSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeSync } from 'node:fs'
 import { link, open, rename, rm } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
@@ -103,6 +103,59 @@ export function spelledAsOnDisk(root: string, rel: string): boolean {
     dir = join(dir, part)
   }
   return true
+}
+
+/** The notes root as the filesystem names it, once found (a root that is itself a link, or a mount, is fine). */
+const realRoots = new Map<string, string>()
+
+/**
+ * Whether `rel` (a path under `root`, with `/`) names its file without going
+ * through a symbolic link: no segment of it, the last one included, is one.
+ * The part that doesn't exist yet (a note about to be created) has none.
+ *
+ * vihko never follows a link in the notes folder. Its walks skip them, so
+ * they are in no tree or index; and followed, a link would read or write
+ * outside the folder (the state volume, any file of the server), or in a
+ * folder whose permissions aren't those of the path that names it.
+ */
+export function linkFree(root: string, rel: string): boolean {
+  let base = realRoots.get(root)
+  if (base === undefined) {
+    try { base = realpathSync.native(root) } catch { return false }
+    realRoots.set(root, base)
+  }
+  for (let p = rel; ;) {
+    const abs = p ? join(root, p) : root
+    try {
+      return realpathSync.native(abs) === (p ? join(base, p) : base)
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if ((code !== 'ENOENT' && code !== 'ENOTDIR') || !p) return false
+      // Something is there that leads nowhere: a link to a missing target.
+      try { lstatSync(abs); return false } catch { /* not there: its parent decides */ }
+      const slash = p.lastIndexOf('/')
+      p = slash === -1 ? '' : p.slice(0, slash)
+    }
+  }
+}
+
+/**
+ * Whether vihko follows `rel` under `root`: the one check at every door that
+ * takes a path. Never through a symbolic link (linkFree), and on a
+ * case-insensitive root only as the disk spells each name (spelledAsOnDisk).
+ * A path it doesn't follow isn't there for vihko.
+ */
+export function followable(root: string, rel: string): boolean {
+  return linkFree(root, rel) && spelledAsOnDisk(root, rel)
+}
+
+/** Whether `rel` is a regular file that vihko follows (see followable). */
+export function isPlainFile(root: string, rel: string): boolean {
+  try {
+    return lstatSync(join(root, rel)).isFile() && followable(root, rel)
+  } catch {
+    return false
+  }
 }
 
 /** File contents, or null if it doesn't exist. */

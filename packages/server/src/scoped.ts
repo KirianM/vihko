@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
 import { attachmentPath } from './attachments.ts'
-import { spelledAsOnDisk } from './fsutil.ts'
+import { isPlainFile } from './fsutil.ts'
 import type { Db } from './db.ts'
 import type { DailyNotes } from './daily.ts'
 import { planEdits, type EditOp } from './edits.ts'
@@ -369,7 +369,7 @@ export class ScopedNotes {
       let src = sources.get(l.src_path)
       if (!src) {
         let text = ''
-        try { text = readFileSync(join(notesDir, l.src_path), 'utf8') } catch {}
+        try { text = readFileSync(NoteService.fileIn(notesDir, l.src_path), 'utf8') } catch {}
         sources.set(l.src_path, (src = { text, comments: extract(text).comments }))
       }
       // Its text says more than the index: a note hidden since it was indexed isn't a source.
@@ -872,7 +872,7 @@ export class ScopedNotes {
     const known = classifyPath(path) === 'conflict' && this.access.canRead(path)
       && this.deps.index.prepare("select 1 from alerts where path = ? and kind = 'sync_conflict'").get(path)
     let text: string | null = null
-    if (known && spelledAsOnDisk(this.deps.notesDir, path)) try { text = readFileSync(join(this.deps.notesDir, path), 'utf8') } catch { /* no longer exists */ }
+    if (known && isPlainFile(this.deps.notesDir, path)) try { text = readFileSync(join(this.deps.notesDir, path), 'utf8') } catch { /* no longer exists */ }
     if (text === null) throw new NoteError('not_found', `there's no conflict copy at ${path}`)
     return { path, text }
   }
