@@ -35,7 +35,8 @@
 //
 // This module knows nothing of users or groups: the server resolves subjects
 // (and warns about the ones it doesn't know).
-import { isMap, isScalar, parseDocument, type Document, type Pair, type YAMLMap } from 'yaml'
+import { isMap, isScalar, type Document, type Pair, type YAMLMap } from 'yaml'
+import { parseYamlDocument } from './yaml.ts'
 
 /** What a grant allows, from less to more. */
 export type Level = 'read' | 'comment' | 'edit' | 'manage'
@@ -397,7 +398,7 @@ type Ranged = { range: [number, number, number] }
 const range = (node: unknown): [number, number, number] => (node as Ranged).range
 
 function load(text: string): Document {
-  const doc = parseDocument(text, { schema: 'core', uniqueKeys: true, prettyErrors: false })
+  const doc = parseYamlDocument(text)
   if (doc.errors.length) throw new PermissionsFileError(`vihko.yaml is not valid YAML: ${doc.errors[0]!.message}`)
   if (doc.contents !== null && !isMap(doc.contents)) throw new PermissionsFileError('vihko.yaml is not a set of key: value')
   return doc
