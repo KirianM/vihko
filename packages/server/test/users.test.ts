@@ -338,11 +338,13 @@ test('the CLI gives a reset link (the way back for an admin who lost their passw
   }
 })
 
-test('state.db: version 5 migrates keeping its users, with a copy before', () => {
+test('state.db: version 5 migrates keeping its users, with a copy before and a log line that names it', () => {
   const dir = tempDir('vihko-state-m4-')
   const file = join(dir, 'state.db')
   const [admin, member] = [m.aUsername(), m.aUsername()]
-  openState(file).close()
+  const created: string[] = []
+  openState(file, { log: (msg) => created.push(msg) }).close()
+  assert.deepEqual(created, [], 'a new database is no news')
   const raw = new Database(file)
   raw.exec(`drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
     alter table users drop column deleted_at; alter table sessions drop column user_agent;`)
@@ -350,7 +352,9 @@ test('state.db: version 5 migrates keeping its users, with a copy before', () =>
   raw.prepare("insert into users (id, username, password_hash, role, created_at, disabled) values ('02U', ?, 'x', 'member', '2026-01-01T00:00:00Z', 1)").run(member)
   raw.pragma('user_version = 5')
   raw.close()
-  const db = openState(file)
+  const logged: string[] = []
+  const db = openState(file, { log: (msg) => logged.push(msg) })
+  assert.deepEqual(logged, [`state.db migrated from version 5 to ${STATE_VERSION}; the previous one is in ${file}.bak-v5`])
   assert.equal(db.pragma('user_version', { simple: true }), STATE_VERSION)
   // The column compares names with `collate nocase`, and so orders them.
   const expected = [{ username: admin, disabled: 0, deleted_at: null }, { username: member, disabled: 1, deleted_at: null }]
