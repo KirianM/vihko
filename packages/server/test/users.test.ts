@@ -306,6 +306,24 @@ test('one\'s own account: sessions (the current one marked), closing the others,
   }
 })
 
+test('a new password of one\'s own ends a reset link made for them: nobody gets in with it afterwards', async () => {
+  const s = await setup()
+  try {
+    const { id, username, password } = s.users.member
+    const reset = (await s.admin('POST', `/api/admin/users/${id}/link`, { confirm: s.users.admin.password })).body.link
+    assert.equal(reset.kind, 'reset')
+    const renewed = m.aPassword()
+    assert.equal((await s.member('POST', '/api/auth/password', { current: password, password: renewed })).status, 200)
+    assert.deepEqual((await anon(s.app, 'GET', `/api/invite/${reset.token}`)).body.error, 'invalid_link')
+    const taken = await anon(s.app, 'POST', `/api/invite/${reset.token}`, { password: m.aPassword() })
+    assert.deepEqual([taken.status, taken.body.error], [404, 'invalid_link'])
+    assert.equal(typeof await login(s.app, username, renewed), 'string', 'their own password still works')
+    assert.equal((await s.admin('GET', '/api/admin/users')).body.users.find((u: any) => u.id === id).link, null)
+  } finally {
+    await s.close()
+  }
+})
+
 test('the admin\'s settings: members downloading from the local network, off by default', async () => {
   const s = await setup()
   try {

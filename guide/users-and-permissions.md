@@ -103,7 +103,8 @@ still asked for after the reset.
 ## Passwords and sessions
 
 - **Changing your password:** Preferences → Account → Password. It asks for the
-  current one and signs out your other sessions.
+  current one, signs out your other sessions, and ends any reset link made for
+  you.
 - **Sessions:** Account lists the browsers you're signed in from. A session
   unused for 30 days expires. You can sign out any of them, or all the others.
 - **A forgotten password:** the admin makes a reset link (the user's

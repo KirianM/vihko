@@ -201,10 +201,19 @@ export class Auth {
     return user
   }
 
-  /** Replaces a user's password (a one-time link, or «Account»). Sessions stay: the caller ends those it has to. */
+  /**
+   * Replaces a user's password («Account»). Sessions stay: the caller ends
+   * those it has to. A reset link made for them stops working: it was for a
+   * password they no longer need, and whoever holds it could still take the
+   * account.
+   */
   async setPassword(userId: string, password: string): Promise<void> {
     strongEnough(password)
-    this.db.prepare('update users set password_hash = ? where id = ? and deleted_at is null').run(await hashPassword(password), userId)
+    const hash = await hashPassword(password)
+    this.db.transaction(() => {
+      this.db.prepare('update users set password_hash = ? where id = ? and deleted_at is null').run(hash, userId)
+      this.db.prepare('delete from user_links where user_id = ?').run(userId)
+    })()
   }
 
   /** Whether this is the user's password now (always as slow as a real check). */
