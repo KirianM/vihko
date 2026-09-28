@@ -454,7 +454,8 @@ A folder renamed or moved **outside vihko** (a shell, another app) leaves its
 rules behind, and vihko can't always tell where it went. When it recognises
 the notes that left, it holds them hidden from everyone and alerts the admin
 and the folder's managers: move the permissions with them, or release them so
-the folder they're in now applies. See
+the folder they're in now applies. Notes that came out of a personal folder
+are its owner's to decide; the admin only learns that they're held. See
 [Users and permissions](users-and-permissions.md#folders-moved-outside-vihko).
 
 ## When something is wrong

@@ -769,7 +769,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       const shared = workspace.config.attachments.folder
       if (shared !== null && permissions.directory.users().length > 1) alerts.push({ code: 'attachments_shared_folder', folder: shared, actions: [] })
     }
-    for (const a of deps.holds?.alerts((p) => noteExists.get(p) !== undefined, (h) => admin || access.canManage(h.folder)) ?? []) alerts.push(a)
+    for (const a of deps.holds?.alerts((p) => noteExists.get(p) !== undefined, { admin, canManage: (f) => access.canManage(f) }) ?? []) alerts.push(a)
     for (const { path } of index.prepare("select path from alerts where kind = 'sync_conflict' order by path").all() as { path: string }[]) {
       if (!access.canRead(path)) continue
       const note = conflictOriginal(path)
