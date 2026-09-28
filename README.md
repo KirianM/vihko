@@ -49,6 +49,11 @@ docker compose logs vihko   # the first start prints a one-time token to create 
 docker compose exec -T vihko vihko user create <name> --admin <<< 'password'
 ```
 
+The example `compose.yaml` is all you need from this repository: it pulls the
+image `ghcr.io/kirianm/vihko:1` (linux/amd64 and linux/arm64), which follows
+every 1.x release and never jumps to an incompatible version. To update to the
+latest 1.x: `docker compose pull && docker compose up -d`.
+
 The UI is at `http://<server>:8080`. If that port is taken,
 `VIHKO_HOST_PORT=8098 docker compose up -d`.
 
