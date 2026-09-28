@@ -8,6 +8,7 @@
 // vihko history purge <path> [--version <id>] [--dry-run]
 //                                     rewrites the managed history without a path
 //                                     (or one version's content of it); vihko stopped
+// vihko version | vihko --version     prints vihko's version
 //
 // No Web Storage: the server doesn't use it, and lib0 (Yjs) probes for it on import,
 // which on Node 26 prints an ExperimentalWarning on every startup.
@@ -23,8 +24,9 @@ import { PurgeError, purgeHistory, type PurgeReport } from './history/purge.ts'
 import { describeLeftover } from './history/leftovers.ts'
 import { StateInUseError } from './lock.ts'
 import { Workspace } from './workspace.ts'
+import { VERSION } from './version.ts'
 
-const USAGE = 'usage: vihko serve | vihko user create <name> [--admin] | vihko user reset-link <name> | vihko user reset-2fa <name> | vihko history purge <path> [--version <id>] [--dry-run]'
+const USAGE = 'usage: vihko serve | vihko user create <name> [--admin] | vihko user reset-link <name> | vihko user reset-2fa <name> | vihko history purge <path> [--version <id>] [--dry-run] | vihko version'
 
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = []
@@ -34,6 +36,11 @@ async function readStdin(): Promise<string> {
 
 async function main(argv: string[]) {
   const [cmd, sub, ...rest] = argv
+  // Before the configuration: it answers whatever the environment says.
+  if ((cmd === 'version' || cmd === '--version') && sub === undefined) {
+    console.log(VERSION)
+    return
+  }
   const config = configFromEnv()
   if (cmd === 'serve' || cmd === undefined) {
     const s = await start(config)
