@@ -9,7 +9,7 @@ import {
 import { hasSearchFilter } from '@vihko/core/query'
 import { api, type SearchResult, type TreeNote } from './api.ts'
 import { commands, type CommandContext } from './commands.ts'
-import { errorText, useT } from './i18n.tsx'
+import { errorText, useLanguageChoice, useT, type LangChoice } from './i18n.tsx'
 import { recentNotes } from './recent.ts'
 import { useTheme } from './theme.ts'
 import { useBackClose, useMobile } from './mobile.ts'
@@ -79,15 +79,18 @@ interface Props {
   templates: string[]
   /** Opens today's note; null while daily notes are off. */
   onToday: (() => void) | null
+  /** Saves the UI's language in the account and applies it (null = automatic). */
+  onLanguage: (choice: LangChoice) => void
   onClose: () => void
   onMode: (mode: PaletteMode) => void
   onOpen: (path: string) => void
   onCreated: (path: string) => void
 }
 
-export function Palette({ mode, folder, openPath, notes, templates, onToday, onClose, onMode, onOpen, onCreated }: Props) {
+export function Palette({ mode, folder, openPath, notes, templates, onToday, onLanguage, onClose, onMode, onOpen, onCreated }: Props) {
   const t = useT()
   const { effective } = useTheme()
+  const { choice } = useLanguageChoice()
   const [query, setQuery] = useState('')
   const [found, setFound] = useState<{ q: string; results: SearchResult[]; start: string; end: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -112,7 +115,7 @@ export function Palette({ mode, folder, openPath, notes, templates, onToday, onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text, mode, commandMode])
 
-  const ctx: CommandContext = { theme: effective, openPath, newNote: () => onMode('create'), today: onToday }
+  const ctx: CommandContext = { theme: effective, openPath, newNote: () => onMode('create'), today: onToday, language: choice, chooseLanguage: onLanguage }
   const needle = fold(query.slice(1).trim())
   const matching = commandMode ? commands.filter((c) => (c.available?.(ctx) ?? true) && fold(t(c.label(ctx))).includes(needle)) : []
 

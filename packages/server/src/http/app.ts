@@ -580,7 +580,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const body = await c.req.json<Record<string, unknown>>()
     if (typeof body !== 'object' || body === null) return fail(c, 400, 'invalid', 'expected an object')
     const patch: Partial<Profile> = {}
-    for (const k of ['timezone', 'dailySeries', 'openDailyOnStart'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
+    for (const k of ['timezone', 'dailySeries', 'openDailyOnStart', 'language'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
     return c.json(profiles.update(c.get('user').id, patch))
   })
 

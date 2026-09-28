@@ -6,7 +6,8 @@ writes what. This page is for the admin who sets that up, and for anyone who
 wants to know who can see their notes.
 
 Everything here happens in the UI, under **Preferences** (in the sidebar):
-«Account» for your own account, «Users and groups» for the admin. The exact
+«Account» for your own account (language, password, second factor and
+sessions), «Users and groups» for the admin. The exact
 rules behind the permissions, as written in `vihko.yaml`, are in
 [Configuration](configuration.md#permissions).
 
@@ -105,8 +106,14 @@ both password and phone. `reset-link` prints the full link when
 Any earlier link for that person stops working. A second factor they have is
 still asked for after the reset.
 
-## Passwords and sessions
+## Language, passwords and sessions
 
+- **Language:** Preferences → Account → Language, or `>language` in the
+  search (⌘K / Ctrl+K). vihko speaks English and Spanish; «Automatic», the
+  default, uses your browser's language. Your choice is saved in your
+  account, so it follows you to every browser you sign in from, and each
+  browser remembers it for its sign-in screen. Until you sign in, a browser
+  you've never used shows its own language.
 - **Changing your password:** Preferences → Account → Password. It asks for the
   current one, signs out your other sessions, and ends any reset link made for
   you.

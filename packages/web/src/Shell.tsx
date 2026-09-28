@@ -10,6 +10,7 @@ import { AgentsPage } from './Agents.tsx'
 import { PrivacyPage } from './Privacy.tsx'
 import { UsersPage } from './Users.tsx'
 import { AccountPage } from './Account.tsx'
+import { useChooseLanguage } from './language.ts'
 import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
@@ -55,6 +56,7 @@ const NoteView = lazy(() => import('./editor/NoteView.tsx').then((m) => ({ defau
 export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout: () => void; onUnauthorized: () => void }) {
   const t = useT()
   const { effective } = useTheme()
+  const chooseLanguage = useChooseLanguage()
   const [notes, setNotes] = useState<TreeNote[] | null>(null)
   const [folders, setFolders] = useState<string[]>([])
   /** Folders shown only as the way to what the person sees (D-038). */
@@ -632,6 +634,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           notes={notes}
           templates={templates}
           onToday={dailyOn ? () => void openToday() : null}
+          onLanguage={(choice) => { setError(null); chooseLanguage(choice).catch(fail) }}
           onClose={() => { setPalette(null); setCreateIn(null) }}
           onMode={setPalette}
           onOpen={setOpenPath}

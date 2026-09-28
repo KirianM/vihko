@@ -2,6 +2,7 @@
 // Adding a language means adding a dictionary with the same keys (the type enforces it).
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { ConfigErrorCode, ErrorCode } from '@vihko/core/codes'
+import { isLanguage, type Language } from '@vihko/core/languages'
 
 const es = {
   'app.name': 'vihko',
@@ -305,6 +306,9 @@ const es = {
   'cmd.themeDark': 'tema oscuro',
   'cmd.themeLight': 'tema claro',
   'cmd.newNote': 'nueva nota',
+  'cmd.language.auto': 'idioma: automático (el del navegador)',
+  'cmd.language.en': 'idioma: English',
+  'cmd.language.es': 'idioma: Español',
   'alerts.title': 'Avisos del espacio',
   'alerts.intro': 'Cosas que vihko ha detectado en la carpeta de notas y que necesitan una decisión, y avisos dirigidos a ti. Nada de esto se resuelve solo.',
   'alerts.empty': 'No hay avisos: la carpeta de notas y el índice están en orden.',
@@ -863,6 +867,9 @@ const es = {
   'account.endOthers': 'Cerrar las demás',
   'account.about': 'Acerca de',
   'account.version': 'vihko {version}',
+  'account.language': 'Idioma',
+  'account.languageAuto': 'Automático (el del navegador)',
+  'account.languageHint': 'Se guarda en tu cuenta: vale en cualquier navegador donde entres. Automático usa el idioma de cada navegador.',
   'users.title': 'Usuarios y grupos',
   'users.intro': 'Quién usa este vihko. Das de alta a alguien con un enlace de un solo uso: elige su contraseña y nunca la conoces. Lo que cada persona ve lo deciden los permisos de las carpetas, también para el administrador.',
   'users.list': 'Usuarios',
@@ -1468,6 +1475,9 @@ const en: Record<keyof typeof es, string> = {
   'cmd.themeDark': 'dark theme',
   'cmd.themeLight': 'light theme',
   'cmd.newNote': 'new note',
+  'cmd.language.auto': "language: automatic (browser's language)",
+  'cmd.language.en': 'language: English',
+  'cmd.language.es': 'language: Español',
   'alerts.title': 'Workspace alerts',
   'alerts.intro': 'Things vihko found in the notes folder that need a decision, and notices addressed to you. None of them resolves on its own.',
   'alerts.empty': 'No alerts: the notes folder and the index are in order.',
@@ -2025,6 +2035,9 @@ const en: Record<keyof typeof es, string> = {
   'account.endOthers': 'Sign out the others',
   'account.about': 'About',
   'account.version': 'vihko {version}',
+  'account.language': 'Language',
+  'account.languageAuto': "Automatic (browser's language)",
+  'account.languageHint': "Saved in your account: it applies in every browser you sign in from. Automatic uses each browser's language.",
   'users.title': 'Users and groups',
   'users.intro': 'Who uses this vihko. You add someone with a one-time link: they choose their password and you never know it. What each person sees is up to the folders’ permissions, for the admin too.',
   'users.list': 'Users',
@@ -2338,31 +2351,64 @@ void _allErrorsTranslated
 type MissingConfigText = Exclude<`config.${ConfigErrorCode}`, MessageKey>
 const _allConfigErrorsTranslated: [MissingConfigText] extends [never] ? true : MissingConfigText = true
 void _allConfigErrorsTranslated
-export type Lang = 'es' | 'en'
+/** A language the UI is translated into (the list is `LANGUAGES` of @vihko/core). */
+export type Lang = Language
 const dictionaries: Record<Lang, Record<MessageKey, string>> = { es, en }
 
-function initialLang(): Lang {
+/** Each language by its own name, the same whatever language the UI is in. */
+export const LANGUAGE_NAMES: Record<Lang, string> = { en: 'English', es: 'Español' }
+
+/**
+ * A person's choice of language: one of them, or null for automatic (the
+ * browser's). It is kept in their profile on the server, and a copy in this
+ * browser, so that the sign-in screen is already in their language.
+ */
+export type LangChoice = Lang | null
+const STORED = 'vihko.lang'
+
+function storedChoice(): LangChoice {
   try {
-    const stored = localStorage.getItem('vihko.lang')
-    if (stored === 'es' || stored === 'en') return stored
+    const stored = localStorage.getItem(STORED)
+    if (isLanguage(stored)) return stored
   } catch { /* storage unavailable */ }
-  return navigator.language.toLowerCase().startsWith('es') ? 'es' : 'en'
+  return null
+}
+
+/** The first of the browser's languages there is a translation for; English if none. */
+function browserLang(): Lang {
+  const preferred = navigator.languages?.length ? navigator.languages : [navigator.language]
+  for (const tag of preferred) {
+    const base = tag.toLowerCase().split('-')[0]
+    if (isLanguage(base)) return base
+  }
+  return 'en'
 }
 
 type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string
-const I18nContext = createContext<{ t: Translate; lang: Lang; setLang: (l: Lang) => void } | null>(null)
+const I18nContext = createContext<{ t: Translate; lang: Lang; choice: LangChoice; setChoice: (c: LangChoice) => void } | null>(null)
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(initialLang)
+  const [choice, setChoiceState] = useState<LangChoice>(storedChoice)
+  const [browser, setBrowser] = useState<Lang>(browserLang)
+  const lang = choice ?? browser
+  useEffect(() => {
+    // Automatic follows the browser when its languages change; another tab's choice reaches this one.
+    const languages = () => setBrowser(browserLang())
+    const storage = (e: StorageEvent) => { if (e.key === STORED || e.key === null) setChoiceState(storedChoice()) }
+    window.addEventListener('languagechange', languages)
+    window.addEventListener('storage', storage)
+    return () => { window.removeEventListener('languagechange', languages); window.removeEventListener('storage', storage) }
+  }, [])
   const value = useMemo(() => {
     const dict = dictionaries[lang]
     const t: Translate = (key, vars) => dict[key].replace(/\{(\w+)\}/g, (_, k: string) => String(vars?.[k] ?? `{${k}}`))
-    const setLang = (l: Lang) => {
-      try { localStorage.setItem('vihko.lang', l) } catch { /* no persistence */ }
-      setLangState(l)
+    /** Applies a choice here and keeps its copy in this browser (automatic: no copy). */
+    const setChoice = (c: LangChoice) => {
+      try { if (c) localStorage.setItem(STORED, c); else localStorage.removeItem(STORED) } catch { /* no persistence */ }
+      setChoiceState(c)
     }
-    return { t, lang, setLang }
-  }, [lang])
+    return { t, lang, choice, setChoice }
+  }, [lang, choice])
   useEffect(() => { document.documentElement.lang = lang }, [lang])
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
@@ -2384,4 +2430,14 @@ export function useLang(): Lang {
   const ctx = useContext(I18nContext)
   if (!ctx) throw new Error('useLang outside I18nProvider')
   return ctx.lang
+}
+
+/**
+ * The language choice in this browser and the way to apply one here. Saving
+ * it in the person's profile is language.ts's (`useChooseLanguage`).
+ */
+export function useLanguageChoice(): { choice: LangChoice; setChoice: (c: LangChoice) => void } {
+  const ctx = useContext(I18nContext)
+  if (!ctx) throw new Error('useLanguageChoice outside I18nProvider')
+  return { choice: ctx.choice, setChoice: ctx.setChoice }
 }

@@ -37,3 +37,4 @@ export {
 } from './comments.ts'
 export { MIN_HUE_DISTANCE, baseHue, distinctHue, freeHue, hueDistance, isPersonHue } from './hue.ts'
 export { keyWidens, type KeyScope } from './keyScope.ts'
+export { LANGUAGES, isLanguage, type Language } from './languages.ts'

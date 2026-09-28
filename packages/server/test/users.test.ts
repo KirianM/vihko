@@ -398,7 +398,7 @@ test('state.db: version 5 migrates keeping its users, with a copy before and a l
   assert.deepEqual(created, [], 'a new database is no news')
   const raw = new Database(file)
   raw.exec(`drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
-    alter table users drop column deleted_at; alter table sessions drop column user_agent;`)
+    alter table users drop column deleted_at; alter table sessions drop column user_agent; alter table profiles drop column language;`)
   raw.prepare("insert into users (id, username, password_hash, role, created_at) values ('01U', ?, 'x', 'admin', '2026-01-01T00:00:00Z')").run(admin)
   raw.prepare("insert into users (id, username, password_hash, role, created_at, disabled) values ('02U', ?, 'x', 'member', '2026-01-01T00:00:00Z', 1)").run(member)
   raw.pragma('user_version = 5')
