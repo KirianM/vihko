@@ -84,15 +84,15 @@ export function configFromEnv(env = process.env): Config {
     notesDir: resolve(env.VIHKO_NOTES_DIR ?? '/data/notes'),
     stateDir: resolve(env.VIHKO_STATE_DIR ?? '/data/state'),
     host: env.VIHKO_HOST ?? '0.0.0.0',
-    port: Number(env.VIHKO_PORT ?? 8080),
-    rescanSeconds: Number(env.VIHKO_RESCAN_SECONDS ?? 60),
+    port: portFrom(env.VIHKO_PORT),
+    rescanSeconds: seconds(env.VIHKO_RESCAN_SECONDS, 60, 'VIHKO_RESCAN_SECONDS') / 1000,
     webDir: resolve(env.VIHKO_WEB_DIR ?? fileURLToPath(new URL('../../web/dist', import.meta.url))),
     maxImageBytes: env.VIHKO_MAX_IMAGE_MB ? positiveMb(env.VIHKO_MAX_IMAGE_MB) : DEFAULT_MAX_IMAGE_BYTES,
     externalImages: externalImagesFrom(env.VIHKO_EXTERNAL_IMAGES),
     history: {
-      quietMs: seconds(env.VIHKO_HISTORY_QUIET_SECONDS, 30),
-      maxOpenMs: seconds(env.VIHKO_HISTORY_MAX_SECONDS, 300),
-      sweepMs: seconds(env.VIHKO_HISTORY_SWEEP_SECONDS, 3600),
+      quietMs: seconds(env.VIHKO_HISTORY_QUIET_SECONDS, 30, 'VIHKO_HISTORY_QUIET_SECONDS'),
+      maxOpenMs: seconds(env.VIHKO_HISTORY_MAX_SECONDS, 300, 'VIHKO_HISTORY_MAX_SECONDS'),
+      sweepMs: seconds(env.VIHKO_HISTORY_SWEEP_SECONDS, 3600, 'VIHKO_HISTORY_SWEEP_SECONDS'),
       git: env.VIHKO_GIT || 'git',
     },
     integrationsLocked: integrationsLockedFrom(env.VIHKO_INTEGRATIONS),
@@ -102,10 +102,18 @@ export function configFromEnv(env = process.env): Config {
   }
 }
 
-function seconds(raw: string | undefined, fallback: number): number {
+/** A positive number of seconds, as milliseconds; anything else stops the start, naming the variable. */
+function seconds(raw: string | undefined, fallback: number, name: string): number {
   const n = raw === undefined || raw === '' ? fallback : Number(raw)
-  if (!Number.isFinite(n) || n <= 0) throw new Error(`expected a positive number of seconds, not "${raw}"`)
+  if (!Number.isFinite(n) || n <= 0) throw new Error(`${name}: expected a positive number of seconds, not "${raw}"`)
   return n * 1000
+}
+
+/** VIHKO_PORT: 8080 by default; 0 lets the system pick one (tests). */
+function portFrom(raw: string | undefined): number {
+  const n = raw === undefined || raw === '' ? 8080 : Number(raw)
+  if (!Number.isInteger(n) || n < 0 || n > 65535) throw new Error(`VIHKO_PORT: expected a port number (0-65535), not "${raw}"`)
+  return n
 }
 
 function positiveMb(raw: string): number {
@@ -120,9 +128,9 @@ function externalImagesFrom(raw: string | undefined): ExternalImages {
   return v
 }
 
-export function openStores(config: Config) {
+export function openStores(config: Config, log?: (msg: string) => void) {
   mkdirSync(config.stateDir, { recursive: true })
-  const state = openState(join(config.stateDir, 'state.db'))
+  const state = openState(join(config.stateDir, 'state.db'), { log })
   const index = openIndex(join(config.stateDir, 'index.db'))
   return { state, index }
 }
@@ -146,11 +154,11 @@ export async function start(config: Config, opts: StartOptions = {}) {
 }
 
 async function run(config: Config, lock: StateLock, opts: StartOptions) {
-  const { state, index } = openStores(config)
+  const log = (msg: string) => console.log(`[vihko] ${msg}`)
+  const { state, index } = openStores(config, log)
   const auth = new Auth(state)
   const keys = new ApiKeys(state)
   const integrations = new Integrations(state, { locked: config.integrationsLocked })
-  const log = (msg: string) => console.log(`[vihko] ${msg}`)
   // vihko.yaml in the current format before it's read (D-042.6): only here, never while it runs.
   const configMigrations = new ConfigMigrations({ notesDir: config.notesDir, stateDir: config.stateDir, migrations: opts.workspaceMigrations, log })
   await configMigrations.run()
@@ -262,7 +270,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   if (config.integrationsLocked) log('VIHKO_INTEGRATIONS=off: the API with keys and the MCP server stay off')
   if (config.publicUrl) log(`public URL ${config.publicUrl}: OAuth for ${config.publicUrl}/mcp while the MCP server is on`)
   // Behind a proxy without it, every client is the proxy to the login limits: one guesser holds everyone back.
-  if (config.publicUrl && !config.trustedProxies) log('VIHKO_TRUSTED_PROXIES is unset: the login limits count every client by the connection\'s address (a reverse proxy\'s, if there is one). Set it to the proxy\'s address; see the README')
+  if (config.publicUrl && !config.trustedProxies) log('VIHKO_TRUSTED_PROXIES is unset: the login limits count every client by the connection\'s address (a reverse proxy\'s, if there is one). Set it to the proxy\'s address; see guide/reverse-proxy.md')
 
   const setup = auth.setupToken()
   if (setup) {
