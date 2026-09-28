@@ -29,6 +29,7 @@ export type ErrorCode =
   | 'too_large' // an image over the size limit
   | 'unsupported_type' // not an image type vihko stores
   | 'fetch_failed' // an image URL could not be downloaded
+  | 'busy' // too many images being received at once (uploads and copies from a URL): try again in a moment (Retry-After)
   | 'not_configured' // a feature that vihko.yaml doesn't turn on (daily notes with no series)
   | 'not_empty' // a folder that still holds files can't be deleted
   | 'history_off' // vihko.yaml turns the history off

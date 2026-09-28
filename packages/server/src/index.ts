@@ -29,7 +29,7 @@ export { Notices, noticeAlert, readablePath, type AccountChange, type Notice, ty
 export { LINK_ACCOUNT, inviteRoutes, userRoutes, usersErrorStatus, type UserRoutesDeps } from './http/users.ts'
 export { STATE_VERSION, openState } from './state.ts'
 export { MoveJobs, type MoveJob } from './http/jobs.ts'
-export { DEVICE_COOKIE, MAX_API_BODY, MAX_AUTH_BODY, SESSION_COOKIE, createApp, createServer, type ApiEnv, type AppDeps, type ExternalImages, type Orphans, type Runtime, type Services } from './http/app.ts'
+export { DEVICE_COOKIE, IMAGES_PER_USER, MAX_API_BODY, MAX_AUTH_BODY, SESSION_COOKIE, createApp, createServer, type ApiEnv, type AppDeps, type ExternalImages, type Orphans, type Runtime, type Services } from './http/app.ts'
 export { Access, AccessError, AccessPolicy, AgentDenied, DEFAULT_AI_KEY, hiddenFromAgents, inFolders, type DenyReason, type AccessPolicyOptions, type AgentPrincipal, type Holds, type KeyGrant, type Principal, type UserPrincipal } from './access.ts'
 export { PermissionsEngine, Viewer, groupSource, stateDirectory, type Directory, type DirectoryUser, type GrantSource, type GroupSource, type PermissionsOptions, type UserAccess, type ViewerUser } from './permissions.ts'
 export { ConfigInvalidError, PermissionsFile, type PermissionsFileOptions } from './permissionsFile.ts'
