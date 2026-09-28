@@ -436,6 +436,10 @@ test('unmanaged mode reads a repository another user owns, naming only its path;
     assert.deepEqual([failed.status, failed.body.error], [503, 'history_unavailable'])
     const status = (await h.admin('GET', '/api/history/status')).body
     assert.deepEqual([status.available, status.error.code], [false, 'git_failed'])
+    // What git said stays on the server: the admin's alert has it, no answer does.
+    for (const r of [failed, await h.member('GET', '/api/history/versions?path=tags.md'), await h.member('GET', '/api/history/status')]) {
+      assert.doesNotMatch(JSON.stringify(r.body), /simulated failure|exited with|git /)
+    }
     const alert = (await h.admin('GET', '/api/alerts')).body.alerts.find((a: any) => a.code === 'history_unavailable')
     assert.match(alert.detail, /simulated failure/)
 

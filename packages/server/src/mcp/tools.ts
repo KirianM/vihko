@@ -30,7 +30,7 @@ import { historyFor } from '../agentHistory.ts'
 import type { EditOp } from '../edits.ts'
 import { GitError } from '../history/git.ts'
 import { contextAfter, contextBefore, wordDiff } from '../history/diff.ts'
-import { HistoryError, type AuthorRef, type HistoryReader } from '../history/reader.ts'
+import { HistoryError, UNAVAILABLE_MESSAGE, clientMessage, type AuthorRef, type HistoryReader } from '../history/reader.ts'
 import type { History } from '../history/index.ts'
 import { NoteError, NoteService } from '../notes.ts'
 import type { AudienceChange } from '../audience.ts'
@@ -161,9 +161,11 @@ function failure(err: unknown, log: (m: string) => void): CallToolResult {
   else if (err instanceof AudienceWidens) body = { error: 'audience_widens', message: err.message, audience: audienceResult(err.audience) }
   else if (err instanceof RequestError) body = { error: err.code, message: err.message }
   else if (err instanceof AccessError) body = { error: 'forbidden', message: err.message }
-  else if (err instanceof HistoryError) body = { error: err.code, message: err.message }
-  else if (err instanceof GitError) body = { error: 'history_unavailable', message: 'the history can\'t be read right now' }
-  else if (err instanceof ToolError) body = { error: err.code, message: err.message }
+  else if (err instanceof HistoryError) body = { error: err.code, message: clientMessage(err) }
+  else if (err instanceof GitError) {
+    log(`mcp: history: ${err.message}`)
+    body = { error: 'history_unavailable', message: UNAVAILABLE_MESSAGE }
+  } else if (err instanceof ToolError) body = { error: err.code, message: err.message }
   else {
     log(`mcp: ${err instanceof Error ? err.stack ?? err.message : String(err)}`)
     body = { error: 'internal', message: 'internal error' }

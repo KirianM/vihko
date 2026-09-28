@@ -52,7 +52,8 @@ export function parseMessage(message: string): ParsedMessage {
   const lines = message.split('\n')
   const out: ParsedMessage = { subject: lines[0] ?? '', authors: [], parsedAuthors: [], reason: null, foundAtStartup: false, moves: [], restoredFrom: null }
   for (const line of lines.slice(1)) {
-    const m = /^(Vihko-[A-Za-z-]+): ?(.*)$/.exec(line)
+    // `s`: a value runs to the end of its line even through U+2028/U+2029, which a note's name may hold.
+    const m = /^(Vihko-[A-Za-z-]+): ?(.*)$/s.exec(line)
     if (!m) continue
     const [, key, value] = m as unknown as [string, string, string]
     if (key === 'Vihko-Actor') {

@@ -295,7 +295,7 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
   } finally { await h.close() }
 })
 
-test('the authorization request: unknown clients and redirect URIs are never redirected to; other errors go back to the client', async () => {
+test('the authorization request: unknown clients and redirect URIs are never redirected to', async () => {
   const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
   try {
     await h.enableMcp()
@@ -324,20 +324,6 @@ test('the authorization request: unknown clients and redirect URIs are never red
     assert.equal((await get(loop)).status, 200)
     assert.match((await consent(h, loop)).body.redirect, /^http:\/\/localhost:40123\/oauth\/callback\?code=/)
 
-    // The rest go back to the client with the error and its state.
-    for (const [extra, error] of [
-      [{ code_challenge: '' }, 'invalid_request'],
-      [{ code_challenge_method: 'plain' }, 'invalid_request'],
-      [{ code_challenge: 'short' }, 'invalid_request'],
-      [{ response_type: 'token' }, 'unsupported_response_type'],
-      [{ resource: 'https://elsewhere.example/mcp' }, 'invalid_target'],
-    ] as const) {
-      const r = await get(authorizeQuery(client.client_id, challenge, extra))
-      assert.equal(r.status, 302, JSON.stringify(extra))
-      const to = new URL(r.headers.get('location')!)
-      assert.equal(`${to.origin}${to.pathname}`, REDIRECT)
-      assert.deepEqual([to.searchParams.get('error'), to.searchParams.get('state'), to.searchParams.get('iss')], [error, STATE, PUBLIC])
-    }
     // Without `resource`, it's this server's /mcp.
     assert.equal((await get(authorizeQuery(client.client_id, challenge, { resource: '' }).replace('&resource=', '&x='))).status, 200)
 
@@ -355,6 +341,48 @@ test('the authorization request: unknown clients and redirect URIs are never red
     assert.equal(late.body.error, 'invalid_grant')
     assert.equal((await form(h, '/oauth/token', { grant_type: 'password', client_id: client.client_id })).body.error, 'unsupported_grant_type')
     assert.equal((await raw(h, 'POST', '/oauth/token', { body: '{}', headers: { 'content-type': 'application/json' } })).body.error, 'invalid_request')
+  } finally { await h.close() }
+})
+
+// Registration is open, so a registered redirect URI proves nothing: anyone
+// can register any address and have a link on this server bounce a browser
+// there. An error is shown, never redirected (RFC 9700 §4.11.2); only the
+// person's own decision on the consent page sends the browser to the client.
+test('the authorization request: an error never sends the browser to a registered redirect URI', async () => {
+  const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
+  try {
+    await h.enableMcp()
+    const elsewhere = 'https://attacker.example/landing'
+    const client = await register(h, { redirect_uris: [elsewhere] })
+    const { challenge } = pkce()
+    const query = (extra: Record<string, string>) => authorizeQuery(client.client_id, challenge, { redirect_uri: elsewhere, ...extra })
+    const get = (q: string, accept: string) => raw(h, 'GET', `/oauth/authorize?${q}`, { headers: { accept } })
+
+    for (const [extra, error] of [
+      [{ code_challenge: '' }, 'invalid_request'],
+      [{ code_challenge_method: 'plain' }, 'invalid_request'],
+      [{ code_challenge: 'short' }, 'invalid_request'],
+      [{ response_type: 'token' }, 'unsupported_response_type'],
+      [{ resource: 'https://elsewhere.example/mcp' }, 'invalid_target'],
+    ] as const) {
+      const q = query(extra)
+      const what = JSON.stringify(extra)
+      // Nobody signed in: the page, which tells the person once they sign in.
+      const page = await get(q, 'text/html')
+      assert.deepEqual([page.status, page.headers.get('location')], [200, null], what)
+      // Asked for JSON: the error, and nowhere to go.
+      const asJson = await get(q, 'application/json')
+      assert.deepEqual([asJson.status, asJson.body.error, asJson.headers.get('location')], [400, error, null], what)
+      // Signed in: the page hears the request is not valid, with no address to follow.
+      const api = await h.admin('GET', `/api/oauth/authorize?${q}`)
+      assert.deepEqual([api.status, api.body.error, api.body.redirect], [400, 'invalid', undefined], what)
+      const decided = await consent(h, q)
+      assert.deepEqual([decided.status, decided.body.redirect], [400, undefined], what)
+    }
+    // A valid request still goes back there, but only on the person's decision.
+    const ok = await get(query({}), 'text/html')
+    assert.deepEqual([ok.status, ok.headers.get('location')], [200, null])
+    assert.ok((await consent(h, query({}), { approve: false })).body.redirect.startsWith(`${elsewhere}?error=access_denied`))
   } finally { await h.close() }
 })
 

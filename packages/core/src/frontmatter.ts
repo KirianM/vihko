@@ -2,7 +2,8 @@
 // re-serializing the block. Anything not explicitly touched is preserved
 // byte for byte (comments, order, quoting, list style, unknown keys).
 import { isDeepStrictEqual } from 'node:util'
-import { isMap, isScalar, isSeq, parseDocument, stringify, type Document } from 'yaml'
+import { isMap, isScalar, isSeq, stringify, type Document } from 'yaml'
+import { parseYamlDocument } from './yaml.ts'
 
 export type Eol = '\n' | '\r\n'
 
@@ -58,12 +59,24 @@ export function locateFrontmatter(text: string): FrontmatterBlock | null {
 }
 
 function parseYaml(raw: string): { doc: Document; data: Record<string, unknown> } | { error: string } {
-  // YAML 1.2 core schema: no dates or other implicit conversions from YAML 1.1.
-  const doc = parseDocument(raw, { schema: 'core', uniqueKeys: true, prettyErrors: false })
+  const doc = parseYamlDocument(raw)
   if (doc.errors.length) return { error: doc.errors[0]!.message }
   if (doc.contents !== null && !isMap(doc.contents)) return { error: 'the frontmatter is not a map' }
-  const data = (doc.toJS({ maxAliasCount: 100 }) ?? {}) as Record<string, unknown>
-  return { doc, data }
+  const data = toData(doc)
+  return 'error' in data ? data : { doc, data: (data.value ?? {}) as Record<string, unknown> }
+}
+
+/**
+ * The document's value. Aliases that would expand past a limit (a "billion
+ * laughs" in a note or vihko.yaml) make it throw: that's one more kind of
+ * invalid YAML, never an exception for whoever reads the file.
+ */
+export function toData(doc: Document): { value: unknown } | { error: string } {
+  try {
+    return { value: doc.toJS({ maxAliasCount: 100 }) }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
+  }
 }
 
 export function readFrontmatter(text: string): Frontmatter {

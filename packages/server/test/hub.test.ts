@@ -2,10 +2,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { randomBytes } from 'node:crypto'
+import { connect as tcp } from 'node:net'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import WebSocket from 'ws'
 import * as Y from 'yjs'
 import { contentHash, readFrontmatter } from '@vihko/core'
+import { MAX_WS_MESSAGE } from '@vihko/server'
 import { NoteLink, type Lineage } from '../../web/src/editor/lineage.ts'
 import { api, closeAll, connect, login, makeDirs, open, sleep, socket, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
 import { mother } from '../../../test/mother.ts'
@@ -169,6 +172,78 @@ test('WebSocket: rejected without a session, from another origin, or for a nonex
     assert.ok(!existsSync(join(env.VIHKO_NOTES_DIR!, missing)))
     wsp.destroy()
   } finally { closeAll(); await srv.stop() }
+})
+
+test('WebSocket: a malformed upgrade request or frame is refused and the server stays up', async () => {
+  const { env } = makeDirs()
+  const srv = await startServer(env)
+  try {
+    const cookie = await login(srv)
+    const host = new URL(srv.base).host
+    /**
+     * The status an upgrade request written by hand gets (0: the connection
+     * closed without an answer). Accepted, `frame` is sent next, and it
+     * resolves once the server closes the connection.
+     */
+    const upgrade = (target: string, headers: string[], frame?: Buffer) => new Promise<number>((resolve) => {
+      const s = tcp(Number(env.VIHKO_PORT), '127.0.0.1')
+      let data = ''
+      const status = () => Number(/^HTTP\/1\.1 (\d{3})/.exec(data)?.[1] ?? 0)
+      s.on('data', (d) => {
+        const first = !status()
+        data += d.toString('latin1')
+        if (!first || !status()) return
+        if (status() === 101 && frame) s.write(frame)
+        else { resolve(status()); s.destroy() }
+      })
+      s.on('error', () => {})
+      s.on('close', () => resolve(status()))
+      s.write([
+        `GET ${target} HTTP/1.1`, ...headers,
+        'Connection: Upgrade', 'Upgrade: websocket', 'Sec-WebSocket-Version: 13', `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}`, '', '',
+      ].join('\r\n'))
+      setTimeout(() => s.destroy(), 5000)
+    })
+    const alive = async () => srv.proc.exitCode === null && (await fetch(srv.base + '/api/health').then((r) => r.status, () => 0)) === 200
+    // The literal values are the cases: what a browser sends from an opaque
+    // origin, a Host that isn't one, a target that isn't a path, a cookie
+    // that isn't percent-encoded.
+    const cases: [string, string, string[], number][] = [
+      ['Origin: null', '/collab', [`Host: ${host}`, `Cookie: ${cookie}`, 'Origin: null'], 403],
+      ['an Origin that is not a URL', '/collab', [`Host: ${host}`, `Cookie: ${cookie}`, 'Origin: ://'], 403],
+      ['a malformed Host', '/collab', ['Host: [', `Cookie: ${cookie}`, `Origin: ${srv.base}`], 403],
+      ['a malformed Host, without a session', '/collab', ['Host: ['], 401],
+      ['a target that is not a path', '//[', [`Host: ${host}`], 400],
+      ['a path that takes no WebSocket', `/${encodeURIComponent(m.aUniqueWord())}`, [`Host: ${host}`, `Cookie: ${cookie}`], 404],
+      ['a session cookie that is not percent-encoded', '/collab', [`Host: ${host}`, 'Cookie: vihko_session=%'], 401],
+    ]
+    for (const [what, target, headers, status] of cases) {
+      assert.equal(await upgrade(target, headers), status, what)
+      assert.ok(await alive(), `the server is still up after ${what}`)
+    }
+    // A well-formed request still gets through; a frame the protocol forbids
+    // (a client's must be masked) closes that connection, not the server.
+    assert.equal(await upgrade('/collab', [`Host: ${host}`, `Cookie: ${cookie}`, `Origin: ${srv.base}`]), 101)
+    assert.equal(await upgrade('/collab', [`Host: ${host}`, `Cookie: ${cookie}`], Buffer.from([0x82, 0x01, 0x00])), 101)
+    assert.ok(await alive(), 'the server is still up after an invalid frame')
+  } finally { await srv.stop() }
+})
+
+test('WebSocket: a message over MAX_WS_MESSAGE closes that connection (1009), not the server', async () => {
+  const { env } = makeDirs()
+  const srv = await startServer(env)
+  try {
+    const cookie = await login(srv)
+    const ws = new WebSocket(srv.base.replace('http', 'ws') + '/collab', { headers: { cookie } })
+    ws.on('error', () => {})
+    await new Promise((resolve) => ws.once('open', resolve))
+    const closed = new Promise<number>((resolve) => ws.once('close', resolve))
+    // The size is the case: what's in it never gets read.
+    ws.send(Buffer.alloc(MAX_WS_MESSAGE + 1))
+    assert.equal(await closed, 1009)
+    assert.equal(srv.proc.exitCode, null)
+    assert.equal((await fetch(srv.base + '/api/health')).status, 200)
+  } finally { await srv.stop() }
 })
 
 

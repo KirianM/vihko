@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { contentHash, readFrontmatter } from '@vihko/core'
 import { Indexer, NoteError, NoteService, openIndex, type Actor } from '@vihko/server'
@@ -21,7 +21,7 @@ function setup() {
   const db = openIndex(join(dir, 'index.db'))
   const indexer = new Indexer({ notesDir, db })
   indexer.scan()
-  return { notesDir, stateDir, db, notes: new NoteService({ notesDir, stateDir, indexer, db }) }
+  return { notesDir, stateDir, db, indexer, notes: new NoteService({ notesDir, stateDir, indexer, db }) }
 }
 
 const code = (fn: () => unknown) => assert.rejects(async () => fn(), NoteError)
@@ -98,6 +98,35 @@ test('delete goes to the state volume trash and can be restored', async () => {
   assert.deepEqual(notes.trash(), [])
 })
 
+test('a trash id is never a path: nothing outside the trash is read, restored or removed through it', async () => {
+  const { notesDir, stateDir, notes } = setup()
+  const entry = await notes.delete('hogar/Red.md', { actor: me })
+  // Something shaped like an entry, outside the trash: one folder up, and the state volume itself.
+  const outside = join(stateDir, m.aFolder())
+  const planted = (dir: string) => {
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'meta.json'), JSON.stringify({ ...entry, path: m.aNotePath(m.aFolder()) }))
+    writeFileSync(join(dir, 'note.md'), `${m.aParagraph()}\n`)
+  }
+  planted(outside)
+  planted(stateDir)
+  // Each kind of id that would leave the trash (the case under test).
+  for (const bad of [`../${basename(outside)}`, '..', outside, `${entry.id}/..`, `${entry.id}/../${entry.id}`]) {
+    assert.equal(await errCode(notes.restore(bad, me)), 'not_found', bad)
+    assert.ok(existsSync(join(outside, 'meta.json')) && existsSync(join(stateDir, 'meta.json')), `nothing removed through ${bad}`)
+  }
+  assert.ok(!existsSync(join(notesDir, 'hogar/Red.md')))
+
+  // What else lands in the trash folder isn't an entry, and doesn't break the list.
+  writeFileSync(join(stateDir, 'trash', m.aFolder()), m.aParagraph())
+  mkdirSync(join(stateDir, 'trash', m.faker.string.ulid()))
+  const other = join(stateDir, 'trash', m.faker.string.ulid())
+  mkdirSync(other)
+  writeFileSync(join(other, 'meta.json'), '{')
+  assert.deepEqual(notes.trash().map((t) => t.id), [entry.id])
+  assert.equal((await notes.restore(entry.id, me)).path, 'hogar/Red.md')
+})
+
 test('invalid paths', async () => {
   const { notes } = setup()
   // Each kind of invalid path (the case under test).
@@ -105,6 +134,61 @@ test('invalid paths', async () => {
     await code(() => notes.read(bad))
     assert.equal(await errCode(notes.create(bad, m.aParagraph(), me)), 'invalid_path', bad)
   }
+})
+
+// The characters under test: C0 controls (newline, tab, NUL…) and DEL. git's history and its trailers can't hold them.
+const CONTROLS = ['\t', '\n', '\r', '\u0000', '\u0007', '\u001b', '\u001f', '\u007f']
+/** A path like `m.aNotePath(folder)`, with `c` in its name. */
+const withControl = (c: string, folder = '') => m.aNotePath(folder).replace(/\.md$/, `${c}${m.aWord()}.md`)
+
+test('vihko never names a note or folder with a control character', async () => {
+  const { notesDir, notes } = setup()
+  const folder = m.aFolder()
+  const existing = m.aNotePath(folder)
+  await notes.create(existing, `${m.aParagraph()}\n`, me)
+  const entry = await notes.delete((await notes.create(m.aNotePath(folder), `${m.aParagraph()}\n`, me)).path, { actor: me })
+  for (const c of CONTROLS) {
+    const bad = withControl(c, folder)
+    const label = JSON.stringify(c)
+    assert.equal(await errCode(notes.create(bad, m.aParagraph(), me)), 'control_characters', `create ${label}`)
+    assert.equal(await errCode(notes.move(existing, bad, { actor: me })), 'control_characters', `move ${label}`)
+    assert.equal(await errCode(notes.move(existing, bad, { actor: me, dryRun: true })), 'control_characters', `move preview ${label}`)
+    assert.equal(await errCode(notes.restore(entry.id, me, bad)), 'control_characters', `restore ${label}`)
+    const badFolder = `${m.aFolder()}${c}${m.aWord()}`
+    assert.throws(() => notes.createFolder(badFolder, me), (e: NoteError) => e.code === 'control_characters', `folder ${label}`)
+    assert.throws(() => notes.createFolder(`${badFolder}/${m.aFolder()}`, me), (e: NoteError) => e.code === 'control_characters', `parent ${label}`)
+    assert.equal(await errCode(notes.moveFolder(folder, badFolder, { actor: me })), 'control_characters', `folder move ${label}`)
+    assert.equal(await errCode(notes.moveFolder(folder, badFolder, { actor: me, dryRun: true })), 'control_characters', `folder move preview ${label}`)
+  }
+  assert.equal(notes.read(existing).path, existing, 'nothing moved')
+  assert.deepEqual(notes.trash().map((e) => e.id), [entry.id], 'nothing restored')
+  assert.ok(!readdirSync(notesDir, { recursive: true }).map(String).some((p) => /[\u0000-\u001f\u007f]/.test(p)), 'nothing created')
+})
+
+test('a note another program named with a control character is indexed, read, edited and renamed away', async () => {
+  const { notesDir, db, indexer, notes } = setup()
+  const folder = m.aFolder()
+  mkdirSync(join(notesDir, folder))
+  for (const c of CONTROLS.filter((x) => x !== '\u0000')) {
+    const path = withControl(c, folder)
+    const text = `# ${m.aHeading()}\n\n${m.aParagraph()}\n`
+    writeFileSync(join(notesDir, path), text)
+    indexer.indexPaths([path])
+    assert.ok(db.prepare('select 1 from notes where path = ?').get(path), `indexed ${JSON.stringify(c)}`)
+    const r = notes.read(path)
+    assert.equal(r.text, text)
+    const more = `${m.aSentence()}\n`
+    await notes.write(path, text + more, { ifMatch: r.etag, actor: me })
+    assert.ok(notes.read(path).text.endsWith(text + more), 'edited (and given a uid)')
+    // Trashed, it comes back under its own name.
+    const entry = await notes.delete(path, { actor: me })
+    assert.equal((await notes.restore(entry.id, me, path)).path, path, 'restored')
+    const clean = m.aNotePath(folder)
+    await notes.move(path, clean, { actor: me })
+    assert.equal(notes.read(clean).text.endsWith(more), true, 'renamed to a name without it')
+  }
+  // NUL can't be in a file name: asking for one is an invalid path, not an internal error.
+  assert.equal(await errCode(Promise.resolve().then(() => notes.read(withControl('\u0000')))), 'invalid_path')
 })
 
 test('uid -> path, and conflict if the uid is duplicated', () => {

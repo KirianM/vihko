@@ -184,6 +184,13 @@ address (then `429` with `Retry-After`; with a proxy, see
 `VIHKO_TRUSTED_PROXIES` above); once your clients are connected, the vihko
 admin can turn it off in Agents and API, and those clients keep working.
 
+Since anyone can register a client with any return address, vihko never
+sends the browser to one on its own: an authorization request that isn't
+valid is shown as an error on vihko's page (a `400` to a client asking for
+JSON), not sent back to the app. The browser only goes back to the app when
+the person authorizes or denies it on the consent page, which shows where it
+goes.
+
 An app can also name itself by an `https` address that describes it (a
 *Client ID Metadata Document*, which the MCP authorization specification of
 2026-07-28 prefers to registration). Then vihko fetches that address, and
@@ -220,6 +227,12 @@ The counters live in memory: restarting vihko forgets them (and browsers sign
 in as new ones once). Their number is capped, so made-up usernames can't fill
 the memory. Behind a reverse proxy, set `VIHKO_TRUSTED_PROXIES`, or every
 client counts as the proxy's address.
+
+One-time links (invitations and password resets) and the first-boot token are
+limited too, but only by client address (the first and last counters, with
+every link, or the token, counted as one username): they are long random tokens,
+so a guess spread over many addresses gets nowhere, and nobody guessing
+elsewhere can hold back the person who has the real link.
 
 Codes of the second factor (a TOTP code or a recovery code, at sign-in or when
 confirming a new key or an OAuth client) are limited the same way, with

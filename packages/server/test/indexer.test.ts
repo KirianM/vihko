@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs'
-import { join } from 'node:path'
+import { cpSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { Indexer, SCHEMA_VERSION, dumpIndex, openIndex, type Db } from '@vihko/server'
@@ -98,6 +98,26 @@ test('comments inside a note are not body text: not searchable, not in its title
   assert.equal(row.body, `# ${heading} \n\n${sentence}\n\n`)
   // Rebuilding from scratch gives the same index, comments and all.
   assert.equal(dumpIndex(db), freshDump(notes))
+})
+
+test('a note whose frontmatter is an alias bomb is indexed as invalid frontmatter; the scan goes on', () => {
+  const { notes, db, indexer } = setup('alias-bomb')
+  // A few lines whose aliases expand to millions of values: the case under test.
+  const bomb = ['a: &a [x, x, x, x, x, x, x, x, x]', ...'bcdef'.split('').map((k, i) => {
+    const prev = 'abcdef'[i]
+    return `${k}: &${k} [${Array(9).fill(`*${prev}`).join(', ')}]`
+  })].join('\n')
+  const path = m.aNotePath(m.aFolder())
+  mkdirSync(join(notes, dirname(path)), { recursive: true })
+  writeFileSync(join(notes, path), `---\n${bomb}\n---\n${m.aParagraph()}\n`)
+  const r = indexer.scan()
+  assert.equal(r.aborted, null)
+  const row = db.prepare('select fm_json, fm_error from notes where path = ?').get(path) as { fm_json: string; fm_error: string | null } | undefined
+  assert.ok(row, 'the note is indexed')
+  assert.ok(row.fm_error, 'with its frontmatter reported as invalid')
+  assert.equal(row.fm_json, '{}')
+  assert.ok(db.prepare('select 1 from notes where path = ?').get('Plan.md'), 'and the rest of the notes are indexed too')
+  assert.deepEqual(freshDump(notes), dumpIndex(db), 'a rebuild from scratch gives the same')
 })
 
 test('the indexer never writes to the notes', () => {

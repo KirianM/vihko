@@ -18,6 +18,9 @@
 // - Authorization code with PKCE S256, always; the redirect URI must be one
 //   the client registered, exactly (a loopback one on any port, RFC 8252);
 //   the `resource` (RFC 8707), if given, must be `<public>/mcp`.
+//   A request that isn't valid is shown to the person, never redirected to
+//   the client, whose address anyone could have registered (RFC 9700
+//   §4.11.2); the browser goes there only when the person decides.
 // - Consent in the UI (web: Consent.tsx): whoever authorizes signs in, and
 //   chooses as for a new key (read-only and every folder by default). The
 //   authorization is a key of theirs (keys.ts), named after the client:
@@ -161,17 +164,21 @@ export interface AuthorizeRequest {
 }
 
 /**
- * What an authorization request is: valid, or why not. Without a known
- * client and one of its redirect URIs there's nowhere safe to send the answer
- * (`redirect: null`: the person is told); otherwise the error goes back to
- * the client at its redirect URI.
+ * What an authorization request is: valid, or why not. An error is never
+ * sent back to the client's redirect URI, even a registered one: anyone may
+ * register a client with any address (dynamic registration, or a metadata
+ * document of their own), so redirecting errors would make this server a
+ * redirector to anywhere behind a trusted-looking link (RFC 9700 §4.11.2).
+ * The person is told instead; only their own decision on the consent page
+ * (`approve`, `deny`), after seeing where it goes, sends the browser there.
  */
 export type AuthorizeCheck =
   | { ok: true; req: AuthorizeRequest }
-  | { ok: false; error: 'invalid_client' | 'invalid_redirect_uri'; redirect: null }
+  | { ok: false; error: 'invalid_client' | 'invalid_redirect_uri' }
   // A metadata document that couldn't be fetched or used: why (never anything of its content), and from which host.
-  | { ok: false; error: 'invalid_client_metadata'; redirect: null; reason: CimdErrorCode | 'invalid_redirect_uri' | 'invalid_client_metadata'; host: string }
-  | { ok: false; error: OAuthErrorCode; redirect: string }
+  | { ok: false; error: 'invalid_client_metadata'; reason: CimdErrorCode | 'invalid_redirect_uri' | 'invalid_client_metadata'; host: string }
+  // A known client and redirect URI, but a request that isn't valid.
+  | { ok: false; error: 'invalid_request' | 'unsupported_response_type' | 'invalid_target'; description: string }
 
 /** What the person decided on the consent screen. */
 export interface Grant {
@@ -337,7 +344,7 @@ export class OAuthServer {
    */
   private async metadataClient(id: string): Promise<OAuthClient | Extract<AuthorizeCheck, { error: 'invalid_client_metadata' }>> {
     const host = hostOf(id)
-    const refused = (reason: CimdErrorCode | 'invalid_redirect_uri' | 'invalid_client_metadata') => ({ ok: false as const, error: 'invalid_client_metadata' as const, redirect: null, reason, host })
+    const refused = (reason: CimdErrorCode | 'invalid_redirect_uri' | 'invalid_client_metadata') => ({ ok: false as const, error: 'invalid_client_metadata' as const, reason, host })
     try {
       const doc = await this.clientMetadata.get(id)
       let redirectUris: string[]
@@ -387,24 +394,24 @@ export class OAuthServer {
       this.clientMetadata.checkUrl(id)
       return { ok: 'later' }
     } catch (err) {
-      if (err instanceof CimdError) return { ok: false, error: 'invalid_client_metadata', redirect: null, reason: err.code, host: hostOf(id) }
+      if (err instanceof CimdError) return { ok: false, error: 'invalid_client_metadata', reason: err.code, host: hostOf(id) }
       throw err
     }
   }
 
   private checkWith(client: OAuthClient | null, param: (name: string) => string | null | undefined): AuthorizeCheck {
-    if (!client) return { ok: false, error: 'invalid_client', redirect: null }
+    if (!client) return { ok: false, error: 'invalid_client' }
     const redirectUri = param('redirect_uri') ?? ''
-    if (!redirectUri || !client.redirectUris.some((r) => sameRedirect(r, redirectUri))) return { ok: false, error: 'invalid_redirect_uri', redirect: null }
+    if (!redirectUri || !client.redirectUris.some((r) => sameRedirect(r, redirectUri))) return { ok: false, error: 'invalid_redirect_uri' }
     const rawState = param('state')
     const state = rawState === undefined || rawState === null || rawState === '' ? null : rawState.slice(0, MAX_STATE)
-    const back = (error: OAuthErrorCode, description: string): AuthorizeCheck =>
-      ({ ok: false, error, redirect: this.redirectWith(redirectUri, { error, error_description: description, ...(state === null ? {} : { state }) }) })
-    if (param('response_type') !== 'code') return back('unsupported_response_type', 'only response_type=code')
+    if (param('response_type') !== 'code') return { ok: false, error: 'unsupported_response_type', description: 'only response_type=code' }
     const challenge = param('code_challenge') ?? ''
-    if (param('code_challenge_method') !== 'S256' || !/^[A-Za-z0-9_-]{43}$/.test(challenge)) return back('invalid_request', 'PKCE is required: code_challenge (S256) and code_challenge_method=S256')
+    if (param('code_challenge_method') !== 'S256' || !/^[A-Za-z0-9_-]{43}$/.test(challenge)) {
+      return { ok: false, error: 'invalid_request', description: 'PKCE is required: code_challenge (S256) and code_challenge_method=S256' }
+    }
     const resource = param('resource') ?? this.resource
-    if (resource !== this.resource) return back('invalid_target', `the only resource here is ${this.resource}`)
+    if (resource !== this.resource) return { ok: false, error: 'invalid_target', description: `the only resource here is ${this.resource}` }
     return { ok: true, req: { client, redirectUri, codeChallenge: challenge, state, resource } }
   }
 

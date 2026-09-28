@@ -28,7 +28,7 @@ import { AccessError, AgentDenied, type Access } from '../access.ts'
 import { historyFor } from '../agentHistory.ts'
 import { History, HistoryError, type AuthorRef, type HistoryReader } from '../history/index.ts'
 import { wordDiff } from '../history/diff.ts'
-import { authorFilter } from '../history/reader.ts'
+import { UNAVAILABLE_MESSAGE, authorFilter } from '../history/reader.ts'
 import { ResolvedThreads } from '../history/resolved.ts'
 import { revertVersion } from '../history/revert.ts'
 import { NoteError, NoteService, type Actor } from '../notes.ts'
@@ -138,7 +138,11 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     return v
   }
 
-  app.get('/api/history/status', (c) => c.json(history.status()))
+  // Why it isn't available, as a code: what git said is the admin's, in the alerts.
+  app.get('/api/history/status', (c) => {
+    const s = history.status()
+    return c.json({ ...s, error: s.error && { code: s.error.code, message: UNAVAILABLE_MESSAGE } })
+  })
 
   app.get('/api/history/versions', async (c) => {
     const path = notePath(c, c.req.query('path'))
@@ -330,4 +334,18 @@ export function historyErrorStatus(e: HistoryError) {
 /** HTTP status for each purge error code. */
 export function purgeErrorStatus(e: PurgeError) {
   return ({ history_unmanaged: 409, history_no_repository: 409, invalid_path: 400, invalid_version: 400, not_found: 404, not_a_version: 404, history_moved: 409 } as const)[e.code]
+}
+
+/**
+ * The message a client gets with a purge error: its own, except the two that
+ * carry what git said or where the state volume is (`vihko history purge`
+ * shows them whole to whoever runs it): logged here.
+ */
+export function purgeClientMessage(e: PurgeError): string {
+  if (e.code === 'history_moved') {
+    console.error(`history: purge: ${e.message}`)
+    return 'the history changed while it was being rewritten; nothing was changed'
+  }
+  if (e.code === 'history_no_repository') return 'there is no managed history yet'
+  return e.message
 }

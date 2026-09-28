@@ -5,7 +5,7 @@ import { scryptSync } from 'node:crypto'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
-import { Auth, Indexer, NoteService, Profiles, Workspace, SESSION_COOKIE, STATE_VERSION, createApp, ftsQuery, hashPassword, needsRehash, openIndex, openState, verifyPassword, type Runtime } from '@vihko/server'
+import { Auth, AuthError, Indexer, MAX_API_BODY, MAX_AUTH_BODY, MAX_PASSWORD, NoteService, Profiles, Workspace, SESSION_COOKIE, STATE_VERSION, createApp, ftsQuery, hashPassword, needsRehash, openIndex, openState, verifyPassword, type Runtime } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { yamlKey } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
@@ -93,6 +93,45 @@ test('passwords: scrypt hashes still verify and become argon2id on the next logi
   assert.equal(await auth.login(admin.username, wrong), null)
 })
 
+/** A random password exactly `length` characters long. */
+const aPasswordOf = (length: number) => Array.from({ length: Math.ceil(length / 10) + 1 }, () => m.aPassword()).join('').slice(0, length)
+
+test('passwords: one longer than MAX_PASSWORD is refused before any hashing', async () => {
+  const atLimit = aPasswordOf(MAX_PASSWORD)
+  assert.ok(await verifyPassword(atLimit, await hashPassword(atLimit)), 'the limit itself is a valid length')
+  const over = aPasswordOf(MAX_PASSWORD + 1)
+  await assert.rejects(hashPassword(over), (e) => e instanceof AuthError && e.code === 'weak_password')
+  // Even against a hash made of it (by an older vihko, without the limit), it's never checked.
+  assert.equal(await verifyPassword(over, legacyScrypt(over)), false)
+})
+
+test('request bodies: over the limit is 413, and nothing changes', async () => {
+  const { auth, req } = await setup()
+  const admin = m.aUser({ role: 'admin' })
+  await auth.createUser(admin.username, admin.password, admin.role)
+  await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
+  const path = m.aNotePath()
+  const text = m.aParagraph()
+  const created = await req('POST', '/api/note', { path, text })
+  assert.equal(created.status, 201)
+  const current = async () => (await req('GET', `/api/note?path=${encodeURIComponent(path)}`)).body.text as string
+  const before = await current()
+  // Any route that reads a body: the whole text of a note, as big as the limit.
+  const huge = 'x'.repeat(MAX_API_BODY)
+  const put = await req('PUT', `/api/note?path=${encodeURIComponent(path)}`, { text: huge }, { 'if-match': `"${created.body.etag}"` })
+  assert.equal(put.status, 413, 'PUT /api/note')
+  const edit = await req('POST', '/api/note/edit', { path, ops: [{ op: 'append', text: huge }] })
+  assert.equal(edit.status, 413, 'POST /api/note/edit')
+  assert.equal(await current(), before)
+
+  // A new password: its body is as small as a login's, and the password itself has a limit.
+  const tooBig = await req('POST', '/api/auth/password', { current: admin.password, password: aPasswordOf(MAX_AUTH_BODY) })
+  assert.equal(tooBig.status, 413, 'a body larger than a login\'s')
+  const tooLong = await req('POST', '/api/auth/password', { current: admin.password, password: aPasswordOf(MAX_PASSWORD + 1) })
+  assert.deepEqual(errorOf(tooLong), [400, 'weak_password'], 'a password longer than MAX_PASSWORD')
+  assert.ok(await auth.login(admin.username, admin.password), 'the password is still the same')
+})
+
 test('first boot: one-time token to create the admin', async () => {
   const { auth, req } = await setup()
   const admin = m.aUser({ role: 'admin' })
@@ -172,6 +211,12 @@ test('notes over HTTP: read, create, write with If-Match, move and delete', asyn
   assert.deepEqual(errorOf(await req('POST', '/api/note', { path: fresh, text: `# ${m.aHeading()}\n` })), [409, 'exists'])
   assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(`../${m.aNotePath()}`)}`)), [400, 'invalid_path'])
   assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(m.aNotePath())}`)), [404, 'not_found'])
+  // A name with a control character (a tab, the case under test) is refused with its own code; NUL can't name a file at all.
+  const tabbed = m.aNotePath().replace(/\.md$/, `\t${m.aWord()}.md`)
+  assert.deepEqual(errorOf(await req('POST', '/api/note', { path: tabbed, text: `# ${m.aHeading()}\n` })), [400, 'control_characters'])
+  assert.deepEqual(errorOf(await req('POST', '/api/note/move', { from: fresh, to: tabbed })), [400, 'control_characters'])
+  assert.deepEqual(errorOf(await req('POST', '/api/folder', { path: `${m.aFolder()}\t${m.aWord()}` })), [400, 'control_characters'])
+  assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(`${m.aFolder()}/\u0000.md`)}`)), [400, 'invalid_path'])
   const notJson = await req('POST', '/api/note', '{no es json', {}, true)
   assert.deepEqual(errorOf(notJson), [400, 'invalid'], "a body that isn't JSON isn't an internal error")
 
@@ -324,6 +369,29 @@ test("UI: static files, app routes serve index.html, and the API doesn't fall th
   assert.deepEqual([missing.status, missing.body.error], [404, 'not_found'], "an unknown API route doesn't return the UI")
 })
 
+test('headers: every answer is nosniff, and one that is not the UI can run nothing', async () => {
+  const webDir = tempDir('vihko-web-')
+  writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
+  const { auth, req, raw } = await setup({ webDir })
+  const admin = m.aUser({ role: 'admin' })
+  await auth.createUser(admin.username, admin.password, admin.role)
+  const api = {
+    health: await raw('/api/health'),
+    unauthorized: await raw('/api/notes'),
+    tooLarge: (await req('POST', '/api/auth/login', m.aPassword().repeat(MAX_AUTH_BODY), {}, true)).headers,
+  }
+  await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
+  const signedIn = { notes: await raw('/api/notes'), missing: await raw(`/api/${m.aUniqueWord()}`) }
+  for (const [what, headers] of Object.entries({ ...api, ...signedIn }).map(([k, v]) => [k, v instanceof Response ? v.headers : v] as const)) {
+    assert.equal(headers.get('x-content-type-options'), 'nosniff', what)
+    assert.equal(headers.get('content-security-policy'), "default-src 'none'; frame-ancestors 'none'", what)
+  }
+  // The UI keeps its own policy.
+  const home = await raw('/')
+  assert.equal(home.headers.get('x-content-type-options'), 'nosniff')
+  assert.match(home.headers.get('content-security-policy')!, /default-src 'self'/)
+})
+
 test('CSRF: a write from another origin is rejected', async () => {
   const { auth, req } = await setup()
   const admin = m.aUser({ role: 'admin' })
@@ -332,6 +400,10 @@ test('CSRF: a write from another origin is rejected', async () => {
   const path = m.aNotePath()
   const r = await req('POST', '/api/note', { path, text: m.aSentence() }, { origin: 'https://malicious.example' })
   assert.equal(r.status, 403)
+  // An opaque origin (a sandboxed frame, a file) or one that isn't a URL is another origin too, not an error.
+  for (const origin of ['null', '://']) {
+    assert.deepEqual(errorOf(await req('POST', '/api/note', { path, text: m.aSentence() }, { origin })), [403, 'forbidden'], `Origin: ${origin}`)
+  }
   const same = await req('POST', '/api/note', { path, text: m.aSentence() }, { origin: 'http://localhost' })
   assert.equal(same.status, 201)
 })

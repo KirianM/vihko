@@ -27,7 +27,8 @@ import { MoveJobs } from './jobs.ts'
 import type { ExternalMoves } from '../externalMoves.ts'
 import { HistoryError, type History } from '../history/index.ts'
 import { GitError } from '../history/git.ts'
-import { historyErrorStatus, historyRoutes, purgeErrorStatus } from './history.ts'
+import { historyErrorStatus, historyRoutes, purgeClientMessage, purgeErrorStatus } from './history.ts'
+import { UNAVAILABLE_MESSAGE, clientMessage } from '../history/reader.ts'
 import { PurgeError } from '../history/purge.ts'
 import { AccessError, AccessPolicy, AgentDenied, type Access } from '../access.ts'
 import { PermissionsEngine, groupSource, stateDirectory, type GroupSource } from '../permissions.ts'
@@ -47,6 +48,7 @@ import type { BlockList } from 'node:net'
 import { LoginLimiter, SETUP_ACCOUNT, type AttemptResult } from '../loginLimit.ts'
 import { clientIp, ipKey } from './clientIp.ts'
 import { written } from './written.ts'
+import { sameHost } from './origin.ts'
 import { Users, UsersError } from '../users.ts'
 import { AdminSettings, AdminSettingsError } from '../adminSettings.ts'
 import { inviteRoutes, userRoutes, usersErrorStatus, type UserRoutesDeps } from './users.ts'
@@ -58,8 +60,19 @@ export const SESSION_COOKIE = 'vihko_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
 export const DEVICE_COOKIE = 'vihko_device'
 const DEVICE_DAYS = 365
-/** Login and first-boot bodies: a name, a password and a token fit well within this. */
-const AUTH_BODY = 16 * 1024
+/**
+ * Bodies that carry a password (login, first boot, one-time links, a new
+ * password): a name, a password or two and a token fit well within this.
+ */
+export const MAX_AUTH_BODY = 16 * 1024
+/**
+ * Any other body the API reads, which it holds in memory whole: the text of
+ * a note (JSON-escaped) or a batch of edits to one. The same as an image's
+ * default limit: a note this size is already far beyond anything written
+ * by hand, and a request can't make the server hold more. Images have
+ * their own limit (`maxImageBytes`), on their route.
+ */
+export const MAX_API_BODY = 20 * 1024 * 1024
 
 export interface Runtime {
   lastScan: ScanReport | null
@@ -191,6 +204,9 @@ function uiHeaders(external: ExternalImages) {
 // an SVG opened on its own (sandboxed, no scripts).
 const FILE_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
 
+// Everything else (the API's JSON, errors, /mcp): nothing in it is a page.
+const API_CSP = "default-src 'none'; frame-ancestors 'none'"
+
 /**
  * `user`: who the request acts for (a key's user, for an agent); `access`:
  * who is asking and what they may reach; `token`: the session (cookie only).
@@ -199,7 +215,7 @@ export type ApiEnv = { Variables: { user: User; token: string; access: Access } 
 type Env = ApiEnv
 
 function noteErrorStatus(e: NoteError) {
-  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409 } as const)[e.code]
+  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, control_characters: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409 } as const)[e.code]
 }
 
 function fetchErrorStatus(e: FetchImageError) {
@@ -265,9 +281,13 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof AudienceWidens) return fail(c, 409, 'audience_widens', err.message, { audience: err.audience })
     if (err instanceof FetchImageError) return fail(c, fetchErrorStatus(err), err.code, err.message)
     if (err instanceof ProfileError) return fail(c, 400, err.code, err.message)
-    if (err instanceof HistoryError) return fail(c, historyErrorStatus(err), err.code, err.message)
-    if (err instanceof PurgeError) return fail(c, purgeErrorStatus(err), err.code, err.message)
-    if (err instanceof GitError) return fail(c, 503, 'history_unavailable', err.message)
+    // What git said stays on the server (history/reader.ts `clientMessage`).
+    if (err instanceof HistoryError) return fail(c, historyErrorStatus(err), err.code, clientMessage(err))
+    if (err instanceof PurgeError) return fail(c, purgeErrorStatus(err), err.code, purgeClientMessage(err))
+    if (err instanceof GitError) {
+      console.error(`history: ${err.message}`)
+      return fail(c, 503, 'history_unavailable', UNAVAILABLE_MESSAGE)
+    }
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400, err.code, err.message)
     if (err instanceof KeyError) return fail(c, keyErrorStatus(err), err.code, err.message)
     if (err instanceof IntegrationsError) return fail(c, err.code === 'integrations_locked' ? 409 : 400, err.code, err.message)
@@ -279,6 +299,21 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     console.error(err)
     return fail(c, 500, 'internal', 'internal error')
   })
+
+  // Every answer, whatever answered it: never sniffed as another type. One
+  // without a policy of its own (the API's JSON, errors) is no page: opened
+  // on its own, or framed, it can run and load nothing. The UI and the files
+  // from the notes folder set theirs.
+  app.use('*', async (c, next) => {
+    await next()
+    c.header('X-Content-Type-Options', 'nosniff')
+    if (!c.res.headers.has('Content-Security-Policy')) c.header('Content-Security-Policy', API_CSP)
+  })
+
+  // No body over MAX_API_BODY, before anything else (who is asking included).
+  // An image upload has its own limit, on its route.
+  const apiBody = bodyLimit({ maxSize: MAX_API_BODY, onError: (c) => fail(c, 413, 'invalid', `the limit is ${MAX_API_BODY} bytes`) })
+  app.use('/api/*', (c, next) => (c.req.method === 'POST' && c.req.path === '/api/attachments' ? next() : apiBody(c, next)))
 
   // --- A key (`Authorization: Bearer`) ----------------------------------------
   // Judged by the key alone, never the cookie. Only the routes http/routes.ts
@@ -303,7 +338,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.use('/api/*', async (c, next) => {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
       const origin = c.req.header('origin')
-      if (origin && new URL(origin).host !== new URL(c.req.url).host) return fail(c, 403, 'forbidden', 'origin not allowed')
+      if (origin && !sameHost(origin, new URL(c.req.url).host)) return fail(c, 403, 'forbidden', 'origin not allowed')
     }
     await next()
   })
@@ -318,7 +353,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Guessing the first-boot token or a password is limited (loginLimit.ts):
   // while a wait is in force, 429 with Retry-After, before anything is checked.
   const limiter = deps.loginLimiter ?? new LoginLimiter()
-  const authBody = bodyLimit({ maxSize: AUTH_BODY, onError: (c) => fail(c, 413, 'invalid', `the limit is ${AUTH_BODY} bytes`) })
+  const authBody = bodyLimit({ maxSize: MAX_AUTH_BODY, onError: (c) => fail(c, 413, 'invalid', `the limit is ${MAX_AUTH_BODY} bytes`) })
   const ipOf = (c: Context) => ipKey(clientIp(socketAddress(c), c.req.header('x-forwarded-for'), deps.trustedProxies ?? null))
   const tooMany = (c: Context, retryAfter: number) => {
     c.header('Retry-After', String(retryAfter))
@@ -328,7 +363,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   app.post('/api/setup', authBody, async (c) => {
     const { token, username, password } = await c.req.json<{ token?: unknown; username?: unknown; password?: unknown }>()
-    const attempt: AttemptResult = limiter.begin({ ip: ipOf(c), account: SETUP_ACCOUNT })
+    const attempt: AttemptResult = limiter.begin({ ip: ipOf(c), account: SETUP_ACCOUNT, byAddress: true })
     if (!attempt.ok) return tooMany(c, attempt.retryAfter)
     try {
       const user = await auth.setup(text(token), text(username), text(password))
@@ -400,6 +435,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // A one-time link (an invitation or a reset): no session yet.
   app.use('/api/invite/*', authBody)
   inviteRoutes(app, userDeps)
+  // A new password (userRoutes, with a session): the current one and the new one.
+  app.use('/api/auth/password', authBody)
 
   // --- From here on, a session is required -----------------------------------
 

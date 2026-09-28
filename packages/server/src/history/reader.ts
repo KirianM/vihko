@@ -86,6 +86,18 @@ export class HistoryError extends Error {
 }
 
 /**
+ * What a client is told when the history can't be read. What git said (its
+ * errors can name the server's folders) stays on the server: in the log and
+ * the admin's alerts.
+ */
+export const UNAVAILABLE_MESSAGE = 'the history can\'t be read right now: the admin\'s alerts say why'
+
+/** The message a client gets with a history error: its own, except when it may carry git's words. */
+export function clientMessage(e: HistoryError): string {
+  return e.code === 'history_unavailable' ? UNAVAILABLE_MESSAGE : e.message
+}
+
+/**
  * The value of the author filter for an author: `user:<id>`, `agent:<keyId>`,
  * `system`, `external`, `git:<email>`. A bare kind (`user`, `agent`, `git`)
  * matches every author of that kind.
