@@ -8,6 +8,7 @@ import { acceptCompletion, autocompletion, pickedCompletion, type Completion, ty
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import { Prec, type EditorState } from '@codemirror/state'
 import { keymap, type EditorView } from '@codemirror/view'
+import { withoutClosingHashes } from '@vihko/core/syntax'
 import { api } from '../api.ts'
 import {
   NoteCatalog, completionContext, completionEnd, fold, folderOf, matchScore, rankHeadings, rankTags,
@@ -77,7 +78,7 @@ function ownHeadings(state: EditorState): HeadingEntry[] {
       const m = /^(ATX|Setext)Heading(\d)$/.exec(n.name)
       if (!m) return
       const text = m[1] === 'ATX'
-        ? state.doc.sliceString(n.from, n.to).replace(/^#+[ \t]*/, '').replace(/[ \t]+#+[ \t]*$/, '').trim()
+        ? withoutClosingHashes(state.doc.sliceString(n.from, n.to).replace(/^#+[ \t]*/, '')).trim()
         : state.doc.lineAt(n.from).text.trim()
       if (text) out.push({ level: Number(m[2]), text })
       return false

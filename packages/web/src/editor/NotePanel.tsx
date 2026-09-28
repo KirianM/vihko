@@ -17,6 +17,7 @@ import type { Session } from './collab.ts'
 import { anchorChanged, commentContext, commentKey, displayDate, formatComment, parseThreads, commentPosition, removedThread, replyTo, resolveThread, type Change, type Thread } from './comments.ts'
 import { setCommentStyle, threadsField } from './commentMarks.ts'
 import { usePresence } from './presence.ts'
+import { withoutClosingHashes } from '@vihko/core/syntax'
 import { ResolvedSection, useHistoryState, useResolved } from './ResolvedThreads.tsx'
 import { useViewState } from './viewUpdates.ts'
 import { useBackClose } from '../mobile.ts'
@@ -499,14 +500,26 @@ function LinksTab({ links, onNavigate, onPickAmbiguous, onOpenCandidate }: {
 
 // --- Outline ------------------------------------------------------------------------
 
+/** `s` without its `<!-- -->` comments (an unclosed one stays). */
+function withoutComments(s: string): string {
+  let out = ''
+  let at = 0
+  for (let open = s.indexOf('<!--'); open !== -1; open = s.indexOf('<!--', at)) {
+    const close = s.indexOf('-->', open + 4)
+    if (close === -1) break
+    out += s.slice(at, open)
+    at = close + 3
+  }
+  return out + s.slice(at)
+}
+
 interface HeadingItem { level: number; text: string; from: number }
 
+// Every step in linear time, however long the line: a heading of a note is anyone's text.
 function headingText(line: string) {
-  return line
-    .replace(/^\s{0,3}#{1,6}\s*/, '').replace(/\s+#+\s*$/, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/!?\[\[([^\]|]*\|)?([^\]]*)\]\]/g, '$2')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+  return withoutComments(withoutClosingHashes(line.replace(/^\s{0,3}#{1,6}\s*/, ''), /\s/))
+    .replace(/!?\[\[([^[\]|]*\|)?([^[\]]*)\]\]/g, '$2')
+    .replace(/\[([^[\]]*)\]\([^()]*\)/g, '$1')
     .replace(/[*_`~]/g, '')
     .trim()
 }
