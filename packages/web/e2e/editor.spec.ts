@@ -61,6 +61,25 @@ test('a change made outside vihko shows up live', async () => {
   await expect.poll(() => editorText(a)).toContain(`(${outside})`)
 })
 
+test('another program undoing its own change: the editors show the revert and the file keeps it', async () => {
+  const [first, second] = [m.aUniqueWord(), m.aUniqueWord()]
+  const b = disk().replace('## Red', `## Red (${first})`)
+  const c = b.replace(`(${first})`, `(${first}) (${second})`)
+  writeFileSync(FILE, b)
+  await expect.poll(() => editorText(a)).toContain(`(${first})`)
+  writeFileSync(FILE, c)
+  await expect.poll(() => editorText(a)).toContain(`(${second})`)
+  writeFileSync(FILE, b) // it removes what it added last
+  for (const page of [k, a]) {
+    await expect.poll(() => editorText(page)).not.toContain(`(${second})`)
+    expect(await editorText(page)).toContain(`(${first})`)
+  }
+  // Past the hub's flush window (1 s) and its check of the file (1 s): vihko wrote nothing back.
+  await k.waitForTimeout(3000)
+  expect(disk()).toBe(b)
+  expect(await editorText(a)).not.toContain(`(${second})`)
+})
+
 test('live preview: marks hidden outside the cursor and a resolved wikilink', async () => {
   await k.locator('.cm-h1').click()
   await expect(k.locator('.cm-line', { hasText: BY_ADMIN })).toHaveText(`${BY_ADMIN} ${BOLD} Red.`)
