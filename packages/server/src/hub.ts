@@ -40,6 +40,13 @@ export const TEXT = 'md'
 /** Map in the document with the hub's metadata: `generation` (see `load`). */
 export const META = 'vihko'
 export const COLLAB_PATH = '/collab'
+/**
+ * The largest message an editor may send, in bytes (`ws` allows 100 MiB by
+ * default, all held in memory). An update that carries a note's whole text
+ * is about the text's size: the same bound as the API's bodies
+ * (MAX_API_BODY), far beyond any note written by hand.
+ */
+export const MAX_WS_MESSAGE = 20 * 1024 * 1024
 const HISTORY = 20
 
 interface Base { snapshot: Uint8Array; text: string; hash: string }
@@ -399,7 +406,7 @@ export class CollabHub implements HotDocuments {
   private logDir: string
   private checkTimer: NodeJS.Timeout | null = null
   private accessTimer: NodeJS.Timeout | null = null
-  private wss = new WebSocketServer({ noServer: true })
+  private wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_MESSAGE })
   /** Open WebSockets, by user and session (its token, to tell whether it is still in force): ended at once when the session ends (`checkSessions`). */
   private sockets = new Set<{ userId: string; session: string; token: string; close(code: number, reason: string): void }>()
   private log: (m: string) => void

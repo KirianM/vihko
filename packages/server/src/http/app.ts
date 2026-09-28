@@ -59,8 +59,19 @@ export const SESSION_COOKIE = 'vihko_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
 export const DEVICE_COOKIE = 'vihko_device'
 const DEVICE_DAYS = 365
-/** Login and first-boot bodies: a name, a password and a token fit well within this. */
-const AUTH_BODY = 16 * 1024
+/**
+ * Bodies that carry a password (login, first boot, one-time links, a new
+ * password): a name, a password or two and a token fit well within this.
+ */
+export const MAX_AUTH_BODY = 16 * 1024
+/**
+ * Any other body the API reads, which it holds in memory whole: the text of
+ * a note (JSON-escaped) or a batch of edits to one. The same as an image's
+ * default limit: a note this size is already far beyond anything written
+ * by hand, and a request can't make the server hold more. Images have
+ * their own limit (`maxImageBytes`), on their route.
+ */
+export const MAX_API_BODY = 20 * 1024 * 1024
 
 export interface Runtime {
   lastScan: ScanReport | null
@@ -192,6 +203,9 @@ function uiHeaders(external: ExternalImages) {
 // an SVG opened on its own (sandboxed, no scripts).
 const FILE_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
 
+// Everything else (the API's JSON, errors, /mcp): nothing in it is a page.
+const API_CSP = "default-src 'none'; frame-ancestors 'none'"
+
 /**
  * `user`: who the request acts for (a key's user, for an agent); `access`:
  * who is asking and what they may reach; `token`: the session (cookie only).
@@ -281,6 +295,21 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return fail(c, 500, 'internal', 'internal error')
   })
 
+  // Every answer, whatever answered it: never sniffed as another type. One
+  // without a policy of its own (the API's JSON, errors) is no page: opened
+  // on its own, or framed, it can run and load nothing. The UI and the files
+  // from the notes folder set theirs.
+  app.use('*', async (c, next) => {
+    await next()
+    c.header('X-Content-Type-Options', 'nosniff')
+    if (!c.res.headers.has('Content-Security-Policy')) c.header('Content-Security-Policy', API_CSP)
+  })
+
+  // No body over MAX_API_BODY, before anything else (who is asking included).
+  // An image upload has its own limit, on its route.
+  const apiBody = bodyLimit({ maxSize: MAX_API_BODY, onError: (c) => fail(c, 413, 'invalid', `the limit is ${MAX_API_BODY} bytes`) })
+  app.use('/api/*', (c, next) => (c.req.method === 'POST' && c.req.path === '/api/attachments' ? next() : apiBody(c, next)))
+
   // --- A key (`Authorization: Bearer`) ----------------------------------------
   // Judged by the key alone, never the cookie. Only the routes http/routes.ts
   // opens to keys; any other, or any with the API off, is 404 as if it didn't
@@ -319,7 +348,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Guessing the first-boot token or a password is limited (loginLimit.ts):
   // while a wait is in force, 429 with Retry-After, before anything is checked.
   const limiter = deps.loginLimiter ?? new LoginLimiter()
-  const authBody = bodyLimit({ maxSize: AUTH_BODY, onError: (c) => fail(c, 413, 'invalid', `the limit is ${AUTH_BODY} bytes`) })
+  const authBody = bodyLimit({ maxSize: MAX_AUTH_BODY, onError: (c) => fail(c, 413, 'invalid', `the limit is ${MAX_AUTH_BODY} bytes`) })
   const ipOf = (c: Context) => ipKey(clientIp(socketAddress(c), c.req.header('x-forwarded-for'), deps.trustedProxies ?? null))
   const tooMany = (c: Context, retryAfter: number) => {
     c.header('Retry-After', String(retryAfter))
@@ -401,6 +430,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // A one-time link (an invitation or a reset): no session yet.
   app.use('/api/invite/*', authBody)
   inviteRoutes(app, userDeps)
+  // A new password (userRoutes, with a session): the current one and the new one.
+  app.use('/api/auth/password', authBody)
 
   // --- From here on, a session is required -----------------------------------
 

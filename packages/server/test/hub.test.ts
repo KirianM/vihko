@@ -8,6 +8,7 @@ import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/pro
 import WebSocket from 'ws'
 import * as Y from 'yjs'
 import { contentHash, readFrontmatter } from '@vihko/core'
+import { MAX_WS_MESSAGE } from '@vihko/server'
 import { NoteLink, type Lineage } from '../../web/src/editor/lineage.ts'
 import { api, closeAll, connect, login, makeDirs, open, sleep, socket, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
 import { mother } from '../../../test/mother.ts'
@@ -225,6 +226,23 @@ test('WebSocket: a malformed upgrade request or frame is refused and the server 
     assert.equal(await upgrade('/collab', [`Host: ${host}`, `Cookie: ${cookie}`, `Origin: ${srv.base}`]), 101)
     assert.equal(await upgrade('/collab', [`Host: ${host}`, `Cookie: ${cookie}`], Buffer.from([0x82, 0x01, 0x00])), 101)
     assert.ok(await alive(), 'the server is still up after an invalid frame')
+  } finally { await srv.stop() }
+})
+
+test('WebSocket: a message over MAX_WS_MESSAGE closes that connection (1009), not the server', async () => {
+  const { env } = makeDirs()
+  const srv = await startServer(env)
+  try {
+    const cookie = await login(srv)
+    const ws = new WebSocket(srv.base.replace('http', 'ws') + '/collab', { headers: { cookie } })
+    ws.on('error', () => {})
+    await new Promise((resolve) => ws.once('open', resolve))
+    const closed = new Promise<number>((resolve) => ws.once('close', resolve))
+    // The size is the case: what's in it never gets read.
+    ws.send(Buffer.alloc(MAX_WS_MESSAGE + 1))
+    assert.equal(await closed, 1009)
+    assert.equal(srv.proc.exitCode, null)
+    assert.equal((await fetch(srv.base + '/api/health')).status, 200)
   } finally { await srv.stop() }
 })
 
