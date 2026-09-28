@@ -107,8 +107,19 @@ test('a new admin is confirmed at the moment, as making someone admin is (D-046.
     // The name is checked before anything is asked: a taken or invalid one spends no code.
     assert.equal((await h.admin('POST', '/api/admin/users', { username: h.users.member.username, role: 'admin' })).body.error, 'user_exists')
     assert.equal((await h.admin('POST', '/api/admin/users', { username: '', role: 'admin' })).body.error, 'invalid_username')
+    // Another admin, to be told.
+    const other = m.aUser({ role: 'admin' })
+    await h.auth.createUser(other.username, other.password, 'admin')
+    const otherAdmin = await session(h, other)
     const created = await h.admin('POST', '/api/admin/users', { username: newcomer, role: 'admin', confirm: password })
     assert.deepEqual([created.status, created.body.user.role, created.body.link.kind], [201, 'admin', 'invite'])
+    // The other admins are told as when someone is made admin; whoever did it and the newcomer, nothing.
+    assert.deepEqual((await accountNotices(otherAdmin)).map((n) => [n.code, n.change, n.role, n.user, n.by]),
+      [['user_account_changed', 'role_changed', 'admin', newcomer, h.users.admin.username]])
+    assert.equal((await h.admin('POST', '/api/admin/users', { username: m.aUsername(), role: 'member' })).status, 201)
+    assert.equal((await accountNotices(otherAdmin)).length, 1, 'a new member tells nobody')
+    assert.deepEqual(await accountNotices(h.admin), [])
+    assert.deepEqual(new Notices(h.auth.state).of(created.body.user.id), [])
 
     // With a second factor: its current code, never the password.
     const s = await h.admin('POST', '/api/account/2fa/setup', { password })

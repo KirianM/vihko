@@ -193,6 +193,8 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
       if (refused) return refused
     }
     const r = await users.create(String(b.username ?? ''), b.role ?? 'member')
+    // The other admins are told, as when someone is made admin.
+    if (r.user.role === 'admin') notices.toOtherAdmins(r.user.id, c.get('user').id, 'role_changed', 'admin')
     return c.json({ user: r.user, link: link(r.link) }, 201)
   })
 

@@ -57,7 +57,8 @@ send it yourself over a channel you trust.
    digits, `.`, `_` or `-`, and can't be changed later. Names are unique
    ignoring case (`Noa` and `noa` are the same person). A new admin, like
    making someone admin, asks you to confirm at the moment (see
-   [Confirming at the moment](#confirming-at-the-moment)).
+   [Confirming at the moment](#confirming-at-the-moment)), and the other
+   admins get a notice.
 3. Press «Create and get the link», copy the link and send it.
 
 The person opens the link, chooses their password (at least 10 characters) and
@@ -434,6 +435,8 @@ when they sign in and in the alerts until they dismiss them:
 
 - an admin made a reset link for them, reset their second factor, or changed
   their role (the other admins get one too);
+- to every other admin: an admin created a new admin («Lead made Noa an
+  admin», as for a role change);
 - someone purged from the history a note or a version they wrote in (see
   [History](history.md#purging)).
 
