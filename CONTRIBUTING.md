@@ -250,7 +250,9 @@ A moving tag only goes forward: a fix for an older line (`v1.1.5` once
    git push origin v1.2.3
    ```
 
-5. Follow the run (`gh run watch`, or the Actions tab). If the check job
+5. Follow the run (`gh run watch`, or the Actions tab). The image job waits in
+   the `release` environment until the maintainer approves it on the run's
+   page: nothing is published before that. If the check job
    fails, nothing was published: delete the tag (`git push --delete origin
    v1.2.3`, `git tag -d v1.2.3`), fix it in a pull request and tag again. If a
    later job fails, run it again from the Actions tab.
