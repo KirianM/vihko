@@ -334,7 +334,7 @@ Read by Compose, not by vihko:
 | `VIHKO_HOST_PORT` | `8080` | The host port in the example `compose.yaml`. |
 
 Other `VIHKO_*` variables you may see in the source code are for development
-and tests only ([CONTRIBUTING.md](../CONTRIBUTING.md)).
+and tests only ([DEVELOPMENT.md](../DEVELOPMENT.md)).
 
 ### The second-factor key
 
@@ -415,7 +415,7 @@ Webhooks are planned, not part of 1.0.
 
 Docker is the supported way to run vihko. Running it straight from a checkout
 with Node works, and is how vihko is developed, but it's only documented for
-development: see [CONTRIBUTING.md](../CONTRIBUTING.md#development). You need
+development: see [DEVELOPMENT.md](../DEVELOPMENT.md#setting-up). You need
 the Node version in `.nvmrc`, `git`, `npm ci` and `npm run build`, and then:
 
 ```sh

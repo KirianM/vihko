@@ -12,7 +12,7 @@
 //                                    only the tests matching a pattern (below)
 //   npm run ci -- --keep             keep the run's folder (worktree, data) to debug
 //   npm run ci -- --pr 72 --post     pending, then success or failure, on the PR's head commit
-//   npm run ci -- --parallel         the jobs at the same time (faster, but see CONTRIBUTING.md)
+//   npm run ci -- --parallel         the jobs at the same time (faster, but see DEVELOPMENT.md)
 //   npm run ci -- --clean            remove the folders and logs of earlier runs
 //
 // To run again only what failed: `--jobs` with the failed jobs and, for
@@ -74,7 +74,7 @@ const HELP = `  --pr N          pull request N merged onto its base, as GitHub t
   --post          report as a commit status: ci/local for a run of every job and test,
                   ci/local-partial for one with --jobs or --grep (never ci/local)
   --keep          keep the run's folder (worktree, data) to debug
-  --parallel      the jobs at the same time (faster, but see CONTRIBUTING.md)
+  --parallel      the jobs at the same time (faster, but see DEVELOPMENT.md)
   --clean         remove the folders and logs of earlier runs
 
 A failed run prints the command that runs again only what failed. Browser tests
