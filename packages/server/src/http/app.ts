@@ -308,10 +308,14 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // without a policy of its own (the API's JSON, errors) is no page: opened
   // on its own, or framed, it can run and load nothing. The UI and the files
   // from the notes folder set theirs.
+  // Nor is it kept by any cache, the browser's disk or a proxy's: it holds
+  // notes, names and keys (unless it says otherwise, as OAuth's do).
   app.use('*', async (c, next) => {
     await next()
     c.header('X-Content-Type-Options', 'nosniff')
-    if (!c.res.headers.has('Content-Security-Policy')) c.header('Content-Security-Policy', API_CSP)
+    if (c.res.headers.has('Content-Security-Policy')) return
+    c.header('Content-Security-Policy', API_CSP)
+    if (!c.res.headers.has('Cache-Control')) c.header('Cache-Control', 'no-store')
   })
 
   // No body over MAX_API_BODY, before anything else (who is asking included).
