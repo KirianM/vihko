@@ -1,10 +1,9 @@
 name: CI
 
-# The full CI runs locally (npm run ci), which posts its result to the commit as
-# the ci/local status: GitHub-hosted minutes are limited. Here it runs only for
-# Dependabot's pull requests, which nobody runs locally, and by hand if needed.
-# scripts/ci.ts runs these same four jobs, steps and timeout-minutes: a change
-# to one goes to the other too (see DEVELOPMENT.md, CI).
+# Every pull request runs here, and these checks are the ones main requires.
+# scripts/ci.ts (npm run ci) runs these same four jobs, steps and
+# timeout-minutes locally: a change to one goes to the other too (see
+# DEVELOPMENT.md, CI).
 #
 # Every action is pinned to a full commit SHA, with its release in a trailing
 # comment: a tag can be moved to other code, a commit can't. Dependabot
@@ -19,9 +18,13 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels its run still going.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -38,7 +41,6 @@ jobs:
       - run: npm test
 
   e2e:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -68,7 +70,6 @@ jobs:
           retention-days: 7
 
   acceptance:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -86,7 +87,6 @@ jobs:
           ACCEPTANCE_DOCKER: '0' # the docker job runs that part against the image it builds
 
   docker:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

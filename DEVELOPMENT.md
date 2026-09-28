@@ -117,16 +117,12 @@ Other variables: `ACCEPTANCE_NOTES`, `ACCEPTANCE_SEED`, `ACCEPTANCE_DIR`
 
 ## CI
 
-The CI runs on a machine of the maintainer, not on GitHub: `npm run ci` runs
-the four jobs of `.github/workflows/ci.yml` and reports the result on the
-commit as the `ci/local` status, which costs no GitHub Actions minutes. GitHub
-Actions runs the workflow only for Dependabot's pull requests (nobody runs
-those locally) and when started by hand.
-
-When the repository goes public (with `v1.0.0-rc.1`), Actions minutes are
-free: the CI moves there. Remove the `if:` of the four jobs of `ci.yml`, so it
-runs on every pull request, and make its checks the required ones in `main`'s
-ruleset instead of `ci/local`. `npm run ci` stays for running it locally.
+GitHub Actions runs `.github/workflows/ci.yml` on every pull request, and its
+four checks are the ones `main` requires. `npm run ci` runs the same four jobs
+on your own machine: to reproduce a failure with its seed, or to check a
+branch before pushing it; with `--post` it reports the result on the commit as
+the `ci/local` status. (Until the repository went public, with `v1.0.0-rc.1`,
+the CI ran only this way, to save Actions minutes.)
 
 ```sh
 npm run ci                        # the last commit of this checkout
