@@ -721,12 +721,12 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('delete', {
     title: 'Delete a note',
-    description: 'Moves a note to the trash (the person can restore it). With if_match, only if it hasn\'t changed since that ETag.',
+    description: 'Moves a note to the trash (the person can restore it), with the images next to it that no other note uses. With if_match, only if it hasn\'t changed since that ETag.',
     inputSchema: input(z.object({ path, if_match: ifMatch.optional() }), NAME_ALIASES),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   }, run(async ({ path: p, if_match }) => {
     const e = await scoped.delete(p, { ifMatch: if_match })
-    return reply({ path: e.path, trashed: true, at: e.deletedAt })
+    return reply({ path: e.path, trashed: true, at: e.deletedAt, ...(e.files?.length ? { images: e.files.map((f) => f.path) } : {}) })
   }))
 
   server.registerTool('revert_change', {

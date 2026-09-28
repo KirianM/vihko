@@ -590,7 +590,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <TrashToast
             key={trashed.id}
             trashed={trashed}
-            onRestored={(path) => { setOpenPath(path); void loadTree() }}
+            onRestored={(path) => {
+              if (trashed.folder) setExpanded((e) => new Set([...e, ...ancestors(path), path]))
+              else setOpenPath(path)
+              setTrashed(null)
+              void loadTree()
+            }}
             onDismiss={() => setTrashed(null)}
           />
         )}
@@ -606,7 +611,18 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             }} />
           )}
           {treeDialog?.kind === 'moveFolder' && <FolderMoveDialog path={treeDialog.path} initialParent={treeDialog.parent} onClose={closeTreeDialog} onMoved={folderMoved} onStarted={moveStarted} />}
-          {treeDialog?.kind === 'deleteFolder' && <DeleteFolderDialog path={treeDialog.path} onClose={closeTreeDialog} onDeleted={() => { closeTreeDialog(); void loadTree() }} />}
+          {treeDialog?.kind === 'deleteFolder' && (
+            <DeleteFolderDialog path={treeDialog.path} onClose={closeTreeDialog} onDeleted={(entries) => {
+              const path = treeDialog.path
+              closeTreeDialog()
+              // What it held went to the trash: the notice offers it all back.
+              if (entries.length) {
+                if (openPath !== null && openPath.startsWith(`${path}/`)) setOpenPath(null)
+                setTrashed({ id: entries[0]!.id, path, by: null, folder: entries.map((e) => e.id) })
+              }
+              void loadTree()
+            }} />
+          )}
           {treeDialog?.kind === 'permissions' && (
             <PermissionsDialog folder={treeDialog.path} me={user} canOpen={canManageFolder} onClose={closeTreeDialog}
               onChanged={() => void loadTree()} onAccessLost={closeTreeDialog} onUnauthorized={onUnauthorized} />

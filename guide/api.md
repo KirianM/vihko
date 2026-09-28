@@ -359,7 +359,10 @@ curl -X DELETE -H "Authorization: Bearer $VIHKO_KEY" \
 ```
 
 The answer is the trash entry: its `id`, `path`, `deletedAt`, who deleted it
-(`actor`) and the `etag` of the text it had.
+(`actor`), the `etag` of the text it had and, if any went with it, `files`:
+the images next to it that no other note used, which go to the trash with the
+note (see [The trash](notes.md#the-trash)). A key takes along only images in
+its folders and out of folders closed to agents; the rest stay.
 
 ### Today's note
 

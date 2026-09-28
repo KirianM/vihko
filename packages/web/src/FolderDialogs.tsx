@@ -1,8 +1,9 @@
 // Folder dialogs: create, rename or move (with a preview of the links that get
-// rewritten across the notes, as for a note) and delete (only when empty).
+// rewritten across the notes, as for a note) and delete (at once when empty;
+// otherwise, what it holds to the trash with it).
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Text, TextField } from 'react-aria-components'
-import { api, type FolderMoveReport, type MoveJob } from './api.ts'
+import { ApiError, api, type FolderContents, type FolderMoveReport, type MoveJob, type TrashEntry } from './api.ts'
 import { AudienceWarning, audienceChanges } from './Audience.tsx'
 import { ShiftPreview } from './Shifts.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
@@ -181,18 +182,36 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
   )
 }
 
-export function DeleteFolderDialog({ path, onClose, onDeleted }: { path: string; onClose: () => void; onDeleted: () => void }) {
+/** The contents a `not_empty` answer carries, if it has them. */
+function contentsOf(err: unknown): FolderContents | null {
+  if (!(err instanceof ApiError) || err.code !== 'not_empty') return null
+  const c = err.data?.contents as FolderContents | undefined
+  return c && typeof c === 'object' && c.notes && c.files && c.kept ? c : null
+}
+
+/**
+ * Deletes a folder. An empty one goes at once; one that holds notes or files
+ * shows them (the server's `not_empty` says what), and a second confirmation
+ * sends them to the trash with it. What vihko never touches (hidden folders,
+ * links) or the person can't edit keeps it: the dialog says so and offers
+ * nothing to press.
+ */
+export function DeleteFolderDialog({ path, onClose, onDeleted }: { path: string; onClose: () => void; onDeleted: (trashed: TrashEntry[]) => void }) {
   const t = useT()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** What it holds, once the server said it isn't empty: confirming again sends it to the trash. */
+  const [contents, setContents] = useState<FolderContents | null>(null)
+  const blocked = contents !== null && (contents.kept.total > 0 || contents.locked > 0)
   const confirm = async () => {
     setBusy(true)
     setError(null)
     try {
-      await api.deleteFolder(path)
-      onDeleted()
+      onDeleted((await api.deleteFolder(path, contents !== null)).trashed)
     } catch (err) {
-      setError(folderError(t, err))
+      const c = contentsOf(err)
+      if (c) setContents(c)
+      else setError(folderError(t, err))
       setBusy(false)
     }
   }
@@ -200,13 +219,42 @@ export function DeleteFolderDialog({ path, onClose, onDeleted }: { path: string;
     <Dialog className="dialog dialog-narrow" role="alertdialog">
       <div className="dialog-fields">
         <Heading slot="title" className="dialog-title">{t('folder.deleteTitle', { name: baseName(path) })}</Heading>
-        <p className="dialog-text">{t('folder.deleteBody')}</p>
+        {contents === null ? <p className="dialog-text">{t('folder.deleteBody')}</p> : <FolderContentsList contents={contents} />}
         {error && <p className="error-text" role="alert">{error}</p>}
       </div>
       <div className="dialog-actions">
         <Button className="btn" onPress={onClose} autoFocus>{t('common.cancel')}</Button>
-        <Button className="btn btn-danger" onPress={() => void confirm()} isDisabled={busy}>{t('folder.deleteConfirm')}</Button>
+        {!blocked && (
+          <Button className="btn btn-danger" onPress={() => void confirm()} isDisabled={busy}>{t(contents ? 'folder.deleteTrash' : 'folder.deleteConfirm')}</Button>
+        )}
       </div>
     </Dialog>
+  )
+}
+
+/** What a folder holds, as the delete dialog shows it before sending it to the trash (paths relative to the folder). */
+function FolderContentsList({ contents: c }: { contents: FolderContents }) {
+  const t = useT()
+  const blocked = c.kept.total > 0 || c.locked > 0
+  const counts = [
+    c.notes.total > 0 ? t(c.notes.total === 1 ? 'folder.notesOne' : 'folder.notesMany', { n: c.notes.total }) : null,
+    c.files.total > 0 ? t(c.files.total === 1 ? 'folder.filesOne' : 'folder.filesMany', { n: c.files.total }) : null,
+  ].filter((x): x is string => x !== null)
+  const what = counts.length === 2 ? t('folder.holdsBoth', { notes: counts[0]!, files: counts[1]! }) : counts[0]
+  const list = (l: FolderContents['notes'], label: string) => (
+    <ul className="folder-list" aria-label={label}>
+      {l.paths.map((p) => <li key={p}>{p}</li>)}
+      {l.total > l.paths.length && <li className="folder-list-more">{t('folder.deleteMore', { n: l.total - l.paths.length })}</li>}
+    </ul>
+  )
+  return (
+    <>
+      {what && <p className="dialog-text">{t(blocked ? 'folder.deleteHolds' : 'folder.deleteHoldsTrash', { what })}</p>}
+      {c.notes.total > 0 && list(c.notes, t('folder.deleteNotesList'))}
+      {c.files.total > 0 && list(c.files, t('folder.deleteFilesList'))}
+      {c.kept.total > 0 && <p className="dialog-text" role="alert">{t('folder.deleteKept')}</p>}
+      {c.kept.total > 0 && list(c.kept, t('folder.deleteKeptList'))}
+      {c.locked > 0 && <p className="dialog-text" role="alert">{t(c.locked === 1 ? 'folder.deleteLockedOne' : 'folder.deleteLockedMany', { n: c.locked })}</p>}
+    </>
   )
 }
