@@ -226,7 +226,19 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
 
   app.post('/api/admin/users/:id/disable', admin, (c) => c.json({ user: users.disable(param(c, 'id')) }))
 
-  app.post('/api/admin/users/:id/enable', admin, (c) => c.json({ user: users.enable(param(c, 'id')) }))
+  // Bringing a disabled admin back is as good as making one: confirmed at the
+  // moment, so a session left open can't revive an admin account (D-046.1).
+  // A member, or someone not disabled, asks nothing.
+  app.post('/api/admin/users/:id/enable', admin, async (c) => {
+    const id = param(c, 'id')
+    const before = users.get(id)
+    if (!before) throw new UsersError('not_found', `no user ${id}`)
+    if (before.role === 'admin' && before.status === 'disabled') {
+      const refused = await deps.confirm(c, (await body(c, true)).confirm)
+      if (refused) return refused
+    }
+    return c.json({ user: users.enable(id) })
+  })
 
   app.delete('/api/admin/users/:id', admin, async (c) => {
     await users.remove(param(c, 'id'), c.get('access').actor)

@@ -131,7 +131,7 @@ test('the admin invites a member by link, the member joins in another browser, a
   await admin.context().close()
 })
 
-test('a new admin is confirmed at the moment: the dialog asks for the admin\'s password, and a wrong one creates nobody', async ({ browser }) => {
+test('a new admin is confirmed at the moment: the dialog asks for the admin\'s password, and a wrong one creates nobody; so is enabling one again', async ({ browser }) => {
   const admin = await signIn(browser, ADMIN)
   await openSettings(admin, 'Usuarios y grupos', 'users')
   await admin.getByRole('button', { name: 'Nuevo usuario' }).click()
@@ -157,9 +157,22 @@ test('a new admin is confirmed at the moment: the dialog asks for the admin\'s p
   await expect(row(admin, LEAD.username)).toContainText('Administrador')
   await expect(row(admin, LEAD.username)).toContainText('Invitación pendiente')
 
-  // Removed: disabled, then deleted.
+  // Disabled, an admin comes back only confirmed at the moment too.
   const { users } = await (await admin.request.get('/api/admin/users')).json() as { users: { id: string; username: string }[] }
   const id = users.find((u) => u.username === LEAD.username)!.id
+  expect((await admin.request.post(`/api/admin/users/${id}/disable`)).status()).toBe(200)
+  await admin.reload()
+  await expect(row(admin, LEAD.username)).toContainText('Desactivado')
+  await row(admin, LEAD.username).getByRole('button', { name: `Acciones para ${LEAD.username}` }).click()
+  await admin.getByRole('menuitem', { name: 'Reactivar' }).click()
+  const enable = admin.getByRole('alertdialog')
+  await expect(enable.getByRole('heading')).toHaveText(`¿Reactivar a ${LEAD.username}, que es administrador?`)
+  await expect(enable.getByRole('button', { name: 'Reactivar' })).toBeDisabled()
+  await enable.getByLabel('Tu contraseña').fill(ADMIN.password)
+  await enable.getByRole('button', { name: 'Reactivar' }).click()
+  await expect(row(admin, LEAD.username)).toContainText('Invitación pendiente')
+
+  // Removed: disabled, then deleted.
   expect((await admin.request.post(`/api/admin/users/${id}/disable`)).status()).toBe(200)
   expect((await admin.request.delete(`/api/admin/users/${id}`)).status()).toBe(200)
   await admin.context().close()

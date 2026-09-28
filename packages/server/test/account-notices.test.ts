@@ -123,6 +123,31 @@ test('a new admin is confirmed at the moment, as making someone admin is (D-046.
   } finally { await h.close() }
 })
 
+test('enabling a disabled admin is confirmed at the moment, as making one is (D-046.1); a member is not', async () => {
+  const h = await setup()
+  try {
+    const password = h.users.admin.password
+    const second = m.aUser({ role: 'admin' })
+    const id = (await h.auth.createUser(second.username, second.password, 'admin')).id
+    const status = async (who: string) => (await h.admin('GET', '/api/admin/users')).body.users.find((u: any) => u.id === who).status
+    assert.equal((await h.admin('POST', `/api/admin/users/${id}/disable`)).status, 200)
+
+    const missing = await h.admin('POST', `/api/admin/users/${id}/enable`)
+    assert.deepEqual([missing.status, missing.body.error, missing.body.with], [400, 'confirmation_required', 'password'])
+    assert.equal((await h.admin('POST', `/api/admin/users/${id}/enable`, { confirm: m.aPassword() })).body.error, 'wrong_password')
+    assert.equal(await status(id), 'disabled', 'still disabled')
+    const enabled = await h.admin('POST', `/api/admin/users/${id}/enable`, { confirm: password })
+    assert.deepEqual([enabled.status, enabled.body.user.status, enabled.body.user.role], [200, 'active', 'admin'])
+    assert.equal((await h.admin('POST', `/api/admin/users/${id}/enable`)).status, 200, 'already enabled: nothing to confirm')
+
+    // A member comes back without anything asked.
+    const member = h.users.member.id
+    await h.admin('POST', `/api/admin/users/${member}/disable`)
+    const back = await h.admin('POST', `/api/admin/users/${member}/enable`)
+    assert.deepEqual([back.status, back.body.user.status], [200, 'active'])
+  } finally { await h.close() }
+})
+
 test('notices: kept per person, the latest only, never for a deleted user, oldest first', async () => {
   const h = await setup()
   try {

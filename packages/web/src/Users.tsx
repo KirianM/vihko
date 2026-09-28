@@ -34,7 +34,7 @@ const FILTERS: { id: Filter; label: MessageKey }[] = [
 ]
 
 /** What a confirmation does: its title, the consequences it lists and its button. */
-type Action = 'disable' | 'delete' | 'promote' | 'demote' | 'sessions' | 'link' | 'twoFactor'
+type Action = 'disable' | 'delete' | 'promote' | 'demote' | 'sessions' | 'link' | 'twoFactor' | 'enableAdmin'
 
 const POLICIES: { id: TwoFactorPolicy; label: MessageKey; hint: MessageKey }[] = [
   { id: 'optional', label: 'users.tfOptional', hint: 'users.tfOptionalHint' },
@@ -351,7 +351,9 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
     return items
   }
   const onAction = (u: UserInfo, id: string) => {
-    if (id === 'enable') return void run(() => api.enableUser(u.id))
+    // A member straight away; an admin, confirmed at the moment (D-046.1).
+    if (id === 'enable' && u.role !== 'admin') return void run(() => api.enableUser(u.id))
+    if (id === 'enable') return setOpen({ kind: 'confirm', action: 'enableAdmin', user: u })
     if (id === 'access') return setOpen({ kind: 'access', user: u })
     setOpen({ kind: 'confirm', action: id as Action, user: u })
   }
@@ -371,6 +373,11 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
         title: t('users.deleteTitle', { user }), danger: true, confirm: t('users.deleteConfirm'),
         items: [t('users.delete1'), t('users.delete2'), t('users.delete3'), t('users.delete4'), t('users.delete5')],
         go: async () => { await api.deleteUser(u.id); done() },
+      }
+      case 'enableAdmin': return {
+        title: t('users.enableAdminTitle', { user }), confirm: t('users.enableAdminConfirm'),
+        items: [t('users.enableAdmin1'), t('users.enableAdmin2')], identity: t('users.enableAdminHint'),
+        go: async (secret) => { await api.enableUser(u.id, secret); done() },
       }
       case 'promote': return {
         title: t('users.promoteTitle', { user }), confirm: t('users.promoteConfirm'),

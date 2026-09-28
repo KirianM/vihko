@@ -288,7 +288,8 @@ Both are in the user's «Actions» menu.
 - Their agent keys and the apps they authorized stop working while they're
   disabled.
 - Their permissions, keys and groups are kept. Enabling them again makes
-  everything work again (they sign in again).
+  everything work again (they sign in again). Enabling an admin asks you to
+  confirm at the moment, as making someone admin does.
 
 **Delete** (only someone already disabled; it can't be undone):
 
@@ -390,7 +391,7 @@ app's code, or your password if you have no second factor.
 - creating or rotating an agent key, changing one so it can do more, and
   authorizing an app (OAuth);
 - an admin making a reset link for someone, resetting someone's second factor,
-  changing someone's role, or creating a new admin;
+  changing someone's role, creating a new admin, or enabling a disabled one;
 - an admin changing the second-factor policy;
 - an admin purging from the history something they can't read.
 
