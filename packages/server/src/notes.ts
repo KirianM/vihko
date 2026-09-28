@@ -1137,7 +1137,8 @@ export class NoteService {
         // Where the restored note looks for it, and where it was in that version (the note may have moved since).
         const target = resolveImageRef(path, img.dest, { embed })
         const source = resolveImageRef(version.path, img.dest, { embed })
-        if (target === null || source === null || seen.has(target) || classifyPath(target) !== 'other') continue
+        // A name vihko would never give (checkNewName), nor one the history can read (a line break ends a path there).
+        if (target === null || source === null || seen.has(target) || classifyPath(target) !== 'other' || hasControlCharacter(target) || hasControlCharacter(source)) continue
         seen.add(target)
         // Where whoever restores can't write, or where vihko doesn't follow the path (a symbolic link on the way,
         // or another spelling: its permissions would be another folder's): as if the history didn't have it.

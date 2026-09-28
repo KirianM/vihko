@@ -357,6 +357,23 @@ test('history.exclude at startup: an excluded file changed while vihko was stopp
   } finally { await again.close() }
 })
 
+test('restoring a version never gives an image a name with a control character, nor reads another path for it', async () => {
+  // A line break, URL-encoded in the note (the case under test): the history would read the path up to it.
+  const folder = m.aFolder()
+  const [file, rest] = [m.aUniqueWord(), m.aUniqueWord()]
+  const note = m.aNotePath(folder)
+  const h = await setup({ files: { [note]: `# ${m.aHeading()}\n\n![](${file}%0A${rest}.png)\n`, [`${folder}/${file}`]: m.aSecret() } })
+  try {
+    const first = (await h.versions(note)).versions[0]
+    await h.put(note, () => `# ${m.aHeading()}\n`)
+    await h.settle()
+    const r = await h.admin('POST', '/api/history/restore', { path: note, id: first.id })
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    assert.deepEqual(r.body.images, { restored: [], missing: [] })
+    assert.deepEqual(readdirSync(join(h.notesDir, folder)).filter((n) => /[\u0000-\u001f]/.test(n)), [])
+  } finally { await h.close() }
+})
+
 test('restoring a version brings back the images it linked that are gone, never over another file', async () => {
   // Image names are one word: a Markdown destination has no spaces.
   const [a, b, c] = [`${m.aUniqueWord()}.png`, `${m.aUniqueWord()}.png`, `${m.aUniqueWord()}.png`]
