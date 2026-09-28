@@ -116,6 +116,11 @@ TypeScript on Node for server and UI: Yjs + Hocuspocus for collaboration,
 CodeMirror 6 as the editor, React + React Aria for the UI, SQLite
 (`better-sqlite3`, FTS5) for the index, and git for the history.
 
+## Support
+
+vihko is free software with no paid tier. If it's useful to you, you can
+[buy me a coffee](https://buymeacoffee.com/kirian).
+
 ## License
 
 [AGPL-3.0](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md).
