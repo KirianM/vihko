@@ -36,8 +36,10 @@ read -rs -p 'Password: ' pw && echo && printf '%s\n' "$pw" | docker compose exec
 user created: alex (admin)
 ```
 
-Usernames have 2 to 64 letters, digits, `.`, `_` or `-`; passwords at least 10
-characters. Usually you invite people from the UI instead, and they choose
+Usernames have 2 to 64 letters, digits, `.`, `_` or `-`, and can't be one of
+the few names JavaScript objects already have (`__proto__`, `constructor`,
+`prototype`, `toString`…); the same goes for group names. Passwords have at
+least 10 characters. Usually you invite people from the UI instead, and they choose
 their own password: see [Users and permissions](users-and-permissions.md).
 
 ### Reset a lost password

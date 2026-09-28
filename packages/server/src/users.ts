@@ -27,7 +27,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { newUid, subjectKey } from '@vihko/core'
 import type { Db } from './db.ts'
 import type { Actor } from './actor.ts'
-import { AuthError, MIN_PASSWORD, NAME_PATTERN, hashPassword, type Auth, type Role, type User } from './auth.ts'
+import { AuthError, MIN_PASSWORD, hashPassword, validName, type Auth, type Role, type User } from './auth.ts'
 
 /** How long a one-time link works. */
 export const LINK_DAYS = 7
@@ -356,7 +356,7 @@ export class Users {
   /** A valid group name nobody else has (`except`: the group being renamed). */
   private groupName(name: unknown, except?: string): string {
     const n = typeof name === 'string' ? name.normalize('NFC').trim() : ''
-    if (!NAME_PATTERN.test(n)) throw new UsersError('invalid_group_name', 'invalid group name (2-64 letters, digits, ".", "_" or "-")')
+    if (!validName(n)) throw new UsersError('invalid_group_name', 'invalid group name (2-64 letters, digits, ".", "_" or "-", and not a name JavaScript objects have)')
     // As the permissions compare them (auth.ts `createUser`): not only ASCII's case.
     const key = subjectKey(n)
     const groups = this.db.prepare('select id, name from user_groups').all() as { id: string; name: string }[]
