@@ -2,6 +2,7 @@
 // Adding a language means adding a dictionary with the same keys (the type enforces it).
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { ConfigErrorCode, ErrorCode } from '@vihko/core/codes'
+import { isLanguage, type Language } from '@vihko/core/languages'
 
 const es = {
   'app.name': 'vihko',
@@ -32,6 +33,8 @@ const es = {
   'comments.note': 'Los comentarios se guardan dentro de la nota; al resolver se borran y, sin historial, no se pueden recuperar.',
   'comments.inParagraph': '{n} comentarios en este párrafo',
   'comments.inParagraphOne': '1 comentario en este párrafo',
+  'comments.hint': '{n} comentarios · haz clic para verlos',
+  'comments.hintOne': '1 comentario · haz clic para verlo',
   'comments.view': 'Ver',
   'comments.resolved.title': 'Resueltos ({n})',
   'comments.resolved.by': 'Resuelto por {who} · {when}',
@@ -151,8 +154,19 @@ const es = {
   'folder.submitMoveOne': 'Mover y actualizar 1 enlace',
   'folder.submitMoveMany': 'Mover y actualizar {n} enlaces',
   'folder.deleteTitle': '¿Eliminar la carpeta «{name}»?',
-  'folder.deleteBody': 'Solo se elimina si está vacía. Sus notas nunca se borran con ella: muévelas o mándalas a la papelera antes.',
+  'folder.deleteBody': 'Si está vacía, se elimina sin más. Si contiene notas o archivos, los verás antes de que se vaya nada.',
   'folder.deleteConfirm': 'Eliminar',
+  'folder.deleteHolds': 'Contiene {what}.',
+  'folder.deleteHoldsTrash': 'Contiene {what}. Van a la papelera con ella y se pueden restaurar desde allí:',
+  'folder.holdsBoth': '{notes} y {files}',
+  'folder.deleteNotesList': 'Sus notas',
+  'folder.deleteFilesList': 'Sus archivos',
+  'folder.deleteKeptList': 'Lo que vihko no toca',
+  'folder.deleteMore': '…y {n} más',
+  'folder.deleteKept': 'vihko nunca toca las carpetas ocultas ni los enlaces, que puede usar otro programa. Quítalos con otra herramienta para poder eliminar la carpeta:',
+  'folder.deleteLockedOne': 'Hay 1 elemento en una carpeta que no puedes editar, así que la carpeta se queda.',
+  'folder.deleteLockedMany': 'Hay {n} elementos en carpetas que no puedes editar, así que la carpeta se queda.',
+  'folder.deleteTrash': 'Mandar a la papelera y eliminar',
   'folder.exists': 'Ya existe una carpeta o un archivo con ese nombre.',
   'folder.invalidPath': 'Esa carpeta no es válida: sin «..», sin carpetas ocultas (que empiezan por punto) y sin mover una carpeta dentro de sí misma.',
   'folder.partial': '«{name}» ya está en su sitio, pero no se han podido actualizar los enlaces de estas notas: {notes}. Revísalos.',
@@ -173,9 +187,10 @@ const es = {
   'palette.exNot': '-tag:hecho',
   'palette.exQuotes': 'path:"mis notas/"',
   'trash.title': '¿Mover «{name}» a la papelera?',
-  'trash.body': 'Sale de la carpeta de notas y se puede restaurar desde la papelera. Si alguien la tiene abierta, se le cerrará.',
+  'trash.body': 'Sale de la carpeta de notas, con las imágenes que solo usa ella, y se puede restaurar desde la papelera. Si alguien la tiene abierta, se le cerrará.',
   'trash.confirm': 'Mover a la papelera',
   'trash.done': '«{name}» está en la papelera.',
+  'trash.folderDone': 'La carpeta «{name}» se ha eliminado; lo que contenía está en la papelera.',
   'trash.doneBy': '{user} ha movido «{name}» a la papelera mientras la tenías abierta.',
   'trash.restore': 'Restaurar',
   'trash.dismiss': 'Cerrar aviso',
@@ -216,6 +231,7 @@ const es = {
   'shell.folders': 'Carpetas',
   'shell.newNote': 'Nueva nota',
   'shell.search': 'Buscar o crear…',
+  'shell.alertsOne': '1 aviso del espacio',
   'shell.alerts': '{n} avisos del espacio',
   'shell.logout': 'Cerrar sesión',
   'shell.empty': 'Elige una nota en el árbol.',
@@ -302,6 +318,9 @@ const es = {
   'cmd.themeDark': 'tema oscuro',
   'cmd.themeLight': 'tema claro',
   'cmd.newNote': 'nueva nota',
+  'cmd.language.auto': 'idioma: automático (el del navegador)',
+  'cmd.language.en': 'idioma: English',
+  'cmd.language.es': 'idioma: Español',
   'alerts.title': 'Avisos del espacio',
   'alerts.intro': 'Cosas que vihko ha detectado en la carpeta de notas y que necesitan una decisión, y avisos dirigidos a ti. Nada de esto se resuelve solo.',
   'alerts.empty': 'No hay avisos: la carpeta de notas y el índice están en orden.',
@@ -427,7 +446,7 @@ const es = {
   'error.fetch_failed': 'No se ha podido descargar la imagen de esa dirección.',
   'error.busy': 'Se están recibiendo demasiadas imágenes a la vez. Vuelve a intentarlo en un momento.',
   'error.not_configured': 'La nota del día no está configurada: declara una serie en vihko.yaml.',
-  'error.not_empty': 'La carpeta no está vacía: mueve sus notas y archivos o mándalos a la papelera antes.',
+  'error.not_empty': 'La carpeta no está vacía.',
   'error.history_off': 'El historial está apagado en vihko.yaml.',
   'error.history_unavailable': 'El historial no está disponible ahora mismo. Mira los avisos del espacio.',
   'error.integrations_locked': 'Quien administra el servidor ha bloqueado las integraciones (VIHKO_INTEGRATIONS=off): la API y el MCP no se pueden activar.',
@@ -860,6 +879,9 @@ const es = {
   'account.endOthers': 'Cerrar las demás',
   'account.about': 'Acerca de',
   'account.version': 'vihko {version}',
+  'account.language': 'Idioma',
+  'account.languageAuto': 'Automático (el del navegador)',
+  'account.languageHint': 'Se guarda en tu cuenta: vale en cualquier navegador donde entres. Automático usa el idioma de cada navegador.',
   'users.title': 'Usuarios y grupos',
   'users.intro': 'Quién usa este vihko. Das de alta a alguien con un enlace de un solo uso: elige su contraseña y nunca la conoces. Lo que cada persona ve lo deciden los permisos de las carpetas, también para el administrador.',
   'users.list': 'Usuarios',
@@ -1192,6 +1214,8 @@ const en: Record<keyof typeof es, string> = {
   'comments.note': 'Comments are stored inside the note; resolving one deletes it and, without history, it can’t be recovered.',
   'comments.inParagraph': '{n} comments in this paragraph',
   'comments.inParagraphOne': '1 comment in this paragraph',
+  'comments.hint': '{n} comments · click to see them',
+  'comments.hintOne': '1 comment · click to see it',
   'comments.view': 'View',
   'comments.resolved.title': 'Resolved ({n})',
   'comments.resolved.by': 'Resolved by {who} · {when}',
@@ -1311,8 +1335,19 @@ const en: Record<keyof typeof es, string> = {
   'folder.submitMoveOne': 'Move and update 1 link',
   'folder.submitMoveMany': 'Move and update {n} links',
   'folder.deleteTitle': 'Delete the folder “{name}”?',
-  'folder.deleteBody': 'Only an empty folder is deleted. Its notes are never deleted with it: move them or send them to the trash first.',
+  'folder.deleteBody': 'An empty folder is deleted at once. If it holds notes or files, you’ll see them before anything goes.',
   'folder.deleteConfirm': 'Delete',
+  'folder.deleteHolds': 'It holds {what}.',
+  'folder.deleteHoldsTrash': 'It holds {what}. They go to the trash with it, and can be restored from there:',
+  'folder.holdsBoth': '{notes} and {files}',
+  'folder.deleteNotesList': 'Its notes',
+  'folder.deleteFilesList': 'Its files',
+  'folder.deleteKeptList': 'What vihko doesn’t touch',
+  'folder.deleteMore': '…and {n} more',
+  'folder.deleteKept': 'vihko never touches hidden folders or links, which another program may use. Remove these with another tool to delete the folder:',
+  'folder.deleteLockedOne': '1 thing in it is in a folder you can’t edit, so the folder stays.',
+  'folder.deleteLockedMany': '{n} things in it are in folders you can’t edit, so the folder stays.',
+  'folder.deleteTrash': 'Send to trash and delete',
   'folder.exists': 'A folder or file with that name already exists.',
   'folder.invalidPath': 'That folder is not valid: no “..”, no hidden folders (starting with a dot) and no moving a folder into itself.',
   'folder.partial': '“{name}” is in place, but the links in these notes could not be updated: {notes}. Check them.',
@@ -1333,9 +1368,10 @@ const en: Record<keyof typeof es, string> = {
   'palette.exNot': '-tag:done',
   'palette.exQuotes': 'path:"my notes/"',
   'trash.title': 'Move “{name}” to the trash?',
-  'trash.body': 'It leaves the notes folder and can be restored from the trash. Anyone who has it open will see it close.',
+  'trash.body': 'It leaves the notes folder, with the images only it uses, and can be restored from the trash. Anyone who has it open will see it close.',
   'trash.confirm': 'Move to trash',
   'trash.done': '“{name}” is in the trash.',
+  'trash.folderDone': 'The folder “{name}” is deleted; what it held is in the trash.',
   'trash.doneBy': '{user} moved “{name}” to the trash while you had it open.',
   'trash.restore': 'Restore',
   'trash.dismiss': 'Dismiss',
@@ -1376,6 +1412,7 @@ const en: Record<keyof typeof es, string> = {
   'shell.folders': 'Folders',
   'shell.newNote': 'New note',
   'shell.search': 'Search or create…',
+  'shell.alertsOne': '1 workspace alert',
   'shell.alerts': '{n} workspace alerts',
   'shell.logout': 'Sign out',
   'shell.empty': 'Pick a note in the tree.',
@@ -1462,6 +1499,9 @@ const en: Record<keyof typeof es, string> = {
   'cmd.themeDark': 'dark theme',
   'cmd.themeLight': 'light theme',
   'cmd.newNote': 'new note',
+  'cmd.language.auto': "language: automatic (browser's language)",
+  'cmd.language.en': 'language: English',
+  'cmd.language.es': 'language: Español',
   'alerts.title': 'Workspace alerts',
   'alerts.intro': 'Things vihko found in the notes folder that need a decision, and notices addressed to you. None of them resolves on its own.',
   'alerts.empty': 'No alerts: the notes folder and the index are in order.',
@@ -1587,7 +1627,7 @@ const en: Record<keyof typeof es, string> = {
   'error.fetch_failed': 'The image could not be downloaded from that address.',
   'error.busy': 'Too many images are being received at once. Try again in a moment.',
   'error.not_configured': 'Daily notes aren’t configured: declare a series in vihko.yaml.',
-  'error.not_empty': 'The folder is not empty: move its notes and files out or send them to the trash first.',
+  'error.not_empty': 'The folder is not empty.',
   'error.history_off': 'History is turned off in vihko.yaml.',
   'error.history_unavailable': 'History isn’t available right now. See the workspace alerts.',
   'error.integrations_locked': 'Whoever runs the server has locked integrations off (VIHKO_INTEGRATIONS=off): the API and MCP can’t be turned on.',
@@ -2019,6 +2059,9 @@ const en: Record<keyof typeof es, string> = {
   'account.endOthers': 'Sign out the others',
   'account.about': 'About',
   'account.version': 'vihko {version}',
+  'account.language': 'Language',
+  'account.languageAuto': "Automatic (browser's language)",
+  'account.languageHint': "Saved in your account: it applies in every browser you sign in from. Automatic uses each browser's language.",
   'users.title': 'Users and groups',
   'users.intro': 'Who uses this vihko. You add someone with a one-time link: they choose their password and you never know it. What each person sees is up to the folders’ permissions, for the admin too.',
   'users.list': 'Users',
@@ -2332,31 +2375,64 @@ void _allErrorsTranslated
 type MissingConfigText = Exclude<`config.${ConfigErrorCode}`, MessageKey>
 const _allConfigErrorsTranslated: [MissingConfigText] extends [never] ? true : MissingConfigText = true
 void _allConfigErrorsTranslated
-export type Lang = 'es' | 'en'
+/** A language the UI is translated into (the list is `LANGUAGES` of @vihko/core). */
+export type Lang = Language
 const dictionaries: Record<Lang, Record<MessageKey, string>> = { es, en }
 
-function initialLang(): Lang {
+/** Each language by its own name, the same whatever language the UI is in. */
+export const LANGUAGE_NAMES: Record<Lang, string> = { en: 'English', es: 'Español' }
+
+/**
+ * A person's choice of language: one of them, or null for automatic (the
+ * browser's). It is kept in their profile on the server, and a copy in this
+ * browser, so that the sign-in screen is already in their language.
+ */
+export type LangChoice = Lang | null
+const STORED = 'vihko.lang'
+
+function storedChoice(): LangChoice {
   try {
-    const stored = localStorage.getItem('vihko.lang')
-    if (stored === 'es' || stored === 'en') return stored
+    const stored = localStorage.getItem(STORED)
+    if (isLanguage(stored)) return stored
   } catch { /* storage unavailable */ }
-  return navigator.language.toLowerCase().startsWith('es') ? 'es' : 'en'
+  return null
+}
+
+/** The first of the browser's languages there is a translation for; English if none. */
+function browserLang(): Lang {
+  const preferred = navigator.languages?.length ? navigator.languages : [navigator.language]
+  for (const tag of preferred) {
+    const base = tag.toLowerCase().split('-')[0]
+    if (isLanguage(base)) return base
+  }
+  return 'en'
 }
 
 type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string
-const I18nContext = createContext<{ t: Translate; lang: Lang; setLang: (l: Lang) => void } | null>(null)
+const I18nContext = createContext<{ t: Translate; lang: Lang; choice: LangChoice; setChoice: (c: LangChoice) => void } | null>(null)
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(initialLang)
+  const [choice, setChoiceState] = useState<LangChoice>(storedChoice)
+  const [browser, setBrowser] = useState<Lang>(browserLang)
+  const lang = choice ?? browser
+  useEffect(() => {
+    // Automatic follows the browser when its languages change; another tab's choice reaches this one.
+    const languages = () => setBrowser(browserLang())
+    const storage = (e: StorageEvent) => { if (e.key === STORED || e.key === null) setChoiceState(storedChoice()) }
+    window.addEventListener('languagechange', languages)
+    window.addEventListener('storage', storage)
+    return () => { window.removeEventListener('languagechange', languages); window.removeEventListener('storage', storage) }
+  }, [])
   const value = useMemo(() => {
     const dict = dictionaries[lang]
     const t: Translate = (key, vars) => dict[key].replace(/\{(\w+)\}/g, (_, k: string) => String(vars?.[k] ?? `{${k}}`))
-    const setLang = (l: Lang) => {
-      try { localStorage.setItem('vihko.lang', l) } catch { /* no persistence */ }
-      setLangState(l)
+    /** Applies a choice here and keeps its copy in this browser (automatic: no copy). */
+    const setChoice = (c: LangChoice) => {
+      try { if (c) localStorage.setItem(STORED, c); else localStorage.removeItem(STORED) } catch { /* no persistence */ }
+      setChoiceState(c)
     }
-    return { t, lang, setLang }
-  }, [lang])
+    return { t, lang, choice, setChoice }
+  }, [lang, choice])
   useEffect(() => { document.documentElement.lang = lang }, [lang])
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
@@ -2378,4 +2454,14 @@ export function useLang(): Lang {
   const ctx = useContext(I18nContext)
   if (!ctx) throw new Error('useLang outside I18nProvider')
   return ctx.lang
+}
+
+/**
+ * The language choice in this browser and the way to apply one here. Saving
+ * it in the person's profile is language.ts's (`useChooseLanguage`).
+ */
+export function useLanguageChoice(): { choice: LangChoice; setChoice: (c: LangChoice) => void } {
+  const ctx = useContext(I18nContext)
+  if (!ctx) throw new Error('useLanguageChoice outside I18nProvider')
+  return { choice: ctx.choice, setChoice: ctx.setChoice }
 }

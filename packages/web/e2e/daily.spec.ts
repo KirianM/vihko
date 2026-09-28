@@ -221,7 +221,7 @@ test('vihko.yaml: an unknown key is ignored with a warning; an invalid file keep
   // A misspelt key: left out, and the rest applies.
   writeWorkspace(CONFIG.replace('templates:', 'templtes:'))
   await expect(async () => {
-    await k.goto('/?view=avisos')
+    await k.goto('/?view=alerts')
     await expect(k.locator('.alert-card', { hasText: 'salvo algunas partes' })).toBeVisible({ timeout: 1000 })
   }).toPass({ timeout: 20_000 })
   const warnings = k.locator('.alert-card', { hasText: 'salvo algunas partes' })
@@ -234,7 +234,7 @@ test('vihko.yaml: an unknown key is ignored with a warning; an invalid file keep
   // A wrong value in a known key: the whole file waits, the last good one stays.
   writeWorkspace(CONFIG.replace(`folder: ${q(TEAM.folder)}`, `folder: ${q(`../${TEAM.folder}`)}`))
   await expect(async () => {
-    await k.goto('/?view=avisos')
+    await k.goto('/?view=alerts')
     await expect(k.locator('.alert-card', { hasText: 'no se puede usar' })).toBeVisible({ timeout: 1000 })
   }).toPass({ timeout: 20_000 })
   const card = k.locator('.alert-card', { hasText: 'no se puede usar' })
@@ -250,7 +250,7 @@ test('vihko.yaml: an unknown key is ignored with a warning; an invalid file keep
   // Fixed: the alerts go away on their own.
   writeWorkspace(CONFIG)
   await expect(async () => {
-    await k.goto('/?view=avisos')
+    await k.goto('/?view=alerts')
     await expect(k.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 1000 })
     await expect(k.locator('.alert-card', { hasText: /no se puede usar|salvo algunas partes/ })).toHaveCount(0, { timeout: 1000 })
   }).toPass({ timeout: 20_000 })

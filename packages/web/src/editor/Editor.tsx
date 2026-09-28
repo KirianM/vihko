@@ -14,7 +14,7 @@ import * as Y from 'yjs'
 import type { User } from '../api.ts'
 import { useT } from '../i18n.tsx'
 import type { Session } from './collab.ts'
-import { commentMarks, commentUi } from './commentMarks.ts'
+import { commentMarks, commentUi, setCommentReach, type CommentReach } from './commentMarks.ts'
 import { imageHost, images } from './images.ts'
 import { linkAutocomplete } from './autocomplete.ts'
 import { createLinkUi, type NewLinkedNote } from './createLink.ts'
@@ -37,6 +37,8 @@ interface Props {
   onView?: (view: EditorView | null) => void
   /** Open comments: a specific thread or, with null, comment on the selection. */
   onComments?: (threadId: string | null) => void
+  /** How the comments are reached from the text, as the side panel is (commentMarks.ts). */
+  commentReach?: CommentReach
   /** Images linked from other sites: shown, or blocked by the administrator. */
   externalImages: 'allow' | 'block'
   /** Image files pasted or dropped, for the range `from`–`to`. */
@@ -55,7 +57,7 @@ interface Props {
   readOnly?: boolean
 }
 
-export function Editor({ path, session, user, links, onNavigate, onView, onComments, externalImages, onImageFiles, onImageUrl, onCreateLink, onPickAmbiguous, readOnly = false }: Props) {
+export function Editor({ path, session, user, links, onNavigate, onView, onComments, commentReach, externalImages, onImageFiles, onImageUrl, onCreateLink, onPickAmbiguous, readOnly = false }: Props) {
   const t = useT()
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -124,6 +126,7 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
         commentUi.of({
           count: (n) => t(n === 1 ? 'comments.inParagraphOne' : 'comments.inParagraph', { n }),
           show: t('comments.view'),
+          hint: (n) => t(n === 1 ? 'comments.hintOne' : 'comments.hint', { n }),
           open: (id) => comments.current?.(id),
         }),
         viewUpdates,
@@ -150,6 +153,12 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
   useEffect(() => {
     view.current?.dispatch({ effects: setLinks.of(links) })
   }, [links, session])
+
+  const notices = commentReach?.notices ?? false
+  const click = commentReach?.click ?? false
+  useEffect(() => {
+    view.current?.dispatch({ effects: setCommentReach.of({ notices, click }) })
+  }, [notices, click, session, user, t, path, externalImages, readOnly])
 
   return <div className="editor" ref={host} />
 }

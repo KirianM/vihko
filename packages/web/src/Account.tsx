@@ -1,4 +1,5 @@
-// Settings → «Account»: one's own password (the current one is asked for, and
+// Settings → «Account»: the UI's language (saved in the account), one's own
+// password (the current one is asked for, and
 // every other session ends), the second factor (D-036: set it up, change the
 // app, new recovery codes, turn it off while the admin doesn't require it;
 // with the policy `disabled`, only whoever already has one sees it, D-040 3.4a)
@@ -8,7 +9,9 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, FieldError, Form, Heading, Input, Label, Modal, ModalOverlay, TextField } from 'react-aria-components'
 import { ApiError, api, type SessionInfo, type TwoFactorInfo, type User } from './api.ts'
-import { errorText, useT } from './i18n.tsx'
+import { isLanguage, LANGUAGES } from '@vihko/core/languages'
+import { errorText, LANGUAGE_NAMES, useLanguageChoice, useT } from './i18n.tsx'
+import { useChooseLanguage } from './language.ts'
 import { useDates } from './history/ui.tsx'
 import { SearchButton } from './Palette.tsx'
 import { CodeField, RecoveryCodes, SetupForm, codeError } from './TwoFactor.tsx'
@@ -267,6 +270,50 @@ function TwoFactorSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   )
 }
 
+/**
+ * The UI's language: automatic (the browser's) or one of them, each named in
+ * itself so that anyone finds theirs whatever the UI is in now. It's saved in
+ * the account and applied at once.
+ */
+function LanguageSection({ onUnauthorized }: { onUnauthorized: () => void }) {
+  const t = useT()
+  const { choice } = useLanguageChoice()
+  const choose = useChooseLanguage()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const change = async (value: string) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await choose(isLanguage(value) ? value : null)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return onUnauthorized()
+      setError(errorText(t, err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <section className="settings-section" aria-labelledby="account-language">
+      <h2 id="account-language">{t('account.language')}</h2>
+      <div className="account-form">
+        <div className="field">
+          <select className="select" aria-labelledby="account-language" aria-describedby="account-language-hint"
+            value={choice ?? AUTO} disabled={busy} onChange={(e) => void change(e.target.value)}>
+            <option value={AUTO}>{t('account.languageAuto')}</option>
+            {LANGUAGES.map((l) => <option key={l} value={l} lang={l}>{LANGUAGE_NAMES[l]}</option>)}
+          </select>
+          <span id="account-language-hint" className="hint">{t('account.languageHint')}</span>
+        </div>
+        {error && <p className="error-text" role="alert">{error}</p>}
+      </div>
+    </section>
+  )
+}
+
+/** The value of «automatic» in the language list: none of the languages. */
+const AUTO = 'auto'
+
 export function AccountPage({ user, onUnauthorized }: { user: User; onUnauthorized: () => void }) {
   const t = useT()
   const dates = useDates()
@@ -306,6 +353,8 @@ export function AccountPage({ user, onUnauthorized }: { user: User; onUnauthoriz
       <div className="alerts-page settings-page">
         <h1>{t('account.title')}</h1>
         <p className="alerts-intro">{t('account.intro', { user: user.username, role: t(user.role === 'admin' ? 'role.admin' : 'role.member') })}</p>
+
+        <LanguageSection onUnauthorized={onUnauthorized} />
 
         <section className="settings-section" aria-labelledby="account-password">
           <h2 id="account-password">{t('account.password')}</h2>

@@ -16,6 +16,9 @@ vihko: the guides in a release describe that release.
 
 ## Using
 
+- [First steps in the app](first-steps.md): creating notes and folders,
+  links, tags, search and the ⌘K box, moving, images, comments, history,
+  sharing, preferences and the phone.
 - [Notes and Markdown](notes.md): what vihko reads and writes in your files
   (frontmatter, links, tags, comments, images), the trash, and editing with
   other tools at the same time.

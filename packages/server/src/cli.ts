@@ -21,7 +21,8 @@ import { TwoFactor } from './twoFactor.ts'
 import { openState } from './state.ts'
 import { PurgeError, purgeHistory, type PurgeReport } from './history/purge.ts'
 import { describeLeftover } from './history/leftovers.ts'
-import { StateInUseError, prepareStateDir } from './lock.ts'
+import { StateInUseError } from './lock.ts'
+import { StartupError, checkVolumes, prepareStateDir } from './volumes.ts'
 import { Workspace } from './workspace.ts'
 import { VERSION } from './version.ts'
 
@@ -40,14 +41,17 @@ async function main(argv: string[]) {
     console.log(VERSION)
     return
   }
-  const config = configFromEnv()
-  if (cmd === 'serve' || cmd === undefined) {
+  serving = cmd === 'serve' || cmd === undefined
+  const config = envConfig()
+  if (serving) {
     const s = await start(config)
     for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, async () => { await s.stop(); process.exit(0) })
     return
   }
   if (cmd === 'user' && sub === 'create' && rest[0]) {
-    prepareStateDir(config.stateDir) // may be the first thing that runs on a new install
+    // May be the first thing that runs on a new install.
+    checkVolumes({ stateDir: config.stateDir })
+    prepareStateDir(config.stateDir)
     const state = openState(join(config.stateDir, 'state.db'))
     try {
       if (process.stdin.isTTY) process.stderr.write('password (read from stdin; end with Ctrl-D): ')
@@ -157,10 +161,29 @@ function printReport(r: PurgeReport) {
   if (r.movedFrom.length) console.log(`note: before a move, it was ${r.movedFrom.join(', ')}; the versions from before are under that path.`)
 }
 
+/** A variable vihko can't use is the person's to fix, not a bug: its message says which and why. */
+function envConfig() {
+  try {
+    return configFromEnv()
+  } catch (err) {
+    throw new StartupError([(err as Error).message])
+  }
+}
+
+/** Whether the command is the server, whose log lines start with [vihko]. */
+let serving = false
+
 main(process.argv.slice(2)).catch((err) => {
-  if (err instanceof AuthError) console.error(`error: ${err.message}`)
+  const prefix = serving ? '[vihko] ' : 'error: '
+  // What the person can fix, said in a line each: a stack trace would only hide it.
+  if (err instanceof StartupError) for (const line of err.lines) console.error(`${prefix}${line}`)
+  else if (err instanceof AuthError) console.error(`error: ${err.message}`)
   else if (err instanceof UsersError) console.error(`error (${err.code}): ${err.message}`)
-  else if (err instanceof PurgeError || err instanceof StateInUseError) console.error(`error (${err.code}): ${err.message}`)
-  else console.error(err)
+  else if (err instanceof PurgeError || err instanceof StateInUseError) console.error(`${serving ? '[vihko] ' : ''}error (${err.code}): ${err.message}`)
+  else {
+    // Unexpected: a line to read, and the stack, which is what finds the bug.
+    if (serving) console.error(`[vihko] vihko couldn't start: ${err instanceof Error ? err.message : String(err)}`)
+    console.error(err)
+  }
   process.exit(1)
 })

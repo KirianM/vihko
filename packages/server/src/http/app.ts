@@ -15,7 +15,7 @@ import { WORKSPACE_FILE, classifyPath, conflictOriginal, type Alert, type ErrorC
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
-import { NoteError, type MoveHooks, type NoteService } from '../notes.ts'
+import { FolderNotEmpty, NoteError, type MoveHooks, type NoteService } from '../notes.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import type { EditOp } from '../edits.ts'
 import { commentOp } from '../commenting.ts'
@@ -282,7 +282,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.onError((err, c) => {
     if (err instanceof NoteError) {
       if (err.etag) c.header('ETag', `"${err.etag}"`)
-      return fail(c, noteErrorStatus(err), err.code, err.message, { etag: err.etag })
+      return fail(c, noteErrorStatus(err), err.code, err.message, { etag: err.etag, ...(err instanceof FolderNotEmpty ? { contents: err.contents } : {}) })
     }
     if (err instanceof RequestError) return fail(c, err.status, err.code, err.message)
     if (err instanceof AccessError) return fail(c, 403, 'forbidden', err.message)
@@ -523,14 +523,15 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Folders only exist on disk: these create (`edit` where it goes), move
   // (`manage` in it and `edit` in its new parent: with every note in them,
   // links kept as in a note move, and its permissions with it) and delete
-  // them (`manage`, only when empty). A dry run of a move says whose access
-  // changes (`audience`), for the UI to confirm.
+  // them (`manage`: when empty, or with `trash=true`, its notes and files to
+  // the trash first; otherwise 409 `not_empty` with its `contents`). A dry
+  // run of a move says whose access changes (`audience`), for the UI to confirm.
   app.post('/api/folder', async (c) => {
     const { path } = await c.req.json<{ path: string }>()
     return c.json(scoped(c).createFolder(path), 201)
   })
 
-  app.delete('/api/folder', async (c) => c.json(await scoped(c).deleteFolder(c.req.query('path') ?? '')))
+  app.delete('/api/folder', async (c) => c.json(await scoped(c).deleteFolder(c.req.query('path') ?? '', { trash: c.req.query('trash') === 'true' })))
 
   // With `background`, a move that takes long answers 202 with a job as soon
   // as the folder (or note) is in place; GET /api/move-jobs/:id follows it.
@@ -580,7 +581,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const body = await c.req.json<Record<string, unknown>>()
     if (typeof body !== 'object' || body === null) return fail(c, 400, 'invalid', 'expected an object')
     const patch: Partial<Profile> = {}
-    for (const k of ['timezone', 'dailySeries', 'openDailyOnStart'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
+    for (const k of ['timezone', 'dailySeries', 'openDailyOnStart', 'language'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
     return c.json(profiles.update(c.get('user').id, patch))
   })
 

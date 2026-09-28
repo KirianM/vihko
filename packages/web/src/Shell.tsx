@@ -10,6 +10,7 @@ import { AgentsPage } from './Agents.tsx'
 import { PrivacyPage } from './Privacy.tsx'
 import { UsersPage } from './Users.tsx'
 import { AccountPage } from './Account.tsx'
+import { useChooseLanguage } from './language.ts'
 import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
@@ -43,8 +44,10 @@ type TreeDialog =
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 /** Views that aren't a note, in the URL as `?view=` (no router). */
-const VIEWS = ['avisos', 'changes', 'agents', 'privacy', 'users', 'account'] as const
+const VIEWS = ['alerts', 'changes', 'agents', 'privacy', 'users', 'account'] as const
 type View = (typeof VIEWS)[number]
+/** Earlier names of a view, still opened (bookmarks, links already sent); the URL then says the current one. */
+const VIEW_ALIASES: Record<string, View> = { avisos: 'alerts' }
 const inside = (path: string, folder: string) => path === folder || path.startsWith(folder + '/')
 
 // The editor (CodeMirror, Yjs) is downloaded separately, when the first note is opened.
@@ -53,6 +56,7 @@ const NoteView = lazy(() => import('./editor/NoteView.tsx').then((m) => ({ defau
 export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout: () => void; onUnauthorized: () => void }) {
   const t = useT()
   const { effective } = useTheme()
+  const chooseLanguage = useChooseLanguage()
   const [notes, setNotes] = useState<TreeNote[] | null>(null)
   const [folders, setFolders] = useState<string[]>([])
   /** Folders shown only as the way to what the person sees (D-038). */
@@ -75,7 +79,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [openPath, setOpenPathState] = useState<string | null>(() => new URLSearchParams(location.search).get('note'))
   const [view, setView] = useState<View | null>(() => {
     const v = new URLSearchParams(location.search).get('view')
-    return VIEWS.find((x) => x === v) ?? null
+    return VIEWS.find((x) => x === v) ?? (v !== null && Object.hasOwn(VIEW_ALIASES, v) ? VIEW_ALIASES[v]! : null)
   })
   /** A version of the open note shown instead of the editor (`?version=`, from the history). */
   const [version, setVersion] = useState<string | null>(() => new URLSearchParams(location.search).get('version'))
@@ -83,7 +87,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   versionRef.current = version
   const setOpenPath = (path: string | null) => { setView(null); setVersion(null); setOpenPathState(path) }
   const openVersion = (path: string, id: string) => { setView(null); setOpenPathState(path); setVersion(id) }
-  const showAlerts = () => { setOpenPathState(null); setVersion(null); setView('avisos') }
+  const showAlerts = () => { setOpenPathState(null); setVersion(null); setView('alerts') }
   const showChanges = () => { setOpenPathState(null); setVersion(null); setView('changes') }
   const showAgents = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('agents') }
   const showPrivacy = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('privacy') }
@@ -409,8 +413,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     </a>
   )
   const alertsLink = alerts > 0 && (
-    <a className="sidebar-alerts" href="?view=avisos" aria-current={view === 'avisos' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); setNavOpen(false); showAlerts() }}>
-      {Icon.alert}<span>{t('shell.alerts', { n: alerts })}</span>
+    <a className="sidebar-alerts" href="?view=alerts" aria-current={view === 'alerts' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); setNavOpen(false); showAlerts() }}>
+      {Icon.alert}<span>{t(alerts === 1 ? 'shell.alertsOne' : 'shell.alerts', { n: alerts })}</span>
     </a>
   )
   const userRow = (
@@ -469,7 +473,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         </nav>
       )}
       <main className="main">
-        {view === 'avisos' ? (
+        {view === 'alerts' ? (
           <AlertsPage
             onOpen={setOpenPath}
             onChanged={(n) => { setAlerts(n); void loadTree() }}
@@ -540,7 +544,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             </div>
           </>
         )}
-        {arrived && view !== 'avisos' && (
+        {arrived && view !== 'alerts' && (
           <div className="toast">
             <span className="toast-icon">{Icon.alert}</span>
             <span className="toast-text" role="status">{arrived.length === 1 ? noticeText(t, arrived[0]!) : t('notices.many', { n: arrived.length })}</span>
@@ -586,7 +590,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <TrashToast
             key={trashed.id}
             trashed={trashed}
-            onRestored={(path) => { setOpenPath(path); void loadTree() }}
+            onRestored={(path) => {
+              if (trashed.folder) setExpanded((e) => new Set([...e, ...ancestors(path), path]))
+              else setOpenPath(path)
+              setTrashed(null)
+              void loadTree()
+            }}
             onDismiss={() => setTrashed(null)}
           />
         )}
@@ -602,7 +611,18 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             }} />
           )}
           {treeDialog?.kind === 'moveFolder' && <FolderMoveDialog path={treeDialog.path} initialParent={treeDialog.parent} onClose={closeTreeDialog} onMoved={folderMoved} onStarted={moveStarted} />}
-          {treeDialog?.kind === 'deleteFolder' && <DeleteFolderDialog path={treeDialog.path} onClose={closeTreeDialog} onDeleted={() => { closeTreeDialog(); void loadTree() }} />}
+          {treeDialog?.kind === 'deleteFolder' && (
+            <DeleteFolderDialog path={treeDialog.path} onClose={closeTreeDialog} onDeleted={(entries) => {
+              const path = treeDialog.path
+              closeTreeDialog()
+              // What it held went to the trash: the notice offers it all back.
+              if (entries.length) {
+                if (openPath !== null && openPath.startsWith(`${path}/`)) setOpenPath(null)
+                setTrashed({ id: entries[0]!.id, path, by: null, folder: entries.map((e) => e.id) })
+              }
+              void loadTree()
+            }} />
+          )}
           {treeDialog?.kind === 'permissions' && (
             <PermissionsDialog folder={treeDialog.path} me={user} canOpen={canManageFolder} onClose={closeTreeDialog}
               onChanged={() => void loadTree()} onAccessLost={closeTreeDialog} onUnauthorized={onUnauthorized} />
@@ -630,6 +650,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           notes={notes}
           templates={templates}
           onToday={dailyOn ? () => void openToday() : null}
+          onLanguage={(choice) => { setError(null); chooseLanguage(choice).catch(fail) }}
           onClose={() => { setPalette(null); setCreateIn(null) }}
           onMode={setPalette}
           onOpen={setOpenPath}

@@ -25,6 +25,9 @@ const links = StateField.define<Map<string, LinkInfo>>({
   update: (v, tr) => tr.effects.reduce((acc, e) => (e.is(setLinks) ? e.value : acc), v),
 })
 
+/** How far the link written as `raw` has resolved; null if the server hasn't said (or it isn't a note's link). */
+export const linkStatus = (state: EditorState, raw: string): LinkInfo['status'] | null => state.field(links, false)?.get(raw)?.status ?? null
+
 /** Path of the note being edited: where a note created from a broken link goes. */
 export const notePath = Facet.define<string, string>({ combine: (v) => v[0] ?? '' })
 
@@ -38,6 +41,42 @@ export const pickAmbiguous = Facet.define<PickAmbiguous, PickAmbiguous | null>({
 export const labels = Facet.define<LinkLabels, LinkLabels>({
   combine: (v) => v[0] ?? { ambiguous: (n) => `ambiguous · ${n}`, missing: 'missing', frontmatter: (n) => `frontmatter · ${n}` },
 })
+
+// --- Following a link ---------------------------------------------------------------
+
+/** A link where it's written: its whole text (`[[…]]`, `[text](dest)`), where it starts, and a Markdown link's destination (null for a wikilink). */
+export interface LinkRef { raw: string; at: number; url: string | null }
+
+/** Destinations that leave vihko, opened in a new tab. */
+const EXTERNAL = /^(?:https?|mailto):/i
+/** A destination with a scheme: any other one (`javascript:`, `file:`…) is never followed. */
+const SCHEME = /^[a-z][a-z0-9+.-]*:/i
+
+/** A Markdown link's destination as written (`<a b.md>` → `a b.md`). */
+export const linkUrl = (url: string) => url.trim().replace(/^<(.*)>$/s, '$1')
+
+/**
+ * What clicking a link does, the same for a wikilink and a Markdown link, in
+ * the text or in a table: to a note that resolves, it opens it; an ambiguous
+ * one offers its candidates (D-031.2); an http(s) or mailto one opens in a new
+ * tab, without the page it opens reaching this one. null for the rest (broken,
+ * no access, another scheme, not resolved yet): the click goes through, the
+ * cursor enters and the link can be edited.
+ */
+export function linkAction(view: EditorView, link: LinkRef, anchor: HTMLElement): (() => void) | null {
+  const url = link.url === null ? null : linkUrl(link.url)
+  if (url !== null && SCHEME.test(url)) {
+    return EXTERNAL.test(url) ? () => { window.open(url, '_blank', 'noopener,noreferrer') } : null
+  }
+  const info = view.state.field(links, false)?.get(link.raw)
+  if (info?.status === 'resolved' && info.path) {
+    const path = info.path
+    return () => view.state.facet(navigate)(path)
+  }
+  const pick = info?.status === 'ambiguous' ? view.state.facet(pickAmbiguous) : null
+  if (pick) return () => pick({ raw: link.raw, at: link.at, candidates: [...info?.candidates ?? []] }, anchor)
+  return null
+}
 
 // --- Utilities -------------------------------------------------------------------
 
@@ -106,26 +145,17 @@ class WikiWidget extends WidgetType {
     a.textContent = this.label
     a.href = this.info?.path ? `?note=${encodeURIComponent(this.info.path)}` : '#'
     if (this.info?.status === 'ambiguous') a.title = (this.info.candidates ?? []).join('\n')
-    // A resolved link navigates on click (on mousedown: otherwise the editor first
-    // moves the cursor to the link, reveals its text for editing, and the click never
-    // arrives). An ambiguous one opens the picker of its candidates (D-031.2). Broken
-    // links let the click through: the cursor enters and they can be fixed.
-    const target = this.info?.status === 'resolved' ? this.info.path : null
-    if (target) {
-      a.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return
-        e.preventDefault()
-        view.state.facet(navigate)(target)
-      })
-    }
-    const pick = this.info?.status === 'ambiguous' ? view.state.facet(pickAmbiguous) : null
-    if (pick) {
-      wrap.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return
-        e.preventDefault()
-        pick({ raw: this.raw, at: view.posAtDOM(wrap), candidates: [...this.info?.candidates ?? []] }, a)
-      })
-    }
+    // Followed on mousedown (`linkAction`): otherwise the editor first moves the
+    // cursor to the link, reveals its text for editing, and the click never
+    // arrives. Broken links let the click through: the cursor enters and they
+    // can be fixed.
+    wrap.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || onCreateButton(e)) return
+      const act = linkAction(view, { raw: this.raw, at: view.posAtDOM(wrap), url: null }, a)
+      if (!act) return
+      e.preventDefault()
+      act()
+    })
     a.addEventListener('click', (e) => e.preventDefault())
     wrap.append(a)
     if (status === 'missing') {
@@ -234,6 +264,7 @@ function inlineDecorations(view: EditorView): DecorationSet {
               out.push(Decoration.line({ class: 'cm-codeblock' }).range(line.from))
               pos = line.to + 1
             }
+            if (!touchesLines(state, node.from, node.to)) hideFences(state, node, out)
             return false
           case 'Blockquote':
             for (let pos = node.from; pos <= node.to;) {
@@ -250,6 +281,50 @@ function inlineDecorations(view: EditorView): DecorationSet {
     })
   }
   return Decoration.set(out, true)
+}
+
+/** A code block's language, as a small label where its opening fence was. */
+class CodeLangWidget extends WidgetType {
+  readonly lang: string
+  constructor(lang: string) {
+    super()
+    this.lang = lang
+  }
+  eq(o: CodeLangWidget) { return o.lang === this.lang }
+  toDOM() {
+    const s = document.createElement('span')
+    s.className = 'cm-code-lang'
+    s.textContent = this.lang
+    return s
+  }
+}
+
+/**
+ * A code block away from the cursor: its fences (from the ``` to the end of
+ * their line) are hidden, and their lines stay as its top and bottom edges,
+ * so every line of the text is still one of the editor (selecting, copying,
+ * moving through them). The opening one shows the language, if it has one.
+ * An unclosed block (to the end of the note) has only the opening fence, and
+ * one with no line inside keeps both: there'd be nothing left to click into.
+ */
+function hideFences(state: EditorState, node: SyntaxNode, out: Range<Decoration>[]) {
+  const marks = node.getChildren('CodeMark')
+  const open = marks[0]
+  if (!open || open.from !== node.from) return
+  const openLine = state.doc.lineAt(open.from)
+  const close = marks.length > 1 ? marks[marks.length - 1]! : null
+  const closeLine = close ? state.doc.lineAt(close.from) : null
+  if (closeLine && closeLine.number <= openLine.number + 1) return
+  const info = node.getChild('CodeInfo')
+  const lang = info ? state.doc.sliceString(info.from, info.to).trim().split(/\s+/)[0]! : ''
+  // In a quote, its `>` goes too (the line keeps the quote's edge); a list's marker stays.
+  const from = (mark: SyntaxNode, line: { from: number }) => (/^[\s>]*$/.test(state.doc.sliceString(line.from, mark.from)) ? line.from : mark.from)
+  out.push(Decoration.line({ class: lang ? 'cm-fence cm-fence-open' : 'cm-fence' }).range(openLine.from))
+  out.push(Decoration.replace(lang ? { widget: new CodeLangWidget(lang) } : {}).range(from(open, openLine), openLine.to))
+  if (close && closeLine) {
+    out.push(Decoration.line({ class: 'cm-fence' }).range(closeLine.from))
+    out.push(Decoration.replace({}).range(from(close, closeLine), closeLine.to))
+  }
 }
 
 function hideChildren(node: SyntaxNode, names: string[], out: Range<Decoration>[]) {
@@ -286,8 +361,11 @@ function hideLinkSyntax(state: EditorState, node: SyntaxNode, out: Range<Decorat
   const close = marks[1]!
   if (open.to >= close.from) return
   out.push(hidden.range(open.from, open.to))
-  out.push(Decoration.mark({ class: status ? `cm-link cm-link-${status}` : 'cm-link' }).range(open.to, close.from))
   const url = node.getChild('URL')
+  const external = url !== null && EXTERNAL.test(linkUrl(state.doc.sliceString(url.from, url.to)))
+  const kind = status ? ` cm-link-${status}` : external ? ' cm-link-external' : ''
+  // `cm-md-link`: the text of a Markdown link shown as one, which `followMarkdownLink` follows.
+  out.push(Decoration.mark({ class: `cm-link cm-md-link${kind}` }).range(open.to, close.from))
   if (status === 'missing' && url) {
     const widget = new MissingLinkWidget(state.doc.sliceString(node.from, node.to), state.doc.sliceString(url.from, url.to), state.facet(labels).missing)
     out.push(Decoration.replace({ widget }).range(close.from, node.to))
@@ -295,6 +373,28 @@ function hideLinkSyntax(state: EditorState, node: SyntaxNode, out: Range<Decorat
     out.push(hidden.range(close.from, node.to))
   }
 }
+
+/**
+ * A click on a Markdown link shown as one follows it as a wikilink is
+ * followed (`linkAction`), on mousedown for the same reason. With its syntax
+ * revealed (the cursor in it) it's text, and clicks edit it.
+ */
+const followMarkdownLink = EditorView.domEventHandlers({
+  mousedown(e, view) {
+    if (e.button !== 0) return false
+    const el = (e.target as Element | null)?.closest?.('.cm-md-link')
+    if (!(el instanceof HTMLElement) || !view.contentDOM.contains(el)) return false
+    let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(view.posAtDOM(el), 1)
+    while (node && node.name !== 'Link') node = node.parent
+    const url = node?.getChild('URL')
+    if (!node || !url) return false
+    const act = linkAction(view, { raw: view.state.doc.sliceString(node.from, node.to), at: node.from, url: view.state.doc.sliceString(url.from, url.to) }, el)
+    if (!act) return false
+    e.preventDefault()
+    act()
+    return true
+  },
+})
 
 const inlinePreview = ViewPlugin.fromClass(
   class {
@@ -358,4 +458,4 @@ const frontmatterFold = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 })
 
-export const livePreview = [focused, trackFocus, focusSync, links, inlinePreview, frontmatterFold]
+export const livePreview = [focused, trackFocus, focusSync, links, inlinePreview, followMarkdownLink, frontmatterFold]

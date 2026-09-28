@@ -197,7 +197,7 @@ test('whoever manages the folder purges a version from the UI; the admin gets th
   }
 
   // The admin: who purged what, never the content; dismissed, it's gone.
-  await k.goto('/?view=avisos')
+  await k.goto('/?view=alerts')
   const card = k.locator('.alert-card', { hasText: `${MEMBER.username} purgó una versión del historial` })
   await expect(card).toBeVisible()
   await expect(card).toContainText(SECRET_NOTE)
@@ -206,7 +206,7 @@ test('whoever manages the folder purges a version from the UI; the admin gets th
   await card.getByRole('button', { name: 'Entendido' }).click()
   await expect(card).toHaveCount(0)
   // The member, who isn't the admin, never had it.
-  await a.goto('/?view=avisos')
+  await a.goto('/?view=alerts')
   await expect(a.locator('.alerts-page h1')).toBeVisible()
   await expect(a.locator('.alert-card', { hasText: 'purgó' })).toHaveCount(0)
 })

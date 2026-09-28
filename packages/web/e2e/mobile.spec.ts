@@ -53,7 +53,12 @@ const noHorizontalScroll = (page: Page) =>
 
 async function signIn(page: Page) {
   await page.goto('/')
-  await page.getByLabel('Nombre de usuario').fill(ADMIN.username)
+  // A phone keyboard neither capitalises nor corrects a user's name.
+  const name = page.getByLabel('Nombre de usuario')
+  await expect(name).toHaveAttribute('autocapitalize', 'none')
+  await expect(name).toHaveAttribute('autocorrect', 'off')
+  await expect(name).toHaveAttribute('spellcheck', 'false')
+  await name.fill(ADMIN.username)
   await page.getByLabel('Contraseña').fill(ADMIN.password)
   await page.getByRole('button', { name: 'Entrar' }).last().tap()
 }
@@ -170,7 +175,7 @@ test('alerts from the drawer', async () => {
   }).toPass({ timeout: 20_000 })
   await drawer(page).getByRole('link', { name: /avisos del espacio/ }).tap()
   await expect(drawer(page)).toHaveCount(0)
-  await expect(page).toHaveURL(/\?view=avisos$/)
+  await expect(page).toHaveURL(/\?view=alerts$/)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Avisos del espacio')
   await expect(page.locator('.alert-card', { hasText: UID })).toBeVisible()
   await noHorizontalScroll(page)

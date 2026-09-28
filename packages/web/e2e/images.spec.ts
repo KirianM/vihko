@@ -150,3 +150,56 @@ test('screenshots: light, dark and 390 px', async () => {
   await k.setViewportSize({ width: 1280, height: 800 })
   await k.getByRole('button', { name: 'Cambiar a tema claro' }).click()
 })
+
+// Inserting never goes inside another image's or a link's syntax (insertAt.ts):
+// the cursor can be in it while it's hidden, or after a click on a preview.
+test('an image inserted from the dialog right after pasting another, and a look at its preview: both references stay whole', async ({ browser }) => {
+  const title = m.aTitle()
+  const note = `${DIR}/${title}.md`
+  const text = () => readFileSync(`${NOTES}/${note}`, 'utf8')
+  writeFileSync(`${NOTES}/${note}`, `# ${m.aHeading()}\n\n${m.aSentence()}\n`)
+  const p = await signIn(browser, ADMIN, note)
+  await toEnd(p)
+  await sendFiles(p, 'paste', [{ name: 'image.png', bytes: GREEN }])
+  const mine = () => readdirSync(`${NOTES}/${DIR}`).filter((f) => f.startsWith(`${title}-`) && f.endsWith('.png'))
+  await expect.poll(mine).toHaveLength(1)
+  const pasted = link(mine()[0]!)
+  await expect.poll(text).toContain(pasted)
+  // A click on its preview, and some typing: the reference isn't split.
+  await p.locator('.cm-image img').click()
+  const typed = m.aUniqueWord()
+  await p.keyboard.type(typed)
+  await expect.poll(text).toContain(typed)
+  expect(text()).toContain(pasted)
+  // Another one from the dialog, from where the cursor is.
+  const url = `${EXTERNAL}/${REMOTE}`
+  await p.getByRole('button', { name: 'Más acciones' }).click()
+  await p.getByRole('menuitem', { name: 'Insertar imagen…' }).click()
+  await p.getByRole('dialog').getByLabel('Dirección de la imagen').fill(url)
+  await p.getByRole('dialog').getByRole('button', { name: 'Enlazar al origen' }).click()
+  await expect.poll(text).toContain(`![](${url})`)
+  expect(text()).toContain(pasted)
+  await p.context().close()
+})
+
+test('with the cursor inside a link\'s syntax, an inserted image goes after the link', async ({ browser }) => {
+  const title = m.aTitle()
+  const note = `${DIR}/${title}.md`
+  const text = () => readFileSync(`${NOTES}/${note}`, 'utf8')
+  const linked = `[${m.aWord()}](${encodeURIComponent(m.aTitle())}.md)`
+  writeFileSync(`${NOTES}/${note}`, `# ${m.aHeading()}\n\n${linked}\n`)
+  const p = await signIn(browser, ADMIN, note)
+  // At the end of the link's line (its syntax shows), then into its destination.
+  await p.locator('.cm-h1').click()
+  await p.keyboard.press('Control+End')
+  await p.keyboard.press('ArrowUp')
+  await p.keyboard.press('End')
+  for (let i = 0; i < 3; i++) await p.keyboard.press('ArrowLeft')
+  const url = `${EXTERNAL}/${REMOTE}`
+  await p.getByRole('button', { name: 'Más acciones' }).click()
+  await p.getByRole('menuitem', { name: 'Insertar imagen…' }).click()
+  await p.getByRole('dialog').getByLabel('Dirección de la imagen').fill(url)
+  await p.getByRole('dialog').getByRole('button', { name: 'Enlazar al origen' }).click()
+  await expect.poll(text).toContain(`${linked}![](${url})\n`)
+  await p.context().close()
+})

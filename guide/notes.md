@@ -222,18 +222,51 @@ Deleting a note moves it to the trash, in the state volume
 (`trash/` there), never to a folder among your notes. Everyone who has it open
 sees it close.
 
-- Right after deleting, «Restore» brings it back.
+**Its images go with it**: the ones next to it that no other note uses, the
+same ones that would go with it if you moved it to another folder (in
+`per-note` mode, what its own folder of images holds that no other note uses).
+Images another note also uses, in another folder, or in the shared
+attachments folder of [`attachments`](configuration.md#attachments-where-new-images-go)
+stay where they are. An agent takes along only images in its key's folders and
+out of folders closed to agents.
+
+- Right after deleting, «Restore» brings it back, with its images.
 - Later, in «Recent changes», open the change that deleted it: «Restore it as
-  it was before» puts it back from the history.
+  it was before» puts it back from the history, images included.
 - A person sees, and restores, only what was deleted from folders where they
   can edit.
 
-vihko never empties the trash on its own. Each note sits in its own folder under
-`trash/` in the state volume (`note.md` and a `meta.json`); delete those by hand
-if you need the space.
+Restoring never overwrites anything. If a note with that name exists by then,
+the note isn't restored: rename or move that one first. If one of its images'
+names was taken meanwhile by another file, the image comes back with a number
+(`plan-2026-09-28-1012-2.png`) and the note links it there; an identical file
+already there counts as restored.
 
-A folder can only be deleted when it's empty: its notes are never deleted with
-it. Move them out or send them to the trash first.
+vihko never empties the trash on its own. Each entry sits in its own folder under
+`trash/` in the state volume (`note.md`, its images under `files/`, and a
+`meta.json` that lists them); delete those by hand if you need the space.
+
+### Deleting a folder
+
+«Delete folder» deletes an empty folder at once. Empty subfolders go with it,
+and so does the clutter operating systems leave (`.DS_Store`, `._*` files,
+`Thumbs.db`, `desktop.ini`), which vihko removes without asking.
+
+If the folder holds notes or other files, the dialog lists them first
+(hidden files such as `.keep` included) and offers to send them to the trash
+along with the folder, in one step: each note goes as if deleted on its own,
+with its images, and the other files as one more entry. «Restore» on the
+notice that follows brings all of it back.
+
+Two things keep a folder from being deleted, and the dialog says which:
+
+- **What vihko never touches**: a hidden folder inside it (`.git/`,
+  `.obsidian/`, another program's) or a symbolic link. vihko doesn't read,
+  move or delete those; remove them with another tool first.
+- **Things you can't edit**, such as someone's personal folder inside it:
+  counted, never named.
+
+Deleting a folder takes `manage` in it, as renaming or moving it does.
 
 ## Files changed outside vihko
 
@@ -261,7 +294,9 @@ Edit, add, move or delete files with any tool while vihko runs:
   or reformats it.
 - It never overwrites an image, or a note when creating one: a taken name gets
   a number.
-- It never deletes a note outright: deleting goes to the trash.
+- It never deletes a note outright: deleting goes to the trash, and so do the
+  images and files that go with it. The only thing it removes outright is the
+  operating systems' clutter in a folder you delete (`.DS_Store` and the like).
 - It never writes into a git repository you keep in the notes folder (with
   `history.mode: unmanaged` it only reads it).
 - It never keeps note content anywhere but the files, apart from what it

@@ -5,7 +5,7 @@ import { Button, FieldError, Form, Input, Label, TextField } from 'react-aria-co
 import { ApiError, api, type SecondStep, type User } from './api.ts'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { SecondStepForm } from './TwoFactor.tsx'
-import { Brand, ThemeToggle } from './ui.tsx'
+import { Brand, NAME_INPUT, ThemeToggle } from './ui.tsx'
 
 function Frame({ children }: { children: React.ReactNode }) {
   return (
@@ -104,7 +104,7 @@ export function Setup({ onDone }: { onDone: (u: User) => void }) {
         </TextField>
         <TextField className="field" name="username" isRequired autoComplete="username">
           <Label>{t('field.username')}</Label>
-          <Input />
+          <Input {...NAME_INPUT} />
           <FieldError className="error-text" />
         </TextField>
         <TextField className="field" name="password" type="password" isRequired minLength={10} autoComplete="new-password">
@@ -245,7 +245,7 @@ export function Login({ onDone, notice, intro }: { onDone: (u: User) => void; no
       <Form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         <TextField className="field" name="username" isRequired autoComplete="username">
           <Label>{t('field.username')}</Label>
-          <Input />
+          <Input {...NAME_INPUT} />
         </TextField>
         <TextField className="field" name="password" type="password" isRequired autoComplete="current-password">
           <Label>{t('field.password')}</Label>

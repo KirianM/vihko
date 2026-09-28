@@ -239,6 +239,8 @@ related projects.
 - Suggestion mode for agents.
 - Quotes with a text selector in the UI.
 - Request access to a note (with the event log of M6).
+- Syntax highlighting in code blocks, per language, each loaded only when a
+  note needs it.
 
 ## Why this order
 

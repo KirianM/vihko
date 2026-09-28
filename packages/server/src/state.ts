@@ -155,6 +155,8 @@ const MIGRATIONS: string[] = [
      created_at text not null
    );
    create index notices_user on notices(user_id, created_at);`,
+  // The language of each person's UI (profiles.ts): null = their browser's.
+  `alter table profiles add column language text;`,
 ]
 
 export const STATE_VERSION = MIGRATIONS.length

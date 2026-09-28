@@ -198,6 +198,31 @@ test('narrow screen: panel hidden, notice under the paragraph, and overlaid pane
   await a.setViewportSize({ width: 1280, height: 800 })
 })
 
+test('wide screen with the panel closed: the notice shows, and a click on the commented text opens its thread and still edits there', async () => {
+  const panel = a.getByRole('complementary', { name: 'Comentarios y contexto' })
+  await a.getByRole('button', { name: 'Ocultar el panel lateral' }).click()
+  await expect(panel).toHaveCount(0)
+  const notice = a.locator('.cm-comment-notice')
+  await expect(notice).toHaveText('2 comentarios en este párrafoVer')
+  const commented = a.locator('.cm-commented')
+  await expect(commented).toHaveAttribute('title', '2 comentarios · haz clic para verlos')
+  expect(await commented.evaluate((el) => getComputedStyle(el).cursor)).toBe('pointer')
+  await a.screenshot({ path: `${SHOTS}/panel-closed-light.png` })
+  await a.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()
+  await a.screenshot({ path: `${SHOTS}/panel-closed-dark.png` })
+  await a.getByRole('button', { name: 'Cambiar a tema claro' }).click()
+  await commented.click()
+  await expect(panel).toBeVisible()
+  await expect(panel.locator('.thread-active')).toContainText(COMMENTED)
+  await expect(notice).toHaveCount(0)
+  // The click was also one into the text: the editor keeps the focus, with the cursor there.
+  expect(await a.evaluate(() => document.activeElement?.classList.contains('cm-content'))).toBe(true)
+  // With the panel open, the text is only text again.
+  await expect(commented).not.toHaveAttribute('title')
+  // The member's cursor out of the sentence (the next test finds it by its text, which a cursor's name would break).
+  await a.locator('.cm-h1').click()
+})
+
 // D-031.6: the index remembers the commented text as it first saw it.
 const originals = async (p: Page) => {
   const r = await p.request.get(`/api/note/comments?path=${encodeURIComponent(NOTE)}`)

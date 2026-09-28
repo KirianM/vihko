@@ -5,7 +5,7 @@ services:
     # published that way). From 1.0.0 on, this line says :1, which gets every
     # 1.x release (fixes and features) and never an incompatible version: that
     # is a new major, which you choose by changing the tag.
-    image: ghcr.io/kirianm/vihko:1.0.0-rc.1
+    image: ghcr.io/kirianm/vihko:1.0.0-rc.2
     restart: unless-stopped
     # Hardening: nothing is written outside the two volumes, no Linux
     # capabilities, and no way to gain privileges. vihko needs none of them.
@@ -17,20 +17,25 @@ services:
       # VIHKO_HOST_PORT=8098 docker compose up -d (or put it in a .env file).
       # Don't expose it to the Internet without HTTPS in front (a reverse proxy).
       - "${VIHKO_HOST_PORT:-8080}:8080"
-      # Behind a reverse proxy on this host, only the proxy needs to reach it:
-      # this line instead of the one above.
+      # Only with a reverse proxy on THIS machine: this line instead of the one
+      # above, so that only the proxy reaches vihko. A proxy on another machine
+      # needs the line above. See guide/reverse-proxy.md.
       # - "127.0.0.1:${VIHKO_HOST_PORT:-8080}:8080"
     volumes:
       # Notes: any Markdown folder (local disk or NFS).
       - ./notes:/data/notes
       # State: ALWAYS on local disk (SQLite is not reliable over NFS).
       - ./state:/data/state
-    # User that writes your notes (1000:1000 by default).
-    # user: "1000:1000"
+    # The user vihko runs as: the owner of the notes folder (on NFS, the one the
+    # server imposes), set in .env; state/ must belong to the same user.
+    # See guide/install.md, "The user and file ownership".
+    user: "${VIHKO_UID:-1000}:${VIHKO_GID:-1000}"
     # environment:
     #   # Only behind a reverse proxy with HTTPS: the public address, for remote
     #   # MCP clients such as claude.ai (OAuth). See guide/reverse-proxy.md.
     #   VIHKO_PUBLIC_URL: https://notes.example.com
     #   # The reverse proxy's address as vihko sees it, so the login limits
     #   # count each client apart (X-Forwarded-For is believed only from it).
+    #   # A proxy on this machine or in this file: 172.16.0.0/12. On another
+    #   # machine: its address alone (such as 10.0.0.50), never a range.
     #   VIHKO_TRUSTED_PROXIES: 172.16.0.0/12

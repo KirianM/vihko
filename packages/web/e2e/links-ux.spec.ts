@@ -143,7 +143,7 @@ test('renamed on disk: the alert says where it went and how many links point to 
   await expect(k.locator('.cm-wikilink-resolved a', { hasText: label })).toBeVisible()
   // Another tool renames it.
   renameSync(`${NOTES}/${dest}`, `${NOTES}/${DIR}/${renamedName}.md`)
-  await k.goto('/?view=avisos')
+  await k.goto('/?view=alerts')
   const card = k.locator('.alert-card', { hasText: 'se movió fuera de vihko' })
   await expect(async () => {
     await k.reload()
@@ -239,7 +239,7 @@ test("the other tool fixing the links itself makes the alert go away", async ({ 
   // Indexed before it moves (the rescan runs every 5 s, the watcher sooner).
   await expect.poll(async () => (await k.request.get(`/api/note/links?path=${encodeURIComponent(origin)}`)).ok(), { timeout: 20_000 }).toBe(true)
   renameSync(`${NOTES}/${dest}`, `${NOTES}/${DIR}/${renamedName}.md`)
-  await k.goto('/?view=avisos')
+  await k.goto('/?view=alerts')
   const card = k.locator('.alert-card', { hasText: `${dest} se movió` })
   await expect(async () => { await k.reload(); await expect(card).toBeVisible({ timeout: 1000 }) }).toPass({ timeout: 20_000 })
   writeFileSync(`${NOTES}/${origin}`, `# ${heading}\n\n[[${renamedName}]]\n`)

@@ -16,7 +16,8 @@ import { Watcher } from './watcher.ts'
 import { ExternalMoves } from './externalMoves.ts'
 import { CollabHub } from './hub.ts'
 import { History } from './history/index.ts'
-import { lockState, prepareStateDir, type StateLock } from './lock.ts'
+import { lockState, type StateLock } from './lock.ts'
+import { StartupError, checkVolumes, prepareStateDir, rootWarning } from './volumes.ts'
 import { ApiKeys } from './keys.ts'
 import { markIcons, mountMcp } from './mcp/server.ts'
 import { Integrations, integrationsLockedFrom } from './integrations.ts'
@@ -24,7 +25,7 @@ import { SESSION_COOKIE } from './http/app.ts'
 import { publicUrlFrom } from './oauth.ts'
 import type { Server } from 'node:http'
 import type { BlockList } from 'node:net'
-import { trustedProxiesFrom } from './http/clientIp.ts'
+import { trustedProxiesFrom, wideTrustedProxies } from './http/clientIp.ts'
 import { WORKSPACE_FILE, type WorkspaceMigration } from '@vihko/core'
 import { ConfigMigrations } from './configMigrations.ts'
 import { AccessPolicy } from './access.ts'
@@ -71,6 +72,8 @@ export interface Config {
    * Unset: the socket's address, and the header is ignored.
    */
   trustedProxies: BlockList | null
+  /** Its entries wider than a proxy needs (`wideTrustedProxies`): warned about on startup. */
+  wideTrustedProxies: string[]
   /**
    * VIHKO_SECRET_KEY (or VIHKO_SECRET_KEY_FILE, a Docker secret): with it,
    * the TOTP secrets in state.db are stored encrypted (secretKey.ts). Only
@@ -98,6 +101,7 @@ export function configFromEnv(env = process.env): Config {
     integrationsLocked: integrationsLockedFrom(env.VIHKO_INTEGRATIONS),
     publicUrl: publicUrlFrom(env.VIHKO_PUBLIC_URL),
     trustedProxies: trustedProxiesFrom(env.VIHKO_TRUSTED_PROXIES),
+    wideTrustedProxies: wideTrustedProxies(env.VIHKO_TRUSTED_PROXIES),
     secretBox: secretBoxFrom(env),
   }
 }
@@ -142,6 +146,10 @@ export interface StartOptions {
 
 export async function start(config: Config, opts: StartOptions = {}) {
   console.log(`[vihko] vihko ${VERSION}`)
+  // Both folders writable by the user vihko runs as, before anything is opened in them.
+  checkVolumes(config)
+  const root = rootWarning()
+  if (root) console.log(`[vihko] ${root}`)
   // vihko's alone, closed to other users of the host.
   prepareStateDir(config.stateDir, (msg) => console.log(`[vihko] ${msg}`))
   // One process at a time on the state volume (a second server, or `vihko history purge`).
@@ -247,6 +255,9 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
     notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes,
     attachments: () => workspace.config.attachments, history: history.recorder,
   })
+  // Saved editor states of notes that no longer exist (nor wait in the trash) go.
+  const trashed = new Set(notes.trash().map((e) => e.path))
+  hub.dropStaleStates((path) => trashed.has(path))
   const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const profiles = new Profiles(state)
@@ -267,12 +278,22 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   hub.attach(server, SESSION_COOKIE)
   // serve() opens the port asynchronously: only announced once it's actually listening.
-  if (!server.listening) await new Promise<void>((resolve, reject) => { server.once('listening', resolve); server.once('error', reject) })
+  if (!server.listening) {
+    await new Promise<void>((resolve, reject) => {
+      server.once('listening', resolve)
+      server.once('error', (err: NodeJS.ErrnoException) => reject(err.code === 'EADDRINUSE'
+        ? new StartupError([`port ${config.port} on ${config.host} is in use by another program: stop it, or choose another port with VIHKO_PORT`])
+        : err))
+    })
+  }
   log(`listening on http://${config.host}:${config.port}`)
   if (config.integrationsLocked) log('VIHKO_INTEGRATIONS=off: the API with keys and the MCP server stay off')
   if (config.publicUrl) log(`public URL ${config.publicUrl}: OAuth for ${config.publicUrl}/mcp while the MCP server is on`)
   // Behind a proxy without it, every client is the proxy to the login limits: one guesser holds everyone back.
   if (config.publicUrl && !config.trustedProxies) log('VIHKO_TRUSTED_PROXIES is unset: the login limits count every client by the connection\'s address (a reverse proxy\'s, if there is one). Set it to the proxy\'s address; see guide/reverse-proxy.md')
+  // A range where a single address was meant (`10.0.0.50/8`): anyone in it could say they're someone else.
+  const wide = config.wideTrustedProxies
+  if (wide.length) log(`VIHKO_TRUSTED_PROXIES: ${wide.join(', ')} ${wide.length === 1 ? 'is a wide range' : 'are wide ranges'}: every address in ${wide.length === 1 ? 'it' : 'them'} is believed as a proxy, and could slip past the login limits. Give the proxy's own address (such as 10.0.0.50); see guide/reverse-proxy.md`)
 
   const setup = auth.setupToken()
   if (setup) {

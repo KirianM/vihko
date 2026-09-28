@@ -171,12 +171,14 @@ test('moving the folder of the open note keeps it open at its new path', async (
   await expect(k.locator('.crumbs')).toHaveText(`${DIR} / ${ARCHIVE2} / ${MOVABLE}`)
 })
 
-test('delete: a folder with notes is refused and explained; an empty one goes', async () => {
+test('delete: a folder with notes shows them before anything goes; an empty one goes', async () => {
   await row(k, ARCHIVE2).click({ button: 'right' })
   await k.getByRole('menuitem', { name: 'Eliminar carpeta' }).click()
   const dialog = k.getByRole('alertdialog')
   await dialog.getByRole('button', { name: 'Eliminar' }).click()
-  await expect(dialog.getByRole('alert')).toHaveText('La carpeta no está vacía: mueve sus notas y archivos o mándalos a la papelera antes.')
+  await expect(dialog.getByText('Contiene 1 nota. Van a la papelera con ella y se pueden restaurar desde allí:')).toBeVisible()
+  await expect(dialog.getByRole('list', { name: 'Sus notas' })).toHaveText(`${MOVABLE}.md`)
+  await expect(dialog.getByRole('button', { name: 'Mandar a la papelera y eliminar' })).toBeVisible()
   await dialog.getByRole('button', { name: 'Cancelar' }).click()
   expect(read(`${DIR}/${ARCHIVE2}/${MOVABLE}.md`)).toContain(`# ${MOVABLE}`)
 

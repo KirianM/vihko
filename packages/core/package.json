@@ -1,6 +1,6 @@
 {
   "name": "@vihko/core",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
@@ -16,7 +16,8 @@
     "./query": "./src/query.ts",
     "./casefold": "./src/casefold.ts",
     "./hue": "./src/hue.ts",
-    "./keyScope": "./src/keyScope.ts"
+    "./keyScope": "./src/keyScope.ts",
+    "./languages": "./src/languages.ts"
   },
   "dependencies": {
     "@lezer/common": "^1.5.3",

@@ -72,6 +72,10 @@
 .image-url { font-family: var(--font-mono); font-size: 13px; overflow-wrap: anywhere; }
 .dialog .hint { margin: 0; font-size: 13px; line-height: 1.45; color: var(--faint); }
 
+/* --- What a folder holds, before it goes to the trash with it ------------ */
+.folder-list { margin: 0; padding: var(--space-2) var(--space-3); list-style: none; display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: 12px; line-height: 18px; color: var(--ink-2); overflow-wrap: anywhere; }
+.folder-list-more { font-family: var(--font-sans); color: var(--muted); }
+
 /* --- Trash notice with "Restore" ---------------------------------- */
 .toast { position: fixed; z-index: 5; left: 50%; bottom: var(--space-6); transform: translateX(-50%); width: max-content; max-width: calc(100vw - 2 * var(--space-4)); display: flex; align-items: center; gap: var(--space-3); padding: 10px 10px 10px var(--space-4); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); color: var(--ink); }
 .toast-icon { color: var(--muted); display: inline-flex; }

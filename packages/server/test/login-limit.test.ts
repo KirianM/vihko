@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   Auth, DEVICE_COOKIE, Indexer, LoginLimiter, NoteService, Profiles, SESSION_COOKIE, Workspace, clientIp, createApp, ipKey, openIndex, openState,
-  trustedProxiesFrom, type LimitRules, type Runtime,
+  trustedProxiesFrom, wideTrustedProxies, type LimitRules, type Runtime,
 } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -158,6 +158,16 @@ test('client address: the socket, X-Forwarded-For only from trusted proxies', ()
   assert.equal(ipKey('2001:db8:0:1:aaaa::1'), '2001:db8:0:1::/64', 'IPv6 by its /64')
   assert.equal(ipKey('2001:db8::1'), ipKey('2001:0db8:0000:0000:ffff::2'))
   assert.equal(ipKey('unknown'), 'unknown')
+})
+
+// The literals are the case: where a trusted range is too wide to be a proxy's.
+test('trusted proxies wider than /12 (IPv4) or /48 (IPv6) are named, to warn on startup', () => {
+  assert.deepEqual(wideTrustedProxies('10.0.0.50/8'), ['10.0.0.50/8'], 'meant as one address, it is all of 10.0.0.0/8')
+  assert.deepEqual(wideTrustedProxies('172.16.0.0/12, 10.0.0.50, 10.0.0.50/32, 192.168.1.0/24'), [], 'a Docker network on the same host, and addresses')
+  assert.deepEqual(wideTrustedProxies('2001:db8:1:2::/64 fd00::7 2001:db8::/48'), [], 'an IPv6 /64, an address and a /48')
+  assert.deepEqual(wideTrustedProxies('2001:db8::/32, 10.0.0.5, 0.0.0.0/0'), ['2001:db8::/32', '0.0.0.0/0'])
+  assert.deepEqual(wideTrustedProxies(undefined), [])
+  assert.throws(() => wideTrustedProxies('10.0.0.0/33'), /VIHKO_TRUSTED_PROXIES/)
 })
 
 // --- Over HTTP ---------------------------------------------------------------
