@@ -117,6 +117,18 @@ test('vihko.yaml: YAML errors carry their line', () => {
   assert.deepEqual(errors('- a\n- b\n'), [['not_a_map', null, 1]])
 })
 
+test('vihko.yaml: an alias bomb is a YAML error, never an exception', () => {
+  // A few lines whose aliases expand to millions of values: the case under test.
+  const bomb = ['a: &a [x, x, x, x, x, x, x, x, x]', ...'bcdef'.split('').map((k, i) =>
+    `${k}: &${k} [${Array(9).fill(`*${'abcdef'[i]}`).join(', ')}]`)].join('\n')
+  for (const text of [`${bomb}\n`, `permissions:\n  ${bomb.replaceAll('\n', '\n  ')}\n`]) {
+    const r = parseWorkspaceConfig(text)
+    assert.ok(!r.ok, 'should be invalid')
+    assert.deepEqual(r.errors.map((e) => e.code), ['yaml'])
+    assert.equal(r.sections, undefined, 'no section applies: the permissions fail closed')
+  }
+})
+
 test('vihko.yaml: unknown keys are reported and ignored; the rest applies', () => {
   const r = parseWorkspaceConfig('templtes: Plantillas\ntemplates: P\nattachments:\n  fodler: x\n  folder: A\ndaily:\n  d:\n    folder: D\n    fromat: x\n')
   assert.ok(r.ok)

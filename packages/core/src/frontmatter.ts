@@ -62,8 +62,21 @@ function parseYaml(raw: string): { doc: Document; data: Record<string, unknown> 
   const doc = parseDocument(raw, { schema: 'core', uniqueKeys: true, prettyErrors: false })
   if (doc.errors.length) return { error: doc.errors[0]!.message }
   if (doc.contents !== null && !isMap(doc.contents)) return { error: 'the frontmatter is not a map' }
-  const data = (doc.toJS({ maxAliasCount: 100 }) ?? {}) as Record<string, unknown>
-  return { doc, data }
+  const data = toData(doc)
+  return 'error' in data ? data : { doc, data: (data.value ?? {}) as Record<string, unknown> }
+}
+
+/**
+ * The document's value. Aliases that would expand past a limit (a "billion
+ * laughs" in a note or vihko.yaml) make it throw: that's one more kind of
+ * invalid YAML, never an exception for whoever reads the file.
+ */
+export function toData(doc: Document): { value: unknown } | { error: string } {
+  try {
+    return { value: doc.toJS({ maxAliasCount: 100 }) }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
+  }
 }
 
 export function readFrontmatter(text: string): Frontmatter {

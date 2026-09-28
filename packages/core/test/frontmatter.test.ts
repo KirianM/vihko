@@ -22,6 +22,25 @@ test('invalid frontmatter: error, and body starting after the closing delimiter'
   assert.throws(() => setFrontmatterKey(vault('frontmatter/invalido.md'), 'uid', 'X'), FrontmatterError)
 })
 
+/** A few lines of YAML whose aliases expand to millions of values (a "billion laughs"). */
+const ALIAS_BOMB = [
+  'a: &a [x, x, x, x, x, x, x, x, x]',
+  'b: &b [*a, *a, *a, *a, *a, *a, *a, *a, *a]',
+  'c: &c [*b, *b, *b, *b, *b, *b, *b, *b, *b]',
+  'd: &d [*c, *c, *c, *c, *c, *c, *c, *c, *c]',
+  'e: &e [*d, *d, *d, *d, *d, *d, *d, *d, *d]',
+  'f: &f [*e, *e, *e, *e, *e, *e, *e, *e, *e]',
+].join('\n')
+
+test('an alias bomb is invalid frontmatter, never an exception', () => {
+  const text = `---\n${ALIAS_BOMB}\n---\nbody\n`
+  const fm = readFrontmatter(text)
+  assert.ok(fm.error, 'reported as invalid')
+  assert.deepEqual(fm.data, {})
+  assert.equal(fm.bodyStart, text.indexOf('body'))
+  assert.throws(() => setFrontmatterKey(text, 'uid', 'A1'), FrontmatterError, 'and never written')
+})
+
 test('no closing delimiter means no frontmatter', () => {
   const fm = readFrontmatter('---\ntitle: x\nsin cierre\n')
   assert.equal(fm.block, null)
