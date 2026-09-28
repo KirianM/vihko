@@ -7,7 +7,7 @@
 // An OAuth authorization (oauth.ts) is a key too, listed and revoked like the
 // others, which only its client's tokens reach.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { newUid } from '@vihko/core'
+import { keyWidens, newUid } from '@vihko/core'
 import type { Db } from './db.ts'
 import type { Role, User } from './auth.ts'
 import { VIAS, type Via } from './actor.ts'
@@ -188,10 +188,7 @@ export class ApiKeys {
    * either). Its owner creates a new key instead.
    */
   update(id: string, input: KeyInput): KeyInfo {
-    const r = this.row(id)
-    if (!r) throw new KeyError('not_found', `no key ${id}`)
-    if (r.revoked_at) throw new KeyError('invalid', 'a revoked key cannot change')
-    if (r.expires_at && Date.parse(r.expires_at) <= this.now().getTime()) throw new KeyError('invalid', 'an expired key cannot change: create a new one')
+    this.editable(id)
     const sets: string[] = []
     const values: unknown[] = []
     if (input.name !== undefined) { sets.push('name = ?'); values.push(checkName(input.name)) }
@@ -203,6 +200,31 @@ export class ApiKeys {
     if (expiresAt !== undefined) { sets.push('expires_at = ?'); values.push(expiresAt) }
     if (sets.length) this.db.prepare(`update api_keys set ${sets.join(', ')} where id = ?`).run(...values, id)
     return this.info(this.row(id)!)
+  }
+
+  /**
+   * Whether `update` with this input would let the key do more (D-046.2):
+   * write, reach more folders (or every one), or work longer. Its owner
+   * confirms that at the moment, as creating it; narrowing or renaming it,
+   * not. Throws as `update` would (no such key, revoked or expired, input
+   * that isn't valid), so nothing is asked for a change that can't be made.
+   */
+  widens(id: string, input: KeyInput): boolean {
+    const r = this.editable(id)
+    const before = { canWrite: !!r.can_write, folders: JSON.parse(r.folders) as string[], expiresAt: r.expires_at }
+    if (input.name !== undefined) checkName(input.name)
+    return keyWidens(before, {
+      canWrite: checkBool(input.canWrite, 'canWrite'), folders: checkFolders(input.folders), expiresAt: checkExpiry(input.expiresAt, this.now()),
+    })
+  }
+
+  /** A key that can still change: not revoked, nor expired. */
+  private editable(id: string): Row {
+    const r = this.row(id)
+    if (!r) throw new KeyError('not_found', `no key ${id}`)
+    if (r.revoked_at) throw new KeyError('invalid', 'a revoked key cannot change')
+    if (r.expires_at && Date.parse(r.expires_at) <= this.now().getTime()) throw new KeyError('invalid', 'an expired key cannot change: create a new one')
+    return r
   }
 
   /**

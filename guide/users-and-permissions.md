@@ -379,7 +379,8 @@ factor reset), is in [Install](install.md).
 Some actions ask you to prove it's you even though you're signed in: the
 app's code, or your password if you have no second factor.
 
-- creating or rotating an agent key, and authorizing an app (OAuth);
+- creating or rotating an agent key, changing one so it can do more, and
+  authorizing an app (OAuth);
 - an admin making a reset link for someone, resetting someone's second factor,
   changing someone's role, or creating a new admin;
 - an admin changing the second-factor policy;

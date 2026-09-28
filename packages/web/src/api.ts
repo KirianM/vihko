@@ -403,7 +403,8 @@ export const api = {
   /** A new key: the token comes back this once and never again. */
   /** `confirm`: the current code, or the password without a second factor (D-036). */
   createKey: (input: KeyInput & { name: string; confirm: string }) => request<{ key: KeyInfo; token: string }>('POST', '/api/keys', input),
-  updateKey: (id: string, patch: KeyInput) => request<{ key: KeyInfo }>('PATCH', `/api/keys/${encodeURIComponent(id)}`, patch).then((r) => r.key),
+  /** A change that lets it do more (writing, more folders, a later expiry or none) takes `confirm`, as a new key does. */
+  updateKey: (id: string, patch: KeyInput & { confirm?: string }) => request<{ key: KeyInfo }>('PATCH', `/api/keys/${encodeURIComponent(id)}`, patch).then((r) => r.key),
   /** Its owner, or the vihko admin for anyone's. */
   rotateKey: (id: string, confirm: string) => request<{ key: KeyInfo; token: string }>('POST', `/api/keys/${encodeURIComponent(id)}/rotate`, { confirm }),
   revokeKey: (id: string) => request<{ key: KeyInfo }>('DELETE', `/api/keys/${encodeURIComponent(id)}`).then((r) => r.key),

@@ -102,7 +102,10 @@ Each key in the list shows its permissions, folders, expiry, when it was last
 used and how (via the API, via MCP, or via MCP with OAuth). **What it sees**
 lists what the key reaches right now.
 
-- **Edit** changes the name, permissions, folders or expiry.
+- **Edit** changes the name, permissions, folders or expiry. A change that
+  lets the key do more (from read only to reads and writes, another folder or
+  every folder, a later expiry or none) asks you to confirm it's you, as
+  creating a key does. Renaming it, or letting it do less, doesn't.
 - **Rotate** gives the key a new secret, shown once, and confirmed like a new
   key. It keeps its name, permissions, folders and history. The old secret keeps
   working for 10 minutes, so you can update the agent's configuration; then it
@@ -368,7 +371,8 @@ the app and marked **OAuth** in Agents and API:
 
 - It acts for that person, with what they chose and within what they see, like
   any key. It never sees `ai: false` notes or folders.
-- There is no key to copy or rotate. Change what it may do with **Edit**, or
+- There is no key to copy or rotate. Change what it may do with **Edit** (as
+  with any key, letting it do more asks you to confirm it's you), or
   **Revoke** it: that stops its tokens at once, and the app has to ask again.
 - Approving the same app again changes what that authorization may do (to what
   you choose then); it stays one entry, so the history keeps one author.
