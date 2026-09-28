@@ -26,7 +26,8 @@
 //   GET    /api/admin/settings, PUT { membersLocalDownloads?, twoFactor?, confirm? }  (a new policy, with `confirm`)
 //
 // Guessing a link (or the current password) counts in the login limits, as a
-// password or the first-boot token does (loginLimit.ts).
+// password or the first-boot token does (loginLimit.ts); a link, by the
+// client's address only.
 //
 // What lets the admin into someone else's account, or changes what they may
 // do (a reset link, a new role; the second factor's reset is in
@@ -74,8 +75,8 @@ const fail = (c: Context, status: 400 | 403 | 404, error: string, message: strin
 /** The routes a one-time link is used through: before the session middleware. */
 export function inviteRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   const { users, limiter } = deps
-  /** Counted as a guess until the link turns out to work. */
-  const attempt = (c: Context): AttemptResult => limiter.begin({ ip: deps.ipOf(c), account: LINK_ACCOUNT })
+  /** Counted as a guess until the link turns out to work: by the client only, so guesses elsewhere never hold back a real link. */
+  const attempt = (c: Context): AttemptResult => limiter.begin({ ip: deps.ipOf(c), account: LINK_ACCOUNT, byAddress: true })
   const refused = (c: Context, a: Extract<AttemptResult, { ok: true }>) => {
     const wait = a.failed()
     if (wait > 0) return deps.tooMany(c, wait)

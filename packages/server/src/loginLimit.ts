@@ -12,6 +12,14 @@
 //   IP address         20 free, up to 15 min. Every account from one
 //                      address (guessing one password across many names).
 //
+// A random token (a one-time link, the first-boot token) is counted by the
+// client only (`byAddress`): the client + token-kind and IP address counters,
+// never an account counter. Its 256 bits make a guess spread over many
+// addresses hopeless, so a shared counter would add nothing against guessing
+// and would let anyone hold back, for everyone, the person who has the real
+// token. VIHKO_TRUSTED_PROXIES decides which address is the client's
+// (http/clientIp.ts).
+//
 // While any counter that applies is waiting, the attempt is refused (429 with
 // Retry-After) before the password is checked: no argon2 work for whoever is
 // guessing and nothing to learn from the timing. Refused attempts don't count
@@ -86,6 +94,12 @@ export interface AttemptInput {
   account: string
   /** The device cookie's id, when it is valid for this account (`deviceFor`). */
   device?: string | null
+  /**
+   * A random token rather than a password (a link, the first-boot token):
+   * counted by the client only, with no account counter that failures from
+   * other addresses could hold back.
+   */
+  byAddress?: boolean
 }
 
 /** An attempt allowed to go on: say how it ended. Both return the wait (seconds) now in force, 0 if none. */
@@ -129,7 +143,9 @@ export class LoginLimiter {
     const account = accountKey(input.account)
     const keys: [Kind, string][] = input.device
       ? [['pair', `d:${input.device}|${account}`]]
-      : [['pair', `i:${input.ip}|${account}`], ['account', `a:${account}`], ['ip', `i:${input.ip}`]]
+      : input.byAddress
+        ? [['pair', `i:${input.ip}|${account}`], ['ip', `i:${input.ip}`]]
+        : [['pair', `i:${input.ip}|${account}`], ['account', `a:${account}`], ['ip', `i:${input.ip}`]]
     const wait = Math.max(0, ...keys.map(([, k]) => this.waiting(k, now)))
     if (wait > 0) {
       this.record(now)

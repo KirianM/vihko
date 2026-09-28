@@ -286,6 +286,42 @@ test('HTTP: the first-boot token is limited too', async () => {
   assert.equal((await s.send('203.0.113.9', 'POST', '/api/setup', { token, username: admin.username, password: admin.password })).status, 200)
 })
 
+// A link or the first-boot token is 256 random bits: a guess spread over many
+// addresses gets nowhere, so there is no shared counter for it that a guesser
+// could run up to hold back the person who has the real one. Each address
+// still waits after its own few failures.
+test('HTTP: guessing links elsewhere does not hold back the person with a real one', async () => {
+  const s = await server()
+  const admin = m.aUser({ role: 'admin' })
+  const newcomer = m.aUser({ role: 'member' })
+  await s.auth.createUser(admin.username, admin.password, admin.role)
+  const cookie = cookieOf((await s.signIn('192.0.2.10', admin.username, admin.password)).headers, SESSION_COOKIE)!
+  const created = await s.send('192.0.2.10', 'POST', '/api/admin/users', { username: newcomer.username, role: newcomer.role }, { cookie })
+  assert.equal(created.status, 201)
+  const token: string = created.body.link.token
+
+  for (let i = 0; i < 40; i++) await s.send(`10.0.${i}.1`, 'GET', `/api/invite/${m.aSecret(43)}`)
+  const seen = await s.send('192.0.2.20', 'GET', `/api/invite/${token}`)
+  assert.deepEqual([seen.status, seen.body.username], [200, newcomer.username], 'the invited person opens their link')
+  const accepted = await s.send('192.0.2.20', 'POST', `/api/invite/${token}`, { password: newcomer.password })
+  assert.equal(accepted.status, 200, 'and chooses their password')
+
+  // One address guessing: five free failures, then it waits.
+  for (let i = 0; i < 5; i++) assert.equal((await s.send('203.0.113.9', 'GET', `/api/invite/${m.aSecret(43)}`)).status, 404)
+  assert.equal((await s.send('203.0.113.9', 'GET', `/api/invite/${m.aSecret(43)}`)).status, 429)
+  assert.equal((await s.send('203.0.113.9', 'POST', `/api/invite/${m.aSecret(43)}`, { password: m.aPassword() })).status, 429)
+})
+
+test('HTTP: guessing the first-boot token elsewhere does not hold back whoever has it', async () => {
+  const s = await server()
+  const admin = m.aUser({ role: 'admin' })
+  const token = s.auth.setupToken()!
+  for (let i = 0; i < 40; i++) await s.send(`10.0.${i}.1`, 'POST', '/api/setup', { token: m.aSecret(43), username: m.aUsername(), password: m.aPassword() })
+  const r = await s.send('192.0.2.20', 'POST', '/api/setup', { token, username: admin.username, password: admin.password })
+  assert.equal(r.status, 200, JSON.stringify(r.body))
+  assert.equal(s.auth.userCount(), 1)
+})
+
 test('HTTP: many failures show in the admin’s alerts', async () => {
   const s = await server()
   const people = { admin: m.aUser({ role: 'admin' }), member: m.aUser({ role: 'member' }) }
