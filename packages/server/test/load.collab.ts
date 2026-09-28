@@ -5,8 +5,17 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as Y from 'yjs'
 import { api, closeAll, connect, login, makeDirs, sleep, startServer, waitFor, type Client } from './_collab.ts'
+import { mother } from '../../../test/mother.ts'
 
-const NOTE = 'load.md'
+const m = mother(import.meta.url)
+/** Lines typed or written to find again: words no other text has. */
+const MARK = {
+  agent: m.aUniqueWord(),
+  agentMark: m.aUniqueWord(),
+  ext: m.aUniqueWord(),
+}
+
+const NOTE = m.aNotePath()
 const SECONDS = Number(process.env.LOAD_SECONDS ?? 30)
 
 async function human(c: Client, id: string, until: number, done: string[]) {
@@ -33,7 +42,7 @@ async function human(c: Client, id: string, until: number, done: string[]) {
 test(`hub load: 3 people + an agent via API + a slow external editor, ${SECONDS} s`, { timeout: (SECONDS + 120) * 1000 }, async () => {
   const { notes, env } = makeDirs()
   const file = join(notes, NOTE)
-  writeFileSync(file, '---\ntitle: Load\n---\n# Load\n\nAGENT-MARK\nfixed line 1\n')
+  writeFileSync(file, `---\ntitle: ${m.aHeading()}\n---\n# ${m.aHeading()}\n\n${MARK.agentMark}\nfixed line 1\n`)
   const srv = await startServer(env)
   try {
     const cookie = await login(srv)
@@ -46,9 +55,9 @@ test(`hub load: 3 people + an agent via API + a slow external editor, ${SECONDS}
     const agentLoop = (async () => {
       for (let k = 0; Date.now() < until; k++) {
         // Edit by operation: doesn't depend on nobody else writing at the same time.
-        const r = await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'find_replace', find: 'AGENT-MARK\n', replace: `AGENT-MARK\nAGENT-${k}\n` }] })
+        const r = await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'find_replace', find: `${MARK.agentMark}\n`, replace: `${MARK.agentMark}\n${MARK.agent}-${k}\n` }] })
         assert.equal(r.status, 200, JSON.stringify(r.body))
-        agent.push(`AGENT-${k}`)
+        agent.push(`${MARK.agent}-${k}`)
         await sleep(700 + Math.random() * 600)
       }
     })()
@@ -57,8 +66,8 @@ test(`hub load: 3 people + an agent via API + a slow external editor, ${SECONDS}
         const read = readFileSync(file, 'utf8')
         await sleep(200 + Math.random() * 600)
         lastFixed = `fixed line 1 v${k}`
-        writeFileSync(file, read.replace(/^fixed line 1.*$/m, lastFixed) + `EXT-${k}\n`)
-        ext.push(`EXT-${k}`)
+        writeFileSync(file, read.replace(/^fixed line 1.*$/m, lastFixed) + `${MARK.ext}-${k}\n`)
+        ext.push(`${MARK.ext}-${k}`)
         await sleep(1500 + Math.random() * 1500)
       }
     })()

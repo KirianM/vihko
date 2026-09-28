@@ -54,7 +54,7 @@ test(`docker compose up over ${NOTES} notes: startup, search and kill -9`, { ski
     await waitFor(healthy, 'the container answers', 120_000)
     metric('docker compose up → answering', performance.now() - t0, 'ms', { image })
     compose(['exec', '-T', 'thoth', 'thoth', 'user', 'create', USER, '--admin'], PASSWORD)
-    const cookie = await login(srv)
+    const cookie = await login(srv, { username: USER, password: PASSWORD })
 
     const tree = (await api(srv, cookie, 'GET', '/api/tree')).body.notes as unknown[]
     assert.ok(tree.length >= NOTES, `${tree.length} notes indexed`)
@@ -67,7 +67,7 @@ test(`docker compose up over ${NOTES} notes: startup, search and kill -9`, { ski
     metric('docker search latency p50', percentile(lat, 50), 'ms', { p95: Math.round(percentile(lat, 95) * 10) / 10 })
 
     // M3 done when, against the image: an agent over MCP and a person in the editor on the same plan.
-    await m3DoneWhen({ srv, cookie, notesDir: ws.notesDir })
+    await m3DoneWhen({ srv, cookie, user: { username: USER, password: PASSWORD }, notesDir: ws.notesDir })
 
     const [hot, cold] = ws.vault.editable as [string, string]
     assert.equal((await api(srv, cookie, 'POST', '/api/note/edit', { path: hot, ops: [{ op: 'append', text: `${AGENT_MARK}\n` }] })).status, 200)

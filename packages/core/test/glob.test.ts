@@ -1,27 +1,34 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { globProblem, pathMatcher } from '@thoth/core'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 const matches = (pattern: string, path: string) => pathMatcher([pattern])(path)
 
 test('glob: a pattern names a path from the notes root, and covers everything under it', () => {
-  for (const p of ['biblioteca', 'biblioteca/', 'biblioteca/**']) {
-    assert.ok(matches(p, 'biblioteca/libro.pdf'), p)
-    assert.ok(matches(p, 'biblioteca/a/b/c.md'), p)
-    assert.ok(!matches(p, 'bibliotecas/libro.pdf'), `${p}: only that folder`)
-    assert.ok(!matches(p, 'otros/biblioteca/libro.pdf'), `${p}: from the root`)
+  const dir = m.aFolder()
+  const file = `${m.aTitle()}.pdf`
+  for (const p of [dir, `${dir}/`, `${dir}/**`]) {
+    assert.ok(matches(p, `${dir}/${file}`), p)
+    assert.ok(matches(p, `${dir}/a/b/c.md`), p)
+    assert.ok(!matches(p, `${dir}s/${file}`), `${p}: only that folder`)
+    assert.ok(!matches(p, `${m.aFolder()}/${dir}/${file}`), `${p}: from the root`)
   }
-  assert.ok(matches('borradores/secreto.md', 'borradores/secreto.md'))
-  assert.ok(!matches('borradores/secreto.md', 'borradores/secreto.md.bak'))
-  assert.ok(!matches('borradores/secreto.md', 'borradores/otro.md'))
+  const note = m.aNotePath(m.aFolder())
+  assert.ok(matches(note, note))
+  assert.ok(!matches(note, `${note}.bak`))
+  assert.ok(!matches(note, note.replace(/[^/]+$/, `${m.aTitle()}.md`)))
 })
 
 test('glob: * and ? stay within one name; ** spans folders', () => {
-  assert.ok(matches('*.pdf', 'libro.pdf'))
-  assert.ok(!matches('*.pdf', 'biblioteca/libro.pdf'), '* never crosses /')
-  assert.ok(matches('**/*.pdf', 'libro.pdf'), '** can be no folder at all')
-  assert.ok(matches('**/*.pdf', 'a/b/libro.pdf'))
-  assert.ok(!matches('**/*.pdf', 'a/libro.pdf.md'))
+  const file = `${m.aTitle()}.pdf`
+  assert.ok(matches('*.pdf', file))
+  assert.ok(!matches('*.pdf', `${m.aFolder()}/${file}`), '* never crosses /')
+  assert.ok(matches('**/*.pdf', file), '** can be no folder at all')
+  assert.ok(matches('**/*.pdf', `a/b/${file}`))
+  assert.ok(!matches('**/*.pdf', `a/${file}.md`))
   assert.ok(matches('a/**/b.md', 'a/b.md'))
   assert.ok(matches('a/**/b.md', 'a/x/y/b.md'))
   assert.ok(!matches('a/**/b.md', 'ax/b.md'))

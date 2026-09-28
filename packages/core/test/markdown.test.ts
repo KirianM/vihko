@@ -2,6 +2,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { extract, withoutRanges } from '@thoth/core'
+import { mother } from '../../../test/mother.ts'
+
+// Comments' authors (usernames).
+const m = mother(import.meta.url)
+const AUTHOR = m.aUsername()
+const REPLIER = m.aUsername()
+const AGENT = m.aUsername()
 
 const vault = (p: string) => readFileSync(new URL(`../../../testdata/vault/${p}`, import.meta.url), 'utf8')
 const targets = (text: string) => extract(text).links.map((l) => l.target)
@@ -84,10 +91,10 @@ test('HTML comments: found inline and in blocks, never in code; what they hold i
     '---',
     'uid: x',
     '---',
-    '# Plan <!-- @ana 2026-09-24T08:10Z · rename it? -->',
+    `# Plan <!-- @${REPLIER} 2026-09-24T08:10Z · rename it? -->`,
     '',
-    'Use Postgres.<!-- @noa 2026-09-24T08:12Z · no, [[SQLite]] #db -->',
-    '<!-- @claude 2026-09-24T08:15Z · ↳ agreed --> after it',
+    `Use Postgres.<!-- @${AUTHOR} 2026-09-24T08:12Z · no, [[SQLite]] #db -->`,
+    `<!-- @${AGENT} 2026-09-24T08:15Z · ↳ agreed --> after it`,
     '',
     '`<!-- code -->`',
     '',
@@ -101,9 +108,9 @@ test('HTML comments: found inline and in blocks, never in code; what they hold i
   ].join('\n')
   const x = extract(text)
   assert.deepEqual(x.comments.map((c) => text.slice(c.from, c.to)), [
-    '<!-- @ana 2026-09-24T08:10Z · rename it? -->',
-    '<!-- @noa 2026-09-24T08:12Z · no, [[SQLite]] #db -->',
-    '<!-- @claude 2026-09-24T08:15Z · ↳ agreed -->',
+    `<!-- @${REPLIER} 2026-09-24T08:10Z · rename it? -->`,
+    `<!-- @${AUTHOR} 2026-09-24T08:12Z · no, [[SQLite]] #db -->`,
+    `<!-- @${AGENT} 2026-09-24T08:15Z · ↳ agreed -->`,
     '<!-- in html -->',
   ])
   assert.deepEqual(x.links, [])

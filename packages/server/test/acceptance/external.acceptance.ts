@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { api, closeAll, connect, login, socket, typeLine } from '../_collab.ts'
-import { cleanup, metric, percentile, sleep, startServer, waitFor, workspace, type Server } from './_harness.ts'
+import { PASSWORD, USER, cleanup, metric, percentile, sleep, startServer, waitFor, workspace, type Server } from './_harness.ts'
 
 function saveAtomically(file: string, text: string) {
   const tmp = join(dirname(file), `.${basename(file)}.ext-${process.pid}`)
@@ -23,7 +23,7 @@ test('changes made with another editor show up live', { timeout: 300_000 }, asyn
   let srv: Server | null = null
   try {
     srv = await startServer(ws.env)
-    const cookie = await login(srv)
+    const cookie = await login(srv, { username: USER, password: PASSWORD })
     const shared = socket(srv, cookie) // one WebSocket for every open note, as the web UI does
     const notes = ws.vault.editable.slice(0, 12)
     const editors = await Promise.all(notes.map((p) => connect(srv!, cookie, p, shared)))

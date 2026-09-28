@@ -1,7 +1,7 @@
 import { expect, request, type Browser, type Page } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 import { crc32, deflateSync } from 'node:zlib'
-import { BASE_URL, NOTES, PASSWORD, PERMISSIONS, permissionsSection, ROOT_GRANTS, type Grants } from './env.ts'
+import { ADMIN, BASE_URL, NOTES, PERMISSIONS, permissionsSection, ROOT_GRANTS, type Grants } from './env.ts'
 
 /** Writes thoth.yaml with `text` and `permissions` (by default the ones every spec runs under, env.ts); with nothing, only those. */
 export function writeWorkspace(text = '', permissions = PERMISSIONS) {
@@ -22,7 +22,7 @@ export async function usePermissions(opts: { grants?: Grants; rules?: Record<str
   const expected = { ...ROOT_GRANTS, ...opts.grants }
   const api = await request.newContext({ baseURL: BASE_URL })
   try {
-    const login = await api.post('/api/auth/login', { data: { username: 'noa', password: PASSWORD } })
+    const login = await api.post('/api/auth/login', { data: { username: ADMIN.username, password: ADMIN.password } })
     expect(login.status(), await login.text()).toBe(200)
     await expect.poll(async () => {
       const r = await api.get('/api/permissions?folder=')
@@ -34,19 +34,29 @@ export async function usePermissions(opts: { grants?: Grants; rules?: Record<str
 }
 
 /** Own session (isolated context) with the person already signed in and the note open. */
-export async function signIn(browser: Browser, user: string, note?: string): Promise<Page> {
+export async function signIn(browser: Browser, user: { username: string; password: string }, note?: string): Promise<Page> {
   const ctx = await browser.newContext()
   const page = await ctx.newPage()
   await page.goto(note ? `/?note=${encodeURIComponent(note)}` : '/')
-  await page.getByLabel('Nombre de usuario').fill(user)
-  await page.getByLabel('Contraseña').fill(PASSWORD)
+  await page.getByLabel('Nombre de usuario').fill(user.username)
+  await page.getByLabel('Contraseña').fill(user.password)
   await page.getByRole('button', { name: 'Entrar' }).last().click()
   if (note) await expect(page.locator('.cm-content')).toBeVisible()
   else await expect(page.getByRole('treegrid')).toBeVisible()
   return page
 }
 
-export const editorText = (page: Page) => page.locator('.cm-content').innerText()
+/** `text` for a regular expression that matches it literally (generated names have dots; valid with the `u` flag too). */
+export const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
+
+/**
+ * A pattern for `text` as a whole word, from `^` when `start`: `\b` only
+ * knows ASCII, and a name ending in «í» has no `\b` after it.
+ */
+export const wordRe = (text: string, opts: { start?: boolean; flags?: string } = {}) =>
+  new RegExp(`${opts.start ? '^' : '(?<![\\p{L}\\p{N}])'}${literally(text)}(?![\\p{L}\\p{N}])`, `u${opts.flags ?? ''}`)
+
+export const editorText =(page: Page) => page.locator('.cm-content').innerText()
 
 /** A solid-colour PNG, so the browser really decodes and shows something. */
 export function png(width: number, height: number, [r, g, b]: [number, number, number]): Buffer {

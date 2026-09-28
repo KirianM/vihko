@@ -7,6 +7,10 @@ import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { Auth, Indexer, NoteService, Profiles, Workspace, SESSION_COOKIE, STATE_VERSION, createApp, ftsQuery, hashPassword, needsRehash, openIndex, openState, verifyPassword, type Runtime } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
+import { yamlKey } from './_permissions.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
@@ -50,52 +54,58 @@ function legacyScrypt(password: string): string {
 }
 
 test('passwords: argon2id with OWASP parameters, verification and rejection', async () => {
-  const h = await hashPassword('a long password')
+  const password = m.aPassword()
+  const h = await hashPassword(password)
   assert.match(h, /^\$argon2id\$v=19\$m=19456,t=2,p=1\$[A-Za-z0-9+/]{22}\$[A-Za-z0-9+/]{43}$/)
-  assert.ok(await verifyPassword('a long password', h))
-  assert.ok(!(await verifyPassword('otra', h)))
+  assert.ok(await verifyPassword(password, h))
+  assert.ok(!(await verifyPassword(m.aPassword(), h)))
+  // The same text composed (NFC) and decomposed: the case under test.
   assert.ok(await verifyPassword('Reunio\u0301n larga', await hashPassword('Reunión larga')), 'NFC before hashing')
-  assert.notEqual(await hashPassword('x'.repeat(12)), await hashPassword('x'.repeat(12)), 'random salt')
+  const same = m.aPassword()
+  assert.notEqual(await hashPassword(same), await hashPassword(same), 'random salt')
   assert.equal(needsRehash(h), false)
   assert.equal(needsRehash(h.replace('m=19456', 'm=4096')), true, 'weaker parameters')
-  assert.ok(!(await verifyPassword('a long password', h.replace('v=19', 'v=16'))), 'an unknown Argon2 version never matches')
-  assert.ok(!(await verifyPassword('a long password', 'md5$abc')), 'an unknown algorithm never matches')
+  assert.ok(!(await verifyPassword(password, h.replace('v=19', 'v=16'))), 'an unknown Argon2 version never matches')
+  assert.ok(!(await verifyPassword(password, 'md5$abc')), 'an unknown algorithm never matches')
 })
 
 test('passwords: scrypt hashes still verify and become argon2id on the next login', async () => {
-  const legacy = legacyScrypt('a long password')
-  assert.ok(await verifyPassword('a long password', legacy))
-  assert.ok(!(await verifyPassword('otra', legacy)))
+  const admin = m.aUser({ role: 'admin' })
+  const wrong = m.aPassword()
+  const legacy = legacyScrypt(admin.password)
+  assert.ok(await verifyPassword(admin.password, legacy))
+  assert.ok(!(await verifyPassword(wrong, legacy)))
   assert.equal(needsRehash(legacy), true)
 
   const state = openState(join(tempDir('thoth-auth-'), 'state.db'))
   const auth = new Auth(state)
-  const user = await auth.createUser('noa', 'a long password', 'admin')
+  const user = await auth.createUser(admin.username, admin.password, admin.role)
   const stored = () => (state.prepare('select password_hash from users where id = ?').get(user.id) as { password_hash: string }).password_hash
   assert.match(stored(), /^\$argon2id\$/, 'new users get argon2id')
   state.prepare('update users set password_hash = ? where id = ?').run(legacy, user.id)
 
-  assert.equal(await auth.login('noa', 'wrong password'), null)
+  assert.equal(await auth.login(admin.username, wrong), null)
   assert.equal(stored(), legacy, 'a failed login changes nothing')
 
-  assert.ok(await auth.login('noa', 'a long password'))
+  assert.ok(await auth.login(admin.username, admin.password))
   assert.match(stored(), /^\$argon2id\$v=19\$m=19456,t=2,p=1\$/, 'rehashed on a successful login')
-  assert.ok(await auth.login('noa', 'a long password'), 'and the new hash works')
-  assert.equal(await auth.login('noa', 'wrong password'), null)
+  assert.ok(await auth.login(admin.username, admin.password), 'and the new hash works')
+  assert.equal(await auth.login(admin.username, wrong), null)
 })
 
 test('first boot: one-time token to create the admin', async () => {
   const { auth, req } = await setup()
+  const admin = m.aUser({ role: 'admin' })
   assert.deepEqual((await req('GET', '/api/setup')).body, { needed: true })
   const token = auth.setupToken()!
-  const bad = await req('POST', '/api/setup', { token: 'bad', username: 'noa', password: 'a-long-password' })
+  const bad = await req('POST', '/api/setup', { token: m.aSecret(43), username: admin.username, password: admin.password })
   assert.deepEqual([bad.status, bad.body.error], [400, 'invalid_token'])
-  const weak = await req('POST', '/api/setup', { token, username: 'noa', password: 'short' })
+  const weak = await req('POST', '/api/setup', { token, username: admin.username, password: m.aWeakPassword() })
   assert.deepEqual([weak.status, weak.body.error], [400, 'weak_password'])
-  const ok = await req('POST', '/api/setup', { token, username: 'noa', password: 'a-long-password' })
+  const ok = await req('POST', '/api/setup', { token, username: admin.username, password: admin.password })
   assert.equal(ok.status, 200)
   assert.equal(ok.body.user.role, 'admin')
-  const again = await req('POST', '/api/setup', { token, username: 'otro', password: 'a-long-password' })
+  const again = await req('POST', '/api/setup', { token, username: m.aUsername(), password: m.aPassword() })
   assert.deepEqual([again.status, again.body.error], [409, 'already_setup'], 'the token is consumed')
   assert.deepEqual((await req('GET', '/api/setup')).body, { needed: false })
 })
@@ -103,29 +113,44 @@ test('first boot: one-time token to create the admin', async () => {
 test('everything requires a session except health; login, session and logout', async () => {
   const { auth, req } = await setup()
   assert.deepEqual((await req('GET', '/api/health')).body, { ok: true })
-  await auth.createUser('noa', 'a-long-password', 'admin')
+  const admin = m.aUser({ role: 'admin' })
+  await auth.createUser(admin.username, admin.password, admin.role)
   for (const p of ['/api/tree', '/api/note?path=Plan.md', '/api/search?q=plan', '/api/alerts', '/api/auth/me']) {
     assert.equal((await req('GET', p)).status, 401, p)
   }
-  for (const bad of [{ username: 'noa', password: 'wrong-password' }, { username: 'nadie', password: 'a-long-password' }]) {
+  for (const bad of [{ username: admin.username, password: m.aPassword() }, { username: m.aUsername(), password: admin.password }]) {
     const r = await req('POST', '/api/auth/login', bad)
     assert.deepEqual([r.status, r.body.error], [401, 'invalid_credentials'], 'distinct from an expired session')
   }
   assert.equal((await req('GET', '/api/auth/me')).body.error, 'unauthorized')
-  const login = await req('POST', '/api/auth/login', { username: 'NOA', password: 'a-long-password' })
+  // Its ASCII letters in upper case: the case of the others is the test below.
+  const login = await req('POST', '/api/auth/login', { username: admin.username.replace(/[a-z]/g, (c) => c.toUpperCase()), password: admin.password })
   assert.equal(login.status, 200, 'username is case-insensitive')
   assert.match(login.headers.get('set-cookie')!, /HttpOnly/)
   assert.match(login.headers.get('set-cookie')!, /SameSite=Lax/)
   assert.doesNotMatch(login.headers.get('set-cookie')!, /Secure/, "over HTTP on a LAN the cookie can't be Secure")
-  assert.equal((await req('GET', '/api/auth/me')).body.user.username, 'noa')
+  assert.equal((await req('GET', '/api/auth/me')).body.user.username, admin.username)
   await req('POST', '/api/auth/logout')
   assert.equal((await req('GET', '/api/auth/me')).status, 401)
 })
 
+// Sign-in finds the name as the permissions compare it (subjectKey), not with
+// state.db's `collate nocase`, which folds ASCII only. The name always has a
+// non-ASCII letter: that is the case under test.
+test('a username signs in in any case, in any script', async () => {
+  const { auth, req } = await setup()
+  const admin = { ...m.aUser({ role: 'admin' }), username: `${m.aUsername().slice(0, 60)}í` }
+  await auth.createUser(admin.username, admin.password, admin.role)
+  for (const username of [admin.username.toUpperCase(), admin.username.toLowerCase()]) {
+    assert.equal((await req('POST', '/api/auth/login', { username, password: admin.password })).status, 200, username)
+  }
+})
+
 test('notes over HTTP: read, create, write with If-Match, move and delete', async () => {
   const { auth, req } = await setup()
-  await auth.createUser('noa', 'a-long-password', 'admin')
-  await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
+  const admin = m.aUser({ role: 'admin' })
+  await auth.createUser(admin.username, admin.password, admin.role)
+  await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
 
   const tree = await req('GET', '/api/tree')
   assert.ok(tree.body.notes.some((n: { path: string }) => n.path === 'Plan.md'))
@@ -134,37 +159,41 @@ test('notes over HTTP: read, create, write with If-Match, move and delete', asyn
   assert.equal(plan.status, 200)
   assert.equal(plan.headers.get('etag'), `"${plan.body.etag}"`)
 
-  const noMatch = await req('PUT', '/api/note?path=Plan.md', { text: 'x' })
+  const noMatch = await req('PUT', '/api/note?path=Plan.md', { text: m.aSentence() })
   assert.deepEqual([noMatch.status, noMatch.body.error], [428, 'precondition_required'], "without If-Match, nothing is overwritten")
-  const stale = await req('PUT', '/api/note?path=Plan.md', { text: 'x' }, { 'if-match': '"sha256:old"' })
+  const stale = await req('PUT', '/api/note?path=Plan.md', { text: m.aSentence() }, { 'if-match': '"sha256:old"' })
   assert.deepEqual([stale.status, stale.body.error], [412, 'precondition_failed'])
   assert.equal(stale.body.etag, plan.body.etag, 'the 412 returns the current ETag')
-  const put = await req('PUT', '/api/note?path=Plan.md', { text: '# Plan general\n\nNuevo.\n' }, { 'if-match': `"${plan.body.etag}"` })
+  const put = await req('PUT', '/api/note?path=Plan.md', { text: `# ${m.aHeading()}\n\n${m.aSentence()}\n` }, { 'if-match': `"${plan.body.etag}"` })
   assert.equal(put.status, 200)
 
-  assert.equal((await req('POST', '/api/note', { path: 'nueva.md', text: '# Nueva\n' })).status, 201)
-  assert.deepEqual(errorOf(await req('POST', '/api/note', { path: 'nueva.md', text: '# Otra\n' })), [409, 'exists'])
-  assert.deepEqual(errorOf(await req('GET', '/api/note?path=../fuera.md')), [400, 'invalid_path'])
-  assert.deepEqual(errorOf(await req('GET', '/api/note?path=no-existe.md')), [404, 'not_found'])
+  const fresh = m.aNotePath()
+  assert.equal((await req('POST', '/api/note', { path: fresh, text: `# ${m.aHeading()}\n` })).status, 201)
+  assert.deepEqual(errorOf(await req('POST', '/api/note', { path: fresh, text: `# ${m.aHeading()}\n` })), [409, 'exists'])
+  assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(`../${m.aNotePath()}`)}`)), [400, 'invalid_path'])
+  assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(m.aNotePath())}`)), [404, 'not_found'])
   const notJson = await req('POST', '/api/note', '{no es json', {}, true)
   assert.deepEqual(errorOf(notJson), [400, 'invalid'], "a body that isn't JSON isn't an internal error")
 
-  const dry = await req('POST', '/api/note/move', { from: 'hogar/Proxy.md', to: 'hogar/GW.md', dryRun: true })
+  // A note of the vault that others link to, renamed.
+  const renamed = m.aNotePath('hogar')
+  const dry = await req('POST', '/api/note/move', { from: 'hogar/Proxy.md', to: renamed, dryRun: true })
   assert.ok(dry.body.relinked.length > 0)
-  assert.equal((await req('POST', '/api/note/move', { from: 'hogar/Proxy.md', to: 'hogar/GW.md' })).status, 200)
+  assert.equal((await req('POST', '/api/note/move', { from: 'hogar/Proxy.md', to: renamed })).status, 200)
 
-  const del = await req('DELETE', '/api/note?path=nueva.md')
+  const del = await req('DELETE', `/api/note?path=${encodeURIComponent(fresh)}`)
   assert.equal(del.status, 200)
   const trash = await req('GET', '/api/trash')
-  assert.equal(trash.body.entries[0].path, 'nueva.md')
+  assert.equal(trash.body.entries[0].path, fresh)
   assert.equal((await req('POST', `/api/trash/${del.body.id}/restore`, {})).status, 200)
 })
 
 test('links, backlinks with context, search and alerts', async () => {
   // A member who manages everything (D-038): reading notes is the folders' permissions, never the role.
-  const { auth, req } = await setup({ config: 'permissions:\n  "": { grants: { noa: manage } }\n' })
-  await auth.createUser('noa', 'a-long-password', 'member')
-  await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
+  const member = m.aUser({ role: 'member' })
+  const { auth, req } = await setup({ config: `permissions:\n  "": { grants: { ${yamlKey(member.username)}: manage } }\n` })
+  await auth.createUser(member.username, member.password, member.role)
+  await req('POST', '/api/auth/login', { username: member.username, password: member.password })
 
   const links = await req('GET', '/api/note/links?path=diario/2026-09-24.md')
   const tareas = links.body.outgoing.find((l: { raw: string }) => l.raw === '[[Tareas]]')
@@ -186,8 +215,9 @@ test('links, backlinks with context, search and alerts', async () => {
 
 test('editor autocomplete data: aliases in the tree, tags with counts and a note\'s headings', async () => {
   const { auth, req } = await setup()
-  await auth.createUser('noa', 'a-long-password', 'admin')
-  await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
+  const admin = m.aUser({ role: 'admin' })
+  await auth.createUser(admin.username, admin.password, admin.role)
+  await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
 
   const tree = await req('GET', '/api/tree')
   const gw = tree.body.notes.find((n: { path: string }) => n.path === 'hogar/Proxy.md')
@@ -202,30 +232,34 @@ test('editor autocomplete data: aliases in the tree, tags with counts and a note
 
   const headings = await req('GET', '/api/note/headings?path=hogar/Proxy.md')
   assert.ok(headings.body.headings.some((h: { text: string }) => h.text === 'Red'))
-  assert.deepEqual(errorOf(await req('GET', '/api/note/headings?path=no-existe.md')), [404, 'not_found'])
+  assert.deepEqual(errorOf(await req('GET', `/api/note/headings?path=${encodeURIComponent(m.aNotePath())}`)), [404, 'not_found'])
 })
 
 test('comments inside a note stay out of backlink contexts and search', async () => {
   const { auth, req, notesDir, runtime } = await setup()
-  await auth.createUser('noa', 'a-long-password', 'admin')
-  await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
-  writeFileSync(join(notesDir, 'hogar/discussed.md'),
-    'Move the VMs to [[Proxy]] this week.<!-- @ana 2026-09-24T08:12Z · which zanahoria host? -->\n')
+  const admin = m.aUser({ role: 'admin' })
+  await auth.createUser(admin.username, admin.password, admin.role)
+  await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
+  // A note linking to one of the vault's, with a comment (thoth's format) after the link's sentence.
+  const discussed = m.aNotePath('hogar')
+  const line = `${m.aSentence(3).slice(0, -1)} [[Proxy]] ${m.aWord()}.`
+  const commented = m.aUniqueWord()
+  writeFileSync(join(notesDir, discussed), `${line}<!-- @${m.aUsername()} 2026-09-24T08:12Z · ${m.aWord()} ${commented}? -->\n`)
   runtime.rescan({})
   const back = await req('GET', '/api/note/links?path=hogar/Proxy.md')
-  const b = back.body.backlinks.find((x: { path: string }) => x.path === 'hogar/discussed.md')
-  assert.equal(b.context, 'Move the VMs to [[Proxy]] this week.')
-  assert.deepEqual((await req('GET', '/api/search?q=zanahoria')).body.results, [])
+  const b = back.body.backlinks.find((x: { path: string }) => x.path === discussed)
+  assert.equal(b.context, line)
+  assert.deepEqual((await req('GET', `/api/search?q=${encodeURIComponent(commented)}`)).body.results, [])
 })
 
 test('workspace alerts: codes with their data and actions based on role', async () => {
   const { auth, notesDir, req } = await setup()
-  await auth.createUser('noa', 'a-long-password', 'admin')
-  await auth.createUser('ana', 'a-long-password', 'member')
-  const as = (username: string) => req('POST', '/api/auth/login', { username, password: 'a-long-password' })
+  const people = { admin: m.aUser({ role: 'admin' }), member: m.aUser({ role: 'member' }) }
+  for (const u of Object.values(people)) await auth.createUser(u.username, u.password, u.role)
+  const as = (who: keyof typeof people) => req('POST', '/api/auth/login', { username: people[who].username, password: people[who].password })
   const alerts = async () => (await req('GET', '/api/alerts')).body.alerts as { code: string; [k: string]: unknown }[]
 
-  await as('noa')
+  await as('admin')
   const conflict = 'proyectos/thoth/Plan.sync-conflict-20260924-120000-ABCDEFG.md'
   assert.deepEqual(await alerts(), [
     { code: 'uid_conflict', uid: '01J8X4M2K9QZ', paths: ['uid/copia.md', 'uid/original.md'], actions: [] },
@@ -234,7 +268,7 @@ test('workspace alerts: codes with their data and actions based on role', async 
   const copy = await req('GET', `/api/conflict?path=${encodeURIComponent(conflict)}`)
   assert.equal(copy.status, 200)
   assert.match(copy.body.text, /\S/)
-  for (const p of ['Plan.md', '../fuera.md', 'proyectos/thoth/Otro.sync-conflict-20260924-120000-ABCDEFG.md']) {
+  for (const p of ['Plan.md', '../fuera.md', `proyectos/thoth/${m.aTitle()}.sync-conflict-20260924-120000-ABCDEFG.md`]) {
     assert.deepEqual(errorOf(await req('GET', `/api/conflict?path=${encodeURIComponent(p)}`)), [404, 'not_found'], `only detected copies: ${p}`)
   }
 
@@ -247,12 +281,12 @@ test('workspace alerts: codes with their data and actions based on role', async 
   assert.ok((scan!.removing as number) > 10 && (scan!.total as number) > (scan!.removing as number))
 
   // A system alert is the admin's (D-038): a member (who reads nothing here) sees nothing, and the server denies them too.
-  await as('ana')
+  await as('member')
   assert.deepEqual(await alerts(), [])
   assert.deepEqual(errorOf(await req('POST', '/api/admin/rescan', { confirmRemoval: scan!.removing })), [403, 'forbidden'])
 
   // Confirming with a number that no longer matches the alert deletes nothing.
-  await as('noa')
+  await as('admin')
   const stale = (await req('POST', '/api/admin/rescan', { confirmRemoval: (scan!.removing as number) - 1 })).body
   assert.equal(stale.aborted, 'mass_delete')
   const done = (await req('POST', '/api/admin/rescan', { confirmRemoval: scan!.removing })).body
@@ -275,26 +309,30 @@ test("UI: static files, app routes serve index.html, and the API doesn't fall th
   assert.match(await home.text(), /id="root"/)
   assert.match(home.headers.get('content-security-policy')!, /default-src 'self'/)
   assert.equal(home.headers.get('cache-control'), 'no-cache')
-  const deep = await raw('/cualquier/ruta?note=Plan.md')
+  const deep = await raw(`/${encodeURIComponent(m.aWord())}/${encodeURIComponent(m.aWord())}?note=Plan.md`)
   assert.equal(deep.status, 200)
   assert.match(await deep.text(), /id="root"/, 'app routes serve index.html')
   const asset = await raw('/assets/app-abc123.js')
   assert.equal(await asset.text(), 'console.log(1)')
   assert.match(asset.headers.get('cache-control')!, /immutable/)
-  assert.equal((await req('GET', '/api/no-existe')).status, 401, 'the API still requires a session')
-  await auth.createUser('noa', 'a-long-password', 'admin')
-  await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
-  const missing = await req('GET', '/api/no-existe')
+  const unknown = `/api/${m.aUniqueWord()}`
+  assert.equal((await req('GET', unknown)).status, 401, 'the API still requires a session')
+  const admin = m.aUser({ role: 'admin' })
+  await auth.createUser(admin.username, admin.password, admin.role)
+  await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
+  const missing = await req('GET', unknown)
   assert.deepEqual([missing.status, missing.body.error], [404, 'not_found'], "an unknown API route doesn't return the UI")
 })
 
 test('CSRF: a write from another origin is rejected', async () => {
   const { auth, req } = await setup()
-  await auth.createUser('noa', 'a-long-password', 'admin')
-  await req('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
-  const r = await req('POST', '/api/note', { path: 'x.md', text: 'x' }, { origin: 'https://malicious.example' })
+  const admin = m.aUser({ role: 'admin' })
+  await auth.createUser(admin.username, admin.password, admin.role)
+  await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
+  const path = m.aNotePath()
+  const r = await req('POST', '/api/note', { path, text: m.aSentence() }, { origin: 'https://malicious.example' })
   assert.equal(r.status, 403)
-  const same = await req('POST', '/api/note', { path: 'x.md', text: 'x' }, { origin: 'http://localhost' })
+  const same = await req('POST', '/api/note', { path, text: m.aSentence() }, { origin: 'http://localhost' })
   assert.equal(same.status, 201)
 })
 

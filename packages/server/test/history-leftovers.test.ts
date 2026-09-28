@@ -12,7 +12,11 @@ import { join } from 'node:path'
 import { Git, removeCrashLeftovers } from '@thoth/server'
 import { flakyGit, setup, who } from './_history.ts'
 import { tempDir } from './_tmp.ts'
+import { mother } from '../../../test/mother.ts'
 
+const m = mother(import.meta.url)
+// A note of the fixed vault the setup copies (testdata/vault). The files a
+// crash leaves in the repository are git's own names: they are the case.
 const NOTE = 'hogar/Proxy.md'
 
 test('what a crash leaves in the repository is removed, and nothing else: locks anywhere, fast-import\'s keep mark, temporary files, incomplete packs, crash reports, a dead gc\'s gc.pid', async () => {
@@ -47,7 +51,7 @@ test('what a crash leaves in the repository is removed, and nothing else: locks 
   }
   for (const path of Object.keys(expected)) put(path, path === 'gc.pid' ? `999999999 ${hostname()}` : 'x')
   // A keep mark that isn't fast-import's is someone's decision: it stays.
-  put(`objects/pack/${pack}.keep`, 'kept on purpose\n')
+  put(`objects/pack/${pack}.keep`, `${m.aSentence()}\n`)
   const logs: string[] = []
   const removed = removeCrashLeftovers(gitDir, (m) => logs.push(m))
   assert.deepEqual(Object.fromEntries(removed.map((l) => [l.path, l.kind]).sort()), Object.fromEntries(Object.entries(expected).sort()))
@@ -88,22 +92,23 @@ test('while a git gc that outlived thoth still runs, its locks are its own: noth
 test('stale locks from a kill -9 before startup (main.lock, index.lock, HEAD.lock): the history is available, and what the journal held reaches git once, with its authors', async () => {
   const dir = tempDir('thoth-git-')
   const { git, flag } = flakyGit(dir)
-  // Long quiet time: ana's version is still open when thoth stops.
+  // Long quiet time: the member's version is still open when thoth stops.
   const h = await setup({ git, quietMs: 60_000 })
+  const [QUEUED, OPEN] = [m.aUniqueWord(), m.aUniqueWord()]
   let total: number
   try {
     total = (await h.changes()).changes.length
-    // Git fails: noa's version waits in the queue…
+    // Git fails: the admin's version waits in the queue…
     writeFileSync(flag, '')
-    await h.put(NOTE, (t) => t + '\nEN-LA-COLA\n')
+    await h.put(NOTE, (t) => t + `\n${QUEUED}\n`)
     h.history.recorder.closeAll()
     await h.history.recorder.settle()
-    assert.equal((await h.noa('GET', '/api/history/status')).body.available, false)
-    // …and ana's is open.
-    await h.put('tags.md', (t) => t + 'ABIERTA\n', 'ana')
+    assert.equal((await h.admin('GET', '/api/history/status')).body.available, false)
+    // …and the member's is open.
+    await h.put('tags.md', (t) => t + `${OPEN}\n`, 'member')
   } finally { await h.close() }
   const journal = readFileSync(join(h.stateDir, 'history/journal.json'), 'utf8')
-  assert.ok(journal.includes('EN-LA-COLA') && journal.includes('ABIERTA'), 'both in the journal')
+  assert.ok(journal.includes(QUEUED) && journal.includes(OPEN), 'both in the journal')
   // What a kill -9 in the middle of a commit leaves behind.
   const gitDir = join(h.stateDir, 'history.git')
   const head = readFileSync(join(gitDir, 'refs/heads/main'), 'utf8')
@@ -114,13 +119,13 @@ test('stale locks from a kill -9 before startup (main.lock, index.lock, HEAD.loc
   const again = await setup({ dir: h.dir })
   try {
     await again.settle()
-    assert.deepEqual((await again.noa('GET', '/api/history/status')).body, { mode: 'managed', available: true, error: null })
-    assert.ok(!(await again.noa('GET', '/api/alerts')).body.alerts.some((a: any) => a.code === 'history_unavailable'))
+    assert.deepEqual((await again.admin('GET', '/api/history/status')).body, { mode: 'managed', available: true, error: null })
+    assert.ok(!(await again.admin('GET', '/api/alerts')).body.alerts.some((a: any) => a.code === 'history_unavailable'))
     const note = (await again.versions(NOTE)).versions
-    assert.deepEqual(note.map(who), ['user:noa', 'system'])
-    assert.ok((await again.noa('GET', `/api/history/version?path=${again.q(NOTE)}&id=${note[0].id}`)).body.text.includes('EN-LA-COLA'))
+    assert.deepEqual(note.map(who), [`user:${again.users.admin.username}`, 'system'])
+    assert.ok((await again.admin('GET', `/api/history/version?path=${again.q(NOTE)}&id=${note[0].id}`)).body.text.includes(QUEUED))
     const tags = (await again.versions('tags.md')).versions
-    assert.deepEqual(tags.map((v: any) => [who(v), v.foundAtStartup]), [['user:ana', false], ['system', false]])
+    assert.deepEqual(tags.map((v: any) => [who(v), v.foundAtStartup]), [[`user:${again.users.member.username}`, false], ['system', false]])
     assert.equal((await again.changes()).changes.length, total! + 2, 'each version once')
     for (const f of ['refs/heads/main.lock', 'HEAD.lock', 'index.lock']) {
       assert.ok(!existsSync(join(gitDir, f)), f)

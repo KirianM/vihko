@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { Indexer, openIndex } from '@thoth/server'
 import { api, closeAll, connect, login } from '../_collab.ts'
-import { NOTES, cleanup, memory, metric, percentile, startServer, timed, workspace, type Server } from './_harness.ts'
+import { NOTES, PASSWORD, USER, cleanup, memory, metric, percentile, startServer, timed, workspace, type Server } from './_harness.ts'
 
 // Budgets for a usable system on modest hardware, not tuned to pass.
 const BUDGET = {
@@ -29,7 +29,7 @@ test(`startup, search and opening notes over ${NOTES} generated notes`, { timeou
     srv = await startServer(ws.env)
     const cold = { indexed: srv.indexedMs, listening: srv.listeningMs, ...memory(srv.pid) }
     metric('cold start (index built from scratch)', cold.listening, 'ms', { indexReadyMs: Math.round(cold.indexed), rssMiB: Math.round(cold.rss), peakMiB: Math.round(cold.peak) })
-    const cookie = await login(srv)
+    const cookie = await login(srv, { username: USER, password: PASSWORD })
 
     // Everything on disk is in the index.
     const tree = (await api(srv, cookie, 'GET', '/api/tree')).body.notes as { path: string }[]

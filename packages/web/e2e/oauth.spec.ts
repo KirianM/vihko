@@ -8,13 +8,21 @@
 import { expect, test, type APIRequestContext, type Browser, type Page } from '@playwright/test'
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
-import { BASE_URL, E2E_DIR, PASSWORD, PUBLIC_URL } from './env.ts'
+import { ADMIN, BASE_URL, E2E_DIR, MEMBER, PUBLIC_URL, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
-/** Where the client waits for the answer. Nothing listens there: the browser's arrival is caught (`backToClient`). */
+const m = specMother(import.meta.url)
+/**
+ * Where the client waits for the answer: on this machine (the consent page
+ * says so for a loopback address). Nothing listens there: the browser's
+ * arrival is caught (`backToClient`).
+ */
 const CALLBACK = 'http://127.0.0.1:4439/callback'
-const NAME = 'Claude e2e'
+/** The client's name, as it registers itself (and its key's name). */
+const NAME = m.aKeyName()
+/** An OAuth `state`: whatever the client chose, sent back as it was. */
+const aState = () => m.aSecret(16)
 
 test.describe.configure({ mode: 'serial' })
 
@@ -22,7 +30,7 @@ let clientId = ''
 
 /** The admin's session, for setup and cleanup. */
 async function admin(browser: Browser) {
-  const page = await signIn(browser, 'noa')
+  const page = await signIn(browser, ADMIN)
   return page
 }
 
@@ -71,10 +79,10 @@ async function backToClient(page: Page) {
   }
 }
 
-async function login(page: Page, user: string) {
+async function login(page: Page, user: { username: string; password: string }) {
   await expect(page.getByText('Inicia sesión para decidir si una aplicación puede usar tus notas.')).toBeVisible()
-  await page.getByLabel('Nombre de usuario').fill(user)
-  await page.getByLabel('Contraseña').fill(PASSWORD)
+  await page.getByLabel('Nombre de usuario').fill(user.username)
+  await page.getByLabel('Contraseña').fill(user.password)
   await page.getByRole('button', { name: 'Entrar' }).last().click()
 }
 
@@ -87,7 +95,7 @@ async function exchange(request: APIRequestContext, code: string, verifier: stri
 
 const initialize = (request: APIRequestContext, token: string) => request.post(`${BASE_URL}/mcp`, {
   headers: { Authorization: `Bearer ${token}`, Accept: 'application/json, text/event-stream' },
-  data: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } } },
+  data: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: NAME, version: '1' } } },
 })
 
 const card = (page: Page) => page.locator('.key-card', { has: page.getByRole('heading', { name: NAME, exact: true }) })
@@ -101,11 +109,12 @@ test('a client asks: the person signs in, sees who asks, and approves it read-on
   page.on('request', (r) => { const u = new URL(r.url()); if (u.protocol.startsWith('http')) hosts.add(u.origin) })
   const { verifier, challenge } = pkce()
   const back = await backToClient(page)
-  await page.goto(authorizePath(clientId, challenge, 'st-1'))
-  await login(page, 'noa')
+  const state = aState()
+  await page.goto(authorizePath(clientId, challenge, state))
+  await login(page, ADMIN)
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(`«${NAME}» quiere acceder a tus notas`)
-  await expect(page.getByText('Si lo autorizas, podrá usar thoth por MCP en tu nombre (noa)')).toBeVisible()
+  await expect(page.getByText(`Si lo autorizas, podrá usar thoth por MCP en tu nombre (${ADMIN.username})`)).toBeVisible()
   const who = page.locator('.consent-who')
   await expect(who).toContainText(NAME)
   await expect(who).toContainText(CALLBACK)
@@ -115,15 +124,15 @@ test('a client asks: the person signs in, sees who asks, and approves it read-on
   // As a new key: read-only, every folder.
   await expect(page.getByRole('checkbox', { name: /Puede escribir/ })).not.toBeChecked()
   await expect(page.getByRole('radio', { name: 'Todas las carpetas que ves' })).toBeChecked()
-  await expect(page.getByText('Has iniciado sesión como noa.')).toBeVisible()
+  await expect(page.getByText(`Has iniciado sesión como ${ADMIN.username}.`)).toBeVisible()
   // Saying yes is confirmed at the moment (D-036), even just signed in: the password, without a second factor.
   await expect(page.getByRole('button', { name: 'Autorizar' })).toBeDisabled()
-  await page.getByLabel('Tu contraseña').fill(PASSWORD)
+  await page.getByLabel('Tu contraseña').fill(ADMIN.password)
   await page.screenshot({ path: `${SHOTS}/consent-light.png`, fullPage: true, animations: 'disabled' })
 
   await page.getByRole('button', { name: 'Autorizar' }).click()
   const answer = await back()
-  expect(answer.searchParams.get('state')).toBe('st-1')
+  expect(answer.searchParams.get('state')).toBe(state)
   expect(answer.searchParams.get('iss')).toBe(PUBLIC_URL)
   const tokens = await exchange(request, answer.searchParams.get('code')!, verifier)
   expect(tokens.scope).toBe('read')
@@ -152,7 +161,7 @@ test('a client asks: the person signs in, sees who asks, and approves it read-on
 })
 
 test('revoking the authorization asks first, and its tokens stop at once', async ({ browser, request }) => {
-  const page = await signIn(browser, 'noa')
+  const page = await signIn(browser, ADMIN)
   await page.goto('/?view=agents')
   await card(page).getByRole('button', { name: 'Revocar' }).click()
   const ask = page.getByRole('alertdialog', { name: `¿Revocar «${NAME}»?` })
@@ -164,16 +173,16 @@ test('revoking the authorization asks first, and its tokens stop at once', async
 })
 
 test('with write and one folder, the key says so; denying sends the client access_denied', async ({ browser, request }) => {
-  const page = await signIn(browser, 'noa')
+  const page = await signIn(browser, ADMIN)
   const back = await backToClient(page)
   const { verifier, challenge } = pkce()
   // Already signed in: straight to the question.
-  await page.goto(authorizePath(clientId, challenge, 'st-2'))
+  await page.goto(authorizePath(clientId, challenge, aState()))
   await page.getByRole('checkbox', { name: /Puede escribir/ }).check()
   await page.getByRole('radio', { name: /Solo estas carpetas/ }).check()
   await expect(page.getByRole('button', { name: 'Autorizar' })).toBeDisabled()
   await page.getByRole('checkbox', { name: 'proyectos', exact: true }).check()
-  await page.getByLabel('Tu contraseña').fill(PASSWORD)
+  await page.getByLabel('Tu contraseña').fill(ADMIN.password)
   await page.getByRole('button', { name: 'Autorizar' }).click()
   const tokens = await exchange(request, (await back()).searchParams.get('code')!, verifier)
   expect(tokens.scope).toBe('read write')
@@ -184,11 +193,12 @@ test('with write and one folder, the key says so; denying sends the client acces
   const denied = await browser.newContext()
   const other = await denied.newPage()
   const deniedBack = await backToClient(other)
-  await other.goto(authorizePath(clientId, pkce().challenge, 'st-3'))
-  await login(other, 'noa')
+  const state = aState()
+  await other.goto(authorizePath(clientId, pkce().challenge, state))
+  await login(other, ADMIN)
   await other.getByRole('button', { name: 'Denegar' }).click()
   const answer = await deniedBack()
-  expect([answer.searchParams.get('error'), answer.searchParams.get('state'), answer.searchParams.get('code')]).toEqual(['access_denied', 'st-3', null])
+  expect([answer.searchParams.get('error'), answer.searchParams.get('state'), answer.searchParams.get('code')]).toEqual(['access_denied', state, null])
   await denied.close()
   await page.context().close()
 })
@@ -198,10 +208,10 @@ test('on a phone, in dark mode: the question fits and works', async ({ browser, 
   const page = await ctx.newPage()
   const back = await backToClient(page)
   const { verifier, challenge } = pkce()
-  await page.goto(authorizePath(clientId, challenge, 'st-4'))
-  await login(page, 'ana')
+  await page.goto(authorizePath(clientId, challenge, aState()))
+  await login(page, MEMBER)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(`«${NAME}» quiere acceder a tus notas`)
-  await expect(page.getByText('Si lo autorizas, podrá usar thoth por MCP en tu nombre (ana)')).toBeVisible()
+  await expect(page.getByText(`Si lo autorizas, podrá usar thoth por MCP en tu nombre (${MEMBER.username})`)).toBeVisible()
   await page.getByRole('radio', { name: /Solo estas carpetas/ }).check()
   await expect(page.getByRole('checkbox', { name: 'proyectos', exact: true })).toBeVisible()
   await page.getByRole('radio', { name: 'Todas las carpetas que ves' }).check()
@@ -209,7 +219,7 @@ test('on a phone, in dark mode: the question fits and works', async ({ browser, 
   // The answer buttons fill the width, easy to tap.
   const approve = await page.getByRole('button', { name: 'Autorizar' }).boundingBox()
   expect(approve!.width).toBeGreaterThan(300)
-  await page.getByLabel('Tu contraseña').fill(PASSWORD)
+  await page.getByLabel('Tu contraseña').fill(MEMBER.password)
   await page.screenshot({ path: `${SHOTS}/consent-mobile-dark.png`, fullPage: true, animations: 'disabled' })
   await page.getByRole('button', { name: 'Autorizar' }).tap()
   const tokens = await exchange(request, (await back()).searchParams.get('code')!, verifier)
@@ -218,17 +228,19 @@ test('on a phone, in dark mode: the question fits and works', async ({ browser, 
 })
 
 test('a client named by its metadata document: the page shows the domain that describes it', async ({ browser }) => {
-  const page = await signIn(browser, 'noa')
-  const id = 'https://claude.example/oauth/client.json'
+  const page = await signIn(browser, ADMIN)
+  const host = m.aHost()
+  const client = m.aKeyName()
+  const id = `https://${host}/oauth/client.json`
   // What the server answers once it fetched the document (the fetch itself is tested on the server, against a local HTTPS site).
   await page.route((url) => url.pathname === '/api/oauth/authorize', (route) => route.request().method() === 'GET'
-    ? route.fulfill({ json: { client: { id, name: 'Claude', redirectUri: 'https://claude.example/api/mcp/auth_callback', host: 'claude.example' }, canAuthorize: true } })
+    ? route.fulfill({ json: { client: { id, name: client, redirectUri: `https://${host}/api/mcp/auth_callback`, host }, canAuthorize: true } })
     : route.continue())
-  await page.goto(authorizePath(id, pkce().challenge, 'st-6'))
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('«Claude» quiere acceder a tus notas')
+  await page.goto(authorizePath(id, pkce().challenge, aState()))
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(`«${client}» quiere acceder a tus notas`)
   const who = page.locator('.consent-who')
   await expect(who.locator('dt', { hasText: 'Dominio' })).toBeVisible()
-  await expect(who).toContainText('claude.example')
+  await expect(who).toContainText(host)
   await expect(who).toContainText('thoth ha leído la descripción de la aplicación en este dominio')
   await expect(who).not.toContainText('Sin comprobar')
   await expect(page.getByText('Volverá a un programa de este mismo ordenador')).toHaveCount(0)
@@ -237,9 +249,9 @@ test('a client named by its metadata document: the page shows the domain that de
 })
 
 test('a metadata document thoth won\'t fetch (its host is this machine): the page says so and sends the browser nowhere', async ({ browser }) => {
-  const page = await signIn(browser, 'noa')
+  const page = await signIn(browser, ADMIN)
   // `localhost` resolves to a loopback address, so the real server refuses to fetch it.
-  await page.goto(authorizePath('https://localhost/oauth/client.json', pkce().challenge, 'st-7'))
+  await page.goto(authorizePath('https://localhost/oauth/client.json', pkce().challenge, aState()))
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('No se puede autorizar esta aplicación')
   await expect(page.getByRole('alert')).toContainText('no ha podido leer una descripción válida de esta aplicación en localhost')
   await expect(page).toHaveURL(/\/oauth\/authorize\?/)
@@ -247,8 +259,8 @@ test('a metadata document thoth won\'t fetch (its host is this machine): the pag
 })
 
 test('a client this thoth doesn\'t know: the page says so and sends the browser nowhere', async ({ browser }) => {
-  const page = await signIn(browser, 'noa')
-  await page.goto(authorizePath('no-such-client', pkce().challenge, 'st-5'))
+  const page = await signIn(browser, ADMIN)
+  await page.goto(authorizePath(m.anId(), pkce().challenge, aState()))
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('No se puede autorizar esta aplicación')
   await expect(page.getByRole('alert')).toContainText('no está registrada en este thoth')
   await expect(page).toHaveURL(/\/oauth\/authorize\?/)

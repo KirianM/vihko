@@ -14,7 +14,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathMatcher } from '@thoth/core'
-import { Auth, AuthError } from './auth.ts'
+import { Auth, AuthError, userIdByName } from './auth.ts'
 import { configFromEnv, start } from './main.ts'
 import { Users, UsersError } from './users.ts'
 import { TwoFactor } from './twoFactor.ts'
@@ -57,7 +57,8 @@ async function main(argv: string[]) {
     try {
       const auth = new Auth(state)
       const name = rest[0].normalize('NFC').trim()
-      const row = state.prepare('select id from users where username = ? and deleted_at is null').get(name) as { id: string } | undefined
+      const id = userIdByName(state, name)
+      const row = id === null ? undefined : { id }
       if (!row) throw new UsersError('not_found', `no user ${name}`)
       // Written straight into state.db: a running thoth reads it on the next request.
       const link = new Users(auth).newLink(row.id)
@@ -77,7 +78,8 @@ async function main(argv: string[]) {
     const state = openState(join(config.stateDir, 'state.db'))
     try {
       const name = rest[0].normalize('NFC').trim()
-      const row = state.prepare('select id from users where username = ? and deleted_at is null').get(name) as { id: string } | undefined
+      const id = userIdByName(state, name)
+      const row = id === null ? undefined : { id }
       if (!row) throw new UsersError('not_found', `no user ${name}`)
       // Written straight into state.db: a running thoth reads it on the next request.
       const had = new TwoFactor(state).disable(row.id)

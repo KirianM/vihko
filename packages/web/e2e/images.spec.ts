@@ -4,16 +4,24 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
-import { E2E_DIR, EXTERNAL_PORT, NOTES } from './env.ts'
-import { png, sendFiles, signIn } from './helpers.ts'
+import { markdownDest } from '../../core/src/images.ts'
+import { ADMIN, E2E_DIR, EXTERNAL_PORT, NOTES, specMother } from './env.ts'
+import { literally, png, sendFiles, signIn } from './helpers.ts'
 
-const DIR = 'imagenes'
-const NOTE = `${DIR}/galeria.md`
+const m = specMother(import.meta.url)
+const DIR = m.aFolder()
+const TITLE = m.aTitle()
+const NOTE = `${DIR}/${TITLE}.md`
+/** Images on the "external" server, one it has and one it doesn't; two missing from the vault. */
+const [REMOTE, REMOTE_MISSING, MISSING, MISSING_EMBED] = Array.from({ length: 4 }, () => `${m.aUniqueWord()}.png`) as [string, string, string, string]
 const FILE = `${NOTES}/${NOTE}`
 const SHOTS = `${E2E_DIR}/shots`
 const EXTERNAL = `http://localhost:${EXTERNAL_PORT}`
 const disk = () => readFileSync(FILE, 'utf8')
-const stored = () => readdirSync(`${NOTES}/${DIR}`).filter((f) => /^galeria-\d{4}-\d{2}-\d{2}-\d{4}(-\d+)?\.png$/.test(f)).sort()
+/** The images stored next to the note: named after it and the time. */
+const stored = () => readdirSync(`${NOTES}/${DIR}`).filter((f) => new RegExp(`^${literally(TITLE)}-\\d{4}-\\d{2}-\\d{2}-\\d{4}(-\\d+)?\\.png$`, 'u').test(f)).sort()
+/** How the editor links a stored image. */
+const link = (name: string) => `![](${markdownDest(name)})`
 
 const BLUE = png(320, 120, [30, 74, 134])
 const GREEN = png(240, 90, [60, 140, 90])
@@ -25,12 +33,12 @@ let external: Server
 
 test.beforeAll(async ({ browser }) => {
   external = createServer((req, res) => {
-    if (req.url === '/grafico.png') { res.setHeader('content-type', 'image/png'); res.end(ORANGE) } else { res.statusCode = 404; res.end() }
+    if (req.url === `/${encodeURI(REMOTE)}`) { res.setHeader('content-type', 'image/png'); res.end(ORANGE) } else { res.statusCode = 404; res.end() }
   })
   await new Promise<void>((r) => external.listen(EXTERNAL_PORT, '127.0.0.1', r))
   mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
-  writeFileSync(FILE, '# Galería\n\nImágenes de prueba.\n')
-  k = await signIn(browser, 'noa', NOTE)
+  writeFileSync(FILE, `# ${m.aHeading()}\n\n${m.aSentence()}\n`)
+  k = await signIn(browser, ADMIN, NOTE)
 })
 
 test.afterAll(() => { external.closeAllConnections(); external.close() })
@@ -56,13 +64,13 @@ test('a pasted image is stored next to the note, linked relatively and shown', a
   await expect.poll(stored).toHaveLength(1)
   const [name] = stored()
   expect(readFileSync(`${NOTES}/${DIR}/${name}`)).toEqual(BLUE)
-  await expect.poll(disk).toContain(`![](${name})`)
+  await expect.poll(disk).toContain(link(name!))
   // Out of the image: it replaces its source.
   await k.locator('.cm-h1').click()
   const img = k.locator('.cm-image img').first()
   await expect(img).toBeVisible()
   expect(await img.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(320)
-  await expect(k.locator('.cm-line', { hasText: `![](${name})` })).toHaveCount(0)
+  await expect(k.locator('.cm-line', { hasText: link(name!) })).toHaveCount(0)
 })
 
 test('a dropped image and one picked from «Insertar imagen» land the same way', async () => {
@@ -75,7 +83,7 @@ test('a dropped image and one picked from «Insertar imagen» land the same way'
   await expect(k.getByRole('dialog')).toContainText('Insertar imagen')
   await k.locator('input[type=file]').setInputFiles({ name: 'elegida.png', mimeType: 'image/png', buffer: ORANGE })
   await expect.poll(stored).toHaveLength(3)
-  for (const name of stored()) await expect.poll(disk).toContain(`![](${name})`)
+  for (const name of stored()) await expect.poll(disk).toContain(link(name))
   await k.locator('.cm-h1').click()
   await expect(k.locator('.cm-image img')).toHaveCount(3)
 })
@@ -91,12 +99,12 @@ test('«insertar imagen» from the palette opens the same dialog', async () => {
 
 test('a pasted image URL: «Enlazar al origen» keeps the address and shows it as external', async () => {
   await toEnd(k)
-  await pasteText(k, `${EXTERNAL}/grafico.png`)
+  await pasteText(k, `${EXTERNAL}/${REMOTE}`)
   const dialog = k.getByRole('dialog')
   await expect(dialog).toContainText('Has pegado la dirección de una imagen')
   await expect(dialog.getByRole('button', { name: 'Guardar copia' })).toBeFocused()
   await dialog.getByRole('button', { name: 'Enlazar al origen' }).click()
-  await expect.poll(disk).toContain(`![](${EXTERNAL}/grafico.png)`)
+  await expect.poll(disk).toContain(`![](${EXTERNAL}/${REMOTE})`)
   await k.locator('.cm-h1').click()
   const ext = k.locator('.cm-image-external')
   await expect(ext.locator('img')).toBeVisible()
@@ -105,22 +113,22 @@ test('a pasted image URL: «Enlazar al origen» keeps the address and shows it a
 
 test('a pasted image URL: «Guardar copia» downloads it on the server; «Pegar como texto» pastes the text', async () => {
   await toEnd(k)
-  await pasteText(k, `${EXTERNAL}/grafico.png`)
+  await pasteText(k, `${EXTERNAL}/${REMOTE}`)
   await k.keyboard.press('Enter') // the default: save a copy
   await expect.poll(stored).toHaveLength(4)
-  const copy = stored().find((n) => readFileSync(`${NOTES}/${DIR}/${n}`).equals(ORANGE) && disk().includes(`![](${n})`))
+  const copy = stored().find((n) => readFileSync(`${NOTES}/${DIR}/${n}`).equals(ORANGE) && disk().includes(link(n)))
   expect(copy).toBeTruthy()
 
   await toEnd(k)
-  await pasteText(k, `${EXTERNAL}/otra.png`)
+  await pasteText(k, `${EXTERNAL}/${REMOTE_MISSING}`)
   await k.getByRole('button', { name: 'Pegar como texto' }).click()
-  await expect.poll(disk).toMatch(new RegExp(`\\n${EXTERNAL}/otra\\.png\\n?$`))
+  await expect.poll(disk).toMatch(new RegExp(`\\n${literally(`${EXTERNAL}/${REMOTE_MISSING}`)}\\n?$`, 'u'))
 })
 
 test('a missing image shows a broken state, and image links are not broken note links', async () => {
-  writeFileSync(FILE, `${disk()}\n![](no-existe.png)\n\n![[tampoco.png]]\n`)
+  writeFileSync(FILE, `${disk()}\n![](${MISSING})\n\n![[${MISSING_EMBED}]]\n`)
   await expect(k.locator('.cm-image-missing')).toHaveCount(2)
-  await expect(k.locator('.cm-image-missing').first()).toHaveText('Imagen no encontrada · no-existe.png')
+  await expect(k.locator('.cm-image-missing').first()).toHaveText(`Imagen no encontrada · ${MISSING}`)
   await expect(k.locator('.cm-wikilink-missing')).toHaveCount(0)
   await expect(k.locator('.cm-image img')).toHaveCount(5)
 })

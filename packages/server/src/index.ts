@@ -18,7 +18,7 @@ export { historyRoutes, type ApiAuthor, type HistoryRoutesDeps } from './http/hi
 export { DEFAULT_MAX_IMAGE_BYTES, NoteError, NoteService, type Actor, type Change, type HotDocuments, type NoteErrorCode, type FolderMoveReport, type MoveHooks, type MoveReport, type MovedRelinkReport, type NoteRead, type NoteServiceOptions, type ShiftGroup, type TrashEntry } from './notes.ts'
 export { commitText, createFile, readStable, readText, replaceText, writeTmp, type CommitResult, type ReplaceResult } from './fsutil.ts'
 export { applyReplacements, beforeMoves, planLinks, planRelinks, rewriteLink, type LinkState, type Replacement, type Shift, type ShiftCode } from './relink.ts'
-export { Auth, AuthError, MIN_PASSWORD, NAME_PATTERN, hashPassword, needsRehash, sessionIdOf, verifyPassword, type Role, type SessionInfo, type User } from './auth.ts'
+export { Auth, AuthError, MIN_PASSWORD, NAME_PATTERN, hashPassword, needsRehash, sessionIdOf, userIdByName, verifyPassword, type Role, type SessionInfo, type User } from './auth.ts'
 export { LINK_DAYS, Users, UsersError, type Directory as UsersDirectory, type GroupInfo, type LinkKind, type NewLink, type UserHooks, type UserInfo, type UserStatus, type UsersErrorCode } from './users.ts'
 export { AdminSettings, AdminSettingsError, type AdminSettingsView } from './adminSettings.ts'
 export { POLICIES, RECOVERY_CODES, TOTP_DIGITS, TOTP_PERIOD, TOTP_WINDOW, TwoFactor, asRecovery, asTotp, base32Decode, base32Encode, hotp, totp, totpStep, type CodeResult, type SetupData, type TwoFactorPolicy, type TwoFactorStatus } from './twoFactor.ts'

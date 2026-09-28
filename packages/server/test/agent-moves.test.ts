@@ -6,23 +6,31 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { FILES, setup } from './_m4.ts'
+import { DIR, FILES, GROUP, MEMBER, OTHER, PATH, setup } from './_m4.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
+/** Who gains access when the admin's plan goes to the shared folder: both members, in the order thoth lists them (by name). */
+const GAINERS = [MEMBER.username, OTHER.username].sort((a, b) => a.localeCompare(b))
+/** The admin's note that the agent moves to the shared folder. */
+const PLAN = { from: PATH.adminPlan, to: m.aNotePath(DIR.shared) }
 
 test('API: an agent\'s move that widens access needs confirmAudience; the dry run says who gains it; narrowing needs nothing', async () => {
   const h = await setup({ files: FILES })
   try {
     await h.enable()
-    await h.newKey('laura', { name: 'Llave de Laura' })
-    const agent = h.withKey((await h.newKey('noa', { name: 'K', canWrite: true })).token)
-    const plan = { from: 'personas/noa/plan.md', to: 'familia/plan.md' }
+    const membersKey = m.aKeyName()
+    await h.newKey('member', { name: membersKey })
+    const agent = h.withKey((await h.newKey('admin', { name: m.aKeyName(), canWrite: true })).token)
+    const plan = PLAN
 
     const dry = await agent('POST', '/api/note/move', { ...plan, dryRun: true })
     assert.equal(dry.status, 200, dry.text)
-    const gain = { users: { gain: ['laura', 'marta'], lose: [] }, groups: { gain: ['familia'], lose: [] }, keys: { gain: 1, lose: 0 } }
+    const gain = { users: { gain: GAINERS, lose: [] }, groups: { gain: [GROUP], lose: [] }, keys: { gain: 1, lose: 0 } }
     const brief = (a: { users: { gain: { username: string }[]; lose: { username: string }[] }; groups: unknown; keys: unknown }) =>
       ({ users: { gain: a.users.gain.map((u) => u.username), lose: a.users.lose.map((u) => u.username) }, groups: a.groups, keys: a.keys })
     assert.deepEqual(brief(dry.body.audience), gain)
-    assert.ok(!dry.text.includes('Llave de Laura'), 'keys are counted, never named')
+    assert.ok(!dry.text.includes(membersKey), 'keys are counted, never named')
 
     // Without the confirmation: refused with the change, and nothing moved.
     const refused = await agent('POST', '/api/note/move', plan)
@@ -35,16 +43,16 @@ test('API: an agent\'s move that widens access needs confirmAudience; the dry ru
     const moved = await agent('POST', '/api/note/move', { ...plan, confirmAudience: true })
     assert.equal(moved.status, 200, moved.text)
     assert.equal(moved.body.audience, undefined, 'the change is the dry run\'s')
-    assert.equal((await h.laura('GET', h.url('/api/note', { path: plan.to }))).status, 200)
+    assert.equal((await h.member('GET', h.url('/api/note', { path: plan.to }))).status, 200)
 
     // Narrowing (back to his folder): nothing to confirm.
     const back = await agent('POST', '/api/note/move', { from: plan.to, to: plan.from })
     assert.equal(back.status, 200, back.text)
     // Nor a move within the same audience.
-    assert.equal((await agent('POST', '/api/note/move', { from: 'admin/ajustes.md', to: 'admin/config.md' })).status, 200)
+    assert.equal((await agent('POST', '/api/note/move', { from: PATH.settings, to: m.aNotePath(DIR.admin) })).status, 200)
 
     // A person moves as before: the UI asks them (D-038), the API doesn't.
-    assert.equal((await h.noa('POST', '/api/note/move', plan)).status, 200)
+    assert.equal((await h.admin('POST', '/api/note/move', plan)).status, 200)
   } finally { await h.close() }
 })
 
@@ -52,7 +60,7 @@ test('MCP: move with dry_run gives the audience; widening needs confirm_audience
   const h = await setup({ files: FILES })
   try {
     await h.enable()
-    const c = await h.mcp((await h.newKey('noa', { name: 'K', canWrite: true })).token)
+    const c = await h.mcp((await h.newKey('admin', { name: m.aKeyName(), canWrite: true })).token)
     try {
       const instructions = c.client.getInstructions() ?? ''
       assert.match(instructions, /audience_widens/)
@@ -61,15 +69,15 @@ test('MCP: move with dry_run gives the audience; widening needs confirm_audience
       assert.ok('confirm_audience' in (tool.inputSchema.properties ?? {}))
       assert.match(tool.description ?? '', /audience_widens/)
 
-      const plan = { from: 'personas/noa/plan.md', to: 'familia/plan.md' }
+      const plan = PLAN
       const dry = await c.call('move', { ...plan, dry_run: true })
       assert.equal(dry.error, false, dry.raw)
-      assert.deepEqual(dry.data.audience, { users: { gain: ['laura', 'marta'], lose: [] }, groups: { gain: ['familia'], lose: [] }, keys: { gain: 0, lose: 0 } })
+      assert.deepEqual(dry.data.audience, { users: { gain: GAINERS, lose: [] }, groups: { gain: [GROUP], lose: [] }, keys: { gain: 0, lose: 0 } })
 
       const refused = await c.call('move', plan)
       assert.equal(refused.error, true)
       assert.equal(refused.data.error, 'audience_widens')
-      assert.deepEqual(refused.data.audience.users.gain, ['laura', 'marta'])
+      assert.deepEqual(refused.data.audience.users.gain, GAINERS)
       assert.ok(existsSync(join(h.notesDir, plan.from)))
 
       const moved = await c.call('move', { ...plan, confirm_audience: true })

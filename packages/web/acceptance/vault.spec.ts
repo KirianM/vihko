@@ -4,7 +4,7 @@
 // on disk and in an open editor.
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { ACC_DIR, NOTES } from './env.ts'
+import { ACC_DIR, ADMIN, MEMBER, NOTES } from './env.ts'
 import { editorText, signIn } from '../e2e/helpers.ts'
 
 interface Vault { hub: string; markers: { word: string; path: string }[] }
@@ -13,7 +13,7 @@ test.describe.configure({ mode: 'serial' })
 let vault: Vault
 let k: Page
 let a: Page
-/** A note that links to the hub by name, open by ana during the rename. */
+/** A note that links to the hub by name, open by the member during the rename. */
 let source = ''
 const read = (p: string) => readFileSync(`${NOTES}/${p}`, 'utf8')
 const note = (p: string) => p.slice(p.lastIndexOf('/') + 1).replace(/\.md$/, '').normalize('NFC')
@@ -25,12 +25,12 @@ const report = (name: string, ms: number) => {
 test.beforeAll(async ({ browser }) => {
   vault = JSON.parse(readFileSync(`${ACC_DIR}/vault.json`, 'utf8'))
   const t0 = Date.now()
-  k = await signIn(browser, 'noa')
+  k = await signIn(browser, ADMIN)
   report('sign in → tree of 1,000 notes', Date.now() - t0)
   const links = await (await k.request.get(`/api/note/links?path=${encodeURIComponent(vault.hub)}`)).json() as { backlinks: { path: string; raw: string }[] }
   expect(links.backlinks.length).toBeGreaterThan(200)
   source = links.backlinks.find((b) => b.raw.startsWith('[[Arquitectura') && !b.path.includes('/.') && b.path === b.path.normalize('NFC'))!.path
-  a = await signIn(browser, 'ana', source)
+  a = await signIn(browser, MEMBER, source)
 })
 
 test('⌘K finds a note among 1,000 and opens it', async () => {

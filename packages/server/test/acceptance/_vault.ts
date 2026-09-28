@@ -9,8 +9,11 @@ import { cpSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { crc32, deflateSync } from 'node:zlib'
+import { mother } from '../../../../test/mother.ts'
 
 export const EDGE_VAULT = fileURLToPath(new URL('../../../../testdata/vault', import.meta.url))
+/** Who signs the comments some notes carry (a username of the mother's; nobody has to exist). */
+const COMMENTER = mother(import.meta.url).aUsername()
 
 export interface VaultOptions {
   notes?: number
@@ -65,9 +68,10 @@ const WORDS = (
   'pingüino cigüeña ñandú corazón canción acción razón algún según después través'
 ).split(' ')
 
-const PEOPLE = ['José Álvarez', 'Zoë Martín', 'Íñigo Ruiz', 'Ana Peña', 'Chloé Dubois', 'Łukasz Nowak', 'Søren Kierkegaard',
-  'María José', 'Björk', 'Renée Leclerc', 'Nuño Castaño', 'Ángela Ortiz', 'François Muñoz', 'Jürgen Groß', 'Ximena Úbeda',
-  'Pedro Sánchez', 'Lucía Fernández', 'Marta Gómez', 'Raúl Díaz', 'Elena Ibáñez']
+// Invented people whose names cover accents, «ñ», «ø», «ö», «ß», «ł» and one-word names (the edge cases, kept literal).
+const PEOPLE = ['José Álvarez', 'Zoë Martín', 'Íñigo Ruiz', 'Ana Peñalver', 'Chloé Dubois', 'Łukasz Nowak', 'Søren Vestbjerg',
+  'María José', 'Sölvi', 'Renée Leclerc', 'Nuño Castaño', 'Ángela Ortiz', 'François Muñoz', 'Jürgen Groß', 'Ximena Úbeda',
+  'Tadeo Sáenz', 'Lucía Fernández', 'Marta Góngora', 'Raúl Díaz', 'Elena Ibáñez']
 const RECIPES = ['Café con leche', 'Crème brûlée', 'Paella valenciana', 'Tortilla de patatas', 'Gazpacho andaluz', 'Piñones tostados',
   'Açaí bowl', 'Pâté de campaña', 'Jalapeños rellenos', 'Ñoquis de calabaza', 'Crêpes', 'Smørrebrød', 'Bacalao al pil-pil',
   'Salmorejo', 'Pan de muerto', 'Crema catalana', 'Fideuà', 'Häagen helado casero', 'Migas', 'Cocido madrileño']
@@ -237,7 +241,7 @@ export function generateVault(dir: string, opts: VaultOptions = {}): Vault {
     if (r.chance(0.05)) lines.push('Inline code: `[[Arquitectura]]` is not a link.', '')
     if (r.chance(0.06)) lines.push(`Broken: [[Nota que no existe ${r.int(50)}]] and [nothing](nothing-${r.int(9)}.md).`, '')
     if (r.chance(0.06)) lines.push(`Ambiguous or by proximity: [[${r.pick(SHARED_NAMES)}]].`, '')
-    if (r.chance(0.03)) lines.push(`<!-- @noa 2025-03-01T10:00Z · see [[Arquitectura]] -->`, '')
+    if (r.chance(0.03)) lines.push(`<!-- @${COMMENTER} 2025-03-01T10:00Z · see [[Arquitectura]] -->`, '')
     // A note of every nine links to the hub, in one of its forms; the trap's name is linked too.
     if (s !== hub && i % 9 === 3) lines.push(`Ver ${r.pick(hubLinkForms(s.path))}.`, '')
     if (s !== hub && i % 9 === 6) lines.push(`Ver ${r.pick(hubLinkForms(s.path))} y ${r.pick(hubLinkForms(s.path))}.`, '')

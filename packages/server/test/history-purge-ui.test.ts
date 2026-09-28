@@ -7,11 +7,16 @@ import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Git } from '@thoth/server'
-import { FILES, RULES, setup } from './_m4.ts'
+import { posix } from 'node:path'
+import { ADMIN, FILES, MEMBER, OTHER, PATH, RULES, WORD, home, setup } from './_m4.ts'
+import { yamlKey } from './_permissions.ts'
+import { mother } from '../../../test/mother.ts'
 
-const TARTA = 'personas/laura/recetas/tarta.md'
-const DIARY = 'personas/laura/diario/2026-09-27.md'
-const SHARED = RULES + '  personas/laura/recetas:\n    grants: { laura: manage, noa: comment, marta: read }\n'
+const m = mother(import.meta.url)
+/** The member's recipe, in a folder the member manages, the admin comments on and the other reads. */
+const RECIPE = PATH.cake
+const DIARY = PATH.diary
+const SHARED = RULES + `  ${yamlKey(posix.dirname(RECIPE))}:\n    grants: { ${yamlKey(MEMBER.username)}: manage, ${yamlKey(ADMIN.username)}: comment, ${yamlKey(OTHER.username)}: read }\n`
 
 type As = ReturnType<Awaited<ReturnType<typeof setup>>['as']>
 
@@ -29,101 +34,105 @@ async function objects(stateDir: string): Promise<string> {
 test('whoever manages a folder purges a version of a note in it from the UI: gone from the repository, nothing else touched; the admin gets a notice without the content', async () => {
   const h = await setup({ files: FILES, config: SHARED })
   try {
-    const SECRET = 'CLAVE-SECRETA-5d2b' // gitleaks:allow (an invented secret)
-    await put(h.laura, DIARY, (t) => t + `${SECRET}\n`)
+    const SECRET = m.aSecret()
+    const instead = m.aSentence()
+    await put(h.member, DIARY, (t) => t + `${SECRET}\n`)
     await h.settle()
-    await put(h.laura, DIARY, (t) => t.replace(`${SECRET}\n`, 'Sin secreto.\n'))
+    await put(h.member, DIARY, (t) => t.replace(`${SECRET}\n`, `${instead}\n`))
     await h.settle()
-    await put(h.laura, 'familia/compra.md', (t) => t + 'Pan.\n')
+    await put(h.member, PATH.list, (t) => t + `${m.aSentence()}\n`)
     await h.settle()
-    const versionsOf = async (path: string, as: As = h.laura) => (await as('GET', `/api/history/versions?path=${encodeURIComponent(path)}`)).body.versions as { id: string }[]
+    const versionsOf = async (path: string, as: As = h.member) => (await as('GET', `/api/history/versions?path=${encodeURIComponent(path)}`)).body.versions as { id: string }[]
     const [, secret] = await versionsOf(DIARY)
-    const compra = (await versionsOf('familia/compra.md')).length
+    const list = (await versionsOf(PATH.list)).length
     assert.ok((await objects(h.stateDir)).includes(SECRET))
 
     // Not hers to purge: someone else's, or a note she edits without managing it.
-    assert.equal((await h.laura('POST', '/api/history/purge', { path: 'personas/noa/plan.md', dryRun: true })).status, 404)
-    assert.equal((await h.laura('POST', '/api/history/purge', { path: 'familia/compra.md', dryRun: true })).status, 403)
-    assert.equal((await h.marta('POST', '/api/history/purge', { path: TARTA, dryRun: true })).status, 403)
-    assert.equal((await h.noa('POST', '/api/history/purge', { path: 'thoth.yaml', dryRun: true })).status, 200, 'the admin, any path by name')
-    assert.equal((await h.laura('POST', '/api/history/purge', { path: 'thoth.yaml', dryRun: true })).status, 400, 'a note, not thoth.yaml')
+    assert.equal((await h.member('POST', '/api/history/purge', { path: PATH.adminPlan, dryRun: true })).status, 404)
+    assert.equal((await h.member('POST', '/api/history/purge', { path: PATH.list, dryRun: true })).status, 403)
+    assert.equal((await h.other('POST', '/api/history/purge', { path: RECIPE, dryRun: true })).status, 403)
+    assert.equal((await h.admin('POST', '/api/history/purge', { path: 'thoth.yaml', dryRun: true })).status, 200, 'the admin, any path by name')
+    assert.equal((await h.member('POST', '/api/history/purge', { path: 'thoth.yaml', dryRun: true })).status, 400, 'a note, not thoth.yaml')
 
     // The confirmation: what goes, without the content.
-    const dry = await h.laura('POST', '/api/history/purge', { path: DIARY, version: secret!.id, dryRun: true })
+    const dry = await h.member('POST', '/api/history/purge', { path: DIARY, version: secret!.id, dryRun: true })
     assert.equal(dry.status, 200, JSON.stringify(dry.body))
     assert.equal(dry.body.dryRun, true)
     assert.ok(dry.body.versions.length >= 1)
     assert.ok(!JSON.stringify(dry.body).includes(SECRET))
     assert.ok((await objects(h.stateDir)).includes(SECRET), 'a dry run changes nothing')
 
-    const run = await h.laura('POST', '/api/history/purge', { path: DIARY, version: secret!.id })
+    const run = await h.member('POST', '/api/history/purge', { path: DIARY, version: secret!.id })
     assert.equal(run.status, 200, JSON.stringify(run.body))
     assert.ok(!(await objects(h.stateDir)).includes(SECRET), 'nothing of it left in the repository')
-    assert.equal((await versionsOf('familia/compra.md')).length, compra, 'the other notes keep their versions')
-    assert.ok(readFileSync(join(h.notesDir, DIARY), 'utf8').includes('Sin secreto.'), 'the note itself is untouched')
+    assert.equal((await versionsOf(PATH.list)).length, list, 'the other notes keep their versions')
+    assert.ok(readFileSync(join(h.notesDir, DIARY), 'utf8').includes(instead), 'the note itself is untouched')
 
     // The history goes on: a write after the purge is a version.
-    await put(h.laura, 'familia/compra.md', (t) => t + 'Huevos.\n')
+    await put(h.member, PATH.list, (t) => t + `${m.aSentence()}\n`)
     await h.settle()
-    assert.equal((await versionsOf('familia/compra.md')).length, compra + 1)
+    assert.equal((await versionsOf(PATH.list)).length, list + 1)
 
     // The admin is told who and what, never the content; nobody else.
     const alerts = async (as: As) => ((await as('GET', '/api/alerts')).body.alerts as { code: string; id: string; path: string; version: string | null; by: string }[]).filter((a) => a.code === 'history_purged')
-    const notices = await alerts(h.noa)
+    const notices = await alerts(h.admin)
     assert.equal(notices.length, 1)
     assert.equal(notices[0]!.path, DIARY)
     assert.match(notices[0]!.version ?? '', /^[0-9a-f]{40}$/)
     assert.ok(notices[0]!.version!.startsWith(secret!.id.slice(0, 7)))
-    assert.equal(notices[0]!.by, 'laura')
+    assert.equal(notices[0]!.by, MEMBER.username)
     assert.ok(!JSON.stringify(notices).includes(SECRET))
-    assert.deepEqual(await alerts(h.laura), [])
-    assert.deepEqual(await alerts(h.marta), [])
-    assert.equal((await h.laura('DELETE', `/api/history/purges/${notices[0]!.id}`)).status, 403)
-    assert.equal((await h.noa('DELETE', `/api/history/purges/${notices[0]!.id}`)).status, 200)
-    assert.deepEqual(await alerts(h.noa), [])
+    assert.deepEqual(await alerts(h.member), [])
+    assert.deepEqual(await alerts(h.other), [])
+    assert.equal((await h.member('DELETE', `/api/history/purges/${notices[0]!.id}`)).status, 403)
+    assert.equal((await h.admin('DELETE', `/api/history/purges/${notices[0]!.id}`)).status, 200)
+    assert.deepEqual(await alerts(h.admin), [])
   } finally { await h.close() }
 })
 
 test('a manager purges a note\'s whole history (that file alone); the admin purges a folder he can\'t read by its name; notes written meanwhile keep their versions', async () => {
-  const h = await setup({ files: { ...FILES, 'personas/marta/notas-viejas.md': '# Viejas\n' }, config: SHARED })
+  const OLD = m.aNotePath(home(OTHER.username))
+  // What the other writes, where the admin purging their folder can't read it: never in the answer, nor left in the repository.
+  const [more, older] = [m.aSecret(), m.aSecret()]
+  const h = await setup({ files: { ...FILES, [OLD]: `# ${m.aHeading()}\n` }, config: SHARED })
   try {
-    await put(h.laura, DIARY, (t) => t + 'Uno.\n')
-    await put(h.marta, 'personas/marta/notas.md', (t) => t + 'Más Jade.\n')
-    await put(h.marta, 'personas/marta/notas-viejas.md', (t) => t + 'Viejo Jade.\n')
+    await put(h.member, DIARY, (t) => t + `${m.aSentence()}\n`)
+    await put(h.other, PATH.otherNotes, (t) => t + `${more}\n`)
+    await put(h.other, OLD, (t) => t + `${older}\n`)
     await h.settle()
     const versionsOf = async (path: string, as: As) => (await as('GET', `/api/history/versions?path=${encodeURIComponent(path)}`)).body.versions as unknown[]
 
-    // Laura: that note alone, never what's next to it.
-    const r = await h.laura('POST', '/api/history/purge', { path: DIARY })
+    // The member: that note alone, never what's next to it.
+    const r = await h.member('POST', '/api/history/purge', { path: DIARY })
     assert.equal(r.status, 200, JSON.stringify(r.body))
     assert.equal(r.body.onDisk, 1, 'still in the folder: it enters again with its next version')
-    assert.deepEqual(await versionsOf(DIARY, h.laura), [])
+    assert.deepEqual(await versionsOf(DIARY, h.member), [])
     await h.history.recorder.sweep('periodic')
     await h.settle()
-    assert.deepEqual(await versionsOf(DIARY, h.laura), [], 'what the folder holds is known, not a change made outside')
-    await put(h.laura, DIARY, (t) => t + 'Dos.\n')
+    assert.deepEqual(await versionsOf(DIARY, h.member), [], 'what the folder holds is known, not a change made outside')
+    await put(h.member, DIARY, (t) => t + `${m.aSentence()}\n`)
     await h.settle()
-    assert.equal((await versionsOf(DIARY, h.laura)).length, 1)
+    assert.equal((await versionsOf(DIARY, h.member)).length, 1)
     // A manager purges files, not folders.
-    assert.notEqual((await h.laura('POST', '/api/history/purge', { path: 'personas/laura/diario' })).status, 200)
+    assert.notEqual((await h.member('POST', '/api/history/purge', { path: PATH.diaryDir })).status, 200)
 
-    // The admin, Marta's folder by its name: he can't read it, and the answer says nothing of it but how much.
-    const preview = await h.noa('POST', '/api/history/purge', { path: 'personas/marta', dryRun: true })
+    // The admin, the other's folder by its name: he can't read it, and the answer says nothing of it but how much.
+    const preview = await h.admin('POST', '/api/history/purge', { path: home(OTHER.username), dryRun: true })
     assert.equal(preview.body.confirmRequired, true, 'what he can\'t read is confirmed at the moment (D-040 3.6)')
-    assert.equal((await h.noa('POST', '/api/history/purge', { path: 'personas/marta' })).body.error, 'confirmation_required')
-    const writing = put(h.laura, 'familia/compra.md', (t) => t + 'Mientras.\n')
-    const k = await h.noa('POST', '/api/history/purge', { path: 'personas/marta', confirm: 'a-long-password' })
+    assert.equal((await h.admin('POST', '/api/history/purge', { path: home(OTHER.username) })).body.error, 'confirmation_required')
+    const writing = put(h.member, PATH.list, (t) => t + `${m.aSentence()}\n`)
+    const k = await h.admin('POST', '/api/history/purge', { path: home(OTHER.username), confirm: ADMIN.password })
     await writing
     assert.equal(k.status, 200, JSON.stringify(k.body))
-    for (const mark of ['Jade', 'notas.md', 'notas-viejas']) assert.ok(!JSON.stringify(k.body).includes(mark), mark)
-    assert.deepEqual(await versionsOf('personas/marta/notas.md', h.marta), [])
-    assert.deepEqual(await versionsOf('personas/marta/notas-viejas.md', h.marta), [])
-    assert.ok(!(await objects(h.stateDir)).includes('Viejo Jade'))
+    for (const mark of [WORD.other, more, older, posix.basename(PATH.otherNotes), posix.basename(OLD)]) assert.ok(!JSON.stringify(k.body).includes(mark), mark)
+    assert.deepEqual(await versionsOf(PATH.otherNotes, h.other), [])
+    assert.deepEqual(await versionsOf(OLD, h.other), [])
+    assert.ok(!(await objects(h.stateDir)).includes(older))
     await h.settle()
-    const compra = (await versionsOf('familia/compra.md', h.laura)) as { authors: { name: string }[] }[]
-    assert.equal(compra[0]!.authors[0]!.name, 'laura', 'the write made during the purge has its version')
-    const alerts = ((await h.noa('GET', '/api/alerts')).body.alerts as { code: string; path: string; by: string }[]).filter((a) => a.code === 'history_purged')
-    assert.deepEqual(alerts.map((a) => [a.path, a.by]), [[DIARY, 'laura'], ['personas/marta', 'noa']])
+    const list = (await versionsOf(PATH.list, h.member)) as { authors: { name: string }[] }[]
+    assert.equal(list[0]!.authors[0]!.name, MEMBER.username, 'the write made during the purge has its version')
+    const alerts = ((await h.admin('GET', '/api/alerts')).body.alerts as { code: string; path: string; by: string }[]).filter((a) => a.code === 'history_purged')
+    assert.deepEqual(alerts.map((a) => [a.path, a.by]), [[DIARY, MEMBER.username], [home(OTHER.username), ADMIN.username]])
   } finally { await h.close() }
 })
 

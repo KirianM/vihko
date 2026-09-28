@@ -1,5 +1,5 @@
 // Server for the browser tests: a clean copy of testdata/vault, two users
-// (noa admin, ana member) and thoth serving the compiled UI. Beside it, a
+// (an admin and a member, env.ts) and thoth serving the compiled UI. Beside it, a
 // second one with THOTH_INTEGRATIONS=off (the API and MCP locked by the
 // server's administrator), with one note and the same users.
 // Started by Playwright (webServer) or, if the browser runs elsewhere (the
@@ -7,7 +7,8 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { E2E_DIR, E2E_PORT, LOCKED_PORT, PASSWORD, PERMISSIONS, PUBLIC_URL, USERS } from './env.ts'
+import { seedLine, testSeed } from '../../../test/seed.ts'
+import { E2E_DIR, E2E_PORT, LOCKED_PORT, PERMISSIONS, PUBLIC_URL, USERS } from './env.ts'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const cli = root + 'packages/server/src/cli.ts'
@@ -15,6 +16,10 @@ const env = { ...process.env, THOTH_NOTES_DIR: E2E_DIR + '/notes', THOTH_STATE_D
 
 rmSync(E2E_DIR, { recursive: true, force: true })
 mkdirSync(E2E_DIR, { recursive: true })
+// The specs must draw the same people: Playwright, started without a seed against this server, reads it here.
+const seed = testSeed()
+writeFileSync(E2E_DIR + '/seed', `${seed}\n`)
+console.log(seedLine(seed, 'node packages/web/e2e/serve.ts'))
 cpSync(root + 'testdata/vault', env.THOTH_NOTES_DIR, { recursive: true })
 const locked = { ...process.env, THOTH_NOTES_DIR: E2E_DIR + '/locked/notes', THOTH_STATE_DIR: E2E_DIR + '/locked/state' }
 mkdirSync(locked.THOTH_NOTES_DIR, { recursive: true })
@@ -22,8 +27,8 @@ writeFileSync(locked.THOTH_NOTES_DIR + '/Bloqueada.md', '# Bloqueada\n')
 for (const e of [env, locked]) {
   // Both users see everything (D-038: a member reads only what is granted).
   writeFileSync(e.THOTH_NOTES_DIR + '/thoth.yaml', PERMISSIONS)
-  for (const [name, admin] of USERS) {
-    execFileSync(process.execPath, ['--no-experimental-webstorage', cli, 'user', 'create', name, ...(admin ? ['--admin'] : [])], { env: e, input: PASSWORD })
+  for (const u of USERS) {
+    execFileSync(process.execPath, ['--no-experimental-webstorage', cli, 'user', 'create', u.username, ...(u.role === 'admin' ? ['--admin'] : [])], { env: e, input: u.password })
   }
 }
 // An open version of what's typed closes after 3 s of calm instead of 30: the history specs don't wait half a minute.

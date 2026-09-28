@@ -2,14 +2,17 @@
 // note in the current folder, commands, and the mobile version.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, readFileSync } from 'node:fs'
-import { NOTES } from './env.ts'
+import { ADMIN, MEMBER, NOTES, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
+const m = specMother(import.meta.url)
+
+// The notes it searches and the folder it creates in (hogar, where Red is) are testdata/vault's.
 test.describe.configure({ mode: 'serial' })
 let k: Page
 
 test.beforeAll(async ({ browser }) => {
-  k = await signIn(browser, 'noa')
+  k = await signIn(browser, ADMIN)
 })
 
 const palette = () => k.getByRole('dialog', { name: 'Buscar o crear' })
@@ -41,18 +44,21 @@ test('with an empty query shows recents; esc closes', async () => {
 
 test('creates the note in the current folder, refreshes the tree, and opens it', async () => {
   await k.keyboard.press('Control+k')
-  await field().fill('Nota de prueba/e2e')
-  const create = palette().getByRole('option', { name: 'Crear «Nota de prueba-e2e» en hogar' })
+  // A «/» in what's typed: the title keeps it, the file name can't (it becomes «-»).
+  const typed = `${m.aTitle()}/${m.aWord()}`
+  const name = typed.replace('/', '-')
+  await field().fill(typed)
+  const create = palette().getByRole('option', { name: `Crear «${name}» en hogar` })
   await expect(create).toBeVisible()
   await create.click()
-  await expect(k.locator('.crumbs b')).toHaveText('Nota de prueba-e2e')
-  await expect(k.locator('.cm-content')).toContainText('Nota de prueba/e2e')
-  const file = `${NOTES}/hogar/Nota de prueba-e2e.md`
+  await expect(k.locator('.crumbs b')).toHaveText(name)
+  await expect(k.locator('.cm-content')).toContainText(typed)
+  const file = `${NOTES}/hogar/${name}.md`
   expect(existsSync(file)).toBe(true)
-  expect(readFileSync(file, 'utf8')).toContain('# Nota de prueba/e2e\n')
+  expect(readFileSync(file, 'utf8')).toContain(`# ${typed}\n`)
   await k.getByRole('row', { name: 'hogar' }).click()
   await k.keyboard.press('ArrowRight')
-  await expect(k.getByRole('row', { name: 'Nota de prueba-e2e' })).toBeVisible()
+  await expect(k.getByRole('row', { name, exact: true })).toBeVisible()
 })
 
 test('creating one that already exists shows the translated error', async () => {
@@ -66,10 +72,11 @@ test('creating one that already exists shows the translated error', async () => 
 test('the "+" button asks for the name and creates in the current folder', async () => {
   await k.getByRole('button', { name: 'Nueva nota' }).click()
   const dialog = k.getByRole('dialog', { name: 'Nueva nota' })
-  await dialog.getByRole('textbox').fill('Desde el más')
+  const title = m.aTitle()
+  await dialog.getByRole('textbox').fill(title)
   await k.keyboard.press('Enter')
-  await expect(k.locator('.crumbs b')).toHaveText('Desde el más')
-  expect(existsSync(`${NOTES}/hogar/Desde el más.md`)).toBe(true)
+  await expect(k.locator('.crumbs b')).toHaveText(title)
+  expect(existsSync(`${NOTES}/hogar/${title}.md`)).toBe(true)
 })
 
 test('command mode with ">": dark theme and new note', async () => {
@@ -90,13 +97,13 @@ test('command mode with ">": dark theme and new note', async () => {
 })
 
 test('mobile: the palette fills the screen and opens from the header', async ({ browser }) => {
-  const m = await signIn(browser, 'ana', 'hogar/Red.md')
-  await m.setViewportSize({ width: 390, height: 844 })
-  await m.getByRole('button', { name: 'Buscar', exact: true }).click()
-  const dialog = m.getByRole('dialog', { name: 'Buscar o crear' })
+  const phone = await signIn(browser, MEMBER, 'hogar/Red.md')
+  await phone.setViewportSize({ width: 390, height: 844 })
+  await phone.getByRole('button', { name: 'Buscar', exact: true }).click()
+  const dialog = phone.getByRole('dialog', { name: 'Buscar o crear' })
   await dialog.getByRole('textbox').fill('proxy red')
   await expect(dialog.getByRole('option').first()).toContainText('Proxy')
-  const box = await m.locator('.palette').boundingBox()
+  const box = await phone.locator('.palette').boundingBox()
   expect(box).toMatchObject({ x: 0, y: 0, width: 390, height: 844 })
   const create = dialog.getByRole('option', { name: /^Crear «proxy red» en hogar/ })
   expect((await create.boundingBox())!.height).toBeGreaterThanOrEqual(44)

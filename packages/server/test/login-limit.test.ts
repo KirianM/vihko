@@ -9,6 +9,9 @@ import {
   trustedProxiesFrom, type LimitRules, type Runtime,
 } from '@thoth/server'
 import { tempDir } from './_tmp.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 /** A limiter on a clock the test moves. */
 function limiter(rules: Partial<LimitRules> = {}) {
@@ -29,96 +32,103 @@ function limiter(rules: Partial<LimitRules> = {}) {
 }
 
 test('limits: five free failures, then waits that double up to 15 minutes; refused attempts change nothing', () => {
+  const account = m.aUsername()
   const { fail, advance } = limiter()
-  for (let i = 1; i <= 5; i++) assert.deepEqual(fail('1.1.1.1', 'noa'), { refused: false, wait: 0 }, `failure ${i} is free`)
-  assert.deepEqual(fail('1.1.1.1', 'noa'), { refused: false, wait: 1 }, 'the sixth failure starts a wait of 1 s')
-  assert.deepEqual(fail('1.1.1.1', 'noa'), { refused: true, wait: 1 }, 'refused during the wait, password not checked')
-  assert.deepEqual(fail('1.1.1.1', 'noa'), { refused: true, wait: 1 }, 'and refusals do not lengthen it')
+  for (let i = 1; i <= 5; i++) assert.deepEqual(fail('1.1.1.1', account), { refused: false, wait: 0 }, `failure ${i} is free`)
+  assert.deepEqual(fail('1.1.1.1', account), { refused: false, wait: 1 }, 'the sixth failure starts a wait of 1 s')
+  assert.deepEqual(fail('1.1.1.1', account), { refused: true, wait: 1 }, 'refused during the wait, password not checked')
+  assert.deepEqual(fail('1.1.1.1', account), { refused: true, wait: 1 }, 'and refusals do not lengthen it')
   const waits: number[] = []
   for (let i = 0; i < 12; i++) {
     advance(waits.at(-1) ?? 1)
-    const r = fail('1.1.1.1', 'noa')
+    const r = fail('1.1.1.1', account)
     assert.equal(r.refused, false)
     waits.push(r.wait)
   }
   // The account's own counter (10 free, up to 1 min) runs alongside: the longer wait wins.
   assert.deepEqual(waits, [2, 4, 8, 16, 32, 64, 128, 256, 512, 900, 900, 900])
-  assert.equal(fail('1.1.1.1', 'NOA ').refused, true, 'names are counted case-insensitively and trimmed')
+  assert.equal(fail('1.1.1.1', account.toUpperCase() + ' ').refused, true, 'names are counted case-insensitively and trimmed')
 })
 
 test('limits: a success clears the account, not the address; a counter is forgotten after an hour', () => {
+  const account = m.aUsername()
   const { fail, pass, advance } = limiter()
-  for (let i = 0; i < 4; i++) fail('1.1.1.1', 'noa')
-  pass('1.1.1.1', 'noa')
-  for (let i = 0; i < 5; i++) assert.equal(fail('1.1.1.1', 'noa').wait, 0, 'five free failures again after a success')
-  assert.equal(fail('1.1.1.1', 'noa').wait, 1)
+  for (let i = 0; i < 4; i++) fail('1.1.1.1', account)
+  pass('1.1.1.1', account)
+  for (let i = 0; i < 5; i++) assert.equal(fail('1.1.1.1', account).wait, 0, 'five free failures again after a success')
+  assert.equal(fail('1.1.1.1', account).wait, 1)
 
   // The address: 20 free across every name, and one's own success doesn't reset it.
   const b = limiter()
-  for (let i = 0; i < 20; i++) assert.equal(b.fail('2.2.2.2', `nobody${i}`).wait, 0)
-  b.pass('2.2.2.2', 'me')
-  assert.equal(b.fail('2.2.2.2', 'nobody-else').wait, 1, 'the 21st failure from one address waits, success or not')
-  assert.equal(b.fail('3.3.3.3', 'nobody-else').refused, false, 'another address is not held back by it')
+  const other = m.aUsername()
+  for (let i = 0; i < 20; i++) assert.equal(b.fail('2.2.2.2', m.aUsername()).wait, 0)
+  b.pass('2.2.2.2', m.aUsername())
+  assert.equal(b.fail('2.2.2.2', other).wait, 1, 'the 21st failure from one address waits, success or not')
+  assert.equal(b.fail('3.3.3.3', other).refused, false, 'another address is not held back by it')
 
   const c = limiter()
-  for (let i = 0; i < 5; i++) c.fail('1.1.1.1', 'noa')
+  for (let i = 0; i < 5; i++) c.fail('1.1.1.1', account)
   c.advance(61 * 60)
-  assert.equal(c.fail('1.1.1.1', 'noa').wait, 0, 'an hour later the failures are forgotten')
+  assert.equal(c.fail('1.1.1.1', account).wait, 0, 'an hour later the failures are forgotten')
 })
 
 test('limits: from another address, the right password only waits the account part (a minute at most)', () => {
+  const account = m.aUsername()
   const { fail, pass, advance } = limiter()
   // A guess spread over many addresses: after 10 failures, the account waits too.
-  for (let i = 0; i < 10; i++) assert.equal(fail(`10.0.0.${i}`, 'noa').wait, 0)
-  assert.equal(fail('10.0.0.99', 'noa').wait, 1, 'the 11th failure on the account, from anywhere')
-  for (let i = 0; i < 10; i++) { advance(60); fail(`10.0.1.${i}`, 'noa') }
-  assert.equal(fail('10.0.2.1', 'noa').wait, 60, 'the account part never passes one minute')
+  for (let i = 0; i < 10; i++) assert.equal(fail(`10.0.0.${i}`, account).wait, 0)
+  assert.equal(fail('10.0.0.99', account).wait, 1, 'the 11th failure on the account, from anywhere')
+  for (let i = 0; i < 10; i++) { advance(60); fail(`10.0.1.${i}`, account) }
+  assert.equal(fail('10.0.2.1', account).wait, 60, 'the account part never passes one minute')
   // The owner, from an address of their own: refused only while the account waits.
-  assert.deepEqual(pass('192.168.1.10', 'noa'), { refused: true, wait: 60 })
+  assert.deepEqual(pass('192.168.1.10', account), { refused: true, wait: 60 })
   advance(60)
-  assert.deepEqual(pass('192.168.1.10', 'noa'), { refused: false, wait: 0 })
+  assert.deepEqual(pass('192.168.1.10', account), { refused: false, wait: 0 })
 })
 
 test('limits: a device cookie from an earlier sign-in is held back by its own failures only', () => {
+  const account = m.aUsername()
   const { l, fail, pass } = limiter()
-  const cookie = l.deviceToken('Noa')
-  const device = l.deviceFor(cookie, 'noa')
+  const cookie = l.deviceToken(account.toUpperCase())
+  const device = l.deviceFor(cookie, account.toLowerCase())
   assert.ok(device, 'valid for the same account, whatever the case')
-  assert.equal(l.deviceFor(cookie, 'ana'), null, 'not for another account')
-  assert.equal(l.deviceFor(cookie.slice(0, -2) + (cookie.endsWith('AA') ? 'BB' : 'AA'), 'noa'), null, 'not if tampered with')
-  assert.equal(l.deviceFor(new LoginLimiter().deviceToken('noa'), 'noa'), null, 'not one made by another process (a restart)')
-  assert.equal(l.deviceFor(undefined, 'noa'), null)
+  assert.equal(l.deviceFor(cookie, m.aUsername()), null, 'not for another account')
+  assert.equal(l.deviceFor(cookie.slice(0, -2) + (cookie.endsWith('AA') ? 'BB' : 'AA'), account), null, 'not if tampered with')
+  assert.equal(l.deviceFor(new LoginLimiter().deviceToken(account), account), null, 'not one made by another process (a restart)')
+  assert.equal(l.deviceFor(undefined, account), null)
 
   // Someone guesses from many addresses, and from the owner's own address too.
-  for (let i = 0; i < 30; i++) fail(`10.0.0.${i}`, 'noa')
-  for (let i = 0; i < 25; i++) fail('192.168.1.10', `x${i}`)
-  assert.equal(pass('192.168.1.10', 'noa').refused, true, 'a new browser waits')
-  assert.deepEqual(pass('192.168.1.10', 'noa', device), { refused: false, wait: 0 }, 'the known browser goes in')
-  for (let i = 0; i < 5; i++) assert.equal(fail('192.168.1.10', 'noa', device).wait, 0)
-  assert.equal(fail('192.168.1.10', 'noa', device).wait, 1, 'its own failures still count')
+  for (let i = 0; i < 30; i++) fail(`10.0.0.${i}`, account)
+  for (let i = 0; i < 25; i++) fail('192.168.1.10', m.aUsername())
+  assert.equal(pass('192.168.1.10', account).refused, true, 'a new browser waits')
+  assert.deepEqual(pass('192.168.1.10', account, device), { refused: false, wait: 0 }, 'the known browser goes in')
+  for (let i = 0; i < 5; i++) assert.equal(fail('192.168.1.10', account, device).wait, 0)
+  assert.equal(fail('192.168.1.10', account, device).wait, 1, 'its own failures still count')
 })
 
 test('limits: attempts at once count before they are checked', () => {
+  const account = m.aUsername()
   const { l } = limiter()
-  const started = Array.from({ length: 20 }, () => l.begin({ ip: '1.1.1.1', account: 'noa' }))
+  const started = Array.from({ length: 20 }, () => l.begin({ ip: '1.1.1.1', account }))
   assert.equal(started.filter((a) => a.ok).length, 6, 'five free and the one that starts the wait; the rest refused')
   for (const a of started) if (a.ok) a.failed()
 })
 
 test('limits: memory is capped; counters that are waiting are the last to go', () => {
+  const account = m.aUsername()
   // Waits long enough to outlast the test's clock.
   const { l, fail, advance } = limiter({ maxEntries: 50, baseMs: 10_000_000, pair: { free: 5, capMs: 10_000_000 } })
-  for (let i = 0; i < 6; i++) fail('1.1.1.1', 'noa')
-  for (let i = 0; i < 2000; i++) { advance(1); fail(`10.${i >> 8}.${i & 255}.1`, `invented-${i}`) }
+  for (let i = 0; i < 6; i++) fail('1.1.1.1', account)
+  for (let i = 0; i < 2000; i++) { advance(1); fail(`10.${i >> 8}.${i & 255}.1`, m.aUsername()) }
   assert.ok(l.size <= 50, `at most 50 counters (${l.size})`)
-  assert.equal(fail('1.1.1.1', 'noa').refused, true, 'the wait survived thousands of invented names')
+  assert.equal(fail('1.1.1.1', account).refused, true, 'the wait survived thousands of invented names')
 })
 
 test('limits: the admin alert, from 20 failed or refused attempts until a day of quiet', () => {
   const { l, fail, advance } = limiter()
-  for (let i = 0; i < 19; i++) fail(`10.0.0.${i}`, `x${i}`)
+  for (let i = 0; i < 19; i++) fail(`10.0.0.${i}`, m.aUsername())
   assert.equal(l.summary(), null, '19 is not many')
-  fail('10.0.0.200', 'x')
+  fail('10.0.0.200', m.aUsername())
   const s = l.summary()
   assert.deepEqual(s, { attempts: 20, since: '2026-09-26T10:00:00.000Z' })
   advance(23 * 3600)
@@ -193,59 +203,64 @@ function cookieOf(headers: Headers, name: string): string | null {
 
 test('HTTP: 429 too_many_attempts with Retry-After, without checking the password; a success clears', async () => {
   const s = await server()
-  await s.auth.createUser('noa', 'a-long-password', 'admin')
-  for (let i = 0; i < 5; i++) assert.equal((await s.signIn('203.0.113.9', 'noa', 'wrong-password')).status, 401)
-  const sixth = await s.signIn('203.0.113.9', 'noa', 'wrong-password')
+  const admin = m.aUser({ role: 'admin' })
+  const wrong = m.aPassword()
+  await s.auth.createUser(admin.username, admin.password, admin.role)
+  for (let i = 0; i < 5; i++) assert.equal((await s.signIn('203.0.113.9', admin.username, wrong)).status, 401)
+  const sixth = await s.signIn('203.0.113.9', admin.username, wrong)
   assert.deepEqual([sixth.status, sixth.body.error, sixth.body.retryAfter, sixth.headers.get('retry-after')], [429, 'too_many_attempts', 1, '1'],
     'the failure that starts a wait says so')
   const checks = s.checks()
-  const refused = await s.signIn('203.0.113.9', 'noa', 'a-long-password')
+  const refused = await s.signIn('203.0.113.9', admin.username, admin.password)
   assert.deepEqual([refused.status, refused.headers.get('retry-after')], [429, '1'], 'even with the right password')
   assert.equal(s.checks(), checks, 'the password was not checked')
   assert.equal(cookieOf(refused.headers, SESSION_COOKIE), null)
 
   s.advance(1)
-  const ok = await s.signIn('203.0.113.9', 'noa', 'a-long-password')
+  const ok = await s.signIn('203.0.113.9', admin.username, admin.password)
   assert.equal(ok.status, 200)
   assert.ok(cookieOf(ok.headers, SESSION_COOKIE))
   const device = ok.headers.getSetCookie().find((c) => c.startsWith(DEVICE_COOKIE + '='))!
   assert.match(device, /HttpOnly/)
   assert.match(device, /Path=\/api\/auth/)
-  for (let i = 0; i < 5; i++) assert.equal((await s.signIn('203.0.113.9', 'noa', 'wrong-password')).status, 401, 'cleared by the success')
+  for (let i = 0; i < 5; i++) assert.equal((await s.signIn('203.0.113.9', admin.username, wrong)).status, 401, 'cleared by the success')
 })
 
 test('HTTP: without trusted proxies X-Forwarded-For changes nothing; with them, it is the client', async () => {
   const s = await server()
-  for (let i = 0; i < 6; i++) await s.signIn('203.0.113.9', 'noa', 'wrong-password', { 'x-forwarded-for': `198.51.100.${i}` })
-  const r = await s.signIn('203.0.113.9', 'noa', 'wrong-password', { 'x-forwarded-for': '198.51.100.77' })
+  const account = m.aUsername()
+  const wrong = m.aPassword()
+  for (let i = 0; i < 6; i++) await s.signIn('203.0.113.9', account, wrong, { 'x-forwarded-for': `198.51.100.${i}` })
+  const r = await s.signIn('203.0.113.9', account, wrong, { 'x-forwarded-for': '198.51.100.77' })
   assert.equal(r.status, 429, 'a forged header does not make a new client')
 
   const p = await server({ proxies: '10.0.0.5' })
-  for (let i = 0; i < 6; i++) await p.signIn('10.0.0.5', 'noa', 'wrong-password', { 'x-forwarded-for': '198.51.100.1' })
-  assert.equal((await p.signIn('10.0.0.5', 'noa', 'wrong-password', { 'x-forwarded-for': '198.51.100.1' })).status, 429, 'that client waits')
-  assert.equal((await p.signIn('10.0.0.5', 'noa', 'wrong-password', { 'x-forwarded-for': '198.51.100.2' })).status, 401,
+  for (let i = 0; i < 6; i++) await p.signIn('10.0.0.5', account, wrong, { 'x-forwarded-for': '198.51.100.1' })
+  assert.equal((await p.signIn('10.0.0.5', account, wrong, { 'x-forwarded-for': '198.51.100.1' })).status, 429, 'that client waits')
+  assert.equal((await p.signIn('10.0.0.5', account, wrong, { 'x-forwarded-for': '198.51.100.2' })).status, 401,
     'another client behind the same proxy does not')
-  assert.equal((await p.signIn('10.0.0.5', 'noa', 'wrong-password', { 'x-forwarded-for': '198.51.100.2, 198.51.100.1' })).status, 429,
+  assert.equal((await p.signIn('10.0.0.5', account, wrong, { 'x-forwarded-for': '198.51.100.2, 198.51.100.1' })).status, 429,
     'and the client cannot hide behind a forged entry on the left')
 })
 
 test('HTTP: the owner signs in from a known browser while someone else guesses their name', async () => {
   const s = await server()
-  await s.auth.createUser('noa', 'a-long-password', 'admin')
-  const first = await s.signIn('192.168.1.10', 'noa', 'a-long-password')
+  const admin = m.aUser({ role: 'admin' })
+  await s.auth.createUser(admin.username, admin.password, admin.role)
+  const first = await s.signIn('192.168.1.10', admin.username, admin.password)
   const device = cookieOf(first.headers, DEVICE_COOKIE)!
-  for (let i = 0; i < 40; i++) await s.signIn(`10.0.${i}.1`, 'noa', 'guess')
-  assert.equal((await s.signIn('192.168.1.20', 'noa', 'a-long-password')).status, 429, 'a new browser waits the account part')
-  const known = await s.signIn('192.168.1.20', 'noa', 'a-long-password', { cookie: device })
+  for (let i = 0; i < 40; i++) await s.signIn(`10.0.${i}.1`, admin.username, m.aPassword())
+  assert.equal((await s.signIn('192.168.1.20', admin.username, admin.password)).status, 429, 'a new browser waits the account part')
+  const known = await s.signIn('192.168.1.20', admin.username, admin.password, { cookie: device })
   assert.equal(known.status, 200, 'the known browser does not')
-  assert.equal((await s.signIn('192.168.1.20', 'noa', 'a-long-password', { cookie: `${DEVICE_COOKIE}=forged.cookie` })).status, 429)
+  assert.equal((await s.signIn('192.168.1.20', admin.username, admin.password, { cookie: `${DEVICE_COOKIE}=${m.aSecret(20)}.${m.aSecret(20)}` })).status, 429)
 })
 
 test('HTTP: invented names cannot fill memory', async () => {
   const s = await server({ rules: { maxEntries: 100 } })
   for (let i = 0; i < 300; i++) {
     s.advance(1)
-    assert.notEqual((await s.signIn(`10.${i >> 8}.${i & 255}.1`, `invented-${i}-${'x'.repeat(500)}`, 'guess')).status, 500)
+    assert.notEqual((await s.signIn(`10.${i >> 8}.${i & 255}.1`, `${m.aUsername()}-${'x'.repeat(500)}`, m.aPassword())).status, 500)
   }
   assert.ok(s.loginLimiter.size <= 100, `${s.loginLimiter.size} counters`)
   const huge = await s.send('10.9.9.9', 'POST', '/api/auth/login', { username: 'x'.repeat(20_000), password: 'y' })
@@ -254,33 +269,34 @@ test('HTTP: invented names cannot fill memory', async () => {
 
 test('HTTP: the first-boot token is limited too', async () => {
   const s = await server()
+  const admin = m.aUser({ role: 'admin' })
   const token = s.auth.setupToken()!
   for (let i = 0; i < 5; i++) {
-    const r = await s.send('203.0.113.9', 'POST', '/api/setup', { token: `wrong-${i}`, username: 'noa', password: 'a-long-password' })
+    const r = await s.send('203.0.113.9', 'POST', '/api/setup', { token: m.aSecret(43), username: admin.username, password: admin.password })
     assert.deepEqual([r.status, r.body.error], [400, 'invalid_token'])
   }
-  const sixth = await s.send('203.0.113.9', 'POST', '/api/setup', { token: 'wrong', username: 'noa', password: 'a-long-password' })
+  const sixth = await s.send('203.0.113.9', 'POST', '/api/setup', { token: m.aSecret(43), username: admin.username, password: admin.password })
   assert.deepEqual([sixth.status, sixth.body.error, sixth.headers.get('retry-after')], [429, 'too_many_attempts', '1'])
-  const refused = await s.send('203.0.113.9', 'POST', '/api/setup', { token, username: 'noa', password: 'a-long-password' })
+  const refused = await s.send('203.0.113.9', 'POST', '/api/setup', { token, username: admin.username, password: admin.password })
   assert.equal(refused.status, 429, 'not even the right token during the wait')
   assert.equal(s.auth.userCount(), 0)
   s.advance(1)
-  const weak = await s.send('203.0.113.9', 'POST', '/api/setup', { token, username: 'noa', password: 'short' })
+  const weak = await s.send('203.0.113.9', 'POST', '/api/setup', { token, username: admin.username, password: m.aWeakPassword() })
   assert.equal(weak.body.error, 'weak_password', 'a weak password with the right token is not a guess')
-  assert.equal((await s.send('203.0.113.9', 'POST', '/api/setup', { token, username: 'noa', password: 'a-long-password' })).status, 200)
+  assert.equal((await s.send('203.0.113.9', 'POST', '/api/setup', { token, username: admin.username, password: admin.password })).status, 200)
 })
 
 test('HTTP: many failures show in the admin’s alerts', async () => {
   const s = await server()
-  await s.auth.createUser('noa', 'a-long-password', 'admin')
-  await s.auth.createUser('ana', 'a-long-password', 'member')
-  const cookie = async (name: string) => cookieOf((await s.signIn('192.168.1.10', name, 'a-long-password')).headers, SESSION_COOKIE)!
-  const admin = await cookie('noa')
-  const member = await cookie('ana')
+  const people = { admin: m.aUser({ role: 'admin' }), member: m.aUser({ role: 'member' }) }
+  for (const u of Object.values(people)) await s.auth.createUser(u.username, u.password, u.role)
+  const cookie = async (u: { username: string; password: string }) => cookieOf((await s.signIn('192.168.1.10', u.username, u.password)).headers, SESSION_COOKIE)!
+  const admin = await cookie(people.admin)
+  const member = await cookie(people.member)
   const alerts = async (c: string) => (await s.send('192.168.1.10', 'GET', '/api/alerts', undefined, { cookie: c })).body.alerts
     .filter((a: { code: string }) => a.code === 'login_attempts_blocked')
   assert.deepEqual(await alerts(admin), [])
-  for (let i = 0; i < 25; i++) await s.signIn(`10.0.${i}.1`, 'noa', 'guess')
+  for (let i = 0; i < 25; i++) await s.signIn(`10.0.${i}.1`, people.admin.username, m.aPassword())
   assert.deepEqual(await alerts(admin), [{ code: 'login_attempts_blocked', attempts: 25, since: '2026-09-26T10:00:00.000Z', actions: [] }])
   assert.deepEqual(await alerts(member), [], 'only admins')
 })

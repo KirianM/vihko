@@ -7,6 +7,7 @@ import { cpus, tmpdir, totalmem } from 'node:os'
 import { join } from 'node:path'
 import { CLI, sleep, waitFor, type Srv } from '../_collab.ts'
 import { generateVault, type Vault } from './_vault.ts'
+import { mother } from '../../../../test/mother.ts'
 
 export { sleep, waitFor }
 
@@ -14,8 +15,10 @@ export const NOTES = Number(process.env.ACCEPTANCE_NOTES ?? 1000)
 export const SEED = Number(process.env.ACCEPTANCE_SEED ?? 1)
 /** Repetitions of the concurrency scenarios: one green pass proves nothing. */
 export const ROUNDS = Number(process.env.ACCEPTANCE_ROUNDS ?? 5)
-export const USER = 'noa'
-export const PASSWORD = 'a-long-password'
+/** The admin every workspace is made with (the mother's): their username and password. */
+const ADMIN = mother(import.meta.url).aUser({ role: 'admin' })
+export const USER = ADMIN.username
+export const PASSWORD = ADMIN.password
 
 let nextPort = 26000 + Math.floor(Math.random() * 3000)
 export const freePort = () => nextPort++

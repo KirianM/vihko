@@ -4,38 +4,57 @@
 // in a code block that stays code, and the phone layout.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES, PASSWORD } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
-const DIR = 'tareas'
-const NOTE = `${DIR}/Tareas y tablas.md`
+const m = specMother(import.meta.url)
+/** Words of a sentence, without its full stop. */
+const words = (n?: number) => m.aSentence(n).slice(0, -1)
+/** The tasks: open, done (it names someone), open; and one typed later. */
+const BUY = words(3)
+const CALL = `Llamar a ${m.aDisplayName()}`
+const CHECK = words(3)
+const NEW_TASK = words(2)
+/** The table's headings and cells (its layout, alignments and Markdown are the case under test). */
+const [COL1, COL2, COL3] = [m.aWord(), m.aWord(), m.aWord()]
+const BOLD = words(2)
+const CODE = m.aUniqueWord()
+const CELL = m.aTitle()
+const [QTY1, QTY2] = [m.anInt(1, 9), m.anInt(10, 99)]
+const TYPED = m.aWord()
+/** A table-like text in a code block. */
+const [NOT1, NOT2] = [m.aUniqueWord(), m.aUniqueWord()]
+const DIR = m.aFolder()
+const NOTE = m.aNotePath(DIR)
 const FILE = `${NOTES}/${NOTE}`
 const SHOTS = `${E2E_DIR}/shots`
 const disk = () => readFileSync(FILE, 'utf8')
 
-const WIDE = `| ${Array.from({ length: 8 }, (_, i) => `Columna ${i + 1}`).join(' | ')} |\n|${'---|'.repeat(8)}\n| ${Array.from({ length: 8 }, (_, i) => `valor bastante largo ${i + 1}`).join(' | ')} |\n`
+/** Eight columns of three words: wider than a phone. */
+const WIDE = `| ${Array.from({ length: 8 }, (_, i) => `${m.aWord()} ${i + 1}`).join(' | ')} |\n|${'---|'.repeat(8)}\n| ${Array.from({ length: 8 }, () => words(3)).join(' | ')} |\n`
+// With a uid already: opening it doesn't add one, so the file changes only as the tests do.
 const SOURCE = `---
-uid: 01K5TASKSTAB7ES00000000000
+uid: ${m.faker.string.ulid({ refDate: '2026-01-01T00:00:00Z' })}
 ---
-# Tareas y tablas
+# ${m.aHeading()}
 
-- [ ] Comprar té
-- [x] Llamar a Ana
-- [ ] Revisar la tabla
+- [ ] ${BUY}
+- [x] ${CALL}
+- [ ] ${CHECK}
 
-| Producto | Cantidad | Nota |
+| ${COL1} | ${COL2} | ${COL3} |
 |:---------|---------:|:----:|
-| **Té verde** | 2 | \`oolong\` |
-| Café | 10 | [[Proxy]] |
+| **${BOLD}** | ${QTY1} | \`${CODE}\` |
+| ${CELL} | ${QTY2} | [[Proxy]] |
 
 \`\`\`
 | a | b |
 |---|---|
-| no es | tabla |
+| ${NOT1} | ${NOT2} |
 \`\`\`
 
 ${WIDE}
-Fin.
+${m.aSentence()}
 `
 
 /** Where two texts differ: each index with a different character (same length required). */
@@ -52,8 +71,8 @@ test.beforeAll(async ({ browser }) => {
   mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
   mkdirSync(SHOTS, { recursive: true })
   writeFileSync(FILE, SOURCE)
-  k = await signIn(browser, 'noa', NOTE)
-  a = await signIn(browser, 'ana', NOTE)
+  k = await signIn(browser, ADMIN, NOTE)
+  a = await signIn(browser, MEMBER, NOTE)
 })
 
 test.afterAll(async () => {
@@ -69,8 +88,8 @@ test('tasks show a checkbox in place of the marker; done ones are struck through
   await expect(boxes(k)).toHaveCount(3)
   await expect(boxes(k).nth(0)).not.toBeChecked()
   await expect(boxes(k).nth(1)).toBeChecked()
-  await expect(k.locator('.cm-line', { hasText: 'Comprar té' })).toHaveText('Comprar té')
-  await expect(k.locator('.cm-task-done')).toHaveText('Llamar a Ana')
+  await expect(k.locator('.cm-line', { hasText: BUY })).toHaveText(BUY)
+  await expect(k.locator('.cm-task-done')).toHaveText(CALL)
   expect(await k.locator('.cm-task-done').evaluate((e) => getComputedStyle(e).textDecorationLine)).toBe('line-through')
 })
 
@@ -78,8 +97,8 @@ test('clicking a checkbox changes one character of the file', async () => {
   const before = disk()
   await boxes(k).nth(0).click()
   await expect(boxes(k).nth(0)).toBeChecked()
-  await expect.poll(disk).toContain('- [x] Comprar té')
-  expect(diff(before, disk())).toEqual([before.indexOf('- [ ] Comprar té') + 3])
+  await expect.poll(disk).toContain(`- [x] ${BUY}`)
+  expect(diff(before, disk())).toEqual([before.indexOf(`- [ ] ${BUY}`) + 3])
   // The cursor did not move there: the checkbox is still a checkbox.
   await expect(boxes(k)).toHaveCount(3)
   await expect(boxes(a).nth(0)).toBeChecked()
@@ -88,8 +107,8 @@ test('clicking a checkbox changes one character of the file', async () => {
 test('two people toggling different tasks at the same time: both changes land', async () => {
   const before = disk()
   await Promise.all([boxes(k).nth(1).click(), boxes(a).nth(2).click()])
-  await expect.poll(disk).toContain('- [ ] Llamar a Ana')
-  await expect.poll(disk).toContain('- [x] Revisar la tabla')
+  await expect.poll(disk).toContain(`- [ ] ${CALL}`)
+  await expect.poll(disk).toContain(`- [x] ${CHECK}`)
   expect(diff(before, disk())).toHaveLength(2)
   for (const p of [k, a]) {
     await expect(boxes(p).nth(1)).not.toBeChecked()
@@ -98,54 +117,54 @@ test('two people toggling different tasks at the same time: both changes land', 
 })
 
 test('keyboard: Ctrl+Enter toggles the task on the cursor line; Enter continues with a new task', async () => {
-  await k.locator('.cm-line', { hasText: 'Llamar a Ana' }).click()
+  await k.locator('.cm-line', { hasText: CALL }).click()
   await k.keyboard.press('End')
   // Typing in the task's text keeps the checkbox.
   await expect(boxes(k)).toHaveCount(3)
   await k.keyboard.press('Control+Enter')
-  await expect.poll(disk).toContain('- [x] Llamar a Ana\n')
+  await expect.poll(disk).toContain(`- [x] ${CALL}\n`)
   await k.keyboard.press('Enter')
-  await k.keyboard.type('Nueva tarea')
-  await expect.poll(disk).toContain('- [x] Llamar a Ana\n- [ ] Nueva tarea\n- [x] Revisar la tabla')
+  await k.keyboard.type(NEW_TASK)
+  await expect.poll(disk).toContain(`- [x] ${CALL}\n- [ ] ${NEW_TASK}\n- [x] ${CHECK}`)
   // Enter on the empty task ends the list.
   await k.keyboard.press('Enter')
   await k.keyboard.press('Enter')
-  await expect.poll(disk).toContain('- [ ] Nueva tarea\n\n- [x] Revisar la tabla')
+  await expect.poll(disk).toContain(`- [ ] ${NEW_TASK}\n\n- [x] ${CHECK}`)
   await k.keyboard.press('Backspace')
-  await expect.poll(disk).toContain('- [ ] Nueva tarea\n- [x] Revisar la tabla')
+  await expect.poll(disk).toContain(`- [ ] ${NEW_TASK}\n- [x] ${CHECK}`)
 })
 
 test('a table renders with the alignment of its delimiter row and inline Markdown as text', async () => {
   await k.locator('.cm-h1').click()
   const table = k.locator('.cm-table').first()
   await expect(table).toBeVisible()
-  await expect(table.locator('th')).toHaveText(['Producto', 'Cantidad', 'Nota'])
+  await expect(table.locator('th')).toHaveText([COL1, COL2, COL3])
   const align = await table.locator('th').evaluateAll((els) => els.map((e) => getComputedStyle(e).textAlign))
   expect(align).toEqual(['left', 'right', 'center'])
-  await expect(table.locator('td strong')).toHaveText('Té verde')
-  await expect(table.locator('td code')).toHaveText('oolong')
+  await expect(table.locator('td strong')).toHaveText(BOLD)
+  await expect(table.locator('td code')).toHaveText(CODE)
   await expect(table.locator('td .cm-link')).toHaveText('Proxy')
   await expect(k.locator('.cm-line', { hasText: '|---' })).toHaveCount(1) // only the one in the code block
 })
 
 test('a table in a code block stays code', async () => {
-  await expect(k.locator('.cm-codeblock', { hasText: '| no es | tabla |' })).toBeVisible()
+  await expect(k.locator('.cm-codeblock', { hasText: `| ${NOT1} | ${NOT2} |` })).toBeVisible()
   await expect(k.locator('.cm-table')).toHaveCount(2) // the product table and the wide one
 })
 
 test('clicking a cell shows the source with the cursor in that cell', async () => {
-  await k.locator('.cm-table td', { hasText: 'Café' }).click()
+  await k.locator('.cm-table td', { hasText: CELL }).click()
   await expect(k.locator('.cm-line', { hasText: '|:---------|' })).toBeVisible()
   await expect(k.locator('.cm-table')).toHaveCount(1)
-  await k.keyboard.type('Buen ')
-  await expect.poll(disk).toContain('| Buen Café | 10 | [[Proxy]] |')
+  await k.keyboard.type(`${TYPED} `)
+  await expect.poll(disk).toContain(`| ${TYPED} ${CELL} | ${QTY2} | [[Proxy]] |`)
   // Leaving the table draws it again, from the text as written (not reformatted).
   await k.locator('.cm-h1').click()
   await expect(k.locator('.cm-table')).toHaveCount(2)
-  await expect(k.locator('.cm-table td', { hasText: 'Buen Café' })).toBeVisible()
-  expect(disk()).toContain('|:---------|---------:|:----:|\n| **Té verde** | 2 | `oolong` |')
+  await expect(k.locator('.cm-table td', { hasText: `${TYPED} ${CELL}` })).toBeVisible()
+  expect(disk()).toContain(`|:---------|---------:|:----:|\n| **${BOLD}** | ${QTY1} | \`${CODE}\` |`)
   // The other person sees it drawn too.
-  await expect(a.locator('.cm-table td', { hasText: 'Buen Café' })).toBeVisible()
+  await expect(a.locator('.cm-table td', { hasText: `${TYPED} ${CELL}` })).toBeVisible()
 })
 
 test('screenshots: light and dark', async () => {
@@ -161,8 +180,8 @@ test('phone: a wide table scrolls inside itself and a tap toggles a task', async
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: 'es-ES' })
   const page = await ctx.newPage()
   await page.goto(`/?note=${encodeURIComponent(NOTE)}`)
-  await page.getByLabel('Nombre de usuario').fill('noa')
-  await page.getByLabel('Contraseña').fill(PASSWORD)
+  await page.getByLabel('Nombre de usuario').fill(ADMIN.username)
+  await page.getByLabel('Contraseña').fill(ADMIN.password)
   await page.getByRole('button', { name: 'Entrar' }).last().tap()
   await expect(page.locator('.cm-table').last()).toBeVisible()
   const wrap = page.locator('.cm-table-wrap').last()
@@ -183,7 +202,7 @@ test('phone: a wide table scrolls inside itself and a tap toggles a task', async
   await page.touchscreen.tap(box.x - 8, box.y + box.height / 2)
   await expect.poll(disk).not.toBe(before)
   // The first task's, not its neighbour's: their touch areas don't overlap.
-  expect(diff(before, disk())).toEqual([before.indexOf('] Comprar té') - 1])
+  expect(diff(before, disk())).toEqual([before.indexOf(`] ${BUY}`) - 1])
   await wrap.evaluate((e) => { e.scrollLeft = 200 })
   await page.screenshot({ path: `${SHOTS}/tasks-tables-390.png`, animations: 'disabled' })
   await ctx.close()

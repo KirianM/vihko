@@ -10,12 +10,15 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { api, login } from '../_collab.ts'
-import { ANA, BEA, snapshot, userGit } from '../_userGit.ts'
+import { AUTHOR, CO_AUTHOR, snapshot, userGit } from '../_userGit.ts'
+import { mother } from '../../../../test/mother.ts'
 import { rng } from './_vault.ts'
-import { NOTES, SEED, cleanup, metric, startServer, timed, workspace, type Server } from './_harness.ts'
+import { NOTES, PASSWORD, SEED, USER, cleanup, metric, startServer, timed, workspace, type Server } from './_harness.ts'
 
 const COMMITS = Number(process.env.ACCEPTANCE_GIT_COMMITS ?? 2000)
-const CARLOS = { name: 'Carlos', email: 'carlos@example.com' }
+const m = mother(import.meta.url)
+/** A third author of the user's commits. */
+const THIRD_AUTHOR = { name: m.aDisplayName(), email: m.anEmail() }
 const q = encodeURIComponent
 
 test(`unmanaged history over ${NOTES} notes and ${COMMITS} commits of the user's own git`, { timeout: 600_000 }, async () => {
@@ -41,13 +44,13 @@ test(`unmanaged history over ${NOTES} notes and ${COMMITS} commits of the user's
       parts.push(Buffer.from(`commit refs/heads/main\nauthor ${who.name} <${who.email}> ${clock} +0000\ncommitter ${who.name} <${who.email}> ${clock} +0000\ndata ${Buffer.byteLength(message)}\n${message}\n`))
     }
     const write = (path: string, bytes: Buffer) => parts.push(Buffer.from(`M 100644 inline ${quote(path)}\ndata ${bytes.length}\n`), bytes, Buffer.from('\n'))
-    commit(ANA, 'Initial')
+    commit(AUTHOR, 'Initial')
     for (const f of files) write(f, text.get(f)!)
     parts.push(Buffer.from('\n'))
     let hotVersions = 1
     const renamed: { from: string; to: string }[] = []
     for (let i = 1; i <= COMMITS; i++) {
-      const who = r.pick([ANA, BEA, CARLOS])
+      const who = r.pick([AUTHOR, CO_AUTHOR, THIRD_AUTHOR])
       if (i % 100 === 0) {
         const from = editable.splice(r.int(editable.length), 1)[0]!
         const to = from.replace(/\.md$/, ` (movida ${i}).md`)
@@ -79,7 +82,7 @@ test(`unmanaged history over ${NOTES} notes and ${COMMITS} commits of the user's
     metric('unmanaged: user repository imported', importMs, 'ms', { commits: COMMITS + 1, files: files.length })
 
     srv = await startServer(ws.env)
-    const cookie = await login(srv)
+    const cookie = await login(srv, { username: USER, password: PASSWORD })
     metric('unmanaged: cold start', srv.listeningMs, 'ms')
     assert.deepEqual((await api(srv, cookie, 'GET', '/api/history/status')).body, { mode: 'unmanaged', available: true, error: null })
     const get = async (path: string) => {

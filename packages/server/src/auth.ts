@@ -56,6 +56,17 @@ export interface SessionInfo {
 }
 
 /** Error creating a user or on first boot. `code` is stable and the UI translates it. */
+/**
+ * The id of the user (not deleted) with this name, compared as the
+ * permissions compare names (subjectKey: any case, in any script); SQLite's
+ * `nocase` folds only ASCII, and «LUCÍA» couldn't sign in as «lucía».
+ */
+export function userIdByName(db: Db, name: string): string | null {
+  const key = subjectKey(name.normalize('NFC').trim())
+  const rows = db.prepare('select id, username from users where deleted_at is null').all() as { id: string; username: string }[]
+  return rows.find((r) => subjectKey(r.username) === key)?.id ?? null
+}
+
 export class AuthError extends Error {
   readonly code: AuthErrorCode
   constructor(code: AuthErrorCode, message: string) {
@@ -216,8 +227,9 @@ export class Auth {
 
   /** The user these credentials are for, or null if they are invalid (or the user is disabled). Starts no session. */
   async verifyLogin(username: string, password: string): Promise<User | null> {
-    const row = this.db.prepare('select id, username, role, disabled, password_hash from users where username = ?')
-      .get(username.normalize('NFC').trim()) as { id: string; username: string; role: Role; disabled: number; password_hash: string } | undefined
+    const id = userIdByName(this.db, username)
+    const row = id === null ? undefined : this.db.prepare('select id, username, role, disabled, password_hash from users where id = ?')
+      .get(id) as { id: string; username: string; role: Role; disabled: number; password_hash: string } | undefined
     // Verified against a dummy hash either way (also for someone invited who
     // has no password yet), so response time doesn't reveal which users exist.
     const ok = await verifyPassword(password, row?.password_hash || DUMMY_HASH)

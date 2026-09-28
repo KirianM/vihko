@@ -8,6 +8,37 @@ import * as Y from 'yjs'
 import { contentHash, readFrontmatter } from '@thoth/core'
 import { NoteLink, type Lineage } from '../../web/src/editor/lineage.ts'
 import { api, closeAll, connect, login, makeDirs, open, sleep, socket, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
+/** Lines typed or written to find again: words no other text has. */
+const MARK = {
+  after: m.aUniqueWord(),
+  afterDelete: m.aUniqueWord(),
+  afterMove: m.aUniqueWord(),
+  afterTheFlush: m.aUniqueWord(),
+  agent: m.aUniqueWord(),
+  agentMark: m.aUniqueWord(),
+  before: m.aUniqueWord(),
+  beforeDelete: m.aUniqueWord(),
+  beforeDrop: m.aUniqueWord(),
+  external: m.aUniqueWord(),
+  flushed: m.aUniqueWord(),
+  lastLine: m.aUniqueWord(),
+  line: m.aUniqueWord(),
+  live: m.aUniqueWord(),
+  newer: m.aUniqueWord(),
+  offline: m.aUniqueWord(),
+  offlineCut: m.aUniqueWord(),
+  offlineRestart: m.aUniqueWord(),
+  older: m.aUniqueWord(),
+  other: m.aUniqueWord(),
+  pending: m.aUniqueWord(),
+  sent: m.aUniqueWord(),
+  stillEditing: m.aUniqueWord(),
+  unflushed: m.aUniqueWord(),
+  unsent: m.aUniqueWord(),
+}
 
 const NOTE = 'hogar/Proxy.md'
 
@@ -59,8 +90,8 @@ test("an external editor saving over an old version doesn't erase what was typed
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
     const file = join(notes, NOTE)
-    typeLine(a, 'BEFORE')
-    await waitFor(() => readFileSync(file, 'utf8').includes('BEFORE\n'), 'flush')
+    typeLine(a, MARK.before)
+    await waitFor(() => readFileSync(file, 'utf8').includes(`${MARK.before}\n`), 'flush')
     const opened = readFileSync(file, 'utf8') // the external editor opens it here…
     for (let i = 0; i < 3; i++) {
       typeLine(a, `UI-${i}`)
@@ -80,15 +111,15 @@ test('server crash with unflushed edits: they recover on startup', async () => {
   try {
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
-    for (let i = 0; i < 10; i++) typeLine(a, `UNFLUSHED-${i}`)
+    for (let i = 0; i < 10; i++) typeLine(a, `${MARK.unflushed}-${i}`)
     await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
     await sleep(100)
     a.close()
     await srv.stop('SIGKILL') // before the flush (1 s debounce)
     assert.equal(readFileSync(file, 'utf8'), before, "hadn't been flushed yet")
     srv = await startServer(env)
-    await waitFor(() => readFileSync(file, 'utf8').includes('UNFLUSHED-9'), 'recovery')
-    for (let i = 0; i < 10; i++) assert.ok(readFileSync(file, 'utf8').includes(`UNFLUSHED-${i}\n`))
+    await waitFor(() => readFileSync(file, 'utf8').includes(`${MARK.unflushed}-9`), 'recovery')
+    for (let i = 0; i < 10; i++) assert.ok(readFileSync(file, 'utf8').includes(`${MARK.unflushed}-${i}\n`))
     await waitFor(() => readdirSync(join(env.THOTH_STATE_DIR!, 'collab')).every((f) => !f.endsWith('.ylog')), 'log recovered and removed')
   } finally { closeAll(); await srv.stop() }
 })
@@ -99,8 +130,8 @@ test("deleting an open note closes it and doesn't resurrect it", async () => {
   try {
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
-    typeLine(a, 'BEFORE-DELETE')
-    await waitFor(() => readFileSync(join(notes, NOTE), 'utf8').includes('BEFORE-DELETE'), 'flush')
+    typeLine(a, MARK.beforeDelete)
+    await waitFor(() => readFileSync(join(notes, NOTE), 'utf8').includes(MARK.beforeDelete), 'flush')
     const del = await api(srv, cookie, 'DELETE', `/api/note?path=${encodeURIComponent(NOTE)}`)
     assert.equal(del.status, 200)
     await sleep(1500)
@@ -126,15 +157,16 @@ test('WebSocket: rejected without a session, from another origin, or for a nonex
     assert.equal(await status({ cookie, origin: 'https://malicious.example' }), 403)
     assert.equal(await status({ cookie }), 101)
     // Nonexistent note: the connection is accepted but the document never loads.
+    const missing = m.aNotePath()
     const doc = new Y.Doc()
     class AuthedWS extends WebSocket { constructor(u: string, p?: string | string[]) { super(u, p, { headers: { cookie } }) } }
     const wsp = new HocuspocusProviderWebsocket({ url, WebSocketPolyfill: AuthedWS })
-    const p = new HocuspocusProvider({ websocketProvider: wsp, name: 'no-existe.md', document: doc })
+    const p = new HocuspocusProvider({ websocketProvider: wsp, name: missing, document: doc })
     p.attach()
     open.push(p, wsp)
     await sleep(800)
     assert.equal(p.isSynced, false)
-    assert.ok(!existsSync(join(env.THOTH_NOTES_DIR!, 'no-existe.md')))
+    assert.ok(!existsSync(join(env.THOTH_NOTES_DIR!, missing)))
     wsp.destroy()
   } finally { closeAll(); await srv.stop() }
 })
@@ -148,22 +180,22 @@ test('external deletion with the note open: live notice, not recreated, and the 
     const a = await connect(srv, cookie, NOTE)
     const messages: string[] = []
     a.provider.on('stateless', ({ payload }: { payload: string }) => messages.push(JSON.parse(payload).type))
-    typeLine(a, 'BEFORE')
+    typeLine(a, MARK.before)
     const file = join(notes, NOTE)
-    await waitFor(() => readFileSync(file, 'utf8').includes('BEFORE\n'), 'flush')
+    await waitFor(() => readFileSync(file, 'utf8').includes(`${MARK.before}\n`), 'flush')
     rmSync(file) // someone deletes it with the file explorer
     await waitFor(() => messages.includes('thoth:deleted-externally'), 'live notice', 15000) // after the grace for a move (6 s)
-    typeLine(a, 'AFTER-DELETE')
+    typeLine(a, MARK.afterDelete)
     await sleep(2500)
     assert.ok(!existsSync(file), "thoth doesn't undo the deletion on its own")
     assert.deepEqual(await orphaned(srv, cookie), [NOTE])
     const r = await api(srv, cookie, 'POST', '/api/note/orphan', { path: NOTE, action: 'restore' })
     assert.equal(r.status, 200)
     const back = readFileSync(file, 'utf8')
-    assert.ok(back.includes('BEFORE\n') && back.includes('AFTER-DELETE\n'), 'the copy keeps everything that was written')
+    assert.ok(back.includes(`${MARK.before}\n`) && back.includes(`${MARK.afterDelete}\n`), 'the copy keeps everything that was written')
     await waitFor(() => messages.includes('thoth:orphan-resolved'), 'resolution notice')
-    typeLine(a, 'STILL-EDITING')
-    await waitFor(() => readFileSync(file, 'utf8').includes('STILL-EDITING'), 'flushes normally again')
+    typeLine(a, MARK.stillEditing)
+    await waitFor(() => readFileSync(file, 'utf8').includes(MARK.stillEditing), 'flushes normally again')
     assert.deepEqual(await orphaned(srv, cookie), [])
   } finally { closeAll(); await srv.stop() }
 })
@@ -213,8 +245,8 @@ test('discarding the copy of a note deleted outside: once recreated, it reopens 
     assert.equal(b.text(), '# Proxy\n\nBACK\n')
     await sleep(500)
     assert.ok(b.provider.isAuthenticated, 'the new session is still open on the server')
-    typeLine(b, 'LIVE')
-    await waitFor(() => readFileSync(file, 'utf8').includes('LIVE\n'), 'edits reach the file')
+    typeLine(b, MARK.live)
+    await waitFor(() => readFileSync(file, 'utf8').includes(`${MARK.live}\n`), 'edits reach the file')
   } finally { closeAll(); await srv.stop() }
 })
 
@@ -225,7 +257,7 @@ test("deleted with the server down and pending edits: it isn't emptied or recrea
   try {
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
-    for (let i = 0; i < 5; i++) typeLine(a, `PENDING-${i}`)
+    for (let i = 0; i < 5; i++) typeLine(a, `${MARK.pending}-${i}`)
     await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
     await sleep(100)
     a.close()
@@ -238,7 +270,7 @@ test("deleted with the server down and pending edits: it isn't emptied or recrea
     assert.deepEqual(await orphaned(srv, cookie2), [NOTE])
     assert.equal((await api(srv, cookie2, 'POST', '/api/note/orphan', { path: NOTE, action: 'restore' })).status, 200)
     const back = readFileSync(file, 'utf8')
-    for (let i = 0; i < 5; i++) assert.ok(back.includes(`PENDING-${i}\n`), `missing PENDING-${i}`)
+    for (let i = 0; i < 5; i++) assert.ok(back.includes(`${MARK.pending}-${i}\n`), `missing ${MARK.pending}-${i}`)
     assert.ok(back.includes('# Proxy'), "the document wasn't emptied")
   } finally { closeAll(); await srv.stop() }
 })
@@ -246,14 +278,16 @@ test("deleted with the server down and pending edits: it isn't emptied or recrea
 test('renaming an open note: editors are told, nothing is lost and the old path does not reopen', async () => {
   const { notes, env } = makeDirs()
   const srv = await startServer(env)
-  const TO = 'hogar/Hipervisor Proxy.md'
+  // A new name with a space in it.
+  const name = `${m.aTitle()} ${m.aWord()}`
+  const TO = `hogar/${name}.md`
   try {
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
     const b = await connect(srv, cookie, NOTE)
     const moved: { from: string; to: string }[] = []
     for (const c of [a, b]) c.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'thoth:moved') moved.push(m) })
-    typeLine(a, 'UNFLUSHED') // still in the debounce: the move flushes it first
+    typeLine(a, MARK.unflushed) // still in the debounce: the move flushes it first
     await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
     const preview = await api(srv, cookie, 'POST', '/api/note/move', { from: NOTE, to: TO, dryRun: true })
     assert.equal(preview.status, 200)
@@ -264,42 +298,42 @@ test('renaming an open note: editors are told, nothing is lost and the old path 
     await waitFor(() => moved.length === 2, 'both editors told')
     assert.deepEqual(moved[0], { type: 'thoth:moved', from: NOTE, to: TO })
     assert.ok(!existsSync(join(notes, NOTE)))
-    assert.ok(readFileSync(join(notes, TO), 'utf8').includes('UNFLUSHED\n'))
-    assert.ok(readFileSync(join(notes, 'hogar/enlaces.md'), 'utf8').includes('[[Hipervisor Proxy#Red]]'))
+    assert.ok(readFileSync(join(notes, TO), 'utf8').includes(`${MARK.unflushed}\n`))
+    assert.ok(readFileSync(join(notes, 'hogar/enlaces.md'), 'utf8').includes(`[[${name}#Red]]`))
     a.close(); b.close()
     // It reopens at the new path and editing goes on as usual.
     const c = await connect(srv, cookie, TO)
-    assert.ok(c.text().includes('UNFLUSHED\n'))
-    typeLine(c, 'AFTER-MOVE')
-    await waitFor(() => readFileSync(join(notes, TO), 'utf8').includes('AFTER-MOVE'), 'flushed at the new path')
+    assert.ok(c.text().includes(`${MARK.unflushed}\n`))
+    typeLine(c, MARK.afterMove)
+    await waitFor(() => readFileSync(join(notes, TO), 'utf8').includes(MARK.afterMove), 'flushed at the new path')
     await sleep(1500)
     assert.ok(!existsSync(join(notes, NOTE)), 'the old path is not recreated')
   } finally { closeAll(); await srv.stop() }
 })
 
 test('trashing an open note tells its editors the entry, and restoring it reopens it', async () => {
-  const { notes, env } = makeDirs()
+  const { notes, env, admin } = makeDirs()
   const srv = await startServer(env)
   try {
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
     const messages: { type: string; id?: string; by?: string }[] = []
     a.provider.on('stateless', ({ payload }: { payload: string }) => messages.push(JSON.parse(payload)))
-    typeLine(a, 'LAST-LINE')
+    typeLine(a, MARK.lastLine)
     await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
     const del = await api(srv, cookie, 'DELETE', `/api/note?path=${encodeURIComponent(NOTE)}`)
     assert.equal(del.status, 200)
     await waitFor(() => messages.some((m) => m.type === 'thoth:trashed'), 'trash notice')
-    assert.deepEqual(messages.find((m) => m.type === 'thoth:trashed'), { type: 'thoth:trashed', path: NOTE, id: del.body.id, by: 'noa' })
+    assert.deepEqual(messages.find((m) => m.type === 'thoth:trashed'), { type: 'thoth:trashed', path: NOTE, id: del.body.id, by: admin.username })
     // The editor is still around and retries: it does not resurrect the note, not even by typing.
-    typeLine(a, 'AFTER-DELETE')
+    typeLine(a, MARK.afterDelete)
     await sleep(1500)
     assert.ok(!existsSync(join(notes, NOTE)))
     const restored = await api(srv, cookie, 'POST', `/api/trash/${del.body.id}/restore`)
     assert.equal(restored.status, 200)
     const back = readFileSync(join(notes, NOTE), 'utf8')
-    assert.ok(back.includes('LAST-LINE\n'), 'the trash has the latest text')
-    assert.ok(!back.includes('AFTER-DELETE'))
+    assert.ok(back.includes(`${MARK.lastLine}\n`), 'the trash has the latest text')
+    assert.ok(!back.includes(MARK.afterDelete))
     a.close()
     const c = await connect(srv, cookie, NOTE)
     assert.equal(c.text(), back)
@@ -343,22 +377,22 @@ test('same generation: offline typing survives network drops and server restarts
   try {
     const a = follow(srv, await login(srv), NOTE)
     await waitFor(a.settled, 'sync')
-    a.type('BEFORE-DROP')
-    await waitFor(() => readFileSync(file, 'utf8').includes('BEFORE-DROP'), 'flush')
-    const lines = ['# Proxy', '## Red', 'BEFORE-DROP']
+    a.type(MARK.beforeDrop)
+    await waitFor(() => readFileSync(file, 'utf8').includes(MARK.beforeDrop), 'flush')
+    const lines = ['# Proxy', '## Red', MARK.beforeDrop]
     for (let i = 0; i < 3; i++) {
       // 1. Network drop: the hub closes the document when its last editor
       // leaves, and reopens it from its saved state.
       a.cut()
       await waitFor(() => !a.link.lineage.provider.isSynced, 'disconnected')
-      a.type(`OFFLINE-CUT-${i}`)
-      await waitFor(() => a.settled() && readFileSync(file, 'utf8').includes(`OFFLINE-CUT-${i}\n`), 'resync', 15000)
+      a.type(`${MARK.offlineCut}-${i}`)
+      await waitFor(() => a.settled() && readFileSync(file, 'utf8').includes(`${MARK.offlineCut}-${i}\n`), 'resync', 15000)
       // 2. Server restart while the tab types.
       await srv.stop()
-      a.type(`OFFLINE-RESTART-${i}`)
+      a.type(`${MARK.offlineRestart}-${i}`)
       srv = await startServer(env)
-      await waitFor(() => a.settled() && readFileSync(file, 'utf8').includes(`OFFLINE-RESTART-${i}\n`), 'resync after the restart', 15000)
-      lines.push(`OFFLINE-CUT-${i}`, `OFFLINE-RESTART-${i}`)
+      await waitFor(() => a.settled() && readFileSync(file, 'utf8').includes(`${MARK.offlineRestart}-${i}\n`), 'resync after the restart', 15000)
+      lines.push(`${MARK.offlineCut}-${i}`, `${MARK.offlineRestart}-${i}`)
     }
     assert.equal(a.lineages.length, 1, 'the copy was never refused')
     assert.deepEqual(a.aside, [])
@@ -405,9 +439,9 @@ test('a copy from another generation is refused: no duplication, and what was no
           // A backup of the state volume, then more typing that reaches the file.
           await restart(() => { backup = takeState() })
           await waitFor(a.settled, 'resync', 15000)
-          a.type(`NEWER-${tag}`)
-          await waitFor(() => readFileSync(file, 'utf8').includes(`NEWER-${tag}\n`), 'flush')
-          lines.push(`NEWER-${tag}`)
+          a.type(`${MARK.newer}-${tag}`)
+          await waitFor(() => readFileSync(file, 'utf8').includes(`${MARK.newer}-${tag}\n`), 'flush')
+          lines.push(`${MARK.newer}-${tag}`)
         }
         const lineages = a.lineages.length
         const aside = a.aside.length
@@ -415,29 +449,29 @@ test('a copy from another generation is refused: no duplication, and what was no
           if (scenario === 'state deleted' || scenario === 'nothing unsent') putState(new Map())
           if (backup) putState(backup)
           if (scenario === 'file changed while closed') {
-            writeFileSync(file, readFileSync(file, 'utf8') + `EXTERNAL-${tag}\n`)
-            lines.push(`EXTERNAL-${tag}`)
+            writeFileSync(file, readFileSync(file, 'utf8') + `${MARK.external}-${tag}\n`)
+            lines.push(`${MARK.external}-${tag}`)
           }
-          if (scenario !== 'nothing unsent') a.type(`UNSENT-${tag}`) // typed while the server is down
+          if (scenario !== 'nothing unsent') a.type(`${MARK.unsent}-${tag}`) // typed while the server is down
         })
         await waitFor(a.settled, `${scenario}: in sync again`, 15000)
         await sleep(1500) // flushed
         const text = a.text()
         assert.equal(readFileSync(file, 'utf8'), text, `${scenario}: the file is the hub's document`)
         for (const line of lines) assert.ok(once(text, line), `${scenario}: ${line} exactly once in:\n${text}`)
-        assert.ok(!text.includes(`UNSENT-${tag}`), `${scenario}: the refused copy isn't merged`)
+        assert.ok(!text.includes(`${MARK.unsent}-${tag}`), `${scenario}: the refused copy isn't merged`)
         assert.equal(a.lineages.length, lineages + 1, `${scenario}: the old copy was replaced`)
         if (scenario === 'nothing unsent') {
           await sleep(500)
           assert.equal(a.aside.length, aside, `${scenario}: nothing to set aside`)
         } else {
           await waitFor(() => a.aside.length === aside + 1, `${scenario}: set aside`)
-          assert.ok(a.aside.at(-1)!.includes(`UNSENT-${tag}\n`), `${scenario}: the unsent line is what's set aside`)
+          assert.ok(a.aside.at(-1)!.includes(`${MARK.unsent}-${tag}\n`), `${scenario}: the unsent line is what's set aside`)
         }
         // Editing goes on in the new document.
-        a.type(`AFTER-${tag}`)
-        await waitFor(() => readFileSync(file, 'utf8').includes(`AFTER-${tag}\n`), 'flush')
-        lines.push(`AFTER-${tag}`)
+        a.type(`${MARK.after}-${tag}`)
+        await waitFor(() => readFileSync(file, 'utf8').includes(`${MARK.after}-${tag}\n`), 'flush')
+        lines.push(`${MARK.after}-${tag}`)
       }
     }
   } finally { closeAll(); await srv.stop() }
@@ -456,9 +490,9 @@ test('changed outside while thoth runs and the note is closed: what a tab typed 
     const cookie = await login(srv)
     const a = follow(srv, cookie, NOTE)
     await waitFor(a.settled, 'sync')
-    a.type('SENT')
-    await waitFor(() => readFileSync(file, 'utf8').includes('SENT\n'), 'flush')
-    const lines = ['# Proxy', '## Red', 'SENT']
+    a.type(MARK.sent)
+    await waitFor(() => readFileSync(file, 'utf8').includes(`${MARK.sent}\n`), 'flush')
+    const lines = ['# Proxy', '## Red', MARK.sent]
     const scenarios = ['another editor', 'another editor, state checked on startup', 'another editor, and someone opens it meanwhile', 'an agent edits the closed note'] as const
     for (const scenario of scenarios) {
       const tag = `${scenarios.indexOf(scenario)}`
@@ -470,26 +504,26 @@ test('changed outside while thoth runs and the note is closed: what a tab typed 
         srv = await startServer(env)
         assert.ok(srv.out.join('').includes('saved editor states: 1 of 1 match their file'), srv.out.join(''))
       }
-      a.type(`OFFLINE-${tag}`)
+      a.type(`${MARK.offline}-${tag}`)
       if (scenario === 'an agent edits the closed note') {
-        const r = await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'append', text: `AGENT-${tag}\n` }] })
+        const r = await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'append', text: `${MARK.agent}-${tag}\n` }] })
         assert.equal(r.status, 200, JSON.stringify(r.body))
-        lines.push(`AGENT-${tag}`)
+        lines.push(`${MARK.agent}-${tag}`)
       } else {
-        writeFileSync(file, readFileSync(file, 'utf8').replace('## Red\n', `## Red\nEXTERNAL-${tag}\n`))
-        lines.push(`EXTERNAL-${tag}`)
+        writeFileSync(file, readFileSync(file, 'utf8').replace('## Red\n', `## Red\n${MARK.external}-${tag}\n`))
+        lines.push(`${MARK.external}-${tag}`)
       }
       let b: Client | null = null
       if (scenario === 'another editor, and someone opens it meanwhile') {
         b = await connect(srv, await login(srv), NOTE)
-        assert.ok(b.text().includes(`EXTERNAL-${tag}\n`), 'the change is merged when the note opens')
+        assert.ok(b.text().includes(`${MARK.external}-${tag}\n`), 'the change is merged when the note opens')
         typeLine(b, `B-${tag}`)
         await waitFor(() => readFileSync(file, 'utf8').includes(`B-${tag}\n`), 'flush')
         lines.push(`B-${tag}`)
       }
       a.online()
-      await waitFor(() => a.settled() && readFileSync(file, 'utf8').includes(`OFFLINE-${tag}\n`), `${scenario}: merged`, 15000)
-      lines.push(`OFFLINE-${tag}`)
+      await waitFor(() => a.settled() && readFileSync(file, 'utf8').includes(`${MARK.offline}-${tag}\n`), `${scenario}: merged`, 15000)
+      lines.push(`${MARK.offline}-${tag}`)
       await waitFor(() => readFileSync(file, 'utf8') === a.text() && (!b || b.text() === a.text()), `${scenario}: convergence`)
       for (const line of lines) assert.ok(once(a.text(), line), `${scenario}: ${line} exactly once in:\n${a.text()}`)
       assert.equal(a.lineages.length, 1, `${scenario}: the copy was never refused`)
@@ -512,12 +546,12 @@ test('a trusted state starts a new generation for another note at its path, or w
   try {
     const a = follow(srv, await login(srv), NOTE)
     await waitFor(a.settled, 'sync')
-    a.type('SENT')
-    await waitFor(() => readFileSync(file, 'utf8').includes('SENT\n'), 'flush')
+    a.type(MARK.sent)
+    await waitFor(() => readFileSync(file, 'utf8').includes(`${MARK.sent}\n`), 'flush')
     assert.ok(readFrontmatter(readFileSync(file, 'utf8')).data.uid, 'the note got a uid')
     const lines = ['# Another note', 'Its own text.']
     for (const scenario of ['another note at the path', 'an older state put back'] as const) {
-      const tag = scenario === 'another note at the path' ? 'OTHER' : 'OLDER'
+      const tag = scenario === 'another note at the path' ? MARK.other : MARK.older
       const lineages = a.lineages.length
       a.offline()
       await waitFor(() => existsSync(state) && !existsSync(log), 'the note closed')
@@ -528,21 +562,21 @@ test('a trusted state starts a new generation for another note at its path, or w
         const older = readFileSync(state)
         a.online()
         await waitFor(a.settled, 'resync')
-        a.type(`NEWER-${tag}`)
-        await waitFor(() => readFileSync(file, 'utf8').includes(`NEWER-${tag}\n`), 'flush')
-        lines.push(`NEWER-${tag}`)
+        a.type(`${MARK.newer}-${tag}`)
+        await waitFor(() => readFileSync(file, 'utf8').includes(`${MARK.newer}-${tag}\n`), 'flush')
+        lines.push(`${MARK.newer}-${tag}`)
         a.offline()
         await waitFor(() => existsSync(state) && !existsSync(log) && !readFileSync(state).equals(older), 'the note closed again')
         writeFileSync(state, older)
       }
       const aside = a.aside.length
-      a.type(`UNSENT-${tag}`)
+      a.type(`${MARK.unsent}-${tag}`)
       a.online()
       await waitFor(() => a.lineages.length === lineages + 1 && a.settled(), `${scenario}: the copy was refused and the note reopened`, 15000)
       await waitFor(() => a.aside.length === aside + 1, `${scenario}: set aside`)
-      assert.ok(a.aside.at(-1)!.includes(`UNSENT-${tag}\n`), `${scenario}: the unsent line is what's set aside`)
+      assert.ok(a.aside.at(-1)!.includes(`${MARK.unsent}-${tag}\n`), `${scenario}: the unsent line is what's set aside`)
       await waitFor(() => readFileSync(file, 'utf8') === a.text(), `${scenario}: the file is the hub's document`)
-      assert.ok(!a.text().includes(`UNSENT-${tag}`), `${scenario}: the refused copy isn't merged`)
+      assert.ok(!a.text().includes(`${MARK.unsent}-${tag}`), `${scenario}: the refused copy isn't merged`)
       for (const line of lines) assert.ok(once(a.text(), line), `${scenario}: ${line} exactly once in:\n${a.text()}`)
     }
   } finally { closeAll(); await srv.stop() }
@@ -569,14 +603,14 @@ test('killed while a flush rewrites the recovery log: nothing acknowledged is lo
     let typing = true
     const agent = (async () => {
       for (let k = 0; typing && alive(); k++) {
-        await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'append', text: `AGENT-${k}\n` }] }).catch(() => {})
+        await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'append', text: `${MARK.agent}-${k}\n` }] }).catch(() => {})
         await sleep(20)
       }
     })()
     const start = Date.now()
     for (let n = 0; alive() && Date.now() - start < 60_000; n++) {
-      typeLine(a, `LINE-${n}.`)
-      typed.push(`LINE-${n}.`)
+      typeLine(a, `${MARK.line}-${n}.`)
+      typed.push(`${MARK.line}-${n}.`)
       await sleep(2)
     }
     typing = false
@@ -606,11 +640,11 @@ test('killed after a flush replaced the file but before the log recorded it: not
   const snapshot = Y.encodeStateAsUpdate(doc)
   const updates: Uint8Array[] = []
   doc.on('update', (u: Uint8Array) => updates.push(u))
-  text.insert(text.length, 'FLUSHED-1\n')
-  text.insert(text.length, 'FLUSHED-2\n')
+  text.insert(text.length, `${MARK.flushed}-1\n`)
+  text.insert(text.length, `${MARK.flushed}-2\n`)
   const flushed = text.toString()
   const atFlush = updates.length
-  text.insert(text.length, 'AFTER-THE-FLUSH\n')
+  text.insert(text.length, `${MARK.afterTheFlush}\n`)
   const rec = (type: string, payload: Uint8Array) => {
     const head = Buffer.alloc(5)
     head.write(type, 0, 'latin1')
@@ -628,9 +662,9 @@ test('killed after a flush replaced the file but before the log recorded it: not
   writeFileSync(file, flushed)
   const srv = await startServer(env)
   try {
-    await waitFor(() => readFileSync(file, 'utf8').includes('AFTER-THE-FLUSH'), 'recovery')
+    await waitFor(() => readFileSync(file, 'utf8').includes(MARK.afterTheFlush), 'recovery')
     const lines = readFileSync(file, 'utf8').split('\n')
-    for (const line of ['# Proxy', 'FLUSHED-1', 'FLUSHED-2', 'AFTER-THE-FLUSH']) {
+    for (const line of ['# Proxy', `${MARK.flushed}-1`, `${MARK.flushed}-2`, MARK.afterTheFlush]) {
       assert.equal(lines.filter((l) => l === line).length, 1, `${line} exactly once in:\n${lines.join('\n')}`)
     }
   } finally { closeAll(); await srv.stop() }
@@ -644,12 +678,12 @@ test("an agent's edit next to someone typing doesn't interleave the two texts", 
   const srv = await startServer(env)
   try {
     const cookie = await login(srv)
-    assert.equal((await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'append', text: 'AGENT-MARK\n' }] })).status, 200)
+    assert.equal((await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'append', text: `${MARK.agentMark}\n` }] })).status, 200)
     const a = await connect(srv, cookie, NOTE)
     const t = a.doc.getText('md')
     // Concurrent insertions at the same place are ordered by client id: both orders are tried.
     for (const [i, clientID] of [1, 2 ** 32 - 2].entries()) {
-      t.insert(t.toString().indexOf('AGENT-MARK\n') + 'AGENT-MARK\n'.length, `T${i}-\n`)
+      t.insert(t.toString().indexOf(`${MARK.agentMark}\n`) + `${MARK.agentMark}\n`.length, `T${i}-\n`)
       await waitFor(() => a.provider.unsyncedChanges === 0, 'synced')
       // A keystroke the hub hasn't seen yet when the agent's edit arrives: typed on a copy of the document.
       const typing = new Y.Doc()
@@ -657,14 +691,14 @@ test("an agent's edit next to someone typing doesn't interleave the two texts", 
       Y.applyUpdate(typing, Y.encodeStateAsUpdate(a.doc))
       const tt = typing.getText('md')
       tt.insert(tt.toString().indexOf(`T${i}-\n`) + 3, 'typed.')
-      const r = await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'find_replace', find: 'AGENT-MARK\n', replace: `AGENT-MARK\nT${i}-AGENT\n` }] })
+      const r = await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'find_replace', find: `${MARK.agentMark}\n`, replace: `${MARK.agentMark}\nT${i}-AGENT\n` }] })
       assert.equal(r.status, 200, JSON.stringify(r.body))
       await waitFor(() => a.text().includes(`T${i}-AGENT`), "the agent's edit reaches the editor")
       Y.applyUpdate(a.doc, Y.encodeStateAsUpdate(typing, Y.encodeStateVector(a.doc)))
       await waitFor(() => a.provider.unsyncedChanges === 0, 'synced')
       const lines = a.text().split('\n')
-      const at = lines.indexOf('AGENT-MARK')
-      assert.deepEqual(lines.slice(at, at + 3), ['AGENT-MARK', `T${i}-AGENT`, `T${i}-typed.`], `client id ${clientID}`)
+      const at = lines.indexOf(MARK.agentMark)
+      assert.deepEqual(lines.slice(at, at + 3), [MARK.agentMark, `T${i}-AGENT`, `T${i}-typed.`], `client id ${clientID}`)
     }
   } finally { closeAll(); await srv.stop() }
 })

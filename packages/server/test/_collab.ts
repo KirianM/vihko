@@ -9,6 +9,9 @@ import WebSocket from 'ws'
 import type * as Y from 'yjs'
 import { openLineage } from '../../web/src/editor/lineage.ts'
 import { tempDir } from './_tmp.ts'
+import { mother, type NewUser } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 export const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 export const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
@@ -25,13 +28,26 @@ export async function waitFor(cond: () => boolean | Promise<boolean>, what: stri
 
 export interface Srv { proc: ChildProcess; base: string; out: string[]; env: Record<string, string>; stop(signal?: NodeJS.Signals): Promise<void> }
 
+/** The admin each state folder was made with (makeDirs), who `login` signs in. */
+const admins = new Map<string, NewUser>()
+
+/** A copy of the test vault and a state with a new admin (the mother's), who `login(srv)` signs in. */
 export function makeDirs() {
   const dir = tempDir('thoth-hub-')
   const notes = join(dir, 'notes')
   cpSync(VAULT, notes, { recursive: true })
   const env = { THOTH_NOTES_DIR: notes, THOTH_STATE_DIR: join(dir, 'state'), THOTH_HOST: '127.0.0.1', THOTH_PORT: String(nextPort++) }
-  spawnSync(process.execPath, [CLI, 'user', 'create', 'noa', '--admin'], { env: { ...process.env, ...env }, input: 'a-long-password' })
-  return { notes, env }
+  const admin = m.aUser({ role: 'admin' })
+  spawnSync(process.execPath, [CLI, 'user', 'create', admin.username, '--admin'], { env: { ...process.env, ...env }, input: admin.password })
+  admins.set(env.THOTH_STATE_DIR, admin)
+  return { notes, env, admin }
+}
+
+/** The admin of a server's state folder (made by makeDirs). */
+export function adminOf(srv: { env: Record<string, string> }): NewUser {
+  const admin = admins.get(srv.env.THOTH_STATE_DIR!)
+  if (!admin) throw new Error(`no admin made for ${srv.env.THOTH_STATE_DIR}`)
+  return admin
 }
 
 export async function startServer(env: Record<string, string>): Promise<Srv> {
@@ -54,8 +70,9 @@ export async function startServer(env: Record<string, string>): Promise<Srv> {
   }
 }
 
-export async function login(srv: Srv): Promise<string> {
-  const r = await fetch(srv.base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'noa', password: 'a-long-password' }) })
+/** Signs in someone (the admin makeDirs made, by default): their session cookie. */
+export async function login(srv: Srv, who: { username: string; password: string } = adminOf(srv)): Promise<string> {
+  const r = await fetch(srv.base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: who.username, password: who.password }) })
   assert.equal(r.status, 200)
   return r.headers.get('set-cookie')!.split(';')[0]!
 }

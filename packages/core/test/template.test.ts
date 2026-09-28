@@ -1,13 +1,19 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { renderTemplate } from '@thoth/core'
+import { mother } from '../../../test/mother.ts'
 
-const vars = { now: { year: 2026, month: 9, day: 25, hour: 9, minute: 5 }, user: 'noa', title: 'Plan de viaje' }
+const m = mother(import.meta.url)
+const USER = m.aUsername()
+const TITLE = m.aTitle()
+const TAG = m.aTag()
+
+const vars = { now: { year: 2026, month: 9, day: 25, hour: 9, minute: 5 }, user: USER, title: TITLE }
 
 test('templates: the fixed variables', () => {
-  assert.equal(renderTemplate('# {{title}}\n\n{{date}} · {{user}}\n', vars), '# Plan de viaje\n\n2026-09-25 · noa\n')
+  assert.equal(renderTemplate('# {{title}}\n\n{{date}} · {{user}}\n', vars), `# ${TITLE}\n\n2026-09-25 · ${USER}\n`)
   assert.equal(renderTemplate('{{date:DD/MM/YYYY HH:mm}}', vars), '25/09/2026 09:05')
-  assert.equal(renderTemplate('{{ date }} {{ date:[W]WW }} {{ title }}', vars), '2026-09-25 W39 Plan de viaje')
+  assert.equal(renderTemplate('{{ date }} {{ date:[W]WW }} {{ title }}', vars), `2026-09-25 W39 ${TITLE}`)
 })
 
 test('templates: anything else is left exactly as is', () => {
@@ -22,6 +28,6 @@ test('templates: values are never expanded again', () => {
 })
 
 test('templates: frontmatter is text like the rest', () => {
-  const text = '---\ncreated: {{date}}\ntags: [diario]\n# a comment\n---\n# {{title}}\n'
-  assert.equal(renderTemplate(text, vars), '---\ncreated: 2026-09-25\ntags: [diario]\n# a comment\n---\n# Plan de viaje\n')
+  const text = `---\ncreated: {{date}}\ntags: [${TAG}]\n# a comment\n---\n# {{title}}\n`
+  assert.equal(renderTemplate(text, vars), `---\ncreated: 2026-09-25\ntags: [${TAG}]\n# a comment\n---\n# ${TITLE}\n`)
 })

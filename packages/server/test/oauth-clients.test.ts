@@ -61,7 +61,7 @@ test('mcp-remote: discovery, registration, consent, tokens and the tools of a re
   const home = tempDir('thoth-oauth-remote-')
   const tls = certificate(home)
   if (!tls) { rmSync(home, { recursive: true, force: true }); return t.skip('no openssl to make a certificate') }
-  const { notes, env } = makeDirs()
+  const { notes, env, admin } = makeDirs()
   // The built UI isn't needed: a stand-in page is enough for the authorization address.
   const web = join(home, 'web')
   mkdirSync(web)
@@ -88,7 +88,7 @@ test('mcp-remote: discovery, registration, consent, tokens and the tools of a re
   })
 
   try {
-    const login = await browser('POST', '/api/auth/login', { username: 'noa', password: 'a-long-password' })
+    const login = await browser('POST', '/api/auth/login', { username: admin.username, password: admin.password })
     assert.equal(login.status, 200)
     const setCookie = String(login.headers['set-cookie'])
     assert.match(setCookie, /Secure/i, 'behind HTTPS the session cookie is Secure')
@@ -136,7 +136,7 @@ test('mcp-remote: discovery, registration, consent, tokens and the tools of a re
     const asked = await browser('GET', `/api/oauth/authorize${url.search}`, undefined, { cookie })
     assert.equal(asked.status, 200, JSON.stringify(asked.body))
     assert.equal(asked.body.client.redirectUri, `http://localhost:${port}/oauth/callback`)
-    const approved = await browser('POST', '/api/oauth/authorize', { query: url.search.slice(1), approve: true, confirm: 'a-long-password' }, { cookie, origin: publicUrl })
+    const approved = await browser('POST', '/api/oauth/authorize', { query: url.search.slice(1), approve: true, confirm: admin.password }, { cookie, origin: publicUrl })
     assert.equal(approved.status, 200, JSON.stringify(approved.body))
     // Back to mcp-remote, as the browser follows the redirect. mcp-remote prints the address
     // before it opens its callback server: a person's browser is never that fast, this test can be.

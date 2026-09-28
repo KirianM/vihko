@@ -11,6 +11,10 @@ import { applySplices } from '../src/edits.ts'
 import { planRevert } from '../src/history/revert.ts'
 import { contextAfter, contextBefore } from '../src/history/diff.ts'
 import { setup, who } from './_history.ts'
+import { yamlKey } from './_permissions.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 /** Reverts on `current` what `version` changed from `before`. */
 function revert(before: string, version: string, current: string) {
@@ -18,6 +22,9 @@ function revert(before: string, version: string, current: string) {
   return { text: applySplices(current, plan.splices), plan }
 }
 
+// The texts of the merge are the case under test: where a change starts and
+// ends, which words touch, what is on the same line or the next one. They
+// stay literal; the notes the API tests make are the mother's.
 const BEFORE = '# Plan\n\n## Storage\n\nWe keep notes in files.\nThe index is SQLite.\n\n## Sync\n\nNone yet.\n'
 const AGENT = '# Plan\n\n## Storage\n\nWe keep notes in Postgres tables.\nThe index is Postgres too.\n\n## Sync\n\nNone yet.\n'
 
@@ -131,16 +138,17 @@ test('the frontmatter: keys the version added or changed go back, keys written s
 
 test('comments inside the note: the version\'s comment goes, a comment written after it elsewhere stays, a reply to it clashes', () => {
   const before = 'We use SQLite for the index.\nSecond line.\n'
-  const version = 'We use Postgres for the index.<!-- @claude 2026-09-26T10:05Z · switched to Postgres -->\nSecond line.\n'
-  const other = '<!-- @noa 2026-09-26T10:10Z · fine -->'
+  const [agent, person] = [m.aUsername(), m.aUsername()]
+  const version = `We use Postgres for the index.<!-- @${agent} 2026-09-26T10:05Z · switched to Postgres -->\nSecond line.\n`
+  const other = `<!-- @${person} 2026-09-26T10:10Z · fine -->`
   const elsewhere = revert(before, version, version.replace('Second line.', `Second line.${other}`))
   assert.equal(elsewhere.text, `We use SQLite for the index.\nSecond line.${other}\n`)
-  const reply = '<!-- @noa 2026-09-26T10:11Z · ↳ why? -->'
+  const reply = `<!-- @${person} 2026-09-26T10:11Z · ↳ why? -->`
   const replied = revert(before, version, version.replace('Postgres -->', `Postgres -->${reply}`))
   assert.equal(replied.plan.counts.skipped, 1)
-  assert.equal(replied.text, `We use SQLite for the index.<!-- @claude 2026-09-26T10:05Z · switched to Postgres -->${reply}\nSecond line.\n`)
+  assert.equal(replied.text, `We use SQLite for the index.<!-- @${agent} 2026-09-26T10:05Z · switched to Postgres -->${reply}\nSecond line.\n`)
   // A thread the version resolved (deleted) comes back if its sentence is still there.
-  const thread = 'Keep backups.<!-- @noa 2026-09-25T09:00Z · daily? -->\n'
+  const thread = `Keep backups.<!-- @${person} 2026-09-25T09:00Z · daily? -->\n`
   assert.equal(revert(thread, 'Keep backups.\n', 'Keep backups.\nMore.\n').text, `${thread}More.\n`)
 })
 
@@ -210,17 +218,17 @@ test('long texts with little in common take bounded time, and a big piece is sho
 
 // --- Through the API, with the history recording -----------------------------------
 
-const PLAN = 'proyectos/plan.md'
+const PLAN = m.aNotePath(m.aFolder())
 
 /** A note written by an agent (one version), then by the person (another), both in git. */
 async function agentThenPerson(person: (t: string) => string) {
   const h = await setup({ files: { [PLAN]: BEFORE } })
-  const agent: Actor = { kind: 'agent', id: 'key-1', onBehalfOf: h.ids.noa }
+  const agent: Actor = { kind: 'agent', id: m.anId(), onBehalfOf: h.ids.admin }
   await h.notes.edit(PLAN, (t) => t.replace('files.', 'Postgres tables.').replace('SQLite.', 'Postgres too.'), { actor: agent })
   await h.put(PLAN, person)
   await h.settle()
   const { versions } = await h.versions(PLAN)
-  assert.deepEqual(versions.map(who), ['user:noa', 'agent', 'system'])
+  assert.deepEqual(versions.map(who), [`user:${h.users.admin.username}`, 'agent', 'system'])
   const read = () => readFileSync(join(h.notesDir, PLAN), 'utf8')
   return { h, agentVersion: versions[1], read }
 }
@@ -229,7 +237,7 @@ test('API: the preview writes nothing; reverting the agent\'s version keeps what
   const { h, agentVersion, read } = await agentThenPerson((t) => t.replace('Postgres too.\n\n', 'Postgres too.\n\nWhat about backups?\n\n'))
   try {
     const before = read()
-    const preview = await h.noa('POST', '/api/history/revert', { path: PLAN, id: agentVersion.id, dryRun: true })
+    const preview = await h.admin('POST', '/api/history/revert', { path: PLAN, id: agentVersion.id, dryRun: true })
     assert.equal(preview.status, 200, JSON.stringify(preview.body))
     assert.equal(preview.body.dryRun, true)
     assert.equal(preview.body.changed, false)
@@ -239,7 +247,7 @@ test('API: the preview writes nothing; reverting the agent\'s version keeps what
     assert.equal(read(), before, 'the preview writes nothing')
     assert.equal((await h.versions(PLAN)).versions.length, 3)
 
-    const r = await h.noa('POST', '/api/history/revert', { path: PLAN, id: agentVersion.id })
+    const r = await h.admin('POST', '/api/history/revert', { path: PLAN, id: agentVersion.id })
     assert.equal(r.status, 200, JSON.stringify(r.body))
     assert.equal(r.body.changed, true)
     const text = read()
@@ -248,7 +256,7 @@ test('API: the preview writes nothing; reverting the agent\'s version keeps what
     assert.equal(r.headers.get('etag'), `"${r.body.etag}"`)
     await h.settle()
     const { versions } = await h.versions(PLAN)
-    assert.deepEqual(versions.map(who), ['user:noa', 'user:noa', 'agent', 'system'])
+    assert.deepEqual(versions.map(who), [`user:${h.users.admin.username}`, `user:${h.users.admin.username}`, 'agent', 'system'])
     assert.deepEqual(versions[0].reason, { code: 'reverted', id: agentVersion.id, at: agentVersion.at })
     assert.equal(versions[0].change, 'modified')
     const [change] = (await h.changes()).changes
@@ -256,7 +264,7 @@ test('API: the preview writes nothing; reverting the agent\'s version keeps what
     assert.deepEqual(change.files.map((f: any) => f.path), [PLAN])
 
     // Reverting the revert brings the agent's change back, with the person's paragraph.
-    const again = await h.noa('POST', '/api/history/revert', { path: PLAN, id: versions[0].id })
+    const again = await h.admin('POST', '/api/history/revert', { path: PLAN, id: versions[0].id })
     assert.equal(again.status, 200, JSON.stringify(again.body))
     assert.equal(read(), before)
     await h.settle()
@@ -267,16 +275,16 @@ test('API: the preview writes nothing; reverting the agent\'s version keeps what
 test('API: a clash is reported in the preview and not applied; the rest is', async () => {
   const { h, agentVersion, read } = await agentThenPerson((t) => t.replace('Postgres tables', 'Postgres 17 tables'))
   try {
-    const preview = await h.noa('POST', '/api/history/revert', { path: PLAN, id: agentVersion.id, dryRun: true })
+    const preview = await h.admin('POST', '/api/history/revert', { path: PLAN, id: agentVersion.id, dryRun: true })
     assert.deepEqual(preview.body.counts, { reverted: 1, skipped: 1, already: 0 })
     assert.deepEqual(preview.body.skipped, [{ before: 'We keep notes in ', version: 'Postgres tables', previous: 'files', current: 'Postgres 17 tables', after: '.' }])
-    const r = await h.noa('POST', '/api/history/revert', { path: PLAN, id: agentVersion.id })
+    const r = await h.admin('POST', '/api/history/revert', { path: PLAN, id: agentVersion.id })
     assert.deepEqual(r.body.counts, { reverted: 1, skipped: 1, already: 0 })
     assert.ok(read().includes('We keep notes in Postgres 17 tables.\nThe index is SQLite.\n'), read())
     // Nothing left to revert: no write, no version.
     await h.settle()
     const n = (await h.versions(PLAN)).versions.length
-    const none = await h.noa('POST', '/api/history/revert', { path: PLAN, id: agentVersion.id })
+    const none = await h.admin('POST', '/api/history/revert', { path: PLAN, id: agentVersion.id })
     assert.equal(none.status, 200)
     assert.equal(none.body.changed, false)
     assert.deepEqual(none.body.counts, { reverted: 0, skipped: 1, already: 1 })
@@ -286,37 +294,39 @@ test('API: a clash is reported in the preview and not applied; the rest is', asy
 })
 
 test('API: errors as codes: a creation or a deletion is not revertible, a stale ifMatch, an unknown version, a note that cannot be read', async () => {
-  const h = await setup({ files: { [PLAN]: BEFORE }, config: 'permissions:\n  \"\": { grants: { noa: manage, ana: edit } }\n  privado: { grants: {} }\n' })
+  // privado/ is the fixed vault's (testdata/vault): nobody reads it here.
+  const h = await setup({ files: { [PLAN]: BEFORE }, config: ({ admin, member }) => `permissions:\n  "": { grants: { ${yamlKey(admin)}: manage, ${yamlKey(member)}: edit } }\n  privado: { grants: {} }\n` })
   try {
-    const created = await h.noa('POST', '/api/note', { path: 'nueva.md', text: '# Nueva\n' })
+    const NEW = m.aNotePath()
+    const created = await h.admin('POST', '/api/note', { path: NEW, text: `# ${m.aHeading()}\n` })
     assert.equal(created.status, 201)
-    await h.put('nueva.md', (t) => t + 'más\n')
+    await h.put(NEW, (t) => t + `${m.aSentence()}\n`)
     await h.settle()
-    const { versions } = await h.versions('nueva.md')
+    const { versions } = await h.versions(NEW)
     const creation = versions.at(-1)
     assert.equal(creation.change, 'created')
-    const r1 = await h.noa('POST', '/api/history/revert', { path: 'nueva.md', id: creation.id })
+    const r1 = await h.admin('POST', '/api/history/revert', { path: NEW, id: creation.id })
     assert.deepEqual([r1.status, r1.body.error], [409, 'not_revertible'])
 
-    const stale = await h.noa('POST', '/api/history/revert', { path: 'nueva.md', id: versions[0].id, ifMatch: 'sha256:0' })
+    const stale = await h.admin('POST', '/api/history/revert', { path: NEW, id: versions[0].id, ifMatch: 'sha256:0' })
     assert.equal(stale.status, 412)
     assert.equal(stale.body.error, 'precondition_failed')
-    const fresh = await h.noa('GET', `/api/note?path=${h.q('nueva.md')}`)
-    const ok = await h.noa('POST', '/api/history/revert', { path: 'nueva.md', id: versions[0].id, dryRun: true }, { 'if-match': `"${fresh.body.etag}"` })
+    const fresh = await h.admin('GET', `/api/note?path=${h.q(NEW)}`)
+    const ok = await h.admin('POST', '/api/history/revert', { path: NEW, id: versions[0].id, dryRun: true }, { 'if-match': `"${fresh.body.etag}"` })
     assert.equal(ok.status, 200, JSON.stringify(ok.body))
 
-    const del = await h.noa('DELETE', `/api/note?path=${h.q(PLAN)}`)
+    const del = await h.admin('DELETE', `/api/note?path=${h.q(PLAN)}`)
     assert.equal(del.status, 200)
     await h.settle()
     const gone = (await h.versions(PLAN)).versions[0]
     assert.equal(gone.change, 'deleted')
-    const r2 = await h.noa('POST', '/api/history/revert', { path: PLAN, id: gone.id })
+    const r2 = await h.admin('POST', '/api/history/revert', { path: PLAN, id: gone.id })
     assert.deepEqual([r2.status, r2.body.error], [409, 'not_revertible'])
 
-    const unknown = await h.noa('POST', '/api/history/revert', { path: 'nueva.md', id: '0'.repeat(40) })
+    const unknown = await h.admin('POST', '/api/history/revert', { path: NEW, id: '0'.repeat(40) })
     assert.equal(unknown.status, 404)
-    assert.equal((await h.noa('POST', '/api/history/revert', { path: 'nueva.md' })).status, 400)
-    const hidden = await h.noa('POST', '/api/history/revert', { path: 'privado/secreto.md', id: versions[0].id })
+    assert.equal((await h.admin('POST', '/api/history/revert', { path: NEW })).status, 400)
+    const hidden = await h.admin('POST', '/api/history/revert', { path: m.aNotePath('privado'), id: versions[0].id })
     assert.deepEqual([hidden.status, hidden.body.error], [404, 'not_found'])
   } finally { await h.close() }
 })

@@ -4,110 +4,127 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { FILES, RULES, setup } from './_m4.ts'
+import { dirname, join } from 'node:path'
+import { ADMIN, FILES, MEMBER, NAME, OTHER, PATH, RULES, UID, WORD, setup } from './_m4.ts'
+import { yamlKey } from './_permissions.ts'
+import { mother } from '../../../test/mother.ts'
 
-const TARTA = 'personas/laura/recetas/tarta.md'
-const CODE = 'personas/laura/recetas/codigo.md'
-const DIARY = 'personas/laura/diario/2026-09-27.md'
-// Laura shares her recipes with Noa to comment and with Marta to read (the spec's scenario 2).
-const SHARED = RULES + '  personas/laura/recetas:\n    grants: { laura: manage, noa: comment, marta: read }\n'
+const m = mother(import.meta.url)
+const [admin, member] = [ADMIN.username, MEMBER.username]
+const CAKE = PATH.cake
+const RECIPES = dirname(CAKE)
+/** A note of the recipes with a code block (`INSIDE` is in it). */
+const CODE = m.aNotePath(RECIPES)
+const INSIDE = m.aUniqueWord()
+// The member shares their recipes with the admin to comment and with the other member to read (the spec's scenario 2).
+const SHARED = RULES + `  ${yamlKey(RECIPES)}:\n    grants: { ${yamlKey(member)}: manage, ${yamlKey(admin)}: comment, ${yamlKey(OTHER.username)}: read }\n`
+// The setup's fixed clock, as a comment's date.
 const WHEN = '2026-09-27T10:00Z'
+/** A sentence of the recipe's text, which comments go after. */
+const SENTENCE = `${WORD.cake}.`
 
 /** The comment request for right after `after` in the note as it is now. */
-function addAfter(text: string, after: string, comment: string, path = TARTA) {
+function addAfter(text: string, after: string, comment: string, path = CAKE) {
   const at = text.indexOf(after) + after.length
   return { path, op: 'add', at, context: text.slice(Math.max(0, at - 80), at), text: comment }
 }
 
+/** The note's first heading line (its title). */
+const titleOf = (text: string) => /^# .*$/m.exec(text)![0]
+
 test('with comment, a person adds comments, replies and resolves their own threads; the server writes exactly that, and nothing else', async () => {
-  const h = await setup({ files: { ...FILES, [CODE]: '# Código\n\n```\nuno dos\n```\n\nFin.\n' }, config: SHARED })
+  const h = await setup({ files: { ...FILES, [CODE]: `# ${m.aHeading()}\n\n\`\`\`\n${INSIDE} ${m.aWord()}\n\`\`\`\n\n${m.aSentence()}\n` }, config: SHARED })
   try {
-    const file = (p = TARTA) => readFileSync(join(h.notesDir, p), 'utf8')
+    const file = (p = CAKE) => readFileSync(join(h.notesDir, p), 'utf8')
     const q = (p: string) => `/api/note?path=${encodeURIComponent(p)}`
     // What each one may do, as the note says.
-    assert.equal((await h.noa('GET', q(TARTA))).body.level, 'comment')
-    assert.equal((await h.marta('GET', q(TARTA))).body.level, 'read')
-    assert.equal((await h.laura('GET', q(TARTA))).body.level, 'manage')
+    assert.equal((await h.admin('GET', q(CAKE))).body.level, 'comment')
+    assert.equal((await h.other('GET', q(CAKE))).body.level, 'read')
+    assert.equal((await h.member('GET', q(CAKE))).body.level, 'manage')
 
-    // Noa can't edit or see the history (D-034 3.5), but he comments.
-    const cur = await h.noa('GET', q(TARTA))
-    assert.equal((await h.noa('PUT', q(TARTA), { text: 'x' }, { 'if-match': `"${cur.body.etag}"` })).status, 403)
-    assert.equal((await h.noa('GET', `/api/history/versions?path=${encodeURIComponent(TARTA)}`)).status, 403)
+    // The admin can't edit or see the history (D-034 3.5), but comments.
+    const cur = await h.admin('GET', q(CAKE))
+    assert.equal((await h.admin('PUT', q(CAKE), { text: m.aSentence() }, { 'if-match': `"${cur.body.etag}"` })).status, 403)
+    assert.equal((await h.admin('GET', `/api/history/versions?path=${encodeURIComponent(CAKE)}`)).status, 403)
     const before = file()
-    let r = await h.noa('POST', '/api/note/comment', addAfter(before, 'Tarta Obsidiana.', 'Con menos azúcar --> mejor'))
+    // A `-->` in the text would end the HTML comment: it's written `-- >`.
+    const [left, right] = [m.aSentence().slice(0, -1), m.aUniqueWord()]
+    let r = await h.admin('POST', '/api/note/comment', addAfter(before, SENTENCE, `${left} --> ${right}`))
     assert.equal(r.status, 200, JSON.stringify(r.body))
-    assert.equal(file(), before.replace('Tarta Obsidiana.', `Tarta Obsidiana.<!-- @noa ${WHEN} · Con menos azúcar -- > mejor -->`))
+    assert.equal(file(), before.replace(SENTENCE, `${SENTENCE}<!-- @${admin} ${WHEN} · ${left} -- > ${right} -->`))
     assert.equal(r.body.etag, `sha256:${(await import('node:crypto')).createHash('sha256').update(file()).digest('hex')}`)
 
-    // Laura (manage) comments the title; Noa replies to her, can't resolve it, and resolves his own.
-    r = await h.laura('POST', '/api/note/comment', addAfter(file(), '# Tarta de Laura', '¿Le cambio el nombre?'))
+    // The member (manage) comments the title; the admin replies, can't resolve it, and resolves their own.
+    const title = titleOf(before)
+    const [question, answer] = [m.aComment(), m.aComment()]
+    r = await h.member('POST', '/api/note/comment', addAfter(file(), title, question))
     assert.equal(r.status, 200, JSON.stringify(r.body))
-    const threads = async () => (await h.laura('GET', `/api/note/comments?path=${encodeURIComponent(TARTA)}`)).body.threads as { id: string }[]
-    const lauras = (await threads()).find((t) => t.id.startsWith('laura|'))!.id
-    const noas = (await threads()).find((t) => t.id.startsWith('noa|'))!.id
-    r = await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'reply', thread: lauras, text: 'Sí' })
+    const threads = async () => (await h.member('GET', `/api/note/comments?path=${encodeURIComponent(CAKE)}`)).body.threads as { id: string }[]
+    const members = (await threads()).find((t) => t.id.startsWith(`${member}|`))!.id
+    const admins = (await threads()).find((t) => t.id.startsWith(`${admin}|`))!.id
+    r = await h.admin('POST', '/api/note/comment', { path: CAKE, op: 'reply', thread: members, text: answer })
     assert.equal(r.status, 200, JSON.stringify(r.body))
-    assert.ok(file().includes(`# Tarta de Laura<!-- @laura ${WHEN} · ¿Le cambio el nombre? -->\n<!-- @noa ${WHEN} · ↳ Sí -->`), file())
+    assert.ok(file().includes(`${title}<!-- @${member} ${WHEN} · ${question} -->\n<!-- @${admin} ${WHEN} · ↳ ${answer} -->`), file())
     const withBoth = file()
-    r = await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'resolve', thread: lauras })
+    r = await h.admin('POST', '/api/note/comment', { path: CAKE, op: 'resolve', thread: members })
     assert.equal(r.status, 403, 'only whoever started a thread, or someone who can edit, resolves it')
     assert.equal(file(), withBoth)
-    r = await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'resolve', thread: noas })
+    r = await h.admin('POST', '/api/note/comment', { path: CAKE, op: 'resolve', thread: admins })
     assert.equal(r.status, 200)
-    assert.ok(!file().includes('menos azúcar') && file().includes('Tarta Obsidiana. [[compra]]'))
+    assert.ok(!file().includes(right) && file().includes(`${SENTENCE} [[${NAME.list}]]`))
     // With edit, anyone's.
-    r = await h.laura('POST', '/api/note/comment', { path: TARTA, op: 'resolve', thread: lauras })
+    r = await h.member('POST', '/api/note/comment', { path: CAKE, op: 'resolve', thread: members })
     assert.equal(r.status, 200)
     assert.equal(file(), before)
 
     // With read, nothing; where it can't see, it doesn't exist.
-    assert.equal((await h.marta('POST', '/api/note/comment', addAfter(file(), 'Tarta Obsidiana.', 'Hola'))).status, 403)
-    assert.equal((await h.marta('POST', '/api/note/comment', addAfter(file(DIARY), 'Secreto Turmalina.', 'Hola', DIARY))).status, 404)
+    assert.equal((await h.other('POST', '/api/note/comment', addAfter(file(), SENTENCE, m.aComment()))).status, 403)
+    assert.equal((await h.other('POST', '/api/note/comment', addAfter(file(PATH.diary), `${WORD.diary}.`, m.aComment(), PATH.diary))).status, 404)
     // Only a comment: not in the frontmatter, not inside code, not where the text isn't any more.
-    assert.equal((await h.noa('POST', '/api/note/comment', addAfter(file(), 'uid: 01TARTA', 'x'))).status, 400)
+    assert.equal((await h.admin('POST', '/api/note/comment', addAfter(file(), `uid: ${UID.cake}`, m.aComment()))).status, 400)
     const code = file(CODE)
-    assert.equal((await h.noa('POST', '/api/note/comment', addAfter(code, 'uno', 'x', CODE))).status, 400)
-    assert.equal((await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'add', at: 10, context: 'no está en la nota', text: 'x' })).status, 412)
-    assert.equal((await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'add', at: 10, context: '', text: '   ' })).status, 400)
-    assert.equal((await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'edit', text: 'x' })).status, 400)
+    assert.equal((await h.admin('POST', '/api/note/comment', addAfter(code, INSIDE, m.aComment(), CODE))).status, 400)
+    assert.equal((await h.admin('POST', '/api/note/comment', { path: CAKE, op: 'add', at: 10, context: m.aUniqueWord(), text: m.aComment() })).status, 412)
+    assert.equal((await h.admin('POST', '/api/note/comment', { path: CAKE, op: 'add', at: 10, context: '', text: '   ' })).status, 400)
+    assert.equal((await h.admin('POST', '/api/note/comment', { path: CAKE, op: 'edit', text: m.aComment() })).status, 400)
     assert.equal(file(CODE), code)
     assert.equal(file(), before)
 
-    // Each comment is a version by whoever wrote it (Laura sees the history).
+    // Each comment is a version by whoever wrote it (the member sees the history).
     await h.settle()
-    const versions = (await h.laura('GET', `/api/history/versions?path=${encodeURIComponent(TARTA)}`)).body.versions as { authors: { name: string }[] }[]
-    assert.ok(versions.some((v) => v.authors.map((a) => a.name).join() === 'noa'), JSON.stringify(versions))
+    const versions = (await h.member('GET', `/api/history/versions?path=${encodeURIComponent(CAKE)}`)).body.versions as { authors: { name: string }[] }[]
+    assert.ok(versions.some((v) => v.authors.map((a) => a.name).join() === admin), JSON.stringify(versions))
   } finally { await h.close() }
 })
 
 test('with comment, one\'s own thread with replies from other people isn\'t theirs to resolve (D-040 3.7); with only their own, it is', async () => {
   const h = await setup({ files: FILES, config: SHARED })
   try {
-    const file = () => readFileSync(join(h.notesDir, TARTA), 'utf8')
-    const threads = async () => (await h.noa('GET', `/api/note/comments?path=${encodeURIComponent(TARTA)}`)).body.threads as { id: string }[]
-    // Two threads of Noa's: Laura replies to one, he replies to the other himself.
-    let r = await h.noa('POST', '/api/note/comment', addAfter(file(), '# Tarta de Laura', '¿Con canela?'))
+    const file = () => readFileSync(join(h.notesDir, CAKE), 'utf8')
+    const threads = async () => (await h.admin('GET', `/api/note/comments?path=${encodeURIComponent(CAKE)}`)).body.threads as { id: string }[]
+    const [first, second, theirReply, ownReply] = [m.aComment(), m.aComment(), m.aComment(), m.aComment()]
+    // Two threads of the admin's: the member replies to one, the admin to the other.
+    let r = await h.admin('POST', '/api/note/comment', addAfter(file(), titleOf(file()), first))
     assert.equal(r.status, 200, JSON.stringify(r.body))
-    r = await h.noa('POST', '/api/note/comment', addAfter(file(), 'Tarta Obsidiana.', '¿Cuántos huevos?'))
+    r = await h.admin('POST', '/api/note/comment', addAfter(file(), SENTENCE, second))
     assert.equal(r.status, 200, JSON.stringify(r.body))
-    const [canela, huevos] = (await threads()).map((t) => t.id)
-    assert.ok(canela && huevos)
-    assert.equal((await h.laura('POST', '/api/note/comment', { path: TARTA, op: 'reply', thread: canela, text: 'Mejor no' })).status, 200)
-    assert.equal((await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'reply', thread: huevos, text: 'Tres, creo' })).status, 200)
+    const [replied, own] = (await threads()).map((t) => t.id)
+    assert.ok(replied && own)
+    assert.equal((await h.member('POST', '/api/note/comment', { path: CAKE, op: 'reply', thread: replied, text: theirReply })).status, 200)
+    assert.equal((await h.admin('POST', '/api/note/comment', { path: CAKE, op: 'reply', thread: own, text: ownReply })).status, 200)
 
-    // With her reply in it, resolving would take her words out of the note: forbidden, nothing written.
+    // With the member's reply in it, resolving would take their words out of the note: forbidden, nothing written.
     const before = file()
-    r = await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'resolve', thread: canela })
+    r = await h.admin('POST', '/api/note/comment', { path: CAKE, op: 'resolve', thread: replied })
     assert.deepEqual([r.status, r.body.error], [403, 'forbidden'])
     assert.equal(file(), before)
-    // Only his own replies: as before.
-    r = await h.noa('POST', '/api/note/comment', { path: TARTA, op: 'resolve', thread: huevos })
+    // Only their own replies: as before.
+    r = await h.admin('POST', '/api/note/comment', { path: CAKE, op: 'resolve', thread: own })
     assert.equal(r.status, 200, JSON.stringify(r.body))
-    assert.ok(!file().includes('huevos') && !file().includes('Tres, creo'))
+    assert.ok(!file().includes(second) && !file().includes(ownReply))
     // Someone who can edit resolves it, replies and all.
-    r = await h.laura('POST', '/api/note/comment', { path: TARTA, op: 'resolve', thread: canela })
+    r = await h.member('POST', '/api/note/comment', { path: CAKE, op: 'resolve', thread: replied })
     assert.equal(r.status, 200, JSON.stringify(r.body))
-    assert.ok(!file().includes('canela') && !file().includes('Mejor no'))
+    assert.ok(!file().includes(first) && !file().includes(theirReply))
   } finally { await h.close() }
 })

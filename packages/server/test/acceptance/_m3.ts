@@ -38,15 +38,17 @@ function clientsOf(doc: Y.Doc, needle: string): Set<number> {
   return out
 }
 
-export async function m3DoneWhen(opts: { srv: Srv; cookie: string; notesDir: string }) {
+/** `cookie`: the session of `user` (their username and password: creating a key asks for it). */
+export async function m3DoneWhen(opts: { srv: Srv; cookie: string; user: { username: string; password: string }; notesDir: string }) {
   const { srv, cookie, notesDir } = opts
+  const name = opts.user.username
   for (const [p, text] of Object.entries(HIDDEN_NOTES)) {
     mkdirSync(dirname(join(notesDir, p)), { recursive: true })
     writeFileSync(join(notesDir, p), text)
   }
   await waitFor(async () => (await api(srv, cookie, 'GET', '/api/search?q=ZAFIRO')).body.results.length === 2, 'the hidden notes are indexed', 60_000)
   assert.equal((await api(srv, cookie, 'PUT', '/api/admin/integrations', { mcp: true })).status, 200)
-  const created = await api(srv, cookie, 'POST', '/api/keys', { name: 'Claude Code', canWrite: true, folders: ['proyectos'], confirm: 'a-long-password' })
+  const created = await api(srv, cookie, 'POST', '/api/keys', { name: 'Claude Code', canWrite: true, folders: ['proyectos'], confirm: opts.user.password })
   assert.equal(created.status, 201)
 
   const client = new Client({ name: 'acceptance', version: '1' })
@@ -86,7 +88,7 @@ export async function m3DoneWhen(opts: { srv: Srv; cookie: string; notesDir: str
   await waitFor(() => editor.text().includes('(hecho: fase 1, antes de migrar)'), 'the agent\'s edit reaches the editor')
   const agent = presence.find((p) => p.state?.agent)
   assert.ok(agent, 'the agent is present in the editor')
-  assert.deepEqual(agent.state, { agent: { name: 'Claude Code', onBehalfOf: 'noa', via: 'mcp' } })
+  assert.deepEqual(agent.state, { agent: { name: 'Claude Code', onBehalfOf: name, via: 'mcp' } })
   assert.deepEqual([...clientsOf(editor.doc, ' (hecho: fase 1, antes de migrar)')], [agent.client])
   assert.ok(editor.text().includes('- PERSONA: primero la base de datos (hecho: fase 1, antes de migrar)\n- revisar copias\n'), editor.text())
   editor.close()
@@ -96,9 +98,9 @@ export async function m3DoneWhen(opts: { srv: Srv; cookie: string; notesDir: str
   let versions: any[] = []
   await waitFor(async () => (versions = (await call('history', { path: PLAN })).data.versions).length >= 3, 'three versions of the plan', 60_000)
   const who = versions.map((v) => v.authors.map((a: any) => `${a.name}${a.via ? `/${a.via}` : ''}`).join())
-  assert.deepEqual(who.slice(0, 3), ['Claude Code/mcp', 'noa', 'Claude Code/mcp'])
+  assert.deepEqual(who.slice(0, 3), ['Claude Code/mcp', name, 'Claude Code/mcp'])
   const ui = await api(srv, cookie, 'GET', `/api/history/versions?path=${encodeURIComponent(PLAN)}`)
-  assert.deepEqual(ui.body.versions[0].authors[0], { kind: 'agent', id: created.body.key.id, name: 'Claude Code', onBehalfOf: { id: ui.body.versions[0].authors[0].onBehalfOf.id, name: 'noa' }, via: 'mcp', key: `agent:${created.body.key.id}` })
+  assert.deepEqual(ui.body.versions[0].authors[0], { kind: 'agent', id: created.body.key.id, name: 'Claude Code', onBehalfOf: { id: ui.body.versions[0].authors[0].onBehalfOf.id, name }, via: 'mcp', key: `agent:${created.body.key.id}` })
 
   // 5. «Revert this change» on the agent's version leaves what the person wrote.
   const agentVersion = ui.body.versions[0].id as string
@@ -115,7 +117,7 @@ export async function m3DoneWhen(opts: { srv: Srv; cookie: string; notesDir: str
   // A version of its own, by the person, saying which change it undid.
   await waitFor(async () => {
     const v = (await api(srv, cookie, 'GET', `/api/history/versions?path=${encodeURIComponent(PLAN)}`)).body.versions[0]
-    return v.id !== agentVersion && v.authors[0].name === 'noa' && v.reason?.code === 'reverted' && v.reason.id === agentVersion
+    return v.id !== agentVersion && v.authors[0].name === name && v.reason?.code === 'reverted' && v.reason.id === agentVersion
   }, 'the revert is a version by the person', 60_000)
 
   // 6. Nothing hidden from the key, in any tool: not listed, not found, only denied when it names one.

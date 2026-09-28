@@ -6,6 +6,10 @@ import { countWords, wordDiff } from '../src/history/diff.ts'
 import { blobOid, quotePath } from '../src/history/git.ts'
 import { formatMessage, movedFrom, parseMessage } from '../src/history/trailers.ts'
 
+// The texts, paths and ids here are the cases under test (punctuation next to
+// words, spaces and quotes in paths, a path that only starts like another,
+// the trailers' exact format): they stay literal.
+
 test('word diff: whole words, spaces and marks; counts leave spaces out', () => {
   const d = wordDiff('El gato come pescado.', 'El perro come carne!')
   assert.deepEqual(d.ops, [[0, 'El '], [-1, 'gato'], [1, 'perro'], [0, ' come '], [-1, 'pescado.'], [1, 'carne!']])

@@ -2,10 +2,21 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { HistoryAuthor } from '../src/history/api.ts'
 import { agentLabel, authorName, changeGroups, changeText, dayKey, dayLabel, filterOptions, groupByDay, reasonText, safeZone, shiftDay, uidOf } from '../src/history/format.ts'
+import { mother } from '../../../test/mother.ts'
 
 /** The key and its values, so each test sees which text was asked for and with what. */
 const t = (key: string, vars?: Record<string, string | number>) => (vars ? `${key}${JSON.stringify(vars)}` : key)
-const noa: HistoryAuthor = { kind: 'user', id: 'U1', name: 'noa', key: 'user:U1' }
+const m = mother(import.meta.url)
+// People (usernames) and agents (key names) of the history.
+const ADMIN = m.aUsername()
+const MEMBER = m.aUsername()
+const AGENT = m.aKeyName()
+const OTHER_AGENT = m.aKeyName()
+// Notes a change moved or renamed (their titles).
+const FROM = m.aTitle()
+const TO = m.aTitle()
+const NOTE = m.aTitle()
+const admin: HistoryAuthor = { kind: 'user', id: 'U1', name: ADMIN, key: 'user:U1' }
 
 test('the day of an instant is the one in the person\'s timezone', () => {
   const late = '2026-09-25T23:30:00Z'
@@ -55,13 +66,13 @@ test('the uid in a note\'s frontmatter, quoted or not; none without frontmatter'
 })
 
 test('what the system did, and for whom', () => {
-  assert.equal(reasonText(t, { code: 'note_moved', from: 'a/Viaje.md', to: 'a/Roma.md', by: noa }), 'history.reason.renamed{"from":"Viaje","to":"Roma"}history.by{"name":"noa"}')
-  assert.equal(reasonText(t, { code: 'note_moved', from: 'a/Viaje.md', to: 'b/c/Viaje.md', by: noa }), 'history.reason.moved{"name":"Viaje","to":"b / c / Viaje"}history.by{"name":"noa"}')
+  assert.equal(reasonText(t, { code: 'note_moved', from: `a/${FROM}.md`, to: `a/${TO}.md`, by: admin }), `history.reason.renamed{"from":"${FROM}","to":"${TO}"}history.by{"name":"${ADMIN}"}`)
+  assert.equal(reasonText(t, { code: 'note_moved', from: `a/${FROM}.md`, to: `b/c/${FROM}.md`, by: admin }), `history.reason.moved{"name":"${FROM}","to":"b / c / ${FROM}"}history.by{"name":"${ADMIN}"}`)
   assert.equal(reasonText(t, { code: 'folder_moved', from: 'a', to: 'b/a', by: null }), 'history.reason.folderMoved{"from":"a","to":"b/a"}')
-  assert.equal(reasonText(t, { code: 'links_after_external_move', moves: [{ from: 'x.md', to: 'y/Nota.md' }], by: noa }), 'history.reason.externalMoveOne{"name":"Nota"}history.by{"name":"noa"}')
+  assert.equal(reasonText(t, { code: 'links_after_external_move', moves: [{ from: 'x.md', to: `y/${NOTE}.md` }], by: admin }), `history.reason.externalMoveOne{"name":"${NOTE}"}history.by{"name":"${ADMIN}"}`)
   assert.equal(reasonText(t, { code: 'links_after_external_move', moves: [{ from: 'x.md', to: 'y.md' }, { from: 'z.md', to: 'w.md' }] }), 'history.reason.externalMoveMany{"n":2}')
-  const agent: HistoryAuthor = { kind: 'agent', id: 'K1', name: 'Claude', onBehalfOf: { id: 'U1', name: 'noa' }, key: 'agent:K1' }
-  assert.equal(reasonText(t, { code: 'alias_added', alias: 'Viaje', from: 'Viaje.md', to: 'Roma.md', by: agent }), 'history.reason.alias{"alias":"Viaje","from":"Viaje"}history.by{"name":"history.agentPlain{\\"name\\":\\"Claude\\",\\"user\\":\\"noa\\"}"}')
+  const agent: HistoryAuthor = { kind: 'agent', id: 'K1', name: AGENT, onBehalfOf: { id: 'U1', name: ADMIN }, key: 'agent:K1' }
+  assert.equal(reasonText(t, { code: 'alias_added', alias: FROM, from: `${FROM}.md`, to: `${TO}.md`, by: agent }), `history.reason.alias{"alias":"${FROM}","from":"${FROM}"}history.by{"name":"history.agentPlain{\\"name\\":\\"${AGENT}\\",\\"user\\":\\"${ADMIN}\\"}"}`)
   assert.equal(reasonText(t, { code: 'history_enabled' }), 'history.reason.historyEnabled')
   assert.equal(reasonText(t, { code: 'recovered' }), 'history.reason.recovered')
   // Restoring is said by the change itself; an unknown code says nothing.
@@ -74,8 +85,8 @@ test('what happened to the file: created, renamed or moved, deleted, restored (f
   const date = (at: string) => `<${at}>`
   assert.equal(changeText(t, { change: 'modified', path: 'a.md', reason: null }, date), null)
   assert.equal(changeText(t, { change: 'created', path: 'a.md', reason: null }, date), 'history.change.created')
-  assert.equal(changeText(t, { change: 'moved', path: 'a/Roma.md', from: 'a/Viaje.md', reason: null }, date), 'history.change.renamed{"from":"Viaje","to":"Roma"}')
-  assert.equal(changeText(t, { change: 'moved', path: 'b/Viaje.md', from: 'a/Viaje.md', reason: null }, date), 'history.change.moved{"from":"a / Viaje","to":"b / Viaje"}')
+  assert.equal(changeText(t, { change: 'moved', path: `a/${TO}.md`, from: `a/${FROM}.md`, reason: null }, date), `history.change.renamed{"from":"${FROM}","to":"${TO}"}`)
+  assert.equal(changeText(t, { change: 'moved', path: `b/${FROM}.md`, from: `a/${FROM}.md`, reason: null }, date), `history.change.moved{"from":"a / ${FROM}","to":"b / ${FROM}"}`)
   assert.equal(changeText(t, { change: 'restored', path: 'a.md', reason: { code: 'restored', id: 'c', at: 'T' } }, date), 'history.change.restoredFrom{"date":"<T>"}')
   assert.equal(changeText(t, { change: 'restored', path: 'a.md', reason: { code: 'trash_restored', id: 'x' } }, date), 'history.change.trashRestored')
   assert.equal(changeText(t, { change: 'deleted', path: 'a.md', reason: null }, date), 'history.change.deleted')
@@ -87,25 +98,28 @@ test('the author filter: people, agents (all of them too, when there are several
   const authors: HistoryAuthor[] = [
     { kind: 'system', name: 'thoth', key: 'system' },
     { kind: 'external', name: '', key: 'external' },
-    { kind: 'agent', id: 'K2', name: 'Otro', onBehalfOf: { id: 'U1', name: 'noa' }, key: 'agent:K2' },
-    { kind: 'user', id: 'U2', name: 'ana', key: 'user:U2' },
-    noa,
-    noa,
+    { kind: 'agent', id: 'K2', name: OTHER_AGENT, onBehalfOf: { id: 'U1', name: ADMIN }, key: 'agent:K2' },
+    { kind: 'user', id: 'U2', name: MEMBER, key: 'user:U2' },
+    admin,
+    admin,
   ]
-  assert.deepEqual(filterOptions(t, authors).map((o) => o.key), ['user:U2', 'user:U1', 'agent:K2', 'external', 'system'])
-  const more = [...authors, { kind: 'agent', id: 'K1', name: 'Claude', onBehalfOf: { id: 'U1', name: 'noa' }, key: 'agent:K1' } as HistoryAuthor]
+  // Within a kind, by name.
+  const byName = (list: [string, string][]) => list.sort(([a], [b]) => a.localeCompare(b)).map(([, key]) => key)
+  const people = byName([[MEMBER, 'user:U2'], [ADMIN, 'user:U1']])
+  assert.deepEqual(filterOptions(t, authors).map((o) => o.key), [...people, 'agent:K2', 'external', 'system'])
+  const more = [...authors, { kind: 'agent', id: 'K1', name: AGENT, onBehalfOf: { id: 'U1', name: ADMIN }, key: 'agent:K1' } as HistoryAuthor]
   const options = filterOptions(t, more)
-  assert.deepEqual(options.map((o) => o.key), ['user:U2', 'user:U1', 'agent:K1', 'agent:K2', 'agent', 'external', 'system'])
-  assert.equal(options.find((o) => o.key === 'agent:K1')!.label, 'history.agent{"name":"Claude","user":"noa"}')
+  assert.deepEqual(options.map((o) => o.key), [...people, ...byName([[AGENT, 'agent:K1'], [OTHER_AGENT, 'agent:K2']]), 'agent', 'external', 'system'])
+  assert.equal(options.find((o) => o.key === 'agent:K1')!.label, `history.agent{"name":"${AGENT}","user":"${ADMIN}"}`)
   assert.equal(options.find((o) => o.key === 'external')!.label, 'history.external')
 })
 
 test('an agent shows how it came in: the API, MCP, or MCP with OAuth; nothing when the version doesn\'t say', () => {
-  const agent = (via?: HistoryAuthor['via']): HistoryAuthor => ({ kind: 'agent', id: 'K1', name: 'Claude', onBehalfOf: { id: 'U1', name: 'noa' }, ...(via ? { via } : {}), key: 'agent:K1' })
-  const who = 'history.agent{"name":"Claude","user":"noa"}'
+  const agent = (via?: HistoryAuthor['via']): HistoryAuthor => ({ kind: 'agent', id: 'K1', name: AGENT, onBehalfOf: { id: 'U1', name: ADMIN }, ...(via ? { via } : {}), key: 'agent:K1' })
+  const who = `history.agent{"name":"${AGENT}","user":"${ADMIN}"}`
   assert.equal(agentLabel(t, agent('mcp')), `${who} · keys.viaMcp`)
   assert.equal(agentLabel(t, agent('api')), `${who} · keys.viaApi`)
   assert.equal(agentLabel(t, agent('oauth')), `${who} · keys.viaOauth`)
   assert.equal(agentLabel(t, agent()), who)
-  assert.equal(authorName(t, agent('oauth')), 'history.agentPlain{"name":"Claude","user":"noa"} keys.viaOauth')
+  assert.equal(authorName(t, agent('oauth')), `history.agentPlain{"name":"${AGENT}","user":"${ADMIN}"} keys.viaOauth`)
 })

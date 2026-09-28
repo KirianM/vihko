@@ -5,25 +5,38 @@
 // purging a version of a note, with the admin's notice.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { E2E_DIR, NOTES, permissionsSection } from './env.ts'
-import { editorText, signIn, usePermissions, writeWorkspace } from './helpers.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, permissionsSection, specMother } from './env.ts'
+import { editorText, literally, signIn, usePermissions, writeWorkspace } from './helpers.ts'
 
-const DIR = 'colab'
-const NOTE = `${DIR}/Receta.md`
-const SECRET_NOTE = `${DIR}/Secreto.md`
-const SECRET = 'CLAVE-E2E-7731'
+const m = specMother(import.meta.url)
+/** A sentence no other line or comment contains (it carries a unique word): found by its text. */
+const line = () => `${m.aSentence(m.anInt(2, 5)).slice(0, -1)} ${m.aUniqueWord()}.`
+const DIR = m.aFolder()
+const TITLE = m.aTitle()
+const NOTE = `${DIR}/${TITLE}.md`
+const SECRET_TITLE = m.aTitle()
+const SECRET_NOTE = `${DIR}/${SECRET_TITLE}.md`
+const SECRET = m.aSecret(16)
+/** The note's two lines, the secret note's line, and what is typed and commented. */
+const FIRST = line()
+const SECOND = line()
+const NOTHING = line()
+const TYPED = m.aUniqueWord()
+const LATER = m.aUniqueWord()
+const REPLACED = line()
+const TEXT = { admins: line(), members: line(), reply: line(), another: line(), memberReply: line() }
 const SHOTS = `${E2E_DIR}/shots`
 const disk = (p = NOTE) => readFileSync(`${NOTES}/${p}`, 'utf8')
 const q = encodeURIComponent
 const SLOW = { timeout: 20_000 }
 
 /**
- * thoth.yaml: both edit the root, and `colab` is Ana's, shared with Noa at
- * `level`. Noa doesn't manage the root here: whoever does keeps managing
- * everything under it (D-040 3.5).
+ * thoth.yaml: both edit the root, and DIR is the member's, shared with
+ * the admin at `level`. The admin doesn't manage the root here: whoever does
+ * keeps managing everything under it (D-040 3.5).
  */
 function rules(level: 'read' | 'comment') {
-  writeWorkspace('', permissionsSection({ noa: 'edit' }, { [DIR]: { ana: 'manage', noa: level } }))
+  writeWorkspace('', permissionsSection({ [ADMIN.username]: 'edit' }, { [DIR]: { [MEMBER.username]: 'manage', [ADMIN.username]: level } }))
 }
 
 const level = async (p: Page, path = NOTE) => ((await (await p.request.get(`/api/note?path=${q(path)}`)).json()) as { level?: string }).level
@@ -37,14 +50,14 @@ let a: Page
 test.beforeAll(async ({ browser }) => {
   mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
   mkdirSync(SHOTS, { recursive: true })
-  writeFileSync(`${NOTES}/${NOTE}`, '# Receta\n\nCon manzana.\n\nAl horno.\n')
-  writeFileSync(`${NOTES}/${SECRET_NOTE}`, '# Secreto\n\nNada que ver aquí.\n')
+  writeFileSync(`${NOTES}/${NOTE}`, `# ${m.aHeading()}\n\n${FIRST}\n\n${SECOND}\n`)
+  writeFileSync(`${NOTES}/${SECRET_NOTE}`, `# ${m.aHeading()}\n\n${NOTHING}\n`)
   rules('comment')
-  a = await signIn(browser, 'ana')
+  a = await signIn(browser, MEMBER)
   await expect.poll(() => level(a), SLOW).toBe('manage')
   await a.goto(`/?note=${q(NOTE)}`)
   await expect(a.locator('.cm-content')).toBeVisible()
-  k = await signIn(browser, 'noa', NOTE)
+  k = await signIn(browser, ADMIN, NOTE)
 })
 
 test.afterAll(() => usePermissions())
@@ -53,17 +66,18 @@ test('with comment, the editor is read-only and says so; each person is in the n
   await expect(k.locator('.status-readonly')).toHaveText('Solo comentarios')
   await expect(a.locator('.status-readonly')).toHaveCount(0)
   // Nothing typed goes in; no actions that write, no history.
-  await k.locator('.cm-line', { hasText: 'Al horno.' }).click()
-  await k.keyboard.type('NOA-TECLEA')
-  await expect(k.locator('.cm-content')).not.toContainText('NOA-TECLEA')
+  await k.locator('.cm-line', { hasText: SECOND }).click()
+  await k.keyboard.type(TYPED)
+  await expect(k.locator('.cm-content')).not.toContainText(TYPED)
   await expect(k.getByRole('button', { name: 'Más acciones' })).toHaveCount(0)
   await expect(panel(k).getByRole('tab', { name: 'Historial' })).toHaveCount(0)
   await expect(panel(a).getByRole('tab', { name: 'Historial' })).toBeVisible()
 
-  // Presence: two people, each once, with their colour; another tab of Ana's is still Ana.
+  // Presence: two people, each once, with their colour, by name (as the UI sorts them); another tab of the member's is still them.
   for (const p of [k, a]) await expect(avatars(p)).toHaveCount(2)
-  await expect(avatars(k).nth(0)).toHaveAttribute('title', 'ana')
-  await expect(avatars(k).nth(1)).toHaveAttribute('title', 'noa')
+  const byName = [ADMIN.username, MEMBER.username].sort((x, y) => x.localeCompare(y, 'es-ES'))
+  await expect(avatars(k).nth(0)).toHaveAttribute('title', byName[0]!)
+  await expect(avatars(k).nth(1)).toHaveAttribute('title', byName[1]!)
   const again = await a.context().newPage()
   await again.goto(`/?note=${q(NOTE)}`)
   await expect(again.locator('.cm-content')).toBeVisible()
@@ -74,70 +88,70 @@ test('with comment, the editor is read-only and says so; each person is in the n
 })
 
 test('a comment by someone who may only comment reaches the other editor live; they reply to others and resolve only their own', async () => {
-  // Noa comments the sentence his cursor is in.
-  await k.locator('.cm-line', { hasText: 'Con manzana.' }).click()
+  // The admin comments the sentence their cursor is in.
+  await k.locator('.cm-line', { hasText: FIRST }).click()
   await panel(k).getByRole('button', { name: 'Comentar la selección' }).click()
-  await panel(k).getByPlaceholder('Escribe un comentario…').fill('Mejor con pera')
+  await panel(k).getByPlaceholder('Escribe un comentario…').fill(TEXT.admins)
   await panel(k).locator('.thread-draft').getByRole('button', { name: 'Comentar' }).click()
-  await expect(panel(a).locator('.thread', { hasText: 'Mejor con pera' })).toBeVisible()
-  await expect(panel(k).locator('.thread', { hasText: 'Mejor con pera' })).toBeVisible()
-  await expect.poll(() => disk()).toMatch(/Con manzana\.<!-- @noa \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z · Mejor con pera -->/)
+  await expect(panel(a).locator('.thread', { hasText: TEXT.admins })).toBeVisible()
+  await expect(panel(k).locator('.thread', { hasText: TEXT.admins })).toBeVisible()
+  await expect.poll(() => disk()).toMatch(new RegExp(`${literally(FIRST)}<!-- @${literally(ADMIN.username)} \\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}Z · ${literally(TEXT.admins)} -->`))
 
-  // Ana comments in her editor (she edits): Noa may reply to it, not resolve it.
-  await a.locator('.cm-line', { hasText: 'Al horno.' }).click()
+  // The member comments in their editor (they edit): the admin may reply to it, not resolve it.
+  await a.locator('.cm-line', { hasText: SECOND }).click()
   await panel(a).getByRole('button', { name: 'Comentar la selección' }).click()
-  await panel(a).getByPlaceholder('Escribe un comentario…').fill('¿Cuánto rato?')
+  await panel(a).getByPlaceholder('Escribe un comentario…').fill(TEXT.members)
   await panel(a).locator('.thread-draft').getByRole('button', { name: 'Comentar' }).click()
-  const hers = panel(k).locator('.thread', { hasText: '¿Cuánto rato?' })
+  const hers = panel(k).locator('.thread', { hasText: TEXT.members })
   await expect(hers).toBeVisible()
   await expect(hers.getByRole('button', { name: 'Resolver' })).toHaveCount(0)
   await hers.getByRole('button', { name: 'Responder' }).click()
-  await hers.getByPlaceholder('Escribe una respuesta…').fill('Cuarenta minutos')
+  await hers.getByPlaceholder('Escribe una respuesta…').fill(TEXT.reply)
   await hers.getByRole('button', { name: 'Responder' }).click()
-  await expect(panel(a).locator('.thread', { hasText: '¿Cuánto rato?' })).toContainText('Cuarenta minutos')
+  await expect(panel(a).locator('.thread', { hasText: TEXT.members })).toContainText(TEXT.reply)
 
-  // His own he resolves (asked first: he can't see the history to bring it back).
-  const his = panel(k).locator('.thread', { hasText: 'Mejor con pera' })
+  // Their own they resolve (asked first: they can't see the history to bring it back).
+  const his = panel(k).locator('.thread', { hasText: TEXT.admins })
   await his.getByRole('button', { name: 'Resolver' }).click()
   await his.getByRole('button', { name: 'Resolver y borrar' }).click()
-  await expect(panel(a).locator('.thread', { hasText: 'Mejor con pera' })).toHaveCount(0)
-  await expect.poll(() => disk()).not.toContain('Mejor con pera')
-  // One of his with a reply from Ana: resolving it would take her words out too, so it isn't his to do (D-040 3.7).
-  await k.locator('.cm-line', { hasText: 'Con manzana.' }).click()
+  await expect(panel(a).locator('.thread', { hasText: TEXT.admins })).toHaveCount(0)
+  await expect.poll(() => disk()).not.toContain(TEXT.admins)
+  // One of theirs with a reply from the member: resolving it would take the member's words out too, so it isn't theirs to do (D-040 3.7).
+  await k.locator('.cm-line', { hasText: FIRST }).click()
   await panel(k).getByRole('button', { name: 'Comentar la selección' }).click()
-  await panel(k).getByPlaceholder('Escribe un comentario…').fill('¿Y canela?')
+  await panel(k).getByPlaceholder('Escribe un comentario…').fill(TEXT.another)
   await panel(k).locator('.thread-draft').getByRole('button', { name: 'Comentar' }).click()
-  const canela = (p: Page) => panel(p).locator('.thread', { hasText: '¿Y canela?' })
-  await expect(canela(k).getByRole('button', { name: 'Resolver' })).toBeVisible()
-  await canela(a).getByRole('button', { name: 'Responder' }).click()
-  await canela(a).getByPlaceholder('Escribe una respuesta…').fill('Un poco')
-  await canela(a).getByRole('button', { name: 'Responder' }).click()
-  await expect(canela(k)).toContainText('Un poco')
-  await expect(canela(k).getByRole('button', { name: 'Resolver' })).toHaveCount(0)
-  await expect(canela(k).getByRole('button', { name: 'Responder' })).toBeVisible()
+  const another = (p: Page) => panel(p).locator('.thread', { hasText: TEXT.another })
+  await expect(another(k).getByRole('button', { name: 'Resolver' })).toBeVisible()
+  await another(a).getByRole('button', { name: 'Responder' }).click()
+  await another(a).getByPlaceholder('Escribe una respuesta…').fill(TEXT.memberReply)
+  await another(a).getByRole('button', { name: 'Responder' }).click()
+  await expect(another(k)).toContainText(TEXT.memberReply)
+  await expect(another(k).getByRole('button', { name: 'Resolver' })).toHaveCount(0)
+  await expect(another(k).getByRole('button', { name: 'Responder' })).toBeVisible()
   await k.screenshot({ path: `${SHOTS}/comment-resolve-others-light.png`, animations: 'disabled' })
-  await canela(a).getByRole('button', { name: 'Resolver' }).click()
-  await expect(canela(k)).toHaveCount(0)
-  // Ana (edit) resolves anyone's.
-  await expect(panel(a).locator('.thread', { hasText: '¿Cuánto rato?' }).getByRole('button', { name: 'Resolver' })).toBeVisible()
-  expect(await editorText(a)).not.toContain('NOA-TECLEA')
+  await another(a).getByRole('button', { name: 'Resolver' }).click()
+  await expect(another(k)).toHaveCount(0)
+  // The member (edit) resolves anyone's.
+  await expect(panel(a).locator('.thread', { hasText: TEXT.members }).getByRole('button', { name: 'Resolver' })).toBeVisible()
+  expect(await editorText(a)).not.toContain(TYPED)
 })
 
 test('access changed while the note is open: the editor reopens with the new mode at once', async () => {
   rules('read')
   await expect(k.locator('.status-readonly')).toHaveText('Solo lectura', SLOW)
   await expect(panel(k).getByRole('button', { name: 'Comentar la selección' })).toHaveCount(0)
-  await expect(panel(k).locator('.thread', { hasText: '¿Cuánto rato?' }).getByRole('button', { name: 'Responder' })).toHaveCount(0)
+  await expect(panel(k).locator('.thread', { hasText: TEXT.members }).getByRole('button', { name: 'Responder' })).toHaveCount(0)
   await expect(panel(k).locator('.panel-note')).toHaveText('Puedes leer los comentarios de esta nota, pero no añadirlos ni resolverlos.')
   await k.screenshot({ path: `${SHOTS}/read-only-light.png`, animations: 'disabled' })
   rules('comment')
   await expect(k.locator('.status-readonly')).toHaveText('Solo comentarios', SLOW)
   await expect(panel(k).getByRole('button', { name: 'Comentar la selección' })).toBeVisible()
-  // And the text is still there, live: what Ana types reaches him.
-  await a.locator('.cm-line', { hasText: 'Al horno.' }).click()
+  // And the text is still there, live: what the member types reaches the admin.
+  await a.locator('.cm-line', { hasText: SECOND }).click()
   await a.keyboard.press('End')
-  await a.keyboard.type('\nANA-DESPUES')
-  await expect(k.locator('.cm-content')).toContainText('ANA-DESPUES')
+  await a.keyboard.type(`\n${LATER}`)
+  await expect(k.locator('.cm-content')).toContainText(LATER)
 })
 
 test('whoever manages the folder purges a version from the UI; the admin gets the notice, without the content', async () => {
@@ -147,13 +161,13 @@ test('whoever manages the folder purges a version from the UI; the admin gets th
   await expect.poll(async () => (await versions()).length, SLOW).toBeGreaterThan(0)
   const before = (await versions()).length
   // A secret pasted by mistake, and taken out of the note right after.
-  await a.locator('.cm-line', { hasText: 'Nada que ver aquí.' }).click()
+  await a.locator('.cm-line', { hasText: NOTHING }).click()
   await a.keyboard.press('End')
   await a.keyboard.type(`\nClave: ${SECRET}`)
   await expect.poll(async () => (await versions()).length, SLOW).toBe(before + 1)
   await a.keyboard.press('Home')
   await a.keyboard.press('Shift+End')
-  await a.keyboard.type('Sin secreto.')
+  await a.keyboard.type(REPLACED)
   await expect.poll(async () => (await versions()).length, SLOW).toBe(before + 2)
 
   await panel(a).getByRole('tab', { name: 'Historial' }).click()
@@ -163,7 +177,7 @@ test('whoever manages the folder purges a version from the UI; the admin gets th
   await expect(a.locator('.v-band')).toBeVisible()
   await a.locator('.v-band').getByRole('button', { name: 'Purgar esta versión…' }).click()
   const dialog = a.getByRole('alertdialog')
-  await expect(dialog.getByRole('heading')).toHaveText('¿Purgar esta versión de colab / Secreto?')
+  await expect(dialog.getByRole('heading')).toHaveText(`¿Purgar esta versión de ${DIR} / ${SECRET_TITLE}?`)
   await expect(dialog).toContainText('Versiones afectadas (1)')
   await expect(dialog).toContainText('No se puede deshacer.')
   await expect(dialog).not.toContainText(SECRET)
@@ -179,14 +193,14 @@ test('whoever manages the folder purges a version from the UI; the admin gets th
 
   // The admin: who purged what, never the content; dismissed, it's gone.
   await k.goto('/?view=avisos')
-  const card = k.locator('.alert-card', { hasText: 'ana purgó una versión del historial' })
+  const card = k.locator('.alert-card', { hasText: `${MEMBER.username} purgó una versión del historial` })
   await expect(card).toBeVisible()
   await expect(card).toContainText(SECRET_NOTE)
   await expect(k.locator('.alerts-page')).not.toContainText(SECRET)
   await k.screenshot({ path: `${SHOTS}/purge-alert-light.png`, animations: 'disabled' })
   await card.getByRole('button', { name: 'Entendido' }).click()
   await expect(card).toHaveCount(0)
-  // Ana, who isn't the admin, never had it.
+  // The member, who isn't the admin, never had it.
   await a.goto('/?view=avisos')
   await expect(a.locator('.alerts-page h1')).toBeVisible()
   await expect(a.locator('.alert-card', { hasText: 'purgó' })).toHaveCount(0)

@@ -4,184 +4,223 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { FILES, RULES, setup } from './_m4.ts'
+import { basename, dirname, join } from 'node:path'
+import { ADMIN, DIR, FILES, GROUP, MEMBER, NAME, NOBODY, OTHER, PATH, RULES, TAG, WORD, home, setup, type Name } from './_m4.ts'
+import { yamlKey } from './_permissions.ts'
+import { mother } from '../../../test/mother.ts'
 
+const m = mother(import.meta.url)
 const paths = (list: { path: string }[]) => list.map((n) => n.path).sort()
+/** Sorted as thoth lists paths (SQLite's `order by path`, byte order: the same as JavaScript's for these). */
+const sorted = (list: string[]) => [...list].sort()
+
+// The scenario's people (_m4.ts): their usernames and personal folders.
+const [A, M, O] = [ADMIN.username, MEMBER.username, OTHER.username]
+const HOME = { admin: home(A), member: home(M), other: home(O), nobody: home(NOBODY) }
+/** The member's recipes folder (where the cake is). */
+const RECIPES = dirname(PATH.cake)
+/** A link to a note by its name. */
+const link = (name: string) => `[[${name}]]`
+
+/** A key as thoth writes it in thoth.yaml (core's yamlKey): plain when it reads back the same, quoted otherwise. */
+const written = (key: string, plain: RegExp) => (plain.test(key) && !/^(true|false|null|yes|no|on|off|y|n|~)$/i.test(key) && !/^[\d.+-]/.test(key) ? key : JSON.stringify(key))
+/** A subject (user or group) as thoth writes it. */
+const subject = (s: string) => written(s, /^[\p{L}\p{N}_][\p{L}\p{N}._-]*$/u)
+/** A folder key as thoth writes it. */
+const folderKey = (f: string) => written(f, /^[\p{L}\p{N}_][\p{L}\p{N}_ ./-]*(?<! )$/u)
+/** `text` for a regular expression that matches it literally (valid with the `u` flag). */
+const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
+/** The folder itself or anything under it. */
+const under = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`)
+/** Whether `text` names `name` as a whole (not inside a longer name). */
+const mentions = (text: string, name: string) => new RegExp(`(?<![\\p{L}\\p{N}._-])${literally(name)}(?![\\p{L}\\p{N}._-])`, 'u').test(text)
+/** A rule line as thoth writes it: `folder:` and its grants in a flow map, in order. */
+const ruleRe = (folder: string, grants: [string, string][]) =>
+  `${literally(folderKey(folder))}:\\n {4}grants: \\{ ${grants.map(([s, l]) => `${literally(subject(s))}: ${l}`).join(', ')} \\}\\n`
+/** A rule a test adds to thoth.yaml, written as thoth would. */
+const rule = (folder: string, grants: [string, string][]) => `  ${folderKey(folder)}:\n    grants: { ${grants.map(([s, l]) => `${subject(s)}: ${l}`).join(', ')} }\n`
+/** A note's text with a word to find it by. */
+const noteText = (word = m.aUniqueWord()) => `# ${m.aHeading()}\n\n${m.aSentence()} ${word}.\n`
 
 test('§7.1: each person sees their folders and the shared one; the admin doesn\'t read what isn\'t granted', async () => {
   const h = await setup({ files: FILES })
   try {
-    const laura = (await h.laura('GET', '/api/tree')).body
-    assert.deepEqual(paths(laura.notes), ['familia/compra.md', 'personas/laura/diario/2026-09-27.md', 'personas/laura/recetas/tarta.md'])
-    assert.deepEqual(laura.folders, ['familia', 'personas', 'personas/laura', 'personas/laura/diario', 'personas/laura/recetas'])
-    assert.deepEqual(laura.pathOnly, ['personas'], 'the folder above her own only as the way to it')
-    const noa = (await h.noa('GET', '/api/tree')).body
-    assert.deepEqual(paths(noa.notes), ['Plan.md', 'admin/ajustes.md', 'familia/compra.md', 'personas/noa/Plan.md', 'personas/noa/plan.md'])
-    assert.ok(!noa.folders.some((f: string) => f.startsWith('personas/laura') || f.startsWith('personas/marta') || f === 'personas/antigua'), noa.folders.join(', '))
-    const marta = (await h.marta('GET', '/api/tree')).body
-    assert.deepEqual(paths(marta.notes), ['familia/compra.md', 'personas/marta/notas.md'])
+    const member = (await h.member('GET', '/api/tree')).body
+    assert.deepEqual(paths(member.notes), sorted([PATH.list, PATH.diary, PATH.cake]))
+    assert.deepEqual(member.folders, sorted([DIR.shared, DIR.people, HOME.member, PATH.diaryDir, RECIPES]))
+    assert.deepEqual(member.pathOnly, [DIR.people], 'the folder above their own only as the way to it')
+    const admin = (await h.admin('GET', '/api/tree')).body
+    assert.deepEqual(paths(admin.notes), sorted([PATH.rootPlan, PATH.settings, PATH.list, PATH.adminPlanCased, PATH.adminPlan]))
+    assert.ok(!admin.folders.some((f: string) => under(f, HOME.member) || under(f, HOME.other) || f === HOME.nobody), admin.folders.join(', '))
+    const other = (await h.other('GET', '/api/tree')).body
+    assert.deepEqual(paths(other.notes), sorted([PATH.list, PATH.otherNotes]))
 
     // Opening one directly: the same as a note that doesn't exist.
-    for (const [who, path] of [['noa', 'personas/laura/recetas/tarta.md'], ['laura', 'admin/ajustes.md'], ['marta', 'personas/laura/diario/2026-09-27.md'], ['noa', 'personas/antigua/nota.md']] as const) {
+    for (const [who, path] of [['admin', PATH.cake], ['member', PATH.settings], ['other', PATH.diary], ['admin', PATH.nobodyNote]] as const) {
       const r = await h.as(who)('GET', h.url('/api/note', { path }))
       assert.deepEqual([r.status, r.body.error], [404, 'not_found'], `${who} ${path}`)
-      const missing = await h.as(who)('GET', h.url('/api/note', { path: path.replace('.md', '-no.md') }))
-      assert.equal(missing.text.replace(/-no\.md/, '.md'), r.text, 'no access and no note answer alike')
+      const absent = path.replace(/\.md$/, `-${m.aUniqueWord()}.md`)
+      const missing = await h.as(who)('GET', h.url('/api/note', { path: absent }))
+      assert.equal(missing.text.replaceAll(JSON.stringify(absent).slice(1, -1), JSON.stringify(path).slice(1, -1)), r.text, 'no access and no note answer alike')
     }
 
     // A link to a note one can't read: `no_access`, no path, no title, no candidates (D-024).
-    const kLinks = (await h.noa('GET', h.url('/api/note/links', { path: 'familia/compra.md' }))).body
+    const kLinks = (await h.admin('GET', h.url('/api/note/links', { path: PATH.list }))).body
     const out = Object.fromEntries(kLinks.outgoing.map((l: { raw: string }) => [l.raw, l]))
-    assert.deepEqual([out['[[tarta]]'].status, out['[[tarta]]'].dst_path, out['[[tarta]]'].reason], ['no_access', null, undefined])
+    const cake = out[link(NAME.cake)]
+    assert.deepEqual([cake.status, cake.dst_path, cake.reason], ['no_access', null, undefined])
     assert.equal(out['[[2026-09-27]]'].status, 'no_access')
-    assert.notEqual(out['[[Plan]]'].status, 'no_access', 'his own notes are candidates for him')
-    assert.deepEqual(paths(kLinks.backlinks), ['admin/ajustes.md', 'personas/noa/plan.md'])
-    const lLinks = (await h.laura('GET', h.url('/api/note/links', { path: 'familia/compra.md' }))).body
+    assert.notEqual(out[link(NAME.plan)].status, 'no_access', 'the admin\'s own notes are candidates for them')
+    assert.deepEqual(paths(kLinks.backlinks), sorted([PATH.settings, PATH.adminPlan]))
+    const lLinks = (await h.member('GET', h.url('/api/note/links', { path: PATH.list }))).body
     const lout = Object.fromEntries(lLinks.outgoing.map((l: { raw: string }) => [l.raw, l]))
-    assert.deepEqual([lout['[[tarta]]'].status, lout['[[tarta]]'].dst_path], ['resolved', 'personas/laura/recetas/tarta.md'])
-    assert.deepEqual([lout['[[Plan]]'].status, lout['[[Plan]]'].candidates], ['no_access', null])
-    assert.deepEqual(paths(lLinks.backlinks), ['personas/laura/diario/2026-09-27.md', 'personas/laura/recetas/tarta.md'])
+    assert.deepEqual([lout[link(NAME.cake)].status, lout[link(NAME.cake)].dst_path], ['resolved', PATH.cake])
+    assert.deepEqual([lout[link(NAME.plan)].status, lout[link(NAME.plan)].candidates], ['no_access', null])
+    assert.deepEqual(paths(lLinks.backlinks), sorted([PATH.diary, PATH.cake]))
 
     // Search, tags and their counts: only what each one reads.
-    assert.deepEqual((await h.noa('GET', h.url('/api/search', { q: 'Turmalina' }))).body.results, [])
-    assert.deepEqual(paths((await h.laura('GET', h.url('/api/search', { q: 'Turmalina' }))).body.results), ['personas/laura/diario/2026-09-27.md'])
-    const tags = async (who: 'noa' | 'laura') => Object.fromEntries(((await h.as(who)('GET', '/api/tags')).body.tags as { tag: string; count: number }[]).map((t) => [t.tag, t.count]))
-    assert.deepEqual(await tags('noa'), { casa: 1 })
-    assert.deepEqual(await tags('laura'), { casa: 2, intimo: 1 })
+    assert.deepEqual((await h.admin('GET', h.url('/api/search', { q: WORD.diary }))).body.results, [])
+    assert.deepEqual(paths((await h.member('GET', h.url('/api/search', { q: WORD.diary }))).body.results), [PATH.diary])
+    const tags = async (who: Name) => Object.fromEntries(((await h.as(who)('GET', '/api/tags')).body.tags as { tag: string; count: number }[]).map((t) => [t.tag, t.count]))
+    assert.deepEqual(await tags('admin'), { [TAG.home]: 1 })
+    assert.deepEqual(await tags('member'), { [TAG.home]: 2, [TAG.intimate]: 1 })
 
     // Images have their folder's permission.
-    assert.equal((await h.marta('GET', h.url('/api/file', { path: 'familia/foto.png' }))).status, 200)
-    assert.equal((await h.noa('GET', h.url('/api/file', { path: 'personas/laura/foto-laura.png' }))).status, 404)
+    assert.equal((await h.other('GET', h.url('/api/file', { path: PATH.photo }))).status, 200)
+    assert.equal((await h.admin('GET', h.url('/api/file', { path: PATH.memberPhoto }))).status, 404)
   } finally { await h.close() }
 })
 
-test('§7.2: Laura shares a folder of hers with Noa to comment; he reads, can\'t edit or see its history', async () => {
+test('§7.2: the member shares a folder of theirs with the admin to comment; the admin reads, can\'t edit or see its history', async () => {
   const h = await setup({ files: FILES })
   try {
-    const folder = 'personas/laura/recetas'
-    const before = (await h.laura('GET', h.url('/api/permissions', { folder }))).body
+    const folder = RECIPES
+    const before = (await h.member('GET', h.url('/api/permissions', { folder }))).body
     assert.equal(before.own, null)
-    assert.deepEqual(before.effective, { from: 'personas/laura', rule: 'personas/{user}', grants: { laura: 'manage' } })
+    assert.deepEqual(before.effective, { from: HOME.member, rule: `${DIR.people}/{user}`, grants: { [M]: 'manage' } })
     assert.equal(before.canEdit, true)
-    assert.deepEqual(before.access.map((a: { username: string; level: string }) => [a.username, a.level]), [['laura', 'manage']])
-    // Someone who can't see it: it doesn't exist. Marta can't; Noa neither, admin as he is? He manages permissions anywhere (D-038.1).
-    assert.equal((await h.marta('GET', h.url('/api/permissions', { folder }))).status, 404)
-    assert.equal((await h.noa('GET', h.url('/api/permissions', { folder }))).status, 200, 'the admin manages every folder\'s permissions')
+    assert.deepEqual(before.access.map((a: { username: string; level: string }) => [a.username, a.level]), [[M, 'manage']])
+    // Someone who can't see it: it doesn't exist. The other member can't; the admin neither, admin as they are? They manage permissions anywhere (D-038.1).
+    assert.equal((await h.other('GET', h.url('/api/permissions', { folder }))).status, 404)
+    assert.equal((await h.admin('GET', h.url('/api/permissions', { folder }))).status, 200, 'the admin manages every folder\'s permissions')
 
-    const put = await h.laura('PUT', '/api/permissions', { folder, grants: { laura: 'manage', noa: 'comment' }, ifMatch: before.etag })
+    const put = await h.member('PUT', '/api/permissions', { folder, grants: { [M]: 'manage', [A]: 'comment' }, ifMatch: before.etag })
     assert.equal(put.status, 200, put.text)
-    assert.deepEqual(put.body.own, { rule: folder, user: null, grants: { laura: 'manage', noa: 'comment' }, ai: false })
+    assert.deepEqual(put.body.own, { rule: folder, user: null, grants: { [M]: 'manage', [A]: 'comment' }, ai: false })
     const yaml = readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8')
     assert.ok(yaml.startsWith(RULES), 'the rest of the file stays as it was')
-    assert.match(yaml.slice(RULES.length), /^ {2}personas\/laura\/recetas:\n {4}grants: \{ laura: manage, noa: comment \}\n$/)
+    assert.match(yaml.slice(RULES.length), new RegExp(`^ {2}${ruleRe(folder, [[M, 'manage'], [A, 'comment']])}$`, 'u'))
     // A stale ETag: 412, nothing written.
-    const stale = await h.laura('PUT', '/api/permissions', { folder, grants: { laura: 'manage' }, ifMatch: before.etag })
+    const stale = await h.member('PUT', '/api/permissions', { folder, grants: { [M]: 'manage' }, ifMatch: before.etag })
     assert.deepEqual([stale.status, stale.body.error], [412, 'precondition_failed'])
 
-    const tarta = h.url('/api/note', { path: 'personas/laura/recetas/tarta.md' })
-    const read = await h.noa('GET', tarta)
+    const cake = h.url('/api/note', { path: PATH.cake })
+    const read = await h.admin('GET', cake)
     assert.equal(read.status, 200)
-    const write = await h.noa('PUT', tarta, { text: 'x' }, { 'if-match': `"${read.body.etag}"` })
-    assert.deepEqual([write.status, write.body.error], [403, 'forbidden'], 'he sees it: forbidden, not not_found')
-    const hist = await h.noa('GET', h.url('/api/history/versions', { path: 'personas/laura/recetas/tarta.md' }))
+    const write = await h.admin('PUT', cake, { text: m.aParagraph() }, { 'if-match': `"${read.body.etag}"` })
+    assert.deepEqual([write.status, write.body.error], [403, 'forbidden'], 'they see it: forbidden, not not_found')
+    const hist = await h.admin('GET', h.url('/api/history/versions', { path: PATH.cake }))
     assert.deepEqual([hist.status, hist.body.error], [403, 'forbidden'])
-    assert.equal((await h.laura('GET', h.url('/api/history/versions', { path: 'personas/laura/recetas/tarta.md' }))).status, 200)
-    const access = h.policy.for({ kind: 'user', user: h.users.noa })
-    assert.deepEqual([access.canRead('personas/laura/recetas/tarta.md'), access.canComment('personas/laura/recetas/tarta.md'), access.canWrite('personas/laura/recetas/tarta.md')], [true, true, false])
-    // Only what's shared: the rest of her folder isn't.
-    assert.equal((await h.noa('GET', h.url('/api/note', { path: 'personas/laura/diario/2026-09-27.md' }))).status, 404)
-    // Noa doesn't manage it: a comment grant doesn't let him see or change its permissions (the admin does, as admin).
-    assert.equal((await h.marta('PUT', '/api/permissions', { folder, grants: {}, ifMatch: put.body.etag })).status, 404)
+    assert.equal((await h.member('GET', h.url('/api/history/versions', { path: PATH.cake }))).status, 200)
+    const access = h.policy.for({ kind: 'user', user: h.users.admin })
+    assert.deepEqual([access.canRead(PATH.cake), access.canComment(PATH.cake), access.canWrite(PATH.cake)], [true, true, false])
+    // Only what's shared: the rest of their folder isn't.
+    assert.equal((await h.admin('GET', h.url('/api/note', { path: PATH.diary }))).status, 404)
+    // The other member doesn't manage it: no grant lets them see or change its permissions (the admin does, as admin).
+    assert.equal((await h.other('PUT', '/api/permissions', { folder, grants: {}, ifMatch: put.body.etag })).status, 404)
   } finally { await h.close() }
 })
 
 test('a personal folder ({user} rule) closed to agents or shared, then restored, never falls through to the root\'s grants', async () => {
   const h = await setup({ files: FILES })
   try {
-    const folder = 'personas/laura'
-    const note = h.url('/api/note', { path: 'personas/laura/recetas/tarta.md' })
-    const before = (await h.laura('GET', h.url('/api/permissions', { folder }))).body
-    assert.deepEqual(before.userRule, { rule: 'personas/{user}', user: 'laura', grants: { laura: 'manage' } })
+    const folder = HOME.member
+    const note = h.url('/api/note', { path: PATH.cake })
+    const before = (await h.member('GET', h.url('/api/permissions', { folder }))).body
+    assert.deepEqual(before.userRule, { rule: `${DIR.people}/{user}`, user: M, grants: { [M]: 'manage' } })
     // Closed to agents: a literal rule with only `ai: false`; the {user} rule's grants stay.
-    const closed = await h.laura('PUT', '/api/permissions', { folder, ai: false, ifMatch: before.etag })
+    const closed = await h.member('PUT', '/api/permissions', { folder, ai: false, ifMatch: before.etag })
     assert.equal(closed.status, 200, closed.text)
     assert.deepEqual([closed.body.own, closed.body.ai], [{ rule: folder, user: null, grants: null, ai: true }, { closed: true, from: folder }])
-    assert.deepEqual(closed.body.effective, { from: folder, rule: 'personas/{user}', grants: { laura: 'manage' } })
-    assert.equal((await h.noa('GET', note)).status, 404, 'the root\'s manager gains nothing')
-    assert.equal((await h.laura('GET', note)).status, 200)
-    // Shared with Marta (own grants over the {user} rule), then back to the {user} rule.
-    const shared = await h.laura('PUT', '/api/permissions', { folder, grants: { laura: 'manage', marta: 'read' }, ifMatch: closed.body.etag })
+    assert.deepEqual(closed.body.effective, { from: folder, rule: `${DIR.people}/{user}`, grants: { [M]: 'manage' } })
+    assert.equal((await h.admin('GET', note)).status, 404, 'the root\'s manager gains nothing')
+    assert.equal((await h.member('GET', note)).status, 200)
+    // Shared with the other member (own grants over the {user} rule), then back to the {user} rule.
+    const shared = await h.member('PUT', '/api/permissions', { folder, grants: { [M]: 'manage', [O]: 'read' }, ifMatch: closed.body.etag })
     assert.equal(shared.status, 200, shared.text)
-    assert.equal((await h.marta('GET', note)).status, 200)
-    const restored = await h.laura('PUT', '/api/permissions', { folder, grants: null, ifMatch: shared.body.etag })
+    assert.equal((await h.other('GET', note)).status, 200)
+    const restored = await h.member('PUT', '/api/permissions', { folder, grants: null, ifMatch: shared.body.etag })
     assert.equal(restored.status, 200, restored.text)
-    assert.deepEqual(restored.body.effective.grants, { laura: 'manage' })
-    assert.equal((await h.marta('GET', note)).status, 404)
-    assert.equal((await h.noa('GET', note)).status, 404)
+    assert.deepEqual(restored.body.effective.grants, { [M]: 'manage' })
+    assert.equal((await h.other('GET', note)).status, 404)
+    assert.equal((await h.admin('GET', note)).status, 404)
     assert.deepEqual(restored.body.ai, { closed: true, from: folder }, 'closing to agents stays')
     // Moved from thoth, the folder takes the {user} rule's grants along as a literal copy.
-    const moved = await h.laura('POST', '/api/folder/move', { from: 'personas/laura/recetas', to: 'personas/laura/cocina' })
+    const to = `${HOME.member}/${m.aFolder()}`
+    const moved = await h.member('POST', '/api/folder/move', { from: RECIPES, to })
     assert.equal(moved.status, 200, moved.text)
-    assert.equal((await h.laura('GET', h.url('/api/note', { path: 'personas/laura/cocina/tarta.md' }))).status, 200)
+    assert.equal((await h.member('GET', h.url('/api/note', { path: `${to}/${basename(PATH.cake)}` }))).status, 200)
   } finally { await h.close() }
 })
 
 test('§7.3: moving a note says who loses or gains access before moving it', async () => {
   const h = await setup({ files: FILES })
   try {
-    const r = await h.noa('POST', '/api/note/move', { from: 'familia/compra.md', to: 'personas/noa/compra.md', dryRun: true })
+    const to = `${HOME.admin}/${basename(PATH.list)}`
+    const r = await h.admin('POST', '/api/note/move', { from: PATH.list, to, dryRun: true })
     assert.equal(r.status, 200, r.text)
-    assert.deepEqual(r.body.audience.users.lose.map((u: { username: string }) => u.username), ['laura', 'marta'])
+    // audience.ts lists them by username, with localeCompare.
+    assert.deepEqual(r.body.audience.users.lose.map((u: { username: string }) => u.username), [M, O].sort((a, b) => a.localeCompare(b)))
     assert.deepEqual(r.body.audience.users.gain, [])
-    assert.deepEqual(r.body.audience.groups, { gain: [], lose: ['familia'] })
-    // The report names no note he can't see (links in Laura's notes are rewritten all the same, as the system).
+    assert.deepEqual(r.body.audience.groups, { gain: [], lose: [GROUP] })
+    // The report names no note they can't see (links in the member's notes are rewritten all the same, as the system).
     assert.equal(r.body.hidden, true)
-    assert.ok(!r.text.includes('personas/laura'), r.text)
+    assert.ok(!r.text.includes(`${HOME.member}/`), r.text)
     // Keys are counted, never named.
     await h.enable()
-    await h.newKey('laura', { name: 'Llave' })
-    const again = await h.noa('POST', '/api/note/move', { from: 'familia/compra.md', to: 'personas/noa/compra.md', dryRun: true })
+    await h.newKey('member', { name: m.aKeyName() })
+    const again = await h.admin('POST', '/api/note/move', { from: PATH.list, to, dryRun: true })
     assert.deepEqual(again.body.audience.keys, { gain: 0, lose: 1 })
   } finally { await h.close() }
 })
 
-test('§7.4: Laura\'s key doesn\'t see her diary; Noa\'s sees nothing of Laura\'s, and says why when named', async () => {
+test('§7.4: the member\'s key doesn\'t see their diary; the admin\'s sees nothing of the member\'s, and says why when named', async () => {
   const h = await setup({ files: FILES })
   try {
     await h.enable()
-    const laura = h.withKey((await h.newKey('laura', { name: 'L' })).token)
-    const noa = h.withKey((await h.newKey('noa', { name: 'K' })).token)
-    const lt = (await laura('GET', '/api/tree')).body
-    assert.deepEqual(paths(lt.notes), ['familia/compra.md', 'personas/laura/recetas/tarta.md'])
-    assert.ok(!lt.folders.includes('personas/laura/diario'), 'a folder closed to agents doesn\'t show')
-    const diary = await laura('GET', h.url('/api/note', { path: 'personas/laura/diario/2026-09-27.md' }))
+    const memberKey = h.withKey((await h.newKey('member', { name: m.aKeyName() })).token)
+    const adminKey = h.withKey((await h.newKey('admin', { name: m.aKeyName() })).token)
+    const lt = (await memberKey('GET', '/api/tree')).body
+    assert.deepEqual(paths(lt.notes), sorted([PATH.list, PATH.cake]))
+    assert.ok(!lt.folders.includes(PATH.diaryDir), 'a folder closed to agents doesn\'t show')
+    const diary = await memberKey('GET', h.url('/api/note', { path: PATH.diary }))
     assert.deepEqual([diary.status, diary.body.error, diary.body.reason], [403, 'agent_denied', 'ai_false'])
-    const theirs = await noa('GET', h.url('/api/note', { path: 'personas/laura/recetas/tarta.md' }))
+    const theirs = await adminKey('GET', h.url('/api/note', { path: PATH.cake }))
     assert.deepEqual([theirs.status, theirs.body.error, theirs.body.reason], [403, 'agent_denied', 'user_no_access'])
-    assert.deepEqual((await noa('GET', h.url('/api/search', { q: 'Obsidiana' }))).body.results, [])
-    const nothing = await noa('GET', h.url('/api/note', { path: 'personas/laura/nada.md' }))
+    assert.deepEqual((await adminKey('GET', h.url('/api/search', { q: WORD.cake }))).body.results, [])
+    const nothing = await adminKey('GET', h.url('/api/note', { path: m.aNotePath(HOME.member) }))
     assert.deepEqual([nothing.status, nothing.body.error], [404, 'not_found'], 'a note that isn\'t there is still not_found')
     // Its links to what its user can't see: `no_access`, with the reason.
-    const links = (await noa('GET', h.url('/api/note/links', { path: 'familia/compra.md' }))).body
-    const tarta = links.outgoing.find((l: { raw: string }) => l.raw === '[[tarta]]')
-    assert.deepEqual([tarta.status, tarta.reason], ['no_access', 'user_no_access'])
+    const links = (await adminKey('GET', h.url('/api/note/links', { path: PATH.list }))).body
+    const cake = links.outgoing.find((l: { raw: string }) => l.raw === link(NAME.cake))
+    assert.deepEqual([cake.status, cake.reason], ['no_access', 'user_no_access'])
   } finally { await h.close() }
 })
 
 test('§7.6 (P\'s part): deleting a person removes their grants; their folder is nobody\'s, never the root\'s', async () => {
-  const h = await setup({ files: FILES, config: RULES + '  familia/marta:\n    grants: { marta: edit, laura: read }\n' })
+  const shared = `${DIR.shared}/${m.aFolder()}`
+  const h = await setup({ files: FILES, config: RULES + rule(shared, [[O, 'edit'], [M, 'read']]) })
   try {
-    await h.services.permissionsFile.removeSubjectGrants('marta', { actor: { kind: 'user', id: h.users.noa.id } })
+    await h.services.permissionsFile.removeSubjectGrants(O, { actor: { kind: 'user', id: h.users.admin.id } })
     const yaml = readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8')
-    assert.match(yaml, /familia\/marta:\n {4}grants: \{ laura: read \}\n/)
+    assert.match(yaml, new RegExp(ruleRe(shared, [[M, 'read']]), 'u'))
     assert.ok(yaml.startsWith(RULES))
-    // Piece U deletes the account: then `personas/marta` matches nobody.
+    // Piece U deletes the account: then the other member's personal folder matches nobody.
     h.index.prepare('select 1').get()
     const state = (h.auth as unknown as { db: { prepare(s: string): { run(...a: unknown[]): unknown } } }).db
-    state.prepare('delete from users where id = ?').run(h.users.marta.id)
-    for (const who of ['noa', 'laura'] as const) {
-      assert.equal((await h.as(who)('GET', h.url('/api/note', { path: 'personas/marta/notas.md' }))).status, 404, who)
+    state.prepare('delete from users where id = ?').run(h.users.other.id)
+    for (const who of ['admin', 'member'] as const) {
+      assert.equal((await h.as(who)('GET', h.url('/api/note', { path: PATH.otherNotes }))).status, 404, who)
     }
   } finally { await h.close() }
 })
@@ -189,198 +228,218 @@ test('§7.6 (P\'s part): deleting a person removes their grants; their folder is
 test('§7.8: renaming a note linked from notes the renamer can\'t see: the report doesn\'t name them, the links are rewritten', async () => {
   const h = await setup({ files: FILES })
   try {
-    const preview = await h.noa('POST', '/api/note/move', { from: 'familia/compra.md', to: 'familia/lista.md', dryRun: true })
+    const title = m.aTitle()
+    const to = `${DIR.shared}/${title}.md`
+    const preview = await h.admin('POST', '/api/note/move', { from: PATH.list, to, dryRun: true })
     assert.equal(preview.status, 200)
     assert.equal(preview.body.hidden, true)
-    assert.deepEqual(paths(preview.body.relinked), ['admin/ajustes.md', 'personas/noa/plan.md'])
-    assert.ok(!preview.text.includes('laura'), preview.text)
-    const done = await h.noa('POST', '/api/note/move', { from: 'familia/compra.md', to: 'familia/lista.md' })
+    assert.deepEqual(paths(preview.body.relinked), sorted([PATH.settings, PATH.adminPlan]))
+    assert.ok(!mentions(preview.text, M), preview.text)
+    const done = await h.admin('POST', '/api/note/move', { from: PATH.list, to })
     assert.equal(done.status, 200)
-    assert.ok(!done.text.includes('laura'), done.text)
-    assert.match(readFileSync(join(h.notesDir, 'personas/laura/recetas/tarta.md'), 'utf8'), /\[\[lista\]\]/, 'rewritten as the system (D-018)')
+    assert.ok(!mentions(done.text, M), done.text)
+    assert.ok(readFileSync(join(h.notesDir, PATH.cake), 'utf8').includes(link(title)), 'rewritten as the system (D-018)')
   } finally { await h.close() }
 })
 
 test('the permissions API: who sees and changes what, ai, the implicit section, {user} rules, and effective access', async () => {
-  const h = await setup({ files: FILES, config: 'templates: Plantillas   # kept\n' })
+  const templates = m.aFolder()
+  const h = await setup({ files: FILES, config: `templates: ${JSON.stringify(templates)}   # kept\n` })
   try {
     // No section: the implicit one, every admin managing the root; the first change writes it.
-    const root = (await h.noa('GET', h.url('/api/permissions', { folder: '' }))).body
+    const root = (await h.admin('GET', h.url('/api/permissions', { folder: '' }))).body
     assert.equal(root.section, 'implicit')
-    assert.deepEqual(root.effective.grants, { noa: 'manage' })
-    assert.equal((await h.laura('GET', h.url('/api/permissions', { folder: 'familia' }))).status, 404)
-    const put = await h.noa('PUT', '/api/permissions', { folder: 'familia', grants: { '@familia': 'edit' }, ifMatch: root.etag })
+    assert.deepEqual(root.effective.grants, { [A]: 'manage' })
+    assert.equal((await h.member('GET', h.url('/api/permissions', { folder: DIR.shared }))).status, 404)
+    const put = await h.admin('PUT', '/api/permissions', { folder: DIR.shared, grants: { [`@${GROUP}`]: 'edit' }, ifMatch: root.etag })
     assert.equal(put.status, 200, put.text)
-    assert.equal(readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8'), 'templates: Plantillas   # kept\npermissions:\n  "":\n    grants: { noa: manage }\n  familia:\n    grants: { "@familia": edit }\n')
+    assert.equal(readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8'), `templates: ${JSON.stringify(templates)}   # kept\npermissions:\n  "":\n    grants: { ${subject(A)}: manage }\n${rule(DIR.shared, [[`@${GROUP}`, 'edit']])}`)
     assert.equal(put.body.canEdit, true, 'the admin changes any folder\'s')
-    // Now Laura edits familia/ but doesn't manage it: she sees it, can't see or change its permissions.
-    assert.deepEqual([(await h.laura('GET', h.url('/api/permissions', { folder: 'familia' }))).status], [403])
-    assert.equal((await h.laura('PUT', '/api/permissions', { folder: 'familia', grants: {}, ifMatch: put.body.etag })).status, 403)
+    // Now the member edits the shared folder but doesn't manage it: they see it, can't see or change its permissions.
+    assert.deepEqual([(await h.member('GET', h.url('/api/permissions', { folder: DIR.shared }))).status], [403])
+    assert.equal((await h.member('PUT', '/api/permissions', { folder: DIR.shared, grants: {}, ifMatch: put.body.etag })).status, 403)
     // Invalid subjects and levels, and the ETag is required.
-    assert.equal((await h.noa('PUT', '/api/permissions', { folder: 'familia', grants: { laura: 'owner' }, ifMatch: put.body.etag })).status, 400)
-    assert.equal((await h.noa('PUT', '/api/permissions', { folder: 'familia', grants: { '{user}': 'read' }, ifMatch: put.body.etag })).status, 400)
-    assert.equal((await h.noa('PUT', '/api/permissions', { folder: 'familia', grants: {} })).status, 428)
+    assert.equal((await h.admin('PUT', '/api/permissions', { folder: DIR.shared, grants: { [M]: 'owner' }, ifMatch: put.body.etag })).status, 400)
+    assert.equal((await h.admin('PUT', '/api/permissions', { folder: DIR.shared, grants: { '{user}': 'read' }, ifMatch: put.body.etag })).status, 400)
+    assert.equal((await h.admin('PUT', '/api/permissions', { folder: DIR.shared, grants: {} })).status, 428)
     // A {user} rule, only the admin; a manager of a folder under it changes its own rule.
-    const p1 = await h.noa('PUT', '/api/permissions', { folder: 'personas/{user}', grants: { '{user}': 'manage' }, ifMatch: put.body.etag })
+    const perUser = `${DIR.people}/{user}`
+    const p1 = await h.admin('PUT', '/api/permissions', { folder: perUser, grants: { '{user}': 'manage' }, ifMatch: put.body.etag })
     assert.equal(p1.status, 200, p1.text)
-    assert.equal((await h.laura('GET', h.url('/api/permissions', { folder: 'personas/{user}' }))).status, 404)
-    const mine = (await h.laura('GET', h.url('/api/permissions', { folder: 'personas/laura' }))).body
-    assert.deepEqual(mine.own, { rule: 'personas/{user}', user: 'laura', grants: { '{user}': 'manage' }, ai: false })
+    assert.equal((await h.member('GET', h.url('/api/permissions', { folder: perUser }))).status, 404)
+    const mine = (await h.member('GET', h.url('/api/permissions', { folder: HOME.member }))).body
+    assert.deepEqual(mine.own, { rule: perUser, user: M, grants: { '{user}': 'manage' }, ai: false })
     // ai: false, by whoever manages it; inherited below, not undone there.
-    const ai = await h.laura('PUT', '/api/permissions', { folder: 'personas/laura/diario', ai: false, ifMatch: mine.etag })
+    const ai = await h.member('PUT', '/api/permissions', { folder: PATH.diaryDir, ai: false, ifMatch: mine.etag })
     assert.equal(ai.status, 200, ai.text)
-    const below = (await h.laura('GET', h.url('/api/permissions', { folder: 'personas/laura/diario/2026' }))).body
-    assert.deepEqual(below.ai, { closed: true, from: 'personas/laura/diario' })
+    const below = (await h.member('GET', h.url('/api/permissions', { folder: `${PATH.diaryDir}/${m.aFolder()}` }))).body
+    assert.deepEqual(below.ai, { closed: true, from: PATH.diaryDir })
     // Restore inheritance: grants null.
-    const inherit = await h.noa('PUT', '/api/permissions', { folder: 'familia', grants: null, ifMatch: ai.body.etag })
+    const inherit = await h.admin('PUT', '/api/permissions', { folder: DIR.shared, grants: null, ifMatch: ai.body.etag })
     assert.equal(inherit.body.own, null)
-    assert.equal((await h.laura('GET', h.url('/api/note', { path: 'familia/compra.md' }))).status, 404, 'back to the root\'s: noa\'s only')
+    assert.equal((await h.member('GET', h.url('/api/note', { path: PATH.list }))).status, 404, 'back to the root\'s: the admin\'s only')
 
     // Effective access: the admin sees anyone's (folder names only); a person, their own and their keys'.
-    const lauraAccess = (await h.noa('GET', h.url('/api/permissions/access', { user: h.users.laura.id }))).body
-    assert.deepEqual(lauraAccess.folders.map((f: { folder: string }) => f.folder), ['personas/laura', 'personas/laura/diario', 'personas/laura/recetas'])
-    assert.equal((await h.laura('GET', h.url('/api/permissions/access', { user: h.users.noa.id }))).status, 403)
+    const memberAccess = (await h.admin('GET', h.url('/api/permissions/access', { user: h.users.member.id }))).body
+    assert.deepEqual(memberAccess.folders.map((f: { folder: string }) => f.folder), sorted([HOME.member, PATH.diaryDir, RECIPES]))
+    assert.equal((await h.member('GET', h.url('/api/permissions/access', { user: h.users.admin.id }))).status, 403)
     await h.enable()
-    const key = await h.newKey('laura', { name: 'L', canWrite: true })
-    const keyAccess = (await h.laura('GET', h.url('/api/permissions/access', { key: key.key.id }))).body
-    assert.deepEqual(keyAccess.folders, [{ folder: 'personas/laura', level: 'edit' }, { folder: 'personas/laura/recetas', level: 'edit' }], 'not the folder closed to agents')
-    assert.equal((await h.marta('GET', h.url('/api/permissions/access', { key: key.key.id }))).status, 404)
-    // Folders: the admin, every name; Laura, those she sees.
-    const all = (await h.noa('GET', '/api/permissions/folders')).body.folders.map((f: { path: string }) => f.path)
-    assert.ok(all.includes('personas/laura/diario') && all.includes('personas/antigua'))
-    const lf = (await h.laura('GET', '/api/permissions/folders')).body.folders as { path: string; ownGrants: boolean; aiClosed: boolean }[]
-    assert.deepEqual(lf.map((f) => f.path), ['personas/laura', 'personas/laura/diario', 'personas/laura/recetas'])
-    assert.deepEqual(lf.find((f) => f.path === 'personas/laura/diario'), { path: 'personas/laura/diario', level: 'manage', ownGrants: false, aiClosed: true, canEdit: true })
+    const key = await h.newKey('member', { name: m.aKeyName(), canWrite: true })
+    const keyAccess = (await h.member('GET', h.url('/api/permissions/access', { key: key.key.id }))).body
+    assert.deepEqual(keyAccess.folders, sorted([HOME.member, RECIPES]).map((folder) => ({ folder, level: 'edit' })), 'not the folder closed to agents')
+    assert.equal((await h.other('GET', h.url('/api/permissions/access', { key: key.key.id }))).status, 404)
+    // Folders: the admin, every name; the member, those they see.
+    const all = (await h.admin('GET', '/api/permissions/folders')).body.folders.map((f: { path: string }) => f.path)
+    assert.ok(all.includes(PATH.diaryDir) && all.includes(HOME.nobody))
+    const lf = (await h.member('GET', '/api/permissions/folders')).body.folders as { path: string; ownGrants: boolean; aiClosed: boolean }[]
+    assert.deepEqual(lf.map((f) => f.path), sorted([HOME.member, PATH.diaryDir, RECIPES]))
+    assert.deepEqual(lf.find((f) => f.path === PATH.diaryDir), { path: PATH.diaryDir, level: 'manage', ownGrants: false, aiClosed: true, canEdit: true })
   } finally { await h.close() }
 })
 
 test('D-040 3.5: a co-manager can\'t be locked out of a subfolder; the admin managing the root never gets into a personal folder', async () => {
+  const trips = `${DIR.shared}/${m.aFolder()}`
+  const folder = `${trips}/${m.aFolder()}`
+  const gift = m.aNotePath(folder)
+  const giftWord = m.aUniqueWord()
+  const secret = `${RECIPES}/${m.aFolder()}`
+  const bread = m.aNotePath(secret)
   const h = await setup({
-    files: { ...FILES, 'familia/viajes/sorpresa/regalo.md': '# Regalo\n\nPalabra Ámbar.\n', 'personas/laura/recetas/secreta/pan.md': '# Pan\n' },
-    config: RULES + '  familia/viajes:\n    grants: { laura: manage, marta: manage }\n',
+    files: { ...FILES, [gift]: noteText(giftWord), [bread]: noteText() },
+    config: RULES + rule(trips, [[M, 'manage'], [O, 'manage']]),
   })
   try {
-    const regalo = h.url('/api/note', { path: 'familia/viajes/sorpresa/regalo.md' })
-    // Laura closes a subfolder to everyone but her: Marta, who manages the folder above with her, keeps managing it.
-    const folder = 'familia/viajes/sorpresa'
-    const before = (await h.laura('GET', h.url('/api/permissions', { folder }))).body
-    const put = await h.laura('PUT', '/api/permissions', { folder, grants: { laura: 'manage' }, ifMatch: before.etag })
+    const giftUrl = h.url('/api/note', { path: gift })
+    // The member closes a subfolder to everyone but them: the other, who manages the folder above with them, keeps managing it.
+    const before = (await h.member('GET', h.url('/api/permissions', { folder }))).body
+    const put = await h.member('PUT', '/api/permissions', { folder, grants: { [M]: 'manage' }, ifMatch: before.etag })
     assert.equal(put.status, 200, put.text)
-    assert.equal((await h.marta('GET', regalo)).status, 200)
-    const seen = await h.marta('GET', h.url('/api/permissions', { folder }))
+    assert.equal((await h.other('GET', giftUrl)).status, 200)
+    const seen = await h.other('GET', h.url('/api/permissions', { folder }))
     assert.equal(seen.status, 200, seen.text)
     assert.equal(seen.body.canEdit, true)
     assert.equal(seen.body.personal, null)
-    assert.deepEqual(seen.body.managedAbove, [{ subject: 'laura', from: 'familia/viajes' }, { subject: 'marta', from: 'familia/viajes' }, { subject: 'noa', from: '' }])
-    // Why: she manages /familia/viajes. And she can put herself back.
-    const marta = seen.body.access.find((a: { username: string }) => a.username === 'marta')
-    assert.deepEqual(marta, { id: h.users.marta.id, username: 'marta', level: 'manage', via: [{ subject: 'marta', level: 'manage', from: 'familia/viajes', above: true }] })
-    const back = await h.marta('PUT', '/api/permissions', { folder, grants: { laura: 'manage', marta: 'edit' }, ifMatch: seen.body.etag })
+    assert.deepEqual(seen.body.managedAbove, [{ subject: M, from: trips }, { subject: O, from: trips }, { subject: A, from: '' }])
+    // Why: they manage the trips folder. And they can put themselves back.
+    const other = seen.body.access.find((a: { username: string }) => a.username === O)
+    assert.deepEqual(other, { id: h.users.other.id, username: O, level: 'manage', via: [{ subject: O, level: 'manage', from: trips, above: true }] })
+    const back = await h.other('PUT', '/api/permissions', { folder, grants: { [M]: 'manage', [O]: 'edit' }, ifMatch: seen.body.etag })
     assert.equal(back.status, 200, back.text)
-    // The admin manages the root: he reads it too, lists and direct reads alike.
-    assert.equal((await h.noa('GET', regalo)).status, 200)
-    assert.ok((await h.noa('GET', '/api/tree')).body.notes.some((n: { path: string }) => n.path === 'familia/viajes/sorpresa/regalo.md'))
-    assert.deepEqual((await h.noa('GET', h.url('/api/search', { q: 'Ámbar' }))).body.results.map((r: { path: string }) => r.path), ['familia/viajes/sorpresa/regalo.md'])
+    // The admin manages the root: they read it too, lists and direct reads alike.
+    assert.equal((await h.admin('GET', giftUrl)).status, 200)
+    assert.ok((await h.admin('GET', '/api/tree')).body.notes.some((n: { path: string }) => n.path === gift))
+    assert.deepEqual((await h.admin('GET', h.url('/api/search', { q: giftWord }))).body.results.map((r: { path: string }) => r.path), [gift])
 
-    // A subfolder of a personal folder with grants of its own that leave its owner out: she still manages it.
-    const recetas = 'personas/laura/recetas'
-    const mine = (await h.laura('GET', h.url('/api/permissions', { folder: recetas }))).body
-    const shared = await h.laura('PUT', '/api/permissions', { folder: recetas, grants: { marta: 'read' }, ifMatch: mine.etag })
+    // A subfolder of a personal folder with grants of its own that leave its owner out: they still manage it.
+    const mine = (await h.member('GET', h.url('/api/permissions', { folder: RECIPES }))).body
+    const shared = await h.member('PUT', '/api/permissions', { folder: RECIPES, grants: { [O]: 'read' }, ifMatch: mine.etag })
     assert.equal(shared.status, 200, shared.text)
-    assert.equal(shared.body.canEdit, true, 'she manages personas/laura: not locked out')
-    assert.equal(shared.body.personal, 'personas/laura')
-    assert.deepEqual(shared.body.managedAbove, [{ subject: 'laura', from: 'personas/laura', rule: 'personas/{user}' }])
-    assert.equal((await h.laura('GET', h.url('/api/note', { path: 'personas/laura/recetas/secreta/pan.md' }))).status, 200)
-    assert.equal(h.policy.for({ kind: 'user', user: h.users.laura }).canManage('personas/laura/recetas/secreta'), true)
-    assert.equal((await h.marta('GET', h.url('/api/note', { path: 'personas/laura/recetas/tarta.md' }))).status, 200)
+    assert.equal(shared.body.canEdit, true, 'they manage their personal folder: not locked out')
+    assert.equal(shared.body.personal, HOME.member)
+    assert.deepEqual(shared.body.managedAbove, [{ subject: M, from: HOME.member, rule: `${DIR.people}/{user}` }])
+    assert.equal((await h.member('GET', h.url('/api/note', { path: bread }))).status, 200)
+    assert.equal(h.policy.for({ kind: 'user', user: h.users.member }).canManage(secret), true)
+    assert.equal((await h.other('GET', h.url('/api/note', { path: PATH.cake }))).status, 200)
 
-    // The admin with manage on the root reads nothing of personas/laura, nor under it, however its subfolders are set.
-    for (const path of ['personas/laura/recetas/tarta.md', 'personas/laura/recetas/secreta/pan.md', 'personas/laura/diario/2026-09-27.md']) {
-      assert.equal((await h.noa('GET', h.url('/api/note', { path }))).status, 404, path)
+    // The admin with manage on the root reads nothing of the member's personal folder, nor under it, however its subfolders are set.
+    for (const path of [PATH.cake, bread, PATH.diary]) {
+      assert.equal((await h.admin('GET', h.url('/api/note', { path }))).status, 404, path)
     }
-    assert.ok(!(await h.noa('GET', '/api/tree')).body.folders.some((f: string) => f.startsWith('personas/laura')))
-    assert.deepEqual((await h.noa('GET', h.url('/api/search', { q: 'Obsidiana' }))).body.results, [])
-    const kAccess = h.policy.for({ kind: 'user', user: h.users.noa })
-    assert.deepEqual(['personas/laura', 'personas/laura/recetas', 'personas/laura/recetas/secreta', 'personas/antigua'].map((f) => kAccess.level(f)), [null, null, null, null])
-    // He still sees and changes its permissions as the admin (folder names, never contents), and a grant to himself is explicit.
-    const asAdmin = (await h.noa('GET', h.url('/api/permissions', { folder: recetas }))).body
+    assert.ok(!(await h.admin('GET', '/api/tree')).body.folders.some((f: string) => under(f, HOME.member)))
+    assert.deepEqual((await h.admin('GET', h.url('/api/search', { q: WORD.cake }))).body.results, [])
+    const kAccess = h.policy.for({ kind: 'user', user: h.users.admin })
+    assert.deepEqual([HOME.member, RECIPES, secret, HOME.nobody].map((f) => kAccess.level(f)), [null, null, null, null])
+    // They still see and change its permissions as the admin (folder names, never contents), and a grant to themselves is explicit.
+    const asAdmin = (await h.admin('GET', h.url('/api/permissions', { folder: RECIPES }))).body
     assert.equal(asAdmin.canEdit, true)
-    assert.ok(!asAdmin.access.some((a: { username: string }) => a.username === 'noa'))
-    const reached = (await h.noa('GET', h.url('/api/permissions/access', { user: h.users.noa.id }))).body.folders.map((f: { folder: string }) => f.folder)
-    assert.ok(reached.includes('familia/viajes/sorpresa') && !reached.some((f: string) => f.startsWith('personas/laura')), reached.join(', '))
+    assert.ok(!asAdmin.access.some((a: { username: string }) => a.username === A))
+    const reached = (await h.admin('GET', h.url('/api/permissions/access', { user: h.users.admin.id }))).body.folders.map((f: { folder: string }) => f.folder)
+    assert.ok(reached.includes(folder) && !reached.some((f: string) => under(f, HOME.member)), reached.join(', '))
   } finally { await h.close() }
 })
 
 test('permissions fail closed: rejected at start, nobody reads; rejected while running, the last valid stay; unknown subjects are ignored with a warning', async () => {
-  const bad = RULES.replace('grants: { noa: manage }', 'grants: { noa: owner }')
+  const bad = RULES.replace(`grants: { ${yamlKey(A)}: manage }`, `grants: { ${yamlKey(A)}: owner }`)
+  assert.notEqual(bad, RULES)
+  // Subjects nobody is: a user and a group; and a folder that isn't there.
+  const [nobody, noGroup] = [m.aUsername(), m.aGroupName()]
+  const extra = `${DIR.shared}/${m.aFolder()}`
   const h = await setup({ files: FILES, config: bad })
   try {
-    for (const who of ['noa', 'laura'] as const) assert.deepEqual((await h.as(who)('GET', '/api/tree')).body.notes, [], who)
-    const alerts = (await h.noa('GET', '/api/alerts')).body.alerts as { code: string; fallback?: string }[]
+    for (const who of ['admin', 'member'] as const) assert.deepEqual((await h.as(who)('GET', '/api/tree')).body.notes, [], who)
+    const alerts = (await h.admin('GET', '/api/alerts')).body.alerts as { code: string; fallback?: string }[]
     assert.deepEqual(alerts.find((a) => a.code === 'permissions_rejected'), { code: 'permissions_rejected', fallback: 'closed', actions: [] })
     assert.ok(alerts.some((a) => a.code === 'config_warnings'))
-    assert.deepEqual(((await h.laura('GET', '/api/alerts')).body.alerts as { code: string }[]).map((a) => a.code), [], 'the system\'s alerts are the admin\'s')
+    assert.deepEqual(((await h.member('GET', '/api/alerts')).body.alerts as { code: string }[]).map((a) => a.code), [], 'the system\'s alerts are the admin\'s')
     // thoth doesn't write over a section it can't read.
-    const etag = (await h.noa('GET', h.url('/api/permissions', { folder: '' }))).body.etag
-    assert.deepEqual([(await h.noa('PUT', '/api/permissions', { folder: 'x', grants: {}, ifMatch: etag })).body.error], ['config_invalid'])
+    const etag = (await h.admin('GET', h.url('/api/permissions', { folder: '' }))).body.etag
+    assert.deepEqual([(await h.admin('PUT', '/api/permissions', { folder: m.aFolder(), grants: {}, ifMatch: etag })).body.error], ['config_invalid'])
 
     // Fixed: it applies. Then broken again while running: the last valid stays.
-    writeFileSync(join(h.notesDir, 'thoth.yaml'), RULES + '  familia/extra:\n    grants: { nadie: read, "@nadie": edit }\n')
+    writeFileSync(join(h.notesDir, 'thoth.yaml'), RULES + `  ${yamlKey(extra)}:\n    grants: { ${yamlKey(nobody)}: read, ${yamlKey(`@${noGroup}`)}: edit }\n`)
     h.workspace.reload()
-    assert.equal((await h.laura('GET', h.url('/api/note', { path: 'familia/compra.md' }))).status, 200)
-    const warnings = ((await h.noa('GET', '/api/alerts')).body.alerts as { code: string; warnings?: { code: string; detail: string }[] }[]).find((a) => a.code === 'config_warnings')!.warnings!
-    assert.deepEqual(warnings.filter((w) => w.code === 'unknown_subject').map((w) => w.detail), ['nadie', '@nadie'])
-    assert.ok(warnings.some((w) => w.code === 'missing_folder' && w.detail === 'familia/extra'), 'a rule for a folder that doesn\'t exist')
+    assert.equal((await h.member('GET', h.url('/api/note', { path: PATH.list }))).status, 200)
+    const warnings = ((await h.admin('GET', '/api/alerts')).body.alerts as { code: string; warnings?: { code: string; detail: string }[] }[]).find((a) => a.code === 'config_warnings')!.warnings!
+    assert.deepEqual(warnings.filter((w) => w.code === 'unknown_subject').map((w) => w.detail), [nobody, `@${noGroup}`])
+    assert.ok(warnings.some((w) => w.code === 'missing_folder' && w.detail === extra), 'a rule for a folder that doesn\'t exist')
     writeFileSync(join(h.notesDir, 'thoth.yaml'), bad)
     h.workspace.reload()
-    assert.equal((await h.laura('GET', h.url('/api/note', { path: 'familia/compra.md' }))).status, 200)
-    const now = (await h.noa('GET', '/api/alerts')).body.alerts as { code: string; fallback?: string }[]
+    assert.equal((await h.member('GET', h.url('/api/note', { path: PATH.list }))).status, 200)
+    const now = (await h.admin('GET', '/api/alerts')).body.alerts as { code: string; fallback?: string }[]
     assert.equal(now.find((a) => a.code === 'permissions_rejected')?.fallback, 'last_good')
   } finally { await h.close() }
 })
 
 test('folders: create with edit, move and delete with manage; their rules go with them, and a move says whose access changes', async () => {
-  const h = await setup({ files: { ...FILES, 'familia/viajes/roma.md': '# Roma\n' }, config: RULES + '  familia/viajes:\n    grants: { laura: manage, noa: read }\n' })
+  const tripsName = m.aFolder()
+  const trips = `${DIR.shared}/${tripsName}`
+  const rome = m.aNotePath(trips)
+  const h = await setup({ files: { ...FILES, [rome]: noteText() }, config: RULES + rule(trips, [[M, 'manage'], [A, 'read']]) })
   try {
-    assert.equal((await h.marta('POST', '/api/folder', { path: 'familia/nueva' })).status, 201)
-    assert.equal((await h.marta('POST', '/api/folder', { path: 'admin/nueva' })).status, 404)
-    // Noa only reads it by its own grants, but he manages the root, and managing keeps reaching under it (D-040 3.5).
-    assert.equal((await h.noa('POST', '/api/folder', { path: 'familia/viajes/x' })).status, 201, 'he manages it from above')
-    assert.equal((await h.marta('POST', '/api/folder', { path: 'familia/viajes/y' })).status, 404, 'not granted there: she can\'t see it')
-    // Moving familia/viajes: Laura manages it; she needs edit where it goes.
-    assert.equal((await h.marta('POST', '/api/folder/move', { from: 'familia/viajes', to: 'familia/v2' })).status, 404, 'she can\'t see it')
-    assert.equal((await h.laura('POST', '/api/folder/move', { from: 'familia/viajes', to: 'admin/viajes' })).status, 404)
-    const dry = await h.laura('POST', '/api/folder/move', { from: 'familia/viajes', to: 'personas/laura/viajes', dryRun: true })
+    assert.equal((await h.other('POST', '/api/folder', { path: `${DIR.shared}/${m.aFolder()}` })).status, 201)
+    assert.equal((await h.other('POST', '/api/folder', { path: `${DIR.admin}/${m.aFolder()}` })).status, 404)
+    // The admin only reads it by their own grants, but they manage the root, and managing keeps reaching under it (D-040 3.5).
+    assert.equal((await h.admin('POST', '/api/folder', { path: `${trips}/${m.aFolder()}` })).status, 201, 'they manage it from above')
+    assert.equal((await h.other('POST', '/api/folder', { path: `${trips}/${m.aFolder()}` })).status, 404, 'not granted there: they can\'t see it')
+    // Moving the trips folder: the member manages it; they need edit where it goes.
+    assert.equal((await h.other('POST', '/api/folder/move', { from: trips, to: `${DIR.shared}/${m.aFolder()}` })).status, 404, 'they can\'t see it')
+    assert.equal((await h.member('POST', '/api/folder/move', { from: trips, to: `${DIR.admin}/${tripsName}` })).status, 404)
+    const to = `${HOME.member}/${tripsName}`
+    const dry = await h.member('POST', '/api/folder/move', { from: trips, to, dryRun: true })
     assert.equal(dry.status, 200, dry.text)
     assert.deepEqual(dry.body.audience.users, { gain: [], lose: [] }, 'its own rules go with it')
-    const moved = await h.laura('POST', '/api/folder/move', { from: 'familia/viajes', to: 'personas/laura/viajes' })
+    const moved = await h.member('POST', '/api/folder/move', { from: trips, to })
     assert.equal(moved.status, 200, moved.text)
     const yaml = readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8')
     assert.ok(yaml.startsWith(RULES))
-    assert.match(yaml, /personas\/laura\/viajes:\n {4}grants: \{ laura: manage, noa: read \}\n$/)
-    assert.doesNotMatch(yaml, /familia\/viajes/)
-    assert.equal((await h.noa('GET', h.url('/api/note', { path: 'personas/laura/viajes/roma.md' }))).status, 200, 'the rules went with it')
+    assert.match(yaml, new RegExp(`${ruleRe(to, [[M, 'manage'], [A, 'read']])}$`, 'u'))
+    assert.ok(!yaml.includes(trips), yaml)
+    assert.equal((await h.admin('GET', h.url('/api/note', { path: `${to}/${basename(rome)}` }))).status, 200, 'the rules went with it')
 
     // A folder under a {user} rule, renamed: the rule stops matching it, so a literal copy goes with it.
-    // (Laura can't rename hers: she has no `edit` in personas/, where it would go.)
-    assert.equal((await h.laura('POST', '/api/folder/move', { from: 'personas/laura', to: 'personas/laura-old' })).status, 404)
-    const r2 = await h.noa('POST', '/api/folder/move', { from: 'personas/noa', to: 'personas/noa-old' })
+    // (The member can't rename theirs: they have no `edit` in the people's folder, where it would go.)
+    assert.equal((await h.member('POST', '/api/folder/move', { from: HOME.member, to: `${DIR.people}/${m.aFolder()}` })).status, 404)
+    const renamed = `${DIR.people}/${m.aFolder()}`
+    const r2 = await h.admin('POST', '/api/folder/move', { from: HOME.admin, to: renamed })
     assert.equal(r2.status, 200, r2.text)
-    assert.equal((await h.noa('GET', h.url('/api/note', { path: 'personas/noa-old/plan.md' }))).status, 200)
-    assert.match(readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8'), /personas\/noa-old:\n {4}grants: \{ noa: manage \}\n/)
+    assert.equal((await h.admin('GET', h.url('/api/note', { path: `${renamed}/${basename(PATH.adminPlan)}` }))).status, 200)
+    assert.match(readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8'), new RegExp(ruleRe(renamed, [[A, 'manage']]), 'u'))
 
     // Deleting: manage, and empty; its rules go.
-    assert.equal((await h.noa('POST', '/api/folder', { path: 'admin/vacia' })).status, 201)
-    assert.equal((await h.laura('DELETE', h.url('/api/folder', { path: 'admin/vacia' }))).status, 404)
-    assert.equal((await h.noa('DELETE', h.url('/api/folder', { path: 'admin/vacia' }))).status, 200)
+    const empty = `${DIR.admin}/${m.aFolder()}`
+    assert.equal((await h.admin('POST', '/api/folder', { path: empty })).status, 201)
+    assert.equal((await h.member('DELETE', h.url('/api/folder', { path: empty }))).status, 404)
+    assert.equal((await h.admin('DELETE', h.url('/api/folder', { path: empty }))).status, 200)
   } finally { await h.close() }
 })
 
 test('a move that fails leaves the rules as they were', async () => {
-  const h = await setup({ files: { ...FILES, 'familia/viajes/roma.md': '# Roma\n', 'familia/otro/x.md': '# X\n' }, config: RULES + '  familia/viajes:\n    grants: { laura: manage }\n' })
+  const trips = `${DIR.shared}/${m.aFolder()}`
+  const taken = `${DIR.shared}/${m.aFolder()}`
+  const h = await setup({ files: { ...FILES, [m.aNotePath(trips)]: noteText(), [m.aNotePath(taken)]: noteText() }, config: RULES + rule(trips, [[M, 'manage']]) })
   try {
     const before = readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8')
-    const r = await h.laura('POST', '/api/folder/move', { from: 'familia/viajes', to: 'familia/otro' })
+    const r = await h.member('POST', '/api/folder/move', { from: trips, to: taken })
     assert.deepEqual([r.status, r.body.error], [409, 'exists'])
     assert.equal(readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8'), before)
   } finally { await h.close() }
@@ -389,39 +448,39 @@ test('a move that fails leaves the rules as they were', async () => {
 test('the trash: each person sees what was deleted where they\'d edit, and restores with edit where it goes', async () => {
   const h = await setup({ files: FILES })
   try {
-    assert.equal((await h.laura('DELETE', h.url('/api/note', { path: 'personas/laura/recetas/tarta.md' }))).status, 200)
-    assert.equal((await h.marta('DELETE', h.url('/api/note', { path: 'familia/compra.md' }))).status, 200)
-    const trash = async (who: 'noa' | 'laura' | 'marta') => ((await h.as(who)('GET', '/api/trash')).body.entries as { path: string; id: string }[])
-    assert.deepEqual((await trash('laura')).map((e) => e.path).sort(), ['familia/compra.md', 'personas/laura/recetas/tarta.md'])
-    assert.deepEqual((await trash('noa')).map((e) => e.path), ['familia/compra.md'])
-    const hers = (await trash('laura')).find((e) => e.path.startsWith('personas'))!
-    assert.equal((await h.noa('POST', `/api/trash/${hers.id}/restore`, {})).status, 404)
-    assert.equal((await h.laura('POST', `/api/trash/${hers.id}/restore`, { to: 'admin/tarta.md' })).status, 404, 'not where she can\'t write')
-    assert.equal((await h.laura('POST', `/api/trash/${hers.id}/restore`, {})).status, 200)
+    assert.equal((await h.member('DELETE', h.url('/api/note', { path: PATH.cake }))).status, 200)
+    assert.equal((await h.other('DELETE', h.url('/api/note', { path: PATH.list }))).status, 200)
+    const trash = async (who: Name) => ((await h.as(who)('GET', '/api/trash')).body.entries as { path: string; id: string }[])
+    assert.deepEqual((await trash('member')).map((e) => e.path).sort(), sorted([PATH.list, PATH.cake]))
+    assert.deepEqual((await trash('admin')).map((e) => e.path), [PATH.list])
+    const theirs = (await trash('member')).find((e) => e.path === PATH.cake)!
+    assert.equal((await h.admin('POST', `/api/trash/${theirs.id}/restore`, {})).status, 404)
+    assert.equal((await h.member('POST', `/api/trash/${theirs.id}/restore`, { to: `${DIR.admin}/${basename(PATH.cake)}` })).status, 404, 'not where they can\'t write')
+    assert.equal((await h.member('POST', `/api/trash/${theirs.id}/restore`, {})).status, 200)
   } finally { await h.close() }
 })
 
 test('history at edit: «Recent changes» only where one edits, authors without anyone else\'s agents, restore brings only images one may read', async () => {
   const h = await setup({ files: FILES })
   try {
-    const put = async (who: 'noa' | 'laura', path: string, add: string) => {
+    const put = async (who: Name, path: string, add: string) => {
       const cur = await h.as(who)('GET', h.url('/api/note', { path }))
       assert.equal((await h.as(who)('PUT', h.url('/api/note', { path }), { text: cur.body.text + add }, { 'if-match': `"${cur.body.etag}"` })).status, 200)
       await h.settle()
     }
-    await put('laura', 'personas/laura/recetas/tarta.md', 'más Obsidiana\n')
-    await put('noa', 'admin/ajustes.md', 'más Berilo\n')
-    const files = async (who: 'noa' | 'laura' | 'marta') => ((await h.as(who)('GET', '/api/history/changes?limit=100')).body.changes as { files: { path: string }[] }[]).flatMap((c) => c.files.map((f) => f.path))
-    const k = await files('noa')
-    assert.ok(k.includes('admin/ajustes.md') && !k.some((p) => p.startsWith('personas/laura')) && !k.includes('thoth.yaml'), k.join(', '))
-    const l = await files('laura')
-    assert.ok(l.includes('personas/laura/recetas/tarta.md') && !l.includes('admin/ajustes.md'), l.join(', '))
-    const authors = (await h.marta('GET', '/api/history/changes')).body.authors.map((a: { kind: string }) => a.kind)
+    await put('member', PATH.cake, `${m.aSentence()}\n`)
+    await put('admin', PATH.settings, `${m.aSentence()}\n`)
+    const files = async (who: Name) => ((await h.as(who)('GET', '/api/history/changes?limit=100')).body.changes as { files: { path: string }[] }[]).flatMap((c) => c.files.map((f) => f.path))
+    const k = await files('admin')
+    assert.ok(k.includes(PATH.settings) && !k.some((p) => under(p, HOME.member)) && !k.includes('thoth.yaml'), k.join(', '))
+    const l = await files('member')
+    assert.ok(l.includes(PATH.cake) && !l.includes(PATH.settings), l.join(', '))
+    const authors = (await h.other('GET', '/api/history/changes')).body.authors.map((a: { kind: string }) => a.kind)
     assert.ok(authors.every((k: string) => k !== 'agent' && k !== 'git'))
     // A cursor goes on only with the note it was made for.
-    const page = (await h.laura('GET', h.url('/api/history/versions', { path: 'personas/laura/recetas/tarta.md', limit: '1' }))).body
+    const page = (await h.member('GET', h.url('/api/history/versions', { path: PATH.cake, limit: '1' }))).body
     assert.ok(page.next)
-    const other = await h.laura('GET', h.url('/api/history/versions', { path: 'familia/compra.md', cursor: page.next }))
+    const other = await h.member('GET', h.url('/api/history/versions', { path: PATH.list, cursor: page.next }))
     assert.deepEqual([other.status, other.body.error], [400, 'invalid'])
   } finally { await h.close() }
 })
@@ -429,37 +488,42 @@ test('history at edit: «Recent changes» only where one edits, authors without 
 test('a note moved outside thoth out of a folder with its own rules is held from everyone until someone decides', async () => {
   const h = await setup({ files: FILES })
   try {
-    // With a shell: Laura's recipe (with its uid) lands in the shared folder.
-    renameSync(join(h.notesDir, 'personas/laura/recetas/tarta.md'), join(h.notesDir, 'familia/tarta.md'))
+    // With a shell: the member's recipe (with its uid) lands in the shared folder.
+    const landed = `${DIR.shared}/${basename(PATH.cake)}`
+    renameSync(join(h.notesDir, PATH.cake), join(h.notesDir, landed))
     h.runtime.rescan({})
-    for (const who of ['noa', 'laura', 'marta'] as const) {
-      assert.equal((await h.as(who)('GET', h.url('/api/note', { path: 'familia/tarta.md' }))).status, 404, who)
-      assert.ok(!(await h.as(who)('GET', '/api/tree')).body.notes.some((n: { path: string }) => n.path === 'familia/tarta.md'), who)
+    for (const who of ['admin', 'member', 'other'] as const) {
+      assert.equal((await h.as(who)('GET', h.url('/api/note', { path: landed }))).status, 404, who)
+      assert.ok(!(await h.as(who)('GET', '/api/tree')).body.notes.some((n: { path: string }) => n.path === landed), who)
     }
-    const held = ((await h.laura('GET', '/api/alerts')).body.alerts as { code: string; id: string; folder: string; to: string | null; notes: number; actions: string[] }[]).find((a) => a.code === 'permissions_held')!
-    assert.deepEqual({ ...held, id: '' }, { code: 'permissions_held', id: '', folder: 'personas/laura', to: null, notes: 1, actions: ['release'] })
-    assert.equal(((await h.marta('GET', '/api/alerts')).body.alerts as { code: string }[]).some((a) => a.code === 'permissions_held'), false, 'only the admin and whoever manages that folder')
-    assert.equal((await h.marta('POST', `/api/permissions/holds/${held.id}`, { action: 'release' })).status, 404)
-    assert.equal((await h.laura('POST', `/api/permissions/holds/${held.id}`, { action: 'release' })).status, 200)
-    assert.equal((await h.marta('GET', h.url('/api/note', { path: 'familia/tarta.md' }))).status, 200, 'released: the folder it\'s in applies')
+    const held = ((await h.member('GET', '/api/alerts')).body.alerts as { code: string; id: string; folder: string; to: string | null; notes: number; actions: string[] }[]).find((a) => a.code === 'permissions_held')!
+    assert.deepEqual({ ...held, id: '' }, { code: 'permissions_held', id: '', folder: HOME.member, to: null, notes: 1, actions: ['release'] })
+    assert.equal(((await h.other('GET', '/api/alerts')).body.alerts as { code: string }[]).some((a) => a.code === 'permissions_held'), false, 'only the admin and whoever manages that folder')
+    assert.equal((await h.other('POST', `/api/permissions/holds/${held.id}`, { action: 'release' })).status, 404)
+    assert.equal((await h.member('POST', `/api/permissions/holds/${held.id}`, { action: 'release' })).status, 200)
+    assert.equal((await h.other('GET', h.url('/api/note', { path: landed }))).status, 200, 'released: the folder it\'s in applies')
   } finally { await h.close() }
 })
 
 test('a folder with its own rules renamed outside thoth: its notes are held, and «move its permissions» takes the rules where it went', async () => {
-  const h = await setup({ files: { ...FILES, 'familia/viajes/roma.md': '# Roma\n\nPalabra Coliseo.\n' }, config: RULES + '  familia/viajes:\n    grants: { laura: manage }\n' })
+  const trips = `${DIR.shared}/${m.aFolder()}`
+  const routes = `${DIR.shared}/${m.aFolder()}`
+  const title = m.aTitle()
+  const h = await setup({ files: { ...FILES, [`${trips}/${title}.md`]: noteText() }, config: RULES + rule(trips, [[M, 'manage']]) })
   try {
-    renameSync(join(h.notesDir, 'familia/viajes'), join(h.notesDir, 'familia/rutas'))
+    const note = h.url('/api/note', { path: `${routes}/${title}.md` })
+    renameSync(join(h.notesDir, trips), join(h.notesDir, routes))
     h.runtime.rescan({})
-    assert.equal((await h.marta('GET', h.url('/api/note', { path: 'familia/rutas/roma.md' }))).status, 404, 'it would have inherited familia/: held instead')
-    assert.equal((await h.laura('GET', h.url('/api/note', { path: 'familia/rutas/roma.md' }))).status, 404)
-    const held = ((await h.noa('GET', '/api/alerts')).body.alerts as { code: string; id: string; to: string | null; actions: string[] }[]).find((a) => a.code === 'permissions_held')!
-    assert.deepEqual([held.to, held.actions], ['familia/rutas', ['move_permissions', 'release']])
-    const warnings = ((await h.noa('GET', '/api/alerts')).body.alerts as { code: string; warnings?: { code: string; detail: string }[] }[]).find((a) => a.code === 'config_warnings')?.warnings ?? []
-    assert.ok(warnings.some((w) => w.code === 'missing_folder' && w.detail === 'familia/viajes'))
-    const r = await h.laura('POST', `/api/permissions/holds/${held.id}`, { action: 'move_permissions' })
+    assert.equal((await h.other('GET', note)).status, 404, 'it would have inherited the shared folder\'s grants: held instead')
+    assert.equal((await h.member('GET', note)).status, 404)
+    const held = ((await h.admin('GET', '/api/alerts')).body.alerts as { code: string; id: string; to: string | null; actions: string[] }[]).find((a) => a.code === 'permissions_held')!
+    assert.deepEqual([held.to, held.actions], [routes, ['move_permissions', 'release']])
+    const warnings = ((await h.admin('GET', '/api/alerts')).body.alerts as { code: string; warnings?: { code: string; detail: string }[] }[]).find((a) => a.code === 'config_warnings')?.warnings ?? []
+    assert.ok(warnings.some((w) => w.code === 'missing_folder' && w.detail === trips))
+    const r = await h.member('POST', `/api/permissions/holds/${held.id}`, { action: 'move_permissions' })
     assert.equal(r.status, 200, r.text)
-    assert.match(readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8'), /familia\/rutas:\n {4}grants: \{ laura: manage \}\n/)
-    assert.equal((await h.laura('GET', h.url('/api/note', { path: 'familia/rutas/roma.md' }))).status, 200)
-    assert.equal((await h.marta('GET', h.url('/api/note', { path: 'familia/rutas/roma.md' }))).status, 404, 'the same audience as before')
+    assert.match(readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8'), new RegExp(ruleRe(routes, [[M, 'manage']]), 'u'))
+    assert.equal((await h.member('GET', note)).status, 200)
+    assert.equal((await h.other('GET', note)).status, 404, 'the same audience as before')
   } finally { await h.close() }
 })

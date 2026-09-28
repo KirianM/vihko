@@ -6,7 +6,8 @@ import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { generateVault } from '../../server/test/acceptance/_vault.ts'
-import { ACC_DIR, ACC_PORT, NOTES, PASSWORD, PERMISSIONS, USERS } from './env.ts'
+import { seedLine, testSeed } from '../../../test/seed.ts'
+import { ACC_DIR, ACC_PORT, NOTES, PERMISSIONS, USERS } from './env.ts'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const cli = root + 'packages/server/src/cli.ts'
@@ -14,12 +15,16 @@ const env = { ...process.env, THOTH_NOTES_DIR: NOTES, THOTH_STATE_DIR: ACC_DIR +
 
 rmSync(ACC_DIR, { recursive: true, force: true })
 mkdirSync(ACC_DIR, { recursive: true })
+// The specs must draw the same people: Playwright, started without a seed against this server, reads it here.
+const seed = testSeed()
+writeFileSync(ACC_DIR + '/seed', `${seed}\n`)
+console.log(seedLine(seed, 'node packages/web/acceptance/serve.ts'))
 const vault = generateVault(NOTES, { notes: Number(process.env.ACCEPTANCE_NOTES ?? 1000), seed: Number(process.env.ACCEPTANCE_SEED ?? 1) })
 // What the specs need to know about the vault.
 writeFileSync(ACC_DIR + '/vault.json', JSON.stringify(vault))
 writeFileSync(NOTES + '/thoth.yaml', PERMISSIONS)
-for (const [name, admin] of USERS) {
-  execFileSync(process.execPath, ['--no-experimental-webstorage', cli, 'user', 'create', name, ...(admin ? ['--admin'] : [])], { env, input: PASSWORD })
+for (const u of USERS) {
+  execFileSync(process.execPath, ['--no-experimental-webstorage', cli, 'user', 'create', u.username, ...(u.role === 'admin' ? ['--admin'] : [])], { env, input: u.password })
 }
 const server = spawn(process.execPath, ['--no-experimental-webstorage', cli, 'serve'], {
   env: { ...env, THOTH_HOST: '127.0.0.1', THOTH_PORT: String(ACC_PORT) },

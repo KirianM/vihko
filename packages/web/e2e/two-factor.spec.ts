@@ -8,12 +8,14 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { createHmac } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
-import { E2E_DIR, PASSWORD, PUBLIC_URL, unique } from './env.ts'
-import { signIn, usePermissions } from './helpers.ts'
+import { ADMIN, E2E_DIR, PUBLIC_URL, specMother } from './env.ts'
+import { literally, signIn, usePermissions } from './helpers.ts'
 
+const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
-const LUCIA = unique('tfa-lucia')
-const PABLO = unique('tfa-pablo')
+/** A member who sets it up herself, and one invited while it's required: people of this spec. */
+const PERSON = m.aUser({ role: 'member' })
+const INVITED = m.aUser({ role: 'member' })
 
 test.describe.configure({ mode: 'serial' })
 /**
@@ -26,15 +28,15 @@ let keeper: Page
 test.beforeAll(async ({ browser }) => {
   mkdirSync(SHOTS, { recursive: true })
   // A member sees nothing until something is granted (D-038): the two of them read everything.
-  await usePermissions({ grants: { [LUCIA]: 'read', [PABLO]: 'read' } })
-  keeper = await signIn(browser, 'noa')
+  await usePermissions({ grants: { [PERSON.username]: 'read', [INVITED.username]: 'read' } })
+  keeper = await signIn(browser, ADMIN)
 })
 
 test.afterAll(async () => {
   const admin = keeper
-  await admin.request.put('/api/admin/settings', { data: { twoFactor: 'optional', confirm: PASSWORD } })
+  await admin.request.put('/api/admin/settings', { data: { twoFactor: 'optional', confirm: ADMIN.password } })
   for (const u of (await (await admin.request.get('/api/admin/users')).json()).users as { id: string; username: string }[]) {
-    if (u.username !== LUCIA && u.username !== PABLO) continue
+    if (u.username !== PERSON.username && u.username !== INVITED.username) continue
     await admin.request.post(`/api/admin/users/${u.id}/disable`)
     await admin.request.delete(`/api/admin/users/${u.id}`)
   }
@@ -114,19 +116,20 @@ async function password(browser: Browser | Page, user: string, pw: string) {
   return page
 }
 
-const row = (page: Page, name: string) => page.getByRole('row', { name: new RegExp(`^${name}\\b`) })
+/** A user's row: its name comes first, then something that can't continue a username. */
+const row = (page: Page, name: string) => page.getByRole('row', { name: new RegExp(`^${literally(name)}(?![\\p{L}\\p{N}._-])`, 'u') })
 
-let lucia: ReturnType<typeof authenticator>
+let app: ReturnType<typeof authenticator>
 let recovery: string[] = []
-/** Lucia's session from a recovery code, for the next test: a new key asks for the app's code even with one. */
+/** The member's session from a recovery code, for the next test: a new key asks for the app's code even with one. */
 let session: Page
 
 test('a member sets it up from «Account»: nothing is on until a code from the app is verified; then the recovery codes, once', async ({ browser }) => {
-  const admin = await signIn(browser, 'noa')
-  expect((await admin.request.post('/api/admin/users', { data: { username: LUCIA, role: 'member', password: 'lucia-contraseña-larga' } })).status()).toBe(201)
+  const admin = await signIn(browser, ADMIN)
+  expect((await admin.request.post('/api/admin/users', { data: { username: PERSON.username, role: 'member', password: PERSON.password } })).status()).toBe(201)
   await admin.context().close()
 
-  const page = await password(browser, LUCIA, 'lucia-contraseña-larga')
+  const page = await password(browser, PERSON.username, PERSON.password)
   await expect(page.getByRole('treegrid')).toBeVisible()
   await openSettings(page, 'Cuenta', 'account')
   const section = page.getByRole('region', { name: 'Verificación en dos pasos' })
@@ -135,10 +138,10 @@ test('a member sets it up from «Account»: nothing is on until a code from the 
 
   // The password first: a session left open can't lock its owner out.
   const dialog = page.getByRole('dialog', { name: 'Activar la verificación en dos pasos' })
-  await dialog.getByLabel('Contraseña actual').fill('no-es-la-mia-para-nada')
+  await dialog.getByLabel('Contraseña actual').fill(m.aPassword())
   await dialog.getByRole('button', { name: 'Seguir' }).click()
   await expect(dialog.getByRole('alert')).toHaveText('La contraseña actual no es correcta.')
-  await dialog.getByLabel('Contraseña actual').fill('lucia-contraseña-larga')
+  await dialog.getByLabel('Contraseña actual').fill(PERSON.password)
   await dialog.getByRole('button', { name: 'Seguir' }).click()
 
   // The QR code, the secret as text, and the app's link.
@@ -147,7 +150,7 @@ test('a member sets it up from «Account»: nothing is on until a code from the 
   expect(secret).toMatch(/^([A-Z2-7]{4} ){7}[A-Z2-7]{4}$/)
   const uri = await dialog.getByRole('link', { name: 'Abrir en la app de este dispositivo' }).getAttribute('href')
   // Named after the installation's public address (THOTH_PUBLIC_URL), so that two thoths tell apart in the app.
-  expect(uri).toBe(`otpauth://totp/thoth:${LUCIA}%40${new URL(PUBLIC_URL).host}?secret=${secret.replace(/ /g, '')}&issuer=thoth&algorithm=SHA1&digits=6&period=30`)
+  expect(uri).toBe(`otpauth://totp/thoth:${encodeURIComponent(PERSON.username)}%40${new URL(PUBLIC_URL).host}?secret=${secret.replace(/ /g, '')}&issuer=thoth&algorithm=SHA1&digits=6&period=30`)
   await page.screenshot({ path: `${SHOTS}/twofa-setup-light.png`, animations: 'disabled' })
   // A wrong code turns nothing on.
   await dialog.getByLabel('Código de verificación').fill('000000')
@@ -155,8 +158,8 @@ test('a member sets it up from «Account»: nothing is on until a code from the 
   await expect(dialog.getByRole('alert')).toContainText('El código no es correcto')
   expect((await (await page.request.get('/api/account/2fa')).json()).enabled).toBe(false)
 
-  lucia = authenticator(secret)
-  await dialog.getByLabel('Código de verificación').fill(await lucia.next())
+  app = authenticator(secret)
+  await dialog.getByLabel('Código de verificación').fill(await app.next())
   await dialog.getByRole('button', { name: 'Verificar y activar' }).click()
   const codes = page.getByRole('dialog', { name: 'Guarda tus códigos de recuperación' })
   await expect(codes.getByRole('note')).toContainText('Solo se muestran ahora')
@@ -172,14 +175,14 @@ test('a member sets it up from «Account»: nothing is on until a code from the 
 })
 
 test('signing in: the password, then the app\'s code, which works once; or a recovery code, which says how many are left', async ({ browser }) => {
-  const page = await password(browser, LUCIA, 'lucia-contraseña-larga')
+  const page = await password(browser, PERSON.username, PERSON.password)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Verificación en dos pasos')
-  await expect(page.getByText(`Escribe el código de 6 cifras que muestra tu app de autenticación, ${LUCIA}.`)).toBeVisible()
+  await expect(page.getByText(`Escribe el código de 6 cifras que muestra tu app de autenticación, ${PERSON.username}.`)).toBeVisible()
   await page.getByLabel('Código de verificación').fill('000000')
   await page.getByRole('button', { name: 'Verificar' }).click()
   await expect(page.getByRole('alert')).toContainText('El código no es correcto')
   await page.screenshot({ path: `${SHOTS}/twofa-login-light.png`, animations: 'disabled' })
-  const code = await lucia.next()
+  const code = await app.next()
   await page.getByLabel('Código de verificación').fill(code)
   await page.getByRole('button', { name: 'Verificar' }).click()
   await expect(page.getByRole('treegrid')).toBeVisible()
@@ -187,13 +190,13 @@ test('signing in: the password, then the app\'s code, which works once; or a rec
   // whose failures count for this account there and not for the whole address
   // (which every spec's sign-ins share).
   expect((await page.request.post('/api/auth/logout')).status()).toBe(200)
-  await password(page, LUCIA, 'lucia-contraseña-larga')
+  await password(page, PERSON.username, PERSON.password)
   await page.getByLabel('Código de verificación').fill(code)
   await page.getByRole('button', { name: 'Verificar' }).click()
   await expect(page.getByRole('alert')).toContainText('Ese código ya se ha usado')
   await page.context().close()
 
-  const other = await password(browser, LUCIA, 'lucia-contraseña-larga')
+  const other = await password(browser, PERSON.username, PERSON.password)
   await other.getByRole('button', { name: '¿No tienes el móvil? Usa un código de recuperación' }).click()
   await other.getByLabel('Código de recuperación').fill(recovery[0]!.toUpperCase())
   await other.getByRole('button', { name: 'Verificar' }).click()
@@ -204,7 +207,7 @@ test('signing in: the password, then the app\'s code, which works once; or a rec
   session = other
 
   // A recovery code works once.
-  const again = await password(browser, LUCIA, 'lucia-contraseña-larga')
+  const again = await password(browser, PERSON.username, PERSON.password)
   await again.getByRole('button', { name: '¿No tienes el móvil? Usa un código de recuperación' }).click()
   await again.getByLabel('Código de recuperación').fill(recovery[0]!)
   await again.getByRole('button', { name: 'Verificar' }).click()
@@ -217,51 +220,52 @@ test('a new key asks for the app\'s current code, even with a session; the passw
   await openSettings(page, 'Agentes y API', 'agents')
   await page.getByRole('button', { name: 'Nueva clave' }).click()
   const dialog = page.getByRole('dialog', { name: 'Nueva clave' })
-  await dialog.getByLabel('Nombre').fill('Clave 2FA e2e')
+  const keyName = m.aKeyName()
+  await dialog.getByLabel('Nombre').fill(keyName)
   const confirm = dialog.getByLabel('Código de tu app de autenticación')
   await expect(dialog.getByText('Una clave da acceso a tus notas: confirma que eres tú, aunque ya hayas entrado.')).toBeVisible()
-  await confirm.fill('lucia-contraseña-larga')
+  await confirm.fill(PERSON.password)
   await dialog.getByRole('button', { name: 'Crear la clave' }).click()
   await expect(dialog.getByRole('alert')).toContainText('El código no es correcto')
-  await confirm.fill(await lucia.next())
+  await confirm.fill(await app.next())
   await page.screenshot({ path: `${SHOTS}/twofa-key-confirm-light.png`, animations: 'disabled' })
   await dialog.getByRole('button', { name: 'Crear la clave' }).click()
-  const shown = page.getByRole('dialog', { name: 'Clave para «Clave 2FA e2e»' })
+  const shown = page.getByRole('dialog', { name: `Clave para «${keyName}»` })
   await expect(shown.locator('.token')).toBeVisible()
   await shown.getByRole('button', { name: 'Ya la he guardado' }).click()
   await page.context().close()
 })
 
 test('required: an invited member sets it up before getting in; the admin sees who has it and resets it', async ({ browser }) => {
-  const admin = await signIn(browser, 'noa')
+  const admin = await signIn(browser, ADMIN)
   await openSettings(admin, 'Usuarios y grupos', 'users')
   // A new policy is confirmed at the moment (D-040 3.4a): the admin's password, without a second factor.
   await admin.getByRole('radio', { name: /Obligatoria/ }).click()
   const policy = admin.getByRole('alertdialog')
   await expect(policy.getByRole('heading')).toHaveText('¿Cambiar la verificación en dos pasos a «Obligatoria»?')
   await expect(admin.getByRole('radio', { name: /Opcional/ })).toBeChecked()
-  await policy.getByLabel('Tu contraseña').fill(PASSWORD)
+  await policy.getByLabel('Tu contraseña').fill(ADMIN.password)
   await policy.getByRole('button', { name: 'Cambiar' }).click()
   await expect(admin.getByRole('radio', { name: /Obligatoria/ })).toBeChecked()
   expect((await (await admin.request.get('/api/admin/settings')).json()).twoFactor).toBe('required')
-  const { link } = await (await admin.request.post('/api/admin/users', { data: { username: PABLO, role: 'member' } })).json() as { link: { path: string } }
+  const { link } = await (await admin.request.post('/api/admin/users', { data: { username: INVITED.username, role: 'member' } })).json() as { link: { path: string } }
 
   // The invitation, on a phone in dark mode: the password, then the second factor, then in.
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, colorScheme: 'dark', locale: 'es-ES' })
   const phone = await ctx.newPage()
   await phone.goto(link.path)
-  await phone.getByLabel('Contraseña', { exact: true }).fill('pablo-contraseña-larga')
-  await phone.getByLabel('Repite la contraseña').fill('pablo-contraseña-larga')
+  await phone.getByLabel('Contraseña', { exact: true }).fill(INVITED.password)
+  await phone.getByLabel('Repite la contraseña').fill(INVITED.password)
   await phone.getByRole('button', { name: 'Guardar y entrar' }).click()
   await expect(phone.getByRole('heading', { level: 1 })).toHaveText('Activa la verificación en dos pasos')
-  await expect(phone.getByText(`Quien administra thoth la exige para entrar, ${PABLO}.`)).toBeVisible()
+  await expect(phone.getByText(`Quien administra thoth la exige para entrar, ${INVITED.username}.`)).toBeVisible()
   await expect(phone.getByRole('treegrid')).toHaveCount(0)
   expect((await phone.request.get('/api/auth/me')).status(), 'no session before it is set up').toBe(401)
   await expect(phone.getByRole('img', { name: 'Código QR para la app de autenticación' })).toBeVisible()
   expect(await phone.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
   await phone.screenshot({ path: `${SHOTS}/twofa-required-mobile-dark.png`, fullPage: true, animations: 'disabled' })
-  const pablo = authenticator(await phone.getByLabel('Clave secreta').innerText())
-  await phone.getByLabel('Código de verificación').fill(await pablo.next())
+  const invited = authenticator(await phone.getByLabel('Clave secreta').innerText())
+  await phone.getByLabel('Código de verificación').fill(await invited.next())
   await phone.getByRole('button', { name: 'Verificar y activar' }).tap()
   await expect(phone.getByRole('heading', { level: 1 })).toHaveText('Guarda tus códigos de recuperación')
   await expect(phone.getByRole('list', { name: 'Códigos de recuperación' }).getByRole('listitem')).toHaveCount(10)
@@ -271,23 +275,23 @@ test('required: an invited member sets it up before getting in; the admin sees w
 
   // The admin: who has it, who will set it up at sign-in (the admin too), and a reset.
   await admin.reload()
-  await expect(row(admin, PABLO)).toContainText('Activada')
-  await expect(row(admin, LUCIA)).toContainText('Activada')
-  await expect(row(admin, 'noa')).toContainText('Al entrar')
+  await expect(row(admin, INVITED.username)).toContainText('Activada')
+  await expect(row(admin, PERSON.username)).toContainText('Activada')
+  await expect(row(admin, ADMIN.username)).toContainText('Al entrar')
   await admin.screenshot({ path: `${SHOTS}/twofa-users-light.png`, animations: 'disabled', fullPage: true })
-  await row(admin, PABLO).getByRole('button', { name: `Acciones para ${PABLO}` }).click()
+  await row(admin, INVITED.username).getByRole('button', { name: `Acciones para ${INVITED.username}` }).click()
   await admin.getByRole('menuitem', { name: 'Restablecer la verificación en dos pasos' }).click()
   const confirm = admin.getByRole('alertdialog')
-  await expect(confirm.getByRole('heading')).toHaveText(`¿Restablecer la verificación en dos pasos de ${PABLO}?`)
+  await expect(confirm.getByRole('heading')).toHaveText(`¿Restablecer la verificación en dos pasos de ${INVITED.username}?`)
   await expect(confirm).toContainText('Como es obligatoria, la configurará de nuevo la próxima vez que entre.')
-  await expect(confirm).toContainText(`${PABLO} verá un aviso al entrar, y los demás administradores también.`)
-  await confirm.getByLabel('Tu contraseña').fill(PASSWORD)
+  await expect(confirm).toContainText(`${INVITED.username} verá un aviso al entrar, y los demás administradores también.`)
+  await confirm.getByLabel('Tu contraseña').fill(ADMIN.password)
   await confirm.getByRole('button', { name: 'Restablecer' }).click()
-  await expect(row(admin, PABLO)).toContainText('Al entrar')
+  await expect(row(admin, INVITED.username)).toContainText('Al entrar')
 
   await admin.getByRole('radio', { name: /Opcional/ }).click()
-  await admin.getByRole('alertdialog').getByLabel('Tu contraseña').fill(PASSWORD)
+  await admin.getByRole('alertdialog').getByLabel('Tu contraseña').fill(ADMIN.password)
   await admin.getByRole('alertdialog').getByRole('button', { name: 'Cambiar' }).click()
-  await expect(row(admin, 'noa')).not.toContainText('Al entrar')
+  await expect(row(admin, ADMIN.username)).not.toContainText('Al entrar')
   await admin.context().close()
 })
