@@ -200,12 +200,12 @@ From the review after comparing M4 with other systems.
 
 ## M5 · Release (v1.0)
 
-- [ ] Release policy: semver, changelog, Docker tags, migrations of `state.db`
+- [x] Release policy: semver, changelog, Docker tags, migrations of `state.db`
       and `vihko.yaml`.
-- [ ] Final name.
-- [ ] Installation and operations documentation (volumes, backups including
+- [x] Final name.
+- [x] Installation and operations documentation (volumes, backups including
       the history in the state volume, NFS).
-- [ ] Security review.
+- [x] Security review.
 - [ ] Public repository.
 
 **Done when:** a third party installs and uses it following only the
