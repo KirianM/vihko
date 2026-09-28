@@ -92,7 +92,7 @@ test('the admin’s alert when someone may be guessing passwords', async ({ brow
   const k = await signIn(browser, ADMIN)
   const attempts = m.anInt(2, 9999)
   await k.route('**/api/alerts', (route) => route.fulfill({ json: { alerts: [{ code: 'login_attempts_blocked', attempts, since: '2026-09-26T12:10:00Z', actions: [] }] } }))
-  await k.goto('/?view=avisos')
+  await k.goto('/?view=alerts')
   const card = k.locator('.alert-card', { hasText: 'intentos de entrar' })
   // The date in the person's timezone (another spec may have changed it): 25, 26 or 27 September.
   await expect(card.getByRole('heading')).toHaveText(new RegExp(`^${attempts} intentos de entrar fallidos o frenados desde el 2[5-7] sept, \\d{2}:\\d{2}$`))

@@ -170,7 +170,7 @@ test('alerts from the drawer', async () => {
   }).toPass({ timeout: 20_000 })
   await drawer(page).getByRole('link', { name: /avisos del espacio/ }).tap()
   await expect(drawer(page)).toHaveCount(0)
-  await expect(page).toHaveURL(/\?view=avisos$/)
+  await expect(page).toHaveURL(/\?view=alerts$/)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Avisos del espacio')
   await expect(page.locator('.alert-card', { hasText: UID })).toBeVisible()
   await noHorizontalScroll(page)

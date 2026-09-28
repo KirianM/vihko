@@ -37,7 +37,7 @@ test('duplicate uid: appears after the rescan and both notes open', async ({ bro
   writeFileSync(`${DIR}/${copy}.md`, `---\nuid: ${uid}\n---\n# ${copy}\n`)
   const k = await signIn(browser, ADMIN)
   await k.locator('.sidebar-alerts').click()
-  await expect(k).toHaveURL(/\?view=avisos$/)
+  await expect(k).toHaveURL(/\?view=alerts$/)
   await expect(k.getByRole('heading', { level: 1 })).toHaveText('Avisos del espacio')
   await waitForCard(k, uid)
   const both = card(k, uid)
@@ -47,7 +47,7 @@ test('duplicate uid: appears after the rescan and both notes open', async ({ bro
   await expect(k.locator('.crumbs b')).toHaveText(copy)
   await expect(k).toHaveURL(new RegExp(`\\?note=${literally(encodeURIComponent(`${FOLDER}/${copy}.md`)).replace(/%20/g, '(?:\\+|%20)')}$`))
   await expect(k.locator('.cm-content')).toBeVisible()
-  await k.goto('/?view=avisos')
+  await k.goto('/?view=alerts')
   await card(k, uid).getByRole('link', { name: `${FOLDER}/${original}.md` }).click()
   await expect(k.locator('.crumbs b')).toHaveText(original)
   rmSync(`${DIR}/${copy}.md`)
@@ -68,7 +68,7 @@ test('pending copy of a note deleted externally: kept from the page and the coun
   await expect(k.getByRole('alert')).toContainText('se ha borrado fuera', { timeout: 15_000 }) // after the grace for a move (6 s)
 
   // The editor is closed without deciding: the copy stays as an alert.
-  await k.goto('/?view=avisos')
+  await k.goto('/?view=alerts')
   const orphan = card(k, `Copia pendiente de «${label(NOTE)}»`)
   await expect(orphan).toBeVisible()
   const before = await sidebarCount(k)
@@ -81,7 +81,7 @@ test('pending copy of a note deleted externally: kept from the page and the coun
 
 test('sync conflict: viewing the copy and opening the note; a member sees it too', async ({ browser }) => {
   const a = await signIn(browser, MEMBER)
-  await a.goto('/?view=avisos')
+  await a.goto('/?view=alerts')
   const sync = card(a, 'Conflicto de sincronización')
   await expect(sync).toContainText('Plan.sync-conflict-20260924-120000-ABCDEFG.md')
   await expect(sync).toContainText('proyectos / vihko / Plan')
@@ -116,7 +116,7 @@ test('scan stopped: the admin confirms with the figure they see; a member has no
     sent = route.request().postDataJSON()
     await route.fulfill({ json: { aborted: null } })
   })
-  await k.goto('/?view=avisos')
+  await k.goto('/?view=alerts')
   const scan = card(k, 'Escaneo detenido')
   await expect(scan.getByRole('heading')).toHaveText(`Escaneo detenido: iba a retirar ${SCAN.removing} notas de ${SCAN.total}`)
   await scan.getByRole('button', { name: 'Sí, las he borrado yo' }).click()
@@ -127,7 +127,7 @@ test('scan stopped: the admin confirms with the figure they see; a member has no
 
   const a = await signIn(browser, MEMBER)
   await mockAlerts(a, [{ ...SCAN, actions: [] }])
-  await a.goto('/?view=avisos')
+  await a.goto('/?view=alerts')
   const member = card(a, 'Escaneo detenido')
   await expect(member).toContainText('Lo decide un administrador.')
   await expect(member.getByRole('button')).toHaveCount(0)
@@ -149,7 +149,7 @@ test('history alerts: git failing (with its detail), versions merged at the cap,
     { code: 'history_files_too_large', paths: big, limitMb, actions: [] },
     { code: 'history_no_repository', actions: [] },
   ])
-  await k.goto('/?view=avisos')
+  await k.goto('/?view=alerts')
   const git = card(k, 'no puede guardar versiones')
   await expect(git).toContainText('Las notas se siguen guardando con normalidad')
   await expect(git.locator('.alert-copy')).toBeHidden()
@@ -174,7 +174,7 @@ test('history alerts: git failing (with its detail), versions merged at the cap,
 test('agents without a managed history: which door is open and what it means', async ({ browser }) => {
   const k = await signIn(browser, ADMIN)
   await mockAlerts(k, [{ code: 'integrations_unversioned', mode: 'unmanaged', api: true, mcp: true, actions: [] }])
-  await k.goto('/?view=avisos')
+  await k.goto('/?view=alerts')
   const both = card(k, 'sin historial gestionado')
   await expect(both.getByRole('heading')).toHaveText('La API y el MCP están activos sin historial gestionado')
   await expect(both).toContainText('history.mode: unmanaged')
@@ -204,7 +204,7 @@ test('permissions: rejected, notes held after a move outside vihko, and images a
   ])
   const sent: { url: string; body: unknown }[] = []
   await k.route('**/api/permissions/holds/*', (route) => { sent.push({ url: route.request().url(), body: route.request().postDataJSON() }); return route.fulfill({ json: { ok: true } }) })
-  await k.goto('/?view=avisos')
+  await k.goto('/?view=alerts')
   const rejected = card(k, 'no se pueden usar')
   await expect(rejected.getByRole('heading')).toHaveText('Los permisos de vihko.yaml no se pueden usar')
   await expect(rejected).toContainText('nadie puede leer ninguna nota')
@@ -256,7 +256,7 @@ test('notes held after leaving a personal folder: its owner releases them; the a
     renameSync(`${NOTES}/${from}`, `${NOTES}/${landed}`)
 
     // The admin: one held note from that personal folder, whose it is to decide, and no button.
-    await admin.goto('/?view=avisos')
+    await admin.goto('/?view=alerts')
     await waitForCard(admin, mine)
     const told = card(admin, mine)
     await expect(told.getByRole('heading')).toHaveText('Una nota retenida tras moverse fuera de vihko')
@@ -275,7 +275,7 @@ test('notes held after leaving a personal folder: its owner releases them; the a
     expect((await admin.request.get(note(landed))).status()).toBe(404)
 
     // The owner: the same alert, with «Release them».
-    await owner.goto('/?view=avisos')
+    await owner.goto('/?view=alerts')
     await waitForCard(owner, mine)
     const theirs = card(owner, mine)
     await expect(theirs).not.toContainText('Salieron de una carpeta personal')
@@ -285,7 +285,7 @@ test('notes held after leaving a personal folder: its owner releases them; the a
     // Released: the folder it's in applies (the member edits there), and the admin's alert is gone.
     await owner.goto(`/?note=${encodeURIComponent(landed)}`)
     await expect(owner.locator('.cm-content')).toContainText(word)
-    await admin.goto('/?view=avisos')
+    await admin.goto('/?view=alerts')
     await expect(card(admin, mine)).toHaveCount(0)
   } finally {
     await usePermissions()
@@ -313,7 +313,7 @@ test('vihko.yaml rewritten to the current format at start: what changed and wher
     sent.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`)
     return route.fulfill({ json: { ok: true } })
   })
-  await k.goto('/?view=avisos')
+  await k.goto('/?view=alerts')
   const rewritten = card(k, 'vihko actualizó')
   await expect(rewritten.getByRole('heading')).toHaveText('vihko actualizó vihko.yaml al formato actual')
   await expect(rewritten).toContainText(/el 14 mar/)
@@ -340,9 +340,18 @@ test('vihko.yaml rewritten to the current format at start: what changed and wher
 test('empty state', async ({ browser }) => {
   const k = await signIn(browser, ADMIN)
   await mockAlerts(k, [])
-  await k.goto('/?view=avisos')
+  await k.goto('/?view=alerts')
   await expect(k.getByText('No hay avisos')).toBeVisible()
   await expect(k.locator('.sidebar-alerts')).toHaveCount(0)
+  await k.context().close()
+})
+
+test('the alerts page has an English address, and its earlier one still opens it', async ({ browser }) => {
+  const k = await signIn(browser, ADMIN)
+  await mockAlerts(k, [])
+  await k.goto('/?view=avisos')
+  await expect(k.getByRole('heading', { level: 1 })).toHaveText('Avisos del espacio')
+  await expect(k).toHaveURL(/\?view=alerts$/)
   await k.context().close()
 })
 
@@ -350,7 +359,7 @@ test('screenshots: light, dark and mobile', async ({ browser }) => {
   const k = await signIn(browser, ADMIN)
   await mockAlerts(k, FIXTURE)
   await k.setViewportSize({ width: 1440, height: 900 })
-  await k.goto('/?view=avisos')
+  await k.goto('/?view=alerts')
   await expect(card(k, 'Escaneo detenido')).toBeVisible()
   await k.screenshot({ path: `${SHOTS}/avisos-claro.png`, fullPage: true })
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()
