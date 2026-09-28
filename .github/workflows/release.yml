@@ -1,6 +1,6 @@
 name: Release
 
-# Pushing a tag v* (CONTRIBUTING.md, Releasing) publishes that version:
+# Pushing a tag v* (DEVELOPMENT.md, Releasing) publishes that version:
 #
 #   v1.2.3       image ghcr.io/kirianm/vihko:1.2.3, :1.2, :1 and :latest; a Release
 #   v1.0.0-rc.1  image ghcr.io/kirianm/vihko:1.0.0-rc.1 only; a pre-release

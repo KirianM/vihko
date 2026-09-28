@@ -47,7 +47,7 @@ export function versionMismatch(tag: string, packageVersion: unknown): string | 
   const version = tagVersion(tag)
   if (packageVersion === version) return null
   return `The tag ${tag} doesn't match the version in package.json (${JSON.stringify(packageVersion)}). `
-    + `Tag the commit whose package.json says "${version}", or bump the version first (CONTRIBUTING.md, Releasing).`
+    + `Tag the commit whose package.json says "${version}", or bump the version first (DEVELOPMENT.md, Releasing).`
 }
 
 /**
@@ -115,7 +115,7 @@ function main(args: string[]) {
   try { changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8') } catch { changelog = '' }
   const notes = changelogSection(changelog, version)
   if (notes === null) {
-    throw new Error(`CHANGELOG.md has no section for ${version}: add "## [${version}] - <date>" with its changes before tagging (CONTRIBUTING.md, Releasing).`)
+    throw new Error(`CHANGELOG.md has no section for ${version}: add "## [${version}] - <date>" with its changes before tagging (DEVELOPMENT.md, Releasing).`)
   }
 
   const git = spawnSync('git', ['tag', '--list', 'v*'], { cwd: root, encoding: 'utf8' })

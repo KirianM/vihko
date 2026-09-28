@@ -2,7 +2,7 @@
 // public/favicon.svg, with the colours from the design tokens. The PNGs are
 // committed; run this again only if the mark or the colours change. It needs a
 // browser to rasterise the SVG, the same one as the e2e tests (see
-// CONTRIBUTING.md for running it in the Playwright image):
+// DEVELOPMENT.md for running it in the Playwright image):
 //
 //   node scripts/icons.ts
 import { chromium } from '@playwright/test'
