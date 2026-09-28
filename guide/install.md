@@ -321,7 +321,9 @@ reach it on the host port you published.)
    of at least 10 characters. You're signed in.
 
 The token works once. While there are no users, vihko prints a new one every
-time it starts; once the admin exists, it prints none.
+time it starts; once the admin exists, it prints none. A script can do the
+same without the browser, with the `POST /api/setup` the log mentions: see
+[Create the first admin](api.md#create-the-first-admin).
 
 ### Or from the command line
 
