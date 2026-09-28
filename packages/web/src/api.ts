@@ -428,7 +428,9 @@ export const api = {
   /** Other sessions end; `wrong_password` if `current` isn't right. */
   changePassword: (current: string, password: string) => request<{ ok: true }>('POST', '/api/auth/password', { current, password }),
   users: () => request<{ users: UserInfo[] }>('GET', '/api/admin/users').then((r) => r.users),
-  createUser: (username: string, role: UserInfo['role']) => request<{ user: UserInfo; link: NewLink }>('POST', '/api/admin/users', { username, role }),
+  /** A new admin, with `confirm`: the admin's current code, or their password without a second factor. */
+  createUser: (username: string, role: UserInfo['role'], confirm?: string) =>
+    request<{ user: UserInfo; link: NewLink }>('POST', '/api/admin/users', { username, role, ...(confirm === undefined ? {} : { confirm }) }),
   /** A new link for them (an invitation, or a reset if they have a password); the earlier one stops working. */
   /** A new link; a reset (they have a password) is confirmed with `confirm` (D-040 3.1). */
   userLink: (id: string, confirm?: string) => request<{ link: NewLink; user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/link`, confirm ? { confirm } : {}),

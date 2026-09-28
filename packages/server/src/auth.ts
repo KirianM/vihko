@@ -187,18 +187,28 @@ export class Auth {
    * still taken (its tombstone keeps it).
    */
   async createUser(username: string, password: string | null, role: Role): Promise<User> {
+    const name = this.newUsername(username)
+    if (password !== null) strongEnough(password)
+    const user: User = { id: newUid(), username: name, role, disabled: false }
+    this.db.prepare('insert into users (id, username, password_hash, role, created_at) values (?, ?, ?, ?, ?)')
+      .run(user.id, user.username, password === null ? '' : await hashPassword(password), role, new Date().toISOString())
+    return user
+  }
+
+  /**
+   * A name a new user could have, as it would be stored (NFC, trimmed).
+   * Throws if it isn't valid or is taken (a deleted user's too): checked
+   * before anything is asked of whoever creates them.
+   */
+  newUsername(username: string): string {
     const name = username.normalize('NFC').trim()
     if (!NAME_PATTERN.test(name)) throw new AuthError('invalid_username', 'invalid username (2-64 letters, digits, ".", "_" or "-")')
-    if (password !== null) strongEnough(password)
     // Taken as the permissions compare names (any case, in any script): SQLite's
     // nocase only folds ASCII, and «ángela» would inherit «Ángela»'s grants.
     const key = subjectKey(name)
     const names = this.db.prepare('select username from users').all() as { username: string }[]
     if (names.some((r) => subjectKey(r.username) === key)) throw new AuthError('user_exists', `user ${name} already exists`)
-    const user: User = { id: newUid(), username: name, role, disabled: false }
-    this.db.prepare('insert into users (id, username, password_hash, role, created_at) values (?, ?, ?, ?, ?)')
-      .run(user.id, user.username, password === null ? '' : await hashPassword(password), role, new Date().toISOString())
-    return user
+    return name
   }
 
   /**

@@ -9,7 +9,7 @@ import { expect, test, type Browser, type Page } from '@playwright/test'
 import { createHmac } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, E2E_DIR, PUBLIC_URL, specMother } from './env.ts'
-import { literally, signIn, usePermissions } from './helpers.ts'
+import { literally, newUser, signIn, usePermissions } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
@@ -126,7 +126,7 @@ let session: Page
 
 test('a member sets it up from «Account»: nothing is on until a code from the app is verified; then the recovery codes, once', async ({ browser }) => {
   const admin = await signIn(browser, ADMIN)
-  expect((await admin.request.post('/api/admin/users', { data: { username: PERSON.username, role: 'member', password: PERSON.password } })).status()).toBe(201)
+  await newUser(admin, PERSON)
   await admin.context().close()
 
   const page = await password(browser, PERSON.username, PERSON.password)

@@ -55,7 +55,9 @@ send it yourself over a channel you trust.
 1. Go to Preferences → Users and groups → **New user**.
 2. Type a username and choose a role. The username is 2 to 64 letters,
    digits, `.`, `_` or `-`, and can't be changed later. Names are unique
-   ignoring case (`Noa` and `noa` are the same person).
+   ignoring case (`Noa` and `noa` are the same person). A new admin, like
+   making someone admin, asks you to confirm at the moment (see
+   [Confirming at the moment](#confirming-at-the-moment)).
 3. Press «Create and get the link», copy the link and send it.
 
 The person opens the link, chooses their password (at least 10 characters) and
@@ -76,7 +78,9 @@ have no access to any folder yet» instead of the folder tree.
 ### From the command line
 
 The same without the UI, inside the container (`docker compose exec vihko …`
-while it runs):
+while it runs). This is the only way to give someone a password yourself:
+it's for whoever runs the server, and neither the UI nor vihko's HTTP API
+does it (they only make links).
 
 ```sh
 # Create a user; the password is read from standard input
@@ -377,7 +381,7 @@ app's code, or your password if you have no second factor.
 
 - creating or rotating an agent key, and authorizing an app (OAuth);
 - an admin making a reset link for someone, resetting someone's second factor,
-  or changing someone's role;
+  changing someone's role, or creating a new admin;
 - an admin changing the second-factor policy;
 - an admin purging from the history something they can't read.
 

@@ -33,7 +33,7 @@ test('a reset link, a second factor\'s reset and a new role are confirmed, and t
     const [admin, member] = [h.users.admin, h.users.member]
     const password = admin.password
     const second = m.aUser({ role: 'admin' })
-    assert.equal((await h.admin('POST', '/api/admin/users', { username: second.username, password: second.password, role: 'admin' })).status, 201)
+    await h.auth.createUser(second.username, second.password, 'admin')
     const otherAdmin = await session(h, second)
     const id = member.id
 
@@ -88,6 +88,38 @@ test('a reset link, a second factor\'s reset and a new role are confirmed, and t
     assert.equal((await accountNotices(h.member)).length, 2)
     assert.equal((await accountNotices(otherAdmin)).length, 3)
 
+  } finally { await h.close() }
+})
+
+test('a new admin is confirmed at the moment, as making someone admin is (D-046.1); a new member is not', async () => {
+  const h = await setup()
+  try {
+    const password = h.users.admin.password
+    const exists = async (username: string) => (await h.admin('GET', '/api/admin/users')).body.users.some((u: any) => u.username === username)
+    assert.equal((await h.admin('POST', '/api/admin/users', { username: m.aUsername(), role: 'member' })).status, 201, 'a member: nothing asked')
+
+    // Without a second factor: the admin's password, or nobody is created.
+    const newcomer = m.aUsername()
+    const missing = await h.admin('POST', '/api/admin/users', { username: newcomer, role: 'admin' })
+    assert.deepEqual([missing.status, missing.body.error, missing.body.with], [400, 'confirmation_required', 'password'])
+    assert.equal((await h.admin('POST', '/api/admin/users', { username: newcomer, role: 'admin', confirm: m.aPassword() })).body.error, 'wrong_password')
+    assert.equal(await exists(newcomer), false, 'nobody created')
+    // The name is checked before anything is asked: a taken or invalid one spends no code.
+    assert.equal((await h.admin('POST', '/api/admin/users', { username: h.users.member.username, role: 'admin' })).body.error, 'user_exists')
+    assert.equal((await h.admin('POST', '/api/admin/users', { username: '', role: 'admin' })).body.error, 'invalid_username')
+    const created = await h.admin('POST', '/api/admin/users', { username: newcomer, role: 'admin', confirm: password })
+    assert.deepEqual([created.status, created.body.user.role, created.body.link.kind], [201, 'admin', 'invite'])
+
+    // With a second factor: its current code, never the password.
+    const s = await h.admin('POST', '/api/account/2fa/setup', { password })
+    const secret = base32Decode(s.body.secret)
+    await h.admin('POST', '/api/account/2fa/enable', { code: totp(secret, h.clock.now.getTime()) })
+    h.clock.now = new Date(h.clock.now.getTime() + 30_000)
+    const another = m.aUsername()
+    assert.equal((await h.admin('POST', '/api/admin/users', { username: another, role: 'admin' })).body.with, 'code')
+    assert.equal((await h.admin('POST', '/api/admin/users', { username: another, role: 'admin', confirm: password })).body.error, 'invalid_code')
+    assert.equal(await exists(another), false)
+    assert.equal((await h.admin('POST', '/api/admin/users', { username: another, role: 'admin', confirm: totp(secret, h.clock.now.getTime()) })).status, 201)
   } finally { await h.close() }
 })
 

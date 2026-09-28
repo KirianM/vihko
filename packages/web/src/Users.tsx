@@ -6,9 +6,10 @@
 // images from the local network (D-038.6) and the second factor's policy
 // (D-036: required, optional or disabled), whose state each person's row
 // shows and the admin can reset. What lets the admin into someone else's
-// account (a reset link, their second factor's reset, a new role) and a new
-// policy ask for the confirmation at the moment, the admin's own code or
-// password (D-040 3.1, 3.4a); the person and the other admins are told.
+// account (a reset link, their second factor's reset, a new role), a new
+// admin and a new policy ask for the confirmation at the moment, the admin's
+// own code or password (D-040 3.1, 3.4a, D-046.1); the person and the other
+// admins are told.
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, Text, TextField } from 'react-aria-components'
 import { ApiError, api, type AdminSettings, type GroupInfo, type NewLink, type TwoFactorPolicy, type User, type UserInfo } from './api.ts'
@@ -54,23 +55,28 @@ type Open =
 
 const linkUrl = (l: NewLink) => l.url ?? `${location.origin}${l.path}`
 
-/** A new user: a name and a role; then the link to send them. */
+/**
+ * A new user: a name and a role; then the link to send them. A new admin is
+ * confirmed at the moment, as making someone admin is (D-046.1).
+ */
 function NewUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (user: UserInfo, link: NewLink) => void }) {
   const t = useT()
   const [name, setName] = useState('')
   const [role, setRole] = useState<UserInfo['role']>('member')
+  const [secret, setSecret] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const needsSecret = role === 'admin' && !secret.trim()
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (busy || !name.trim()) return
+    if (busy || !name.trim() || needsSecret) return
     setBusy(true)
     setError(null)
     try {
-      const r = await api.createUser(name.trim(), role)
+      const r = await api.createUser(name.trim(), role, role === 'admin' ? secret.trim() : undefined)
       onCreated(r.user, r.link)
     } catch (err) {
-      setError(errorText(t, err))
+      setError(codeError(t, err))
       setBusy(false)
     }
   }
@@ -95,12 +101,13 @@ function NewUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
               <span className="check-text">{t('users.roleAdmin')}<span className="hint">{t('users.roleAdminHint')}</span></span>
             </label>
           </fieldset>
+          {role === 'admin' && <IdentityField value={secret} onChange={setSecret} hint={t('users.newAdminHint')} />}
           <p className="dialog-text">{t('users.newBody')}</p>
         </div>
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className="btn btn-primary" isDisabled={busy || !name.trim()}>{t('users.create')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={busy || !name.trim() || needsSecret}>{t('users.create')}</Button>
         </div>
       </form>
     </Dialog>

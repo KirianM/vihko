@@ -2,8 +2,8 @@
 // creates a member and copies the one-time link; the member opens it in
 // another session, chooses a password and is in, with a note open; the
 // admin disables them and their session is cut at once (their open note
-// included); the link doesn't work twice; deleting says what goes. Groups,
-// and one's own account.
+// included); the link doesn't work twice; deleting says what goes. A new
+// admin is confirmed at the moment. Groups, and one's own account.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, BASE_URL, E2E_DIR, MEMBER, PUBLIC_URL, specMother } from './env.ts'
@@ -14,6 +14,8 @@ const SHOTS = `${E2E_DIR}/shots`
 const NOTE = 'hogar/Proxy.md'
 // People and groups of this spec (a deleted user's name stays reserved, and other specs make their own).
 const NEWCOMER = m.aUser({ role: 'member' })
+/** Someone the admin makes admin from the start: only invited, then removed. */
+const LEAD = m.aUser({ role: 'admin' })
 const FAMILY = m.aGroupName()
 const HOME = m.aGroupName()
 
@@ -126,6 +128,40 @@ test('the admin invites a member by link, the member joins in another browser, a
   await admin.getByRole('button', { name: /^Todos/ }).click()
   await expect(row(admin, MEMBER.username)).toBeVisible()
   await member.context().close()
+  await admin.context().close()
+})
+
+test('a new admin is confirmed at the moment: the dialog asks for the admin\'s password, and a wrong one creates nobody', async ({ browser }) => {
+  const admin = await signIn(browser, ADMIN)
+  await openSettings(admin, 'Usuarios y grupos', 'users')
+  await admin.getByRole('button', { name: 'Nuevo usuario' }).click()
+  const create = admin.getByRole('dialog')
+  await create.getByLabel('Nombre de usuario').fill(LEAD.username)
+  // A member asks nothing more; an admin, the admin's own password (they have no second factor).
+  await expect(create.getByLabel('Tu contraseña')).toHaveCount(0)
+  await create.getByRole('radio', { name: /^Administrador/ }).check()
+  const secret = create.getByLabel('Tu contraseña')
+  await expect(secret).toBeVisible()
+  await expect(create).toContainText('Un admin nuevo se confirma en el momento')
+  const submit = create.getByRole('button', { name: 'Crear y obtener el enlace' })
+  await expect(submit).toBeDisabled()
+  await secret.fill(m.aPassword())
+  await submit.click()
+  await expect(create.getByRole('alert')).toHaveText('La contraseña actual no es correcta.')
+  expect((await (await admin.request.get('/api/admin/users')).json()).users.some((u: { username: string }) => u.username === LEAD.username)).toBe(false)
+  await admin.screenshot({ path: `${SHOTS}/users-new-admin.png`, animations: 'disabled' })
+  await secret.fill(ADMIN.password)
+  await submit.click()
+  await expect(admin.getByRole('dialog', { name: `Enlace de invitación para ${LEAD.username}` })).toBeVisible()
+  await admin.getByRole('button', { name: 'Listo' }).click()
+  await expect(row(admin, LEAD.username)).toContainText('Administrador')
+  await expect(row(admin, LEAD.username)).toContainText('Invitación pendiente')
+
+  // Removed: disabled, then deleted.
+  const { users } = await (await admin.request.get('/api/admin/users')).json() as { users: { id: string; username: string }[] }
+  const id = users.find((u) => u.username === LEAD.username)!.id
+  expect((await admin.request.post(`/api/admin/users/${id}/disable`)).status()).toBe(200)
+  expect((await admin.request.delete(`/api/admin/users/${id}`)).status()).toBe(200)
   await admin.context().close()
 })
 
