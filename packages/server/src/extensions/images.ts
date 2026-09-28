@@ -2,7 +2,7 @@
 // each image (an image moves with a note only if no other note uses it).
 // `path` is where the reference points, from the notes root, whether the file
 // exists or not; external URLs are not recorded.
-import { resolveImageRef, type ImageLink } from '@thoth/core'
+import { resolveImageRef, type ImageLink } from '@vihko/core'
 import type { Extension } from '../extension.ts'
 
 interface ImageRow { ord: number; kind: ImageLink['kind']; raw: string; path: string }

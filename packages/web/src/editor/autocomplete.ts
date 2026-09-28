@@ -59,7 +59,7 @@ export function forgetSuggestions() {
   headings.clear()
 }
 
-// Where nothing is suggested: code, the frontmatter, HTML (thoth's comments) and URLs.
+// Where nothing is suggested: code, the frontmatter, HTML (vihko's comments) and URLs.
 const QUIET = new Set(['InlineCode', 'CodeText', 'FencedCode', 'CodeBlock', 'Frontmatter', 'Comment', 'CommentBlock', 'HTMLBlock', 'HTMLTag', 'URL', 'Autolink'])
 function quiet(state: EditorState, pos: number) {
   for (let n: { name: string; parent: unknown } | null = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent as typeof n) {
@@ -188,7 +188,7 @@ export function linkAutocomplete(note: string, text: AutocompleteText) {
       override: [source],
       icons: false,
       maxRenderedOptions: 50,
-      tooltipClass: () => 'thoth-complete',
+      tooltipClass: () => 'vihko-complete',
     }),
     // Tab also accepts, as in most editors; with no list open it indents as usual.
     Prec.highest(keymap.of([{ key: 'Tab', run: acceptCompletion }])),

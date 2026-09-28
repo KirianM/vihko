@@ -10,7 +10,7 @@ const m = specMother(import.meta.url)
 const line = () => `${m.aSentence(m.anInt(2, 5)).slice(0, -1)} ${m.aUniqueWord()}.`
 /** A path as the tree, the breadcrumbs and the previews show it: `a/b/c.md` → `a / b / c`. */
 const label = (path: string) => path.replace(/\.md$/i, '').split('/').join(' / ')
-/** A generated name as a Markdown link destination (they have only letters and spaces: thoth writes a space as %20). */
+/** A generated name as a Markdown link destination (they have only letters and spaces: vihko writes a space as %20). */
 const dest = (path: string) => path.replace(/ /g, '%20')
 /** The path in the page's URL (?note=…): a space as `+` or `%20`. */
 const inUrl = (path: string) => new RegExp(`note=${literally(encodeURIComponent(path)).replace(/%20/g, '(?:\\+|%20)')}`)
@@ -220,7 +220,7 @@ test('a link that cannot be rewritten: the notice names the note and the alias t
   await k.goto(`/?note=${encodeURIComponent(target)}`)
   await expect(k.locator('.cm-content')).toBeVisible()
   await expect.poll(async () => (await (await k.request.get(`/api/note/links?path=${encodeURIComponent(target)}`)).json()).backlinks.length, { timeout: 15_000 }).toBe(1)
-  // A folder thoth cannot write to: the rewrite of the linking note fails.
+  // A folder vihko cannot write to: the rewrite of the linking note fails.
   chmodSync(`${NOTES}/${locked}`, 0o555)
   try {
     // Some network filesystems (NFS with ACLs) ignore the mode bits: then there's no failure to show.
@@ -317,7 +317,7 @@ test('the preview lists ambiguous links the move would resolve, by note, and the
   const also = `# ${alsoName}\n\n- [[${name}]] ${m.aWord()}.\n`
   writeFileSync(`${NOTES}/${dir}/${usesName}.md`, uses)
   writeFileSync(`${NOTES}/${dir}/${alsoName}.md`, also)
-  /** The notes with such links, as thoth lists them: by path (code units). */
+  /** The notes with such links, as vihko lists them: by path (code units). */
   const sources = [{ path: `${dir}/${alsoName}.md`, count: '1 enlace' }, { path: `${dir}/${usesName}.md`, count: '2 enlaces' }]
     .sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0))
   const shifted = async () => (await (await k.request.post('/api/note/move', { data: { from: note, to: `${dir}/${name}.md`, dryRun: true } })).json()).shifted.length

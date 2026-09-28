@@ -4,11 +4,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { Indexer, NoteService, dumpIndex, openIndex, type Actor } from '@thoth/server'
+import { Indexer, NoteService, dumpIndex, openIndex, type Actor } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
-// The user the writes are made as (an id, as thoth has them).
+// The user the writes are made as (an id, as vihko has them).
 const m = mother(import.meta.url)
 const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
 // The names of the notes, folders and images (one token each: they sit in Markdown links' destinations).
@@ -20,7 +20,7 @@ const sorted = (...paths: string[]) => [...paths].sort()
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
 
 function setup(files: Record<string, string | Uint8Array>) {
-  const dir = tempDir('thoth-move-images-')
+  const dir = tempDir('vihko-move-images-')
   const notesDir = join(dir, 'notes')
   for (const [p, content] of Object.entries(files)) {
     mkdirSync(dirname(join(notesDir, p)), { recursive: true })

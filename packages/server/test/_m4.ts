@@ -8,7 +8,7 @@
 // API with keys, the MCP server and the history, in process.
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, PermissionHolds, PermissionsEngine, Profiles, Workspace, createServer, mountMcp, openIndex, openState, stateDirectory, toolData, AccessPolicy, type Runtime } from '@thoth/server'
+import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, PermissionHolds, PermissionsEngine, Profiles, Workspace, createServer, mountMcp, openIndex, openState, stateDirectory, toolData, AccessPolicy, type Runtime } from '@vihko/server'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { tempDir } from './_tmp.ts'
 import { yamlKey } from './_permissions.ts'
@@ -79,14 +79,14 @@ export type Name = keyof typeof USERS
 
 export interface M4Setup {
   files?: Record<string, string | Uint8Array>
-  /** thoth.yaml (RULES by default). */
+  /** vihko.yaml (RULES by default). */
   config?: string
   /** Group memberships by group name (GROUP: the member and the other by default). */
   groups?: Record<string, Name[]>
 }
 
 export async function setup(opts: M4Setup = {}) {
-  const dir = tempDir('thoth-m4-')
+  const dir = tempDir('vihko-m4-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
   mkdirSync(notesDir, { recursive: true })
@@ -95,7 +95,7 @@ export async function setup(opts: M4Setup = {}) {
     mkdirSync(dirname(join(notesDir, p)), { recursive: true })
     writeFileSync(join(notesDir, p), content)
   }
-  writeFileSync(join(notesDir, 'thoth.yaml'), opts.config ?? RULES)
+  writeFileSync(join(notesDir, 'vihko.yaml'), opts.config ?? RULES)
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
@@ -170,8 +170,8 @@ export async function setup(opts: M4Setup = {}) {
     }
   }
   const mcp = async (token: string) => {
-    const client = new Client({ name: 'thoth-tests', version: '1' })
-    const transport = new StreamableHTTPClientTransport(new URL('http://thoth.test/mcp'), {
+    const client = new Client({ name: 'vihko-tests', version: '1' })
+    const transport = new StreamableHTTPClientTransport(new URL('http://vihko.test/mcp'), {
       fetch: (u, init) => Promise.resolve(app.request(String(u), init)),
       requestInit: { headers: { authorization: `Bearer ${token}` } },
     })

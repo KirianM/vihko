@@ -1,5 +1,5 @@
 // The open note: header (path, save state, presence, panel toggle, more
-// actions), the banner for a note deleted outside thoth, the editor (or one
+// actions), the banner for a note deleted outside vihko, the editor (or one
 // of its versions, from the history) and the side panel.
 import { startCompletion } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
@@ -308,7 +308,7 @@ interface Props {
   /** You moved it and the links are still being rewritten in the background. */
   onMoveStarted: (job: MoveJob) => void
   onTrashed: (t: Trashed) => void
-  /** Template notes (thoth.yaml), offered when creating a note from a broken link. */
+  /** Template notes (vihko.yaml), offered when creating a note from a broken link. */
   templates: readonly string[]
   /** A note was created from here (a broken link): refresh the tree and open it. */
   onCreated: (path: string) => void
@@ -387,7 +387,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
     return () => { live = false }
   }, [path, c.save])
 
-  // Moved or trashed from thoth, by you or someone else, or moved by another tool: the hub tells all its editors.
+  // Moved or trashed from vihko, by you or someone else, or moved by another tool: the hub tells all its editors.
   useEffect(() => {
     if (!c.moved) return
     if (c.moved.outside) onMovedOutside(path, c.moved.to)
@@ -410,7 +410,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
     return () => doc.off('update', on)
   }, [c.session, activity])
   const { setTab } = panel
-  // The tab goes away if thoth.yaml turns the history off; a version opened
+  // The tab goes away if vihko.yaml turns the history off; a version opened
   // from a link or «Recent changes» shows the list alongside.
   useEffect(() => { if (history?.mode === 'off' && panel.tab === 'history') setTab('comments') }, [history?.mode, panel.tab, setTab])
   useEffect(() => { if (version !== null && historyOn) setTab('history') }, [version !== null, historyOn, setTab]) // eslint-disable-line react-hooks/exhaustive-deps

@@ -1,9 +1,9 @@
-// thoth.yaml: read at start, reloaded on change, errors as alerts (D-011, D-014).
+// vihko.yaml: read at start, reloaded on change, errors as alerts (D-011, D-014).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { chmodSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { SESSION_COOKIE } from '@thoth/server'
+import { SESSION_COOKIE } from '@vihko/server'
 import { CONFIG, DAILY, setup } from './_app.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -21,29 +21,29 @@ test('workspace: read at start, reloaded on change; an invalid file keeps the la
   const configAlerts = async () => (await admin('GET', '/api/alerts')).body.alerts.filter((a: { code: string }) => a.code === 'config_invalid' || a.code === 'config_warnings')
 
   // An unknown key is left out with a warning; the rest applies.
-  writeFileSync(join(notesDir, 'thoth.yaml'), CONFIG.replace('templates:', 'templtes:'))
+  writeFileSync(join(notesDir, 'vihko.yaml'), CONFIG.replace('templates:', 'templtes:'))
   assert.equal(workspace.reload(), true)
   assert.equal(workspace.config.templates, null, 'the misspelt setting is not applied')
   assert.deepEqual(workspace.config.daily.map((s) => s.id), SERIES, 'the rest is')
-  assert.deepEqual(await configAlerts(), [{ code: 'config_warnings', file: 'thoth.yaml', actions: [], warnings: [{ code: 'unknown_key', at: 'templtes', line: 2, detail: null }] }])
+  assert.deepEqual(await configAlerts(), [{ code: 'config_warnings', file: 'vihko.yaml', actions: [], warnings: [{ code: 'unknown_key', at: 'templtes', line: 2, detail: null }] }])
 
   // A wrong value in a known key: the last good config stays in force.
-  writeFileSync(join(notesDir, 'thoth.yaml'), CONFIG.replace(`folder: ${JSON.stringify(DAILY.team.folder)}`, `folder: ${JSON.stringify(`../${DAILY.team.folder}`)}`))
+  writeFileSync(join(notesDir, 'vihko.yaml'), CONFIG.replace(`folder: ${JSON.stringify(DAILY.team.folder)}`, `folder: ${JSON.stringify(`../${DAILY.team.folder}`)}`))
   assert.equal(workspace.reload(), true)
   assert.equal(workspace.config.templates, null)
   assert.deepEqual(workspace.config.daily.map((s) => s.id), SERIES, 'the last good config stays in force')
   assert.deepEqual(await configAlerts(), [
-    { code: 'config_invalid', file: 'thoth.yaml', fallback: 'last_good', actions: [], errors: [{ code: 'invalid_path', at: `daily.${DAILY.team.id}.folder`, line: 9, detail: null }] },
-    { code: 'config_warnings', file: 'thoth.yaml', actions: [], warnings: [{ code: 'unknown_key', at: 'templtes', line: 2, detail: null }] },
+    { code: 'config_invalid', file: 'vihko.yaml', fallback: 'last_good', actions: [], errors: [{ code: 'invalid_path', at: `daily.${DAILY.team.id}.folder`, line: 9, detail: null }] },
+    { code: 'config_warnings', file: 'vihko.yaml', actions: [], warnings: [{ code: 'unknown_key', at: 'templtes', line: 2, detail: null }] },
   ], 'the warnings are those of the configuration in force')
 
   const other = m.anId()
-  writeFileSync(join(notesDir, 'thoth.yaml'), `daily:\n  ${other}:\n    folder: ${JSON.stringify(m.aFolder())}\n`)
+  writeFileSync(join(notesDir, 'vihko.yaml'), `daily:\n  ${other}:\n    folder: ${JSON.stringify(m.aFolder())}\n`)
   assert.equal(workspace.reload(), true)
   assert.deepEqual(workspace.config.daily.map((s) => s.id), [other])
   assert.deepEqual(await configAlerts(), [], 'fixed: the alerts go away')
 
-  rmSync(join(notesDir, 'thoth.yaml'))
+  rmSync(join(notesDir, 'vihko.yaml'))
   workspace.reload()
   assert.deepEqual(workspace.config.daily, [], 'deleting the file turns everything off')
 })
@@ -54,23 +54,23 @@ test('workspace: invalid from the start means nothing configured; never served a
   const alert = (await admin('GET', '/api/alerts')).body.alerts.find((a: { code: string }) => a.code === 'config_invalid')
   assert.equal(alert.fallback, 'none')
   assert.equal(alert.errors[0].code, 'yaml')
-  assert.equal((await admin('GET', '/api/file?path=thoth.yaml')).status, 404)
-  assert.equal((await admin('GET', '/api/tree')).body.notes.some((n: { path: string }) => n.path === 'thoth.yaml'), false, 'not a note')
+  assert.equal((await admin('GET', '/api/file?path=vihko.yaml')).status, 404)
+  assert.equal((await admin('GET', '/api/tree')).body.notes.some((n: { path: string }) => n.path === 'vihko.yaml'), false, 'not a note')
 })
 
 test('workspace: an unreadable file is an alert, not a crash', { skip: process.getuid?.() === 0 }, async () => {
   const { notesDir, workspace } = await setup({ config: CONFIG })
-  chmodSync(join(notesDir, 'thoth.yaml'), 0o000)
+  chmodSync(join(notesDir, 'vihko.yaml'), 0o000)
   try {
     workspace.reload()
     assert.equal(workspace.status.errors[0]?.code, 'unreadable')
     assert.equal(workspace.config.daily.length, 2)
   } finally {
-    chmodSync(join(notesDir, 'thoth.yaml'), 0o644)
+    chmodSync(join(notesDir, 'vihko.yaml'), 0o644)
   }
 })
 
-test('attachments: thoth.yaml can send new images to a fixed folder', async () => {
+test('attachments: vihko.yaml can send new images to a fixed folder', async () => {
   const { app, users } = await setup({ config: CONFIG })
   const login = await app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: users.admin.username, password: users.admin.password }) })
   const cookie = login.headers.get('set-cookie')!.split(';')[0]!

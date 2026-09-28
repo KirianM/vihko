@@ -1,5 +1,5 @@
 // Headings: the outline, and what link anchors are checked against.
-import type { Heading } from '@thoth/core'
+import type { Heading } from '@vihko/core'
 import type { Extension } from '../extension.ts'
 
 export const headings: Extension<readonly Heading[]> = {

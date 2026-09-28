@@ -20,7 +20,7 @@
 //   POST /api/account/2fa/enable {code}     verifies a code from it: now it's theirs → { recoveryCodes } (shown once)
 //   POST /api/account/2fa/recovery {confirm}  new recovery codes; `confirm`: a current code or the password
 //   POST /api/account/2fa/disable {code}    only while the policy isn't `required`; a code or a recovery code
-//   POST /api/admin/users/:id/2fa/reset {confirm}  the thoth admin takes someone's second factor away
+//   POST /api/admin/users/:id/2fa/reset {confirm}  the vihko admin takes someone's second factor away
 //
 // The policy `disabled` means nobody new sets one up (D-040 3.4a): whoever
 // already has one is still asked for it, and may replace or turn it off.
@@ -108,7 +108,7 @@ export interface TwoFactorHttpDeps {
   tooMany: (c: Context, retryAfter: number) => Response
   /** Sets the session cookie (and the device's) of a user who just signed in. */
   signedIn: (c: Context, username: string, session: { token: string; expiresAt: Date }) => void
-  /** THOTH_PUBLIC_URL, if set: its host names the installation in the authenticator app. */
+  /** VIHKO_PUBLIC_URL, if set: its host names the installation in the authenticator app. */
   publicUrl: string | null
   /** Notices addressed to one person: the admin's reset of someone's second factor is told. */
   notices?: Notices
@@ -126,7 +126,7 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
    * The policy `disabled` only stops new ones (D-040 3.4a).
    */
   const inForce = (userId: string) => twoFactor.enabled(userId)
-  /** Where thoth is reached, for the authenticator app's label. */
+  /** Where vihko is reached, for the authenticator app's label. */
   const host = (c: Context) => {
     try { return new URL(deps.publicUrl ?? c.req.url).host } catch { return null }
   }

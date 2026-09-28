@@ -3,7 +3,7 @@
 // data, never text: the UI words them (D-025).
 
 /**
- * How an agent reached thoth: the HTTP API with a key, the MCP server with a
+ * How an agent reached vihko: the HTTP API with a key, the MCP server with a
  * key, or an OAuth token (M3). The history keeps it with each agent author.
  */
 export type Via = 'api' | 'mcp' | 'oauth'
@@ -26,7 +26,7 @@ export type Actor =
  * - `note_moved`, `folder_moved`: links rewritten because `by` moved or
  *   renamed a note or a folder.
  * - `links_after_external_move`: «Update links» after notes were moved outside
- *   thoth (D-031.4).
+ *   vihko (D-031.4).
  * - `alias_added`: the safety alias of a rename (D-018), because some link
  *   couldn't be rewritten.
  * - `restored`: a version of the note (`id`, from `at`) brought back from the
@@ -35,7 +35,7 @@ export type Actor =
  *   it was (history/revert.ts).
  * - `history_enabled`, `history_resumed`: what was in the folder when the
  *   history started, or changed while it was off.
- * - `recovered`: text thoth wrote back from its own copy (the collaboration
+ * - `recovered`: text vihko wrote back from its own copy (the collaboration
  *   hub) whose typists it doesn't know.
  * - `follow_external_move`, `keep_copy`, `crash_recovery`: the hub's own
  *   sessions; they never write a version.
@@ -59,10 +59,10 @@ export type ReasonCode = Reason['code']
 
 /**
  * An author as the history keeps it: an actor without its reason, or
- * `external` (a change made outside thoth). As text (`authorKey`) it is:
+ * `external` (a change made outside vihko). As text (`authorKey`) it is:
  * `user <id>`, `agent <keyId> <userId>` (with ` <via>` when known),
  * `system`, `external`. In a commit, the via of an agent goes in its own
- * trailer (history/trailers.ts), so `Thoth-Actor` keeps the M2 form.
+ * trailer (history/trailers.ts), so `Vihko-Actor` keeps the M2 form.
  */
 export type Author =
   | { kind: 'user'; id: string }
@@ -93,7 +93,7 @@ export function parseAuthorKey(key: string): Author | null {
   return null
 }
 
-/** A reason as the `Thoth-Reason` trailer keeps it: JSON, with `by` as an author key. */
+/** A reason as the `Vihko-Reason` trailer keeps it: JSON, with `by` as an author key. */
 export function reasonJson(r: Reason): Record<string, unknown> {
   const out: Record<string, unknown> = { ...r }
   if ('by' in r) out.by = authorKey(authorOf(r.by))

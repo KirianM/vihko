@@ -7,7 +7,7 @@ import { searchKeymap } from '@codemirror/search'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { classHighlighter } from '@lezer/highlight'
-import { thothSyntax } from '@thoth/core/syntax'
+import { vihkoSyntax } from '@vihko/core/syntax'
 import { useEffect, useRef } from 'react'
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
 import * as Y from 'yjs'
@@ -81,7 +81,7 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
     const state = EditorState.create({
       doc: text.toString(),
       extensions: [
-        yamlFrontmatter({ content: markdown({ base: markdownLanguage, extensions: thothSyntax, addKeymap: false }) }),
+        yamlFrontmatter({ content: markdown({ base: markdownLanguage, extensions: vihkoSyntax, addKeymap: false }) }),
         syntaxHighlighting(classHighlighter),
         EditorView.lineWrapping,
         livePreview,

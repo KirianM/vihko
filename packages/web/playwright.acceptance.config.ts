@@ -2,12 +2,12 @@ import { defineConfig } from '@playwright/test'
 import { seedLine, testSeed } from '../../test/seed.ts'
 import { ACC_PORT, BASE_URL } from './acceptance/env.ts'
 
-// The browser part of the M1 acceptance suite (npm run acceptance:ui -w @thoth/web).
+// The browser part of the M1 acceptance suite (npm run acceptance:ui -w @vihko/web).
 // With ACC_BASE_URL the server is already running externally (node acceptance/serve.ts).
 // The test data's seed (test/seed.ts; acceptance/data.ts reads a running
 // server's): set in the environment by now, it reaches the server and workers.
 const seed = testSeed()
-if (process.env.TEST_WORKER_INDEX === undefined) console.log(seedLine(seed, 'npm run acceptance:ui -w @thoth/web'))
+if (process.env.TEST_WORKER_INDEX === undefined) console.log(seedLine(seed, 'npm run acceptance:ui -w @vihko/web'))
 
 export default defineConfig({
   testDir: 'acceptance',

@@ -11,7 +11,7 @@ import { ACC_DIR, ACC_PORT, NOTES, PERMISSIONS, USERS } from './env.ts'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const cli = root + 'packages/server/src/cli.ts'
-const env = { ...process.env, THOTH_NOTES_DIR: NOTES, THOTH_STATE_DIR: ACC_DIR + '/state' }
+const env = { ...process.env, VIHKO_NOTES_DIR: NOTES, VIHKO_STATE_DIR: ACC_DIR + '/state' }
 
 rmSync(ACC_DIR, { recursive: true, force: true })
 mkdirSync(ACC_DIR, { recursive: true })
@@ -22,12 +22,12 @@ console.log(seedLine(seed, 'node packages/web/acceptance/serve.ts'))
 const vault = generateVault(NOTES, { notes: Number(process.env.ACCEPTANCE_NOTES ?? 1000), seed: Number(process.env.ACCEPTANCE_SEED ?? 1) })
 // What the specs need to know about the vault.
 writeFileSync(ACC_DIR + '/vault.json', JSON.stringify(vault))
-writeFileSync(NOTES + '/thoth.yaml', PERMISSIONS)
+writeFileSync(NOTES + '/vihko.yaml', PERMISSIONS)
 for (const u of USERS) {
   execFileSync(process.execPath, ['--no-experimental-webstorage', cli, 'user', 'create', u.username, ...(u.role === 'admin' ? ['--admin'] : [])], { env, input: u.password })
 }
 const server = spawn(process.execPath, ['--no-experimental-webstorage', cli, 'serve'], {
-  env: { ...env, THOTH_HOST: '127.0.0.1', THOTH_PORT: String(ACC_PORT) },
+  env: { ...env, VIHKO_HOST: '127.0.0.1', VIHKO_PORT: String(ACC_PORT) },
   stdio: 'inherit',
 })
 for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => server.kill(sig))

@@ -3,7 +3,7 @@
 // (fsutil.ts), lazy `uid` and deletion to trash.
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix } from 'node:path'
-import { addToFrontmatterList, classifyPath, contentHash, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@thoth/core'
+import { addToFrontmatterList, classifyPath, contentHash, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
 import { commitText, createFile, linkNew, readStable, readText } from './fsutil.ts'
 import { attachmentPath, noteAttachmentsDir, sniffImage, suffixedName } from './attachments.ts'
 import { applyReplacements, beforeMoves, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
@@ -90,7 +90,7 @@ export interface NoteServiceOptions {
   /** Largest image accepted, in bytes (20 MB by default). */
   maxImageBytes?: number
   /**
-   * Where new images go (thoth.yaml `attachments`): next to their note by
+   * Where new images go (vihko.yaml `attachments`): next to their note by
    * default. Asked on each upload and each move (in `per-note` mode a note's
    * folder of images moves with it).
    */
@@ -137,7 +137,7 @@ export interface MoveReport {
    * go with the note, stays at `path` and the note links it there.
    * `outcome: 'copied'`: it is at `to` and the note links it there, but the
    * original at `path` could not be removed.
-   * `folder`: in `per-note` mode (thoth.yaml), the note's own folder of images
+   * `folder`: in `per-note` mode (vihko.yaml), the note's own folder of images
    * (`plan.assets/`), which goes with it whole and is renamed to match
    * (`files`: how many it holds). Links into it, from the note or from any
    * other, are rewritten. It stays where it is (and is in `failed`, with the
@@ -179,8 +179,8 @@ export interface FolderMoveReport {
 }
 
 /**
- * What updating the links after notes moved outside thoth does (or would do,
- * with `dryRun`): the rewrites a thoth move of those notes would have made.
+ * What updating the links after notes moved outside vihko does (or would do,
+ * with `dryRun`): the rewrites a vihko move of those notes would have made.
  */
 export interface MovedRelinkReport {
   /** The moves it applies to: those still in place (the note at `to`, nothing back at `from`). */
@@ -344,7 +344,7 @@ export class NoteService {
 
     // First it's set aside within the same filesystem (atomic rename), then we
     // check that what was set aside is what was meant to be deleted.
-    const aside = join(dirname(file), `.${posix.basename(path)}.thoth-del-${process.pid}-${Date.now()}`)
+    const aside = join(dirname(file), `.${posix.basename(path)}.vihko-del-${process.pid}-${Date.now()}`)
     const w = this.history.prepare([{ path, before: current, after: null }], { actor: opts.actor, immediate: true })
     try {
       renameSync(file, aside)
@@ -402,7 +402,7 @@ export class NoteService {
         this.rewriteAll(others.map((src) => ({ path: src, change: (t: string) => movedNotePlan(t, src, src, before, after, map, place).splices })), system, report.failed, opts.onProgress))
 
       // Safety net: if something couldn't be rewritten, the old name stays as an alias.
-      // Not when aliases don't resolve links (thoth.yaml): it would save nothing.
+      // Not when aliases don't resolve links (vihko.yaml): it would save nothing.
       const oldName = posix.basename(from).replace(/\.md$/i, '')
       const newName = posix.basename(to).replace(/\.md$/i, '')
       if (report.failed.length && oldName !== newName && this.opts.indexer.linkAliases) {
@@ -507,7 +507,7 @@ export class NoteService {
     // the source is removed if it didn't change. If anything fails, the images
     // placed are removed again: everything stays as it was.
     const newText = this.ensureUid(final.text, this.uidIn(text)).text
-    const aside = join(dirname(fromFile), `.${posix.basename(from)}.thoth-mv-${process.pid}-${Date.now()}`)
+    const aside = join(dirname(fromFile), `.${posix.basename(from)}.vihko-mv-${process.pid}-${Date.now()}`)
     // One version by whoever moves it: the note renamed (with its own links
     // rewritten), and its images and folder of images renamed with it.
     const moved: FileChange[] = [
@@ -621,14 +621,14 @@ export class NoteService {
   }
 
   /**
-   * Updates the links after notes moved outside thoth (D-031.4): the rewrites
-   * a thoth move of those notes would have made, planned over the files as
+   * Updates the links after notes moved outside vihko (D-031.4): the rewrites
+   * a vihko move of those notes would have made, planned over the files as
    * they are now, without moving any file. Only the moves still in place
    * count (the note at `to`, and no note back at `from`). The moved notes'
    * image references are only rewritten when the image is still where they
    * led and the reference no longer reaches it: the other tool may have moved
    * the images too. With `dryRun`, it only reports; otherwise it waits its
-   * turn with thoth's own moves and rewrites as the system, one note at a
+   * turn with vihko's own moves and rewrites as the system, one note at a
    * time (`onMoved` with the count, then `onProgress`).
    */
   async relinkMoved(moves: readonly { from: string; to: string }[], opts: { actor: Actor; dryRun?: boolean } & MoveHooks): Promise<MovedRelinkReport> {
@@ -829,7 +829,7 @@ export class NoteService {
         throw err
       }
       w.done()
-      // Recorded as thoth's own change before anything else runs: the watcher and
+      // Recorded as vihko's own change before anything else runs: the watcher and
       // the rescan find the index already in step (no mass removal, no external change).
       this.opts.indexer.indexPaths([...inside.map((p) => `${from}/${p}`), ...inside.map((p) => `${to}/${p}`)])
       this.opts.indexer.indexFolders([from, to])

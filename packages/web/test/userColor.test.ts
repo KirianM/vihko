@@ -4,7 +4,7 @@ import { baseHue, contrast, distinctHue, freeHue, hueDistance, luminance, MIN_HU
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
-/** A user id, as thoth makes them. */
+/** A user id, as vihko makes them. */
 const anId = () => m.faker.string.ulid()
 
 const BG: Record<Theme, string> = { light: '#F4F0E6', dark: '#191815' }

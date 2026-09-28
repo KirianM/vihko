@@ -2,11 +2,11 @@
 // key it looks up; the in-memory LinkIndex says which keys a batch touched,
 // so `finalize` re-resolves only the links that may have changed state.
 //
-// Whether aliases resolve links comes from thoth.yaml (`links.aliases`,
+// Whether aliases resolve links comes from vihko.yaml (`links.aliases`,
 // D-031.1). The tables record the setting they were resolved with: when it
-// changes (live, or while thoth was stopped) every link is resolved again,
+// changes (live, or while vihko was stopped) every link is resolved again,
 // without reindexing a single note.
-import { LinkIndex, normKey, pathKeys, type Heading, type LinkRef } from '@thoth/core'
+import { LinkIndex, normKey, pathKeys, type Heading, type LinkRef } from '@vihko/core'
 import type { Extension } from '../extension.ts'
 
 interface LinkFacts {
@@ -50,7 +50,7 @@ export function linksExtension(opts: { aliases?: boolean } = {}): LinksExtension
       return true
     },
     tables: {
-      // Settings the links were resolved with (`aliases`: '1' or '0'), derived from thoth.yaml.
+      // Settings the links were resolved with (`aliases`: '1' or '0'), derived from vihko.yaml.
       link_settings: `create table link_settings (
         key   text primary key,
         value text not null

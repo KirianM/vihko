@@ -4,7 +4,7 @@ import type { MessageKey } from './i18n.tsx'
 import { chooseTheme, type Theme } from './theme.ts'
 
 /** Window event: insert an image in the open note. */
-export const INSERT_IMAGE = 'thoth:insert-image'
+export const INSERT_IMAGE = 'vihko:insert-image'
 
 export interface CommandContext {
   theme: Theme
@@ -12,7 +12,7 @@ export interface CommandContext {
   openPath: string | null
   /** Switches the palette to create-note mode in the current folder. */
   newNote: () => void
-  /** Opens (or creates) today's note; null while thoth.yaml declares no series. */
+  /** Opens (or creates) today's note; null while vihko.yaml declares no series. */
   today: (() => void) | null
 }
 

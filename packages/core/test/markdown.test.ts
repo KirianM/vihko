@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { extract, withoutRanges } from '@thoth/core'
+import { extract, withoutRanges } from '@vihko/core'
 import { mother } from '../../../test/mother.ts'
 
 // Comments' authors (usernames).
@@ -28,7 +28,7 @@ test('tags: uppercase, nested, frontmatter, numeric and headings', () => {
 })
 
 test('wikilinks: display text, embed, anchor and self-reference', () => {
-  const links = extract(vault('proyectos/thoth/notas.md')).links
+  const links = extract(vault('proyectos/vihko/notas.md')).links
   assert.deepEqual(links.map((l) => [l.kind, l.target, l.display]), [
     ['wiki', 'Plan', null],
     ['wiki', 'plan', null],
@@ -47,7 +47,7 @@ test('hogar links: alias, anchors, broken, relative Markdown and external', () =
     ['wiki', 'Proxy', 'No existe'],
     ['wiki', 'Nota que no existe', null],
     ['markdown', 'Proxy.md', null],
-    ['markdown', '../proyectos/thoth/Plan.md', null],
+    ['markdown', '../proyectos/vihko/Plan.md', null],
     ['markdown', 'no-existe.md', null],
   ])
   assert.equal(links[5]!.display, 'Proxy en Markdown')

@@ -44,7 +44,7 @@ test.afterAll(() => {
 
 /** A Yjs client on the hub with the session of whoever is signed in on `page`, as the agent's connection. */
 async function agentClient(page: Page, agent: typeof AGENT | null): Promise<Lineage> {
-  const cookie = (await page.context().cookies()).find((c) => c.name === 'thoth_session')!
+  const cookie = (await page.context().cookies()).find((c) => c.name === 'vihko_session')!
   class AuthedWS extends WebSocket {
     constructor(url: string, protocols?: string | string[]) { super(url, protocols, { headers: { cookie: `${cookie.name}=${cookie.value}` } }) }
   }

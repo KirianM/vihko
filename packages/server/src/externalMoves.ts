@@ -1,4 +1,4 @@
-// Notes moved outside thoth (D-031.4), kept until their links are updated or
+// Notes moved outside vihko (D-031.4), kept until their links are updated or
 // nothing is left to update. The indexer detects the moves (moves.ts) and
 // keeps each note's identity; this remembers them so the alert can offer
 // «Update links». Nothing is ever rewritten on its own: the tool that moved
@@ -13,7 +13,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { normKey, pathKeys } from '@thoth/core'
+import { normKey, pathKeys } from '@vihko/core'
 import type { Db } from './db.ts'
 import { readText } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'

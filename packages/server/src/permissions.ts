@@ -1,5 +1,5 @@
 // Per-folder permissions as they apply now (D-014, D-038): the rules of
-// thoth.yaml (core/permissions.ts) resolved against the users and groups of
+// vihko.yaml (core/permissions.ts) resolved against the users and groups of
 // state.db. Access (access.ts) asks here what level a user has in a folder;
 // the permissions API (http/permissions.ts) asks who has access and why.
 //
@@ -18,7 +18,7 @@
 import {
   RuleSet, USER_SEGMENT, atLeast, folderOf, grantsAt, levelInReach, maxLevel, reachingGrants, subjectKey,
   type ConfigError, type Governing, type Level, type PermissionRule, type Permissions, type Reaching,
-} from '@thoth/core'
+} from '@vihko/core'
 import type { Role } from './auth.ts'
 import type { Db } from './db.ts'
 

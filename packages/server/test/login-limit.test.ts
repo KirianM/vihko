@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import {
   Auth, DEVICE_COOKIE, Indexer, LoginLimiter, NoteService, Profiles, SESSION_COOKIE, Workspace, clientIp, createApp, ipKey, openIndex, openState,
   trustedProxiesFrom, type LimitRules, type Runtime,
-} from '@thoth/server'
+} from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -152,7 +152,7 @@ test('client address: the socket, X-Forwarded-For only from trusted proxies', ()
   assert.equal(trustedProxiesFrom(''), null)
   assert.equal(trustedProxiesFrom(undefined), null)
   for (const bad of ['10.0.0.300', 'proxy.local', '10.0.0.0/33', '::/129', '10.0.0.0/8/1']) {
-    assert.throws(() => trustedProxiesFrom(bad), /THOTH_TRUSTED_PROXIES/, bad)
+    assert.throws(() => trustedProxiesFrom(bad), /VIHKO_TRUSTED_PROXIES/, bad)
   }
   assert.equal(ipKey('203.0.113.9'), '203.0.113.9')
   assert.equal(ipKey('2001:db8:0:1:aaaa::1'), '2001:db8:0:1::/64', 'IPv6 by its /64')
@@ -163,7 +163,7 @@ test('client address: the socket, X-Forwarded-For only from trusted proxies', ()
 // --- Over HTTP ---------------------------------------------------------------
 
 async function server(opts: { proxies?: string; rules?: Partial<LimitRules> } = {}) {
-  const dir = tempDir('thoth-login-limit-')
+  const dir = tempDir('vihko-login-limit-')
   const notesDir = join(dir, 'notes')
   mkdirSync(notesDir)
   const index = openIndex(join(dir, 'index.db'))

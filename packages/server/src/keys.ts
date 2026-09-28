@@ -1,5 +1,5 @@
 // Agent keys (D-035.2, D-035.3): credentials a user delegates to an agent.
-// `thoth_<id>_<secret>`: the id finds the key and the secret (256 bits,
+// `vihko_<id>_<secret>`: the id finds the key and the secret (256 bits,
 // base64url) proves it. Only the secret's sha256 and its last 4 characters are
 // stored, compared in constant time; the key itself is shown once, when it is
 // created. A new key is read-only and reaches every folder its user sees.
@@ -7,14 +7,14 @@
 // An OAuth authorization (oauth.ts) is a key too, listed and revoked like the
 // others, which only its client's tokens reach.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { newUid } from '@thoth/core'
+import { newUid } from '@vihko/core'
 import type { Db } from './db.ts'
 import type { Role, User } from './auth.ts'
 import { VIAS, type Via } from './actor.ts'
 import type { AgentPrincipal } from './access.ts'
 import { NoteError, NoteService } from './notes.ts'
 
-export const KEY_PREFIX = 'thoth_'
+export const KEY_PREFIX = 'vihko_'
 
 /** `lastUsedAt` is written at most this often (a key in use doesn't write on every request). */
 export const LAST_USED_EVERY_MS = 5 * 60_000
@@ -25,7 +25,7 @@ export const ROTATION_GRACE_MS = 10 * 60_000
 const MAX_NAME = 100
 const MAX_FOLDERS = 100
 
-const KEY_FORMAT = /^thoth_([0-9A-HJKMNP-TV-Z]{26})_([A-Za-z0-9_-]{43})$/
+const KEY_FORMAT = /^vihko_([0-9A-HJKMNP-TV-Z]{26})_([A-Za-z0-9_-]{43})$/
 
 /** A key as its owner (or the admin) sees it: never the secret. */
 export interface KeyInfo {

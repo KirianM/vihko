@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
-import { Indexer, dumpIndex, openIndex } from '@thoth/server'
+import { Indexer, dumpIndex, openIndex } from '@vihko/server'
 import { api, closeAll, connect, login, typeLine } from '../_collab.ts'
 import { PASSWORD, USER, cleanup, metric, sleep, startServer, waitFor, workspace, type Server } from './_harness.ts'
 

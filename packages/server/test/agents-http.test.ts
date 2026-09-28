@@ -2,15 +2,15 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { ROUTES } from '@thoth/server'
+import { ROUTES } from '@vihko/server'
 import { PNG, setup } from './_agents.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
-/** SQLite's `collate nocase` order, which thoth lists usernames in: ASCII letters folded, then bytes. */
+/** SQLite's `collate nocase` order, which vihko lists usernames in: ASCII letters folded, then bytes. */
 const nocase = (a: string, b: string) => Buffer.compare(Buffer.from(a.replace(/[A-Z]/g, (c) => c.toLowerCase())), Buffer.from(b.replace(/[A-Z]/g, (c) => c.toLowerCase())))
 /** A session cookie nobody was given. */
-const NO_SESSION = `thoth_session=${m.aSecret(43)}`
+const NO_SESSION = `vihko_session=${m.aSecret(43)}`
 
 /** The folder keys are limited to, a note in it; another folder and a note there. */
 const DIR = m.aFolder()
@@ -76,7 +76,7 @@ test('switched on: only the listed routes, by the key alone; a bad key is 401, a
   } finally { await h.close() }
 })
 
-test('THOTH_INTEGRATIONS=off: keys get 404 whatever state.db says, and the switches can\'t be turned on', async () => {
+test('VIHKO_INTEGRATIONS=off: keys get 404 whatever state.db says, and the switches can\'t be turned on', async () => {
   const h = await setup({ files: FILES, locked: true })
   try {
     h.integrations.set({ api: false })
@@ -96,7 +96,7 @@ test('keys over the UI: created once with their token, listed without it, change
     const created = await h.admin('POST', '/api/keys', { confirm: h.users.admin.password, name, canWrite: true, folders: [DIR], expiresAt: '2027-01-01T00:00:00Z' })
     assert.equal(created.status, 201)
     const { key, token } = created.body
-    assert.match(token, /^thoth_[0-9A-Z]{26}_[A-Za-z0-9_-]{43}$/)
+    assert.match(token, /^vihko_[0-9A-Z]{26}_[A-Za-z0-9_-]{43}$/)
     assert.deepEqual([key.name, key.canWrite, key.folders, key.expiresAt, key.status, key.last4], [name, true, [DIR], '2027-01-01T00:00:00.000Z', 'active', token.slice(-4)])
     const list = await h.admin('GET', '/api/keys')
     assert.deepEqual(list.body.keys.map((k: any) => k.id), [key.id])
@@ -141,7 +141,7 @@ test('rotating a key over the UI: its owner only, a new token once, both working
     const { key, token } = await h.newKey({ name, canWrite: true })
     const r = await h.admin('POST', `/api/keys/${key.id}/rotate`, { confirm: h.users.admin.password })
     assert.equal(r.status, 200, r.text)
-    assert.match(r.body.token, /^thoth_[0-9A-Z]{26}_[A-Za-z0-9_-]{43}$/)
+    assert.match(r.body.token, /^vihko_[0-9A-Z]{26}_[A-Za-z0-9_-]{43}$/)
     assert.notEqual(r.body.token, token)
     assert.deepEqual([r.body.key.id, r.body.key.name, r.body.key.last4, typeof r.body.key.previousUntil], [key.id, name, r.body.token.slice(-4), 'string'])
     assert.ok(!(await h.admin('GET', '/api/keys')).text.includes(r.body.token.slice(33)), 'the new token is shown once')
@@ -241,9 +241,9 @@ test('images: an agent stores them next to its notes, never outside its folders'
     assert.equal(ok.status, 201, ok.text)
     assert.ok(ok.body.path.startsWith(`${DIR}/`), ok.body.path)
     assert.equal((await key('GET', h.url('/api/file', { path: ok.body.path }))).status, 404, 'no note uses it yet')
-    // thoth.yaml sends images to a folder the key doesn't reach: refused, and it's the key's limit (403).
+    // vihko.yaml sends images to a folder the key doesn't reach: refused, and it's the key's limit (403).
     const images = m.aUniqueWord()
-    writeFileSync(join(h.notesDir, 'thoth.yaml'), `attachments:\n  folder: ${images}\n`)
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), `attachments:\n  folder: ${images}\n`)
     h.workspace.reload()
     const out = await key('POST', h.url('/api/attachments', { note: PLAN }), png)
     assert.deepEqual([out.status, out.body.error], [403, 'forbidden'])
@@ -260,7 +260,7 @@ test('an alert while the API or MCP is on and the history is not managed: what a
     assert.deepEqual(await ours(), [{ code: 'integrations_unversioned', mode: 'off', api: false, mcp: true, actions: [] }])
     await h.enableApi()
     assert.deepEqual(await ours(), [{ code: 'integrations_unversioned', mode: 'off', api: true, mcp: true, actions: [] }])
-    writeFileSync(join(h.notesDir, 'thoth.yaml'), 'history:\n  mode: managed\n')
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), 'history:\n  mode: managed\n')
     h.workspace.reload()
     assert.deepEqual(await ours(), [], 'managed: every agent write is a version')
   } finally { await h.close() }

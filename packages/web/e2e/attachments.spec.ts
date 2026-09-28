@@ -1,4 +1,4 @@
-// Per-note attachments (thoth.yaml `attachments.mode: per-note`, D-031.5): a
+// Per-note attachments (vihko.yaml `attachments.mode: per-note`, D-031.5): a
 // pasted image lands in the note's own folder, and renaming the note renames
 // that folder, with the preview saying so and every link into it rewritten.
 import { expect, test, type Page } from '@playwright/test'
@@ -29,7 +29,7 @@ test.beforeAll(async ({ browser }) => {
   writeFileSync(`${NOTES}/${PROBE}`, `# ${m.aHeading()}\n`)
   writeWorkspace('attachments:\n  mode: per-note\n')
   k = await signIn(browser, ADMIN, NOTE)
-  // Until thoth.yaml is read again (watcher or rescan), uploads still go next to the note.
+  // Until vihko.yaml is read again (watcher or rescan), uploads still go next to the note.
   await expect.poll(async () => {
     const r = await k.request.post(`/api/attachments?note=${encodeURIComponent(PROBE)}`, { data: BLUE, headers: { 'content-type': 'image/png' } })
     return ((await r.json()) as { path: string }).path.startsWith(`${PROBE.replace(/\.md$/, '')}.assets/`)

@@ -1,17 +1,17 @@
-// THOTH_SECRET_KEY (D-040 3.4b): an optional key of the server's
+// VIHKO_SECRET_KEY (D-040 3.4b): an optional key of the server's
 // administrator, kept outside state.db, that encrypts the TOTP secrets in it.
 // A copy of state.db (a backup) is then not enough to compute anyone's codes.
 //
-// - The key is given in the environment (THOTH_SECRET_KEY) or, for a Docker
-//   secret, in a file (THOTH_SECRET_KEY_FILE). It's never written to disk or
+// - The key is given in the environment (VIHKO_SECRET_KEY) or, for a Docker
+//   secret, in a file (VIHKO_SECRET_KEY_FILE). It's never written to disk or
 //   to the logs, and it's taken out of the process's environment once read
-//   (nothing thoth runs inherits it).
+//   (nothing vihko runs inherits it).
 // - AES-256-GCM, with a key derived from it by HKDF-SHA-256 and a random
 //   nonce for each secret; the user's id is the additional data, so a secret
 //   copied to another user's row doesn't open.
 // - Versioned: `v1:<key id>:<nonce>:<ciphertext and tag>` (base64url). A
 //   secret kept before (base32, which has no `:`) is plaintext, and both
-//   coexist: thoth encrypts the plaintext ones when it starts with a key.
+//   coexist: vihko encrypts the plaintext ones when it starts with a key.
 // - The key id is a short fingerprint of the derived key: it tells a secret
 //   encrypted with another key apart from a broken one, and says nothing of
 //   the key.
@@ -22,8 +22,8 @@ import { readFileSync } from 'node:fs'
 export const MIN_SECRET_KEY = 32
 
 const VERSION = 'v1'
-const INFO = 'thoth totp secrets v1'
-const SALT = 'thoth'
+const INFO = 'vihko totp secrets v1'
+const SALT = 'vihko'
 const NONCE_BYTES = 12
 const TAG_BYTES = 16
 
@@ -36,9 +36,9 @@ export class SecretBox {
   private readonly key: Buffer
 
   constructor(material: string) {
-    if (material.length < MIN_SECRET_KEY) throw new SecretKeyError(`THOTH_SECRET_KEY must be at least ${MIN_SECRET_KEY} characters long (for example, openssl rand -base64 32)`)
+    if (material.length < MIN_SECRET_KEY) throw new SecretKeyError(`VIHKO_SECRET_KEY must be at least ${MIN_SECRET_KEY} characters long (for example, openssl rand -base64 32)`)
     this.key = Buffer.from(hkdfSync('sha256', Buffer.from(material, 'utf8'), SALT, INFO, 32))
-    this.id = createHmac('sha256', this.key).update('thoth key id').digest('hex').slice(0, 8)
+    this.id = createHmac('sha256', this.key).update('vihko key id').digest('hex').slice(0, 8)
   }
 
   /** `plain`, encrypted for `owner` (the user's id). */
@@ -77,26 +77,26 @@ function parseSealed(s: string): { keyId: string; nonce: Buffer; body: Buffer } 
 }
 
 /**
- * The key from the environment, if any: THOTH_SECRET_KEY, or the file
- * THOTH_SECRET_KEY_FILE names (a Docker secret; one trailing newline is
+ * The key from the environment, if any: VIHKO_SECRET_KEY, or the file
+ * VIHKO_SECRET_KEY_FILE names (a Docker secret; one trailing newline is
  * ignored). Both at once, an unreadable file or a short key stop the start:
  * the administrator asked for encryption, and nothing is stored in the clear
  * by mistake. Read from `process.env`, both are taken out of it afterwards.
  */
 export function secretBoxFrom(env: NodeJS.ProcessEnv = process.env): SecretBox | null {
-  const direct = env.THOTH_SECRET_KEY
-  const file = env.THOTH_SECRET_KEY_FILE
+  const direct = env.VIHKO_SECRET_KEY
+  const file = env.VIHKO_SECRET_KEY_FILE
   if (env === process.env) {
-    delete process.env.THOTH_SECRET_KEY
-    delete process.env.THOTH_SECRET_KEY_FILE
+    delete process.env.VIHKO_SECRET_KEY
+    delete process.env.VIHKO_SECRET_KEY_FILE
   }
-  if (direct && file) throw new SecretKeyError('set THOTH_SECRET_KEY or THOTH_SECRET_KEY_FILE, not both')
+  if (direct && file) throw new SecretKeyError('set VIHKO_SECRET_KEY or VIHKO_SECRET_KEY_FILE, not both')
   let material = direct || null
   if (file) {
     try {
       material = readFileSync(file, 'utf8').replace(/\r?\n$/, '')
     } catch (err) {
-      throw new SecretKeyError(`THOTH_SECRET_KEY_FILE can't be read (${(err as NodeJS.ErrnoException).code ?? 'error'}): ${file}`)
+      throw new SecretKeyError(`VIHKO_SECRET_KEY_FILE can't be read (${(err as NodeJS.ErrnoException).code ?? 'error'}): ${file}`)
     }
   }
   return material ? new SecretBox(material) : null

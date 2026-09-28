@@ -1,7 +1,7 @@
 // Users and groups meet the permissions (D-038.8): deleting someone takes
-// their grants out of thoth.yaml and leaves their `{user}` folder closed to
+// their grants out of vihko.yaml and leaves their `{user}` folder closed to
 // everyone; renaming or deleting a group moves or removes its grants. The
-// thoth.yaml writer keeps everything else as it was.
+// vihko.yaml writer keeps everything else as it was.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -19,7 +19,7 @@ const SHARED = m.aFolder()
 /** The member's note in their own folder, the admin's in theirs, and one in the shared folder. */
 const [DIARY, PLAN] = [m.aTitle(), m.aTitle()]
 const LIST = m.aNotePath(SHARED)
-/** Comments in thoth.yaml, which the writer keeps. */
+/** Comments in vihko.yaml, which the writer keeps. */
 const [HEADER, BY_NAME] = [m.aSentence(), m.aSentence()]
 /** `text` for a regular expression that matches it literally (valid with the `u` flag). */
 const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
@@ -44,7 +44,7 @@ test('deleting a user takes their grants out and closes their folder; a group re
     const member = s.users.member.username
     const diary = `${PEOPLE}/${member}/${DIARY}.md`
     const plan = `${PEOPLE}/${s.users.admin.username}/${PLAN}.md`
-    const yaml = () => readFileSync(join(s.notesDir, 'thoth.yaml'), 'utf8')
+    const yaml = () => readFileSync(join(s.notesDir, 'vihko.yaml'), 'utf8')
     const group = await s.admin('POST', '/api/admin/groups', { name: family })
     assert.equal(group.status, 201)
     assert.equal((await s.admin('POST', `/api/admin/groups/${group.body.group.id}/members`, { userId: s.users.member.id })).status, 200)

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { contentHash, readFrontmatter } from '@thoth/core'
-import { Indexer, NoteError, NoteService, openIndex, type Actor } from '@thoth/server'
+import { contentHash, readFrontmatter } from '@vihko/core'
+import { Indexer, NoteError, NoteService, openIndex, type Actor } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -14,7 +14,7 @@ const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
 
 function setup() {
-  const dir = tempDir('thoth-notes-')
+  const dir = tempDir('vihko-notes-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
   cpSync(VAULT, notesDir, { recursive: true })
@@ -56,7 +56,7 @@ test('write: requires if_match, keeps the uid, and assigns one if it was missing
   await notes.write('uid/original.md', `# ${m.aHeading()}\n`, { ifMatch: before.etag, actor: me })
   assert.equal(readFrontmatter(notes.read('uid/original.md').text).data.uid, '01J8X4M2K9QZ')
 
-  // A note without a uid gets one on its first write from thoth…
+  // A note without a uid gets one on its first write from vihko…
   const plan = notes.read('Plan.md')
   await notes.write('Plan.md', `${plan.text}\n${m.aSentence()}\n`, { ifMatch: plan.etag, actor: me })
   assert.match(String(readFrontmatter(notes.read('Plan.md').text).data.uid), /^[0-9A-Z]{26}$/)
@@ -114,14 +114,14 @@ test('uid -> path, and conflict if the uid is duplicated', () => {
 })
 
 test('edits by operation: counted find_replace and append', async () => {
-  const { applyEdits } = await import('@thoth/server')
+  const { applyEdits } = await import('@vihko/server')
   assert.equal(applyEdits('a\nb\n', [{ op: 'find_replace', find: 'b', replace: 'c' }, { op: 'append', text: 'd\n' }]), 'a\nc\nd\n')
   assert.equal(applyEdits('x', [{ op: 'append', text: 'y' }]), 'x\ny')
   assert.equal(applyEdits('a a', [{ op: 'find_replace', find: 'a', replace: 'b', expectedCount: 2 }]), 'b b')
   assert.throws(() => applyEdits('a a', [{ op: 'find_replace', find: 'a', replace: 'b' }]), (e: NoteError) => e.code === 'edit_mismatch')
   assert.throws(() => applyEdits('a', [{ op: 'find_replace', find: 'z', replace: 'b' }]), (e: NoteError) => e.code === 'edit_mismatch')
   // As exact splices, without what the replacement keeps at either end.
-  const { planEdits } = await import('@thoth/server')
+  const { planEdits } = await import('@vihko/server')
   assert.deepEqual(planEdits('MARK\nR0-\n', [{ op: 'find_replace', find: 'MARK\n', replace: 'MARK\nR0-AGENT\n' }]), [{ at: 5, remove: 0, insert: 'R0-AGENT\n' }])
   assert.deepEqual(planEdits('a b a', [{ op: 'find_replace', find: 'a', replace: 'xa', expectedCount: 2 }]), [{ at: 4, remove: 0, insert: 'x' }, { at: 0, remove: 0, insert: 'x' }])
   assert.deepEqual(planEdits('x', [{ op: 'append', text: 'y' }]), [{ at: 1, remove: 0, insert: '\ny' }])

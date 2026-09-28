@@ -14,7 +14,7 @@ import { seedLine, testSeed } from '../test/seed.ts'
 const files = process.argv.slice(2)
 const seed = testSeed()
 console.log(seedLine(seed, `npm test${files.length ? ` -- ${files.join(' ')}` : ''}`))
-const root = mkdtempSync(join(tmpdir(), 'thoth-test-run-'))
+const root = mkdtempSync(join(tmpdir(), 'vihko-test-run-'))
 // Ctrl-C reaches the tests too: this process waits for them and cleans up.
 process.on('SIGINT', () => {})
 process.on('SIGTERM', () => {})

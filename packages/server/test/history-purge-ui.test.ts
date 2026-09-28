@@ -1,4 +1,4 @@
-// Purging from the UI while thoth runs (D-038.9), in process: whoever manages
+// Purging from the UI while vihko runs (D-038.9), in process: whoever manages
 // the folder, a note or one of its versions and nothing else; the admin, any
 // path by its name; the history paused and resumed, writes made meanwhile
 // kept; the admin's notice, without the content.
@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { Git } from '@thoth/server'
+import { Git } from '@vihko/server'
 import { posix } from 'node:path'
 import { ADMIN, FILES, MEMBER, OTHER, PATH, RULES, WORD, home, setup } from './_m4.ts'
 import { yamlKey } from './_permissions.ts'
@@ -51,8 +51,8 @@ test('whoever manages a folder purges a version of a note in it from the UI: gon
     assert.equal((await h.member('POST', '/api/history/purge', { path: PATH.adminPlan, dryRun: true })).status, 404)
     assert.equal((await h.member('POST', '/api/history/purge', { path: PATH.list, dryRun: true })).status, 403)
     assert.equal((await h.other('POST', '/api/history/purge', { path: RECIPE, dryRun: true })).status, 403)
-    assert.equal((await h.admin('POST', '/api/history/purge', { path: 'thoth.yaml', dryRun: true })).status, 200, 'the admin, any path by name')
-    assert.equal((await h.member('POST', '/api/history/purge', { path: 'thoth.yaml', dryRun: true })).status, 400, 'a note, not thoth.yaml')
+    assert.equal((await h.admin('POST', '/api/history/purge', { path: 'vihko.yaml', dryRun: true })).status, 200, 'the admin, any path by name')
+    assert.equal((await h.member('POST', '/api/history/purge', { path: 'vihko.yaml', dryRun: true })).status, 400, 'a note, not vihko.yaml')
 
     // The confirmation: what goes, without the content.
     const dry = await h.member('POST', '/api/history/purge', { path: DIARY, version: secret!.id, dryRun: true })

@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { EditorState, type StateCommand } from '@codemirror/state'
-import { thothSyntax } from '@thoth/core/syntax'
+import { vihkoSyntax } from '@vihko/core/syntax'
 import { continuedMarker, insertNewlineContinueTask, toggleAt, toggleTask } from '../src/editor/tasks.ts'
 
 test('toggleAt: one character between the brackets, and nothing else', () => {
@@ -27,7 +27,7 @@ function run(cmd: StateCommand, doc: string): string | null {
   let state = EditorState.create({
     doc: doc.slice(0, at) + doc.slice(at + 1),
     selection: { anchor: at },
-    extensions: markdown({ base: markdownLanguage, extensions: thothSyntax }),
+    extensions: markdown({ base: markdownLanguage, extensions: vihkoSyntax }),
   })
   let done = false
   cmd({ state, dispatch: (tr) => { state = tr.state; done = true } })

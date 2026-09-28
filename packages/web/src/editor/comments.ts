@@ -18,13 +18,13 @@
 // uses it applies the changes it returns to the session's Y.Text (or, with
 // `comment` only, asks the server to: http `POST /api/note/comment`). Reading
 // the threads, writing a comment, replying, resolving and reopening are shared
-// with the server, the indexer and the history (@thoth/core/comments).
-import { formatComment, parseComments, parseThreads, type Change } from '@thoth/core/comments'
+// with the server, the indexer and the history (@vihko/core/comments).
+import { formatComment, parseComments, parseThreads, type Change } from '@vihko/core/comments'
 
 export {
   anchorChanged, cleanText, commentKey, formatComment, formatDate, parseComments, parseThreads, removedThread, reopener, replyTo, resolveThread,
   type Change, type Comment, type RemovedThread, type Thread,
-} from '@thoth/core/comments'
+} from '@vihko/core/comments'
 
 const pad = (n: number) => String(n).padStart(2, '0')
 

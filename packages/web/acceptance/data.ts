@@ -1,6 +1,6 @@
 // Where the acceptance server keeps its data, and the seed of the test data
 // (test/seed.ts) when it runs elsewhere: env.ts imports this first, so with
-// ACC_BASE_URL and no THOTH_TEST_SEED the specs draw from the seed serve.ts
+// ACC_BASE_URL and no VIHKO_TEST_SEED the specs draw from the seed serve.ts
 // wrote beside its data (the people it was started with).
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

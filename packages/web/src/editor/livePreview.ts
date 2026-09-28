@@ -5,7 +5,7 @@ import { syntaxTree } from '@codemirror/language'
 import { EditorState, Facet, StateEffect, StateField, type Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
-import { isImageRef } from '@thoth/core/images'
+import { isImageRef } from '@vihko/core/images'
 import { markdownLinkNote, missingBadge, onCreateButton, wikiLinkNote } from './createLink.ts'
 
 // --- Link state (resolved by the server's index) ----------

@@ -1,7 +1,7 @@
 // Main structure: folder tree and the note open in the editor.
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, type Key } from 'react-aria-components'
-import { seriesNeighbors } from '@thoth/core/series'
+import { seriesNeighbors } from '@vihko/core/series'
 import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
 import { audienceChanges } from './Audience.tsx'
 import { PermissionsDialog } from './Permissions.tsx'
@@ -115,7 +115,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [expanded, setExpanded] = useState<Set<Key>>(() => new Set(openPath ? ancestors(openPath) : []))
   useBackClose(mobile && navOpen, () => setNavOpen(false))
   useVisualViewport(mobile)
-  /** thoth.yaml as the server has it now: daily-note series and the templates folder. */
+  /** vihko.yaml as the server has it now: daily-note series and the templates folder. */
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [prefsOpen, setPrefsOpen] = useState(false)
@@ -156,7 +156,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       setOpenPathState((current) => current ?? today.path)
       setNavOpen(false)
     }).catch(() => {})
-    // thoth.yaml can change at any time (another editor, git pull): read again on coming back.
+    // vihko.yaml can change at any time (another editor, git pull): read again on coming back.
     const refresh = () => { if (document.visibilityState === 'visible') { void loadWorkspace(); void loadAlerts() } }
     window.addEventListener('focus', refresh)
     document.addEventListener('visibilitychange', refresh)
@@ -254,7 +254,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     can: (folder: string) => admin || !!locks.get(folder)?.canEdit,
     open: (folder: string) => setTreeDialog({ kind: 'permissions', path: folder }),
   } : null), [locks, admin])
-  // Template notes: those in the templates folder of thoth.yaml, subfolders included.
+  // Template notes: those in the templates folder of vihko.yaml, subfolders included.
   const templates = useMemo(() => {
     const dir = workspace?.templates
     if (!dir || !notes) return []

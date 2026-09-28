@@ -2,7 +2,7 @@
 // requiring that the rest of the note hasn't changed. This is what lets an
 // agent write to a note while someone else is editing it (the ETag changes
 // on every keystroke, so a full replacement with If-Match would never match).
-import { FrontmatterError, extract, normKey, setFrontmatterKey, type ScalarValue } from '@thoth/core'
+import { FrontmatterError, extract, normKey, setFrontmatterKey, type ScalarValue } from '@vihko/core'
 import { NoteError } from './notes.ts'
 
 export type EditOp =

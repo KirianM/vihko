@@ -33,11 +33,11 @@ export interface Workspace { root: string; notesDir: string; stateDir: string; v
 export function workspace(name: string, opts: { user?: boolean } = {}): Workspace {
   const base = process.env.ACCEPTANCE_DIR ?? tmpdir()
   mkdirSync(base, { recursive: true })
-  const root = mkdtempSync(join(base, `thoth-acc-${name}-`))
+  const root = mkdtempSync(join(base, `vihko-acc-${name}-`))
   const notesDir = join(root, 'notes')
-  const stateDir = process.env.ACCEPTANCE_STATE_DIR ? mkdtempSync(join(process.env.ACCEPTANCE_STATE_DIR, `thoth-acc-${name}-`)) : join(root, 'state')
+  const stateDir = process.env.ACCEPTANCE_STATE_DIR ? mkdtempSync(join(process.env.ACCEPTANCE_STATE_DIR, `vihko-acc-${name}-`)) : join(root, 'state')
   const vault = generateVault(notesDir, { notes: NOTES, seed: SEED })
-  const env = { THOTH_NOTES_DIR: notesDir, THOTH_STATE_DIR: stateDir, THOTH_HOST: '127.0.0.1', THOTH_PORT: String(freePort()) }
+  const env = { VIHKO_NOTES_DIR: notesDir, VIHKO_STATE_DIR: stateDir, VIHKO_HOST: '127.0.0.1', VIHKO_PORT: String(freePort()) }
   if (opts.user !== false) {
     const r = spawnSync(process.execPath, ['--no-experimental-webstorage', CLI, 'user', 'create', USER, '--admin'], { env: { ...process.env, ...env }, input: PASSWORD })
     if (r.status !== 0) throw new Error(`user create: ${r.stderr}`)
@@ -58,7 +58,7 @@ export interface Server extends Srv {
   listeningMs: number
 }
 
-/** Starts `thoth serve` as production does; resolves when it's listening. */
+/** Starts `vihko serve` as production does; resolves when it's listening. */
 export async function startServer(env: Record<string, string>, timeout = 120_000): Promise<Server> {
   const t0 = performance.now()
   const proc = spawn(process.execPath, ['--no-experimental-webstorage', CLI, 'serve'], { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -77,7 +77,7 @@ export async function startServer(env: Record<string, string>, timeout = 120_000
   if (proc.exitCode !== null) throw new Error(`the server exited (${proc.exitCode}):\n${out.join('')}`)
   return {
     proc, out, env, pid: proc.pid!, indexedMs, listeningMs,
-    base: `http://127.0.0.1:${env.THOTH_PORT}`,
+    base: `http://127.0.0.1:${env.VIHKO_PORT}`,
     async stop(signal: NodeJS.Signals = 'SIGTERM') {
       if (proc.exitCode !== null || proc.signalCode !== null) return
       const done = new Promise((r) => proc.once('exit', r))

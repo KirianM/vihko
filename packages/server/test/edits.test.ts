@@ -2,7 +2,7 @@
 // one, as exact splices over the current text.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { applyEdits, planEdits, NoteError } from '@thoth/server'
+import { applyEdits, planEdits, NoteError } from '@vihko/server'
 
 const NOTE = `---
 title: Plan

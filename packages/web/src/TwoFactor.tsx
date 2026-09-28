@@ -122,7 +122,7 @@ export function RecoveryCodes({ codes, done, onDone }: { codes: string[]; done: 
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
     const a = document.createElement('a')
     a.href = url
-    a.download = 'thoth-recovery-codes.txt'
+    a.download = 'vihko-recovery-codes.txt'
     a.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }

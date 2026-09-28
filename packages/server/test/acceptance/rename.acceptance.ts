@@ -5,7 +5,7 @@
 // and a note with an NFD name. Each time, the links of the whole vault are
 // resolved from the files before and after (a fresh index each time, not the
 // server's), and every link must keep its state and its destination. The
-// files may only change in link text (and the `uid` thoth adds when it
+// files may only change in link text (and the `uid` vihko adds when it
 // writes a note). A source note is open in an editor during the move. And
 // the server's own index must end up equal to a rebuild.
 import { test } from 'node:test'
@@ -13,8 +13,8 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
-import { classifyPath, extract, readFrontmatter, setFrontmatterKey } from '@thoth/core'
-import { Indexer, dumpIndex, openIndex } from '@thoth/server'
+import { classifyPath, extract, readFrontmatter, setFrontmatterKey } from '@vihko/core'
+import { Indexer, dumpIndex, openIndex } from '@vihko/server'
 import { api, closeAll, connect, login } from '../_collab.ts'
 import { PASSWORD, USER, cleanup, metric, startServer, timed, waitFor, workspace, type Server, type Workspace } from './_harness.ts'
 
@@ -45,7 +45,7 @@ function notesOnDisk(dir: string): Map<string, string> {
   return out
 }
 
-/** The text with every link replaced by a mark, and without the uid thoth may add. */
+/** The text with every link replaced by a mark, and without the uid vihko may add. */
 function withoutLinks(text: string): string {
   let out = text
   for (const l of [...extract(text).links].sort((a, b) => b.from - a.from)) out = out.slice(0, l.from) + '\u0001' + out.slice(l.to)
@@ -123,7 +123,7 @@ async function checkedMove(srv: Server, cookie: string, ws: Workspace, from: str
   const toMoved = [...after.values()].filter((l) => l.dst_path === to).length
   assert.equal(toMoved, [...before.values()].filter((l) => l.dst_path === from).length + nowResolved.length, 'every backlink follows the note')
 
-  // 2. The files only changed in link text (and a uid, when thoth wrote them).
+  // 2. The files only changed in link text (and a uid, when vihko wrote them).
   const filesAfter = notesOnDisk(ws.notesDir)
   const changed: string[] = []
   for (const [path, b] of filesBefore) {

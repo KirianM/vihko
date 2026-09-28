@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { readFrontmatter } from '@thoth/core'
+import { readFrontmatter } from '@vihko/core'
 import { CONFIG, DAILY, setup } from './_app.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -37,7 +37,7 @@ function zoneWhere(day: string, at: Date): string {
   throw new Error(`no timezone where ${at.toISOString()} is ${day}`)
 }
 
-test('daily note: off until thoth.yaml declares a series', async () => {
+test('daily note: off until vihko.yaml declares a series', async () => {
   for (const config of [undefined, `templates: ${JSON.stringify(DAILY.templates)}\n`]) {
     const { admin } = await setup({ config })
     assert.deepEqual([(await admin('POST', '/api/daily')).status, (await admin('GET', '/api/daily')).body.error], [409, 'not_configured'])
@@ -78,7 +78,7 @@ test('daily note: the person\'s chosen series; without a timezone, UTC', async (
   await admin('PUT', '/api/profile', { dailySeries: DAILY.team.id })
   assert.equal((await admin('GET', '/api/daily')).body.path, team('2026-09-24'))
   await admin('PUT', '/api/profile', { dailySeries: m.anId() })
-  assert.equal((await admin('GET', '/api/daily')).body.series, DAILY.own.id, 'a series thoth.yaml no longer has: the first one')
+  assert.equal((await admin('GET', '/api/daily')).body.series, DAILY.own.id, 'a series vihko.yaml no longer has: the first one')
 })
 
 test('daily note: the day changes at the person\'s midnight', async () => {

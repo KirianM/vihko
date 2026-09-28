@@ -3,7 +3,7 @@
 // and in «Alerts» until they dismiss it. The workspace's alerts are about the
 // notes folder and computed on each request; these are kept in state.db.
 //
-// - `account_changed`: the thoth admin gave them a reset link, took their
+// - `account_changed`: the vihko admin gave them a reset link, took their
 //   second factor away or changed their role (D-040 3.1). The admin still
 //   may, but never unnoticed.
 // - `user_account_changed`: the same, for every other admin: who did it to
@@ -16,7 +16,7 @@
 // so a rename shows the new one and a deleted user their tombstone's. Never
 // anything of a note's content. Each person keeps their latest notices only.
 import { randomUUID } from 'node:crypto'
-import { WORKSPACE_FILE, atLeast, type AccountChange, type Alert } from '@thoth/core'
+import { WORKSPACE_FILE, atLeast, type AccountChange, type Alert } from '@vihko/core'
 import type { Access } from './access.ts'
 import type { Db } from './db.ts'
 import type { Role } from './auth.ts'
@@ -27,7 +27,7 @@ export type { AccountChange }
  * Whether someone can read a path of the history now, as a note (or file)
  * and as a folder alike: both its folder's permission and its own. A folder
  * whose parent they can't read counts as unreadable too (never more than
- * they see); thoth.yaml, for nobody.
+ * they see); vihko.yaml, for nobody.
  */
 export function readablePath(access: Access, path: string): boolean {
   return path !== WORKSPACE_FILE && access.canRead(path) && atLeast(access.level(path), 'read')

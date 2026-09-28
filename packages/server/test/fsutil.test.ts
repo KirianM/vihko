@@ -2,13 +2,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { contentHash } from '@thoth/core'
-import { commitText } from '@thoth/server'
+import { contentHash } from '@vihko/core'
+import { commitText } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
-const dir = () => tempDir('thoth-fs-')
+const dir = () => tempDir('vihko-fs-')
 /** A note's name, and a version of its text (never the same twice). */
 const aName = () => `${m.aTitle()}.md`
 const text = () => `${m.aSentence()}\n`
@@ -53,10 +53,10 @@ test('commitText: leftovers of a killed process with the same pid do not block w
   const f = join(d, name)
   const [one, two] = [text(), text()]
   writeFileSync(f, one)
-  // The temp names' format (the case under test): `.<name>.thoth-<pid>-<n>`.
+  // The temp names' format (the case under test): `.<name>.vihko-<pid>-<n>`.
   for (let n = 0; n < 200; n++) {
-    writeFileSync(join(d, `.${name}.thoth-${process.pid}-${n}`), 'left by a crash')
-    writeFileSync(join(d, `.${name}.thoth-${process.pid}-${n}.prev`), 'left by a crash')
+    writeFileSync(join(d, `.${name}.vihko-${process.pid}-${n}`), 'left by a crash')
+    writeFileSync(join(d, `.${name}.vihko-${process.pid}-${n}.prev`), 'left by a crash')
   }
   assert.deepEqual(await commitText(f, two, contentHash(one)), { ok: true })
   assert.equal(readFileSync(f, 'utf8'), two)

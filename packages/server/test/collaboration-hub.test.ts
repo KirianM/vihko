@@ -39,8 +39,8 @@ test('a comment by someone who may only comment reaches the open document and th
   spawnSync(process.execPath, [CLI, 'user', 'create', member.username], { env: { ...process.env, ...env }, input: member.password })
   mkdirSync(join(notes, folder), { recursive: true })
   writeFileSync(join(notes, NOTE), `---\nuid: ${m.faker.string.ulid()}\n---\n# ${m.aHeading()}\n\n${first}\n\n${second}\n`)
-  writeFileSync(join(notes, 'thoth.yaml'), RULES)
-  const srv = await startServer({ ...env, THOTH_HISTORY_QUIET_SECONDS: '0.4' })
+  writeFileSync(join(notes, 'vihko.yaml'), RULES)
+  const srv = await startServer({ ...env, VIHKO_HISTORY_QUIET_SECONDS: '0.4' })
   try {
     const k = await login(srv)
     const l = await login(srv, member)

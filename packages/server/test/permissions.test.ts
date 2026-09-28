@@ -11,7 +11,7 @@ import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 const paths = (list: { path: string }[]) => list.map((n) => n.path).sort()
-/** Sorted as thoth lists paths (SQLite's `order by path`, byte order: the same as JavaScript's for these). */
+/** Sorted as vihko lists paths (SQLite's `order by path`, byte order: the same as JavaScript's for these). */
 const sorted = (list: string[]) => [...list].sort()
 
 // The scenario's people (_m4.ts): their usernames and personal folders.
@@ -22,11 +22,11 @@ const RECIPES = dirname(PATH.cake)
 /** A link to a note by its name. */
 const link = (name: string) => `[[${name}]]`
 
-/** A key as thoth writes it in thoth.yaml (core's yamlKey): plain when it reads back the same, quoted otherwise. */
+/** A key as vihko writes it in vihko.yaml (core's yamlKey): plain when it reads back the same, quoted otherwise. */
 const written = (key: string, plain: RegExp) => (plain.test(key) && !/^(true|false|null|yes|no|on|off|y|n|~)$/i.test(key) && !/^[\d.+-]/.test(key) ? key : JSON.stringify(key))
-/** A subject (user or group) as thoth writes it. */
+/** A subject (user or group) as vihko writes it. */
 const subject = (s: string) => written(s, /^[\p{L}\p{N}_][\p{L}\p{N}._-]*$/u)
-/** A folder key as thoth writes it. */
+/** A folder key as vihko writes it. */
 const folderKey = (f: string) => written(f, /^[\p{L}\p{N}_][\p{L}\p{N}_ ./-]*(?<! )$/u)
 /** `text` for a regular expression that matches it literally (valid with the `u` flag). */
 const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
@@ -34,10 +34,10 @@ const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 const under = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`)
 /** Whether `text` names `name` as a whole (not inside a longer name). */
 const mentions = (text: string, name: string) => new RegExp(`(?<![\\p{L}\\p{N}._-])${literally(name)}(?![\\p{L}\\p{N}._-])`, 'u').test(text)
-/** A rule line as thoth writes it: `folder:` and its grants in a flow map, in order. */
+/** A rule line as vihko writes it: `folder:` and its grants in a flow map, in order. */
 const ruleRe = (folder: string, grants: [string, string][]) =>
   `${literally(folderKey(folder))}:\\n {4}grants: \\{ ${grants.map(([s, l]) => `${literally(subject(s))}: ${l}`).join(', ')} \\}\\n`
-/** A rule a test adds to thoth.yaml, written as thoth would. */
+/** A rule a test adds to vihko.yaml, written as vihko would. */
 const rule = (folder: string, grants: [string, string][]) => `  ${folderKey(folder)}:\n    grants: { ${grants.map(([s, l]) => `${subject(s)}: ${l}`).join(', ')} }\n`
 /** A note's text with a word to find it by. */
 const noteText = (word = m.aUniqueWord()) => `# ${m.aHeading()}\n\n${m.aSentence()} ${word}.\n`
@@ -107,7 +107,7 @@ test('§7.2: the member shares a folder of theirs with the admin to comment; the
     const put = await h.member('PUT', '/api/permissions', { folder, grants: { [M]: 'manage', [A]: 'comment' }, ifMatch: before.etag })
     assert.equal(put.status, 200, put.text)
     assert.deepEqual(put.body.own, { rule: folder, user: null, grants: { [M]: 'manage', [A]: 'comment' }, ai: false })
-    const yaml = readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8')
+    const yaml = readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8')
     assert.ok(yaml.startsWith(RULES), 'the rest of the file stays as it was')
     assert.match(yaml.slice(RULES.length), new RegExp(`^ {2}${ruleRe(folder, [[M, 'manage'], [A, 'comment']])}$`, 'u'))
     // A stale ETag: 412, nothing written.
@@ -155,7 +155,7 @@ test('a personal folder ({user} rule) closed to agents or shared, then restored,
     assert.equal((await h.other('GET', note)).status, 404)
     assert.equal((await h.admin('GET', note)).status, 404)
     assert.deepEqual(restored.body.ai, { closed: true, from: folder }, 'closing to agents stays')
-    // Moved from thoth, the folder takes the {user} rule's grants along as a literal copy.
+    // Moved from vihko, the folder takes the {user} rule's grants along as a literal copy.
     const to = `${HOME.member}/${m.aFolder()}`
     const moved = await h.member('POST', '/api/folder/move', { from: RECIPES, to })
     assert.equal(moved.status, 200, moved.text)
@@ -212,7 +212,7 @@ test('§7.6 (P\'s part): deleting a person removes their grants; their folder is
   const h = await setup({ files: FILES, config: RULES + rule(shared, [[O, 'edit'], [M, 'read']]) })
   try {
     await h.services.permissionsFile.removeSubjectGrants(O, { actor: { kind: 'user', id: h.users.admin.id } })
-    const yaml = readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8')
+    const yaml = readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8')
     assert.match(yaml, new RegExp(ruleRe(shared, [[M, 'read']]), 'u'))
     assert.ok(yaml.startsWith(RULES))
     // Piece U deletes the account: then the other member's personal folder matches nobody.
@@ -253,7 +253,7 @@ test('the permissions API: who sees and changes what, ai, the implicit section, 
     assert.equal((await h.member('GET', h.url('/api/permissions', { folder: DIR.shared }))).status, 404)
     const put = await h.admin('PUT', '/api/permissions', { folder: DIR.shared, grants: { [`@${GROUP}`]: 'edit' }, ifMatch: root.etag })
     assert.equal(put.status, 200, put.text)
-    assert.equal(readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8'), `templates: ${JSON.stringify(templates)}   # kept\npermissions:\n  "":\n    grants: { ${subject(A)}: manage }\n${rule(DIR.shared, [[`@${GROUP}`, 'edit']])}`)
+    assert.equal(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8'), `templates: ${JSON.stringify(templates)}   # kept\npermissions:\n  "":\n    grants: { ${subject(A)}: manage }\n${rule(DIR.shared, [[`@${GROUP}`, 'edit']])}`)
     assert.equal(put.body.canEdit, true, 'the admin changes any folder\'s')
     // Now the member edits the shared folder but doesn't manage it: they see it, can't see or change its permissions.
     assert.deepEqual([(await h.member('GET', h.url('/api/permissions', { folder: DIR.shared }))).status], [403])
@@ -371,18 +371,18 @@ test('permissions fail closed: rejected at start, nobody reads; rejected while r
     assert.deepEqual(alerts.find((a) => a.code === 'permissions_rejected'), { code: 'permissions_rejected', fallback: 'closed', actions: [] })
     assert.ok(alerts.some((a) => a.code === 'config_warnings'))
     assert.deepEqual(((await h.member('GET', '/api/alerts')).body.alerts as { code: string }[]).map((a) => a.code), [], 'the system\'s alerts are the admin\'s')
-    // thoth doesn't write over a section it can't read.
+    // vihko doesn't write over a section it can't read.
     const etag = (await h.admin('GET', h.url('/api/permissions', { folder: '' }))).body.etag
     assert.deepEqual([(await h.admin('PUT', '/api/permissions', { folder: m.aFolder(), grants: {}, ifMatch: etag })).body.error], ['config_invalid'])
 
     // Fixed: it applies. Then broken again while running: the last valid stays.
-    writeFileSync(join(h.notesDir, 'thoth.yaml'), RULES + `  ${yamlKey(extra)}:\n    grants: { ${yamlKey(nobody)}: read, ${yamlKey(`@${noGroup}`)}: edit }\n`)
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), RULES + `  ${yamlKey(extra)}:\n    grants: { ${yamlKey(nobody)}: read, ${yamlKey(`@${noGroup}`)}: edit }\n`)
     h.workspace.reload()
     assert.equal((await h.member('GET', h.url('/api/note', { path: PATH.list }))).status, 200)
     const warnings = ((await h.admin('GET', '/api/alerts')).body.alerts as { code: string; warnings?: { code: string; detail: string }[] }[]).find((a) => a.code === 'config_warnings')!.warnings!
     assert.deepEqual(warnings.filter((w) => w.code === 'unknown_subject').map((w) => w.detail), [nobody, `@${noGroup}`])
     assert.ok(warnings.some((w) => w.code === 'missing_folder' && w.detail === extra), 'a rule for a folder that doesn\'t exist')
-    writeFileSync(join(h.notesDir, 'thoth.yaml'), bad)
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), bad)
     h.workspace.reload()
     assert.equal((await h.member('GET', h.url('/api/note', { path: PATH.list }))).status, 200)
     const now = (await h.admin('GET', '/api/alerts')).body.alerts as { code: string; fallback?: string }[]
@@ -410,7 +410,7 @@ test('folders: create with edit, move and delete with manage; their rules go wit
     assert.deepEqual(dry.body.audience.users, { gain: [], lose: [] }, 'its own rules go with it')
     const moved = await h.member('POST', '/api/folder/move', { from: trips, to })
     assert.equal(moved.status, 200, moved.text)
-    const yaml = readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8')
+    const yaml = readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8')
     assert.ok(yaml.startsWith(RULES))
     assert.match(yaml, new RegExp(`${ruleRe(to, [[M, 'manage'], [A, 'read']])}$`, 'u'))
     assert.ok(!yaml.includes(trips), yaml)
@@ -423,7 +423,7 @@ test('folders: create with edit, move and delete with manage; their rules go wit
     const r2 = await h.admin('POST', '/api/folder/move', { from: HOME.admin, to: renamed })
     assert.equal(r2.status, 200, r2.text)
     assert.equal((await h.admin('GET', h.url('/api/note', { path: `${renamed}/${basename(PATH.adminPlan)}` }))).status, 200)
-    assert.match(readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8'), new RegExp(ruleRe(renamed, [[A, 'manage']]), 'u'))
+    assert.match(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8'), new RegExp(ruleRe(renamed, [[A, 'manage']]), 'u'))
 
     // Deleting: manage, and empty; its rules go.
     const empty = `${DIR.admin}/${m.aFolder()}`
@@ -438,10 +438,10 @@ test('a move that fails leaves the rules as they were', async () => {
   const taken = `${DIR.shared}/${m.aFolder()}`
   const h = await setup({ files: { ...FILES, [m.aNotePath(trips)]: noteText(), [m.aNotePath(taken)]: noteText() }, config: RULES + rule(trips, [[M, 'manage']]) })
   try {
-    const before = readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8')
+    const before = readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8')
     const r = await h.member('POST', '/api/folder/move', { from: trips, to: taken })
     assert.deepEqual([r.status, r.body.error], [409, 'exists'])
-    assert.equal(readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8'), before)
+    assert.equal(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8'), before)
   } finally { await h.close() }
 })
 
@@ -472,7 +472,7 @@ test('history at edit: «Recent changes» only where one edits, authors without 
     await put('admin', PATH.settings, `${m.aSentence()}\n`)
     const files = async (who: Name) => ((await h.as(who)('GET', '/api/history/changes?limit=100')).body.changes as { files: { path: string }[] }[]).flatMap((c) => c.files.map((f) => f.path))
     const k = await files('admin')
-    assert.ok(k.includes(PATH.settings) && !k.some((p) => under(p, HOME.member)) && !k.includes('thoth.yaml'), k.join(', '))
+    assert.ok(k.includes(PATH.settings) && !k.some((p) => under(p, HOME.member)) && !k.includes('vihko.yaml'), k.join(', '))
     const l = await files('member')
     assert.ok(l.includes(PATH.cake) && !l.includes(PATH.settings), l.join(', '))
     const authors = (await h.other('GET', '/api/history/changes')).body.authors.map((a: { kind: string }) => a.kind)
@@ -485,7 +485,7 @@ test('history at edit: «Recent changes» only where one edits, authors without 
   } finally { await h.close() }
 })
 
-test('a note moved outside thoth out of a folder with its own rules is held from everyone until someone decides', async () => {
+test('a note moved outside vihko out of a folder with its own rules is held from everyone until someone decides', async () => {
   const h = await setup({ files: FILES })
   try {
     // With a shell: the member's recipe (with its uid) lands in the shared folder.
@@ -505,7 +505,7 @@ test('a note moved outside thoth out of a folder with its own rules is held from
   } finally { await h.close() }
 })
 
-test('a folder with its own rules renamed outside thoth: its notes are held, and «move its permissions» takes the rules where it went', async () => {
+test('a folder with its own rules renamed outside vihko: its notes are held, and «move its permissions» takes the rules where it went', async () => {
   const trips = `${DIR.shared}/${m.aFolder()}`
   const routes = `${DIR.shared}/${m.aFolder()}`
   const title = m.aTitle()
@@ -522,7 +522,7 @@ test('a folder with its own rules renamed outside thoth: its notes are held, and
     assert.ok(warnings.some((w) => w.code === 'missing_folder' && w.detail === trips))
     const r = await h.member('POST', `/api/permissions/holds/${held.id}`, { action: 'move_permissions' })
     assert.equal(r.status, 200, r.text)
-    assert.match(readFileSync(join(h.notesDir, 'thoth.yaml'), 'utf8'), new RegExp(ruleRe(routes, [[M, 'manage']]), 'u'))
+    assert.match(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8'), new RegExp(ruleRe(routes, [[M, 'manage']]), 'u'))
     assert.equal((await h.member('GET', note)).status, 200)
     assert.equal((await h.other('GET', note)).status, 404, 'the same audience as before')
   } finally { await h.close() }

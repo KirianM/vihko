@@ -1,4 +1,4 @@
-// Settings → «Users and groups» (the thoth admin, D-038.3 and .8): everyone
+// Settings → «Users and groups» (the vihko admin, D-038.3 and .8): everyone
 // in a table with filters, and what can be done to each (a link to join or
 // to reset the password, copied once; role; close sessions; disable, enable
 // and delete), each confirmation saying what it does. Groups, which the

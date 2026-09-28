@@ -31,7 +31,7 @@ const q = encodeURIComponent
 const SLOW = { timeout: 20_000 }
 
 /**
- * thoth.yaml: both edit the root, and DIR is the member's, shared with
+ * vihko.yaml: both edit the root, and DIR is the member's, shared with
  * the admin at `level`. The admin doesn't manage the root here: whoever does
  * keeps managing everything under it (D-040 3.5).
  */

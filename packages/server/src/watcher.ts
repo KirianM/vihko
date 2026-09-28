@@ -3,7 +3,7 @@
 // service was stopped).
 import { watch, statSync, type FSWatcher } from 'node:fs'
 import { join, sep } from 'node:path'
-import { classifyPath } from '@thoth/core'
+import { classifyPath } from '@vihko/core'
 import type { Indexer, ScanReport } from './indexer.ts'
 import type { Db } from './db.ts'
 

@@ -9,10 +9,10 @@
 //   Document Security" (SSRF, showing the redirect host, localhost warnings):
 //   https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations
 //
-// This is the only request thoth makes on its own initiative towards an
+// This is the only request vihko makes on its own initiative towards an
 // address someone else chose, so it is fenced in (the draft's §6, SSRF):
 //
-// - It happens only when someone signed in to thoth starts an authorization
+// - It happens only when someone signed in to vihko starts an authorization
 //   with such a client (http/oauth.ts), never at registration or for the
 //   token endpoint; and only while OAuth exists (a public URL, MCP on).
 // - `https`, port 443, no credentials, fragment or dot segments in the URL,
@@ -28,7 +28,7 @@
 // - The document must be a JSON object whose `client_id` is exactly the URL,
 //   with a `client_name`, redirect URIs under the same rules as dynamic
 //   registration (oauth.ts), no secret, and `none` as its token endpoint
-//   authentication (thoth supports no key-based client authentication).
+//   authentication (vihko supports no key-based client authentication).
 // - A good document is kept in memory for a short while, as its
 //   Cache-Control says within bounds; a failure is never kept.
 //
@@ -54,7 +54,7 @@ const MAX_URL = 2000
 
 /** Why a client's metadata document can't be used. */
 export type CimdErrorCode =
-  | 'invalid_url' // not a URL thoth fetches (scheme, port, credentials, path...)
+  | 'invalid_url' // not a URL vihko fetches (scheme, port, credentials, path...)
   | 'blocked_address' // the host resolves to an address that isn't public
   | 'unresolved' // the host doesn't resolve
   | 'fetch_failed' // connection, TLS or HTTP failure, or a status other than 200
@@ -71,7 +71,7 @@ export class CimdError extends Error {
   }
 }
 
-/** What thoth takes from a client's metadata document. */
+/** What vihko takes from a client's metadata document. */
 export interface ClientMetadata {
   /** The URL: its `client_id`. */
   clientId: string
@@ -181,7 +181,7 @@ export function isMetadataClientId(id: string): boolean {
 }
 
 /**
- * A `client_id` thoth would fetch, or why not: https, a host name, port 443
+ * A `client_id` vihko would fetch, or why not: https, a host name, port 443
  * (unless testing), a path that isn't just `/`, no credentials, fragment or
  * dot segments, and written as a URL is normalized (the document's
  * `client_id` is compared with it character by character).
@@ -243,7 +243,7 @@ export class ClientMetadataFetcher {
     return p
   }
 
-  /** Whether thoth would fetch this `client_id` (checkClientIdUrl, as this fetcher allows): throws a CimdError if not. Fetches nothing. */
+  /** Whether vihko would fetch this `client_id` (checkClientIdUrl, as this fetcher allows): throws a CimdError if not. Fetches nothing. */
   checkUrl(raw: string): URL {
     return checkClientIdUrl(raw, { anyPort: this.testing.anyPort })
   }
@@ -299,12 +299,12 @@ export class ClientMetadataFetcher {
     return new Promise((resolve, reject) => {
       const req = request({
         protocol: 'https:', hostname: u.hostname, port: u.port || 443, path: `${u.pathname}${u.search}`, method: 'GET',
-        headers: { accept: 'application/json', 'user-agent': 'thoth' },
+        headers: { accept: 'application/json', 'user-agent': 'vihko' },
         lookup: pinned, servername: u.hostname, agent: false, signal,
         ...(this.testing.ca ? { ca: this.testing.ca } : {}),
       }, (res) => {
         const status = res.statusCode ?? 0
-        if (status >= 300 && status < 400) { reject(new CimdError('redirect', `${u.hostname} answered with a redirect, which thoth does not follow`)); res.destroy(); return }
+        if (status >= 300 && status < 400) { reject(new CimdError('redirect', `${u.hostname} answered with a redirect, which vihko does not follow`)); res.destroy(); return }
         if (status !== 200) { reject(new CimdError('fetch_failed', `${u.hostname} answered ${status}`)); res.destroy(); return }
         const declared = Number(res.headers['content-length'])
         if (Number.isFinite(declared) && declared > CIMD_MAX_BYTES) { reject(new CimdError('too_large', `the document is larger than ${CIMD_MAX_BYTES} bytes`)); res.destroy(); return }
@@ -336,7 +336,7 @@ function parseDocument(body: Buffer, url: string, host: string): ClientMetadata 
   if (typeof d.client_name !== 'string' || !d.client_name.trim()) throw new CimdError('invalid_document', 'the document has no client_name')
   if ('client_secret' in d || 'client_secret_expires_at' in d) throw new CimdError('invalid_document', 'a metadata document may not carry a secret')
   if (d.token_endpoint_auth_method !== undefined && d.token_endpoint_auth_method !== 'none') {
-    throw new CimdError('invalid_document', 'token_endpoint_auth_method must be none (thoth supports no other for these clients)')
+    throw new CimdError('invalid_document', 'token_endpoint_auth_method must be none (vihko supports no other for these clients)')
   }
   return { clientId: url, name: d.client_name, host, redirectUris: d.redirect_uris, grantTypes: d.grant_types, responseTypes: d.response_types }
 }

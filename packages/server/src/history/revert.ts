@@ -16,7 +16,7 @@
 //
 // On an open note the result is exact splices (edits.ts), computed on the text
 // the editors have at that moment, so it never takes what someone is typing.
-import { readFrontmatter, setFrontmatterKey } from '@thoth/core'
+import { readFrontmatter, setFrontmatterKey } from '@vihko/core'
 import { spliceOf, type Splice } from '../edits.ts'
 import type { Actor } from '../actor.ts'
 import { NoteError, type NoteService } from '../notes.ts'

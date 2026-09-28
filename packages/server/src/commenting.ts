@@ -11,7 +11,7 @@
 // otherwise. Before it's written, what it does is checked against the note:
 // the text outside the comments stays as it was, and the comments change by
 // exactly that one (`commentOnly`).
-import { extract, formatComment, parseComments, parseThreads, readFrontmatter, replyTo, resolveThread, type Change, type Comment } from '@thoth/core'
+import { extract, formatComment, parseComments, parseThreads, readFrontmatter, replyTo, resolveThread, type Change, type Comment } from '@vihko/core'
 import type { Splice } from './edits.ts'
 
 /**

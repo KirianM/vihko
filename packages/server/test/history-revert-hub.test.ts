@@ -19,7 +19,7 @@ const [PERSON_1, PERSON_2] = [m.aUniqueWord(), m.aUniqueWord()]
 // the agent and the people write is the mother's.
 const NOTE = 'hogar/Proxy.md'
 const q = encodeURIComponent
-const FAST = { THOTH_HISTORY_QUIET_SECONDS: '0.4', THOTH_HISTORY_MAX_SECONDS: '30' }
+const FAST = { VIHKO_HISTORY_QUIET_SECONDS: '0.4', VIHKO_HISTORY_MAX_SECONDS: '30' }
 
 async function versionsOf(srv: Srv, cookie: string, path: string) {
   const r = await api(srv, cookie, 'GET', `/api/history/versions?path=${q(path)}`)
@@ -34,7 +34,7 @@ test('reverting on an open note: both editors get it at once, and what was typed
   const member = m.aUser({ role: 'member' })
   spawnSync(process.execPath, [CLI, 'user', 'create', member.username], { env: { ...process.env, ...env }, input: member.password })
   // The member edits everything, as before M4 (_permissions.ts).
-  writeFileSync(join(notes, 'thoth.yaml'), everyone(admin.username, member.username))
+  writeFileSync(join(notes, 'vihko.yaml'), everyone(admin.username, member.username))
   const srv = await startServer({ ...env, ...FAST })
   try {
     const k = await login(srv)

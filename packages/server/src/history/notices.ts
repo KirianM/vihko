@@ -1,4 +1,4 @@
-// What was purged from the history while thoth ran (D-038.9), for the admin:
+// What was purged from the history while vihko ran (D-038.9), for the admin:
 // the path, the version if it was one, who purged it and when. Never
 // anything of the content. Kept in the state volume (`history/purges.json`,
 // written whole: temporary file, fsync, rename) until the admin dismisses

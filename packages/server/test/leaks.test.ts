@@ -10,7 +10,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { ROUTES, type DenyReason } from '@thoth/server'
+import { ROUTES, type DenyReason } from '@vihko/server'
 import { PNG, setup } from './_agents.ts'
 import { CONFIG, DIR, FILES, HIDDEN, NAME, PATH, SERIES, SUB, TAG, WORD, historyToHide, leaked } from './_leaks.ts'
 import { mother } from '../../../test/mother.ts'
@@ -54,7 +54,7 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
         .map((s) => ({ method: 'GET', path: q('/api/search', { q: s }), expect: 200 })),
       'GET /api/tree': [{ method: 'GET', path: '/api/tree', expect: 200 }],
       'GET /api/tags': [{ method: 'GET', path: '/api/tags', expect: 200 }],
-      // The daily note's path comes from thoth.yaml, not from the key: one that doesn't exist outside its folders is not_found, without the path (a hidden one that exists: daily-agents.test.ts).
+      // The daily note's path comes from vihko.yaml, not from the key: one that doesn't exist outside its folders is not_found, without the path (a hidden one that exists: daily-agents.test.ts).
       'GET /api/daily': [{ method: 'GET', path: '/api/daily', expect: 200 }, { method: 'GET', path: q('/api/daily', { series: SERIES.outside }), expect: 404 }],
       // Files that aren't notes stay not_found.
       'GET /api/file': [[PATH.photo, 200], [PATH.hiddenPhoto, 404], [PATH.outsideImage, 404], [NO_IMAGE, 404]]

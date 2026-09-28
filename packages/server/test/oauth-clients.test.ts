@@ -1,6 +1,6 @@
 // OAuth with a real client over the network (m3 §7): mcp-remote (the stdio
 // bridge Claude Desktop and others use) against the real server, started as
-// in production with THOTH_PUBLIC_URL, behind a local HTTPS reverse proxy
+// in production with VIHKO_PUBLIC_URL, behind a local HTTPS reverse proxy
 // whose certificate the test makes. mcp-remote finds the metadata from the
 // 401, registers itself, and sends the person to the authorization page; the
 // test does what the person would (signs in, approves read-only) and follows
@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
-import { toolData } from '@thoth/server'
+import { toolData } from '@vihko/server'
 import { makeDirs, startServer, waitFor } from './_collab.ts'
 import { tempDir } from './_tmp.ts'
 
@@ -34,7 +34,7 @@ function certificate(dir: string): { key: string; cert: string; certFile: string
   return { key: readFileSync(keyFile, 'utf8'), cert: readFileSync(certFile, 'utf8'), certFile }
 }
 
-/** A reverse proxy as a deployment would have: HTTPS outside, thoth over http inside, Host kept, X-Forwarded-Proto set. */
+/** A reverse proxy as a deployment would have: HTTPS outside, vihko over http inside, Host kept, X-Forwarded-Proto set. */
 async function httpsProxy(tls: { key: string; cert: string }, target: number) {
   const server = createHttpsServer(tls, (req: IncomingMessage, res: ServerResponse) => {
     const up = httpRequest({ host: '127.0.0.1', port: target, method: req.method, path: req.url, headers: { ...req.headers, 'x-forwarded-proto': 'https', 'x-forwarded-for': '127.0.0.1' } }, (r) => {
@@ -58,7 +58,7 @@ async function freePort(): Promise<number> {
 }
 
 test('mcp-remote: discovery, registration, consent, tokens and the tools of a read-only authorization, over HTTPS', { timeout: 240_000 }, async (t) => {
-  const home = tempDir('thoth-oauth-remote-')
+  const home = tempDir('vihko-oauth-remote-')
   const tls = certificate(home)
   if (!tls) { rmSync(home, { recursive: true, force: true }); return t.skip('no openssl to make a certificate') }
   const { notes, env, admin } = makeDirs()
@@ -66,9 +66,9 @@ test('mcp-remote: discovery, registration, consent, tokens and the tools of a re
   const web = join(home, 'web')
   mkdirSync(web)
   writeFileSync(join(web, 'index.html'), '<!doctype html><div id="root"></div>')
-  const proxy = await httpsProxy(tls, Number(env.THOTH_PORT))
+  const proxy = await httpsProxy(tls, Number(env.VIHKO_PORT))
   const publicUrl = `https://localhost:${proxy.port}`
-  const srv = await startServer({ ...env, THOTH_PUBLIC_URL: publicUrl, THOTH_WEB_DIR: web })
+  const srv = await startServer({ ...env, VIHKO_PUBLIC_URL: publicUrl, VIHKO_WEB_DIR: web })
   const live: StdioClientTransport[] = []
 
   /** A request through the proxy, trusting its certificate: what the person's browser does. */
@@ -109,7 +109,7 @@ test('mcp-remote: discovery, registration, consent, tokens and the tools of a re
       live.push(transport)
       const err: string[] = []
       transport.stderr?.on('data', (d) => err.push(String(d)))
-      const client = new Client({ name: 'thoth-ci', version: '1' })
+      const client = new Client({ name: 'vihko-ci', version: '1' })
       const connected = client.connect(transport).then(() => null, (e: unknown) => e)
       return { transport, client, err, connected }
     }

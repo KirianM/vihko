@@ -1,6 +1,6 @@
 // Where the test servers keep their data, and the seed of the test data
 // (test/seed.ts) when the servers run elsewhere. env.ts imports this first,
-// before anything draws a value: with E2E_BASE_URL and no THOTH_TEST_SEED,
+// before anything draws a value: with E2E_BASE_URL and no VIHKO_TEST_SEED,
 // the seed is the one serve.ts wrote beside its data, so the specs draw the
 // same people the server was started with.
 import { readFileSync } from 'node:fs'

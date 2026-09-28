@@ -1,6 +1,6 @@
-// thoth API client. Cookie-based session (HttpOnly): the browser sends it on its own.
-import type { Alert, ErrorCode } from '@thoth/core/codes'
-import type { Series } from '@thoth/core/series'
+// vihko API client. Cookie-based session (HttpOnly): the browser sends it on its own.
+import type { Alert, ErrorCode } from '@vihko/core/codes'
+import type { Series } from '@vihko/core/series'
 
 export type { Alert }
 
@@ -49,7 +49,7 @@ export interface User { id: string; username: string; role: 'admin' | 'member' }
  * disabled the account or closed its sessions, or the password changed in
  * another session): the application goes to sign in (Shell.tsx).
  */
-export const SESSION_ENDED_EVENT = 'thoth:session-ended'
+export const SESSION_ENDED_EVENT = 'vihko:session-ended'
 export interface TreeNote { path: string; title: string; uid: string | null; aliases: string[] }
 export interface Note {
   path: string
@@ -125,7 +125,7 @@ export interface MoveReport {
   images: {
     moved: { from: string; to: string }[]
     stayed: { path: string; reason: 'shared' | 'elsewhere' }[]
-    /** In per-note mode (thoth.yaml), the note's folder of images, which moves with it whole. */
+    /** In per-note mode (vihko.yaml), the note's folder of images, which moves with it whole. */
     folder: { from: string; to: string; files: number } | null
     failed: { path: string; to: string | null; outcome: 'stayed' | 'copied'; error: ErrorCode; message: string }[]
   }
@@ -157,8 +157,8 @@ export type MoveJob = { id: string; kind: 'note' | 'folder' | 'relink'; from: st
   | { state: 'failed'; error: ErrorCode; message: string }
 )
 /**
- * Updating the links after notes moved outside thoth (or its preview): the
- * rewrites a move of those notes from thoth would have made.
+ * Updating the links after notes moved outside vihko (or its preview): the
+ * rewrites a move of those notes from vihko would have made.
  */
 export interface MovedRelinkReport {
   moves: { from: string; to: string }[]
@@ -176,16 +176,16 @@ export interface TrashEntry { id: string; path: string; deletedAt: string }
 export interface ServerConfig {
   externalImages: 'allow' | 'block'
   maxImageBytes: number
-  /** The second factor's secrets are stored encrypted (THOTH_SECRET_KEY). */
+  /** The second factor's secrets are stored encrypted (VIHKO_SECRET_KEY). */
   secretsEncrypted?: boolean
 }
 /** A stored image: `path` from the notes root, `src` relative to the note (to link it). */
 export interface Attachment { path: string; src: string }
-/** What the UI needs from thoth.yaml: daily-note series and the templates folder. */
+/** What the UI needs from vihko.yaml: daily-note series and the templates folder. */
 export interface WorkspaceInfo {
   daily: Series[]
   templates: string | null
-  /** `aliases`: whether aliases resolve links (thoth.yaml `links.aliases`). */
+  /** `aliases`: whether aliases resolve links (vihko.yaml `links.aliases`). */
   links: { aliases: boolean }
 }
 /** The person's own settings (state.db). */
@@ -195,8 +195,8 @@ export interface Profile { timezone: string | null; dailySeries: string | null; 
  * The integration switches (D-035.1): the API with keys and the MCP server,
  * whether members may create keys, whether OAuth clients may register
  * themselves, whether the server's administrator locks the API and MCP off
- * (THOTH_INTEGRATIONS=off), whether this person may create or change keys,
- * and the public URL (THOTH_PUBLIC_URL) OAuth is offered at, if any.
+ * (VIHKO_INTEGRATIONS=off), whether this person may create or change keys,
+ * and the public URL (VIHKO_PUBLIC_URL) OAuth is offered at, if any.
  */
 export interface Integrations {
   api: boolean
@@ -234,7 +234,7 @@ export interface KeyInput { name?: string; canWrite?: boolean; folders?: string[
 /** An authorization request: who asks (`host`: the domain that described it, for a client named by its metadata document; null if it registered itself) and whether this person may authorize. */
 export interface OAuthRequest { client: { id: string; name: string; redirectUri: string; host: string | null }; canAuthorize: boolean }
 
-/** A user as the thoth admin sees them (M4). `invited`: never chose a password. */
+/** A user as the vihko admin sees them (M4). `invited`: never chose a password. */
 export interface UserInfo {
   id: string
   username: string
@@ -263,7 +263,7 @@ export interface ManagerAbove { subject: string; from: string; rule?: string }
 /** A folder's rule, who has access and why (GET /api/permissions). */
 export interface FolderPermissions {
   folder: string
-  /** thoth.yaml's ETag: a change names it (412 if the file changed). */
+  /** vihko.yaml's ETag: a change names it (412 if the file changed). */
   etag: string
   /** `implicit`: no section yet (the admins manage the root); `closed`: rejected, nobody reads. */
   section: 'rules' | 'implicit' | 'closed'
@@ -294,7 +294,7 @@ export interface AudienceChange {
   keys: { gain: number; lose: number }
 }
 
-/** A new one-time link, shown once: `url` with THOTH_PUBLIC_URL, otherwise this origin + `path`. */
+/** A new one-time link, shown once: `url` with VIHKO_PUBLIC_URL, otherwise this origin + `path`. */
 export interface NewLink { token: string; kind: 'invite' | 'reset'; expiresAt: string; path: string; url: string | null }
 export interface GroupInfo { id: string; name: string; members: { id: string; username: string }[] }
 /** The second factor's policy (D-036): required, optional (the default) or disabled. */
@@ -379,7 +379,7 @@ export const api = {
   /** Opens today's note, creating it from its template if it doesn't exist. */
   openToday: () => request<{ series: string; path: string; created: boolean }>('POST', '/api/daily', {}),
   orphan: (path: string, action: 'restore' | 'discard') => request<{ ok: true }>('POST', '/api/note/orphan', { path, action }),
-  /** Notes held after moving outside thoth (D-038): move the folder's permissions with them, or release them. */
+  /** Notes held after moving outside vihko (D-038): move the folder's permissions with them, or release them. */
   held: (id: string, action: 'move_permissions' | 'release') => request<{ ok: true }>('POST', `/api/permissions/holds/${encodeURIComponent(id)}`, { action }),
   move: (from: string, to: string, dryRun = false) => request<MoveReport>('POST', '/api/note/move', { from, to, dryRun }),
   /** Moves a note; if rewriting the links takes long, they go on in the background (a job). */
@@ -392,17 +392,17 @@ export const api = {
   fetchImage: (note: string, url: string) => request<Attachment>('POST', '/api/attachments/fetch', { note, url }),
   restore: (id: string) => request<{ path: string; etag: string }>('POST', `/api/trash/${encodeURIComponent(id)}/restore`),
   integrations: () => request<Integrations>('GET', '/api/integrations'),
-  /** The thoth admin only; turning the API or MCP on while the server locks them gives `integrations_locked`. */
+  /** The vihko admin only; turning the API or MCP on while the server locks them gives `integrations_locked`. */
   setIntegrations: (patch: Partial<Pick<Integrations, 'api' | 'mcp' | 'membersCanCreateKeys' | 'oauthRegistration'>>) => request<Integrations>('PUT', '/api/admin/integrations', patch),
   /** This person's keys, newest first (revoked ones too). */
   keys: () => request<{ keys: KeyInfo[] }>('GET', '/api/keys').then((r) => r.keys),
-  /** Everyone's keys, with their user: the thoth admin only. */
+  /** Everyone's keys, with their user: the vihko admin only. */
   allKeys: () => request<{ keys: KeyWithUser[] }>('GET', '/api/keys?all=1').then((r) => r.keys),
   /** A new key: the token comes back this once and never again. */
   /** `confirm`: the current code, or the password without a second factor (D-036). */
   createKey: (input: KeyInput & { name: string; confirm: string }) => request<{ key: KeyInfo; token: string }>('POST', '/api/keys', input),
   updateKey: (id: string, patch: KeyInput) => request<{ key: KeyInfo }>('PATCH', `/api/keys/${encodeURIComponent(id)}`, patch).then((r) => r.key),
-  /** Its owner, or the thoth admin for anyone's. */
+  /** Its owner, or the vihko admin for anyone's. */
   rotateKey: (id: string, confirm: string) => request<{ key: KeyInfo; token: string }>('POST', `/api/keys/${encodeURIComponent(id)}/rotate`, { confirm }),
   revokeKey: (id: string) => request<{ key: KeyInfo }>('DELETE', `/api/keys/${encodeURIComponent(id)}`).then((r) => r.key),
   /** The OAuth authorization request in `query` (the page's own query string, without `?`): who asks, and whether this person may say yes. */
@@ -441,7 +441,7 @@ export const api = {
   removeMember: (group: string, userId: string) => request<{ group: GroupInfo }>('DELETE', `/api/admin/groups/${encodeURIComponent(group)}/members/${encodeURIComponent(userId)}`).then((r) => r.group),
   /** A folder's permissions: the admin, or whoever manages it (403 if they see it, 404 if not). */
   permissions: (folder: string) => request<FolderPermissions>('GET', `/api/permissions?folder=${encodeURIComponent(folder)}`),
-  /** Changes them: `grants` null inherits, `ai` false closes it to agents (null opens it); 412 if thoth.yaml changed since `ifMatch`. */
+  /** Changes them: `grants` null inherits, `ai` false closes it to agents (null opens it); 412 if vihko.yaml changed since `ifMatch`. */
   setPermissions: (folder: string, change: { grants?: Grants | null; ai?: false | null }, ifMatch: string) =>
     request<FolderPermissions | { folder: string; etag: string; canEdit: false }>('PUT', '/api/permissions', { folder, ...change, ifMatch }),
   /** Folders with their locks and the person's level (the admin: every folder's name). */
@@ -452,7 +452,7 @@ export const api = {
   adminSettings: () => request<AdminSettings>('GET', '/api/admin/settings'),
   /** A new second-factor policy is confirmed with `confirm` (D-040 3.4a). */
   setAdminSettings: (patch: Partial<AdminSettings> & { confirm?: string }) => request<AdminSettings>('PUT', '/api/admin/settings', patch),
-  /** Takes someone's second factor away (the thoth admin). */
+  /** Takes someone's second factor away (the vihko admin). */
   resetTwoFactor: (id: string, confirm: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/2fa/reset`, { confirm }).then((r) => r.user),
   twoFactor: () => request<TwoFactorInfo>('GET', '/api/account/2fa'),
   /** A new secret to set it up (or to replace the authenticator): the password is asked for. */

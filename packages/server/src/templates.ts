@@ -2,7 +2,7 @@
 // the fixed variables filled in (`renderTemplate`). Through the normal create
 // of the note service: never overwriting, born with its own `uid`.
 import { posix } from 'node:path'
-import { renderTemplate, type CivilDateTime } from '@thoth/core'
+import { renderTemplate, type CivilDateTime } from '@vihko/core'
 import type { User } from './auth.ts'
 import { NoteError, type Actor, type NoteService } from './notes.ts'
 

@@ -3,13 +3,13 @@
 //
 // git takes a lock file (`<name>.lock`) for every file it rewrites, and
 // removes it once it's done, or when it fails, or on SIGTERM. A kill -9 in
-// between (of thoth's container, say, while a version is being committed)
+// between (of vihko's container, say, while a version is being committed)
 // leaves it there, and from then on every write to that file fails
 // ("Unable to create '…/refs/heads/main.lock': File exists"): the history
 // stays unavailable after the restart, and nothing more reaches git.
 //
-// Only thoth writes to this repository, and only while it holds the state
-// volume's lock (lock.ts): the server, or `thoth history purge`. The git
+// Only vihko writes to this repository, and only while it holds the state
+// volume's lock (lock.ts): the server, or `vihko history purge`. The git
 // processes it starts end with it (the recorder's `gc` runs in the
 // foreground and is stopped on close), except when it is killed outside a
 // container. So once that lock is taken, and before the first git command,
@@ -26,14 +26,14 @@
 //   or an object being written), and packs without their `.idx`: git puts
 //   the index in place last, and ignores a pack without one.
 // - fast-import's crash reports (`fast_import_crash_<pid>`: fast-import dies
-//   writing one when thoth is killed while it feeds it), and the `gc.pid` of
+//   writing one when vihko is killed while it feeds it), and the `gc.pid` of
 //   a gc that is gone.
 //
-// A `git gc` that outlived a thoth killed outside a container may still be
+// A `git gc` that outlived a vihko killed outside a container may still be
 // running: while `gc.pid` names a git process alive on this host (git's own
 // rule), nothing is removed. Its locks are its own, and it removes them.
 //
-// Only thoth's own repository: the user's (unmanaged mode) is never touched.
+// Only vihko's own repository: the user's (unmanaged mode) is never touched.
 import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'

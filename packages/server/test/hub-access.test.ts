@@ -41,7 +41,7 @@ function prepare() {
   mkdirSync(join(notes, own), { recursive: true })
   writeFileSync(join(notes, list), note())
   writeFileSync(join(notes, diary), note())
-  writeFileSync(join(notes, 'thoth.yaml'), rules(admin.username, member.username, shared, people))
+  writeFileSync(join(notes, 'vihko.yaml'), rules(admin.username, member.username, shared, people))
   return { notes, env, admin, member, shared, people, own, list, diary }
 }
 
@@ -59,7 +59,7 @@ async function tryOpen(srv: Srv, cookie: string, name: string): Promise<'synced'
 
 test('opening a note needs read; with read only, what the editor sends is dropped', async () => {
   const { notes, env, member, own, list, diary } = prepare()
-  const srv = await startServer({ ...env, THOTH_HISTORY_QUIET_SECONDS: '0.4' })
+  const srv = await startServer({ ...env, VIHKO_HISTORY_QUIET_SECONDS: '0.4' })
   try {
     const k = await login(srv)
     const l = await login(srv, member)
@@ -81,7 +81,7 @@ test('opening a note needs read; with read only, what the editor sends is droppe
 
 test('access changed with the note open: the editor is told and closed; a move names where it went only to those who can read it there', async () => {
   const { notes, env, admin, member, shared, people, list } = prepare()
-  const srv = await startServer({ ...env, THOTH_HISTORY_QUIET_SECONDS: '0.4' })
+  const srv = await startServer({ ...env, VIHKO_HISTORY_QUIET_SECONDS: '0.4' })
   try {
     const k = await login(srv)
     const l = await login(srv, member)
@@ -94,8 +94,8 @@ test('access changed with the note open: the editor is told and closed; a move n
     const perm = await api(srv, k, 'GET', `/api/permissions?folder=${encodeURIComponent(shared)}`)
     const put = await api(srv, k, 'PUT', '/api/permissions', { folder: shared, grants: { [member.username]: 'read', [admin.username]: 'edit' }, ifMatch: perm.body.etag })
     assert.equal(put.status, 200, JSON.stringify(put.body))
-    await waitFor(() => got.some((g) => g.who === 'member' && g.m.type === 'thoth:access'), 'the member is told')
-    assert.deepEqual(got.filter((g) => g.m.type === 'thoth:access').map((g) => [g.who, g.m.access]).sort(), [['admin', 'edit'], ['member', 'read']])
+    await waitFor(() => got.some((g) => g.who === 'member' && g.m.type === 'vihko:access'), 'the member is told')
+    assert.deepEqual(got.filter((g) => g.m.type === 'vihko:access').map((g) => [g.who, g.m.access]).sort(), [['admin', 'edit'], ['member', 'read']])
     // Reopened: they read, and nothing they type goes in.
     const again = await connect(srv, l, list)
     const afterDowngrade = m.aUniqueWord()
@@ -106,7 +106,7 @@ test('access changed with the note open: the editor is told and closed; a move n
     // The admin (edit now) moves it where the member can't read: they're told it's gone, not where.
     const k2 = await connect(srv, k, list)
     const moved: { who: string; to: unknown }[] = []
-    for (const [who, c] of [['member', again], ['admin', k2]] as const) c.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'thoth:moved') moved.push({ who, to: m.to }) })
+    for (const [who, c] of [['member', again], ['admin', k2]] as const) c.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'vihko:moved') moved.push({ who, to: m.to }) })
     const to = m.aNotePath(`${people}/${admin.username}`)
     const mv = await api(srv, k, 'POST', '/api/note/move', { from: list, to })
     assert.equal(mv.status, 200, JSON.stringify(mv.body))

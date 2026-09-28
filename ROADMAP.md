@@ -23,7 +23,7 @@ Goal: a complete notes system from the UI, without integrations.
 - [x] Write core: hot/cold notes, `if_match`, trash, lazy `uid`, move/rename
       rewriting links.
 - [x] Collaboration hub: notes open in an editor are live Yjs documents; the
-      file stays the source of truth. A note deleted outside thoth while open
+      file stays the source of truth. A note deleted outside vihko while open
       keeps a copy until someone decides.
 - [x] Editor: CodeMirror 6 on Yjs with live preview, presence and link states.
 - [x] UI: folder tree, ⌘K search-or-create, side panel with comments,
@@ -45,22 +45,22 @@ Goal: a complete notes system from the UI, without integrations.
 - [x] Review after comparing with other systems: configurable alias
       resolution; a picker and «pin this target» for ambiguous links; a
       generation number so a stale tab can't duplicate a note; detection of
-      renames made outside thoth with an «update links» alert (an open note
+      renames made outside vihko with an «update links» alert (an open note
       follows its file); per-note attachment subfolders; «text changed» marks
       on comments and confirmation before resolving; argon2id passwords; a
-      tolerant, versioned `thoth.yaml` (strict only for permissions); full
+      tolerant, versioned `vihko.yaml` (strict only for permissions); full
       Unicode case folding in links.
 - [x] Server errors and alerts as translatable codes.
 - [x] Local auth: an admin created from the CLI or a one-time token, sessions.
       A principal on every query from day one.
 - [x] Docker image and example compose file with the two volumes.
-- [x] `thoth.yaml`: the workspace configuration file, read at start and
+- [x] `vihko.yaml`: the workspace configuration file, read at start and
       reloaded on change (first users: daily-note series and templates).
 - [x] User profile with a timezone (defaults to the browser's).
 - [x] Templates: plain `.md` notes with fixed variables (`{{date}}`,
       `{{date:format}}`, `{{user}}`, `{{title}}`), copied only on creation; no
       code.
-- [x] Daily note, optional: series declared in `thoth.yaml` (folder and name
+- [x] Daily note, optional: series declared in `vihko.yaml` (folder and name
       pattern, `{user}` for personal ones, optional template); each person picks
       theirs. «Today» opens it or creates it (never overwriting), in the
       person's timezone; previous/next in the header.
@@ -80,7 +80,7 @@ identical dump; a `kill -9` loses no edits.
       ever dropped. History never blocks a write, and a `kill -9` loses no
       authorship.
 - [x] Unmanaged mode (reads the user's own git in the folder, never writes to
-      it) and off, chosen in `thoth.yaml`.
+      it) and off, chosen in `vihko.yaml`.
 - [x] UI: per-note history in the side panel, a read-only version view with an
       inline word diff, and restore (a new version, bringing back the images
       that version linked).
@@ -88,7 +88,7 @@ identical dump; a `kill -9` loses no edits.
       by author.
 - [x] Resolved comments listed from history and reopenable; resolving no
       longer asks for confirmation in managed mode.
-- [x] Edits an offline tab couldn't send merge after an external change thoth
+- [x] Edits an offline tab couldn't send merge after an external change vihko
       saw while running (instead of going to a copy).
 
 **Done when:** any change, wherever it came from, can be seen and undone from
@@ -99,27 +99,27 @@ the UI with its author.
 From the review after comparing M2 with other systems.
 
 - [x] External changes in a row to a file are one version (30 s quiet, 5 min
-      at most), closed by any thoth write, as typing is.
+      at most), closed by any vihko write, as typing is.
 - [x] A long git outage never drops a version silently: past the queue's cap,
       versions merge into the next one, with an alert.
-- [x] `history.exclude` in `thoth.yaml`: patterns kept out of the history
-      without hiding them from thoth.
-- [x] `thoth history purge <path or version>` from the command line (thoth
+- [x] `history.exclude` in `vihko.yaml`: patterns kept out of the history
+      without hiding them from vihko.
+- [x] `vihko history purge <path or version>` from the command line (vihko
       stopped): rewrites the managed history without it, for a secret an agent
       or a person pasted by mistake.
 
 ## M3 · Agents
 
-- [x] HTTP API with API keys (`thoth_<id>_<secret>`, only the secret's
+- [x] HTTP API with API keys (`vihko_<id>_<secret>`, only the secret's
       hash kept, optional expiry). What a key may do: read, or read and
       write, in every folder its user sees or only in some. Rotation with 10
       minutes of grace for the old secret. ETag + `If-Match` → 412,
-      `If-None-Match: *`. Off by default: the thoth admin turns it on,
-      `THOTH_INTEGRATIONS=off` locks it off; only the routes classified for
+      `If-None-Match: *`. Off by default: the vihko admin turns it on,
+      `VIHKO_INTEGRATIONS=off` locks it off; only the routes classified for
       keys, through the single filtering point. Keys are managed in «Agents
       and API».
 - [x] Remote MCP: bearer token on the LAN, OAuth 2.1 when there is a public
-      URL (`THOTH_PUBLIC_URL`: Client ID Metadata Documents, fetched with SSRF
+      URL (`VIHKO_PUBLIC_URL`: Client ID Metadata Documents, fetched with SSRF
       protections, and dynamic registration, 5 an hour per address; PKCE;
       consent in the UI, showing the client's domain; the authorization as a
       revocable key); the tools that write only for a key that may write.
@@ -133,12 +133,12 @@ From the review after comparing M2 with other systems.
 - [x] The history says who wrote a version and how: «Claude Code · on behalf
       of Noa · via MCP» (the API, MCP, or MCP with OAuth).
 - [x] Login limits (exponential waits per client, account and address),
-      before exposing thoth with a public URL.
+      before exposing vihko with a public URL.
 - [x] Revert this change: undo only what one version changed (an agent's),
       applied to the current text, keeping what was written after; what can't
       be reverted is reported. A content-only view of a version, to copy from.
 - [x] An alert when the API or MCP is on while the history is unmanaged
-      (writes from thoth have no version of their own there), or off.
+      (writes from vihko have no version of their own there), or off.
 - [x] `ai: false` restriction enforced at the single filtering point.
 - [x] Handshake tests with real MCP clients in CI (the SDK, MCP Inspector and
       `mcp-remote`, with a key and with OAuth).
@@ -152,12 +152,12 @@ agent sees those changes, with safeguards and everything in the history.
 - [x] Users and groups; accounts created with a one-time, expiring link (no
       SMTP), which also resets passwords; deactivate (cuts sessions, keys and
       OAuth at once) and delete (history keeps the name).
-- [x] Per-folder permissions in `thoth.yaml`, managed from the UI: `read`,
+- [x] Per-folder permissions in `vihko.yaml`, managed from the UI: `read`,
       `comment`, `edit` and `manage`; inherited, with a folder's own grants
       replacing the inherited ones; deny by default. `manage` shares the folder.
       Optional `{user}` rules (e.g. a folder per person). A folder can be
       closed to agents (`ai: false`, inherited, only closes).
-- [x] The thoth admin manages users, groups and permissions but only reads what
+- [x] The vihko admin manages users, groups and permissions but only reads what
       is granted to them, like anyone else.
 - [x] Single filtering point with leak tests over every endpoint, tool and
       editor message (titles, backlinks, counts, candidates, errors).
@@ -201,7 +201,7 @@ From the review after comparing M4 with other systems.
 ## M5 · Release (v1.0)
 
 - [ ] Release policy: semver, changelog, Docker tags, migrations of `state.db`
-      and `thoth.yaml`.
+      and `vihko.yaml`.
 - [ ] Final name.
 - [ ] Installation and operations documentation (volumes, backups including
       the history in the state volume, NFS).

@@ -5,7 +5,7 @@
 import * as crypto from 'node:crypto'
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
-import { newUid, subjectKey } from '@thoth/core'
+import { newUid, subjectKey } from '@vihko/core'
 import type { Db } from './db.ts'
 
 const scryptAsync = promisify(scrypt) as (pw: string, salt: Buffer, len: number, opts: object) => Promise<Buffer>

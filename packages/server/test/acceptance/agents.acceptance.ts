@@ -14,7 +14,7 @@ test(`M3 done when, over ${NOTES} notes: an agent writes a plan, a person edits 
   const ws = workspace('agents')
   let srv: Server | null = null
   try {
-    srv = await startServer({ ...ws.env, THOTH_HISTORY_QUIET_SECONDS: '1', THOTH_RESCAN_SECONDS: '5' })
+    srv = await startServer({ ...ws.env, VIHKO_HISTORY_QUIET_SECONDS: '1', VIHKO_RESCAN_SECONDS: '5' })
     await m3DoneWhen({ srv, cookie: await login(srv, { username: USER, password: PASSWORD }), user: { username: USER, password: PASSWORD }, notesDir: ws.notesDir })
   } finally {
     await srv?.stop()

@@ -5,7 +5,7 @@
 // no longer matches it). A copy from another generation must never be merged:
 // its text would be added a second time. The provider tells the hub, on every
 // (re)connection, which generation its copy belongs to; the hub refuses a
-// different one before syncing anything (`thoth:stale-generation`). The copy is
+// different one before syncing anything (`vihko:stale-generation`). The copy is
 // then dropped and the note is opened again from the hub, and whatever it had
 // not got acknowledged is handed over to be kept aside.
 //
@@ -15,8 +15,8 @@ import * as Y from 'yjs'
 
 export const TEXT = 'md'
 /** Map in the document with the hub's metadata; `generation` is the generation id. */
-export const META = 'thoth'
-export const STALE_GENERATION = 'thoth:stale-generation'
+export const META = 'vihko'
+export const STALE_GENERATION = 'vihko:stale-generation'
 
 export function generationOf(doc: Y.Doc): string | null {
   const g = doc.getMap(META).get('generation')

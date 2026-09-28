@@ -9,7 +9,7 @@ import { BASE_URL, E2E_PORT } from './e2e/env.ts'
 // set in the environment by now, it reaches the server Playwright starts and
 // every worker.
 const seed = testSeed()
-if (process.env.TEST_WORKER_INDEX === undefined) console.log(seedLine(seed, 'npm run e2e -w @thoth/web'))
+if (process.env.TEST_WORKER_INDEX === undefined) console.log(seedLine(seed, 'npm run e2e -w @vihko/web'))
 
 // Traces only on a retry. Recording one on every test cost time on each of
 // them, and stopping it could fail a test that had passed: many specs keep a

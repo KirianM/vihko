@@ -1,4 +1,4 @@
-// Installation settings the thoth admin changes in «Users and groups»
+// Installation settings the vihko admin changes in «Users and groups»
 // (state.db; no row = the default). They apply at once.
 import type { Db } from './db.ts'
 import { POLICIES, type TwoFactorPolicy } from './twoFactor.ts'
@@ -8,7 +8,7 @@ export interface AdminSettingsView {
    * Members may «Save a copy» of an image from an address on the local
    * network (D-038.6). Off by default: members only download from public
    * addresses, so the server can't be used to probe the network it's in.
-   * The thoth admin always may.
+   * The vihko admin always may.
    */
   membersLocalDownloads: boolean
   /**

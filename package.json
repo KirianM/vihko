@@ -1,5 +1,5 @@
 {
-  "name": "thoth",
+  "name": "vihko",
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
@@ -14,7 +14,7 @@
     "test": "node scripts/test.ts",
     "load": "node scripts/seeded.ts node --test --test-concurrency=1 \"packages/*/test/**/*.collab.ts\"",
     "acceptance": "node scripts/seeded.ts node --test --test-concurrency=1 --test-force-exit \"packages/server/test/acceptance/*.acceptance.ts\"",
-    "build": "npm run build -w @thoth/web",
+    "build": "npm run build -w @vihko/web",
     "ci": "node scripts/ci.ts"
   },
   "devDependencies": {

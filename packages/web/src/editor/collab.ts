@@ -1,8 +1,8 @@
 // Co-editing session for a note: a Yjs document synced with the hub over
 // /collab. The file is still the source of truth; the hub says whenever the text
-// reaches the disk (`thoth:saved`), when the note is deleted outside thoth,
-// when anyone moves or trashes it from thoth and when it was moved outside
-// thoth and the hub followed it, and when this session ended (then the
+// reaches the disk (`vihko:saved`), when the note is deleted outside vihko,
+// when anyone moves or trashes it from vihko and when it was moved outside
+// vihko and the hub followed it, and when this session ended (then the
 // application signs out). When the person's access to the note changes while
 // it's open (D-038), the hub says what they have now and closes it: it's
 // opened again at once with that (read-only below `edit`), or, with no access
@@ -16,13 +16,13 @@ import { NoteLink, TEXT, type Lineage, type SetAside } from './lineage.ts'
 import { SESSION_ENDED_EVENT } from '../api.ts'
 
 export { TEXT, type SetAside }
-const SAVED = 'thoth:saved'
-const ORPHANED = 'thoth:deleted-externally'
-const ORPHAN_RESOLVED = 'thoth:orphan-resolved'
-const MOVED = 'thoth:moved'
-const TRASHED = 'thoth:trashed'
-const SESSION_ENDED = 'thoth:session-ended'
-const ACCESS = 'thoth:access'
+const SAVED = 'vihko:saved'
+const ORPHANED = 'vihko:deleted-externally'
+const ORPHAN_RESOLVED = 'vihko:orphan-resolved'
+const MOVED = 'vihko:moved'
+const TRASHED = 'vihko:trashed'
+const SESSION_ENDED = 'vihko:session-ended'
+const ACCESS = 'vihko:access'
 
 /** What the hub says a person may do in the note now: `none` means it's gone for them. */
 export type HubAccess = 'none' | 'read' | 'comment' | 'edit'

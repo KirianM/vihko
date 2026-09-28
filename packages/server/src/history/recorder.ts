@@ -1,6 +1,6 @@
 // The managed history's recorder (D-016, D-032, D-033): turns every change to
 // the notes folder into versions with their authors, and commits them to a
-// git repository of thoth's own in the state volume (`history.git`).
+// git repository of vihko's own in the state volume (`history.git`).
 //
 // Product rules it implements (docs: M2 specification, §3 and §4):
 // - What people type in the editor accumulates in one open version per note
@@ -16,23 +16,23 @@
 //   30 s / 5 min rule.
 // - System operations (moves with their link rewrites, restores…) are one
 //   commit at once with everything they touched (`operation`).
-// - A content that isn't the last one thoth knows for a path is an external
+// - A content that isn't the last one vihko knows for a path is an external
 //   change, by `external`: whatever else was pending on the path closes
 //   first. External changes in a row to one file accumulate in one open
 //   version with the same 30 s / 5 min rule (an editor that saves on every
-//   pause), and any write of thoth's to that file closes it first. External
+//   pause), and any write of vihko's to that file closes it first. External
 //   versions that close together are one commit. Moves and deletions made
-//   outside, and what thoth finds at startup, are versions at once. thoth's
+//   outside, and what vihko finds at startup, are versions at once. vihko's
 //   own writes are expected before anything can see them on disk.
-// - What `thoth history purge` took out of the history and the folder still
+// - What `vihko history purge` took out of the history and the folder still
 //   holds is known by its content (the journal's `baseline`), not recorded
 //   again at startup; it enters with the file's next version.
-// - Paths excluded in thoth.yaml (`history.exclude`) aren't there for the
+// - Paths excluded in vihko.yaml (`history.exclude`) aren't there for the
 //   recorder: nothing about them is recorded (a file moved into one leaves
 //   the history, one moved out of it enters), and what is stored stays.
 // - A kill -9 loses no authorship: what is pending, and the commits not yet
 //   in git, live in a journal in the state volume (temporary file, fsync,
-//   rename), confirmed against the files when thoth starts. What git itself
+//   rename), confirmed against the files when vihko starts. What git itself
 //   was writing when the kill came (its lock files, a pack half done) is
 //   removed before anything else runs on the repository (leftovers.ts).
 // - The history never blocks or fails a note write: if git fails, the note is
@@ -44,7 +44,7 @@
 import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync, writeSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { WORKSPACE_FILE, classifyPath, isIgnoredDir, type Alert, type HistoryMode } from '@thoth/core'
+import { WORKSPACE_FILE, classifyPath, isIgnoredDir, type Alert, type HistoryMode } from '@vihko/core'
 import { authorKey, authorOf, parseAuthorKey, reasonJson, type Actor, type Author, type Reason } from '../actor.ts'
 import { Git, GitError, Serial, blobOid, fastImport, readTree, resolveRef, type FastCommit, type FastOp } from './git.ts'
 import { removeCrashLeftovers } from './leftovers.ts'
@@ -56,7 +56,7 @@ export interface RecorderOptions {
   notesDir: string
   /** State volume: the repository is `history.git`, the journal and caches go in `history/`. */
   stateDir: string
-  /** Largest file that enters the history, in bytes (asked every time: thoth.yaml can change it). */
+  /** Largest file that enters the history, in bytes (asked every time: vihko.yaml can change it). */
   maxFileBytes: () => number
   /**
    * Paths kept out of the history (`history.exclude`; asked every time). The
@@ -142,7 +142,7 @@ export interface QCommit {
 
 /** A version still open on one path. */
 export interface Pending {
-  /** `typed`: from the editor; `write`: writes of one user or agent with one reason; `external`: changes made outside thoth. */
+  /** `typed`: from the editor; `write`: writes of one user or agent with one reason; `external`: changes made outside vihko. */
   kind: 'typed' | 'write' | 'external'
   key: string
   authors: string[]
@@ -153,7 +153,7 @@ export interface Pending {
   at?: number
   /** What the history knew for the path before it opened. */
   base: string | null
-  /** Contents thoth wrote (or saw, external) for it, in order (the last one is the version's). */
+  /** Contents vihko wrote (or saw, external) for it, in order (the last one is the version's). */
   oids: string[]
   /** The last content, for text files. */
   text: string
@@ -183,10 +183,10 @@ export interface Journal {
   /** The queue reached its cap: how many commits were merged into later ones, and since when (ms). */
   merged: { count: number; since: number } | null
   /**
-   * What the files hold now for paths `thoth history purge` rewrote (path →
+   * What the files hold now for paths `vihko history purge` rewrote (path →
    * blob id): known without being in git, so what the purge took out of the
    * history and is still on disk isn't recorded again as a change made with
-   * thoth stopped. It enters with the file's next version.
+   * vihko stopped. It enters with the file's next version.
    */
   baseline?: Record<string, string>
 }
@@ -210,29 +210,29 @@ const BATCH = 64
 const BLOB_CACHE_BYTES = 64 * 1024 * 1024
 const CONCURRENCY = 16
 
-/** Tests only: `THOTH_TEST_CRASH_AT=<point>` kills the process there, like a kill -9 landing at that moment. */
+/** Tests only: `VIHKO_TEST_CRASH_AT=<point>` kills the process there, like a kill -9 landing at that moment. */
 export function crashPoint(point: string, paths?: Iterable<string>) {
-  if (process.env.THOTH_TEST_CRASH_AT !== point) return
-  // With THOTH_TEST_CRASH_PATH, only for what touches that path: a system commit at startup doesn't set it off.
-  const only = process.env.THOTH_TEST_CRASH_PATH
+  if (process.env.VIHKO_TEST_CRASH_AT !== point) return
+  // With VIHKO_TEST_CRASH_PATH, only for what touches that path: a system commit at startup doesn't set it off.
+  const only = process.env.VIHKO_TEST_CRASH_PATH
   if (only && paths && ![...paths].includes(only)) return
   process.kill(process.pid, 'SIGKILL')
 }
 
 /**
- * Tests only: `THOTH_TEST_CRASH_AT=history-importing` kills git in the middle
- * of a commit, holding the history's ref lock, and thoth with it (a kill -9 of
+ * Tests only: `VIHKO_TEST_CRASH_AT=history-importing` kills git in the middle
+ * of a commit, holding the history's ref lock, and vihko with it (a kill -9 of
  * the whole container at the worst moment). git's reference-transaction hook
  * runs once the locks are taken and before the ref moves; the history's git
  * runs no other hook.
  */
 function crashHooks(dir: string): Record<string, string> {
-  if (process.env.THOTH_TEST_CRASH_AT !== 'history-importing') return {}
+  if (process.env.VIHKO_TEST_CRASH_AT !== 'history-importing') return {}
   const hooks = join(dir, 'test-hooks')
   mkdirSync(hooks, { recursive: true })
   const hook = join(hooks, 'reference-transaction')
-  // With THOTH_TEST_CRASH_PATH, only when what comes in touches that path (as crashPoint).
-  const only = process.env.THOTH_TEST_CRASH_PATH
+  // With VIHKO_TEST_CRASH_PATH, only when what comes in touches that path (as crashPoint).
+  const only = process.env.VIHKO_TEST_CRASH_PATH
   const filter = only === undefined ? '' : [
     'hit=0',
     'while read old new ref; do',
@@ -251,7 +251,7 @@ export function historyPath(path: string): boolean {
   return path !== '' && !/[\u0000-\u001f\u007f]/.test(path) && classifyPath(path) !== 'ignored'
 }
 
-/** Notes (and thoth.yaml) are kept as text; anything else as bytes. */
+/** Notes (and vihko.yaml) are kept as text; anything else as bytes. */
 export function isTextPath(path: string): boolean {
   const k = classifyPath(path)
   return k === 'note' || k === 'conflict' || path === WORKSPACE_FILE
@@ -363,9 +363,9 @@ export class Recorder {
    */
   async open(mode: HistoryMode) {
     mkdirSync(this.dir, { recursive: true })
-    // Before any git command, whatever the mode: what a crash left in thoth's
+    // Before any git command, whatever the mode: what a crash left in vihko's
     // own repository (a stale lock would fail every commit). Whoever opens the
-    // recorder holds the state volume's lock (main.ts), so no other thoth
+    // recorder holds the state volume's lock (main.ts), so no other vihko
     // process is using it.
     removeCrashLeftovers(this.git.gitDir, this.log)
     const j = this.readJournal()
@@ -393,7 +393,7 @@ export class Recorder {
   /**
    * After the hub recovered its notes: confirms what the journal left pending
    * against the files, then sweeps the folder against the history (external
-   * changes made while thoth was stopped), and starts the timers.
+   * changes made while vihko was stopped), and starts the timers.
    */
   async start() {
     if (this.mode !== 'managed') {
@@ -418,7 +418,7 @@ export class Recorder {
     return 'startup'
   }
 
-  /** thoth.yaml changed: from managed to off (or unmanaged) stops recording; back to managed resumes. */
+  /** vihko.yaml changed: from managed to off (or unmanaged) stops recording; back to managed resumes. */
   async configure(mode: HistoryMode) {
     if (mode === this.mode) return
     const was = this.mode
@@ -559,7 +559,7 @@ export class Recorder {
     this.scheduleDrain(0)
   }
 
-  // --- A purge while thoth runs (D-038.9) ----------------------------------------------
+  // --- A purge while vihko runs (D-038.9) ----------------------------------------------
 
   /**
    * Runs `rewrite` (history/purge.ts, with the lock this process already
@@ -567,8 +567,8 @@ export class Recorder {
    * first, then nothing more goes to git and no sweep runs until it ends.
    * Notes are still written meanwhile, and recorded: their versions wait in
    * the queue (and the journal), as when git is unavailable. Afterwards the
-   * recorder forgets what the purge took out, as `thoth history purge` does
-   * with the journal when thoth is stopped: the open versions, typing and
+   * recorder forgets what the purge took out, as `vihko history purge` does
+   * with the journal when vihko is stopped: the open versions, typing and
    * queued changes of the purged paths (`forget`), and their cached `stat`s;
    * it reads the rewritten history, and what the notes folder still holds
    * for a purged path (`pathsOnDisk`), if it's what the history knew before
@@ -693,7 +693,7 @@ export class Recorder {
     const p = this.pending.get(path)
     // What people typed goes on in their version; with nobody typing since the
     // last flush (the hub adding a uid after an agent's write), in whatever is
-    // open, unless it's an external version: thoth writing closes that one.
+    // open, unless it's an external version: vihko writing closes that one.
     if (p?.kind === 'typed' || (p && p.kind !== 'external' && typing.size === 0)) {
       if (oid !== p.oids.at(-1)) {
         p.oids.push(oid)
@@ -727,7 +727,7 @@ export class Recorder {
     this.prepare([{ path, after: w.after }], { actor: w.actor, inMemory: true }).done()
   }
 
-  /** The hub integrated a change made outside thoth (what is now on disk): it joins the note's open external version. */
+  /** The hub integrated a change made outside vihko (what is now on disk): it joins the note's open external version. */
   external(path: string, text: string) {
     this.observe([{ path, content: text }])
   }
@@ -735,10 +735,10 @@ export class Recorder {
   // --- Recording: the note service ---------------------------------------------------
 
   /**
-   * A write thoth is about to make. What the writer read that the history
+   * A write vihko is about to make. What the writer read that the history
    * doesn't know is recorded first as external; what was pending on those
    * paths closes with the content from before; the new contents are expected
-   * as thoth's own. `done` records the write: in the actor's open operation,
+   * as vihko's own. `done` records the write: in the actor's open operation,
    * at once (`immediate`, or the system's), or accumulated with the actor's
    * previous writes (users and agents editing notes).
    */
@@ -834,7 +834,7 @@ export class Recorder {
 
   // --- Recording: what the indexer, the watcher and the sweep find ------------------
 
-  /** Notes the indexer applied (a watcher batch or a rescan): anything thoth doesn't know is external. */
+  /** Notes the indexer applied (a watcher batch or a rescan): anything vihko doesn't know is external. */
   observeIndexed(c: IndexedChanges) {
     if (!this.live || !this.started) return
     const text = new Map(c.upserts.map((u) => [u.path, u]))
@@ -853,7 +853,7 @@ export class Recorder {
 
   /**
    * Paths the watcher saw change that aren't notes (images, attachments,
-   * thoth.yaml, conflict copies): read and compared with the history, in the
+   * vihko.yaml, conflict copies): read and compared with the history, in the
    * order they came. A folder is looked at whole.
    */
   observePaths(paths: readonly string[]): Promise<void> {
@@ -1013,7 +1013,7 @@ export class Recorder {
    * The whole folder against the history: a stat of every file, and a read of
    * those whose size, times or inode changed since they were last hashed (a
    * cache in the state volume). What differs is one commit: external changes
-   * (`foundAtStartup` when thoth starts), or the system's when the history
+   * (`foundAtStartup` when vihko starts), or the system's when the history
    * starts or resumes.
    */
   sweep(kind: SweepKind): Promise<void> {
@@ -1108,12 +1108,12 @@ export class Recorder {
 
   /**
    * What a kill -9 left pending, against the files: if a file still has the
-   * content thoth last wrote for it, the version is its authors'. An earlier
+   * content vihko last wrote for it, the version is its authors'. An earlier
    * content of the same version means the later writes never reached disk;
    * the content from before it, that none did. Anything else means the file
    * changed afterwards: the version is kept as it was (its text is in the
    * journal) and the sweep records the rest as external. An external version
-   * was all on disk already, seen while thoth ran: it stays open if the file
+   * was all on disk already, seen while vihko ran: it stays open if the file
    * still has its last content, and otherwise closes as it was (an image's,
    * whose bytes aren't in the journal, is left to the sweep).
    */
@@ -1301,7 +1301,7 @@ export class Recorder {
     return [...out]
   }
 
-  /** Whether a path's changes are recorded: a name the history can hold, and not excluded in thoth.yaml. */
+  /** Whether a path's changes are recorded: a name the history can hold, and not excluded in vihko.yaml. */
   private takes(path: string): boolean {
     return historyPath(path) && !this.opts.excluded?.(path)
   }
@@ -1387,7 +1387,7 @@ export class Recorder {
     if (i >= 0) list.splice(i, 1)
   }
 
-  /** Registers a change's contents as thoth's own. Returns them, to take them back on abort. */
+  /** Registers a change's contents as vihko's own. Returns them, to take them back on abort. */
   private expectChange(c: FileChange): [string, string | null][] {
     const out: [string, string | null][] = []
     const add = (p: string, oid: string | null) => { this.expect(p, oid); out.push([p, oid]) }
@@ -1405,7 +1405,7 @@ export class Recorder {
     return (this.own.get(path) ?? []).some((e) => e.oid === oid && this.now() - e.at < OWN_TTL)
   }
 
-  /** Whether `oid` at `path` is thoth's own write; consumes it and anything written before it. */
+  /** Whether `oid` at `path` is vihko's own write; consumes it and anything written before it. */
   private consumeOwn(path: string, oid: string | null): boolean {
     const list = this.own.get(path)
     if (!list) return false
@@ -1728,9 +1728,9 @@ export class Recorder {
 
   private gitAuthor(a: Author): { name: string; email: string } {
     const name = this.opts.nameOf?.(a) ?? (a.kind === 'user' || a.kind === 'agent' ? a.id : a.kind)
-    if (a.kind === 'user') return { name, email: `${a.id}@users.thoth.invalid` }
-    if (a.kind === 'agent') return { name, email: `${a.id}@agents.thoth.invalid` }
-    return { name: a.kind === 'system' ? 'thoth' : 'external', email: `${a.kind}@thoth.invalid` }
+    if (a.kind === 'user') return { name, email: `${a.id}@users.vihko.invalid` }
+    if (a.kind === 'agent') return { name, email: `${a.id}@agents.vihko.invalid` }
+    return { name: a.kind === 'system' ? 'vihko' : 'external', email: `${a.kind}@vihko.invalid` }
   }
 
   private gcMaybe(commits: number) {
@@ -1740,7 +1740,7 @@ export class Recorder {
     const stop = new AbortController()
     // Outside the write queue: git takes its own locks, and fast-import can run
     // meanwhile. In the foreground (`gc --auto` detaches by default), so it
-    // ends with thoth: no git outlives the state volume's lock, and the next
+    // ends with vihko: no git outlives the state volume's lock, and the next
     // holder can take whatever lock is left as a crash's (leftovers.ts).
     const done = new Git({ gitDir: this.git.gitDir, binary: this.opts.git, config: { 'gc.auto': '6700', 'gc.autoPackLimit': '50', 'gc.autoDetach': 'false' } })
       .run(['gc', '--auto', '--quiet'], { timeoutMs: 600_000, signal: stop.signal })
@@ -1841,7 +1841,7 @@ const byteLength = (c: string | Uint8Array) => (typeof c === 'string' ? Buffer.b
 
 /**
  * An external change that joins its file's open version: a new content (not
- * a move or a deletion) that thoth holds, or can read again from the file.
+ * a move or a deletion) that vihko holds, or can read again from the file.
  */
 function joinsVersion(o: Observation): boolean {
   if (o.from !== undefined || o.content === null || o.oid === null) return false
@@ -1891,7 +1891,7 @@ function subjectOf(q: QCommit, ops: FastOp[], created: Set<string>): string {
   switch (r?.code) {
     case 'note_moved': return `Update links after moving ${s('from')} to ${s('to')}`
     case 'folder_moved': return `Update links after moving folder ${s('from')} to ${s('to')}`
-    case 'links_after_external_move': return 'Update links after moves outside thoth'
+    case 'links_after_external_move': return 'Update links after moves outside vihko'
     case 'alias_added': return `Add alias ${s('alias')} to ${s('to')}`
     case 'restored': return `Restore ${target} from ${s('id').slice(0, 10)}`
     case 'trash_restored': return `Restore ${target} from the trash`

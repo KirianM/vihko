@@ -2,12 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { readFrontmatter } from '@thoth/core'
-import { Indexer, NoteError, NoteService, dumpIndex, openIndex, type Actor } from '@thoth/server'
+import { readFrontmatter } from '@vihko/core'
+import { Indexer, NoteError, NoteService, dumpIndex, openIndex, type Actor } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
-// The user the writes are made as (an id, as thoth has them).
+// The user the writes are made as (an id, as vihko has them).
 const m = mother(import.meta.url)
 const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
 const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex')
@@ -40,7 +40,7 @@ const FILES: Record<string, string | Buffer> = {
 const sorted = (...paths: string[]) => [...paths].sort()
 
 function setup(files = FILES) {
-  const dir = tempDir('thoth-folders-')
+  const dir = tempDir('vihko-folders-')
   const notesDir = join(dir, 'notes')
   for (const [p, content] of Object.entries(files)) {
     mkdirSync(dirname(join(notesDir, p)), { recursive: true })
@@ -56,7 +56,7 @@ function setup(files = FILES) {
   const folders = () => (db.prepare('select path from folders order by path').all() as { path: string }[]).map((r) => r.path)
   /** The index a full rebuild from disk gives: incremental updates must match it. */
   const rebuilt = () => {
-    const fresh = openIndex(join(tempDir('thoth-folders-idx-'), 'index.db'))
+    const fresh = openIndex(join(tempDir('vihko-folders-idx-'), 'index.db'))
     new Indexer({ notesDir, db: fresh }).scan()
     return dumpIndex(fresh)
   }

@@ -208,7 +208,7 @@ test('sign out from the drawer', async () => {
 test('tablet (768px): sidebar and header fit, the note name is not clipped', async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 768, height: 1024 }, hasTouch: true, locale: 'es-ES' })
   const t = await ctx.newPage()
-  await t.goto(`/?note=${encodeURIComponent('proyectos/thoth/Plan.md')}`)
+  await t.goto(`/?note=${encodeURIComponent('proyectos/vihko/Plan.md')}`)
   await t.getByLabel('Nombre de usuario').fill(ADMIN.username)
   await t.getByLabel('Contraseña').fill(ADMIN.password)
   await t.getByRole('button', { name: 'Entrar' }).last().click()
@@ -233,7 +233,7 @@ test('web app manifest: installable fields and icons that exist', async ({ reque
   expect(res.status()).toBe(200)
   expect(res.headers()['content-type']).toMatch(/^application\/manifest\+json/)
   const manifest = await res.json() as { name: string; short_name: string; start_url: string; display: string; theme_color: string; background_color: string; icons: { src: string; sizes: string; type: string; purpose: string }[] }
-  expect(manifest).toMatchObject({ name: 'thoth', short_name: 'thoth', start_url: '/', display: 'standalone' })
+  expect(manifest).toMatchObject({ name: 'vihko', short_name: 'vihko', start_url: '/', display: 'standalone' })
   expect(manifest.theme_color).toMatch(/^#[0-9A-Fa-f]{6}$/)
   expect(manifest.background_color).toMatch(/^#[0-9A-Fa-f]{6}$/)
   // Chrome needs a 192 and a 512 icon; one maskable for Android's shapes.

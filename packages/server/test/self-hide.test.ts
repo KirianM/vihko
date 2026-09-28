@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { contentHash, readFrontmatter } from '@thoth/core'
+import { contentHash, readFrontmatter } from '@vihko/core'
 import { setup } from './_agents.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -46,7 +46,7 @@ test('MCP: edit_note that sets ai: false succeeds with now_hidden, and from then
     assert.equal(hide.error, false, hide.raw)
     assert.equal(hide.data.now_hidden, true)
     assert.equal(hide.data.reason, 'ai_false')
-    assert.match(hide.data.message, /no longer available to agents.*only a person can, from thoth's interface/)
+    assert.match(hide.data.message, /no longer available to agents.*only a person can, from vihko's interface/)
     assert.deepEqual(Object.keys(hide.data).sort(), ['etag', 'message', 'now_hidden', 'path', 'reason'])
     // Written, and its ETag is the hash of what it wrote on the text it had read.
     const text = disk(h, NOTE)
@@ -94,7 +94,7 @@ test('MCP: create_note with ai: false in its text creates it and says it is hidd
     const r = await c.call('create_note', { path: secret, text })
     assert.equal(r.error, false, r.raw)
     assert.deepEqual([r.data.created, r.data.now_hidden, r.data.reason, r.data.path], [true, true, 'ai_false', secret])
-    // Its own text, with the uid thoth gave it (which it is told): the ETag tells it nothing new.
+    // Its own text, with the uid vihko gave it (which it is told): the ETag tells it nothing new.
     assert.equal(r.data.etag, contentHash(disk(h, secret)))
     assert.match(disk(h, secret), new RegExp(`uid: ${r.data.uid}`))
     const again = await c.call('get_note', { path: secret })

@@ -5,12 +5,12 @@
 // memory only: a restart forgets them, and the files are consistent anyway
 // (each rewrite is an independent safe write, and the move happened first).
 import { randomUUID } from 'node:crypto'
-import type { ErrorCode } from '@thoth/core'
+import type { ErrorCode } from '@vihko/core'
 import { NoteError, type MoveHooks } from '../notes.ts'
 
 export type MoveJob<R> = {
   id: string
-  /** `relink`: updating the links after notes moved outside thoth (`from`/`to`: the first move). */
+  /** `relink`: updating the links after notes moved outside vihko (`from`/`to`: the first move). */
   kind: 'note' | 'folder' | 'relink'
   from: string
   to: string

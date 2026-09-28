@@ -5,7 +5,7 @@
 import { chmodSync, cpSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Auth, History, Indexer, NoteService, Profiles, Workspace, createApp, openIndex, openState, type Runtime } from '@thoth/server'
+import { Auth, History, Indexer, NoteService, Profiles, Workspace, createApp, openIndex, openState, type Runtime } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { withEveryone } from './_permissions.ts'
 import { byNames, create, newPeople, type ByNames, type Person } from './_people.ts'
@@ -19,7 +19,7 @@ const peopleOf = new Map<string, { admin: Person; member: Person }>()
 export interface HistorySetup {
   /** Before anything starts: files to add to the vault copy (a function of the people's usernames when they name them). */
   files?: ByNames<Record<string, string | Uint8Array>>
-  /** thoth.yaml (a function of the people's usernames when it names them). */
+  /** vihko.yaml (a function of the people's usernames when it names them). */
   config?: ByNames<string>
   git?: string
   /** Reuse a folder from an earlier setup (a restart). */
@@ -36,7 +36,7 @@ export interface HistorySetup {
 
 export async function setup(opts: HistorySetup = {}) {
   const fresh = opts.dir === undefined
-  const dir = opts.dir ?? tempDir('thoth-history-')
+  const dir = opts.dir ?? tempDir('vihko-history-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
   const people = fresh ? newPeople() : peopleOf.get(dir)!
@@ -48,7 +48,7 @@ export async function setup(opts: HistorySetup = {}) {
       writeFileSync(join(notesDir, p), content)
     }
     // Both users see everything unless the test brings its own permissions (_permissions.ts).
-    writeFileSync(join(notesDir, 'thoth.yaml'), withEveryone(opts.config === undefined ? undefined : byNames(opts.config, names), names.admin, names.member))
+    writeFileSync(join(notesDir, 'vihko.yaml'), withEveryone(opts.config === undefined ? undefined : byNames(opts.config, names), names.admin, names.member))
     opts.prepare?.({ dir, notesDir })
   }
   const index = openIndex(join(dir, 'index.db'))

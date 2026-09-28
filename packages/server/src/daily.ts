@@ -2,7 +2,7 @@
 // timezone, so the UI and, later, the agents acting on their behalf (M3) get
 // the same note. Created from the series template through the normal create:
 // never overwriting.
-import { seriesPath, type Series } from '@thoth/core'
+import { seriesPath, type Series } from '@vihko/core'
 import type { User } from './auth.ts'
 import { NoteError, type Actor, type NoteService } from './notes.ts'
 import { createFromTemplate } from './templates.ts'
@@ -36,19 +36,19 @@ export class DailyNotes {
 
   /**
    * The series a person's «Today» uses: the one asked for, their own choice
-   * or else the first in thoth.yaml. A choice that thoth.yaml no longer has
+   * or else the first in vihko.yaml. A choice that vihko.yaml no longer has
    * falls back to the first. With no series, daily notes are off.
    */
   seriesFor(user: User, requested?: string | null): Series {
     const all = this.opts.workspace.config.daily
     if (requested) {
       const s = all.find((x) => x.id === requested)
-      if (!s) throw new NoteError('not_found', `no daily-note series ${requested} in thoth.yaml`)
+      if (!s) throw new NoteError('not_found', `no daily-note series ${requested} in vihko.yaml`)
       return s
     }
     const chosen = this.opts.profiles.get(user.id).dailySeries
     const s = all.find((x) => x.id === chosen) ?? all[0]
-    if (!s) throw new NoteError('not_configured', 'no daily-note series in thoth.yaml')
+    if (!s) throw new NoteError('not_configured', 'no daily-note series in vihko.yaml')
     return s
   }
 

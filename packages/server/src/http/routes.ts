@@ -123,7 +123,7 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
  *
  * - `none`: nothing about notes (health, sign-in, the person's own profile,
  *   keys and session, the installation's switches).
- * - `admin`: the thoth admin's (users, the rescan): never notes' contents.
+ * - `admin`: the vihko admin's (users, the rescan): never notes' contents.
  * - `filtered`: lists (tree, search, tags, trash, alerts, «Recent
  *   changes»…): only what the person may see, counts included.
  * - `read`, `comment`, `edit`, `manage`: that level where the note or folder
@@ -234,7 +234,7 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'GET /api/history/resolved': 'history',
   'POST /api/history/restore': 'history',
   'POST /api/history/revert': 'history',
-  // Or the thoth admin, any path by its name, without reading it (D-038.9).
+  // Or the vihko admin, any path by its name, without reading it (D-038.9).
   'POST /api/history/purge': 'manage',
   'DELETE /api/history/purges/:id': 'admin',
 

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseThreads, resolveThread } from '@thoth/core'
+import { parseThreads, resolveThread } from '@vihko/core'
 import { setup, sleep } from './_history.ts'
 import { AUTHOR, CO_AUTHOR, gitEnv, snapshot, userGit } from './_userGit.ts'
 import { yamlKey } from './_permissions.ts'
@@ -44,7 +44,7 @@ test('unmanaged mode reads the user\'s own git: their commits are the versions, 
     // The notes folder is one folder of a larger repository.
     prepare: ({ dir, notesDir }) => {
       repo = userGit(dir)
-      // Their settings don't change what thoth reads.
+      // Their settings don't change what vihko reads.
       for (const [k, v] of [['log.follow', 'true'], ['log.showRoot', 'false'], ['diff.renames', 'false'], ['i18n.logOutputEncoding', 'ISO-8859-1'], ['core.abbrev', '7']]) repo.run(['config', k!, v!])
       writeFileSync(join(dir, '.gitignore'), '/state/\n/*.db*\n')
       writeFileSync(join(dir, OUTSIDE), `${m.aSentence()}\n`)
@@ -93,20 +93,20 @@ test('unmanaged mode reads the user\'s own git: their commits are the versions, 
     assert.deepEqual(changes[1].files, [{ path: NOTE, change: 'moved', from: FIRST, added: 0, removed: 0 }])
     assert.deepEqual(changes[2].files.map((f: any) => f.path), [FIRST])
     const first = changes[3].files.map((f: any) => f.path)
-    // thoth.yaml isn't served to anyone (it holds the permissions), not even its history.
-    assert.ok(first.includes('hogar/Proxy.md') && !first.includes('thoth.yaml') && !first.includes('privado/sin-ia.md'))
-    for (const p of first) assert.ok(!p.split('/').some((s: string) => s.startsWith('.')) && !p.endsWith('~'), `a file thoth ignores is listed: ${p}`)
+    // vihko.yaml isn't served to anyone (it holds the permissions), not even its history.
+    assert.ok(first.includes('hogar/Proxy.md') && !first.includes('vihko.yaml') && !first.includes('privado/sin-ia.md'))
+    for (const p of first) assert.ok(!p.split('/').some((s: string) => s.startsWith('.')) && !p.endsWith('~'), `a file vihko ignores is listed: ${p}`)
     assert.ok(changes[3].files.every((f: any) => f.change === 'created'))
     assert.deepEqual(authors.map((a: any) => a.key).sort(), [`git:${AUTHOR.email}`, `git:${CO_AUTHOR.email}`].sort())
     assert.deepEqual((await h.changes(`&author=git:${CO_AUTHOR.email}`)).changes.map((ch: any) => ch.id), [c.after!.id, c.edit!.id])
     assert.equal((await h.changes('&author=git')).changes.length, 4)
     assert.equal((await h.admin('GET', `/api/history/versions?path=${h.q('privado/sin-ia.md')}`)).status, 404)
 
-    // What thoth writes is a change without a commit for their git, until they commit it.
+    // What vihko writes is a change without a commit for their git, until they commit it.
     await h.put(NOTE, (t) => t + `${m.aSentence()}\n`)
     assert.equal((await h.versions(NOTE)).versions.length, 4)
     assert.equal(h.history.recorder.headId, null, 'nothing is recorded in a managed repository')
-    const committed = repo.commit('Commit what thoth wrote', CO_AUTHOR)
+    const committed = repo.commit('Commit what vihko wrote', CO_AUTHOR)
     assert.deepEqual((await h.versions(NOTE)).versions.map((v: any) => v.id).slice(0, 2), [committed.id, c.after!.id])
   } finally { await h.close() }
 })
@@ -128,9 +128,9 @@ test('unmanaged mode never writes to the user\'s repository: .git is byte for by
       writeFileSync(join(notesDir, path), `# ${m.aHeading()}\n`)
       rmSync(join(notesDir, folder, image))
       c.second = repo.commit('Drop the image', CO_AUTHOR)
-      // A lock of the user's own git (their editor is committing): never taken for a crash's, as in thoth's own repository.
+      // A lock of the user's own git (their editor is committing): never taken for a crash's, as in vihko's own repository.
       writeFileSync(join(notesDir, '.git/index.lock'), '')
-      // Before thoth starts: looking for the repository mustn't write to it either.
+      // Before vihko starts: looking for the repository mustn't write to it either.
       before = snapshot(join(notesDir, '.git'))
     },
   })
@@ -156,7 +156,7 @@ test('unmanaged mode never writes to the user\'s repository: .git is byte for by
 
     // To managed and back: the managed history lives in the state volume.
     for (const mode of ['managed', 'unmanaged']) {
-      writeFileSync(join(h.notesDir, 'thoth.yaml'), `history:\n  mode: ${mode}\n`)
+      writeFileSync(join(h.notesDir, 'vihko.yaml'), `history:\n  mode: ${mode}\n`)
       h.workspace.reload()
       await h.history.configure()
       await h.settle()
@@ -241,11 +241,11 @@ test('pages in unmanaged mode follow moves across pages and stay the same while 
     assert.equal(all[0], repo.run(['rev-parse', 'HEAD~1']).trim(), 'pages go on from where the listing started')
 
     // A cursor is data, never a git option.
-    for (const bad of [cursorOf({ start: '--output=/tmp/thoth-pwned', skip: 0 }), cursorOf({ start: ids[0], skip: -1 }), 'nonsense']) {
+    for (const bad of [cursorOf({ start: '--output=/tmp/vihko-pwned', skip: 0 }), cursorOf({ start: ids[0], skip: -1 }), 'nonsense']) {
       assert.equal((await h.admin('GET', `/api/history/changes?cursor=${bad}`)).status, 400)
       assert.equal((await h.admin('GET', `/api/history/versions?path=${h.q(path)}&cursor=${bad}`)).status, 400)
     }
-    assert.ok(!existsSync('/tmp/thoth-pwned'))
+    assert.ok(!existsSync('/tmp/vihko-pwned'))
   } finally { await h.close() }
 })
 
@@ -338,7 +338,7 @@ test('unmanaged mode: a shallow clone\'s history ends where the clone does', asy
       const origin = join(dir, 'origin')
       mkdirSync(origin)
       const repo = userGit(origin)
-      writeFileSync(join(origin, 'thoth.yaml'), UNMANAGED)
+      writeFileSync(join(origin, 'vihko.yaml'), UNMANAGED)
       for (let i = 1; i <= 4; i++) {
         writeFileSync(join(origin, series), `${texts[i - 1]}\n`)
         c.push(repo.commit(`v${i}`).id)
@@ -412,7 +412,7 @@ test('unmanaged mode: submodules are left out, files in Git LFS show their point
 })
 
 test('unmanaged mode reads a repository another user owns, naming only its path; a git that fails is reported', async () => {
-  const tools = tempDir('thoth-git-')
+  const tools = tempDir('vihko-git-')
   const flag = join(tools, 'git-broken')
   const git = join(tools, 'git-foreign-owner.sh')
   // Every repository looks owned by someone else (as on an NFS export mapped to `nobody`).
@@ -458,7 +458,7 @@ test('switching modes live keeps the managed history and the user\'s git apart',
     },
   })
   const mode = async (to: string) => {
-    writeFileSync(join(h.notesDir, 'thoth.yaml'), `history:\n  mode: ${to}\n`)
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), `history:\n  mode: ${to}\n`)
     h.workspace.reload()
     await h.history.configure()
     await h.settle()

@@ -10,8 +10,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { MessageType } from '@hocuspocus/server'
-import * as server from '@thoth/server'
-import { HUB_MESSAGES, ROUTE_NEEDS, TOOL_NEEDS, type Principal } from '@thoth/server'
+import * as server from '@vihko/server'
+import { HUB_MESSAGES, ROUTE_NEEDS, TOOL_NEEDS, type Principal } from '@vihko/server'
 import { ADMIN, DIR, FILES as BASE, MEMBER, NAME, NOBODY, OTHER, PATH, PNG, RULES, TAG, UID, WORD, home, setup } from './_m4.ts'
 import { yamlKey } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
@@ -81,7 +81,7 @@ test('every HTTP route, MCP tool and hub message is classified by what it needs 
     const tools = (await c.client.listTools()).tools.map((t) => t.name).sort()
     await c.close()
     assert.deepEqual(tools, Object.keys(TOOL_NEEDS).sort(), 'a new tool must say what it needs in mcp/tools.ts TOOL_NEEDS')
-    // Every message type of the protocol, and every message of thoth's own.
+    // Every message type of the protocol, and every message of vihko's own.
     const types = Object.keys(MessageType).filter((k) => Number.isNaN(Number(k)))
     assert.deepEqual(types.filter((t) => !(t in HUB_MESSAGES.inbound)), [], 'a new hocuspocus message type must be classified in hub.ts HUB_MESSAGES')
     const own = Object.entries(server).filter(([k, v]) => k.endsWith('_MESSAGE') && typeof v === 'string').map(([, v]) => v as string)

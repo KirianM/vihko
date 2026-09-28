@@ -28,7 +28,7 @@ export type LinksData = NoteLinks
 
 // --- Panel state ----------------------------------------------------------
 
-const STORE = 'thoth.panel'
+const STORE = 'vihko.panel'
 const NARROW = '(max-width: 1099px)'
 
 function useNarrow() {

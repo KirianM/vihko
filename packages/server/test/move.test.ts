@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { chmodSync, cpSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readFrontmatter } from '@thoth/core'
-import { Indexer, NoteError, NoteService, dumpIndex, openIndex, type Actor } from '@thoth/server'
+import { readFrontmatter } from '@vihko/core'
+import { Indexer, NoteError, NoteService, dumpIndex, openIndex, type Actor } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -18,7 +18,7 @@ const token = () => m.aUniqueWord()
 const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
 
 function setup() {
-  const dir = tempDir('thoth-move-')
+  const dir = tempDir('vihko-move-')
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
   const db = openIndex(join(dir, 'index.db'))
@@ -48,14 +48,14 @@ test('renaming rewrites wikilinks (with an anchor) and Markdown links, and leave
 test('moving to another folder uses the shortest unambiguous suffix and keeps visible text and embeds', async () => {
   const { notes, body, dst } = setup()
   const archive = token()
-  await notes.move('proyectos/thoth/Plan.md', `${archive}/Plan.md`, { actor: me })
-  const t = body('proyectos/thoth/notas.md')
-  // From proyectos/thoth/, [[Plan]] would now go to proyectos/blog/Plan.md: it needs disambiguating.
+  await notes.move('proyectos/vihko/Plan.md', `${archive}/Plan.md`, { actor: me })
+  const t = body('proyectos/vihko/notas.md')
+  // From proyectos/vihko/, [[Plan]] would now go to proyectos/blog/Plan.md: it needs disambiguating.
   assert.ok(t.includes(`- [[${archive}/Plan]] resuelve`))
   assert.ok(t.includes(`- [[${archive}/Plan|el plan]]`))
   assert.ok(t.includes(`- ![[${archive}/Plan]]`))
-  assert.equal(dst('proyectos/thoth/notas.md', `[[${archive}/Plan|el plan]]`), `${archive}/Plan.md`)
-  assert.ok(body('hogar/enlaces.md').includes(`[Plan de thoth](../${archive}/Plan.md)`))
+  assert.equal(dst('proyectos/vihko/notas.md', `[[${archive}/Plan|el plan]]`), `${archive}/Plan.md`)
+  assert.ok(body('hogar/enlaces.md').includes(`[Plan de vihko](../${archive}/Plan.md)`))
 })
 
 test('a rename doesn\'t "steal" links from other notes; an absolute path is used if needed', async () => {
@@ -75,9 +75,9 @@ test("the moved note's own links keep pointing to the same thing", async () => {
   const { notes, body, dst } = setup()
   const name = spaced()
   const to = `${m.aFolder()}/${name}.md`
-  await notes.move('proyectos/thoth/notas.md', to, { actor: me })
+  await notes.move('proyectos/vihko/notas.md', to, { actor: me })
   const t = body(to)
-  assert.ok(t.includes('- [[proyectos/thoth/Plan]] resuelve') || t.includes('- [[thoth/Plan]] resuelve'), t)
+  assert.ok(t.includes('- [[proyectos/vihko/Plan]] resuelve') || t.includes('- [[vihko/Plan]] resuelve'), t)
   assert.ok(t.includes(`- [[${name}]] enlace a sí misma`))
   assert.equal(dst(to, `[[${name}]]`), to)
 })

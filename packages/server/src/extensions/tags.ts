@@ -1,5 +1,5 @@
 // Tags, inline and from the frontmatter.
-import type { TagRef } from '@thoth/core'
+import type { TagRef } from '@vihko/core'
 import type { Extension } from '../extension.ts'
 
 export const tags: Extension<readonly TagRef[]> = {

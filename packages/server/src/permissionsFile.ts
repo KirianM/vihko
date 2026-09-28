@@ -1,5 +1,5 @@
-// thoth.yaml's `permissions`, written by thoth (D-014, D-038.4): from the
-// permissions UI, when a folder moves or is deleted from thoth, and when a
+// vihko.yaml's `permissions`, written by vihko (D-014, D-038.4): from the
+// permissions UI, when a folder moves or is deleted from vihko, and when a
 // user or group is deleted or renamed. Only the entries asked for change
 // (core/permissions.ts); the rest of the file stays as it was.
 //
@@ -9,10 +9,10 @@
 //   on (its hash, as `etag`); if the file changed since, 412 and the UI
 //   reloads.
 // - A file that can't be used (not YAML, or a rejected section with nothing
-//   valid in force) is never edited by thoth: it's fixed by hand first.
+//   valid in force) is never edited by vihko: it's fixed by hand first.
 // - The workspace is reread at once, so the change applies before the answer.
 import { join } from 'node:path'
-import { WORKSPACE_FILE, contentHash, moveRules, removeRules, rewriteSubject, setRule, type RuleValue } from '@thoth/core'
+import { WORKSPACE_FILE, contentHash, moveRules, removeRules, rewriteSubject, setRule, type RuleValue } from '@vihko/core'
 import type { Actor } from './actor.ts'
 import { readText, replaceText } from './fsutil.ts'
 import type { NoteHistory } from './notes.ts'
@@ -20,7 +20,7 @@ import { NoteError } from './notes.ts'
 import type { PermissionsEngine } from './permissions.ts'
 import type { Workspace } from './workspace.ts'
 
-/** The file can't be edited by thoth as it is: it's fixed by hand first (409 `config_invalid`). */
+/** The file can't be edited by vihko as it is: it's fixed by hand first (409 `config_invalid`). */
 export class ConfigInvalidError extends Error {
   readonly code = 'config_invalid'
 }
@@ -29,7 +29,7 @@ export interface PermissionsFileOptions {
   notesDir: string
   workspace: Workspace
   engine: PermissionsEngine
-  /** The history: each change is a version of thoth.yaml by whoever made it. */
+  /** The history: each change is a version of vihko.yaml by whoever made it. */
   history?: Pick<NoteHistory, 'prepare'>
   /** After each change (the workspace already reread): open editors are checked again (hub.ts). */
   onChange?: () => void

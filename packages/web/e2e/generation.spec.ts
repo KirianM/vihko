@@ -1,11 +1,11 @@
-// A tab that loses its connection while the note is closed in thoth.
+// A tab that loses its connection while the note is closed in vihko.
 //
 // If the hub then loses its saved state, the tab's copy belongs to another
 // generation of the document: it must not merge it (the note would duplicate);
 // it reopens the note and offers to keep what it couldn't send as a copy.
 //
 // If the hub keeps its saved state and the file is changed with another
-// editor meanwhile (thoth running), the change is merged into that state and
+// editor meanwhile (vihko running), the change is merged into that state and
 // the tab's copy merges as usual: no copy, nothing twice (D-032.4).
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'

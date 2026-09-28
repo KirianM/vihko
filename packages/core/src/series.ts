@@ -1,5 +1,5 @@
 // Daily-note series (D-030): a folder and a name pattern declared in
-// thoth.yaml. Daily, weekly, monthly or yearly are just different patterns.
+// vihko.yaml. Daily, weekly, monthly or yearly are just different patterns.
 // A note belongs to a series by its path alone, computed from the pattern:
 // no index, no marker in the file.
 import { compareDates, isValidDate, isoWeek, isoWeekStart, type CivilDate } from './dates.ts'
@@ -7,7 +7,7 @@ import { compareDates, isValidDate, isoWeek, isoWeekStart, type CivilDate } from
 export type Period = 'day' | 'week' | 'month' | 'year'
 
 export interface Series {
-  /** Stable key in thoth.yaml; each person's choice refers to it. */
+  /** Stable key in vihko.yaml; each person's choice refers to it. */
   id: string
   /** Name shown in the UI; the id if there isn't one. */
   label: string | null
@@ -29,7 +29,7 @@ const TOKEN = /\{([^{}]*)\}/g
 /** Full pattern of the note path: folder + name + `.md`. */
 export const seriesPattern = (s: Pick<Series, 'folder' | 'name'>) => `${s.folder ? `${s.folder}/` : ''}${s.name}.md`
 
-/** Tokens in a pattern; `unknown` lists those thoth doesn't understand. */
+/** Tokens in a pattern; `unknown` lists those vihko doesn't understand. */
 export function patternTokens(pattern: string): { tokens: Set<SeriesToken>; unknown: string[] } {
   const tokens = new Set<SeriesToken>()
   const unknown: string[] = []

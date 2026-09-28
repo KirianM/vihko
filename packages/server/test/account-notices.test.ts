@@ -5,7 +5,7 @@
 // invitation (no password yet) needs neither.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Notices, base32Decode, totp } from '@thoth/server'
+import { Notices, base32Decode, totp } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -17,7 +17,7 @@ interface Notice { code: string; id: string; change?: string; role?: string | nu
 /** Signs someone in with their password: requests with that session. */
 async function session(h: H, { username, password }: { username: string; password: string }) {
   const res = await h.app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password }) })
-  const cookie = res.headers.getSetCookie().find((c) => c.startsWith('thoth_session='))!.split(';')[0]!
+  const cookie = res.headers.getSetCookie().find((c) => c.startsWith('vihko_session='))!.split(';')[0]!
   return async (method: string, path: string, body?: unknown): Promise<Res> => {
     const r = await h.app.request(path, { method, headers: { 'content-type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) })
     return { status: r.status, body: await r.json().catch(() => null) }

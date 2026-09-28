@@ -1,9 +1,9 @@
-// Shared setup for the thoth.yaml, profile and daily-note tests: a copy of the
+// Shared setup for the vihko.yaml, profile and daily-note tests: a copy of the
 // test vault, two users signed in (an admin and a member) and an adjustable clock.
 import { cpSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Auth, Indexer, NoteService, Profiles, Workspace, createApp, openIndex, openState, type Runtime } from '@thoth/server'
+import { Auth, Indexer, NoteService, Profiles, Workspace, createApp, openIndex, openState, type Runtime } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { withEveryone } from './_permissions.ts'
 import { byNames, create, newPeople, type ByNames } from './_people.ts'
@@ -39,14 +39,14 @@ attachments:
 
 
 export async function setup(opts: { config?: ByNames<string>; clock?: { now: Date }; moveWaitMs?: number } = {}) {
-  const dir = tempDir('thoth-daily-')
+  const dir = tempDir('vihko-daily-')
   const notesDir = join(dir, 'notes')
   cpSync(VAULT, notesDir, { recursive: true })
   mkdirSync(join(notesDir, DAILY.templates))
   const people = newPeople()
   const names = { admin: people.admin.username, member: people.member.username }
   // Both users see everything unless the test brings its own permissions (_permissions.ts).
-  writeFileSync(join(notesDir, 'thoth.yaml'), withEveryone(opts.config === undefined ? undefined : byNames(opts.config, names), names.admin, names.member))
+  writeFileSync(join(notesDir, 'vihko.yaml'), withEveryone(opts.config === undefined ? undefined : byNames(opts.config, names), names.admin, names.member))
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)

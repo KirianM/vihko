@@ -1,5 +1,5 @@
 // Purging from the history (D-038.9): a note, or one of its versions, by whoever
-// manages its folder; any path by its name (a note or a folder), by the thoth
+// manages its folder; any path by its name (a note or a folder), by the vihko
 // admin, who needn't be able to read it. The confirmation lists what is lost
 // (the versions, by date; never their content) and says it can't be undone;
 // the server works it out without changing anything first (`dryRun`). The

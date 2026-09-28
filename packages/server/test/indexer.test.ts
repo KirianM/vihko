@@ -4,7 +4,7 @@ import { cpSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeF
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
-import { Indexer, SCHEMA_VERSION, dumpIndex, openIndex, type Db } from '@thoth/server'
+import { Indexer, SCHEMA_VERSION, dumpIndex, openIndex, type Db } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -17,7 +17,7 @@ const AGENT = m.aUsername()
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
 function tmp(name: string) {
-  return tempDir(`thoth-${name}-`)
+  return tempDir(`vihko-${name}-`)
 }
 
 /** Copy of the vault in a temp directory, with its index. */
@@ -49,10 +49,10 @@ test('indexes the vault: notes, ignored files, conflicts and links', () => {
   assert.ok(paths.includes('Plan.md'))
   assert.ok(!paths.some((p) => p.includes('.obsidian') || p.includes('.trash') || p.includes('sync-conflict') || p.endsWith('~') || p.includes('.nfs')))
   assert.ok(!paths.some((p) => !p.endsWith('.md')), 'attachments excluded')
-  assert.deepEqual(db.prepare('select path, kind from alerts').all(), [{ path: 'proyectos/thoth/Plan.sync-conflict-20260924-120000-ABCDEFG.md', kind: 'sync_conflict' }])
+  assert.deepEqual(db.prepare('select path, kind from alerts').all(), [{ path: 'proyectos/vihko/Plan.sync-conflict-20260924-120000-ABCDEFG.md', kind: 'sync_conflict' }])
 
   assert.deepEqual(link(db, 'diario/2026-09-24.md', '[[Plan]]'), { status: 'resolved', dst_path: 'Plan.md', via: 'path', anchor_ok: null, candidates: null })
-  assert.deepEqual(link(db, 'diario/2026-09-24.md', '[[Tareas]]'), { status: 'ambiguous', dst_path: null, via: null, anchor_ok: null, candidates: '["proyectos/blog/Tareas.md","proyectos/thoth/Tareas.md"]' })
+  assert.deepEqual(link(db, 'diario/2026-09-24.md', '[[Tareas]]'), { status: 'ambiguous', dst_path: null, via: null, anchor_ok: null, candidates: '["proyectos/blog/Tareas.md","proyectos/vihko/Tareas.md"]' })
   assert.equal(link(db, 'hogar/enlaces.md', '[[gw]]').via, 'alias')
   assert.equal(link(db, 'hogar/enlaces.md', '[[Proxy#No existe]]').anchor_ok, 0)
   assert.equal(link(db, 'hogar/enlaces.md', '[[Nota que no existe]]').status, 'missing')
@@ -125,7 +125,7 @@ test('incremental = rebuild from scratch', () => {
   renameSync(join(notes, 'proyectos/blog/Plan.md'), join(notes, 'proyectos/blog/Plan antiguo.md')) // [[blog/Plan]] breaks
   const r = indexer.scan()
   assert.deepEqual(r.removed.sort(), ['hogar/Red.md'])
-  // The same content under another name: a move made outside thoth, not a removal (D-031.4).
+  // The same content under another name: a move made outside vihko, not a removal (D-031.4).
   assert.deepEqual(r.moved, [{ from: 'proyectos/blog/Plan.md', to: 'proyectos/blog/Plan antiguo.md', by: 'hash' }])
   assert.equal(link(db, 'hogar/enlaces.md', '[[Red]]').dst_path, 'hogar/Firewall.md')
   assert.equal(link(db, 'diario/2026-09-24.md', '[[Tareas]]').dst_path, 'proyectos/Tareas.md')
@@ -138,9 +138,9 @@ test('indexPaths (watcher) = rebuild from scratch', () => {
   const { notes, db, indexer } = setup('paths')
   indexer.scan()
   writeFileSync(join(notes, 'diario/nueva.md'), '# Nueva\n\n[[Tareas]] #diario\n')
-  rmSync(join(notes, 'proyectos/thoth/Tareas.md'))
-  writeFileSync(join(notes, 'proyectos/thoth/Plan.sync-conflict-20260925-080000-ZZZZZZZ.md'), 'x')
-  indexer.indexPaths(['diario/nueva.md', 'proyectos/thoth/Tareas.md', 'proyectos/thoth/Plan.sync-conflict-20260925-080000-ZZZZZZZ.md'])
+  rmSync(join(notes, 'proyectos/vihko/Tareas.md'))
+  writeFileSync(join(notes, 'proyectos/vihko/Plan.sync-conflict-20260925-080000-ZZZZZZZ.md'), 'x')
+  indexer.indexPaths(['diario/nueva.md', 'proyectos/vihko/Tareas.md', 'proyectos/vihko/Plan.sync-conflict-20260925-080000-ZZZZZZZ.md'])
   assert.equal(link(db, 'diario/nueva.md', '[[Tareas]]').dst_path, 'proyectos/blog/Tareas.md')
   assert.equal(dumpIndex(db), freshDump(notes))
 })
@@ -148,23 +148,23 @@ test('indexPaths (watcher) = rebuild from scratch', () => {
 test('image references: who uses each image, resolved from the note; external ones are left out; rebuild = incremental', () => {
   const { notes, db, indexer } = setup('images')
   indexer.scan()
-  writeFileSync(join(notes, 'proyectos/thoth/galeria.md'), [
+  writeFileSync(join(notes, 'proyectos/vihko/galeria.md'), [
     '![a](diagrama%20v2.png) ![[captura.jpg|x]] [ver](../../adjuntos/imagen.png) ![](/adjuntos/imagen.png)',
     '![](https://h/i.png) ![](../../../fuera.png) [[Plan]]', '',
   ].join('\n'))
   writeFileSync(join(notes, 'hogar/Red.md'), '# Red\n\n![](../adjuntos/imagen.png)\n')
-  indexer.indexPaths(['proyectos/thoth/galeria.md', 'hogar/Red.md'])
+  indexer.indexPaths(['proyectos/vihko/galeria.md', 'hogar/Red.md'])
   const rows = db.prepare('select src_path, kind, path from images order by src_path, ord').all() as { src_path: string; kind: string; path: string }[]
   assert.deepEqual(rows.map((r) => [r.src_path, r.kind, r.path]), [
     ['hogar/Red.md', 'image', 'adjuntos/imagen.png'],
-    ['proyectos/thoth/galeria.md', 'image', 'proyectos/thoth/diagrama v2.png'],
-    ['proyectos/thoth/galeria.md', 'embed', 'proyectos/thoth/captura.jpg'],
-    ['proyectos/thoth/galeria.md', 'markdown', 'adjuntos/imagen.png'],
-    ['proyectos/thoth/galeria.md', 'image', 'adjuntos/imagen.png'],
+    ['proyectos/vihko/galeria.md', 'image', 'proyectos/vihko/diagrama v2.png'],
+    ['proyectos/vihko/galeria.md', 'embed', 'proyectos/vihko/captura.jpg'],
+    ['proyectos/vihko/galeria.md', 'markdown', 'adjuntos/imagen.png'],
+    ['proyectos/vihko/galeria.md', 'image', 'adjuntos/imagen.png'],
   ])
   assert.equal(dumpIndex(db), freshDump(notes))
-  rmSync(join(notes, 'proyectos/thoth/galeria.md'))
-  indexer.indexPaths(['proyectos/thoth/galeria.md'])
+  rmSync(join(notes, 'proyectos/vihko/galeria.md'))
+  indexer.indexPaths(['proyectos/vihko/galeria.md'])
   assert.deepEqual(db.prepare('select distinct src_path from images').all(), [{ src_path: 'hogar/Red.md' }])
   assert.equal(dumpIndex(db), freshDump(notes))
 })
@@ -259,7 +259,7 @@ test('links.aliases: off, aliases resolve nothing; switching re-resolves without
   assert.equal(dumpIndex(db), freshDump(notes))
 })
 
-test('links.aliases: changed while thoth was stopped, the links follow on the next start', () => {
+test('links.aliases: changed while vihko was stopped, the links follow on the next start', () => {
   const { dir, notes, db, indexer } = setup('aliases-restart')
   indexer.scan()
   db.close()

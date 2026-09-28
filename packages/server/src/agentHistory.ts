@@ -17,7 +17,7 @@
 //   because a note it can't see was moved says so, without saying which).
 // - A file's bytes (the images a restore brings back) only from folders it
 //   can read now.
-import { classifyPath, folderOf } from '@thoth/core'
+import { classifyPath, folderOf } from '@vihko/core'
 import type { Access } from './access.ts'
 import { wordStats } from './history/diff.ts'
 import type { HistoryReader, RawChange, RawVersion, VersionText } from './history/reader.ts'
@@ -92,7 +92,7 @@ class PrincipalHistory implements HistoryReader {
   /**
    * Everyone who appears in the history: more than a principal may know.
    * A person gets the people (every name is visible to everyone, D-038),
-   * thoth and outside changes, and their own agents; an agent, nobody (the
+   * vihko and outside changes, and their own agents; an agent, nobody (the
    * API lists the authors of what it shows).
    */
   async authors() {

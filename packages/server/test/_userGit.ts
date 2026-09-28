@@ -1,6 +1,6 @@
 // The user's own git repository, for the tests of the unmanaged history: git
-// as they would run it from a terminal (never thoth's), and a snapshot of a
-// `.git` to prove thoth never writes to it.
+// as they would run it from a terminal (never vihko's), and a snapshot of a
+// `.git` to prove vihko never writes to it.
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync, readdirSync, readlinkSync } from 'node:fs'
@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
-/** Two authors of the user's commits (git's name and e-mail, not thoth users). */
+/** Two authors of the user's commits (git's name and e-mail, not vihko users). */
 export const AUTHOR = { name: m.aDisplayName(), email: m.anEmail() }
 export const CO_AUTHOR = { name: m.aDisplayName(), email: m.anEmail() }
 

@@ -1,6 +1,6 @@
-// A note kept out of the history by thoth.yaml (`history.exclude`): thoth still
+// A note kept out of the history by vihko.yaml (`history.exclude`): vihko still
 // opens and edits it, and its history tab says why it has no versions instead
-// of looking empty. At the end the folder goes back to having no thoth.yaml.
+// of looking empty. At the end the folder goes back to having no vihko.yaml.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { ADMIN, E2E_DIR, NOTES, specMother } from './env.ts'
@@ -46,7 +46,7 @@ test('an excluded note: its history tab says it is kept out, and typing makes no
   await expect(k.locator('.cm-content')).toBeVisible()
   const panel = k.getByRole('complementary', { name: 'Comentarios y contexto' })
   await panel.getByRole('tab', { name: 'Historial' }).click()
-  const notice = panel.getByText('Este archivo está fuera del historial (history.exclude en thoth.yaml): sus cambios no se guardan como versiones.')
+  const notice = panel.getByText('Este archivo está fuera del historial (history.exclude en vihko.yaml): sus cambios no se guardan como versiones.')
   await expect(notice).toBeVisible()
   await expect(panel.getByText('Esta nota aún no tiene versiones.')).toHaveCount(0)
   mkdirSync(`${E2E_DIR}/shots`, { recursive: true })

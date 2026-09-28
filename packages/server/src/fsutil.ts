@@ -15,7 +15,7 @@ import { closeSync, fsyncSync, linkSync, openSync, readFileSync, rmSync, writeSy
 import { link, open, rename, rm } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
-import { contentHash } from '@thoth/core'
+import { contentHash } from '@vihko/core'
 
 let counter = 0
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -59,7 +59,7 @@ async function fsyncDirAsync(dir: string) {
 
 // pid + counter alone repeat after a crash in a container (always pid 1, counter
 // back at 0) and meet the leftovers of the killed process: the random part avoids it.
-const tmpName = (file: string) => join(dirname(file), `.${basename(file)}.thoth-${process.pid}-${counter++}-${randomBytes(4).toString('hex')}`)
+const tmpName = (file: string) => join(dirname(file), `.${basename(file)}.vihko-${process.pid}-${counter++}-${randomBytes(4).toString('hex')}`)
 
 /** writeTmp without blocking the event loop. */
 async function writeTmpAsync(file: string, data: string): Promise<string> {

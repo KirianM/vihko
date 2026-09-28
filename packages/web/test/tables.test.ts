@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { markdownParser } from '@thoth/core/syntax'
+import { markdownParser } from '@vihko/core/syntax'
 import { alignments, tableModel, type Cell, type TableModel } from '../src/editor/tables.ts'
 
 /** The model of the first table in `doc`, or null if the parser finds none. */

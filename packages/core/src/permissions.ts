@@ -1,5 +1,5 @@
 // Per-folder permissions (D-014, D-038): the strict `permissions` section of
-// thoth.yaml, how a folder's rule is found, and the edits thoth makes to the
+// vihko.yaml, how a folder's rule is found, and the edits vihko makes to the
 // file (keeping everything else in it as it was).
 //
 //   permissions:
@@ -376,21 +376,21 @@ export function levelInReach(reach: Reaching, user: { username: string; groups: 
   return reach.above.some((m) => subjectKey(m.subject) === me || groups.has(subjectKey(m.subject))) ? 'manage' : level
 }
 
-// --- Writing thoth.yaml ---------------------------------------------------------
-// thoth only ever changes the `permissions` entries it's asked to. Each one is
+// --- Writing vihko.yaml ---------------------------------------------------------
+// vihko only ever changes the `permissions` entries it's asked to. Each one is
 // spliced into the text where it was (or added at the end of the section):
 // comments, blank lines, quoting, key order and every other section stay
 // byte for byte as they were. Only a section written in flow style (`{…}`
 // spanning lines) is rewritten through the yaml Document API, which keeps
 // its comments and order but not its spacing.
 
-/** A rule as thoth writes it. Both null: the folder has no rule (it's removed). */
+/** A rule as vihko writes it. Both null: the folder has no rule (it's removed). */
 export interface RuleValue {
   grants: Record<string, Level> | null
   ai: false | null
 }
 
-/** thoth.yaml can't be edited as it is (not valid YAML, or `permissions` isn't a map): it's fixed by hand first. */
+/** vihko.yaml can't be edited as it is (not valid YAML, or `permissions` isn't a map): it's fixed by hand first. */
 export class PermissionsFileError extends Error {}
 
 type Ranged = { range: [number, number, number] }
@@ -398,8 +398,8 @@ const range = (node: unknown): [number, number, number] => (node as Ranged).rang
 
 function load(text: string): Document {
   const doc = parseDocument(text, { schema: 'core', uniqueKeys: true, prettyErrors: false })
-  if (doc.errors.length) throw new PermissionsFileError(`thoth.yaml is not valid YAML: ${doc.errors[0]!.message}`)
-  if (doc.contents !== null && !isMap(doc.contents)) throw new PermissionsFileError('thoth.yaml is not a set of key: value')
+  if (doc.errors.length) throw new PermissionsFileError(`vihko.yaml is not valid YAML: ${doc.errors[0]!.message}`)
+  if (doc.contents !== null && !isMap(doc.contents)) throw new PermissionsFileError('vihko.yaml is not a set of key: value')
   return doc
 }
 
@@ -490,7 +490,7 @@ function applyRules(text: string, changes: readonly Change[], opts: { implicitAd
     const base = text === '' || text.endsWith('\n') ? text : text + '\n'
     return verify(`${base}permissions:\n${block}`, asked, before)
   }
-  if (!isMap(pair!.value)) throw new PermissionsFileError('permissions in thoth.yaml is not a set of key: value')
+  if (!isMap(pair!.value)) throw new PermissionsFileError('permissions in vihko.yaml is not a set of key: value')
   const map = pair!.value
   const spansLines = (i: Pair) => isMap(i.value) && i.value.flow && text.slice(range(i.key)[0], range(i.value)[1]).includes('\n')
   if (map.flow || (map.items as Pair[]).some(spansLines)) return verify(viaDocument(doc, map, want), asked, before)
@@ -566,7 +566,7 @@ function verify(out: string, asked: Map<string, RuleValue | null>, before: Map<s
     else expected.set(f, { grants: v.grants === null ? null : { ...v.grants }, ai: v.ai })
   }
   const norm = (m: Map<string, RuleValue>) => JSON.stringify([...m].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
-  if (norm(currentRules(load(out))) !== norm(expected)) throw new Error('permissions: the edited thoth.yaml does not hold the rules asked for')
+  if (norm(currentRules(load(out))) !== norm(expected)) throw new Error('permissions: the edited vihko.yaml does not hold the rules asked for')
   return out
 }
 
@@ -582,7 +582,7 @@ export function rulesInFile(text: string): Map<string, RuleValue> {
 
 /**
  * Moves the rules of `from` and every folder under it to `to` (a folder moved
- * or renamed from thoth). `extra`: rules to write as well, such as the
+ * or renamed from vihko). `extra`: rules to write as well, such as the
  * literal copy of a `{user}` rule that stops matching once the folder moves.
  * With `keepFrom`, the rules stay at `from` too (the first step of a move
  * that never leaves the folder without its rules).
@@ -600,7 +600,7 @@ export function moveRules(text: string, from: string, to: string, opts: { extra?
   return changes.length ? applyRules(text, changes) : text
 }
 
-/** Removes every rule of `folder` and under it (a folder deleted from thoth). */
+/** Removes every rule of `folder` and under it (a folder deleted from vihko). */
 export function removeRules(text: string, folder: string): string {
   const f = folder.normalize('NFC')
   const changes: Change[] = [...currentRules(load(text)).keys()]

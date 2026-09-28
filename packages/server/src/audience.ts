@@ -4,14 +4,14 @@
 // keys are only counted (they're their owners' own). Whoever manages a
 // folder above counts where they manage (D-040 3.5), as the engine says.
 //
-// A folder moved from thoth takes its rules along (permissionsFile.ts): its
+// A folder moved from vihko takes its rules along (permissionsFile.ts): its
 // own rules and those under it move with it, and a `{user}` rule that would
 // stop matching it is written as a literal copy at the new path
 // (`ruleMove`). Only what inherits from above the folder changes hands.
 import {
   RuleSet, folderOf, grantsAt, levelInReach, reachingGrants, subjectKey,
   type Level, type PermissionRule, type RuleValue,
-} from '@thoth/core'
+} from '@vihko/core'
 import { inFolders } from './access.ts'
 import type { KeyWithUser } from './keys.ts'
 import type { DirectoryUser, PermissionsEngine } from './permissions.ts'

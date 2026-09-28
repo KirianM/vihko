@@ -1,4 +1,4 @@
-/* Base styles for thoth. Colors, scales and families come from tokens.css
+/* Base styles for vihko. Colors, scales and families come from tokens.css
    (the Claude Design design system). No color is written here. */
 @import './theme/tokens.css';
 
@@ -198,7 +198,7 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .agent-pill-text { overflow: hidden; text-overflow: ellipsis; }
 .presence-agents { display: inline-flex; align-items: center; }
 
-/* Notice for a note deleted from outside thoth */
+/* Notice for a note deleted from outside vihko */
 .banner { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; padding: 14px 28px; background: var(--warn-soft-2); border-bottom: 1px solid var(--warn-line); color: var(--warn-ink); }
 .banner-text { flex: 1 1 320px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; line-height: 1.45; }
 .banner-text b { font-size: 14px; }

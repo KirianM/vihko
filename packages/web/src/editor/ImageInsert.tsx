@@ -3,7 +3,7 @@
 // linked to its origin. The link goes into the note through the shared Y.Text,
 // at the place that was chosen even if someone else writes meanwhile.
 import type { EditorView } from '@codemirror/view'
-import { markdownDest } from '@thoth/core/images'
+import { markdownDest } from '@vihko/core/images'
 import { useState, type FormEvent } from 'react'
 import { Button, Dialog, FileTrigger, Heading, Input, Label, Modal, ModalOverlay, TextField } from 'react-aria-components'
 import * as Y from 'yjs'

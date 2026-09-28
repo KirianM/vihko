@@ -51,7 +51,7 @@ test('the admin invites a member by link, the member joins in another browser, a
   await create.getByRole('button', { name: 'Crear y obtener el enlace' }).click()
   const linkDialog = admin.getByRole('dialog', { name: `Enlace de invitación para ${NEWCOMER.username}` })
   await expect(linkDialog).toContainText('Solo se muestra ahora')
-  // With THOTH_PUBLIC_URL (as this server has), the link is given for it.
+  // With VIHKO_PUBLIC_URL (as this server has), the link is given for it.
   const shown = (await linkDialog.getByLabel('Enlace').innerText()).trim()
   expect(shown.startsWith(`${PUBLIC_URL}/invite/`)).toBe(true)
   expect(shown).toMatch(/\/invite\/[A-Za-z0-9_-]{43}$/)
@@ -105,7 +105,7 @@ test('the admin invites a member by link, the member joins in another browser, a
   // The link was used: the same neutral message as any link that doesn't work.
   await member.goto(url)
   await expect(member.getByRole('heading', { name: 'Este enlace no sirve' })).toBeVisible()
-  await expect(member.getByRole('alert')).toHaveText('No existe, ya se usó o ha caducado. Pide uno nuevo a quien administra thoth.')
+  await expect(member.getByRole('alert')).toHaveText('No existe, ya se usó o ha caducado. Pide uno nuevo a quien administra vihko.')
   await member.screenshot({ path: `${SHOTS}/invite-invalid.png`, animations: 'disabled' })
 
   // Deleting (only someone disabled) lists what goes, and can't be undone.

@@ -1,15 +1,15 @@
-// Per-note attachments (thoth.yaml `attachments.mode: per-note`, D-031.5):
+// Per-note attachments (vihko.yaml `attachments.mode: per-note`, D-031.5):
 // a note's own folder of images (`plan.md` → `plan.assets/`) goes with it
 // whole, renamed to match, and every link into it keeps working.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { Indexer, NoteError, NoteService, openIndex, type Actor, type HotDocuments } from '@thoth/server'
+import { Indexer, NoteError, NoteService, openIndex, type Actor, type HotDocuments } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
-// The user the writes are made as (an id, as thoth has them).
+// The user the writes are made as (an id, as vihko has them).
 const m = mother(import.meta.url)
 const me: Actor = { kind: 'user', id: m.faker.string.ulid() }
 // The names of the notes, folders and images (one token each: they sit in Markdown links' destinations).
@@ -24,7 +24,7 @@ const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2
 const body = (t: string) => t.replace(/^---\n[\s\S]*?\n---\n/, '')
 
 function setup(files: Record<string, string | Uint8Array>, opts: { suffix?: string; hot?: HotDocuments } = {}) {
-  const dir = tempDir('thoth-move-assets-')
+  const dir = tempDir('vihko-move-assets-')
   const notesDir = join(dir, ELSEWHERE)
   for (const [p, content] of Object.entries(files)) {
     mkdirSync(dirname(join(notesDir, p)), { recursive: true })
@@ -56,7 +56,7 @@ test('renaming a note renames its folder; links from it and from other notes are
     [`${PROJ}/${PLAN}.md`]: `# ${HEADING}\n\n![${CHART}](${PLAN}.assets/${CHART}.png)\n![[${PLAN}.assets/${PHOTO}.png]]\n`,
     [`${PROJ}/${PLAN}.assets/${CHART}.png`]: PNG,
     [`${PROJ}/${PLAN}.assets/${PHOTO}.png`]: PNG,
-    [`${PROJ}/${PLAN}.assets/${SPEC}.pdf`]: '%PDF-1.7', // not an image: it goes along (thoth only tracks links to images)
+    [`${PROJ}/${PLAN}.assets/${SPEC}.pdf`]: '%PDF-1.7', // not an image: it goes along (vihko only tracks links to images)
     [`${PROJ}/${OTHER}.md`]: `See ![](${PLAN}.assets/${CHART}.png)\n`,
     [`${ELSEWHERE}/${FAR}.md`]: `From afar: ![x](../${PROJ}/${PLAN}.assets/${CHART}.png) and ![[/${PROJ}/${PLAN}.assets/${PHOTO}.png]]\n`,
   }
@@ -167,7 +167,7 @@ test('if the note can\'t move, its folder goes back', async () => {
 })
 
 test('in the other modes a folder named like one is left alone', async () => {
-  const dir = tempDir('thoth-move-assets-')
+  const dir = tempDir('vihko-move-assets-')
   const notesDir = join(dir, ELSEWHERE)
   mkdirSync(join(notesDir, `${PLAN}.assets`), { recursive: true })
   writeFileSync(join(notesDir, `${PLAN}.md`), `![](${PLAN}.assets/a.png)\n`)

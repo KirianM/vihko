@@ -2,7 +2,7 @@
 //
 // - The hue comes from a hash of the user's id, in OKLCH (different hues are
 //   perceived as equally light, which HSL doesn't guarantee).
-// - It skips the lapis lazuli band (accent): in thoth that color belongs to
+// - It skips the lapis lazuli band (accent): in vihko that color belongs to
 //   agents, and a person shouldn't be mistaken for one.
 // - Lightness is adjusted per theme until it meets AA (4.5:1) against the
 //   avatar's initial (on-user token), which also makes it visible against the
@@ -18,7 +18,7 @@ export type Theme = 'light' | 'dark'
 
 // The hues themselves (a person's, distinct from others', never in the
 // agents' band) are core's (hue.ts): the hub signs presence with them too.
-export { MIN_HUE_DISTANCE, baseHue, distinctHue, freeHue, hueDistance } from '@thoth/core/hue'
+export { MIN_HUE_DISTANCE, baseHue, distinctHue, freeHue, hueDistance } from '@vihko/core/hue'
 
 /** Text over the color (on-user token), in linear sRGB → relative luminance. */
 const ON_USER: Record<Theme, number> = { light: 1, dark: luminance('#15130F') }

@@ -6,7 +6,7 @@ import { syntaxTree } from '@codemirror/language'
 import { Facet, type Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
-import { isExternalUrl, isImageRef, resolveImageRef } from '@thoth/core/images'
+import { isExternalUrl, isImageRef, resolveImageRef } from '@vihko/core/images'
 import { focusChanged, touches } from './livePreview.ts'
 
 export interface ImageLabels {

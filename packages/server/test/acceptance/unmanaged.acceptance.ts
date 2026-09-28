@@ -26,7 +26,7 @@ test(`unmanaged history over ${NOTES} notes and ${COMMITS} commits of the user's
   let srv: Server | null = null
   try {
     // Their repository: the vault, then their commits (fast-import: one pack, as after a gc).
-    writeFileSync(join(ws.notesDir, 'thoth.yaml'), 'history:\n  mode: unmanaged\n')
+    writeFileSync(join(ws.notesDir, 'vihko.yaml'), 'history:\n  mode: unmanaged\n')
     const repo = userGit(ws.notesDir)
     const r = rng(SEED)
     const files = readdirSync(ws.notesDir, { recursive: true, withFileTypes: true })
@@ -139,7 +139,7 @@ test(`unmanaged history over ${NOTES} notes and ${COMMITS} commits of the user's
     const restored = readFileSync(join(ws.notesDir, hot), 'utf8')
     assert.ok(restored.trimEnd().endsWith(older) && !restored.includes(newest), 'back to that version')
     assert.equal(repo.head(), head)
-    assert.deepEqual(snapshot(join(ws.notesDir, '.git')), before, 'thoth never writes to their repository')
+    assert.deepEqual(snapshot(join(ws.notesDir, '.git')), before, 'vihko never writes to their repository')
   } finally {
     await srv?.stop()
     cleanup(ws)

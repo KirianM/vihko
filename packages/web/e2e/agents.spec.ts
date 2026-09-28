@@ -1,7 +1,7 @@
 // «Agents and API» (D-035): the admin turns the integrations on, creates a
 // read-only key limited to a folder (shown once, with its MCP
 // configurations), uses it over HTTP, revokes it; a member without the
-// setting can't create keys; the server's lock (THOTH_INTEGRATIONS=off); and
+// setting can't create keys; the server's lock (VIHKO_INTEGRATIONS=off); and
 // the page on a phone, in dark mode.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
@@ -16,11 +16,11 @@ const MEMBER_KEY = m.aKeyName()
 const LOCKED_KEY = m.aKeyName()
 const PHONE_KEY = m.aKeyName()
 const REFUSED_KEY = m.aKeyName()
-// The admin's key is for `proyectos` of the test vault (which holds `proyectos/thoth`), the phone's for `hogar`.
+// The admin's key is for `proyectos` of the test vault (which holds `proyectos/vihko`), the phone's for `hogar`.
 /** A note the key writes in its folder, and one outside it. */
 const INSIDE = m.aNotePath('proyectos')
 const OUTSIDE = m.aNotePath('hogar')
-const TOKEN = /^thoth_[0-9A-HJKMNP-TV-Z]{26}_[A-Za-z0-9_-]{43}$/
+const TOKEN = /^vihko_[0-9A-HJKMNP-TV-Z]{26}_[A-Za-z0-9_-]{43}$/
 
 test.describe.configure({ mode: 'serial' })
 test.beforeAll(() => mkdirSync(SHOTS, { recursive: true }))
@@ -97,8 +97,8 @@ test('a read-only key for one folder: shown once, with its MCP configurations', 
   await expect(dialog.getByText('Elige al menos una carpeta.')).toBeVisible()
   await dialog.getByRole('checkbox', { name: 'proyectos', exact: true }).check()
   // A folder inside a chosen one is chosen with it.
-  await expect(dialog.getByRole('checkbox', { name: 'thoth', exact: true })).toBeChecked()
-  await expect(dialog.getByRole('checkbox', { name: 'thoth', exact: true })).toBeDisabled()
+  await expect(dialog.getByRole('checkbox', { name: 'vihko', exact: true })).toBeChecked()
+  await expect(dialog.getByRole('checkbox', { name: 'vihko', exact: true })).toBeDisabled()
   // Without a second factor, a new key is confirmed with the password (D-036), even with a session.
   await expect(dialog.getByRole('button', { name: 'Crear la clave' })).toBeDisabled()
   await expect(dialog.getByText('Una clave da acceso a tus notas: confirma que eres tú, aunque ya hayas entrado.')).toBeVisible()
@@ -118,13 +118,13 @@ test('a read-only key for one folder: shown once, with its MCP configurations', 
 
   // MCP configurations, ready to paste, with this server's address and the key.
   const block = shown.locator('.cfg-panel:not([hidden]) .cfg-block')
-  await expect(block).toHaveText(`claude mcp add --transport http thoth ${BASE_URL}/mcp --header "Authorization: Bearer ${token}"`)
+  await expect(block).toHaveText(`claude mcp add --transport http vihko ${BASE_URL}/mcp --header "Authorization: Bearer ${token}"`)
   await shown.getByRole('tab', { name: 'Claude Desktop' }).click()
   // The key goes in a file (never in the process list): its line, to copy, and the configuration naming the file.
   const desktop = JSON.parse(await shown.locator('.cfg-panel:not([hidden]) .cfg-block:not(.cfg-header)').innerText())
-  expect(desktop.mcpServers.thoth).toEqual({
+  expect(desktop.mcpServers.vihko).toEqual({
     command: 'npx',
-    args: ['-y', 'mcp-remote', `${BASE_URL}/mcp`, '--header-file', '/ruta/completa/a/thoth-mcp.txt', '--allow-http'],
+    args: ['-y', 'mcp-remote', `${BASE_URL}/mcp`, '--header-file', '/ruta/completa/a/vihko-mcp.txt', '--allow-http'],
   })
   expect(JSON.stringify(desktop)).not.toContain(token)
   await expect(shown.getByLabel('La línea del archivo')).toHaveText(`Authorization: Bearer ${token}`)
@@ -132,7 +132,7 @@ test('a read-only key for one folder: shown once, with its MCP configurations', 
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`Authorization: Bearer ${token}`)
   await shown.getByRole('tab', { name: 'JSON genérico' }).click()
   const generic = JSON.parse(await block.innerText())
-  expect(generic.mcpServers.thoth).toEqual({ type: 'http', url: `${BASE_URL}/mcp`, headers: { Authorization: `Bearer ${token}` } })
+  expect(generic.mcpServers.vihko).toEqual({ type: 'http', url: `${BASE_URL}/mcp`, headers: { Authorization: `Bearer ${token}` } })
   await shown.getByRole('button', { name: 'Copiar configuración MCP' }).click()
   expect(JSON.parse(await page.evaluate(() => navigator.clipboard.readText()))).toEqual(generic)
 
@@ -146,7 +146,7 @@ test('a read-only key for one folder: shown once, with its MCP configurations', 
   await shown.getByRole('button', { name: 'Copiar configuración MCP' }).click()
   await expect(shown.locator('.mcp-configs .copy-state')).toHaveText('Copiado')
   expect(await page.evaluate(() => (window as unknown as { realClipboard: Clipboard }).realClipboard.readText()))
-    .toBe(`claude mcp add --transport http thoth ${BASE_URL}/mcp --header "Authorization: Bearer ${token}"`)
+    .toBe(`claude mcp add --transport http vihko ${BASE_URL}/mcp --header "Authorization: Bearer ${token}"`)
   await shown.screenshot({ path: `${SHOTS}/agents-token-light.png`, animations: 'disabled' })
 
   await shown.getByRole('button', { name: 'Ya la he guardado' }).click()
@@ -155,12 +155,12 @@ test('a read-only key for one folder: shown once, with its MCP configurations', 
   await expect(k).toContainText('proyectos/')
   await expect(k).toContainText('No caduca')
   await expect(k).toContainText('Nunca')
-  await expect(k).toContainText(`thoth_…${token.slice(-4)}`)
+  await expect(k).toContainText(`vihko_…${token.slice(-4)}`)
   // Never again: not on the page, not from the server.
   await page.reload()
   await expect(card(page, KEY)).toBeVisible()
   expect(await page.content()).not.toContain(token)
-  // The secret is everything after `thoth_<id>_`: base64url, so it may hold `_` itself.
+  // The secret is everything after `vihko_<id>_`: base64url, so it may hold `_` itself.
   expect(await (await page.request.get('/api/keys')).text()).not.toContain(token.split('_').slice(2).join('_'))
   await page.screenshot({ path: `${SHOTS}/agents-light.png`, fullPage: true, animations: 'disabled' })
   await page.context().close()
@@ -226,7 +226,7 @@ test('rotating asks first, shows the new key once, and the old one keeps working
   for (const t of [token, rotated]) expect((await request.get(`${BASE_URL}/api/tree`, { headers: bearer(t) })).status()).toBe(200)
   const k = card(page, KEY)
   await expect(k).toContainText(/Clave anterior\s*vale hasta las \d\d:\d\d/)
-  await expect(k).toContainText(`thoth_…${rotated.slice(-4)}`)
+  await expect(k).toContainText(`vihko_…${rotated.slice(-4)}`)
   expect(before).not.toContain('Clave anterior')
   await page.context().close()
   token = rotated
@@ -299,13 +299,13 @@ test('members: their own keys while allowed; with the setting off, none new, and
   await admin.context().close()
 })
 
-test('THOTH_INTEGRATIONS=off: the switches are locked and say why', async ({ browser }) => {
+test('VIHKO_INTEGRATIONS=off: the switches are locked and say why', async ({ browser }) => {
   const ctx = await browser.newContext({ baseURL: LOCKED_URL })
   const page = await ctx.newPage()
   await expect.poll(async () => (await page.request.get('/api/health').catch(() => null))?.status(), { timeout: 30_000 }).toBe(200)
   await login(page, ADMIN, '/?view=agents')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Agentes y API')
-  await expect(page.getByRole('note')).toContainText('THOTH_INTEGRATIONS=off')
+  await expect(page.getByRole('note')).toContainText('VIHKO_INTEGRATIONS=off')
   for (const name of [/Servidor MCP/, /API HTTP con claves/]) {
     await expect(page.getByRole('switch', { name })).toBeDisabled()
     await expect(page.getByRole('switch', { name })).not.toBeChecked()

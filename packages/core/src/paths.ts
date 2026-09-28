@@ -1,4 +1,4 @@
-// What each file in the notes folder is, as far as thoth is concerned.
+// What each file in the notes folder is, as far as vihko is concerned.
 
 export type PathKind = 'note' | 'conflict' | 'ignored' | 'other'
 
@@ -7,7 +7,7 @@ const SYNC_CONFLICT = /\.sync-conflict-\d{8}-\d{6}-[A-Z0-9]{7}(?:\.[^/]*)?$/
 /**
  * Classifies a path relative to the notes root (with `/`):
  * - `ignored`: any hidden segment (`.obsidian/`, `.trash/`, `.git/`, `.nfsXXXX`,
- *   editor and thoth temp files) or backup copies ending in `~`.
+ *   editor and vihko temp files) or backup copies ending in `~`.
  * - `conflict`: a Syncthing conflict copy of a note. Flagged, not indexed.
  * - `note`: a `.md` file.
  * - `other`: any other file (attachments).

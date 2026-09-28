@@ -51,7 +51,7 @@ test.afterAll(async () => {
   await expect.poll(() => status(k), { timeout: 20_000 }).toBe('managed')
 })
 
-test('with the history kept by thoth, resolving deletes at once; «Resolved» says who did it, for both', async () => {
+test('with the history kept by vihko, resolving deletes at once; «Resolved» says who did it, for both', async () => {
   for (const p of [k, a]) await expect(panel(p).locator('.panel-note')).toContainText('quedan en el historial')
   await panel(k).locator('.thread', { hasText: C1 }).getByRole('button', { name: 'Resolver' }).click()
   await expect(panel(k).locator('.thread-confirm')).toHaveCount(0)

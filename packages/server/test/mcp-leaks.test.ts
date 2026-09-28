@@ -12,7 +12,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setup } from './_agents.ts'
-import type { DenyReason } from '@thoth/server'
+import type { DenyReason } from '@vihko/server'
 import { CONFIG, DIR, FILES, HIDDEN, NAME, OTHER_HEADING, PATH, SERIES, SUB, TAG, WORD, historyToHide, leaked } from './_leaks.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -80,7 +80,7 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
         { args: { path: PATH.secret }, ...AI },
         { args: { path: PATH.otherRenamed }, ...OUT },
       ],
-      // The daily note's path comes from thoth.yaml, not from the agent (a hidden one that exists: daily-agents.test.ts).
+      // The daily note's path comes from vihko.yaml, not from the agent (a hidden one that exists: daily-agents.test.ts).
       daily_note: [{ args: {}, ok: true }, { args: { series: SERIES.outside }, ...NONE }],
       create_note: [
         { args: { path: PATH.secret, text: m.aSentence() }, ...AI },

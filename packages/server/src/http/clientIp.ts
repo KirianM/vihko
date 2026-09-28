@@ -2,7 +2,7 @@
 //
 // The address is the socket's. X-Forwarded-For is only believed when the
 // socket is one of the reverse proxies the server's administrator declared
-// (THOTH_TRUSTED_PROXIES): anyone else could write whatever they like in it.
+// (VIHKO_TRUSTED_PROXIES): anyone else could write whatever they like in it.
 // Then the header is read from the right, skipping the trusted proxies: the
 // first address that isn't one is the client's.
 import { BlockList, isIP } from 'node:net'
@@ -11,7 +11,7 @@ import { BlockList, isIP } from 'node:net'
 export const UNKNOWN_IP = 'unknown'
 
 /**
- * THOTH_TRUSTED_PROXIES: addresses or CIDR ranges, separated by commas or
+ * VIHKO_TRUSTED_PROXIES: addresses or CIDR ranges, separated by commas or
  * spaces (`10.0.0.5, 172.16.0.0/12, fd00::/8`). Null when unset.
  */
 export function trustedProxiesFrom(raw: string | undefined): BlockList | null {
@@ -24,7 +24,7 @@ export function trustedProxiesFrom(raw: string | undefined): BlockList | null {
     const family = isIP(ip)
     const bits = prefix === undefined ? null : /^\d{1,3}$/.test(prefix) ? Number(prefix) : NaN
     if (!family || extra !== undefined || (bits !== null && !(bits >= 0 && bits <= (family === 4 ? 32 : 128)))) {
-      throw new Error(`THOTH_TRUSTED_PROXIES: "${item}" is not an IP address or a CIDR range (such as 10.0.0.5 or 172.16.0.0/12)`)
+      throw new Error(`VIHKO_TRUSTED_PROXIES: "${item}" is not an IP address or a CIDR range (such as 10.0.0.5 or 172.16.0.0/12)`)
     }
     const type = family === 4 ? 'ipv4' : 'ipv6'
     if (bits === null) list.addAddress(ip, type)

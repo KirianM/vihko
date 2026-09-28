@@ -12,7 +12,7 @@
 //   DELETE /api/account/sessions/:id           ends one
 //   POST   /api/auth/password                  { current, password }: other sessions end
 //   DELETE /api/account/notices/:id            one of one's own notices (notices.ts), dismissed
-// The thoth admin:
+// The vihko admin:
 //   GET    /api/admin/users                    everyone (state, role, groups, pending link, sessions)
 //   POST   /api/admin/users                    { username, role } → { user, link }  (with `password`: no link, as before M4)
 //   POST   /api/admin/users/:id/link           a new link (an invitation, or a reset if they have a password) → { link };
@@ -61,7 +61,7 @@ export interface UserRoutesDeps {
   tooMany: (c: Context, retryAfter: number) => Response
   /** After a password was chosen with a link: the session, or the second factor's step first (http/twoFactor.ts). */
   passwordAccepted: (c: Context, user: User) => Response
-  /** THOTH_PUBLIC_URL, if set: the address the links are given for. */
+  /** VIHKO_PUBLIC_URL, if set: the address the links are given for. */
   publicUrl: string | null
   /** The confirmation at the moment (http/twoFactor.ts `confirmIdentity`): null if confirmed, the response otherwise. */
   confirm: (c: Context<Env>, confirm: unknown) => Promise<Response | null>
@@ -174,7 +174,7 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
     return c.json({ ok: true })
   })
 
-  // --- Users (the thoth admin) ------------------------------------------------
+  // --- Users (the vihko admin) ------------------------------------------------
 
   app.get('/api/admin/users', admin, (c) => c.json({ users: users.list() }))
 
@@ -228,7 +228,7 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
 
   app.delete('/api/admin/users/:id/sessions', admin, (c) => c.json({ ended: users.endSessions(param(c, 'id')) }))
 
-  // --- Groups (the thoth admin) -----------------------------------------------
+  // --- Groups (the vihko admin) -----------------------------------------------
 
   app.get('/api/admin/groups', admin, (c) => c.json({ groups: users.groups() }))
 
@@ -249,7 +249,7 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
 
   app.delete('/api/admin/groups/:id/members/:userId', admin, (c) => c.json({ group: users.removeMember(param(c, 'id'), param(c, 'userId')) }))
 
-  // --- Settings (the thoth admin) ---------------------------------------------
+  // --- Settings (the vihko admin) ---------------------------------------------
 
   app.get('/api/admin/settings', admin, (c) => c.json(settings.view()))
 

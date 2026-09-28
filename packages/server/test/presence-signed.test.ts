@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { baseHue, isPersonHue } from '@thoth/core'
+import { baseHue, isPersonHue } from '@vihko/core'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { CLI, api, closeAll, connect, login, makeDirs, sleep, startServer, waitFor } from './_collab.ts'
@@ -35,7 +35,7 @@ test('a tampered client can\'t present itself as someone else, speak for another
   spawnSync(process.execPath, [CLI, 'user', 'create', member.username], { env: { ...process.env, ...env }, input: member.password })
   mkdirSync(join(notes, SHARED), { recursive: true })
   writeFileSync(join(notes, NOTE), `# ${m.aHeading()}\n\n${m.aSentence()}\n`)
-  writeFileSync(join(notes, 'thoth.yaml'), rules(admin.username, member.username))
+  writeFileSync(join(notes, 'vihko.yaml'), rules(admin.username, member.username))
   // Names a tampered client claims: someone else's display name, and nobody's.
   const [pretended, impostor] = [m.aDisplayName(), m.aDisplayName()]
   const srv = await startServer(env)

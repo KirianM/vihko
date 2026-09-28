@@ -1,5 +1,5 @@
-// thoth's Markdown syntax on top of lezer: wikilinks, embeds and tags.
-// Browser-safe entry point (@thoth/core/syntax): used by both the editor
+// vihko's Markdown syntax on top of lezer: wikilinks, embeds and tags.
+// Browser-safe entry point (@vihko/core/syntax): used by both the editor
 // and the indexer, so a link or a tag is parsed the same way in both places.
 // No Node modules here.
 import { GFM, parser as baseParser, type InlineContext, type MarkdownConfig } from '@lezer/markdown'
@@ -41,7 +41,7 @@ function parseTag(cx: InlineContext, pos: number): number {
   return cx.addElement(cx.elt('Tag', pos, pos + 1 + name.length))
 }
 
-export const thothSyntax: MarkdownConfig = {
+export const vihkoSyntax: MarkdownConfig = {
   defineNodes: ['WikiLink', 'WikiEmbed', 'Tag'],
   parseInline: [
     { name: 'WikiEmbed', before: 'Image', parse: (cx, next, pos) => (next === BANG ? parseWiki(cx, pos, true) : -1) },
@@ -50,5 +50,5 @@ export const thothSyntax: MarkdownConfig = {
   ],
 }
 
-/** thoth's Markdown parser: CommonMark + GFM + wikilinks, embeds and tags. */
-export const markdownParser = baseParser.configure([GFM, thothSyntax])
+/** vihko's Markdown parser: CommonMark + GFM + wikilinks, embeds and tags. */
+export const markdownParser = baseParser.configure([GFM, vihkoSyntax])

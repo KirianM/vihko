@@ -1,15 +1,15 @@
-// `thoth history purge`: rewrites the managed history without a path (a file,
+// `vihko history purge`: rewrites the managed history without a path (a file,
 // or a folder with everything in it), or without the content a path has in
-// one version. For a secret pasted by mistake (D-034.6). With thoth stopped:
+// one version. For a secret pasted by mistake (D-034.6). With vihko stopped:
 // it takes the state volume's lock, as the server does. The server runs the
 // same purge from the UI (D-038.9, `purgeRunning`), with its recorder paused.
 //
-// - Only the managed history (`<state>/history.git`, thoth's own). The user's
+// - Only the managed history (`<state>/history.git`, vihko's own). The user's
 //   repository (unmanaged mode) is never rewritten, and the notes folder is
 //   only read, never touched.
 // - Everything else is kept as it was: authors, dates, trailers and the
-//   `Thoth-Move` moves the history follows. A commit left with no change is
-//   dropped; a version that pointed to it (`Thoth-Restored-From`, a restore's
+//   `Vihko-Move` moves the history follows. A commit left with no change is
+//   dropped; a version that pointed to it (`Vihko-Restored-From`, a restore's
 //   reason) points to the commit before it, which has the same files.
 // - The new commits go to a ref of their own; `refs/heads/main` moves only at
 //   the end, in one step that checks it didn't move meanwhile. A process
@@ -24,11 +24,11 @@
 // - The recorder's journal and its cache of the sweep's `stat`s forget the
 //   purged paths. What the notes folder still holds for them is left in the
 //   journal as known (`baseline`): it isn't recorded again as a change made
-//   with thoth stopped, and enters the history with the file's next version,
+//   with vihko stopped, and enters the history with the file's next version,
 //   which the report warns about.
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { isIgnoredDir, type HistoryMode } from '@thoth/core'
+import { isIgnoredDir, type HistoryMode } from '@vihko/core'
 import { lockState, type StateLock } from '../lock.ts'
 import { Git, GitError, blobOid, quotePath, readTree, resolveRef, write } from './git.ts'
 import { removeCrashLeftovers, type Leftover } from './leftovers.ts'
@@ -39,7 +39,7 @@ import {
 import { parseMessage } from './trailers.ts'
 
 /** Where the rewritten history is built before `refs/heads/main` moves to it. */
-const WORK_REF = 'refs/thoth/purge'
+const WORK_REF = 'refs/vihko/purge'
 
 export type PurgeErrorCode =
   | 'history_unmanaged' | 'history_no_repository' | 'invalid_path' | 'invalid_version' | 'not_found' | 'not_a_version'
@@ -61,13 +61,13 @@ export interface PurgeOptions {
   path: string
   /** Only the content `path` has in this version (a commit id, 7 to 40 hex digits). */
   version?: string
-  /** Says what would change, and changes nothing. It doesn't need thoth stopped. */
+  /** Says what would change, and changes nothing. It doesn't need vihko stopped. */
   dryRun?: boolean
   /** `path` is one file: nothing under it goes (a note purged by whoever manages its folder, D-038.9). */
   exact?: boolean
-  /** thoth.yaml's `history.mode`: the purge refuses to run in unmanaged mode. */
+  /** vihko.yaml's `history.mode`: the purge refuses to run in unmanaged mode. */
   mode: HistoryMode
-  /** thoth.yaml's `history.exclude`. */
+  /** vihko.yaml's `history.exclude`. */
   excluded?: (path: string) => boolean
   git?: string
 }
@@ -87,7 +87,7 @@ export interface PurgedCommit {
   files: PurgedFile[]
   /** Left with no change: it goes. */
   dropped: boolean
-  /** The people who wrote it (their user ids, from its `Thoth-Actor` trailers; never agents). */
+  /** The people who wrote it (their user ids, from its `Vihko-Actor` trailers; never agents). */
   people: string[]
 }
 
@@ -140,12 +140,12 @@ export function purgeTarget(raw: string): string {
 
 export async function purgeHistory(opts: PurgeOptions): Promise<PurgeReport> {
   const { target, gitDir } = checked(opts)
-  // A dry run only reads: it can look while thoth runs. Anything else needs thoth stopped.
+  // A dry run only reads: it can look while vihko runs. Anything else needs vihko stopped.
   const lock: StateLock | null = opts.dryRun ? null : lockState(opts.stateDir)
   try {
     // With the lock, before any git command: what a crash left there (of the
     // server, or of a purge cut short) would fail the rewrite, or keep what it
-    // takes out in a pack (leftovers.ts). A dry run only reads, and thoth may
+    // takes out in a pack (leftovers.ts). A dry run only reads, and vihko may
     // be running: nothing there is a crash's.
     const leftovers = lock ? removeCrashLeftovers(gitDir) : []
     return { ...(await purge(opts, target, new Git({ gitDir, binary: opts.git }))), leftovers }
@@ -154,7 +154,7 @@ export async function purgeHistory(opts: PurgeOptions): Promise<PurgeReport> {
   }
 }
 
-/** What the recorder of a running thoth does around a purge (recorder.ts `purging`). */
+/** What the recorder of a running vihko does around a purge (recorder.ts `purging`). */
 export interface RunningRecorder {
   purging<T>(rewrite: () => Promise<{ result: T; forget: (path: string) => boolean; pathsOnDisk: string[] }>): Promise<{ result: T; stillOnDisk: string[]; counts: { pending: number; queued: number } }>
 }
@@ -186,7 +186,7 @@ export async function purgeRunning(opts: PurgeOptions, recorder: RunningRecorder
 /** The request, checked: the mode, the path, the version's form and the repository. */
 function checked(opts: PurgeOptions): { target: string; gitDir: string } {
   if (opts.mode === 'unmanaged') {
-    throw new PurgeError('history_unmanaged', 'the history is unmanaged in thoth.yaml: it is the notes folder\'s own git repository, which thoth never rewrites')
+    throw new PurgeError('history_unmanaged', 'the history is unmanaged in vihko.yaml: it is the notes folder\'s own git repository, which vihko never rewrites')
   }
   const target = purgeTarget(opts.path)
   if (opts.version !== undefined && !/^[0-9a-f]{7,40}$/.test(opts.version)) {
@@ -246,7 +246,7 @@ async function purge(opts: PurgeOptions, target: string, git: Git): Promise<Omit
 /**
  * Writes the rewritten history and moves `main` to it, in the one step that
  * checks nothing moved it meanwhile; `saved` runs in between (the journal,
- * with thoth stopped). Then nothing unreachable is left.
+ * with vihko stopped). Then nothing unreachable is left.
  */
 async function rewrite(git: Git, p: Planned, saved: () => void) {
   const { commits, first, plan, head, report } = p
@@ -256,7 +256,7 @@ async function rewrite(git: Git, p: Planned, saved: () => void) {
   report.head = newHead
   saved()
   try {
-    if (newHead) await git.run(['update-ref', '-m', 'thoth history purge', HISTORY_REF, newHead, head!])
+    if (newHead) await git.run(['update-ref', '-m', 'vihko history purge', HISTORY_REF, newHead, head!])
     else await git.run(['update-ref', '-d', HISTORY_REF, head!])
   } catch (err) {
     throw new PurgeError('history_moved', `the history changed while it was being rewritten; nothing was changed (${err instanceof Error ? err.message : String(err)})`)
@@ -511,12 +511,12 @@ async function importRewritten(git: Git, parent: string | null, commits: Commit[
  */
 function rewriteMessage(message: string, renamed: Map<string, string | null>, keepMove: (from: string, to: string) => boolean): string {
   return message.split('\n').filter((line) => {
-    const m = /^Thoth-Move: ?(.*)$/.exec(line)
+    const m = /^Vihko-Move: ?(.*)$/.exec(line)
     if (!m) return true
     const tab = m[1]!.indexOf('\t')
     return tab < 0 || keepMove(m[1]!.slice(0, tab), m[1]!.slice(tab + 1))
   }).map((line) => {
-    if (!/^Thoth-(Restored-From|Reason):/.test(line)) return line
+    if (!/^Vihko-(Restored-From|Reason):/.test(line)) return line
     return line.replace(/\b[0-9a-f]{40}\b/g, (id) => renamed.get(id) ?? id)
   }).join('\n')
 }
@@ -536,7 +536,7 @@ async function compact(git: Git) {
  * after the purge: without the purged paths' open versions, queued changes
  * and cached `stat`s. What the notes folder holds for a purged path, if it's
  * what the recorder knew before the purge and not what it knows after, stays
- * known (`baseline`), so it isn't recorded again as a change made with thoth
+ * known (`baseline`), so it isn't recorded again as a change made with vihko
  * stopped. `stillOnDisk`: the purged paths whose content on disk isn't what
  * the history will know (it enters with their next version). `save` writes
  * both files.
@@ -594,7 +594,7 @@ async function recorderAfter(opts: PurgeOptions, git: Git, head: string | null, 
     const after = known(p, plan.headAfter(p, tree))
     if (after === oid) continue
     stillOnDisk.push(p)
-    // Only what the recorder knew already: a change made since thoth stopped is still one.
+    // Only what the recorder knew already: a change made since vihko stopped is still one.
     if (oid === before.get(p)) baseline[p] = oid
   }
   if (Object.keys(baseline).length === 0) delete journal.baseline

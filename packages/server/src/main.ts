@@ -25,7 +25,7 @@ import { publicUrlFrom } from './oauth.ts'
 import type { Server } from 'node:http'
 import type { BlockList } from 'node:net'
 import { trustedProxiesFrom } from './http/clientIp.ts'
-import { WORKSPACE_FILE } from '@thoth/core'
+import { WORKSPACE_FILE } from '@vihko/core'
 import { AccessPolicy } from './access.ts'
 import { PermissionsEngine, groupSource, stateDirectory } from './permissions.ts'
 import { PermissionHolds } from './permissionHolds.ts'
@@ -40,37 +40,37 @@ export interface Config {
   port: number
   rescanSeconds: number
   webDir: string
-  /** THOTH_MAX_IMAGE_MB: largest image stored, from an upload or a URL (20 MB). */
+  /** VIHKO_MAX_IMAGE_MB: largest image stored, from an upload or a URL (20 MB). */
   maxImageBytes: number
-  /** THOTH_EXTERNAL_IMAGES: `allow` (default) or `block` images linked from other sites. */
+  /** VIHKO_EXTERNAL_IMAGES: `allow` (default) or `block` images linked from other sites. */
   externalImages: ExternalImages
   /**
-   * The history's timings, for tests and tuning (thoth.yaml says what matters:
-   * its mode and size limit). THOTH_HISTORY_QUIET_SECONDS: an open version
-   * closes after this long without changes (30); THOTH_HISTORY_MAX_SECONDS: or
-   * this long after it opened (300); THOTH_HISTORY_SWEEP_SECONDS: the full
-   * sweep of the folder (3600). THOTH_GIT: the git binary.
+   * The history's timings, for tests and tuning (vihko.yaml says what matters:
+   * its mode and size limit). VIHKO_HISTORY_QUIET_SECONDS: an open version
+   * closes after this long without changes (30); VIHKO_HISTORY_MAX_SECONDS: or
+   * this long after it opened (300); VIHKO_HISTORY_SWEEP_SECONDS: the full
+   * sweep of the folder (3600). VIHKO_GIT: the git binary.
    */
   history: { quietMs: number; maxOpenMs: number; sweepMs: number; git: string }
   /**
-   * THOTH_INTEGRATIONS=off: the API with keys and the MCP server stay off,
+   * VIHKO_INTEGRATIONS=off: the API with keys and the MCP server stay off,
    * whatever the switches in the UI say (D-035.1).
    */
   integrationsLocked: boolean
   /**
-   * THOTH_PUBLIC_URL: the HTTPS origin where thoth is reached from outside
+   * VIHKO_PUBLIC_URL: the HTTPS origin where vihko is reached from outside
    * (behind a reverse proxy). With it, OAuth exists for the MCP server while
    * the MCP switch is on (oauth.ts); without it, `/mcp` takes keys only.
    */
   publicUrl: string | null
   /**
-   * THOTH_TRUSTED_PROXIES: the reverse proxies (addresses or CIDR ranges)
+   * VIHKO_TRUSTED_PROXIES: the reverse proxies (addresses or CIDR ranges)
    * whose X-Forwarded-For says who the client is, for the login limits.
    * Unset: the socket's address, and the header is ignored.
    */
   trustedProxies: BlockList | null
   /**
-   * THOTH_SECRET_KEY (or THOTH_SECRET_KEY_FILE, a Docker secret): with it,
+   * VIHKO_SECRET_KEY (or VIHKO_SECRET_KEY_FILE, a Docker secret): with it,
    * the TOTP secrets in state.db are stored encrypted (secretKey.ts). Only
    * the derived key is kept; the variables leave the environment once read.
    */
@@ -79,23 +79,23 @@ export interface Config {
 
 export function configFromEnv(env = process.env): Config {
   return {
-    notesDir: resolve(env.THOTH_NOTES_DIR ?? '/data/notes'),
-    stateDir: resolve(env.THOTH_STATE_DIR ?? '/data/state'),
-    host: env.THOTH_HOST ?? '0.0.0.0',
-    port: Number(env.THOTH_PORT ?? 8080),
-    rescanSeconds: Number(env.THOTH_RESCAN_SECONDS ?? 60),
-    webDir: resolve(env.THOTH_WEB_DIR ?? fileURLToPath(new URL('../../web/dist', import.meta.url))),
-    maxImageBytes: env.THOTH_MAX_IMAGE_MB ? positiveMb(env.THOTH_MAX_IMAGE_MB) : DEFAULT_MAX_IMAGE_BYTES,
-    externalImages: externalImagesFrom(env.THOTH_EXTERNAL_IMAGES),
+    notesDir: resolve(env.VIHKO_NOTES_DIR ?? '/data/notes'),
+    stateDir: resolve(env.VIHKO_STATE_DIR ?? '/data/state'),
+    host: env.VIHKO_HOST ?? '0.0.0.0',
+    port: Number(env.VIHKO_PORT ?? 8080),
+    rescanSeconds: Number(env.VIHKO_RESCAN_SECONDS ?? 60),
+    webDir: resolve(env.VIHKO_WEB_DIR ?? fileURLToPath(new URL('../../web/dist', import.meta.url))),
+    maxImageBytes: env.VIHKO_MAX_IMAGE_MB ? positiveMb(env.VIHKO_MAX_IMAGE_MB) : DEFAULT_MAX_IMAGE_BYTES,
+    externalImages: externalImagesFrom(env.VIHKO_EXTERNAL_IMAGES),
     history: {
-      quietMs: seconds(env.THOTH_HISTORY_QUIET_SECONDS, 30),
-      maxOpenMs: seconds(env.THOTH_HISTORY_MAX_SECONDS, 300),
-      sweepMs: seconds(env.THOTH_HISTORY_SWEEP_SECONDS, 3600),
-      git: env.THOTH_GIT || 'git',
+      quietMs: seconds(env.VIHKO_HISTORY_QUIET_SECONDS, 30),
+      maxOpenMs: seconds(env.VIHKO_HISTORY_MAX_SECONDS, 300),
+      sweepMs: seconds(env.VIHKO_HISTORY_SWEEP_SECONDS, 3600),
+      git: env.VIHKO_GIT || 'git',
     },
-    integrationsLocked: integrationsLockedFrom(env.THOTH_INTEGRATIONS),
-    publicUrl: publicUrlFrom(env.THOTH_PUBLIC_URL),
-    trustedProxies: trustedProxiesFrom(env.THOTH_TRUSTED_PROXIES),
+    integrationsLocked: integrationsLockedFrom(env.VIHKO_INTEGRATIONS),
+    publicUrl: publicUrlFrom(env.VIHKO_PUBLIC_URL),
+    trustedProxies: trustedProxiesFrom(env.VIHKO_TRUSTED_PROXIES),
     secretBox: secretBoxFrom(env),
   }
 }
@@ -108,13 +108,13 @@ function seconds(raw: string | undefined, fallback: number): number {
 
 function positiveMb(raw: string): number {
   const mb = Number(raw)
-  if (!Number.isFinite(mb) || mb <= 0) throw new Error(`THOTH_MAX_IMAGE_MB must be a positive number of megabytes, not "${raw}"`)
+  if (!Number.isFinite(mb) || mb <= 0) throw new Error(`VIHKO_MAX_IMAGE_MB must be a positive number of megabytes, not "${raw}"`)
   return Math.floor(mb * 1024 * 1024)
 }
 
 function externalImagesFrom(raw: string | undefined): ExternalImages {
   const v = (raw ?? 'allow').trim().toLowerCase()
-  if (v !== 'allow' && v !== 'block') throw new Error(`THOTH_EXTERNAL_IMAGES must be "allow" or "block", not "${raw}"`)
+  if (v !== 'allow' && v !== 'block') throw new Error(`VIHKO_EXTERNAL_IMAGES must be "allow" or "block", not "${raw}"`)
   return v
 }
 
@@ -126,7 +126,7 @@ export function openStores(config: Config) {
 }
 
 export async function start(config: Config) {
-  // One process at a time on the state volume (a second server, or `thoth history purge`).
+  // One process at a time on the state volume (a second server, or `vihko history purge`).
   mkdirSync(config.stateDir, { recursive: true })
   const lock = lockState(config.stateDir)
   try {
@@ -142,14 +142,14 @@ async function run(config: Config, lock: StateLock) {
   const auth = new Auth(state)
   const keys = new ApiKeys(state)
   const integrations = new Integrations(state, { locked: config.integrationsLocked })
-  const log = (msg: string) => console.log(`[thoth] ${msg}`)
+  const log = (msg: string) => console.log(`[vihko] ${msg}`)
   const workspace = new Workspace({ notesDir: config.notesDir, log })
   const indexer = new Indexer({ notesDir: config.notesDir, db: index, linkAliases: workspace.config.links.aliases })
   // Users and groups. Ending someone's sessions ends their live connections
-  // too (the hub exists further down). Their grants in thoth.yaml follow a
+  // too (the hub exists further down). Their grants in vihko.yaml follow a
   // deletion or a group's rename (http/app.ts fills those hooks in).
   const users = new Users(auth, { hooks: { onSessionsEnded: (id) => hub.checkSessions(id) } })
-  // Who reads what (D-038): thoth.yaml's rules over state.db's users and groups.
+  // Who reads what (D-038): vihko.yaml's rules over state.db's users and groups.
   const permissions = new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(state, groupSource(users)) })
   // Before the first scan: a note moved while the server was stopped is detected too.
   const holds = new PermissionHolds({ stateDir: config.stateDir, engine: permissions, log })
@@ -162,7 +162,7 @@ async function run(config: Config, lock: StateLock) {
     // First: a note that left a folder with rules of its own is held before anyone can list it.
     holds.consider(moves)
     externalMoves.record(moves)
-    log(`moved outside thoth: ${moves.map((m) => `${m.from} → ${m.to} (${m.by})`).join(', ')}`)
+    log(`moved outside vihko: ${moves.map((m) => `${m.from} → ${m.to} (${m.by})`).join(', ')}`)
     follow?.followMoves(moves)
   }
   // The history: its journal is read before the hub recovers its notes (their
@@ -172,7 +172,7 @@ async function run(config: Config, lock: StateLock) {
     git: config.history.git, quietMs: config.history.quietMs, maxOpenMs: config.history.maxOpenMs, sweepMs: config.history.sweepMs,
     nameOf: (a) => (a.kind === 'user' ? auth.username(a.id) ?? a.id : a.kind === 'agent' ? keys.nameOf(a.id) ?? a.id : a.kind),
   })
-  /** Rereads thoth.yaml and applies what the index, the history and open editors depend on. */
+  /** Rereads vihko.yaml and applies what the index, the history and open editors depend on. */
   const reloadWorkspace = () => {
     if (!workspace.reload()) return
     indexer.setLinkAliases(workspace.config.links.aliases)
@@ -210,7 +210,7 @@ async function run(config: Config, lock: StateLock) {
     indexer,
     db: index,
     rescanMs: config.rescanSeconds * 1000,
-    // The rescan also rereads thoth.yaml: its events can be lost like any other (NFS).
+    // The rescan also rereads vihko.yaml: its events can be lost like any other (NFS).
     onReport: (kind, r) => { if (kind === 'rescan') { runtime.lastScan = r; reloadWorkspace() } },
     onError: (err) => log(`watcher: ${err instanceof Error ? err.message : String(err)}`),
     onChange: (paths) => {
@@ -229,14 +229,14 @@ async function run(config: Config, lock: StateLock) {
   const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const profiles = new Profiles(state)
-  // The second factor's secrets: encrypted with THOTH_SECRET_KEY if there is
+  // The second factor's secrets: encrypted with VIHKO_SECRET_KEY if there is
   // one (those still in plaintext, now). One that can't be read never stops
-  // thoth: the admin is told (an alert), and `thoth user reset-2fa` fixes it.
+  // vihko: the admin is told (an alert), and `vihko user reset-2fa` fixes it.
   const twoFactor = new TwoFactor(state, { box: config.secretBox })
   const sealed = twoFactor.sealPlaintext()
-  if (config.secretBox) log(`THOTH_SECRET_KEY: second factors are stored encrypted${sealed ? ` (${sealed} encrypted now)` : ''}`)
+  if (config.secretBox) log(`VIHKO_SECRET_KEY: second factors are stored encrypted${sealed ? ` (${sealed} encrypted now)` : ''}`)
   const unreadable = twoFactor.unreadable().length
-  if (unreadable) log(`${unreadable} second factor(s) can't be read ${config.secretBox ? 'with this THOTH_SECRET_KEY' : 'without THOTH_SECRET_KEY'}: those people sign in with a recovery code, or run thoth user reset-2fa <name>`)
+  if (unreadable) log(`${unreadable} second factor(s) can't be read ${config.secretBox ? 'with this VIHKO_SECRET_KEY' : 'without VIHKO_SECRET_KEY'}: those people sign in with a recovery code, or run vihko user reset-2fa <name>`)
   const app = createApp({
     auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users, twoFactor,
     policy, holds, onPermissionsChanged: () => hub.recheckAccess(),
@@ -248,16 +248,16 @@ async function run(config: Config, lock: StateLock) {
   // serve() opens the port asynchronously: only announced once it's actually listening.
   if (!server.listening) await new Promise<void>((resolve, reject) => { server.once('listening', resolve); server.once('error', reject) })
   log(`listening on http://${config.host}:${config.port}`)
-  if (config.integrationsLocked) log('THOTH_INTEGRATIONS=off: the API with keys and the MCP server stay off')
+  if (config.integrationsLocked) log('VIHKO_INTEGRATIONS=off: the API with keys and the MCP server stay off')
   if (config.publicUrl) log(`public URL ${config.publicUrl}: OAuth for ${config.publicUrl}/mcp while the MCP server is on`)
   // Behind a proxy without it, every client is the proxy to the login limits: one guesser holds everyone back.
-  if (config.publicUrl && !config.trustedProxies) log('THOTH_TRUSTED_PROXIES is unset: the login limits count every client by the connection\'s address (a reverse proxy\'s, if there is one). Set it to the proxy\'s address; see the README')
+  if (config.publicUrl && !config.trustedProxies) log('VIHKO_TRUSTED_PROXIES is unset: the login limits count every client by the connection\'s address (a reverse proxy\'s, if there is one). Set it to the proxy\'s address; see the README')
 
   const setup = auth.setupToken()
   if (setup) {
     log('first boot: no users yet. Create the admin with this one-time token')
     log(`  (in the UI, or with POST /api/setup): ${setup}`)
-    log('  or from the command line: thoth user create <name> --admin')
+    log('  or from the command line: vihko user create <name> --admin')
   }
 
   const stop = async () => {

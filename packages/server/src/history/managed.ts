@@ -1,6 +1,6 @@
 // Reading the managed history (the repository in the state volume). A note's
-// versions follow its moves through the `Thoth-Move` trailers; authors come
-// from `Thoth-Actor`. Reads run one at a time, in their own queue: a commit
+// versions follow its moves through the `Vihko-Move` trailers; authors come
+// from `Vihko-Actor`. Reads run one at a time, in their own queue: a commit
 // being written never makes the history page wait, and git itself is safe
 // with one writer and readers at once.
 import type { Author } from '../actor.ts'
@@ -246,7 +246,7 @@ export class ManagedReader implements HistoryReader {
 
 interface PairedFile { path: string; change: ChangeKind; from?: string; before: string | null; after: string | null }
 
-/** A commit's files as versions: a removal and an addition that a `Thoth-Move` names are one file moved. */
+/** A commit's files as versions: a removal and an addition that a `Vihko-Move` names are one file moved. */
 function pairFiles(raw: RawFile[], meta: ParsedMessage): PairedFile[] {
   const deleted = new Map(raw.filter((f) => f.status === 'D').map((f) => [f.path, f]))
   const restored = meta.reason?.code === 'restored' || meta.reason?.code === 'trash_restored'

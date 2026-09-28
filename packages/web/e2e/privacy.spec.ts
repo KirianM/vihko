@@ -39,11 +39,11 @@ test('with the integrations off, nothing gets in or out; and the UI talks only t
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Privacidad')
   const now = page.locator('section', { has: page.getByRole('heading', { name: 'Ahora mismo, en este servidor' }) })
   await expect(now).toContainText('La API y el MCP están apagados: ninguna clave funciona')
-  await expect(page.getByText('thoth no envía estadísticas ni informes de errores, y no busca actualizaciones.')).toBeVisible()
+  await expect(page.getByText('vihko no envía estadísticas ni informes de errores, y no busca actualizaciones.')).toBeVisible()
   // What an agent knows of a note hidden from it, in plain words.
   await expect(page.getByText('Solo sabe que una existe si ya tiene su nombre', { exact: false })).toBeVisible()
   // External images are allowed on the test server, and the page says how to block them.
-  await expect(page.getByText('THOTH_EXTERNAL_IMAGES=block')).toBeVisible()
+  await expect(page.getByText('VIHKO_EXTERNAL_IMAGES=block')).toBeVisible()
   await page.reload()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Privacidad')
   expect([...hosts]).toEqual([BASE_URL])
@@ -72,7 +72,7 @@ test('with them, the keys that can read and how; a key can’t download images',
 
   // From «Agents and API», the link in its introduction.
   await k.page.goto('/?view=agents')
-  await k.page.getByRole('link', { name: 'Qué sale de thoth y adónde' }).click()
+  await k.page.getByRole('link', { name: 'Qué sale de vihko y adónde' }).click()
   await expect(k.page).toHaveURL(/\?view=privacy$/)
   const now = k.page.locator('section', { has: k.page.getByRole('heading', { name: 'Ahora mismo, en este servidor' }) })
   await expect(now).toContainText('Integraciones activas: API · MCP. Estas claves pueden leer notas ahora mismo:')

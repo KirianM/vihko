@@ -1,11 +1,11 @@
-// thoth.yaml: the workspace configuration, at the root of the notes folder so
-// it travels (and is versioned) with the notes (D-011, D-014). thoth only
+// vihko.yaml: the workspace configuration, at the root of the notes folder so
+// it travels (and is versioned) with the notes (D-011, D-014). vihko only
 // writes its `permissions` section, from the permissions UI (permissions.ts),
 // keeping the rest of the file as it was. Parsing is tolerant where it can be
 // and strict where it must (D-031.9):
-// - An unknown key (a typo, or a newer thoth's setting) is reported and
-//   ignored; the rest applies. So is a `version` newer than this thoth's.
-// - A wrong value in a known key makes the file unusable: thoth keeps the last
+// - An unknown key (a typo, or a newer vihko's setting) is reported and
+//   ignored; the rest applies. So is a `version` newer than this vihko's.
+// - A wrong value in a known key makes the file unusable: vihko keeps the last
 //   valid configuration, so a mistyped setting never silently turns into
 //   another one.
 // - Security-relevant sections (`permissions`) are strict sections: any
@@ -18,9 +18,9 @@ import { classifyPath } from './paths.ts'
 import { globProblem } from './glob.ts'
 
 /** Name of the file at the root of the notes folder. */
-export const WORKSPACE_FILE = 'thoth.yaml'
+export const WORKSPACE_FILE = 'vihko.yaml'
 
-/** The newest `version` of thoth.yaml this thoth understands. A missing `version` is 1. */
+/** The newest `version` of vihko.yaml this vihko understands. A missing `version` is 1. */
 export const WORKSPACE_VERSION = 1
 
 export interface WorkspaceConfig {
@@ -43,24 +43,24 @@ export interface WorkspaceConfig {
 }
 
 /**
- * The MCP server (`mcp` in thoth.yaml):
+ * The MCP server (`mcp` in vihko.yaml):
  * - `instructions`: a note of the workspace served to agents as the server's
  *   instructions (how this workspace is organised, what to write where), to
- *   an agent that can read it. Null: only thoth's own.
+ *   an agent that can read it. Null: only vihko's own.
  */
 export interface McpConfig {
   instructions: string | null
 }
 
 /**
- * Note history (`history` in thoth.yaml):
- * - `mode`: `managed` (the default: thoth keeps its own repository in the
- *   state volume), `unmanaged` (thoth only reads the repository the notes
+ * Note history (`history` in vihko.yaml):
+ * - `mode`: `managed` (the default: vihko keeps its own repository in the
+ *   state volume), `unmanaged` (vihko only reads the repository the notes
  *   folder already has) or `off`.
  * - `maxFileSize`: in MB; a larger file doesn't enter the history.
- * - `exclude`: path patterns (glob.ts) kept out of the managed history. thoth
+ * - `exclude`: path patterns (glob.ts) kept out of the managed history. vihko
  *   still indexes, shows and edits those files; their changes just aren't
- *   versions. What the history already holds stays (`thoth history purge`
+ *   versions. What the history already holds stays (`vihko history purge`
  *   removes it).
  */
 export interface HistoryConfig {
@@ -99,7 +99,7 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = {
 }
 
 /**
- * A problem in thoth.yaml. Stable codes; the UI words them.
+ * A problem in vihko.yaml. Stable codes; the UI words them.
  *
  * Errors (the file can't be used; the last valid configuration stays):
  * - `yaml`: not valid YAML (`detail` is the parser's message, for developers).
@@ -114,15 +114,15 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = {
  * - `pattern_period`: a series pattern that doesn't name one note per day,
  *   ISO week, month or year.
  * - `unreadable`: the file exists but can't be read (permissions).
- * - `invalid_value`: a value thoth doesn't accept there (`detail`: what it
+ * - `invalid_value`: a value vihko doesn't accept there (`detail`: what it
  *   accepts, or the key it needs), such as an unknown attachments `mode`.
  * - `invalid_pattern`: a path pattern that isn't relative to the notes root
- *   or uses what thoth's globs don't (`detail`: the pattern).
+ *   or uses what vihko's globs don't (`detail`: the pattern).
  *
  * Warnings (the file applies without that part):
- * - `unknown_key`: a key thoth doesn't know (a typo, or a newer version's):
+ * - `unknown_key`: a key vihko doesn't know (a typo, or a newer version's):
  *   ignored.
- * - `newer_version`: `version` is newer than this thoth's (`detail`); what it
+ * - `newer_version`: `version` is newer than this vihko's (`detail`); what it
  *   understands applies.
  * - `not_supported`: a section this version reserves but doesn't implement
  *   yet: not applied.
@@ -134,7 +134,7 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = {
  *   (`detail`): ignored, so that deleting someone never invalidates the
  *   section. Reported by the server, which knows the users.
  * - `missing_folder`: rules for a folder that doesn't exist (moved or
- *   deleted outside thoth): kept, and applied again if it comes back.
+ *   deleted outside vihko): kept, and applied again if it comes back.
  *   Reported by the server.
  * Inside a strict section, any other code (an unknown key included) is a
  * warning that comes with `section_rejected`.

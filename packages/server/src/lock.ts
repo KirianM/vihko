@@ -1,7 +1,7 @@
 // Who is using the state volume: the server while it runs, and command-line
-// tools that must run with it stopped (`thoth history purge`). One at a time.
+// tools that must run with it stopped (`vihko history purge`). One at a time.
 //
-// The lock is an exclusive SQLite transaction on `<state>/thoth.lock`, held
+// The lock is an exclusive SQLite transaction on `<state>/vihko.lock`, held
 // for as long as the process runs. SQLite's lock is the kernel's (fcntl): it
 // goes away with the process however it ends, `kill -9` included, so there is
 // no stale file to clean up and no PID to check (PIDs repeat across
@@ -9,13 +9,13 @@
 import Database from 'better-sqlite3'
 import { join } from 'node:path'
 
-export const LOCK_FILE = 'thoth.lock'
+export const LOCK_FILE = 'vihko.lock'
 
 /** The state volume is in use by another process (a running server, or a tool that needs it stopped). */
 export class StateInUseError extends Error {
   readonly code = 'state_in_use'
   constructor(file: string) {
-    super(`the state folder is in use by another thoth process (${file}): is the server running?`)
+    super(`the state folder is in use by another vihko process (${file}): is the server running?`)
   }
 }
 

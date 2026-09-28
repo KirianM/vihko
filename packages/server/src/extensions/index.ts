@@ -1,4 +1,4 @@
-// The extensions thoth ships. Order is only the tie-break of the topological sort.
+// The extensions vihko ships. Order is only the tie-break of the topological sort.
 import type { Extension } from '../extension.ts'
 import { commentAnchors } from './comments.ts'
 import { fts } from './fts.ts'

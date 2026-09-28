@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { newUid } from '@thoth/core'
+import { newUid } from '@vihko/core'
 
 test('ULID: format, time encoding and ordering', () => {
   // Vector from the ULID spec: ulid(1469918176385) starts with 01ARYZ6S41.

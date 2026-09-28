@@ -85,7 +85,7 @@ test.beforeAll(async ({ browser }) => {
   await expect(k.locator('.cm-content')).toBeVisible()
 })
 
-// Created notes go through thoth's trash (some were open in an editor), then the folders go.
+// Created notes go through vihko's trash (some were open in an editor), then the folders go.
 test.afterAll(async () => {
   writeWorkspace()
   const { notes } = await (await k.request.get('/api/tree')).json() as { notes: { path: string }[] }
@@ -96,7 +96,7 @@ test.afterAll(async () => {
   for (const d of [DIR, TEMPLATES]) rmSync(`${NOTES}/${d}`, { recursive: true, force: true })
 })
 
-const list = (page: Page) => page.locator('.thoth-complete')
+const list = (page: Page) => page.locator('.vihko-complete')
 const option = (page: Page, text: string | RegExp) => list(page).getByRole('option', { name: text })
 /** An option's text starts with this (a note's is its title, then where it is). */
 const starts = (text: string) => new RegExp(`^${literally(text)}`, 'u')
@@ -135,7 +135,7 @@ test('an ambiguous name is inserted with the path suffix that makes it resolve',
   await typeAtEnd(k, ' [[plan')
   const blog = option(k, /proyectos \/ blog/)
   await expect(blog).toBeVisible()
-  await expect(option(k, /proyectos \/ thoth/)).toBeVisible()
+  await expect(option(k, /proyectos \/ vihko/)).toBeVisible()
   await k.screenshot({ path: `${SHOTS}/autocomplete-notes-light.png`, animations: 'disabled' })
   await blog.click()
   await expect.poll(() => disk()).toContain(`[[${DEST}]] [[blog/Plan]]`)
@@ -271,7 +271,7 @@ test('with templates configured, «create» asks which one', async () => {
   writeWorkspace()
 })
 
-test('with links.aliases off in thoth.yaml, [[alias]] is broken and an alias is inserted as [[Note|alias]]', async () => {
+test('with links.aliases off in vihko.yaml, [[alias]] is broken and an alias is inserted as [[Note|alias]]', async () => {
   const NOTE = m.aNotePath(DIR)
   const lead = m.aUniqueWord()
   const status = async () => {

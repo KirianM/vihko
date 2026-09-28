@@ -38,7 +38,7 @@ let statusAt = 0
 let statusLoading = false
 const statusListeners = new Set<() => void>()
 
-/** Asks the server again unless it just did: thoth.yaml can turn the history on or off at any time. */
+/** Asks the server again unless it just did: vihko.yaml can turn the history on or off at any time. */
 function loadStatus(force = false) {
   if (statusLoading || (!force && Date.now() - statusAt < 5_000)) return
   statusLoading = true
@@ -68,7 +68,7 @@ export interface VersionsStore {
   versions: Version[]
   next: string | null
   pending: Pending | null
-  /** thoth.yaml keeps this file out of the history (`history.exclude`). */
+  /** vihko.yaml keeps this file out of the history (`history.exclude`). */
   excluded: boolean
   loaded: boolean
   error: unknown
@@ -225,8 +225,8 @@ export const HistoryIcon = {
 /**
  * Who made a change, each with its shape and words: a person, their presence
  * colour's dot and name; an agent, the diamond in accent and «Claude · on
- * behalf of Noa · via MCP»; the system, thoth's mark and what it did; outside
- * thoth, its icon (and «while thoth was stopped»); a git author, their name.
+ * behalf of Noa · via MCP»; the system, vihko's mark and what it did; outside
+ * vihko, its icon (and «while vihko was stopped»); a git author, their name.
  */
 export function Authors({ authors, reason, foundAtStartup }: { authors: readonly HistoryAuthor[]; reason?: Reason | null; foundAtStartup?: boolean }) {
   const t = useT()

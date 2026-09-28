@@ -7,13 +7,13 @@ export { E2E_DIR }
 export const E2E_PORT = Number(process.env.E2E_PORT ?? 8094)
 export const NOTES = E2E_DIR + '/notes'
 export const BASE_URL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${E2E_PORT}`
-/** A second server, with THOTH_INTEGRATIONS=off: the API and MCP locked by the server's administrator. */
+/** A second server, with VIHKO_INTEGRATIONS=off: the API and MCP locked by the server's administrator. */
 export const LOCKED_PORT = Number(process.env.E2E_LOCKED_PORT ?? E2E_PORT + 2) // +1 is the acceptance server's (8095)
 export const LOCKED_URL = process.env.E2E_LOCKED_URL ?? `http://127.0.0.1:${LOCKED_PORT}`
 /** Another origin for "external" images: a server in the test process (images.spec.ts). */
 export const EXTERNAL_PORT = Number(process.env.E2E_EXTERNAL_PORT ?? 8132)
-/** THOTH_PUBLIC_URL of the main test server: OAuth exists there (while MCP is on). Nothing answers at it; the specs use BASE_URL. */
-export const PUBLIC_URL = 'https://thoth.e2e.test'
+/** VIHKO_PUBLIC_URL of the main test server: OAuth exists there (while MCP is on). Nothing answers at it; the specs use BASE_URL. */
+export const PUBLIC_URL = 'https://vihko.e2e.test'
 
 /** The people of the servers, the same in them (serve.ts) and in the specs: one scope for both, not a spec's. */
 const people = mother('e2e: the people of the servers')
@@ -31,7 +31,7 @@ export type Grants = Record<string, Level>
 export const ROOT_GRANTS: Grants = { [ADMIN.username]: 'manage', [MEMBER.username]: 'edit' }
 
 /**
- * The `permissions:` section of thoth.yaml: the root with ROOT_GRANTS, plus
+ * The `permissions:` section of vihko.yaml: the root with ROOT_GRANTS, plus
  * (or changed by) `grants`; then `rules`, more folders with their grants.
  */
 export function permissionsSection(grants: Grants = {}, rules: Record<string, Grants> = {}): string {
@@ -40,7 +40,7 @@ export function permissionsSection(grants: Grants = {}, rules: Record<string, Gr
     + Object.entries(rules).map(([folder, g]) => `  ${JSON.stringify(folder)}:\n    grants: ${map(g)}\n`).join('')
 }
 
-/** The permissions every spec runs under, in thoth.yaml. A spec that writes thoth.yaml keeps them (`writeWorkspace`, `usePermissions`). */
+/** The permissions every spec runs under, in vihko.yaml. A spec that writes vihko.yaml keeps them (`writeWorkspace`, `usePermissions`). */
 export const PERMISSIONS = permissionsSection()
 
 /**
