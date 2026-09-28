@@ -50,7 +50,7 @@ export { ACCESS_PREFIX, ACCESS_TTL_S, CODE_TTL_MS, MAX_UNUSED_CLIENTS, OAuthRequ
 export { oauthRoutes, type OAuthRoutesDeps } from './http/oauth.ts'
 export { CIMD_CACHE_ENTRIES, CIMD_DEFAULT_TTL_MS, CIMD_MAX_BYTES, CIMD_MAX_TTL_MS, CIMD_TIMEOUT_MS, CimdError, ClientMetadataFetcher, cacheTtlMs, checkClientIdUrl, isMetadataClientId, isPublicAddress, type CimdErrorCode, type ClientMetadata, type ClientMetadataOptions, type Resolver } from './cimd.ts'
 export { DEFAULT_RULES, LoginLimiter, SETUP_ACCOUNT, accountKey, type Attempt, type AttemptInput, type AttemptResult, type LimitRules, type Rule } from './loginLimit.ts'
-export { UNKNOWN_IP, clientIp, ipKey, trustedProxiesFrom } from './http/clientIp.ts'
+export { UNKNOWN_IP, clientIp, ipKey, trustedProxiesFrom, wideTrustedProxies } from './http/clientIp.ts'
 export { ftsQuery, search } from './http/search.ts'
 export { configFromEnv, openStores, start, type Config, type StartOptions } from './main.ts'
 export { LOCK_FILE, StateInUseError, lockState, prepareStateDir, type StateLock } from './lock.ts'

@@ -24,7 +24,7 @@ import { SESSION_COOKIE } from './http/app.ts'
 import { publicUrlFrom } from './oauth.ts'
 import type { Server } from 'node:http'
 import type { BlockList } from 'node:net'
-import { trustedProxiesFrom } from './http/clientIp.ts'
+import { trustedProxiesFrom, wideTrustedProxies } from './http/clientIp.ts'
 import { WORKSPACE_FILE, type WorkspaceMigration } from '@vihko/core'
 import { ConfigMigrations } from './configMigrations.ts'
 import { AccessPolicy } from './access.ts'
@@ -71,6 +71,8 @@ export interface Config {
    * Unset: the socket's address, and the header is ignored.
    */
   trustedProxies: BlockList | null
+  /** Its entries wider than a proxy needs (`wideTrustedProxies`): warned about on startup. */
+  wideTrustedProxies: string[]
   /**
    * VIHKO_SECRET_KEY (or VIHKO_SECRET_KEY_FILE, a Docker secret): with it,
    * the TOTP secrets in state.db are stored encrypted (secretKey.ts). Only
@@ -98,6 +100,7 @@ export function configFromEnv(env = process.env): Config {
     integrationsLocked: integrationsLockedFrom(env.VIHKO_INTEGRATIONS),
     publicUrl: publicUrlFrom(env.VIHKO_PUBLIC_URL),
     trustedProxies: trustedProxiesFrom(env.VIHKO_TRUSTED_PROXIES),
+    wideTrustedProxies: wideTrustedProxies(env.VIHKO_TRUSTED_PROXIES),
     secretBox: secretBoxFrom(env),
   }
 }
@@ -276,6 +279,9 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   if (config.publicUrl) log(`public URL ${config.publicUrl}: OAuth for ${config.publicUrl}/mcp while the MCP server is on`)
   // Behind a proxy without it, every client is the proxy to the login limits: one guesser holds everyone back.
   if (config.publicUrl && !config.trustedProxies) log('VIHKO_TRUSTED_PROXIES is unset: the login limits count every client by the connection\'s address (a reverse proxy\'s, if there is one). Set it to the proxy\'s address; see guide/reverse-proxy.md')
+  // A range where a single address was meant (`10.0.0.50/8`): anyone in it could say they're someone else.
+  const wide = config.wideTrustedProxies
+  if (wide.length) log(`VIHKO_TRUSTED_PROXIES: ${wide.join(', ')} ${wide.length === 1 ? 'is a wide range' : 'are wide ranges'}: every address in ${wide.length === 1 ? 'it' : 'them'} is believed as a proxy, and could slip past the login limits. Give the proxy's own address (such as 10.0.0.50); see guide/reverse-proxy.md`)
 
   const setup = auth.setupToken()
   if (setup) {
