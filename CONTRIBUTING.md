@@ -17,7 +17,7 @@ privately, never in an issue: see [SECURITY.md](SECURITY.md).
   and `npm run dev -w @vihko/web` in another; Vite forwards `/api` and
   `/collab` to port 8080 (`VIHKO_DEV_SERVER` for another one).
 - The image from your checkout: `compose.yaml` pulls the published one
-  (`ghcr.io/kirianm/vihko:1`); `compose.dev.yaml`, on top of it, builds
+  (from `ghcr.io/kirianm/vihko`); `compose.dev.yaml`, on top of it, builds
   `vihko:local` from the checkout instead:
   `docker compose -f compose.yaml -f compose.dev.yaml up -d --build`.
 - Browser tests (`packages/web/e2e`, Playwright): `npm run build` and
@@ -256,6 +256,10 @@ A moving tag only goes forward: a fix for an older line (`v1.1.5` once
    changelog's text. The first time only: the package's settings on GitHub
    (the repository's Packages) must say it is public and linked to the
    repository; a package doesn't take its visibility from the repository.
+7. `compose.yaml` pulls what a new installation should get: the exact tag
+   while there are only release candidates of a major, `:<major>` once its
+   first stable version is out. Change its image line (and its copy in
+   `guide/install.md`) in the release pull request that makes that change.
 
 ## Conventions
 

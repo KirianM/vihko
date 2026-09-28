@@ -158,7 +158,7 @@ const MIGRATIONS: string[] = [
 
 export const STATE_VERSION = MIGRATIONS.length
 
-export function openState(file: string): Db {
+export function openState(file: string, opts: { log?: (msg: string) => void } = {}): Db {
   const existed = existsSync(file)
   const db = new Database(file)
   db.pragma('journal_mode = wal')
@@ -178,6 +178,8 @@ export function openState(file: string): Db {
       for (let v = current; v < MIGRATIONS.length; v++) db.exec(MIGRATIONS[v]!)
       db.pragma(`user_version = ${MIGRATIONS.length}`)
     })()
+    // A new database is no news; an upgraded one is, with where its copy went.
+    if (existed && current > 0) opts.log?.(`state.db migrated from version ${current} to ${MIGRATIONS.length}; the previous one is in ${file}.bak-v${current}`)
   }
   return db
 }
