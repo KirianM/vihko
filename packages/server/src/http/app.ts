@@ -47,6 +47,7 @@ import type { BlockList } from 'node:net'
 import { LoginLimiter, SETUP_ACCOUNT, type AttemptResult } from '../loginLimit.ts'
 import { clientIp, ipKey } from './clientIp.ts'
 import { written } from './written.ts'
+import { sameHost } from './origin.ts'
 import { Users, UsersError } from '../users.ts'
 import { AdminSettings, AdminSettingsError } from '../adminSettings.ts'
 import { inviteRoutes, userRoutes, usersErrorStatus, type UserRoutesDeps } from './users.ts'
@@ -303,7 +304,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.use('/api/*', async (c, next) => {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
       const origin = c.req.header('origin')
-      if (origin && new URL(origin).host !== new URL(c.req.url).host) return fail(c, 403, 'forbidden', 'origin not allowed')
+      if (origin && !sameHost(origin, new URL(c.req.url).host)) return fail(c, 403, 'forbidden', 'origin not allowed')
     }
     await next()
   })
