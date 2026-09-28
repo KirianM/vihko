@@ -7,8 +7,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  cleanText, extract, globProblem, goneThreads, markdownParser, parseComments, parseSearchQuery,
-  parseThreads, pathMatcher, reopener, trimSlashes, trimTrailingSlashes, withoutClosingHashes, type RemovedThread,
+  cleanText, extract, formatDate, globProblem, goneThreads, markdownParser, parseComments, parseSearchQuery,
+  parseThreads, pathMatcher, renderTemplate, reopener, trimSlashes, trimTrailingSlashes, withoutClosingHashes, type RemovedThread,
 } from '@vihko/core'
 
 /** Far more than linear work needs, far less than the quadratic took at these sizes (seconds). */
@@ -22,6 +22,8 @@ function fast<T>(what: string, fn: () => T): T {
   assert.ok(ms < BUDGET_MS, `${what}: ${Math.round(ms)} ms`)
   return out
 }
+
+const NOW = { year: 2026, month: 9, day: 28, hour: 10, minute: 12 }
 
 test('Markdown: a long run of spaces inside a paragraph or a heading', () => {
   fast('paragraph', () => markdownParser.parse('a' + ' '.repeat(N) + 'x\n'))
@@ -73,6 +75,14 @@ test('comments: many resolved on one long line, and reopened among many', () => 
 test('a comment\'s text: a long run of dashes', () => {
   assert.equal(fast('dashes', () => cleanText('-'.repeat(N))), '-'.repeat(N))
   assert.equal(cleanText('a --> b ---> c ->'), 'a -- > b --- > c ->')
+})
+
+test('templates: an unclosed variable, and a date format with unclosed brackets', () => {
+  const text = '{{date:' + ' '.repeat(N)
+  assert.equal(fast('template', () => renderTemplate(text, { now: NOW, user: 'u', title: 't' })), text)
+  assert.equal(fast('date format', () => formatDate('['.repeat(N), NOW)), '['.repeat(N))
+  assert.equal(renderTemplate('{{date:[Week] W, YYYY }} {{ title }} {{date:}}', { now: NOW, user: 'u', title: 't' }), 'Week 40, 2026 t ')
+  assert.equal(formatDate('[a] YYYY [b', NOW), 'a 2026 [b')
 })
 
 test('paths: a long run of slashes that doesn\'t end them', () => {
