@@ -43,8 +43,10 @@ type TreeDialog =
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 /** Views that aren't a note, in the URL as `?view=` (no router). */
-const VIEWS = ['avisos', 'changes', 'agents', 'privacy', 'users', 'account'] as const
+const VIEWS = ['alerts', 'changes', 'agents', 'privacy', 'users', 'account'] as const
 type View = (typeof VIEWS)[number]
+/** Earlier names of a view, still opened (bookmarks, links already sent); the URL then says the current one. */
+const VIEW_ALIASES: Record<string, View> = { avisos: 'alerts' }
 const inside = (path: string, folder: string) => path === folder || path.startsWith(folder + '/')
 
 // The editor (CodeMirror, Yjs) is downloaded separately, when the first note is opened.
@@ -75,7 +77,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [openPath, setOpenPathState] = useState<string | null>(() => new URLSearchParams(location.search).get('note'))
   const [view, setView] = useState<View | null>(() => {
     const v = new URLSearchParams(location.search).get('view')
-    return VIEWS.find((x) => x === v) ?? null
+    return VIEWS.find((x) => x === v) ?? (v !== null && Object.hasOwn(VIEW_ALIASES, v) ? VIEW_ALIASES[v]! : null)
   })
   /** A version of the open note shown instead of the editor (`?version=`, from the history). */
   const [version, setVersion] = useState<string | null>(() => new URLSearchParams(location.search).get('version'))
@@ -83,7 +85,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   versionRef.current = version
   const setOpenPath = (path: string | null) => { setView(null); setVersion(null); setOpenPathState(path) }
   const openVersion = (path: string, id: string) => { setView(null); setOpenPathState(path); setVersion(id) }
-  const showAlerts = () => { setOpenPathState(null); setVersion(null); setView('avisos') }
+  const showAlerts = () => { setOpenPathState(null); setVersion(null); setView('alerts') }
   const showChanges = () => { setOpenPathState(null); setVersion(null); setView('changes') }
   const showAgents = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('agents') }
   const showPrivacy = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('privacy') }
@@ -409,8 +411,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     </a>
   )
   const alertsLink = alerts > 0 && (
-    <a className="sidebar-alerts" href="?view=avisos" aria-current={view === 'avisos' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); setNavOpen(false); showAlerts() }}>
-      {Icon.alert}<span>{t('shell.alerts', { n: alerts })}</span>
+    <a className="sidebar-alerts" href="?view=alerts" aria-current={view === 'alerts' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); setNavOpen(false); showAlerts() }}>
+      {Icon.alert}<span>{t(alerts === 1 ? 'shell.alertsOne' : 'shell.alerts', { n: alerts })}</span>
     </a>
   )
   const userRow = (
@@ -469,7 +471,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         </nav>
       )}
       <main className="main">
-        {view === 'avisos' ? (
+        {view === 'alerts' ? (
           <AlertsPage
             onOpen={setOpenPath}
             onChanged={(n) => { setAlerts(n); void loadTree() }}
@@ -540,7 +542,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             </div>
           </>
         )}
-        {arrived && view !== 'avisos' && (
+        {arrived && view !== 'alerts' && (
           <div className="toast">
             <span className="toast-icon">{Icon.alert}</span>
             <span className="toast-text" role="status">{arrived.length === 1 ? noticeText(t, arrived[0]!) : t('notices.many', { n: arrived.length })}</span>

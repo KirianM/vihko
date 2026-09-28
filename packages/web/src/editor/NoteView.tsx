@@ -21,6 +21,7 @@ import { AmbiguousPicker, type AmbiguousLink, type PickerState } from './Ambiguo
 import type { PinOffer } from '../PinOffer.tsx'
 import { Editor } from './Editor.tsx'
 import { ImageInsertUi, useImageInsert } from './ImageInsert.tsx'
+import { insertionRange } from './insertAt.ts'
 import { NoteActions } from './NoteActions.tsx'
 import type { LinkInfo } from './livePreview.ts'
 import { NotePanel, PanelToggle, usePanel, type LinksData } from './NotePanel.tsx'
@@ -270,7 +271,8 @@ function EditorBar({ view, c, level, onComment, onImage, daily, onNavigate }: {
   }, [view])
   const edit = (make: (doc: string, from: number, to: number) => Edit, suggest = false) => {
     if (!view) return
-    const { from, to } = view.state.selection.main
+    // Never inside a link's (or an image's, a comment's…) hidden syntax: after it.
+    const { from, to } = insertionRange(view.state, view.state.selection.main.from, view.state.selection.main.to)
     const e = make(view.state.doc.toString(), from, to)
     view.dispatch({ changes: { from: e.from, to: e.to, insert: e.insert }, selection: { anchor: e.cursor }, scrollIntoView: true, userEvent: 'input' })
     view.focus()
@@ -445,6 +447,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
           {gone && <p className="empty" role="alert">{t('note.gone')}</p>}
           {c.session && c.connection !== 'connecting' && config && known && (
             <Editor path={path} session={c.session} user={user} links={links} onNavigate={onNavigate} onView={setView} onComments={panel.showComments}
+              commentReach={{ notices: !panel.open, click: !panel.open && !panel.narrow }}
               externalImages={config.externalImages} onImageFiles={images.onFiles} onImageUrl={images.onUrl} onCreateLink={createLink.onCreateLink}
               onPickAmbiguous={openPicker} readOnly={!editable} />
           )}

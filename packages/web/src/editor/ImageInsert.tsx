@@ -11,6 +11,7 @@ import { ApiError, api } from '../api.ts'
 import { errorText, useT } from '../i18n.tsx'
 import { Icon } from '../ui.tsx'
 import type { Session } from './collab.ts'
+import { insertionRange } from './insertAt.ts'
 import '../actions.css'
 
 /** Where the link goes: kept as Yjs relative positions, so they follow concurrent edits. */
@@ -42,16 +43,23 @@ export function useImageInsert(path: string, session: Session | null, view: Edit
     return target(sel ? sel.from : end, sel ? sel.to : end)
   }
 
-  /** Replaces the target with `text` and returns the new target, right after it. */
+  /**
+   * Replaces the target with `text` and returns the new target, right after
+   * it. Never inside a link, an image or a comment, which it would break
+   * (`insertionRange`): the target may be in one's hidden syntax, or have
+   * ended up in one while an image uploaded.
+   */
   const place = (at: Target, text: string): Target | null => {
     if (!session) return null
     const { doc, text: ytext } = session
     const abs = (r: Y.RelativePosition) => Y.createAbsolutePositionFromRelativePosition(r, doc)?.index
-    const from = abs(at.from) ?? ytext.length
-    const to = Math.max(from, abs(at.to) ?? from)
+    let from = abs(at.from) ?? ytext.length
+    let to = Math.max(from, abs(at.to) ?? from)
     // The cursor follows the link only if it is still where the image was asked for.
     const sel = view?.state.selection.main
     const follow = sel !== undefined && sel.from === from && sel.to === to
+    // The editor's text is the shared one (the syntax tree says where the nodes are).
+    if (view && view.state.doc.length === ytext.length) ({ from, to } = insertionRange(view.state, from, to))
     doc.transact(() => {
       if (to > from) ytext.delete(from, to - from)
       ytext.insert(from, text)

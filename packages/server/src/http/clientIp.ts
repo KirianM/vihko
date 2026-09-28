@@ -10,15 +10,12 @@ import { BlockList, isIP } from 'node:net'
 /** When the socket has no address (requests made in-process, in tests). */
 export const UNKNOWN_IP = 'unknown'
 
-/**
- * VIHKO_TRUSTED_PROXIES: addresses or CIDR ranges, separated by commas or
- * spaces (`10.0.0.5, 172.16.0.0/12, fd00::/8`). Null when unset.
- */
-export function trustedProxiesFrom(raw: string | undefined): BlockList | null {
-  const items = (raw ?? '').split(/[\s,]+/).filter(Boolean)
-  if (items.length === 0) return null
-  const list = new BlockList()
-  for (const item of items) {
+/** One entry of VIHKO_TRUSTED_PROXIES: an address (`bits` null) or a range. */
+interface ProxyEntry { item: string; ip: string; family: 4 | 6; bits: number | null }
+
+/** VIHKO_TRUSTED_PROXIES's entries; one that is neither an address nor a CIDR range stops the start, naming it. */
+function proxyEntries(raw: string | undefined): ProxyEntry[] {
+  return (raw ?? '').split(/[\s,]+/).filter(Boolean).map((item) => {
     const [addr, prefix, extra] = item.split('/')
     const ip = plain(addr ?? '')
     const family = isIP(ip)
@@ -26,11 +23,40 @@ export function trustedProxiesFrom(raw: string | undefined): BlockList | null {
     if (!family || extra !== undefined || (bits !== null && !(bits >= 0 && bits <= (family === 4 ? 32 : 128)))) {
       throw new Error(`VIHKO_TRUSTED_PROXIES: "${item}" is not an IP address or a CIDR range (such as 10.0.0.5 or 172.16.0.0/12)`)
     }
+    return { item, ip, family: family === 4 ? 4 : 6, bits }
+  })
+}
+
+/**
+ * VIHKO_TRUSTED_PROXIES: addresses or CIDR ranges, separated by commas or
+ * spaces (`10.0.0.5, 172.16.0.0/12, fd00::/8`). Null when unset.
+ */
+export function trustedProxiesFrom(raw: string | undefined): BlockList | null {
+  const entries = proxyEntries(raw)
+  if (entries.length === 0) return null
+  const list = new BlockList()
+  for (const { ip, family, bits } of entries) {
     const type = family === 4 ? 'ipv4' : 'ipv6'
     if (bits === null) list.addAddress(ip, type)
     else list.addSubnet(ip, bits, type)
   }
   return list
+}
+
+/**
+ * The widest range a proxy is expected in: Docker's default address pool for
+ * IPv4 (`172.16.0.0/12`, a proxy on the same host), a site's /48 for IPv6.
+ */
+const WIDEST_PREFIX = { 4: 12, 6: 48 } as const
+
+/**
+ * The entries of VIHKO_TRUSTED_PROXIES wider than a proxy needs (such as
+ * `10.0.0.50/8`, which is all of 10.0.0.0/8): every address in them is
+ * believed as a proxy, so anyone there can say they are someone else and slip
+ * past the login limits. Warned about on startup.
+ */
+export function wideTrustedProxies(raw: string | undefined): string[] {
+  return proxyEntries(raw).filter((e) => e.bits !== null && e.bits < WIDEST_PREFIX[e.family]).map((e) => e.item)
 }
 
 /** An address as compared and counted: IPv4-mapped IPv6 as IPv4, without an IPv6 zone. */

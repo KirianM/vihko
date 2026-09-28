@@ -67,6 +67,21 @@ test('inline Markdown in cells: emphasis, code, links and wikilinks as text, esc
   ])
 })
 
+// The literals are the case: the Markdown a cell's links are read from.
+test('each link in a cell carries what it links to, to follow it on click: its text, where it starts and its destination', () => {
+  const doc = '| x |\n|---|\n| [a *b*](Folder/Note.md)[c](https://example.com) and [[Other]] |\n'
+  const segs = model(doc)!.body[0]![0]!.content
+  const md = '[a *b*](Folder/Note.md)'
+  assert.deepEqual(segs.map((s) => [s.text, s.link?.raw ?? null, s.link?.url ?? null]), [
+    ['a ', md, 'Folder/Note.md'],
+    ['b', md, 'Folder/Note.md'],
+    ['c', '[c](https://example.com)', 'https://example.com'],
+    [' and ', null, null],
+    ['Other', '[[Other]]', null],
+  ])
+  for (const s of segs) if (s.link) assert.equal(doc.slice(s.link.at, s.link.at + s.link.raw.length), s.link.raw)
+})
+
 test('a table inside a code block is not a table', () => {
   assert.equal(model('```\n| a | b |\n|---|---|\n| 1 | 2 |\n```\n'), null)
 })

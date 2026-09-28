@@ -30,6 +30,10 @@
 .editor .tok-string, .editor .tok-number, .editor .tok-bool { color: var(--accent-strong); }
 .editor .cm-line:not(.cm-codeblock) .tok-monospace { background: var(--chip); border-radius: 4px; padding: 1px 4px; }
 .editor .cm-codeblock { font-family: var(--font-mono); font-size: 14px; line-height: 1.6; background: var(--panel); padding: 0 12px; }
+/* Its fences away from the cursor (livePreview.ts): their lines are its top and bottom edges; the opening one, with the language at its right. */
+.editor .cm-codeblock.cm-fence { font-size: 0; line-height: var(--space-2); }
+.editor .cm-codeblock.cm-fence-open { font-size: 12px; line-height: 1.6; text-align: right; }
+.editor .cm-code-lang { font-family: var(--font-sans); font-size: 12px; color: var(--muted); }
 .editor .cm-quote { border-left: 3px solid var(--line-strong); padding-left: 14px; color: var(--ink-2); }
 .editor .cm-hr { color: var(--faint); }
 
@@ -54,6 +58,8 @@
 @media (pointer: coarse) { .editor .cm-wikilink-create { padding: var(--space-1) 0; } }
 
 .editor .cm-link-missing { color: var(--danger); text-decoration-style: dashed; }
+/* Markdown links followed on click, as wikilinks (livePreview.ts, tables.ts). */
+.editor .cm-md-link.cm-link-resolved, .editor .cm-md-link.cm-link-ambiguous, .editor .cm-md-link.cm-link-external, .editor .cm-table [data-link-raw] { cursor: pointer; }
 /* A note that exists but isn't yours to read (D-024): dimmed, with a lock; never «create». */
 .editor .cm-wikilink-no_access a, .editor .cm-link-no_access { color: var(--muted); text-decoration-style: dotted; cursor: default; }
 .editor .cm-wikilink-no_access .cm-wikilink-badge { display: inline-flex; align-items: center; gap: 3px; background: var(--chip); color: var(--muted); }
@@ -95,17 +101,15 @@
 .editor .cm-commented-active { background: var(--warn-line); }
 .editor .cm-comment-raw { font-family: var(--font-mono); font-size: 0.8em; color: var(--faint); }
 .editor .cm-comment-loose { display: inline-flex; vertical-align: middle; margin: 0 2px; }
-.editor .cm-comment-notice { display: none; }
+/* With the side panel closed: a click on the commented text opens its thread (commentMarks.ts). */
+.editor .cm-commented-open { cursor: pointer; }
+/* With the side panel closed, a notice under each paragraph with comments (opens it). */
+.editor .cm-comment-notice { font: inherit; font-family: var(--font-sans); font-size: 13px; display: flex; align-items: center; gap: 8px; width: 100%; max-width: 72ch; min-height: var(--touch); margin: 4px 0 12px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); color: var(--ink); cursor: pointer; }
+.editor .cm-comment-notice span { flex-grow: 1; text-align: left; }
+.editor .cm-comment-notice b { color: var(--accent); font-weight: 500; }
 
 /* Other users' cursors (y-codemirror) */
 .editor .cm-ySelectionInfo { font-family: var(--font-sans); font-size: 11px; font-weight: 500; border-radius: 4px; padding: 1px 6px; color: var(--on-user); opacity: 1; }
-
-/* With no panel in view, a notice under each paragraph with comments (opens it). */
-@media (max-width: 1099px) {
-  .editor .cm-comment-notice { font: inherit; font-family: var(--font-sans); font-size: 13px; display: flex; align-items: center; gap: 8px; width: 100%; max-width: 72ch; min-height: var(--touch); margin: 4px 0 12px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); color: var(--ink); cursor: pointer; }
-  .editor .cm-comment-notice span { flex-grow: 1; text-align: left; }
-  .editor .cm-comment-notice b { color: var(--accent); font-weight: 500; }
-}
 
 @media (max-width: 760px) {
   .editor .cm-scroller { padding: var(--space-6) var(--space-4); font-size: 17px; }
