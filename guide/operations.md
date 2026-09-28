@@ -13,6 +13,10 @@ of `compose.yaml`:
 
 Add `-T` to `exec` when you pipe something into it (a password).
 
+Run it as the container's own user, as these commands do. Not with `-u root`:
+whatever it creates in the state volume would then belong to root, and vihko,
+which doesn't run as root, might not be able to write there afterwards.
+
 | Command | What it does | vihko running? |
 |---|---|---|
 | `vihko serve` | Starts the server. It's what the container runs. | — |

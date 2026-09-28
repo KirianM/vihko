@@ -44,13 +44,15 @@ of `compose.yaml`:
 
 ```sh
 docker compose stop
-sudo tar -czf /backups/vihko-$(date +%F).tar.gz --exclude='state/index.db*' notes state
+(umask 077 && sudo tar -czf /backups/vihko-$(date +%F).tar.gz --exclude='state/index.db*' notes state)
 docker compose start
 ```
 
 `sudo` because the files belong to the container's user, which may not be
-yours. Keep the copies somewhere else than the server: another disk, another
-machine, or a backup service.
+yours. `umask 077` makes the archive readable by its owner only: it holds
+every note, their whole history and `state.db`, with nothing of vihko's
+permissions around them. Keep the copies somewhere else than the server:
+another disk, another machine, or a backup service, just as private.
 
 For a nightly backup, put those three lines in a script and run it from
 `cron` or a systemd timer, at an hour nobody writes. Someone editing at that
