@@ -8,6 +8,8 @@
 // instructions it may read. The 2026-07-28 revision and 2025-era clients are
 // both served, statelessly. `GET` (an event stream) and `DELETE` (a session)
 // don't exist here: 405. Nothing under `/mcp` ever falls through to the UI.
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { McpServer, createMcpHandler, type McpHttpHandler } from '@modelcontextprotocol/server'
 import type { Context, Hono } from 'hono'
 import type { Access, AgentPrincipal } from '../access.ts'
@@ -30,6 +32,25 @@ export interface McpOptions {
   /** `changes_since`: its longest wait (30 s) and how often it looks (tests). */
   maxWaitSeconds?: number
   pollMs?: number
+  /** The icons clients show for this server (see `markIcons`). */
+  icons?: McpIcon[]
+}
+
+export interface McpIcon { src: string; mimeType: string; sizes: string[] }
+
+/**
+ * vihko's mark for MCP clients, from the built UI (the favicon and the app icon), as data URIs: a client shows it
+ * without reaching this server's address. None without a UI build.
+ */
+export function markIcons(webDir: string | undefined): McpIcon[] | undefined {
+  if (!webDir) return undefined
+  const read = (path: string) => (existsSync(path) ? readFileSync(path).toString('base64') : null)
+  const svg = read(join(webDir, 'favicon.svg'))
+  const png = read(join(webDir, 'icons', 'icon-192.png'))
+  const icons: McpIcon[] = []
+  if (png) icons.push({ src: `data:image/png;base64,${png}`, mimeType: 'image/png', sizes: ['192x192'] })
+  if (svg) icons.push({ src: `data:image/svg+xml;base64,${svg}`, mimeType: 'image/svg+xml', sizes: ['any'] })
+  return icons.length ? icons : undefined
 }
 
 /** The server's own guide for agents; the workspace's (vihko.yaml `mcp.instructions`) follows it. */
@@ -73,7 +94,7 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
     // Never without a key: `/mcp` below only calls the handler once it has judged one.
     if (!access) throw new Error('an MCP request without a principal')
     const guide = workspaceGuide(access)
-    const server = new McpServer({ name: 'vihko', version: '0' }, { instructions: guide ? `${instructions(access)}\n\n${guide}` : instructions(access) })
+    const server = new McpServer({ name: 'vihko', version: '0', icons: opts.icons }, { instructions: guide ? `${instructions(access)}\n\n${guide}` : instructions(access) })
     registerTools(server, {
       access, scoped: services.scoped(access), history: services.history, texts, names, log,
       maxWaitSeconds: opts.maxWaitSeconds, pollMs: opts.pollMs,
