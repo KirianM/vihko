@@ -345,6 +345,13 @@ export function parseLog(out: Buffer): LogCommit[] {
  */
 export async function readObjects(git: Git, specs: readonly string[], timeoutMs = 60_000): Promise<(Buffer | null)[]> {
   if (specs.length === 0) return []
+  // One line each: a spec with a line break (or a NUL) would be read as another one. Those aren't there.
+  const broken = (s: string) => /[\n\0]/.test(s)
+  if (specs.some(broken)) {
+    const ok = specs.filter((s) => !broken(s))
+    const got = await readObjects(git, ok, timeoutMs)
+    return specs.map((s) => (broken(s) ? null : got[ok.indexOf(s)]!))
+  }
   const { stdout } = await git.run(['cat-file', '--batch'], { input: specs.map((s) => s + '\n').join(''), timeoutMs })
   const out: (Buffer | null)[] = []
   let p = 0

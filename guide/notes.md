@@ -15,6 +15,7 @@ what it never touches.
 | A file ending in `.md` (any case) | A note: indexed, searchable, editable |
 | Any other file (images, PDFs…) | A file: shown and linked, with the permissions of its folder |
 | A name starting with `.` (`.git/`, `.obsidian/`, `.trash/`) or ending in `~` | Ignored, with everything under it |
+| A symbolic link, to a file or a folder | Ignored: vihko never reads, serves, indexes or writes through one |
 | A Syncthing conflict copy (`Plan.sync-conflict-20260928-101200-ABCDEFG.md`) | Not indexed; an alert points to it next to the original |
 | `vihko.yaml` at the root | The [workspace configuration](configuration.md), hidden from everyone |
 

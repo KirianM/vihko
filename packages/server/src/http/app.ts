@@ -9,8 +9,8 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
-import { readFileSync, realpathSync, statSync } from 'node:fs'
-import { join, posix, sep } from 'node:path'
+import { readFileSync, statSync } from 'node:fs'
+import { join, posix } from 'node:path'
 import { WORKSPACE_FILE, classifyPath, conflictOriginal, type Alert, type ErrorCode } from '@vihko/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
@@ -48,7 +48,7 @@ import type { BlockList } from 'node:net'
 import { LoginLimiter, SETUP_ACCOUNT, type AttemptResult } from '../loginLimit.ts'
 import { clientIp, ipKey } from './clientIp.ts'
 import { written } from './written.ts'
-import { spelledAsOnDisk } from '../fsutil.ts'
+import { followable } from '../fsutil.ts'
 import { sameHost } from './origin.ts'
 import { Users, UsersError } from '../users.ts'
 import { AdminSettings, AdminSettingsError } from '../adminSettings.ts'
@@ -712,23 +712,20 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   // A file in the notes folder that isn't a note (images and other attachments).
   // Same path rules as notes: relative, inside the root, no hidden or ignored
-  // segments, and no symlink leading out of the folder.
+  // segments, and only a path vihko follows (fsutil.ts followable).
   app.get('/api/file', (c) => {
     const path = c.req.query('path') ?? ''
     const norm = posix.normalize(path)
     if (!path || norm !== path || path.startsWith('/') || norm.split('/').includes('..')) return fail(c, 400, 'invalid_path', `invalid file path: ${path}`)
     // vihko.yaml isn't content: once it holds permissions (M4), it's not for every reader.
     if (classifyPath(norm) !== 'other' || norm === WORKSPACE_FILE) return fail(c, 404, 'not_found', `not a servable file: ${path}`)
-    // Spelled otherwise than on the disk (a case-insensitive filesystem), its permissions would be another folder's.
-    if (!spelledAsOnDisk(deps.notesDir, norm)) return fail(c, 404, 'not_found', `does not exist: ${path}`)
+    // Through a symbolic link, or spelled otherwise than on the disk (a case-insensitive filesystem): not there.
+    if (!followable(deps.notesDir, norm)) return fail(c, 404, 'not_found', `does not exist: ${path}`)
     // An agent: only in its folders, and only a file a note it can read uses.
     scoped(c).assertFile(norm)
-    let file: string
+    const file = join(deps.notesDir, norm)
     let st: ReturnType<typeof statSync>
     try {
-      const root = realpathSync(deps.notesDir)
-      file = realpathSync(join(deps.notesDir, norm))
-      if (!file.startsWith(root + sep)) return fail(c, 404, 'not_found', `outside the notes folder: ${path}`)
       st = statSync(file)
     } catch {
       return fail(c, 404, 'not_found', `does not exist: ${path}`)
