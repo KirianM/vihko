@@ -20,7 +20,7 @@ import { useDates } from './history/ui.tsx'
 import { AdminPurge } from './history/Purge.tsx'
 import { AccessDialog, FolderPermissionsList, PermissionsDialog } from './Permissions.tsx'
 import { SearchButton } from './Palette.tsx'
-import { Icon, MenuButton, ThemeToggle } from './ui.tsx'
+import { Icon, MenuButton, NAME_INPUT, ThemeToggle } from './ui.tsx'
 import './actions.css'
 import './agents.css'
 import './users.css'
@@ -87,7 +87,7 @@ function NewUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
           <Heading slot="title" className="dialog-title">{t('users.newTitle')}</Heading>
           <TextField className="field" value={name} onChange={setName} maxLength={64} isRequired autoFocus>
             <Label>{t('field.username')}</Label>
-            <Input autoComplete="off" />
+            <Input autoComplete="off" {...NAME_INPUT} />
             <Text slot="description" className="hint">{t('users.nameHint')}</Text>
           </TextField>
           <fieldset className="key-fieldset">
@@ -218,7 +218,7 @@ function GroupNameDialog({ group, onClose, onSaved }: { group: GroupInfo | null;
           <Heading slot="title" className="dialog-title">{group ? t('groups.renameTitle', { name: group.name }) : t('groups.newTitle')}</Heading>
           <TextField className="field" value={name} onChange={setName} maxLength={64} isRequired autoFocus>
             <Label>{t('groups.name')}</Label>
-            <Input autoComplete="off" />
+            <Input autoComplete="off" {...NAME_INPUT} />
             <Text slot="description" className="hint">{t(group ? 'groups.renameHint' : 'groups.nameHint')}</Text>
           </TextField>
         </div>

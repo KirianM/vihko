@@ -53,7 +53,12 @@ const noHorizontalScroll = (page: Page) =>
 
 async function signIn(page: Page) {
   await page.goto('/')
-  await page.getByLabel('Nombre de usuario').fill(ADMIN.username)
+  // A phone keyboard neither capitalises nor corrects a user's name.
+  const name = page.getByLabel('Nombre de usuario')
+  await expect(name).toHaveAttribute('autocapitalize', 'none')
+  await expect(name).toHaveAttribute('autocorrect', 'off')
+  await expect(name).toHaveAttribute('spellcheck', 'false')
+  await name.fill(ADMIN.username)
   await page.getByLabel('Contraseña').fill(ADMIN.password)
   await page.getByRole('button', { name: 'Entrar' }).last().tap()
 }
