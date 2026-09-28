@@ -258,6 +258,23 @@ test('a metadata document vihko won\'t fetch (its host is this machine): the pag
   await page.context().close()
 })
 
+// Registration is open, so a registered address proves nothing: a request
+// that isn't valid is shown to the person, never bounced to the client.
+test('a registered client\'s request that isn\'t valid: the page says so and sends the browser nowhere', async ({ browser }) => {
+  const ctx = await browser.newContext()
+  const page = await ctx.newPage()
+  let bounced = false
+  await page.route(`${CALLBACK}**`, (route) => { bounced = true; return route.fulfill({ status: 200, body: '' }) })
+  await page.goto(authorizePath(clientId, pkce().challenge, aState()).replace('response_type=code', 'response_type=token'))
+  await expect(page).toHaveURL(/\/oauth\/authorize\?/)
+  await login(page, ADMIN)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('No se puede autorizar esta aplicación')
+  await expect(page.getByRole('alert')).toContainText('La petición de la aplicación no es válida')
+  await expect(page).toHaveURL(/\/oauth\/authorize\?/)
+  expect(bounced).toBe(false)
+  await ctx.close()
+})
+
 test('a client this vihko doesn\'t know: the page says so and sends the browser nowhere', async ({ browser }) => {
   const page = await signIn(browser, ADMIN)
   await page.goto(authorizePath(m.anId(), pkce().challenge, aState()))

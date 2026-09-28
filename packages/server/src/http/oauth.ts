@@ -77,11 +77,13 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
     }
   })
 
-  // The authorization request. Checked before the page loads: a request with
-  // a bad parameter goes back to the client with the error (RFC 6749
-  // §4.1.2.1); one without a known client and redirect URI can't, and the
-  // page says so (or, asked for JSON, as mcp-remote does to find a stale
-  // registration, a 400). A good one gets the page, which signs in if needed
+  // The authorization request. Checked before the page loads: one that isn't
+  // valid gets the page, which says so once the person signs in (or, asked
+  // for JSON, as mcp-remote does to find a stale registration, a 400). Never
+  // a redirect to the client with the error, as RFC 6749 §4.1.2.1 would
+  // have it: registration is open, so a registered redirect URI proves
+  // nothing, and that would make this server a redirector to anywhere
+  // (RFC 9700 §4.11.2). A good one gets the page, which signs in if needed
   // and asks.
   // A client named by its metadata document's URL isn't fetched here, before
   // anyone signed in: the page asks for it with the person's session.
@@ -92,9 +94,10 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
       c.header('Cache-Control', 'no-store')
       return next()
     }
-    if (!check.ok && check.redirect !== null) return c.redirect(check.redirect, 302)
     const wantsJson = /application\/json/i.test(c.req.header('accept') ?? '') && !/text\/html/i.test(c.req.header('accept') ?? '')
-    if (!check.ok && (wantsJson || !deps.ui)) return c.json({ error: check.error, error_description: 'unknown client or redirect_uri' }, 400)
+    if (!check.ok && (wantsJson || !deps.ui)) {
+      return c.json({ error: check.error, error_description: 'description' in check ? check.description : 'unknown client or redirect_uri' }, 400)
+    }
     c.header('Cache-Control', 'no-store')
     await next()
   })
@@ -127,10 +130,11 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
 
   /** An admin always may; a member, if the admin lets members create keys (an authorization is one). */
   const mayAuthorize = (c: Context<Env>) => c.get('user').role === 'admin' || integrations.view().membersCanCreateKeys
+  // The page names what it can (an unknown client or redirect URI, a metadata
+  // document); anything else is a request that isn't valid. Never an address to go to.
   const refused = (c: Context, check: Extract<AuthorizeCheck, { ok: false }>) =>
     c.json({
-      error: check.redirect === null ? check.error : 'invalid', message: 'not a valid authorization request',
-      ...(check.redirect === null ? {} : { redirect: check.redirect }),
+      error: 'description' in check ? 'invalid' : check.error, message: 'not a valid authorization request',
       // A metadata document that can't be used: why, and whose (the page names the host).
       ...(check.error === 'invalid_client_metadata' && 'reason' in check ? { reason: check.reason, host: check.host } : {}),
     }, 400)

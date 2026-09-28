@@ -184,6 +184,13 @@ address (then `429` with `Retry-After`; with a proxy, see
 `VIHKO_TRUSTED_PROXIES` above); once your clients are connected, the vihko
 admin can turn it off in Agents and API, and those clients keep working.
 
+Since anyone can register a client with any return address, vihko never
+sends the browser to one on its own: an authorization request that isn't
+valid is shown as an error on vihko's page (a `400` to a client asking for
+JSON), not sent back to the app. The browser only goes back to the app when
+the person authorizes or denies it on the consent page, which shows where it
+goes.
+
 An app can also name itself by an `https` address that describes it (a
 *Client ID Metadata Document*, which the MCP authorization specification of
 2026-07-28 prefers to registration). Then vihko fetches that address, and
