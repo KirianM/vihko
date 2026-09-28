@@ -3,7 +3,7 @@
 // image hands it to whoever uploads it. The text of the note never changes
 // here; this only decorates it.
 import { syntaxTree } from '@codemirror/language'
-import { Facet, type Range } from '@codemirror/state'
+import { Facet, type EditorState, type Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 import { isExternalUrl, isImageRef, resolveImageRef } from '@vihko/core/images'
@@ -68,6 +68,16 @@ class ImageWidget extends WidgetType {
   toDOM(view: EditorView) {
     const wrap = document.createElement('span')
     wrap.className = 'cm-image'
+    // A click puts the cursor right after the image, which reveals its source
+    // to edit it. Left to the editor, it went where the click's height fell,
+    // often inside the source (a big image beside short lines), and what was
+    // typed or inserted next split its reference.
+    wrap.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return
+      e.preventDefault()
+      view.dispatch({ selection: { anchor: imageEnd(view.state, view.posAtDOM(wrap)) } })
+      view.focus()
+    })
     const s = this.source
     if (s.kind === 'blocked') return box(wrap, 'cm-image-blocked', this.text.blocked(s.domain))
     if (s.kind === 'invalid') return box(wrap, 'cm-image-missing', `${this.text.missing} · ${s.name}`)
@@ -94,8 +104,18 @@ class ImageWidget extends WidgetType {
     }
     return wrap
   }
-  // A click lets the editor place the cursor there, which reveals the source to edit it.
-  ignoreEvent() { return false }
+  // The click is the widget's own (above); the rest reach the editor.
+  ignoreEvent(e: Event) { return e.type === 'mousedown' }
+}
+
+/** The end of the image at `pos` (where its widget is: at its start, or at its end with its source shown). */
+function imageEnd(state: EditorState, pos: number): number {
+  for (const side of [1, -1] as const) {
+    for (let n: SyntaxNode | null = syntaxTree(state).resolveInner(pos, side); n; n = n.parent) {
+      if (n.name === 'Image' || n.name === 'WikiEmbed') return n.to
+    }
+  }
+  return pos
 }
 
 function box(wrap: HTMLElement, cls: string, label: string) {

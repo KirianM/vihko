@@ -16,6 +16,7 @@ import { baseHue, userColor } from '../userColor.ts'
 import type { Session } from './collab.ts'
 import { anchorChanged, commentContext, commentKey, displayDate, formatComment, parseThreads, commentPosition, removedThread, replyTo, resolveThread, type Change, type Thread } from './comments.ts'
 import { setCommentStyle, threadsField } from './commentMarks.ts'
+import { outsideInline } from './insertAt.ts'
 import { usePresence } from './presence.ts'
 import { withoutClosingHashes } from '@vihko/core/syntax'
 import { ResolvedSection, useHistoryState, useResolved } from './ResolvedThreads.tsx'
@@ -122,17 +123,16 @@ function apply(session: Session, c: Change) {
   })
 }
 
-/** Nodes a comment must not split: it is inserted after them. */
-const INLINE = new Set(['Link', 'Image', 'WikiLink', 'WikiEmbed', 'InlineCode', 'Autolink', 'URL', 'Tag', 'Comment', 'HTMLTag'])
 /** Blocks where a comment wouldn't be a comment (or would break the block): it goes on the next line. */
 const OPAQUE = new Set(['Frontmatter', 'FencedCode', 'CodeBlock', 'HTMLBlock', 'CommentBlock', 'Table', 'LinkReference'])
 
-function safePosition(state: EditorState, pos: number): { pos: number; newline: boolean } {
+/** Where a comment goes: after the block it would break, or after the inline node it would split (insertAt.ts). */
+function safePosition(state: EditorState, at: number): { pos: number; newline: boolean } {
+  const pos = outsideInline(state, at)
   for (let n: ReturnType<typeof syntaxTree>['topNode'] | null = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent) {
     if (OPAQUE.has(n.name) && n.from <= pos && pos <= n.to) {
       return { pos: state.doc.lineAt(Math.max(n.from, n.to - (state.doc.sliceString(n.to - 1, n.to) === '\n' ? 1 : 0))).to, newline: true }
     }
-    if (INLINE.has(n.name) && n.from < pos && pos < n.to) pos = n.to
   }
   return { pos, newline: false }
 }
