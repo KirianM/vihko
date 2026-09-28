@@ -7,8 +7,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  extract, globProblem, markdownParser, parseSearchQuery,
-  pathMatcher, trimSlashes, trimTrailingSlashes, withoutClosingHashes,
+  cleanText, extract, globProblem, goneThreads, markdownParser, parseComments, parseSearchQuery,
+  parseThreads, pathMatcher, reopener, trimSlashes, trimTrailingSlashes, withoutClosingHashes, type RemovedThread,
 } from '@vihko/core'
 
 /** Far more than linear work needs, far less than the quadratic took at these sizes (seconds). */
@@ -47,6 +47,32 @@ test('a heading closing sequence, removed as the pattern did', () => {
   }
   assert.equal(withoutClosingHashes('a\n#\n', /\s/), 'a')
   fast('closing sequence', () => withoutClosingHashes('a' + ' '.repeat(N) + 'x ##'))
+})
+
+test('comments: never closed, or with a long run of spaces', () => {
+  fast('long run', () => parseComments('<!-- @a 2026-09-28 · x' + ' '.repeat(N)))
+  fast('many openings', () => parseComments('<!-- @a 2026-09-28 · '.repeat(N / 10)))
+  fast('many on one line', () => parseThreads('a. <!-- @a 2026-09-28 · x -->'.repeat(N / 10)))
+  // What they read is what they read.
+  const doc = 'Uno.<!-- @a 2026-09-28T10:12Z · primero   -->\n<!-- @b 2026-09-28 · ↳ segundo -->\n```\n<!-- @c 2026-09-28 · código -->\n```\n<!-- @d 2026-09-28 · sin cerrar'
+  assert.deepEqual(parseComments(doc).map((c) => [c.author, c.date, c.text, c.reply]), [['a', '2026-09-28T10:12Z', 'primero', false], ['b', '2026-09-28', 'segundo', true]])
+  assert.deepEqual(parseThreads(doc).map((t) => doc.slice(t.anchorFrom, t.anchorTo)), ['Uno.'])
+})
+
+test('comments: many resolved on one long line, and reopened among many', () => {
+  const line = 'a. <!-- @a 2026-09-28 · x -->'.repeat(N / 4)
+  const gone = fast('gone threads', () => goneThreads(line, ''))
+  assert.equal(gone.length, N / 4, 'every thread, identical ones included')
+  const doc = 'a <!-- @b 2026-09-28 · c -->\n'.repeat(N / 4)
+  const removed: RemovedThread = { id: 'x', comments: [], anchor: 'a', place: { removed: '<!-- @x 2026-09-28 · y -->', context: 'a', at: 0 } }
+  // Every place right after an `a` would join the thread that follows it: none is found, after looking at each.
+  assert.equal(fast('reopen', () => reopener(doc)(removed)), null)
+  fast('context with a long run of spaces', () => reopener(doc)({ ...removed, place: { ...removed.place, context: 'a' + ' '.repeat(N) + 'b' } }))
+})
+
+test('a comment\'s text: a long run of dashes', () => {
+  assert.equal(fast('dashes', () => cleanText('-'.repeat(N))), '-'.repeat(N))
+  assert.equal(cleanText('a --> b ---> c ->'), 'a -- > b --- > c ->')
 })
 
 test('paths: a long run of slashes that doesn\'t end them', () => {
