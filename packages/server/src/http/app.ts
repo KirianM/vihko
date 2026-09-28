@@ -27,7 +27,8 @@ import { MoveJobs } from './jobs.ts'
 import type { ExternalMoves } from '../externalMoves.ts'
 import { HistoryError, type History } from '../history/index.ts'
 import { GitError } from '../history/git.ts'
-import { historyErrorStatus, historyRoutes, purgeErrorStatus } from './history.ts'
+import { historyErrorStatus, historyRoutes, purgeClientMessage, purgeErrorStatus } from './history.ts'
+import { UNAVAILABLE_MESSAGE, clientMessage } from '../history/reader.ts'
 import { PurgeError } from '../history/purge.ts'
 import { AccessError, AccessPolicy, AgentDenied, type Access } from '../access.ts'
 import { PermissionsEngine, groupSource, stateDirectory, type GroupSource } from '../permissions.ts'
@@ -280,9 +281,13 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof AudienceWidens) return fail(c, 409, 'audience_widens', err.message, { audience: err.audience })
     if (err instanceof FetchImageError) return fail(c, fetchErrorStatus(err), err.code, err.message)
     if (err instanceof ProfileError) return fail(c, 400, err.code, err.message)
-    if (err instanceof HistoryError) return fail(c, historyErrorStatus(err), err.code, err.message)
-    if (err instanceof PurgeError) return fail(c, purgeErrorStatus(err), err.code, err.message)
-    if (err instanceof GitError) return fail(c, 503, 'history_unavailable', err.message)
+    // What git said stays on the server (history/reader.ts `clientMessage`).
+    if (err instanceof HistoryError) return fail(c, historyErrorStatus(err), err.code, clientMessage(err))
+    if (err instanceof PurgeError) return fail(c, purgeErrorStatus(err), err.code, purgeClientMessage(err))
+    if (err instanceof GitError) {
+      console.error(`history: ${err.message}`)
+      return fail(c, 503, 'history_unavailable', UNAVAILABLE_MESSAGE)
+    }
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400, err.code, err.message)
     if (err instanceof KeyError) return fail(c, keyErrorStatus(err), err.code, err.message)
     if (err instanceof IntegrationsError) return fail(c, err.code === 'integrations_locked' ? 409 : 400, err.code, err.message)
