@@ -346,9 +346,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   // --- No session required: health, first boot and login --------------------
 
-  // For Docker's healthcheck and monitoring: the process responds, and which
-  // vihko it is (what `vihko version` prints). Nothing else.
-  app.get('/api/health', (c) => c.json({ ok: true, version: VERSION }))
+  // For Docker's healthcheck and monitoring: the process responds. Nothing
+  // else, not even the version: that is for who signs in (/api/config) or
+  // holds a key (MCP), not for anyone who reaches the port.
+  app.get('/api/health', (c) => c.json({ ok: true }))
 
   app.get('/api/setup', (c) => c.json({ needed: auth.userCount() === 0 }))
 
