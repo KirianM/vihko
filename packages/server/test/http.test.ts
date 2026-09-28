@@ -134,14 +134,12 @@ test('everything requires a session except health; login, session and logout', a
   assert.equal((await req('GET', '/api/auth/me')).status, 401)
 })
 
-// Known bug: sign-in looks the name up with state.db's `collate nocase`,
-// which folds ASCII only, while creating a user compares names with
-// subjectKey (any case, in any script): «LUCÍA» can't sign in as «lucía».
-// It fails for every generated name with a non-ASCII letter; marked todo
-// (reported, not hidden) until the lookup is fixed.
-test('a username signs in in any case, in any script', { todo: 'sign-in folds only ASCII case (state.db collate nocase)' }, async () => {
+// Sign-in finds the name as the permissions compare it (subjectKey), not with
+// state.db's `collate nocase`, which folds ASCII only. The name always has a
+// non-ASCII letter: that is the case under test.
+test('a username signs in in any case, in any script', async () => {
   const { auth, req } = await setup()
-  const admin = m.aUser({ role: 'admin' })
+  const admin = { ...m.aUser({ role: 'admin' }), username: `${m.aUsername().slice(0, 60)}í` }
   await auth.createUser(admin.username, admin.password, admin.role)
   for (const username of [admin.username.toUpperCase(), admin.username.toLowerCase()]) {
     assert.equal((await req('POST', '/api/auth/login', { username, password: admin.password })).status, 200, username)
