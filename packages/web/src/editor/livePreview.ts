@@ -264,6 +264,7 @@ function inlineDecorations(view: EditorView): DecorationSet {
               out.push(Decoration.line({ class: 'cm-codeblock' }).range(line.from))
               pos = line.to + 1
             }
+            if (!touchesLines(state, node.from, node.to)) hideFences(state, node, out)
             return false
           case 'Blockquote':
             for (let pos = node.from; pos <= node.to;) {
@@ -280,6 +281,50 @@ function inlineDecorations(view: EditorView): DecorationSet {
     })
   }
   return Decoration.set(out, true)
+}
+
+/** A code block's language, as a small label where its opening fence was. */
+class CodeLangWidget extends WidgetType {
+  readonly lang: string
+  constructor(lang: string) {
+    super()
+    this.lang = lang
+  }
+  eq(o: CodeLangWidget) { return o.lang === this.lang }
+  toDOM() {
+    const s = document.createElement('span')
+    s.className = 'cm-code-lang'
+    s.textContent = this.lang
+    return s
+  }
+}
+
+/**
+ * A code block away from the cursor: its fences (from the ``` to the end of
+ * their line) are hidden, and their lines stay as its top and bottom edges,
+ * so every line of the text is still one of the editor (selecting, copying,
+ * moving through them). The opening one shows the language, if it has one.
+ * An unclosed block (to the end of the note) has only the opening fence, and
+ * one with no line inside keeps both: there'd be nothing left to click into.
+ */
+function hideFences(state: EditorState, node: SyntaxNode, out: Range<Decoration>[]) {
+  const marks = node.getChildren('CodeMark')
+  const open = marks[0]
+  if (!open || open.from !== node.from) return
+  const openLine = state.doc.lineAt(open.from)
+  const close = marks.length > 1 ? marks[marks.length - 1]! : null
+  const closeLine = close ? state.doc.lineAt(close.from) : null
+  if (closeLine && closeLine.number <= openLine.number + 1) return
+  const info = node.getChild('CodeInfo')
+  const lang = info ? state.doc.sliceString(info.from, info.to).trim().split(/\s+/)[0]! : ''
+  // In a quote, its `>` goes too (the line keeps the quote's edge); a list's marker stays.
+  const from = (mark: SyntaxNode, line: { from: number }) => (/^[\s>]*$/.test(state.doc.sliceString(line.from, mark.from)) ? line.from : mark.from)
+  out.push(Decoration.line({ class: lang ? 'cm-fence cm-fence-open' : 'cm-fence' }).range(openLine.from))
+  out.push(Decoration.replace(lang ? { widget: new CodeLangWidget(lang) } : {}).range(from(open, openLine), openLine.to))
+  if (close && closeLine) {
+    out.push(Decoration.line({ class: 'cm-fence' }).range(closeLine.from))
+    out.push(Decoration.replace({}).range(from(close, closeLine), closeLine.to))
+  }
 }
 
 function hideChildren(node: SyntaxNode, names: string[], out: Range<Decoration>[]) {
