@@ -1,7 +1,7 @@
 // "Search or create" palette (⌘K): notes from the index (with `tag:` and
-// `path:` filters), creating a note in the current folder, and commands (by
-// typing ">"). React Aria combobox: focus stays in the field and the arrow keys
-// move the active option.
+// `path:` filters), creating a note in the current folder (or at a path from
+// it: newNote.ts), and commands (by typing ">"). React Aria combobox: focus
+// stays in the field and the arrow keys move the active option.
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import {
   Autocomplete, Button, Dialog, Header, Input, ListBox, ListBoxItem, ListBoxSection, Modal, ModalOverlay, TextField, type Key,
@@ -13,6 +13,7 @@ import { errorText, useT } from './i18n.tsx'
 import { recentNotes } from './recent.ts'
 import { useTheme } from './theme.ts'
 import { useBackClose, useMobile } from './mobile.ts'
+import { newNote, type NewNote } from './newNote.ts'
 import { Icon } from './ui.tsx'
 
 export type PaletteMode = 'search' | 'create'
@@ -26,19 +27,6 @@ export function SearchButton() {
   const open = useContext(OpenPaletteContext)
   if (!open) return null
   return <Button className="btn btn-icon mobile-only" aria-label={t('palette.input')} onPress={open}>{Icon.search}</Button>
-}
-
-/** File name for a new note: no slashes or control characters, no leading dot (would be hidden), with `.md`. */
-export function noteFileName(input: string): string | null {
-  const name = input.normalize('NFC')
-    .replace(/[\u0000-\u001f\u007f]/g, '')
-    .replace(/[/\\]/g, '-')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^[.\s]+/, '')
-    .replace(/\.md$/i, '')
-    .trim()
-  return name ? `${name}.md` : null
 }
 
 const folderOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
@@ -83,7 +71,7 @@ function NoteOption({ path, title, snippet }: { path: string; title: string; sni
 
 interface Props {
   mode: PaletteMode
-  /** Folder of the open note ('' = root): the new note is created there. */
+  /** Folder of the open note ('' = root): the new note is created there, or in the folders its name gives from there. */
   folder: string
   openPath: string | null
   notes: TreeNote[] | null
@@ -133,14 +121,13 @@ export function Palette({ mode, folder, openPath, notes, templates, onToday, onC
   // Create shows up once the results for what was typed have arrived: this way a
   // quick ↵ opens the matching note instead of creating another with the same name.
   // A query with a filter (`tag:x`) is a search, never the name of a new note.
-  const fileName = commandMode || (mode === 'search' && (found?.q !== text || hasSearchFilter(query))) ? null : noteFileName(query)
+  const note = commandMode || (mode === 'search' && (found?.q !== text || hasSearchFilter(query))) ? null : newNote(query, folder)
 
-  async function create(name: string, template?: string) {
-    const path = folder ? `${folder}/${name}` : name
+  async function create(note: NewNote, template?: string) {
     setBusy(true)
     setError(null)
     try {
-      const r = template ? await api.createFromTemplate(path, template) : await api.createNote(path, `# ${query.trim()}\n`)
+      const r = template ? await api.createFromTemplate(note.path, template) : await api.createNote(note.path, `# ${note.title}\n`)
       onCreated(r.path)
     } catch (e) {
       setError(errorText(t, e))
@@ -152,8 +139,8 @@ export function Palette({ mode, folder, openPath, notes, templates, onToday, onC
   function act(key: Key) {
     const k = String(key)
     if (k.startsWith('n:')) { onClose(); onOpen(k.slice(2)) }
-    else if (k === 'create' && fileName && !busy) void create(fileName)
-    else if (k.startsWith('t:') && fileName && !busy) void create(fileName, k.slice(2))
+    else if (k === 'create' && note && !busy) void create(note)
+    else if (k.startsWith('t:') && note && !busy) void create(note, k.slice(2))
     else if (k.startsWith('c:')) {
       const c = commands.find((x) => `c:${x.id}` === k)
       if (!c) return
@@ -162,8 +149,8 @@ export function Palette({ mode, folder, openPath, notes, templates, onToday, onC
     }
   }
 
-  const where = folder ? folderLabel(folder) : t('palette.root')
-  const [before, after] = t('palette.createIn', { name: fileName ? baseName(fileName) : '' }).split('{folder}')
+  const where = note?.folder ? folderLabel(note.folder) : t('palette.root')
+  const [before, after] = t('palette.createIn', { name: note?.title ?? '' }).split('{folder}')
   const hints = mode === 'create' ? ['palette.keyCreate'] as const
     : commandMode ? ['palette.keyMove', 'palette.keyRun'] as const
     : ['palette.keyMove', 'palette.keyOpen'] as const
@@ -207,22 +194,22 @@ export function Palette({ mode, folder, openPath, notes, templates, onToday, onC
                   {recent.map((p) => <NoteOption key={p} path={p} title={titles.get(p) ?? ''} />)}
                 </ListBoxSection>
               )}
-              {fileName && (
+              {note && (
                 <ListBoxSection className="palette-section">
                   <Header className="palette-header">{t('palette.create')}</Header>
-                  <ListBoxItem id="create" textValue={t('palette.createIn', { name: baseName(fileName), folder: where })} className="palette-item palette-create">
+                  <ListBoxItem id="create" textValue={t('palette.createIn', { name: note.title, folder: where })} className="palette-item palette-create">
                     <span className="palette-icon palette-icon-accent">{Icon.plus}</span>
                     <span className="palette-grow">{before}<b>{where}</b>{after}</span>
-                    <span className="palette-meta">{t('palette.currentFolder')}</span>
+                    {note.folder === folder && <span className="palette-meta">{t('palette.currentFolder')}</span>}
                   </ListBoxItem>
                 </ListBoxSection>
               )}
-              {fileName && templates.length > 0 && (
+              {note && templates.length > 0 && (
                 <ListBoxSection className="palette-section">
                   <Header className="palette-header">{t('palette.fromTemplate')}</Header>
                   {templates.map((tpl) => {
-                    const label = t('palette.createWith', { name: baseName(fileName), template: baseName(tpl) })
-                    const [pre, post] = t('palette.createWith', { name: baseName(fileName) }).split('{template}')
+                    const label = t('palette.createWith', { name: note.title, template: baseName(tpl) })
+                    const [pre, post] = t('palette.createWith', { name: note.title }).split('{template}')
                     return (
                       <ListBoxItem key={tpl} id={`t:${tpl}`} textValue={label} className="palette-item">
                         <span className="palette-icon">{noteIcon}</span>

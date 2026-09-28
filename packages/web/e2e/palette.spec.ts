@@ -2,8 +2,8 @@
 // note in the current folder, commands, and the mobile version.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, readFileSync } from 'node:fs'
-import { ADMIN, MEMBER, NOTES, specMother } from './env.ts'
-import { signIn } from './helpers.ts'
+import { ADMIN, MEMBER, NOTES, freshFolder, specMother } from './env.ts'
+import { signIn, usePermissions } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 
@@ -17,6 +17,20 @@ test.beforeAll(async ({ browser }) => {
 
 const palette = () => k.getByRole('dialog', { name: 'Buscar o crear' })
 const field = () => palette().getByRole('textbox')
+
+/** The heading a note was created with (after the frontmatter with its uid). */
+const h1 = (path: string) => readFileSync(`${NOTES}/${path}`, 'utf8').split('\n').find((l) => l.startsWith('# '))
+
+/**
+ * The other specs share the notes folder: a note made in a new folder goes to
+ * the trash, and the folder with it. Then back to hogar, where the next tests create.
+ */
+async function removeNote(folder: string, name: string) {
+  await k.goto('/?note=hogar/Red.md')
+  await expect(k.locator('.cm-content')).toBeVisible()
+  expect((await k.request.delete(`/api/note?path=${encodeURIComponent(`${folder}/${name}.md`)}`)).status()).toBe(200)
+  expect((await k.request.delete(`/api/folder?path=${encodeURIComponent(folder)}`)).status()).toBe(200)
+}
 
 test('⌘K searches ignoring accents, highlights, and opens the note with ↵', async () => {
   await k.keyboard.press('Control+k')
@@ -44,21 +58,68 @@ test('with an empty query shows recents; esc closes', async () => {
 
 test('creates the note in the current folder, refreshes the tree, and opens it', async () => {
   await k.keyboard.press('Control+k')
-  // A «/» in what's typed: the title keeps it, the file name can't (it becomes «-»).
-  const typed = `${m.aTitle()}/${m.aWord()}`
-  const name = typed.replace('/', '-')
-  await field().fill(typed)
+  const name = m.aTitle()
+  await field().fill(name)
   const create = palette().getByRole('option', { name: `Crear «${name}» en hogar` })
   await expect(create).toBeVisible()
+  await expect(create).toContainText('carpeta actual')
   await create.click()
   await expect(k.locator('.crumbs b')).toHaveText(name)
-  await expect(k.locator('.cm-content')).toContainText(typed)
-  const file = `${NOTES}/hogar/${name}.md`
-  expect(existsSync(file)).toBe(true)
-  expect(readFileSync(file, 'utf8')).toContain(`# ${typed}\n`)
+  await expect(k.locator('.cm-h1')).toHaveText(name)
+  expect(h1(`hogar/${name}.md`)).toBe(`# ${name}`)
   await k.getByRole('row', { name: 'hogar' }).click()
   await k.keyboard.press('ArrowRight')
   await expect(k.getByRole('row', { name, exact: true })).toBeVisible()
+})
+
+test('a «/» in the name is a folder: created under the current one (missing folders too), titled with the name alone', async () => {
+  await k.goto('/?note=hogar/Red.md')
+  await expect(k.locator('.cm-content')).toBeVisible()
+  await k.keyboard.press('Control+k')
+  const [folder, name] = [m.aFolder(), m.aTitle()]
+  await field().fill(`${folder}/${name}`)
+  const create = palette().getByRole('option', { name: `Crear «${name}» en hogar / ${folder}` })
+  await expect(create).toBeVisible()
+  await expect(create).not.toContainText('carpeta actual')
+  await create.click()
+  await expect(k.locator('.crumbs b')).toHaveText(name)
+  await expect(k.locator('.cm-h1')).toHaveText(name)
+  expect(h1(`hogar/${folder}/${name}.md`)).toBe(`# ${name}`)
+  await expect(k.getByRole('row', { name: folder, exact: true })).toBeVisible()
+  await removeNote(`hogar/${folder}`, name)
+})
+
+test('a leading «/» creates it from the root', async () => {
+  await k.keyboard.press('Control+k')
+  const [folder, name] = [freshFolder(() => m.aFolder()), m.aTitle()]
+  await field().fill(`/${folder}/${name}`)
+  await palette().getByRole('option', { name: `Crear «${name}» en ${folder}` }).click()
+  await expect(k.locator('.crumbs b')).toHaveText(name)
+  expect(h1(`${folder}/${name}.md`)).toBe(`# ${name}`)
+  await removeNote(folder, name)
+})
+
+test('a folder where one can only read: the note is not created, and the palette says why', async ({ browser }) => {
+  const folder = freshFolder(() => m.aFolder())
+  const name = m.aTitle()
+  await usePermissions({ rules: { [folder]: { [MEMBER.username]: 'read' } } })
+  const member = await signIn(browser, MEMBER)
+  try {
+    // Rules other than the root's: waited for here (usePermissions waits for the root's).
+    await expect.poll(async () => {
+      const r = await k.request.get(`/api/permissions?folder=${encodeURIComponent(folder)}`)
+      return r.ok() ? ((await r.json()) as { effective: { rule: string | null } }).effective.rule : r.status()
+    }, { timeout: 15_000 }).toBe(folder)
+    await member.keyboard.press('Control+k')
+    const dialog = member.getByRole('dialog', { name: 'Buscar o crear' })
+    await dialog.getByRole('textbox').fill(`${folder}/${name}`)
+    await dialog.getByRole('option', { name: `Crear «${name}» en ${folder}` }).click()
+    await expect(dialog.getByRole('alert')).toHaveText('No tienes permiso para hacer esto.')
+    expect(existsSync(`${NOTES}/${folder}/${name}.md`)).toBe(false)
+  } finally {
+    await member.context().close()
+    await usePermissions()
+  }
 })
 
 test('creating one that already exists shows the translated error', async () => {
