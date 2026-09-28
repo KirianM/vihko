@@ -344,6 +344,7 @@ lists every command.
 
 ### Next steps
 
+- Find your way around the app: [First steps in the app](first-steps.md).
 - Invite people: [Users and permissions](users-and-permissions.md).
 - Configure the workspace (daily notes, templates, where images go):
   [Configuration](configuration.md).

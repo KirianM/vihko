@@ -82,7 +82,8 @@ The log of the first start prints a one-time token:
 
 Open `http://<your-server>:8080`, paste the token, and choose the admin's name
 and password (10 characters or more). That's it: create notes in the UI, or
-drop `.md` files into `notes/`.
+drop `.md` files into `notes/`. Then: [First steps in the app](guide/first-steps.md)
+shows notes, folders, links, search and sharing in a few minutes.
 
 Port 8080 taken? `VIHKO_HOST_PORT=8098 docker compose up -d`. Already have
 notes, on this disk or on NFS? Point the `./notes` volume at that folder, and
@@ -95,6 +96,8 @@ file.
 
 - [Installation](guide/install.md): requirements, the compose file, first
   start, environment variables.
+- [First steps in the app](guide/first-steps.md): notes, folders, links,
+  tags, search, sharing, and the phone.
 - [Notes and Markdown](guide/notes.md): what vihko reads and writes in your
   files, and editing them with other tools.
 - [Configuration](guide/configuration.md): `vihko.yaml`, the workspace
