@@ -148,10 +148,15 @@ test('access changed while the note is open: the editor reopens with the new mod
   await expect(k.locator('.status-readonly')).toHaveText('Solo comentarios', SLOW)
   await expect(panel(k).getByRole('button', { name: 'Comentar la selección' })).toBeVisible()
   // And the text is still there, live: what the member types reaches the admin.
-  await a.locator('.cm-line', { hasText: SECOND }).click()
-  await a.keyboard.press('End')
+  // At the end of the note, not after a click and End on a line: the member's
+  // comment is on SECOND's line, and with the cursor next to it its hidden
+  // syntax shows; when that wraps, End stops at the end of the visual line,
+  // inside the comment, where the typed line is hidden too (some seeds only).
+  await a.locator('.cm-line', { hasText: FIRST }).click()
+  await a.keyboard.press('Control+End')
   await a.keyboard.type(`\n${LATER}`)
-  await expect(k.locator('.cm-content')).toContainText(LATER)
+  await expect(a.locator('.cm-line', { hasText: LATER })).toBeVisible()
+  await expect(k.locator('.cm-line', { hasText: LATER })).toBeVisible()
 })
 
 test('whoever manages the folder purges a version from the UI; the admin gets the notice, without the content', async () => {
