@@ -25,7 +25,8 @@ import { publicUrlFrom } from './oauth.ts'
 import type { Server } from 'node:http'
 import type { BlockList } from 'node:net'
 import { trustedProxiesFrom } from './http/clientIp.ts'
-import { WORKSPACE_FILE } from '@vihko/core'
+import { WORKSPACE_FILE, type WorkspaceMigration } from '@vihko/core'
+import { ConfigMigrations } from './configMigrations.ts'
 import { AccessPolicy } from './access.ts'
 import { PermissionsEngine, groupSource, stateDirectory } from './permissions.ts'
 import { PermissionHolds } from './permissionHolds.ts'
@@ -125,24 +126,32 @@ export function openStores(config: Config) {
   return { state, index }
 }
 
-export async function start(config: Config) {
+export interface StartOptions {
+  /** vihko.yaml's format migrations (core's list by default; the tests bring their own). */
+  workspaceMigrations?: readonly WorkspaceMigration[]
+}
+
+export async function start(config: Config, opts: StartOptions = {}) {
   // One process at a time on the state volume (a second server, or `vihko history purge`).
   mkdirSync(config.stateDir, { recursive: true })
   const lock = lockState(config.stateDir)
   try {
-    return await run(config, lock)
+    return await run(config, lock, opts)
   } catch (err) {
     lock.release()
     throw err
   }
 }
 
-async function run(config: Config, lock: StateLock) {
+async function run(config: Config, lock: StateLock, opts: StartOptions) {
   const { state, index } = openStores(config)
   const auth = new Auth(state)
   const keys = new ApiKeys(state)
   const integrations = new Integrations(state, { locked: config.integrationsLocked })
   const log = (msg: string) => console.log(`[vihko] ${msg}`)
+  // vihko.yaml in the current format before it's read (D-042.6): only here, never while it runs.
+  const configMigrations = new ConfigMigrations({ notesDir: config.notesDir, stateDir: config.stateDir, migrations: opts.workspaceMigrations, log })
+  await configMigrations.run()
   const workspace = new Workspace({ notesDir: config.notesDir, log })
   const indexer = new Indexer({ notesDir: config.notesDir, db: index, linkAliases: workspace.config.links.aliases })
   // Users and groups. Ending someone's sessions ends their live connections
@@ -239,7 +248,7 @@ async function run(config: Config, lock: StateLock) {
   if (unreadable) log(`${unreadable} second factor(s) can't be read ${config.secretBox ? 'with this VIHKO_SECRET_KEY' : 'without VIHKO_SECRET_KEY'}: those people sign in with a recovery code, or run vihko user reset-2fa <name>`)
   const app = createApp({
     auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users, twoFactor,
-    policy, holds, onPermissionsChanged: () => hub.recheckAccess(),
+    policy, holds, onPermissionsChanged: () => hub.recheckAccess(), configMigrations,
     // The MCP server, at /mcp (off until the admin turns it on).
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log, icons: markIcons(webDir) }) },
   })
