@@ -423,7 +423,9 @@ anything if vihko starts that way.
 > rule back: every admin manages the root and so reads every note, since
 > without a `{user}` rule there are no personal folders, and members read
 > nothing. Protect the file like a password file: whoever can write it on disk
-> decides who reads what.
+> decides who reads what. While vihko runs, the implicit rule only replaces the
+> permissions in force once the file has stayed without them for 2 seconds: a
+> file an editor empties for an instant while saving it opens nothing.
 
 #### How vihko writes the permissions
 

@@ -3,7 +3,7 @@
 // the trash, the history at `edit`, and what fails closed.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { ADMIN, DIR, FILES, GROUP, MEMBER, NAME, NOBODY, OTHER, PATH, RULES, TAG, WORD, home, setup, type Name } from './_m4.ts'
 import { yamlKey } from './_permissions.ts'
@@ -387,6 +387,32 @@ test('permissions fail closed: rejected at start, nobody reads; rejected while r
     assert.equal((await h.member('GET', h.url('/api/note', { path: PATH.list }))).status, 200)
     const now = (await h.admin('GET', '/api/alerts')).body.alerts as { code: string; fallback?: string }[]
     assert.equal(now.find((a) => a.code === 'permissions_rejected')?.fallback, 'last_good')
+  } finally { await h.close() }
+})
+
+test('vihko.yaml emptied or deleted while running: the implicit rule only once it stays so, never for a half-saved file', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    const file = join(h.notesDir, 'vihko.yaml')
+    const adminReads = async () => (await h.admin('GET', h.url('/api/note', { path: PATH.cake }))).status
+    assert.equal(await adminReads(), 404)
+    // An editor that truncates the file and writes it again: for a moment it's empty, then whole again.
+    writeFileSync(file, '')
+    h.workspace.reload()
+    assert.equal(await adminReads(), 404, 'an empty file for a moment opens nothing')
+    writeFileSync(file, RULES)
+    h.workspace.reload()
+    assert.equal(await adminReads(), 404)
+    // Deleted, and it stays deleted: the implicit rule applies after a moment (every admin manages the root, with no personal folders).
+    rmSync(file)
+    h.workspace.reload()
+    assert.equal(await adminReads(), 404, 'not at once')
+    const kind = () => h.workspace.permissions.kind
+    assert.equal(kind(), 'rules')
+    const until = Date.now() + 10_000
+    while (kind() !== 'implicit' && Date.now() < until) await new Promise((r) => setTimeout(r, 100))
+    assert.equal(kind(), 'implicit', 'once it stayed so')
+    assert.equal(await adminReads(), 200)
   } finally { await h.close() }
 })
 
