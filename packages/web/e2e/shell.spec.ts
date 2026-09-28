@@ -12,9 +12,15 @@ test('failed login, sign in, tree, theme and sign out', async ({ page, browser }
   await expect(page.getByRole('alert')).toHaveText('Usuario o contraseña incorrectos.')
 
   const k = await signIn(browser, ADMIN)
-  const rows = k.getByRole('row')
-  // Folders first, even one with no notes (adjuntos only holds images).
-  await expect(rows.first()).toHaveText('adjuntos')
+  // Folders first, even one with no notes (adjuntos only holds images). Other
+  // specs leave folders of their own at the root: the order is what's checked,
+  // not which folder comes first.
+  const top = k.locator('[role="row"][aria-level="1"]')
+  await expect(top.filter({ hasText: /^adjuntos$/ })).toBeVisible()
+  const keys = await top.evaluateAll((els) => els.map((e) => e.getAttribute('data-key') ?? ''))
+  const firstNote = keys.findIndex((key) => key.startsWith('n:'))
+  expect(keys.indexOf('d:adjuntos')).toBeGreaterThanOrEqual(0)
+  if (firstNote >= 0) expect(keys.slice(firstNote).some((key) => key.startsWith('d:'))).toBe(false)
   await k.getByRole('row', { name: 'diario' }).click()
   await k.keyboard.press('ArrowRight')
   await expect(k.getByRole('row', { name: '2026-09-24' })).toBeVisible()
