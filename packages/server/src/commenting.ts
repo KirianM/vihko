@@ -92,10 +92,24 @@ export function commentSplices(doc: string, op: CommentOp, author: string, date:
  */
 function placeAfter(doc: string, context: string, at: number): number | null {
   if (context === '') return 0
+  // Every occurrence, overlapping ones too, in one pass (Knuth–Morris–Pratt):
+  // indexOf from each one compared the whole context again, and a context of
+  // repeated text in a note of it took quadratic time.
+  const fall = new Int32Array(context.length)
+  for (let i = 1, k = 0; i < context.length; i++) {
+    while (k > 0 && context[i] !== context[k]) k = fall[k - 1]!
+    if (context[i] === context[k]) k++
+    fall[i] = k
+  }
   let best: number | null = null
-  for (let i = doc.indexOf(context); i >= 0; i = doc.indexOf(context, i + 1)) {
-    const end = i + context.length
-    if (best === null || Math.abs(end - at) < Math.abs(best - at)) best = end
+  for (let i = 0, k = 0; i < doc.length; i++) {
+    while (k > 0 && doc[i] !== context[k]) k = fall[k - 1]!
+    if (doc[i] === context[k]) k++
+    if (k === context.length) {
+      const end = i + 1
+      if (best === null || Math.abs(end - at) < Math.abs(best - at)) best = end
+      k = fall[k - 1]!
+    }
   }
   return best
 }

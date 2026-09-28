@@ -1,3 +1,4 @@
+import { trimTrailingSlashes } from './paths.ts'
 // Path patterns relative to the root of the notes folder, for `history.exclude`
 // in vihko.yaml. A minimal glob of vihko's own, with no dependency:
 //
@@ -20,7 +21,7 @@ export type GlobProblem = 'empty' | 'absolute' | 'segment' | 'double_star' | 'un
 
 /** Checks a pattern; null if it's valid. */
 export function globProblem(pattern: string): GlobProblem | null {
-  const p = pattern.replace(/\/+$/, '')
+  const p = trimTrailingSlashes(pattern)
   if (p.trim() === '') return 'empty'
   if (p.startsWith('/')) return 'absolute'
   if (/[\u0000-\u001f\u007f]/.test(p) || /[[\]{}\\]/.test(p) || p.startsWith('!')) return 'unsupported'
@@ -33,7 +34,7 @@ export function globProblem(pattern: string): GlobProblem | null {
 
 /** The expression for a valid pattern: the path it names, or anything under it. */
 function compile(pattern: string): RegExp {
-  const segments = pattern.normalize('NFC').replace(/\/+$/, '').split('/')
+  const segments = trimTrailingSlashes(pattern.normalize('NFC')).split('/')
   let re = ''
   let slash = false
   segments.forEach((s, i) => {

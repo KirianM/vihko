@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ADMIN, FILES, MEMBER, NAME, OTHER, PATH, RULES, UID, WORD, setup } from './_m4.ts'
+import { ADMIN, FILES, MEMBER, NAME, OTHER, PATH, RULES, UID, WORD, home, setup } from './_m4.ts'
 import { yamlKey } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -126,5 +126,21 @@ test('with comment, one\'s own thread with replies from other people isn\'t thei
     r = await h.member('POST', '/api/note/comment', { path: CAKE, op: 'resolve', thread: replied })
     assert.equal(r.status, 200, JSON.stringify(r.body))
     assert.ok(!file().includes(first) && !file().includes(theirReply))
+  } finally { await h.close() }
+})
+
+test('a comment\'s place is found in time in proportion to the note, whatever its context repeats', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    // The attack is the text itself: a note of one repeated letter, and a long context of it.
+    const path = m.aNotePath(home(member))
+    const text = 'a'.repeat(500_000)
+    assert.equal((await h.member('POST', '/api/note', { path, text })).status, 201)
+    const written = readFileSync(join(h.notesDir, path), 'utf8')
+    const start = performance.now()
+    const r = await h.member('POST', '/api/note/comment', { path, op: 'add', at: written.length, context: 'a'.repeat(100_000), text: m.aComment() })
+    const ms = performance.now() - start
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    assert.ok(ms < 3000, `${Math.round(ms)} ms`)
   } finally { await h.close() }
 })

@@ -7,7 +7,7 @@
 // An OAuth authorization (oauth.ts) is a key too, listed and revoked like the
 // others, which only its client's tokens reach.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { keyWidens, newUid } from '@vihko/core'
+import { keyWidens, newUid, trimTrailingSlashes } from '@vihko/core'
 import type { Db } from './db.ts'
 import type { Role, User } from './auth.ts'
 import { VIAS, type Via } from './actor.ts'
@@ -340,7 +340,7 @@ export function checkFolders(v: unknown): string[] | undefined {
   const out = new Set<string>()
   for (const f of v) {
     if (typeof f !== 'string') throw new KeyError('invalid', 'each folder must be text')
-    const folder = f.normalize('NFC').trim().replace(/\/+$/, '')
+    const folder = trimTrailingSlashes(f.normalize('NFC').trim())
     try {
       NoteService.checkFolder(folder)
     } catch (err) {
