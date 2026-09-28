@@ -86,6 +86,15 @@ test('trailers: written and read back; moves by file and by folder', () => {
   assert.deepEqual(parseAuthorKey('external'), { kind: 'external' })
 })
 
+test('trailers: a name with a Unicode line or paragraph separator reads back whole', () => {
+  // U+2028 and U+2029 aren't control characters, so a note may be named with them;
+  // a trailer's value is everything up to the end of its line.
+  const moves = [{ from: 'a.md', to: 'uno dos.md' }, { from: 'b.md', to: 'tres cuatro/b.md' }]
+  const p = parseMessage(formatMessage('Move', { authors: ['user 01ABC'], reason: null, foundAtStartup: false, moves, restoredFrom: null }))
+  assert.deepEqual(p.moves, moves)
+  assert.equal(movedFrom('uno dos.md', p.moves), 'a.md')
+})
+
 test('trailers: an agent\'s via goes in its own Vihko-Via, and the Vihko-Actor keeps the form older versions read', () => {
   const msg = formatMessage('Edit plan', {
     authors: ['agent K1 U1 mcp', 'user U1', 'agent K2 U1', 'agent K1 U1 api'],
