@@ -1,7 +1,8 @@
 // Comments in the editor: the commented text is highlighted with the color of
 // whoever opened the thread, and the `<!-- … -->` syntax is hidden except where
-// the cursor is, like the rest of the marks (livePreview.ts). On narrow screens,
-// below each paragraph with comments, a notice opens the panel.
+// the cursor is, like the rest of the marks (livePreview.ts). While the side
+// panel is closed, a notice below each paragraph with comments opens it and,
+// beside it on a wide screen, so does a click on the commented text.
 import { syntaxTree } from '@codemirror/language'
 import { Facet, StateEffect, StateField, type EditorState, type Range } from '@codemirror/state'
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view'
@@ -30,10 +31,25 @@ export interface CommentUi {
   /** "2 comments in this paragraph". */
   count: (n: number) => string
   show: string
+  /** "2 comments · click to see them": the commented text's title when a click opens them. */
+  hint: (n: number) => string
   open: (threadId: string) => void
 }
 export const commentUi = Facet.define<CommentUi, CommentUi>({
-  combine: (v) => v[0] ?? { count: (n) => String(n), show: '›', open: () => {} },
+  combine: (v) => v[0] ?? { count: (n) => String(n), show: '›', hint: (n) => String(n), open: () => {} },
+})
+
+/**
+ * How the comments are reached from the text, as the side panel is:
+ * `notices` below their paragraphs while it's closed; `click` on the commented
+ * text too while it's closed beside the editor (on a narrow screen it would
+ * cover the editor at every tap into that text: the notice is the way there).
+ */
+export interface CommentReach { notices: boolean; click: boolean }
+export const setCommentReach = StateEffect.define<CommentReach>()
+const reach = StateField.define<CommentReach>({
+  create: () => ({ notices: false, click: false }),
+  update: (v, tr) => tr.effects.reduce((acc, e) => (e.is(setCommentReach) ? e.value : acc), v),
 })
 
 class ParagraphNotice extends WidgetType {
@@ -90,6 +106,8 @@ function decorations(state: EditorState): DecorationSet {
   const threads = state.field(threadsField)
   if (threads.length === 0) return Decoration.none
   const { color, active } = state.field(style)
+  const { notices, click } = state.field(reach)
+  const ui = state.facet(commentUi)
   const out: Range<Decoration>[] = []
   const perBlock = new Map<number, { n: number; thread: string }>()
   for (const t of threads) {
@@ -97,8 +115,8 @@ function decorations(state: EditorState): DecorationSet {
     const anchored = t.anchorTo > t.anchorFrom
     if (anchored) {
       out.push(Decoration.mark({
-        class: t.id === active ? 'cm-commented cm-commented-active' : 'cm-commented',
-        attributes: { style: `--comment-color: ${c}` },
+        class: `cm-commented${t.id === active ? ' cm-commented-active' : ''}${click ? ' cm-commented-open' : ''}`,
+        attributes: { style: `--comment-color: ${c}`, ...(click ? { title: ui.hint(t.comments.length) } : {}) },
       }).range(t.anchorFrom, t.anchorTo))
     }
     if (touches(state, t.from, t.to)) out.push(Decoration.mark({ class: 'cm-comment-raw' }).range(t.from, t.to))
@@ -110,8 +128,10 @@ function decorations(state: EditorState): DecorationSet {
     const cur = perBlock.get(end)
     perBlock.set(end, { n: (cur?.n ?? 0) + t.comments.length, thread: cur?.thread ?? t.id })
   }
-  for (const [end, { n, thread }] of perBlock) {
-    out.push(Decoration.widget({ widget: new ParagraphNotice(n, thread), block: true, side: 1 }).range(end))
+  if (notices) {
+    for (const [end, { n, thread }] of perBlock) {
+      out.push(Decoration.widget({ widget: new ParagraphNotice(n, thread), block: true, side: 1 }).range(end))
+    }
   }
   return Decoration.set(out, true)
 }
@@ -119,11 +139,29 @@ function decorations(state: EditorState): DecorationSet {
 const commentDecorations = StateField.define<DecorationSet>({
   create: decorations,
   update: (v, tr) =>
-    tr.docChanged || tr.selection || focusChanged(tr) || tr.effects.some((e) => e.is(setCommentStyle)) ||
+    tr.docChanged || tr.selection || focusChanged(tr) || tr.effects.some((e) => e.is(setCommentStyle) || e.is(setCommentReach)) ||
     syntaxTree(tr.state) !== syntaxTree(tr.startState)
       ? decorations(tr.state)
       : v,
   provide: (f) => EditorView.decorations.from(f),
 })
 
-export const commentMarks = [threadsField, style, commentDecorations]
+/**
+ * A click on commented text, while `reach.click`, opens its thread in the
+ * panel (the first one there, with several: the panel lists them all). The
+ * click still places the cursor, and the editor keeps the focus: it's still
+ * a click to edit. Not after a drag that selected text.
+ */
+const openOnClick = EditorView.domEventHandlers({
+  click(e, view) {
+    if (e.button !== 0 || !view.state.field(reach).click || !view.state.selection.main.empty) return false
+    const el = (e.target as Element | null)?.closest?.('.cm-commented')
+    if (!el || !view.contentDOM.contains(el)) return false
+    const pos = view.posAtCoords({ x: e.clientX, y: e.clientY }) ?? view.posAtDOM(el)
+    const thread = view.state.field(threadsField).find((t) => t.anchorTo > t.anchorFrom && pos >= t.anchorFrom && pos <= t.anchorTo)
+    if (thread) view.state.facet(commentUi).open(thread.id)
+    return false
+  },
+})
+
+export const commentMarks = [threadsField, style, reach, commentDecorations, openOnClick]

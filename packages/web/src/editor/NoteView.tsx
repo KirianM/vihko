@@ -445,6 +445,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
           {gone && <p className="empty" role="alert">{t('note.gone')}</p>}
           {c.session && c.connection !== 'connecting' && config && known && (
             <Editor path={path} session={c.session} user={user} links={links} onNavigate={onNavigate} onView={setView} onComments={panel.showComments}
+              commentReach={{ notices: !panel.open, click: !panel.open && !panel.narrow }}
               externalImages={config.externalImages} onImageFiles={images.onFiles} onImageUrl={images.onUrl} onCreateLink={createLink.onCreateLink}
               onPickAmbiguous={openPicker} readOnly={!editable} />
           )}
