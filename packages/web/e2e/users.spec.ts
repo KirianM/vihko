@@ -136,6 +136,7 @@ test('a new admin is confirmed at the moment: the dialog asks for the admin\'s p
   await openSettings(admin, 'Usuarios y grupos', 'users')
   await admin.getByRole('button', { name: 'Nuevo usuario' }).click()
   const create = admin.getByRole('dialog')
+  await expect(create.getByLabel('Nombre de usuario')).toHaveAttribute('autocapitalize', 'none')
   await create.getByLabel('Nombre de usuario').fill(LEAD.username)
   // A member asks nothing more; an admin, the admin's own password (they have no second factor).
   await expect(create.getByLabel('Tu contraseña')).toHaveCount(0)

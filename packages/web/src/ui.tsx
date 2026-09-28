@@ -14,6 +14,13 @@ export function Mark({ size = 22 }: { size?: number }) {
   )
 }
 
+/**
+ * For a field where someone types a user's or a group's name: phones don't
+ * capitalise, correct or spell-check it (names are usually lowercase, and a
+ * keyboard that starts with a capital suggests the wrong spelling).
+ */
+export const NAME_INPUT = { autoCapitalize: 'none', autoCorrect: 'off', spellCheck: false } as const
+
 export function Brand({ size }: { size?: number }) {
   const t = useT()
   return (
