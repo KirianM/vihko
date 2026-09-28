@@ -19,6 +19,7 @@ export type ErrorCode =
   | 'precondition_failed' // If-Match doesn't match
   | 'exists'
   | 'invalid_path'
+  | 'control_characters' // a note or folder name vihko would give with a control character (a tab, a line break…)
   | 'edit_mismatch'
   | 'invalid_username'
   | 'weak_password'

@@ -3,7 +3,7 @@
 // (fsutil.ts), lazy `uid` and deletion to trash.
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, resolve } from 'node:path'
-import { addToFrontmatterList, classifyPath, contentHash, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
+import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
 import { commitText, createFile, linkNew, readStable, readText } from './fsutil.ts'
 import { attachmentPath, noteAttachmentsDir, sniffImage, suffixedName } from './attachments.ts'
 import { applyReplacements, beforeMoves, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
@@ -30,7 +30,7 @@ const NO_HISTORY: NoteHistory = {
   operation: (_a, _r, fn) => fn(),
 }
 
-export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'edit_mismatch' | 'too_large' | 'unsupported_type' | 'not_configured' | 'not_empty'
+export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'control_characters' | 'edit_mismatch' | 'too_large' | 'unsupported_type' | 'not_configured' | 'not_empty'
 
 export class NoteError extends Error {
   readonly code: NoteErrorCode
@@ -238,18 +238,33 @@ export class NoteService {
     this.history = opts.history ?? NO_HISTORY
   }
 
-  /** Validates a note path: relative, no `..`, no hidden segments, ending in `.md`. */
+  /** Validates a note path: relative, no `..`, no hidden segments, ending in `.md` (and no NUL, which no file name holds). */
   static checkPath(path: string): string {
     if (typeof path !== 'string' || path === '') throw new NoteError('invalid_path', `invalid note path: ${String(path)}`)
     const norm = posix.normalize(path)
-    if (path !== norm || path.startsWith('/') || norm.split('/').includes('..') || classifyPath(norm) !== 'note') {
+    if (path !== norm || path.startsWith('/') || path.includes('\0') || norm.split('/').includes('..') || classifyPath(norm) !== 'note') {
       throw new NoteError('invalid_path', `invalid note path: ${path}`)
     }
     return norm
   }
 
+  /**
+   * A name vihko is about to give (creating, moving, restoring to another
+   * path): besides checkPath or checkFolder, no control characters. A file
+   * that already has them is still read and written under its own name.
+   */
+  static checkNewName(path: string): void {
+    if (typeof path === 'string' && hasControlCharacter(path)) throw new NoteError('control_characters', `a name with control characters: ${JSON.stringify(path)}`)
+  }
+
   private file(path: string) {
     return join(this.opts.notesDir, NoteService.checkPath(path))
+  }
+
+  /** The file for a note vihko is about to name. */
+  private newFile(path: string) {
+    NoteService.checkNewName(path)
+    return this.file(path)
   }
 
   /** Path of the note with that uid (if there are several, it's an identity conflict: rejected). */
@@ -282,7 +297,7 @@ export class NoteService {
    * is replaced, so the copy doesn't share its identity.
    */
   async create(path: string, text: string, actor: Actor, opts: { freshUid?: boolean; reason?: Reason } = {}): Promise<{ path: string; etag: string; uid: string | null }> {
-    const file = this.file(path)
+    const file = this.newFile(path)
     mkdirSync(dirname(file), { recursive: true })
     if (opts.freshUid && this.uidIn(text)) text = setFrontmatterKey(text, this.uidKey, newUid())
     const withUid = this.ensureUid(text, null)
@@ -449,7 +464,7 @@ export class NoteService {
   /** The move itself (or, with dryRun, its plan), and what the rewrites of the other notes need. */
   private async moveNow(from: string, to: string, opts: { ifMatch?: string; actor: Actor; dryRun?: boolean }) {
     const fromFile = this.file(from)
-    const toFile = this.file(to)
+    const toFile = this.newFile(to)
     const text = await readStable(fromFile)
     if (text === null) throw new NoteError('not_found', `does not exist: ${from}`)
     if (readText(toFile) !== null) throw new NoteError('exists', `already exists: ${to}`)
@@ -696,11 +711,11 @@ export class NoteService {
   // A folder only exists on disk: the index lists them (so an empty one shows
   // in the tree), but creating, moving or deleting one is a disk operation.
 
-  /** Validates a folder path: relative, no `..`, no hidden segments, not the root and not named like a note. */
+  /** Validates a folder path: relative, no `..`, no hidden segments, not the root and not named like a note (and no NUL). */
   static checkFolder(path: string): string {
     if (typeof path !== 'string' || path === '') throw new NoteError('invalid_path', `invalid folder path: ${String(path)}`)
     const norm = posix.normalize(path)
-    if (path !== norm || path.startsWith('/') || path.endsWith('/') || norm.split('/').includes('..') || classifyPath(norm) !== 'other') {
+    if (path !== norm || path.startsWith('/') || path.endsWith('/') || path.includes('\0') || norm.split('/').includes('..') || classifyPath(norm) !== 'other') {
       throw new NoteError('invalid_path', `invalid folder path: ${path}`)
     }
     return norm
@@ -710,9 +725,15 @@ export class NoteService {
     return join(this.opts.notesDir, NoteService.checkFolder(path))
   }
 
+  /** The directory for a folder vihko is about to name. */
+  private newDir(path: string) {
+    NoteService.checkNewName(path)
+    return this.dir(path)
+  }
+
   /** Creates an empty folder (and its missing parents). Never reuses an existing one. */
   createFolder(path: string, _actor: Actor): { path: string } {
-    const dir = this.dir(path)
+    const dir = this.newDir(path)
     mkdirSync(dirname(dir), { recursive: true })
     try {
       mkdirSync(dir)
@@ -770,7 +791,7 @@ export class NoteService {
 
   private async moveFolderNow(from: string, to: string, opts: { actor: Actor; dryRun?: boolean } & MoveHooks): Promise<FolderMoveReport> {
     const fromDir = this.dir(from)
-    const toDir = this.dir(to)
+    const toDir = this.newDir(to)
     if (from === to || to.startsWith(from + '/')) throw new NoteError('invalid_path', `cannot move ${from} into itself`)
     if (!isDirectory(fromDir)) throw new NoteError('not_found', `no such folder: ${from}`)
     if (existsSync(toDir)) throw new NoteError('exists', `already exists: ${to}`)
@@ -1030,7 +1051,8 @@ export class NoteService {
     const text = dir === null ? null : readText(join(dir, 'note.md'))
     if (entry === null || dir === null || text === null) throw new NoteError('not_found', `not in the trash: ${id}`)
     const path = to ?? entry.path
-    const file = this.file(path)
+    // Back under its own name, whatever it is; a new one is vihko's to give.
+    const file = path === entry.path ? this.file(path) : this.newFile(path)
     mkdirSync(dirname(file), { recursive: true })
     const w = this.history.prepare([{ path, after: text }], { actor, reason: { code: 'trash_restored', id }, immediate: true })
     const r = await commitText(file, text, null).catch((err) => { w.abort(); throw err })

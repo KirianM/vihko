@@ -26,5 +26,13 @@ export function conflictOriginal(rel: string): string {
   return rel.replace(/\.sync-conflict-\d{8}-\d{6}-[A-Z0-9]{7}(?=\.[^/.]*$|$)/, '')
 }
 
+/**
+ * true if `path` has a C0 control character (newline, tab, NUL…) or DEL.
+ * vihko never gives a note or folder such a name: they are invisible, and
+ * the history can't keep a file named with them. One that already has it
+ * (named by another program) is still indexed, read and written.
+ */
+export const hasControlCharacter = (path: string) => /[\u0000-\u001f\u007f]/.test(path)
+
 /** true if a directory shouldn't be traversed (saves descending into `.git/` and similar). */
 export const isIgnoredDir = (name: string) => name.startsWith('.')
