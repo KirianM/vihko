@@ -135,19 +135,25 @@ there for an instant and you can leave them out.
 ## Test your restore
 
 A backup you've never restored is a hope. Once, and after any change to how you
-back up, restore into a scratch folder and start a separate vihko on it:
+back up, restore into a scratch folder and start a separate vihko on it, from
+the folder of `compose.yaml`:
 
 ```sh
+image=$(docker compose config --images vihko)
 mkdir /tmp/vihko-restore-test && cd /tmp/vihko-restore-test
 sudo tar -xzpf /backups/vihko-2026-10-01.tar.gz
 docker run -d --name vihko-restore-test -p 127.0.0.1:8099:8080 \
   --user "$(stat -c %u:%g state)" \
   -v "$PWD/notes:/data/notes" -v "$PWD/state:/data/state" \
-  ghcr.io/kirianm/vihko:1
+  "$image"
 ```
 
-(`--user`: the owner of the restored state folder, which is the user vihko ran
-as, `VIHKO_UID:VIHKO_GID` in your `.env`.)
+- `image`: the same image and tag as your `compose.yaml` uses, which
+  `docker compose config --images vihko` prints (such as
+  `ghcr.io/kirianm/vihko:1.0.0-rc.1`). A newer version works too; an older one
+  refuses a `state.db` that a newer one migrated.
+- `--user`: the owner of the restored state folder, which is the user vihko
+  ran as, `VIHKO_UID:VIHKO_GID` in your `.env`.
 
 Open `http://127.0.0.1:8099` on the server (or through an SSH tunnel), sign in
 with your usual account, open a few notes and their history. Then remove it:

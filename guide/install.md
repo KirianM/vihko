@@ -29,6 +29,9 @@ identity provider.
    curl -fsSLO https://raw.githubusercontent.com/KirianM/vihko/main/compose.yaml
    ```
 
+   The `compose.yaml` on `main` always pulls the current release: its
+   `image:` line names it (see [The image and its tags](#the-image-and-its-tags)).
+
 2. Read [the compose file](#the-compose-file) below and adjust it: which
    image tag, which port, and where your notes are. To use a notes folder you
    already have, change `./notes` to its path.

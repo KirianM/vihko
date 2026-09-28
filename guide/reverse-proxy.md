@@ -131,16 +131,19 @@ notes.example.com {
 ### Caddy in the same compose file
 
 Caddy as a second service, in front of vihko on the compose network. vihko's
-port isn't published at all:
+port isn't published at all.
+
+Leave `compose.yaml` as it is, and put this in a `compose.override.yaml` next
+to it. `docker compose` reads both files, and the override only adds to
+`compose.yaml`: vihko keeps its image, its `user:` and its hardening
+(`read_only`, `cap_drop`, `security_opt`), and a new `compose.yaml` you
+download later still applies. `!reset []` removes vihko's published port
+(Compose 2.24 or newer).
 
 ```yaml
 services:
   vihko:
-    image: ghcr.io/kirianm/vihko:1
-    restart: unless-stopped
-    volumes:
-      - ./notes:/data/notes
-      - ./state:/data/state
+    ports: !reset []
     environment:
       VIHKO_PUBLIC_URL: https://notes.example.com
       VIHKO_TRUSTED_PROXIES: 172.16.0.0/12
@@ -169,6 +172,10 @@ notes.example.com {
 	reverse_proxy vihko:8080
 }
 ```
+
+`docker compose config` shows the two files merged: the `vihko` service has
+no `ports:`, and still has `read_only`, `cap_drop`, `security_opt` and
+`user:`.
 
 ## nginx
 
