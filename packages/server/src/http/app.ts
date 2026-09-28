@@ -55,6 +55,7 @@ import { inviteRoutes, userRoutes, usersErrorStatus, type UserRoutesDeps } from 
 import { TwoFactor } from '../twoFactor.ts'
 import { twoFactorHttp } from './twoFactor.ts'
 import { Notices, noticeAlert } from '../notices.ts'
+import { VERSION } from '../version.ts'
 
 export const SESSION_COOKIE = 'vihko_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
@@ -345,8 +346,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   // --- No session required: health, first boot and login --------------------
 
-  // For Docker's healthcheck. Reveals nothing beyond the process responding.
-  app.get('/api/health', (c) => c.json({ ok: true }))
+  // For Docker's healthcheck and monitoring: the process responds, and which
+  // vihko it is (what `vihko version` prints). Nothing else.
+  app.get('/api/health', (c) => c.json({ ok: true, version: VERSION }))
 
   app.get('/api/setup', (c) => c.json({ needed: auth.userCount() === 0 }))
 
@@ -468,7 +470,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   // What the UI needs to know about this installation's settings.
   // `secretsEncrypted`: VIHKO_SECRET_KEY is set (the privacy page says how the second factor's secret is kept).
-  app.get('/api/config', (c) => c.json({ externalImages, maxImageBytes: notes.maxImageBytes, secretsEncrypted: twoFactor.encrypted }))
+  // `version`: vihko's, for the account page.
+  app.get('/api/config', (c) => c.json({ externalImages, maxImageBytes: notes.maxImageBytes, secretsEncrypted: twoFactor.encrypted, version: VERSION }))
 
   // Notes and folders: a folder with no notes (just created, or emptied) still shows.
   app.get('/api/tree', (c) => c.json(scoped(c).tree()))

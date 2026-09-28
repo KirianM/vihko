@@ -32,6 +32,7 @@ import { PermissionHolds } from './permissionHolds.ts'
 import { Users } from './users.ts'
 import { TwoFactor } from './twoFactor.ts'
 import { secretBoxFrom, type SecretBox } from './secretKey.ts'
+import { VERSION } from './version.ts'
 
 export interface Config {
   notesDir: string
@@ -126,6 +127,7 @@ export function openStores(config: Config) {
 }
 
 export async function start(config: Config) {
+  console.log(`[vihko] vihko ${VERSION}`)
   // One process at a time on the state volume (a second server, or `vihko history purge`).
   mkdirSync(config.stateDir, { recursive: true })
   const lock = lockState(config.stateDir)
