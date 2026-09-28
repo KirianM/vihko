@@ -77,6 +77,10 @@ export interface HotDocuments {
    * flushed and locked, and returns the text left at the destination.
    */
   move<T>(from: string, to: string, run: () => Promise<{ result: T; written: string | null }>): Promise<T>
+  /** Notes moved (one, or every note of a folder): what the editor keeps of each one under its path follows it. */
+  carrySaved?(moves: readonly { from: string; to: string }[]): void
+  /** A note deleted: what the editor keeps of it under its path goes. */
+  forgetSaved?(path: string): void
 }
 
 export interface NoteServiceOptions {
@@ -393,6 +397,7 @@ export class NoteService {
     writeFileSync(join(dir, 'meta.json'), JSON.stringify(entry, null, 2))
     rmSync(aside)
     this.opts.indexer.indexPaths([path])
+    this.opts.hot?.forgetSaved?.(path)
     return entry
   }
 
@@ -419,6 +424,7 @@ export class NoteService {
           return { result, written: readText(this.file(to)) }
         })
         : await this.moveNow(from, to, opts)
+      hot?.carrySaved?.([{ from, to }])
       const { report, others, before, after, map, place } = moved
       opts.onMoved?.(others.length)
 
@@ -878,6 +884,7 @@ export class NoteService {
       run,
     )
     await locked()
+    hot?.carrySaved?.(report.notes)
     opts.onMoved?.(own.length + others.length)
 
     // 2. The moved notes' own links and image references, then the rest of the

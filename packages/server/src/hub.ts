@@ -324,6 +324,23 @@ function logNote(dir: string, name: string, ext: string): string | null {
 }
 
 /**
+ * A log's or saved state's records for the note's new path `to`: the same
+ * records without the old path's, and `to`'s at the end when its name is a
+ * hash (after the snapshot a state starts with, which `savedHash` reads
+ * alone). A record cut short by a crash is left out: it was never read.
+ */
+function retarget(buf: Buffer, to: string): Buffer {
+  const out: Buffer[] = []
+  for (let off = 0; off + 5 <= buf.length;) {
+    const len = buf.readUInt32BE(off + 1)
+    if (off + 5 + len > buf.length) break
+    if (buf.toString('latin1', off, off + 1) !== 'P') out.push(buf.subarray(off, off + 5 + len))
+    off += 5 + len
+  }
+  return Buffer.concat([...out, ...pathRecords(to)])
+}
+
+/**
  * Tests only: `VIHKO_TEST_CRASH_AT=<point>` kills the process there, as a
  * `kill -9` landing at that exact moment would.
  */
@@ -898,16 +915,63 @@ export class CollabHub implements HotDocuments {
     return result
   }
 
+  /**
+   * Notes that moved (from vihko, or outside it and followed): the saved state
+   * and recovery log of each one that isn't open go with it to its new path,
+   * so nothing is left under the old one (every start would count it, and it
+   * would travel into backups). An open note's are the hub's own: `move`
+   * closes the document, and unloading it removes them. A saved state
+   * replaces one left at the new path (only a cache, of a note no longer
+   * there); a recovery log never replaces another log, which is a copy still
+   * pending: then this one stays where it is.
+   */
+  carrySaved(moves: readonly { from: string; to: string }[]) {
+    for (const { from, to } of moves) {
+      if (from === to || this.hot.has(from)) continue
+      const carry = (src: string, dst: string, replace: boolean): boolean => {
+        let buf: Buffer
+        try { buf = readFileSync(src) } catch { return false }
+        if (this.hot.has(to) || (!replace && existsSync(dst))) return false
+        writeFileSync(dst + '.tmp', retarget(buf, to))
+        renameSync(dst + '.tmp', dst)
+        rmSync(src, { force: true })
+        return true
+      }
+      const trusted = this.trusted.get(from)
+      this.trusted.delete(from)
+      if (carry(this.statePath(from), this.statePath(to), true)) {
+        if (trusted === undefined) this.trusted.delete(to)
+        else this.trusted.set(to, trusted)
+      } else rmSync(this.statePath(from), { force: true })
+      carry(this.logPath(from), this.logPath(to), false)
+    }
+  }
+
+  /**
+   * A note deleted from vihko: its saved state and recovery log go with it
+   * (the trash has its text). An open note's are removed when its document
+   * unloads (`discard`).
+   */
+  forgetSaved(path: string) {
+    if (this.hot.has(path)) return
+    rmSync(this.statePath(path), { force: true })
+    rmSync(this.logPath(path), { force: true })
+    this.trusted.delete(path)
+  }
+
   // --- Moves made outside vihko (D-031.4) ---------------------------------------
 
   /**
    * Moves the indexer detected outside vihko. A note open in an editor (or
    * whose copy waits in its recovery log) follows its file instead of being
-   * taken as deleted (D-022).
+   * taken as deleted (D-022). A closed one's saved state goes with it.
    */
   followMoves(moves: readonly { from: string; to: string }[]) {
     for (const { from, to } of moves) {
-      if (!this.hot.has(from) && !existsSync(this.logPath(from))) continue
+      if (!this.hot.has(from) && !existsSync(this.logPath(from))) {
+        this.carrySaved([{ from, to }])
+        continue
+      }
       this.followMove(from, to).catch((e) => this.log(`${from}: could not follow its move to ${to}: ${e instanceof Error ? e.message : String(e)}`))
     }
   }
@@ -1357,6 +1421,34 @@ export class CollabHub implements HotDocuments {
       if (hash !== null && hash === this.opts.indexer.hashOf(path)) this.trusted.set(path, hash)
     }
     if (states) this.log(`saved editor states: ${this.trusted.size} of ${states} match their file`)
+  }
+
+  /**
+   * On startup, once the pending logs are recovered and the moves made while
+   * stopped followed: the saved states whose note no longer exists are
+   * removed (left by a version that didn't carry them along with a rename, or
+   * by a note deleted outside vihko). Only a cache: nothing typed is in them.
+   * Kept: those of an open note, of a note with a recovery log (a copy
+   * pending a decision, D-022: it goes when that's decided), of a note with
+   * no file on disk that `keep` names (in the trash), and any file that
+   * isn't one of the hub's.
+   */
+  dropStaleStates(keep: (path: string) => boolean = () => false) {
+    let dropped = 0
+    for (const f of readdirSync(this.logDir)) {
+      if (!f.endsWith('.ystate')) continue
+      const path = logNote(this.logDir, f, '.ystate')
+      if (path === null || this.hot.has(path) || this.trusted.has(path) || existsSync(this.logPath(path))) continue
+      if (keep(path)) continue
+      try {
+        if (this.textOrNull(path) !== null) continue
+      } catch {
+        continue // can't tell (not a note's path, not a file): left alone
+      }
+      rmSync(join(this.logDir, f), { force: true })
+      dropped++
+    }
+    if (dropped) this.log(`removed ${dropped} saved editor state(s) whose note no longer exists`)
   }
 
   /** On startup: every pending log is a note with unflushed edits. */

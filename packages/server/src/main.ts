@@ -247,6 +247,9 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
     notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes,
     attachments: () => workspace.config.attachments, history: history.recorder,
   })
+  // Saved editor states of notes that no longer exist (nor wait in the trash) go.
+  const trashed = new Set(notes.trash().map((e) => e.path))
+  hub.dropStaleStates((path) => trashed.has(path))
   const webDir = existsSync(join(config.webDir, 'index.html')) ? config.webDir : undefined
   if (!webDir) log(`no UI: nothing built at ${config.webDir} (npm run build); API only`)
   const profiles = new Profiles(state)
