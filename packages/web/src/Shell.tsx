@@ -412,7 +412,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   )
   const alertsLink = alerts > 0 && (
     <a className="sidebar-alerts" href="?view=alerts" aria-current={view === 'alerts' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); setNavOpen(false); showAlerts() }}>
-      {Icon.alert}<span>{t('shell.alerts', { n: alerts })}</span>
+      {Icon.alert}<span>{t(alerts === 1 ? 'shell.alertsOne' : 'shell.alerts', { n: alerts })}</span>
     </a>
   )
   const userRow = (

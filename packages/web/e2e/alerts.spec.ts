@@ -346,6 +346,20 @@ test('empty state', async ({ browser }) => {
   await k.context().close()
 })
 
+test('the sidebar counts one alert in the singular and more in the plural', async ({ browser }) => {
+  const k = await signIn(browser, ADMIN)
+  const one = { code: 'history_no_repository', actions: [] }
+  await mockAlerts(k, [one])
+  await k.reload()
+  await expect(k.locator('.sidebar-alerts')).toHaveText('1 aviso del espacio')
+  const n = m.anInt(2, 9)
+  await k.unrouteAll()
+  await mockAlerts(k, Array.from({ length: n }, () => one))
+  await k.reload()
+  await expect(k.locator('.sidebar-alerts')).toHaveText(`${n} avisos del espacio`)
+  await k.context().close()
+})
+
 test('the alerts page has an English address, and its earlier one still opens it', async ({ browser }) => {
   const k = await signIn(browser, ADMIN)
   await mockAlerts(k, [])
