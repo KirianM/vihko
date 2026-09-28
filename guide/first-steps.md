@@ -41,8 +41,15 @@ editor shows headings, lists, tasks and links formatted while you type.
 
 - **New folder** (the folder icon in the sidebar), or a folder's menu →
   **New folder inside…**.
-- A folder's menu also has **Rename or move…** and **Delete folder** (only an
-  empty folder: its notes are never deleted with it).
+- A folder's menu also has **Rename or move…** and **Delete folder**. An
+  empty folder goes at once; otherwise the dialog lists what it holds and
+  **Send to trash and delete** sends it all to the trash in one step, which
+  **Restore** brings back. Hidden folders such as `.git/` must be removed with
+  another tool first: vihko never touches them.
+
+To delete a note: **More actions** (`⋯`) → **Move to trash**. It goes there
+with the images only it uses; **Restore**, in the notice that follows (or its
+history), brings both back.
 
 ## Link notes
 
