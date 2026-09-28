@@ -395,14 +395,17 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       secure: isHttps(c),
       expires: s.expiresAt,
     })
-    // This browser is known for this account from now on: other people's failures don't hold it back.
+    // This browser is known for this account from now on: other people's failures don't hold it back,
+    // at a sign-in or when confirming at the moment (keys, OAuth, the admin's actions: all under /api).
     setCookie(c, DEVICE_COOKIE, limiter.deviceToken(username), {
       httpOnly: true,
       sameSite: 'Lax',
-      path: '/api/auth',
+      path: '/api',
       secure: isHttps(c),
       maxAge: DEVICE_DAYS * 86_400,
     })
+    // The one an earlier version left under /api/auth would be sent first there, and outlive a restart's new key.
+    deleteCookie(c, DEVICE_COOKIE, { path: '/api/auth', secure: isHttps(c) })
   }
 
   // The second factor (http/twoFactor.ts): after the password, the session or the second step.
