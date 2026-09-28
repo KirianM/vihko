@@ -433,6 +433,41 @@ test('folders: create with edit, move and delete with manage; their rules go wit
   } finally { await h.close() }
 })
 
+test('a folder moved from above a personal folder never takes it out of its {user} rule, unless whoever moves it manages it', async () => {
+  // Personal folders deeper than a folder managed from above: each person's journal in their own shared folder.
+  const journal = m.aFolder()
+  const config = `permissions:\n  "":\n    grants: { ${yamlKey(A)}: manage, ${yamlKey(`@${GROUP}`)}: edit }\n  ${yamlKey(`${DIR.people}/{user}/${journal}`)}:\n    grants: { "{user}": manage }\n`
+  const word = m.aUniqueWord()
+  const entry = m.aNotePath(`${HOME.member}/${journal}`)
+  const h = await setup({ files: { [entry]: noteText(word), [m.aNotePath(HOME.member)]: noteText() }, config })
+  try {
+    const read = (path: string) => h.admin('GET', h.url('/api/note', { path }))
+    assert.equal((await read(entry)).status, 404, 'the admin doesn\'t read the member\'s journal')
+    // The admin manages the member's folder (it isn't personal), but moving it out of the rule's reach would open the journal to them.
+    const away = `${DIR.shared}/${m.aFolder()}`
+    for (const dryRun of [true, false]) {
+      const r = await h.admin('POST', '/api/folder/move', { from: HOME.member, to: away, dryRun })
+      assert.deepEqual([r.status, r.body.error], [403, 'forbidden'], `${dryRun}: ${r.text}`)
+    }
+    assert.equal((await read(entry.replace(HOME.member, away))).status, 404)
+    assert.ok(readFileSync(join(h.notesDir, entry), 'utf8').includes(word), 'nothing moved')
+    // Moving the folder the rule is written under takes the rule along: the journal stays personal where it goes.
+    const archive = `${m.aFolder()}/${DIR.people}`
+    const moved = await h.admin('POST', '/api/folder/move', { from: DIR.people, to: archive })
+    assert.equal(moved.status, 200, moved.text)
+    const there = entry.replace(DIR.people, archive)
+    assert.equal((await read(there)).status, 404)
+    assert.equal((await h.member('GET', h.url('/api/note', { path: there }))).status, 200)
+    // Its owner may take it out: they see who gains access first.
+    const out = `${DIR.shared}/${m.aFolder()}`
+    const from = `${archive}/${M}/${journal}`
+    const dry = await h.member('POST', '/api/folder/move', { from, to: out, dryRun: true })
+    assert.equal(dry.status, 200, dry.text)
+    assert.ok(dry.body.audience.users.gain.some((u: { username: string }) => u.username === A), JSON.stringify(dry.body.audience))
+    assert.equal((await h.member('POST', '/api/folder/move', { from, to: out })).status, 200)
+  } finally { await h.close() }
+})
+
 test('a move that fails leaves the rules as they were', async () => {
   const trips = `${DIR.shared}/${m.aFolder()}`
   const taken = `${DIR.shared}/${m.aFolder()}`

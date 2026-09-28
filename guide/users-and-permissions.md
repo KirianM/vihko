@@ -211,6 +211,11 @@ folder is different from any other:
   subfolder with others, and those grants show in the folder's permissions.
 - **A folder named after nobody is closed.** `people/archive/`, when there is
   no user `archive`, gives no access to anyone.
+- **It stays personal when a folder above it moves.** Moving `people/` moves
+  its `{user}` rule along. A move that would leave someone's personal folder
+  where no `{user}` rule reaches it (with `people/{user}/journal`, moving
+  `people/noa` to `archive/noa`) is refused, unless you manage that personal
+  folder yourself: only its owner takes it out, seeing who gains access.
 
 The folder doesn't need to exist in advance. An admin who can edit `people/`
 can create `people/noa/` for a new person; then it disappears from the admin's

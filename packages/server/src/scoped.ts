@@ -8,7 +8,7 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { anchorChanged, classifyPath, contentHash, extract, folderOf, parentFolder, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type Range } from '@vihko/core'
+import { RuleSet, anchorChanged, classifyPath, contentHash, extract, folderOf, parentFolder, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type Range } from '@vihko/core'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
@@ -802,6 +802,18 @@ export class ScopedNotes {
     const engine = this.deps.permissions
     const under = (this.deps.index.prepare("select path from folders where path = ? or path like ? escape '\\'").all(f, likePrefix(f)) as { path: string }[]).map((r) => r.path)
     const plan = engine ? ruleMove(engine, f, t, under) : { extra: [], rules: null }
+    // A personal folder inside it stays personal where it goes (D-040 3.5): taken out of its `{user}` rule, only
+    // the literal copy of its grants would go with it, and whoever manages the folders above would reach it.
+    // Only whoever manages it (its owner) may take it out, as they may move it themselves.
+    const now = engine?.rules() ?? null
+    if (now && plan.rules) {
+      const then = new RuleSet(plan.rules)
+      for (const d of under) {
+        if (now.personal(d) && !then.personal(t + d.slice(f.length)) && !this.access.canManage(d)) {
+          throw new AccessError('this move would take a personal folder in it out of its {user} rule: only whoever manages that folder may')
+        }
+      }
+    }
     const mask = (r: FolderMoveReport) => {
       const { filePaths, ...rest } = r
       const masked = this.maskReport(rest, back)

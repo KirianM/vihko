@@ -44,13 +44,11 @@ export function ruleMove(engine: PermissionsEngine, from: string, to: string, fo
     const grants = m.rule.grants === null ? null : grantsAt({ ...m, at: folder }, (n) => names.has(subjectKey(n)))
     extra.push({ folder: t + folder.slice(f.length), grants, ai: own.user === null ? own.rule.ai : m.rule.ai })
   }
-  // The rules as they'll be once it moved (the implicit section has no rule under any folder: it doesn't change).
+  // The rules as they'll be once it moved, as vihko.yaml will have them (core `moveRules`): every key under
+  // the folder moves, `{user}` rules too. The implicit section has no rule under any folder: it doesn't change.
   const section = engine.section
   if (section.kind !== 'rules') return { extra, rules: null }
-  const rules = section.rules.flatMap((r): PermissionRule[] => {
-    const literal = !r.folder.split('/').includes('{user}')
-    return literal && under(r.folder) ? [{ ...r, folder: t + r.folder.slice(f.length) }] : [r]
-  })
+  const rules = section.rules.map((r): PermissionRule => (under(r.folder) ? { ...r, folder: t + r.folder.slice(f.length) } : r))
   for (const e of extra) {
     const i = rules.findIndex((r) => r.folder === e.folder)
     const rule = { folder: e.folder, grants: e.grants, ai: e.ai }
