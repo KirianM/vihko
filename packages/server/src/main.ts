@@ -16,7 +16,7 @@ import { Watcher } from './watcher.ts'
 import { ExternalMoves } from './externalMoves.ts'
 import { CollabHub } from './hub.ts'
 import { History } from './history/index.ts'
-import { lockState, type StateLock } from './lock.ts'
+import { lockState, prepareStateDir, type StateLock } from './lock.ts'
 import { ApiKeys } from './keys.ts'
 import { markIcons, mountMcp } from './mcp/server.ts'
 import { Integrations, integrationsLockedFrom } from './integrations.ts'
@@ -142,8 +142,9 @@ export interface StartOptions {
 
 export async function start(config: Config, opts: StartOptions = {}) {
   console.log(`[vihko] vihko ${VERSION}`)
+  // vihko's alone, closed to other users of the host.
+  prepareStateDir(config.stateDir, (msg) => console.log(`[vihko] ${msg}`))
   // One process at a time on the state volume (a second server, or `vihko history purge`).
-  mkdirSync(config.stateDir, { recursive: true })
   const lock = lockState(config.stateDir)
   try {
     return await run(config, lock, opts)

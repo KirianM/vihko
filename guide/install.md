@@ -166,6 +166,13 @@ A Docker named volume works too (`- vihko-state:/data/state`, with a
 `volumes:` section); a folder next to `compose.yaml` is simply easier to back
 up.
 
+**It's private.** Everything in it, the history of personal folders included,
+is readable by whoever can open the folder on the host: vihko's permissions
+only apply to people who go through vihko. vihko closes the folder to other
+users of the host when it starts (mode `700`, owner only). If it can't,
+because the folder belongs to another user, the log says so. The notes folder
+is yours to protect the same way, if others have accounts on the host.
+
 ### The user and file ownership
 
 The container runs as user `1000:1000` (called `node` in the image), not as
