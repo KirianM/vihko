@@ -1,11 +1,11 @@
 # Minimal example. Adjust the volume paths to your system.
 services:
   vihko:
-    # :1 gets every 1.x release (fixes and features), never an incompatible
-    # version: that is a new major, which you choose by changing the tag. A
-    # release candidate is only published under its exact tag
-    # (ghcr.io/kirianm/vihko:1.0.0-rc.1).
-    image: ghcr.io/kirianm/vihko:1
+    # The first release candidate, under its exact tag (a candidate is only
+    # published that way). From 1.0.0 on, this line says :1, which gets every
+    # 1.x release (fixes and features) and never an incompatible version: that
+    # is a new major, which you choose by changing the tag.
+    image: ghcr.io/kirianm/vihko:1.0.0-rc.1
     restart: unless-stopped
     ports:
       # Host port: 8080 unless you say otherwise. If it is taken,
