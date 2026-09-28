@@ -48,6 +48,7 @@ import { WORKSPACE_FILE, classifyPath, isIgnoredDir, type Alert, type HistoryMod
 import { authorKey, authorOf, parseAuthorKey, reasonJson, type Actor, type Author, type Reason } from '../actor.ts'
 import { Git, GitError, Serial, blobOid, fastImport, readTree, resolveRef, type FastCommit, type FastOp } from './git.ts'
 import { removeCrashLeftovers } from './leftovers.ts'
+import { spelledAsOnDisk } from '../fsutil.ts'
 import { formatMessage } from './trailers.ts'
 
 export const HISTORY_REF = 'refs/heads/main'
@@ -873,6 +874,8 @@ export class Recorder {
       const abs = join(this.opts.notesDir, rel)
       let st
       try { st = await stat(abs) } catch { st = null }
+      // Spelled otherwise than on the disk (fsutil.ts spelledAsOnDisk), it isn't there: its versions go by the disk's spelling.
+      if (st && !spelledAsOnDisk(this.opts.notesDir, rel)) st = null
       if (st?.isDirectory()) {
         for (const f of await listFiles(abs, rel)) await add(f)
         return

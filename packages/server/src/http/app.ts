@@ -48,6 +48,7 @@ import type { BlockList } from 'node:net'
 import { LoginLimiter, SETUP_ACCOUNT, type AttemptResult } from '../loginLimit.ts'
 import { clientIp, ipKey } from './clientIp.ts'
 import { written } from './written.ts'
+import { spelledAsOnDisk } from '../fsutil.ts'
 import { sameHost } from './origin.ts'
 import { Users, UsersError } from '../users.ts'
 import { AdminSettings, AdminSettingsError } from '../adminSettings.ts'
@@ -684,6 +685,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (!path || norm !== path || path.startsWith('/') || norm.split('/').includes('..')) return fail(c, 400, 'invalid_path', `invalid file path: ${path}`)
     // vihko.yaml isn't content: once it holds permissions (M4), it's not for every reader.
     if (classifyPath(norm) !== 'other' || norm === WORKSPACE_FILE) return fail(c, 404, 'not_found', `not a servable file: ${path}`)
+    // Spelled otherwise than on the disk (a case-insensitive filesystem), its permissions would be another folder's.
+    if (!spelledAsOnDisk(deps.notesDir, norm)) return fail(c, 404, 'not_found', `does not exist: ${path}`)
     // An agent: only in its folders, and only a file a note it can read uses.
     scoped(c).assertFile(norm)
     let file: string

@@ -139,6 +139,14 @@ filesystem, vihko sees changes made from other machines through a periodic
 rescan, every 60 seconds by default; see
 [Notes on NFS](operations.md#notes-on-nfs).
 
+Prefer a case-sensitive filesystem for it. A folder that ignores case (one
+shared from macOS or Windows into the container, an SMB share) works: vihko
+tells so once, from the names at the folder's root, and then answers only to each
+name as the disk spells it (see [Notes and Markdown](notes.md)), which costs a
+folder listing now and then. A case-sensitive root whose subfolders ignore
+case (ext4's `chattr +F` on a subfolder) isn't supported: vihko doesn't see it,
+and there another spelling of a folder would reach it past its permissions.
+
 Back it up. See [Backups](backups.md).
 
 ### The state volume

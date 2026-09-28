@@ -1,9 +1,10 @@
-import { test } from 'node:test'
+import { mock, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import fs, { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 import { contentHash } from '@vihko/core'
-import { commitText } from '@vihko/server'
+import { commitText, rootIgnoresCase, spelledAsOnDisk } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -78,4 +79,29 @@ test('commitText: of two concurrent writes from the same version, only one lands
     assert.equal(loser.ok ? null : loser.current, readFileSync(f, 'utf8'), 'the loser is told what is there')
   }
   assert.deepEqual(readdirSync(d), [name], 'no temp files left')
+})
+
+// Whether the notes root ignores case is told once, from a name at the root
+// (a case-sensitive one never lists a folder to check a path's spelling: on
+// NFS each listing is a round trip).
+test('spelledAsOnDisk: a case-sensitive root is told once, then nothing is listed', async () => {
+  const root = dir()
+  assert.equal(rootIgnoresCase(root), null, 'an empty root: not told yet')
+  const again = dir()
+  const folder = m.aFolder()
+  mkdirSync(join(again, folder))
+  writeFileSync(join(again, folder, aName()), text())
+  if (existsSync(join(again, folder.toUpperCase())) || existsSync(join(again, folder.toLowerCase()))) return // a case-insensitive temporary folder: case-insensitive.test.ts
+  assert.equal(rootIgnoresCase(again), false)
+  let listed = 0
+  const real = fs.readdirSync
+  mock.method(fs, 'readdirSync', (...args: Parameters<typeof real>) => { listed++; return real(...args) })
+  syncBuiltinESMExports()
+  try {
+    for (let i = 0; i < 100; i++) assert.equal(spelledAsOnDisk(again, `${folder}/${aName()}`), true)
+    assert.equal(listed, 0)
+  } finally {
+    mock.restoreAll()
+    syncBuiltinESMExports()
+  }
 })

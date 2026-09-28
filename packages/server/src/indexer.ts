@@ -9,6 +9,7 @@ import { readFileSync, readdirSync, statSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
 import { classifyPath, contentHash, extract, isIgnoredDir, readFrontmatter, type Extracted, type LinkIndex } from '@vihko/core'
 import type { Db } from './db.ts'
+import { spelledAsOnDisk } from './fsutil.ts'
 import { ExtensionHost, type Extension, type NoteSnapshot } from './extension.ts'
 import { builtinExtensions, type LinksExtension } from './extensions/index.ts'
 import { matchMoves, type DetectedMove, type MoveCandidate } from './moves.ts'
@@ -213,7 +214,7 @@ export class Indexer {
       for (const p of new Set(paths)) {
         if (!p || classifyPath(p) === 'ignored') continue
         let dir = false
-        try { dir = statSync(join(this.opts.notesDir, p)).isDirectory() } catch { /* gone */ }
+        try { dir = statSync(join(this.opts.notesDir, p)).isDirectory() && spelledAsOnDisk(this.opts.notesDir, p) } catch { /* gone */ }
         del.run(p, likePrefix(p))
         if (!dir) continue
         const sub: string[] = []
@@ -238,12 +239,14 @@ export class Indexer {
     const conflictsGone: string[] = []
     const gone: Row[] = []
     const getRow = this.db.prepare('select path, uid, hash, mtime_ms, size from notes where path = ?')
+    // Spelled otherwise than on the disk (fsutil.ts spelledAsOnDisk), a path isn't there: the disk's spelling is its path.
+    const there = (p: string) => exists(join(this.opts.notesDir, p)) && spelledAsOnDisk(this.opts.notesDir, p)
     for (const rel of new Set(paths)) {
       const kind = classifyPath(rel)
-      if (kind === 'conflict') (exists(join(this.opts.notesDir, rel)) ? conflictsNow : conflictsGone).push(rel)
+      if (kind === 'conflict') (there(rel) ? conflictsNow : conflictsGone).push(rel)
       if (kind !== 'note') continue
       const row = getRow.get(rel) as Row | undefined
-      if (!exists(join(this.opts.notesDir, rel))) {
+      if (!there(rel)) {
         if (row) { report.removed.push(rel); gone.push(row) }
         continue
       }

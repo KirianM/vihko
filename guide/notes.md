@@ -20,6 +20,12 @@ what it never touches.
 
 vihko imposes no structure: any folders, any names. Nothing needs frontmatter.
 
+Names are taken exactly as the disk spells them. On a filesystem that ignores
+case (a macOS or Windows folder shared into the container, an SMB share),
+`Projects/plan.md` would open `projects/plan.md`, but the permissions of a
+folder go by its name as written: vihko answers only to the spelling on disk,
+and any other spelling doesn't exist for it.
+
 vihko keeps nothing of its own in the notes folder. Its database, index,
 history, trash and editor recovery files live in the state volume. The only
 things it writes there besides your notes are short-lived temporary files
