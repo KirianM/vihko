@@ -1,5 +1,6 @@
 // vihko API client. Cookie-based session (HttpOnly): the browser sends it on its own.
 import type { Alert, ErrorCode } from '@vihko/core/codes'
+import type { Language } from '@vihko/core/languages'
 import type { Series } from '@vihko/core/series'
 
 export type { Alert }
@@ -190,8 +191,8 @@ export interface WorkspaceInfo {
   /** `aliases`: whether aliases resolve links (vihko.yaml `links.aliases`). */
   links: { aliases: boolean }
 }
-/** The person's own settings (state.db). */
-export interface Profile { timezone: string | null; dailySeries: string | null; openDailyOnStart: boolean }
+/** The person's own settings (state.db). `language`: the UI's, null = automatic (the browser's). */
+export interface Profile { timezone: string | null; dailySeries: string | null; openDailyOnStart: boolean; language: Language | null }
 
 /**
  * The integration switches (D-035.1): the API with keys and the MCP server,
