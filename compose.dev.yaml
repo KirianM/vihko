@@ -1,0 +1,7 @@
+# For development: the image built from this checkout instead of the published
+# one, on top of compose.yaml (CONTRIBUTING.md, Development):
+#   docker compose -f compose.yaml -f compose.dev.yaml up -d --build
+services:
+  vihko:
+    image: vihko:local
+    build: .

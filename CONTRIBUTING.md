@@ -16,6 +16,10 @@ privately, never in an issue: see [SECURITY.md](SECURITY.md).
   (`VIHKO_NOTES_DIR=… VIHKO_STATE_DIR=… packages/server/src/cli.ts serve`)
   and `npm run dev -w @vihko/web` in another; Vite forwards `/api` and
   `/collab` to port 8080 (`VIHKO_DEV_SERVER` for another one).
+- The image from your checkout: `compose.yaml` pulls the published one
+  (`ghcr.io/kirianm/vihko:1`); `compose.dev.yaml`, on top of it, builds
+  `vihko:local` from the checkout instead:
+  `docker compose -f compose.yaml -f compose.dev.yaml up -d --build`.
 - Browser tests (`packages/web/e2e`, Playwright): `npm run build` and
   `npm run e2e -w @vihko/web`, which starts a server with a copy of
   `testdata/vault` and two users. If your machine cannot run Chromium, keep the
