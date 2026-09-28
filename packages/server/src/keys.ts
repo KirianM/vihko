@@ -181,11 +181,17 @@ export class ApiKeys {
     return (this.db.prepare('select name from api_keys where id = ?').get(id) as { name: string } | undefined)?.name ?? null
   }
 
-  /** Renames a key or changes what it may do. A revoked key stays revoked. */
+  /**
+   * Renames a key or changes what it may do. A revoked key stays revoked, and
+   * an expired one stays expired: a new expiry would bring back a secret its
+   * owner let lapse (as a rotation would, which an expired key can't have
+   * either). Its owner creates a new key instead.
+   */
   update(id: string, input: KeyInput): KeyInfo {
     const r = this.row(id)
     if (!r) throw new KeyError('not_found', `no key ${id}`)
     if (r.revoked_at) throw new KeyError('invalid', 'a revoked key cannot change')
+    if (r.expires_at && Date.parse(r.expires_at) <= this.now().getTime()) throw new KeyError('invalid', 'an expired key cannot change: create a new one')
     const sets: string[] = []
     const values: unknown[] = []
     if (input.name !== undefined) { sets.push('name = ?'); values.push(checkName(input.name)) }

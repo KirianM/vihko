@@ -111,8 +111,9 @@ lists what the key reaches right now.
   the agent needs a new key. Revoked keys stay listed, because the history
   still names them.
 
-An expired key stops working and can't be rotated; create a new one. A key
-whose person is disabled stops working too.
+An expired key stops working for good: it can't be edited (not even to give it
+a later expiry) or rotated; create a new one. A key whose person is disabled
+stops working too.
 
 Only the owner of a key edits or rotates it. The vihko admin sees everyone's
 keys under **Everyone else's keys** and can revoke any of them, but never sees
