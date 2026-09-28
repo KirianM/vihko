@@ -217,6 +217,11 @@ folder is different from any other:
   subfolder with others, and those grants show in the folder's permissions.
 - **A folder named after nobody is closed.** `people/archive/`, when there is
   no user `archive`, gives no access to anyone.
+- **It stays personal when a folder above it moves.** Moving `people/` moves
+  its `{user}` rule along. A move that would leave someone's personal folder
+  where no `{user}` rule reaches it (with `people/{user}/journal`, moving
+  `people/noa` to `archive/noa`) is refused, unless you manage that personal
+  folder yourself: only its owner takes it out, seeing who gains access.
 
 The folder doesn't need to exist in advance. An admin who can edit `people/`
 can create `people/noa/` for a new person; then it disappears from the admin's
@@ -270,6 +275,14 @@ can tell:
   the rules were for, get an alert with two choices: «Move their permissions»
   (the rules follow the notes) or «Release them» (the permissions of the
   folder they're in apply).
+- Notes that came out of a **personal folder** (or a folder inside one) are
+  decided only by whoever manages that personal folder: its owner, who gets
+  the alert with both choices. The admin gets an alert too, so they know
+  something needs attention, but it only says how many notes are held and
+  which personal folder they came from: no names, no content, and no choices.
+  If the owner's account has been deleted, nobody can release them from vihko:
+  they stay held until someone with access to the server's disk moves them
+  back (or wherever they should be).
 - Rules for a folder that no longer exists are kept, with an alert, and apply
   again if the folder comes back.
 

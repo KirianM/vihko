@@ -33,7 +33,7 @@ export { DEVICE_COOKIE, MAX_API_BODY, MAX_AUTH_BODY, SESSION_COOKIE, createApp, 
 export { Access, AccessError, AccessPolicy, AgentDenied, DEFAULT_AI_KEY, hiddenFromAgents, inFolders, type DenyReason, type AccessPolicyOptions, type AgentPrincipal, type Holds, type KeyGrant, type Principal, type UserPrincipal } from './access.ts'
 export { PermissionsEngine, Viewer, groupSource, stateDirectory, type Directory, type DirectoryUser, type GrantSource, type GroupSource, type PermissionsOptions, type UserAccess, type ViewerUser } from './permissions.ts'
 export { ConfigInvalidError, PermissionsFile, type PermissionsFileOptions } from './permissionsFile.ts'
-export { PermissionHolds, type Hold, type PermissionHoldsOptions } from './permissionHolds.ts'
+export { PermissionHolds, holdAccess, type Hold, type HoldAccess, type HoldViewer, type PermissionHoldsOptions } from './permissionHolds.ts'
 export { audienceChange, ruleMove, type AudienceChange } from './audience.ts'
 export { permissionRoutes, rulesWithoutFolder, type PermissionRoutesDeps } from './http/permissions.ts'
 export { ApiKeys, KEY_PREFIX, KeyError, LAST_USED_EVERY_MS, ROTATION_GRACE_MS, checkFolders, keyIdOf, type KeyErrorCode, type KeyInfo, type KeyInput, type KeyWithUser } from './keys.ts'

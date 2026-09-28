@@ -423,7 +423,9 @@ anything if vihko starts that way.
 > rule back: every admin manages the root and so reads every note, since
 > without a `{user}` rule there are no personal folders, and members read
 > nothing. Protect the file like a password file: whoever can write it on disk
-> decides who reads what.
+> decides who reads what. While vihko runs, the implicit rule only replaces the
+> permissions in force once the file has stayed without them for 2 seconds: a
+> file an editor empties for an instant while saving it opens nothing.
 
 #### How vihko writes the permissions
 
@@ -452,7 +454,8 @@ A folder renamed or moved **outside vihko** (a shell, another app) leaves its
 rules behind, and vihko can't always tell where it went. When it recognises
 the notes that left, it holds them hidden from everyone and alerts the admin
 and the folder's managers: move the permissions with them, or release them so
-the folder they're in now applies. See
+the folder they're in now applies. Notes that came out of a personal folder
+are its owner's to decide; the admin only learns that they're held. See
 [Users and permissions](users-and-permissions.md#folders-moved-outside-vihko).
 
 ## When something is wrong

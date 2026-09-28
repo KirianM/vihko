@@ -7,7 +7,7 @@
 // with the access engine itself (the same the effective-access view uses).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { MessageType } from '@hocuspocus/server'
 import * as server from '@vihko/server'
@@ -66,7 +66,9 @@ const shows = (text: string, mark: string) => (/^[\p{L}\p{N}_-]+$/u.test(mark)
   ? new RegExp(`(?<![\\p{L}\\p{N}_])${mark}(?![\\p{L}\\p{N}_])`, 'u').test(text)
   : text.includes(mark))
 
-type Who = 'member' | 'other' | 'agent'
+type Who = 'member' | 'other' | 'agent' | 'admin'
+/** What an admin's route answers: 403 to a person, 404 to an agent (not a route for keys); whatever it answers the admin. */
+const adminOnly = (who: Who) => (who === 'admin' ? undefined : who === 'agent' ? 404 : 403)
 interface Call { route: string; method: string; path: string; body?: unknown; headers?: Record<string, string>; expect?: number | string }
 
 test('every HTTP route, MCP tool and hub message is classified by what it needs of the permissions', async () => {
@@ -100,6 +102,8 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       member: { kind: 'user', user: h.users.member },
       other: { kind: 'user', user: h.users.other },
       agent: agentPrincipal,
+      // The admin manages the root: they read everything but the personal folders (D-040 3.5), whatever their role lets them manage.
+      admin: { kind: 'user', user: h.users.admin },
     }
     // What each one can't see, by the access engine: those notes' marks.
     const hiddenMarks = (who: Who) => {
@@ -108,11 +112,11 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       return [...new Set(Object.keys(MARKS).filter((p) => !access.canRead(p)).flatMap((p) => MARKS[p]!))].filter((m) => !seen.has(m))
     }
     // A premise of the sweep (D-040 3.5): the root's manager (the agent's user) reaches the subfolder closed to the group; the group doesn't.
-    assert.deepEqual((['member', 'other', 'agent'] as Who[]).map((w) => h.policy.for(principals[w]).canRead(SURPRISE)), [true, false, true])
-    const own: Record<Who, string> = { member: PATH.cake, other: PATH.otherNotes, agent: PATH.adminPlan }
-    const hidden: Record<Who, string> = { member: PATH.adminPlan, other: PATH.cake, agent: PATH.cake }
-    const hiddenFolder: Record<Who, string> = { member: DIR.admin, other: member, agent: member }
-    const hiddenImage: Record<Who, string> = { member: LOGO_PATH, other: PATH.memberPhoto, agent: PATH.memberPhoto }
+    assert.deepEqual((['member', 'other', 'agent', 'admin'] as Who[]).map((w) => h.policy.for(principals[w]).canRead(SURPRISE)), [true, false, true, true])
+    const own: Record<Who, string> = { member: PATH.cake, other: PATH.otherNotes, agent: PATH.adminPlan, admin: PATH.adminPlan }
+    const hidden: Record<Who, string> = { member: PATH.adminPlan, other: PATH.cake, agent: PATH.cake, admin: PATH.cake }
+    const hiddenFolder: Record<Who, string> = { member: DIR.admin, other: member, agent: member, admin: member }
+    const hiddenImage: Record<Who, string> = { member: LOGO_PATH, other: PATH.memberPhoto, agent: PATH.memberPhoto, admin: PATH.memberPhoto }
     const shared = PATH.list
 
     // Some history, some trash and a conflict copy for everyone to (not) see.
@@ -160,7 +164,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'GET /api/profile', method: 'GET', path: '/api/profile' },
         { route: 'PUT /api/profile', method: 'PUT', path: '/api/profile', body: {} },
         { route: 'GET /api/integrations', method: 'GET', path: '/api/integrations' },
-        { route: 'PUT /api/admin/integrations', method: 'PUT', path: '/api/admin/integrations', body: { api: true }, expect: who === 'agent' ? 404 : 403 },
+        { route: 'PUT /api/admin/integrations', method: 'PUT', path: '/api/admin/integrations', body: { api: true }, expect: adminOnly(who) },
         { route: 'GET /api/keys', method: 'GET', path: '/api/keys' },
         { route: 'POST /api/keys', method: 'POST', path: '/api/keys', body: { name: m.aKeyName(), folders: [folder] } },
         { route: 'PATCH /api/keys/:id', method: 'PATCH', path: `/api/keys/${agentKey.key.id}`, body: { name: m.aKeyName() } },
@@ -168,8 +172,8 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'POST /api/keys/:id/rotate', method: 'POST', path: `/api/keys/${agentKey.key.id}/rotate` },
         { route: 'GET /api/oauth/authorize', method: 'GET', path: '/api/oauth/authorize' },
         { route: 'POST /api/oauth/authorize', method: 'POST', path: '/api/oauth/authorize', body: {} },
-        { route: 'POST /api/admin/rescan', method: 'POST', path: '/api/admin/rescan', body: {}, expect: who === 'agent' ? 404 : 403 },
-        { route: 'POST /api/admin/users', method: 'POST', path: '/api/admin/users', body: { username: m.aUsername(), password: m.aPassword() }, expect: who === 'agent' ? 404 : 403 },
+        { route: 'POST /api/admin/rescan', method: 'POST', path: '/api/admin/rescan', body: {}, expect: adminOnly(who) },
+        { route: 'POST /api/admin/users', method: 'POST', path: '/api/admin/users', body: { username: m.aUsername(), password: m.aPassword() }, expect: adminOnly(who) },
 
         { route: 'GET /api/tree', method: 'GET', path: '/api/tree', expect: 200 },
         { route: 'GET /api/tags', method: 'GET', path: '/api/tags', expect: 200 },
@@ -217,12 +221,12 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         ...[shared, theirs].map((p) => ({ route: 'GET /api/history/resolved', method: 'GET', path: q('/api/history/resolved', { path: p }) })),
         { route: 'POST /api/history/restore', method: 'POST', path: '/api/history/restore', body: { path: theirs, id: memberVersion } },
         { route: 'POST /api/history/revert', method: 'POST', path: '/api/history/revert', body: { path: theirs, id: memberVersion, dryRun: true } },
-        // Purging (D-038.9): what they can't see, by name, as a note, a version or a folder.
-        { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: theirs, dryRun: true }, expect: 404 },
-        { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: theirs, version: memberVersion, dryRun: true }, expect: 404 },
-        { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: `${folder}/nada.md`, dryRun: true }, expect: 404 },
-        { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: folder, dryRun: true }, expect: who === 'agent' ? 404 : 400 },
-        { route: 'DELETE /api/history/purges/:id', method: 'DELETE', path: '/api/history/purges/nope', expect: who === 'agent' ? 404 : 403 },
+        // Purging (D-038.9): what they can't see, by name, as a note, a version or a folder (the admin may, without reading it).
+        { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: theirs, dryRun: true }, expect: who === 'admin' ? undefined : 404 },
+        { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: theirs, version: memberVersion, dryRun: true }, expect: who === 'admin' ? undefined : 404 },
+        { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: `${folder}/nada.md`, dryRun: true }, expect: who === 'admin' ? undefined : 404 },
+        { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: folder, dryRun: true }, expect: who === 'admin' ? undefined : who === 'agent' ? 404 : 400 },
+        { route: 'DELETE /api/history/purges/:id', method: 'DELETE', path: '/api/history/purges/nope', expect: adminOnly(who) },
         // Commenting (D-038.5): on what they can't see, and a thread that isn't there.
         { route: 'POST /api/note/comment', method: 'POST', path: '/api/note/comment', body: { path: theirs, op: 'add', at: 0, context: '', text: m.aComment() }, expect: 404 },
         { route: 'POST /api/note/comment', method: 'POST', path: '/api/note/comment', body: { path: theirs, op: 'resolve', thread: 'x|y|z|0' }, expect: 404 },
@@ -253,7 +257,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'POST /api/account/2fa/enable', method: 'POST', path: '/api/account/2fa/enable', body: { code: '000000' } },
         { route: 'POST /api/account/2fa/recovery', method: 'POST', path: '/api/account/2fa/recovery', body: { confirm: m.aPassword() } },
         { route: 'POST /api/account/2fa/disable', method: 'POST', path: '/api/account/2fa/disable', body: { code: '000000' } },
-        { route: 'POST /api/admin/users/:id/2fa/reset', method: 'POST', path: '/api/admin/users/nope/2fa/reset', expect: who === 'agent' ? 404 : 403 },
+        { route: 'POST /api/admin/users/:id/2fa/reset', method: 'POST', path: '/api/admin/users/nope/2fa/reset', expect: adminOnly(who) },
         ...([
           ['GET', '/api/admin/users'], ['POST', '/api/admin/users/nope/link'], ['PUT', '/api/admin/users/nope/role'],
           ['POST', '/api/admin/users/nope/disable'], ['POST', '/api/admin/users/nope/enable'], ['DELETE', '/api/admin/users/nope'],
@@ -263,7 +267,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
           ['DELETE', '/api/admin/config-migrations/nope'],
         ] as const).map(([method, path]) => ({
           route: `${method} ${path.replace(/\/nope(?=\/members\/)/, '/:id').replace(/members\/nope$/, 'members/:userId').replace(/\/nope/, '/:id')}`,
-          method, path, body: method === 'GET' || method === 'DELETE' ? undefined : {}, expect: who === 'agent' ? 404 : 403,
+          method, path, body: method === 'GET' || method === 'DELETE' ? undefined : {}, expect: adminOnly(who),
         })),
         // Last: it ends the session.
         { route: 'POST /api/auth/logout', method: 'POST', path: '/api/auth/logout' },
@@ -272,12 +276,15 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
 
     const before = Object.values(hidden).map((p) => readFileSync(join(h.notesDir, p), 'utf8'))
     const covered = new Set<string>()
-    for (const who of ['member', 'other', 'agent'] as Who[]) {
+    // The admin last: their key (the agent's) and every other session have walked it all by then.
+    for (const who of ['member', 'other', 'agent', 'admin'] as Who[]) {
       const send = who === 'agent' ? h.withKey(agentKey.token) : h.as(who)
-      const marks = hiddenMarks(who)
-      assert.ok(marks.length > 5, `${who} has something not to see`)
+      const all = hiddenMarks(who)
+      assert.ok(all.length > 5, `${who} has something not to see`)
       for (const call of calls(who)) {
         covered.add(call.route)
+        // The admin sees every folder's name to manage its permissions (D-038.1), never what is in it.
+        const marks = who === 'admin' && call.route === 'GET /api/permissions/folders' ? all.filter((mk) => !mk.endsWith('/')) : all
         const r = await send(call.method, call.path, call.body, call.headers)
         // The query as the server reads it (form encoding: a space is `+`).
         const asked = decodeURIComponent(call.path.replace(/\+/g, ' ')) + JSON.stringify(call.body ?? '')
@@ -326,5 +333,72 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
 
     // Every write aimed at what they can't see was refused and wrote nothing.
     assert.deepEqual(Object.values(hidden).map((p) => readFileSync(join(h.notesDir, p), 'utf8')), before)
+  } finally { await h.close() }
+})
+
+test('with read or comment in a folder, nothing is written there through any route or tool that writes: forbidden, since they see it', async () => {
+  // A folder the member reads and the other comments on; the admin manages it.
+  const folder = m.aFolder()
+  const note = m.aNotePath(folder)
+  const image = `${folder}/${m.aUniqueWord()}.png`
+  const config = RULES + `  ${yamlKey(folder)}:\n    grants: { ${yamlKey(MEMBER.username)}: read, ${yamlKey(OTHER.username)}: comment, ${yamlKey(ADMIN.username)}: manage }\n`
+  const h = await setup({ files: { ...BASE, [note]: `# ${m.aHeading()}\n\n${m.aSentence()} [[${NAME.list}]]\n`, [image]: PNG }, config })
+  try {
+    await h.enable()
+    // A version to restore and revert.
+    const cur = (await h.admin('GET', h.url('/api/note', { path: note }))).body
+    assert.equal((await h.admin('PUT', h.url('/api/note', { path: note }), { text: cur.text + `${m.aSentence()}\n` }, { 'if-match': `"${cur.etag}"` })).status, 200)
+    await h.settle()
+    const version = ((await h.admin('GET', h.url('/api/history/versions', { path: note }))).body.versions as { id: string }[])[0]!.id
+    const text = () => readFileSync(join(h.notesDir, note), 'utf8')
+    const listing = () => readdirSync(join(h.notesDir, folder), { recursive: true }).map(String).sort()
+    const before = { text: text(), files: listing(), yaml: readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8') }
+    const etag = (await h.member('GET', h.url('/api/note', { path: note }))).body.etag as string
+
+    const writes = (who: 'member' | 'other'): Call[] => [
+      { route: 'PUT /api/note', method: 'PUT', path: h.url('/api/note', { path: note }), body: { text: m.aSentence() }, headers: { 'if-match': `"${etag}"` } },
+      { route: 'POST /api/note', method: 'POST', path: '/api/note', body: { path: m.aNotePath(folder), text: m.aSentence() } },
+      { route: 'PUT /api/note', method: 'PUT', path: h.url('/api/note', { path: m.aNotePath(folder) }), body: { text: m.aSentence() }, headers: { 'if-none-match': '*' } },
+      { route: 'POST /api/note/edit', method: 'POST', path: '/api/note/edit', body: { path: note, ops: [{ op: 'append', text: m.aSentence() }] } },
+      { route: 'DELETE /api/note', method: 'DELETE', path: h.url('/api/note', { path: note }) },
+      { route: 'POST /api/note/move', method: 'POST', path: '/api/note/move', body: { from: note, to: m.aNotePath(DIR.shared) } },
+      { route: 'POST /api/note/move', method: 'POST', path: '/api/note/move', body: { from: PATH.list, to: m.aNotePath(folder) } },
+      { route: 'POST /api/attachments', method: 'POST', path: h.url('/api/attachments', { note }), body: PNG },
+      { route: 'POST /api/attachments/fetch', method: 'POST', path: '/api/attachments/fetch', body: { note, url: 'http://127.0.0.1:9/x.png' } },
+      { route: 'POST /api/note/link/pin', method: 'POST', path: '/api/note/link/pin', body: { path: note, raw: `[[${NAME.list}]]`, target: PATH.list } },
+      { route: 'POST /api/folder', method: 'POST', path: '/api/folder', body: { path: `${folder}/${m.aFolder()}` } },
+      { route: 'DELETE /api/folder', method: 'DELETE', path: h.url('/api/folder', { path: folder }) },
+      { route: 'POST /api/folder/move', method: 'POST', path: '/api/folder/move', body: { from: folder, to: `${DIR.shared}/${m.aFolder()}` } },
+      { route: 'GET /api/history/versions', method: 'GET', path: h.url('/api/history/versions', { path: note }) },
+      { route: 'POST /api/history/restore', method: 'POST', path: '/api/history/restore', body: { path: note, id: version } },
+      { route: 'POST /api/history/revert', method: 'POST', path: '/api/history/revert', body: { path: note, id: version } },
+      { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: note } },
+      { route: 'PUT /api/permissions', method: 'PUT', path: '/api/permissions', body: { folder, grants: { [who === 'member' ? MEMBER.username : OTHER.username]: 'manage' }, ifMatch: 'x' } },
+      // Commenting takes `comment`: the member, who only reads, can't.
+      ...(who === 'member' ? [{ route: 'POST /api/note/comment', method: 'POST', path: '/api/note/comment', body: { path: note, op: 'add', at: 0, context: '', text: m.aComment() } }] : []),
+    ]
+    for (const who of ['member', 'other'] as const) {
+      for (const call of writes(who)) {
+        const r = await h.as(who)(call.method, call.path, call.body, call.headers)
+        assert.deepEqual([r.status, r.body?.error], [403, 'forbidden'], `${who}: ${call.method} ${call.path} ${JSON.stringify(call.body ?? '').slice(0, 120)} → ${r.text.slice(0, 300)}`)
+      }
+    }
+    // A key that may write, of the member who only reads: its writing tools are refused.
+    const key = await h.newKey('member', { name: m.aKeyName(), canWrite: true })
+    const c = await h.mcp(key.token)
+    for (const [name, args] of [
+      ['edit_note', { path: note, operations: [{ op: 'append', text: m.aSentence() }] }],
+      ['create_note', { path: m.aNotePath(folder), text: m.aSentence() }],
+      ['move', { from: note, to: m.aNotePath(DIR.shared) }],
+      ['delete', { path: note }],
+      ['revert_change', { path: note, version }],
+      ['history', { path: note }],
+    ] as [string, Record<string, unknown>][]) {
+      const r = await c.call(name, args)
+      assert.ok(r.error, `${name}: ${r.raw.slice(0, 300)}`)
+      assert.equal(r.data?.error, 'forbidden', `${name}: ${r.raw.slice(0, 300)}`)
+    }
+    await c.close()
+    assert.deepEqual({ text: text(), files: listing(), yaml: readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8') }, before, 'nothing was written')
   } finally { await h.close() }
 })

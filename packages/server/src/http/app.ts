@@ -559,9 +559,15 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   // The workspace settings the UI needs from vihko.yaml (reloaded when it changes).
+  // Paths the person can't read aren't named (D-038): a series' template, the templates folder.
   app.get('/api/workspace', (c) => {
     const w = workspace.config
-    return c.json({ daily: w.daily, templates: w.templates, links: w.links })
+    const access = c.get('access')
+    return c.json({
+      daily: w.daily.map((s) => ({ ...s, template: s.template !== null && access.canRead(s.template) ? s.template : null })),
+      templates: w.templates !== null && access.level(w.templates) !== null ? w.templates : null,
+      links: w.links,
+    })
   })
 
   app.get('/api/profile', (c) => c.json(profiles.get(c.get('user').id)))
@@ -773,7 +779,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       const shared = workspace.config.attachments.folder
       if (shared !== null && permissions.directory.users().length > 1) alerts.push({ code: 'attachments_shared_folder', folder: shared, actions: [] })
     }
-    for (const a of deps.holds?.alerts((p) => noteExists.get(p) !== undefined, (h) => admin || access.canManage(h.folder)) ?? []) alerts.push(a)
+    for (const a of deps.holds?.alerts((p) => noteExists.get(p) !== undefined, { admin, canManage: (f) => access.canManage(f) }) ?? []) alerts.push(a)
     for (const { path } of index.prepare("select path from alerts where kind = 'sync_conflict' order by path").all() as { path: string }[]) {
       if (!access.canRead(path)) continue
       const note = conflictOriginal(path)
