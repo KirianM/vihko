@@ -11,7 +11,7 @@ export { markdownParser, vihkoSyntax } from './syntax.ts'
 export { caseFold } from './casefold.ts'
 export { LinkIndex, joinPath, normKey, pathKeys, shortestTarget, type LinkIndexOptions, type NoteKeys, type Resolution } from './resolve.ts'
 export { classifyPath, conflictOriginal, hasControlCharacter, isIgnoredDir, type PathKind } from './paths.ts'
-export type { AccountChange, Alert, AlertAction, AlertCode, ErrorCode } from './codes.ts'
+export type { AccountChange, Alert, AlertAction, AlertCode, ConfigMigrationRef, ErrorCode } from './codes.ts'
 export { newUid } from './uid.ts'
 export { IMAGE_EXTENSIONS, isExternalUrl, isImageRef, markdownDest, resolveImageRef } from './images.ts'
 export { addDays, canonicalTimeZone, civilNow, compareDates, formatDate, isValidDate, isoWeek, isoWeekStart, type CivilDate, type CivilDateTime } from './dates.ts'
@@ -29,6 +29,7 @@ export {
 } from './permissions.ts'
 export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'
 export { DEFAULT_HISTORY_MAX_FILE_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode, type McpConfig } from './workspace.ts'
+export { WORKSPACE_MIGRATIONS, migrateWorkspaceText, type MigrationOutcome, type WorkspaceMigration } from './workspaceMigrations.ts'
 export { globProblem, pathMatcher, type GlobProblem } from './glob.ts'
 export {
   anchorChanged, cleanText, commentKey, formatComment, goneThreads, normalizeAnchor, parseComments, parseThreads, removedThread, reopener, replyTo, resolveThread,

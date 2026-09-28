@@ -3,7 +3,8 @@
 // app, new recovery codes, turn it off while the admin doesn't require it;
 // with the policy `disabled`, only whoever already has one sees it, D-040 3.4a)
 // and sessions (which browser, when it was last used; close one, or all the
-// others). Reached from the preferences, like the other settings pages.
+// others); at the end, vihko's version. Reached from the preferences, like the
+// other settings pages.
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, FieldError, Form, Heading, Input, Label, Modal, ModalOverlay, TextField } from 'react-aria-components'
 import { ApiError, api, type SessionInfo, type TwoFactorInfo, type User } from './api.ts'
@@ -266,6 +267,9 @@ export function AccountPage({ user, onUnauthorized }: { user: User; onUnauthoriz
   const dates = useDates()
   const [sessions, setSessions] = useState<SessionInfo[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [version, setVersion] = useState<string | null>(null)
+  // Only a line at the end: without it the page loses nothing.
+  useEffect(() => { api.config().then((c) => setVersion(c.version ?? null), () => {}) }, [])
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -330,6 +334,13 @@ export function AccountPage({ user, onUnauthorized }: { user: User; onUnauthoriz
             </ul>
           )}
         </section>
+
+        {version && (
+          <section className="settings-section" aria-labelledby="account-about">
+            <h2 id="account-about">{t('account.about')}</h2>
+            <p className="hint">{t('account.version', { version })}</p>
+          </section>
+        )}
       </div>
     </>
   )

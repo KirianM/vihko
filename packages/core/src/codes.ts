@@ -95,6 +95,21 @@ export type Alert =
    * a newer `version`, a rejected strict section (D-031.9).
    */
   | { code: 'config_warnings'; file: string; warnings: ConfigError[]; actions: never[] }
+  /**
+   * vihko rewrote the workspace configuration file to the current format when
+   * it started (D-042.6), at `at` (ISO): which `migrations` (their id and a
+   * one-line description, in English), and where the file as it was is kept
+   * (`backup`, a path in the state volume). Only admins see it, until one of
+   * them dismisses it.
+   */
+  | { code: 'config_migrated'; id: string; file: string; migrations: ConfigMigrationRef[]; backup: string; at: string; actions: 'dismiss'[] }
+  /**
+   * The workspace configuration file is in an older format and couldn't be
+   * rewritten when vihko started: `migration` failed (null: writing the file
+   * did). It was left as it was, and it's tried again at the next start.
+   * `detail` is for developers. Only admins see it.
+   */
+  | { code: 'config_migration_failed'; file: string; migration: ConfigMigrationRef | null; detail: string; actions: never[] }
   /** A daily-note series names a template note that doesn't exist: its notes are created empty. */
   | { code: 'config_template_missing'; series: string; template: string; actions: never[] }
   /**
@@ -182,6 +197,13 @@ export type Alert =
    * theirs away (`vihko user reset-2fa`). Only admins see it.
    */
   | { code: 'two_factor_unreadable'; users: string[]; actions: never[] }
+
+/** One of vihko.yaml's format migrations, as the log and the admin see it (server configMigrations.ts). */
+export interface ConfigMigrationRef {
+  id: string
+  /** One line, in English. */
+  description: string
+}
 
 /** What the vihko admin did to someone's account. */
 export type AccountChange = 'reset_link' | 'two_factor_reset' | 'role_changed'

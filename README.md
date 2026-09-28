@@ -49,6 +49,11 @@ docker compose logs vihko   # the first start prints a one-time token to create 
 docker compose exec -T vihko vihko user create <name> --admin <<< 'password'
 ```
 
+The example `compose.yaml` is all you need from this repository: it pulls the
+image `ghcr.io/kirianm/vihko:1` (linux/amd64 and linux/arm64), which follows
+every 1.x release and never jumps to an incompatible version. To update to the
+latest 1.x: `docker compose pull && docker compose up -d`.
+
 The UI is at `http://<server>:8080`. If that port is taken,
 `VIHKO_HOST_PORT=8098 docker compose up -d`.
 
@@ -100,6 +105,7 @@ it's stopped):
 | `vihko user reset-link <name>` | Prints a one-time link (7 days) for that user to choose a new password: the way back for an admin who lost theirs. Any earlier link of theirs stops working. A second factor they have is still asked for after it |
 | `vihko user reset-2fa <name>` | Takes away that user's second factor (TOTP and recovery codes). With `reset-link`, the way back for an admin who lost both password and phone; also for whoever's second factor can't be read after `VIHKO_SECRET_KEY` was lost or changed |
 | `vihko history purge <path> [--version <id>] [--dry-run]` | Rewrites the managed history without a file or folder, or without one version of a file |
+| `vihko version` (or `vihko --version`) | Prints vihko's version |
 
 **`vihko history purge`** is for something that should never have been kept,
 such as a secret pasted into a note by mistake:
@@ -278,8 +284,9 @@ openssl rand -base64 32   # a key; keep it apart from the backups of the state v
 Settings that belong to the notes rather than to the installation live in
 `vihko.yaml`, at the root of the notes folder, so they travel and are
 versioned with the notes. It is optional: without it nothing is turned on.
-vihko reads it at start, when it changes, and on every rescan; the only part
-it writes is `permissions`, from the permissions dialog. It doesn't show up
+vihko reads it at start, when it changes, and on every rescan; it writes
+`permissions`, from the permissions dialog, and rewrites the file to the
+current format at start after an upgrade (see below). It doesn't show up
 as a note, and it's served to nobody (it holds the permissions).
 
 ```yaml
@@ -361,6 +368,15 @@ permissions:                # who reads what, per folder; without it, every admi
   newer vihko) is ignored and listed in a workspace alert with its line; the
   rest of the file applies. A `version` newer than vihko's gets the same
   treatment: what it understands applies, and the alert says so.
+- **Format changes on upgrade:** when a new version of vihko changes how
+  something is written in `vihko.yaml`, vihko rewrites the file itself when
+  it starts, before reading it: only what changed, keeping comments, key
+  order and keys it doesn't know. The file as it was is copied first to the
+  state volume (`config-backups/`, the latest 10 copies), never to the notes
+  folder. Each rewrite is logged and shown to the admins in «Alerts» until
+  one dismisses it. A file that isn't valid YAML, or that can't be written,
+  is left as it is and the alert says so; the next start tries again. vihko
+  never rewrites the file while it runs.
 - **Errors** don't stop vihko: a file that isn't valid YAML, or a known key
   with a wrong value (a path outside the notes folder, a bad series pattern),
   shows up as a workspace alert with the reason and line, and vihko keeps

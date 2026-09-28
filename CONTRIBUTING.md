@@ -16,6 +16,10 @@ privately, never in an issue: see [SECURITY.md](SECURITY.md).
   (`VIHKO_NOTES_DIR=… VIHKO_STATE_DIR=… packages/server/src/cli.ts serve`)
   and `npm run dev -w @vihko/web` in another; Vite forwards `/api` and
   `/collab` to port 8080 (`VIHKO_DEV_SERVER` for another one).
+- The image from your checkout: `compose.yaml` pulls the published one
+  (`ghcr.io/kirianm/vihko:1`); `compose.dev.yaml`, on top of it, builds
+  `vihko:local` from the checkout instead:
+  `docker compose -f compose.yaml -f compose.dev.yaml up -d --build`.
 - Browser tests (`packages/web/e2e`, Playwright): `npm run build` and
   `npm run e2e -w @vihko/web`, which starts a server with a copy of
   `testdata/vault` and two users. If your machine cannot run Chromium, keep the
@@ -116,6 +120,11 @@ commit as the `ci/local` status, which costs no GitHub Actions minutes. GitHub
 Actions runs the workflow only for Dependabot's pull requests (nobody runs
 those locally) and when started by hand.
 
+When the repository goes public (with `v1.0.0-rc.1`), Actions minutes are
+free: the CI moves there. Remove the `if:` of the four jobs of `ci.yml`, so it
+runs on every pull request, and make its checks the required ones in `main`'s
+ruleset instead of `ci/local`. `npm run ci` stays for running it locally.
+
 ```sh
 npm run ci                        # the last commit of this checkout
 npm run ci -- --pr 72             # pull request 72 merged onto its base, as GitHub tests it
@@ -199,6 +208,54 @@ a unit test that depends on two writes landing within 150 ms failed, which
 never happened one after another. The acceptance has time thresholds and the
 browser tests are sensitive to load too; a CI that fails from its own load is
 worse than a slower one.
+
+## Releasing
+
+A release is a tag on `main`: `vX.Y.Z`, or `vX.Y.Z-rc.N` for a release
+candidate. Pushing it runs `.github/workflows/release.yml`, which checks the
+tag (it matches the root `package.json`'s version, and `CHANGELOG.md` has a
+section for it) before pushing anything, builds the image for linux/amd64 and
+linux/arm64 and pushes it to GHCR, and then makes the GitHub Release, whose
+text is that `CHANGELOG.md` section.
+
+| Tag | Image tags (`ghcr.io/kirianm/vihko:…`) | GitHub Release |
+|---|---|---|
+| `v1.2.3` | `1.2.3`, `1.2`, `1`, `latest` | a release, the latest |
+| `v1.0.0-rc.1` (any `-…`) | `1.0.0-rc.1` only | a pre-release |
+
+A moving tag only goes forward: a fix for an older line (`v1.1.5` once
+`v1.2.0` is out, tagged on a branch of its own) gets `1.1.5` and `1.1`, not
+`1` or `latest`, and isn't marked as the latest Release.
+
+1. On a branch, set the new version in the root `package.json`, every
+   workspace package and `package-lock.json` (a test checks they agree):
+   `npm version 1.2.3 --no-git-tag-version --workspaces --include-workspace-root`.
+2. Write the version's section at the top of `CHANGELOG.md` ([Keep a
+   Changelog](https://keepachangelog.com/en/1.1.0/)), under a heading
+   `## [1.2.3] - YYYY-MM-DD`: what changed for whoever installs vihko, from the
+   pull requests merged since the last tag, with an "Upgrade notes" part for
+   anything to do by hand and anything deprecated. The Release shows it as it
+   is.
+3. Open the pull request, run the CI and merge it.
+4. Tag the merge commit and push the tag:
+
+   ```sh
+   git switch main && git pull --ff-only
+   git tag -a v1.2.3 -m 'vihko 1.2.3'
+   git push origin v1.2.3
+   ```
+
+5. Follow the run (`gh run watch`, or the Actions tab). If the check job
+   fails, nothing was published: delete the tag (`git push --delete origin
+   v1.2.3`, `git tag -d v1.2.3`), fix it in a pull request and tag again. If a
+   later job fails, run it again from the Actions tab.
+6. Check the result: `docker buildx imagetools inspect
+   ghcr.io/kirianm/vihko:1.2.3` lists linux/amd64 and linux/arm64, the moving
+   tags have the same digest, the image pulls without logging in (`docker
+   logout ghcr.io` first), and the Release (or pre-release) has the
+   changelog's text. The first time only: the package's settings on GitHub
+   (the repository's Packages) must say it is public and linked to the
+   repository; a package doesn't take its visibility from the repository.
 
 ## Conventions
 

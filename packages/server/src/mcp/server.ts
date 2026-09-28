@@ -17,6 +17,7 @@ import type { Auth } from '../auth.ts'
 import type { Services } from '../http/app.ts'
 import { authenticateKey, bearerToken } from '../http/keyAuth.ts'
 import { OAuthServer } from '../oauth.ts'
+import { VERSION } from '../version.ts'
 import type { Workspace } from '../workspace.ts'
 import { TextCache } from './texts.ts'
 import { LEAVE_IT, registerTools } from './tools.ts'
@@ -94,7 +95,7 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
     // Never without a key: `/mcp` below only calls the handler once it has judged one.
     if (!access) throw new Error('an MCP request without a principal')
     const guide = workspaceGuide(access)
-    const server = new McpServer({ name: 'vihko', version: '0', icons: opts.icons }, { instructions: guide ? `${instructions(access)}\n\n${guide}` : instructions(access) })
+    const server = new McpServer({ name: 'vihko', version: VERSION, icons: opts.icons }, { instructions: guide ? `${instructions(access)}\n\n${guide}` : instructions(access) })
     registerTools(server, {
       access, scoped: services.scoped(access), history: services.history, texts, names, log,
       maxWaitSeconds: opts.maxWaitSeconds, pollMs: opts.pollMs,

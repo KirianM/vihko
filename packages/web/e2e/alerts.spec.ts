@@ -226,6 +226,48 @@ test('permissions: rejected, notes held after a move outside vihko, and images a
   await k.context().close()
 })
 
+test('vihko.yaml rewritten to the current format at start: what changed and where the copy is, until dismissed; and a start that couldn\'t', async ({ browser }) => {
+  const k = await signIn(browser, ADMIN)
+  const id = m.aSecret(8)
+  const done = { id: m.anId(), description: m.aSentence() }
+  const failed = { id: m.anId(), description: m.aSentence() }
+  const detail = m.aSentence()
+  // The copy's name is the time of the rewrite: the case under test is a long path without spaces.
+  const backup = 'config-backups/vihko.yaml.2026-03-14T09-30-00.000Z'
+  await mockAlerts(k, [
+    // Shown as a date in the admin's timezone: the 14th whatever it is.
+    { code: 'config_migrated', id, file: 'vihko.yaml', migrations: [done], backup, at: '2026-03-14T09:30:00Z', actions: ['dismiss'] },
+    { code: 'config_migration_failed', file: 'vihko.yaml', migration: failed, detail, actions: [] },
+  ])
+  const sent: string[] = []
+  await k.route('**/api/admin/config-migrations/*', (route) => {
+    sent.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`)
+    return route.fulfill({ json: { ok: true } })
+  })
+  await k.goto('/?view=avisos')
+  const rewritten = card(k, 'vihko actualizó')
+  await expect(rewritten.getByRole('heading')).toHaveText('vihko actualizó vihko.yaml al formato actual')
+  await expect(rewritten).toContainText(/el 14 mar/)
+  await expect(rewritten).toContainText('comentarios incluidos, sigue como estaba')
+  await expect(rewritten).toContainText(backup)
+  await expect(rewritten.locator('li')).toHaveText(`${done.id} ${done.description}`)
+  const notDone = card(k, 'no pudo actualizar')
+  await expect(notDone.getByRole('heading')).toHaveText('vihko no pudo actualizar vihko.yaml al formato actual')
+  await expect(notDone).toContainText('lo sigue leyendo así')
+  await expect(notDone.locator('li')).toHaveText(`${failed.id} ${failed.description}`)
+  await expect(notDone.getByRole('button')).toHaveCount(0)
+  await expect(notDone.locator('.alert-copy')).toBeHidden()
+  await notDone.getByText('Detalle para quien administra vihko').click()
+  await expect(notDone.locator('.alert-copy')).toContainText(detail)
+  await k.setViewportSize({ width: 1440, height: 900 })
+  await k.screenshot({ path: `${SHOTS}/avisos-formato.png`, fullPage: true, animations: 'disabled' })
+  await k.setViewportSize({ width: 390, height: 844 })
+  expect(await k.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  await rewritten.getByRole('button', { name: 'Entendido' }).click()
+  await expect.poll(() => sent).toEqual([`DELETE /api/admin/config-migrations/${id}`])
+  await k.context().close()
+})
+
 test('empty state', async ({ browser }) => {
   const k = await signIn(browser, ADMIN)
   await mockAlerts(k, [])

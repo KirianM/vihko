@@ -151,6 +151,7 @@ test('first boot: one-time token to create the admin', async () => {
 
 test('everything requires a session except health; login, session and logout', async () => {
   const { auth, req } = await setup()
+  // Not even the version without a session.
   assert.deepEqual((await req('GET', '/api/health')).body, { ok: true })
   const admin = m.aUser({ role: 'admin' })
   await auth.createUser(admin.username, admin.password, admin.role)

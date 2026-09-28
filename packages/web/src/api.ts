@@ -178,6 +178,8 @@ export interface ServerConfig {
   maxImageBytes: number
   /** The second factor's secrets are stored encrypted (VIHKO_SECRET_KEY). */
   secretsEncrypted?: boolean
+  /** vihko's version (the root package.json's). */
+  version?: string
 }
 /** A stored image: `path` from the notes root, `src` relative to the note (to link it). */
 export interface Attachment { path: string; src: string }
@@ -420,6 +422,8 @@ export const api = {
   endSession: (id: string) => request<{ ok: true }>('DELETE', `/api/account/sessions/${encodeURIComponent(id)}`),
   /** One of one's own notices (what the admin did to one's account, a purge of what one wrote), dismissed. */
   dismissNotice: (id: string) => request<{ ok: true }>('DELETE', `/api/account/notices/${encodeURIComponent(id)}`),
+  /** The alert of a rewrite of vihko.yaml at start, dismissed (the admin, for every admin). */
+  dismissConfigMigration: (id: string) => request<{ ok: true }>('DELETE', `/api/admin/config-migrations/${encodeURIComponent(id)}`),
   endOtherSessions: () => request<{ ended: number }>('DELETE', '/api/account/sessions'),
   /** Other sessions end; `wrong_password` if `current` isn't right. */
   changePassword: (current: string, password: string) => request<{ ok: true }>('POST', '/api/auth/password', { current, password }),

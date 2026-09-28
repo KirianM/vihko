@@ -1,13 +1,20 @@
 # Minimal example. Adjust the volume paths to your system.
 services:
   vihko:
-    image: vihko:local
-    build: .
+    # :1 gets every 1.x release (fixes and features), never an incompatible
+    # version: that is a new major, which you choose by changing the tag. A
+    # release candidate is only published under its exact tag
+    # (ghcr.io/kirianm/vihko:1.0.0-rc.1).
+    image: ghcr.io/kirianm/vihko:1
     restart: unless-stopped
     ports:
       # Host port: 8080 unless you say otherwise. If it is taken,
       # VIHKO_HOST_PORT=8098 docker compose up -d (or put it in a .env file).
+      # Don't expose it to the Internet without HTTPS in front (a reverse proxy).
       - "${VIHKO_HOST_PORT:-8080}:8080"
+      # Behind a reverse proxy on this host, only the proxy needs to reach it:
+      # this line instead of the one above.
+      # - "127.0.0.1:${VIHKO_HOST_PORT:-8080}:8080"
     volumes:
       # Notes: any Markdown folder (local disk or NFS).
       - ./notes:/data/notes
