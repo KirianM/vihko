@@ -1,6 +1,9 @@
 // Configuration shared by the test server and the tests.
 // data.ts first: it may set the seed before anything draws from it.
 import { E2E_DIR } from './data.ts'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { mother, type NewUser } from '../../../test/mother.ts'
 
 export { E2E_DIR }
@@ -14,6 +17,23 @@ export const LOCKED_URL = process.env.E2E_LOCKED_URL ?? `http://127.0.0.1:${LOCK
 export const EXTERNAL_PORT = Number(process.env.E2E_EXTERNAL_PORT ?? 8132)
 /** VIHKO_PUBLIC_URL of the main test server: OAuth exists there (while MCP is on). Nothing answers at it; the specs use BASE_URL. */
 export const PUBLIC_URL = 'https://vihko.e2e.test'
+
+/** The fixed vault the test server's notes folder starts from. */
+const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
+
+/**
+ * A top-level folder name no note folder uses yet (neither the vault's nor
+ * one already in the server's notes): for a spec that creates a folder and
+ * deletes it when it's done, which must never take a folder of the vault
+ * (a seed can draw «diario» as well as any other word).
+ */
+export function freshFolder(make: () => string): string {
+  const taken = (name: string) => [VAULT, NOTES].some((root) => existsSync(join(root, name)))
+  for (;;) {
+    const name = make()
+    if (!taken(name)) return name
+  }
+}
 
 /** The people of the servers, the same in them (serve.ts) and in the specs: one scope for both, not a spec's. */
 const people = mother('e2e: the people of the servers')

@@ -3,14 +3,14 @@
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, freshFolder, specMother } from './env.ts'
 import { literally, signIn, usePermissions } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 /** A path as the UI shows it: `a/b.md` → `a / b`. */
 const label = (path: string) => path.replace(/\.md$/i, '').split('/').join(' / ')
 
-const FOLDER = m.aFolder()
+const FOLDER = freshFolder(() => m.aFolder())
 const DIR = `${NOTES}/${FOLDER}`
 const SHOTS = `${E2E_DIR}/shots`
 
