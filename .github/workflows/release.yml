@@ -17,6 +17,11 @@ name: Release
 # Every action is pinned to a full commit SHA, with its release in a trailing
 # comment, as in ci.yml; Dependabot (.github/dependabot.yml, github-actions)
 # proposes the new SHA and comment.
+#
+# Nothing here reads GitHub's Actions cache (setup-node's npm cache, the
+# emulator's image): any workflow run on main can write that cache, and
+# what builds and publishes the image trusts only the tag's code and the
+# registries.
 on:
   push:
     tags: ['v*']
@@ -48,6 +53,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
       - name: The tag matches package.json, and CHANGELOG.md has its section
         id: check
         run: node scripts/release.ts "$GITHUB_REF_NAME"
@@ -58,7 +64,7 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
-      packages: write
+      packages: write # push the image to ghcr.io
     env:
       # What the image says about itself, as labels (docker inspect) and as
       # annotations (GHCR shows the index's). metadata-action adds source, url,
@@ -76,6 +82,7 @@ jobs:
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           platforms: arm64
+          cache-image: false
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -107,7 +114,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      contents: write
+      contents: write # create the GitHub Release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -116,6 +123,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
       - name: The version's CHANGELOG.md section
         run: node scripts/release.ts "$GITHUB_REF_NAME" --notes "$RUNNER_TEMP/notes.md"
       - name: GitHub Release
