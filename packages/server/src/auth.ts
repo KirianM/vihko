@@ -30,6 +30,13 @@ const KEYLEN = 32
 const MAXMEM = 64 * 1024 * 1024
 
 export const MIN_PASSWORD = 10
+/**
+ * The longest password, in characters: far beyond what a password manager
+ * generates (around a hundred at most). Argon2 barely slows down with the
+ * length, but normalising and reading an arbitrary string doesn't: a longer
+ * one is refused before any of that work.
+ */
+export const MAX_PASSWORD = 1024
 export const SESSION_DAYS = 30
 /** The browser a session remembers (its User-Agent), cut to this length. */
 const MAX_USER_AGENT = 200
@@ -83,6 +90,8 @@ const b64 = (b: Buffer) => b.toString('base64').replace(/=+$/, '')
  * Without Argon2 in this Node, `scrypt$N$r$p$<salt>$<hash>`.
  */
 export async function hashPassword(password: string): Promise<string> {
+  // Every new password is hashed here: checked for length here too, whoever calls.
+  tooLong(password)
   const salt = randomBytes(16)
   if (!argon2Async) {
     const hash = await scryptAsync(password.normalize('NFC'), salt, KEYLEN, { N, r: R, p: P, maxmem: MAXMEM })
@@ -96,6 +105,8 @@ const ARGON2_HASH = /^\$argon2id\$v=(\d+)\$m=(\d+),t=(\d+),p=(\d+)\$([A-Za-z0-9+
 
 /** Whether `password` matches a stored hash of either kind. An unknown or malformed hash never matches. */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  // Longer than any password vihko accepts: refused without any work.
+  if (password.length > MAX_PASSWORD) return false
   const a = ARGON2_HASH.exec(stored)
   if (a) {
     const [, v, m, t, p, salt, hash] = a
@@ -306,6 +317,11 @@ export class Auth {
 
 function strongEnough(password: string) {
   if (typeof password !== 'string' || password.length < MIN_PASSWORD) throw new AuthError('weak_password', `password must be at least ${MIN_PASSWORD} characters`)
+  tooLong(password)
+}
+
+function tooLong(password: string) {
+  if (password.length > MAX_PASSWORD) throw new AuthError('weak_password', `password must be at most ${MAX_PASSWORD} characters`)
 }
 
 // Same algorithm and cost as a real hash, so an unknown user takes as long as a known one.

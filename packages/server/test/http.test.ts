@@ -5,7 +5,7 @@ import { scryptSync } from 'node:crypto'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
-import { Auth, Indexer, NoteService, Profiles, Workspace, SESSION_COOKIE, STATE_VERSION, createApp, ftsQuery, hashPassword, needsRehash, openIndex, openState, verifyPassword, type Runtime } from '@vihko/server'
+import { Auth, AuthError, Indexer, MAX_API_BODY, MAX_AUTH_BODY, MAX_PASSWORD, NoteService, Profiles, Workspace, SESSION_COOKIE, STATE_VERSION, createApp, ftsQuery, hashPassword, needsRehash, openIndex, openState, verifyPassword, type Runtime } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { yamlKey } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
@@ -91,6 +91,45 @@ test('passwords: scrypt hashes still verify and become argon2id on the next logi
   assert.match(stored(), /^\$argon2id\$v=19\$m=19456,t=2,p=1\$/, 'rehashed on a successful login')
   assert.ok(await auth.login(admin.username, admin.password), 'and the new hash works')
   assert.equal(await auth.login(admin.username, wrong), null)
+})
+
+/** A random password exactly `length` characters long. */
+const aPasswordOf = (length: number) => Array.from({ length: Math.ceil(length / 10) + 1 }, () => m.aPassword()).join('').slice(0, length)
+
+test('passwords: one longer than MAX_PASSWORD is refused before any hashing', async () => {
+  const atLimit = aPasswordOf(MAX_PASSWORD)
+  assert.ok(await verifyPassword(atLimit, await hashPassword(atLimit)), 'the limit itself is a valid length')
+  const over = aPasswordOf(MAX_PASSWORD + 1)
+  await assert.rejects(hashPassword(over), (e) => e instanceof AuthError && e.code === 'weak_password')
+  // Even against a hash made of it (by an older vihko, without the limit), it's never checked.
+  assert.equal(await verifyPassword(over, legacyScrypt(over)), false)
+})
+
+test('request bodies: over the limit is 413, and nothing changes', async () => {
+  const { auth, req } = await setup()
+  const admin = m.aUser({ role: 'admin' })
+  await auth.createUser(admin.username, admin.password, admin.role)
+  await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
+  const path = m.aNotePath()
+  const text = m.aParagraph()
+  const created = await req('POST', '/api/note', { path, text })
+  assert.equal(created.status, 201)
+  const current = async () => (await req('GET', `/api/note?path=${encodeURIComponent(path)}`)).body.text as string
+  const before = await current()
+  // Any route that reads a body: the whole text of a note, as big as the limit.
+  const huge = 'x'.repeat(MAX_API_BODY)
+  const put = await req('PUT', `/api/note?path=${encodeURIComponent(path)}`, { text: huge }, { 'if-match': `"${created.body.etag}"` })
+  assert.equal(put.status, 413, 'PUT /api/note')
+  const edit = await req('POST', '/api/note/edit', { path, ops: [{ op: 'append', text: huge }] })
+  assert.equal(edit.status, 413, 'POST /api/note/edit')
+  assert.equal(await current(), before)
+
+  // A new password: its body is as small as a login's, and the password itself has a limit.
+  const tooBig = await req('POST', '/api/auth/password', { current: admin.password, password: aPasswordOf(MAX_AUTH_BODY) })
+  assert.equal(tooBig.status, 413, 'a body larger than a login\'s')
+  const tooLong = await req('POST', '/api/auth/password', { current: admin.password, password: aPasswordOf(MAX_PASSWORD + 1) })
+  assert.deepEqual(errorOf(tooLong), [400, 'weak_password'], 'a password longer than MAX_PASSWORD')
+  assert.ok(await auth.login(admin.username, admin.password), 'the password is still the same')
 })
 
 test('first boot: one-time token to create the admin', async () => {
