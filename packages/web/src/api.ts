@@ -178,6 +178,8 @@ export interface ServerConfig {
   maxImageBytes: number
   /** The second factor's secrets are stored encrypted (VIHKO_SECRET_KEY). */
   secretsEncrypted?: boolean
+  /** vihko's version (the root package.json's). */
+  version?: string
 }
 /** A stored image: `path` from the notes root, `src` relative to the note (to link it). */
 export interface Attachment { path: string; src: string }

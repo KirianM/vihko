@@ -178,6 +178,10 @@ test('one\'s account: sessions with this one marked, signing out another, and a 
   await expect(sessions.filter({ hasText: 'Esta sesión' })).toHaveCount(1)
   expect(await sessions.count()).toBeGreaterThanOrEqual(2)
   await expect(sessions.first()).toContainText('Chrome')
+  // At the end, vihko's version: the server's, as its health check says it.
+  const { version } = await (await page.request.get('/api/health')).json()
+  expect(version).toMatch(/^\d+\.\d+\.\d+/)
+  await expect(page.getByRole('region', { name: 'Acerca de' }).getByText(`vihko ${version}`, { exact: true })).toBeVisible()
   await page.screenshot({ path: `${SHOTS}/account.png`, animations: 'disabled', fullPage: true })
   // One, then the rest.
   const before = await sessions.count()
