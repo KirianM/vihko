@@ -12,8 +12,8 @@
 // - An agent (a key, D-035) sees what its user sees, limited to the key's
 //   folders (none = all), and never a note with `ai: false`, in a folder
 //   closed to agents (`ai: false` in vihko.yaml) or whose frontmatter can't
-//   be read (the most restricted, D-014). It writes only with a key that may
-//   and where its user has `edit`.
+//   be read (the most restricted, D-014), nor an image such a note uses. It
+//   writes only with a key that may and where its user has `edit`.
 //
 // What a principal can't read doesn't exist for it: callers answer
 // `not_found`, never `forbidden`, and name nothing it can't see (D-030,
@@ -179,14 +179,13 @@ export class AccessPolicy {
     return this.statement('select 1 from notes where path = ?').get(path) !== undefined
   }
 
-  /** @internal Whether a file that isn't a note is used by a note the access (by its id) can read. */
-  usedByVisible(path: string, id: number): boolean {
-    return this.statement(`select 1 from images i join notes n on n.path = i.src_path
-      where i.path = ? and ${SQL_FN}(n.path, n.fm_json, n.fm_error, ?) limit 1`).get(path, id) !== undefined
+  /** @internal The notes that use a file that isn't a note, as indexed. */
+  notesUsing(path: string): { path: string; fm_json: unknown; fm_error: unknown }[] {
+    return this.statement('select n.path, n.fm_json, n.fm_error from images i join notes n on n.path = i.src_path where i.path = ?').all(path) as { path: string; fm_json: unknown; fm_error: unknown }[]
   }
 }
 
-interface Statement { get(...params: unknown[]): unknown }
+interface Statement { get(...params: unknown[]): unknown; all(...params: unknown[]): unknown[] }
 
 /** Whether `path` is one of `folders` or inside one; everything with no folders. Compared in NFC (disks may hold NFD). */
 export function inFolders(path: string, folders: readonly string[]): boolean {
@@ -275,15 +274,33 @@ export class Access {
   /**
    * Whether it may read `path` now: a note (as last indexed; `hides` checks
    * its text), or another file (an image), which has its folder's
-   * permission; an agent reads one only in its folders and only if a note
-   * it can read uses it.
+   * permission; an agent reads one only in its folders, only if a note it
+   * can read uses it, and never if a note hidden from agents does
+   * (`fileHidden`).
    */
   canRead(path: string): boolean {
     if (!this.userCan(path, 'read')) return false
     if (this.principal.kind === 'user') return true
     if (!this.agentReaches(path)) return false
     if (classifyPath(path) === 'note') return !this.policy.hiddenIndexed(path)
-    return this.policy.usedByVisible(path, this.queryId())
+    const using = this.policy.notesUsing(path)
+    return !using.some((n) => this.hiddenNote(n)) && using.some((n) => this.rowVisible(n.path, n.fm_json, n.fm_error))
+  }
+
+  /**
+   * For an agent, whether a file that isn't a note is used by a note hidden
+   * from agents (`ai: false` in it or in its folder, or a frontmatter that
+   * can't be read): then the file is hidden too, whatever else uses it, or
+   * writing a note that links to it would be enough to read it. Never for a
+   * user.
+   */
+  fileHidden(path: string): boolean {
+    return this.principal.kind === 'agent' && this.policy.notesUsing(path).some((n) => this.hiddenNote(n))
+  }
+
+  /** Whether a note that uses a file is hidden from every agent, by its frontmatter or its folder. */
+  private hiddenNote(n: { path: string; fm_json: unknown; fm_error: unknown }): boolean {
+    return this.policy.hiddenRow(n.fm_json, n.fm_error) || this.viewer.aiClosed(folderOf(n.path))
   }
 
   /**

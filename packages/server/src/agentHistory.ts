@@ -66,7 +66,8 @@ class PrincipalHistory implements HistoryReader {
 
   async file(id: string, path: string): Promise<Uint8Array | null> {
     // Its folder's permission now (for an agent, its user's, in the key's reach): never what it can't read.
-    if (!this.access.viewer.can(path, 'read') || !this.access.inScope(path) || this.access.closedToAgent(folderOf(path))) return null
+    // Nor, for an agent, a file a note hidden from agents uses now (`ai: false`): restoring it under another name would open it.
+    if (!this.access.viewer.can(path, 'read') || !this.access.inScope(path) || this.access.closedToAgent(folderOf(path)) || this.access.fileHidden(path)) return null
     const bytes = await this.inner.file(id, path)
     if (bytes && classifyPath(path) === 'note' && this.access.hides(Buffer.from(bytes).toString('utf8'))) return null
     return bytes
