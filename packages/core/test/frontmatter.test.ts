@@ -41,6 +41,28 @@ test('an alias bomb is invalid frontmatter, never an exception', () => {
   assert.throws(() => setFrontmatterKey(text, 'uid', 'A1'), FrontmatterError, 'and never written')
 })
 
+test('repeated keys are invalid frontmatter at any depth, in block or flow style', () => {
+  for (const yaml of ['a: 1\na: 2', 'a:\n  b: 1\n  b: 2', 'a: {b: 1, b: 2}', 'a: [{b: 1}, {c: 1, c: 2}]', '~: 1\nnull: 2', '1: a\n1.0: b']) {
+    assert.ok(readFrontmatter(`---\n${yaml}\n---\n`).error, yaml)
+  }
+  for (const yaml of ['a: 1\nb: 1', '1: a\n"1": b', 'a: {b: 1}\nc: {b: 1}', 'x: &x {a: 1}\ny: *x']) {
+    assert.equal(readFrontmatter(`---\n${yaml}\n---\n`).error, null, yaml)
+  }
+})
+
+test('a frontmatter with a huge map is read in time linear in its size', () => {
+  // Checking each key against every earlier one takes minutes on a few hundred KB.
+  for (const flow of [false, true]) {
+    const keys = Array.from({ length: 60_000 }, (_, i) => `k${i.toString(36)}: 1`)
+    const text = `---\n${flow ? `a: {${keys.join(', ')}}` : keys.join('\n')}\n---\n`
+    const start = performance.now()
+    const fm = readFrontmatter(text)
+    assert.equal(fm.error, null)
+    assert.equal(Object.keys(flow ? fm.data.a as object : fm.data).length, keys.length)
+    assert.ok(performance.now() - start < 10_000, `read in ${Math.round(performance.now() - start)} ms`)
+  }
+})
+
 test('no closing delimiter means no frontmatter', () => {
   const fm = readFrontmatter('---\ntitle: x\nsin cierre\n')
   assert.equal(fm.block, null)

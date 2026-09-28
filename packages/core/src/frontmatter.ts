@@ -2,7 +2,8 @@
 // re-serializing the block. Anything not explicitly touched is preserved
 // byte for byte (comments, order, quoting, list style, unknown keys).
 import { isDeepStrictEqual } from 'node:util'
-import { isMap, isScalar, isSeq, parseDocument, stringify, type Document } from 'yaml'
+import { isMap, isScalar, isSeq, stringify, type Document } from 'yaml'
+import { parseYamlDocument } from './yaml.ts'
 
 export type Eol = '\n' | '\r\n'
 
@@ -58,8 +59,7 @@ export function locateFrontmatter(text: string): FrontmatterBlock | null {
 }
 
 function parseYaml(raw: string): { doc: Document; data: Record<string, unknown> } | { error: string } {
-  // YAML 1.2 core schema: no dates or other implicit conversions from YAML 1.1.
-  const doc = parseDocument(raw, { schema: 'core', uniqueKeys: true, prettyErrors: false })
+  const doc = parseYamlDocument(raw)
   if (doc.errors.length) return { error: doc.errors[0]!.message }
   if (doc.contents !== null && !isMap(doc.contents)) return { error: 'the frontmatter is not a map' }
   const data = toData(doc)

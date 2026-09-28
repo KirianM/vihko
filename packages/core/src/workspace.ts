@@ -11,7 +11,8 @@
 // - Security-relevant sections (`permissions`) are strict sections: any
 //   doubt about one invalidates that section alone, which then applies its most
 //   restrictive setting.
-import { LineCounter, isMap, isScalar, isSeq, parseDocument, type Document } from 'yaml'
+import { LineCounter, isMap, isScalar, isSeq, type Document } from 'yaml'
+import { parseYamlDocument } from './yaml.ts'
 import { IMPLICIT_PERMISSIONS, CLOSED_PERMISSIONS, parsePermissions, type Permissions } from './permissions.ts'
 import { patternPeriod, patternTokens, seriesPath, type Series } from './series.ts'
 import { classifyPath } from './paths.ts'
@@ -221,7 +222,7 @@ function isFolder(path: string): boolean {
 
 export function parseWorkspaceConfig(text: string, strict: readonly StrictSection[] = STRICT_SECTIONS): ParseResult {
   const lines = new LineCounter()
-  const doc = parseDocument(text, { schema: 'core', uniqueKeys: true, prettyErrors: false, lineCounter: lines })
+  const doc = parseYamlDocument(text, { lineCounter: lines })
   if (doc.errors.length) {
     const e = doc.errors[0]!
     return { ok: false, errors: [{ code: 'yaml', at: null, line: lines.linePos(e.pos[0]).line, detail: e.message }], warnings: [] }
