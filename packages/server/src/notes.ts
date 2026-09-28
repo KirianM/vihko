@@ -2,7 +2,7 @@
 // through here). Optimistic concurrency by hash, safe writes
 // (fsutil.ts), lazy `uid` and deletion to trash.
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, posix } from 'node:path'
+import { dirname, join, posix, resolve } from 'node:path'
 import { addToFrontmatterList, classifyPath, contentHash, extract, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
 import { commitText, createFile, linkNew, readStable, readText } from './fsutil.ts'
 import { attachmentPath, noteAttachmentsDir, sniffImage, suffixedName } from './attachments.ts'
@@ -1012,20 +1012,23 @@ export class NoteService {
     return created
   }
 
+  /** The trash's entries, newest first: only folders `delete` made, whole (anything else there is left alone). */
   trash(): TrashEntry[] {
     const root = join(this.opts.stateDir, 'trash')
     let ids: string[]
     try { ids = readdirSync(root) } catch { return [] }
-    return ids.sort().reverse().map((id) => JSON.parse(readText(join(root, id, 'meta.json'))!) as TrashEntry)
+    return ids.sort().reverse().flatMap((id) => {
+      const entry = this.trashEntry(id)
+      return entry ? [entry] : []
+    })
   }
 
   /** Restores from the trash to its original path (or to `to`). Never overwrites. */
   async restore(id: string, actor: Actor, to?: string): Promise<{ path: string; etag: string }> {
-    const dir = join(this.opts.stateDir, 'trash', id)
-    const meta = readText(join(dir, 'meta.json'))
-    if (meta === null) throw new NoteError('not_found', `not in the trash: ${id}`)
-    const entry = JSON.parse(meta) as TrashEntry
-    const text = readText(join(dir, 'note.md'))!
+    const entry = this.trashEntry(id)
+    const dir = this.trashDir(id)
+    const text = dir === null ? null : readText(join(dir, 'note.md'))
+    if (entry === null || dir === null || text === null) throw new NoteError('not_found', `not in the trash: ${id}`)
     const path = to ?? entry.path
     const file = this.file(path)
     mkdirSync(dirname(file), { recursive: true })
@@ -1039,6 +1042,31 @@ export class NoteService {
     rmSync(dir, { recursive: true })
     this.opts.indexer.indexPaths([path])
     return { path, etag: contentHash(text) }
+  }
+
+  /**
+   * The folder of trash entry `id`, or null if `id` isn't one `delete` could
+   * have made (a uid): an id is never a path, so nothing outside the trash is
+   * read or removed through it.
+   */
+  private trashDir(id: string): string | null {
+    if (!TRASH_ID.test(id)) return null
+    const root = resolve(this.opts.stateDir, 'trash')
+    const dir = resolve(root, id)
+    return dirname(dir) === root ? dir : null
+  }
+
+  /** Trash entry `id` as its meta.json says, if it is one: a valid id, readable, and naming itself. */
+  private trashEntry(id: string): TrashEntry | null {
+    const dir = this.trashDir(id)
+    const meta = dir === null ? null : readText(join(dir, 'meta.json'))
+    if (meta === null) return null
+    try {
+      const entry = JSON.parse(meta) as TrashEntry
+      return entry?.id === id && typeof entry.path === 'string' ? entry : null
+    } catch {
+      return null
+    }
   }
 
   /**
@@ -1118,6 +1146,9 @@ function isDirectory(path: string): boolean {
 }
 
 const likePrefix = (dir: string) => dir.replace(/[\\%_]/g, (c) => '\\' + c) + '/%'
+
+/** A trash entry's id: the uid `delete` gives it (a ULID in Crockford base32). */
+const TRASH_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/
 
 /** Notes whose links a rename rewrites at the same time. */
 const RELINK_CONCURRENCY = 16
