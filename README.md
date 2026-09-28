@@ -221,6 +221,12 @@ in as new ones once). Their number is capped, so made-up usernames can't fill
 the memory. Behind a reverse proxy, set `VIHKO_TRUSTED_PROXIES`, or every
 client counts as the proxy's address.
 
+One-time links (invitations and password resets) and the first-boot token are
+limited too, but only by client address (the first and last counters, with
+every link, or the token, counted as one username): they are long random tokens,
+so a guess spread over many addresses gets nowhere, and nobody guessing
+elsewhere can hold back the person who has the real link.
+
 Codes of the second factor (a TOTP code or a recovery code, at sign-in or when
 confirming a new key or an OAuth client) are limited the same way, with
 counters of their own for each username: knowing the password doesn't give

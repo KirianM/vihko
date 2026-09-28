@@ -328,7 +328,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   app.post('/api/setup', authBody, async (c) => {
     const { token, username, password } = await c.req.json<{ token?: unknown; username?: unknown; password?: unknown }>()
-    const attempt: AttemptResult = limiter.begin({ ip: ipOf(c), account: SETUP_ACCOUNT })
+    const attempt: AttemptResult = limiter.begin({ ip: ipOf(c), account: SETUP_ACCOUNT, byAddress: true })
     if (!attempt.ok) return tooMany(c, attempt.retryAfter)
     try {
       const user = await auth.setup(text(token), text(username), text(password))
