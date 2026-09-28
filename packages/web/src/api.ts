@@ -462,11 +462,14 @@ export const api = {
   /** Takes someone's second factor away (the vihko admin). */
   resetTwoFactor: (id: string, confirm: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/2fa/reset`, { confirm }).then((r) => r.user),
   twoFactor: () => request<TwoFactorInfo>('GET', '/api/account/2fa'),
-  /** A new secret to set it up (or to replace the authenticator): the password is asked for. */
-  startTwoFactor: (password: string) => request<TwoFactorSetup>('POST', '/api/account/2fa/setup', { password }),
+  /**
+   * A new secret: to set it up, with the password; to replace the
+   * authenticator, with a code of the one in force (the app's, or a recovery code).
+   */
+  startTwoFactor: (proof: { password: string } | { code: string }) => request<TwoFactorSetup>('POST', '/api/account/2fa/setup', proof),
   /** A code from the new secret: now it's theirs; the recovery codes, shown once. */
   enableTwoFactor: (code: string) => request<{ recoveryCodes: string[] }>('POST', '/api/account/2fa/enable', { code }).then((r) => r.recoveryCodes),
-  /** New recovery codes (the old ones stop working); `confirm`: a current code or the password. */
+  /** New recovery codes (the old ones stop working); `confirm`: the app's code or a recovery code, never the password. */
   newRecoveryCodes: (confirm: string) => request<{ recoveryCodes: string[] }>('POST', '/api/account/2fa/recovery', { confirm }).then((r) => r.recoveryCodes),
   /** Only while the admin doesn't require it; a code or a recovery code. */
   disableTwoFactor: (code: string) => request<{ ok: true }>('POST', '/api/account/2fa/disable', { code }),

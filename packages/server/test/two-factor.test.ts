@@ -262,13 +262,45 @@ test('two steps: the password gives a pending sign-in, and a TOTP code or a reco
     assert.equal((await send(h.app, 'POST', '/api/auth/login/code', { pending: third.body.pending, code: totp(secret, h.clock.now.getTime()) })).body.error, 'login_expired')
     assert.equal((await send(h.app, 'POST', '/api/auth/login/code', { pending: 'nonsense', code: '123456' })).status, 401)
 
-    // New recovery codes: a current code or the password.
+    // New recovery codes: a code of the second factor, the app's or a recovery code; never the password (D-046.3).
     nextStep(h)
-    assert.equal((await h.admin('POST', '/api/account/2fa/recovery', { confirm: m.aPassword() })).body.error, 'wrong_password')
+    const asked = await h.admin('POST', '/api/account/2fa/recovery', {})
+    assert.deepEqual([asked.status, asked.body.error, asked.body.with], [400, 'confirmation_required', 'code'])
+    assert.equal((await h.admin('POST', '/api/account/2fa/recovery', { confirm: password })).body.error, 'invalid_code', 'the password doesn\'t do')
     const regen = await h.admin('POST', '/api/account/2fa/recovery', { confirm: totp(secret, h.clock.now.getTime()) })
     assert.equal(regen.body.recoveryCodes.length, 10)
-    assert.equal((await h.admin('POST', '/api/account/2fa/recovery', { confirm: password })).body.recoveryCodes.length, 10)
+    const again = await h.admin('POST', '/api/account/2fa/recovery', { confirm: regen.body.recoveryCodes[0] })
+    assert.equal(again.body.recoveryCodes.length, 10, 'a recovery code does, for whoever has no phone at hand')
+    assert.equal((await h.admin('POST', '/api/account/2fa/recovery', { confirm: again.body.recoveryCodes[0] })).body.recoveryCodes.length, 10)
     assert.equal((await h.admin('GET', '/api/account/2fa')).body.recoveryCodesLeft, 10)
+  } finally { await h.close() }
+})
+
+test('with a second factor in force, changing the app takes a code of it (the app\'s or a recovery code), never the password (D-046.3)', async () => {
+  const h = await setup()
+  try {
+    const { secret } = await enable(h, 'member')
+    const password = h.users.member.password
+    const asked = await h.member('POST', '/api/account/2fa/setup', { password })
+    assert.deepEqual([asked.status, asked.body.error, asked.body.with], [400, 'confirmation_required', 'code'], 'the password isn\'t asked for, nor taken')
+    assert.equal((await h.member('POST', '/api/account/2fa/setup', { code: password })).body.error, 'invalid_code')
+
+    // The app's current code: a new secret; the old app works until the new one is verified.
+    nextStep(h)
+    const s = await h.member('POST', '/api/account/2fa/setup', { code: totp(secret, h.clock.now.getTime()) })
+    assert.equal(s.status, 200)
+    const next = base32Decode(s.body.secret)
+    const done = await h.member('POST', '/api/account/2fa/enable', { code: totp(next, h.clock.now.getTime()) })
+    assert.equal(done.body.recoveryCodes.length, 10)
+    nextStep(h)
+    assert.equal((await h.member('POST', '/api/keys', { name: m.aKeyName(), confirm: totp(secret, h.clock.now.getTime()) })).body.error, 'invalid_code', 'the old app no longer')
+    assert.equal((await h.member('POST', '/api/keys', { name: m.aKeyName(), confirm: totp(next, h.clock.now.getTime()) })).status, 201, 'the new one')
+
+    // Without the phone at hand: a recovery code, spent.
+    const recovery = done.body.recoveryCodes[0]
+    assert.equal((await h.member('POST', '/api/account/2fa/setup', { code: recovery })).status, 200)
+    assert.equal((await h.member('POST', '/api/account/2fa/setup', { code: recovery })).body.error, 'invalid_code', 'once')
+    assert.equal((await h.member('GET', '/api/account/2fa')).body.recoveryCodesLeft, 9)
   } finally { await h.close() }
 })
 
@@ -337,7 +369,7 @@ test('the policy: a change is confirmed; required makes whoever has none set it 
     assert.equal((await memberSession('POST', '/api/account/2fa/disable', { code: '123456' })).body.error, 'two_factor_off')
 
     // Disabled (D-040 3.4a): nobody new sets one up, and whoever has one is still asked for it.
-    const { secret } = await enable(h, 'admin')
+    const { secret, recoveryCodes } = await enable(h, 'admin')
     const since = h.clock.now.toISOString()
     nextStep(h)
     assert.equal((await h.admin('PUT', '/api/admin/settings', { twoFactor: 'disabled', confirm })).body.error, 'invalid_code', 'with a second factor, its code confirms')
@@ -348,8 +380,8 @@ test('the policy: a change is confirmed; required makes whoever has none set it 
     assert.deepEqual((await h.admin('GET', '/api/account/2fa')).body, { policy: 'disabled', enabled: true, enabledAt: since, recoveryCodesLeft: 10, confirmWith: 'code' })
     nextStep(h)
     assert.equal((await h.admin('POST', '/api/keys', { name: m.aKeyName(), confirm: totp(secret, h.clock.now.getTime()) })).status, 201, 'keys confirm with the code')
-    // Who has one may change the app, and turn it off: then it isn't offered again.
-    assert.equal((await h.admin('POST', '/api/account/2fa/setup', { password: confirm })).status, 200)
+    // Who has one may change the app (with a code of it: here, a recovery code), and turn it off: then it isn't offered again.
+    assert.equal((await h.admin('POST', '/api/account/2fa/setup', { code: recoveryCodes[0] })).status, 200)
     nextStep(h)
     assert.equal((await h.admin('POST', '/api/account/2fa/disable', { code: totp(secret, h.clock.now.getTime()) })).status, 200)
     assert.equal((await h.admin('POST', '/api/account/2fa/setup', { password: confirm })).body.error, 'two_factor_disabled')

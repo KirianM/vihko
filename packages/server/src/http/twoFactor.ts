@@ -16,9 +16,11 @@
 //
 // With a session:
 //   GET  /api/account/2fa                   the policy, whether it's set up, recovery codes left, and what confirms (`code` or `password`)
-//   POST /api/account/2fa/setup {password}  a new secret (and its QR code) to set up or replace it
+//   POST /api/account/2fa/setup {password}  a new secret (and its QR code) to set it up
+//   POST /api/account/2fa/setup {code}      the same, to replace the authenticator: a code of the one in force
+//                                           (the app's, or a recovery code), never the password (D-046.3)
 //   POST /api/account/2fa/enable {code}     verifies a code from it: now it's theirs → { recoveryCodes } (shown once)
-//   POST /api/account/2fa/recovery {confirm}  new recovery codes; `confirm`: a current code or the password
+//   POST /api/account/2fa/recovery {confirm}  new recovery codes; `confirm`: the app's code or a recovery code (D-046.3)
 //   POST /api/account/2fa/disable {code}    only while the policy isn't `required`; a code or a recovery code
 //   POST /api/admin/users/:id/2fa/reset {confirm}  the vihko admin takes someone's second factor away
 //
@@ -41,7 +43,7 @@ import type { Access } from '../access.ts'
 import type { AdminSettings } from '../adminSettings.ts'
 import type { LoginLimiter } from '../loginLimit.ts'
 import type { Notices } from '../notices.ts'
-import { asTotp, type TwoFactor } from '../twoFactor.ts'
+import type { TwoFactor } from '../twoFactor.ts'
 import type { Users } from '../users.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
@@ -255,19 +257,37 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
         ? fail(c, 409, 'two_factor_disabled', 'the admin turned the second factor off for new setups')
         : null)
 
+      /** Their password, counted as a sign-in's: null if right, the response otherwise. */
+      const withPassword = (c: Context<Env>, u: User, password: unknown) =>
+        attempt(c, u.username, u.username, async () => (typeof password === 'string' && (await auth.checkPassword(u.id, password)) ? null : 'wrong_password'), 403)
+      /**
+       * A code of their second factor (the app's, or a recovery code, which is
+       * spent), counted as the second step's: null if right, the response
+       * otherwise; none given, what is asked for.
+       */
+      const withCode = async (c: Context<Env>, u: User, code: unknown) => {
+        if (typeof code !== 'string' || !code.trim()) {
+          return c.json({ error: 'confirmation_required', message: 'confirm with a code of the second factor: the app\'s, or a recovery code', with: 'code' }, 400)
+        }
+        return attempt(c, secondFactorAccount(u.username), u.username, () => checkCode(u.id, code, true), 403)
+      }
+
       app.get('/api/account/2fa', (c) => {
         const u = me(c)
         return c.json({ policy: settings.twoFactorPolicy(), ...twoFactor.status(u.id), confirmWith: inForce(u.id) ? 'code' : 'password' })
       })
 
-      // Setting it up (or replacing the authenticator) asks for the password:
-      // a session left open must not be able to lock its owner out.
+      // Setting it up asks for the password: a session left open must not be
+      // able to lock its owner out. Replacing the authenticator asks for a
+      // code of the second factor in force (the app's, or a recovery code,
+      // spent), never the password, which a session left open may know too
+      // (D-046.3). Without phone or codes, the admin's reset is the way back.
       app.post('/api/account/2fa/setup', async (c) => {
         const off = offered(c)
         if (off) return off
         const u = me(c)
         const b = await body(c)
-        const refused = await attempt(c, u.username, u.username, async () => (typeof b.password === 'string' && (await auth.checkPassword(u.id, b.password)) ? null : 'wrong_password'), 403)
+        const refused = inForce(u.id) ? await withCode(c, u, b.code) : await withPassword(c, u, b.password)
         if (refused) return refused
         return c.json(twoFactor.beginSetup(u.id, u.username, host(c)))
       })
@@ -280,15 +300,12 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
         return c.json({ recoveryCodes: done.codes })
       })
 
-      // New recovery codes: a current code, or the password (for whoever used
-      // up their codes, or is without their phone).
+      // New recovery codes: a code of the second factor (the app's, or a
+      // recovery code, spent), never the password (D-046.3).
       app.post('/api/account/2fa/recovery', async (c) => {
         const u = me(c)
         if (!inForce(u.id)) return fail(c, 409, 'two_factor_off', 'no second factor in force')
-        const { confirm } = await body(c)
-        const refused = asTotp(confirm)
-          ? await attempt(c, secondFactorAccount(u.username), u.username, () => checkCode(u.id, confirm, false), 403)
-          : await attempt(c, u.username, u.username, async () => (typeof confirm === 'string' && (await auth.checkPassword(u.id, confirm)) ? null : 'wrong_password'), 403)
+        const refused = await withCode(c, u, (await body(c)).confirm)
         if (refused) return refused
         return c.json({ recoveryCodes: await twoFactor.regenerate(u.id) })
       })

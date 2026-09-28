@@ -348,14 +348,17 @@ From then on, signing in asks for the app's code after the password. «No phone?
 Use a recovery code» takes one of those instead; each works once. In Account you
 can make new recovery codes (the old ones stop working), change to another app
 (the old one works until the new one is verified) or turn it off (unless it's
-required).
+required). Each of these asks for a code of your second factor, the app's or a
+recovery code, and never for your password: someone who found your session
+open, and knows your password, still can't take your second factor over.
 
 If the app's codes never work, check that the phone sets its time
 automatically.
 
 ### Lost phone
 
-- With a recovery code: sign in with it, then change the app in Account.
+- With recovery codes: sign in with one, then change the app in Account with
+  another (and make new codes once the new app works).
 - Without one: ask an admin. In the user's «Actions», «Reset two-step
   verification» takes it away; the person signs in with their password alone
   and sets it up again (at once, if it's required). Their open sessions and
