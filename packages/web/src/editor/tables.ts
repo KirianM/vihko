@@ -6,13 +6,18 @@ import { syntaxTree } from '@codemirror/language'
 import { StateField, type EditorState, type Range } from '@codemirror/state'
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
-import { focusChanged, touches } from './livePreview.ts'
+import { focusChanged, linkAction, linkStatus, setLinks, touches, type LinkRef } from './livePreview.ts'
 
 // --- Pure helpers: from the syntax tree to a model ------------------------------------
 
 export type Align = 'left' | 'center' | 'right' | null
 export type Mark = 'strong' | 'em' | 'strike' | 'code' | 'link' | 'tag'
-export interface Segment { text: string; marks: Mark[] }
+export interface Segment {
+  text: string
+  marks: Mark[]
+  /** The link it's the text of (a wikilink or a Markdown link, not an autolink): followed on click, as outside a table. */
+  link?: LinkRef
+}
 export interface Cell {
   /** Where the cell's text starts in the source, relative to the table's first line. */
   pos: number
@@ -49,30 +54,34 @@ const STYLE: Record<string, Mark> = { StrongEmphasis: 'strong', Emphasis: 'em', 
 /** A cell's inline Markdown as plain text runs with their styles: emphasis, code, links as text. */
 export function inline(node: SyntaxNode, slice: Slice): Segment[] {
   const out: Segment[] = []
-  const push = (text: string, marks: Mark[]) => {
+  const push = (text: string, marks: Mark[], link?: LinkRef) => {
     if (!text) return
     // The table's `\|` is not a code escape, but it still stands for a pipe (GFM).
     if (marks.includes('code')) text = text.replaceAll('\\|', '|')
     const last = out[out.length - 1]
-    if (last && last.marks.join() === marks.join()) last.text += text
-    else out.push({ text, marks })
+    if (last && last.marks.join() === marks.join() && last.link?.at === link?.at) last.text += text
+    else out.push(link ? { text, marks, link } : { text, marks })
   }
-  const walk = (parent: SyntaxNode, from: number, to: number, marks: Mark[]) => {
+  const walk = (parent: SyntaxNode, from: number, to: number, marks: Mark[], link?: LinkRef) => {
     let pos = from
     for (let c = parent.firstChild; c; c = c.nextSibling) {
       if (c.to <= from || c.from >= to) continue
-      push(slice(pos, c.from), marks)
+      push(slice(pos, c.from), marks, link)
       pos = c.to
       if (HIDDEN.has(c.name)) continue
-      if (c.name === 'Escape') push(slice(c.from + 1, c.to), marks)
-      else if (c.name === 'WikiLink' || c.name === 'WikiEmbed') push(wikiLabel(slice(c.from, c.to), c.name === 'WikiEmbed'), [...marks, 'link'])
-      else if (c.name === 'Link' || c.name === 'Image') {
+      if (c.name === 'Escape') push(slice(c.from + 1, c.to), marks, link)
+      else if (c.name === 'WikiLink' || c.name === 'WikiEmbed') {
+        const raw = slice(c.from, c.to)
+        push(wikiLabel(raw, c.name === 'WikiEmbed'), [...marks, 'link'], { raw, at: c.from, url: null })
+      } else if (c.name === 'Link' || c.name === 'Image') {
         const lm = c.getChildren('LinkMark')
-        if (lm.length >= 2) walk(c, lm[0]!.to, lm[1]!.from, [...marks, 'link'])
-        else push(slice(c.from, c.to), marks)
-      } else walk(c, c.from, c.to, STYLE[c.name] ? [...marks, STYLE[c.name]!] : marks)
+        const url = c.getChild('URL')
+        const ref = c.name === 'Link' && url ? { raw: slice(c.from, c.to), at: c.from, url: slice(url.from, url.to) } : link
+        if (lm.length >= 2) walk(c, lm[0]!.to, lm[1]!.from, [...marks, 'link'], ref)
+        else push(slice(c.from, c.to), marks, link)
+      } else walk(c, c.from, c.to, STYLE[c.name] ? [...marks, STYLE[c.name]!] : marks, link)
     }
-    push(slice(pos, to), marks)
+    push(slice(pos, to), marks, link)
   }
   walk(node, node.from, node.to, [])
   return out
@@ -122,14 +131,21 @@ export function tableModel(table: SyntaxNode, slice: Slice, base: number): Table
 
 const TAGS: Record<Mark, string> = { strong: 'strong', em: 'em', strike: 's', code: 'code', link: 'span', tag: 'span' }
 
-function renderCell(el: HTMLElement, cell: Cell, align: Align) {
+/** How far a link has resolved, by its text: its style, as outside a table. */
+type Statuses = Record<string, string>
+
+function renderCell(el: HTMLElement, cell: Cell, align: Align, statuses: Statuses) {
   el.dataset.pos = String(cell.pos)
   if (align) el.style.textAlign = align
   for (const seg of cell.content) {
     let node: Node = document.createTextNode(seg.text)
     for (const m of [...seg.marks].reverse()) {
       const wrap = document.createElement(TAGS[m])
-      if (m === 'link') wrap.className = 'cm-link'
+      if (m === 'link') {
+        const status = seg.link ? statuses[seg.link.raw] : undefined
+        wrap.className = status ? `cm-link cm-link-${status}` : 'cm-link'
+        if (seg.link) Object.assign(wrap.dataset, { linkRaw: seg.link.raw, linkAt: String(seg.link.at), ...(seg.link.url === null ? {} : { linkUrl: seg.link.url }) })
+      }
       if (m === 'tag') wrap.className = 'cm-tag'
       wrap.append(node)
       node = wrap
@@ -140,11 +156,13 @@ function renderCell(el: HTMLElement, cell: Cell, align: Align) {
 
 class TableWidget extends WidgetType {
   readonly model: TableModel
+  readonly statuses: Statuses
   readonly key: string
-  constructor(model: TableModel) {
+  constructor(model: TableModel, statuses: Statuses) {
     super()
     this.model = model
-    this.key = JSON.stringify(model)
+    this.statuses = statuses
+    this.key = JSON.stringify([model, statuses])
   }
   eq(o: TableWidget) { return o.key === this.key }
   toDOM(view: EditorView) {
@@ -155,17 +173,19 @@ class TableWidget extends WidgetType {
     const thead = table.createTHead().insertRow()
     this.model.head.forEach((c, i) => {
       const th = document.createElement('th')
-      renderCell(th, c, this.model.align[i] ?? null)
+      renderCell(th, c, this.model.align[i] ?? null, this.statuses)
       thead.append(th)
     })
     const tbody = table.createTBody()
     for (const row of this.model.body) {
       const tr = tbody.insertRow()
-      row.forEach((c, i) => renderCell(tr.insertCell(), c, this.model.align[i] ?? null))
+      row.forEach((c, i) => renderCell(tr.insertCell(), c, this.model.align[i] ?? null, this.statuses))
     }
     wrap.append(table)
-    // A click on a cell puts the cursor at that cell's text, which reveals the source
-    // (mousedown is held back so the editor doesn't place the cursor itself).
+    // A click on a link follows it as outside a table (`linkAction`); anywhere
+    // else in a cell (or on a link that isn't followed: broken, say) it puts the
+    // cursor at that cell's text, which reveals the source (mousedown is held
+    // back so the editor doesn't place the cursor itself).
     const cellOf = (e: Event) => {
       const cell = (e.target as HTMLElement).closest<HTMLElement>('[data-pos]')
       return cell && wrap.contains(cell) ? cell : null
@@ -175,6 +195,10 @@ class TableWidget extends WidgetType {
       const cell = cellOf(e)
       if (e.button !== 0 || !cell) return
       e.preventDefault()
+      const link = (e.target as HTMLElement).closest<HTMLElement>('[data-link-raw]')
+      const { linkRaw, linkAt, linkUrl } = link?.dataset ?? {}
+      const act = link && linkRaw !== undefined ? linkAction(view, { raw: linkRaw, at: Number(linkAt), url: linkUrl ?? null }, link) : null
+      if (act) return act()
       const anchor = view.posAtDOM(wrap) + Number(cell.dataset.pos)
       view.dispatch({ selection: { anchor: Math.min(anchor, view.state.doc.length) }, scrollIntoView: true })
       view.focus()
@@ -200,7 +224,17 @@ function tableDecorations(state: EditorState): DecorationSet {
       // Only tables that own their lines (not one starting after a list marker, say).
       if (!/^[\s>]*$/.test(slice(first.from, ref.from))) return false
       if (touches(state, first.from, last.to)) return false
-      const widget = new TableWidget(tableModel(ref.node, slice, first.from))
+      const model = tableModel(ref.node, slice, first.from)
+      const statuses: Statuses = {}
+      for (const row of [model.head, ...model.body]) {
+        for (const cell of row) {
+          for (const seg of cell.content) {
+            const status = seg.link && linkStatus(state, seg.link.raw)
+            if (status) statuses[seg.link!.raw] = status
+          }
+        }
+      }
+      const widget = new TableWidget(model, statuses)
       out.push(Decoration.replace({ widget, block: true }).range(first.from, last.to))
       return false
     },
@@ -210,6 +244,6 @@ function tableDecorations(state: EditorState): DecorationSet {
 
 export const tables = StateField.define<DecorationSet>({
   create: tableDecorations,
-  update: (v, tr) => (tr.docChanged || tr.selection || focusChanged(tr) || syntaxTree(tr.state) !== syntaxTree(tr.startState) ? tableDecorations(tr.state) : v),
+  update: (v, tr) => (tr.docChanged || tr.selection || focusChanged(tr) || syntaxTree(tr.state) !== syntaxTree(tr.startState) || tr.effects.some((e) => e.is(setLinks)) ? tableDecorations(tr.state) : v),
   provide: (f) => EditorView.decorations.from(f),
 })
