@@ -22,6 +22,7 @@ import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
 import { shiftedNotice } from './Shifts.tsx'
 import { OpenPaletteContext, Palette, SearchButton, type PaletteMode } from './Palette.tsx'
 import { rememberNote } from './recent.ts'
+import { WINDOWS } from './keys.ts'
 import { useBackClose, useMobile, useVisualViewport } from './mobile.ts'
 import { PreferencesDialog, browserTimeZone } from './Preferences.tsx'
 import { FolderTree, ancestors, buildTree, type FolderInfoOf, type Node, type TreeAction } from './FolderTree.tsx'
@@ -199,8 +200,10 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         e.stopPropagation()
         setPalette('search')
       }
-      // ⌘⌥D / Ctrl+Alt+D: today's note. By physical key: Option changes e.key on a Mac.
-      if ((e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey && e.code === 'KeyD' && todayRef.current) {
+      // ⌘⌥D / Ctrl+Alt+D: today's note. By physical key too (Option changes e.key on a Mac, and so does
+      // a non-Latin layout), except for Ctrl+Alt on Windows: that's AltGr, which types «đ» with D on some layouts.
+      const d = e.key.toLowerCase() === 'd' || (e.code === 'KeyD' && !(WINDOWS && e.ctrlKey && e.altKey))
+      if ((e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey && d && todayRef.current) {
         e.preventDefault()
         e.stopPropagation()
         todayRef.current()
