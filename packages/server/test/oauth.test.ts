@@ -233,7 +233,7 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     assert.equal(found.error, false)
     assert.deepEqual(found.data.results.map((r: { path: string }) => r.path), [PATH.plan])
     assert.equal((await reader.call('get_note', { path: PATH.hidden })).data.error, 'agent_denied', 'ai: false stays hidden')
-    await assert.rejects(reader.client.callTool({ name: 'create_note', arguments: { path: m.aNotePath(), text: m.aSentence() } }))
+    assert.equal(JSON.parse(((await reader.client.callTool({ name: 'create_note', arguments: { path: m.aNotePath(), text: m.aSentence() } })) as { isError?: boolean; content: { text: string }[] }).content[0]!.text).error, 'forbidden', 'a read-only key: forbidden, in vihko\'s JSON')
     await reader.close()
 
     // The authorization is a key of the admin's, named after the client, used via OAuth.

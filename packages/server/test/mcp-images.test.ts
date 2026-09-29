@@ -82,7 +82,7 @@ test('attach_image: only for keys that write; outside the key\'s folders, hidden
     await h.enableApi()
     const ro = await h.mcp((await h.newKey({ name: m.aKeyName(), folders: [DIR] })).token)
     assert.ok(!(await ro.client.listTools()).tools.some((t) => t.name === 'attach_image'))
-    await assert.rejects(ro.client.callTool({ name: 'attach_image', arguments: { note: PLAN, data: IMAGE } }), /attach_image/)
+    assert.equal(JSON.parse(((await ro.client.callTool({ name: 'attach_image', arguments: { note: PLAN, data: IMAGE } })) as { isError?: boolean; content: { text: string }[] }).content[0]!.text).error, 'forbidden', 'a read-only key: forbidden, in vihko\'s JSON')
     await ro.close()
 
     const c = await h.mcp((await h.newKey({ name: m.aKeyName(), canWrite: true, folders: [DIR] })).token)

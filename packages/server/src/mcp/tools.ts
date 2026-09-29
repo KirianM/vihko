@@ -88,14 +88,35 @@ function renamed(value: unknown, top: Record<string, string>, depth = 0): unknow
 }
 
 /**
+ * Arguments that don't fit a tool's schema. The SDK would answer them itself,
+ * in its own words; instead they reach the tool as this, and it answers
+ * `invalid` in vihko's shape, as any other error (`run`).
+ */
+class InvalidInput {
+  readonly message: string
+  constructor(message: string) {
+    this.message = message
+  }
+}
+
+type Issue = { message: string; path?: readonly (PropertyKey | { key: PropertyKey })[] }
+const issueText = (i: Issue) => (i.path?.length ? `${i.path.map((p) => String(typeof p === 'object' ? p.key : p)).join('.')}: ${i.message}` : i.message)
+
+/**
  * A tool's input: the zod object as its JSON Schema says, and on validation
  * the other names accepted too (`aliases`: at the top level, only for fields
- * the tool has).
+ * the tool has). What doesn't fit is an `InvalidInput`, never the SDK's error.
  */
 function input<T extends z.ZodObject>(schema: T, aliases: Record<string, string> = {}): StandardSchemaWithJSON<z.input<T>, z.output<T>> {
   const std = schema['~standard']
   const top = Object.fromEntries(Object.entries(aliases).filter(([, f]) => f in schema.shape))
-  return { '~standard': { ...std, validate: (v: unknown, o?: unknown) => std.validate(renamed(v, top), o as never) } } as unknown as StandardSchemaWithJSON<z.input<T>, z.output<T>>
+  type Result = { value?: unknown; issues?: readonly Issue[] }
+  const judged = (r: Result) => (r.issues?.length ? { value: new InvalidInput(`invalid arguments: ${r.issues.map(issueText).join('; ')}`) } : r)
+  const validate = (v: unknown, o?: unknown) => {
+    const r = std.validate(renamed(v, top), o as never) as Result | Promise<Result>
+    return r instanceof Promise ? r.then(judged) : judged(r)
+  }
+  return { '~standard': { ...std, validate } } as unknown as StandardSchemaWithJSON<z.input<T>, z.output<T>>
 }
 
 /** What an agent must do about a note it can't access (the same words in the instructions). */
@@ -316,6 +337,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   const keyId = access.principal.kind === 'agent' ? access.principal.key.id : `user:${access.user.id}`
   const run = <A>(fn: (args: A, signal: AbortSignal) => Promise<CallToolResult> | CallToolResult) =>
     async (args: A, c: { mcpReq: { signal: AbortSignal } }): Promise<CallToolResult> => {
+      if ((args as unknown) instanceof InvalidInput) return failure(new ToolError('invalid', (args as unknown as InvalidInput).message), ctx.log)
       try { return await fn(args, c.mcpReq.signal) } catch (err) { return failure(err, ctx.log) }
     }
   /** The note as the key reads it now, remembered for `changes_since`. */
@@ -612,6 +634,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       inputSchema: input(z.object({ series })),
       annotations: READ,
     }, run(({ series }) => dailyLook(series)))
+    refuseWriting(server, ctx.log)
     return
   }
 
@@ -796,6 +819,26 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     if (r.changed && !r.nowHidden) remember(NoteService.checkPath(p), r.etag)
     return reply(revertResult(r))
   }))
+}
+
+/** The tools that write, which only a key that may write is offered. */
+export const WRITING_TOOLS: readonly string[] = ['create_note', 'edit_note', 'move', 'delete', 'attach_image', 'revert_change']
+
+/**
+ * For a key that can't write: the writing tools aren't offered (tools/list
+ * leaves them out), and a call to one answers `forbidden` in vihko's shape,
+ * as the API's write routes do for such a key, instead of the SDK's «tool not
+ * found». The SDK has no public way to answer for a tool it doesn't list, so
+ * this wraps its tools/call handler (a test checks it still does).
+ */
+function refuseWriting(server: McpServer, log: (m: string) => void) {
+  type Handler = (request: { params: { name: string } }, ctx: unknown) => Promise<CallToolResult>
+  const low = server.server as unknown as { _getRequestHandler?(method: string): Handler | undefined }
+  const inner = low._getRequestHandler?.('tools/call')
+  if (!inner) return
+  server.server.setRequestHandler('tools/call', ((request: { params: { name: string } }, ctx: unknown) => (WRITING_TOOLS.includes(request.params.name)
+    ? failure(new AccessError('this key is read-only: it has no tool that writes'), log)
+    : inner(request, ctx))) as never)
 }
 
 /** The history as `access` may see it. */

@@ -228,9 +228,9 @@ your browser.
 
 ## The tools
 
-The server offers these tools. A read-only key gets only the reading ones (and
-`daily_note` only looks); calling a writing tool with it fails as an unknown
-tool.
+The server offers these tools. A read-only key is offered only the reading ones
+(and `daily_note` only looks); calling a writing tool with it answers
+`forbidden`.
 
 **Reading**
 
@@ -282,6 +282,9 @@ Conventions the tools share:
   too.
 - Lists are paged: pass `next_offset` (or `next`) back as `offset` (or
   `cursor`).
+- An error is a result marked as one, whose text is JSON: `error` (a code, the
+  same as the [HTTP API](api.md#errors)'s) and `message` (a hint that may
+  change). Arguments that don't fit a tool are `invalid`.
 - Results come as JSON, and note text as a separate block. Both are wrapped in
   markers that say they are data written by people, not instructions. This makes
   prompt injection harder: text in a note shouldn't make an agent act on it.

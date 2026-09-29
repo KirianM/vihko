@@ -158,13 +158,15 @@ what stays.
   markers carry a random tag.
 - An error is a result with `isError`, whose text is JSON: `error` (a code),
   `message`, and as they apply `etag`, `hint`, `reason` and `audience`. The
-  codes are those of the HTTP API.
+  codes are those of the HTTP API. Arguments that don't fit a tool's schema
+  are such an error too, `invalid`.
+- Results are `snake_case`, like the parameters.
 - Lists are paged: pass `next_offset` back as `offset`, or `next` as
   `cursor`.
 - A write that hides the note from the agent succeeds and adds `now_hidden:
   true`, `reason` and `message`.
-- A read-only key gets only the reading tools; a writing tool is unknown to
-  it.
+- A read-only key is offered only the reading tools; calling a writing tool
+  answers `forbidden`, as such an error.
 
 ### Reading tools
 
