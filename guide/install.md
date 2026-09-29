@@ -459,10 +459,13 @@ in:
 - **Only the web UI and its sign-in page answer.** There is no self sign-up:
   accounts exist only when an admin invites someone.
 - **The API with keys and the MCP server are off** until an admin turns them
-  on, in Preferences → Agents and API. `VIHKO_INTEGRATIONS=off` keeps them off
-  whatever the UI says. See [Agents](agents.md).
+  on, in Preferences → Agents and API, and only admins can create keys until
+  the admin lets members too, on the same page. `VIHKO_INTEGRATIONS=off` keeps
+  the API and MCP off whatever the UI says. See [Agents](agents.md).
 - **OAuth doesn't exist** (every OAuth address answers 404) unless you set
-  `VIHKO_PUBLIC_URL` *and* the MCP server is on.
+  `VIHKO_PUBLIC_URL` *and* the MCP server is on. Even then, apps can't
+  register themselves (as claude.ai and `mcp-remote` do) until an admin turns
+  on **OAuth apps can register themselves**.
 - **vihko makes no requests of its own**: no telemetry, no update checks, no
   CDNs, no fonts or scripts from other sites. It only reaches out when a
   person asks it to: copying an image from a URL someone pasted, or, for

@@ -1,6 +1,6 @@
 // OAuth 2.1 for the MCP server (m3 §7): only with VIHKO_PUBLIC_URL and the
 // MCP server on; metadata (RFC 8414, RFC 9728), dynamic registration (RFC
-// 7591, which the admin may turn off), authorization code with PKCE S256,
+// 7591, off until the admin turns it on), authorization code with PKCE S256,
 // consent as a key (read-only and every folder unless chosen otherwise),
 // short access tokens and rotating refresh tokens, exact redirect URIs and
 // the resource (RFC 8707); and at /mcp, the tools the authorization allows.
@@ -53,6 +53,12 @@ const json = (h: H, method: string, path: string, body: unknown) =>
 
 const form = (h: H, path: string, fields: Record<string, string>, headers: Record<string, string> = {}) =>
   raw(h, 'POST', path, { body: new URLSearchParams(fields).toString(), headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers } })
+
+/** The admin lets clients register themselves (off on a new vihko, D-049), as the UI's switch does. */
+async function openRegistration(h: H) {
+  const r = await h.admin('PUT', '/api/admin/integrations', { oauthRegistration: true })
+  assert.deepEqual([r.status, r.body.oauthRegistration], [200, true])
+}
 
 async function register(h: H, meta: Record<string, unknown> = {}) {
   const r = await json(h, 'POST', '/oauth/register', { client_name: CLIENT, redirect_uris: [REDIRECT], token_endpoint_auth_method: 'none', ...meta })
@@ -158,6 +164,14 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
   const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
   try {
     await h.enableMcp()
+    // A new vihko doesn't let clients register themselves (D-049), even with the MCP server on and a
+    // public URL: the address doesn't exist and the metadata doesn't offer it. A client named by its
+    // metadata document's URL still may (cimd.test.ts).
+    assert.equal((await json(h, 'POST', '/oauth/register', { client_name: CLIENT, redirect_uris: [REDIRECT], token_endpoint_auth_method: 'none' })).status, 404)
+    const closed = (await raw(h, 'GET', '/.well-known/oauth-authorization-server')).body
+    assert.deepEqual([closed.registration_endpoint, closed.client_id_metadata_document_supported], [undefined, true])
+    assert.equal((await h.admin('GET', '/api/integrations')).body.oauthRegistration, false)
+    await openRegistration(h)
     // Discovery, from the 401 of /mcp.
     const first = await mcpPost(h, null)
     assert.equal(first.status, 401)
@@ -304,6 +318,7 @@ test('the authorization request: unknown clients and redirect URIs are never red
   const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
   try {
     await h.enableMcp()
+    await openRegistration(h)
     const client = await register(h, { redirect_uris: [REDIRECT, 'http://localhost:3334/oauth/callback'] })
     const { challenge } = pkce()
     const get = (q: string, accept = 'text/html') => raw(h, 'GET', `/oauth/authorize?${q}`, { headers: { accept } })
@@ -357,6 +372,7 @@ test('the authorization request: an error never sends the browser to a registere
   const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
   try {
     await h.enableMcp()
+    await openRegistration(h)
     const elsewhere = 'https://attacker.example/landing'
     const client = await register(h, { redirect_uris: [elsewhere] })
     const { challenge } = pkce()
@@ -395,6 +411,7 @@ test('registration: checked, confidential clients need their secret, and the adm
   const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
   try {
     await h.enableMcp()
+    await openRegistration(h)
     for (const [meta, error] of [
       [{ redirect_uris: [] }, 'invalid_redirect_uri'],
       [{ redirect_uris: ['javascript:alert(1)'] }, 'invalid_redirect_uri'],
@@ -458,6 +475,7 @@ test('registration is limited per address: 5 an hour, then 429 with Retry-After;
   const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
   try {
     await h.enableMcp()
+    await openRegistration(h)
     /** A registration from `ip` (the socket's address, as @hono/node-server gives it). */
     const from = async (ip: string, meta: Record<string, unknown> = {}) => {
       const res = await h.app.request('/oauth/register', {
@@ -507,9 +525,14 @@ test('who may authorize: a member only while members may create keys; an agent n
   const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
   try {
     await h.enableMcp()
+    await openRegistration(h)
     const client = await register(h)
     const { challenge } = pkce()
     const q = authorizeQuery(client.client_id, challenge)
+    // A new vihko doesn't let members create keys (D-049), so neither authorize: they can only deny.
+    assert.equal((await h.member('GET', `/api/oauth/authorize?${q}`)).body.canAuthorize, false)
+    assert.deepEqual([(await consent(h, q, {}, 'member')).status, (await consent(h, q, {}, 'member')).body.error], [403, 'forbidden'])
+    assert.equal((await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).status, 200)
     assert.equal((await h.member('GET', `/api/oauth/authorize?${q}`)).body.canAuthorize, true)
     assert.equal((await consent(h, q, {}, 'member')).status, 200)
     assert.equal((await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: false })).status, 200)
@@ -531,6 +554,7 @@ test('revocation by the client (RFC 7009): a refresh token takes its chain; anot
   const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
   try {
     await h.enableMcp()
+    await openRegistration(h)
     const a = await register(h)
     const b = await register(h, { client_name: m.aKeyName() })
     const t = await authorize(h, a.client_id)

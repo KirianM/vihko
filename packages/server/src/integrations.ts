@@ -1,7 +1,8 @@
-// The integration switches (D-035.1): the HTTP API with keys and the MCP
-// server, off by default, whether members may create their own keys and
-// whether OAuth clients may register themselves (both on by default). They live in state.db and only the vihko admin changes them,
-// from the UI; they apply at once. The server's administrator can lock them
+// The integration switches (D-035.1): the HTTP API with keys, the MCP server,
+// whether members may create their own keys and whether OAuth clients may
+// register themselves, all off by default (D-049: closed by default). They
+// live in state.db and only the vihko admin changes them, from the UI; they
+// apply at once. The server's administrator can lock them
 // all off with VIHKO_INTEGRATIONS=off, whatever state.db says.
 import type { Db } from './db.ts'
 
@@ -10,12 +11,14 @@ export interface IntegrationSettings {
   api: boolean
   /** The MCP server at /mcp. */
   mcp: boolean
-  /** Members may create and change their own keys (an admin always can). */
+  /** Members may create and change their own keys (an admin always can). Off by default. */
   membersCanCreateKeys: boolean
   /**
    * OAuth clients may register themselves (RFC 7591), when OAuth exists at
-   * all (VIHKO_PUBLIC_URL and the MCP server on; oauth.ts). On by default.
-   * Off, clients already registered keep working.
+   * all (VIHKO_PUBLIC_URL and the MCP server on; oauth.ts). Off by default:
+   * claude.ai and mcp-remote register themselves, so connecting them needs it
+   * on; a client that names itself by a metadata URL (cimd.ts) doesn't. Off,
+   * clients already registered keep working.
    */
   oauthRegistration: boolean
 }
@@ -26,7 +29,7 @@ export interface IntegrationsView extends IntegrationSettings {
   locked: boolean
 }
 
-const DEFAULTS: IntegrationSettings = { api: false, mcp: false, membersCanCreateKeys: true, oauthRegistration: true }
+const DEFAULTS: IntegrationSettings = { api: false, mcp: false, membersCanCreateKeys: false, oauthRegistration: false }
 
 const KEYS: Record<keyof IntegrationSettings, string> = {
   api: 'integrations.api',

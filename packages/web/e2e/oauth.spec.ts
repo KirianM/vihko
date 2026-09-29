@@ -1,4 +1,5 @@
-// OAuth consent (m3 §7): a registered client sends the person to
+// OAuth consent (m3 §7): registration is off until the admin turns it on,
+// right under the MCP server's switch (D-049); a registered client sends the person to
 // /oauth/authorize; they sign in, see who asks and where it goes back to,
 // and answer with the choices of a new key (read-only and every folder by
 // default). The browser goes back to the client with a code (or
@@ -34,15 +35,12 @@ async function admin(browser: Browser) {
   return page
 }
 
-test.beforeAll(async ({ browser, request }) => {
+test.beforeAll(async ({ browser }) => {
   mkdirSync(SHOTS, { recursive: true })
   const page = await admin(browser)
-  expect((await page.request.put('/api/admin/integrations', { data: { mcp: true, oauthRegistration: true } })).status()).toBe(200)
+  // Registration stays as on a new vihko (off) for the first test; a member approves on a phone, so members may create keys.
+  expect((await page.request.put('/api/admin/integrations', { data: { mcp: true, oauthRegistration: false, membersCanCreateKeys: true } })).status()).toBe(200)
   await page.context().close()
-  // The client registers itself, as claude.ai or mcp-remote do.
-  const r = await request.post(`${BASE_URL}/oauth/register`, { data: { client_name: NAME, redirect_uris: [CALLBACK], token_endpoint_auth_method: 'none' } })
-  expect(r.status()).toBe(201)
-  clientId = (await r.json()).client_id
 })
 
 test.afterAll(async ({ browser }) => {
@@ -50,7 +48,7 @@ test.afterAll(async ({ browser }) => {
   for (const k of (await (await page.request.get('/api/keys?all=1')).json()).keys as { id: string; name: string; status: string }[]) {
     if (k.name === NAME && k.status === 'active') await page.request.delete(`/api/keys/${k.id}`)
   }
-  await page.request.put('/api/admin/integrations', { data: { api: false, mcp: false, membersCanCreateKeys: true, oauthRegistration: true } })
+  await page.request.put('/api/admin/integrations', { data: { api: false, mcp: false, membersCanCreateKeys: false, oauthRegistration: false } })
   await page.context().close()
 })
 
@@ -101,6 +99,38 @@ const initialize = (request: APIRequestContext, token: string) => request.post(`
 const card = (page: Page) => page.locator('.key-card', { has: page.getByRole('heading', { name: NAME, exact: true }) })
 
 let token = ''
+
+test('no client registers itself until the admin turns it on, right under the MCP server', async ({ browser, request }) => {
+  const register = () => request.post(`${BASE_URL}/oauth/register`, { data: { client_name: NAME, redirect_uris: [CALLBACK], token_endpoint_auth_method: 'none' } })
+  const metadata = async () => (await (await request.get(`${BASE_URL}/.well-known/oauth-authorization-server`)).json()) as Record<string, unknown>
+  // Off, with the MCP server on and a public URL: the address doesn't exist and the metadata doesn't offer it.
+  expect((await register()).status()).toBe(404)
+  expect((await metadata()).registration_endpoint).toBeUndefined()
+  expect((await metadata()).client_id_metadata_document_supported).toBe(true)
+
+  const page = await admin(browser)
+  await page.goto('/?view=agents')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Agentes y API')
+  const switches = page.locator('.switches label.switch')
+  await expect(switches.nth(1)).toContainText('Servidor MCP')
+  await expect(switches.nth(2)).toContainText('Las aplicaciones OAuth pueden registrarse solas')
+  await expect(switches.nth(2)).toContainText('Hace falta para conectar claude.ai o mcp-remote')
+  const registration = page.getByRole('switch', { name: /Las aplicaciones OAuth pueden registrarse solas/ })
+  await expect(registration).not.toBeChecked()
+  const needs = page.getByText('claude.ai y mcp-remote se registran solas antes de pedir acceso', { exact: false })
+  await expect(needs).toBeVisible()
+  await page.screenshot({ path: `${SHOTS}/oauth-registration-off.png`, fullPage: true, animations: 'disabled' })
+  await switches.nth(2).click()
+  await expect(registration).toBeChecked()
+  await expect(needs).toHaveCount(0)
+  await page.context().close()
+
+  // On: the client registers itself, as claude.ai or mcp-remote do.
+  expect((await metadata()).registration_endpoint).toBe(`${PUBLIC_URL}/oauth/register`)
+  const r = await register()
+  expect(r.status()).toBe(201)
+  clientId = (await r.json()).client_id
+})
 
 test('a client asks: the person signs in, sees who asks, and approves it read-only; it becomes a key', async ({ browser, request }) => {
   const ctx = await browser.newContext()

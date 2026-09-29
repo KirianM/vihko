@@ -27,19 +27,24 @@ To turn them on, as the vihko admin:
 2. Under **Integrations**, turn on what you need:
    - **HTTP API with keys**: requests with a key reach the API.
    - **MCP server**: `/mcp` exists.
+   - **Members can create keys**, if members are to have keys of their own.
+     Until you turn it on, only admins can create keys.
 
 The switches apply at once; there is nothing to restart. While a switch is off,
 its door doesn't exist: every request with a key to `/api/…` gets `404`, and so
 does `/mcp`, as if there were nothing there. The web UI works the same either
 way.
 
-Two more switches live on the same page:
+The last two switches, and one more:
 
-- **Members can create keys** (on by default). Turned off, members keep the
-  keys they have and can revoke them, but can't create, change or rotate any.
-  An admin always can.
-- **OAuth apps can register themselves** (on by default). It only shows when
-  vihko has a public address (`VIHKO_PUBLIC_URL`); see [Remote MCP with OAuth](#remote-mcp-with-oauth).
+- **Members can create keys** (off by default). While it's off, members can't
+  create keys or approve apps with OAuth; those they have keep working and
+  they can revoke them, but can't change or rotate them. An admin always can.
+- **OAuth apps can register themselves** (off by default), right under **MCP
+  server**. It only shows when vihko has a public address
+  (`VIHKO_PUBLIC_URL`). Connecting claude.ai or `mcp-remote`, which register
+  themselves, needs it on; apps that identify themselves with a URL don't. See
+  [Remote MCP with OAuth](#remote-mcp-with-oauth).
 
 Whoever runs the server can lock the API and the MCP server off with the
 environment variable `VIHKO_INTEGRATIONS=off`. Then they stay off whatever the
@@ -370,6 +375,12 @@ tokens only work on `/mcp`: the HTTP API takes keys, never OAuth tokens.
 3. **Turn on the MCP server** in Agents and API. The page then shows
    **Connect without a key (OAuth)** with the address to give remote assistants:
    `https://notes.example.com/mcp`.
+4. **Turn on OAuth apps can register themselves**, right under it, to connect
+   claude.ai or `mcp-remote`: they register themselves before asking for
+   access (see [How apps introduce themselves](#how-apps-introduce-themselves)).
+   Apps that identify themselves with a URL don't need it.
+5. For members to connect apps, also turn on **Members can create keys**: an
+   authorization is a key.
 
 ### Connect claude.ai
 
@@ -404,8 +415,9 @@ the app and marked **OAuth** in Agents and API:
 - Approving the same app again changes what that authorization may do (to what
   you choose then); it stays one entry, so the history keeps one author.
 - The history and the editor show it "via MCP (OAuth)".
-- Members can approve apps only while **Members can create keys** is on, since
-  an authorization is a key. Otherwise they can only deny.
+- Members can approve apps only while **Members can create keys** is on (it's
+  off by default), since an authorization is a key. Otherwise they can only
+  deny.
 
 Access tokens last an hour. Refresh tokens change on every use and expire after
 30 days unused. A refresh token used twice (a sign it was stolen) revokes every
@@ -422,13 +434,16 @@ what claude.ai does. Anyone can register, so the approval page marks the name
 as not checked and shows the address the app goes back to. Registration is
 limited to 5 apps an hour from each address (then `429` with `Retry-After`;
 behind a proxy, set `VIHKO_TRUSTED_PROXIES` so each client counts apart). An
-app registered but never approved is forgotten after a day. Once your apps are
-connected, the vihko admin can turn off **OAuth apps can register themselves**:
-apps already registered keep working.
+app registered but never approved is forgotten after a day. It's off until the
+vihko admin turns on **OAuth apps can register themselves** in Agents and API;
+while it's off, `/oauth/register` answers `404` and vihko's metadata doesn't
+offer it. Once your apps are connected, the admin can turn it off again: apps
+already registered keep working.
 
 **A metadata document.** The app names itself by an `https` address that
 describes it (a Client ID Metadata Document, which the MCP authorization
-specification prefers). vihko then fetches that address. It's the only request
+specification prefers). This works with **OAuth apps can register themselves**
+off. vihko then fetches that address. It's the only request
 vihko ever makes to an address someone else chose, and it's fenced in:
 
 - only when someone signed in to vihko starts authorizing that app, never
