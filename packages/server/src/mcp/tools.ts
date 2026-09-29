@@ -21,12 +21,13 @@
 // so that the agent doesn't take it for a failure and try again; from then on
 // the note is like any other hidden one.
 import { randomBytes } from 'node:crypto'
-import { contentHash, readFrontmatter, trimSlashes } from '@vihko/core'
+import { contentHash, imageMarkdown, readFrontmatter, trimSlashes } from '@vihko/core'
 import type { CallToolResult, McpServer, StandardSchemaWithJSON, ToolAnnotations } from '@modelcontextprotocol/server'
 import { z } from 'zod'
 import { AccessError, AgentDenied, type Access } from '../access.ts'
 import { parseAuthorKey } from '../actor.ts'
 import { historyFor } from '../agentHistory.ts'
+import type { ImageSlots } from '../imageSlots.ts'
 import type { EditOp } from '../edits.ts'
 import { GitError } from '../history/git.ts'
 import { contextAfter, contextBefore, wordDiff } from '../history/diff.ts'
@@ -42,6 +43,8 @@ export interface ToolContext {
   access: Access
   scoped: ScopedNotes
   history?: History
+  /** Images being received, counted with the HTTP API's. */
+  imageSlots: ImageSlots
   texts: TextCache
   /** Current names, for authors in the history. */
   names: { user(id: string): string; key(id: string): string }
@@ -67,7 +70,7 @@ class ToolError extends Error {
 /** camelCase for snake_case, anywhere in the input. */
 const CASE_ALIASES: Record<string, string> = {
   ifMatch: 'if_match', dryRun: 'dry_run', confirmAudience: 'confirm_audience', expectedCount: 'expected_count', maxChars: 'max_chars',
-  waitSeconds: 'wait_seconds', includeText: 'include_text', nextOffset: 'offset',
+  waitSeconds: 'wait_seconds', includeText: 'include_text', nextOffset: 'offset', mimeType: 'mime_type',
 }
 
 function renamed(value: unknown, top: Record<string, string>, depth = 0): unknown {
@@ -171,6 +174,22 @@ function failure(err: unknown, log: (m: string) => void): CallToolResult {
     body = { error: 'internal', message: 'internal error' }
   }
   return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }] }
+}
+
+/**
+ * Base64 as the standard alphabet writes it (`A–Z a–z 0–9 + /`, `=` padding
+ * or none), with line breaks and spaces allowed and a `data:…;base64,` prefix
+ * dropped: anything else is refused rather than half decoded (Node's decoder
+ * would skip what it doesn't know). Returns the characters to decode and how
+ * many bytes they make, before decoding anything.
+ */
+function base64Of(data: string): { text: string; bytes: number } {
+  const text = data.replace(/^data:[^,]*;base64,/i, '').replace(/\s+/g, '')
+  const body = text.replace(/={1,2}$/, '')
+  if (!body || !/^[A-Za-z0-9+/]+$/.test(body) || body.length % 4 === 1 || (body !== text && text.length % 4 !== 0)) {
+    throw new ToolError('invalid', '`data` is not valid base64: the image\'s bytes in the standard alphabet (A-Z a-z 0-9 + /, with = padding)')
+  }
+  return { text, bytes: Math.floor(body.length * 3 / 4) }
 }
 
 /** Search snippets mark their hits with control characters: as `**…**` for an agent. */
@@ -287,6 +306,7 @@ export const TOOL_NEEDS = {
   edit_note: 'edit',
   move: 'edit',
   delete: 'edit',
+  attach_image: 'edit',
   revert_change: 'history',
 } as const
 
@@ -727,6 +747,36 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   }, run(async ({ path: p, if_match }) => {
     const e = await scoped.delete(p, { ifMatch: if_match })
     return reply({ path: e.path, trashed: true, at: e.deletedAt, ...(e.files?.length ? { images: e.files.map((f) => f.path) } : {}) })
+  }))
+
+  // Images (D-048): stored as `POST /api/attachments` stores them, through the
+  // same scoped operation, so the same rules hold. The note isn't touched:
+  // the agent writes the link with edit_note, which is where it belongs.
+  server.registerTool('attach_image', {
+    title: 'Attach an image',
+    description: 'Stores an image for a note, where vihko keeps them (next to the note, unless its configuration says otherwise), from its bytes in base64: PNG, JPEG, GIF, WebP or AVIF, told by the bytes themselves. '
+      + 'Up to about 3 MB: an MCP request carries at most 4 MB, and base64 adds a third. It doesn\'t change the note: it returns `markdown`, the image link ready to write, escaped; add it where it belongs with edit_note (append, or append_under_heading). '
+      + 'Until a note links it, the image counts as unused. The note must exist and be one you can write; if it is not available to you, `agent_denied`: ' + LEAVE_IT,
+    inputSchema: input(z.object({
+      note: path.describe('The note the image is for, from the notes root with its .md extension.'),
+      data: z.string().min(1).describe('The image\'s bytes in base64.'),
+      mime_type: z.string().optional().describe('Its type, e.g. "image/png": only a hint, vihko goes by the bytes.'),
+      alt: z.string().optional().describe('Text describing the image, for the link\'s alt text.'),
+    }), { path: 'note', file: 'note', note_path: 'note', image: 'data' }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, run(async ({ note, data, alt }) => {
+    // Held whole in memory until stored: counted with the API's uploads, for the same person.
+    const release = ctx.imageSlots.take(access.user.id)
+    if (!release) throw new ToolError('busy', 'too many images are being received at once: try again in a moment')
+    try {
+      const b64 = base64Of(data)
+      const max = scoped.maxImageBytes
+      if (b64.bytes > max) throw new ToolError('too_large', `the image is ${b64.bytes} bytes; this vihko stores images up to ${max} bytes`)
+      const r = await scoped.attach(note, new Uint8Array(Buffer.from(b64.text, 'base64')))
+      return reply({ path: r.path, src: r.src, markdown: imageMarkdown(r.src, alt) })
+    } finally {
+      release()
+    }
   }))
 
   server.registerTool('revert_change', {

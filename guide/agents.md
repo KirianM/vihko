@@ -66,7 +66,7 @@ change, the key follows them. On top of that, each key has its own limits.
 | Setting | Default | What it does |
 |---|---|---|
 | Name | (required) | Who the key is for: "Claude Code", "Backup script". The history and the editor show it |
-| Permissions | Read only | **Read only**, or **Reads and writes**: create, edit, move and trash notes |
+| Permissions | Read only | **Read only**, or **Reads and writes**: create, edit, move and trash notes, and add images to them |
 | Folders | Every folder you see | Or only the folders you choose, with everything inside them |
 | Expiry | Never expires | 7 days, 30 days, 90 days or 1 year |
 
@@ -246,6 +246,7 @@ tool.
 | `edit_note` | Operations applied in order, all or none: `find_replace`, `append`, `append_under_heading`, `replace_section`, `set_frontmatter`. Works while someone has the note open. `dry_run` previews |
 | `move` | Moves or renames a note, rewriting every link to it. `dry_run` previews |
 | `delete` | Moves a note to the trash |
+| `attach_image` | Stores an image for a note, sent in base64, and returns the link to write into it (see [Images](#images)) |
 
 **History**
 
@@ -280,6 +281,32 @@ Conventions the tools share:
   markers that say they are data written by people, not instructions. This makes
   prompt injection harder: text in a note shouldn't make an agent act on it.
   It's a mitigation, not a guarantee; see [Safety notes](#safety-notes-for-admins).
+
+### Images
+
+`attach_image` takes the note the image is for and the image's bytes in
+base64 (`data`), with an optional `alt` text. vihko stores it as an upload
+from the UI or the API: where `vihko.yaml` says (next to the note by default),
+only for a note the key can write, only PNG, JPEG, GIF, WebP or AVIF (told by
+the bytes; `mime_type` is only a hint), and up to the size limit
+(`VIHKO_MAX_IMAGE_MB`). An MCP request carries at most 4 MB and base64 adds a
+third, so over MCP an image can be up to about 3 MB; send larger ones through
+the [HTTP API](api.md#images-and-attachments). vihko receives only a couple of
+images at a time for each person, counting their uploads and their keys'
+together: beyond that the tool answers `busy`, and the agent tries again in a
+moment.
+
+Like the API, it doesn't change the note. It answers where the image went and
+`markdown`, the link ready to write, with the alt text and with what would
+break a Markdown link escaped:
+
+```json
+{ "path": "projects/my plan-2026-09-29-1015.png", "src": "my plan-2026-09-29-1015.png", "markdown": "![The new floor plan](my%20plan-2026-09-29-1015.png)" }
+```
+
+The agent writes `markdown` where it belongs with `edit_note` (an `append`, or
+`append_under_heading`). Until a note links it, the image counts as unused: a
+key can't read it, and it doesn't go to the trash with the note.
 
 ### Instructions for agents
 

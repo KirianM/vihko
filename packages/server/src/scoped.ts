@@ -702,6 +702,11 @@ export class ScopedNotes {
     return out
   }
 
+  /** The largest image `attach` stores, in bytes (VIHKO_MAX_IMAGE_MB). */
+  get maxImageBytes(): number {
+    return this.deps.notes.maxImageBytes
+  }
+
   /**
    * Stores an image for a note it can write (D-028). An agent can't put one
    * outside its key's folders (the attachments folder of vihko.yaml may be).

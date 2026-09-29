@@ -284,6 +284,28 @@ test('images: an agent stores them next to its notes, never outside its folders'
   } finally { await h.close() }
 })
 
+test('images: the answer carries the Markdown link ready to append, escaped, so the note really uses the image', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    await h.enableApi()
+    const { token } = await h.newKey({ name: m.aKeyName(), canWrite: true, folders: [DIR] })
+    const key = h.withKey(token)
+    // A name with a space: `src` keeps it (a path), `markdown` escapes it (a link destination).
+    const note = `${DIR}/${m.aUniqueWord()} ${m.aUniqueWord()}.md`
+    assert.equal((await key('POST', '/api/note', { path: note, text: `# ${m.aTitle()}\n` })).status, 201)
+    const up = await key('POST', h.url('/api/attachments', { note }), new Uint8Array(PNG))
+    assert.equal(up.status, 201, up.text)
+    assert.ok(up.body.src.includes(' '), up.body.src)
+    assert.equal(up.body.markdown, `![](${up.body.src.replaceAll(' ', '%20')})`)
+    assert.equal((await key('POST', '/api/note/edit', { path: note, ops: [{ op: 'append', text: up.body.markdown }] })).status, 200)
+    await h.settle()
+    assert.equal((await key('GET', h.url('/api/file', { path: up.body.path }))).status, 200, 'a note it can read uses it now')
+    const trashed = await key('DELETE', h.url('/api/note', { path: note }))
+    assert.equal(trashed.status, 200, trashed.text)
+    assert.deepEqual(trashed.body.files.map((f: { path: string }) => f.path), [up.body.path], 'the image only it used went to the trash with it')
+  } finally { await h.close() }
+})
+
 test('an alert while the API or MCP is on and the history is not managed: what agents write has no version of its own', async () => {
   const h = await setup({ files: FILES, config: 'history:\n  mode: off\n' })
   try {

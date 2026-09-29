@@ -30,7 +30,7 @@ const CLIENT = m.aKeyName()
 /** The `state` a client sends and gets back: opaque to vihko. */
 const STATE = m.aSecret(12)
 const READ = ['changes_since', 'daily_note', 'get_note', 'history', 'list_folder', 'related', 'resolve_link', 'search']
-const ALL = [...READ, 'create_note', 'delete', 'edit_note', 'move', 'revert_change'].sort()
+const ALL = [...READ, 'attach_image', 'create_note', 'delete', 'edit_note', 'move', 'revert_change'].sort()
 
 type H = Awaited<ReturnType<typeof setup>>
 

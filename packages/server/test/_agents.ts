@@ -28,6 +28,8 @@ export interface AgentSetup {
   ui?: boolean
   /** Fetches OAuth clients' metadata documents (tests that reach a local HTTPS server). */
   clientMetadata?: ClientMetadataFetcher
+  /** The largest image stored (VIHKO_MAX_IMAGE_MB), in bytes. */
+  maxImageBytes?: number
 }
 
 export async function setup(opts: AgentSetup = {}) {
@@ -65,7 +67,7 @@ export async function setup(opts: AgentSetup = {}) {
   await history.start()
   await history.recorder.settle()
   indexer.onApplied = (a) => history.recorder.observeIndexed(a)
-  const notes = new NoteService({ notesDir, stateDir, indexer, db: index, history: history.recorder, attachments: () => workspace.config.attachments })
+  const notes = new NoteService({ notesDir, stateDir, indexer, db: index, history: history.recorder, attachments: () => workspace.config.attachments, maxImageBytes: opts.maxImageBytes })
   const clock = { now: opts.now ?? new Date('2026-09-26T10:00:00Z') }
   let webDir: string | undefined
   if (opts.ui) {
