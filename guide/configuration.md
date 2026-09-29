@@ -111,6 +111,12 @@ number from 1 up; anything else makes the file unusable. A `version` newer than
 your vihko understands isn't an error: what vihko understands applies, and an
 alert says the file is newer.
 
+You don't need to change it by hand. The number goes up only with a
+[format change](#format-changes-on-upgrade): when vihko rewrites the file to
+a newer format, it raises `version` to match (and adds it if the file had
+none), so that an older vihko, if you go back to one, can tell the file is
+newer than it understands.
+
 ### `templates`
 
 ```yaml
@@ -494,7 +500,8 @@ When a new version of vihko changes how something is written in `vihko.yaml`,
 vihko rewrites the file itself **when it starts**, before reading it:
 
 - It changes only what the new format needs, and keeps comments, key order and
-  keys it doesn't know. Running it again changes nothing.
+  keys it doesn't know. Running it again changes nothing. It also raises
+  [`version`](#version) to the new format's number.
 - It first copies the file as it was to the state volume, in
   `config-backups/` (`config-backups/vihko.yaml.<date and time>`), never to
   the notes folder. It keeps the latest 10 copies.
