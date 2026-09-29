@@ -18,6 +18,7 @@ import { commentMarks, commentUi, setCommentReach, type CommentReach } from './c
 import { imageHost, images } from './images.ts'
 import { linkAutocomplete } from './autocomplete.ts'
 import { createLinkUi, type NewLinkedNote } from './createLink.ts'
+import { SHORTCUTS, formatKeymap, undoBoundary } from './format.ts'
 import { labels, livePreview, navigate, notePath, pickAmbiguous, setLinks, type LinkInfo, type PickAmbiguous } from './livePreview.ts'
 import { announce } from './presence.ts'
 import { agentLabel, agentMarks } from './agents.ts'
@@ -137,7 +138,10 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
           open: (id) => comments.current?.(id),
         }),
         viewUpdates,
-        keymap.of([{ key: 'Mod-Alt-m', run: () => { comments.current?.(null); return true } }]),
+        keymap.of([{ key: SHORTCUTS.comment, run: () => { comments.current?.(null); return true } }]),
+        // Before the default keymap, where Mod-i selects the parent syntax: here it's italic.
+        readOnly ? [] : keymap.of(formatKeymap),
+        undoBoundary.of(() => undoManager.stopCapturing()),
         keymap.of([...yUndoManagerKeymap, ...defaultKeymap, ...searchKeymap, indentWithTab]),
         yCollab(text, provider.awareness, { undoManager }),
         agentMarks(text, provider.awareness, (a) => t('presence.agentWrote', { agent: agentLabel(t, a) })),
