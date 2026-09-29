@@ -101,7 +101,8 @@ The operations of `POST /api/note/edit` stay as they are: `append` (`text`),
 | `GET /api/setup` | — | `needed` |
 | `POST /api/setup` | `token`, `username`, `password` | `user` (`id`, `username`, `role`, `disabled`) |
 
-Send them without `Authorization`.
+They need no key and ignore one: with an `Authorization` header, whatever its
+key, they answer as without it, even with the API off.
 
 ### Error codes
 

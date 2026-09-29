@@ -27,7 +27,7 @@ test('switched off (the default), a key reaches nothing: 404 everywhere, as a ro
   try {
     const { token } = await h.newKey({ name: m.aKeyName() })
     const key = h.withKey(token)
-    for (const [method, p] of [['GET', `/api/note?path=${encodeURIComponent(PLAN)}`], ['GET', '/api/tree'], ['GET', '/api/health'], ['POST', '/api/auth/login'], ['GET', '/api/no-such-route'], ['GET', '/api/keys']]) {
+    for (const [method, p] of [['GET', `/api/note?path=${encodeURIComponent(PLAN)}`], ['GET', '/api/tree'], ['POST', '/api/auth/login'], ['GET', '/api/no-such-route'], ['GET', '/api/keys']]) {
       const r = await key(method!, p!)
       assert.deepEqual([r.status, r.body?.error], [404, 'not_found'], `${method} ${p}`)
     }
@@ -51,7 +51,8 @@ test('switched on: only the listed routes, by the key alone; a bad key is 401, a
     assert.equal(note.status, 200)
     assert.equal(note.headers.get('etag'), `"${note.body.etag}"`)
     // Session routes don't exist for a key: administration, profile, keys, switches, alerts, trash, folders…
-    for (const r of Object.entries(ROUTES).filter(([, c]) => c === 'session' || c === 'public')) {
+    // (The health check and the first boot ignore the key: see below.)
+    for (const r of Object.entries(ROUTES).filter(([k, c]) => (c === 'session' || c === 'public') && !KEY_IGNORED.includes(k))) {
       const [method, p] = r[0].split(' ') as [string, string]
       const res = await key(method, p.replace(':id', 'x'), method === 'GET' ? undefined : {})
       assert.deepEqual([res.status, res.body?.error], [404, 'not_found'], r[0])
@@ -73,6 +74,41 @@ test('switched on: only the listed routes, by the key alone; a bad key is 401, a
     const { token: t2 } = await h.newKey({ name: m.aKeyName() })
     await h.admin('PUT', '/api/admin/integrations', { api: false })
     assert.equal((await h.withKey(t2)('GET', '/api/tree')).status, 404)
+  } finally { await h.close() }
+})
+
+const KEY_IGNORED = ['GET /api/health', 'GET /api/setup', 'POST /api/setup']
+
+test('the health check and the first boot answer as without a key when a request carries one: good, bad, or with the API off', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    const { token } = await h.newKey({ name: m.aKeyName() })
+    const setupBody = { token: m.aSecret(43), username: m.aUsername(), password: m.aPassword() }
+    const plain = (method: string, p: string, body?: unknown) => h.withKey('')(method, p, body, { authorization: '' })
+    const expected = {
+      health: await plain('GET', '/api/health'),
+      needed: await plain('GET', '/api/setup'),
+      setup: await plain('POST', '/api/setup', setupBody),
+    }
+    assert.deepEqual([expected.health.status, expected.health.body], [200, { ok: true }])
+    assert.deepEqual([expected.needed.status, expected.needed.body], [200, { needed: false }])
+    assert.equal(expected.setup.status, 409)
+    for (const on of [false, true]) {
+      if (on) await h.enableApi()
+      for (const bearer of [token, m.aSecret(12), `vihko_${m.aSecret(26)}_${m.aSecret(43)}`]) {
+        const key = h.withKey(bearer)
+        const what = `API ${on ? 'on' : 'off'}, ${bearer === token ? 'a good key' : 'a bad key'}`
+        const health = await key('GET', '/api/health')
+        assert.deepEqual([health.status, health.body], [expected.health.status, expected.health.body], what)
+        assert.equal((await key('HEAD', '/api/health')).status, 200, what)
+        const needed = await key('GET', '/api/setup')
+        assert.deepEqual([needed.status, needed.body], [expected.needed.status, expected.needed.body], what)
+        const s = await key('POST', '/api/setup', setupBody)
+        assert.deepEqual([s.status, s.body?.error], [expected.setup.status, expected.setup.body.error], what)
+      }
+    }
+    // Every other route without a session stays out of a key's reach.
+    assert.deepEqual([(await h.withKey(token)('POST', '/api/auth/login', {})).status], [404])
   } finally { await h.close() }
 })
 

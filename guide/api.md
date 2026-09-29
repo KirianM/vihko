@@ -447,15 +447,16 @@ the key's name.
 ### Health
 
 `GET /api/health` answers `{ "ok": true }` without a key, for monitoring and
-Docker's health check. It doesn't say which version runs.
+Docker's health check. It doesn't say which version runs. A key sent with it
+is ignored: the answer is the same.
 
 ### Create the first admin
 
 On the first start, before anyone has an account, vihko prints a one-time
 token in its log ([Installation](install.md#first-start)). These two routes
-need neither a key nor a session (send them without `Authorization`), and do
-what the browser's «Create the
-administrator» page does, for a script that sets up a new installation:
+need neither a key nor a session (an `Authorization` header is ignored), and
+do what the browser's «Create the administrator» page does, for a script that
+sets up a new installation:
 
 - `GET /api/setup` answers `{ "needed": true }` while there are no users, and
   `{ "needed": false }` from then on.
