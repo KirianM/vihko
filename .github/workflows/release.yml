@@ -10,8 +10,9 @@ name: Release
 # doesn't take it back (scripts/release.ts, tested in test/release.test.ts).
 # The Release's text is the version's CHANGELOG.md section.
 #
-# Nothing is pushed until the check job passes: the tag matches the root
-# package.json's version and CHANGELOG.md has a section for it. The Release is
+# Nothing is pushed until the check job passes (the tag matches the root
+# package.json's version and CHANGELOG.md has a section for it) and the smoke
+# job too (the previous stable release upgrades to this one). The Release is
 # made once the image is in the registry.
 #
 # Every action is pinned to a full commit SHA, with its release in a trailing
@@ -58,8 +59,34 @@ jobs:
         id: check
         run: node scripts/release.ts "$GITHUB_REF_NAME"
 
-  image:
+  # An installation of the previous stable release upgraded to this one
+  # (scripts/upgrade-smoke.ts), on an amd64 build of the tag's code made here
+  # and never pushed. It needs no approval, and `image` waits for it: an
+  # upgrade that breaks publishes nothing.
+  smoke:
     needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the earlier tags: the release to upgrade from
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: The image, for linux/amd64
+        run: docker build --tag vihko:smoke .
+      - name: The previous stable release upgraded to it
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: node scripts/upgrade-smoke.ts --new vihko:smoke --version "$VERSION"
+
+  image:
+    needs: [check, smoke]
     runs-on: ubuntu-latest
     # The maintainer approves each publication (the environment's required
     # reviewer): a tag alone, or a leaked token, doesn't publish an image.
@@ -75,7 +102,7 @@ jobs:
       # repository (its description, and "AGPL-3.0" for the licence).
       OCI: |
         org.opencontainers.image.title=vihko
-        org.opencontainers.image.description=Self-hosted notes over plain Markdown files, with a web UI, multiple users, live collaboration and optional API, MCP and webhooks.
+        org.opencontainers.image.description=A self-hosted, open source notes system over plain Markdown files, with its own web UI, multiple users, live collaboration, and a server-side index you can query from the UI and, optionally, from an API and an MCP server.
         org.opencontainers.image.licenses=AGPL-3.0-only
         org.opencontainers.image.version=${{ needs.check.outputs.version }}
     steps:

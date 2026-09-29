@@ -19,16 +19,18 @@ which doesn't run as root, might not be able to write there afterwards.
 
 | Command | What it does | vihko running? |
 |---|---|---|
-| `vihko serve` | Starts the server. It's what the container runs. | — |
-| `vihko user create <name> [--admin]` | Creates a user, a member unless `--admin`. Reads the password from standard input. | Either |
+| `vihko serve` | Starts the server. It's what the container runs (`vihko` alone does the same). | — |
+| `vihko user create <name> [--admin]` | Creates a user, a member unless `--admin` (before or after the name). Reads the password from standard input. | Either |
 | `vihko user reset-link <name>` | Prints a one-time link, valid 7 days, for that person to choose a new password. | Either |
 | `vihko user reset-2fa <name>` | Removes that person's second factor (authenticator and recovery codes). | Either |
 | `vihko history purge <path> [--version <id>] [--dry-run]` | Removes a file or folder from the history, for good. | Stopped (`--dry-run`: either) |
 | `vihko version` or `vihko --version` | Prints the version. | Either |
 
 A command that fails prints `error: …` or `error (<code>): …` and exits with
-status 1; a command it doesn't understand prints the usage and exits with
-status 2.
+status 1; a command it doesn't understand, or arguments a command doesn't
+take, print the usage and exit with status 2. `vihko version` prints the
+version alone, for scripts. [What 1.x keeps stable](compatibility.md#the-command-line)
+says which of this stays.
 
 ### Create a user
 
@@ -107,9 +109,10 @@ no version at all.
 
 - `<path>` is a file or a folder, relative to the notes folder, and goes from
   every version.
-- `--version <id>` removes only what that file held in one version (the id in
-  a version's address, `?version=<id>`; 7 characters are enough): wherever the
-  file had that content, it gets what it had right before.
+- `--version <id>` (or `--version=<id>`) removes only what that file held in
+  one version (the id in a version's address, `?version=<id>`; 7 characters
+  are enough): wherever the file had that content, it gets what it had right
+  before.
 - vihko must be stopped: the command refuses with `error (state_in_use)` while
   it runs. `--dry-run` only reads, so it works either way.
 - Only the managed history: in unmanaged mode the repository is yours, and it

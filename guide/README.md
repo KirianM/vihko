@@ -32,6 +32,8 @@ vihko: the guides in a release describe that release.
 
 - [Upgrading](upgrading.md): what a version promises, which image tag to use,
   updating and rolling back.
+- [What 1.x keeps stable](compatibility.md): the API routes, MCP tools,
+  `vihko.yaml` keys, variables and note formats that every 1.x release keeps.
 - [Backups](backups.md): what to back up, a consistent copy, restoring, and
   testing the restore.
 - [Operations](operations.md): the command line, the log, the health check,

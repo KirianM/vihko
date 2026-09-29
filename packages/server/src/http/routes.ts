@@ -248,12 +248,24 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
 }
 
 /**
- * What a key may do with this request: `read`, `write`, or null (not for
- * keys, or not a route). Only exact paths: no route open to keys has
- * parameters in its path. HEAD is a GET.
+ * The `public` routes that answer the same with a key as without one: an
+ * `Authorization` header there is ignored, never judged (a monitor or a
+ * script that sends its key with every request). Every other `public` route
+ * is still 404 with a key.
  */
-export function keyRouteClass(method: string, path: string): 'read' | 'write' | null {
-  const m = method.toUpperCase() === 'HEAD' ? 'GET' : method.toUpperCase()
-  const c = ROUTES[`${m} ${path}`]
+const KEY_IGNORED: ReadonlySet<string> = new Set(['GET /api/health', 'GET /api/setup', 'POST /api/setup'])
+
+const routeOf = (method: string, path: string) => `${method.toUpperCase() === 'HEAD' ? 'GET' : method.toUpperCase()} ${path}`
+
+/**
+ * What a key may do with this request: `read`, `write`, `ignored` (a route
+ * that needs none and ignores it), or null (not for keys, or not a route).
+ * Only exact paths: no route open to keys has parameters in its path. HEAD
+ * is a GET.
+ */
+export function keyRouteClass(method: string, path: string): 'read' | 'write' | 'ignored' | null {
+  const route = routeOf(method, path)
+  if (KEY_IGNORED.has(route)) return 'ignored'
+  const c = ROUTES[route]
   return c === 'read' || c === 'write' ? c : null
 }

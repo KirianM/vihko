@@ -331,12 +331,14 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Judged by the key alone, never the cookie. Only the routes http/routes.ts
   // opens to keys; any other, or any with the API off, is 404 as if it didn't
   // exist (before anything else, the CSRF check included: off, there's
-  // nothing there). A read-only key gets 403 on a write route.
+  // nothing there). A read-only key gets 403 on a write route. The health
+  // check and the first boot need no key and ignore one (routes.ts).
   app.use('/api/*', async (c, next) => {
     const token = bearerToken(c.req.header('authorization'))
     if (token === null) return next()
-    if (!integrations.apiEnabled()) return fail(c, 404, 'not_found', 'does not exist')
     const route = keyRouteClass(c.req.method, c.req.path)
+    if (route === 'ignored') return next()
+    if (!integrations.apiEnabled()) return fail(c, 404, 'not_found', 'does not exist')
     if (!route) return fail(c, 404, 'not_found', 'does not exist')
     const r = authenticateKey({ keys, integrations }, token, 'api')
     if (!r.ok) return fail(c, r.status, r.error, r.status === 401 ? 'invalid key' : 'does not exist')

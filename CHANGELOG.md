@@ -7,6 +7,70 @@ Every release of vihko, newest first. The format follows
 that asks you to do something by hand or breaks an integration. Read a
 version's **Upgrade notes** before installing it.
 
+## [1.0.1-rc.1] - 2026-09-29
+
+A correction of 1.0.0, published the same day. Taking the inventory of what
+1.x promises (`guide/compatibility.md`, new) showed a few things 1.0.0 got
+wrong; 1.0.1 changes them outright, **once**, instead of keeping both forms
+until 2.0. It's the only exception to the promise, and it's written down in
+that page.
+
+### Added
+
+- `guide/compatibility.md`: everything 1.x keeps stable, taken from the code
+  (the HTTP API route by route, the MCP tools, `vihko.yaml`, environment
+  variables, the Docker image, the command line, what vihko writes into notes,
+  OAuth), and what isn't covered.
+- The command line is part of the promise: commands, options and exit status
+  (0 done, 1 an error, 2 the usage).
+- Before publishing, a release now starts the previous stable version, fills
+  it with users, a key, notes, an image and a comment, and starts the new
+  version on the same data (`npm run upgrade-smoke`).
+
+### Changed
+
+- **HTTP API: the fields that came in `snake_case` are `camelCase`**, like all
+  the others: `meta.fm_error` is `meta.fmError`; a link's `dst_path`,
+  `anchor_ok`, `pos_from` and `others_no_access` are `dstPath`, `anchorOk`,
+  `posFrom` and `othersNoAccess`. The MCP tools keep `snake_case`, their
+  convention throughout.
+- `POST /api/note/edit` answers a malformed operation (unknown `op`, missing or
+  wrong field, none or more than 50 operations, `set_frontmatter` on `uid`)
+  with `400 invalid`, as MCP does; it was `409 edit_mismatch`.
+- MCP: arguments that don't fit a tool answer `invalid`, and a writing tool
+  called with a read-only key answers `forbidden`, both in vihko's
+  `{ error, message }` JSON.
+- Limits (image size, operations per call…) may go down within 1.x, announced
+  here in the Upgrade notes.
+
+### Fixed
+
+- **Moving or renaming a note to a name with parentheses, `#`, `?` or
+  brackets (`a (1).md`) left the Markdown links to it broken.** Rewritten
+  links are now encoded like image links, and keep their `<…>` form, anchor
+  and title.
+- `/api/health` and `/api/setup` answered 404 when the request carried a key.
+- `vihko user create --admin <name>` created an admin named `--admin`, and
+  `vihko serve` took any argument.
+- On Windows, AltGr+D (a character on some keyboards) opened today's note
+  instead of typing it.
+- The image's description no longer mentions webhooks, which 1.0 doesn't
+  have.
+- The guides: only MCP `get_note` takes a `uid`; history author kinds `git`
+  and `external` and several response fields documented; which environment
+  variables are checked.
+
+### Upgrade notes
+
+- Test it with `ghcr.io/kirianm/vihko:1.0.1-rc.1`; `:1` moves to 1.0.1 when
+  it's released.
+- Scripts that read `fm_error`, `dst_path`, `anchor_ok`, `pos_from` or
+  `others_no_access` from the HTTP API read the `camelCase` names.
+- Scripts that rely on `409 edit_mismatch` for a malformed edit get
+  `400 invalid`, and at most 50 operations per call.
+- `vihko user create` with arguments other than a name and `--admin`, or
+  `vihko serve` with any argument, prints the usage and exits with 2.
+
 ## [1.0.0] - 2026-09-29
 
 The first stable release: a self-hosted notes system over plain Markdown
@@ -219,6 +283,9 @@ published under its exact image tag, `ghcr.io/kirianm/vihko:1.0.0-rc.1`.
   development builds before this candidate (under the project's earlier
   working name) aren't migrated: start them again from empty state.
 
+[1.0.1-rc.1]: https://github.com/KirianM/vihko/releases/tag/v1.0.1-rc.1
+[1.0.0]: https://github.com/KirianM/vihko/releases/tag/v1.0.0
+[1.0.0-rc.4]: https://github.com/KirianM/vihko/releases/tag/v1.0.0-rc.4
 [1.0.0-rc.3]: https://github.com/KirianM/vihko/releases/tag/v1.0.0-rc.3
 [1.0.0-rc.2]: https://github.com/KirianM/vihko/releases/tag/v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/KirianM/vihko/releases/tag/v1.0.0-rc.1

@@ -302,7 +302,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
   const editable = canEdit(known)
   const [linkData, setLinkData] = useState<LinksData | null>(null)
   const links = useMemo(
-    () => new Map<string, LinkInfo>((linkData?.outgoing ?? []).map((l) => [l.raw, { status: l.status, path: l.dst_path, candidates: l.candidates }])),
+    () => new Map<string, LinkInfo>((linkData?.outgoing ?? []).map((l) => [l.raw, { status: l.status, path: l.dstPath, candidates: l.candidates }])),
     [linkData],
   )
   const [originals, setOriginals] = useState<CommentOriginal[] | null>(null)

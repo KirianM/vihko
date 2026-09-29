@@ -43,7 +43,7 @@ export { RequestError, SUBSTITUTIONS, ScopedNotes, nowHiddenMessage, type EditPr
 export { historyFor } from './agentHistory.ts'
 export { MCP_PATH, markIcons, mountMcp, type McpIcon, type McpOptions } from './mcp/server.ts'
 export { TextCache } from './mcp/texts.ts'
-export { TOOL_NEEDS, toolData } from './mcp/tools.ts'
+export { MAX_MCP_BODY, TOOL_NEEDS, toolData } from './mcp/tools.ts'
 export { ROUTES, ROUTE_NEEDS, keyRouteClass, type RouteClass, type RouteNeeds } from './http/routes.ts'
 export { authenticateKey, bearerToken, type KeyAuth } from './http/keyAuth.ts'
 export { keyRoutes, type KeyRoutesDeps } from './http/keys.ts'

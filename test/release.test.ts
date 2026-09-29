@@ -4,7 +4,7 @@
 // X.Y, X and latest forward, a pre-release gets only its exact tag).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { changelogSection, imageTags, parseVersion, tagVersion, versionMismatch } from '../scripts/release.ts'
+import { changelogSection, imageTags, parseVersion, previousStable, tagVersion, versionMismatch } from '../scripts/release.ts'
 import { mother } from './mother.ts'
 
 const m = mother(import.meta.url)
@@ -111,4 +111,17 @@ test('a fix for an older line never takes a moving tag back', () => {
   // A newer patch of the same minor (tagged out of order): only the exact tag.
   const [a, b] = [m.anInt(0, 10), m.anInt(11, 20)]
   assert.deepEqual(imageTags(`${major}.${minor}.${a}`, [`v${major}.${minor}.${b}`]), { tags: [`${major}.${minor}.${a}`], latest: false })
+})
+
+test('the upgrade smoke test starts from the newest stable release older than the one being made', () => {
+  // Literal versions: the order of a repository's releases is the case under test.
+  const tags = ['v1.0.0-rc.1', 'v1.0.0', 'v1.0.1', 'v1.1.0-rc.1', 'v1.1.0', 'v1.2.0', 'latest', 'v2.0.0-rc.1']
+  assert.equal(previousStable('1.1.0', tags), '1.0.1', 'itself excluded')
+  assert.equal(previousStable('1.1.0-rc.2', tags), '1.0.1', 'a candidate comes from the stable line before it, never a candidate')
+  assert.equal(previousStable('1.2.1', tags), '1.2.0')
+  assert.equal(previousStable('1.0.2', tags), '1.0.1', 'a fix for an older line comes from that line, not from a newer one')
+  assert.equal(previousStable('2.0.0', tags), '1.2.0')
+  assert.equal(previousStable('1.0.0', tags), null, 'the first stable release has nothing to come from')
+  assert.equal(previousStable('1.0.0-rc.2', tags), null)
+  assert.throws(() => previousStable('v1.2.3', tags), /is not a version/)
 })

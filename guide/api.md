@@ -8,7 +8,8 @@ The API is part of vihko's compatibility promise, like `vihko.yaml` and the MCP
 tools: a change that breaks a client that follows this guide only comes with a
 new major version, and anything removed stays available, marked deprecated,
 until then. The paths have no version prefix. Fields may be added to responses
-at any time: ignore those you don't know.
+at any time: ignore those you don't know. [What 1.x keeps stable](compatibility.md#the-http-api)
+lists every route with the fields that stay.
 
 For AI assistants, the MCP server is usually a better fit: see
 [Agents and integrations](agents.md).
@@ -81,11 +82,11 @@ The codes you can meet with a key:
 | `forbidden` | 403 | A read-only key on a route that writes, or something the key's person may not do there: writing where they only read, a note's history where they can't edit |
 | `agent_denied` | 403 | The note exists but is not for agents; `reason` says why. Don't delete or replace links to it |
 | `not_found` | 404 | No such note, version or route, or one the key can't see |
-| `invalid` | 400 | A body or parameter that isn't valid (also a body that isn't JSON) |
+| `invalid` | 400 | A body or parameter that isn't valid (also a body that isn't JSON). For edits by operation: an unknown `op`, a field it needs missing or of the wrong type, no operations or more than 50, or `set_frontmatter` on `uid` |
 | `invalid_path` | 400 | Not a valid note or folder path (absolute, `..`, hidden segments, not `.md`) |
 | `control_characters` | 400 | A path with a control character (a tab, a line break) |
 | `exists` | 409 | Creating a note that already exists |
-| `edit_mismatch` | 409 | An edit operation doesn't fit the text: `find` not found the expected number of times, a heading that isn't there |
+| `edit_mismatch` | 409 | An edit operation doesn't fit the text: `find` not found the expected number of times (or empty), a heading that isn't there, a frontmatter that can't be written |
 | `not_configured` | 409 | The daily note, with no series in `vihko.yaml` |
 | `audience_widens` | 409 | A move would show the note to people who can't see it now; `audience` says who. Repeat with `confirmAudience: true` only if its person agrees |
 | `not_revertible` | 409 | Reverting a version that creates or deletes the note |
@@ -208,16 +209,28 @@ curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/note" \
   "path": "projects/plan.md",
   "text": "# Plan\n\n- Draft the budget\n- Book the room\n",
   "etag": "sha256:7e24…",
-  "meta": { "title": "Plan", "uid": null, "fm_error": null },
+  "meta": { "title": "Plan", "uid": null, "fmError": null },
   "hiddenFromAgents": null
 }
 ```
 
+`meta` is what the index knows of the note (`null` for a moment after it's
+written from outside): its `title`, `uid`, and `fmError`, why its frontmatter
+can't be read, or `null`.
+
 To see what's around a note:
 
-- `GET /api/note/links?path=` gives `outgoing` (each link with its `status`:
-  `resolved`, `ambiguous` with `candidates`, `missing`, or `no_access`) and
-  `backlinks` (the notes that link to it, with the text around each link).
+- `GET /api/note/links?path=` gives `outgoing` and `backlinks` (the notes that
+  link to it: `path`, `title`, the link as written, `raw`, and the text around
+  it, `context`), and `titles`, the titles of the notes named in `candidates`.
+  Each outgoing link has `raw` (as written), `kind` (`wiki`, `embed` or
+  `markdown`), `target` and `anchor` (its `#heading`, or `null`), `posFrom`
+  (where it starts in the note), and its `status`: `resolved` with `dstPath`,
+  the note it leads to, and `anchorOk` (`1` if the heading is there, `0` if
+  not, `null` without one); `ambiguous` with the `candidates` the key can see
+  (and `othersNoAccess: true` when there are others); `missing`; or
+  `no_access`, with a `reason` for a key. A link to the note itself adds
+  `self: true`.
 - `GET /api/note/headings?path=` gives `headings`, each with its `level` and
   `text`.
 - `GET /api/note/comments?path=` gives the note's comment `threads`, each with
@@ -291,8 +304,8 @@ creates the note only if it doesn't exist (`201`).
 ### Edit a note by operations
 
 `POST /api/note/edit` with `{ "path", "ops", "ifMatch"?, "dryRun"? }`. The
-operations apply in order, all or none, on the current text, even while
-someone has the note open.
+operations (1 to 50) apply in order, all or none, on the current text, even
+while someone has the note open.
 
 | `op` | Fields | What it does |
 |---|---|---|
@@ -304,7 +317,13 @@ someone has the note open.
 
 `heading` is the heading's text, or with its level (`"## Tasks"`) when the
 same text is at several levels. `find_replace`, `replace_section` and
-`set_frontmatter` need `ifMatch`.
+`set_frontmatter` need `ifMatch`. `set_frontmatter` can't change `uid`, the
+note's identity.
+
+An operation that isn't well formed (an unknown `op`, a field missing or of
+the wrong type) answers `400 invalid` and nothing is written; one that doesn't
+fit the text (`find` not there the expected number of times, no such heading)
+answers `409 edit_mismatch`.
 
 ```sh
 curl -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: application/json" \
@@ -320,8 +339,9 @@ With `"dryRun": true`, nothing is written: the answer lists the `changes` it
 would make (`at`, `removed`, `inserted`) and the `etag` they apply to.
 
 If the write hides the note from agents (it sets `ai: false`), it still
-succeeds and the answer adds `"nowHidden": true` with a `reason`: from then on
-the key can't see the note.
+succeeds and the answer adds `"nowHidden": true` with a `reason` and a
+`message` that says what that means: from then on the key can't see the note.
+Creating, replacing and moving a note answer the same way.
 
 ### Move or rename a note
 
@@ -419,17 +439,21 @@ is only for whoever can edit the note: a key whose person only reads it gets
 | Request | Answer |
 |---|---|
 | `GET /api/history/status` | Whether the history is on (`mode`) and working |
-| `GET /api/history/versions?path=&limit=&cursor=` | `versions`, newest first, each with its `id`, `at`, `authors` and `reason`; `next` is the cursor of the next page |
-| `GET /api/history/version?path=&id=` | That version's `text` |
-| `GET /api/history/diff?path=&id=&against=` | What the version changed against `previous` (default), `current` or another version id |
-| `GET /api/history/changes?limit=&cursor=&author=` | Recent changes across the notes the key can see, and the `authors` to filter by (`author` takes an author's `key`) |
+| `GET /api/history/versions?path=&limit=&cursor=` | `versions`, newest first, each with its `id`, `at`, `authors`, `reason`, `foundAtStartup` (a change made while vihko was stopped, found when it started), the note's `path` in that version, its `change` (`created`, `modified`, `moved`, `deleted` or `restored`), `from` (for `moved`: where it was) and how many words it `added` and `removed`; `next` is the cursor of the next page; `pending` (see below); and `excluded`, `true` when `history.exclude` keeps the note out now (what is listed is from before) |
+| `GET /api/history/version?path=&id=` | That version's `path`, `id`, `at` and `text` (`null` for a version that deletes the note) |
+| `GET /api/history/diff?path=&id=&against=` | What the version changed against `previous` (default), `current` or another version id: `ops`, pairs of `-1` (removed), `0` (kept) or `1` (added) and a piece of text, which turn the older text into the version's, and the words `added` and `removed` |
+| `GET /api/history/changes?limit=&cursor=&author=` | Recent changes across the notes the key can see, newest first: `changes`, each with its `id`, `at`, `authors`, `reason`, `foundAtStartup` and `files` (each with its `path`, `change`, `from`, `added` and `removed`, as in `versions`); `next`; and the `authors` to filter by (`author` takes an author's `key`) |
 | `GET /api/history/resolved?path=` | Comment threads that left the note in the last 30 days |
 | `POST /api/history/restore` `{ path, id, ifMatch? }` | Writes that version's text back, as a new version |
 | `POST /api/history/revert` `{ path, id, ifMatch?, dryRun? }` | Undoes only what that version changed, keeping later changes; what clashes is left and listed in `skipped` |
 
-An author is a person (`kind: "user"`), an agent (`kind: "agent"`, with the
-key's `name`, `onBehalfOf` and `via`: `api`, `mcp` or `oauth`), or vihko
-itself (`kind: "system"`).
+An author has a `kind`, a `name` and a `key` (the value for the `author`
+filter). It is a person (`kind: "user"`, with their `id`), an agent (`kind:
+"agent"`, with the key's `id` and `name`, `onBehalfOf` with the person's `id`
+and `name`, and `via`: `api`, `mcp` or `oauth`), vihko itself (`kind:
+"system"`), a change made outside vihko (`kind: "external"`, with an empty
+`name`), or, in an [unmanaged](history.md#modes) history, a commit's git author
+(`kind: "git"`, with its `name`, and its email as `id`).
 
 vihko groups a burst of writes to a note into one version once the note has
 been quiet for a while. Until then, `versions` lists who is writing under
@@ -446,15 +470,16 @@ the key's name.
 ### Health
 
 `GET /api/health` answers `{ "ok": true }` without a key, for monitoring and
-Docker's health check. It doesn't say which version runs.
+Docker's health check. It doesn't say which version runs. A key sent with it
+is ignored: the answer is the same.
 
 ### Create the first admin
 
 On the first start, before anyone has an account, vihko prints a one-time
 token in its log ([Installation](install.md#first-start)). These two routes
-need neither a key nor a session (send them without `Authorization`), and do
-what the browser's «Create the
-administrator» page does, for a script that sets up a new installation:
+need neither a key nor a session (an `Authorization` header is ignored), and
+do what the browser's «Create the administrator» page does, for a script that
+sets up a new installation:
 
 - `GET /api/setup` answers `{ "needed": true }` while there are no users, and
   `{ "needed": false }` from then on.

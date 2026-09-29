@@ -1,6 +1,6 @@
 {
   "name": "vihko",
-  "version": "1.0.0",
+  "version": "1.0.1-rc.1",
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
@@ -17,6 +17,7 @@
     "acceptance": "node scripts/seeded.ts node --test --test-concurrency=1 --test-force-exit \"packages/server/test/acceptance/*.acceptance.ts\"",
     "build": "npm run build -w @vihko/web",
     "ci": "node scripts/ci.ts",
+    "upgrade-smoke": "node scripts/upgrade-smoke.ts",
     "screenshots": "npm run build && node --no-experimental-webstorage scripts/screenshots.ts"
   },
   "devDependencies": {

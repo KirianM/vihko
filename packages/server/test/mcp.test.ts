@@ -127,9 +127,13 @@ test('the tools each key gets: a read-only key sees none that write and can\'t c
     const names = async (c: typeof ro) => (await c.client.listTools()).tools.map((t) => t.name).sort()
     assert.deepEqual(await names(ro), READ_TOOLS)
     assert.deepEqual(await names(rw), [...READ_TOOLS, ...WRITE_TOOLS].sort())
+    // Called all the same, it answers as every tool error does: vihko's JSON, `forbidden` (the API's 403 for such a key).
     for (const name of WRITE_TOOLS) {
-      await assert.rejects(ro.client.callTool({ name, arguments: { path: PATH.plan } }), new RegExp(name), `${name} can't be called by a read-only key`)
+      const r = await ro.call(name, { path: PATH.plan, text: m.aSentence(), operations: [{ op: 'append', text: m.aSentence() }] })
+      assert.deepEqual([r.error, r.data?.error, typeof r.data?.message], [true, 'forbidden', 'string'], `${name} can't be called by a read-only key: ${r.head}`)
     }
+    // A tool that doesn't exist at all is still the protocol's error.
+    await assert.rejects(ro.client.callTool({ name: m.aUniqueWord(), arguments: {} }))
     assert.equal(readFileSync(join(h.notesDir, PATH.plan), 'utf8'), FILES[PATH.plan])
     const tools = (await rw.client.listTools()).tools
     for (const t of tools) {
@@ -149,6 +153,35 @@ test('the tools each key gets: a read-only key sees none that write and can\'t c
     const today = await ro.call('daily_note')
     assert.deepEqual([today.error, today.data.exists, today.data.path], [false, false, `${DAILY.folder}/${TODAY}.md`])
     await ro.close(); await rw.close()
+  } finally { await h.close() }
+})
+
+test('arguments that don\'t fit a tool\'s schema: `invalid` in vihko\'s JSON, as every other tool error, and nothing is done', async () => {
+  const h = await setup({ files: FILES, config: CONFIG })
+  try {
+    await h.enableMcp()
+    const c = await h.mcp((await h.newKey({ name: m.aKeyName(), canWrite: true })).token)
+    const append = { op: 'append', text: m.aSentence() }
+    for (const [name, args] of [
+      ['search', {}],
+      ['search', { query: m.aWord(), limit: 51 }],
+      ['get_note', { path: PATH.plan, max_chars: 10 }],
+      ['list_folder', { recursive: m.aWord() }],
+      ['changes_since', { path: PATH.plan }],
+      ['edit_note', { path: PATH.plan, operations: [] }],
+      ['edit_note', { path: PATH.plan, operations: Array.from({ length: 51 }, () => append) }],
+      ['edit_note', { path: PATH.plan, operations: [{ op: m.aWord(), text: m.aSentence() }] }],
+      ['edit_note', { path: PATH.plan, operations: [{ op: 'append', text: 7 }] }],
+      ['create_note', { text: m.aSentence() }],
+      ['move', { from: PATH.plan }],
+      ['attach_image', { note: PATH.plan }],
+    ] as const) {
+      const r = await c.call(name, args)
+      assert.deepEqual([r.error, r.data?.error, typeof r.data?.message], [true, 'invalid', 'string'], `${name} ${JSON.stringify(args)}: ${r.head}`)
+      assert.ok(!r.head.includes('MCP error'), `in vihko's words, not the SDK's: ${r.head}`)
+    }
+    assert.equal(readFileSync(join(h.notesDir, PATH.plan), 'utf8'), FILES[PATH.plan])
+    await c.close()
   } finally { await h.close() }
 })
 

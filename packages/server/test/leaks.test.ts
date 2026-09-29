@@ -172,7 +172,7 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
     const links = JSON.parse(responses['GET /api/note/links']![0]!.text)
     const out = Object.fromEntries(links.outgoing.map((l: { raw: string }) => [l.raw, l]))
     const [toSecret, toRenamed, toDup] = [`[[${NAME.secret}]]`, `[[${NAME.otherRenamed}]]`, `[[${NAME.dup}]]`]
-    assert.deepEqual([out[toSecret].status, out[toSecret].dst_path, out[toRenamed].status, out[toRenamed].dst_path], ['no_access', null, 'no_access', null])
+    assert.deepEqual([out[toSecret].status, out[toSecret].dstPath, out[toRenamed].status, out[toRenamed].dstPath], ['no_access', null, 'no_access', null])
     assert.deepEqual([out[toDup].status, out[toDup].candidates], ['ambiguous', [PATH.dupA, PATH.dupB].sort()])
     assert.deepEqual(links.backlinks, [], 'the notes that link to it are all hidden or outside')
 

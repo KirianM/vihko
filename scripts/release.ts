@@ -94,6 +94,25 @@ export function imageTags(version: string, released: string[]): { tags: string[]
   return { tags, latest }
 }
 
+/**
+ * The stable release an installation of `version` would come from, for the
+ * upgrade smoke test (scripts/upgrade-smoke.ts): the newest stable tag of
+ * `released` (any names; the rest are ignored) older than `version`, without
+ * the `v`. A pre-release counts as its version (1.1.0-rc.1 comes from 1.0.x,
+ * as 1.1.0 does); a fix for an older line (1.1.5 once 1.2.0 is out) from that
+ * line, never from a newer one. Null when there is none.
+ */
+export function previousStable(version: string, released: string[]): string | null {
+  const v = parseVersion(version)
+  if (!v) throw new Error(`${JSON.stringify(version)} is not a version`)
+  const older = released
+    .map((t) => (t.startsWith('v') ? parseVersion(t.slice(1)) : null))
+    .filter((r): r is Version => r !== null && r.prerelease === '' && compare(r, v) < 0)
+    .sort(compare)
+  const last = older.at(-1)
+  return last ? `${last.major}.${last.minor}.${last.patch}` : null
+}
+
 /** One GitHub Actions output, safe for any text (a delimiter the value can't contain). */
 function output(file: string, name: string, value: string) {
   const delimiter = `EOF_${randomBytes(16).toString('hex')}`

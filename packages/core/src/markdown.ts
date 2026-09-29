@@ -18,6 +18,12 @@ export interface LinkRef {
   display: string | null
   from: number
   to: number
+  /**
+   * Markdown links only: the span of the destination as written in the note
+   * (in `<>`, URL-encoded, with its `#anchor`), what a rewrite replaces.
+   */
+  destFrom?: number
+  destTo?: number
 }
 
 /**
@@ -213,6 +219,8 @@ export function extract(text: string, opts: ExtractOptions = {}): Extracted {
             display: labelEnd > 0 ? raw.slice(1, labelEnd) : null,
             from,
             to,
+            destFrom: url.from + bodyStart,
+            destTo: url.to + bodyStart,
           })
           return
         }

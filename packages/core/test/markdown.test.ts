@@ -72,6 +72,15 @@ test('offsets point into the original text, with frontmatter, BOM and CRLF', () 
   }
 })
 
+test('a Markdown link carries the span of its destination as written, decoded in its target', () => {
+  // The names are the case under test: characters a destination must encode.
+  const label = m.aWord()
+  const text = `---\ntitle: ${m.aTitle()}\n---\n[${label}](<a (1).md#Sección>) [${label}](x%23y.md "t") [${label}](%C3%B1%20%5Bb%5D.md) [[wiki]]\n`
+  const links = extract(text).links
+  assert.deepEqual(links.map((l) => l.destFrom === undefined ? null : text.slice(l.destFrom, l.destTo)), ['<a (1).md#Sección>', 'x%23y.md', '%C3%B1%20%5Bb%5D.md', null])
+  assert.deepEqual(links.map((l) => [l.target, l.anchor]), [['a (1).md', 'Sección'], ['x#y.md', null], ['ñ [b].md', null], ['wiki', null]])
+})
+
 test('frontmatter is not parsed as Markdown', () => {
   const x = extract('---\ntitle: "#noEsTag [[NoEsEnlace]]"\n---\n# Cuerpo\n')
   assert.deepEqual(x.links, [])

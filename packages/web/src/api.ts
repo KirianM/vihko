@@ -59,7 +59,7 @@ export interface Note {
   path: string
   text: string
   etag: string
-  meta: { title: string; uid: string | null; fm_error: string | null } | null
+  meta: { title: string; uid: string | null; fmError: string | null } | null
   /** Whether its text hides it from every agent: `ai: false` (or any doubt), or a frontmatter that can't be read. */
   hiddenFromAgents: 'ai' | 'frontmatter' | null
   /** What the person may do where it is (D-038.5): below `edit`, the editor is read-only. */
@@ -84,10 +84,10 @@ export interface OutgoingLink {
   kind: 'wiki' | 'embed' | 'md'
   /** `no_access`: a note that exists but isn't the person's to read (D-024): no path, no title. */
   status: 'resolved' | 'ambiguous' | 'missing' | 'no_access'
-  dst_path: string | null
+  dstPath: string | null
   candidates: string[] | null
   /** Where the link starts in the note as indexed (a hint to find that occurrence). */
-  pos_from: number
+  posFrom: number
   /** It leads to the note it is in (`[[#Heading]]`, its own name): the editor shows its state, the links panel leaves it out. */
   self?: true
 }

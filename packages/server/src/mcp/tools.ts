@@ -28,7 +28,7 @@ import { AccessError, AgentDenied, type Access } from '../access.ts'
 import { parseAuthorKey } from '../actor.ts'
 import { historyFor } from '../agentHistory.ts'
 import type { ImageSlots } from '../imageSlots.ts'
-import type { EditOp } from '../edits.ts'
+import { MAX_EDIT_OPS, type EditOp } from '../edits.ts'
 import { GitError } from '../history/git.ts'
 import { contextAfter, contextBefore, wordDiff } from '../history/diff.ts'
 import { HistoryError, UNAVAILABLE_MESSAGE, clientMessage, type AuthorRef, type HistoryReader } from '../history/reader.ts'
@@ -88,15 +88,47 @@ function renamed(value: unknown, top: Record<string, string>, depth = 0): unknow
 }
 
 /**
+ * Arguments that don't fit a tool's schema. The SDK would answer them itself,
+ * in its own words; instead they reach the tool as this, and it answers
+ * `invalid` in vihko's shape, as any other error (`run`).
+ */
+class InvalidInput {
+  readonly message: string
+  constructor(message: string) {
+    this.message = message
+  }
+}
+
+type Issue = { message: string; path?: readonly (PropertyKey | { key: PropertyKey })[] }
+const issueText = (i: Issue) => (i.path?.length ? `${i.path.map((p) => String(typeof p === 'object' ? p.key : p)).join('.')}: ${i.message}` : i.message)
+
+/**
  * A tool's input: the zod object as its JSON Schema says, and on validation
  * the other names accepted too (`aliases`: at the top level, only for fields
- * the tool has).
+ * the tool has). What doesn't fit is an `InvalidInput`, never the SDK's error.
  */
 function input<T extends z.ZodObject>(schema: T, aliases: Record<string, string> = {}): StandardSchemaWithJSON<z.input<T>, z.output<T>> {
   const std = schema['~standard']
   const top = Object.fromEntries(Object.entries(aliases).filter(([, f]) => f in schema.shape))
-  return { '~standard': { ...std, validate: (v: unknown, o?: unknown) => std.validate(renamed(v, top), o as never) } } as unknown as StandardSchemaWithJSON<z.input<T>, z.output<T>>
+  type Result = { value?: unknown; issues?: readonly Issue[] }
+  const judged = (r: Result) => (r.issues?.length ? { value: new InvalidInput(`invalid arguments: ${r.issues.map(issueText).join('; ')}`) } : r)
+  const validate = (v: unknown, o?: unknown) => {
+    const r = std.validate(renamed(v, top), o as never) as Result | Promise<Result>
+    return r instanceof Promise ? r.then(judged) : judged(r)
+  }
+  return { '~standard': { ...std, validate } } as unknown as StandardSchemaWithJSON<z.input<T>, z.output<T>>
 }
+
+/**
+ * The largest MCP request vihko reads (server.ts), set here rather than left
+ * to the SDK's default (the same 4 MiB today), so an update of the SDK can't
+ * change it. An image travels in one, in base64: a third larger than its
+ * bytes, which is what `attach_image` says it takes.
+ */
+export const MAX_MCP_BODY = 4 * 1024 * 1024
+
+/** The largest image `attach_image` can take within an MCP request, in MB (base64 is 4 characters for 3 bytes, with room for the rest). */
+const MCP_IMAGE_MB = Math.floor(MAX_MCP_BODY * 3 / 4 / 1e6)
 
 /** What an agent must do about a note it can't access (the same words in the instructions). */
 export const LEAVE_IT = 'do not delete, rewrite or replace links to notes you cannot access, and do not create notes to replace them.'
@@ -316,6 +348,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   const keyId = access.principal.kind === 'agent' ? access.principal.key.id : `user:${access.user.id}`
   const run = <A>(fn: (args: A, signal: AbortSignal) => Promise<CallToolResult> | CallToolResult) =>
     async (args: A, c: { mcpReq: { signal: AbortSignal } }): Promise<CallToolResult> => {
+      if ((args as unknown) instanceof InvalidInput) return failure(new ToolError('invalid', (args as unknown as InvalidInput).message), ctx.log)
       try { return await fn(args, c.mcpReq.signal) } catch (err) { return failure(err, ctx.log) }
     }
   /** The note as the key reads it now, remembered for `changes_since`. */
@@ -404,8 +437,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       frontmatter: fm.error ? null : fm.data,
       links: {
         outgoing: outgoing.slice(0, 200).map((l) => ({
-          link: l.raw, target: l.target, anchor: l.anchor, status: l.status, path: l.dst_path, candidates: l.candidates,
-          ...(l.others_no_access ? { others_no_access: true } : {}),
+          link: l.raw, target: l.target, anchor: l.anchor, status: l.status, path: l.dstPath, candidates: l.candidates,
+          ...(l.othersNoAccess ? { others_no_access: true } : {}),
           ...(l.reason ? { reason: l.reason } : {}),
         })),
         incoming: incoming.slice(0, 200).map((b) => ({ path: b.path, title: b.title, count: b.count })),
@@ -459,10 +492,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     const incoming = bySource(l.backlinks)
     const titles = new Map(scoped.tree().notes.map((n) => [n.path, n.title]))
     const out = outgoing.slice(offset, offset + limit).map((o) => ({
-      link: o.raw, target: o.target, anchor: o.anchor, status: o.status, path: o.dst_path,
-      title: o.dst_path ? titles.get(o.dst_path) ?? null : null,
+      link: o.raw, target: o.target, anchor: o.anchor, status: o.status, path: o.dstPath,
+      title: o.dstPath ? titles.get(o.dstPath) ?? null : null,
       candidates: o.candidates?.map((c) => ({ path: c, title: l.titles[c] ?? c })) ?? null,
-      ...(o.others_no_access ? { others_no_access: true } : {}),
+      ...(o.othersNoAccess ? { others_no_access: true } : {}),
       ...(o.reason ? { reason: o.reason } : {}),
     }))
     const back = incoming.slice(offset, offset + limit)
@@ -612,6 +645,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       inputSchema: input(z.object({ series })),
       annotations: READ,
     }, run(({ series }) => dailyLook(series)))
+    refuseWriting(server, ctx.log)
     return
   }
 
@@ -696,7 +730,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       + HIDING + ' Then the answer has the ETag only if you gave if_match.',
     inputSchema: input(z.object({
       path,
-      operations: z.array(Op).min(1).max(50).describe('The operations, applied in order.'),
+      operations: z.array(Op).min(1).max(MAX_EDIT_OPS).describe('The operations, applied in order.'),
       if_match: ifMatch.optional(),
       dry_run: z.boolean().default(false).describe('Only show what it would change.'),
     }), { ...NAME_ALIASES, ops: 'operations' }),
@@ -755,7 +789,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   server.registerTool('attach_image', {
     title: 'Attach an image',
     description: 'Stores an image for a note, where vihko keeps them (next to the note, unless its configuration says otherwise), from its bytes in base64: PNG, JPEG, GIF, WebP or AVIF, told by the bytes themselves. '
-      + 'Up to about 3 MB: an MCP request carries at most 4 MB, and base64 adds a third. It doesn\'t change the note: it returns `markdown`, the image link ready to write, escaped; add it where it belongs with edit_note (append, or append_under_heading). '
+      + `Up to about ${MCP_IMAGE_MB} MB: an MCP request carries at most ${MAX_MCP_BODY / 1024 / 1024} MB, and base64 adds a third. It doesn't change the note:`
+      + ' it returns `markdown`, the image link ready to write, escaped; add it where it belongs with edit_note (append, or append_under_heading). '
       + 'Until a note links it, the image counts as unused. The note must exist and be one you can write; if it is not available to you, `agent_denied`: ' + LEAVE_IT,
     inputSchema: input(z.object({
       note: path.describe('The note the image is for, from the notes root with its .md extension.'),
@@ -796,6 +831,26 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     if (r.changed && !r.nowHidden) remember(NoteService.checkPath(p), r.etag)
     return reply(revertResult(r))
   }))
+}
+
+/** The tools that write, which only a key that may write is offered. */
+export const WRITING_TOOLS: readonly string[] = ['create_note', 'edit_note', 'move', 'delete', 'attach_image', 'revert_change']
+
+/**
+ * For a key that can't write: the writing tools aren't offered (tools/list
+ * leaves them out), and a call to one answers `forbidden` in vihko's shape,
+ * as the API's write routes do for such a key, instead of the SDK's «tool not
+ * found». The SDK has no public way to answer for a tool it doesn't list, so
+ * this wraps its tools/call handler (a test checks it still does).
+ */
+function refuseWriting(server: McpServer, log: (m: string) => void) {
+  type Handler = (request: { params: { name: string } }, ctx: unknown) => Promise<CallToolResult>
+  const low = server.server as unknown as { _getRequestHandler?(method: string): Handler | undefined }
+  const inner = low._getRequestHandler?.('tools/call')
+  if (!inner) return
+  server.server.setRequestHandler('tools/call', ((request: { params: { name: string } }, ctx: unknown) => (WRITING_TOOLS.includes(request.params.name)
+    ? failure(new AccessError('this key is read-only: it has no tool that writes'), log)
+    : inner(request, ctx))) as never)
 }
 
 /** The history as `access` may see it. */

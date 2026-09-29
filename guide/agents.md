@@ -228,9 +228,9 @@ your browser.
 
 ## The tools
 
-The server offers these tools. A read-only key gets only the reading ones (and
-`daily_note` only looks); calling a writing tool with it fails as an unknown
-tool.
+The server offers these tools. A read-only key is offered only the reading ones
+(and `daily_note` only looks); calling a writing tool with it answers
+`forbidden`.
 
 **Reading**
 
@@ -251,7 +251,7 @@ tool.
 | `edit_note` | Operations applied in order, all or none: `find_replace`, `append`, `append_under_heading`, `replace_section`, `set_frontmatter`. Works while someone has the note open. `dry_run` previews |
 | `move` | Moves or renames a note, rewriting every link to it. `dry_run` previews |
 | `delete` | Moves a note to the trash |
-| `attach_image` | Stores an image for a note, sent in base64, and returns the link to write into it (see [Images](#images)) |
+| `attach_image` | Stores a small image for a note, sent in base64, and returns the link to write into it (see [Images](#images)) |
 
 **History**
 
@@ -282,6 +282,9 @@ Conventions the tools share:
   too.
 - Lists are paged: pass `next_offset` (or `next`) back as `offset` (or
   `cursor`).
+- An error is a result marked as one, whose text is JSON: `error` (a code, the
+  same as the [HTTP API](api.md#errors)'s) and `message` (a hint that may
+  change). Arguments that don't fit a tool are `invalid`.
 - Results come as JSON, and note text as a separate block. Both are wrapped in
   markers that say they are data written by people, not instructions. This makes
   prompt injection harder: text in a note shouldn't make an agent act on it.
@@ -294,9 +297,11 @@ base64 (`data`), with an optional `alt` text. vihko stores it as an upload
 from the UI or the API: where `vihko.yaml` says (next to the note by default),
 only for a note the key can write, only PNG, JPEG, GIF, WebP or AVIF (told by
 the bytes; `mime_type` is only a hint), and up to the size limit
-(`VIHKO_MAX_IMAGE_MB`). An MCP request carries at most 4 MB and base64 adds a
-third, so over MCP an image can be up to about 3 MB; send larger ones through
-the [HTTP API](api.md#images-and-attachments). vihko receives only a couple of
+(`VIHKO_MAX_IMAGE_MB`). An MCP request carries at most 4 MiB and base64 adds a
+third, so over MCP an image can be up to about 3 MB, whatever
+`VIHKO_MAX_IMAGE_MB` says: raising it above 3 changes what the UI and the
+HTTP API take, not `attach_image`. Send larger ones through the
+[HTTP API](api.md#images-and-attachments). vihko receives only a couple of
 images at a time for each person, counting their uploads and their keys'
 together: beyond that the tool answers `busy`, and the agent tries again in a
 moment.
@@ -312,6 +317,34 @@ break a Markdown link escaped:
 The agent writes `markdown` where it belongs with `edit_note` (an `append`, or
 `append_under_heading`). Until a note links it, the image counts as unused: a
 key can't read it, and it doesn't go to the trash with the note.
+
+**What it costs.** The model has to write the whole image into the call, as
+base64 text: 4 characters for every 3 bytes, so about a third more characters
+than the image has bytes. Those characters are the model's output. Every model
+has a limit on how much it writes in one reply, set by the model and the client
+you use, and base64 is slow and expensive for a model to write. Some typical
+images:
+
+| Image | Size | In base64 |
+|---|---|---|
+| An icon, PNG, 192 × 192 | 5 KB | 6,924 characters |
+| A banner, PNG, 1280 × 640 | 34 KB | 45,792 characters |
+| A phone screenshot, PNG, 1170 × 2532 | 215 KB | 286,324 characters |
+| A desktop screenshot, PNG, 2880 × 1800 | 353 KB | 470,676 characters |
+| The most one MCP request carries | about 3 MB | about 4 million characters |
+
+So `attach_image` is for small images: an icon, a small diagram or chart, a
+screenshot cropped to what matters, from a few KB to a few hundred. A photo
+from a phone, at several MB, doesn't fit in an MCP request at all.
+
+For larger images:
+
+- **An agent that has a shell** (Claude Code, say) uploads the file itself,
+  with a key that may write and the HTTP API on: `POST /api/attachments` with
+  the file's bytes ([Images and attachments](api.md#images-and-attachments)).
+  The model only writes the command; the bytes go from the file. Then it adds
+  the `markdown` the API returned with `edit_note`, as above.
+- **A person** adds it in the editor: paste it, drop it, or upload it.
 
 ### Instructions for agents
 

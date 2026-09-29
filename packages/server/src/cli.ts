@@ -1,6 +1,7 @@
 #!/usr/bin/env -S node --no-experimental-webstorage
-// vihko serve                         starts the server
+// vihko serve | vihko                 starts the server
 // vihko user create <name> [--admin]  creates a user; the password is read from stdin
+//                                     (--admin before or after the name)
 // vihko user reset-link <name>        a one-time link for them to choose a password
 //                                     (7 days; the way back for an admin who lost theirs)
 // vihko user reset-2fa <name>         takes their second factor away (with reset-link,
@@ -9,6 +10,9 @@
 //                                     rewrites the managed history without a path
 //                                     (or one version's content of it); vihko stopped
 // vihko version | vihko --version     prints vihko's version
+//
+// Exit status (guide/compatibility.md): 0 done, 1 an error (`error: …` or
+// `error (<code>): …`), 2 a command or arguments it doesn't take (the usage).
 //
 // No Web Storage: the server doesn't use it, and lib0 (Yjs) probes for it on import,
 // which on Node 26 prints an ExperimentalWarning on every startup.
@@ -41,21 +45,23 @@ async function main(argv: string[]) {
     console.log(VERSION)
     return
   }
-  serving = cmd === 'serve' || cmd === undefined
+  serving = cmd === undefined || (cmd === 'serve' && sub === undefined)
   const config = envConfig()
   if (serving) {
     const s = await start(config)
     for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, async () => { await s.stop(); process.exit(0) })
     return
   }
-  if (cmd === 'user' && sub === 'create' && rest[0]) {
+  if (cmd === 'user' && sub === 'create') {
+    const args = parseCreate(rest)
+    if (!args) return usage()
     // May be the first thing that runs on a new install.
     checkVolumes({ stateDir: config.stateDir })
     prepareStateDir(config.stateDir)
     const state = openState(join(config.stateDir, 'state.db'))
     try {
       if (process.stdin.isTTY) process.stderr.write('password (read from stdin; end with Ctrl-D): ')
-      const user = await new Auth(state).createUser(rest[0], await readStdin(), rest.includes('--admin') ? 'admin' : 'member')
+      const user = await new Auth(state).createUser(args.name, await readStdin(), args.admin ? 'admin' : 'member')
       console.log(`user created: ${user.username} (${user.role})`)
     } finally {
       state.close()
@@ -117,6 +123,17 @@ async function main(argv: string[]) {
 function usage() {
   console.error(USAGE)
   process.exit(2)
+}
+
+/**
+ * `<name> [--admin]`, `--admin` before or after the name. Anything else (no
+ * name, two, another option) is not understood: never a user named after an
+ * option.
+ */
+function parseCreate(args: string[]): { name: string; admin: boolean } | null {
+  const names = args.filter((a) => a !== '--admin')
+  if (names.length !== 1 || names[0]!.startsWith('-') || names[0] === '') return null
+  return { name: names[0]!, admin: args.includes('--admin') }
 }
 
 function parsePurge(args: string[]): { path: string; version?: string; dryRun: boolean } | null {

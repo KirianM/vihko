@@ -186,17 +186,24 @@ export function applyReplacements(text: string, reps: Replacement[]): string {
 
 /**
  * The link written so that, in `src`, it reaches `want`: a Markdown link by
- * its relative path, a wikilink by the shortest target that resolves there
- * (`shortestTarget`), keeping its anchor (`#…`) and visible text (`|…`).
- * Null if no form of it reaches `want`.
+ * its relative path, encoded as image links are (`markdownDest`: spaces,
+ * brackets, parentheses, `%`, `#`, `?`…), keeping its `#anchor` as written,
+ * its `<…>` form, its text and its title; a wikilink by the shortest target
+ * that resolves there (`shortestTarget`), keeping its anchor (`#…`) and
+ * visible text (`|…`). Null if no form of it reaches `want`.
  */
 export function rewriteLink(link: LinkRef, src: string, want: string, index: LinkIndex): string | null {
   if (link.kind === 'markdown') {
+    // The destination's span in the link (from the parser); without it, everything after `](`.
     const open = link.raw.indexOf('](')
-    const url = link.raw.slice(open + 2, -1)
+    const start = link.destFrom !== undefined ? link.destFrom - link.from : open + 2
+    const end = link.destTo !== undefined ? link.destTo - link.from : link.raw.length - 1
+    const written = link.raw.slice(start, end)
+    const angled = written.startsWith('<')
+    const url = angled ? written.slice(1, written.endsWith('>') ? -1 : undefined) : written
     const hash = url.indexOf('#')
-    const rel = posix.relative(posix.dirname(src), want)
-    return link.raw.slice(0, open + 2) + rel.replace(/ /g, '%20') + (hash === -1 ? '' : url.slice(hash)) + ')'
+    const dest = markdownDest(posix.relative(posix.dirname(src), want)) + (hash === -1 ? '' : url.slice(hash))
+    return link.raw.slice(0, start) + (angled ? `<${dest}>` : dest) + link.raw.slice(end)
   }
   // Wikilink: name, progressively longer path suffixes, and finally the absolute path.
   const target = shortestTarget(index, src, want)
