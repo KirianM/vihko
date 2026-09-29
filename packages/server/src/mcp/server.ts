@@ -20,7 +20,7 @@ import { OAuthServer } from '../oauth.ts'
 import { VERSION } from '../version.ts'
 import type { Workspace } from '../workspace.ts'
 import { TextCache } from './texts.ts'
-import { LEAVE_IT, registerTools } from './tools.ts'
+import { LEAVE_IT, MAX_MCP_BODY, registerTools } from './tools.ts'
 
 export const MCP_PATH = '/mcp'
 
@@ -101,7 +101,7 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
       maxWaitSeconds: opts.maxWaitSeconds, pollMs: opts.pollMs,
     })
     return server
-  }, { legacy: 'stateless', onerror: (err) => log(`mcp: ${err.message}`) })
+  }, { legacy: 'stateless', maxRequestBodySize: MAX_MCP_BODY, onerror: (err) => log(`mcp: ${err.message}`) })
 
   /**
    * The workspace's guide for agents: the note vihko.yaml names, if this key

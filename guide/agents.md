@@ -297,9 +297,11 @@ base64 (`data`), with an optional `alt` text. vihko stores it as an upload
 from the UI or the API: where `vihko.yaml` says (next to the note by default),
 only for a note the key can write, only PNG, JPEG, GIF, WebP or AVIF (told by
 the bytes; `mime_type` is only a hint), and up to the size limit
-(`VIHKO_MAX_IMAGE_MB`). An MCP request carries at most 4 MB and base64 adds a
-third, so over MCP an image can be up to about 3 MB; send larger ones through
-the [HTTP API](api.md#images-and-attachments). vihko receives only a couple of
+(`VIHKO_MAX_IMAGE_MB`). An MCP request carries at most 4 MiB and base64 adds a
+third, so over MCP an image can be up to about 3 MB, whatever
+`VIHKO_MAX_IMAGE_MB` says: raising it above 3 changes what the UI and the
+HTTP API take, not `attach_image`. Send larger ones through the
+[HTTP API](api.md#images-and-attachments). vihko receives only a couple of
 images at a time for each person, counting their uploads and their keys'
 together: beyond that the tool answers `busy`, and the agent tries again in a
 moment.

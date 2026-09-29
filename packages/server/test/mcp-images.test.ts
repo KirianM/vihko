@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { IMAGES_PER_USER } from '@vihko/server'
+import { IMAGES_PER_USER, MAX_MCP_BODY } from '@vihko/server'
 import { PNG, setup } from './_agents.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -121,5 +121,32 @@ test('attach_image: only for keys that write; outside the key\'s folders, hidden
     const ok = await c.call('attach_image', { note: PLAN, data: IMAGE })
     assert.equal(ok.error, false, ok.raw)
     await c.close()
+  } finally { await h.close() }
+})
+
+test('the MCP request limit is vihko\'s own, 4 MiB: an image of about 3 MB fits in one, a request over it is 413 whatever VIHKO_MAX_IMAGE_MB says', async () => {
+  const h = await setup({ files: FILES, maxImageBytes: 20 * 1024 * 1024 })
+  try {
+    assert.equal(MAX_MCP_BODY, 4 * 1024 * 1024)
+    await h.enableMcp()
+    const { token } = await h.newKey({ name: m.aKeyName(), canWrite: true, folders: [DIR] })
+    const before = listing(h.notesDir)
+    const post = (body: string) => h.app.request('/mcp', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body,
+    })
+    const call = (data: string) => JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'attach_image', arguments: { note: PLAN, data } } })
+    // Bytes that aren't an image, as big as fits: the request is read, and the tool answers.
+    const envelope = call('').length
+    const fits = Buffer.alloc(Math.floor((MAX_MCP_BODY - envelope) * 3 / 4) - 3, 1).toString('base64')
+    assert.ok(Buffer.from(fits, 'base64').length > 3_000_000, 'about 3 MB of bytes')
+    const read = await post(call(fits))
+    assert.equal(read.status, 200)
+    assert.match(await read.text(), /unsupported_type/)
+    // One byte over the limit: refused before any tool runs.
+    const over = await post(call(fits + 'A'.repeat(MAX_MCP_BODY - call(fits).length + 1)))
+    assert.equal(over.status, 413)
+    assert.deepEqual(listing(h.notesDir), before, 'nothing stored')
   } finally { await h.close() }
 })

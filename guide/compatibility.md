@@ -145,7 +145,7 @@ what stays.
 | The MCP switch off | `404`, whatever the request |
 | No credential, or a wrong one | `401`, with a `WWW-Authenticate: Bearer` challenge (naming the resource metadata while OAuth exists) |
 | A request from a page on another site | `403` |
-| Request size | Up to 4 MB |
+| Request size | Up to 4 MiB, a limit of vihko's own (`413` beyond it): an image of about 3 MB for `attach_image`, whatever `VIHKO_MAX_IMAGE_MB` says |
 
 ### Conventions
 

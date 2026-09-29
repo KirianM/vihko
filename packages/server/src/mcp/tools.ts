@@ -119,6 +119,17 @@ function input<T extends z.ZodObject>(schema: T, aliases: Record<string, string>
   return { '~standard': { ...std, validate } } as unknown as StandardSchemaWithJSON<z.input<T>, z.output<T>>
 }
 
+/**
+ * The largest MCP request vihko reads (server.ts), set here rather than left
+ * to the SDK's default (the same 4 MiB today), so an update of the SDK can't
+ * change it. An image travels in one, in base64: a third larger than its
+ * bytes, which is what `attach_image` says it takes.
+ */
+export const MAX_MCP_BODY = 4 * 1024 * 1024
+
+/** The largest image `attach_image` can take within an MCP request, in MB (base64 is 4 characters for 3 bytes, with room for the rest). */
+const MCP_IMAGE_MB = Math.floor(MAX_MCP_BODY * 3 / 4 / 1e6)
+
 /** What an agent must do about a note it can't access (the same words in the instructions). */
 export const LEAVE_IT = 'do not delete, rewrite or replace links to notes you cannot access, and do not create notes to replace them.'
 
@@ -778,7 +789,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   server.registerTool('attach_image', {
     title: 'Attach an image',
     description: 'Stores an image for a note, where vihko keeps them (next to the note, unless its configuration says otherwise), from its bytes in base64: PNG, JPEG, GIF, WebP or AVIF, told by the bytes themselves. '
-      + 'Up to about 3 MB: an MCP request carries at most 4 MB, and base64 adds a third. It doesn\'t change the note: it returns `markdown`, the image link ready to write, escaped; add it where it belongs with edit_note (append, or append_under_heading). '
+      + `Up to about ${MCP_IMAGE_MB} MB: an MCP request carries at most ${MAX_MCP_BODY / 1024 / 1024} MB, and base64 adds a third. It doesn't change the note:`
+      + ' it returns `markdown`, the image link ready to write, escaped; add it where it belongs with edit_note (append, or append_under_heading). '
       + 'Until a note links it, the image counts as unused. The note must exist and be one you can write; if it is not available to you, `agent_denied`: ' + LEAVE_IT,
     inputSchema: input(z.object({
       note: path.describe('The note the image is for, from the notes root with its .md extension.'),
