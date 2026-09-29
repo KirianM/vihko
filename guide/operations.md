@@ -134,7 +134,7 @@ docker compose logs --tail 50 vihko   # the last 50 lines
 A normal start, after the first one:
 
 ```text
-[vihko] vihko 1.0.0-rc.4
+[vihko] vihko 1.0.0
 [vihko] vihko.yaml loaded
 [vihko] index ready: 0 added, 3 changed, 0 removed, 1247 unchanged
 [vihko] saved editor states: 41 of 42 match their file

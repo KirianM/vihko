@@ -60,10 +60,8 @@ server**, giving up full offline mode.
 You need Docker with Compose on Linux (amd64 or arm64).
 
 > [!NOTE]
-> The `compose.yaml` on `main`, which the commands below download, always
-> pulls the current release: now the release candidate
-> `ghcr.io/kirianm/vihko:1.0.0-rc.4`, and from 1.0.0 on `:1`, every 1.x
-> release. Its `image:` line says which.
+> The `compose.yaml` on `main`, which the commands below download, pulls
+> `ghcr.io/kirianm/vihko:1`: every 1.x release, never an incompatible version.
 
 ```sh
 mkdir vihko && cd vihko
@@ -125,7 +123,7 @@ The full index is in [guide/README.md](guide/README.md).
 
 ## Status
 
-Fourth release candidate of 1.0 (`1.0.0-rc.4`). See [ROADMAP.md](ROADMAP.md)
+1.0 (`1.0.0`), the first stable release. See [ROADMAP.md](ROADMAP.md)
 for what's done and what's next. Report bugs and ideas in the issues;
 security vulnerabilities privately, as [SECURITY.md](SECURITY.md) explains.
 

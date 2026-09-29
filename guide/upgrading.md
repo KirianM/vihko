@@ -34,7 +34,7 @@ Two things are outside the promise:
 | `ghcr.io/kirianm/vihko:1.4` | You want fixes only, no new features. |
 | `ghcr.io/kirianm/vihko:1.4.2` | You want to choose each update yourself, or to [roll back](#rolling-back). |
 | `ghcr.io/kirianm/vihko:latest` | Don't. It jumps to a new major version on a `docker compose pull`, and a major version can need you to do something first. |
-| `ghcr.io/kirianm/vihko:1.0.0-rc.4` | Testing a release candidate. Candidates are only published under their exact tag; `1` and `latest` never point to one. |
+| `ghcr.io/kirianm/vihko:1.1.0-rc.1` | Testing a release candidate. Candidates are only published under their exact tag; `1` and `latest` never point to one. |
 
 A moving tag (`1`, `1.4`, `latest`) only goes forward: a fix published for an
 older line doesn't move it back.
@@ -77,8 +77,8 @@ older line doesn't move it back.
 To move to a new major version, change the tag in `compose.yaml` (from `:1` to
 `:2`) after reading its upgrade notes, then run step 4.
 
-From a release candidate, change the tag to the next candidate, or to `:1` once
-1.0.0 is out.
+From a release candidate, change the tag to the next candidate, or to the
+moving tag of its line (such as `:1`) once its release is out.
 
 ## What happens at start
 
