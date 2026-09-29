@@ -251,7 +251,7 @@ tool.
 | `edit_note` | Operations applied in order, all or none: `find_replace`, `append`, `append_under_heading`, `replace_section`, `set_frontmatter`. Works while someone has the note open. `dry_run` previews |
 | `move` | Moves or renames a note, rewriting every link to it. `dry_run` previews |
 | `delete` | Moves a note to the trash |
-| `attach_image` | Stores an image for a note, sent in base64, and returns the link to write into it (see [Images](#images)) |
+| `attach_image` | Stores a small image for a note, sent in base64, and returns the link to write into it (see [Images](#images)) |
 
 **History**
 
@@ -312,6 +312,34 @@ break a Markdown link escaped:
 The agent writes `markdown` where it belongs with `edit_note` (an `append`, or
 `append_under_heading`). Until a note links it, the image counts as unused: a
 key can't read it, and it doesn't go to the trash with the note.
+
+**What it costs.** The model has to write the whole image into the call, as
+base64 text: 4 characters for every 3 bytes, so about a third more characters
+than the image has bytes. Those characters are the model's output. Every model
+has a limit on how much it writes in one reply, set by the model and the client
+you use, and base64 is slow and expensive for a model to write. Some typical
+images:
+
+| Image | Size | In base64 |
+|---|---|---|
+| An icon, PNG, 192 × 192 | 5 KB | 6,924 characters |
+| A banner, PNG, 1280 × 640 | 34 KB | 45,792 characters |
+| A phone screenshot, PNG, 1170 × 2532 | 215 KB | 286,324 characters |
+| A desktop screenshot, PNG, 2880 × 1800 | 353 KB | 470,676 characters |
+| The most one MCP request carries | about 3 MB | about 4 million characters |
+
+So `attach_image` is for small images: an icon, a small diagram or chart, a
+screenshot cropped to what matters, from a few KB to a few hundred. A photo
+from a phone, at several MB, doesn't fit in an MCP request at all.
+
+For larger images:
+
+- **An agent that has a shell** (Claude Code, say) uploads the file itself,
+  with a key that may write and the HTTP API on: `POST /api/attachments` with
+  the file's bytes ([Images and attachments](api.md#images-and-attachments)).
+  The model only writes the command; the bytes go from the file. Then it adds
+  the `markdown` the API returned with `edit_note`, as above.
+- **A person** adds it in the editor: paste it, drop it, or upload it.
 
 ### Instructions for agents
 
