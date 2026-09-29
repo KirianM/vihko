@@ -131,7 +131,11 @@ Links inside code blocks and inline code aren't links.
 When you rename or move a note from vihko, **vihko rewrites the links to it in
 every other note**, so none of them changes its destination:
 
-- It rewrites only the link text, nothing else of the note.
+- It rewrites only the link text, nothing else of the note. A wikilink keeps
+  its `#heading` and `|text`; a Markdown link gets the new path relative to
+  the note, with what would break it (spaces, brackets, parentheses, `%`,
+  `#`, `?`…) percent-encoded, and keeps its `#heading`, its `<…>` form and
+  its title.
 - It does it in every note, including ones you can't read or edit, as vihko
   itself on your behalf: those notes' history says «Links updated when “Plan”
   was renamed to “Launch plan”», with your name, and whoever can edit them can

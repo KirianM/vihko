@@ -292,7 +292,7 @@ else into a note unless someone asks it to (an edit, a comment, a
 | An alias after a rename | The old name added to `aliases`, only when a link to the note couldn't be rewritten and `links.aliases` is on |
 | Frontmatter changes | Only that key's value, in place; a new key is added at the end of the block; a note without frontmatter gets a block at the top. The rest of the block stays byte for byte |
 | Comments | `<!-- @author YYYY-MM-DDTHH:MMZ · text -->`; a reply starts its text with `↳ `; comments one after another are a thread; resolving a thread deletes it |
-| Links rewritten after a move | A wikilink gets the shortest target that reaches the note (its name, then longer path endings, then `/` and the whole path, without `.md`), keeping its `#heading` and `\|text`. A Markdown link gets the path relative to the note (spaces as `%20`), with its `#anchor` |
+| Links rewritten after a move | A wikilink gets the shortest target that reaches the note (its name, then longer path endings, then `/` and the whole path, without `.md`), keeping its `#heading` and `\|text`. A Markdown link gets the path relative to the note, percent-encoded as image links are, keeping its `#anchor`, its `<…>` form and its title |
 | Image links | `![alt](path)`, relative to the note, with spaces, brackets, parentheses, `%`, `#`, `?`, `<`, `>` and `\` percent-encoded |
 | Where new images go | As `attachments` says: next to the note (`plan-2026-09-28-1012.png`), in one folder (same name), or in the note's own folder (`plan.assets/2026-09-28-1012.png`); the time in UTC, a taken name gets `-2`, `-3`… |
 | Moved images | Images only one note uses go with it when it changes folder, and every link to them is rewritten |
