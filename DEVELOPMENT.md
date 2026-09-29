@@ -213,9 +213,10 @@ worse than a slower one.
 A release is a tag on `main`: `vX.Y.Z`, or `vX.Y.Z-rc.N` for a release
 candidate. Pushing it runs `.github/workflows/release.yml`, which checks the
 tag (it matches the root `package.json`'s version, and `CHANGELOG.md` has a
-section for it) before pushing anything, builds the image for linux/amd64 and
-linux/arm64 and pushes it to GHCR, and then makes the GitHub Release, whose
-text is that `CHANGELOG.md` section.
+section for it) and upgrades the previous stable release to it (the upgrade
+smoke test, below) before pushing anything, builds the image for linux/amd64
+and linux/arm64 and pushes it to GHCR, and then makes the GitHub Release,
+whose text is that `CHANGELOG.md` section.
 
 | Tag | Image tags (`ghcr.io/kirianm/vihko:…`) | GitHub Release |
 |---|---|---|
@@ -235,7 +236,10 @@ A moving tag only goes forward: a fix for an older line (`v1.1.5` once
    pull requests merged since the last tag, with an "Upgrade notes" part for
    anything to do by hand and anything deprecated. The Release shows it as it
    is.
-3. Open the pull request, run the CI and merge it.
+3. Open the pull request, run the CI and merge it. If the release changes
+   anything `state.db`, `vihko.yaml` or the volumes carry over, run the
+   upgrade smoke test on it first (below): the release workflow runs it
+   anyway, but a failure there means a new tag.
 4. Tag the merge commit and push the tag:
 
    ```sh
@@ -246,10 +250,11 @@ A moving tag only goes forward: a fix for an older line (`v1.1.5` once
 
 5. Follow the run (`gh run watch`, or the Actions tab). The image job waits in
    the `release` environment until the maintainer approves it on the run's
-   page: nothing is published before that. If the check job
-   fails, nothing was published: delete the tag (`git push --delete origin
-   v1.2.3`, `git tag -d v1.2.3`), fix it in a pull request and tag again. If a
-   later job fails, run it again from the Actions tab.
+   page, and until the smoke job has passed: nothing is published before
+   that. If the check or the smoke job fails, nothing was published: delete
+   the tag (`git push --delete origin v1.2.3`, `git tag -d v1.2.3`), fix it in
+   a pull request and tag again. If a later job fails, run it again from the
+   Actions tab.
 6. Check the result: `docker buildx imagetools inspect
    ghcr.io/kirianm/vihko:1.2.3` lists linux/amd64 and linux/arm64, the moving
    tags have the same digest, the image pulls without logging in (`docker
@@ -261,6 +266,38 @@ A moving tag only goes forward: a fix for an older line (`v1.1.5` once
    while there are only release candidates of a major, `:<major>` once its
    first stable version is out. Change its image line (and its copy in
    `guide/install.md`) in the release pull request that makes that change.
+
+### The upgrade smoke test
+
+`scripts/upgrade-smoke.ts` upgrades an installation the way a person does.
+It starts the previous stable image (`ghcr.io/kirianm/vihko:<the newest
+stable tag older than the version being released>`) with `compose.yaml` as
+it is, its hardening included, on two fresh folders; creates an admin and a
+member, turns the API on and makes a key, and writes a note with
+frontmatter, a link, an image and a comment until the history has a version.
+Then it stops it, starts the new image on the same folders and checks that
+it starts, that `state.db` migrated if it had to (the copy in the state
+volume and the admin's alert) and made no copy if it didn't, that both
+people sign in, that the note, its link and backlink, the image and the
+comment are as they were, that the key still works and that the history
+still has the note. The release workflow runs it (job `smoke`) on an amd64
+build of the tag, before the image job; with no earlier stable tag it's
+skipped, saying so.
+
+To run it yourself (Docker with Compose; only Node's own modules, no `npm
+ci` needed), build the image and name it:
+
+```sh
+docker build -t vihko:local .
+npm run upgrade-smoke -- --new vihko:local                        # from the previous stable release
+npm run upgrade-smoke -- --new vihko:local --version 1.2.0         # as the release of 1.2.0 would
+npm run upgrade-smoke -- --new vihko:local --old ghcr.io/kirianm/vihko:1.0.0-rc.1   # from any image
+```
+
+It publishes vihko on a free port of the host (`--port` to choose it), with
+the folders in a temporary one (`--dir`, on local disk), and removes the
+container and the folders at the end; `--keep` leaves them to look at. A
+failure prints what didn't hold and the container's log.
 
 ## Screenshots
 

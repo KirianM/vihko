@@ -17,6 +17,7 @@
     "acceptance": "node scripts/seeded.ts node --test --test-concurrency=1 --test-force-exit \"packages/server/test/acceptance/*.acceptance.ts\"",
     "build": "npm run build -w @vihko/web",
     "ci": "node scripts/ci.ts",
+    "upgrade-smoke": "node scripts/upgrade-smoke.ts",
     "screenshots": "npm run build && node --no-experimental-webstorage scripts/screenshots.ts"
   },
   "devDependencies": {
