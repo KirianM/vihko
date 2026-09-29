@@ -235,8 +235,8 @@ note. It can't be undone.
   wrote (wherever it was, what was there right before stays). It never touches
   other notes, or what's under a folder.
 - **An admin** purges any path by its name, a note or a whole folder, or one
-  version of a note, in Preferences → Users and groups → «Purge from the
-  history», without having to read it. When it includes something the admin
+  version of a note, with «Purge from the history…» in **Recent changes**,
+  without having to read it. When it includes something the admin
   can't read, they confirm at the moment (their app's code, or their
   password).
 

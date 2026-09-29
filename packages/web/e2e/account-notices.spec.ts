@@ -1,8 +1,8 @@
 // Notices addressed to a person (M4.1, D-040 3.1 and 3.6) in real browsers:
 // the admin resets a member's second factor, confirming with his own
 // password; the member sees it when she signs in, and so does the other
-// admin, in theirs. The admin purges from the history a note she wrote in,
-// and one of hers he can't read (confirming again): she is told who and
+// admin, in theirs. The admin purges from the history, in «Recent changes»,
+// a note she wrote in, and one of hers he can't read (confirming again): she is told who and
 // what, never the content. Users and notes of their own, removed at the end.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { createHmac } from 'node:crypto'
@@ -156,12 +156,18 @@ test('a purge tells whoever wrote in it, without the content; what the admin can
   }
   await person.context().close()
 
-  // The admin purges the shared note (he reads it: no confirmation) and the member's own (he can't: his password).
-  await openUsers(admin)
-  const form = admin.getByRole('region', { name: 'Purgar del historial' })
+  // The admin purges from «Recent changes»: the shared note (he reads it: no confirmation) at his desk,
+  // and the member's own (he can't: his password) on a phone.
+  await admin.goto('/?view=changes')
+  await expect(admin.getByRole('heading', { level: 1 })).toHaveText('Cambios recientes')
   for (const path of [SHARED, PRIVATE]) {
+    if (path === PRIVATE) await admin.setViewportSize({ width: 390, height: 844 })
+    await admin.getByRole('button', { name: 'Purgar del historial…' }).click()
+    const form = admin.getByRole('dialog', { name: 'Purgar del historial' })
     await form.getByLabel('Ruta (nota o carpeta)').fill(path)
+    await admin.screenshot({ path: `${SHOTS}/notices-purge-form-${path === PRIVATE ? 'mobile' : 'light'}.png`, animations: 'disabled' })
     await form.getByRole('button', { name: 'Purgar…' }).click()
+    await expect(form).toHaveCount(0)
     const dialog = admin.getByRole('alertdialog')
     const go = dialog.getByRole('button', { name: 'Purgar el historial' })
     await expect(go).toBeVisible()
@@ -175,8 +181,14 @@ test('a purge tells whoever wrote in it, without the content; what the admin can
     }
     await go.click()
     await expect(dialog).toHaveCount(0)
-    await expect(form.getByRole('status')).toContainText('purgado')
+    await expect(admin.locator('.changes-page .alerts-done')).toContainText('purgado')
+    // The list comes back without what went, once the history has rewritten it (never an error meanwhile).
+    await expect(admin.locator('.changes-page')).not.toContainText('Cargando…', { timeout: 30_000 })
+    await expect(admin.locator('.changes-page').getByRole('alert')).toHaveCount(0)
   }
+  expect(await admin.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+  await admin.screenshot({ path: `${SHOTS}/notices-purge-done-mobile.png`, animations: 'disabled' })
+  await admin.setViewportSize({ width: 1280, height: 800 })
 
   // The member, on her phone: who purged what she wrote, and where (she can read both); never the content.
   const phone = await password(browser, PERSON, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })

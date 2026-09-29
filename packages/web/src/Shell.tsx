@@ -488,7 +488,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         ) : view === 'account' ? (
           <AccountPage user={user} onUnauthorized={onUnauthorized} />
         ) : view === 'changes' ? (
-          <ChangesPage status={historyStatus} notes={notes} onOpenVersion={openVersion} onUnauthorized={onUnauthorized} />
+          <ChangesPage status={historyStatus} notes={notes} admin={admin} onOpenVersion={openVersion} onUnauthorized={onUnauthorized} />
         ) : openPath && version && missing === openPath ? (
           <>
             <header className="main-head">

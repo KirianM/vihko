@@ -1,13 +1,13 @@
 // Purging from the history (D-038.9): a note, or one of its versions, by whoever
 // manages its folder; any path by its name (a note or a folder), by the vihko
-// admin, who needn't be able to read it. The confirmation lists what is lost
+// admin from «Recent changes», who needn't be able to read it. The confirmation lists what is lost
 // (the versions, by date; never their content) and says it can't be undone;
 // the server works it out without changing anything first (`dryRun`). The
 // admin is told who purged what, and so is whoever wrote in it (D-040 3.6).
 // The admin purging something they can't read confirms at the moment, with
 // their code or password (`confirmRequired`).
 import { useEffect, useState, type FormEvent } from 'react'
-import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, TextField } from 'react-aria-components'
+import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, Text, TextField } from 'react-aria-components'
 import { errorText, useT } from '../i18n.tsx'
 import { ConfirmField, codeError, useConfirmWith } from '../TwoFactor.tsx'
 import { historyApi, type PurgeReport } from './api.ts'
@@ -109,45 +109,56 @@ export function purgedText(t: ReturnType<typeof useT>, r: PurgeReport): string {
 }
 
 /**
- * The admin's form (in «Users and groups»): any path by its name, a note or a
- * folder, and optionally one version (its id, from «Recent changes» or the
- * command line). The admin needn't read it; the confirmation says what goes
- * by date, never its content.
+ * The admin's purge by path (in «Recent changes»): a button that opens a form
+ * for any path by its name, a note or a folder, and optionally one version
+ * (its id, from «Recent changes» or the command line); then the confirmation.
+ * The admin needn't read it; the confirmation says what goes by date, never
+ * its content. Cancelling the confirmation goes back to the form.
  */
-export function AdminPurge() {
+export function AdminPurge({ onPurged }: { onPurged: (report: PurgeReport) => void }) {
   const t = useT()
+  const [open, setOpen] = useState(false)
   const [path, setPath] = useState('')
   const [version, setVersion] = useState('')
   const [asking, setAsking] = useState<{ path: string; version: string | null } | null>(null)
-  const [done, setDone] = useState<string | null>(null)
   const submit = (e: FormEvent) => {
     e.preventDefault()
     const p = path.trim().replace(/^\/+|\/+$/g, '')
     if (!p) return
-    setDone(null)
     setAsking({ path: p, version: version.trim() || null })
   }
   return (
-    <section className="settings-section" aria-labelledby="admin-purge">
-      <h2 id="admin-purge">{t('purge.adminTitle')}</h2>
-      <p className="hint">{t('purge.adminIntro')}</p>
-      <form className="purge-form" onSubmit={submit}>
-        <TextField className="field purge-path" value={path} onChange={setPath}>
-          <Label>{t('purge.adminPath')}</Label>
-          <Input placeholder={t('purge.adminPathPlaceholder')} />
-        </TextField>
-        <TextField className="field purge-version" value={version} onChange={setVersion}>
-          <Label>{t('purge.adminVersion')}</Label>
-          <Input className="mono" />
-        </TextField>
-        <Button type="submit" className="btn btn-danger" isDisabled={!path.trim()}>{t('purge.adminGo')}</Button>
-      </form>
-      <p className="hint">{t('purge.adminVersionHint')}</p>
-      {done && <p className="alerts-done" role="status">{done}</p>}
+    <>
+      <Button className="btn btn-sm btn-quiet purge-open" onPress={() => setOpen(true)}>{t('purge.adminOpen')}</Button>
+      <ModalOverlay className="modal-overlay" isOpen={open && !asking} onOpenChange={(o) => { if (!o) setOpen(false) }} isDismissable>
+        <Modal className="modal">
+          <Dialog className="dialog dialog-narrow">
+            <form onSubmit={submit}>
+              <div className="dialog-fields">
+                <Heading slot="title" className="dialog-title">{t('purge.adminTitle')}</Heading>
+                <p className="dialog-text">{t('purge.adminIntro')}</p>
+                <TextField className="field" value={path} onChange={setPath} autoFocus>
+                  <Label>{t('purge.adminPath')}</Label>
+                  <Input placeholder={t('purge.adminPathPlaceholder')} />
+                </TextField>
+                <TextField className="field" value={version} onChange={setVersion}>
+                  <Label>{t('purge.adminVersion')}</Label>
+                  <Input className="mono" />
+                  <Text slot="description" className="hint">{t('purge.adminVersionHint')}</Text>
+                </TextField>
+              </div>
+              <div className="dialog-actions">
+                <Button className="btn" onPress={() => setOpen(false)}>{t('common.cancel')}</Button>
+                <Button type="submit" className="btn btn-danger" isDisabled={!path.trim()}>{t('purge.adminGo')}</Button>
+              </div>
+            </form>
+          </Dialog>
+        </Modal>
+      </ModalOverlay>
       {asking && (
         <PurgeDialog path={asking.path} version={asking.version} onCancel={() => setAsking(null)}
-          onDone={(r) => { setAsking(null); setDone(purgedText(t, r)); setPath(''); setVersion('') }} />
+          onDone={(r) => { setAsking(null); setOpen(false); setPath(''); setVersion(''); onPurged(r) }} />
       )}
-    </section>
+    </>
   )
 }
