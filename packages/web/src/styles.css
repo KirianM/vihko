@@ -18,6 +18,9 @@ body {
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 20px;
+  /* Per theme (tokens): grayscale in dark, where light strokes look heavier. Rendering only, no metrics. */
+  -webkit-font-smoothing: var(--font-smoothing);
+  -moz-osx-font-smoothing: var(--font-smoothing-moz);
 }
 a { color: var(--accent); }
 a:hover { color: var(--accent-strong); }
