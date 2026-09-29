@@ -62,8 +62,14 @@ test('whoever manages a folder purges a version of a note in it from the UI: gon
     assert.ok(!JSON.stringify(dry.body).includes(SECRET))
     assert.ok((await objects(h.stateDir)).includes(SECRET), 'a dry run changes nothing')
 
+    // «Recent changes» seen before (its authors are remembered up to the history's head then).
+    assert.equal((await h.admin('GET', '/api/history/changes')).status, 200)
     const run = await h.member('POST', '/api/history/purge', { path: DIARY, version: secret!.id })
     assert.equal(run.status, 200, JSON.stringify(run.body))
+    // …still answers after the purge rewrote the history under it, that head included.
+    const after = await h.admin('GET', '/api/history/changes')
+    assert.equal(after.status, 200, JSON.stringify(after.body))
+    assert.ok(after.body.authors.some((a: { name?: string }) => a.name === MEMBER.username), JSON.stringify(after.body.authors))
     assert.ok(!(await objects(h.stateDir)).includes(SECRET), 'nothing of it left in the repository')
     assert.equal((await versionsOf(PATH.list)).length, list, 'the other notes keep their versions')
     assert.ok(readFileSync(join(h.notesDir, DIARY), 'utf8').includes(instead), 'the note itself is untouched')
