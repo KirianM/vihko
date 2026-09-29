@@ -7,7 +7,7 @@ Every release of vihko, newest first. The format follows
 that asks you to do something by hand or breaks an integration. Read a
 version's **Upgrade notes** before installing it.
 
-## [1.0.0-rc.2] - 2026-09-28
+## [1.0.0-rc.2] - 2026-09-29
 
 The second release candidate: what the first one's installations turned up.
 
