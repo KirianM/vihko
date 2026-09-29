@@ -390,10 +390,18 @@ curl -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: image/png" \
   "$VIHKO/api/attachments?note=projects/plan.md" --data-binary @diagram.png
 ```
 
-`201` with the stored file's `path` and the `src` to link it from the note.
+`201` with the stored file's `path`, its `src` (the path relative to the
+note) and `markdown`, the link ready to write into the note, with what would
+break a Markdown link escaped:
+
+```json
+{ "path": "projects/my plan-2026-09-28-1201.png", "src": "my plan-2026-09-28-1201.png", "markdown": "![](my%20plan-2026-09-28-1201.png)" }
+```
+
 vihko stores it where `vihko.yaml` says (next to the note by default), but
-doesn't add the link: do that with an edit, for example an `append` of
-`![](plan-2026-09-28-1201.png)` with the `src` it returned.
+doesn't add the link: do that with an edit, for example an `append` of the
+`markdown` it returned. Don't write `src` into the note as it is: a space in
+it would break the link, and the image would count as unused.
 
 `GET /api/file?path=<path>` downloads a file in the notes folder that isn't a
 note. A key gets it only if it's in the key's folders, a note the key can read

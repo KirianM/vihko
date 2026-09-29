@@ -11,7 +11,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
-import { WORKSPACE_FILE, classifyPath, conflictOriginal, type Alert, type ErrorCode } from '@vihko/core'
+import { WORKSPACE_FILE, classifyPath, conflictOriginal, markdownDest, type Alert, type ErrorCode } from '@vihko/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
@@ -690,13 +690,18 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     }
   }
 
+  // `src` is the image's path relative to the note (the editor escapes it);
+  // `markdown` is the link ready to write into the note, with what would break
+  // a Markdown destination (a space, say) escaped: a script appends it as is.
+  const withMarkdown = (r: { path: string; src: string }) => ({ ...r, markdown: `![](${markdownDest(r.src)})` })
+
   // Images (D-028). Upload and paste are the same: the raw bytes of the file
   // in the body. It is stored next to the note and the editor links it.
   app.post('/api/attachments', imageSlot,
     bodyLimit({ maxSize: notes.maxImageBytes, onError: (c) => fail(c, 413, 'too_large', `the limit is ${notes.maxImageBytes} bytes`) }),
     async (c) => {
       const bytes = new Uint8Array(await c.req.arrayBuffer())
-      return c.json(await scoped(c).attach(c.req.query('note') ?? '', bytes), 201)
+      return c.json(withMarkdown(await scoped(c).attach(c.req.query('note') ?? '', bytes)), 201)
     })
 
   // A copy of an image from a URL, stored like an upload. Only on this explicit
@@ -708,7 +713,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const { note, url } = await c.req.json<{ note: string; url: string }>()
     const publicOnly = c.get('user').role !== 'admin' && !adminSettings.view().membersLocalDownloads
     const r = await scoped(c).attachFromUrl(note ?? '', async () => (await fetchImage(String(url ?? ''), { maxBytes: notes.maxImageBytes, publicOnly, testing: deps.imageFetchTesting })).bytes)
-    return c.json(r, 201)
+    return c.json(withMarkdown(r), 201)
   })
 
   // A file in the notes folder that isn't a note (images and other attachments).
