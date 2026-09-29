@@ -17,8 +17,9 @@ For AI assistants, the MCP server is usually a better fit: see
 
 1. The vihko admin turns on **HTTP API with keys**, in Preferences → **Agents
    and API**. While it's off, every request with a key gets `404`.
-2. You create a key in the same page, under **Your keys**. A new key is
-   read-only; tick **Can write** for a script that writes. See
+2. You create a key in the same page, under **Your keys**. A member can only
+   once the admin turns on **Members can create keys** there (off by default).
+   A new key is read-only; tick **Can write** for a script that writes. See
    [Keys](agents.md#keys) for what a key can see.
 
 The examples use `http://vihko.example.lan:8080` as vihko's address and keep

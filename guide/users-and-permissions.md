@@ -45,8 +45,8 @@ The admin's settings, in Preferences → Users and groups → Settings, are the
 [second-factor policy](#the-policy) and «Members can download images from the
 local network»: off by default, members can only save copies of images from
 public internet addresses, so nobody can use vihko to reach other machines on
-your network. Admins always can. Whether members may create agent keys is set
-in «Agents and API» (see [Agents](agents.md)).
+your network. Admins always can. Whether members may create agent keys (off by
+default) is set in «Agents and API» (see [Agents](agents.md)).
 
 ## Adding people
 

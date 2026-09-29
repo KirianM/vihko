@@ -31,11 +31,14 @@ test.beforeAll(async ({ browser }) => {
   // A member sees nothing until something is granted (D-038): the two of them read everything.
   await usePermissions({ grants: { [PERSON.username]: 'read', [INVITED.username]: 'read' } })
   keeper = await signIn(browser, ADMIN)
+  // The member makes a key of her own: the admin lets members (off by default).
+  expect((await keeper.request.put('/api/admin/integrations', { data: { membersCanCreateKeys: true } })).status()).toBe(200)
 })
 
 test.afterAll(async () => {
   const admin = keeper
   await admin.request.put('/api/admin/settings', { data: { twoFactor: 'optional', confirm: ADMIN.password } })
+  await admin.request.put('/api/admin/integrations', { data: { membersCanCreateKeys: false } })
   for (const u of (await (await admin.request.get('/api/admin/users')).json()).users as { id: string; username: string }[]) {
     if (u.username !== PERSON.username && u.username !== INVITED.username) continue
     await admin.request.post(`/api/admin/users/${u.id}/disable`)

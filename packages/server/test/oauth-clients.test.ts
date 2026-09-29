@@ -93,7 +93,8 @@ test('mcp-remote: discovery, registration, consent, tokens and the tools of a re
     const setCookie = String(login.headers['set-cookie'])
     assert.match(setCookie, /Secure/i, 'behind HTTPS the session cookie is Secure')
     const cookie = setCookie.split(';')[0]!
-    assert.equal((await browser('PUT', '/api/admin/integrations', { mcp: true }, { cookie })).status, 200)
+    // mcp-remote registers itself: the admin lets clients (off on a new vihko, D-049).
+    assert.equal((await browser('PUT', '/api/admin/integrations', { mcp: true, oauthRegistration: true }, { cookie })).status, 200)
 
     /** mcp-remote as Claude Desktop runs it, with its own home and no browser to open. */
     const start = async (callbackPort: number) => {

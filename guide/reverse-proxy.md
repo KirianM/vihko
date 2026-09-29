@@ -111,7 +111,9 @@ Then `docker compose up -d`.
 
 - **`VIHKO_PUBLIC_URL`** is the address people and apps use: `https://`, the
   name, and a port only if it isn't 443. Nothing after the name. It makes OAuth
-  available for remote MCP clients while the MCP server is on, and invitation
+  available for remote MCP clients while the MCP server is on (claude.ai and
+  `mcp-remote` also need **OAuth apps can register themselves**: see
+  [Agents](agents.md#remote-mcp-with-oauth)), and invitation
   and password-reset links use it, even when an admin makes them from another
   address (on your network, say). The log confirms it: `public URL https://notes.example.com: OAuth for https://notes.example.com/mcp while the MCP server is on`.
 

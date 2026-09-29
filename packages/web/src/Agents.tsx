@@ -1,12 +1,13 @@
 // Settings → «Agents and API» (D-035): the vihko admin's switches for the API
 // with keys and the MCP server (locked when the server's administrator sets
-// VIHKO_INTEGRATIONS=off) and whether members may create keys; everyone's own
+// VIHKO_INTEGRATIONS=off) and whether members may create keys (off by
+// default, D-049); everyone's own
 // keys, created read-only and for every folder unless they say otherwise, the
 // key shown once with ready-made MCP configurations, and rotated (a new
 // secret, the old one still valid for 10 minutes); and, for the admin,
 // everyone else's keys, which they may revoke. With a public URL
 // (VIHKO_PUBLIC_URL), OAuth: where remote clients connect, the admin's switch
-// for their registration, and each authorization among the keys (named after
+// for their registration (off by default, right under the MCP server's), and each authorization among the keys (named after
 // its client, with where it goes back to). And, in plain words, what an agent
 // knows of a note hidden from it.
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
@@ -504,10 +505,11 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
               <div className="switches">
                 <Toggle label={t('agents.api')} hint={t('agents.apiHint')} value={integ.api && !integ.locked} disabled={integ.locked || saving} onChange={(v) => void change({ api: v })} />
                 <Toggle label={t('agents.mcp')} hint={t('agents.mcpHint', { url: mcpUrl() })} value={integ.mcp && !integ.locked} disabled={integ.locked || saving} onChange={(v) => void change({ mcp: v })} />
-                <Toggle label={t('agents.members')} hint={t('agents.membersHint')} value={integ.membersCanCreateKeys} disabled={saving} onChange={(v) => void change({ membersCanCreateKeys: v })} />
+                {/* Under the MCP server: registration is part of connecting remote MCP clients. */}
                 {integ.publicUrl && (
                   <Toggle label={t('agents.oauthRegistration')} hint={t('agents.oauthRegistrationHint')} value={integ.oauthRegistration} disabled={saving} onChange={(v) => void change({ oauthRegistration: v })} />
                 )}
+                <Toggle label={t('agents.members')} hint={t('agents.membersHint')} value={integ.membersCanCreateKeys} disabled={saving} onChange={(v) => void change({ membersCanCreateKeys: v })} />
               </div>
             ) : (
               <p className="settings-state">
@@ -528,6 +530,7 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
                 <CopyButton text={`${integ.publicUrl}/mcp`} label={t('keys.copy')} />
               </div>
               {(integ.locked || !integ.mcp) && <p className="hint">{t('agents.oauthNeedsMcp')}</p>}
+              {!integ.oauthRegistration && <p className="hint">{t('agents.oauthNeedsRegistration')}</p>}
             </>) : <p className="hint">{t('agents.oauthNone')}</p>}
           </section>
         )}

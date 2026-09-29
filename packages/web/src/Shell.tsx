@@ -276,6 +276,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     return null
   }, [openPath, notes, workspace])
   const folder = openPath?.includes('/') ? openPath.slice(0, openPath.lastIndexOf('/')) : ''
+  /** Where the palette's «new folder» creates: the open note's folder, else the root, where this person may (as the tree: `edit`). */
+  const mayCreateIn = (path: string) => !locks || atLeast(locks.get(path)?.level, 'edit')
+  const newFolderIn = mayCreateIn(folder) ? folder : mayCreateIn('') ? '' : null
   const created = (path: string) => {
     setPalette(null)
     void loadTree()
@@ -488,7 +491,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         ) : view === 'account' ? (
           <AccountPage user={user} onUnauthorized={onUnauthorized} />
         ) : view === 'changes' ? (
-          <ChangesPage status={historyStatus} notes={notes} onOpenVersion={openVersion} onUnauthorized={onUnauthorized} />
+          <ChangesPage status={historyStatus} notes={notes} admin={admin} onOpenVersion={openVersion} onUnauthorized={onUnauthorized} />
         ) : openPath && version && missing === openPath ? (
           <>
             <header className="main-head">
@@ -650,6 +653,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           notes={notes}
           templates={templates}
           onToday={dailyOn ? () => void openToday() : null}
+          onNewFolder={newFolderIn === null ? null : () => setTreeDialog({ kind: 'newFolder', parent: newFolderIn })}
           onLanguage={(choice) => { setError(null); chooseLanguage(choice).catch(fail) }}
           onClose={() => { setPalette(null); setCreateIn(null) }}
           onMode={setPalette}

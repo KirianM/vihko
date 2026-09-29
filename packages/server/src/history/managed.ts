@@ -4,7 +4,7 @@
 // being written never makes the history page wait, and git itself is safe
 // with one writer and readers at once.
 import type { Author } from '../actor.ts'
-import { LOG_FORMAT, Serial, parseLog, readObjects, resolveRef, type Git, type LogCommit, type RawFile } from './git.ts'
+import { GitError, LOG_FORMAT, Serial, parseLog, readObjects, resolveRef, type Git, type LogCommit, type RawFile } from './git.ts'
 import { HISTORY_REF, isTextPath } from './recorder.ts'
 import { movedFrom, parseMessage, type ParsedMessage } from './trailers.ts'
 import { wordStats } from './diff.ts'
@@ -207,8 +207,13 @@ export class ManagedReader implements HistoryReader {
       const head = await resolveRef(this.git, HISTORY_REF)
       if (head === null) return []
       if (this.authorsSeen.head !== head) {
-        const range = this.authorsSeen.head ? `${this.authorsSeen.head}..${head}` : head
-        const { stdout } = await this.git.run(['log', '--format=%B%x00', range], { timeoutMs: 120_000 })
+        const scan = (range: string) => this.git.run(['log', '--format=%B%x00', range], { timeoutMs: 120_000 })
+        // Only what's new since the last look; from the start, afresh, if that commit is gone (a purge rewrote the history).
+        const stdout = this.authorsSeen.head === null ? (await scan(head)).stdout : (await scan(`${this.authorsSeen.head}..${head}`).catch((err) => {
+          if (!(err instanceof GitError) || err.code === 'timeout') throw err
+          this.authorsSeen.list.clear()
+          return scan(head)
+        })).stdout
         for (const message of stdout.toString('utf8').split('\0')) {
           for (const a of authorsOf(parseMessage(message.trim()))) this.authorsSeen.list.set(JSON.stringify(a), a)
         }

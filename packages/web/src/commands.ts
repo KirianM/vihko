@@ -13,6 +13,12 @@ export interface CommandContext {
   openPath: string | null
   /** Switches the palette to create-note mode in the current folder. */
   newNote: () => void
+  /**
+   * Opens «New folder» in the open note's folder, or the root (with no note
+   * open, or where this person may only create at the root); null where they
+   * may create in neither (the tree's rule: `edit` on that folder).
+   */
+  newFolder: (() => void) | null
   /** Opens (or creates) today's note; null while vihko.yaml declares no series. */
   today: (() => void) | null
   /** The UI's language as chosen (null = automatic), and saving another one in the account. */
@@ -35,6 +41,7 @@ export const commands: Command[] = [
     run: (c) => chooseTheme(c.theme === 'dark' ? 'light' : 'dark'),
   },
   { id: 'new-note', label: () => 'cmd.newNote', run: (c) => c.newNote() },
+  { id: 'new-folder', label: () => 'cmd.newFolder', available: (c) => c.newFolder !== null, run: (c) => c.newFolder?.() },
   { id: 'today', label: () => 'cmd.today', available: (c) => c.today !== null, run: (c) => c.today?.() },
   // The open note listens for this event and opens its «Insert image» dialog.
   { id: 'insert-image', label: () => 'cmd.insertImage', available: (c) => c.openPath !== null, run: () => { window.dispatchEvent(new Event(INSERT_IMAGE)) } },

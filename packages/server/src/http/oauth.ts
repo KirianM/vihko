@@ -6,7 +6,7 @@
 // For clients, no session (their own credentials, or none):
 //   GET  /.well-known/oauth-protected-resource[/mcp]   RFC 9728
 //   GET  /.well-known/oauth-authorization-server       RFC 8414
-//   POST /oauth/register                               RFC 7591 (unless the admin turned it off); 5 an hour per address
+//   POST /oauth/register                               RFC 7591 (only while the admin has it on); 5 an hour per address
 //   GET  /oauth/authorize                              checked here, then the UI's consent page
 //   POST /oauth/token                                  code (PKCE) or refresh token
 //   POST /oauth/revoke                                 RFC 7009
@@ -81,7 +81,7 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
   // valid gets the page, which says so once the person signs in (or, asked
   // for JSON, as mcp-remote does to find a stale registration, a 400). Never
   // a redirect to the client with the error, as RFC 6749 §4.1.2.1 would
-  // have it: registration is open, so a registered redirect URI proves
+  // have it: registration, when on, is open to anyone, so a registered redirect URI proves
   // nothing, and that would make this server a redirector to anywhere
   // (RFC 9700 §4.11.2). A good one gets the page, which signs in if needed
   // and asks.

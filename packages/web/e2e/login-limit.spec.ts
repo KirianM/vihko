@@ -29,7 +29,7 @@ test.beforeAll(async ({ browser, request }) => {
 
 test.afterAll(async ({ browser }) => {
   const k = await signIn(browser, ADMIN)
-  await k.request.put('/api/admin/integrations', { data: { api: false, mcp: false } })
+  await k.request.put('/api/admin/integrations', { data: { api: false, mcp: false, oauthRegistration: false } })
   await k.context().close()
 })
 
