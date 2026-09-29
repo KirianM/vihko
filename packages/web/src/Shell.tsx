@@ -22,7 +22,7 @@ import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
 import { shiftedNotice } from './Shifts.tsx'
 import { OpenPaletteContext, Palette, SearchButton, type PaletteMode } from './Palette.tsx'
 import { rememberNote } from './recent.ts'
-import { WINDOWS } from './keys.ts'
+import { WINDOWS, modKTaken } from './keys.ts'
 import { useBackClose, useMobile, useVisualViewport } from './mobile.ts'
 import { PreferencesDialog, browserTimeZone } from './Preferences.tsx'
 import { FolderTree, ancestors, buildTree, type FolderInfoOf, type Node, type TreeAction } from './FolderTree.tsx'
@@ -191,14 +191,15 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     return () => window.removeEventListener(SESSION_ENDED_EVENT, ended)
   }, [onUnauthorized])
 
-  // ⌘K / Ctrl+K opens the palette from anywhere, including from the editor.
+  // ⌘K / Ctrl+K opens the palette from anywhere, including from the editor,
+  // except over text selected in a note the person can edit: there it's a link (keys.ts).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
         // Captured and not propagated: the editor never sees the key (on macOS, Ctrl+K deletes to end of line).
         e.preventDefault()
         e.stopPropagation()
-        setPalette('search')
+        if (!modKTaken(e)) setPalette('search')
       }
       // ⌘⌥D / Ctrl+Alt+D: today's note. By physical key too (Option changes e.key on a Mac, and so does
       // a non-Latin layout), except for Ctrl+Alt on Windows: that's AltGr, which types «đ» with D on some layouts.

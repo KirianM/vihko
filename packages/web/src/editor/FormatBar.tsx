@@ -11,14 +11,13 @@ import { Fragment, useEffect, useRef, type ReactNode } from 'react'
 import { Button, Menu, MenuItem, MenuTrigger, Popover, Separator, Toolbar, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { canEdit, type Level } from '../api.ts'
 import { useT } from '../i18n.tsx'
+import { MAC } from '../keys.ts'
 import { Icon } from '../ui.tsx'
 import { NOTHING_ACTIVE, SHORTCUTS, activeFormats, insertLink, insertTable, runFormat, toggleCodeBlock, toggleHeading, toggleInline, toggleList, toggleQuote, type Active } from './format.ts'
 import { tag, wikilink, type Edit } from './insert.ts'
 import { insertionRange } from './insertAt.ts'
 import { useViewState } from './viewUpdates.ts'
 import './format.css'
-
-const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform)
 
 /** `Mod-Alt-k` as shown: Ctrl+Alt+K, or ⌥⌘K on a Mac. */
 function keys(binding: string): string {
@@ -93,13 +92,13 @@ export function FormatBar({ view, level, onComment, onImage, mobile = false, end
   }
 
   const tip = mobile ? 'top' : 'bottom'
-  const tool = (id: string, label: string, icon: ReactNode, onPress: () => void, opts: { pressed?: boolean; shortcut?: string; className?: string } = {}) => {
+  const tool = (id: string, label: string, icon: ReactNode, onPress: () => void, opts: { pressed?: boolean; shortcut?: string; tip?: string; className?: string } = {}) => {
     const k = opts.shortcut ? keys(opts.shortcut) : null
     return (
       <TooltipTrigger key={id} delay={500} closeDelay={0}>
         <Button className={`fmt-btn${opts.className ? ` ${opts.className}` : ''}`} preventFocusOnPress aria-label={label}
           aria-pressed={opts.pressed} onPress={onPress}>{icon}</Button>
-        <Tooltip className="fmt-tip" placement={tip} offset={6}>{k ? t('format.withKeys', { label, keys: k }) : label}</Tooltip>
+        <Tooltip className="fmt-tip" placement={tip} offset={6}>{opts.tip ?? (k ? t('format.withKeys', { label, keys: k }) : label)}</Tooltip>
       </TooltipTrigger>
     )
   }
@@ -143,7 +142,9 @@ export function FormatBar({ view, level, onComment, onImage, mobile = false, end
       tool('code', t('format.code'), Icon.code, () => apply((s) => toggleInline(s, 'code')), { pressed: active.code, shortcut: SHORTCUTS.code }),
     ])
     groups.push([
-      tool('link', t('format.link'), Icon.link, () => apply(insertLink), { shortcut: SHORTCUTS.link }),
+      tool('link', t('format.link'), Icon.link, () => apply(insertLink), {
+        tip: t('format.linkWithKeys', { label: t('format.link'), selection: keys(SHORTCUTS.linkSelection), keys: keys(SHORTCUTS.link) }),
+      }),
       tool('wikilink', t('editor.insertLink'), '[[', () => insert(wikilink), { className: 'fmt-text' }),
       tool('tag', t('editor.insertTag'), '#', () => insert(tag), { className: 'fmt-text fmt-hash' }),
     ])

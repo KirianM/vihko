@@ -75,7 +75,7 @@ test('on a computer the bar sits above the editor, every button named, with its 
   await tool(k, 'Código en línea').hover()
   await expect(k.getByRole('tooltip')).toHaveText('Código en línea (Ctrl+E)')
   await tool(k, 'Insertar enlace').hover()
-  await expect(k.getByRole('tooltip')).toHaveText('Insertar enlace (Ctrl+Alt+K)')
+  await expect(k.getByRole('tooltip')).toHaveText('Insertar enlace (Ctrl+K con texto seleccionado, o Ctrl+Alt+K)')
   // It stays while the note scrolls.
   await k.mouse.move(editor.x + 10, editor.y + 10)
   await k.mouse.wheel(0, 400)
@@ -145,6 +145,26 @@ test('shortcuts: Ctrl+B, Ctrl+I, Ctrl+Shift+S, Ctrl+E and Ctrl+Alt+K; Ctrl+K wit
   await k.keyboard.press('Control+k')
   await expect(k.getByRole('textbox', { name: 'Buscar' })).toBeVisible()
   await k.keyboard.press('Escape')
+})
+
+test('Ctrl+K over a selection makes it a link, as the button does, and the palette stays closed', async () => {
+  const words = line()
+  const n = note(DIR, `${text(words)}\n`)
+  await open(k, n.path)
+  const [a, b, c] = words
+  await selectLastWord(k, words)
+  await k.keyboard.press('Control+k')
+  const url = `https://${m.aHost()}/${m.aWord()}`
+  await k.keyboard.type(url)
+  await expect.poll(n.body).toBe(`${a} ${b} [${c}](${url})\n`)
+  await expect(k.getByRole('textbox', { name: 'Buscar' })).toHaveCount(0)
+  await expect(k.locator('.cm-content')).toBeFocused()
+  // With the cursor alone, in the same editor: the palette.
+  await k.locator('.cm-line', { hasText: a }).click({ position: { x: 2, y: 5 } })
+  await k.keyboard.press('Control+k')
+  await expect(k.getByRole('textbox', { name: 'Buscar' })).toBeVisible()
+  await k.keyboard.press('Escape')
+  await expect.poll(n.body).toBe(`${a} ${b} [${c}](${url})\n`)
 })
 
 test('on Windows, a character typed with AltGr (Ctrl+Alt there) is not taken for Ctrl+Alt+K or Ctrl+Alt+D', async ({ browser }: { browser: Browser }) => {
@@ -298,8 +318,18 @@ test('one undo step per press: Ctrl+Z takes off the format, not what was typed j
   await expect.poll(n.body).toBe(`- ${text(words)} ${typed}\n`)
 })
 
-test('below edit, nothing that writes: no bar when reading, only «Comentar» with comment', async ({ browser }: { browser: Browser }) => {
-  const n = note(RO_DIR, `${m.aSentence()}\n`)
+test('below edit, nothing that writes: no bar when reading, only «Comentar» with comment; Ctrl+K over a selection is the palette', async ({ browser }: { browser: Browser }) => {
+  const words = line()
+  const n = note(RO_DIR, `${text(words)}\n`)
+  /** A word selected and Ctrl+K: the palette opens, and the note stays as it was. */
+  const modK = async (p: Page) => {
+    await selectLastWord(p, words)
+    await p.keyboard.press('Control+k')
+    await expect(p.getByRole('textbox', { name: 'Buscar' })).toBeVisible()
+    await p.keyboard.press('Escape')
+    await expect(p.getByRole('textbox', { name: 'Buscar' })).toHaveCount(0)
+    expect(n.body()).toBe(`${text(words)}\n`)
+  }
   const level = async (p: Page) => ((await (await p.request.get(`/api/note?path=${q(n.path)}`)).json()) as { level?: string }).level
   await usePermissions({ rules: { [RO_DIR]: { [MEMBER.username]: 'read' } } })
   const a = await signIn(browser, MEMBER)
@@ -308,11 +338,13 @@ test('below edit, nothing that writes: no bar when reading, only «Comentar» wi
     await open(a, n.path)
     await expect(a.locator('.status-readonly')).toHaveText('Solo lectura')
     await expect(bar(a)).toHaveCount(0)
+    await modK(a)
     await usePermissions({ rules: { [RO_DIR]: { [MEMBER.username]: 'comment' } } })
     await expect.poll(() => level(a)).toBe('comment')
     await expect(a.locator('.status-readonly')).toHaveText('Solo comentarios', { timeout: 15_000 })
     await expect(bar(a).getByRole('button')).toHaveCount(1)
     await expect(tool(a, 'Comentar')).toBeVisible()
+    await modK(a)
   } finally {
     await a.context().close()
     await usePermissions()

@@ -7,7 +7,7 @@ import { searchKeymap } from '@codemirror/search'
 import { EditorState, type TransactionSpec } from '@codemirror/state'
 import { vihkoSyntax } from '@vihko/core/syntax'
 import { yUndoManagerKeymap } from 'y-codemirror.next'
-import { SHORTCUTS, activeFormats, insertLink, insertTable, toggleCodeBlock, toggleHeading, toggleInline, toggleList, toggleQuote } from '../src/editor/format.ts'
+import { SHORTCUTS, activeFormats, insertLink, insertTable, modKMakesLink, toggleCodeBlock, toggleHeading, toggleInline, toggleList, toggleQuote } from '../src/editor/format.ts'
 import { mother } from '../../../test/mother.ts'
 
 // The Markdown each action writes is the case under test, so it is written out
@@ -133,6 +133,14 @@ test('link: the selection is its text and the cursor goes where the URL goes', (
   // Never inside a wikilink: after it.
   assert.equal(run(`[[${a.slice(0, 2)}‸${a.slice(2)}]] ${b}`, insertLink), `[[${a}]][‸]() ${b}`)
   assert.equal(run(`\`\`\`\n${a}‸\n\`\`\``, insertLink), null)
+})
+
+test('Ctrl+K is the link over a selection in a note the person can write, the palette otherwise', () => {
+  const [a, b] = [w(), w()]
+  assert.equal(modKMakesLink(state(`${a} «${b}»`)), true)
+  assert.equal(modKMakesLink(state(`${a} ${b.slice(0, 2)}‸${b.slice(2)}`)), false)
+  const readOnly = EditorState.create({ doc: `${a} ${b}`, selection: { anchor: 0, head: a.length }, extensions: [language, EditorState.readOnly.of(true)] })
+  assert.equal(modKMakesLink(readOnly), false)
 })
 
 /** A binding as CodeMirror matches it on a Mac or elsewhere: Mod as Cmd or Ctrl, the modifiers in one order. */
