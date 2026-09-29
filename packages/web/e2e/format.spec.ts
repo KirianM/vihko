@@ -132,6 +132,40 @@ test('shortcuts: Ctrl+B, Ctrl+I and Ctrl+Alt+K; Ctrl+K is still the palette', as
   await k.keyboard.press('Escape')
 })
 
+test('on Windows, a character typed with AltGr (Ctrl+Alt there) is not taken for Ctrl+Alt+K or Ctrl+Alt+D', async ({ browser }: { browser: Browser }) => {
+  const words = line()
+  const n = note(DIR, `${text(words)}\n`)
+  const [a, b, c] = words
+  // Today's note on, so that Ctrl+Alt+D has something to take.
+  await usePermissions({ config: `daily:\n  ${m.anId()}:\n    label: ${JSON.stringify(m.aHeading())}\n    folder: ${JSON.stringify(m.aFolder())}\n` })
+  const ctx = await browser.newContext({ storageState: await k.context().storageState() })
+  // Windows, as CodeMirror and vihko read it when they load.
+  await ctx.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'Win32' }))
+  const p = await ctx.newPage()
+  try {
+    await open(p, n.path)
+    await expect(p.locator('nav.sidebar').getByRole('button', { name: 'Nota de hoy' })).toBeVisible()
+    await selectLastWord(p, words)
+    /** A key pressed with AltGr as Windows reports it (Ctrl and Alt down, `key` what it types): whether something took it. */
+    const altGr = (key: string, code: string) => p.locator('.cm-content').evaluate((el, [key, code]) => {
+      const e = new KeyboardEvent('keydown', { key, code, ctrlKey: true, altKey: true, bubbles: true, cancelable: true })
+      el.dispatchEvent(e)
+      return e.defaultPrevented
+    }, [key, code] as const)
+    // AltGr+K and AltGr+D type «ł» and «đ» on some layouts (Czech, Hungarian…): nothing takes them, so they're typed.
+    expect(await altGr('ł', 'KeyK')).toBe(false)
+    expect(await altGr('đ', 'KeyD')).toBe(false)
+    await expect(p.locator('.crumbs b')).toHaveText(n.path.slice(DIR.length + 1, -3))
+    expect(n.body()).toBe(`${text(words)}\n`)
+    // Where that key types no other character, it's the shortcut.
+    expect(await altGr('k', 'KeyK')).toBe(true)
+    await expect.poll(n.body).toBe(`${a} ${b} [${c}]()\n`)
+  } finally {
+    await ctx.close()
+    await usePermissions()
+  }
+})
+
 test('headings from the text style menu: the level shows on its button, the heading in the editor', async () => {
   const words = line()
   const n = note(DIR, `${m.aSentence()}\n\n${text(words)}\n`)
