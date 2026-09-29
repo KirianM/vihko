@@ -7,6 +7,46 @@ Every release of vihko, newest first. The format follows
 that asks you to do something by hand or breaks an integration. Read a
 version's **Upgrade notes** before installing it.
 
+## [1.0.1-rc.2] - 2026-09-29
+
+The second candidate of 1.0.1: connecting claude.ai to a real installation
+turned up two faults, and the page of what 1.x keeps stable now promises
+effects rather than details, so what's planned for 1.x fits in it.
+
+### Fixed
+
+- **claude.ai couldn't connect to `/mcp`.** Its connector sends
+  `Origin: https://claude.ai`, and `/mcp` refused any other site's origin
+  with `403` before the `401` that tells a client how to sign in. Now a
+  request without credentials always gets that `401`; with an OAuth token,
+  the origin of the app's own return address is accepted too; with a key,
+  only vihko's own, as before.
+- **claude.ai's published identity (its client metadata document) was
+  refused**, because it lists a grant type vihko doesn't use. Grant types
+  besides the code flow are now ignored, for registered apps too.
+- The guides and the Agents page said claude.ai needs «OAuth apps can
+  register themselves»; it doesn't, only apps such as `mcp-remote` do.
+
+### Changed
+
+- `guide/compatibility.md` promises what matters and not the details that
+  would tie 1.x down: a security fix may change something; lists of values may
+  gain values; new limits may come (request rates included, with `429`); a
+  default may change to close something, never to open it; MCP is promised
+  over `POST`, with the protocol versions the specification sets; search
+  ranking and snippets, key format after `vihko_`, new image names and
+  timings aren't covered; rewritten links keep pointing at their note;
+  `VIHKO_INTEGRATIONS=off` also turns off integrations that come later.
+- The trash never empties on its own by default; a later release may add an
+  optional retention.
+
+### Upgrade notes
+
+- Test it with `ghcr.io/kirianm/vihko:1.0.1-rc.2`.
+- To connect claude.ai, add the connector with your public address followed by
+  `/mcp` and keep Claude's published identity; «OAuth apps can register
+  themselves» can stay off.
+
 ## [1.0.1-rc.1] - 2026-09-29
 
 A correction of 1.0.0, published the same day. Taking the inventory of what
@@ -283,6 +323,7 @@ published under its exact image tag, `ghcr.io/kirianm/vihko:1.0.0-rc.1`.
   development builds before this candidate (under the project's earlier
   working name) aren't migrated: start them again from empty state.
 
+[1.0.1-rc.2]: https://github.com/KirianM/vihko/releases/tag/v1.0.1-rc.2
 [1.0.1-rc.1]: https://github.com/KirianM/vihko/releases/tag/v1.0.1-rc.1
 [1.0.0]: https://github.com/KirianM/vihko/releases/tag/v1.0.0
 [1.0.0-rc.4]: https://github.com/KirianM/vihko/releases/tag/v1.0.0-rc.4
