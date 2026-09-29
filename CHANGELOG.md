@@ -7,6 +7,46 @@ Every release of vihko, newest first. The format follows
 that asks you to do something by hand or breaks an integration. Read a
 version's **Upgrade notes** before installing it.
 
+## [1.0.0] - 2026-09-29
+
+The first stable release: a self-hosted notes system over plain Markdown
+files, with its own web UI, several users and live collaboration. Your notes
+stay a folder of `.md` files; the index, the history and the application state
+live apart and never replace them.
+
+![vihko on a computer, half in the light theme and half in the dark one](https://raw.githubusercontent.com/KirianM/vihko/v1.0.0/.github/assets/screenshots/desktop.png)
+
+What 1.0 brings, from the release candidates below:
+
+- **Notes**: a live-preview editor for computer and phone with a formatting
+  toolbar, wikilinks and Markdown links that follow renames and moves,
+  backlinks, tags, tasks, tables, images, comments inside the note, search,
+  templates and daily notes. Changes made by other editors or sync tools on
+  the same folder are picked up while vihko runs.
+- **Collaboration and people**: several people in the same note at once, with
+  presence; users and groups, per-folder permissions (read, comment, edit,
+  manage), personal folders, sign-up links and a second factor.
+- **History**: every note's versions, diffs and restore, recent changes for
+  the workspace, and purging what shouldn't have stayed.
+- **Agents, optional and off by default**: an HTTP API with keys and an MCP
+  server (with OAuth for remote clients), which only see and write what the
+  person they act for can.
+- **Operations**: one Docker image for amd64 and arm64, a hardened
+  `compose.yaml`, automatic migrations with a backup, and guides for
+  installing, backing up, upgrading and running it behind a reverse proxy.
+
+### Changed
+
+- `compose.yaml` pulls `ghcr.io/kirianm/vihko:1`: every 1.x release, never an
+  incompatible version.
+- The README shows the product, on a computer and on a phone.
+
+### Upgrade notes
+
+- From a release candidate: change the image line of your `compose.yaml` to
+  `ghcr.io/kirianm/vihko:1` (or take the new file); nothing else changes since
+  1.0.0-rc.4.
+
 ## [1.0.0-rc.4] - 2026-09-29
 
 The fourth release candidate: what the third one's installation turned up.
