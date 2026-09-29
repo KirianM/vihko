@@ -18,7 +18,9 @@ hand, or that breaks something built on vihko, in any of these:
 
 Within a major version, updates only add or fix things. When something in that
 list has to change, the old form keeps working, with a deprecation warning,
-until the next major version.
+until the next major version. [What 1.x keeps stable](compatibility.md) lists
+that surface item by item: every API route and MCP tool, every `vihko.yaml`
+key, the environment variables, and what vihko writes into notes.
 
 Two things are outside the promise:
 

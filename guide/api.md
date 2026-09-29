@@ -8,7 +8,8 @@ The API is part of vihko's compatibility promise, like `vihko.yaml` and the MCP
 tools: a change that breaks a client that follows this guide only comes with a
 new major version, and anything removed stays available, marked deprecated,
 until then. The paths have no version prefix. Fields may be added to responses
-at any time: ignore those you don't know.
+at any time: ignore those you don't know. [What 1.x keeps stable](compatibility.md#the-http-api)
+lists every route with the fields that stay.
 
 For AI assistants, the MCP server is usually a better fit: see
 [Agents and integrations](agents.md).
