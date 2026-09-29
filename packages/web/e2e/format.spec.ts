@@ -305,8 +305,16 @@ test('on a phone: at the bottom, in one row that scrolls sideways, and the keybo
       expect(box.width).toBe(390)
       const row = p.locator('.fmt-scroll')
       expect(await row.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
-      await expect(bar(p).getByText('Guardado en disco')).toBeVisible()
+      // Saved: the icon alone (the text for screen readers and as its tooltip), so the buttons get the room.
+      const status = bar(p).locator('.status', { hasText: 'Guardado en disco' })
+      await expect(status).toHaveAttribute('title', 'Guardado en disco')
+      expect((await status.locator('.status-label').boundingBox())!.width).toBeLessThanOrEqual(1)
+      expect((await status.boundingBox())!.width).toBeLessThanOrEqual(44)
       await expect(p.getByRole('toolbar')).toHaveCount(1)
+      // Only the edge with more buttons beyond it fades.
+      await expect(row).toHaveAttribute('data-more-end', '')
+      await expect(row).not.toHaveAttribute('data-more-start')
+      await p.screenshot({ path: `${SHOTS}/format-mobile-start-${scheme}.png`, animations: 'disabled' })
       if (scheme === 'light') {
         await p.locator('.cm-line', { hasText: words[2] }).tap()
         // Inside the last word: from the end of the note (the line may wrap on a phone, and End stops where it does).
@@ -321,10 +329,45 @@ test('on a phone: at the bottom, in one row that scrolls sideways, and the keybo
         expect(await row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
         await expect(p.locator('.cm-content')).toBeFocused()
       }
+      // Scrolled part of the way both edges fade; at the end, only the start.
+      await row.evaluate((el) => { el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2 })
+      await expect(row).toHaveAttribute('data-more-start', '')
+      await expect(row).toHaveAttribute('data-more-end', '')
+      await p.screenshot({ path: `${SHOTS}/format-mobile-middle-${scheme}.png`, animations: 'disabled' })
+      await row.evaluate((el) => { el.scrollLeft = el.scrollWidth })
+      await expect(row).not.toHaveAttribute('data-more-end')
+      await expect(row).toHaveAttribute('data-more-start', '')
       expect(await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
       await p.screenshot({ path: `${SHOTS}/format-mobile-${scheme}.png`, animations: 'disabled' })
     } finally {
       await ctx.close()
     }
+  }
+})
+
+test('on a phone, a save state that needs attention keeps its text in the bar', async ({ browser }: { browser: Browser }) => {
+  const n = note(DIR, `${text(line())}\n`)
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: 'es-ES', storageState: await k.context().storageState() })
+  const p = await ctx.newPage()
+  // The connection to the note drops: as generation.spec does, by closing /collab.
+  let offline = false
+  const live: { close(): void }[] = []
+  await p.routeWebSocket(/\/collab$/, (ws) => {
+    if (offline) return void ws.close()
+    live.push(ws, ws.connectToServer())
+  })
+  try {
+    await open(p, n.path)
+    await expect(bar(p).locator('.status-calm')).toHaveCount(1)
+    offline = true
+    for (const c of live.splice(0)) c.close()
+    const status = bar(p).locator('.status', { hasText: 'Sin conexión' })
+    await expect(status).toBeVisible()
+    await expect(status).not.toHaveClass(/status-calm/)
+    expect((await status.locator('.status-label').boundingBox())!.width).toBeGreaterThan(100)
+    expect(await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+    await p.screenshot({ path: `${SHOTS}/format-mobile-offline-light.png`, animations: 'disabled' })
+  } finally {
+    await ctx.close()
   }
 })

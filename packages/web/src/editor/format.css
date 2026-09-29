@@ -34,8 +34,10 @@
 .fmt-style-3 { font-size: 16px; line-height: 24px; }
 
 /* On a phone: at the bottom, over the keyboard; the buttons scroll sideways, the arrows and the save state stay. */
-/* Its right edge fades (a mask: only its opacity counts), so the row reads as one that goes on; the padding lets the last button out of the fade. */
-.editor-bar .fmt-scroll { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; padding-right: var(--space-6); overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; mask-image: linear-gradient(to right, var(--ink) calc(100% - var(--space-6)), transparent); }
+/* An edge with more buttons beyond it fades (FormatBar.tsx sets which), so the row reads as one that goes on. A mask: only its opacity counts. */
+.editor-bar .fmt-scroll { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; --fade-start: var(--ink); --fade-end: var(--ink); mask-image: linear-gradient(to right, var(--fade-start), var(--ink) var(--space-12), var(--ink) calc(100% - var(--space-12)), var(--fade-end)); }
+.editor-bar .fmt-scroll[data-more-start] { --fade-start: transparent; }
+.editor-bar .fmt-scroll[data-more-end] { --fade-end: transparent; }
 .editor-bar .fmt-scroll::-webkit-scrollbar { display: none; }
 .editor-bar .fmt-btn { width: var(--touch); height: var(--touch); border-radius: var(--radius-md); }
 .editor-bar .fmt-heading { width: auto; padding: 0 var(--space-2); }

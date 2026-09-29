@@ -7,7 +7,7 @@
 import { startCompletion } from '@codemirror/autocomplete'
 import type { EditorState, TransactionSpec } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
-import { Fragment, useEffect, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, type ReactNode } from 'react'
 import { Button, Menu, MenuItem, MenuTrigger, Popover, Separator, Toolbar, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { canEdit, type Level } from '../api.ts'
 import { useT } from '../i18n.tsx'
@@ -53,7 +53,30 @@ export function FormatBar({ view, level, onComment, onImage, mobile = false, end
     return () => vv.removeEventListener('resize', on)
   }, [view, mobile])
 
-  const apply = (make: (s: EditorState) => TransactionSpec | null) => {
+  // On a phone, the edges of the row with more buttons beyond them fade (format.css).
+  const row = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = row.current
+    if (!el) return
+    const mark = () => {
+      el.toggleAttribute('data-more-start', el.scrollLeft > 1)
+      el.toggleAttribute('data-more-end', el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
+    }
+    mark()
+    el.addEventListener('scroll', mark, { passive: true })
+    // Its width changes with the save state beside it; its content with the person's level.
+    const resize = new ResizeObserver(mark)
+    resize.observe(el)
+    const content = new MutationObserver(mark)
+    content.observe(el, { childList: true, subtree: true })
+    return () => {
+      el.removeEventListener('scroll', mark)
+      resize.disconnect()
+      content.disconnect()
+    }
+  }, [mobile])
+
+  const apply =(make: (s: EditorState) => TransactionSpec | null) => {
     if (!view) return
     runFormat(view, make(view.state))
     view.focus()
@@ -148,7 +171,7 @@ export function FormatBar({ view, level, onComment, onImage, mobile = false, end
   ))
   return (
     <Toolbar className={mobile ? 'editor-bar' : 'format-bar'} aria-label={t('editor.bar')}>
-      {mobile ? <div className="fmt-scroll">{tools}</div> : tools}
+      {mobile ? <div className="fmt-scroll" ref={row}>{tools}</div> : tools}
       {end}
     </Toolbar>
   )

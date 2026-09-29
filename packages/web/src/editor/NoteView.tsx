@@ -2,7 +2,7 @@
 // actions), the banner for a note deleted outside vihko, the editor (or one
 // of its versions, from the history) and the side panel.
 import type { EditorView } from '@codemirror/view'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, Dialog, DialogTrigger, Popover, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { ApiError, api, canEdit, type CommentOriginal, type Level, type MoveJob, type MoveReport, type ServerConfig, type User } from '../api.ts'
 import { INSERT_IMAGE } from '../commands.ts'
@@ -30,13 +30,23 @@ import { HistoryTab } from '../history/HistoryTab.tsx'
 import { RevertToast, useVersions } from '../history/ui.tsx'
 import { VersionView } from '../history/VersionView.tsx'
 
-function SaveStatus({ c }: { c: CollabState }) {
+/**
+ * The save state. `compact` (the phone's bar): while all is well (saved,
+ * saving) only its icon, with the text for screen readers and as a tooltip,
+ * so the formatting buttons get the room; what needs the person's attention
+ * keeps its text.
+ */
+function SaveStatus({ c, compact = false }: { c: CollabState; compact?: boolean }) {
   const t = useT()
   if (c.orphaned) return <span className="status status-warn">{Icon.alert}<span className="status-label">{t('editor.orphanStatus')}</span></span>
   if (c.connection === 'offline') return <span className="status status-warn">{Icon.alert}<span className="status-label">{t('editor.offline')}</span></span>
   if (c.connection === 'connecting') return <span className="status"><span className="status-label">{t('editor.connecting')}</span></span>
-  if (c.save === 'saving') return <span className="status"><span className="status-label">{t('editor.saving')}</span></span>
-  return <span className="status status-ok">{Icon.check}<span className="status-label">{t('editor.saved')}</span></span>
+  const calm = (cls: string, icon: ReactNode, text: string) => (
+    <span className={`status ${cls}${compact ? ' status-calm' : ''}`} title={compact ? text : undefined}>{icon}<span className="status-label">{text}</span></span>
+  )
+  // Saving has had no icon where its text shows; alone, it needs one.
+  if (c.save === 'saving') return calm('status-saving', compact ? Icon.saving : null, t('editor.saving'))
+  return calm('status-ok', Icon.check, t('editor.saved'))
 }
 
 /** Who is in the note: people as circles with their initial, agents as a pill with the diamond and who they act for. */
@@ -249,7 +259,7 @@ function BarEnd({ c, level, daily, onNavigate }: { c: CollabState; level: Level;
   return (
     <>
       {daily && <DailyNav daily={daily} onNavigate={onNavigate} bar />}
-      <span className={daily ? 'status-compact' : undefined}>{canEdit(level) ? <SaveStatus c={c} /> : <ReadOnlyBadge level={level} />}</span>
+      {canEdit(level) ? <SaveStatus c={c} compact /> : <span className={daily ? 'status-compact' : undefined}><ReadOnlyBadge level={level} /></span>}
     </>
   )
 }

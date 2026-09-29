@@ -117,7 +117,10 @@ test('edit with the keyboard and the editor bar ([[, #, bulleted list); the save
   await expect.poll(() => readFileSync(FILE, 'utf8')).toContain(`- ${FIRST} ${word} [[Plan]] #${tag}`)
   // The bar's buttons don't take the focus: the keyboard would close.
   await expect(page.locator('.cm-content')).toBeFocused()
-  await expect(bar.getByText('Guardado en disco')).toBeVisible()
+  // Saved: its icon only, the text for screen readers and as its tooltip.
+  const saved = bar.locator('.status', { hasText: 'Guardado en disco' })
+  await expect(saved).toHaveAttribute('title', 'Guardado en disco')
+  expect((await saved.locator('.status-label').boundingBox())!.width).toBeLessThanOrEqual(1)
   const barBox = await bar.boundingBox()
   expect(barBox!.y + barBox!.height).toBeLessThanOrEqual(844)
   await page.screenshot({ path: `${SHOTS}/mobile-note-light.png`, animations: 'disabled' })
