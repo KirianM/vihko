@@ -381,6 +381,10 @@ These can change in any release, and are never a reason for a major version:
 - **Routes a key can't call.** They're the UI's: folders, the trash,
   comments, alerts, users, groups, keys, settings, sessions. Only
   `/api/health` and `/api/setup` are covered among them.
+- **The UI's own fields on the routes open to keys**: `freshUid` on
+  `POST /api/note`, and `background` on `POST /api/note/move` (a key's move
+  always answers with its report). They aren't in the [API guide](api.md) and
+  can change or go.
 - **The databases**: the tables of `state.db` and `index.db`. vihko migrates
   `state.db` on its own; `index.db` is rebuilt from the notes.
 - **The files in the state volume**, their names and their layout: the

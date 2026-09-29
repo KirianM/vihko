@@ -88,7 +88,8 @@ What the `uid` buys you:
 - a note renamed or moved **outside** vihko is still recognised as the same
   note, with its history;
 - an open note that another tool renames follows its file;
-- the API and MCP accept a `uid` wherever they take a path.
+- an agent can read a note by its `uid` (MCP `get_note`), whatever its path
+  is now. Every other tool, and the HTTP API, take the path.
 
 Don't copy a `uid` into another note. If two notes share one (a file
 duplicated by hand), admins get an alert naming both: change or delete the

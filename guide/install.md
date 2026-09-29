@@ -360,8 +360,8 @@ All optional. Set them under `environment:` in `compose.yaml`:
 ```
 
 vihko checks them when it starts: a value it can't use stops it, with a
-message in the log that names the variable. (`VIHKO_RESCAN_SECONDS`,
-`VIHKO_HOST` and `VIHKO_PORT` aren't checked yet: give them sensible values.)
+message in the log that names the variable. (`VIHKO_HOST` isn't checked yet:
+give it a sensible value.)
 
 | Variable | Default | What it does |
 |---|---|---|
