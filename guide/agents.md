@@ -230,8 +230,9 @@ page on another site) is refused with `403`: a web page can't use your key
 through your browser. An OAuth access token is also accepted from its app's own
 site, the origin of an address the app goes back to (claude.ai's requests say
 `Origin: https://claude.ai`), and refused from any other. A request without a
-key or token always gets the `401` that tells a client how to sign in,
-whatever its `Origin`.
+valid key or token (none, an empty `Bearer`, or one that is unknown, expired
+or revoked) always gets the `401` that tells a client how to sign in, whatever
+its `Origin`: the `Origin` only counts once the credential is valid.
 
 ## The tools
 

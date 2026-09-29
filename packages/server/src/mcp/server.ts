@@ -154,10 +154,13 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
     // No credential: the challenge, whatever the Origin. It reveals nothing,
     // and it is how a remote client (claude.ai sends `Origin: https://claude.ai`)
     // finds out where to get a token.
-    const token = bearerToken(c.req.header('authorization'))
+    // An empty `Bearer` is no credential: claude.ai sends one before it has a token.
+    const token = bearerToken(c.req.header('authorization')) || null
     if (token === null) return fail(c, 401, 'unauthorized', 'an agent key (Authorization: Bearer vihko_…) or an OAuth token is needed', { 'WWW-Authenticate': challenge() })
-    // The Origin is checked for every credential (DNS rebinding; the MCP
-    // transport asks for it). Only bearer credentials open /mcp, never the
+    // The Origin is checked once a credential is valid (DNS rebinding; the MCP
+    // transport asks for it): one that isn't gets the 401 and its challenge,
+    // whatever the Origin, so a client holding a stale token still finds out
+    // how to get a new one. Only bearer credentials open /mcp, never the
     // cookie, so a page on another site has nothing of the person's to ride on.
     const origin = c.req.header('origin')
     const foreignOrigin = origin && !ownOrigin(origin, c.req.url) ? origin : undefined
@@ -169,9 +172,9 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
       if (r === 'origin') return foreign(c)
       principal = r
     } else {
-      if (foreignOrigin !== undefined) return foreign(c)
       const r = authenticateKey({ keys: services.keys, integrations: services.integrations }, token, 'mcp')
       if (!r.ok && r.status === 404) return fail(c, 404, 'not_found', 'does not exist')
+      if (r.ok && foreignOrigin !== undefined) return foreign(c)
       principal = r.ok ? r.principal : null
     }
     if (!principal) return fail(c, 401, 'unauthorized', 'invalid key or token', { 'WWW-Authenticate': challenge('invalid_token') })

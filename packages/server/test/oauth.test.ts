@@ -623,10 +623,18 @@ test('an Origin at /mcp: no credential always gets the challenge; a key only fro
     assert.equal((await form(h, '/oauth/revoke', { token: refreshed.body.refresh_token, client_id: claude }, fromClaude)).status, 200)
     assert.equal((await mcpPost(h, access, fromClaude)).status, 401)
 
-    // A key: only from vihko's own origin, or with no Origin. The Origin is judged before the key.
+    // A key: only from vihko's own origin, or with no Origin.
     const { token: key } = await h.newKey({ name: m.aKeyName() })
     for (const origin of [CLAUDE_ORIGIN, ATTACKER]) assert.equal((await mcpPost(h, key, { origin })).status, 403, origin)
-    assert.equal((await mcpPost(h, `vihko_${m.aSecret()}`, fromClaude)).status, 403)
+    // A credential that isn't valid, an empty `Bearer` included (claude.ai sends one before it has a token),
+    // gets the 401 and its challenge from any Origin: the Origin is judged only once a credential is valid.
+    for (const bad of ['', m.aSecret(), `vihko_${m.aSecret()}`]) {
+      for (const origin of [CLAUDE_ORIGIN, ATTACKER]) {
+        const r = await mcpPost(h, bad, { origin })
+        assert.equal(r.status, 401, `${JSON.stringify(bad)} from ${origin}: ${r.text}`)
+        assert.match(r.headers.get('www-authenticate') ?? '', /resource_metadata="/)
+      }
+    }
     for (const headers of [{ origin: PUBLIC }, {}] as Record<string, string>[]) assert.equal((await mcpPost(h, key, headers)).status, 200, JSON.stringify(headers))
   } finally { await h.close() }
 })
