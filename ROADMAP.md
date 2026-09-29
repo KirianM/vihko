@@ -206,6 +206,10 @@ From the review after comparing M4 with other systems.
 - [x] Installation and operations documentation (volumes, backups including
       the history in the state volume, NFS).
 - [x] Security review.
+- [x] From the release candidates: a formatting toolbar for people who don't
+      write Markdown (above the note on a computer, over the keyboard on a
+      phone); integration switches closed by default; the admin's purge in
+      «Recent changes».
 - [ ] Public repository.
 
 **Done when:** a third party installs and uses it following only the
@@ -241,6 +245,8 @@ related projects.
 - Request access to a note (with the event log of M6).
 - Syntax highlighting in code blocks, per language, each loaded only when a
   note needs it.
+- Purge from the history everything no longer in the folder, listing what is
+  lost before confirming.
 
 ## Why this order
 
