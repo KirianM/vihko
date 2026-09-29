@@ -178,7 +178,7 @@ what stays.
 | Credential | `Authorization: Bearer` with a key, or an OAuth access token (see [OAuth](#oauth)) |
 | The MCP switch off | `404`, whatever the request |
 | No credential, or a wrong one | `401`, with a `WWW-Authenticate: Bearer` challenge (naming the resource metadata while OAuth exists) |
-| An `Origin` that isn't vihko's own | `403` with a key; with an OAuth access token, accepted from the origin of one of its app's redirect URIs and `403` from any other; without a credential, the `401` above |
+| An `Origin` that isn't vihko's own | `403` with a key; with an OAuth access token, accepted from the origin of one of its app's redirect URIs and `403` from any other; without a valid credential (none, empty, unknown, expired or revoked), the `401` above |
 | Request size | Up to 4 MiB, a limit of vihko's own (`413` beyond it): an image of about 3 MB for `attach_image`, whatever `VIHKO_MAX_IMAGE_MB` says |
 
 ### Conventions

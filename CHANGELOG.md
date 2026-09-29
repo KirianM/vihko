@@ -7,6 +7,21 @@ Every release of vihko, newest first. The format follows
 that asks you to do something by hand or breaks an integration. Read a
 version's **Upgrade notes** before installing it.
 
+## [1.0.1-rc.3] - 2026-09-29
+
+### Fixed
+
+- **claude.ai still got `403` at `/mcp`.** Its first request already carries
+  an `Authorization: Bearer` header, empty or with a token that no longer
+  holds, and the `Origin` was judged before such a credential. Now a
+  credential that isn't valid (none, empty, unknown, expired or revoked) always
+  gets the `401` that tells a client how to sign in, whatever the `Origin`;
+  the `Origin` only counts once the credential is valid.
+
+### Upgrade notes
+
+- Test it with `ghcr.io/kirianm/vihko:1.0.1-rc.3`.
+
 ## [1.0.1-rc.2] - 2026-09-29
 
 The second candidate of 1.0.1: connecting claude.ai to a real installation
@@ -323,6 +338,7 @@ published under its exact image tag, `ghcr.io/kirianm/vihko:1.0.0-rc.1`.
   development builds before this candidate (under the project's earlier
   working name) aren't migrated: start them again from empty state.
 
+[1.0.1-rc.3]: https://github.com/KirianM/vihko/releases/tag/v1.0.1-rc.3
 [1.0.1-rc.2]: https://github.com/KirianM/vihko/releases/tag/v1.0.1-rc.2
 [1.0.1-rc.1]: https://github.com/KirianM/vihko/releases/tag/v1.0.1-rc.1
 [1.0.0]: https://github.com/KirianM/vihko/releases/tag/v1.0.0
