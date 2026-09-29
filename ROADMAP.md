@@ -210,7 +210,7 @@ From the review after comparing M4 with other systems.
       write Markdown (above the note on a computer, over the keyboard on a
       phone); integration switches closed by default; the admin's purge in
       «Recent changes».
-- [ ] Public repository.
+- [x] Public repository.
 
 **Done when:** a third party installs and uses it following only the
 documentation.

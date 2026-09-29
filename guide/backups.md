@@ -152,7 +152,7 @@ docker run -d --name vihko-restore-test -p 127.0.0.1:8099:8080 \
 
 - `image`: the same image and tag as your `compose.yaml` uses, which
   `docker compose config --images vihko` prints (such as
-  `ghcr.io/kirianm/vihko:1.0.0-rc.4`). A newer version works too; an older one
+  `ghcr.io/kirianm/vihko:1`). A newer version works too; an older one
   refuses a `state.db` that a newer one migrated.
 - `--user`: the owner of the restored state folder, which is the user vihko
   ran as, `VIHKO_UID:VIHKO_GID` in your `.env`.
