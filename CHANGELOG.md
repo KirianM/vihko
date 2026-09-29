@@ -7,6 +7,58 @@ Every release of vihko, newest first. The format follows
 that asks you to do something by hand or breaks an integration. Read a
 version's **Upgrade notes** before installing it.
 
+## [1.0.1] - 2026-09-29
+
+**Use 1.0.1 instead of 1.0.0.** It corrects 1.0.0, published the same day,
+once: taking the inventory of what 1.x promises (`guide/compatibility.md`,
+new) showed a few things 1.0.0 got wrong, and connecting claude.ai to a real
+installation showed it couldn't. The release candidates below have the detail.
+
+### Added
+
+- `guide/compatibility.md`: everything 1.x keeps stable, taken from the code
+  (the HTTP API route by route, the MCP tools, `vihko.yaml`, environment
+  variables, the Docker image, the command line, what vihko writes into
+  notes, OAuth), what isn't covered, and the rules: a security fix may change
+  something; lists of values may gain values; limits may change, announced; a
+  default may change to close something, never to open it.
+- The command line is part of the promise: commands, options and exit status.
+- Before publishing, a release starts the previous stable version with data
+  and starts the new one on top (`npm run upgrade-smoke`).
+
+### Changed
+
+- **HTTP API: the fields that came in `snake_case` are `camelCase`**
+  (`meta.fmError`; a link's `dstPath`, `anchorOk`, `posFrom`,
+  `othersNoAccess`). MCP keeps `snake_case`.
+- `POST /api/note/edit` answers a malformed operation with `400 invalid`, as
+  MCP does, and takes at most 50 operations.
+- MCP answers invalid arguments with `invalid` and a writing tool called with a
+  read-only key with `forbidden`, in vihko's `{ error, message }` JSON.
+
+### Fixed
+
+- **claude.ai can connect.** `/mcp` refused its requests (`Origin:
+  https://claude.ai`) with `403` before the `401` that tells a client how to
+  sign in, and its published identity (client metadata document) was refused
+  for listing a grant type vihko doesn't use. A credential that isn't valid
+  now always gets that `401`; an OAuth token is also accepted from its app's
+  own site. «OAuth apps can register themselves» isn't needed for claude.ai.
+- Moving or renaming a note to a name with parentheses, `#`, `?` or brackets
+  left the Markdown links to it broken.
+- `/api/health` and `/api/setup` answered `404` when the request carried a key.
+- `vihko user create --admin <name>` created an admin named `--admin`.
+- On Windows, AltGr+D opened today's note instead of typing a character.
+- The image's description no longer mentions webhooks.
+
+### Upgrade notes
+
+- `:1` moves to 1.0.1; `docker compose pull && docker compose up -d`.
+- Scripts that read `fm_error`, `dst_path`, `anchor_ok`, `pos_from` or
+  `others_no_access` from the HTTP API read the `camelCase` names.
+- Scripts that relied on `409 edit_mismatch` for a malformed edit get
+  `400 invalid`, with at most 50 operations per call.
+
 ## [1.0.1-rc.3] - 2026-09-29
 
 ### Fixed
@@ -127,6 +179,8 @@ that page.
   `vihko serve` with any argument, prints the usage and exits with 2.
 
 ## [1.0.0] - 2026-09-29
+
+**Superseded by 1.0.1 the same day: use 1.0.1.**
 
 The first stable release: a self-hosted notes system over plain Markdown
 files, with its own web UI, several users and live collaboration. Your notes
@@ -338,6 +392,7 @@ published under its exact image tag, `ghcr.io/kirianm/vihko:1.0.0-rc.1`.
   development builds before this candidate (under the project's earlier
   working name) aren't migrated: start them again from empty state.
 
+[1.0.1]: https://github.com/KirianM/vihko/releases/tag/v1.0.1
 [1.0.1-rc.3]: https://github.com/KirianM/vihko/releases/tag/v1.0.1-rc.3
 [1.0.1-rc.2]: https://github.com/KirianM/vihko/releases/tag/v1.0.1-rc.2
 [1.0.1-rc.1]: https://github.com/KirianM/vihko/releases/tag/v1.0.1-rc.1
