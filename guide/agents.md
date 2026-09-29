@@ -42,8 +42,9 @@ The last two switches, and one more:
   they can revoke them, but can't change or rotate them. An admin always can.
 - **OAuth apps can register themselves** (off by default), right under **MCP
   server**. It only shows when vihko has a public address
-  (`VIHKO_PUBLIC_URL`). Connecting claude.ai or `mcp-remote`, which register
-  themselves, needs it on; apps that identify themselves with a URL don't. See
+  (`VIHKO_PUBLIC_URL`). Connecting `mcp-remote` or another app that registers
+  itself needs it on; claude.ai and other apps that identify themselves with a
+  URL don't. See
   [Remote MCP with OAuth](#remote-mcp-with-oauth).
 
 Whoever runs the server can lock the API and the MCP server off with the
@@ -224,9 +225,13 @@ To try the server by hand, the [MCP Inspector](https://github.com/modelcontextpr
 connects with transport **Streamable HTTP**, the URL, and the header
 `Authorization: Bearer vihko_…`.
 
-A request from a browser page on another site (with an `Origin` header that
-isn't vihko's) is refused with `403`: a web page can't use your key through
-your browser.
+A request with a key and an `Origin` header that isn't vihko's own (a browser
+page on another site) is refused with `403`: a web page can't use your key
+through your browser. An OAuth access token is also accepted from its app's own
+site, the origin of an address the app goes back to (claude.ai's requests say
+`Origin: https://claude.ai`), and refused from any other. A request without a
+key or token always gets the `401` that tells a client how to sign in,
+whatever its `Origin`.
 
 ## The tools
 
@@ -410,10 +415,10 @@ tokens only work on `/mcp`: the HTTP API takes keys, never OAuth tokens.
 3. **Turn on the MCP server** in Agents and API. The page then shows
    **Connect without a key (OAuth)** with the address to give remote assistants:
    `https://notes.example.com/mcp`.
-4. **Turn on OAuth apps can register themselves**, right under it, to connect
-   claude.ai or `mcp-remote`: they register themselves before asking for
-   access (see [How apps introduce themselves](#how-apps-introduce-themselves)).
-   Apps that identify themselves with a URL don't need it.
+4. **Turn on OAuth apps can register themselves**, right under it, only for
+   apps that register themselves before asking for access, such as
+   `mcp-remote` (see [How apps introduce themselves](#how-apps-introduce-themselves)).
+   claude.ai and Claude Code identify themselves with a URL and don't need it.
 5. For members to connect apps, also turn on **Members can create keys**: an
    authorization is a key.
 
@@ -421,12 +426,13 @@ tokens only work on `/mcp`: the HTTP API takes keys, never OAuth tokens.
 
 1. In claude.ai, open **Settings → Connectors** and choose **Add custom
    connector**.
-2. Give it a name, and the URL `https://notes.example.com/mcp`.
-3. Connect. claude.ai registers itself with vihko and sends you to vihko's
-   authorization page.
+2. Give it a name, and the URL `https://notes.example.com/mcp`. If it asks how
+   Claude should identify itself, keep **Claude's published identity**: it
+   works without registration.
+3. Connect. claude.ai sends you to vihko's authorization page.
 4. Sign in to vihko, if you aren't already.
-5. Check the page: which app asks, its domain when it has one, and the address
-   it goes back to.
+5. Check the page: which app asks (Claude, from `claude.ai`), and the address
+   it goes back to (`https://claude.ai/api/mcp/auth_callback`).
 6. Choose what it may do: tick **Can write** or leave it read-only, and give it
    every folder you see or only some. The default is read-only and every
    folder.
@@ -465,7 +471,7 @@ ways, and neither gives access to any note: only a person approving it does.
 
 **Registration.** The app registers itself (OAuth dynamic client registration,
 at `/oauth/register`) with its name and the addresses it goes back to. This is
-what claude.ai does. Anyone can register, so the approval page marks the name
+what `mcp-remote` does. Anyone can register, so the approval page marks the name
 as not checked and shows the address the app goes back to. Registration is
 limited to 5 apps an hour from each address (then `429` with `Retry-After`;
 behind a proxy, set `VIHKO_TRUSTED_PROXIES` so each client counts apart). An

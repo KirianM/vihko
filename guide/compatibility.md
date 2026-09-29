@@ -178,7 +178,7 @@ what stays.
 | Credential | `Authorization: Bearer` with a key, or an OAuth access token (see [OAuth](#oauth)) |
 | The MCP switch off | `404`, whatever the request |
 | No credential, or a wrong one | `401`, with a `WWW-Authenticate: Bearer` challenge (naming the resource metadata while OAuth exists) |
-| A request from a page on another site | `403` |
+| An `Origin` that isn't vihko's own | `403` with a key; with an OAuth access token, accepted from the origin of one of its app's redirect URIs and `403` from any other; without a credential, the `401` above |
 | Request size | Up to 4 MiB, a limit of vihko's own (`413` beyond it): an image of about 3 MB for `attach_image`, whatever `VIHKO_MAX_IMAGE_MB` says |
 
 ### Conventions
@@ -389,7 +389,10 @@ What the server metadata promises, and stays: the authorization code flow
 with PKCE (`S256` only) and refresh tokens, the `query` response mode, the
 `iss` parameter in the response, client authentication `none`,
 `client_secret_post` or `client_secret_basic`, and clients that identify
-themselves with a metadata document URL. `registration_endpoint` is listed
+themselves with a metadata document URL. A client (registered or described by
+its document) must list `authorization_code` among its `grant_types` and
+`code` among its `response_types` when it gives them; other grants it lists
+are ignored. `registration_endpoint` is listed
 only while registration is on. Tokens are opaque: read `expires_in` rather
 than counting on a lifetime.
 
