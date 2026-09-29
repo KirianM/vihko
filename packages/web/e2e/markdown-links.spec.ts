@@ -14,6 +14,8 @@ const NOTE = `${DIR}/${TITLE}.md`
 /** The links' texts: words nothing else on the page has. */
 const [TO_NOTE, OUT, IN_TABLE, BROKEN, SCRIPT] = [m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord()]
 const EXTERNAL = `https://${m.aHost()}/${m.aWord()}`
+/** As the browser asks for it: a word with «ñ» or an accent is percent-encoded. */
+const OPENED = new URL(EXTERNAL).href
 /** A note that doesn't exist, next to this one. */
 const MISSING = `${m.aTitle()}.md`
 // Markdown links are relative to the note: hogar/Red.md is testdata/vault's.
@@ -53,13 +55,13 @@ test('a Markdown link to a note opens it on click', async ({ browser }) => {
 test('an http(s) link opens in a new tab, which gets no hold on the app; the app stays on the note', async ({ browser }) => {
   const k = await signIn(browser, ADMIN, NOTE)
   // Nothing leaves the test machine: the new tab gets its page from here.
-  await k.context().route(`${EXTERNAL}**`, (route) => route.fulfill({ contentType: 'text/html', body: '<p>outside</p>' }))
+  await k.context().route(`${OPENED}**`, (route) => route.fulfill({ contentType: 'text/html', body: '<p>outside</p>' }))
   await openNote(k)
   const opened = k.context().waitForEvent('page')
   await link(k, OUT).click()
   const tab = await opened
   await tab.waitForLoadState()
-  expect(tab.url()).toBe(EXTERNAL)
+  expect(tab.url()).toBe(OPENED)
   expect(await tab.evaluate(() => window.opener)).toBeNull()
   await expect(k.locator('.crumbs b')).toHaveText(TITLE)
   expect(new URL(k.url()).searchParams.get('note')).toBe(NOTE)
