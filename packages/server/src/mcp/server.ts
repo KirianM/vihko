@@ -97,7 +97,7 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
     const guide = workspaceGuide(access)
     const server = new McpServer({ name: 'vihko', version: VERSION, icons: opts.icons }, { instructions: guide ? `${instructions(access)}\n\n${guide}` : instructions(access) })
     registerTools(server, {
-      access, scoped: services.scoped(access), history: services.history, texts, names, log,
+      access, scoped: services.scoped(access), history: services.history, imageSlots: services.imageSlots, texts, names, log,
       maxWaitSeconds: opts.maxWaitSeconds, pollMs: opts.pollMs,
     })
     return server

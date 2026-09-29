@@ -14,6 +14,7 @@ import { Client, StreamableHTTPClientTransport, type VersionNegotiationMode } fr
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { toolData } from '@vihko/server'
 import { api, login, makeDirs, startServer, waitFor } from './_collab.ts'
+import { PNG } from './_agents.ts'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -28,7 +29,7 @@ const INSPECTOR = join(MODULES, '@modelcontextprotocol/inspector/clients/launche
 const MCP_REMOTE = join(MODULES, 'mcp-remote/dist/proxy.js')
 
 const READ = ['changes_since', 'daily_note', 'get_note', 'history', 'list_folder', 'related', 'resolve_link', 'search']
-const ALL = [...READ, 'create_note', 'delete', 'edit_note', 'move', 'revert_change'].sort()
+const ALL = [...READ, 'attach_image', 'create_note', 'delete', 'edit_note', 'move', 'revert_change'].sort()
 
 /** A tool's result as a client got it: its JSON data (first block) and whether it's an error. */
 interface Result { data: any; error: boolean }
@@ -80,6 +81,9 @@ async function exercise(call: Call, tag: string, write: boolean): Promise<string
   assert.equal(edit.authors[0].name, KEY.rw)
   assert.equal(edit.authors[0].via, 'mcp')
   assert.equal((await ok('revert_change', { path, version: edit.version, dry_run: true })).counts.reverted, 1)
+  // An image for it, and its link written in (the note moves and goes to the trash with it).
+  const image = await ok('attach_image', { note: path, data: PNG.toString('base64'), mime_type: 'image/png' })
+  await ok('edit_note', { path, operations: [{ op: 'append', text: image.markdown }] })
   const moved = `${FOLDER}/${tag}-${m.anId()}.md`
   await ok('move', { from: path, to: moved })
   await ok('delete', { path: moved })

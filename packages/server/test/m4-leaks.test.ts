@@ -318,6 +318,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       ['edit_note', { path: theirs, operations: [{ op: 'append', text: m.aSentence() }] }],
       ['move', { from: shared, to: `${DIR.shared}/${m.aTitle()}.md`, dry_run: true }], ['move', { from: theirs, to: `${DIR.shared}/${m.aTitle()}.md`, dry_run: true }],
       ['delete', { path: theirs }],
+      ['attach_image', { note: theirs, data: PNG.toString('base64') }],
       ['revert_change', { path: theirs, version: memberVersion, dry_run: true }],
     ]
     const toolsCovered = new Set<string>()
@@ -391,6 +392,7 @@ test('with read or comment in a folder, nothing is written there through any rou
       ['create_note', { path: m.aNotePath(folder), text: m.aSentence() }],
       ['move', { from: note, to: m.aNotePath(DIR.shared) }],
       ['delete', { path: note }],
+      ['attach_image', { note, data: PNG.toString('base64') }],
       ['revert_change', { path: note, version }],
       ['history', { path: note }],
     ] as [string, Record<string, unknown>][]) {
