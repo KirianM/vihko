@@ -226,6 +226,15 @@ A moving tag only goes forward: a fix for an older line (`v1.1.5` once
 `v1.2.0` is out, tagged on a branch of its own) gets `1.1.5` and `1.1`, not
 `1` or `latest`, and isn't marked as the latest Release.
 
+A release that freezes a contract (the first stable version of a new major)
+needs two checks first, while its release candidates are out: an inventory of
+the contract surface, taken from the code, against `guide/compatibility.md`
+(every route open to keys with its fields and codes, the MCP tools, the
+`vihko.yaml` keys, the environment variables, the commands, what vihko writes
+into notes), and the milestone's closing comparison. What they find is fixed
+in another release candidate, not after the tag: once it is out, the contract
+changes only as `guide/compatibility.md` allows until the next major.
+
 1. On a branch, set the new version in the root `package.json`, every
    workspace package and `package-lock.json` (a test checks they agree):
    `npm version 1.2.3 --no-git-tag-version --workspaces --include-workspace-root`.
