@@ -70,7 +70,7 @@ services:
     # published that way). From 1.0.0 on, this line says :1, which gets every
     # 1.x release (fixes and features) and never an incompatible version: that
     # is a new major, which you choose by changing the tag.
-    image: ghcr.io/kirianm/vihko:1.0.0-rc.3
+    image: ghcr.io/kirianm/vihko:1.0.0-rc.4
     restart: unless-stopped
     # Hardening: nothing is written outside the two volumes, no Linux
     # capabilities, and no way to gain privileges. vihko needs none of them.
@@ -116,7 +116,7 @@ services:
 | `1.2` | The latest 1.2.x release: fixes only. |
 | `1.2.3` | Exactly that release. It never changes. |
 | `latest` | The latest release, **whatever its major version**. It can jump from 1.x to 2.0 on a `docker compose pull`. Avoid it. |
-| `1.0.0-rc.3` | A release candidate, only under its exact tag. |
+| `1.0.0-rc.4` | A release candidate, only under its exact tag. |
 
 [Upgrading](upgrading.md) explains what a major version means and how to move
 between versions.
@@ -301,7 +301,7 @@ docker compose logs vihko
 ```
 
 ```text
-[vihko] vihko 1.0.0-rc.3
+[vihko] vihko 1.0.0-rc.4
 [vihko] no vihko.yaml: nothing configured
 [vihko] index ready: 0 added, 0 changed, 0 removed, 0 unchanged
 [vihko] listening on http://0.0.0.0:8080
