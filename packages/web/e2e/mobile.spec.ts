@@ -100,7 +100,7 @@ test('open a note from the tree: the drawer closes and the header shows the full
   await noHorizontalScroll(page)
 })
 
-test('edit with the keyboard and the editor bar ([[, #, list); the save state is in the bar', async () => {
+test('edit with the keyboard and the editor bar ([[, #, bulleted list); the save state is in the bar', async () => {
   const line = page.locator('.cm-line', { hasText: FIRST })
   await line.tap()
   await toLineEnd(line)
@@ -113,11 +113,14 @@ test('edit with the keyboard and the editor bar ([[, #, list); the save state is
   await page.keyboard.press('End')
   await bar.getByRole('button', { name: 'Añadir tag' }).tap()
   await page.keyboard.type(tag)
-  await bar.getByRole('button', { name: 'Lista' }).tap()
+  await bar.getByRole('button', { name: 'Lista con viñetas' }).tap()
   await expect.poll(() => readFileSync(FILE, 'utf8')).toContain(`- ${FIRST} ${word} [[Plan]] #${tag}`)
   // The bar's buttons don't take the focus: the keyboard would close.
   await expect(page.locator('.cm-content')).toBeFocused()
-  await expect(bar.getByText('Guardado en disco')).toBeVisible()
+  // Saved: its icon only, the text for screen readers and as its tooltip.
+  const saved = bar.locator('.status', { hasText: 'Guardado en disco' })
+  await expect(saved).toHaveAttribute('title', 'Guardado en disco')
+  expect((await saved.locator('.status-label').boundingBox())!.width).toBeLessThanOrEqual(1)
   const barBox = await bar.boundingBox()
   expect(barBox!.y + barBox!.height).toBeLessThanOrEqual(844)
   await page.screenshot({ path: `${SHOTS}/mobile-note-light.png`, animations: 'disabled' })

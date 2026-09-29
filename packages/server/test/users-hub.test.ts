@@ -48,7 +48,8 @@ test('disabling someone ends their open editor and their key at once', async () 
     const created = await api(srv, admin, 'POST', '/api/admin/users', { username: member.username, role: 'member' })
     assert.equal(created.status, 201)
     assert.equal((await api(srv, '', 'POST', `/api/invite/${created.body.link.token}`, { password: member.password })).status, 200)
-    assert.equal((await api(srv, admin, 'PUT', '/api/admin/integrations', { api: true })).status, 200)
+    // The member makes a key of her own: the admin lets members (off on a new vihko, D-049).
+    assert.equal((await api(srv, admin, 'PUT', '/api/admin/integrations', { api: true, membersCanCreateKeys: true })).status, 200)
     const session = await signIn(srv, member.username, member.password)
     const key = { authorization: `Bearer ${(await api(srv, session, 'POST', '/api/keys', { name: m.aKeyName(), canWrite: true, confirm: member.password })).body.token}` }
     assert.equal((await api(srv, '', 'GET', '/api/tree', undefined, key)).status, 200)

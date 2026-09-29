@@ -6,7 +6,7 @@ import { syntaxHighlighting } from '@codemirror/language'
 import { searchKeymap } from '@codemirror/search'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
-import { classHighlighter } from '@lezer/highlight'
+import { classHighlighter, tagHighlighter, tags } from '@lezer/highlight'
 import { vihkoSyntax } from '@vihko/core/syntax'
 import { useEffect, useRef } from 'react'
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
@@ -18,6 +18,7 @@ import { commentMarks, commentUi, setCommentReach, type CommentReach } from './c
 import { imageHost, images } from './images.ts'
 import { linkAutocomplete } from './autocomplete.ts'
 import { createLinkUi, type NewLinkedNote } from './createLink.ts'
+import { SHORTCUTS, formatKeymap, undoBoundary } from './format.ts'
 import { labels, livePreview, navigate, notePath, pickAmbiguous, setLinks, type LinkInfo, type PickAmbiguous } from './livePreview.ts'
 import { announce } from './presence.ts'
 import { agentLabel, agentMarks } from './agents.ts'
@@ -25,6 +26,12 @@ import { tables } from './tables.ts'
 import { taskLabel, tasks } from './tasks.ts'
 import { viewUpdates } from './viewUpdates.ts'
 import './editor.css'
+
+/** Classes `classHighlighter` has none for: struck-through text and inline code (editor.css styles them). */
+const moreClasses = tagHighlighter([
+  { tag: tags.strikethrough, class: 'tok-strikethrough' },
+  { tag: tags.monospace, class: 'tok-monospace' },
+])
 
 interface Props {
   /** Path of the note: relative image references resolve against its folder. */
@@ -85,6 +92,7 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
       extensions: [
         yamlFrontmatter({ content: markdown({ base: markdownLanguage, extensions: vihkoSyntax, addKeymap: false }) }),
         syntaxHighlighting(classHighlighter),
+        syntaxHighlighting(moreClasses),
         EditorView.lineWrapping,
         livePreview,
         navigate.of((p) => nav.current(p)),
@@ -130,7 +138,10 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
           open: (id) => comments.current?.(id),
         }),
         viewUpdates,
-        keymap.of([{ key: 'Mod-Alt-m', run: () => { comments.current?.(null); return true } }]),
+        keymap.of([{ key: SHORTCUTS.comment, run: () => { comments.current?.(null); return true } }]),
+        // Before the default keymap, where Mod-i selects the parent syntax: here it's italic.
+        readOnly ? [] : keymap.of(formatKeymap),
+        undoBoundary.of(() => undoManager.stopCapturing()),
         keymap.of([...yUndoManagerKeymap, ...defaultKeymap, ...searchKeymap, indentWithTab]),
         yCollab(text, provider.awareness, { undoManager }),
         agentMarks(text, provider.awareness, (a) => t('presence.agentWrote', { agent: agentLabel(t, a) })),

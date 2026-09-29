@@ -1,9 +1,8 @@
 // The open note: header (path, save state, presence, panel toggle, more
 // actions), the banner for a note deleted outside vihko, the editor (or one
 // of its versions, from the history) and the side panel.
-import { startCompletion } from '@codemirror/autocomplete'
-import { EditorView } from '@codemirror/view'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import type { EditorView } from '@codemirror/view'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, Dialog, DialogTrigger, Popover, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { ApiError, api, canEdit, type CommentOriginal, type Level, type MoveJob, type MoveReport, type ServerConfig, type User } from '../api.ts'
 import { INSERT_IMAGE } from '../commands.ts'
@@ -12,7 +11,7 @@ import { userColor } from '../userColor.ts'
 import { errorText, useT } from '../i18n.tsx'
 import { Crumbs, Diamond, Icon, MenuButton, ThemeToggle, noteName } from '../ui.tsx'
 import { useMobile } from '../mobile.ts'
-import { listItem, tag, wikilink, type Edit } from './insert.ts'
+import { FormatBar } from './FormatBar.tsx'
 import { SearchButton } from '../Palette.tsx'
 import { useCollab, type CollabState } from './collab.ts'
 import type { Trashed } from '../TrashToast.tsx'
@@ -21,7 +20,6 @@ import { AmbiguousPicker, type AmbiguousLink, type PickerState } from './Ambiguo
 import type { PinOffer } from '../PinOffer.tsx'
 import { Editor } from './Editor.tsx'
 import { ImageInsertUi, useImageInsert } from './ImageInsert.tsx'
-import { insertionRange } from './insertAt.ts'
 import { NoteActions } from './NoteActions.tsx'
 import type { LinkInfo } from './livePreview.ts'
 import { NotePanel, PanelToggle, usePanel, type LinksData } from './NotePanel.tsx'
@@ -32,13 +30,23 @@ import { HistoryTab } from '../history/HistoryTab.tsx'
 import { RevertToast, useVersions } from '../history/ui.tsx'
 import { VersionView } from '../history/VersionView.tsx'
 
-function SaveStatus({ c }: { c: CollabState }) {
+/**
+ * The save state. `compact` (the phone's bar): while all is well (saved,
+ * saving) only its icon, with the text for screen readers and as a tooltip,
+ * so the formatting buttons get the room; what needs the person's attention
+ * keeps its text.
+ */
+function SaveStatus({ c, compact = false }: { c: CollabState; compact?: boolean }) {
   const t = useT()
   if (c.orphaned) return <span className="status status-warn">{Icon.alert}<span className="status-label">{t('editor.orphanStatus')}</span></span>
   if (c.connection === 'offline') return <span className="status status-warn">{Icon.alert}<span className="status-label">{t('editor.offline')}</span></span>
   if (c.connection === 'connecting') return <span className="status"><span className="status-label">{t('editor.connecting')}</span></span>
-  if (c.save === 'saving') return <span className="status"><span className="status-label">{t('editor.saving')}</span></span>
-  return <span className="status status-ok">{Icon.check}<span className="status-label">{t('editor.saved')}</span></span>
+  const calm = (cls: string, icon: ReactNode, text: string) => (
+    <span className={`status ${cls}${compact ? ' status-calm' : ''}`} title={compact ? text : undefined}>{icon}<span className="status-label">{text}</span></span>
+  )
+  // Saving has had no icon where its text shows; alone, it needs one.
+  if (c.save === 'saving') return calm('status-saving', compact ? Icon.saving : null, t('editor.saving'))
+  return calm('status-ok', Icon.check, t('editor.saved'))
 }
 
 /** Who is in the note: people as circles with their initial, agents as a pill with the diamond and who they act for. */
@@ -234,10 +242,6 @@ function SetAsideBanner({ path, c, onCreated }: { path: string; c: CollabState; 
   )
 }
 
-/**
- * Phone editor bar (link, tag, list, comment and save state), under the
- * editor. Its buttons don't take focus: the keyboard stays open.
- */
 /** Previous and next note of the daily-note series: in the header, or in the editor bar on a phone. */
 function DailyNav({ daily, onNavigate, bar }: { daily: { prev: string | null; next: string | null }; onNavigate: (p: string) => void; bar?: boolean }) {
   const t = useT()
@@ -250,50 +254,13 @@ function DailyNav({ daily, onNavigate, bar }: { daily: { prev: string | null; ne
   )
 }
 
-function EditorBar({ view, c, level, onComment, onImage, daily, onNavigate }: {
-  view: EditorView | null
-  c: CollabState
-  /** Below `edit`, only what doesn't write (commenting, with `comment`). */
-  level: Level
-  onComment: () => void
-  onImage: () => void
-  daily: { prev: string | null; next: string | null } | null
-  onNavigate: (p: string) => void
-}) {
-  const t = useT()
-  // The keyboard shrinks the visible area: keep the cursor in sight.
-  useEffect(() => {
-    const vv = window.visualViewport
-    if (!vv || !view) return
-    const on = () => { if (view.hasFocus) view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: 'nearest' }) }) }
-    vv.addEventListener('resize', on)
-    return () => vv.removeEventListener('resize', on)
-  }, [view])
-  const edit = (make: (doc: string, from: number, to: number) => Edit, suggest = false) => {
-    if (!view) return
-    // Never inside a link's (or an image's, a comment's…) hidden syntax: after it.
-    const { from, to } = insertionRange(view.state, view.state.selection.main.from, view.state.selection.main.to)
-    const e = make(view.state.doc.toString(), from, to)
-    view.dispatch({ changes: { from: e.from, to: e.to, insert: e.insert }, selection: { anchor: e.cursor }, scrollIntoView: true, userEvent: 'input' })
-    view.focus()
-    // An empty `[[]]` or `#` opens the suggestions, as typing them would.
-    if (suggest && e.from === e.to) startCompletion(view)
-  }
+/** On a phone, after the formatting bar's buttons: the daily-note arrows and the save state (or «Read only»). */
+function BarEnd({ c, level, daily, onNavigate }: { c: CollabState; level: Level; daily: { prev: string | null; next: string | null } | null; onNavigate: (p: string) => void }) {
   return (
-    <div className="editor-bar" role="toolbar" aria-label={t('editor.bar')}>
-      {canEdit(level) && (
-        <>
-          <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertLink')} onPress={() => edit(wikilink, true)}>[[</Button>
-          <Button className="btn btn-icon bar-btn bar-hash" preventFocusOnPress aria-label={t('editor.insertTag')} onPress={() => edit(tag, true)}>#</Button>
-          <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.insertList')} onPress={() => edit((doc, from) => listItem(doc, from))}>{Icon.list}</Button>
-          <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('image.insertTitle')} onPress={onImage}>{Icon.image}</Button>
-        </>
-      )}
-      {level !== 'read' && <Button className="btn btn-icon bar-btn" preventFocusOnPress aria-label={t('editor.comment')} onPress={onComment}>{Icon.comment}</Button>}
-      <span className="spacer" />
+    <>
       {daily && <DailyNav daily={daily} onNavigate={onNavigate} bar />}
-      <span className={daily ? 'status-compact' : undefined}>{canEdit(level) ? <SaveStatus c={c} /> : <ReadOnlyBadge level={level} />}</span>
-    </div>
+      {canEdit(level) ? <SaveStatus c={c} compact /> : <span className={daily ? 'status-compact' : undefined}><ReadOnlyBadge level={level} /></span>}
+    </>
   )
 }
 
@@ -445,6 +412,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
       <div className="note-body">
         <div className="note" hidden={version !== null}>
           {gone && <p className="empty" role="alert">{t('note.gone')}</p>}
+          {!mobile && view && known && <FormatBar view={view} level={known} onComment={() => panel.showComments(null)} onImage={images.openInsert} />}
           {c.session && c.connection !== 'connecting' && config && known && (
             <Editor path={path} session={c.session} user={user} links={links} onNavigate={onNavigate} onView={setView} onComments={panel.showComments}
               commentReach={{ notices: !panel.open, click: !panel.open && !panel.narrow }}
@@ -466,7 +434,10 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
             history={historyOn ? <HistoryTab store={versions} status={history} current={version} onOpen={openVersion} path={path} canPurge={known === 'manage'} onPurged={() => { versions.refresh(); onVersion(null) }} /> : null} />
         )}
       </div>
-      {mobile && !panel.open && version === null && known && <EditorBar view={view} c={c} level={known} onComment={() => panel.showComments(null)} onImage={images.openInsert} daily={daily ?? null} onNavigate={onNavigate} />}
+      {mobile && !panel.open && version === null && known && (
+        <FormatBar mobile view={view} level={known} onComment={() => panel.showComments(null)} onImage={images.openInsert}
+          end={<BarEnd c={c} level={known} daily={daily ?? null} onNavigate={onNavigate} />} />
+      )}
       <ImageInsertUi ins={images} />
       {picker && (
         <AmbiguousPicker source={path} state={picker} titles={linkData?.titles ?? {}} onClose={() => setPicker(null)}

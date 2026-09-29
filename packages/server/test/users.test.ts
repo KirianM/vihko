@@ -201,6 +201,8 @@ test('disabling cuts sessions, keys and OAuth at once and keeps them for later; 
   const s = await setup()
   try {
     await s.enableApi()
+    // The member's own key and authorization: the admin lets members (off on a new vihko, D-049).
+    assert.equal((await s.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).status, 200)
     const member = s.users.member
     const keyName = m.aKeyName()
     const { key: k, token } = await s.newKey({ name: keyName }, 'member')

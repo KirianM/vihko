@@ -25,7 +25,7 @@ test.afterAll(async ({ browser }) => {
   for (const k of (await (await request.get('/api/keys?all=1')).json()).keys as { id: string; name: string; status: string }[]) {
     if ((k.name === KEY.admins || k.name === KEY.members) && k.status === 'active') await request.delete(`/api/keys/${k.id}`)
   }
-  await request.put('/api/admin/integrations', { data: { api: false, mcp: false, membersCanCreateKeys: true } })
+  await request.put('/api/admin/integrations', { data: { api: false, mcp: false, membersCanCreateKeys: false } })
   await page.context().close()
 })
 
@@ -61,7 +61,8 @@ test('with the integrations off, nothing gets in or out; and the UI talks only t
 
 test('with them, the keys that can read and how; a key can’t download images', async ({ browser, request }) => {
   const k = await admin(browser)
-  await k.request.put('/api/admin/integrations', { data: { api: true, mcp: true } })
+  // The member makes a key of her own: the admin lets members (off by default).
+  await k.request.put('/api/admin/integrations', { data: { api: true, mcp: true, membersCanCreateKeys: true } })
   const mine = await (await k.request.post('/api/keys', { data: { confirm: ADMIN.password, name: KEY.admins, folders: ['proyectos'] } })).json() as { token: string }
   const member = await signIn(browser, MEMBER)
   const hers = await (await member.request.post('/api/keys', { data: { confirm: MEMBER.password, name: KEY.members, canWrite: true } })).json() as { token: string }

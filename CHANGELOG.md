@@ -7,6 +7,49 @@ Every release of vihko, newest first. The format follows
 that asks you to do something by hand or breaks an integration. Read a
 version's **Upgrade notes** before installing it.
 
+## [1.0.0-rc.4] - 2026-09-29
+
+The fourth release candidate: what the third one's installation turned up.
+
+### Added
+
+- **A formatting toolbar**, for anyone who doesn't write Markdown: above the
+  note on a computer, over the keyboard on a phone (one row that scrolls).
+  Text style (normal, headings 1–3), bold, italic, strikethrough, inline
+  code, link, bulleted, numbered and task lists, quote, code block, table and
+  image, besides `[[`, `#` and comments. Each button turns its format off
+  when it's already on and shows when the cursor is inside it; line formats
+  apply to every selected line. It only writes standard Markdown.
+- Shortcuts: Ctrl+B bold, Ctrl+I italic (it was «select the enclosing
+  syntax»), Ctrl+Alt+K link (⌘B, ⌘I and ⌥⌘K on a Mac).
+- «New folder» in the command palette (`>`), inside the open note's folder.
+
+### Changed
+
+- **Members can no longer create keys by default**, and **OAuth apps can no
+  longer register themselves by default**: the vihko admin turns each on in
+  Agents and API. The registration switch sits right under the MCP one;
+  clients that identify themselves with a URL (CIMD) don't need it.
+- The vihko admin's «Purge from the history» moved from Users and groups to
+  Recent changes.
+- On a phone, the save status in the bottom bar is an icon while all is well,
+  and keeps its text when something needs your attention.
+
+### Fixed
+
+- Recent changes stopped loading after any purge from the history, until
+  vihko restarted.
+- Strikethrough and inline code show as such in the editor.
+
+### Upgrade notes
+
+- Take the image line of the new `compose.yaml`
+  (`ghcr.io/kirianm/vihko:1.0.0-rc.4`).
+- If you never touched «Members can create keys» or «OAuth apps can register
+  themselves», they are now off. Members' existing keys and apps already
+  registered keep working; turn the switches on in Agents and API if members
+  should create keys or claude.ai or mcp-remote should connect anew.
+
 ## [1.0.0-rc.3] - 2026-09-29
 
 ### Added

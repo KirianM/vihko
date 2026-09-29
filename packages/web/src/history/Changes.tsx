@@ -1,7 +1,8 @@
 // «Recent changes» (`?view=changes`, D-032.6): what changed across the notes,
 // by day, with who did it, why and which files, filterable by author. Read
 // only: a note opens at that change, and undoing is done note by note from
-// there. Meant for reviewing what an agent did.
+// there. Meant for reviewing what an agent did. The vihko admin also purges
+// from here any path by its name (Purge.tsx, D-049).
 import { useEffect, useId, useState } from 'react'
 import { Button } from 'react-aria-components'
 import { ApiError, type TreeNote } from '../api.ts'
@@ -11,6 +12,7 @@ import { MenuButton, ThemeToggle } from '../ui.tsx'
 import { historyApi, type Change, type ChangeFile, type HistoryAuthor, type HistoryStatus } from './api.ts'
 import { changeKindText, filterOptions, isNote, pathLabel, uidOf } from './format.ts'
 import { HistoryNotice } from './HistoryTab.tsx'
+import { AdminPurge, purgedText } from './Purge.tsx'
 import { Authors, Counts, HistoryIcon, useDates } from './ui.tsx'
 
 /** Files shown per change before «Show N more». */
@@ -61,8 +63,10 @@ function ChangeCard({ change, onOpen }: { change: Change; onOpen: (file: ChangeF
   )
 }
 
-export function ChangesPage({ status, notes, onOpenVersion, onUnauthorized }: {
+export function ChangesPage({ status, notes, admin, onOpenVersion, onUnauthorized }: {
   status: HistoryStatus | null
+  /** The vihko admin: purges any path from here. */
+  admin: boolean
   /** The notes as they are now, to find where a note that moved since lives. */
   notes: TreeNote[] | null
   onOpenVersion: (path: string, id: string) => void
@@ -76,6 +80,9 @@ export function ChangesPage({ status, notes, onOpenVersion, onUnauthorized }: {
   const [authors, setAuthors] = useState<HistoryAuthor[]>([])
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
+  /** The admin's last purge, said once done; the list reloads without what went. */
+  const [purged, setPurged] = useState<string | null>(null)
+  const [reload, setReload] = useState(0)
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -93,7 +100,7 @@ export function ChangesPage({ status, notes, onOpenVersion, onUnauthorized }: {
     }, (e) => { if (live) fail(e) })
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [author])
+  }, [author, reload])
 
   const loadMore = async () => {
     if (!page?.next || busy) return
@@ -148,7 +155,12 @@ export function ChangesPage({ status, notes, onOpenVersion, onUnauthorized }: {
                 {options.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
                 {author && !options.some((o) => o.key === author) && <option value={author}>{author}</option>}
               </select>
+              {admin && (<>
+                <span className="spacer" />
+                <AdminPurge onPurged={(r) => { setPurged(purgedText(t, r)); setReload((n) => n + 1) }} />
+              </>)}
             </div>
+            {purged && <p className="alerts-done" role="status">{purged}</p>}
             {error !== null && (
               <p className="error-text" role="alert">{errorText(t, error)}</p>
             )}

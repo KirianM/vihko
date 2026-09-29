@@ -81,7 +81,7 @@ test('VIHKO_INTEGRATIONS=off: keys get 404 whatever state.db says, and the switc
   try {
     h.integrations.set({ api: false })
     const view = await h.admin('GET', '/api/integrations')
-    assert.deepEqual(view.body, { api: false, mcp: false, membersCanCreateKeys: true, oauthRegistration: true, locked: true, canCreateKeys: true, publicUrl: null })
+    assert.deepEqual(view.body, { api: false, mcp: false, membersCanCreateKeys: false, oauthRegistration: false, locked: true, canCreateKeys: true, publicUrl: null })
     const on = await h.admin('PUT', '/api/admin/integrations', { api: true })
     assert.deepEqual([on.status, on.body.error], [409, 'integrations_locked'])
     const { token } = await h.newKey({ name: m.aKeyName() })
@@ -140,6 +140,14 @@ test('keys over the UI: created once with their token, listed without it, change
     const changed = await h.admin('PATCH', `/api/keys/${key.id}`, { name: renamed, canWrite: false, folders: [], confirm: h.users.admin.password })
     assert.deepEqual([changed.body.key.name, changed.body.key.canWrite, changed.body.key.folders], [renamed, false, []])
 
+    // A new vihko doesn't let members create keys (D-049) until the admin turns it on.
+    assert.equal((await h.member('GET', '/api/integrations')).body.canCreateKeys, false)
+    const refused = await h.member('POST', '/api/keys', { confirm: h.users.member.password, name: m.aKeyName() })
+    assert.deepEqual([refused.status, refused.body.error], [403, 'forbidden'])
+    assert.equal((await h.member('GET', '/api/keys')).body.keys.length, 0)
+    assert.equal((await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).body.membersCanCreateKeys, true)
+    assert.equal((await h.member('GET', '/api/integrations')).body.canCreateKeys, true)
+
     // The member's keys are theirs: the admin sees them with ?all=1 and may revoke, not change them.
     const botName = m.aKeyName()
     const theirs = (await h.member('POST', '/api/keys', { confirm: h.users.member.password, name: botName })).body.key
@@ -170,6 +178,8 @@ test('rotating a key over the UI: its owner only, a new token once, both working
   const h = await setup({ files: FILES })
   try {
     await h.enableApi()
+    // The member has a key too: the admin lets members (off on a new vihko, D-049).
+    await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })
     const name = m.aKeyName()
     const { key, token } = await h.newKey({ name, canWrite: true })
     const r = await h.admin('POST', `/api/keys/${key.id}/rotate`, { confirm: h.users.admin.password })

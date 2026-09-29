@@ -240,6 +240,8 @@ test('OAuth with a client named by its metadata document: advertised, fetched on
     const meta = await h.app.request('/.well-known/oauth-authorization-server')
     const advertised = await meta.json() as Record<string, unknown>
     assert.equal(advertised.client_id_metadata_document_supported, true)
+    // Registration is off, as on a new vihko (D-049): a client named by its document needs none.
+    assert.equal(advertised.registration_endpoint, undefined)
     assert.ok((advertised.token_endpoint_auth_methods_supported as string[]).includes('none'), 'Claude uses CIMD only with `none` listed')
 
     const clientId = `${site.base}/client.json`
@@ -263,7 +265,8 @@ test('OAuth with a client named by its metadata document: advertised, fetched on
     assert.equal(asked.status, 200, asked.text)
     assert.deepEqual(asked.body.client, { id: clientId, name: CLIENT, redirectUri: CALLBACK, host: HOST })
     assert.equal(site.hits['/client.json'], 1)
-    // A client that registered itself has no host to show.
+    // A client that registered itself (once the admin lets them) has no host to show.
+    assert.equal((await h.admin('PUT', '/api/admin/integrations', { oauthRegistration: true })).status, 200)
     const reg = await h.app.request('/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: m.aKeyName(), redirect_uris: [CALLBACK], token_endpoint_auth_method: 'none' }) })
     const regId = (await reg.json() as { client_id: string }).client_id
     const regAsked = await h.admin('GET', `/api/oauth/authorize?${q.replace(encodeURIComponent(clientId), regId)}`)

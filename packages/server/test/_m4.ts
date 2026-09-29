@@ -163,8 +163,9 @@ export async function setup(opts: M4Setup = {}) {
     if (r.status !== 201) throw new Error(`key: ${r.status} ${r.text}`)
     return r.body as { key: { id: string }; token: string }
   }
+  /** The admin turns on what the scenario uses: the API, the MCP server, and members' keys (all off on a new vihko, D-049). */
   const enable = async () => {
-    for (const s of [{ api: true }, { mcp: true }]) {
+    for (const s of [{ api: true }, { mcp: true }, { membersCanCreateKeys: true }]) {
       const r = await as('admin')('PUT', '/api/admin/integrations', s)
       if (r.status !== 200) throw new Error(`switch: ${r.status} ${r.text}`)
     }

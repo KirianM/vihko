@@ -1,8 +1,9 @@
 // «Agents and API» (D-035): the admin turns the integrations on, creates a
 // read-only key limited to a folder (shown once, with its MCP
 // configurations), uses it over HTTP, edits it (letting it write is
-// confirmed, a shorter expiry isn't), revokes it; a member without the
-// setting can't create keys; the server's lock (VIHKO_INTEGRATIONS=off); and
+// confirmed, a shorter expiry isn't), revokes it; a member can't create keys
+// until the admin lets members (off by default, D-049), nor once it's off
+// again; the server's lock (VIHKO_INTEGRATIONS=off); and
 // the page on a phone, in dark mode.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
@@ -47,10 +48,10 @@ const card = (page: Page, name: string) => page.locator('.key-card', { has: page
 const flip = (page: Page, name: string) => page.locator('label.switch', { hasText: name }).click()
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` })
 
-/** Leaves the switches as every other spec expects them: API and MCP off, members may create keys. */
+/** Leaves the switches as every other spec expects them: all off, as on a new vihko. */
 async function resetSwitches(browser: Browser) {
   const page = await signIn(browser, ADMIN)
-  const r = await page.request.put('/api/admin/integrations', { data: { api: false, mcp: false, membersCanCreateKeys: true } })
+  const r = await page.request.put('/api/admin/integrations', { data: { api: false, mcp: false, membersCanCreateKeys: false, oauthRegistration: false } })
   expect(r.status()).toBe(200)
   await page.context().close()
 }
@@ -265,12 +266,26 @@ test('revoking asks first, and the key stops working at once', async ({ browser,
   await page.context().close()
 })
 
-test('members: their own keys while allowed; with the setting off, none new, and the admin revokes theirs', async ({ browser }) => {
+test('members: no keys until the admin allows it; their own keys while allowed; with the setting off again, none new, and the admin revokes theirs', async ({ browser }) => {
   const member = await signIn(browser, MEMBER)
   await openAgents(member)
   // A member sees how things are, not the switches.
   await expect(member.getByRole('switch')).toHaveCount(0)
   await expect(member.getByText('El MCP está activado.')).toBeVisible()
+  // Off by default: no «New key», and the API refuses it too.
+  await expect(member.getByText('El administrador no permite que los miembros creen claves', { exact: false })).toBeVisible()
+  await expect(member.getByRole('button', { name: 'Nueva clave' })).toHaveCount(0)
+  expect((await member.request.post('/api/keys', { data: { confirm: MEMBER.password, name: REFUSED_KEY } })).status()).toBe(403)
+
+  // The admin lets members create keys, from the page.
+  const admin = await signIn(browser, ADMIN)
+  await admin.goto('/?view=agents')
+  const members = admin.getByRole('switch', { name: /Los miembros pueden crear claves/ })
+  await expect(members).not.toBeChecked()
+  await flip(admin, 'Los miembros pueden crear claves')
+  await expect(members).toBeChecked()
+
+  await member.reload()
   await member.getByRole('button', { name: 'Nueva clave' }).click()
   const dialog = member.getByRole('dialog', { name: 'Nueva clave' })
   await dialog.getByLabel('Nombre').fill(MEMBER_KEY)
@@ -282,10 +297,8 @@ test('members: their own keys while allowed; with the setting off, none new, and
   await expect(card(member, MEMBER_KEY)).toContainText('Lee y escribe')
   await expect(card(member, MEMBER_KEY)).toContainText('Caduca el')
 
-  const admin = await signIn(browser, ADMIN)
-  await admin.goto('/?view=agents')
   await flip(admin, 'Los miembros pueden crear claves')
-  await expect(admin.getByRole('switch', { name: /Los miembros pueden crear claves/ })).not.toBeChecked()
+  await expect(members).not.toBeChecked()
 
   await member.reload()
   await expect(member.getByText('El administrador no permite que los miembros creen claves', { exact: false })).toBeVisible()

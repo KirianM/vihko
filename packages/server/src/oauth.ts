@@ -7,8 +7,8 @@
 //   OAuth address answers 404 and `/mcp` takes keys only.
 // - Metadata: RFC 8414 (authorization server) and RFC 9728 (the protected
 //   resource, `<public>/mcp`, named in the `WWW-Authenticate` of its 401).
-// - Dynamic client registration (RFC 7591), which the vihko admin may turn
-//   off (clients already registered keep working). Public clients (`none`)
+// - Dynamic client registration (RFC 7591), off until the vihko admin turns
+//   it on (turned off again, clients already registered keep working). Public clients (`none`)
 //   and clients with a secret (`client_secret_post`/`_basic`). Registrations
 //   are limited per address (http/oauth.ts).
 // - Client ID Metadata Documents (cimd.ts): a `client_id` that is an https

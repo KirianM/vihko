@@ -5,7 +5,7 @@ services:
     # published that way). From 1.0.0 on, this line says :1, which gets every
     # 1.x release (fixes and features) and never an incompatible version: that
     # is a new major, which you choose by changing the tag.
-    image: ghcr.io/kirianm/vihko:1.0.0-rc.3
+    image: ghcr.io/kirianm/vihko:1.0.0-rc.4
     restart: unless-stopped
     # Hardening: nothing is written outside the two volumes, no Linux
     # capabilities, and no way to gain privileges. vihko needs none of them.

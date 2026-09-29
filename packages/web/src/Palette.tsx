@@ -79,6 +79,8 @@ interface Props {
   templates: string[]
   /** Opens today's note; null while daily notes are off. */
   onToday: (() => void) | null
+  /** Opens «New folder» where this person may create one; null where they may not (commands.ts). */
+  onNewFolder: (() => void) | null
   /** Saves the UI's language in the account and applies it (null = automatic). */
   onLanguage: (choice: LangChoice) => void
   onClose: () => void
@@ -87,7 +89,7 @@ interface Props {
   onCreated: (path: string) => void
 }
 
-export function Palette({ mode, folder, openPath, notes, templates, onToday, onLanguage, onClose, onMode, onOpen, onCreated }: Props) {
+export function Palette({ mode, folder, openPath, notes, templates, onToday, onNewFolder, onLanguage, onClose, onMode, onOpen, onCreated }: Props) {
   const t = useT()
   const { effective } = useTheme()
   const { choice } = useLanguageChoice()
@@ -115,7 +117,7 @@ export function Palette({ mode, folder, openPath, notes, templates, onToday, onL
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text, mode, commandMode])
 
-  const ctx: CommandContext = { theme: effective, openPath, newNote: () => onMode('create'), today: onToday, language: choice, chooseLanguage: onLanguage }
+  const ctx: CommandContext = { theme: effective, openPath, newNote: () => onMode('create'), newFolder: onNewFolder, today: onToday, language: choice, chooseLanguage: onLanguage }
   const needle = fold(query.slice(1).trim())
   const matching = commandMode ? commands.filter((c) => (c.available?.(ctx) ?? true) && fold(t(c.label(ctx))).includes(needle)) : []
 

@@ -280,6 +280,8 @@ test('with a second factor in force, changing the app takes a code of it (the ap
   const h = await setup()
   try {
     const { secret } = await enable(h, 'member')
+    // A new key is how the second factor is asked for here: the admin lets members create them (off on a new vihko, D-049).
+    assert.equal((await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).status, 200)
     const password = h.users.member.password
     const asked = await h.member('POST', '/api/account/2fa/setup', { password })
     assert.deepEqual([asked.status, asked.body.error, asked.body.with], [400, 'confirmation_required', 'code'], 'the password isn\'t asked for, nor taken')
@@ -456,6 +458,7 @@ test('confirming at the moment: creating or rotating a key and approving an OAut
 
     // OAuth: saying yes needs the code; saying no never does.
     await h.enableMcp()
+    await h.admin('PUT', '/api/admin/integrations', { oauthRegistration: true })
     const redirect = `https://${m.aHost()}/${m.aWord()}`
     const reg = await send(h.app, 'POST', '/oauth/register', { client_name: m.aKeyName(), redirect_uris: [redirect], token_endpoint_auth_method: 'none' })
     const challenge = createHash('sha256').update(randomBytes(32).toString('base64url')).digest('base64url')
