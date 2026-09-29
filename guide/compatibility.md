@@ -2,9 +2,9 @@
 
 [Upgrading](upgrading.md) says what a version number promises: within 1.x,
 updates only add or fix things in the HTTP API, the MCP tools, `vihko.yaml`,
-what vihko writes into your notes and the Docker interface. This page lists
-that surface item by item, as vihko 1.0.1 has it, so you know exactly what a
-script, an agent or another tool can rely on.
+what vihko writes into your notes, the Docker interface and the command line.
+This page lists that surface item by item, as vihko 1.0.1 has it, so you know
+exactly what a script, an agent or another tool can rely on.
 
 ## How to read this page
 
@@ -304,6 +304,28 @@ and aren't covered.
 | Hardening | Runs with a read-only root filesystem, no capabilities (`cap_drop: [ALL]`) and `no-new-privileges` |
 | Health check | `GET /api/health` answers `200` while the process serves |
 | Required settings | None: no variable is required to start |
+| The command | `vihko` on the `PATH`, run inside the container (`docker compose exec vihko vihko …`, or `run --rm` while vihko is stopped); the image's command is `vihko serve` |
+
+## The command line
+
+[Operations](operations.md#the-command-line) explains each command. What
+stays: the commands, their arguments and options, what they read, and their
+exit status. They read the same environment variables as the server.
+
+| Command | Arguments and options | Exit status |
+|---|---|---|
+| `vihko serve`, or `vihko` alone | — | `0` when stopped (`SIGTERM`, `SIGINT`); `1` if it can't start |
+| `vihko user create <name> [--admin]` | The password on standard input (one final line break is dropped); `--admin` before or after the name | `0` created; `1` not (the name taken or not valid, a weak password) |
+| `vihko user reset-link <name>` | — | `0` with the link; `1` no such user |
+| `vihko user reset-2fa <name>` | — | `0` removed, or there was none; `1` no such user |
+| `vihko history purge <path> [--version <id>] [--dry-run]` | `--version=<id>` too | `0` purged, or nothing to purge; `1` not: vihko is running (`state_in_use`), the history isn't managed, no such version… |
+| `vihko version`, or `vihko --version` | — | `0`, printing the version alone on one line (`1.0.1`), without reading any configuration |
+
+A command it doesn't know, or arguments a command doesn't take, print the
+usage on standard error and exit with `2`. A failure prints `error: …` or
+`error (<code>): …` on standard error; the codes stay, their words don't.
+What the commands print for people (the report of a purge, the line that
+says a user was created) isn't covered; `vihko version`'s output is.
 
 ## What vihko writes into your notes
 
