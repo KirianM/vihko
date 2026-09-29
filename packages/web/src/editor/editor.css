@@ -29,6 +29,7 @@
 .editor .tok-propertyName { color: var(--ink-2); }
 .editor .tok-string, .editor .tok-number, .editor .tok-bool { color: var(--accent-strong); }
 .editor .cm-line:not(.cm-codeblock) .tok-monospace { background: var(--chip); border-radius: 4px; padding: 1px 4px; }
+.editor .cm-codeblock .tok-monospace { font-size: inherit; }
 .editor .cm-codeblock { font-family: var(--font-mono); font-size: 14px; line-height: 1.6; background: var(--panel); padding: 0 12px; }
 /* Its fences away from the cursor (livePreview.ts): their lines are its top and bottom edges; the opening one, with the language at its right. */
 .editor .cm-codeblock.cm-fence { font-size: 0; line-height: var(--space-2); }

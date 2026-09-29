@@ -1,5 +1,5 @@
-// Edits for the phone editor bar (link, tag, list): plain text in, one change
-// out, so they don't depend on CodeMirror and can be tested on their own.
+// Edits for the formatting bar's `[[` and `#` (the rest are in format.ts):
+// plain text in, one change out, so they can be tested on their own.
 
 export interface Edit {
   from: number
@@ -21,11 +21,4 @@ export function tag(doc: string, from: number, to: number): Edit {
   const before = from > 0 ? doc[from - 1]! : ' '
   const insert = `${/\s/.test(before) ? '' : ' '}#${doc.slice(from, to)}`
   return { from, to, insert, cursor: from + insert.length }
-}
-
-/** Turns the cursor's line into a list item, or back into plain text if it already is one. */
-export function listItem(doc: string, pos: number): Edit {
-  const start = doc.lastIndexOf('\n', pos - 1) + 1
-  if (doc.startsWith('- ', start)) return { from: start, to: start + 2, insert: '', cursor: Math.max(start, pos - 2) }
-  return { from: start, to: start, insert: '- ', cursor: pos + 2 }
 }
