@@ -161,7 +161,7 @@ async function snapshot(v: Vihko, cookie: string, image: string): Promise<Snapsh
 /** The link from the plan to its target, both ways. */
 async function checkLinks(v: Vihko, cookie: string) {
   const plan = await v.expect(200, 'GET', `/api/note/links?path=${encodeURIComponent(PLAN)}`, { cookie })
-  // `dstPath` from 1.1 on; `dst_path` (deprecated) in 1.0.
+  // `dstPath` from 1.0.1 on; `dst_path` in 1.0.0.
   const out = (plan.outgoing as { status: string; dstPath?: string | null; dst_path?: string | null }[]).find((l) => (l.dstPath ?? l.dst_path) === TARGET)
   check(out?.status === 'resolved', `the plan's link to ${TARGET} resolves: ${JSON.stringify(plan.outgoing)}`)
   const target = await v.expect(200, 'GET', `/api/note/links?path=${encodeURIComponent(TARGET)}`, { cookie })
