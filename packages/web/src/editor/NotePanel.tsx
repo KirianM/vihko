@@ -431,7 +431,7 @@ function listedOutgoing(links: LinksData): OutgoingLink[] {
 }
 
 /** The panel's view of an ambiguous link: where it is (as indexed) and its candidates. */
-const ambiguous = (l: OutgoingLink): AmbiguousLink => ({ raw: l.raw, at: l.pos_from, candidates: l.candidates ?? [] })
+const ambiguous = (l: OutgoingLink): AmbiguousLink => ({ raw: l.raw, at: l.posFrom, candidates: l.candidates ?? [] })
 
 function LinksTab({ links, onNavigate, onPickAmbiguous, onOpenCandidate }: {
   links: LinksData | null
@@ -449,10 +449,10 @@ function LinksTab({ links, onNavigate, onPickAmbiguous, onOpenCandidate }: {
       <ul className="link-list">
         {outgoing.map((l) => (
           <li key={l.raw} className={`link link-${l.status}`}>
-            {l.status === 'resolved' && l.dst_path ? (
-              <Button className="link-btn" onPress={() => onNavigate(l.dst_path!)}>
+            {l.status === 'resolved' && l.dstPath ? (
+              <Button className="link-btn" onPress={() => onNavigate(l.dstPath!)}>
                 <span className="link-name">{linkLabel(l)}</span>
-                <span className="link-path">{l.dst_path}</span>
+                <span className="link-path">{l.dstPath}</span>
               </Button>
             ) : l.status === 'ambiguous' ? (
               // Opens the picker: open one of the candidates, or pin the link to it.

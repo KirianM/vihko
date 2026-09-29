@@ -210,8 +210,8 @@ test('a broken link offers to create the note in this folder; the link then reso
   await k.goBack().catch(() => {})
   await k.goto(`/?note=${encodeURIComponent(SOURCE)}`)
   await expect(k.locator('.cm-wikilink-resolved', { hasText: missing })).toBeVisible()
-  const links = await (await k.request.get(`/api/note/links?path=${encodeURIComponent(SOURCE)}`)).json() as { outgoing: { raw: string; status: string; dst_path: string }[] }
-  expect(links.outgoing.find((l) => l.raw === `[[${missing}]]`)).toMatchObject({ status: 'resolved', dst_path: `${DIR}/${missing}.md` })
+  const links = await (await k.request.get(`/api/note/links?path=${encodeURIComponent(SOURCE)}`)).json() as { outgoing: { raw: string; status: string; dstPath: string }[] }
+  expect(links.outgoing.find((l) => l.raw === `[[${missing}]]`)).toMatchObject({ status: 'resolved', dstPath: `${DIR}/${missing}.md` })
 
   // A Markdown link to a missing .md: created where it points.
   const md = k.locator('.cm-wikilink-missing').filter({ has: k.getByRole('button', { name: 'crear' }) })

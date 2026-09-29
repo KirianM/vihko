@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, cpSync, existsSync, readFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readFrontmatter } from '@vihko/core'
+import { markdownDest, readFrontmatter } from '@vihko/core'
 import { Indexer, NoteError, NoteService, dumpIndex, openIndex, type Actor } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -43,6 +43,37 @@ test('renaming rewrites wikilinks (with an anchor) and Markdown links, and leave
   assert.ok(t.includes(`[Proxy en Markdown](${escaped}.md)`))
   assert.equal(dst('hogar/enlaces.md', `[[${name}#Red]]`), `hogar/${name}.md`)
   assert.equal(dst('hogar/enlaces.md', `[Proxy en Markdown](${escaped}.md)`), `hogar/${name}.md`)
+})
+
+test('renaming to a name a Markdown link must encode: the rewritten links still resolve, in both forms', async () => {
+  // The names are the case under test: brackets, parentheses, `#`, `?` and spaces in a destination.
+  for (const name of ['a (1)', 'x#y', 'ñ [b]', 'q?']) {
+    const { notes, body, dst, db } = setup()
+    const r = await notes.move('hogar/Proxy.md', `hogar/${name}.md`, { actor: me })
+    assert.deepEqual(r.failed, [])
+    const links = db.prepare("select raw, dst_path from links where src_path = 'hogar/enlaces.md' and kind = 'markdown'").all() as { raw: string; dst_path: string | null }[]
+    const toIt = links.filter((l) => l.dst_path === `hogar/${name}.md`)
+    assert.ok(toIt.length > 0, `${name}: ${JSON.stringify(links)}`)
+    assert.ok(body('hogar/enlaces.md').includes(`[Proxy en Markdown](${markdownDest(name)}.md)`), name)
+    // And it moves on from there, to another folder: still found.
+    const to = `${token()}/${name}.md`
+    await notes.move(`hogar/${name}.md`, to, { actor: me })
+    assert.equal(dst('hogar/enlaces.md', `[Proxy en Markdown](../${markdownDest(to)})`), to, `${name}: ${body('hogar/enlaces.md')}`)
+  }
+})
+
+test('a Markdown link in <…> keeps that form, its anchor and its title when rewritten', async () => {
+  const { notes, body, dst, indexer, notesDir } = setup()
+  const src = m.aNotePath(m.aFolder())
+  const [label, title] = [m.aWord(), m.aWord()]
+  mkdirSync(join(notesDir, src, '..'), { recursive: true })
+  writeFileSync(join(notesDir, src), `${m.aSentence()} [${label}](<../hogar/Proxy.md#Red> "${title}")\n`)
+  indexer.indexPaths([src])
+  // A name to encode (the case under test).
+  await notes.move('hogar/Proxy.md', 'hogar/a (1).md', { actor: me })
+  const raw = `[${label}](<../hogar/a%20%281%29.md#Red> "${title}")`
+  assert.ok(body(src).includes(raw), body(src))
+  assert.equal(dst(src, raw), 'hogar/a (1).md')
 })
 
 test('moving to another folder uses the shortest unambiguous suffix and keeps visible text and embeds', async () => {

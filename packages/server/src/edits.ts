@@ -24,6 +24,9 @@ export type EditOp =
    */
   | { op: 'set_frontmatter'; key: string; value: ScalarValue | ScalarValue[] }
 
+/** The most operations one edit takes, by the HTTP API and the MCP server alike. */
+export const MAX_EDIT_OPS = 50
+
 /**
  * A change at an exact place: `remove` characters at `at`, then `insert`.
  * On an open note it's applied as it is, not recomputed as a diff of the

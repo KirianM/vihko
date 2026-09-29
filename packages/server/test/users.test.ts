@@ -391,6 +391,30 @@ test('the CLI gives a reset link (the way back for an admin who lost their passw
   }
 })
 
+test('the CLI creates a user from its arguments as documented: `--admin` before or after the name; anything else is the usage, status 2', async () => {
+  const s = await setup()
+  try {
+    const env = { ...process.env, VIHKO_STATE_DIR: s.dir, VIHKO_NOTES_DIR: s.notesDir }
+    const cli = (args: string[], input = `${m.aPassword()}\n`) => spawnSync(process.execPath, ['--no-experimental-webstorage', CLI, ...args], { env, encoding: 'utf8', input })
+    const [member, admin, another] = [m.aUsername(), m.aUsername(), m.aUsername()]
+    const made = cli(['user', 'create', member])
+    assert.deepEqual([made.status, made.stdout], [0, `user created: ${member} (member)\n`], made.stderr)
+    const first = cli(['user', 'create', '--admin', admin])
+    assert.deepEqual([first.status, first.stdout], [0, `user created: ${admin} (admin)\n`], first.stderr)
+    for (const args of [['user', 'create'], ['user', 'create', '--admin'], ['user', 'create', another, m.aUsername()], ['user', 'create', another, '--member'], ['user', 'reset-link'], ['user', m.aWord()], [m.aWord()], ['version', m.aWord()], ['serve', m.aWord()]]) {
+      const r = cli(args)
+      assert.equal(r.status, 2, `${args.join(' ')}: ${r.stderr}`)
+      assert.match(r.stderr, /^usage: vihko /, args.join(' '))
+    }
+    const again = cli(['user', 'create', member])
+    assert.equal(again.status, 1, 'a user that exists: an error')
+    assert.match(again.stderr, /^error: /)
+    assert.equal(s.auth.userCount(), 4, 'the two of setup and the two created: none named after an option')
+  } finally {
+    await s.close()
+  }
+})
+
 test('state.db: version 5 migrates keeping its users, with a copy before and a log line that names it', () => {
   const dir = tempDir('vihko-state-m4-')
   const file = join(dir, 'state.db')

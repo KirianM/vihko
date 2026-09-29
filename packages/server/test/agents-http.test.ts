@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { markdownDest } from '@vihko/core'
 import { ROUTES } from '@vihko/server'
 import { PNG, setup } from './_agents.ts'
 import { mother } from '../../../test/mother.ts'
@@ -27,7 +28,7 @@ test('switched off (the default), a key reaches nothing: 404 everywhere, as a ro
   try {
     const { token } = await h.newKey({ name: m.aKeyName() })
     const key = h.withKey(token)
-    for (const [method, p] of [['GET', `/api/note?path=${encodeURIComponent(PLAN)}`], ['GET', '/api/tree'], ['GET', '/api/health'], ['POST', '/api/auth/login'], ['GET', '/api/no-such-route'], ['GET', '/api/keys']]) {
+    for (const [method, p] of [['GET', `/api/note?path=${encodeURIComponent(PLAN)}`], ['GET', '/api/tree'], ['POST', '/api/auth/login'], ['GET', '/api/no-such-route'], ['GET', '/api/keys']]) {
       const r = await key(method!, p!)
       assert.deepEqual([r.status, r.body?.error], [404, 'not_found'], `${method} ${p}`)
     }
@@ -51,7 +52,8 @@ test('switched on: only the listed routes, by the key alone; a bad key is 401, a
     assert.equal(note.status, 200)
     assert.equal(note.headers.get('etag'), `"${note.body.etag}"`)
     // Session routes don't exist for a key: administration, profile, keys, switches, alerts, trash, folders…
-    for (const r of Object.entries(ROUTES).filter(([, c]) => c === 'session' || c === 'public')) {
+    // (The health check and the first boot ignore the key: see below.)
+    for (const r of Object.entries(ROUTES).filter(([k, c]) => (c === 'session' || c === 'public') && !KEY_IGNORED.includes(k))) {
       const [method, p] = r[0].split(' ') as [string, string]
       const res = await key(method, p.replace(':id', 'x'), method === 'GET' ? undefined : {})
       assert.deepEqual([res.status, res.body?.error], [404, 'not_found'], r[0])
@@ -73,6 +75,41 @@ test('switched on: only the listed routes, by the key alone; a bad key is 401, a
     const { token: t2 } = await h.newKey({ name: m.aKeyName() })
     await h.admin('PUT', '/api/admin/integrations', { api: false })
     assert.equal((await h.withKey(t2)('GET', '/api/tree')).status, 404)
+  } finally { await h.close() }
+})
+
+const KEY_IGNORED = ['GET /api/health', 'GET /api/setup', 'POST /api/setup']
+
+test('the health check and the first boot answer as without a key when a request carries one: good, bad, or with the API off', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    const { token } = await h.newKey({ name: m.aKeyName() })
+    const setupBody = { token: m.aSecret(43), username: m.aUsername(), password: m.aPassword() }
+    const plain = (method: string, p: string, body?: unknown) => h.withKey('')(method, p, body, { authorization: '' })
+    const expected = {
+      health: await plain('GET', '/api/health'),
+      needed: await plain('GET', '/api/setup'),
+      setup: await plain('POST', '/api/setup', setupBody),
+    }
+    assert.deepEqual([expected.health.status, expected.health.body], [200, { ok: true }])
+    assert.deepEqual([expected.needed.status, expected.needed.body], [200, { needed: false }])
+    assert.equal(expected.setup.status, 409)
+    for (const on of [false, true]) {
+      if (on) await h.enableApi()
+      for (const bearer of [token, m.aSecret(12), `vihko_${m.aSecret(26)}_${m.aSecret(43)}`]) {
+        const key = h.withKey(bearer)
+        const what = `API ${on ? 'on' : 'off'}, ${bearer === token ? 'a good key' : 'a bad key'}`
+        const health = await key('GET', '/api/health')
+        assert.deepEqual([health.status, health.body], [expected.health.status, expected.health.body], what)
+        assert.equal((await key('HEAD', '/api/health')).status, 200, what)
+        const needed = await key('GET', '/api/setup')
+        assert.deepEqual([needed.status, needed.body], [expected.needed.status, expected.needed.body], what)
+        const s = await key('POST', '/api/setup', setupBody)
+        assert.deepEqual([s.status, s.body?.error], [expected.setup.status, expected.setup.body.error], what)
+      }
+    }
+    // Every other route without a session stays out of a key's reach.
+    assert.deepEqual([(await h.withKey(token)('POST', '/api/auth/login', {})).status], [404])
   } finally { await h.close() }
 })
 
@@ -255,6 +292,117 @@ test('writing with a key: If-Match (412 with the current ETag), If-None-Match: *
     assert.deepEqual(agent, { kind: 'agent', id: info.id, name, onBehalfOf: { id: h.users.admin.id, name: h.users.admin.username }, via: 'api', key: `agent:${info.id}` })
     // As the key sees it too.
     assert.deepEqual((await key('GET', h.url('/api/history/versions', { path }))).body.versions[0].authors[0], agent)
+  } finally { await h.close() }
+})
+
+test('edits by operation: a malformed operation is 400 invalid (as over MCP), before the note is read; what the text doesn\'t match is 409', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    await h.enableApi()
+    const { token } = await h.newKey({ name: m.aKeyName(), canWrite: true })
+    const key = h.withKey(token)
+    const { etag, text } = (await key('GET', h.url('/api/note', { path: PLAN }))).body
+    const edit = (ops: unknown, path = PLAN) => key('POST', '/api/note/edit', { path, ops, ifMatch: etag })
+    const append = { op: 'append', text: m.aSentence() }
+    for (const [what, ops] of Object.entries({
+      'an unknown op': [{ op: m.aWord(), text: m.aSentence() }],
+      'no op': [{ text: m.aSentence() }],
+      'not an object': [m.aWord()],
+      'append without text': [{ op: 'append' }],
+      'find_replace without replace': [{ op: 'find_replace', find: m.aWord() }],
+      'a heading that is not text': [{ op: 'replace_section', heading: 2, text: m.aSentence() }],
+      'expectedCount 0': [{ op: 'find_replace', find: m.aWord(), replace: m.aWord(), expectedCount: 0 }],
+      'set_frontmatter without value': [{ op: 'set_frontmatter', key: m.aWord() }],
+      'set_frontmatter with an object': [{ op: 'set_frontmatter', key: m.aWord(), value: { [m.aWord()]: m.aWord() } }],
+      'set_frontmatter on the uid': [{ op: 'set_frontmatter', key: 'uid', value: m.faker.string.ulid() }],
+      'set_frontmatter on the uid, spaced': [{ op: 'set_frontmatter', key: ' uid ', value: m.faker.string.ulid() }],
+      'no operations': [],
+      'more than 50 operations': Array.from({ length: 51 }, () => append),
+      'a valid one, then a bad one': [append, { op: 'append' }],
+      'not a list': append,
+    })) {
+      const r = await edit(ops)
+      assert.deepEqual([r.status, r.body?.error], [400, 'invalid'], what)
+    }
+    // Before the note is read: the same for a note that doesn't exist.
+    assert.deepEqual((await edit([{ op: m.aWord() }], m.aNotePath(DIR))).status, 400)
+    assert.equal((await key('GET', h.url('/api/note', { path: PLAN }))).body.etag, etag, 'nothing was written')
+    // 50 is the limit, not beyond it.
+    assert.equal((await edit(Array.from({ length: 50 }, () => ({ op: 'append', text: m.aWord() })))).status, 200)
+    // What depends on the text stays edit_mismatch.
+    const now = (await key('GET', h.url('/api/note', { path: PLAN }))).body
+    const absent = m.aUniqueWord()
+    assert.ok(!text.includes(absent))
+    const mismatch = await key('POST', '/api/note/edit', { path: PLAN, ifMatch: now.etag, ops: [{ op: 'find_replace', find: absent, replace: m.aWord() }] })
+    assert.deepEqual([mismatch.status, mismatch.body.error], [409, 'edit_mismatch'])
+  } finally { await h.close() }
+})
+
+/** Keys that aren't camelCase anywhere in a JSON answer (maps keyed by path, such as `titles`, aside). */
+function notCamel(v: unknown, at = ''): string[] {
+  if (Array.isArray(v)) return v.flatMap((x, i) => notCamel(x, `${at}[${i}]`))
+  if (typeof v !== 'object' || v === null) return []
+  return Object.entries(v).flatMap(([k, x]) => [
+    ...(/^[a-z][a-zA-Z0-9]*$/.test(k) ? [] : [`${at}.${k}`]),
+    ...(k === 'titles' ? [] : notCamel(x, `${at}.${k}`)),
+  ])
+}
+
+test('every answer of the routes open to keys is camelCase: fields, nested ones, reports and errors', async () => {
+  const [target, twin, heading] = [m.aTitle(), m.aTitle(), m.aHeading()]
+  const [a, b] = [m.aFolder(), m.aFolder()]
+  const source = m.aNotePath(DIR)
+  const files = {
+    ...FILES,
+    [`${DIR}/${target}.md`]: `# ${heading}\n\n${m.aSentence()}\n`,
+    [`${a}/${twin}.md`]: `# ${m.aHeading()}\n`,
+    [`${b}/${twin}.md`]: `# ${m.aHeading()}\n`,
+    [source]: `---\ntags: [${m.aTag()}]\n---\n# ${m.aHeading()}\n\n[[${target}#${heading}]] [[${target}#${m.aUniqueWord()}]] [[${twin}]] [[${m.aTitle()}]] [${m.aWord()}](${markdownDest(target)}.md) #${m.aTag()}\n\n${m.aWord()}<!-- @${m.aUsername()} 2026-09-26T10:00Z · ${m.aSentence()} -->\n`,
+    [m.aNotePath(DIR)]: `---\ntitle: [${m.aWord()}\n---\n${m.aSentence()}\n`,
+  }
+  const h = await setup({ files, config: `daily:\n  ${m.anId()}:\n    folder: ${JSON.stringify(DIR)}\n` })
+  try {
+    await h.enableApi()
+    const { token } = await h.newKey({ name: m.aKeyName(), canWrite: true })
+    const key = h.withKey(token)
+    const seen: [string, unknown][] = []
+    const ask = async (method: string, path: string, body?: unknown, headers?: Record<string, string>, as = key) => {
+      const r = await as(method, path, body, headers)
+      seen.push([`${method} ${path} → ${r.status}`, r.body])
+      return r
+    }
+    const note = (await ask('GET', h.url('/api/note', { path: source }))).body
+    const links = (await ask('GET', h.url('/api/note/links', { path: source }))).body
+    assert.ok(links.outgoing.some((l: { status: string }) => l.status === 'ambiguous') && links.outgoing.some((l: { anchorOk: number | null }) => l.anchorOk === 0), JSON.stringify(links))
+    await ask('GET', h.url('/api/note/links', { path: `${DIR}/${target}.md` }))
+    for (const p of ['/api/tree', '/api/tags', '/api/daily', '/api/history/status', '/api/history/changes']) await ask('GET', p)
+    for (const p of ['/api/note/headings', '/api/note/comments', '/api/history/versions', '/api/history/resolved']) await ask('GET', h.url(p, { path: source }))
+    await ask('GET', h.url('/api/search', { q: `path:${DIR}` }))
+    // A frontmatter that can't be read hides the note from agents: its `meta` as a person gets it.
+    const broken = await ask('GET', h.url('/api/note', { path: Object.keys(files).at(-1)! }), undefined, undefined, h.admin)
+    assert.equal(typeof broken.body.meta.fmError, 'string', JSON.stringify(broken.body))
+    const created = (await ask('POST', '/api/note', { path: m.aNotePath(DIR), text: `# ${m.aHeading()}\n` })).body
+    await ask('PUT', h.url('/api/note', { path: created.path }), { text: m.aSentence() }, { 'if-match': '"sha256:0"' })
+    await h.settle()
+    await ask('POST', '/api/note/edit', { path: created.path, ops: [{ op: 'append', text: m.aSentence() }] })
+    await ask('POST', '/api/note/edit', { path: source, ifMatch: note.etag, dryRun: true, ops: [{ op: 'find_replace', find: heading, replace: m.aWord() }] })
+    await ask('POST', '/api/note/edit', { path: source, ops: [{ op: 'append', text: m.aSentence() }] })
+    await ask('POST', '/api/note/edit', { path: source, ops: [{ op: 'set_frontmatter', key: 'ai', value: false }], ifMatch: (await key('GET', h.url('/api/note', { path: source }))).body.etag })
+    await ask('POST', '/api/daily', {})
+    await ask('POST', '/api/note/move', { from: `${DIR}/${target}.md`, to: `${m.aFolder()}/${target}.md`, dryRun: true })
+    await ask('POST', '/api/note/move', { from: `${DIR}/${target}.md`, to: `${DIR}/${m.aTitle()}.md` })
+    await ask('POST', h.url('/api/attachments', { note: created.path }), new Uint8Array(PNG))
+    await h.settle()
+    const versions = (await ask('GET', h.url('/api/history/versions', { path: created.path }))).body.versions
+    const [last, first] = [versions[0], versions.at(-1)]
+    await ask('GET', h.url('/api/history/version', { path: created.path, id: first.id }))
+    await ask('GET', h.url('/api/history/diff', { path: created.path, id: last.id }))
+    await ask('POST', '/api/history/revert', { path: created.path, id: last.id, dryRun: true })
+    await ask('POST', '/api/history/restore', { path: created.path, id: first.id })
+    await ask('DELETE', h.url('/api/note', { path: created.path }))
+    await ask('GET', h.url('/api/note', { path: m.aNotePath(OUT_DIR) }))
+    for (const [what, body] of seen) assert.deepEqual(notCamel(body), [], what)
+    assert.ok(seen.some(([w]) => w.startsWith('POST /api/history/revert → 200')), seen.map(([w]) => w).join('\n'))
   } finally { await h.close() }
 })
 

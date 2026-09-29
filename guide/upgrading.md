@@ -14,11 +14,15 @@ hand, or that breaks something built on vihko, in any of these:
 - the MCP tools;
 - what vihko writes into your notes (the `uid` in the frontmatter, comments,
   attachments);
-- the Docker interface: the volumes, the environment variables and the port.
+- the Docker interface: the volumes, the environment variables and the port;
+- the command line: the `vihko` commands, their options and exit status.
 
 Within a major version, updates only add or fix things. When something in that
 list has to change, the old form keeps working, with a deprecation warning,
-until the next major version.
+until the next major version. [What 1.x keeps stable](compatibility.md) lists
+that surface item by item: every API route and MCP tool, every `vihko.yaml`
+key, the environment variables, the commands, and what vihko writes into
+notes.
 
 Two things are outside the promise:
 

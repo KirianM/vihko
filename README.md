@@ -114,6 +114,8 @@ file.
 - [API](guide/api.md): the HTTP API reference.
 - [Upgrading](guide/upgrading.md): versions, image tags, updating and rolling
   back.
+- [What 1.x keeps stable](guide/compatibility.md): what scripts and agents
+  can rely on across 1.x.
 - [Backups](guide/backups.md): what to back up, and how to restore.
 - [Reverse proxy](guide/reverse-proxy.md): HTTPS and a public address.
 - [Operations](guide/operations.md): the command line, logs, NFS, and common

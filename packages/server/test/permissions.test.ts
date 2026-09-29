@@ -69,13 +69,13 @@ test('§7.1: each person sees their folders and the shared one; the admin doesn\
     const kLinks = (await h.admin('GET', h.url('/api/note/links', { path: PATH.list }))).body
     const out = Object.fromEntries(kLinks.outgoing.map((l: { raw: string }) => [l.raw, l]))
     const cake = out[link(NAME.cake)]
-    assert.deepEqual([cake.status, cake.dst_path, cake.reason], ['no_access', null, undefined])
+    assert.deepEqual([cake.status, cake.dstPath, cake.reason], ['no_access', null, undefined])
     assert.equal(out['[[2026-09-27]]'].status, 'no_access')
     assert.notEqual(out[link(NAME.plan)].status, 'no_access', 'the admin\'s own notes are candidates for them')
     assert.deepEqual(paths(kLinks.backlinks), sorted([PATH.settings, PATH.adminPlan]))
     const lLinks = (await h.member('GET', h.url('/api/note/links', { path: PATH.list }))).body
     const lout = Object.fromEntries(lLinks.outgoing.map((l: { raw: string }) => [l.raw, l]))
-    assert.deepEqual([lout[link(NAME.cake)].status, lout[link(NAME.cake)].dst_path], ['resolved', PATH.cake])
+    assert.deepEqual([lout[link(NAME.cake)].status, lout[link(NAME.cake)].dstPath], ['resolved', PATH.cake])
     assert.deepEqual([lout[link(NAME.plan)].status, lout[link(NAME.plan)].candidates], ['no_access', null])
     assert.deepEqual(paths(lLinks.backlinks), sorted([PATH.diary, PATH.cake]))
 
