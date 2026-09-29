@@ -437,8 +437,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       frontmatter: fm.error ? null : fm.data,
       links: {
         outgoing: outgoing.slice(0, 200).map((l) => ({
-          link: l.raw, target: l.target, anchor: l.anchor, status: l.status, path: l.dst_path, candidates: l.candidates,
-          ...(l.others_no_access ? { others_no_access: true } : {}),
+          link: l.raw, target: l.target, anchor: l.anchor, status: l.status, path: l.dstPath, candidates: l.candidates,
+          ...(l.othersNoAccess ? { others_no_access: true } : {}),
           ...(l.reason ? { reason: l.reason } : {}),
         })),
         incoming: incoming.slice(0, 200).map((b) => ({ path: b.path, title: b.title, count: b.count })),
@@ -492,10 +492,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     const incoming = bySource(l.backlinks)
     const titles = new Map(scoped.tree().notes.map((n) => [n.path, n.title]))
     const out = outgoing.slice(offset, offset + limit).map((o) => ({
-      link: o.raw, target: o.target, anchor: o.anchor, status: o.status, path: o.dst_path,
-      title: o.dst_path ? titles.get(o.dst_path) ?? null : null,
+      link: o.raw, target: o.target, anchor: o.anchor, status: o.status, path: o.dstPath,
+      title: o.dstPath ? titles.get(o.dstPath) ?? null : null,
       candidates: o.candidates?.map((c) => ({ path: c, title: l.titles[c] ?? c })) ?? null,
-      ...(o.others_no_access ? { others_no_access: true } : {}),
+      ...(o.othersNoAccess ? { others_no_access: true } : {}),
       ...(o.reason ? { reason: o.reason } : {}),
     }))
     const back = incoming.slice(offset, offset + limit)

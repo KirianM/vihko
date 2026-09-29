@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { markdownDest } from '@vihko/core'
 import { ROUTES } from '@vihko/server'
 import { PNG, setup } from './_agents.ts'
 import { mother } from '../../../test/mother.ts'
@@ -334,6 +335,74 @@ test('edits by operation: a malformed operation is 400 invalid (as over MCP), be
     assert.ok(!text.includes(absent))
     const mismatch = await key('POST', '/api/note/edit', { path: PLAN, ifMatch: now.etag, ops: [{ op: 'find_replace', find: absent, replace: m.aWord() }] })
     assert.deepEqual([mismatch.status, mismatch.body.error], [409, 'edit_mismatch'])
+  } finally { await h.close() }
+})
+
+/** Keys that aren't camelCase anywhere in a JSON answer (maps keyed by path, such as `titles`, aside). */
+function notCamel(v: unknown, at = ''): string[] {
+  if (Array.isArray(v)) return v.flatMap((x, i) => notCamel(x, `${at}[${i}]`))
+  if (typeof v !== 'object' || v === null) return []
+  return Object.entries(v).flatMap(([k, x]) => [
+    ...(/^[a-z][a-zA-Z0-9]*$/.test(k) ? [] : [`${at}.${k}`]),
+    ...(k === 'titles' ? [] : notCamel(x, `${at}.${k}`)),
+  ])
+}
+
+test('every answer of the routes open to keys is camelCase: fields, nested ones, reports and errors', async () => {
+  const [target, twin, heading] = [m.aTitle(), m.aTitle(), m.aHeading()]
+  const [a, b] = [m.aFolder(), m.aFolder()]
+  const source = m.aNotePath(DIR)
+  const files = {
+    ...FILES,
+    [`${DIR}/${target}.md`]: `# ${heading}\n\n${m.aSentence()}\n`,
+    [`${a}/${twin}.md`]: `# ${m.aHeading()}\n`,
+    [`${b}/${twin}.md`]: `# ${m.aHeading()}\n`,
+    [source]: `---\ntags: [${m.aTag()}]\n---\n# ${m.aHeading()}\n\n[[${target}#${heading}]] [[${target}#${m.aUniqueWord()}]] [[${twin}]] [[${m.aTitle()}]] [${m.aWord()}](${markdownDest(target)}.md) #${m.aTag()}\n\n${m.aWord()}<!-- @${m.aUsername()} 2026-09-26T10:00Z · ${m.aSentence()} -->\n`,
+    [m.aNotePath(DIR)]: `---\ntitle: [${m.aWord()}\n---\n${m.aSentence()}\n`,
+  }
+  const h = await setup({ files, config: `daily:\n  ${m.anId()}:\n    folder: ${JSON.stringify(DIR)}\n` })
+  try {
+    await h.enableApi()
+    const { token } = await h.newKey({ name: m.aKeyName(), canWrite: true })
+    const key = h.withKey(token)
+    const seen: [string, unknown][] = []
+    const ask = async (method: string, path: string, body?: unknown, headers?: Record<string, string>, as = key) => {
+      const r = await as(method, path, body, headers)
+      seen.push([`${method} ${path} → ${r.status}`, r.body])
+      return r
+    }
+    const note = (await ask('GET', h.url('/api/note', { path: source }))).body
+    const links = (await ask('GET', h.url('/api/note/links', { path: source }))).body
+    assert.ok(links.outgoing.some((l: { status: string }) => l.status === 'ambiguous') && links.outgoing.some((l: { anchorOk: number | null }) => l.anchorOk === 0), JSON.stringify(links))
+    await ask('GET', h.url('/api/note/links', { path: `${DIR}/${target}.md` }))
+    for (const p of ['/api/tree', '/api/tags', '/api/daily', '/api/history/status', '/api/history/changes']) await ask('GET', p)
+    for (const p of ['/api/note/headings', '/api/note/comments', '/api/history/versions', '/api/history/resolved']) await ask('GET', h.url(p, { path: source }))
+    await ask('GET', h.url('/api/search', { q: `path:${DIR}` }))
+    // A frontmatter that can't be read hides the note from agents: its `meta` as a person gets it.
+    const broken = await ask('GET', h.url('/api/note', { path: Object.keys(files).at(-1)! }), undefined, undefined, h.admin)
+    assert.equal(typeof broken.body.meta.fmError, 'string', JSON.stringify(broken.body))
+    const created = (await ask('POST', '/api/note', { path: m.aNotePath(DIR), text: `# ${m.aHeading()}\n` })).body
+    await ask('PUT', h.url('/api/note', { path: created.path }), { text: m.aSentence() }, { 'if-match': '"sha256:0"' })
+    await h.settle()
+    await ask('POST', '/api/note/edit', { path: created.path, ops: [{ op: 'append', text: m.aSentence() }] })
+    await ask('POST', '/api/note/edit', { path: source, ifMatch: note.etag, dryRun: true, ops: [{ op: 'find_replace', find: heading, replace: m.aWord() }] })
+    await ask('POST', '/api/note/edit', { path: source, ops: [{ op: 'append', text: m.aSentence() }] })
+    await ask('POST', '/api/note/edit', { path: source, ops: [{ op: 'set_frontmatter', key: 'ai', value: false }], ifMatch: (await key('GET', h.url('/api/note', { path: source }))).body.etag })
+    await ask('POST', '/api/daily', {})
+    await ask('POST', '/api/note/move', { from: `${DIR}/${target}.md`, to: `${m.aFolder()}/${target}.md`, dryRun: true })
+    await ask('POST', '/api/note/move', { from: `${DIR}/${target}.md`, to: `${DIR}/${m.aTitle()}.md` })
+    await ask('POST', h.url('/api/attachments', { note: created.path }), new Uint8Array(PNG))
+    await h.settle()
+    const versions = (await ask('GET', h.url('/api/history/versions', { path: created.path }))).body.versions
+    const [last, first] = [versions[0], versions.at(-1)]
+    await ask('GET', h.url('/api/history/version', { path: created.path, id: first.id }))
+    await ask('GET', h.url('/api/history/diff', { path: created.path, id: last.id }))
+    await ask('POST', '/api/history/revert', { path: created.path, id: last.id, dryRun: true })
+    await ask('POST', '/api/history/restore', { path: created.path, id: first.id })
+    await ask('DELETE', h.url('/api/note', { path: created.path }))
+    await ask('GET', h.url('/api/note', { path: m.aNotePath(OUT_DIR) }))
+    for (const [what, body] of seen) assert.deepEqual(notCamel(body), [], what)
+    assert.ok(seen.some(([w]) => w.startsWith('POST /api/history/revert → 200')), seen.map(([w]) => w).join('\n'))
   } finally { await h.close() }
 })
 

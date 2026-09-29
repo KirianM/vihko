@@ -209,16 +209,28 @@ curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/note" \
   "path": "projects/plan.md",
   "text": "# Plan\n\n- Draft the budget\n- Book the room\n",
   "etag": "sha256:7e24…",
-  "meta": { "title": "Plan", "uid": null, "fm_error": null },
+  "meta": { "title": "Plan", "uid": null, "fmError": null },
   "hiddenFromAgents": null
 }
 ```
 
+`meta` is what the index knows of the note (`null` for a moment after it's
+written from outside): its `title`, `uid`, and `fmError`, why its frontmatter
+can't be read, or `null`.
+
 To see what's around a note:
 
-- `GET /api/note/links?path=` gives `outgoing` (each link with its `status`:
-  `resolved`, `ambiguous` with `candidates`, `missing`, or `no_access`) and
-  `backlinks` (the notes that link to it, with the text around each link).
+- `GET /api/note/links?path=` gives `outgoing` and `backlinks` (the notes that
+  link to it: `path`, `title`, the link as written, `raw`, and the text around
+  it, `context`), and `titles`, the titles of the notes named in `candidates`.
+  Each outgoing link has `raw` (as written), `kind` (`wiki`, `embed` or
+  `markdown`), `target` and `anchor` (its `#heading`, or `null`), `posFrom`
+  (where it starts in the note), and its `status`: `resolved` with `dstPath`,
+  the note it leads to, and `anchorOk` (`1` if the heading is there, `0` if
+  not, `null` without one); `ambiguous` with the `candidates` the key can see
+  (and `othersNoAccess: true` when there are others); `missing`; or
+  `no_access`, with a `reason` for a key. A link to the note itself adds
+  `self: true`.
 - `GET /api/note/headings?path=` gives `headings`, each with its `level` and
   `text`.
 - `GET /api/note/comments?path=` gives the note's comment `threads`, each with

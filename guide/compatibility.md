@@ -3,7 +3,7 @@
 [Upgrading](upgrading.md) says what a version number promises: within 1.x,
 updates only add or fix things in the HTTP API, the MCP tools, `vihko.yaml`,
 what vihko writes into your notes and the Docker interface. This page lists
-that surface item by item, as vihko 1.0 has it, so you know exactly what a
+that surface item by item, as vihko 1.0.1 has it, so you know exactly what a
 script, an agent or another tool can rely on.
 
 ## How to read this page
@@ -27,6 +27,24 @@ When something here has to change, the old form keeps working until 2.0. It's
 announced in the changelog's *Upgrade notes*, and the API and the MCP server
 say so themselves when a client uses it. It goes away only in a major version.
 
+**1.0.1 corrected 1.0.0's contract, once.** Taking this inventory showed a
+few things 1.0.0 got wrong, and 1.0.1 changed them outright, with no period
+in which both forms work:
+
+- The fields of `GET /api/note` and `GET /api/note/links` that came in
+  `snake_case` are `camelCase`, like every other field of the HTTP API:
+  `meta.fm_error` is `meta.fmError`, and a link's `dst_path`, `anchor_ok`,
+  `pos_from` and `others_no_access` are `dstPath`, `anchorOk`, `posFrom` and
+  `othersNoAccess`. (The MCP tools, whose results are all `snake_case`, keep
+  theirs.)
+- `POST /api/note/edit` answers an operation that isn't well formed with
+  `400 invalid`, as MCP does, instead of `409 edit_mismatch`; it takes 1 to
+  50 operations, and `set_frontmatter` can't change `uid`.
+- A Markdown link rewritten after a move has its destination percent-encoded
+  as image links do, instead of only its spaces.
+
+That was the only exception: from 1.0.1 on, the rules above hold.
+
 ## The HTTP API
 
 The [API guide](api.md) explains how to use it. This is the list of what
@@ -43,6 +61,7 @@ stays.
 | A route not open to keys | `404 not_found` |
 | A read-only key on a route that writes | `403 forbidden` |
 | Bodies | JSON, except image uploads (raw bytes) and file downloads |
+| Field names | `camelCase`, in requests and answers |
 | Note paths | From the notes root, with `.md`: `projects/plan.md` |
 | Dates | ISO 8601, UTC |
 | A note's ETag | `sha256:<hex>` of its text, in the body and in the `ETag` header (quoted) |
@@ -59,8 +78,8 @@ write (write).
 | Method and path | Key | Request | Response |
 |---|---|---|---|
 | `GET /api/tree` | read | — | `notes` (`path`, `title`, `uid`, `aliases`), `folders`, `pathOnly` |
-| `GET /api/note` | read | `path` | `path`, `text`, `etag`, `meta` (`title`, `uid`, `fm_error`, or null), `hiddenFromAgents` |
-| `GET /api/note/links` | read | `path` | `outgoing` (`raw`, `kind`, `target`, `anchor`, `status`, `dst_path`, `anchor_ok`, `candidates`, `pos_from`, and `others_no_access`, `reason`, `self` when they apply), `backlinks` (`path`, `title`, `raw`, `context`), `titles` |
+| `GET /api/note` | read | `path` | `path`, `text`, `etag`, `meta` (`title`, `uid`, `fmError`, or null), `hiddenFromAgents` |
+| `GET /api/note/links` | read | `path` | `outgoing` (`raw`, `kind`, `target`, `anchor`, `status`, `dstPath`, `anchorOk`, `candidates`, `posFrom`, and `othersNoAccess`, `reason`, `self` when they apply), `backlinks` (`path`, `title`, `raw`, `context`), `titles` |
 | `GET /api/note/headings` | read | `path` | `headings` (`level`, `text`) |
 | `GET /api/note/comments` | read | `path` | `threads` (`id`, `original`, `changed`) |
 | `GET /api/search` | read | `q` | `results` (`path`, `title`, `snippet`), `highlight` (`start`, `end`) |
@@ -122,7 +141,7 @@ The codes in the [API guide](api.md#errors) stay, with their status:
 
 ### Limits
 
-| What | 1.0 |
+| What | 1.0.1 |
 |---|---|
 | Request body | 20 MiB |
 | Image upload | `VIHKO_MAX_IMAGE_MB`, 20 MB by default |

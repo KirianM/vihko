@@ -116,10 +116,10 @@ test('HTTP: the links carry where they are and their candidates\' titles; pinnin
   const links = await admin('GET', '/api/note/links?path=diario/2026-09-24.md')
   const tareas = links.body.outgoing.find((l: { raw: string }) => l.raw === '[[Tareas]]')
   assert.equal(tareas.status, 'ambiguous')
-  assert.equal(typeof tareas.pos_from, 'number')
+  assert.equal(typeof tareas.posFrom, 'number')
   assert.deepEqual(links.body.titles, { 'proyectos/blog/Tareas.md': 'Tareas de blog', 'proyectos/vihko/Tareas.md': 'Tareas de vihko' })
 
-  const r = await admin('POST', '/api/note/link/pin', { path: 'diario/2026-09-24.md', raw: '[[Tareas]]', at: tareas.pos_from, target: 'proyectos/vihko/Tareas.md' })
+  const r = await admin('POST', '/api/note/link/pin', { path: 'diario/2026-09-24.md', raw: '[[Tareas]]', at: tareas.posFrom, target: 'proyectos/vihko/Tareas.md' })
   assert.equal(r.status, 200)
   assert.equal(r.body.raw, '[[vihko/Tareas]]')
   assert.ok(readFileSync(join(notesDir, 'diario/2026-09-24.md'), 'utf8').includes('- [[vihko/Tareas]] es ambiguo'))

@@ -33,7 +33,7 @@ export function useCreateLink(source: string, templates: readonly string[], onCr
         // Someone (or another tab) created it first: open it if this link leads there now.
         const links = await api.links(source).catch(() => null)
         const link = links?.outgoing.find((l) => l.raw === note.raw)
-        if (link?.status === 'resolved' && link.dst_path === note.path) return onCreated(note.path)
+        if (link?.status === 'resolved' && link.dstPath === note.path) return onCreated(note.path)
       }
       setError(errorText(t, e))
     } finally {

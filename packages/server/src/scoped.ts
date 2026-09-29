@@ -90,7 +90,9 @@ export class RequestError extends Error {
  * An outgoing link as the API gives it. For an agent, `no_access`: it leads
  * to a note that exists but is hidden from it (or every candidate of an
  * ambiguous one is), without saying which; an ambiguous one keeps the
- * candidates it can see, with `others_no_access` if there are others.
+ * candidates it can see, with `othersNoAccess` if there are others.
+ * `dstPath`: the note it leads to; `anchorOk`: 1 if its `#heading` is
+ * there, 0 if not, null without one; `posFrom`: where it starts in the note.
  */
 export interface OutgoingLink {
   raw: string
@@ -98,11 +100,11 @@ export interface OutgoingLink {
   target: string
   anchor: string | null
   status: 'resolved' | 'ambiguous' | 'missing' | 'no_access'
-  dst_path: string | null
-  anchor_ok: number | null
+  dstPath: string | null
+  anchorOk: number | null
   candidates: string[] | null
-  pos_from: number
-  others_no_access?: boolean
+  posFrom: number
+  othersNoAccess?: boolean
   /** `no_access`: why, when every note it may lead to is hidden for the same reason. */
   reason?: DenyReason
   /**
@@ -205,6 +207,9 @@ export function hiddenAfterWrite(access: Access, notes: Pick<NoteService, 'readC
   }
   return { reason, message: nowHiddenMessage(reason) }
 }
+
+/** What the index knows of a note, as `read` gives it. */
+export interface NoteMeta { title: string; uid: string | null; fmError: string | null }
 
 /**
  * Where a link leads, written in a note (`resolveLink`), as in `links`.
@@ -362,11 +367,13 @@ export class ScopedNotes {
    * The note, with what the index knows of it and whether its text hides it
    * from agents (`hiddenFromAgents`, access.ts: null for any note an agent
    * reads, since it can't read the others). For a person, their `level`
-   * where it is (D-038.5): the editor is read-only below `edit`.
+   * where it is (D-038.5): the editor is read-only below `edit`. `meta`: its
+   * title, uid and why its frontmatter can't be read (`fmError`), or null
+   * while the index doesn't have it.
    */
-  read(path: string): NoteRead & { meta: unknown; hiddenFromAgents: 'ai' | 'frontmatter' | null; level?: Level } {
+  read(path: string): NoteRead & { meta: NoteMeta | null; hiddenFromAgents: 'ai' | 'frontmatter' | null; level?: Level } {
     const r = this.visible(path)
-    const meta = this.deps.index.prepare('select title, uid, fm_error from notes where path = ?').get(r.path) ?? null
+    const meta = (this.deps.index.prepare('select title, uid, fm_error as fmError from notes where path = ?').get(r.path) as NoteMeta | undefined) ?? null
     const level = this.access.isAgent ? undefined : this.access.level(folderOf(r.path)) ?? 'read'
     return { ...r, meta, hiddenFromAgents: this.access.agentHiding(r.text), ...(level ? { level } : {}) }
   }
@@ -403,7 +410,7 @@ export class ScopedNotes {
    * A note's outgoing links and backlinks (with their context), and the
    * titles of an ambiguous link's candidates. A link to a note the
    * principal can't read is `no_access` (the note isn't named, D-024); an
-   * ambiguous one keeps the candidates it can see, with `others_no_access`
+   * ambiguous one keeps the candidates it can see, with `othersNoAccess`
    * if there are others, and is `no_access` if it can see none. Backlinks
    * from notes it can't see aren't there at all.
    *
@@ -415,7 +422,7 @@ export class ScopedNotes {
   links(path: string): { outgoing: OutgoingLink[]; backlinks: { path: string; title: string; raw: string; context: string }[]; titles: Record<string, string> } {
     const { path: p } = this.visible(path)
     const { index, notesDir } = this.deps
-    const outgoing = index.prepare(`select raw, kind, target, anchor, status, dst_path, anchor_ok, candidates, pos_from
+    const outgoing = index.prepare(`select raw, kind, target, anchor, status, dst_path as dstPath, anchor_ok as anchorOk, candidates, pos_from as posFrom
       from links where src_path = ? order by ord`).all(p) as (Omit<OutgoingLink, 'candidates'> & { candidates: string | null })[]
     const w = this.access.notesWhere('n')
     const incoming = index.prepare(`select l.src_path, n.title, l.raw, l.pos_from, l.pos_to
@@ -437,7 +444,7 @@ export class ScopedNotes {
     const titleOf = index.prepare('select title from notes where path = ?')
     const out = outgoing.map((l): OutgoingLink => {
       const candidates = l.candidates ? JSON.parse(l.candidates) as string[] : null
-      const row: OutgoingLink = { ...l, candidates, ...(l.status === 'resolved' && l.dst_path === p ? { self: true as const } : {}) }
+      const row: OutgoingLink = { ...l, candidates, ...(l.status === 'resolved' && l.dstPath === p ? { self: true as const } : {}) }
       const link = this.maskedLink(row)
       for (const c of link.candidates ?? []) titles[c] ??= (titleOf.get(c) as { title: string } | undefined)?.title ?? c
       return link
@@ -453,14 +460,14 @@ export class ScopedNotes {
    */
   private maskedLink(l: OutgoingLink): OutgoingLink {
     const reasonFor = (p: string) => (this.access.isAgent ? this.access.reasonFor(p) : null)
-    if (l.dst_path !== null && !this.access.canRead(l.dst_path)) return noAccess(l, reasonFor(l.dst_path))
+    if (l.dstPath !== null && !this.access.canRead(l.dstPath)) return noAccess(l, reasonFor(l.dstPath))
     if (!l.candidates) return l
     const visible = l.candidates.filter((c) => this.access.canRead(c))
     if (visible.length === 0) {
       const reasons = new Set(l.candidates.map(reasonFor))
       return noAccess(l, reasons.size === 1 ? [...reasons][0]! : null)
     }
-    return visible.length === l.candidates.length ? l : { ...l, candidates: visible, others_no_access: true }
+    return visible.length === l.candidates.length ? l : { ...l, candidates: visible, othersNoAccess: true }
   }
 
   /**
@@ -477,20 +484,20 @@ export class ScopedNotes {
     if (!this.deps.links) throw new Error('link resolution is not available')
     const r = this.deps.links().resolve(src, parsed)
     const row: OutgoingLink = {
-      raw: link, kind: parsed.kind, target: parsed.target, anchor: parsed.anchor, pos_from: 0,
-      status: r.status, dst_path: r.status === 'resolved' ? r.path : null,
-      anchor_ok: r.status === 'resolved' && r.anchor !== null ? (r.anchor === 'ok' ? 1 : 0) : null,
+      raw: link, kind: parsed.kind, target: parsed.target, anchor: parsed.anchor, posFrom: 0,
+      status: r.status, dstPath: r.status === 'resolved' ? r.path : null,
+      anchorOk: r.status === 'resolved' && r.anchor !== null ? (r.anchor === 'ok' ? 1 : 0) : null,
       candidates: r.status === 'ambiguous' ? r.candidates : null,
     }
     const shown = this.maskedLink(row)
     const reason = shown.status === 'no_access' ? shown.reason ?? null : null
     const titleOf = this.deps.index.prepare('select title from notes where path = ?')
     const titles: Record<string, string> = {}
-    for (const p of [shown.dst_path, ...(shown.candidates ?? [])]) if (p) titles[p] = (titleOf.get(p) as { title: string } | undefined)?.title ?? p
+    for (const p of [shown.dstPath, ...(shown.candidates ?? [])]) if (p) titles[p] = (titleOf.get(p) as { title: string } | undefined)?.title ?? p
     return {
-      kind: parsed.kind, target: parsed.target, anchor: parsed.anchor, status: shown.status, path: shown.dst_path,
-      anchorOk: shown.anchor_ok === null ? null : shown.anchor_ok === 1, candidates: shown.candidates,
-      othersNoAccess: shown.others_no_access === true, reason, titles,
+      kind: parsed.kind, target: parsed.target, anchor: parsed.anchor, status: shown.status, path: shown.dstPath,
+      anchorOk: shown.anchorOk === null ? null : shown.anchorOk === 1, candidates: shown.candidates,
+      othersNoAccess: shown.othersNoAccess === true, reason, titles,
     }
   }
 
@@ -1081,8 +1088,8 @@ function parseLink(link: string): Pick<LinkRef, 'kind' | 'target' | 'anchor'> | 
 }
 
 /** A link to a note hidden from the principal: its own text and why (if one reason), nothing of where it leads. */
-function noAccess(l: { raw: string; kind: string; target: string; anchor: string | null; pos_from: number }, reason: DenyReason | null): OutgoingLink {
-  return { raw: l.raw, kind: l.kind, target: l.target, anchor: l.anchor, status: 'no_access', dst_path: null, anchor_ok: null, candidates: null, pos_from: l.pos_from, ...(reason ? { reason } : {}) }
+function noAccess(l: { raw: string; kind: string; target: string; anchor: string | null; posFrom: number }, reason: DenyReason | null): OutgoingLink {
+  return { raw: l.raw, kind: l.kind, target: l.target, anchor: l.anchor, status: 'no_access', dstPath: null, anchorOk: null, candidates: null, posFrom: l.posFrom, ...(reason ? { reason } : {}) }
 }
 
 const likePrefix = (dir: string) => dir.replace(/[\\%_]/g, (c) => '\\' + c) + '/%'

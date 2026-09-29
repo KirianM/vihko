@@ -97,7 +97,7 @@ test('the tree lists folders, the empty ones too; folders are created, moved and
   assert.ok(tree.body.notes.some((n: { path: string }) => n.path === `${infra}/hogar/Proxy.md`))
   assert.ok(!tree.body.folders.includes('hogar') && tree.body.folders.includes(`${infra}/hogar`))
   const links = await admin('GET', `/api/note/links?path=${encodeURIComponent(linking)}`)
-  assert.deepEqual(links.body.outgoing.map((l: { dst_path: string }) => l.dst_path), [`${infra}/hogar/Proxy.md`, `${infra}/hogar/Red.md`])
+  assert.deepEqual(links.body.outgoing.map((l: { dstPath: string }) => l.dstPath), [`${infra}/hogar/Proxy.md`, `${infra}/hogar/Red.md`])
 
   assert.equal((await admin('POST', '/api/folder/move', { from: 'recetas', to: infra })).status, 409)
   const folder = (path: string) => `/api/folder?path=${encodeURIComponent(path)}`
