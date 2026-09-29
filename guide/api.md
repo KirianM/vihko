@@ -7,8 +7,9 @@ guide, and nothing else.
 The API is part of vihko's compatibility promise, like `vihko.yaml` and the MCP
 tools: a change that breaks a client that follows this guide only comes with a
 new major version, and anything removed stays available, marked deprecated,
-until then. The paths have no version prefix. Fields may be added to responses
-at any time: ignore those you don't know. [What 1.x keeps stable](compatibility.md#the-http-api)
+until then, unless keeping it would leave installations open to an attack.
+The paths have no version prefix. Fields, and new values of a field, may be
+added to responses at any time: ignore those you don't know. [What 1.x keeps stable](compatibility.md#the-http-api)
 lists every route with the fields that stay.
 
 For AI assistants, the MCP server is usually a better fit: see
@@ -136,6 +137,10 @@ their editor live.
 | Images received at once | 2 per person, 8 in all, uploads and copies from a URL together (`429 busy`) |
 | Search results | 50 with words, 500 with filters alone |
 | History pages | 50 versions or changes at most |
+
+These are 1.0.1's. Limits can change within 1.x, and new ones can appear,
+rate limits among them (`429` with `Retry-After`): see
+[What 1.x keeps stable](compatibility.md#how-to-read-this-page).
 
 ## Endpoints
 

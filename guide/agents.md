@@ -48,7 +48,8 @@ The last two switches, and one more:
 
 Whoever runs the server can lock the API and the MCP server off with the
 environment variable `VIHKO_INTEGRATIONS=off`. Then they stay off whatever the
-page says, and the page shows them locked. Removing the variable and restarting
+page says, and the page shows them locked. The lock covers any integration a
+later 1.x release adds too. Removing the variable and restarting
 vihko lifts the lock.
 
 If the API or the MCP server is on while `vihko.yaml` keeps the history
@@ -154,7 +155,8 @@ vihko's MCP server is at `/mcp` on the same address and port as the UI, for
 example `http://vihko.example.lan:8080/mcp`. It speaks MCP's **Streamable
 HTTP** transport, without sessions: clients send `POST` requests with the key
 in an `Authorization: Bearer` header. There is no stdio transport and no
-separate SSE endpoint (`GET` and `DELETE` on `/mcp` answer `405`).
+separate SSE endpoint: a client needs only `POST` (today `GET` and `DELETE` on
+`/mcp` answer `405`).
 
 Replace the address and the key in the examples below with yours. The **New
 key** dialog shows them filled in.
@@ -576,5 +578,3 @@ trash. See [History](history.md).
   not built.
 - Apps can't be registered by hand while registration is off: turn it on for
   as long as it takes to connect a new app.
-- The frontmatter key that hides a note from agents is always `ai`; it can't be
-  renamed in `vihko.yaml`.

@@ -111,7 +111,7 @@ services:
 
 | Tag | What you get |
 |---|---|
-| `1` | The latest 1.x release. Recommended: fixes and new features, never a change that needs you to do something by hand. |
+| `1` | The latest 1.x release. Recommended: fixes and new features, never an incompatible change (save the exceptions in [Upgrading](upgrading.md#what-a-version-number-promises)). |
 | `1.2` | The latest 1.2.x release: fixes only. |
 | `1.2.3` | Exactly that release. It never changes. |
 | `latest` | The latest release, **whatever its major version**. It can jump from 1.x to 2.0 on a `docker compose pull`. Avoid it. |
@@ -367,7 +367,7 @@ give it a sensible value.)
 |---|---|---|
 | `VIHKO_PUBLIC_URL` | unset | The `https://` address vihko is reached at from outside, behind a reverse proxy: the origin only, such as `https://notes.example.com`. It makes OAuth available for remote MCP clients (while the MCP server is on), and invitation and password-reset links use it. See [Reverse proxy](reverse-proxy.md) and [Agents](agents.md). |
 | `VIHKO_TRUSTED_PROXIES` | unset | Addresses or CIDR ranges of your reverse proxies, separated by commas or spaces (`172.16.0.0/12, 10.0.0.50`). Only from them does vihko believe `X-Forwarded-For`, to tell clients apart for the sign-in limits. Unset, every request counts as coming from the connection's address. A proxy on another machine is its one address: a range such as `10.0.0.50/8` trusts the whole `10.0.0.0/8`. See [Reverse proxy](reverse-proxy.md#tell-vihko-about-the-proxy). |
-| `VIHKO_INTEGRATIONS` | unset | `off` keeps the API with keys and the MCP server off, whatever an admin turns on in the UI. The only other accepted value is unset. |
+| `VIHKO_INTEGRATIONS` | unset | `off` keeps every integration off, whatever an admin turns on in the UI: the API with keys, the MCP server, and any a later 1.x release adds. The only other accepted value is unset. |
 | `VIHKO_EXTERNAL_IMAGES` | `allow` | `block` stops browsers loading images that notes link from other sites (which tells those sites who reads the note, and when); a box with the site's domain is shown instead. |
 | `VIHKO_MAX_IMAGE_MB` | `20` | The largest image vihko stores from an upload, a paste or a URL, in megabytes. An agent's `attach_image` takes about 3 MB at most whatever it says: that is what fits in an MCP request (see [Agents](agents.md#images)). |
 | `VIHKO_SECRET_KEY` | unset | A key of 32 characters or more that encrypts the second-factor secrets stored in `state.db`, so that a copy of `state.db` alone can't produce anyone's codes. See [The second-factor key](#the-second-factor-key). |
@@ -489,4 +489,6 @@ VIHKO_NOTES_DIR=/path/to/notes VIHKO_STATE_DIR=/path/to/state packages/server/sr
 
 There are no system packages or service files. Everything in this guide about
 the two folders, the environment variables and the command line applies the
-same way.
+same way. Running from source isn't part of the 1.x promise: the Node.js
+version, the npm scripts and the repository's layout can change in any
+release (see [What isn't covered](compatibility.md#what-isnt-covered)).

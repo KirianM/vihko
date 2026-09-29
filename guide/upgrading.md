@@ -24,7 +24,16 @@ that surface item by item: every API route and MCP tool, every `vihko.yaml`
 key, the environment variables, the commands, and what vihko writes into
 notes.
 
-Two things are outside the promise:
+Two exceptions, each announced in the changelog:
+
+- **Security comes first.** If keeping something as it is would leave
+  installations open to an attack, a 1.x release can change it or turn it off
+  at once. The changelog says so under *Security*, with what to use instead.
+- **A default can change to close something**, never to open it, announced
+  in the *Upgrade notes*. Features that are off by default stay off.
+
+Some things are outside the promise ([What isn't covered](compatibility.md#what-isnt-covered)
+lists them all), among them:
 
 - **The web UI** can change in any release.
 - **The inside of `state.db`**: vihko migrates it on its own when it starts

@@ -236,6 +236,13 @@ into notes), and the milestone's closing comparison. What they find is fixed
 in another release candidate, not after the tag: once it is out, the contract
 changes only as `guide/compatibility.md` allows until the next major.
 
+Every other release keeps that inventory true: a pull request that adds to or
+changes the contract surface updates `guide/compatibility.md` in the same pull
+request, and before tagging, the surface is compared with the previous tag's
+(`git diff v<previous>.. -- guide/compatibility.md` and the routes, tools,
+keys, variables and commands in the code): anything new that isn't on the page,
+or anything on it that changed incompatibly, stops the release.
+
 1. On a branch, set the new version in the root `package.json`, every
    workspace package and `package-lock.json` (a test checks they agree):
    `npm version 1.2.3 --no-git-tag-version --workspaces --include-workspace-root`.
