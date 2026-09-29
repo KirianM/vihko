@@ -75,7 +75,7 @@ jobs:
       # repository (its description, and "AGPL-3.0" for the licence).
       OCI: |
         org.opencontainers.image.title=vihko
-        org.opencontainers.image.description=Self-hosted notes over plain Markdown files, with a web UI, multiple users, live collaboration and optional API, MCP and webhooks.
+        org.opencontainers.image.description=A self-hosted, open source notes system over plain Markdown files, with its own web UI, multiple users, live collaboration, and a server-side index you can query from the UI and, optionally, from an API and an MCP server.
         org.opencontainers.image.licenses=AGPL-3.0-only
         org.opencontainers.image.version=${{ needs.check.outputs.version }}
     steps:
