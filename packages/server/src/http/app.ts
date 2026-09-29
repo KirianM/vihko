@@ -11,7 +11,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
-import { WORKSPACE_FILE, classifyPath, conflictOriginal, markdownDest, type Alert, type ErrorCode } from '@vihko/core'
+import { WORKSPACE_FILE, classifyPath, conflictOriginal, imageMarkdown, type Alert, type ErrorCode } from '@vihko/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
@@ -20,6 +20,7 @@ import { HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import type { EditOp } from '../edits.ts'
 import { commentOp } from '../commenting.ts'
 import { FetchImageError, SERVED_TYPES, fetchImage, type FetchImageOptions } from '../attachments.ts'
+import { ImageSlots } from '../imageSlots.ts'
 import { DailyNotes } from '../daily.ts'
 import { ProfileError, type Profile, type Profiles } from '../profiles.ts'
 import type { Workspace } from '../workspace.ts'
@@ -76,10 +77,6 @@ export const MAX_AUTH_BODY = 16 * 1024
  * their own limit (`maxImageBytes`), on their route.
  */
 export const MAX_API_BODY = 20 * 1024 * 1024
-
-/** Images received at once (uploads and copies from a URL, each held whole in memory): by one person, and in all. */
-export const IMAGES_PER_USER = 2
-export const IMAGES_IN_FLIGHT = 8
 
 export interface Runtime {
   lastScan: ScanReport | null
@@ -194,6 +191,8 @@ export interface Services {
   oauth: OAuthServer
   /** Users and groups: `groupsOf(userId)` is how the permissions read someone's groups. */
   users: Users
+  /** Images being received, by the API and the MCP server alike (imageSlots.ts). */
+  imageSlots: ImageSlots
 }
 
 export type ExternalImages = 'allow' | 'block'
@@ -274,7 +273,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   users.hooks.onUserDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(name, { actor: by }) }
   users.hooks.onGroupRenamed ??= async (from, to, by) => { await permissionsFile.renameSubject(`@${from}`, `@${to}`, { actor: by }) }
   users.hooks.onGroupDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(`@${name}`, { actor: by }) }
-  const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users }
+  const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users, imageSlots: new ImageSlots() }
   const app = new Hono<Env>()
   /** The request's operations, as whoever is asking. */
   const scoped = (c: Context<Env>) => services.scoped(c.get('access'))
@@ -667,33 +666,26 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   // Images being received (an upload's body, a copy downloading) are held in
-  // memory whole, up to the size limit each: only a few at a time, per person
-  // and in all, so that many at once can't exhaust the server's memory.
-  // Beyond that, 429 with Retry-After; nothing is read.
-  const receiving = { total: 0, byUser: new Map<string, number>() }
+  // memory whole: only a few at a time, per person and in all, counted with
+  // the MCP server's (imageSlots.ts). Beyond that, 429 with Retry-After;
+  // nothing is read.
   const imageSlot = async (c: Context<Env>, next: () => Promise<void>) => {
-    const id = c.get('user').id
-    const mine = receiving.byUser.get(id) ?? 0
-    if (mine >= IMAGES_PER_USER || receiving.total >= IMAGES_IN_FLIGHT) {
+    const release = services.imageSlots.take(c.get('user').id)
+    if (!release) {
       c.header('Retry-After', '1')
       return fail(c, 429, 'busy', 'too many images are being received at once: try again in a moment')
     }
-    receiving.byUser.set(id, mine + 1)
-    receiving.total++
     try {
       await next()
     } finally {
-      receiving.total--
-      const left = (receiving.byUser.get(id) ?? 1) - 1
-      if (left > 0) receiving.byUser.set(id, left)
-      else receiving.byUser.delete(id)
+      release()
     }
   }
 
   // `src` is the image's path relative to the note (the editor escapes it);
   // `markdown` is the link ready to write into the note, with what would break
   // a Markdown destination (a space, say) escaped: a script appends it as is.
-  const withMarkdown = (r: { path: string; src: string }) => ({ ...r, markdown: `![](${markdownDest(r.src)})` })
+  const withMarkdown = (r: { path: string; src: string }) => ({ ...r, markdown: imageMarkdown(r.src) })
 
   // Images (D-028). Upload and paste are the same: the raw bytes of the file
   // in the body. It is stored next to the note and the editor links it.

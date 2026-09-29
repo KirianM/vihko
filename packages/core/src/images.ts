@@ -56,3 +56,14 @@ export function resolveImageRef(notePath: string, ref: string, opts: { embed?: b
 export function markdownDest(path: string): string {
   return path.replace(/[\s()[\]%#?<>\\]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'))
 }
+
+/**
+ * The Markdown image for a stored image, ready to write into its note:
+ * `src` relative to the note (as `markdownDest` escapes it), and `alt` on one
+ * line, with the brackets and backslashes that would end or break it escaped.
+ */
+export function imageMarkdown(src: string, alt = ''): string {
+  // Any run of white space, line breaks included, is one space: a line break could end the paragraph, and the link with it.
+  const text = alt.replace(/\s+/g, ' ').trim().replace(/[\\[\]]/g, '\\$&')
+  return `![${text}](${markdownDest(src)})`
+}

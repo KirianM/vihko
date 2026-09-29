@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { extract, isImageRef, markdownDest, resolveImageRef } from '@vihko/core'
+import { extract, imageMarkdown, isImageRef, markdownDest, resolveImageRef } from '@vihko/core'
 
 test('image references: by extension, ignoring query and anchor', () => {
   for (const r of ['a.png', 'b/C.JPG', 'x.webp?v=2', 'https://h/i.avif#f', 'd.svg']) assert.ok(isImageRef(r), r)
@@ -24,6 +24,18 @@ test('Markdown destinations escape only what breaks the link', () => {
   assert.equal(markdownDest('Mi plan (v2)#1.png'), 'Mi%20plan%20%28v2%29%231.png')
   assert.equal(markdownDest('café.png'), 'café.png')
   assert.equal(resolveImageRef('n.md', markdownDest('Mi plan (v2)%.png')), 'Mi plan (v2)%.png', 'round trip')
+})
+
+test('an image written for its note: the destination escaped, the alt text on one line with what would end it escaped', () => {
+  assert.equal(imageMarkdown('Mi plan-2026.png'), '![](Mi%20plan-2026.png)')
+  assert.equal(imageMarkdown('a.png', 'A [draft]\\ of\r\n  the\nplan '), '![A \\[draft\\]\\\\ of the plan](a.png)')
+  // However odd the alt text, the note uses the image, whole.
+  for (const alt of ['x](evil.png)', ']', 'a\n\n# heading', '\\', '[[Plan]]', '![](b.png)']) {
+    const md = imageMarkdown('d i.png', alt)
+    const x = extract(`${md}\n`)
+    assert.deepEqual(x.images.map((i) => [i.raw, i.dest]), [[md, 'd%20i.png']], alt)
+    assert.deepEqual(x.links, [], alt)
+  }
 })
 
 test('links to images are not note links: not extracted, so never broken', () => {
