@@ -451,6 +451,8 @@ export const api = {
   dismissNotice: (id: string) => request<{ ok: true }>('DELETE', `/api/account/notices/${encodeURIComponent(id)}`),
   /** The alert of a rewrite of vihko.yaml at start, dismissed (the admin, for every admin). */
   dismissConfigMigration: (id: string) => request<{ ok: true }>('DELETE', `/api/admin/config-migrations/${encodeURIComponent(id)}`),
+  /** The alert of a migration of state.db at start, dismissed (the admin, for every admin). */
+  dismissStateMigration: (id: string) => request<{ ok: true }>('DELETE', `/api/admin/state-migrations/${encodeURIComponent(id)}`),
   endOtherSessions: () => request<{ ended: number }>('DELETE', '/api/account/sessions'),
   /** Other sessions end; `wrong_password` if `current` isn't right. */
   changePassword: (current: string, password: string) => request<{ ok: true }>('POST', '/api/auth/password', { current, password }),

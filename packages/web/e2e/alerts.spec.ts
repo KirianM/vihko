@@ -337,6 +337,34 @@ test('vihko.yaml rewritten to the current format at start: what changed and wher
   await k.context().close()
 })
 
+test('state.db migrated at start: from which version to which and where the copy is, until dismissed', async ({ browser }) => {
+  const k = await signIn(browser, ADMIN)
+  const id = m.aSecret(8)
+  const from = m.anInt(1, 50)
+  const to = from + m.anInt(1, 5)
+  const backup = `state.db.bak-v${from}`
+  // Shown as a date in the admin's timezone: the 14th whatever it is.
+  await mockAlerts(k, [{ code: 'state_migrated', id, file: 'state.db', from, to, backup, at: '2026-03-14T09:30:00Z', actions: ['dismiss'] }])
+  const sent: string[] = []
+  await k.route('**/api/admin/state-migrations/*', (route) => {
+    sent.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`)
+    return route.fulfill({ json: { ok: true } })
+  })
+  await k.goto('/?view=alerts')
+  const migrated = card(k, 'base de datos')
+  await expect(migrated.getByRole('heading')).toHaveText('vihko actualizó su base de datos, state.db')
+  await expect(migrated).toContainText(/el 14 mar/)
+  await expect(migrated).toContainText(`la pasó de la versión ${from} a la ${to}`)
+  await expect(migrated).toContainText(`en el volumen de estado: ${backup}.`)
+  await k.setViewportSize({ width: 1440, height: 900 })
+  await k.screenshot({ path: `${SHOTS}/avisos-base-de-datos.png`, fullPage: true, animations: 'disabled' })
+  await k.setViewportSize({ width: 390, height: 844 })
+  expect(await k.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  await migrated.getByRole('button', { name: 'Entendido' }).click()
+  await expect.poll(() => sent).toEqual([`DELETE /api/admin/state-migrations/${id}`])
+  await k.context().close()
+})
+
 test('empty state', async ({ browser }) => {
   const k = await signIn(browser, ADMIN)
   await mockAlerts(k, [])

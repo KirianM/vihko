@@ -89,8 +89,11 @@ before it serves anything:
   copies it to `state.db.bak-v<N>` in the state volume, where `<N>` is the
   schema version it had. Then it applies the changes in one transaction: if
   anything fails, `state.db` stays as it was and vihko doesn't start. Migrations
-  only go forward. The copies are never deleted by vihko: remove old ones
-  yourself once you're happy with an update.
+  only go forward. Each migration is logged (`state.db migrated from version
+  <N> to <M>; …`) and shown to the admins in the workspace alerts, with the
+  name of the copy, until one dismisses it; a new installation, whose
+  `state.db` is just created, gets no alert. The copies are never deleted by
+  vihko: remove old ones yourself once you're happy with an update.
 
 - **`vihko.yaml` is rewritten** if the new version changed how something is
   written in it. Only what changed is rewritten; comments, key order and keys

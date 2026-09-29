@@ -162,6 +162,7 @@ The lines to know:
 | `VIHKO_INTEGRATIONS=off: …` | The API with keys and the MCP server are locked off. |
 | `VIHKO_SECRET_KEY: second factors are stored encrypted` | The key is in use. |
 | `N second factor(s) can't be read …` | The key is missing or different from the one they were encrypted with. See [The second-factor key](install.md#the-second-factor-key). |
+| `state.db migrated from version <N> to <M>; the previous one is in …` | An upgrade changed vihko's database; the line says where the copy is (`state.db.bak-v<N>`, in the state volume). The admins see it in the workspace alerts until one dismisses it. See [Upgrading](upgrading.md#what-happens-at-start). |
 | `vihko.yaml rewritten to the current format: …` | An upgrade changed the file's format; the line says where the copy is. See [Upgrading](upgrading.md#what-happens-at-start). |
 | `vihko.yaml can't be used (…)` | A mistake in `vihko.yaml`: vihko keeps the last valid version. The admins see the details in the workspace alerts. See [Configuration](configuration.md). |
 | `moved outside vihko: a.md → b.md (…)` | A note was renamed or moved by another program; vihko followed it. |

@@ -3,7 +3,10 @@
 // clients and tokens and, later, webhooks. It's not disposable: it's
 // backed up, and its schema evolves through migrations, never by deleting it.
 import Database from 'better-sqlite3'
+import { randomUUID } from 'node:crypto'
 import { copyFileSync, existsSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
+import type { Alert } from '@vihko/core'
 import type { Db } from './db.ts'
 
 /** Migrations in order. A published one is never edited: another one is added. */
@@ -161,7 +164,35 @@ const MIGRATIONS: string[] = [
 
 export const STATE_VERSION = MIGRATIONS.length
 
-export function openState(file: string, opts: { log?: (msg: string) => void } = {}): Db {
+/**
+ * A migration of an existing state.db, as the admins are told of it until
+ * one of them dismisses it: from and to which version, when (ISO), and the
+ * copy made before (`backup`, its path in the state volume).
+ */
+export interface StateMigration {
+  id: string
+  from: number
+  to: number
+  at: string
+  backup: string
+}
+
+/**
+ * Where the migrations the admins haven't dismissed are kept: in state.db
+ * itself, written in the migration's own transaction, so that whatever
+ * opened it (the server, or a CLI command before it) leaves the record, and
+ * a database put back from its copy takes it away.
+ */
+const MIGRATED_KEY = 'state.migrations'
+/** The migrations kept until dismissed: older ones go first. */
+const MAX_MIGRATED = 20
+
+export interface OpenStateOptions {
+  log?: (msg: string) => void
+  now?: () => Date
+}
+
+export function openState(file: string, opts: OpenStateOptions = {}): Db {
   const existed = existsSync(file)
   const db = new Database(file)
   db.pragma('journal_mode = wal')
@@ -173,16 +204,57 @@ export function openState(file: string, opts: { log?: (msg: string) => void } = 
     throw new Error(`state.db is at version ${current}, newer than this install (${MIGRATIONS.length}). Did you roll back to an older version of vihko?`)
   }
   if (current < MIGRATIONS.length) {
-    if (existed && current > 0) {
+    // A new database is no news; an upgraded one is, with where its copy went.
+    const upgrade = existed && current > 0
+    const backup = `${basename(file)}.bak-v${current}`
+    if (upgrade) {
       db.pragma('wal_checkpoint(truncate)')
-      copyFileSync(file, `${file}.bak-v${current}`)
+      copyFileSync(file, join(dirname(file), backup))
     }
     db.transaction(() => {
       for (let v = current; v < MIGRATIONS.length; v++) db.exec(MIGRATIONS[v]!)
       db.pragma(`user_version = ${MIGRATIONS.length}`)
+      if (upgrade) {
+        const at = (opts.now?.() ?? new Date()).toISOString()
+        saveMigrations(db, [...stateMigrations(db), { id: randomUUID(), from: current, to: MIGRATIONS.length, at, backup }].slice(-MAX_MIGRATED))
+      }
     })()
-    // A new database is no news; an upgraded one is, with where its copy went.
-    if (existed && current > 0) opts.log?.(`state.db migrated from version ${current} to ${MIGRATIONS.length}; the previous one is in ${file}.bak-v${current}`)
+    if (upgrade) opts.log?.(`state.db migrated from version ${current} to ${MIGRATIONS.length}; the previous one is in ${join(dirname(file), backup)}`)
   }
   return db
+}
+
+/** The migrations of this state.db the admins haven't dismissed, oldest first. */
+export function stateMigrations(db: Db): StateMigration[] {
+  const row = db.prepare('select value from settings where key = ?').get(MIGRATED_KEY) as { value: string } | undefined
+  if (!row) return []
+  try {
+    const data = JSON.parse(row.value) as unknown
+    return Array.isArray(data)
+      ? data.filter((r): r is StateMigration => typeof r?.id === 'string' && Number.isInteger(r.from) && Number.isInteger(r.to) && typeof r.at === 'string' && typeof r.backup === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+/** Each migration as the admins' alert. */
+export function stateMigrationAlerts(db: Db): Alert[] {
+  return stateMigrations(db).map((r) => ({ code: 'state_migrated', id: r.id, file: 'state.db', from: r.from, to: r.to, backup: r.backup, at: r.at, actions: ['dismiss'] }))
+}
+
+/** Dismisses a migration's alert (for every admin). Whether there was one. */
+export function dismissStateMigration(db: Db, id: string): boolean {
+  return db.transaction(() => {
+    const before = stateMigrations(db)
+    const after = before.filter((r) => r.id !== id)
+    if (after.length === before.length) return false
+    saveMigrations(db, after)
+    return true
+  })()
+}
+
+function saveMigrations(db: Db, list: StateMigration[]) {
+  if (list.length === 0) db.prepare('delete from settings where key = ?').run(MIGRATED_KEY)
+  else db.prepare('insert into settings (key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(MIGRATED_KEY, JSON.stringify(list))
 }
