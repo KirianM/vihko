@@ -6,7 +6,7 @@ import { syntaxHighlighting } from '@codemirror/language'
 import { searchKeymap } from '@codemirror/search'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
-import { classHighlighter } from '@lezer/highlight'
+import { classHighlighter, tagHighlighter, tags } from '@lezer/highlight'
 import { vihkoSyntax } from '@vihko/core/syntax'
 import { useEffect, useRef } from 'react'
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
@@ -25,6 +25,12 @@ import { tables } from './tables.ts'
 import { taskLabel, tasks } from './tasks.ts'
 import { viewUpdates } from './viewUpdates.ts'
 import './editor.css'
+
+/** Classes `classHighlighter` has none for: struck-through text and inline code (editor.css styles them). */
+const moreClasses = tagHighlighter([
+  { tag: tags.strikethrough, class: 'tok-strikethrough' },
+  { tag: tags.monospace, class: 'tok-monospace' },
+])
 
 interface Props {
   /** Path of the note: relative image references resolve against its folder. */
@@ -85,6 +91,7 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
       extensions: [
         yamlFrontmatter({ content: markdown({ base: markdownLanguage, extensions: vihkoSyntax, addKeymap: false }) }),
         syntaxHighlighting(classHighlighter),
+        syntaxHighlighting(moreClasses),
         EditorView.lineWrapping,
         livePreview,
         navigate.of((p) => nav.current(p)),
