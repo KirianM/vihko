@@ -463,8 +463,9 @@ in:
   the API and MCP off whatever the UI says. See [Agents](agents.md).
 - **OAuth doesn't exist** (every OAuth address answers 404) unless you set
   `VIHKO_PUBLIC_URL` *and* the MCP server is on. Even then, apps can't
-  register themselves (as claude.ai and `mcp-remote` do) until an admin turns
-  on **OAuth apps can register themselves**.
+  register themselves (as `mcp-remote` does) until an admin turns on **OAuth
+  apps can register themselves**; apps that identify themselves with a URL,
+  such as claude.ai, don't need it.
 - **vihko makes no requests of its own**: no telemetry, no update checks, no
   CDNs, no fonts or scripts from other sites. It only reaches out when a
   person asks it to: copying an image from a URL someone pasted, or, for

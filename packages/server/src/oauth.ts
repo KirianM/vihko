@@ -669,12 +669,20 @@ function checkRedirectUris(v: unknown): string[] {
   return out
 }
 
-/** `grant_types` and `response_types`, when given, only with what vihko does. */
+/**
+ * `grant_types` and `response_types`, when given: lists of names that
+ * include what vihko's flow is (`authorization_code`, `code`). Other grants
+ * the client also uses elsewhere are ignored, as RFC 7591 §2 lets a server
+ * do: vihko never grants them (its token endpoint answers
+ * `unsupported_grant_type`, and registration answers with what it gives).
+ * claude.ai's metadata document lists
+ * `urn:ietf:params:oauth:grant-type:jwt-bearer` too.
+ */
 function checkTypes(grantTypes: unknown, responseTypes: unknown) {
-  for (const [field, v, allowed] of [['grant_types', grantTypes, ['authorization_code', 'refresh_token']], ['response_types', responseTypes, ['code']]] as const) {
+  for (const [field, v, needed] of [['grant_types', grantTypes, 'authorization_code'], ['response_types', responseTypes, 'code']] as const) {
     if (v === undefined) continue
-    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !(allowed as readonly string[]).includes(x))) {
-      throw new OAuthRequestError('invalid_client_metadata', `${field} may only hold ${allowed.join(', ')}`)
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string') || !v.includes(needed)) {
+      throw new OAuthRequestError('invalid_client_metadata', `${field} must be a list that includes ${needed}`)
     }
   }
 }

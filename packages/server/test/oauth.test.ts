@@ -423,12 +423,17 @@ test('registration: checked, confidential clients need their secret, and the adm
       [{ redirect_uris: ['https://claude.example/cb#x'] }, 'invalid_redirect_uri'],
       [{ redirect_uris: ['/cb'] }, 'invalid_redirect_uri'],
       [{ grant_types: ['client_credentials'] }, 'invalid_client_metadata'],
+      [{ grant_types: ['refresh_token'] }, 'invalid_client_metadata'],
+      [{ grant_types: 'authorization_code' }, 'invalid_client_metadata'],
       [{ response_types: ['token'] }, 'invalid_client_metadata'],
       [{ token_endpoint_auth_method: 'private_key_jwt' }, 'invalid_client_metadata'],
     ] as const) {
       const r = await json(h, 'POST', '/oauth/register', { client_name: m.aKeyName(), redirect_uris: [REDIRECT], token_endpoint_auth_method: 'none', ...meta })
       assert.deepEqual([r.status, r.body.error], [400, error], JSON.stringify(meta))
     }
+    // Grants it also uses elsewhere are ignored: it's told what it gets, the code flow.
+    const more = await register(h, { grant_types: ['authorization_code', 'refresh_token', 'urn:ietf:params:oauth:grant-type:jwt-bearer'], response_types: ['code'] })
+    assert.deepEqual((more as unknown as { grant_types: string[] }).grant_types, ['authorization_code', 'refresh_token'])
     // An app's own scheme and loopback http are fine; the name falls back to the redirect URI's host.
     const app = await register(h, { client_name: undefined, redirect_uris: ['cursor://anysphere.cursor-mcp/oauth/callback', 'http://127.0.0.1:9/cb'] })
     assert.equal(app.client_name, 'anysphere.cursor-mcp')

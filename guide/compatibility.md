@@ -367,7 +367,10 @@ What the server metadata promises, and stays: the authorization code flow
 with PKCE (`S256` only) and refresh tokens, the `query` response mode, the
 `iss` parameter in the response, client authentication `none`,
 `client_secret_post` or `client_secret_basic`, and clients that identify
-themselves with a metadata document URL. `registration_endpoint` is listed
+themselves with a metadata document URL. A client (registered or described by
+its document) must list `authorization_code` among its `grant_types` and
+`code` among its `response_types` when it gives them; other grants it lists
+are ignored. `registration_endpoint` is listed
 only while registration is on. Tokens are opaque: read `expires_in` rather
 than counting on a lifetime.
 
