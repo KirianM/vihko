@@ -597,15 +597,27 @@ export function runFormat(view: EditorView, spec: TransactionSpec | null): void 
 }
 
 /**
- * Shortcuts, as CodeMirror names them. Mod-k is the palette's (Shell.tsx) and
- * Shift-Mod-k deletes a line (CodeMirror's default keymap), so a link is
- * Mod-Alt-k, next to commenting's Mod-Alt-m (Editor.tsx).
+ * Shortcuts, as CodeMirror names them; none is in CodeMirror's default or
+ * search keymaps (format.test.ts). Mod-k is the palette's (Shell.tsx) and
+ * Shift-Mod-k deletes a line, so a link is Mod-Alt-k, next to commenting's
+ * Mod-Alt-m (Editor.tsx). Inline code is Mod-e, as in GitHub and Outline;
+ * strikethrough Mod-Shift-s, as in Notion, Logseq and SilverBullet (Outline's
+ * Mod-d selects the next occurrence here).
  */
-export const SHORTCUTS = { strong: 'Mod-b', em: 'Mod-i', link: 'Mod-Alt-k', comment: 'Mod-Alt-m' } as const
+export const SHORTCUTS = {
+  strong: 'Mod-b',
+  em: 'Mod-i',
+  strike: 'Mod-Shift-s',
+  code: 'Mod-e',
+  link: 'Mod-Alt-k',
+  comment: 'Mod-Alt-m',
+} as const
 
-/** Bold, italic and link from the keyboard; they take the key even where they do nothing (the browser's Ctrl+B, Ctrl+I…). */
+/** The inline formats and the link from the keyboard; they take the key even where they do nothing (the browser's Ctrl+B, Ctrl+I, Ctrl+E…). */
 export const formatKeymap: readonly KeyBinding[] = [
   { key: SHORTCUTS.strong, run: (v) => { runFormat(v, toggleInline(v.state, 'strong')); return true } },
   { key: SHORTCUTS.em, run: (v) => { runFormat(v, toggleInline(v.state, 'em')); return true } },
+  { key: SHORTCUTS.strike, run: (v) => { runFormat(v, toggleInline(v.state, 'strike')); return true } },
+  { key: SHORTCUTS.code, run: (v) => { runFormat(v, toggleInline(v.state, 'code')); return true } },
   { key: SHORTCUTS.link, run: (v) => { runFormat(v, insertLink(v.state)); return true } },
 ]

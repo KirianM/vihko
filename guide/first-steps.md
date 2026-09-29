@@ -37,6 +37,11 @@ A note starts with its name as a `# Heading`. Write Markdown as usual: the
 editor shows headings, lists, tasks and links formatted while you type.
 `- [ ]` makes a task; Ctrl+Enter (⌘Enter on a Mac) checks it.
 
+The bar above the note formats the selection, and its buttons show their
+shortcuts (⌘ instead of Ctrl on a Mac): Ctrl+B bold, Ctrl+I italic,
+Ctrl+Shift+S strikethrough, Ctrl+E inline code, and Ctrl+Alt+K a link.
+Pressed again, a format comes off.
+
 ## Folders
 
 - **New folder** (the folder icon in the sidebar), or a folder's menu →

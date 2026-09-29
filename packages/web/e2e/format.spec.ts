@@ -70,6 +70,10 @@ test('on a computer the bar sits above the editor, every button named, with its 
   await k.locator('.cm-line', { hasText: words[2] }).click()
   await tool(k, 'Negrita').hover()
   await expect(k.getByRole('tooltip')).toHaveText('Negrita (Ctrl+B)')
+  await tool(k, 'Tachado').hover()
+  await expect(k.getByRole('tooltip')).toHaveText('Tachado (Ctrl+Shift+S)')
+  await tool(k, 'Código en línea').hover()
+  await expect(k.getByRole('tooltip')).toHaveText('Código en línea (Ctrl+E)')
   await tool(k, 'Insertar enlace').hover()
   await expect(k.getByRole('tooltip')).toHaveText('Insertar enlace (Ctrl+Alt+K)')
   // It stays while the note scrolls.
@@ -107,7 +111,7 @@ test('bold, italic, strikethrough and inline code wrap the selection, show as su
   await expect.poll(n.body).toBe(`${a} ${b} ${c}\n`)
 })
 
-test('shortcuts: Ctrl+B, Ctrl+I and Ctrl+Alt+K; Ctrl+K is still the palette', async () => {
+test('shortcuts: Ctrl+B, Ctrl+I, Ctrl+Shift+S, Ctrl+E and Ctrl+Alt+K; Ctrl+K with no selection is still the palette', async () => {
   const words = line()
   const n = note(DIR, `${text(words)}\n`)
   await open(k, n.path)
@@ -121,6 +125,17 @@ test('shortcuts: Ctrl+B, Ctrl+I and Ctrl+Alt+K; Ctrl+K is still the palette', as
   await k.keyboard.press('Control+b')
   await k.keyboard.press('Control+i')
   await expect.poll(n.body).toBe(`${a} ${b} ${c}\n`)
+  await k.keyboard.press('Control+Shift+s')
+  await expect.poll(n.body).toBe(`${a} ${b} ~~${c}~~\n`)
+  await expect(tool(k, 'Tachado')).toHaveAttribute('aria-pressed', 'true')
+  await k.keyboard.press('Control+Shift+s')
+  await expect.poll(n.body).toBe(`${a} ${b} ${c}\n`)
+  await k.keyboard.press('Control+e')
+  await expect.poll(n.body).toBe(`${a} ${b} \`${c}\`\n`)
+  await expect(tool(k, 'Código en línea')).toHaveAttribute('aria-pressed', 'true')
+  await k.keyboard.press('Control+e')
+  await expect.poll(n.body).toBe(`${a} ${b} ${c}\n`)
+  await expect(k.locator('.cm-content')).toBeFocused()
   await k.keyboard.press('Control+Alt+k')
   await k.keyboard.type('https://example.org/')
   await expect.poll(n.body).toBe(`${a} ${b} [${c}](https://example.org/)\n`)

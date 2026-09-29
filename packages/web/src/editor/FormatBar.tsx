@@ -139,8 +139,8 @@ export function FormatBar({ view, level, onComment, onImage, mobile = false, end
     groups.push([
       tool('bold', t('format.bold'), Icon.bold, () => apply((s) => toggleInline(s, 'strong')), { pressed: active.strong, shortcut: SHORTCUTS.strong }),
       tool('italic', t('format.italic'), Icon.italic, () => apply((s) => toggleInline(s, 'em')), { pressed: active.em, shortcut: SHORTCUTS.em }),
-      tool('strike', t('format.strike'), Icon.strike, () => apply((s) => toggleInline(s, 'strike')), { pressed: active.strike }),
-      tool('code', t('format.code'), Icon.code, () => apply((s) => toggleInline(s, 'code')), { pressed: active.code }),
+      tool('strike', t('format.strike'), Icon.strike, () => apply((s) => toggleInline(s, 'strike')), { pressed: active.strike, shortcut: SHORTCUTS.strike }),
+      tool('code', t('format.code'), Icon.code, () => apply((s) => toggleInline(s, 'code')), { pressed: active.code, shortcut: SHORTCUTS.code }),
     ])
     groups.push([
       tool('link', t('format.link'), Icon.link, () => apply(insertLink), { shortcut: SHORTCUTS.link }),
