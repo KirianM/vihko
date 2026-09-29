@@ -34,7 +34,7 @@ Two things are outside the promise:
 | `ghcr.io/kirianm/vihko:1.4` | You want fixes only, no new features. |
 | `ghcr.io/kirianm/vihko:1.4.2` | You want to choose each update yourself, or to [roll back](#rolling-back). |
 | `ghcr.io/kirianm/vihko:latest` | Don't. It jumps to a new major version on a `docker compose pull`, and a major version can need you to do something first. |
-| `ghcr.io/kirianm/vihko:1.0.0-rc.2` | Testing a release candidate. Candidates are only published under their exact tag; `1` and `latest` never point to one. |
+| `ghcr.io/kirianm/vihko:1.0.0-rc.3` | Testing a release candidate. Candidates are only published under their exact tag; `1` and `latest` never point to one. |
 
 A moving tag (`1`, `1.4`, `latest`) only goes forward: a fix published for an
 older line doesn't move it back.

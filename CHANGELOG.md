@@ -7,6 +7,30 @@ Every release of vihko, newest first. The format follows
 that asks you to do something by hand or breaks an integration. Read a
 version's **Upgrade notes** before installing it.
 
+## [1.0.0-rc.3] - 2026-09-29
+
+### Added
+
+- **Agents can store images through MCP**: the `attach_image` tool (keys
+  that can write) takes an image in base64 and the note it's for, stores it
+  like an upload (next to the note by default, within the key's folders and
+  never where agents are kept out) and answers with the link to write into
+  the note. Images up to about 3 MB fit in one call.
+
+### Fixed
+
+- The API's answer to an image upload carries `markdown`, the link ready to
+  write into the note. Writing `src` as it was broke the link when the name
+  had a space: the note didn't use the image, a key couldn't read it, and
+  deleting the note left it behind.
+
+### Upgrade notes
+
+- Take the image line of the new `compose.yaml`
+  (`ghcr.io/kirianm/vihko:1.0.0-rc.3`); nothing else changes.
+- Scripts that upload images through the API should write the answer's
+  `markdown` into the note instead of building the link from `src`.
+
 ## [1.0.0-rc.2] - 2026-09-29
 
 The second release candidate: what the first one's installations turned up.
@@ -112,5 +136,6 @@ published under its exact image tag, `ghcr.io/kirianm/vihko:1.0.0-rc.1`.
   development builds before this candidate (under the project's earlier
   working name) aren't migrated: start them again from empty state.
 
+[1.0.0-rc.3]: https://github.com/KirianM/vihko/releases/tag/v1.0.0-rc.3
 [1.0.0-rc.2]: https://github.com/KirianM/vihko/releases/tag/v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/KirianM/vihko/releases/tag/v1.0.0-rc.1

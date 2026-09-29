@@ -70,7 +70,7 @@ function camelKeys(v: unknown): string[] {
 }
 
 const READ_TOOLS = ['changes_since', 'daily_note', 'get_note', 'history', 'list_folder', 'related', 'resolve_link', 'search']
-const WRITE_TOOLS = ['create_note', 'delete', 'edit_note', 'move', 'revert_change']
+const WRITE_TOOLS = ['attach_image', 'create_note', 'delete', 'edit_note', 'move', 'revert_change']
 
 test('/mcp: off by default (404 whatever is asked), then keys only; never the cookie; GET is 405; other sites are refused', async () => {
   const h = await setup({ files: FILES })

@@ -11,7 +11,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { setup } from './_agents.ts'
+import { PNG, setup } from './_agents.ts'
 import type { DenyReason } from '@vihko/server'
 import { CONFIG, DIR, FILES, HIDDEN, NAME, OTHER_HEADING, PATH, SERIES, SUB, TAG, WORD, historyToHide, leaked } from './_leaks.ts'
 import { mother } from '../../../test/mother.ts'
@@ -20,6 +20,8 @@ const m = mother(import.meta.url)
 /** A note nobody has, in the key's folder; where a note from a template would go. */
 const NOWHERE = m.aNotePath(DIR.key)
 const FROM_TEMPLATE = m.aNotePath(DIR.key)
+/** An image to attach, in base64. */
+const IMAGE = PNG.toString('base64')
 
 test('a key limited to a folder sees nothing of what it can\'t read, through any MCP tool', async () => {
   // The workspace's guide for agents is a hidden note: it isn't served either.
@@ -104,6 +106,14 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
         { args: { from: PATH.dupA, to: PATH.secret }, ...AI },
       ],
       delete: [{ args: { path: PATH.secret }, ...AI }, { args: { path: PATH.otherRenamed }, ...OUT }, { args: { path: PATH.broken }, ...AI }],
+      attach_image: [
+        { args: { note: PATH.secret, data: IMAGE }, ...AI },
+        { args: { note: PATH.broken, data: IMAGE }, ...AI },
+        { args: { note: PATH.otherRenamed, data: IMAGE }, ...OUT },
+        { args: { note: m.aNotePath(DIR.outside), data: IMAGE }, ...NONE },
+        { args: { note: NOWHERE, data: IMAGE }, ...NONE },
+        { args: { note: PATH.visible, data: IMAGE }, ok: true },
+      ],
       revert_change: [
         { args: { path: PATH.secret, version: secret[0] }, ...AI },
         { args: { path: PATH.revealed, version: revealed.at(-1) }, ...NONE },

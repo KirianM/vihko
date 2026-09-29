@@ -13,7 +13,7 @@ export { LinkIndex, joinPath, normKey, pathKeys, shortestTarget, type LinkIndexO
 export { classifyPath, conflictOriginal, hasControlCharacter, isIgnoredDir, trimSlashes, trimTrailingSlashes, type PathKind } from './paths.ts'
 export type { AccountChange, Alert, AlertAction, AlertCode, ConfigMigrationRef, ErrorCode } from './codes.ts'
 export { newUid } from './uid.ts'
-export { IMAGE_EXTENSIONS, isExternalUrl, isImageRef, markdownDest, resolveImageRef } from './images.ts'
+export { IMAGE_EXTENSIONS, imageMarkdown, isExternalUrl, isImageRef, markdownDest, resolveImageRef } from './images.ts'
 export { addDays, canonicalTimeZone, civilNow, compareDates, formatDate, isValidDate, isoWeek, isoWeekStart, type CivilDate, type CivilDateTime } from './dates.ts'
 export { DEFAULT_DATE_FORMAT, renderTemplate, type TemplateVars } from './template.ts'
 export { SERIES_TOKENS, matchSeries, patternPeriod, patternTokens, seriesNeighbors, seriesPath, seriesPattern, type Period, type Series, type SeriesToken } from './series.ts'
