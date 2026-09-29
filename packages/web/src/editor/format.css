@@ -1,0 +1,41 @@
+/* The formatting bar (FormatBar.tsx). Colors, spacing and sizes from the design tokens. */
+
+/* On a computer: fixed above the note, its first button in line with the text. */
+/* Not while hidden (a version of the note is shown instead): a display here would override `hidden`. */
+.note:has(.editor):not([hidden]) { display: flex; flex-direction: column; container-type: inline-size; }
+.note > .editor { flex: 1 1 auto; min-height: 0; height: auto; }
+.format-bar { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; row-gap: var(--space-1); padding: var(--space-1) var(--space-4) var(--space-1) calc(var(--space-18) - var(--space-2)); border-bottom: 1px solid var(--line); background: var(--bg); }
+/* A narrow note (the side panel open on a small screen): the bar takes the margin before giving up a row. */
+@container (max-width: 700px) { .format-bar { padding-left: var(--space-4); } }
+.fmt-group { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+
+.fmt-btn { font: inherit; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; gap: 2px; width: var(--control-sm); height: var(--control-sm); padding: 0; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--ink-2); cursor: pointer; outline: none; }
+.fmt-btn[data-hovered] { background: var(--chip); color: var(--ink); }
+.fmt-btn[data-pressed] { background: var(--line); }
+.fmt-btn[data-focus-visible] { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* On where the cursor is: pressing it takes it off. */
+.fmt-btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-strong); }
+.fmt-text { font-size: 15px; font-weight: 600; }
+.fmt-hash { font-size: 17px; }
+.fmt-heading { width: auto; padding: 0 var(--space-1) 0 var(--space-2); }
+.fmt-heading svg:last-child { color: var(--muted); }
+.fmt-level { min-width: 18px; font-size: 13px; font-weight: 600; }
+.fmt-sep { align-self: center; width: 1px; height: 20px; margin: 0 var(--space-1); border: none; background: var(--line); }
+.fmt-tip { padding: var(--space-1) var(--space-2); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--ink); font-size: 12px; line-height: 16px; white-space: nowrap; }
+
+/* The text style menu: each style as it looks in the note. */
+.fmt-menu { min-width: 200px; }
+.fmt-check { display: inline-flex; width: 14px; flex-shrink: 0; color: var(--accent); }
+.fmt-style { height: auto; min-height: var(--control-md); }
+.fmt-style[data-selected] { color: var(--accent-strong); }
+.fmt-style-1, .fmt-style-2, .fmt-style-3 { font-family: var(--font-serif); font-weight: 600; }
+.fmt-style-1 { font-size: 22px; line-height: 30px; }
+.fmt-style-2 { font-size: 18px; line-height: 26px; }
+.fmt-style-3 { font-size: 16px; line-height: 24px; }
+
+/* On a phone: at the bottom, over the keyboard; the buttons scroll sideways, the arrows and the save state stay. */
+/* Its right edge fades (a mask: only its opacity counts), so the row reads as one that goes on; the padding lets the last button out of the fade. */
+.editor-bar .fmt-scroll { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; padding-right: var(--space-6); overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; mask-image: linear-gradient(to right, var(--ink) calc(100% - var(--space-6)), transparent); }
+.editor-bar .fmt-scroll::-webkit-scrollbar { display: none; }
+.editor-bar .fmt-btn { width: var(--touch); height: var(--touch); border-radius: var(--radius-md); }
+.editor-bar .fmt-heading { width: auto; padding: 0 var(--space-2); }
