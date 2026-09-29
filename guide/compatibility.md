@@ -14,8 +14,10 @@ script, an agent or another tool can rely on.
   optional parameters, `vihko.yaml` keys, error codes, environment variables.
   Write clients that ignore fields and codes they don't know. An error code
   you don't know is still an error: go by its HTTP status.
-- **Limits can grow**, never shrink, within 1.x: body sizes, page sizes,
-  images at once.
+- **Limits can change** within 1.x, down as well as up: body sizes, page
+  sizes, images at once. A lower limit is announced in the changelog's
+  *Upgrade notes*. What a request over a limit gets (its status and error
+  code) stays.
 - **A default doesn't change** in a way that opens anything up. Features that
   are off by default stay off by default.
 - **Wording isn't covered.** The `message` of an error, log lines and text
