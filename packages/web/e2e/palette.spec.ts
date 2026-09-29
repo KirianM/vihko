@@ -147,7 +147,7 @@ test('command mode with ">": dark theme and new note', async () => {
   await k.keyboard.press('Enter')
   await expect(k.locator('html')).toHaveAttribute('data-theme', 'dark')
   await k.keyboard.press('Control+k')
-  await field().fill('> nueva')
+  await field().fill('> nueva nota')
   await k.keyboard.press('Enter')
   await expect(k.getByRole('dialog', { name: 'Nueva nota' })).toBeVisible()
   await k.keyboard.press('Escape')
@@ -155,6 +155,80 @@ test('command mode with ">": dark theme and new note', async () => {
   await field().fill('>tema claro')
   await k.keyboard.press('Enter')
   await expect(k.locator('html')).toHaveAttribute('data-theme', 'light')
+})
+
+test('command «new folder»: in the open note\'s folder, or the root with none; the tree shows it', async () => {
+  // A name no folder in hogar has yet.
+  let name = m.aFolder()
+  while (existsSync(`${NOTES}/hogar/${name}`)) name = m.aFolder()
+  await k.goto('/?note=hogar/Red.md')
+  await expect(k.locator('.cm-content')).toBeVisible()
+  await k.keyboard.press('Control+k')
+  await field().fill('>nueva carpeta')
+  await expect(palette().getByRole('option')).toHaveCount(1)
+  await k.keyboard.press('Enter')
+  await expect(palette()).toHaveCount(0)
+  const dialog = k.getByRole('dialog', { name: 'Nueva carpeta' })
+  await expect(dialog.getByLabel('Dentro de')).toHaveValue('hogar')
+  await dialog.getByLabel('Nombre').fill(name)
+  await dialog.getByRole('button', { name: 'Crear carpeta' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(k.getByRole('row', { name, exact: true })).toBeVisible()
+  expect(existsSync(`${NOTES}/hogar/${name}`)).toBe(true)
+  expect((await k.request.delete(`/api/folder?path=${encodeURIComponent(`hogar/${name}`)}`)).status()).toBe(200)
+
+  // With no note open, at the root.
+  await k.goto('/')
+  await expect(k.getByRole('treegrid')).toBeVisible()
+  await k.keyboard.press('Control+k')
+  await field().fill('>nueva carpeta')
+  await k.keyboard.press('Enter')
+  await expect(dialog.getByLabel('Dentro de')).toHaveValue('')
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+  await expect(dialog).toHaveCount(0)
+})
+
+test('command «new folder» only where one may create: the root for a folder one only reads; nowhere for someone who only reads', async ({ browser }) => {
+  const folder = freshFolder(() => m.aFolder())
+  const note = `${folder}/${m.aTitle()}.md`
+  expect((await k.request.post('/api/note', { data: { path: note, text: `# ${m.aHeading()}\n` } })).status()).toBe(201)
+  /** The member, on that note, with «>nueva» typed: the palette and its «new folder», if offered. */
+  const offered = async () => {
+    const member = await signIn(browser, MEMBER)
+    // Where she may create is known once her folders' levels have arrived.
+    const levels = member.waitForResponse((r) => new URL(r.url()).pathname === '/api/permissions/folders')
+    await member.goto(`/?note=${encodeURIComponent(note)}`)
+    await levels
+    await expect(member.locator('.cm-content')).toBeVisible()
+    await member.keyboard.press('Control+k')
+    const dialog = member.getByRole('dialog', { name: 'Buscar o crear' })
+    await dialog.getByRole('textbox').fill('>nueva')
+    await expect(dialog.getByRole('option', { name: 'nueva nota' })).toBeVisible()
+    return { member, command: dialog.getByRole('option', { name: 'nueva carpeta' }) }
+  }
+  try {
+    // She reads the note's folder and edits the root: the command creates at the root.
+    await usePermissions({ rules: { [folder]: { [MEMBER.username]: 'read' } } })
+    // Rules other than the root's: waited for here (usePermissions waits for the root's).
+    await expect.poll(async () => {
+      const r = await k.request.get(`/api/permissions?folder=${encodeURIComponent(folder)}`)
+      return r.ok() ? ((await r.json()) as { effective: { rule: string | null } }).effective.rule : r.status()
+    }, { timeout: 15_000 }).toBe(folder)
+    const reads = await offered()
+    await reads.command.click()
+    await expect(reads.member.getByRole('dialog', { name: 'Nueva carpeta' }).getByLabel('Dentro de')).toHaveValue('')
+    await reads.member.context().close()
+
+    // She only reads, everywhere: no command.
+    await usePermissions({ grants: { [MEMBER.username]: 'read' } })
+    const none = await offered()
+    await expect(none.command).toHaveCount(0)
+    await none.member.context().close()
+  } finally {
+    await usePermissions()
+    await k.request.delete(`/api/note?path=${encodeURIComponent(note)}`)
+    await k.request.delete(`/api/folder?path=${encodeURIComponent(folder)}`)
+  }
 })
 
 test('mobile: the palette fills the screen and opens from the header', async ({ browser }) => {
