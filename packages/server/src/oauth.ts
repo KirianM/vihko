@@ -30,7 +30,9 @@
 //   after 30 days unused. A refresh token (or a code) used twice revokes every
 //   token that came from it. Only their sha256 is stored.
 // - Access tokens are only for `/mcp` (the resource they were issued for):
-//   the HTTP API takes keys, never these.
+//   the HTTP API takes keys, never these. There, a request with an `Origin`
+//   other than vihko's own is served only from its client's own site (the
+//   origin of one of its redirect URIs, as claude.ai's requests carry).
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { OAuthClientInformationFull, OAuthMetadata, OAuthProtectedResourceMetadata, OAuthTokens } from '@modelcontextprotocol/server'
 import type { AgentPrincipal } from './access.ts'
@@ -582,12 +584,36 @@ export class OAuthServer {
    * The agent an access token acts as at `/mcp`: its authorization (a key),
    * via `oauth`. Null if OAuth isn't available, or the token is unknown,
    * expired, for another resource, or its authorization is over.
+   *
+   * `foreignOrigin`: the request's `Origin`, when it has one that isn't
+   * vihko's own (the caller judges that). The token then works only if that
+   * is the origin of one of the redirect URIs of the client it was issued to:
+   * the client's own site, as claude.ai sends `Origin: https://claude.ai`.
+   * Any other is `'origin'` (a 403), and nothing is recorded as used. The
+   * token is the credential, never a cookie, so a page elsewhere can't ride
+   * on it; this keeps the check the MCP transport asks for (DNS rebinding).
    */
-  authenticate(token: string): AgentPrincipal | null {
+  authenticate(token: string, foreignOrigin?: string): AgentPrincipal | 'origin' | null {
     if (!this.available() || !OAuthServer.isAccessToken(token)) return null
     const row = this.db.prepare(`select * from oauth_tokens where token_hash = ? and kind = 'access'`).get(sha256hex(token)) as TokenRow | undefined
     if (!row || row.resource !== this.resource || Date.parse(row.expires_at) <= this.now().getTime()) return null
+    if (foreignOrigin !== undefined) {
+      const origin = originOf(foreignOrigin)
+      if (origin === null || !this.clientOrigins(row.key_id).includes(origin)) return 'origin'
+    }
     return this.keys.principal(row.key_id, 'oauth')
+  }
+
+  /**
+   * The web origins (http or https) of the redirect URIs of the client an
+   * authorization was given to, as kept in oauth_clients: registered, or
+   * from its metadata document when it was approved. An app's own scheme
+   * (`cursor://…`) has none.
+   */
+  private clientOrigins(keyId: string): string[] {
+    const r = this.db.prepare('select c.redirect_uris from api_keys k join oauth_clients c on c.id = k.oauth_client where k.id = ?').get(keyId) as { redirect_uris: string } | undefined
+    if (!r) return []
+    return (JSON.parse(r.redirect_uris) as string[]).map(originOf).filter((o): o is string => o !== null)
   }
 
   /** Forgets what can no longer be used: expired codes and tokens, and clients registered a day ago and never authorized. */
@@ -643,14 +669,30 @@ function checkRedirectUris(v: unknown): string[] {
   return out
 }
 
-/** `grant_types` and `response_types`, when given, only with what vihko does. */
+/**
+ * `grant_types` and `response_types`, when given: lists of names that
+ * include what vihko's flow is (`authorization_code`, `code`). Other grants
+ * the client also uses elsewhere are ignored, as RFC 7591 §2 lets a server
+ * do: vihko never grants them (its token endpoint answers
+ * `unsupported_grant_type`, and registration answers with what it gives).
+ * claude.ai's metadata document lists
+ * `urn:ietf:params:oauth:grant-type:jwt-bearer` too.
+ */
 function checkTypes(grantTypes: unknown, responseTypes: unknown) {
-  for (const [field, v, allowed] of [['grant_types', grantTypes, ['authorization_code', 'refresh_token']], ['response_types', responseTypes, ['code']]] as const) {
+  for (const [field, v, needed] of [['grant_types', grantTypes, 'authorization_code'], ['response_types', responseTypes, 'code']] as const) {
     if (v === undefined) continue
-    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !(allowed as readonly string[]).includes(x))) {
-      throw new OAuthRequestError('invalid_client_metadata', `${field} may only hold ${allowed.join(', ')}`)
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string') || !v.includes(needed)) {
+      throw new OAuthRequestError('invalid_client_metadata', `${field} must be a list that includes ${needed}`)
     }
   }
+}
+
+/** A URL's origin when it is an http or https one (an `Origin` header, a redirect URI); null otherwise. */
+function originOf(url: string): string | null {
+  try {
+    const u = new URL(url)
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u.origin : null
+  } catch { return null }
 }
 
 /** A URL's host, or '' if it isn't one. */

@@ -321,3 +321,62 @@ test('OAuth with a client named by its metadata document: advertised, fetched on
     await site.close()
   }
 })
+
+/**
+ * claude.ai's own metadata document, as it publishes it (at
+ * https://claude.ai/oauth/mcp-oauth-client-metadata): its redirect URI and
+ * Origin, and a grant vihko doesn't give besides the code flow. Literal: the
+ * case under test.
+ */
+const CLAUDE_ORIGIN = 'https://claude.ai'
+const CLAUDE_CALLBACK = 'https://claude.ai/api/mcp/auth_callback'
+const claudeDoc = (url: string) => JSON.stringify({
+  client_id: url, client_name: 'Claude', client_uri: CLAUDE_ORIGIN, redirect_uris: [CLAUDE_CALLBACK],
+  grant_types: ['authorization_code', 'refresh_token', 'urn:ietf:params:oauth:grant-type:jwt-bearer'], response_types: ['code'], token_endpoint_auth_method: 'none',
+})
+
+test('a document like claude.ai\'s: other grants it lists are ignored; its tokens work at /mcp from its redirect URI\'s origin, and from no other', { timeout: 60_000 }, async (t) => {
+  const tls = certificate()
+  if (!tls) return t.skip('no openssl to make a certificate')
+  const site = await clientSite(tls, {
+    '/claude.json': (url) => ({ body: claudeDoc(url) }),
+    '/no-code.json': (url) => ({ body: doc(url, { grant_types: ['refresh_token', 'urn:ietf:params:oauth:grant-type:jwt-bearer'] }) }),
+  })
+  const clientMetadata = new ClientMetadataFetcher({ testing: { resolve: resolver({ [HOST]: ['127.0.0.1'] }).resolve, allowLoopback: true, anyPort: true, ca: tls.cert } })
+  const h = await setup({ files: { [m.aNotePath(m.aFolder())]: `# ${m.aHeading()}\n` }, publicUrl: PUBLIC, ui: true, clientMetadata })
+  try {
+    await h.enableMcp()
+    const clientId = `${site.base}/claude.json`
+    const { verifier, challenge } = pkce()
+    const query = (id: string) => new URLSearchParams({ response_type: 'code', client_id: id, redirect_uri: CLAUDE_CALLBACK, code_challenge: challenge, code_challenge_method: 'S256', state: m.aSecret(12), resource: RESOURCE }).toString()
+    const asked = await h.admin('GET', `/api/oauth/authorize?${query(clientId)}`)
+    assert.equal(asked.status, 200, asked.text)
+    assert.deepEqual(asked.body.client, { id: clientId, name: 'Claude', redirectUri: CLAUDE_CALLBACK, host: HOST })
+    // A document without the code flow among its grants is still refused.
+    const noCode = await h.admin('GET', `/api/oauth/authorize?${query(`${site.base}/no-code.json`)}`)
+    assert.deepEqual([noCode.status, noCode.body.reason], [400, 'invalid_client_metadata'])
+
+    const approved = await h.admin('POST', '/api/oauth/authorize', { query: query(clientId), approve: true, confirm: h.users.admin.password })
+    assert.equal(approved.status, 200, approved.text)
+    const code = new URL(approved.body.redirect).searchParams.get('code')!
+    const tok = await h.app.request('/oauth/token', {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: CLAUDE_ORIGIN },
+      body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: CLAUDE_CALLBACK, client_id: clientId, code_verifier: verifier, resource: RESOURCE }).toString(),
+    })
+    assert.equal(tok.status, 200)
+    const { access_token: access } = await tok.json() as { access_token: string }
+    // The redirect URIs were kept at the approval: the Origin is judged without fetching the document again.
+    const mcp = (origin: string) => h.app.request('/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${access}`, origin },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } }),
+    })
+    assert.equal((await mcp(CLAUDE_ORIGIN)).status, 200)
+    assert.equal((await mcp('https://attacker.example')).status, 403)
+    assert.equal((await mcp(new URL(site.base).origin)).status, 403, 'the document\'s own host is not where the client goes back to')
+    assert.equal(site.hits['/claude.json'], 1)
+  } finally {
+    await h.close()
+    await site.close()
+  }
+})

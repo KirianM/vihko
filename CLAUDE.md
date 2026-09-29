@@ -61,6 +61,12 @@ The plan is in `ROADMAP.md`.
   (`packages/web/src/theme/tokens.json`), never hardcoded.
 - Every UI change is checked in a real browser (Playwright, `packages/web/e2e`),
   with two sessions when collaboration is involved.
+- `guide/compatibility.md` is the 1.x contract (API, MCP tools, `vihko.yaml`,
+  environment variables, the Docker image, the command line, what vihko writes
+  into notes). A change to any of it updates that page in the same pull
+  request, and nothing on it changes incompatibly before 2.0. New fields are
+  camelCase over HTTP and snake_case over MCP; errors are codes, the same for
+  both.
 - Minimal solutions before full stacks. Every dependency must justify itself,
   more so when a third party has to deploy it: SQLite before Postgres, a timer
   before a daemon, a file before a broker. Always the latest stable version.

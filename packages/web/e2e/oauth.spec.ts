@@ -114,10 +114,10 @@ test('no client registers itself until the admin turns it on, right under the MC
   const switches = page.locator('.switches label.switch')
   await expect(switches.nth(1)).toContainText('Servidor MCP')
   await expect(switches.nth(2)).toContainText('Las aplicaciones OAuth pueden registrarse solas')
-  await expect(switches.nth(2)).toContainText('Hace falta para conectar claude.ai o mcp-remote')
+  await expect(switches.nth(2)).toContainText('Hace falta para las aplicaciones que se registran solas antes de pedir acceso, como mcp-remote; claude.ai')
   const registration = page.getByRole('switch', { name: /Las aplicaciones OAuth pueden registrarse solas/ })
   await expect(registration).not.toBeChecked()
-  const needs = page.getByText('claude.ai y mcp-remote se registran solas antes de pedir acceso', { exact: false })
+  const needs = page.getByText('mcp-remote y otras aplicaciones que se registran solas antes de pedir acceso necesitan', { exact: false })
   await expect(needs).toBeVisible()
   await page.screenshot({ path: `${SHOTS}/oauth-registration-off.png`, fullPage: true, animations: 'disabled' })
   await switches.nth(2).click()
@@ -125,7 +125,7 @@ test('no client registers itself until the admin turns it on, right under the MC
   await expect(needs).toHaveCount(0)
   await page.context().close()
 
-  // On: the client registers itself, as claude.ai or mcp-remote do.
+  // On: the client registers itself, as mcp-remote does.
   expect((await metadata()).registration_endpoint).toBe(`${PUBLIC_URL}/oauth/register`)
   const r = await register()
   expect(r.status()).toBe(201)

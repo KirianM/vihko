@@ -14,18 +14,32 @@ exactly what a script, an agent or another tool can rely on.
   optional parameters, `vihko.yaml` keys, error codes, environment variables.
   Write clients that ignore fields and codes they don't know. An error code
   you don't know is still an error: go by its HTTP status.
-- **Limits can change** within 1.x, down as well as up: body sizes, page
-  sizes, images at once. A lower limit is announced in the changelog's
-  *Upgrade notes*. What a request over a limit gets (its status and error
-  code) stays.
-- **A default doesn't change** in a way that opens anything up. Features that
-  are off by default stay off by default.
+- **Values are added too.** A field that answers with one of a set of values
+  (an author's `kind` or `via`, a version's `change`, a link's `status`, a
+  `reason`) can answer with a new one in a minor release. Treat a value you
+  don't know like an unknown field: skip it or show it as it comes, don't
+  fail.
+- **Limits can change** within 1.x, down as well as up, and new ones can
+  appear, rate limits among them: body sizes, page sizes, images at once,
+  requests in a period. A lower or a new limit is announced in the
+  changelog's *Upgrade notes*. What a request over a limit gets stays: its
+  status and error code, and `429` with `Retry-After` for a rate limit. If the
+  largest page a parameter takes goes down, the values it took before get the
+  new largest page instead of an error.
+- **A default never changes in a way that opens anything up.** Features that
+  are off by default stay off by default. A default can change to close
+  something, announced in the changelog's *Upgrade notes*.
 - **Wording isn't covered.** The `message` of an error, log lines and text
   meant for people can change in any release. Check codes, never messages.
 
 When something here has to change, the old form keeps working until 2.0. It's
 announced in the changelog's *Upgrade notes*, and the API and the MCP server
 say so themselves when a client uses it. It goes away only in a major version.
+
+Security comes first. If keeping something as it is would leave
+installations open to an attack, a 1.x release can change it or turn it off
+without that period. The changelog says so under *Security*, with what to use
+instead.
 
 **1.0.1 corrected 1.0.0's contract, once.** Taking this inventory showed a
 few things 1.0.0 got wrong, and 1.0.1 changed them outright, with no period
@@ -56,7 +70,7 @@ stays.
 |---|---|
 | Base path | `/api`, no version prefix |
 | Authentication | `Authorization: Bearer <key>`; a request with a key is judged by the key alone |
-| Key format | `vihko_`, a 26-character id, `_`, a 43-character secret |
+| Key format | Starts with `vihko_`; the rest is opaque (in 1.0.1, a 26-character id, `_` and a 43-character secret). Keys made by any 1.x release keep working |
 | The API switch off | Every request with a key answers `404 not_found` |
 | A route not open to keys | `404 not_found` |
 | A read-only key on a route that writes | `403 forbidden` |
@@ -159,11 +173,12 @@ what stays.
 | What | Stays as |
 |---|---|
 | Address | `/mcp`, on the same address and port as the UI |
-| Transport | Streamable HTTP, without sessions: `POST` only; `GET` and `DELETE` answer `405` |
+| Transport | Streamable HTTP, without sessions: a client needs only `POST`. vihko doesn't use `GET` or `DELETE` today (they answer `405`), and may use them for something new |
+| Protocol versions | Those of the MCP specification the server offers; 1.0.1 offers 2026-07-28 and the 2024 and 2025 revisions. A revision the specification retires can stop being offered in a minor release, announced in the changelog's *Upgrade notes* |
 | Credential | `Authorization: Bearer` with a key, or an OAuth access token (see [OAuth](#oauth)) |
 | The MCP switch off | `404`, whatever the request |
 | No credential, or a wrong one | `401`, with a `WWW-Authenticate: Bearer` challenge (naming the resource metadata while OAuth exists) |
-| A request from a page on another site | `403` |
+| An `Origin` that isn't vihko's own | `403` with a key; with an OAuth access token, accepted from the origin of one of its app's redirect URIs and `403` from any other; without a credential, the `401` above |
 | Request size | Up to 4 MiB, a limit of vihko's own (`413` beyond it): an image of about 3 MB for `attach_image`, whatever `VIHKO_MAX_IMAGE_MB` says |
 
 ### Conventions
@@ -174,7 +189,8 @@ what stays.
   `id` for `version`.
 - A result's first block is its data as JSON, between `<data-…>` markers. A
   note's text comes in a block of its own, between `<note-…>` markers. Both
-  markers carry a random tag.
+  markers carry a random tag; the text before the opening marker is wording.
+  The same data may also come as `structuredContent`.
 - An error is a result with `isError`, whose text is JSON: `error` (a code),
   `message`, and as they apply `etag`, `hint`, `reason` and `audience`. The
   codes are those of the HTTP API. Arguments that don't fit a tool's schema
@@ -193,7 +209,7 @@ Every key has these.
 
 | Tool | Parameters | Result |
 |---|---|---|
-| `search` | `query` (text, required), `limit` (1 to 50, 20), `offset` (0) | `results` (`path`, `title`, `snippet` with hits between `**`), `next_offset` |
+| `search` | `query` (text, required), `limit` (1 to 50, 20), `offset` (0) | `results` (`path`, `title`, `snippet`, with the words found between `**`), `next_offset` |
 | `get_note` | `path` or `uid` (one of them), `offset` (0), `max_chars` (1,000 to 200,000; 100,000) | `path`, `etag`, `title`, `uid`, `frontmatter`, `links` (`outgoing`: `link`, `target`, `anchor`, `status`, `path`, `candidates`, and `others_no_access`, `reason` when they apply; `incoming`: `path`, `title`, `count`; `more`), `text` (`offset`, `length`, `total`, `next_offset`); the text as a block |
 | `list_folder` | `folder` (`""` for the root, the default), `recursive` (false), `limit` (1 to 500, 100), `offset` (0) | `folder`, `entries` (`kind` `folder` with `path`, or `note` with `path` and `title`), `next_offset` |
 | `related` | `path` (required), `limit` (1 to 200, 50), `offset` (0) | `path`, `links_to` (`link`, `target`, `anchor`, `status`, `path`, `title`, `candidates` with `path` and `title`, and `others_no_access`, `reason` when they apply), `linked_from` (`path`, `title`, `count`, `link`, `context`), `next_offset` |
@@ -260,8 +276,9 @@ What stays with them:
 - **How the file is read**: a key vihko doesn't know is ignored with a
   warning; a wrong value in a known key keeps the last valid file; the
   `permissions` section is strict and fails closed.
-- **How vihko writes it**: only the `permissions` entries that change, and a
-  format rewrite at start after an upgrade. Comments, key order and keys it
+- **How vihko writes it**: only what someone changes through vihko (in 1.0.1,
+  the `permissions` entries that change), and a format rewrite at start after
+  an upgrade, which may also raise `version`. Comments, key order and keys it
   doesn't know stay.
 
 ## Environment variables
@@ -270,7 +287,7 @@ What stays with them:
 |---|---|
 | `VIHKO_PUBLIC_URL` | An `https://` origin |
 | `VIHKO_TRUSTED_PROXIES` | Addresses or CIDR ranges, separated by commas or spaces |
-| `VIHKO_INTEGRATIONS` | `off`, or unset |
+| `VIHKO_INTEGRATIONS` | `off`, or unset. `off` keeps every integration off: the API with keys, the MCP server, and any a 1.x release adds |
 | `VIHKO_EXTERNAL_IMAGES` | `allow` (default) or `block` |
 | `VIHKO_MAX_IMAGE_MB` | A number of megabytes, 20 by default |
 | `VIHKO_SECRET_KEY` | A key of 32 characters or more |
@@ -285,6 +302,11 @@ What stays with them:
 | `VIHKO_HISTORY_MAX_SECONDS` | Seconds, 300 by default |
 | `VIHKO_HISTORY_SWEEP_SECONDS` | Seconds, 3600 by default |
 | `VIHKO_GIT` | The git program, `git` by default |
+
+The defaults of `VIHKO_RESCAN_SECONDS` and the `VIHKO_HISTORY_*_SECONDS`
+variables are timings, which aren't covered (see
+[What isn't covered](#what-isnt-covered)): the variables and what they set
+stay, their defaults can change.
 
 The example `compose.yaml` keeps reading `VIHKO_UID`, `VIHKO_GID` and
 `VIHKO_HOST_PORT`. [Installation](install.md#environment-variables) says what
@@ -335,13 +357,13 @@ else into a note unless someone asks it to (an edit, a comment, a
 
 | What | Form |
 |---|---|
-| The note's identity | `uid: <ULID>` in the frontmatter (26 characters), added only when vihko writes the note anyway: created, edited or moved from vihko |
+| The note's identity | `uid: <id>` in the frontmatter, added only when vihko writes the note anyway: created, edited or moved from vihko. vihko writes a ULID (26 characters) today and reads any text or number as a `uid` |
 | An alias after a rename | The old name added to `aliases`, only when a link to the note couldn't be rewritten and `links.aliases` is on |
 | Frontmatter changes | Only that key's value, in place; a new key is added at the end of the block; a note without frontmatter gets a block at the top. The rest of the block stays byte for byte |
 | Comments | `<!-- @author YYYY-MM-DDTHH:MMZ · text -->`; a reply starts its text with `↳ `; comments one after another are a thread; resolving a thread deletes it |
-| Links rewritten after a move | A wikilink gets the shortest target that reaches the note (its name, then longer path endings, then `/` and the whole path, without `.md`), keeping its `#heading` and `\|text`. A Markdown link gets the path relative to the note, percent-encoded as image links are, keeping its `#anchor`, its `<…>` form and its title |
+| Links rewritten after a move | A wikilink gets a target that reaches the note without ambiguity, keeping its `#heading` and `\|text`; in 1.0.1, the shortest one. A Markdown link gets a path relative to the note that CommonMark reads as that file, keeping its `#anchor`, its `<…>` form and its title; in 1.0.1, percent-encoded as image links are |
 | Image links | `![alt](path)`, relative to the note, with spaces, brackets, parentheses, `%`, `#`, `?`, `<`, `>` and `\` percent-encoded |
-| Where new images go | As `attachments` says: next to the note (`plan-2026-09-28-1012.png`), in one folder (same name), or in the note's own folder (`plan.assets/2026-09-28-1012.png`); the time in UTC, a taken name gets `-2`, `-3`… |
+| Where new images go | As `attachments` says: next to the note, in one folder, or in the note's own folder. A new image never takes a name already in use. Its name's form (in 1.0.1, `plan-2026-09-28-1012.png`, or `plan.assets/2026-09-28-1012.png`, with `-2`, `-3`… when taken) isn't covered |
 | Moved images | Images only one note uses go with it when it changes folder, and every link to them is rewritten |
 
 What vihko reads in your notes stays too: the frontmatter keys `uid`,
@@ -367,7 +389,10 @@ What the server metadata promises, and stays: the authorization code flow
 with PKCE (`S256` only) and refresh tokens, the `query` response mode, the
 `iss` parameter in the response, client authentication `none`,
 `client_secret_post` or `client_secret_basic`, and clients that identify
-themselves with a metadata document URL. `registration_endpoint` is listed
+themselves with a metadata document URL. A client (registered or described by
+its document) must list `authorization_code` among its `grant_types` and
+`code` among its `response_types` when it gives them; other grants it lists
+are ignored. `registration_endpoint` is listed
 only while registration is on. Tokens are opaque: read `expires_in` rather
 than counting on a lifetime.
 
@@ -393,6 +418,14 @@ These can change in any release, and are never a reason for a major version:
 - **Log lines** and every text meant for people: error `message`s, the MCP
   server's instructions, tool descriptions.
 - **Timings**: how long a version waits to be saved, how often vihko rescans,
-  how long a token or a session lasts.
+  how long a token or a session lasts, how far back resolved comment threads
+  are listed (30 days in 1.0.1), and the defaults of the variables that set
+  any of them.
+- **How search ranks and quotes**: which results come first, which part of a
+  note a snippet shows, and whether a snippet has anything marked. The query
+  syntax can gain filters: a word written like one (`title:…`) may start to
+  filter in a minor release.
+- **Running from source**: the Node.js version it needs, the npm scripts and
+  the repository's layout. `VIHKO_WEB_DIR` stays.
 - **Short-lived files** vihko writes next to a note to make a write atomic
   (hidden names such as `.plan.md.vihko-…`).

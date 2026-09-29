@@ -3,8 +3,10 @@
 // or VIHKO_INTEGRATIONS=off), `/mcp` doesn't exist: 404, as for any route
 // that doesn't. On, it takes an agent key (`Authorization: Bearer vihko_…`)
 // or, with a public URL, an OAuth access token (oauth.ts; via `oauth`); the
-// session cookie never authenticates it. Each request builds its own
-// server for the key that sent it: the tools it may use (tools.ts) and the
+// session cookie never authenticates it. A request with an `Origin` that
+// isn't vihko's own is refused (403), except with an access token from its
+// client's own site; without a credential it always gets the 401 challenge.
+// Each request builds its own server for the key that sent it: the tools it may use (tools.ts) and the
 // instructions it may read. The 2026-07-28 revision and 2025-era clients are
 // both served, statelessly. `GET` (an event stream) and `DELETE` (a session)
 // don't exist here: 405. Nothing under `/mcp` ever falls through to the UI.
@@ -134,26 +136,40 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
     return params.length ? `Bearer ${params.join(', ')}` : 'Bearer'
   }
 
+  /** Whether an `Origin` header is vihko's own: the host the request was sent to, or the public URL. */
+  const ownOrigin = (origin: string, requestUrl: string) => {
+    try {
+      const o = new URL(origin)
+      return o.host === new URL(requestUrl).host || o.origin === services.oauth.publicUrl
+    } catch {
+      return false // not a URL (`Origin: null`)
+    }
+  }
+  const foreign = (c: Context) => fail(c, 403, 'forbidden', 'origin not allowed')
+
   app.all(MCP_PATH, async (c) => {
     // Off: nothing is here, whatever is asked and however.
     if (!services.integrations.mcpEnabled()) return fail(c, 404, 'not_found', 'does not exist')
     if (c.req.method !== 'POST') return fail(c, 405, 'invalid', 'only POST: this server keeps no sessions or event streams', { Allow: 'POST' })
-    // A browser page on another site can't use it (DNS rebinding, CSRF).
-    const origin = c.req.header('origin')
-    if (origin) {
-      let same = false
-      try {
-        const o = new URL(origin)
-        same = o.host === new URL(c.req.url).host || o.origin === services.oauth.publicUrl
-      } catch { /* not a URL */ }
-      if (!same) return fail(c, 403, 'forbidden', 'origin not allowed')
-    }
+    // No credential: the challenge, whatever the Origin. It reveals nothing,
+    // and it is how a remote client (claude.ai sends `Origin: https://claude.ai`)
+    // finds out where to get a token.
     const token = bearerToken(c.req.header('authorization'))
     if (token === null) return fail(c, 401, 'unauthorized', 'an agent key (Authorization: Bearer vihko_…) or an OAuth token is needed', { 'WWW-Authenticate': challenge() })
-    // An OAuth access token (only while OAuth is available), or a key.
+    // The Origin is checked for every credential (DNS rebinding; the MCP
+    // transport asks for it). Only bearer credentials open /mcp, never the
+    // cookie, so a page on another site has nothing of the person's to ride on.
+    const origin = c.req.header('origin')
+    const foreignOrigin = origin && !ownOrigin(origin, c.req.url) ? origin : undefined
+    // An OAuth access token (only while OAuth is available): also from its client's own site.
+    // A key: only from vihko's own origin, or with no Origin at all.
     let principal: AgentPrincipal | null
-    if (OAuthServer.isAccessToken(token)) principal = services.oauth.authenticate(token)
-    else {
+    if (OAuthServer.isAccessToken(token)) {
+      const r = services.oauth.authenticate(token, foreignOrigin)
+      if (r === 'origin') return foreign(c)
+      principal = r
+    } else {
+      if (foreignOrigin !== undefined) return foreign(c)
       const r = authenticateKey({ keys: services.keys, integrations: services.integrations }, token, 'mcp')
       if (!r.ok && r.status === 404) return fail(c, 404, 'not_found', 'does not exist')
       principal = r.ok ? r.principal : null
