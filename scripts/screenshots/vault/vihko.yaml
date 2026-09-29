@@ -1,0 +1,7 @@
+version: 1
+
+permissions:
+  "":
+    grants: { hanna: manage, ravi: edit }
+  people/{user}:
+    grants: { "{user}": manage }

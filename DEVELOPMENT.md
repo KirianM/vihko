@@ -262,6 +262,27 @@ A moving tag only goes forward: a fix for an older line (`v1.1.5` once
    first stable version is out. Change its image line (and its copy in
    `guide/install.md`) in the release pull request that makes that change.
 
+## Screenshots
+
+The README's screenshots (`.github/assets/screenshots/`) come from a script,
+so they can be made again whenever the UI changes. Before a release, run it
+and commit the new pictures if they changed:
+
+```sh
+npm run screenshots
+```
+
+It builds the UI, starts a fresh vihko on a copy of the demo workspace in
+`scripts/screenshots/vault` (plain Markdown; the note shown is
+`handbook/Welcome.md`), with two people and a comment thread, and takes the
+pictures with Chromium from the Playwright image of the installed
+`@playwright/test` (Docker required, as for the browser tests): the desktop in
+light and dark (1440×900 at 2×) and the phone (390×844 at 3×). The split
+`desktop.png` and the side-by-side `mobile.png` are composed in that same
+browser. vihko listens on port 4630 (`SCREENSHOTS_PORT`) and the browser on
+the next one; everything else lives in a temporary folder, removed at the end.
+To change what the pictures show, change the demo notes, not the pictures.
+
 ## Conventions
 
 - Everything in the code is in English: identifiers, comments, test names, log

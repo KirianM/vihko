@@ -15,6 +15,8 @@ query from the UI and, optionally, from an API and an MCP server.
 
 Your notes stay a folder of `.md` files. If vihko disappears, you lose nothing.
 
+<img src=".github/assets/screenshots/desktop.png" width="900" alt="vihko on a computer, half in the light theme and half in the dark one: the folder tree on the left, a note in the middle with the vihko logo, a highlighted passage, links, tags, a task list, a table and a YAML code block, a second person's cursor, and the side panel on the right with a comment thread about that passage">
+
 ## The problem it solves
 
 Existing projects all fail at the same point, for the same reason:
@@ -48,6 +50,10 @@ server**, giving up full offline mode.
   Postgres, Redis or external identity provider required.
 - Not an offline-first app: the UI needs the server. No features behind a paid
   tier.
+
+<p align="center">
+  <img src=".github/assets/screenshots/mobile.png" width="420" alt="The same note on a phone, in the light and the dark theme side by side: the commented passage highlighted with «2 comments in this paragraph» under it, links, tags, the task list, and the formatting bar at the bottom">
+</p>
 
 ## Quick start
 
