@@ -80,17 +80,20 @@ async function consent(h: H, query: string, choice: { approve?: boolean; canWrit
   return r
 }
 
-/** The whole dance for one client: consent, then the code for tokens. */
-async function authorize(h: H, clientId: string, choice: { canWrite?: boolean; folders?: string[] } = {}) {
+/**
+ * The whole dance for one client: consent, then the code for tokens.
+ * `headers`: what the client sends to the token endpoint besides the form.
+ */
+async function authorize(h: H, clientId: string, choice: { canWrite?: boolean; folders?: string[] } = {}, redirect = REDIRECT, headers: Record<string, string> = {}) {
   const { verifier, challenge } = pkce()
-  const r = await consent(h, authorizeQuery(clientId, challenge), choice)
+  const r = await consent(h, authorizeQuery(clientId, challenge, { redirect_uri: redirect }), choice)
   assert.equal(r.status, 200, r.text)
   const back = new URL(r.body.redirect)
-  assert.equal(`${back.origin}${back.pathname}`, REDIRECT)
+  assert.equal(`${back.origin}${back.pathname}`, redirect)
   assert.equal(back.searchParams.get('state'), STATE)
   assert.equal(back.searchParams.get('iss'), PUBLIC)
   const code = back.searchParams.get('code')!
-  const t = await form(h, '/oauth/token', { grant_type: 'authorization_code', code, redirect_uri: REDIRECT, client_id: clientId, code_verifier: verifier, resource: RESOURCE })
+  const t = await form(h, '/oauth/token', { grant_type: 'authorization_code', code, redirect_uri: redirect, client_id: clientId, code_verifier: verifier, resource: RESOURCE }, headers)
   assert.equal(t.status, 200, t.text)
   assert.equal(t.headers.get('cache-control'), 'no-store')
   return { ...(t.body as { access_token: string; refresh_token: string; expires_in: number; token_type: string; scope: string }), code, verifier }
@@ -547,6 +550,79 @@ test('who may authorize: a member only while members may create keys; an agent n
     assert.equal((await h.withKey(token)('POST', '/api/oauth/authorize', { query: q, approve: true })).status, 404)
     // Nor another site: the consent is a write with the session (CSRF).
     assert.equal((await h.admin('POST', '/api/oauth/authorize', { query: q, approve: true }, { origin: 'https://attacker.example' })).status, 403)
+  } finally { await h.close() }
+})
+
+/**
+ * claude.ai's connector: its requests carry this Origin, and it sends people
+ * back to this address (claude.com/docs/connectors/building/authentication).
+ * Literal: they are the case under test.
+ */
+const CLAUDE_ORIGIN = 'https://claude.ai'
+const CLAUDE_CALLBACK = 'https://claude.ai/api/mcp/auth_callback'
+const ATTACKER = 'https://attacker.example'
+
+test('an Origin at /mcp: no credential always gets the challenge; a key only from vihko\'s own; an access token also from its client\'s site, as claude.ai', async () => {
+  const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
+  try {
+    await h.enableMcp()
+    await openRegistration(h)
+    const fromClaude = { origin: CLAUDE_ORIGIN }
+    // No credential: the 401 that starts OAuth discovery, whatever the Origin.
+    for (const origin of [CLAUDE_ORIGIN, ATTACKER, 'null']) {
+      const r = await mcpPost(h, null, { origin })
+      assert.deepEqual([r.status, r.headers.get('www-authenticate')], [401, `Bearer resource_metadata="${PUBLIC}/.well-known/oauth-protected-resource/mcp"`], origin)
+    }
+
+    // The OAuth addresses a client calls from its own servers take its Origin: no cookie opens them.
+    for (const path of ['/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-protected-resource', '/.well-known/oauth-authorization-server']) {
+      assert.equal((await raw(h, 'GET', path, { headers: fromClaude })).status, 200, path)
+    }
+    const reg = await raw(h, 'POST', '/oauth/register', { body: JSON.stringify({ client_name: CLIENT, redirect_uris: [CLAUDE_CALLBACK], token_endpoint_auth_method: 'none' }), headers: { 'content-type': 'application/json', ...fromClaude } })
+    assert.equal(reg.status, 201, reg.text)
+    const claude = reg.body.client_id as string
+    const first = await authorize(h, claude, {}, CLAUDE_CALLBACK, fromClaude)
+    const refreshed = await form(h, '/oauth/token', { grant_type: 'refresh_token', refresh_token: first.refresh_token, client_id: claude }, fromClaude)
+    assert.equal(refreshed.status, 200, refreshed.text)
+    // The consent is the person's, with their session: from another site, even the client's, it's refused (CSRF).
+    const { challenge } = pkce()
+    const consentFromClaude = await h.admin('POST', '/api/oauth/authorize', { query: authorizeQuery(claude, challenge, { redirect_uri: CLAUDE_CALLBACK }), approve: true, confirm: h.users.admin.password }, fromClaude)
+    assert.equal(consentFromClaude.status, 403)
+
+    // Its access token: from claude.ai (with a trailing slash too, as some of its requests have been seen with),
+    // from vihko's own origin, or with no Origin.
+    const access: string = refreshed.body.access_token
+    for (const headers of [fromClaude, { origin: `${CLAUDE_ORIGIN}/` }, { origin: PUBLIC }, { origin: 'http://localhost' }, {}]) {
+      const r = await mcpPost(h, access, headers)
+      assert.equal(r.status, 200, `${JSON.stringify(headers)}: ${r.text}`)
+    }
+    // From anywhere else, 403, however close.
+    for (const origin of [ATTACKER, 'https://claude.ai:8443', 'http://claude.ai', 'https://evil.claude.ai', 'null']) {
+      const r = await mcpPost(h, access, { origin })
+      assert.deepEqual([r.status, r.body?.error], [403, 'forbidden'], origin)
+    }
+    // A token that isn't one (or no longer is) is a 401 from claude.ai too: the client refreshes or signs in again.
+    const unknown = await mcpPost(h, `vihko_oat_${randomBytes(32).toString('base64url')}`, fromClaude)
+    assert.deepEqual([unknown.status, unknown.headers.get('www-authenticate')], [401, `Bearer error="invalid_token", resource_metadata="${PUBLIC}/.well-known/oauth-protected-resource/mcp"`])
+
+    // Another client's token isn't claude.ai's: refused from there, and not recorded as used; from its own site it works.
+    const other = await register(h, { client_name: m.aKeyName() })
+    const theirs = await authorize(h, other.client_id)
+    const lastUsed = async () => ((await h.admin('GET', '/api/keys')).body.keys as { lastUsedAt: string | null; client: { id: string } | null }[]).find((k) => k.client?.id === other.client_id)!.lastUsedAt
+    assert.equal(await lastUsed(), null)
+    assert.equal((await mcpPost(h, theirs.access_token, fromClaude)).status, 403)
+    assert.equal(await lastUsed(), null, 'a refused request is no use')
+    assert.equal((await mcpPost(h, theirs.access_token, { origin: new URL(REDIRECT).origin })).status, 200)
+
+    // Revoking from claude.ai works too.
+    assert.equal((await form(h, '/oauth/revoke', { token: refreshed.body.refresh_token, client_id: claude }, fromClaude)).status, 200)
+    assert.equal((await mcpPost(h, access, fromClaude)).status, 401)
+
+    // A key: only from vihko's own origin, or with no Origin. The Origin is judged before the key.
+    const { token: key } = await h.newKey({ name: m.aKeyName() })
+    for (const origin of [CLAUDE_ORIGIN, ATTACKER]) assert.equal((await mcpPost(h, key, { origin })).status, 403, origin)
+    assert.equal((await mcpPost(h, `vihko_${m.aSecret()}`, fromClaude)).status, 403)
+    for (const headers of [{ origin: PUBLIC }, {}] as Record<string, string>[]) assert.equal((await mcpPost(h, key, headers)).status, 200, JSON.stringify(headers))
   } finally { await h.close() }
 })
 

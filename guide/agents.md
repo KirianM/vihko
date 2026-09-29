@@ -222,9 +222,13 @@ To try the server by hand, the [MCP Inspector](https://github.com/modelcontextpr
 connects with transport **Streamable HTTP**, the URL, and the header
 `Authorization: Bearer vihko_…`.
 
-A request from a browser page on another site (with an `Origin` header that
-isn't vihko's) is refused with `403`: a web page can't use your key through
-your browser.
+A request with a key and an `Origin` header that isn't vihko's own (a browser
+page on another site) is refused with `403`: a web page can't use your key
+through your browser. An OAuth access token is also accepted from its app's own
+site, the origin of an address the app goes back to (claude.ai's requests say
+`Origin: https://claude.ai`), and refused from any other. A request without a
+key or token always gets the `401` that tells a client how to sign in,
+whatever its `Origin`.
 
 ## The tools
 
