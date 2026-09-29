@@ -82,11 +82,11 @@ The codes you can meet with a key:
 | `forbidden` | 403 | A read-only key on a route that writes, or something the key's person may not do there: writing where they only read, a note's history where they can't edit |
 | `agent_denied` | 403 | The note exists but is not for agents; `reason` says why. Don't delete or replace links to it |
 | `not_found` | 404 | No such note, version or route, or one the key can't see |
-| `invalid` | 400 | A body or parameter that isn't valid (also a body that isn't JSON) |
+| `invalid` | 400 | A body or parameter that isn't valid (also a body that isn't JSON). For edits by operation: an unknown `op`, a field it needs missing or of the wrong type, no operations or more than 50, or `set_frontmatter` on `uid` |
 | `invalid_path` | 400 | Not a valid note or folder path (absolute, `..`, hidden segments, not `.md`) |
 | `control_characters` | 400 | A path with a control character (a tab, a line break) |
 | `exists` | 409 | Creating a note that already exists |
-| `edit_mismatch` | 409 | An edit operation doesn't fit the text: `find` not found the expected number of times, a heading that isn't there |
+| `edit_mismatch` | 409 | An edit operation doesn't fit the text: `find` not found the expected number of times (or empty), a heading that isn't there, a frontmatter that can't be written |
 | `not_configured` | 409 | The daily note, with no series in `vihko.yaml` |
 | `audience_widens` | 409 | A move would show the note to people who can't see it now; `audience` says who. Repeat with `confirmAudience: true` only if its person agrees |
 | `not_revertible` | 409 | Reverting a version that creates or deletes the note |
@@ -292,8 +292,8 @@ creates the note only if it doesn't exist (`201`).
 ### Edit a note by operations
 
 `POST /api/note/edit` with `{ "path", "ops", "ifMatch"?, "dryRun"? }`. The
-operations apply in order, all or none, on the current text, even while
-someone has the note open.
+operations (1 to 50) apply in order, all or none, on the current text, even
+while someone has the note open.
 
 | `op` | Fields | What it does |
 |---|---|---|
@@ -305,7 +305,13 @@ someone has the note open.
 
 `heading` is the heading's text, or with its level (`"## Tasks"`) when the
 same text is at several levels. `find_replace`, `replace_section` and
-`set_frontmatter` need `ifMatch`.
+`set_frontmatter` need `ifMatch`. `set_frontmatter` can't change `uid`, the
+note's identity.
+
+An operation that isn't well formed (an unknown `op`, a field missing or of
+the wrong type) answers `400 invalid` and nothing is written; one that doesn't
+fit the text (`find` not there the expected number of times, no such heading)
+answers `409 edit_mismatch`.
 
 ```sh
 curl -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: application/json" \

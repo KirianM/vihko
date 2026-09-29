@@ -28,7 +28,7 @@ import { AccessError, AgentDenied, type Access } from '../access.ts'
 import { parseAuthorKey } from '../actor.ts'
 import { historyFor } from '../agentHistory.ts'
 import type { ImageSlots } from '../imageSlots.ts'
-import type { EditOp } from '../edits.ts'
+import { MAX_EDIT_OPS, type EditOp } from '../edits.ts'
 import { GitError } from '../history/git.ts'
 import { contextAfter, contextBefore, wordDiff } from '../history/diff.ts'
 import { HistoryError, UNAVAILABLE_MESSAGE, clientMessage, type AuthorRef, type HistoryReader } from '../history/reader.ts'
@@ -696,7 +696,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       + HIDING + ' Then the answer has the ETag only if you gave if_match.',
     inputSchema: input(z.object({
       path,
-      operations: z.array(Op).min(1).max(50).describe('The operations, applied in order.'),
+      operations: z.array(Op).min(1).max(MAX_EDIT_OPS).describe('The operations, applied in order.'),
       if_match: ifMatch.optional(),
       dry_run: z.boolean().default(false).describe('Only show what it would change.'),
     }), { ...NAME_ALIASES, ops: 'operations' }),

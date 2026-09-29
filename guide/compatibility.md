@@ -91,7 +91,10 @@ they apply, `id`, `onBehalfOf` (`id`, `name`) and `via` (`api`, `mcp` or
 The operations of `POST /api/note/edit` stay as they are: `append` (`text`),
 `append_under_heading` (`heading`, `text`), `find_replace` (`find`,
 `replace`, `expectedCount`), `replace_section` (`heading`, `text`) and
-`set_frontmatter` (`key`, `value`). The last three need the ETag.
+`set_frontmatter` (`key`, `value`). The last three need the ETag. An edit has
+1 to 50 of them; one that isn't well formed (an unknown `op`, a field missing
+or of the wrong type, `set_frontmatter` on `uid`) is `400 invalid`, as over
+MCP, and one that doesn't fit the text is `409 edit_mismatch`.
 
 ### Routes without a key
 

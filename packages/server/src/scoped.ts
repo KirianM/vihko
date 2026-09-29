@@ -16,7 +16,7 @@ import { attachmentPath } from './attachments.ts'
 import { isPlainFile } from './fsutil.ts'
 import type { Db } from './db.ts'
 import type { DailyNotes } from './daily.ts'
-import { planEdits, type EditOp } from './edits.ts'
+import { MAX_EDIT_OPS, planEdits, type EditOp } from './edits.ts'
 import { CommentError, commentSplices, type CommentOp } from './commenting.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START, search, type SearchResult } from './http/search.ts'
 import { FolderNotEmpty, NoteError, NoteService, type FolderContents, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type TrashEntry, type TrashRestoreReport } from './notes.ts'
@@ -261,6 +261,47 @@ class DryRun extends Error {
  * Appends don't.
  */
 export const SUBSTITUTIONS: readonly string[] = ['find_replace', 'replace_section', 'set_frontmatter']
+
+/**
+ * The operations of an edit as a request gave them, checked before anything
+ * is read: a list of 1 to `MAX_EDIT_OPS`, each a known `op` with the fields
+ * it needs, of their types, and never the `uid` (the note's identity). Any
+ * of that wrong is `400 invalid`, for the HTTP API and the MCP server alike;
+ * what depends on the note's text (a heading or text not found, an empty
+ * `find`) is `edit_mismatch` when it is applied (edits.ts).
+ */
+export function checkEditOps(ops: unknown): EditOp[] {
+  if (!Array.isArray(ops)) throw new RequestError(400, 'invalid', 'ops must be a list of operations')
+  if (ops.length === 0 || ops.length > MAX_EDIT_OPS) throw new RequestError(400, 'invalid', `an edit has 1 to ${MAX_EDIT_OPS} operations, not ${ops.length}`)
+  const scalar = (v: unknown) => typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))
+  return ops.map((o: unknown, i): EditOp => {
+    const bad = (why: string): never => { throw new RequestError(400, 'invalid', `operation ${i}: ${why}`) }
+    if (typeof o !== 'object' || o === null || Array.isArray(o)) return bad('not an operation')
+    const e = o as Record<string, unknown>
+    const text = (k: string) => { if (typeof e[k] !== 'string') bad(`${String(e.op)} needs ${k}, as text`); return e[k] as string }
+    switch (e.op) {
+      case 'find_replace': {
+        const expectedCount = e.expectedCount
+        if (expectedCount !== undefined && !(Number.isInteger(expectedCount) && (expectedCount as number) >= 1)) bad('expectedCount must be a whole number from 1')
+        return { op: 'find_replace', find: text('find'), replace: text('replace'), ...(expectedCount !== undefined ? { expectedCount: expectedCount as number } : {}) }
+      }
+      case 'append':
+        return { op: 'append', text: text('text') }
+      case 'append_under_heading':
+      case 'replace_section':
+        return { op: e.op, heading: text('heading'), text: text('text') }
+      case 'set_frontmatter': {
+        const key = text('key')
+        if (key.trim() === 'uid') bad('the uid is the note\'s identity: it can\'t be changed')
+        const value = e.value
+        if (!(scalar(value) || (Array.isArray(value) && value.every(scalar)))) bad('set_frontmatter needs value: text, a number, true/false or a list of them')
+        return { op: 'set_frontmatter', key, value: value as Extract<EditOp, { op: 'set_frontmatter' }>['value'] }
+      }
+      default:
+        return bad(`unknown op ${JSON.stringify(e.op)}: find_replace, append, append_under_heading, replace_section or set_frontmatter`)
+    }
+  })
+}
 
 export class ScopedNotes {
   private deps: ScopedDeps
@@ -572,9 +613,9 @@ export class ScopedNotes {
    * note from the agent that makes it (`set_frontmatter ai false`) stands,
    * with `nowHidden`.
    */
-  async editOps(path: string, ops: EditOp[], opts: { ifMatch?: string; dryRun?: boolean }): Promise<Written | EditPreview> {
-    if (!Array.isArray(ops)) throw new RequestError(400, 'invalid', 'ops must be a list of operations')
-    if (this.access.isAgent && !opts.ifMatch && ops.some((o) => SUBSTITUTIONS.includes((o as { op?: string })?.op ?? ''))) {
+  async editOps(path: string, given: unknown, opts: { ifMatch?: string; dryRun?: boolean }): Promise<Written | EditPreview> {
+    const ops = checkEditOps(given)
+    if (this.access.isAgent && !opts.ifMatch && ops.some((o) => SUBSTITUTIONS.includes(o.op))) {
       throw new RequestError(428, 'precondition_required', 'a substitution needs the ETag of the text it was planned on (If-Match or ifMatch)')
     }
     if (!opts.dryRun) {

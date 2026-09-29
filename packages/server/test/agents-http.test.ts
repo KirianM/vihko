@@ -294,6 +294,49 @@ test('writing with a key: If-Match (412 with the current ETag), If-None-Match: *
   } finally { await h.close() }
 })
 
+test('edits by operation: a malformed operation is 400 invalid (as over MCP), before the note is read; what the text doesn\'t match is 409', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    await h.enableApi()
+    const { token } = await h.newKey({ name: m.aKeyName(), canWrite: true })
+    const key = h.withKey(token)
+    const { etag, text } = (await key('GET', h.url('/api/note', { path: PLAN }))).body
+    const edit = (ops: unknown, path = PLAN) => key('POST', '/api/note/edit', { path, ops, ifMatch: etag })
+    const append = { op: 'append', text: m.aSentence() }
+    for (const [what, ops] of Object.entries({
+      'an unknown op': [{ op: m.aWord(), text: m.aSentence() }],
+      'no op': [{ text: m.aSentence() }],
+      'not an object': [m.aWord()],
+      'append without text': [{ op: 'append' }],
+      'find_replace without replace': [{ op: 'find_replace', find: m.aWord() }],
+      'a heading that is not text': [{ op: 'replace_section', heading: 2, text: m.aSentence() }],
+      'expectedCount 0': [{ op: 'find_replace', find: m.aWord(), replace: m.aWord(), expectedCount: 0 }],
+      'set_frontmatter without value': [{ op: 'set_frontmatter', key: m.aWord() }],
+      'set_frontmatter with an object': [{ op: 'set_frontmatter', key: m.aWord(), value: { [m.aWord()]: m.aWord() } }],
+      'set_frontmatter on the uid': [{ op: 'set_frontmatter', key: 'uid', value: m.faker.string.ulid() }],
+      'set_frontmatter on the uid, spaced': [{ op: 'set_frontmatter', key: ' uid ', value: m.faker.string.ulid() }],
+      'no operations': [],
+      'more than 50 operations': Array.from({ length: 51 }, () => append),
+      'a valid one, then a bad one': [append, { op: 'append' }],
+      'not a list': append,
+    })) {
+      const r = await edit(ops)
+      assert.deepEqual([r.status, r.body?.error], [400, 'invalid'], what)
+    }
+    // Before the note is read: the same for a note that doesn't exist.
+    assert.deepEqual((await edit([{ op: m.aWord() }], m.aNotePath(DIR))).status, 400)
+    assert.equal((await key('GET', h.url('/api/note', { path: PLAN }))).body.etag, etag, 'nothing was written')
+    // 50 is the limit, not beyond it.
+    assert.equal((await edit(Array.from({ length: 50 }, () => ({ op: 'append', text: m.aWord() })))).status, 200)
+    // What depends on the text stays edit_mismatch.
+    const now = (await key('GET', h.url('/api/note', { path: PLAN }))).body
+    const absent = m.aUniqueWord()
+    assert.ok(!text.includes(absent))
+    const mismatch = await key('POST', '/api/note/edit', { path: PLAN, ifMatch: now.etag, ops: [{ op: 'find_replace', find: absent, replace: m.aWord() }] })
+    assert.deepEqual([mismatch.status, mismatch.body.error], [409, 'edit_mismatch'])
+  } finally { await h.close() }
+})
+
 test('every /api route is classified for keys, and the registry names no route that doesn\'t exist', async () => {
   const h = await setup({ files: FILES })
   try {
