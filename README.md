@@ -125,7 +125,7 @@ The full index is in [guide/README.md](guide/README.md).
 
 ## Status
 
-1.0 (`1.0.0`), the first stable release. See [ROADMAP.md](ROADMAP.md)
+1.0 (`1.0.1`), the first stable release. See [ROADMAP.md](ROADMAP.md)
 for what's done and what's next. Report bugs and ideas in the issues;
 security vulnerabilities privately, as [SECURITY.md](SECURITY.md) explains.
 
