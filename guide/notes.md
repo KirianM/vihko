@@ -69,9 +69,10 @@ quoting, list style and keys it doesn't know stay exactly as they were.
 
 ## The `uid`
 
-The `uid` is what identifies a note for vihko: not its path, not its name. It's
-a ULID (26 characters, such as `01K6A3Q2V7X9ZB4C8D5E6F7G8H`), sortable by
-creation time.
+The `uid` is what identifies a note for vihko: not its path, not its name. The
+ones vihko writes are ULIDs (26 characters, such as
+`01K6A3Q2V7X9ZB4C8D5E6F7G8H`), sortable by creation time; vihko reads any text
+or number there as a `uid`.
 
 vihko adds one only when it writes the note anyway:
 
@@ -247,7 +248,9 @@ names was taken meanwhile by another file, the image comes back with a number
 (`plan-2026-09-28-1012-2.png`) and the note links it there; an identical file
 already there counts as restored.
 
-vihko never empties the trash on its own. Each entry sits in its own folder under
+vihko never empties the trash on its own by default. A later release may add
+a setting to keep entries only for a while, off unless you turn it on. Each
+entry sits in its own folder under
 `trash/` in the state volume (`note.md`, its images under `files/`, and a
 `meta.json` that lists them); delete those by hand if you need the space.
 
