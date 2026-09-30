@@ -173,8 +173,16 @@ test('deleting a space: its managers, its content to the trash and its rules out
     assert.ok(!existsSync(join(h.notesDir, s.path)))
     assert.ok(!readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8').includes(s.path))
     assert.deepEqual((await h.other('GET', '/api/spaces')).body.spaces, [])
-    // In the trash (who sees it there once the space is gone is the trash's: spec §3.5).
-    assert.ok(h.notes.trash().some((e) => e.path === note))
+    // In the trash: its manager then sees it and restores it where they may write; its other members don't see it (spec §3.5).
+    const entries = async (who: Name) => (await h.as(who)('GET', '/api/trash')).body.entries as { id: string; path: string; space: string | null }[]
+    const entry = (await entries('member')).find((e) => e.path === note)
+    assert.ok(entry, 'its manager sees it')
+    assert.equal(entry.space, s.path)
+    assert.ok(!(await entries('other')).some((e) => e.path === note))
+    const back = `${h.home('member')}/${m.aTitle()}.md`
+    const restored = await h.member('POST', `/api/trash/${entry.id}/restore`, { to: back })
+    assert.equal(restored.status, 200, restored.text)
+    assert.ok(existsSync(join(h.notesDir, back)))
   } finally {
     h.close()
   }
