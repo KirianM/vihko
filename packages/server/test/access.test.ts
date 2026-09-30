@@ -4,6 +4,7 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { hiddenFromAgents } from '@vihko/server'
 import { setup } from './_agents.ts'
+import { SHARED, inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -18,7 +19,7 @@ test('ai: false hides a note from agents, and so does any doubt: no, off, "false
 })
 
 test('a note says whether it is hidden from agents, and why: the UI shows it', async () => {
-  const dir = m.aFolder()
+  const dir = inShared(m.aFolder())
   const [hidden, broken, visible, plain] = [m.aNotePath(dir), m.aNotePath(dir), m.aNotePath(dir), m.aNotePath(dir)]
   const body = `# ${m.aHeading()}\n\n${m.aParagraph()}\n`
   const h = await setup({ files: {
@@ -49,21 +50,22 @@ test('a key\'s folders match paths as the disk holds them (NFD), and a note hidd
   // The folder's name decomposed on disk, composed in the key: the case under test.
   const nfd = 'Café'
   const name = `${m.aTitle()}.md`
-  const note = `${nfd}/${name}`
+  const note = inShared(`${nfd}/${name}`)
   const heading = `# ${m.aHeading()}\n`
-  const h = await setup({ files: { [note]: heading, [m.aNotePath(m.aFolder())]: `# ${m.aHeading()}\n` } })
+  const h = await setup({ files: { [note]: heading, [m.aNotePath(inShared(m.aFolder()))]: `# ${m.aHeading()}\n` } })
   try {
     await h.enableApi()
-    const { token } = await h.newKey({ name: m.aKeyName(), canWrite: true, folders: ['Café'] })
+    const { token } = await h.newKey({ name: m.aKeyName(), canWrite: true, folders: [inShared('Café')] })
     const key = h.withKey(token)
     const tree = (await key('GET', '/api/tree')).body
     assert.deepEqual(tree.notes.map((n: { path: string }) => n.path), [note])
-    assert.deepEqual(tree.folders, [nfd])
+    // The folders on the way to it (the spaces' folder and the space) are listed too, as the way there.
+    assert.deepEqual(tree.folders, ['spaces', SHARED, inShared(nfd)])
     assert.equal((await key('GET', h.url('/api/note', { path: note }))).status, 200)
 
     // Written outside vihko a moment ago, not indexed yet: its text decides.
     // It names the note: told it exists and isn't for agents, and nothing else.
-    writeFileSync(join(h.notesDir, nfd, name), `---\nai: false\n---\n${heading}`)
+    writeFileSync(join(h.notesDir, inShared(nfd), name), `---\nai: false\n---\n${heading}`)
     const read = await key('GET', h.url('/api/note', { path: note }))
     assert.deepEqual([read.status, read.body.error, read.body.reason], [403, 'agent_denied', 'ai_false'])
     const edit = await key('POST', '/api/note/edit', { path: note, ops: [{ op: 'append', text: m.aSentence() }] })

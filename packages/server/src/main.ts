@@ -30,6 +30,7 @@ import { WORKSPACE_FILE, type WorkspaceMigration } from '@vihko/core'
 import { ConfigMigrations } from './configMigrations.ts'
 import { AccessPolicy } from './access.ts'
 import { PermissionsEngine, groupSource, stateDirectory } from './permissions.ts'
+import { diskSpaceFolders } from './spaceFolders.ts'
 import { PermissionHolds } from './permissionHolds.ts'
 import { Users } from './users.ts'
 import { TwoFactor } from './twoFactor.ts'
@@ -179,7 +180,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   // deletion or a group's rename (http/app.ts fills those hooks in).
   const users = new Users(auth, { hooks: { onSessionsEnded: (id) => hub.checkSessions(id) } })
   // Who reads what (D-038): vihko.yaml's rules over state.db's users and groups.
-  const permissions = new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(state, groupSource(users)) })
+  const permissions = new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(state, groupSource(users)), folders: diskSpaceFolders(config.notesDir) })
   // Before the first scan: a note moved while the server was stopped is detected too.
   const holds = new PermissionHolds({ stateDir: config.stateDir, engine: permissions, log })
   const policy = new AccessPolicy({ index, permissions, holds })

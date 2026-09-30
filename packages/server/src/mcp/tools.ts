@@ -505,7 +505,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('resolve_link', {
     title: 'Resolve a link',
-    description: 'Which note a link leads to when written in a given note: `[[Note]]`, `[[Note#Heading]]`, `[text](path.md)`, or just the name. `status`: resolved (with its path), ambiguous (with the candidates you can see; `others_no_access` if there are more), missing (no such note), or no_access (a note that exists but is not available to you, with the reason: `ai_false`, `outside_key_folders` or `user_no_access`): ' + LEAVE_IT,
+    description: 'Which note a link leads to when written in a given note: `[[Note]]`, `[[Note#Heading]]`, `[text](path.md)`, or just the name. `status`: resolved (with its path), ambiguous (with the candidates you can see; `others_no_access` if there are more), missing (no such note), or no_access (a note that exists but is not available to you, with the reason: `ai_false` or `outside_key_folders`): ' + LEAVE_IT,
     inputSchema: input(z.object({
       from: path.describe('The note the link is written in.'),
       link: z.string().min(1).describe('The link, e.g. "[[Plan#Tasks]]" or "Plan".'),

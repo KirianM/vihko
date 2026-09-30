@@ -16,6 +16,7 @@ import Database from 'better-sqlite3'
 import { classifyPath, extract, readFrontmatter, setFrontmatterKey } from '@vihko/core'
 import { Indexer, dumpIndex, openIndex } from '@vihko/server'
 import { api, closeAll, connect, login } from '../_collab.ts'
+import { inShared } from '../_permissions.ts'
 import { PASSWORD, USER, cleanup, metric, startServer, timed, waitFor, workspace, type Server, type Workspace } from './_harness.ts'
 
 interface LinkRow { src_path: string; ord: number; raw: string; status: string; dst_path: string | null; anchor_ok: number | null; candidates: string | null }
@@ -155,8 +156,9 @@ test('renaming heavily linked notes keeps every link of the vault', { timeout: 3
     // The trap is renamed in place: [[Diseño]] now has to keep reaching each of the two.
     await checkedMove(srv, cookie, ws, trap, trap.replace('Diseño', 'Pantallas y colores'), true)
     // A note with a decomposed (NFD) name, to a composed one.
-    const nfd = ws.vault.notes.find((p) => p !== p.normalize('NFC') && p.startsWith('personas/'))!
-    await checkedMove(srv, cookie, ws, nfd, 'personas/Contactos/' + nfd.slice('personas/'.length).normalize('NFC'), false)
+    const people = inShared('personas/')
+    const nfd = ws.vault.notes.find((p) => p !== p.normalize('NFC') && p.startsWith(people))!
+    await checkedMove(srv, cookie, ws, nfd, `${people}Contactos/` + nfd.slice(people.length).normalize('NFC'), false)
 
     // The server's index, updated incrementally along the way, equals a rebuild.
     const expected = (() => { const db = freshIndex(ws, 'expected'); const d = dumpIndex(db); db.close(); return d })()

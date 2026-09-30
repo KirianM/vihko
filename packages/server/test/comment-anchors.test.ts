@@ -7,6 +7,7 @@ import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node
 import { join } from 'node:path'
 import { Indexer, NoteService, openIndex, type Actor } from '@vihko/server'
 import { setup as appSetup } from './_app.ts'
+import { inShared } from './_permissions.ts'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -103,7 +104,7 @@ test('moving or renaming a note keeps its threads\' original text', async () => 
 
 test('GET /api/note/comments: the original text and whether it changed', async () => {
   const { notesDir, runtime, admin } = await appSetup()
-  const path = m.aNotePath()
+  const path = m.aNotePath(inShared(''))
   const file = join(notesDir, path)
   const remark = m.aSentence()
   const comments = async () => (await admin('GET', `/api/note/comments?path=${encodeURIComponent(path)}`)).body
@@ -122,5 +123,5 @@ test('GET /api/note/comments: the original text and whether it changed', async (
   runtime.rescan({})
   assert.deepEqual((await comments()).threads.map((t: any) => [t.original, t.changed]), [[FIRST, true], ['', false]])
 
-  assert.equal((await admin('GET', `/api/note/comments?path=${encodeURIComponent(m.aNotePath())}`)).status, 404)
+  assert.equal((await admin('GET', `/api/note/comments?path=${encodeURIComponent(m.aNotePath(inShared('')))}`)).status, 404)
 })

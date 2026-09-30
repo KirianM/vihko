@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { Indexer, dumpIndex, openIndex } from '@vihko/server'
 import { api, closeAll, connect, login, typeLine } from '../_collab.ts'
+import { inShared } from '../_permissions.ts'
 import { PASSWORD, USER, cleanup, metric, sleep, startServer, waitFor, workspace, type Server } from './_harness.ts'
 
 function dumpOf(file: string): string {
@@ -33,9 +34,9 @@ test('deleting index.db and rebuilding it gives an identical dump', { timeout: 3
     const [a, b, c, d] = ws.vault.editable as [string, string, string, string]
     const ok = (r: { status: number; body: unknown }) => assert.ok(r.status < 300, JSON.stringify(r.body))
     // A lived-in index: every kind of change, through the server and from outside.
-    ok(await api(srv, cookie, 'POST', '/api/note', { path: 'nuevas/Creada desde la API.md', text: '# Creada\n\n[[Arquitectura]] #nueva\n' }))
+    ok(await api(srv, cookie, 'POST', '/api/note', { path: inShared('nuevas/Creada desde la API.md'), text: '# Creada\n\n[[Arquitectura]] #nueva\n' }))
     ok(await api(srv, cookie, 'POST', '/api/note/edit', { path: a, ops: [{ op: 'append', text: '\n## Añadido\n\n[[Plan]] y [[Nota que no existe]]\n' }] }))
-    ok(await api(srv, cookie, 'POST', '/api/note/move', { from: b, to: 'movidas/' + b.split('/').pop() }))
+    ok(await api(srv, cookie, 'POST', '/api/note/move', { from: b, to: inShared('movidas/' + b.split('/').pop()) }))
     ok(await api(srv, cookie, 'DELETE', `/api/note?path=${encodeURIComponent(c)}`))
     const live = await connect(srv, cookie, d)
     for (let i = 0; i < 20; i++) typeLine(live, `typed in the editor ${i} [[Tareas]] #vivo`)
@@ -43,7 +44,7 @@ test('deleting index.db and rebuilding it gives an identical dump', { timeout: 3
     live.close()
     closeAll()
     appendFileSync(join(ws.notesDir, ws.vault.editable[4]!), '\nEdited outside [[Inicio]] #fuera\n')
-    writeFileSync(join(ws.notesDir, 'Escrita fuera.md'), '---\naliases: [fuera]\n---\n# Escrita fuera\n\n[[Diseño]]\n')
+    writeFileSync(join(ws.notesDir, inShared('Escrita fuera.md')), '---\naliases: [fuera]\n---\n# Escrita fuera\n\n[[Diseño]]\n')
     rmSync(join(ws.notesDir, ws.vault.editable[5]!))
     await sleep(1500) // watcher events
     await srv.stop()

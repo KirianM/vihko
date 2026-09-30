@@ -2,10 +2,11 @@
 // vault on local disk, the real server as a separate process (started with the
 // CLI, as in production), timings, memory and a report of the numbers.
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { cpus, tmpdir, totalmem } from 'node:os'
 import { join } from 'node:path'
 import { CLI, sleep, waitFor, type Srv } from '../_collab.ts'
+import { SHARED, sharedSpace } from '../_permissions.ts'
 import { generateVault, type Vault } from './_vault.ts'
 import { mother } from '../../../../test/mother.ts'
 
@@ -19,6 +20,14 @@ export const ROUNDS = Number(process.env.ACCEPTANCE_ROUNDS ?? 5)
 const ADMIN = mother(import.meta.url).aUser({ role: 'admin' })
 export const USER = ADMIN.username
 export const PASSWORD = ADMIN.password
+/**
+ * The `permissions` of every workspace's vihko.yaml: the vault is in the
+ * shared space (_permissions.ts SHARED), which the admin manages. A test that
+ * writes vihko.yaml again keeps them (`config`).
+ */
+export const PERMISSIONS = sharedSpace({ [USER]: 'manage' })
+/** A vihko.yaml with `extra` (other sections) and the workspace's permissions. */
+export const config = (extra = '') => `${extra}${extra && !extra.endsWith('\n') ? '\n' : ''}${PERMISSIONS}`
 
 let nextPort = 26000 + Math.floor(Math.random() * 3000)
 export const freePort = () => nextPort++
@@ -26,7 +35,8 @@ export const freePort = () => nextPort++
 export interface Workspace { root: string; notesDir: string; stateDir: string; vault: Vault; env: Record<string, string> }
 
 /**
- * A generated vault and an empty state with one admin. On local disk: the
+ * A generated vault in the shared space, the vihko.yaml that gives it to the
+ * admin, and an empty state with that admin. On local disk: the
  * system temp folder, or ACCEPTANCE_DIR (e.g. an NFS mount, to measure it).
  * ACCEPTANCE_STATE_DIR puts the state elsewhere (it must be local disk).
  */
@@ -36,7 +46,8 @@ export function workspace(name: string, opts: { user?: boolean } = {}): Workspac
   const root = mkdtempSync(join(base, `vihko-acc-${name}-`))
   const notesDir = join(root, 'notes')
   const stateDir = process.env.ACCEPTANCE_STATE_DIR ? mkdtempSync(join(process.env.ACCEPTANCE_STATE_DIR, `vihko-acc-${name}-`)) : join(root, 'state')
-  const vault = generateVault(notesDir, { notes: NOTES, seed: SEED })
+  const vault = generateVault(notesDir, { notes: NOTES, seed: SEED, space: SHARED })
+  writeFileSync(join(notesDir, 'vihko.yaml'), config())
   const env = { VIHKO_NOTES_DIR: notesDir, VIHKO_STATE_DIR: stateDir, VIHKO_HOST: '127.0.0.1', VIHKO_PORT: String(freePort()) }
   if (opts.user !== false) {
     const r = spawnSync(process.execPath, ['--no-experimental-webstorage', CLI, 'user', 'create', USER, '--admin'], { env: { ...process.env, ...env }, input: PASSWORD })

@@ -1,14 +1,17 @@
-// The M4 scenario (m4-multiusuario.md §7), shared by the permission tests
-// and the leak sweep: an admin, a member and another member, a group of the
-// two members (until piece U brings groups, a stand-in `groupsOf`), and a
-// vault (FILES) whose folders, notes, tags and words are the mother's too,
-// the same for every setup of a test file. Rules: the root is the admin's;
-// `<DIR.people>/{user}` → `manage`; the shared folder (`DIR.shared`) → the
-// group edits it, and the admin; the member's diary with `ai: false`. The
-// API with keys, the MCP server and the history, in process.
+// The multi-person scenario (M4's, m4-multiusuario.md §7, in spaces since
+// D-056), shared by the permission tests and the leak sweep: an admin, a
+// member and another member, a group of the two members (a stand-in
+// `groupsOf`), and a vault (FILES) whose folders, notes, tags and words are
+// the mother's too, the same for every setup of a test file. Each person has
+// their own space (`people/<username>`, DIR.people); a shared space
+// (`DIR.shared`) the group edits and the admin manages; a shared space only
+// the admin's (`DIR.admin`); the member's diary with `ai: false`. A person
+// folder named like nobody and a note at the root, outside every space: no
+// one sees them. The API with keys, the MCP server and the history, in
+// process.
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, PermissionHolds, PermissionsEngine, Profiles, Workspace, createServer, mountMcp, openIndex, openState, stateDirectory, toolData, AccessPolicy, type Runtime } from '@vihko/server'
+import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, PermissionHolds, PermissionsEngine, Profiles, Workspace, createServer, diskSpaceFolders, mountMcp, openIndex, openState, stateDirectory, toolData, AccessPolicy, type Runtime } from '@vihko/server'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { tempDir } from './_tmp.ts'
 import { yamlKey } from './_permissions.ts'
@@ -24,8 +27,8 @@ export const GROUP = m.aGroupName()
 /** A name nobody has: `<DIR.people>/<NOBODY>` is the folder of no user. */
 export const NOBODY = m.aUsername()
 
-/** The folders of the scenario: the shared one, the one of everyone's own, the admin's. */
-export const DIR = { shared: m.aFolder(), people: m.aFolder(), admin: m.aFolder() }
+/** The spaces of the scenario: the shared one, the folder of everyone's own, the admin's. */
+export const DIR = { shared: `spaces/${m.aSpaceFolder()}`, people: 'people', admin: `spaces/${m.aSpaceFolder()}` }
 /** The member's diary and recipes folders, inside their own. */
 const DIARY_DIR = m.aFolder()
 const RECIPES_DIR = m.aFolder()
@@ -64,12 +67,10 @@ export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAA
 
 export const RULES = `# Who reads what
 permissions:
-  "":
-    grants: { ${yamlKey(ADMIN.username)}: manage }
   ${yamlKey(DIR.shared)}:
-    grants: { ${yamlKey(`@${GROUP}`)}: edit, ${yamlKey(ADMIN.username)}: edit }
-  ${yamlKey(`${DIR.people}/{user}`)}:
-    grants: { "{user}": manage }
+    grants: { ${yamlKey(`@${GROUP}`)}: edit, ${yamlKey(ADMIN.username)}: manage }
+  ${yamlKey(DIR.admin)}:
+    grants: { ${yamlKey(ADMIN.username)}: manage }
   ${yamlKey(PATH.diaryDir)}:
     ai: false
 `
@@ -110,7 +111,7 @@ export async function setup(opts: M4Setup = {}) {
   const workspace = new Workspace({ notesDir })
   const indexer = new Indexer({ notesDir, db: index })
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
-  const permissions = new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(state, groups) })
+  const permissions = new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(state, groups), folders: diskSpaceFolders(notesDir) })
   const holds = new PermissionHolds({ stateDir, engine: permissions })
   indexer.onMoves = (m) => holds.consider(m)
   runtime.rescan({})

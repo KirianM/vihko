@@ -1,11 +1,12 @@
 // Shared setup for the vihko.yaml, profile and daily-note tests: a copy of the
-// test vault, two users signed in (an admin and a member) and an adjustable clock.
+// test vault in the shared space (_permissions.ts SHARED), two users signed in
+// (an admin and a member) and an adjustable clock.
 import { cpSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Auth, Indexer, NoteService, Profiles, Workspace, createApp, openIndex, openState, type Runtime } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
-import { withEveryone } from './_permissions.ts'
+import { SHARED, inShared, withEveryone } from './_permissions.ts'
 import { byNames, create, newPeople, type ByNames } from './_people.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -18,10 +19,10 @@ const m = mother(import.meta.url)
  * template) and a shared one, and the attachments folder.
  */
 export const DAILY = {
-  templates: m.aFolder(),
-  own: { id: m.anId(), label: m.aHeading(), folder: m.aFolder(), template: m.aTitle() },
-  team: { id: m.anId(), folder: m.aFolder() },
-  attachments: m.aFolder(),
+  templates: inShared(m.aFolder()),
+  own: { id: m.anId(), label: m.aHeading(), folder: inShared(m.aFolder()), template: m.aTitle() },
+  team: { id: m.anId(), folder: inShared(m.aFolder()) },
+  attachments: inShared(m.aFolder()),
 }
 
 export const CONFIG = `# Workspace settings
@@ -41,7 +42,7 @@ attachments:
 export async function setup(opts: { config?: ByNames<string>; clock?: { now: Date }; moveWaitMs?: number } = {}) {
   const dir = tempDir('vihko-daily-')
   const notesDir = join(dir, 'notes')
-  cpSync(VAULT, notesDir, { recursive: true })
+  cpSync(VAULT, join(notesDir, SHARED), { recursive: true })
   mkdirSync(join(notesDir, DAILY.templates))
   const people = newPeople()
   const names = { admin: people.admin.username, member: people.member.username }

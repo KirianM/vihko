@@ -8,14 +8,15 @@ import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { api, closeAll, connect, login, makeDirs, sleep, startServer, typeLine, waitFor, type Srv } from './_collab.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
 // Notes of testdata/vault: the tests open, rename and delete them.
-const NOTE = 'hogar/Proxy.md'
-const OTHER = 'hogar/Red.md'
-const THIRD = 'hogar/Firewall.md'
+const NOTE = inShared('hogar/Proxy.md')
+const OTHER = inShared('hogar/Red.md')
+const THIRD = inShared('hogar/Firewall.md')
 
 /** The name the hub gives a note's files (hub.ts, logBase): its path URL-encoded, or `#` and its SHA-256 when that's too long. */
 function savedName(path: string): string {
@@ -46,12 +47,12 @@ async function openAndClose(srv: Srv, cookie: string, notes: string, path: strin
 
 test('a closed note renamed or deleted from vihko: its saved state follows it or goes, and none is left under an old path', async () => {
   const { notes, env } = makeDirs()
-  const folder = longFolder()
+  const folder = inShared(longFolder())
   const long = `${folder}/${m.aTitle()}.md`
   mkdirSync(join(notes, folder), { recursive: true })
   writeFileSync(join(notes, long), `# ${m.aHeading()}\n\n${m.aSentence()}\n`)
   let srv = await startServer(env)
-  const renamed = `hogar/${m.aTitle()}.md`
+  const renamed = inShared(`hogar/${m.aTitle()}.md`)
   const longRenamed = `${folder}/${m.aTitle()}.md`
   try {
     const cookie = await login(srv)
@@ -86,13 +87,13 @@ test('a closed note renamed or deleted from vihko: its saved state follows it or
 test('a folder moved from vihko: the saved states of its closed notes follow them, and an open one leaves nothing behind', async () => {
   const { notes, env } = makeDirs()
   const srv = await startServer(env)
-  const to = m.aFolder()
-  const moved = (p: string) => `${to}/${p.slice('hogar/'.length)}`
+  const to = inShared(m.aFolder())
+  const moved = (p: string) => `${to}/${p.slice(inShared('hogar/').length)}`
   try {
     const cookie = await login(srv)
     for (const path of [NOTE, OTHER]) await openAndClose(srv, cookie, notes, path)
     const open = await connect(srv, cookie, THIRD)
-    const r = await api(srv, cookie, 'POST', '/api/folder/move', { from: 'hogar', to })
+    const r = await api(srv, cookie, 'POST', '/api/folder/move', { from: inShared('hogar'), to })
     assert.equal(r.status, 200, JSON.stringify(r.body))
     // The open one's document closes at its old path: its log goes with it.
     await waitFor(() => !existsSync(saved(srv, THIRD, '.ylog')), 'the open note closed at its old path')
@@ -105,7 +106,7 @@ test('a folder moved from vihko: the saved states of its closed notes follow the
 test('a closed note moved outside vihko while it runs: its saved state follows it', async () => {
   const { notes, env } = makeDirs()
   const srv = await startServer(env)
-  const to = `hogar/${m.aTitle()}.md`
+  const to = inShared(`hogar/${m.aTitle()}.md`)
   try {
     await openAndClose(srv, await login(srv), notes, NOTE)
     renameSync(join(notes, NOTE), join(notes, to))
@@ -119,8 +120,8 @@ test('on startup, saved states of notes that no longer exist are removed; a pend
   let srv = await startServer(env)
   const pending = m.aUniqueWord()
   // States a version that didn't carry them left behind: the note is gone (one of them named by a hash, with its path inside).
-  const gone = m.aNotePath(m.aFolder())
-  const goneLong = `${longFolder()}/${m.aTitle()}.md`
+  const gone = m.aNotePath(inShared(m.aFolder()))
+  const goneLong = `${inShared(longFolder())}/${m.aTitle()}.md`
   try {
     const cookie = await login(srv)
     await openAndClose(srv, cookie, notes, NOTE)

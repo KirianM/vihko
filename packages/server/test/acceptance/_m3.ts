@@ -1,6 +1,7 @@
 // The M3 «done when» (m3 §9, points 1 to 6), against a running server
 // (a process, or the Docker image): an agent with a key that writes in
-// `proyectos/` creates `proyectos/plan.md` over MCP; a person opens it in the
+// `proyectos/` creates `proyectos/plan.md` over MCP (both in the shared
+// space the vault is in, _permissions.ts SHARED); a person opens it in the
 // editor and adds to it; the agent sees that with changes_since and folds it
 // in with edit_note and if_match while the note is still open, and the editor
 // gets it live, with the agent's presence; the history shows the agent's
@@ -15,15 +16,19 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { toolData } from '@vihko/server'
 import type * as Y from 'yjs'
 import { api, closeAll, connect, waitFor, type Srv } from '../_collab.ts'
+import { SHARED, inShared } from '../_permissions.ts'
 
-const PLAN = 'proyectos/plan.md'
+/** The folder the agent's key reaches, and one of the vault's outside it. */
+const PROJECTS = inShared('proyectos')
+const OUTSIDE = inShared('fuera-m3')
+const PLAN = `${PROJECTS}/plan.md`
 /** Words only the hidden notes have: no answer to the agent may carry them. */
 const SECRETS = ['ZAFIRO', 'Presupuesto secreto', 'Esmeralda']
 
 const HIDDEN_NOTES: Record<string, string> = {
-  'proyectos/m3-oculta.md': '---\nai: false\n---\n# Presupuesto secreto\n\nCifra ZAFIRO.\n',
-  'fuera-m3/nota.md': '# Esmeralda\n\nTambién ZAFIRO aquí, fuera de proyectos.\n',
-  'proyectos/m3-contexto.md': '# Contexto\n\nVer [[m3-oculta]] y [[fuera-m3/nota]].\n',
+  [`${PROJECTS}/m3-oculta.md`]: '---\nai: false\n---\n# Presupuesto secreto\n\nCifra ZAFIRO.\n',
+  [`${OUTSIDE}/nota.md`]: '# Esmeralda\n\nTambién ZAFIRO aquí, fuera de proyectos.\n',
+  [`${PROJECTS}/m3-contexto.md`]: '# Contexto\n\nVer [[m3-oculta]] y [[fuera-m3/nota]].\n',
 }
 
 /** The Yjs client ids of the text items holding `needle`. */
@@ -48,7 +53,7 @@ export async function m3DoneWhen(opts: { srv: Srv; cookie: string; user: { usern
   }
   await waitFor(async () => (await api(srv, cookie, 'GET', '/api/search?q=ZAFIRO')).body.results.length === 2, 'the hidden notes are indexed', 60_000)
   assert.equal((await api(srv, cookie, 'PUT', '/api/admin/integrations', { mcp: true })).status, 200)
-  const created = await api(srv, cookie, 'POST', '/api/keys', { name: 'Claude Code', canWrite: true, folders: ['proyectos'], confirm: opts.user.password })
+  const created = await api(srv, cookie, 'POST', '/api/keys', { name: 'Claude Code', canWrite: true, folders: [PROJECTS], confirm: opts.user.password })
   assert.equal(created.status, 201)
 
   const client = new Client({ name: 'acceptance', version: '1' })
@@ -122,22 +127,23 @@ export async function m3DoneWhen(opts: { srv: Srv; cookie: string; user: { usern
 
   // 6. Nothing hidden from the key, in any tool: not listed, not found, only denied when it names one.
   assert.deepEqual((await call('search', { query: 'ZAFIRO' })).data.results, [])
-  assert.deepEqual((await call('search', { query: 'tag:nada path:fuera-m3' })).data.results, [])
-  const root = (await call('list_folder', { folder: '' })).data.entries.map((e: { path: string }) => e.path)
-  assert.deepEqual(root, ['proyectos'])
-  const all = (await call('list_folder', { folder: 'proyectos', recursive: true, limit: 500 })).data
-  assert.ok(!all.entries.some((e: { path: string }) => e.path === 'proyectos/m3-oculta.md'))
-  const ctx = await call('get_note', { path: 'proyectos/m3-contexto.md' })
+  assert.deepEqual((await call('search', { query: `tag:nada path:"${OUTSIDE}"` })).data.results, [])
+  // The space lists only the way to the key's folder.
+  const space = (await call('list_folder', { folder: SHARED })).data.entries.map((e: { path: string }) => e.path)
+  assert.deepEqual(space, [PROJECTS])
+  const all = (await call('list_folder', { folder: PROJECTS, recursive: true, limit: 500 })).data
+  assert.ok(!all.entries.some((e: { path: string }) => e.path === `${PROJECTS}/m3-oculta.md`))
+  const ctx = await call('get_note', { path: `${PROJECTS}/m3-contexto.md` })
   assert.deepEqual(ctx.data.links.outgoing.map((l: any) => [l.status, l.path]), [['no_access', null], ['no_access', null]])
-  await call('related', { path: 'proyectos/m3-contexto.md' })
-  for (const [path, reason] of [['proyectos/m3-oculta.md', 'ai_false'], ['fuera-m3/nota.md', 'outside_key_folders']] as const) {
+  await call('related', { path: `${PROJECTS}/m3-contexto.md` })
+  for (const [path, reason] of [[`${PROJECTS}/m3-oculta.md`, 'ai_false'], [`${OUTSIDE}/nota.md`, 'outside_key_folders']] as const) {
     const r = await call('get_note', { path })
     assert.deepEqual([r.data.error, r.data.reason], ['agent_denied', reason], path)
     assert.equal((await call('changes_since', { path, since: 'sha256:x' })).data.error, 'agent_denied')
     assert.equal((await call('history', { path })).data.error, 'agent_denied')
     assert.equal((await call('create_note', { path, text: 'reemplazo' })).data.error, 'agent_denied')
   }
-  assert.equal((await call('resolve_link', { from: 'proyectos/m3-contexto.md', link: 'm3-oculta' })).data.status, 'no_access')
+  assert.equal((await call('resolve_link', { from: `${PROJECTS}/m3-contexto.md`, link: 'm3-oculta' })).data.status, 'no_access')
   await call('daily_note', {}).catch(() => {})
   const leaked = SECRETS.filter((s) => answers.some((a) => a.includes(s)))
   assert.deepEqual(leaked, [], 'nothing hidden reached the agent')

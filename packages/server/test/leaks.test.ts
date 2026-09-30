@@ -179,7 +179,9 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
     // The tree: no hidden note, no folder that only holds hidden notes, nothing outside.
     const tree = JSON.parse(responses['GET /api/tree']![0]!.text)
     assert.deepEqual(tree.notes.map((n: { path: string }) => n.path).sort(), [PATH.dupA, PATH.dupB, PATH.movedIn, PATH.revealed, PATH.visible].sort())
-    assert.deepEqual(tree.folders, [DIR.key, `${DIR.key}/${SUB.a}`, `${DIR.key}/${SUB.b}`].sort(binary))
+    // The folders on the way to the key's (`spaces`, the space) show too.
+    const space = DIR.key.slice(0, DIR.key.lastIndexOf('/'))
+    assert.deepEqual(tree.folders, ['spaces', space, DIR.key, `${DIR.key}/${SUB.a}`, `${DIR.key}/${SUB.b}`].sort(binary))
 
     // A note hidden once: its history starts where the key could see it.
     const rev = JSON.parse(responses['GET /api/history/versions']![2]!.text).versions

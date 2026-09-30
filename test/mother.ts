@@ -26,6 +26,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { caseFold } from '../packages/core/src/casefold.ts'
+import { newSpaceFolder } from '../packages/core/src/spaces.ts'
 import { testSeed } from './seed.ts'
 
 /** This run's seed (VIHKO_TEST_SEED, or chosen now and put in the environment). */
@@ -57,6 +58,8 @@ const taken = {
   words: new Set<string>(),
   /** caseFold of display names, and e-mail addresses. */
   display: new Set<string>(),
+  /** Shared spaces' ids. */
+  spaceIds: new Set<string>(),
   /** Passwords and secrets: never the same twice, so a "wrong" one is wrong. */
   secrets: new Set<string>(),
 }
@@ -294,6 +297,16 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
         const name = Array.from({ length: int(1, 2) }, () => pick(TEXT_WORDS)).join(pick([' ', '-', '_']))
         return chance(0.3) ? capital(name) : name
       }, (f) => fresh(taken.notes, caseFold(f)))
+    },
+
+    /** A shared space's name (what people see; D-056.14): 1 to 3 words, unique like titles. */
+    aSpaceName(): string {
+      return draw('space name', () => capital(Array.from({ length: int(1, 3) }, () => pick(TEXT_WORDS)).join(' ')), (t) => fresh(taken.notes, caseFold(t)))
+    },
+
+    /** A new shared space's folder (`<readable>-<id>`, core newSpaceFolder) for `name`, its id unique in this process. */
+    aSpaceFolder(name?: string): string {
+      return newSpaceFolder(name ?? m.aSpaceName(),(id) => !fresh(taken.spaceIds, id), () => faker.string.alphanumeric({ length: 6, casing: 'lower' }))
     },
 
     /** A folder path of `depth` new segments (1 by default). */

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { everyone } from './_permissions.ts'
+import { everyone, inShared } from './_permissions.ts'
 import { CLI, adminOf, api, closeAll, connect, login, makeDirs, sleep, startServer, typeLine, waitFor, type Srv } from './_collab.ts'
 import { mother, type NewUser } from '../../../test/mother.ts'
 
@@ -15,10 +15,12 @@ const m = mother(import.meta.url)
 const OUTSIDE = m.aUniqueWord()
 const [OUTSIDE_1, OUTSIDE_2, MEMBER_TYPED_1, BEFORE_KILL, MID_GIT, FROM_THE_API, SAVED_OUTSIDE, JUST_BEFORE_KILL, ADMIN_TYPED_1, ADMIN_TYPED_2, MEMBER_API, TYPED_BEFORE_KILL, TYPED_AFTER, TYPED_BEFORE, TYPED_FIRST, ONCE] = [m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord()]
 
-// The setup copies the fixed vault (testdata/vault): this note, its «## Red»
+// The setup copies the fixed vault (testdata/vault) into the shared space: this note, its «## Red»
 // heading, hogar/enlaces.md that links to it and tags.md are the vault's.
 // What is typed or written is the mother's.
-const NOTE = 'hogar/Proxy.md'
+const NOTE = inShared('hogar/Proxy.md')
+const TAGS = inShared('tags.md')
+const LINKS = inShared('hogar/enlaces.md')
 const q = encodeURIComponent
 const FAST = { VIHKO_HISTORY_QUIET_SECONDS: '0.4', VIHKO_HISTORY_MAX_SECONDS: '30' }
 
@@ -193,22 +195,22 @@ test('a rename rewrites the links of an open note in the same system commit, and
   const srv = await startServer({ ...env, ...FAST })
   try {
     const k = await login(srv)
-    const links = await connect(srv, k, 'hogar/enlaces.md')
+    const links = await connect(srv, k, LINKS)
     const title = m.aTitle()
-    const mv = await api(srv, k, 'POST', '/api/note/move', { from: NOTE, to: `hogar/${title}.md` })
+    const mv = await api(srv, k, 'POST', '/api/note/move', { from: NOTE, to: inShared(`hogar/${title}.md`) })
     assert.equal(mv.status, 200)
     await waitFor(() => links.text().includes(`[[${title}#Red]]`), 'the rewrite reaches the open note')
     await waitFor(async () => ((await api(srv, k, 'GET', '/api/history/changes')).body.changes[0]?.reason?.code === 'note_moved'), 'the system commit')
     const system = (await api(srv, k, 'GET', '/api/history/changes')).body.changes[0]
-    assert.deepEqual(system.files.map((f: any) => f.path), ['hogar/enlaces.md'])
+    assert.deepEqual(system.files.map((f: any) => f.path), [LINKS])
     // Restore the version before the rename on the open note.
-    const { versions } = await versionsOf(srv, k, 'hogar/enlaces.md')
+    const { versions } = await versionsOf(srv, k, LINKS)
     const before = versions.find((v: any) => v.reason?.code === 'history_enabled')
-    const r = await api(srv, k, 'POST', '/api/history/restore', { path: 'hogar/enlaces.md', id: before.id })
+    const r = await api(srv, k, 'POST', '/api/history/restore', { path: LINKS, id: before.id })
     assert.equal(r.status, 200, JSON.stringify(r.body))
     await waitFor(() => links.text().includes('[[Proxy#Red]]') && !links.text().includes(`[[${title}#Red]]`), 'the editor shows the restored text')
-    await waitFor(async () => (await versionsOf(srv, k, 'hogar/enlaces.md')).versions[0].change === 'restored', 'restored version')
-    assert.equal(who((await versionsOf(srv, k, 'hogar/enlaces.md')).versions[0]), adminOf(srv).username)
+    await waitFor(async () => (await versionsOf(srv, k, LINKS)).versions[0].change === 'restored', 'restored version')
+    assert.equal(who((await versionsOf(srv, k, LINKS)).versions[0]), adminOf(srv).username)
   } finally { closeAll(); await srv.stop() }
 })
 
@@ -225,7 +227,7 @@ async function crashAt(point: string, act: (srv: Srv, cookie: string) => Promise
   // First start: the history begins (its own commit), with no crash point.
   let srv = await startServer({ ...env, ...FAST })
   await srv.stop()
-  srv = await startServer({ ...env, ...FAST, VIHKO_TEST_CRASH_AT: point, VIHKO_TEST_CRASH_PATH: 'tags.md' })
+  srv = await startServer({ ...env, ...FAST, VIHKO_TEST_CRASH_AT: point, VIHKO_TEST_CRASH_PATH: TAGS })
   const cookie = await login(srv)
   await act(srv, cookie)
   await waitFor(() => srv.proc.signalCode !== null || srv.proc.exitCode !== null, `killed at ${point}`, 15_000)
@@ -238,42 +240,42 @@ async function crashAt(point: string, act: (srv: Srv, cookie: string) => Promise
 
 test('kill -9 after a version is journaled and before git has it: the version keeps its author', async () => {
   const { srv, cookie } = await crashAt('history-queued', async (s, c) => {
-    const cur = await api(s, c, 'GET', `/api/note?path=${q('tags.md')}`)
-    await api(s, c, 'PUT', `/api/note?path=${q('tags.md')}`, { text: cur.body.text + `${BEFORE_KILL}\n` }, { 'if-match': `"${cur.body.etag}"` }).catch(() => null)
+    const cur = await api(s, c, 'GET', `/api/note?path=${q(TAGS)}`)
+    await api(s, c, 'PUT', `/api/note?path=${q(TAGS)}`, { text: cur.body.text + `${BEFORE_KILL}\n` }, { 'if-match': `"${cur.body.etag}"` }).catch(() => null)
   })
   try {
-    await waitFor(async () => (await versionsOf(srv, cookie, 'tags.md')).versions.length === 2, 'the version is committed after the restart')
-    const { versions } = await versionsOf(srv, cookie, 'tags.md')
+    await waitFor(async () => (await versionsOf(srv, cookie, TAGS)).versions.length === 2, 'the version is committed after the restart')
+    const { versions } = await versionsOf(srv, cookie, TAGS)
     assert.deepEqual(versions.map(who), [adminOf(srv).username, 'system'])
-    assert.ok((await textOf(srv, cookie, 'tags.md', versions[0].id)).includes(BEFORE_KILL))
+    assert.ok((await textOf(srv, cookie, TAGS, versions[0].id)).includes(BEFORE_KILL))
   } finally { closeAll(); await srv.stop() }
 })
 
 test('kill -9 right after a write reaches the disk, before the history recorded it: the version keeps its author', async () => {
   const { srv, cookie, notes } = await crashAt('history-written', async (s, c) => {
-    const cur = await api(s, c, 'GET', `/api/note?path=${q('tags.md')}`)
-    await api(s, c, 'PUT', `/api/note?path=${q('tags.md')}`, { text: cur.body.text + `${JUST_BEFORE_KILL}\n` }, { 'if-match': `"${cur.body.etag}"` }).catch(() => null)
+    const cur = await api(s, c, 'GET', `/api/note?path=${q(TAGS)}`)
+    await api(s, c, 'PUT', `/api/note?path=${q(TAGS)}`, { text: cur.body.text + `${JUST_BEFORE_KILL}\n` }, { 'if-match': `"${cur.body.etag}"` }).catch(() => null)
   })
   try {
-    assert.ok(readFileSync(join(notes, 'tags.md'), 'utf8').includes(JUST_BEFORE_KILL), 'the write reached the disk')
-    await waitFor(async () => (await versionsOf(srv, cookie, 'tags.md')).versions.length === 2, 'the version')
-    const { versions } = await versionsOf(srv, cookie, 'tags.md')
+    assert.ok(readFileSync(join(notes, TAGS), 'utf8').includes(JUST_BEFORE_KILL), 'the write reached the disk')
+    await waitFor(async () => (await versionsOf(srv, cookie, TAGS)).versions.length === 2, 'the version')
+    const { versions } = await versionsOf(srv, cookie, TAGS)
     assert.deepEqual(versions.map((v: any) => [who(v), v.foundAtStartup]), [[adminOf(srv).username, false], ['system', false]])
   } finally { closeAll(); await srv.stop() }
 })
 
 test('kill -9 after git has a commit and before the journal knows: it is not repeated', async () => {
   const { srv, cookie, notes } = await crashAt('history-committed', async (s, c) => {
-    const cur = await api(s, c, 'GET', `/api/note?path=${q('tags.md')}`)
-    await api(s, c, 'PUT', `/api/note?path=${q('tags.md')}`, { text: cur.body.text + `${ONCE}\n` }, { 'if-match': `"${cur.body.etag}"` }).catch(() => null)
+    const cur = await api(s, c, 'GET', `/api/note?path=${q(TAGS)}`)
+    await api(s, c, 'PUT', `/api/note?path=${q(TAGS)}`, { text: cur.body.text + `${ONCE}\n` }, { 'if-match': `"${cur.body.etag}"` }).catch(() => null)
   })
   try {
     await sleep(1500)
-    assert.ok(readFileSync(join(notes, 'tags.md'), 'utf8').includes(ONCE), 'the write reached the disk')
-    const { versions } = await versionsOf(srv, cookie, 'tags.md')
+    assert.ok(readFileSync(join(notes, TAGS), 'utf8').includes(ONCE), 'the write reached the disk')
+    const { versions } = await versionsOf(srv, cookie, TAGS)
     assert.deepEqual(versions.map(who), [adminOf(srv).username, 'system'])
     const changes = (await api(srv, cookie, 'GET', '/api/history/changes')).body.changes
-    assert.equal(changes.filter((c: any) => c.files.some((f: any) => f.path === 'tags.md')).length, 2)
+    assert.equal(changes.filter((c: any) => c.files.some((f: any) => f.path === TAGS)).length, 2)
   } finally { closeAll(); await srv.stop() }
 })
 
@@ -282,23 +284,23 @@ test('kill -9 while git commits a version, holding its locks: the restart remove
   let left: string[] = []
   let head = ''
   const { srv, cookie, stateDir } = await crashAt('history-importing', async (s, c) => {
-    const cur = await api(s, c, 'GET', `/api/note?path=${q('tags.md')}`)
-    await api(s, c, 'PUT', `/api/note?path=${q('tags.md')}`, { text: cur.body.text + `${MID_GIT}\n` }, { 'if-match': `"${cur.body.etag}"` }).catch(() => null)
+    const cur = await api(s, c, 'GET', `/api/note?path=${q(TAGS)}`)
+    await api(s, c, 'PUT', `/api/note?path=${q(TAGS)}`, { text: cur.body.text + `${MID_GIT}\n` }, { 'if-match': `"${cur.body.etag}"` }).catch(() => null)
   }, (state) => {
     left = LOCKS.filter((f) => existsSync(join(state, 'history.git', f)))
     head = readFileSync(join(state, 'history.git', 'refs/heads/main'), 'utf8').trim()
   })
   try {
     assert.deepEqual(left, LOCKS, 'git died holding its locks')
-    await waitFor(async () => (await versionsOf(srv, cookie, 'tags.md')).versions.length === 2, 'the version is committed after the restart')
+    await waitFor(async () => (await versionsOf(srv, cookie, TAGS)).versions.length === 2, 'the version is committed after the restart')
     assert.deepEqual((await api(srv, cookie, 'GET', '/api/history/status')).body, { mode: 'managed', available: true, error: null })
-    const { versions } = await versionsOf(srv, cookie, 'tags.md')
+    const { versions } = await versionsOf(srv, cookie, TAGS)
     assert.deepEqual(versions.map(who), [adminOf(srv).username, 'system'])
-    assert.ok((await textOf(srv, cookie, 'tags.md', versions[0].id)).includes(MID_GIT))
+    assert.ok((await textOf(srv, cookie, TAGS, versions[0].id)).includes(MID_GIT))
     // On top of the commit git had before the kill, once.
     const changes = (await api(srv, cookie, 'GET', '/api/history/changes')).body.changes
     assert.equal(changes[1].id, head)
-    assert.equal(changes.filter((c: any) => c.files.some((f: any) => f.path === 'tags.md')).length, 2)
+    assert.equal(changes.filter((c: any) => c.files.some((f: any) => f.path === TAGS)).length, 2)
     assert.deepEqual(LOCKS.filter((f) => existsSync(join(stateDir, 'history.git', f))), [])
     const log = srv.out.join('')
     for (const f of LOCKS) assert.ok(log.includes(`removed a stale git lock left by a crash: ${f}`), log)
@@ -308,13 +310,13 @@ test('kill -9 while git commits a version, holding its locks: the restart remove
 test('kill -9 while an external version is open: it comes back as seen while vihko ran, not as found at startup', async () => {
   const { srv, cookie } = await crashAt('history-external', async (s) => {
     // Another editor saves; the watcher sees it and the version opens (journaled) before the kill.
-    writeFileSync(join(s.env.VIHKO_NOTES_DIR!, 'tags.md'), `${SAVED_OUTSIDE}\n`)
+    writeFileSync(join(s.env.VIHKO_NOTES_DIR!, TAGS), `${SAVED_OUTSIDE}\n`)
   })
   try {
-    await waitFor(async () => (await versionsOf(srv, cookie, 'tags.md')).versions.length === 2, 'the external version closes after the restart')
-    const { versions } = await versionsOf(srv, cookie, 'tags.md')
+    await waitFor(async () => (await versionsOf(srv, cookie, TAGS)).versions.length === 2, 'the external version closes after the restart')
+    const { versions } = await versionsOf(srv, cookie, TAGS)
     assert.deepEqual(versions.map((v: any) => [who(v), v.foundAtStartup]), [['external', false], ['system', false]])
-    assert.equal(await textOf(srv, cookie, 'tags.md', versions[0].id), `${SAVED_OUTSIDE}\n`)
+    assert.equal(await textOf(srv, cookie, TAGS, versions[0].id), `${SAVED_OUTSIDE}\n`)
   } finally { closeAll(); await srv.stop() }
 })
 

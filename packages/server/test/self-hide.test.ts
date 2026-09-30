@@ -9,11 +9,12 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { contentHash, readFrontmatter } from '@vihko/core'
 import { setup } from './_agents.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 /** The key's folder. */
-const DIR = m.aFolder()
+const DIR = inShared(m.aFolder())
 /** The note to hide: its name, path, heading and a word only it has (the heading too: words no other text has). */
 const NAME = m.aTitle()
 const NOTE = `${DIR}/${NAME}.md`

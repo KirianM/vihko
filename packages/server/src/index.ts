@@ -32,7 +32,12 @@ export { MoveJobs, type MoveJob } from './http/jobs.ts'
 export { IMAGES_IN_FLIGHT, IMAGES_PER_USER, ImageSlots } from './imageSlots.ts'
 export { DEVICE_COOKIE, MAX_API_BODY, MAX_AUTH_BODY, SESSION_COOKIE, createApp, createServer, type ApiEnv, type AppDeps, type ExternalImages, type Orphans, type Runtime, type Services } from './http/app.ts'
 export { Access, AccessError, AccessPolicy, AgentDenied, DEFAULT_AI_KEY, hiddenFromAgents, inFolders, type DenyReason, type AccessPolicyOptions, type AgentPrincipal, type Holds, type KeyGrant, type Principal, type UserPrincipal } from './access.ts'
-export { PermissionsEngine, Viewer, groupSource, stateDirectory, type Directory, type DirectoryUser, type GrantSource, type GroupSource, type PermissionsOptions, type UserAccess, type ViewerUser } from './permissions.ts'
+export {
+  PermissionsEngine, Viewer, groupSource, stateDirectory,
+  type Directory, type DirectoryUser, type GrantSource, type GroupSource, type PermissionsModel, type PermissionsOptions, type UserAccess, type ViewerUser,
+  type SharedEntry, type SharedSpaceInfo, type SpaceEntry, type SpaceFolders, type SpacesView,
+} from './permissions.ts'
+export { diskSpaceFolders } from './spaceFolders.ts'
 export { ConfigInvalidError, PermissionsFile, type PermissionsFileOptions } from './permissionsFile.ts'
 export { PermissionHolds, holdAccess, type Hold, type HoldAccess, type HoldViewer, type PermissionHoldsOptions } from './permissionHolds.ts'
 export { audienceChange, ruleMove, type AudienceChange } from './audience.ts'

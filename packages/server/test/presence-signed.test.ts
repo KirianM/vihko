@@ -16,14 +16,13 @@ import { yamlKey } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
-const SHARED = m.aFolder()
-const NOTE = m.aNotePath(SHARED)
+/** A shared space both edit. */
+const SPACE = `spaces/${m.aSpaceFolder()}`
+const NOTE = m.aNotePath(SPACE)
 /** The name of the agent a tampered client claims to be. */
 const AGENT = m.aKeyName()
 const rules = (admin: string, member: string) => `permissions:
-  "":
-    grants: { ${yamlKey(admin)}: manage }
-  ${yamlKey(SHARED)}:
+  ${yamlKey(SPACE)}:
     grants: { ${yamlKey(member)}: edit, ${yamlKey(admin)}: edit }
 `
 
@@ -33,7 +32,7 @@ test('a tampered client can\'t present itself as someone else, speak for another
   const { notes, env, admin } = makeDirs()
   const member = m.aUser()
   spawnSync(process.execPath, [CLI, 'user', 'create', member.username], { env: { ...process.env, ...env }, input: member.password })
-  mkdirSync(join(notes, SHARED), { recursive: true })
+  mkdirSync(join(notes, SPACE), { recursive: true })
   writeFileSync(join(notes, NOTE), `# ${m.aHeading()}\n\n${m.aSentence()}\n`)
   writeFileSync(join(notes, 'vihko.yaml'), rules(admin.username, member.username))
   // Names a tampered client claims: someone else's display name, and nobody's.

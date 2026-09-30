@@ -105,6 +105,33 @@ export function spelledAsOnDisk(root: string, rel: string): boolean {
   return true
 }
 
+/**
+ * `rel` as the disk spells what exists of it, when some part of it exists
+ * under another spelling (a case-insensitive filesystem: `Recetas` where
+ * `recetas` is): the path up to and including the first such part, spelled
+ * as the disk has it. Null when every part that exists is spelled as given
+ * (spelledAsOnDisk). For an honest `exists` where the person sees the whole
+ * folder (spec §3.4 row 6).
+ */
+export function diskSpelling(root: string, rel: string): string | null {
+  if (spelledAsOnDisk(root, rel)) return null
+  let dir = root
+  const out: string[] = []
+  for (const part of rel.split('/')) {
+    const names = namesIn(dir, true)
+    if (names === null) return null
+    const name = part.normalize('NFC')
+    if (!names.has(name)) {
+      const fold = name.toLowerCase()
+      const other = [...names].find((n) => n.toLowerCase() === fold)
+      return other === undefined ? null : [...out, other].join('/')
+    }
+    out.push(name)
+    dir = join(dir, part)
+  }
+  return null
+}
+
 /** The notes root as the filesystem names it, once found (a root that is itself a link, or a mount, is fine). */
 const realRoots = new Map<string, string>()
 

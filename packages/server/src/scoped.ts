@@ -8,23 +8,25 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { RuleSet, anchorChanged, classifyPath, contentHash, extract, folderOf, parentFolder, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type Range } from '@vihko/core'
-import { readFileSync } from 'node:fs'
+import { PEOPLE, SPACES, anchorChanged, classifyPath, contentHash, extract, folderOf, isSpaceRoot, parentFolder, parseSpacePath, parseThreads, placement, rulesOf, spaceRootOf, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type Range } from '@vihko/core'
+import { lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
-import { attachmentPath } from './attachments.ts'
-import { isPlainFile } from './fsutil.ts'
+import { attachmentPath, noteAttachmentsDir } from './attachments.ts'
+import { diskSpelling, isPlainFile } from './fsutil.ts'
+import { diskSpaceFolders } from './spaceFolders.ts'
 import type { Db } from './db.ts'
 import type { DailyNotes } from './daily.ts'
 import { MAX_EDIT_OPS, planEdits, type EditOp } from './edits.ts'
 import { CommentError, commentSplices, type CommentOp } from './commenting.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START, search, type SearchResult } from './http/search.ts'
-import { FolderNotEmpty, NoteError, NoteService, type FolderContents, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type TrashEntry, type TrashRestoreReport } from './notes.ts'
+import { ExistsAs, FolderNotEmpty, NoteError, NoteService, type FolderContents, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type TrashEntry, type TrashRestoreReport } from './notes.ts'
 import { audienceChange, ruleMove, type AudienceChange } from './audience.ts'
 import type { ExternalMoves, PendingExternalMove } from './externalMoves.ts'
 import type { Orphans } from './http/app.ts'
 import type { KeyWithUser } from './keys.ts'
 import type { PermissionsEngine } from './permissions.ts'
+import type { PermissionHolds } from './permissionHolds.ts'
 import type { PermissionsFile } from './permissionsFile.ts'
 import type { Profiles } from './profiles.ts'
 import type { LinkState } from './relink.ts'
@@ -47,6 +49,8 @@ export interface ScopedDeps {
   orphans?: Orphans
   /** Notes moved outside vihko, pending a link update. */
   externalMoves?: ExternalMoves
+  /** Notes held after moves made outside vihko (a folder holding some isn't deleted). */
+  holds?: Pick<PermissionHolds, 'heldInside'>
   log?: (msg: string) => void
   index: Db
   notesDir: string
@@ -62,14 +66,25 @@ export interface ScopedDeps {
 /**
  * What a folder holds, as `not_empty` tells whoever tried to delete it
  * (scoped `contentsView`): paths relative to the folder, each list capped at
- * FOLDER_LIST_CAP; `kept` blocks it (vihko never touches those), and so does
- * `locked`, how many things in it the person can't edit.
+ * FOLDER_LIST_CAP; `kept` blocks it (vihko never touches those). Whoever
+ * deletes a folder manages it and sees everything in it (D-056.7): nothing
+ * in it is hidden from them.
  */
 export interface FolderContentsView {
   notes: { total: number; paths: string[] }
   files: { total: number; paths: string[] }
   kept: { total: number; paths: string[] }
-  locked: number
+}
+
+/**
+ * Where something can be created (a note, or a folder, `folder` true): in a
+ * space, never at the root of the notes folder, in `people/` or `spaces/`
+ * (`outside_space`), and never as a space's root (`space_root`). Decided by
+ * the path alone, before the permissions and the disk (spec §3.1, §3.2).
+ */
+export function assertPlacement(path: string, folder = false) {
+  if (folder && (isSpaceRoot(path) || path === PEOPLE || path === SPACES)) throw new RequestError(400, 'space_root', `a space's root is not a folder to create: ${path}`)
+  if (placement(folder ? parentFolder(path) ?? '' : folderOf(path)) === 'outside') throw new RequestError(400, 'outside_space', `not in a space: ${path}`)
 }
 
 /** How many paths of each kind a folder's contents name. */
@@ -77,7 +92,7 @@ export const FOLDER_LIST_CAP = 20
 
 /** A request that can't be served as it is: the status and the code the API answers with. */
 export class RequestError extends Error {
-  readonly status: 400 | 403 | 428
+  readonly status: 400 | 403 | 409 | 428
   readonly code: ErrorCode
   constructor(status: RequestError['status'], code: ErrorCode, message: string) {
     super(message)
@@ -176,7 +191,7 @@ export type ScopedRevertReport = Omit<RevertReport, 'etag'> & Written
 /** For an agent, what refuses a text of the note hidden from it (`agent_denied`); nothing for a user. */
 export function agentGuard(access: Access, path: string): ((text: string) => void) | undefined {
   if (!access.isAgent) return undefined
-  return (text) => { if (access.hides(text)) throw new AgentDenied(access.reasonFor(path)) }
+  return (text) => { if (access.hides(text)) throw access.hiddenError(path) }
 }
 
 /** A revert's report, with `nowHidden` (and its ETag only if known) when the note it changed is hidden now. */
@@ -200,7 +215,10 @@ export function hiddenAfterWrite(access: Access, notes: Pick<NoteService, 'readC
   try {
     access.assertRead(path)
     if (!access.hides(notes.readCurrent(path).text)) return null
-    reason = access.reasonFor(path)
+    const r = access.reasonFor(path)
+    // Its user can't read it (never, right after the agent wrote it where its user edits): nothing to say of it.
+    if (r === null) return null
+    reason = r
   } catch (err) {
     if (!(err instanceof AgentDenied)) return null
     reason = err.reason
@@ -327,7 +345,7 @@ export class ScopedNotes {
     const p = NoteService.checkPath(path)
     this.access.assertRead(p)
     const r = this.deps.notes.readCurrent(p)
-    if (this.access.hides(r.text)) throw new AgentDenied(this.access.reasonFor(p))
+    if (this.access.hides(r.text)) throw this.access.hiddenError(p)
     return r
   }
 
@@ -341,9 +359,10 @@ export class ScopedNotes {
   }
 
   private masked(err: unknown, path: string): unknown {
-    if (!(err instanceof NoteError) || this.readable(path)) return err
+    // A name taken under another spelling: told only once its spelling was found visible (`seenSpelling`).
+    if (!(err instanceof NoteError) || err instanceof ExistsAs || this.readable(path)) return err
     // A note there that it can't read (not indexed yet): an agent named it, so it's told, and nothing else; a person, that it doesn't exist.
-    if (err.code === 'exists') return this.access.isAgent ? new AgentDenied(this.access.reasonFor(path)) : new NoteError('not_found', `does not exist: ${path}`)
+    if (err.code === 'exists') return this.access.hiddenError(path)
     return err.etag ? new NoteError(err.code, err.message) : err
   }
 
@@ -359,6 +378,82 @@ export class ScopedNotes {
     const p = NoteService.checkPath(path)
     this.access.assertWrite(p)
     return p
+  }
+
+  /**
+   * A new note's path the principal may write: in a space (`outside_space`,
+   * `space_root`, by the path alone), then the permissions, and only then the
+   * disk (spec §3.1).
+   */
+  private creatable(path: string): string {
+    const p = NoteService.checkPath(path)
+    assertPlacement(p)
+    if (this.access.heldWhereWritable(p)) throw new NoteError('exists', `already exists: ${p}`)
+    return this.writable(p)
+  }
+
+  /**
+   * Runs a write that names `path` new: a name taken under another spelling
+   * on a case-insensitive disk is `exists` with the disk's spelling
+   * (`ExistsAs`), which the principal may be told: it writes there, so it
+   * sees everything in that folder (spec §3.4 row 6).
+   */
+  private async spelled<T>(path: string, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn()
+    } catch (err) {
+      if (err instanceof NoteError && err.code === 'not_found') {
+        const as = this.seenSpelling(path)
+        if (as !== null) throw new ExistsAs(as)
+      }
+      throw err
+    }
+  }
+
+  /**
+   * `path` as the disk spells what exists of it under another spelling
+   * (fsutil.ts diskSpelling), only when the principal sees what that
+   * spelling names: grants are written for spellings, so writing under one
+   * doesn't mean seeing what the disk has under another. Null otherwise.
+   */
+  private seenSpelling(path: string): string | null {
+    const as = diskSpelling(this.deps.notesDir, path)
+    if (as === null) return null
+    const sees = classifyPath(as) === 'note' ? this.access.canRead(as) : this.access.level(as) !== null && this.access.folderInScope(as)
+    return sees ? as : null
+  }
+
+  /** Whether something is on the disk at `path`, spelled however (a case-insensitive disk answers for any spelling), a link included. */
+  private onDisk(path: string): boolean {
+    try {
+      lstatSync(join(this.deps.notesDir, path))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Before creating what makes folders from vihko under `folder` (a note or
+   * a folder at a path whose folders don't exist yet): the grants forgotten
+   * at the topmost folder about to be made, and under it, go, so that a new
+   * folder never takes an audience left there (spec §1.2). A space's root
+   * keeps its own (they are its members).
+   */
+  private async clearForgotten(folder: string) {
+    const engine = this.deps.permissions
+    const file = this.deps.permissionsFile
+    const s = parseSpacePath(folder)
+    if (!engine || !file || !s || s.inner === '') return
+    if (!rulesOf(engine.section).some((r) => r.folder === folder || r.folder.startsWith(s.space.root + '/'))) return
+    let at = s.space.root
+    for (const seg of s.inner.split('/')) {
+      at = `${at}/${seg}`
+      if (!this.onDisk(at)) {
+        await file.clearRules(at, { actor: this.access.actor })
+        return
+      }
+    }
   }
 
   // --- Reading ----------------------------------------------------------------
@@ -570,15 +665,17 @@ export class ScopedNotes {
    * agent created is hidden from it (`ai: false` in its text), `nowHidden`.
    */
   async create(path: string, opts: { text?: string; template?: string; freshUid?: boolean }): Promise<{ path: string; uid: string | null } & Written> {
-    const p = this.writable(path)
+    const p = this.creatable(path)
     const actor = this.access.actor
     let r: { path: string; etag: string; uid: string | null }
     if (opts.template !== undefined) {
       this.unnamed(() => this.visible(opts.template!))
       const user = this.access.user
-      r = await this.guardAsync(p, () => createFromTemplate(this.deps.notes, { path: p, template: opts.template!, user, now: this.deps.profiles.now(user.id, this.deps.now()), actor }))
+      await this.clearForgotten(folderOf(p))
+      r = await this.guardAsync(p, () => this.spelled(p, () => createFromTemplate(this.deps.notes, { path: p, template: opts.template!, user, now: this.deps.profiles.now(user.id, this.deps.now()), actor })))
     } else {
-      r = await this.guardAsync(p, () => this.deps.notes.create(p, opts.text ?? '', actor, { freshUid: opts.freshUid === true }))
+      await this.clearForgotten(folderOf(p))
+      r = await this.guardAsync(p, () => this.spelled(p, () => this.deps.notes.create(p, opts.text ?? '', actor, { freshUid: opts.freshUid === true })))
     }
     // Its own text (and the uid it is told) is known to it; a template's filling isn't.
     return { path: r.path, uid: r.uid, ...this.written(r.path, r.etag, opts.template === undefined) }
@@ -589,10 +686,11 @@ export class ScopedNotes {
    * `ifNoneMatch: '*'`, only if the note doesn't exist (412 if it does).
    */
   async write(path: string, text: string, opts: { ifMatch?: string; ifNoneMatch?: string }): Promise<{ created: boolean } & Written> {
-    const p = this.writable(path)
+    const p = opts.ifNoneMatch === '*' ? this.creatable(path) : this.writable(path)
     if (opts.ifNoneMatch === '*') {
       try {
-        const r = await this.guardAsync(p, () => this.deps.notes.create(p, text, this.access.actor))
+        await this.clearForgotten(folderOf(p))
+        const r = await this.guardAsync(p, () => this.spelled(p, () => this.deps.notes.create(p, text, this.access.actor)))
         return { created: true, ...this.written(p, r.etag, true) }
       } catch (err) {
         if (err instanceof NoteError && err.code === 'exists') throw new NoteError('precondition_failed', `already exists: ${p}`, err.etag)
@@ -608,7 +706,7 @@ export class ScopedNotes {
   private edit(path: string, fn: (text: string) => string | ReturnType<typeof planEdits>, opts: { ifMatch?: string }) {
     const p = this.writable(path)
     return this.guardAsync(p, () => this.deps.notes.edit(p, (t) => {
-      if (this.access.hides(t)) throw new AgentDenied(this.access.reasonFor(p))
+      if (this.access.hides(t)) throw this.access.hiddenError(p)
       return fn(t)
     }, { ifMatch: opts.ifMatch, actor: this.access.actor }))
   }
@@ -694,12 +792,34 @@ export class ScopedNotes {
   async move(from: string, to: string, opts: { ifMatch?: string; dryRun?: boolean; confirmAudience?: boolean } & MoveHooks): Promise<ScopedMoveReport> {
     const f = this.writable(from)
     this.visible(f)
-    const t = this.writable(to)
-    const audience = this.deps.permissions && this.deps.keys && (opts.dryRun || this.access.isAgent)
-      ? audienceChange(this.deps.permissions, this.deps.keys(), [{ before: f, after: t }]) : undefined
+    const t = this.creatable(to)
+    // Its folder of images (per-note mode) goes with it, with its rules (spec §3.8): its audience counts too.
+    const suffix = this.deps.attachments().perNote
+    const assets = suffix !== undefined ? { from: noteAttachmentsDir(f, suffix), to: noteAttachmentsDir(t, suffix) } : null
+    const engine = this.deps.permissions
+    const assetRules = engine && assets && assets.from !== assets.to && rulesOf(engine.section).some((r) => r.folder === assets.from || r.folder.startsWith(assets.from + '/'))
+    const audience = engine && this.deps.keys && (opts.dryRun || this.access.isAgent)
+      ? audienceChange(engine, this.deps.keys(), [{ before: f, after: t }, ...(assetRules ? [{ before: `${assets.from}/_`, after: `${assets.to}/_` }] : [])], assetRules ? ruleMove(engine, assets.from, assets.to).rules : null)
+      : undefined
     if (!opts.dryRun && this.access.isAgent && audience && widens(audience) && opts.confirmAudience !== true) throw new AudienceWidens(audience)
     const { confirmAudience: _, ...moveOpts } = opts
-    const report = await this.guardAsync(f, () => this.deps.notes.move(f, t, { ...moveOpts, actor: this.access.actor }))
+    if (!opts.dryRun) await this.clearForgotten(folderOf(t))
+    // The folder of images' rules are first written at its new path too (never left without them), then the old ones go.
+    const file = this.deps.permissionsFile
+    const copied = !opts.dryRun && assetRules && file ? (await file.moveRules(assets.from, assets.to, { actor: this.access.actor, keepFrom: true })).changed : false
+    let report: MoveReport
+    try {
+      report = await this.guardAsync(f, () => this.spelled(t, () => this.deps.notes.move(f, t, { ...moveOpts, actor: this.access.actor })))
+    } catch (err) {
+      if (copied) await file!.removeRules(assets!.to, { actor: this.access.actor }).catch(() => {})
+      throw err
+    }
+    if (copied) {
+      // The folder of images moved: its old rules go; it stayed: the copies go.
+      const stale = report.images.folder ? assets!.from : assets!.to
+      await file!.removeRules(stale, { actor: this.access.actor })
+        .catch((err) => this.deps.log?.(`the rules of ${stale} stay in vihko.yaml after moving ${f}: ${err instanceof Error ? err.message : String(err)}`))
+    }
     const masked: ScopedMoveReport = this.maskReport(report)
     if (report.dryRun && audience) masked.audience = audience
     if (!this.access.isAgent) return masked
@@ -740,7 +860,8 @@ export class ScopedNotes {
       out.images = {
         moved: report.images.moved.filter((m) => inReach(m.from)),
         stayed: report.images.stayed.filter((x) => inReach(x.path)),
-        folder: report.images.folder,
+        // Masked like the rest (spec §3.4 row 13): a note's folder of images is named only where the person reaches it.
+        folder: report.images.folder && inReach(`${report.images.folder.from}/_`) ? report.images.folder : null,
         failed: report.images.failed.filter((x) => inReach(x.path)),
       }
     }
@@ -756,15 +877,18 @@ export class ScopedNotes {
   }
 
   /**
-   * Stores an image for a note it can write (D-028). An agent can't put one
-   * outside its key's folders (the attachments folder of vihko.yaml may be).
+   * Stores an image for a note it can write (D-028), where it may write:
+   * the image's folder (next to the note, its folder of images, or the
+   * attachments folder of vihko.yaml) is checked too, for people as for
+   * agents (spec §3.8: an image never lands where whoever writes it has no
+   * `edit`, nor out of an agent's key's folders).
    */
   async attach(note: string, bytes: Uint8Array) {
     const p = this.writable(note)
-    if (this.access.isAgent) {
-      this.visible(p)
-      const probe = attachmentPath(p, 'png', this.deps.now(), 1, this.deps.attachments())
-      if (!this.access.canWrite(probe)) throw new AccessError(`images for ${p} go outside this key's folders`)
+    this.visible(p)
+    const probe = attachmentPath(p, 'png', this.deps.now(), 1, this.deps.attachments())
+    if (!this.access.canWrite(probe)) {
+      throw new AccessError(this.access.isAgent ? `images for ${p} go outside this key's folders` : `images for ${p} go where you can't write`)
     }
     return this.guardAsync(p, () => this.deps.notes.attach(p, bytes, this.access.actor))
   }
@@ -823,45 +947,93 @@ export class ScopedNotes {
     })
   }
 
-  // --- Folders (D-038.5) ---------------------------------------------------------
-  // Creating one needs `edit` where it goes; renaming, moving or deleting
-  // one, `manage` in it (and `edit` in its new parent). A folder the person
-  // can't see doesn't exist for them; one they see but can't change this
-  // way is `forbidden`. Its rules in vihko.yaml go with it.
+  // --- Folders (D-038.5, D-056) --------------------------------------------------
+  // Creating one needs `edit` where it goes, in a space. Renaming, moving or
+  // deleting one needs `manage` in it and `edit` in the folder it leaves
+  // (the root of a folder someone shares with you stays theirs to order,
+  // D-056.6), and `edit` in its new parent. A space's root is never created,
+  // renamed or moved as a folder (`space_root`); a shared space's root is
+  // deleted as the space, by whoever manages it (its trash keeps who did,
+  // spec §3.5). Always the permissions first, then the disk (spec §3.1): a
+  // folder the person can't see doesn't exist for them, whether it does or
+  // not; one they see but can't change this way is `forbidden`, and one that
+  // doesn't exist where they see everything is `not_found`. Its rules in
+  // vihko.yaml go with it.
 
   /** Unless the person has `need` in `folder`: `forbidden` if they see it, `not_found` if not. */
   private assertFolder(folder: string, need: 'edit' | 'manage') {
-    const ok = need === 'manage' ? this.access.canManage(folder) : this.access.canWrite(folder === '' ? '_.md' : `${folder}/_.md`)
+    const ok = need === 'manage' ? this.access.canManage(folder) : this.access.canWrite(`${folder}/_.md`)
     if (ok) return
-    if (this.access.level(folder) !== null) throw new AccessError(`no permission to ${need === 'manage' ? 'manage' : 'edit'} ${folder || 'the root'}`)
+    if (this.access.level(folder) !== null) throw new AccessError(`no permission to ${need === 'manage' ? 'manage' : 'edit'} ${folder}`)
     throw new NoteError('not_found', `no such folder: ${folder}`)
   }
 
-  /** A new, empty folder: `edit` where it goes. */
-  createFolder(path: string): { path: string } {
+  /** Whether a folder exists on the disk (as vihko follows it). */
+  private folderExists(folder: string): boolean {
+    return diskSpaceFolders(this.deps.notesDir).exists(folder)
+  }
+
+  /**
+   * An existing folder the person may rename, move or delete (`manage` in it,
+   * `edit` where it is): the permissions decide first, `not_found` where they
+   * don't see it; where they see it but may not, `forbidden`, unless it
+   * doesn't exist (`not_found` either way, spec §3.4 row 11).
+   */
+  private assertFolderToChange(folder: string) {
+    if (folder === PEOPLE || folder === SPACES || isSpaceRoot(folder)) throw new RequestError(400, 'space_root', `a space's root is not a folder to rename, move or delete: ${folder}`)
+    if (placement(folder) === 'outside' || this.access.level(folder) === null) throw new NoteError('not_found', `no such folder: ${folder}`)
+    if (this.access.canManage(folder) && this.access.canWrite(`${parentFolder(folder)}/_.md`)) return
+    if (!this.folderExists(folder)) throw new NoteError('not_found', `no such folder: ${folder}`)
+    throw new AccessError(this.access.canManage(folder)
+      ? `${folder} is in a space that isn't yours to order: only its owner renames, moves or deletes it`
+      : `no permission to manage ${folder}`)
+  }
+
+  /** A new, empty folder: `edit` where it goes, in a space. Grants forgotten at its path go first (spec §1.2). */
+  async createFolder(path: string): Promise<{ path: string }> {
     const p = NoteService.checkFolder(path)
-    this.assertFolder(parentFolder(p) ?? '', 'edit')
+    assertPlacement(p, true)
+    this.assertFolder(parentFolder(p)!, 'edit')
+    const existing = this.seenSpelling(p)
+    if (existing !== null) throw new ExistsAs(existing)
+    // Nothing to forget where a folder already is (it's `exists`, from the disk, next).
+    if (!this.onDisk(p)) {
+      await this.deps.permissionsFile?.clearRules(p, { actor: this.access.actor })
+      await this.clearForgotten(parentFolder(p)!)
+    }
     return this.deps.notes.createFolder(p, this.access.actor)
   }
 
   /**
-   * Deletes a folder: `manage` in it. Its rules in vihko.yaml go too. Empty
-   * (but for the system's clutter), it just goes; otherwise `not_empty` with
-   * what it holds (`FolderContentsView`), unless `trash`: then its notes and
-   * files go to the trash first (notes.ts `trashFolder`), provided the person
-   * may edit every one of them and nothing in it is what vihko never touches.
+   * Deletes a folder (see above). Its rules in vihko.yaml go too. Empty (but
+   * for the system's clutter), it just goes; otherwise `not_empty` with what
+   * it holds (`FolderContentsView`), unless `trash`: then its notes and files
+   * go to the trash first (notes.ts `trashFolder`). What vihko never touches
+   * stops it, and so do notes held in it (`held_inside`, spec §3.4 row 5).
+   * A shared space's root deletes the space: `manage` there, and its
+   * managers are kept with each trash entry (spec §3.5).
    */
   async deleteFolder(path: string, opts: { trash?: boolean } = {}): Promise<{ path: string; trashed: TrashEntry[] }> {
     const p = NoteService.checkFolder(path)
-    this.assertFolder(p, 'manage')
-    const view = () => this.contentsView(p, this.deps.notes.folderContents(p))
+    const space = parseSpacePath(p)
+    const sharedRoot = space !== null && space.inner === '' && space.space.kind === 'shared'
+    let managers: string[] | undefined
+    if (sharedRoot) {
+      this.assertFolder(p, 'manage')
+      const engine = this.deps.permissions
+      if (engine) {
+        const names = new Set(engine.managersOf(p))
+        managers = engine.directory.users().filter((u) => names.has(u.username)).map((u) => u.id)
+      }
+    } else this.assertFolderToChange(p)
+    if (this.deps.holds?.heldInside(p)) throw new RequestError(409, 'held_inside', `notes held after a move made outside vihko are in ${p}: release them first`)
+    const view = () => this.contentsView(this.deps.notes.folderContents(p))
     const now = view()
-    const blocked = now.kept.total > 0 || now.locked > 0
-    if (blocked || (!opts.trash && (now.notes.total > 0 || now.files.total > 0))) throw new FolderNotEmpty(p, now)
+    if (now.kept.total > 0 || (!opts.trash && (now.notes.total > 0 || now.files.total > 0))) throw new FolderNotEmpty(p, now)
     const canWrite = (f: string) => this.access.canWrite(f)
     let r: { path: string; trashed: TrashEntry[] }
     try {
-      r = opts.trash ? await this.deps.notes.trashFolder(p, this.access.actor, { canWrite }) : { ...this.deps.notes.deleteFolder(p, this.access.actor), trashed: [] }
+      r = opts.trash ? await this.deps.notes.trashFolder(p, this.access.actor, { canWrite, managers }) : { ...this.deps.notes.deleteFolder(p, this.access.actor), trashed: [] }
     } catch (err) {
       // Something landed in it meanwhile: say what it holds now.
       if (err instanceof NoteError && err.code === 'not_empty' && !(err instanceof FolderNotEmpty)) {
@@ -877,54 +1049,37 @@ export class ScopedNotes {
   }
 
   /**
-   * What a folder holds, as the person may be told: its notes, files and
-   * what vihko never touches, each list capped (`total` says how many), with
-   * paths relative to the folder; what they can't edit only as a count
-   * (`locked`), never named.
+   * What a folder holds, as its manager is told: its notes, files and what
+   * vihko never touches, each list capped (`total` says how many), with
+   * paths relative to the folder. Whoever manages a folder sees everything
+   * in it (grants only add), so nothing is left out.
    */
-  private contentsView(folder: string, c: FolderContents): FolderContentsView {
-    let locked = 0
-    const theirs = (list: string[]) => {
-      const mine = list.filter((rel) => this.access.canWrite(`${folder}/${rel.replace(/\/$/, '')}`) || (locked++, false))
-      return { total: mine.length, paths: mine.slice(0, FOLDER_LIST_CAP) }
-    }
-    const notes = theirs(c.notes)
-    const files = theirs(c.files)
-    const kept = theirs(c.kept)
-    return { notes, files, kept, locked }
+  private contentsView(c: FolderContents): FolderContentsView {
+    const list = (paths: string[]) => ({ total: paths.length, paths: paths.slice(0, FOLDER_LIST_CAP) })
+    return { notes: list(c.notes), files: list(c.files), kept: list(c.kept) }
   }
 
   /**
    * Moves or renames a folder with everything in it (notes.ts), and its
-   * rules with it: `manage` in it and `edit` in its new parent. The rules
-   * are first written at the new path too, then the folder moves, then the
-   * old ones go: at no moment is what it holds left without its rules. If
-   * the rules can't be written, the folder doesn't move; if the folder
-   * can't move, the copies go. The report names only what the person can
-   * see; a dry run says whose access changes (`audience`).
+   * rules with it (see above for who may). The rules are first written at
+   * the new path too (and any forgotten there go), then the folder moves,
+   * then the old ones go: at no moment is what it holds left without its
+   * rules. If the rules can't be written, the folder doesn't move; if the
+   * folder can't move, the copies go. The report names only what the person
+   * can see; a dry run says whose access changes, and whose it becomes
+   * (`audience`).
    */
   async moveFolder(from: string, to: string, opts: { dryRun?: boolean } & MoveHooks = {}): Promise<FolderMoveReport & { hidden: boolean; audience?: AudienceChange }> {
     const f = NoteService.checkFolder(from)
     const t = NoteService.checkFolder(to)
-    this.assertFolder(f, 'manage')
-    this.assertFolder(parentFolder(t) ?? '', 'edit')
+    this.assertFolderToChange(f)
+    assertPlacement(t, true)
+    this.assertFolder(parentFolder(t)!, 'edit')
     const actor = this.access.actor
     const back = (p: string) => (p === t || p.startsWith(t + '/') ? f + p.slice(t.length) : p)
     const engine = this.deps.permissions
     const under = (this.deps.index.prepare("select path from folders where path = ? or path like ? escape '\\'").all(f, likePrefix(f)) as { path: string }[]).map((r) => r.path)
-    const plan = engine ? ruleMove(engine, f, t, under) : { extra: [], rules: null }
-    // A personal folder inside it stays personal where it goes (D-040 3.5): taken out of its `{user}` rule, only
-    // the literal copy of its grants would go with it, and whoever manages the folders above would reach it.
-    // Only whoever manages it (its owner) may take it out, as they may move it themselves.
-    const now = engine?.rules() ?? null
-    if (now && plan.rules) {
-      const then = new RuleSet(plan.rules)
-      for (const d of under) {
-        if (now.personal(d) && !then.personal(t + d.slice(f.length)) && !this.access.canManage(d)) {
-          throw new AccessError('this move would take a personal folder in it out of its {user} rule: only whoever manages that folder may')
-        }
-      }
-    }
+    const plan = engine ? ruleMove(engine, f, t) : { rules: null }
     const mask = (r: FolderMoveReport) => {
       const { filePaths, ...rest } = r
       const masked = this.maskReport(rest, back)
@@ -932,18 +1087,19 @@ export class ScopedNotes {
       return { ...masked, files: (filePaths ?? []).filter((p) => this.access.canRead(p)).length }
     }
     if (opts.dryRun) {
-      const r = mask(await this.deps.notes.moveFolder(f, t, { actor, dryRun: true }))
+      const r = mask(await this.spelled(t, () => this.deps.notes.moveFolder(f, t, { actor, dryRun: true })))
       if (!engine || !this.deps.keys) return r
       const pairs = [...r.notes.map((n) => ({ before: n.from, after: n.to })), ...under.map((d) => ({ before: `${d}/_`, after: `${t}${d.slice(f.length)}/_` }))]
       return { ...r, audience: audienceChange(engine, this.deps.keys(), pairs, plan.rules) }
     }
+    await this.clearForgotten(parentFolder(t)!)
     const file = this.deps.permissionsFile
     const before = file?.read().text ?? null
-    const copied = file ? (await file.moveRules(f, t, { actor, keepFrom: true, extra: plan.extra })).changed : false
+    const copied = file ? (await file.moveRules(f, t, { actor, keepFrom: true })).changed : false
     const afterCopy = copied ? file!.read().text : null
     let report: FolderMoveReport
     try {
-      report = await this.deps.notes.moveFolder(f, t, { actor, ...opts })
+      report = await this.spelled(t, () => this.deps.notes.moveFolder(f, t, { actor, ...opts }))
     } catch (err) {
       // It didn't move: the copies go, unless someone changed the file meanwhile.
       if (copied) await file!.update((x) => (x === afterCopy ? before ?? '' : x), { actor }).catch(() => {})
@@ -981,18 +1137,33 @@ export class ScopedNotes {
    * (D-038): a note where they could edit it, files alone where they could
    * edit any of them; of an entry's files, only those.
    */
-  trash(): TrashEntry[] {
+  trash(): (TrashEntry & { space: string | null })[] {
     return this.deps.notes.trash().flatMap((e) => {
-      const files = e.files?.filter((f) => this.access.canWrite(f.path))
-      if (e.kind === 'files' ? !files?.length : !this.access.canWrite(e.path)) return []
-      return [files ? { ...e, files } : e]
+      const orphaned = this.orphanedFor(e)
+      const files = orphaned ? e.files : e.files?.filter((f) => this.access.canWrite(f.path))
+      if (!orphaned && (e.kind === 'files' ? !files?.length : !this.access.canWrite(e.path))) return []
+      // Who managed a deleted space is kept for the trash, never shown.
+      const { managers: _, ...shown } = e
+      return [{ ...shown, ...(files ? { files } : {}), space: spaceRootOf(e.kind === 'files' ? `${e.path}/_` : e.path) }]
     })
+  }
+
+  /**
+   * Whether a trash entry is this person's though they can't write where it
+   * was: its shared space was deleted (it doesn't exist any more) and they
+   * managed it then (spec §3.5). They restore it somewhere they may write.
+   */
+  private orphanedFor(e: TrashEntry): boolean {
+    if (!e.managers || this.access.isAgent || !e.managers.includes(this.access.user.id)) return false
+    const root = spaceRootOf(e.kind === 'files' ? `${e.path}/_` : e.path)
+    return root !== null && !this.folderExists(root)
   }
 
   /**
    * Restores from the trash: a note (to its path, or `to`) with its files, or
    * files alone, an entry it may see, to where it may write. Files it can't
-   * write stay in the trash.
+   * write stay in the trash. The entry of a deleted shared space goes where
+   * whoever managed it chooses (`to`), where they may write.
    */
   async restoreTrash(id: string, to?: string): Promise<TrashRestoreReport> {
     const entry = this.trash().find((e) => e.id === id)
@@ -1002,8 +1173,9 @@ export class ScopedNotes {
       if (to !== undefined && to !== entry.path) throw new RequestError(400, 'invalid', 'files alone go back where they were: no `to`')
       return this.deps.notes.restore(id, this.access.actor, undefined, { canWrite })
     }
-    const dest = this.writable(to ?? entry.path)
-    return this.guardAsync(dest, () => this.deps.notes.restore(id, this.access.actor, dest, { canWrite }))
+    const dest = to === undefined || to === entry.path ? this.writable(entry.path) : this.creatable(to)
+    await this.clearForgotten(folderOf(dest))
+    return this.guardAsync(dest, () => this.spelled(dest, () => this.deps.notes.restore(id, this.access.actor, dest, { canWrite })))
   }
 
   /** A sync tool's conflict copy the indexer found, in a folder the person can read. */

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { LinkIndex, extract, readFrontmatter } from '@vihko/core'
 import { Indexer, NoteError, NoteService, openIndex, rewriteLink, type Actor } from '@vihko/server'
 import { setup as appSetup } from './_app.ts'
+import { inShared } from './_permissions.ts'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -113,19 +114,21 @@ test("pinning is refused for a note that isn't a candidate or a link that isn't 
 // Over the vault's diary note, whose [[Tareas]] is ambiguous.
 test('HTTP: the links carry where they are and their candidates\' titles; pinning goes through the API', async () => {
   const { admin, notesDir } = await appSetup()
-  const links = await admin('GET', '/api/note/links?path=diario/2026-09-24.md')
+  // The vault, in the shared space where the setup puts it.
+  const [diary, blogTasks, vihkoTasks] = ['diario/2026-09-24.md', 'proyectos/blog/Tareas.md', 'proyectos/vihko/Tareas.md'].map(inShared) as [string, string, string]
+  const links = await admin('GET', `/api/note/links?path=${encodeURIComponent(diary)}`)
   const tareas = links.body.outgoing.find((l: { raw: string }) => l.raw === '[[Tareas]]')
   assert.equal(tareas.status, 'ambiguous')
   assert.equal(typeof tareas.posFrom, 'number')
-  assert.deepEqual(links.body.titles, { 'proyectos/blog/Tareas.md': 'Tareas de blog', 'proyectos/vihko/Tareas.md': 'Tareas de vihko' })
+  assert.deepEqual(links.body.titles, { [blogTasks]: 'Tareas de blog', [vihkoTasks]: 'Tareas de vihko' })
 
-  const r = await admin('POST', '/api/note/link/pin', { path: 'diario/2026-09-24.md', raw: '[[Tareas]]', at: tareas.posFrom, target: 'proyectos/vihko/Tareas.md' })
+  const r = await admin('POST', '/api/note/link/pin', { path: diary, raw: '[[Tareas]]', at: tareas.posFrom, target: vihkoTasks })
   assert.equal(r.status, 200)
   assert.equal(r.body.raw, '[[vihko/Tareas]]')
-  assert.ok(readFileSync(join(notesDir, 'diario/2026-09-24.md'), 'utf8').includes('- [[vihko/Tareas]] es ambiguo'))
-  const bad = await admin('POST', '/api/note/link/pin', { path: 'diario/2026-09-24.md', raw: '[[Tareas]]', target: 'proyectos/vihko/Tareas.md' })
+  assert.ok(readFileSync(join(notesDir, diary), 'utf8').includes('- [[vihko/Tareas]] es ambiguo'))
+  const bad = await admin('POST', '/api/note/link/pin', { path: diary, raw: '[[Tareas]]', target: vihkoTasks })
   assert.equal(bad.status, 409)
   assert.equal(bad.body.error, 'edit_mismatch')
-  const invalid = await admin('POST', '/api/note/link/pin', { path: 'diario/2026-09-24.md', raw: '[[Tareas]]', at: 'x', target: m.aNotePath() })
+  const invalid = await admin('POST', '/api/note/link/pin', { path: diary, raw: '[[Tareas]]', at: 'x', target: m.aNotePath(inShared('')) })
   assert.equal(invalid.status, 400)
 })

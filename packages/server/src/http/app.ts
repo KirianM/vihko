@@ -11,11 +11,11 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
-import { WORKSPACE_FILE, classifyPath, conflictOriginal, imageMarkdown, type Alert, type ErrorCode } from '@vihko/core'
+import { WORKSPACE_FILE, classifyPath, conflictOriginal, imageMarkdown, spaceRootOf, type Alert, type ErrorCode } from '@vihko/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
-import { FolderNotEmpty, NoteError, type MoveHooks, type NoteService } from '../notes.ts'
+import { ExistsAs, FolderNotEmpty, NoteError, type MoveHooks, type NoteService } from '../notes.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import type { EditOp } from '../edits.ts'
 import { commentOp } from '../commenting.ts'
@@ -32,10 +32,12 @@ import { historyErrorStatus, historyRoutes, purgeClientMessage, purgeErrorStatus
 import { UNAVAILABLE_MESSAGE, clientMessage } from '../history/reader.ts'
 import { PurgeError } from '../history/purge.ts'
 import { AccessError, AccessPolicy, AgentDenied, type Access } from '../access.ts'
-import { PermissionsEngine, groupSource, stateDirectory, type GroupSource } from '../permissions.ts'
+import { PermissionsEngine, groupSource, stateDirectory, type GroupSource, type PermissionsModel } from '../permissions.ts'
+import { diskSpaceFolders } from '../spaceFolders.ts'
 import { ConfigInvalidError, PermissionsFile } from '../permissionsFile.ts'
 import type { PermissionHolds } from '../permissionHolds.ts'
 import { permissionRoutes, rulesWithoutFolder } from './permissions.ts'
+import { redactPermissionsWarning, spaceAlerts } from '../spaceAlerts.ts'
 import { ApiKeys, KeyError } from '../keys.ts'
 import { Integrations, IntegrationsError } from '../integrations.ts'
 import { AudienceWidens, RequestError, ScopedNotes, type ScopedDeps } from '../scoped.ts'
@@ -126,6 +128,8 @@ export interface AppDeps {
    * a grant to a group then reaches nobody (and is reported as unknown).
    */
   groups?: Partial<GroupSource>
+  /** Kept for callers written during the transition to spaces: only `spaces` exists (permissions.ts PermissionsModel). */
+  permissionsModel?: PermissionsModel
   /**
    * The access policy, when the caller shares it with others (the
    * collaboration hub, main.ts). One of its own over `index` by default.
@@ -258,7 +262,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const adminSettings = deps.adminSettings ?? new AdminSettings(auth.state)
   const policy = deps.policy ?? new AccessPolicy({
     index, holds: deps.holds,
-    permissions: new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(auth.state, deps.groups ?? groupSource(users)) }),
+    permissions: new PermissionsEngine({
+      source: () => workspace.permissions, directory: stateDirectory(auth.state, deps.groups ?? groupSource(users)),
+      folders: diskSpaceFolders(deps.notesDir), model: deps.permissionsModel,
+    }),
   })
   const permissions = policy.permissions
   const permissionsFile = new PermissionsFile({ notesDir: deps.notesDir, workspace, engine: permissions, history: deps.history?.recorder, onChange: deps.onPermissionsChanged })
@@ -267,7 +274,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
   const scopedDeps: ScopedDeps = {
     notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links,
-    permissions, permissionsFile, keys: () => keys.listAll(), orphans: deps.orphans, externalMoves: deps.externalMoves,
+    permissions, permissionsFile, keys: () => keys.listAll(), orphans: deps.orphans, externalMoves: deps.externalMoves, holds: deps.holds,
   }
   // A user deleted, a group renamed or deleted: their grants in vihko.yaml
   // follow, first (if vihko.yaml can't be written, nothing changes).
@@ -282,7 +289,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.onError((err, c) => {
     if (err instanceof NoteError) {
       if (err.etag) c.header('ETag', `"${err.etag}"`)
-      return fail(c, noteErrorStatus(err), err.code, err.message, { etag: err.etag, ...(err instanceof FolderNotEmpty ? { contents: err.contents } : {}) })
+      return fail(c, noteErrorStatus(err), err.code, err.message, { etag: err.etag, ...(err instanceof FolderNotEmpty ? { contents: err.contents } : {}), ...(err instanceof ExistsAs ? { path: err.path } : {}) })
     }
     if (err instanceof RequestError) return fail(c, err.status, err.code, err.message)
     if (err instanceof AccessError) return fail(c, 403, 'forbidden', err.message)
@@ -530,7 +537,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // run of a move says whose access changes (`audience`), for the UI to confirm.
   app.post('/api/folder', async (c) => {
     const { path } = await c.req.json<{ path: string }>()
-    return c.json(scoped(c).createFolder(path), 201)
+    return c.json(await scoped(c).createFolder(path), 201)
   })
 
   app.delete('/api/folder', async (c) => c.json(await scoped(c).deleteFolder(c.req.query('path') ?? '', { trash: c.req.query('trash') === 'true' })))
@@ -796,18 +803,22 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       for (const a of deps.configMigrations?.alerts() ?? []) alerts.push(a)
       // state.db migrated by this version, and where its copy is.
       for (const a of stateMigrationAlerts(auth.state)) alerts.push(a)
-      // What the file leaves out, and the grants and rules that name nothing that exists.
-      const missing = rulesWithoutFolder(permissions, index).map((f) => ({ code: 'missing_folder' as const, at: `permissions.${f}`, line: null, detail: f }))
-      const warnings = [...ws.warnings, ...permissions.unknownSubjects(), ...missing]
+      // What the file leaves out, and the grants that name nobody. A key inside a
+      // space the admin doesn't read is never named to them (D-056, spec §2.4).
+      const warnings = [...ws.warnings, ...permissions.unknownSubjects()].map((w) => redactPermissionsWarning(w, access))
       if (warnings.length) alerts.push({ code: 'config_warnings', file: WORKSPACE_FILE, warnings, actions: [] })
       if (workspace.permissionsFallback) alerts.push({ code: 'permissions_rejected', fallback: workspace.permissionsFallback, actions: [] })
       for (const sr of workspace.config.daily) {
         if (sr.template && !noteExists.get(sr.template)) alerts.push({ code: 'config_template_missing', series: sr.id, template: sr.template, actions: [] })
       }
-      const shared = workspace.config.attachments.folder
-      if (shared !== null && permissions.directory.users().length > 1) alerts.push({ code: 'attachments_shared_folder', folder: shared, actions: [] })
+      for (const a of spaceAlerts({ notesDir: deps.notesDir, engine: permissions, state: auth.state })) alerts.push(a)
     }
-    for (const a of deps.holds?.alerts((p) => noteExists.get(p) !== undefined, { admin, canManage: (f) => access.canManage(f) }) ?? []) alerts.push(a)
+    // Grants for folders that don't exist: to whoever manages the space they're in (spec §1.2), never the admin as such.
+    if (!access.isAgent) {
+      const folders = rulesWithoutFolder(permissions, index).filter((f) => { const root = spaceRootOf(f); return root !== null && access.canManage(root) })
+      if (folders.length) alerts.push({ code: 'missing_folder', folders, actions: [] })
+    }
+    if (!access.isAgent) for (const a of deps.holds?.alerts((p) => noteExists.get(p) !== undefined, { level: (f) => access.level(f) }) ?? []) alerts.push(a)
     for (const { path } of index.prepare("select path from alerts where kind = 'sync_conflict' order by path").all() as { path: string }[]) {
       if (!access.canRead(path)) continue
       const note = conflictOriginal(path)

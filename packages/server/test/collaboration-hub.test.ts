@@ -18,17 +18,12 @@ const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 test('a comment by someone who may only comment reaches the open document and the file; their typing never does', async () => {
   const { notes, env, admin } = makeDirs()
   const member = m.aUser()
-  // The member manages a folder of theirs, where the admin may only comment.
-  const people = m.aFolder()
-  const folder = `${people}/${member.username}/${m.aFolder()}`
+  // A folder of the member's personal space (theirs to manage), shared with the admin, who may only comment.
+  const folder = `people/${member.username}/${m.aFolder()}`
   const NOTE = m.aNotePath(folder)
   const RULES = `permissions:
-  "":
-    grants: { ${yamlKey(admin.username)}: manage }
-  ${yamlKey(`${people}/{user}`)}:
-    grants: { "{user}": manage }
   ${yamlKey(folder)}:
-    grants: { ${yamlKey(member.username)}: manage, ${yamlKey(admin.username)}: comment }
+    grants: { ${yamlKey(admin.username)}: comment }
 `
   // Two sentences the comments are anchored after, each ending in a word no other text has.
   const sentence = () => `${m.aSentence().slice(0, -1)} ${m.aUniqueWord()}.`
