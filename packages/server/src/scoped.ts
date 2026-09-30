@@ -9,7 +9,7 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { RuleSet, anchorChanged, classifyPath, contentHash, extract, folderOf, isRootTarget, linkSpace, parentFolder, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type Range } from '@vihko/core'
+import { RuleSet, anchorChanged, classifyPath, contentHash, extract, folderOf, isRootTarget, linkSpace, spaceOf, parentFolder, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type Range } from '@vihko/core'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
@@ -608,8 +608,21 @@ export class ScopedNotes {
    * A new note, with the given text or from a template note (D-030). Never
    * overwrites. The template must be one the principal can read. If what an
    * agent created is hidden from it (`ai: false` in its text), `nowHidden`.
+   *
+   * `fromLink`: the note whose broken link it is created from. Never from a
+   * note of someone else's personal space (D-056.21): there a link that looks
+   * broken may lead to one of the owner's notes the person can't read, and
+   * creating would take the owner's link. Refused whether or not that is so
+   * (`forbidden`), so the answer tells nothing.
    */
-  async create(path: string, opts: { text?: string; template?: string; freshUid?: boolean }): Promise<{ path: string; uid: string | null } & Written> {
+  async create(path: string, opts: { text?: string; template?: string; freshUid?: boolean; fromLink?: string }): Promise<{ path: string; uid: string | null } & Written> {
+    if (opts.fromLink !== undefined) {
+      const { path: source } = this.visible(opts.fromLink)
+      const space = spaceOf(source)
+      if (space?.kind === 'personal' && space.owner !== this.access.user.username.normalize('NFC')) {
+        throw new AccessError('a note is not created from a link in someone else\'s personal space')
+      }
+    }
     const p = this.writable(path)
     const actor = this.access.actor
     let r: { path: string; etag: string; uid: string | null }
