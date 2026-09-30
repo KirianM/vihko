@@ -13,7 +13,7 @@ import { errorText, useLanguageChoice, useT, type LangChoice } from './i18n.tsx'
 import { recentNotes } from './recent.ts'
 import { useTheme } from './theme.ts'
 import { useBackClose, useMobile } from './mobile.ts'
-import { newNote, type NewNote } from './newNote.ts'
+import { newNote, scopePathFilters, type NewNote } from './newNote.ts'
 import { rootOf, usePathLabels } from './spaces.tsx'
 import { usePlaces } from './Destination.tsx'
 import { Icon } from './ui.tsx'
@@ -116,7 +116,7 @@ export function Palette({ mode, folder: current, openPath, notes, templates, onT
     let live = true
     // One request per typing pause, and only the last one's response counts.
     const timer = setTimeout(() => {
-      api.search(text).then((r) => {
+      api.search(scopePathFilters(text, rootOf(current) ?? '')).then((r) => {
         if (live) setFound({ q: text, results: r.results, start: r.highlight?.start ?? '\u0002', end: r.highlight?.end ?? '\u0003' })
       }).catch((e) => { if (live) setError(errorText(t, e)) })
     }, 120)
