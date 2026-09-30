@@ -1,0 +1,347 @@
+// Links under the spaces model (D-056, spec §4), through the HTTP API and the
+// operations agents use, over the new layout: a member's personal space
+// with a folder shared with someone else, a shared space, and the other
+// person's own space.
+// - A link to what someone can't read is, for them and for their agents,
+//   exactly a link to a note that doesn't exist (D-056.15): writing links or
+//   naming paths never tells anyone what exists.
+// - A name never resolves out of its space; a path from the notes root does.
+// - Moving a note or a folder to another space keeps every link on its note
+//   (paths from the root with the name shown, as Obsidian reads them), and
+//   copies the images it would leave behind, only those whoever moves it can read.
+// - A rewrite that fails: the old name as an alias only where it helps (the
+//   same space); the rest is tried again after the next rescan.
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { readFrontmatter } from '@vihko/core'
+import { Auth, Indexer, NoteService, Profiles, RelinkRetries, Workspace, createServer, openIndex, openState, type RelinkRetry, type Runtime } from '@vihko/server'
+import { tempDir } from './_tmp.ts'
+import { yamlKey } from './_permissions.ts'
+import { create, type Person } from './_people.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
+
+/** A 1×1 PNG. */
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
+
+const ROLES = ['admin', 'member', 'other'] as const
+type Role = typeof ROLES[number]
+
+/**
+ * The scenario's names, new for every setup: the member's space with a
+ * folder shared with `other` (edit) and another one (read), a shared space of the member (edit) and
+ * the admin (manage), and each one's own space.
+ */
+function scenario() {
+  const people = { admin: m.aUser({ role: 'admin' }), member: m.aUser(), other: m.aUser() }
+  const homeName = m.aSpaceName()
+  const home = `spaces/${m.aSpaceFolder(homeName)}`
+  const space = { admin: `people/${people.admin.username}`, member: `people/${people.member.username}`, other: `people/${people.other.username}` }
+  const trips = `${space.member}/${m.aFolder()}`
+  const recipes = `${space.member}/${m.aFolder()}`
+  const rules = `permissions:
+  ${yamlKey(home)}:
+    name: ${JSON.stringify(homeName)}
+    grants: { ${yamlKey(people.member.username)}: edit, ${yamlKey(people.admin.username)}: manage }
+  ${yamlKey(trips)}:
+    grants: { ${yamlKey(people.other.username)}: edit }
+  ${yamlKey(recipes)}:
+    grants: { ${yamlKey(people.other.username)}: read }
+`
+  return { people, home, homeName, space, trips, recipes, rules }
+}
+type Scenario = ReturnType<typeof scenario>
+
+async function setup(files: (s: Scenario) => Record<string, string | Buffer>, opts: { onGaveUp?: (e: RelinkRetry) => void } = {}) {
+  const s = scenario()
+  const dir = tempDir('vihko-links-spaces-')
+  const notesDir = join(dir, 'notes')
+  const stateDir = join(dir, 'state')
+  mkdirSync(notesDir)
+  const write = (path: string, content: string | Buffer) => {
+    mkdirSync(dirname(join(notesDir, path)), { recursive: true })
+    writeFileSync(join(notesDir, path), content)
+  }
+  for (const root of Object.values(s.space)) mkdirSync(join(notesDir, root), { recursive: true })
+  mkdirSync(join(notesDir, s.home), { recursive: true })
+  writeFileSync(join(notesDir, 'vihko.yaml'), s.rules)
+  for (const [p, c] of Object.entries(files(s))) write(p, c)
+  const index = openIndex(join(dir, 'index.db'))
+  const state = openState(join(dir, 'state.db'))
+  const auth = new Auth(state)
+  const workspace = new Workspace({ notesDir })
+  const indexer = new Indexer({ notesDir, db: index })
+  const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
+  const notes = new NoteService({
+    notesDir, stateDir, indexer, db: index, attachments: () => workspace.config.attachments,
+    retries: new RelinkRetries({ stateDir }), onRelinkGaveUp: opts.onGaveUp,
+  })
+  const { app, services } = createServer({ auth, profiles: new Profiles(state), workspace, notes, index, indexer, notesDir, runtime, permissionsModel: 'spaces' })
+  const users = {} as Record<Role, Person>
+  for (const r of ROLES) users[r] = await create(auth, s.people[r])
+  runtime.rescan({})
+  const cookies = {} as Record<Role, string>
+  for (const r of ROLES) {
+    const res = await app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: users[r].username, password: users[r].password }) })
+    cookies[r] = res.headers.get('set-cookie')!.split(';')[0]!
+  }
+  const as = (r: Role) => async (method: string, path: string, body?: unknown) => {
+    const res = await app.request(path, { method, headers: { 'content-type': 'application/json', cookie: cookies[r] }, body: body === undefined ? undefined : JSON.stringify(body) })
+    const text = await res.text()
+    let json: any = null
+    try { json = JSON.parse(text) } catch {}
+    return { status: res.status, body: json, text }
+  }
+  /** What an agent of `r` (a key that may write, in every folder) reaches. */
+  const agent = (r: Role) => services.scoped(services.policy.for({ kind: 'agent', user: users[r], key: { id: m.anId(), name: m.aKeyName(), canWrite: true, folders: [] }, via: 'mcp' }))
+  const read = (p: string) => readFileSync(join(notesDir, p), 'utf8')
+  /** A note's text without its frontmatter (a moved note gets its `uid`). */
+  const body = (p: string) => read(p).replace(/^---\n[\s\S]*?\n---\n/, '')
+  return { s, dir, notesDir, notes, indexer, runtime, as, agent, read, body, write, has: (p: string) => existsSync(join(notesDir, p)) }
+}
+
+const q = (path: string, params: Record<string, string>) => `${path}?${new URLSearchParams(params)}`
+const noMd = (p: string) => p.slice(0, -3)
+const byRaw = (list: { raw: string }[]): Record<string, any> => Object.fromEntries(list.map((l) => [l.raw, l]))
+
+test('probing: a link to a note someone cannot read is, for them and their agent, exactly one to a note that does not exist', async () => {
+  const secret = m.aTitle()
+  const absent = m.aTitle()
+  const probe = m.aTitle()
+  const h = await setup((s) => ({
+    [`${s.space.member}/${secret}.md`]: `# ${secret}\n${m.aParagraph()}\n`,
+    [`${s.space.other}/${probe}.md`]: `[[${s.space.member}/${secret}]] and [[${s.space.member}/${absent}]]\n`,
+  }))
+  const { s } = h
+  const probePath = `${s.space.other}/${probe}.md`
+  const hidden = `[[${s.space.member}/${secret}]]`
+  const none = `[[${s.space.member}/${absent}]]`
+  // The person: both broken, alike but for what they wrote.
+  const r = await h.as('other')('GET', q('/api/note/links', { path: probePath }))
+  assert.equal(r.status, 200, r.text)
+  const out = byRaw(r.body.outgoing)
+  const shape = (l: any) => ({ ...l, raw: undefined, target: undefined, posFrom: undefined })
+  assert.deepEqual(shape(out[hidden]), shape(out[none]))
+  assert.equal(out[hidden].status, 'missing')
+  assert.deepEqual(r.body.titles, {})
+  // The owner sees it resolved: the link means the same for everyone, only what each may see differs.
+  const own = (await h.as('member')('GET', q('/api/note/links', { path: `${s.space.member}/${secret}.md` }))).body.backlinks.map((b: any) => b.path)
+  assert.deepEqual(own, [], 'a note one cannot read is never a backlink')
+  // Reading it, or one that isn't there: the same answer.
+  const a = await h.as('other')('GET', q('/api/note', { path: `${s.space.member}/${secret}.md` }))
+  const b = await h.as('other')('GET', q('/api/note', { path: `${s.space.member}/${absent}.md` }))
+  assert.deepEqual([a.status, a.body.error], [404, 'not_found'])
+  assert.equal(b.text.replace(absent, secret), a.text)
+  // Their agent: `missing` from resolve_link, `not_found` naming it, the same for both.
+  const ag = h.agent('other')
+  const ra = ag.resolveLink(probePath, hidden)
+  const rb = ag.resolveLink(probePath, none)
+  assert.deepEqual({ ...ra, target: null }, { ...rb, target: null })
+  assert.deepEqual([ra.status, ra.path, ra.reason], ['missing', null, null])
+  const outAgent = byRaw(ag.links(probePath).outgoing)
+  assert.deepEqual(shape(outAgent[hidden]), shape(outAgent[none]))
+  for (const p of [`${s.space.member}/${secret}.md`, `${s.space.member}/${absent}.md`]) {
+    assert.throws(() => ag.read(p), (err: any) => err.code === 'not_found', p)
+  }
+})
+
+test('a folder shared from someone’s space: a name there that leads to what the reader cannot see is broken for them; backlinks only from what they read', async () => {
+  const secret = m.aTitle()
+  const trip = m.aTitle()
+  const linker = m.aTitle()
+  const [dup, absent, hiddenDir] = [m.aTitle(), m.aTitle(), m.aFolder()]
+  const h = await setup((s) => ({
+    [`${s.space.member}/${secret}.md`]: `# ${secret}\n[[${trip}]]\n`,
+    [`${s.trips}/${trip}.md`]: `# ${trip}\n`,
+    [`${s.trips}/${linker}.md`]: `[[${secret}]] [[${trip}]] [[${dup}]] [[${absent}]]\n`,
+    // The same name in the other folder they were given and in one of the member's they weren't: ambiguous, for the member.
+    [`${s.recipes}/${dup}.md`]: `# ${dup}\n`,
+    [`${s.space.member}/${hiddenDir}/${dup}.md`]: `# ${dup}\n`,
+  }))
+  const { s } = h
+  const linkerPath = `${s.trips}/${linker}.md`
+  const tripPath = `${s.trips}/${trip}.md`
+  const forOther = byRaw((await h.as('other')('GET', q('/api/note/links', { path: linkerPath }))).body.outgoing)
+  const forMember = byRaw((await h.as('member')('GET', q('/api/note/links', { path: linkerPath }))).body.outgoing)
+  assert.deepEqual([forOther[`[[${secret}]]`].status, forOther[`[[${secret}]]`].dstPath], ['missing', null])
+  assert.deepEqual([forMember[`[[${secret}]]`].status, forMember[`[[${secret}]]`].dstPath], ['resolved', `${s.space.member}/${secret}.md`])
+  assert.deepEqual([forOther[`[[${trip}]]`].status, forOther[`[[${trip}]]`].dstPath], ['resolved', tripPath])
+  // Ambiguous among notes of which they can't read one: broken for them, as one to nothing; and it can't be pinned.
+  assert.equal(forMember[`[[${dup}]]`].status, 'ambiguous')
+  const shape = (l: any) => ({ ...l, raw: undefined, target: undefined, posFrom: undefined })
+  assert.deepEqual(shape(forOther[`[[${dup}]]`]), shape(forOther[`[[${absent}]]`]))
+  const pin = (raw: string) => h.as('other')('POST', '/api/note/link/pin', { path: linkerPath, raw, target: `${s.recipes}/${dup}.md` })
+  const [ambiguous, broken] = [await pin(`[[${dup}]]`), await pin(`[[${absent}]]`)]
+  assert.deepEqual([ambiguous.status, ambiguous.body.error], [broken.status, broken.body.error])
+  assert.equal(ambiguous.text.replace(dup, absent), broken.text)
+  assert.equal(h.read(linkerPath), `[[${secret}]] [[${trip}]] [[${dup}]] [[${absent}]]\n`)
+  const backlinks = async (r: Role) => (await h.as(r)('GET', q('/api/note/links', { path: tripPath }))).body.backlinks.map((b: any) => b.path).sort()
+  assert.deepEqual(await backlinks('other'), [linkerPath])
+  assert.deepEqual(await backlinks('member'), [linkerPath, `${s.space.member}/${secret}.md`].sort())
+})
+
+test('names stay in their space; a path from the notes root reaches another space for whoever can read it', async () => {
+  const list = m.aTitle()
+  const mine = m.aTitle()
+  const h = await setup((s) => ({
+    [`${s.home}/${list}.md`]: `# ${list}\n`,
+    [`${s.space.member}/${mine}.md`]: `[[${list}]] [[${s.home}/${list}|${list}]]\n`,
+    [`${s.space.other}/${mine}.md`]: `[[${s.home}/${list}|${list}]]\n`,
+  }))
+  const { s } = h
+  const member = byRaw((await h.as('member')('GET', q('/api/note/links', { path: `${s.space.member}/${mine}.md` }))).body.outgoing)
+  assert.equal(member[`[[${list}]]`].status, 'missing', 'a name never reaches another space')
+  assert.deepEqual([member[`[[${s.home}/${list}|${list}]]`].status, member[`[[${s.home}/${list}|${list}]]`].dstPath], ['resolved', `${s.home}/${list}.md`])
+  // Someone out of the space: broken, as if it didn't exist.
+  const other = byRaw((await h.as('other')('GET', q('/api/note/links', { path: `${s.space.other}/${mine}.md` }))).body.outgoing)
+  assert.equal(other[`[[${s.home}/${list}|${list}]]`].status, 'missing')
+  // Backlinks of the list, across spaces: only from notes each one reads.
+  const back = (await h.as('admin')('GET', q('/api/note/links', { path: `${s.home}/${list}.md` }))).body.backlinks.map((b: any) => b.path)
+  assert.deepEqual(back, [], 'the admin reads neither the member’s nor the other’s notes')
+  const backMember = (await h.as('member')('GET', q('/api/note/links', { path: `${s.home}/${list}.md` }))).body.backlinks.map((b: any) => b.path)
+  assert.deepEqual(backMember, [`${s.space.member}/${mine}.md`])
+})
+
+test('moving a note to a shared space: its names become paths from the root, links to it follow it from every space, and the report names nothing hidden', async () => {
+  const note = m.aTitle()
+  const plan = m.aTitle()
+  const diary = m.aTitle()
+  const adminNote = m.aTitle()
+  const h = await setup((s) => ({
+    [`${s.space.member}/${note}.md`]: `# ${note}\n[[${plan}]] ![[${plan}]]\n`,
+    [`${s.space.member}/${plan}.md`]: `# ${plan}\n`,
+    [`${s.space.member}/${m.aFolder()}/${diary}.md`]: `[[${note}]]\n`,
+    [`${s.space.admin}/${adminNote}.md`]: `[[${s.space.member}/${note}|${note}]]\n`,
+  }))
+  const { s } = h
+  const from = `${s.space.member}/${note}.md`
+  const to = `${s.home}/${note}.md`
+  const diaryPath = (await h.as('member')('GET', '/api/tree')).body.notes.map((n: any) => n.path).find((p: string) => p.endsWith(`/${diary}.md`))
+  const preview = await h.as('member')('POST', '/api/note/move', { from, to, dryRun: true })
+  assert.equal(preview.status, 200, preview.text)
+  assert.equal(preview.body.hidden, true, 'links in notes the member cannot see are rewritten too: said, never which')
+  assert.ok(!preview.text.includes(s.space.admin), 'nothing of the admin’s space in the member’s report')
+  // What the move writes as paths from the root, where the member sees it: the diary's link to it, its own two to the plan.
+  assert.deepEqual(preview.body.crossSpaceLinks, { path: noMd(to), incoming: 1, outgoing: 2 })
+  const moved = await h.as('member')('POST', '/api/note/move', { from, to })
+  assert.equal(moved.status, 200, moved.text)
+  const planRoot = `${s.space.member}/${plan}`
+  assert.equal(h.body(to), `# ${note}\n[[${planRoot}|${plan}]] ![[${planRoot}]]\n`)
+  assert.equal(h.body(diaryPath), `[[${noMd(to)}|${note}]]\n`)
+  assert.equal(h.body(`${s.space.admin}/${adminNote}.md`), `[[${noMd(to)}|${note}]]\n`)
+  for (const p of [to, diaryPath, `${s.space.admin}/${adminNote}.md`]) assert.ok(!h.read(p).includes('[[/'), `no leading slash in ${p}`)
+  // Everything still leads where it led.
+  const outgoing = (await h.as('member')('GET', q('/api/note/links', { path: to }))).body.outgoing
+  assert.deepEqual(outgoing.map((l: any) => l.dstPath), [`${planRoot}.md`, `${planRoot}.md`])
+  const back = (await h.as('admin')('GET', q('/api/note/links', { path: to }))).body.backlinks.map((b: any) => b.path)
+  assert.deepEqual(back, [`${s.space.admin}/${adminNote}.md`])
+})
+
+test('the images a note would leave behind in the space it leaves are copied, only those whoever moves it can read', async () => {
+  const note = m.aTitle()
+  const sibling = m.aTitle()
+  const [shared, own, far, hidden] = [m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord()].map((n) => `${n}.png`)
+  const [privateDir, sub] = [m.aUniqueWord(), m.aUniqueWord()]
+  const h = await setup((s) => ({
+    // In the folder shared with `other`: an image the note shares with a sibling, one only it uses, one elsewhere in the
+    // folder, and one of the member's that `other` can't read.
+    [`${s.trips}/${note}.md`]: `![](${shared}) ![](${own}) ![](${sub}/${far}) ![](../${privateDir}/${hidden})\n`,
+    [`${s.trips}/${sibling}.md`]: `![](${shared})\n`,
+    [`${s.trips}/${shared}`]: PNG,
+    [`${s.trips}/${own}`]: PNG,
+    [`${s.trips}/${sub}/${far}`]: PNG,
+    [`${s.space.member}/${privateDir}/${hidden}`]: PNG,
+  }))
+  const { s } = h
+  const from = `${s.trips}/${note}.md`
+  const to = `${s.space.other}/${note}.md`
+  const preview = await h.as('other')('POST', '/api/note/move', { from, to, dryRun: true })
+  assert.equal(preview.status, 200, preview.text)
+  assert.deepEqual(preview.body.images.moved, [{ from: `${s.trips}/${own}`, to: `${s.space.other}/${own}` }])
+  assert.deepEqual(preview.body.images.copied, [
+    { from: `${s.trips}/${shared}`, to: `${s.space.other}/${shared}` },
+    { from: `${s.trips}/${sub}/${far}`, to: `${s.space.other}/${far}` },
+  ])
+  assert.deepEqual(preview.body.images.stayed, [], 'what they cannot read is not named')
+  const r = await h.as('other')('POST', '/api/note/move', { from, to })
+  assert.equal(r.status, 200, r.text)
+  assert.equal(h.body(to), `![](${shared}) ![](${own}) ![](${far}) ![](../${s.people.member.username}/${privateDir}/${hidden})\n`)
+  assert.ok(h.has(`${s.trips}/${shared}`) && h.has(`${s.trips}/${sub}/${far}`), 'the originals stay')
+  assert.ok(!h.has(`${s.trips}/${own}`), 'the one only it used goes with it')
+  assert.ok(!h.has(`${s.space.other}/${hidden}`), 'never a copy of what they cannot read')
+  assert.equal(h.body(`${s.trips}/${sibling}.md`), `![](${shared})\n`)
+})
+
+test('a folder taken to another space: links kept, and the images its notes use from the space it leaves copied next to them', async () => {
+  const project = m.aFolder()
+  const note = m.aTitle()
+  const outside = m.aTitle()
+  const img = `${m.aUniqueWord()}.png`
+  const assets = m.aUniqueWord()
+  const h = await setup((s) => ({
+    [`${s.space.member}/${project}/${note}.md`]: `![](../${assets}/${img}) [[${outside}]]\n`,
+    [`${s.space.member}/${assets}/${img}`]: PNG,
+    [`${s.space.member}/${outside}.md`]: `[[${note}]]\n`,
+  }))
+  const { s } = h
+  const from = `${s.space.member}/${project}`
+  const to = `${s.home}/${project}`
+  const preview = await h.as('member')('POST', '/api/folder/move', { from, to, dryRun: true })
+  assert.equal(preview.status, 200, preview.text)
+  assert.deepEqual(preview.body.images.copied, [{ from: `${s.space.member}/${assets}/${img}`, to: `${to}/${img}` }])
+  assert.deepEqual(preview.body.crossSpaceLinks, { path: to, incoming: 1, outgoing: 1 })
+  const r = await h.as('member')('POST', '/api/folder/move', { from, to })
+  assert.equal(r.status, 200, r.text)
+  assert.deepEqual(r.body.images, { copied: [{ from: `${s.space.member}/${assets}/${img}`, to: `${to}/${img}` }], failed: [] })
+  assert.equal(h.body(`${to}/${note}.md`), `![](${img}) [[${s.space.member}/${outside}|${outside}]]\n`)
+  assert.equal(h.body(`${s.space.member}/${outside}.md`), `[[${to}/${note}|${note}]]\n`)
+  assert.ok(h.has(`${s.space.member}/${assets}/${img}`) && h.has(`${to}/${img}`))
+})
+
+test('a failed rewrite: the alias only where it helps (the same space); links from other spaces are retried after the next rescan', { skip: process.getuid?.() === 0 }, async () => {
+  const [note, renamed, other, otherRenamed] = [m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle()]
+  const [locked, lockedLater] = [m.aFolder(), m.aFolder()]
+  const [inside, outside, later] = [m.aTitle(), m.aTitle(), m.aTitle()]
+  const gaveUp: RelinkRetry[] = []
+  const h = await setup((s) => ({
+    [`${s.space.member}/${note}.md`]: `# ${note}\n`,
+    [`${s.space.member}/${locked}/${inside}.md`]: `[[${note}]]\n`,
+    [`${s.home}/${locked}/${outside}.md`]: `[[${s.space.member}/${note}|${note}]]\n`,
+    [`${s.space.member}/${other}.md`]: `# ${other}\n`,
+    [`${s.home}/${lockedLater}/${later}.md`]: `[[${s.space.member}/${other}|${other}]]\n`,
+  }), { onGaveUp: (e) => gaveUp.push(e) })
+  const { s } = h
+  const actor = { kind: 'user' as const, id: m.anId() }
+  const lock = (dirs: string[], mode: number) => { for (const d of dirs) chmodSync(join(h.notesDir, d), mode) }
+  const lockedDirs = [`${s.space.member}/${locked}`, `${s.home}/${locked}`]
+  lock(lockedDirs, 0o555)
+  try {
+    const r = await h.notes.move(`${s.space.member}/${note}.md`, `${s.space.member}/${renamed}.md`, { actor })
+    assert.deepEqual(r.failed.map((f) => f.path).sort(), [`${s.space.member}/${locked}/${inside}.md`, `${s.home}/${locked}/${outside}.md`].sort())
+    assert.equal(r.aliasAdded, note, 'the link by name in its own space still resolves through the alias')
+    assert.deepEqual(readFrontmatter(h.read(`${s.space.member}/${renamed}.md`)).data.aliases, [note])
+    // Still locked when retried: given up, and said (only what no alias stands in for).
+    await h.notes.retryRelinks()
+    assert.deepEqual(gaveUp.map((e) => e.sources), [[`${s.home}/${locked}/${outside}.md`]])
+  } finally {
+    lock(lockedDirs, 0o755)
+  }
+  // Locked only at the move: the next rescan's retry fixes it.
+  lock([`${s.home}/${lockedLater}`], 0o555)
+  try {
+    const r = await h.notes.move(`${s.space.member}/${other}.md`, `${s.space.member}/${otherRenamed}.md`, { actor })
+    assert.deepEqual(r.failed.map((f) => f.path), [`${s.home}/${lockedLater}/${later}.md`])
+    assert.equal(r.aliasAdded, null, 'an alias would not reach a link from another space')
+  } finally {
+    lock([`${s.home}/${lockedLater}`], 0o755)
+  }
+  h.runtime.rescan({})
+  await h.notes.retryRelinks()
+  assert.equal(h.body(`${s.home}/${lockedLater}/${later}.md`), `[[${s.space.member}/${otherRenamed}|${otherRenamed}]]\n`)
+  assert.equal(gaveUp.length, 1, 'nothing more given up')
+  await h.notes.retryRelinks()
+  assert.equal(gaveUp.length, 1, 'each failure is retried once')
+})
