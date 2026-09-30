@@ -72,6 +72,7 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'GET /api/conflict': 'session',
   'POST /api/admin/rescan': 'session',
   'DELETE /api/admin/config-migrations/:id': 'session',
+  'DELETE /api/admin/state-migrations/:id': 'session',
   'POST /api/auth/password': 'session',
   'GET /api/directory': 'session',
   'GET /api/account/sessions': 'session',
@@ -156,6 +157,7 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'POST /api/oauth/authorize': 'none',
   'POST /api/admin/rescan': 'admin',
   'DELETE /api/admin/config-migrations/:id': 'admin',
+  'DELETE /api/admin/state-migrations/:id': 'admin',
   'POST /api/admin/users': 'admin',
   // One-time links, one's own account, and the names of users and groups (to share with).
   'GET /api/invite/:token': 'none',

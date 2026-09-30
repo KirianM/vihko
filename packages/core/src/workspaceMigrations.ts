@@ -1,9 +1,18 @@
 // vihko.yaml's format migrations (D-042.6). When a version of vihko changes
 // how something is written in vihko.yaml, the server rewrites the file itself
 // when it starts (server configMigrations.ts), keeping a copy of it as it was.
-// There is no `version:` to go by: each migration looks at the content and
-// applies only where the old form is there and the new one isn't, so running
-// it again changes nothing.
+// Migrations don't go by the file's `version:`: each one looks at the content
+// and applies only where the old form is there and the new one isn't, so
+// running it again changes nothing (and a `version` set by hand can't make
+// one skip an old form).
+//
+// `version` is the format's number: 1 until the first migration, and each
+// release that adds migrations gives them the next one (WORKSPACE_VERSION is
+// the highest). A rewrite raises the file's `version` to it (adding the key
+// if it was missing), so that an older vihko reading the file, after a roll
+// back, says it's newer than it understands (`newer_version`) instead of
+// only ignoring the new forms as unknown keys. A file with nothing to
+// migrate is never rewritten just for its number.
 //
 // A migration changes the file's yaml Document, which carries its comments,
 // key order and unknown keys. But the Document's rendering of the whole file
@@ -17,11 +26,17 @@
 // stretch come out as the Document writes it. The merged text must read back
 // as the migrated Document; if it doesn't (or the file is too big to merge),
 // the Document's rendering is written whole.
-import type { Document } from 'yaml'
+import { isMap, isScalar, type Document } from 'yaml'
 import type { ConfigMigrationRef } from './codes.ts'
 import { parseYamlDocument } from './yaml.ts'
 
 export interface WorkspaceMigration extends ConfigMigrationRef {
+  /**
+   * The format (`version`) the file is in once this migration applied: 2
+   * or more, the same for every migration of one release, never lower than
+   * an earlier migration's.
+   */
+  version: number
   /**
    * Changes `doc` from the old form to the new one, only where the old one is
    * present and the new one absent. Whether it changed anything. It may
@@ -35,6 +50,12 @@ export interface WorkspaceMigration extends ConfigMigrationRef {
  * here (its id, a line saying what it does, and `apply`), with a test.
  */
 export const WORKSPACE_MIGRATIONS: readonly WorkspaceMigration[] = []
+
+/** The format of `migrations`: the highest `version` among them, 1 without any. */
+export const formatVersion = (migrations: readonly WorkspaceMigration[]) => migrations.reduce((v, m) => Math.max(v, m.version), 1)
+
+/** The newest `version` of vihko.yaml this vihko understands (see the header). A missing `version` is 1. */
+export const WORKSPACE_VERSION = formatVersion(WORKSPACE_MIGRATIONS)
 
 export type MigrationOutcome =
   /** Nothing applies: the file stays as it is. */
@@ -65,6 +86,7 @@ export function migrateWorkspaceText(text: string, migrations: readonly Workspac
     }
   }
   if (applied.length === 0) return { kind: 'none' }
+  raiseVersion(doc, formatVersion(migrations))
   const after = render(doc)
   const merged = mergeChange(text, before, after)
   const out = merged !== null && sameDocument(merged, after) ? merged : after
@@ -79,6 +101,30 @@ export function migrateWorkspaceText(text: string, migrations: readonly Workspac
     }
   }
   return { kind: 'migrated', text: out, applied }
+}
+
+/**
+ * The file's `version` raised to `target`: set where it's a lower whole
+ * number, added as the first key where it's missing. A `version` that isn't
+ * a whole number is left for the workspace's own alert (`invalid_version`),
+ * and a higher one (a newer vihko's) is never lowered.
+ */
+function raiseVersion(doc: Document, target: number) {
+  if (!isMap(doc.contents)) return
+  const node = doc.get('version', true)
+  if (node === undefined) {
+    if (target <= 1) return
+    const pair = doc.createPair('version', target)
+    // A comment right above the first key is the file's header as often as that key's: it stays on top.
+    const first = doc.contents.items[0]?.key
+    if (isScalar(first) && first.commentBefore && isScalar(pair.key)) {
+      pair.key.commentBefore = first.commentBefore
+      first.commentBefore = undefined
+    }
+    doc.contents.items.unshift(pair)
+  } else if (isScalar(node) && typeof node.value === 'number' && Number.isInteger(node.value) && node.value < target) {
+    node.value = target
+  }
 }
 
 /** Whether two texts read as the same Document: same data, comments and order (the renderings match). */

@@ -1,10 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { defaultKeymap } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { yamlFrontmatter } from '@codemirror/lang-yaml'
+import { searchKeymap } from '@codemirror/search'
 import { EditorState, type TransactionSpec } from '@codemirror/state'
 import { vihkoSyntax } from '@vihko/core/syntax'
-import { activeFormats, insertLink, insertTable, toggleCodeBlock, toggleHeading, toggleInline, toggleList, toggleQuote } from '../src/editor/format.ts'
+import { yUndoManagerKeymap } from 'y-codemirror.next'
+import { SHORTCUTS, activeFormats, insertLink, insertTable, modKMakesLink, toggleCodeBlock, toggleHeading, toggleInline, toggleList, toggleQuote } from '../src/editor/format.ts'
 import { mother } from '../../../test/mother.ts'
 
 // The Markdown each action writes is the case under test, so it is written out
@@ -130,6 +133,33 @@ test('link: the selection is its text and the cursor goes where the URL goes', (
   // Never inside a wikilink: after it.
   assert.equal(run(`[[${a.slice(0, 2)}‸${a.slice(2)}]] ${b}`, insertLink), `[[${a}]][‸]() ${b}`)
   assert.equal(run(`\`\`\`\n${a}‸\n\`\`\``, insertLink), null)
+})
+
+test('Ctrl+K is the link over a selection in a note the person can write, the palette otherwise', () => {
+  const [a, b] = [w(), w()]
+  assert.equal(modKMakesLink(state(`${a} «${b}»`)), true)
+  assert.equal(modKMakesLink(state(`${a} ${b.slice(0, 2)}‸${b.slice(2)}`)), false)
+  const readOnly = EditorState.create({ doc: `${a} ${b}`, selection: { anchor: 0, head: a.length }, extensions: [language, EditorState.readOnly.of(true)] })
+  assert.equal(modKMakesLink(readOnly), false)
+})
+
+/** A binding as CodeMirror matches it on a Mac or elsewhere: Mod as Cmd or Ctrl, the modifiers in one order. */
+function normal(key: string, mac: boolean): string {
+  const parts = key.split('-')
+  const name = parts.pop()!.toLowerCase()
+  const mods = parts.map((p) => (p === 'Mod' ? (mac ? 'Cmd' : 'Ctrl') : p === 'Meta' ? 'Cmd' : p)).sort()
+  return [...mods, name].join('-')
+}
+
+test('the shortcuts take no key of CodeMirror\'s default, search or undo keymaps, nor each other\'s', () => {
+  const bindings = [...defaultKeymap, ...searchKeymap, ...yUndoManagerKeymap]
+  for (const mac of [false, true]) {
+    const taken = new Set(bindings.map((b) => (mac ? b.mac : b.win ?? b.linux) ?? b.key).filter((k): k is string => !!k).map((k) => normal(k, mac)))
+    const ours = Object.entries(SHORTCUTS).map(([name, key]) => [name, normal(key, mac)] as const)
+    assert.equal(new Set(ours.map(([, k]) => k)).size, ours.length)
+    // Italic takes Mod-i on purpose (Editor.tsx puts it first): there it selects the parent syntax.
+    for (const [name, key] of ours) if (name !== 'em') assert.ok(!taken.has(key), `${name} (${key}) is taken`)
+  }
 })
 
 test('headings: on every selected line, off when all have that level, another level replaces it', () => {
