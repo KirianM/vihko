@@ -37,6 +37,11 @@ A note starts with its name as a `# Heading`. Write Markdown as usual: the
 editor shows headings, lists, tasks and links formatted while you type.
 `- [ ]` makes a task; Ctrl+Enter (⌘Enter on a Mac) checks it.
 
+The bar above the note formats the selection, and its buttons show their
+shortcuts (⌘ instead of Ctrl on a Mac): Ctrl+B bold, Ctrl+I italic,
+Ctrl+Shift+S strikethrough, Ctrl+E inline code, and Ctrl+K a link, with text
+selected (Ctrl+Alt+K anywhere). Pressed again, a format comes off.
+
 ## Folders
 
 - **New folder** (the folder icon in the sidebar), or a folder's menu →
@@ -71,7 +76,8 @@ count the same. The sidebar's «Tags» tab lists them, with their notes.
 ## Search, and the ⌘K box
 
 **Search or create…** in the sidebar, or Ctrl+K (⌘K on a Mac), opens one box
-for everything:
+for everything (in a note, with text selected, Ctrl+K makes it a link
+instead):
 
 - **Find a note**: type words. It searches titles, aliases and text, ignoring
   accents, and shows each hit in context. With nothing typed, it lists your

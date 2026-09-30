@@ -13,12 +13,13 @@ import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
 import * as Y from 'yjs'
 import type { User } from '../api.ts'
 import { useT } from '../i18n.tsx'
+import { takeModK } from '../keys.ts'
 import type { Session } from './collab.ts'
 import { commentMarks, commentUi, setCommentReach, type CommentReach } from './commentMarks.ts'
 import { imageHost, images } from './images.ts'
 import { linkAutocomplete } from './autocomplete.ts'
 import { createLinkUi, type NewLinkedNote } from './createLink.ts'
-import { SHORTCUTS, formatKeymap, undoBoundary } from './format.ts'
+import { SHORTCUTS, formatKeymap, insertLink, modKMakesLink, runFormat, undoBoundary } from './format.ts'
 import { labels, livePreview, navigate, notePath, pickAmbiguous, setLinks, type LinkInfo, type PickAmbiguous } from './livePreview.ts'
 import { announce } from './presence.ts'
 import { agentLabel, agentMarks } from './agents.ts'
@@ -151,7 +152,14 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
     const v = new EditorView({ state, parent: host.current! })
     view.current = v
     viewCb.current?.(v)
+    // ⌘K / Ctrl+K over the selection: the link, as the toolbar's button makes it, instead of the palette.
+    const untake = readOnly ? () => {} : takeModK((e) => {
+      if (!(e.target instanceof Node && v.contentDOM.contains(e.target)) || !modKMakesLink(v.state)) return false
+      runFormat(v, insertLink(v.state))
+      return true
+    })
     return () => {
+      untake()
       viewCb.current?.(null)
       unannounce()
       v.destroy()
