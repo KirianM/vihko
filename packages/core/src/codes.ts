@@ -150,9 +150,10 @@ export type Alert =
    * Someone purged a path (a note, or a folder with everything in it) or one
    * version of a note from the history while vihko ran (D-038.9): which,
    * who (`by`, their name) and when (`at`, ISO). Never anything of the
-   * content. Only admins see it, until they dismiss it.
+   * content. Only admins see it, until they dismiss it; `path` is null for
+   * an admin who can't read where it was (a space that isn't theirs, D-056.24).
    */
-  | { code: 'history_purged'; id: string; path: string; version: string | null; by: string; at: string; actions: 'dismiss'[] }
+  | { code: 'history_purged'; id: string; path: string | null; version: string | null; by: string; at: string; actions: 'dismiss'[] }
   /** `history.mode: unmanaged`, but the notes folder isn't inside a git repository: there is no history to show. */
   | { code: 'history_no_repository'; actions: never[] }
   /**

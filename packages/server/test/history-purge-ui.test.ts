@@ -79,11 +79,13 @@ test('whoever manages a folder purges a version of a note in it from the UI: gon
     await h.settle()
     assert.equal((await versionsOf(PATH.list)).length, list + 1)
 
-    // The admin is told who and what, never the content; nobody else.
-    const alerts = async (as: As) => ((await as('GET', '/api/alerts')).body.alerts as { code: string; id: string; path: string; version: string | null; by: string }[]).filter((a) => a.code === 'history_purged')
+    // The admin is told who and what, never the content; nobody else. Where the
+    // admin can't read (the member's diary), not even the path (D-056.24).
+    const alerts = async (as: As) => ((await as('GET', '/api/alerts')).body.alerts as { code: string; id: string; path: string | null; version: string | null; by: string }[]).filter((a) => a.code === 'history_purged')
     const notices = await alerts(h.admin)
     assert.equal(notices.length, 1)
-    assert.equal(notices[0]!.path, DIARY)
+    assert.equal(notices[0]!.path, null)
+    assert.ok(!JSON.stringify(notices).includes(DIARY))
     assert.match(notices[0]!.version ?? '', /^[0-9a-f]{40}$/)
     assert.ok(notices[0]!.version!.startsWith(secret!.id.slice(0, 7)))
     assert.equal(notices[0]!.by, MEMBER.username)
@@ -93,6 +95,12 @@ test('whoever manages a folder purges a version of a note in it from the UI: gon
     assert.equal((await h.member('DELETE', `/api/history/purges/${notices[0]!.id}`)).status, 403)
     assert.equal((await h.admin('DELETE', `/api/history/purges/${notices[0]!.id}`)).status, 200)
     assert.deepEqual(await alerts(h.admin), [])
+
+    // Where the admin reads (the recipe, shared with them to comment), the path is named.
+    await put(h.member, RECIPE, (t) => t + `${m.aSentence()}\n`)
+    await h.settle()
+    assert.equal((await h.member('POST', '/api/history/purge', { path: RECIPE })).status, 200)
+    assert.deepEqual((await alerts(h.admin)).map((a) => [a.path, a.by]), [[RECIPE, MEMBER.username]])
   } finally { await h.close() }
 })
 
@@ -137,8 +145,9 @@ test('a manager purges a note\'s whole history (that file alone); the admin purg
     await h.settle()
     const list = (await versionsOf(PATH.list, h.member)) as { authors: { name: string }[] }[]
     assert.equal(list[0]!.authors[0]!.name, MEMBER.username, 'the write made during the purge has its version')
-    const alerts = ((await h.admin('GET', '/api/alerts')).body.alerts as { code: string; path: string; by: string }[]).filter((a) => a.code === 'history_purged')
-    assert.deepEqual(alerts.map((a) => [a.path, a.by]), [[DIARY, MEMBER.username], [home(OTHER.username), ADMIN.username]])
+    // Both where the admin can't read: who, never where (D-056.24).
+    const alerts = ((await h.admin('GET', '/api/alerts')).body.alerts as { code: string; path: string | null; by: string }[]).filter((a) => a.code === 'history_purged')
+    assert.deepEqual(alerts.map((a) => [a.path, a.by]), [[null, MEMBER.username], [null, ADMIN.username]])
   } finally { await h.close() }
 })
 
