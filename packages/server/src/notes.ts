@@ -394,6 +394,33 @@ export class NoteService {
   }
 
   /**
+   * Whether a new note at `path` with `text` (its name, its path's suffixes
+   * and its aliases) would change where an indexed link leads, or make it
+   * ambiguous, when that link leads to a note `mayName` refuses, or is
+   * ambiguous among notes of which it refuses one.
+   */
+  private takesHiddenLink(path: string, text: string, mayName: (path: string) => boolean): boolean {
+    const now = this.opts.indexer.links
+    const aliases = this.opts.indexer.aliasesIn(text)
+    const then = now.clone()
+    then.set({ path, aliases })
+    const byKey = this.opts.db.prepare('select src_path, kind, target, anchor from links where key = ?')
+    for (const key of new Set([...pathKeys(path), ...aliases.map(normKey)])) {
+      for (const l of byKey.all(key) as { src_path: string; kind: 'wiki' | 'embed' | 'markdown'; target: string; anchor: string | null }[]) {
+        const before = now.resolve(l.src_path, l)
+        const hidden = before.status === 'resolved' ? !mayName(before.path) : before.status === 'ambiguous' && !before.candidates.every(mayName)
+        if (!hidden) continue
+        const after = then.resolve(l.src_path, l)
+        const same = before.status === 'resolved'
+          ? after.status === 'resolved' && after.path === before.path
+          : after.status === 'ambiguous' && before.status === 'ambiguous' && after.candidates.join('\n') === before.candidates.join('\n')
+        if (!same) return true
+      }
+    }
+    return false
+  }
+
+  /**
    * The note as whoever writes next will find it: an open note's text is its
    * editors' (ahead of the file by what they typed since the last flush), so
    * its ETag is the one an edit is checked against; otherwise, the file.
@@ -407,9 +434,16 @@ export class NoteService {
    * Creates a new note; never overwrites. Born with a `uid`. With `freshUid`
    * (a copy of another note, such as a template) a `uid` already in the text
    * is replaced, so the copy doesn't share its identity.
+   *
+   * A name in use answers `exists` without anything of the note there. So
+   * does, with `mayName`, a name (or an alias in the text) that would change
+   * where an existing link leads, or make it ambiguous, when it leads to a
+   * note `mayName` refuses (D-056.20): whoever creates can't read it, and
+   * the answer mustn't tell it apart from a taken name.
    */
-  async create(path: string, text: string, actor: Actor, opts: { freshUid?: boolean; reason?: Reason } = {}): Promise<{ path: string; etag: string; uid: string | null }> {
+  async create(path: string, text: string, actor: Actor, opts: { freshUid?: boolean; reason?: Reason; mayName?: (path: string) => boolean } = {}): Promise<{ path: string; etag: string; uid: string | null }> {
     const file = this.newFile(path)
+    if (opts.mayName && this.takesHiddenLink(path, text, opts.mayName)) throw nameTaken(path)
     mkdirSync(dirname(file), { recursive: true })
     if (opts.freshUid && this.uidIn(text)) text = setFrontmatterKey(text, this.uidKey, newUid())
     const withUid = this.ensureUid(text, null)
@@ -417,7 +451,7 @@ export class NoteService {
     const r = await commitText(file, withUid.text, null).catch((err) => { w.abort(); throw err })
     if (!r.ok) {
       w.abort()
-      throw new NoteError('exists', `already exists: ${path}`, r.current === null ? null : contentHash(r.current))
+      throw nameTaken(path)
     }
     w.done()
     this.opts.indexer.indexPaths([path])

@@ -377,6 +377,8 @@ export class ScopedNotes {
 
   private masked(err: unknown, path: string): unknown {
     if (!(err instanceof NoteError) || this.readable(path)) return err
+    // Nothing there: a name refused because it would take a link to what it can't read (D-056.20), as a taken name.
+    if (err.code === 'exists' && !isPlainFile(this.deps.notesDir, path)) return err
     // A note there that it can't read (not indexed yet): an agent named it, so it's told, and nothing else; a person, that it doesn't exist.
     if (err.code === 'exists') return this.access.isAgent ? new AgentDenied(this.access.reasonFor(path)) : new NoteError('not_found', `does not exist: ${path}`)
     return err.etag ? new NoteError(err.code, err.message) : err
@@ -629,9 +631,9 @@ export class ScopedNotes {
     if (opts.template !== undefined) {
       this.unnamed(() => this.visible(opts.template!))
       const user = this.access.user
-      r = await this.guardAsync(p, () => createFromTemplate(this.deps.notes, { path: p, template: opts.template!, user, now: this.deps.profiles.now(user.id, this.deps.now()), actor }))
+      r = await this.guardAsync(p, () => createFromTemplate(this.deps.notes, { path: p, template: opts.template!, user, now: this.deps.profiles.now(user.id, this.deps.now()), actor, mayName: this.mayName }))
     } else {
-      r = await this.guardAsync(p, () => this.deps.notes.create(p, opts.text ?? '', actor, { freshUid: opts.freshUid === true }))
+      r = await this.guardAsync(p, () => this.deps.notes.create(p, opts.text ?? '', actor, { freshUid: opts.freshUid === true, mayName: this.mayName }))
     }
     // Its own text (and the uid it is told) is known to it; a template's filling isn't.
     return { path: r.path, uid: r.uid, ...this.written(r.path, r.etag, opts.template === undefined) }
@@ -645,10 +647,10 @@ export class ScopedNotes {
     const p = this.writable(path)
     if (opts.ifNoneMatch === '*') {
       try {
-        const r = await this.guardAsync(p, () => this.deps.notes.create(p, text, this.access.actor))
+        const r = await this.guardAsync(p, () => this.deps.notes.create(p, text, this.access.actor, { mayName: this.mayName }))
         return { created: true, ...this.written(p, r.etag, true) }
       } catch (err) {
-        if (err instanceof NoteError && err.code === 'exists') throw new NoteError('precondition_failed', `already exists: ${p}`, err.etag)
+        if (err instanceof NoteError && err.code === 'exists') throw new NoteError('precondition_failed', `that name isn't available here: ${p}`)
         throw err
       }
     }
@@ -767,8 +769,9 @@ export class ScopedNotes {
   }
 
   /**
-   * Whether a move may rewrite a link so that it names this note (D-056.20):
-   * only one the person (an agent's person) can read. What only the agent
+   * Whether a move may rewrite a link so that it names this note, or a new
+   * note may take a link that leads to it (D-056.20): only one the person
+   * (an agent's person) can read. What only the agent
    * can't see (`ai: false`, outside its key) it may already learn by naming
    * it (`agent_denied`, D-035), so that alone doesn't refuse a move.
    */
@@ -897,6 +900,7 @@ export class ScopedNotes {
     return this.deps.daily.open(user, series, {
       actor: this.access.actor,
       template: (t) => this.access.canRead(t) && this.readable(t),
+      mayName: this.mayName,
     })
   }
 

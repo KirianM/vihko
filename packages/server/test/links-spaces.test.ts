@@ -91,8 +91,8 @@ async function setup(files: (s: Scenario) => Record<string, string | Buffer>, op
     const res = await app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: users[r].username, password: users[r].password }) })
     cookies[r] = res.headers.get('set-cookie')!.split(';')[0]!
   }
-  const as = (r: Role) => async (method: string, path: string, body?: unknown) => {
-    const res = await app.request(path, { method, headers: { 'content-type': 'application/json', cookie: cookies[r] }, body: body === undefined ? undefined : JSON.stringify(body) })
+  const as = (r: Role) => async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
+    const res = await app.request(path, { method, headers: { 'content-type': 'application/json', cookie: cookies[r], ...headers }, body: body === undefined ? undefined : JSON.stringify(body) })
     const text = await res.text()
     let json: any = null
     try { json = JSON.parse(text) } catch {}
@@ -103,7 +103,7 @@ async function setup(files: (s: Scenario) => Record<string, string | Buffer>, op
   const read = (p: string) => readFileSync(join(notesDir, p), 'utf8')
   /** A note's text without its frontmatter (a moved note gets its `uid`). */
   const body = (p: string) => read(p).replace(/^---\n[\s\S]*?\n---\n/, '')
-  return { s, dir, notesDir, notes, indexer, runtime, as, agent, read, body, write, users, has: (p: string) => existsSync(join(notesDir, p)) }
+  return { s, dir, notesDir, notes, indexer, runtime, workspace, as, agent, read, body, write, users, has: (p: string) => existsSync(join(notesDir, p)) }
 }
 
 const q = (path: string, params: Record<string, string>) => `${path}?${new URLSearchParams(params)}`
@@ -449,4 +449,52 @@ test('D-056.21: never creating from a link in a note of someone else’s persona
   h.write(mine, `[[${budget}]]\n`)
   h.runtime.rescan({})
   assert.equal((await create('other', `${s.space.other}/${budget}.md`, mine)).status, 201)
+})
+
+test('D-056.20: creating a note whose name would take a link to what its person can’t read answers as a taken name, by every route', async () => {
+  const { h, s, p } = await residual()
+  const series = m.anId()
+  writeFileSync(join(h.notesDir, 'vihko.yaml'), `${s.rules}daily:\n  ${series}:\n    folder: ${JSON.stringify(s.trips)}\n`)
+  h.workspace.reload()
+  h.runtime.rescan({})
+  const other = h.as('other')
+  const plan = h.read(p.plan)
+  /** A refusal and a real clash: the same status and text, but for the path each asked for. */
+  const same = (a: { status: number; text: string }, b: { status: number; text: string }, aPath: string, bPath: string, status: number, code: string) => {
+    assert.deepEqual([a.status, JSON.parse(a.text).error], [status, code], a.text)
+    assert.deepEqual([a.status, a.text.replaceAll(aPath, bPath)], [b.status, b.text])
+  }
+  // POST /api/note, with a text and from a template.
+  same(await other('POST', '/api/note', { path: p.renameTo, text: '' }), await other('POST', '/api/note', { path: p.taken, text: '' }), p.renameTo, p.taken, 409, 'exists')
+  same(await other('POST', '/api/note', { path: p.renameTo, template: p.draft }), await other('POST', '/api/note', { path: p.taken, template: p.draft }), p.renameTo, p.taken, 409, 'exists')
+  // PUT with If-None-Match: *.
+  const putNew = (path: string) => other('PUT', q('/api/note', { path }), { text: '' }, { 'if-none-match': '*' })
+  same(await putNew(p.renameTo), await putNew(p.taken), p.renameTo, p.taken, 412, 'precondition_failed')
+  // An agent's create_note (the scoped create the MCP tool calls).
+  const agent = h.agent('other')
+  const refusal = async (path: string) => {
+    try {
+      await agent.create(path, { text: '' })
+    } catch (err) {
+      assert.ok(err instanceof NoteError)
+      return { code: err.code, message: err.message.replace(path, '<path>'), etag: err.etag }
+    }
+    assert.fail(`${path} was created`)
+  }
+  const [hidden, real] = [await refusal(p.renameTo), await refusal(p.taken)]
+  assert.equal(hidden.code, 'exists')
+  assert.deepEqual(hidden, real)
+  // The daily note of a series in the shared folder, on a day a hidden note of the member's is named after.
+  const today = (await other('GET', q('/api/daily', { series }))).body.path as string
+  const day = today.slice(today.lastIndexOf('/') + 1, -3)
+  h.write(`${s.space.member}/${m.aFolder()}/${day}.md`, `# ${day}\n`)
+  h.write(`${s.trips}/${m.aTitle()}.md`, `[[${day}]]\n`)
+  h.runtime.rescan({})
+  same(await other('POST', '/api/daily', { series }), await other('POST', '/api/note', { path: p.taken, text: '' }), today, p.taken, 409, 'exists')
+  // Nothing was written, and the member's links keep their notes.
+  for (const x of [p.renameTo, today]) assert.ok(!h.has(x), x)
+  assert.equal(h.read(p.plan), plan)
+  // The member reads what those links lead to: the same creations go through.
+  assert.equal((await h.as('member')('POST', '/api/note', { path: p.renameTo, text: '' })).status, 201)
+  assert.equal((await h.as('member')('POST', '/api/daily', { series })).status, 201)
 })
