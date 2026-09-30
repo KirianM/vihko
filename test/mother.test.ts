@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { classifyPath } from '@vihko/core'
+import { classifyPath, isValidUsername, parseSpaceFolder, spaceNameProblem } from '@vihko/core'
 import { caseFold } from '@vihko/core/casefold'
 import { subjectKey as coreSubjectKey } from '../packages/core/src/permissions.ts'
 import { MIN_PASSWORD as SERVER_MIN_PASSWORD, NAME_PATTERN as SERVER_NAME_PATTERN, NoteService } from '@vihko/server'
@@ -28,6 +28,20 @@ test('usernames and group names are valid and never repeat under subjectKey, nor
     seen.add(subjectKey(n))
   }
   assert.ok(names.some((n) => /[^\x00-\x7f]/.test(n)), 'some names are not ASCII')
+})
+
+test('usernames can be personal spaces; space names and folders are valid, their ids never repeat', () => {
+  for (let i = 0; i < 200; i++) assert.ok(isValidUsername(m.aUsername()))
+  const ids = new Set<string>()
+  for (let i = 0; i < 200; i++) {
+    const name = m.aSpaceName()
+    assert.equal(spaceNameProblem(name), null, name)
+    const folder = m.aSpaceFolder(name)
+    const parsed = parseSpaceFolder(folder)
+    assert.ok(parsed, folder)
+    assert.ok(!ids.has(parsed.id), `${parsed.id} repeats`)
+    ids.add(parsed.id)
+  }
 })
 
 test('passwords are long enough and never repeat; weak ones are too short; secrets never repeat', () => {

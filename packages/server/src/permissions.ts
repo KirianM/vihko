@@ -15,9 +15,15 @@
 //   from above, never a personal folder that isn't shared with them.
 // - A grant to a user or group that doesn't exist is ignored, with a warning
 //   (`unknownSubjects`): deleting someone never invalidates the section.
+//
+// The spaces model of 0.1.0 (D-056, core/spaces.ts, core/permissions.ts
+// SpaceRules) is here too: `levelFor`, `spacesFor`, `sharedWith`,
+// `sharedSpaces`, `spaceName`, `spaceAudience`. The option `model` says which
+// one `viewer` and `audience` (and so Access) follow; `legacy` until every
+// caller is switched (piece E, step 2), when the 1.0 model goes.
 import {
-  RuleSet, USER_SEGMENT, atLeast, folderOf, grantsAt, levelInReach, maxLevel, reachingGrants, subjectKey,
-  type ConfigError, type Governing, type Level, type PermissionRule, type Permissions, type Reaching,
+  RuleSet, SpaceRules, USER_SEGMENT, atLeast, folderOf, grantsAt, levelInReach, maxLevel, parentFolder, parseSpacePath, personalRoot, reachingGrants, sharedRoot, spaceOf, subjectKey,
+  type ConfigError, type Governing, type Grantee, type Level, type PermissionRule, type Permissions, type Reaching, type SharedSpace,
 } from '@vihko/core'
 import type { Role } from './auth.ts'
 import type { Db } from './db.ts'
@@ -66,10 +72,87 @@ export function stateDirectory(state: Db, groups: Partial<GroupSource> = {}): Di
   }
 }
 
+/**
+ * The shared spaces and folders that exist on the disk, for what the engine
+ * lists (a grant on a folder that doesn't exist is kept, but lists nothing).
+ * `diskSpaceFolders` (spaceFolders.ts) reads them from the notes folder.
+ */
+export interface SpaceFolders {
+  /** The folders directly under `spaces/` (their names, as the disk spells them). */
+  shared(): readonly string[]
+  /** Whether a folder (from the notes root) exists. */
+  exists(folder: string): boolean
+}
+
+/**
+ * Which model levels come from:
+ * - `legacy`: 1.0's (a folder's own grants replace its parent's, `{user}`
+ *   rules, the implicit root). Until piece E's second step switches every
+ *   caller, the default.
+ * - `spaces`: 0.1.0's (D-056): personal and shared spaces, sharing only adds.
+ * The spaces methods (`spacesFor`, `sharedWith`, `sharedSpaces`, `spaceName`,
+ * `spaceRules`) always use the spaces model.
+ */
+export type PermissionsModel = 'legacy' | 'spaces'
+
 export interface PermissionsOptions {
   /** The section in force (workspace.ts `permissions`). */
   source: () => Permissions
   directory: Directory
+  /** What exists on the disk (default: every space the rules name exists, and every folder). */
+  folders?: SpaceFolders
+  model?: PermissionsModel
+}
+
+/** A shared space as its members see it (GET /api/spaces, D-056.14: `{id, name, path}`). */
+export interface SpaceEntry {
+  /** Its root, `spaces/<readable>-<id>`. */
+  path: string
+  id: string
+  /** Its name (vihko.yaml's, else the folder's readable part). */
+  name: string
+  /** The person's level at its root. */
+  level: Level
+  /** The users who manage it (by name, or through a group), sorted. */
+  managers: string[]
+  /** Whether its root is closed to agents. */
+  aiClosed: boolean
+}
+
+/**
+ * A folder shared with someone who isn't a member of its space: a folder of
+ * someone else's personal space (`owner`), or a subfolder of a shared space
+ * they don't belong to (`space`). The topmost such folder only.
+ */
+export interface SharedEntry {
+  path: string
+  level: Level
+  /** A personal space's owner. */
+  owner?: string
+  /** A shared space's root, id and name. */
+  space?: { path: string; id: string; name: string }
+}
+
+/** What one person reaches, space by space. */
+export interface SpacesView {
+  /** Their own space's root (`people/<username>`). */
+  personal: { path: string }
+  /** The shared spaces they are members of (some level at the root), by name. */
+  spaces: SpaceEntry[]
+  /** What others share with them outside those (SharedEntry), by path. */
+  shared: SharedEntry[]
+}
+
+/** A shared space for the admin's directory (spec §2.4, §5.7): no folder inside it is named. */
+export interface SharedSpaceInfo {
+  path: string
+  id: string
+  name: string
+  /** The users who manage it, sorted. */
+  managers: string[]
+  /** How many users have some level at its root (managers included). */
+  members: number
+  aiClosed: boolean
 }
 
 /** A user as a viewer of folders: who they are and their groups. */
@@ -85,6 +168,8 @@ export interface GrantSource {
   rule?: string
   /** A `manage` grant of a folder above (`from`), which reaches here whatever this folder's grants say (D-040 3.5). */
   above?: true
+  /** Spaces model: `manage` as the owner of the personal space (`from` is its root; no grant is written). */
+  owner?: true
 }
 
 /** A user's access to a folder, and why. */
@@ -99,6 +184,7 @@ export interface UserAccess {
 export class PermissionsEngine {
   private opts: PermissionsOptions
   private compiled: { from: Permissions; set: RuleSet | null } | null = null
+  private spaceCompiled: { from: Permissions; set: SpaceRules } | null = null
 
   constructor(opts: PermissionsOptions) {
     this.opts = opts
@@ -107,6 +193,169 @@ export class PermissionsEngine {
   get directory(): Directory {
     return this.opts.directory
   }
+
+  /** Which model the levels of `viewer` and `audience` come from. */
+  get model(): PermissionsModel {
+    return this.opts.model ?? 'legacy'
+  }
+
+  // --- Spaces model (D-056) -------------------------------------------------------
+
+  /**
+   * The rules of the spaces model in force: the file's; none when it has no
+   * section or it was rejected (then only each owner reaches their own
+   * personal space: it doesn't depend on the file).
+   */
+  spaceRules(): SpaceRules {
+    const p = this.opts.source()
+    if (this.spaceCompiled?.from !== p) this.spaceCompiled = { from: p, set: new SpaceRules(p.kind === 'rules' ? p.rules : []) }
+    return this.spaceCompiled.set
+  }
+
+  /** What exists on the disk (the default: the spaces the rules name, and every folder). */
+  private get folders(): SpaceFolders {
+    return this.opts.folders ?? {
+      shared: () => [...new Set(this.spaceRules().rules.map((r) => spaceOf(r.folder)).filter((s): s is SharedSpace => s?.kind === 'shared').map((s) => s.folder))],
+      exists: () => true,
+    }
+  }
+
+  /** Whether a username is a user's (active or disabled; a deleted one isn't), as a folder spells it. */
+  private ownerCheck(users: readonly DirectoryUser[]): (username: string) => boolean {
+    const names = new Set(users.map((u) => u.username.normalize('NFC')))
+    return (name) => names.has(name.normalize('NFC'))
+  }
+
+  /** Someone as the grants name them: their username and groups. */
+  private grantee(user: ViewerUser): Grantee {
+    return { username: user.username, groups: this.opts.directory.groupsOf(user.id) }
+  }
+
+  /**
+   * A user's level in a folder under the spaces model, whatever `model` says
+   * (`viewer(user).level` follows `model`). Null: none.
+   */
+  levelFor(user: ViewerUser, folder: string): Level | null {
+    return this.spaceRules().level(folder, this.grantee(user), this.ownerCheck(this.opts.directory.users()))
+  }
+
+  /** A shared space's name: vihko.yaml's, else its folder's readable part. Null for a path that isn't a shared space's root. */
+  spaceName(root: string): string | null {
+    const s = parseSpacePath(root)
+    if (!s || s.space.kind !== 'shared' || s.inner !== '') return null
+    return this.spaceRules().name(s.space.root) ?? s.space.readable
+  }
+
+  /** The users who manage a folder (spaces model), sorted by name. */
+  private managersOf(folder: string, users: readonly DirectoryUser[], exists: (n: string) => boolean): string[] {
+    const rules = this.spaceRules()
+    return users.filter((u) => rules.level(folder, this.grantee(u), exists) === 'manage').map((u) => u.username).sort()
+  }
+
+  /** The shared spaces that exist on the disk, each with its root. */
+  private existingShared(): SharedSpace[] {
+    const out: SharedSpace[] = []
+    for (const folder of this.folders.shared()) {
+      const s = spaceOf(sharedRoot(folder))
+      if (s?.kind === 'shared') out.push(s)
+    }
+    return out
+  }
+
+  /**
+   * What a person reaches (spaces model): their personal space, the shared
+   * spaces they belong to, and what others share with them outside those
+   * (`sharedWith`). Only what exists on the disk; nothing about keys (the
+   * caller limits an agent to its key's folders and `ai: false`).
+   */
+  spacesFor(user: ViewerUser): SpacesView {
+    const users = this.opts.directory.users()
+    const exists = this.ownerCheck(users)
+    const rules = this.spaceRules()
+    const me = this.grantee(user)
+    const spaces: SpaceEntry[] = []
+    for (const s of this.existingShared()) {
+      const level = rules.level(s.root, me, exists)
+      if (!level) continue
+      spaces.push({ path: s.root, id: s.id, name: this.spaceName(s.root)!, level, managers: this.managersOf(s.root, users, exists), aiClosed: rules.aiClosedAt(s.root) !== null })
+    }
+    spaces.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
+    return { personal: { path: personalRoot(user.username) }, spaces, shared: this.sharedWith(user) }
+  }
+
+  /**
+   * What others share with a person outside their own space and the shared
+   * spaces they belong to (spaces model): each folder with grants where they
+   * have a level and none in its parent (the topmost only), and that exists.
+   * A folder of a deleted person's space is nobody's: never here.
+   */
+  sharedWith(user: ViewerUser): SharedEntry[] {
+    const users = this.opts.directory.users()
+    const exists = this.ownerCheck(users)
+    const rules = this.spaceRules()
+    const me = this.grantee(user)
+    const out: SharedEntry[] = []
+    for (const folder of rules.granted()) {
+      const s = parseSpacePath(folder)
+      if (!s || s.inner === '') continue
+      if (s.space.kind === 'personal' && s.space.owner === user.username.normalize('NFC')) continue
+      const f = folder.normalize('NFC')
+      const level = rules.level(f, me, exists)
+      if (!level || rules.level(parentFolder(f)!, me, exists) !== null) continue
+      if (!this.folders.exists(f)) continue
+      if (s.space.kind === 'personal') out.push({ path: f, level, owner: s.space.owner })
+      else {
+        if (!this.folders.exists(s.space.root)) continue
+        out.push({ path: f, level, space: { path: s.space.root, id: s.space.id, name: this.spaceName(s.space.root)! } })
+      }
+    }
+    return out.sort((a, b) => a.path.localeCompare(b.path))
+  }
+
+  /** Every shared space on the disk, for the admin (spec §2.4): its name, managers and how many members; nothing inside it. */
+  sharedSpaces(): SharedSpaceInfo[] {
+    const users = this.opts.directory.users()
+    const exists = this.ownerCheck(users)
+    const rules = this.spaceRules()
+    const out: SharedSpaceInfo[] = []
+    for (const s of this.existingShared()) {
+      let members = 0
+      const managers: string[] = []
+      for (const u of users) {
+        const level = rules.level(s.root, this.grantee(u), exists)
+        if (level) members++
+        if (level === 'manage') managers.push(u.username)
+      }
+      out.push({ path: s.root, id: s.id, name: this.spaceName(s.root)!, managers: managers.sort(), members, aiClosed: rules.aiClosedAt(s.root) !== null })
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
+  }
+
+  /** Every user with some access to a folder under the spaces model, and why: the grants that reach it, and ownership of a personal space. */
+  spaceAudience(folder: string): UserAccess[] {
+    const users = this.opts.directory.users()
+    const exists = this.ownerCheck(users)
+    const f = folder.normalize('NFC')
+    const s = parseSpacePath(f)
+    if (!s) return []
+    if (s.space.kind === 'personal' && !exists(s.space.owner)) return []
+    const reaching = this.spaceRules().reaching(f)
+    const out: UserAccess[] = []
+    for (const u of users) {
+      const groups = new Set(this.opts.directory.groupsOf(u.id).map((g) => subjectKey('@' + g)))
+      const via: GrantSource[] = []
+      if (s.space.kind === 'personal' && u.username.normalize('NFC') === s.space.owner) via.push({ subject: u.username, level: 'manage', from: s.space.root, owner: true })
+      for (const g of reaching) {
+        const k = subjectKey(g.subject)
+        if (k === subjectKey(u.username) || groups.has(k)) via.push({ subject: g.subject, level: g.level, from: g.from })
+      }
+      const level = via.reduce<Level | null>((l, v) => maxLevel(l, v.level), null)
+      if (level) out.push({ id: u.id, username: u.username, level, via })
+    }
+    return out
+  }
+
+  // --- 1.0 model (legacy, until piece E's second step) ----------------------------
 
   /** The section in force. */
   get section(): Permissions {
@@ -158,6 +407,7 @@ export class PermissionsEngine {
 
   /** Every user with some access to a folder, and why (the effective access, D-038). */
   audience(folder: string): UserAccess[] {
+    if (this.model === 'spaces') return this.spaceAudience(folder)
     const users = this.opts.directory.users()
     const { governing, grants, above } = this.reaching(folder, users)
     const out: UserAccess[] = []
@@ -212,14 +462,17 @@ export class Viewer {
   private names: Set<string>
   private groups: string[]
   private levels = new Map<string, Level | null>()
+  /** Spaces model: its rules and who exists (null under the legacy model). */
+  private spaces: { rules: SpaceRules; owners: Set<string> } | null
 
   constructor(engine: PermissionsEngine, user: ViewerUser) {
     this.engine = engine
     this.user = user
     const users = engine.directory.users()
-    this.set = engine.rules(users)
+    this.set = engine.model === 'legacy' ? engine.rules(users) : null
     this.names = new Set(users.map((u) => subjectKey(u.username)))
     this.groups = engine.directory.groupsOf(user.id)
+    this.spaces = engine.model === 'spaces' ? { rules: engine.spaceRules(), owners: new Set(users.map((u) => u.username.normalize('NFC'))) } : null
   }
 
   /** The user's level in a folder (`""` the root); null: no access. */
@@ -227,7 +480,9 @@ export class Viewer {
     const f = folder.normalize('NFC')
     const known = this.levels.get(f)
     if (known !== undefined) return known
-    const level = this.set ? levelInReach(reachingGrants(this.set, f, (n) => this.names.has(subjectKey(n))), { username: this.user.username, groups: this.groups }) : null
+    const sp = this.spaces
+    const level = sp ? sp.rules.level(f, { username: this.user.username, groups: this.groups }, (n) => sp.owners.has(n.normalize('NFC')))
+      : this.set ? levelInReach(reachingGrants(this.set, f, (n) => this.names.has(subjectKey(n))), { username: this.user.username, groups: this.groups }) : null
     if (this.levels.size > 20_000) this.levels.clear()
     this.levels.set(f, level)
     return level
@@ -245,6 +500,7 @@ export class Viewer {
 
   /** Whether a folder (or one above it) is closed to agents (`ai: false`). */
   aiClosed(folder: string): boolean {
+    if (this.spaces) return this.spaces.rules.aiClosedAt(folder) !== null
     return this.set?.aiClosedAt(folder) != null
   }
 

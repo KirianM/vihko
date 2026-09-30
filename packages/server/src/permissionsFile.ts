@@ -102,9 +102,14 @@ export class PermissionsFile {
     return this.opts.engine.directory.users().filter((u) => u.role === 'admin').map((u) => u.username)
   }
 
-  /** Sets one folder's rule (both null: removes it, so the folder inherits). */
+  /**
+   * Sets one folder's rule (all null: removes it, so the folder inherits). A
+   * shared space's root takes its `name` too (the space's members are its
+   * grants): `setRule('spaces/home-7k2q9x', { name: 'Home', grants: { ana: 'manage' }, ai: null })`.
+   */
   setRule(folder: string, value: RuleValue, opts: { actor: Actor; ifMatch?: string }) {
-    const implicit = this.opts.engine.section.kind === 'implicit' ? this.admins() : undefined
+    // The spaces model has no implicit section: nothing is written for it.
+    const implicit = this.opts.engine.model === 'legacy' && this.opts.engine.section.kind === 'implicit' ? this.admins() : undefined
     return this.update((t) => setRule(t, folder, value, { implicitAdmins: implicit }), opts)
   }
 

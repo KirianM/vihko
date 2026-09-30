@@ -36,6 +36,7 @@
 // This module knows nothing of users or groups: the server resolves subjects
 // (and warns about the ones it doesn't know).
 import { isMap, isScalar, type Document, type Pair, type YAMLMap } from 'yaml'
+import { parseSpacePath, spaceNameProblem } from './spaces.ts'
 import { parseYamlDocument } from './yaml.ts'
 
 /** What a grant allows, from less to more. */
@@ -64,6 +65,8 @@ export interface PermissionRule {
   folder: string
   grants: Record<string, Level> | null
   ai: false | null
+  /** A shared space's name (only at its root, `spaces/<readable>-<id>`), when written. */
+  name?: string
 }
 
 /**
@@ -83,7 +86,7 @@ export const CLOSED_PERMISSIONS: Permissions = { kind: 'closed' }
 /** A problem in the section: its code (ConfigErrorCode), where (as a key path) and a detail. */
 export type PermissionsReport = (code: 'not_a_map' | 'invalid_path' | 'invalid_value' | 'invalid_type' | 'not_boolean' | 'unknown_key' | 'ignored_value', at: string[], detail?: string | null) => void
 
-const RULE_KEYS = ['grants', 'ai']
+const RULE_KEYS = ['grants', 'ai', 'name']
 const USERNAME = /^[\p{L}\p{N}._-]{2,64}$/u
 const GROUP = /^@[^\u0000-\u001f@/]{1,64}$/u
 
@@ -146,7 +149,18 @@ export function parsePermissions(raw: unknown, at: string[], report: Permissions
       else if (value.ai === true) notice('ignored_value', [...here, 'ai'], 'ai: true')
       else report('not_boolean', [...here, 'ai'])
     }
-    rules.push({ folder, grants, ai })
+    let name: string | null = null
+    if (value.name !== undefined && value.name !== null) {
+      const root = parseSpacePath(folder)
+      if (typeof value.name !== 'string') report('invalid_type', [...here, 'name'], 'string')
+      else if (!root || root.space.kind !== 'shared' || root.inner !== '') report('invalid_value', [...here, 'name'], 'only at a shared space root')
+      else {
+        const problem = spaceNameProblem(value.name.normalize('NFC'))
+        if (problem) report('invalid_value', [...here, 'name'], problem)
+        else name = value.name.normalize('NFC')
+      }
+    }
+    rules.push({ folder, grants, ai, ...(name !== null ? { name } : {}) })
   }
   return { kind: 'rules', rules }
 }
@@ -377,6 +391,156 @@ export function levelInReach(reach: Reaching, user: { username: string; groups: 
   return reach.above.some((m) => subjectKey(m.subject) === me || groups.has(subjectKey(m.subject))) ? 'manage' : level
 }
 
+// --- Spaces: sharing only adds (D-056) ------------------------------------------
+// The model of 0.1.0. The same section, with real paths as keys:
+//
+//   permissions:
+//     spaces/home-7k2q9x:             # a shared space: its name and members
+//       name: Home
+//       grants: { "@family": edit, ana: manage }
+//     spaces/home-7k2q9x/recipes:     # adds marta, who isn't a member of Home
+//       grants: { marta: read }
+//     spaces/home-7k2q9x/finances:
+//       ai: false
+//     people/ana/trips:               # a folder of ana's shared with luis
+//       grants: { luis: comment }
+//     people/ana:                     # ana's whole space closed to agents
+//       ai: false
+//
+// - Keys: a shared space's root and what's under it; a folder inside a
+//   personal space. A personal space's root takes only `ai: false`, never
+//   grants (it isn't shared whole: that's a shared space). `name` only at a
+//   shared space's root. Nothing else (`""`, `people`, `spaces`, anything
+//   outside them, `{user}`).
+// - A person's level in a folder: `manage` in their own personal space
+//   (whatever is written); nothing in the space of someone who doesn't exist
+//   (deleted); otherwise the highest level the grants of the folder and of
+//   each folder above it, up to its space's root, give them by name or
+//   through a group. Grants only add: a subfolder never gives less than its
+//   parent. Being an admin changes nothing.
+// - `ai: false` closes the folder and everything under it to agents.
+
+/** Why a key can't be in the section in the spaces model, or null. */
+export type SpaceKeyProblem = 'user_segment' | 'outside_spaces' | 'personal_root_grants'
+
+/**
+ * What's wrong with a rule in the spaces model (D-056, spec §1.2): a `{user}`
+ * segment, a key in no space (the root, `people`, `spaces`, anything else),
+ * or grants at a personal space's root. `name` outside a shared space's root
+ * is the parser's (`invalid_value`).
+ */
+export function spaceKeyProblem(folder: string, rule: { grants: Record<string, Level> | null }): SpaceKeyProblem | null {
+  const f = folder.normalize('NFC')
+  if (f.split('/').includes(USER_SEGMENT)) return 'user_segment'
+  const s = parseSpacePath(f)
+  if (!s) return 'outside_spaces'
+  if (s.space.kind === 'personal' && s.inner === '' && rule.grants !== null) return 'personal_root_grants'
+  return null
+}
+
+/** Someone the grants may name: their username and their groups (without `@`). */
+export interface Grantee {
+  username: string
+  groups: readonly string[]
+}
+
+/** One grant that reaches a folder: who, what level, and the folder it's written at (the folder itself or one above it in its space). */
+export interface ReachingGrant {
+  subject: string
+  level: Level
+  from: string
+}
+
+/**
+ * The rules of the spaces model, ready to answer levels. Pure: nothing of the
+ * users but what the caller passes. Rules the model doesn't take
+ * (spaceKeyProblem) are left out.
+ */
+export class SpaceRules {
+  readonly rules: readonly PermissionRule[]
+  private byFolder = new Map<string, PermissionRule>()
+  private reachCache = new Map<string, ReachingGrant[]>()
+
+  constructor(rules: readonly PermissionRule[]) {
+    this.rules = rules.filter((r) => spaceKeyProblem(r.folder, r) === null)
+    for (const r of this.rules) this.byFolder.set(r.folder.normalize('NFC'), r)
+  }
+
+  /** The rule written for exactly this folder, if any. */
+  own(folder: string): PermissionRule | null {
+    return this.byFolder.get(folder.normalize('NFC')) ?? null
+  }
+
+  /**
+   * Every grant that reaches a folder: those written at its space's root and
+   * at each folder down to it, the root's first. None outside a space.
+   */
+  reaching(folder: string): ReachingGrant[] {
+    const f = folder.normalize('NFC')
+    const cached = this.reachCache.get(f)
+    if (cached) return cached
+    const out: ReachingGrant[] = []
+    const s = parseSpacePath(f)
+    if (s) {
+      const chain = [s.space.root]
+      if (s.inner !== '') {
+        let at = s.space.root
+        for (const seg of s.inner.split('/')) chain.push((at = `${at}/${seg}`))
+      }
+      for (const d of chain) {
+        const r = this.byFolder.get(d)
+        for (const [subject, level] of Object.entries(r?.grants ?? {})) out.push({ subject, level, from: d })
+      }
+    }
+    if (this.reachCache.size > 20_000) this.reachCache.clear()
+    this.reachCache.set(f, out)
+    return out
+  }
+
+  /**
+   * The level `who` has in a folder (a space's root or anything under it);
+   * null: none. `userExists` says whether a personal space's owner exists
+   * (active or disabled): a deleted person's space is nobody's.
+   */
+  level(folder: string, who: Grantee, userExists: (username: string) => boolean): Level | null {
+    const s = parseSpacePath(folder)
+    if (!s) return null
+    if (s.space.kind === 'personal') {
+      if (!userExists(s.space.owner)) return null
+      if (who.username.normalize('NFC') === s.space.owner) return 'manage'
+    }
+    const me = subjectKey(who.username)
+    const groups = new Set(who.groups.map((g) => subjectKey('@' + g)))
+    let level: Level | null = null
+    for (const g of this.reaching(folder)) {
+      const k = subjectKey(g.subject)
+      if (k === me || groups.has(k)) level = maxLevel(level, g.level)
+    }
+    return level
+  }
+
+  /** The folder (itself, or one above it up to its space's root) whose `ai: false` closes it to agents; null if none does, or it is in no space. */
+  aiClosedAt(folder: string): string | null {
+    const s = parseSpacePath(folder)
+    if (!s) return null
+    const f = folder.normalize('NFC')
+    for (let d: string | null = f; d !== null && d.length >= s.space.root.length; d = parentFolder(d)) {
+      if (this.byFolder.get(d)?.ai === false) return d
+    }
+    return null
+  }
+
+  /** A shared space's name as written at its root; null if none is. */
+  name(root: string): string | null {
+    return this.byFolder.get(root.normalize('NFC'))?.name ?? null
+  }
+
+  /** The folders with grants of their own (at least one subject), as written. */
+  granted(): string[] {
+    return this.rules.filter((r) => r.grants !== null && Object.keys(r.grants).length > 0).map((r) => r.folder)
+  }
+}
+
 // --- Writing vihko.yaml ---------------------------------------------------------
 // vihko only ever changes the `permissions` entries it's asked to. Each one is
 // spliced into the text where it was (or added at the end of the section):
@@ -385,11 +549,16 @@ export function levelInReach(reach: Reaching, user: { username: string; groups: 
 // spanning lines) is rewritten through the yaml Document API, which keeps
 // its comments and order but not its spacing.
 
-/** A rule as vihko writes it. Both null: the folder has no rule (it's removed). */
+/** A rule as vihko writes it. All null (or `name` absent): the folder has no rule (it's removed). */
 export interface RuleValue {
   grants: Record<string, Level> | null
   ai: false | null
+  /** A shared space's name, at its root. Absent or null: none. */
+  name?: string | null
 }
+
+/** Whether a rule value says nothing (writing it removes the rule). */
+const emptyValue = (v: RuleValue) => v.grants === null && v.ai === null && (v.name ?? null) === null
 
 /** vihko.yaml can't be edited as it is (not valid YAML, or `permissions` isn't a map): it's fixed by hand first. */
 export class PermissionsFileError extends Error {}
@@ -425,8 +594,12 @@ function currentRules(doc: Document): Map<string, RuleValue> {
   for (const item of pair.value.items as Pair[]) {
     const folder = folderKey(item)
     if (folder === null) continue
-    const js = (isMap(item.value) ? item.value.toJSON() : {}) as { grants?: Record<string, Level> | null; ai?: unknown }
-    out.set(folder, { grants: js.grants && typeof js.grants === 'object' ? { ...js.grants } : null, ai: js.ai === false ? false : null })
+    const js = (isMap(item.value) ? item.value.toJSON() : {}) as { grants?: Record<string, Level> | null; ai?: unknown; name?: unknown }
+    out.set(folder, {
+      grants: js.grants && typeof js.grants === 'object' ? { ...js.grants } : null,
+      ai: js.ai === false ? false : null,
+      ...(typeof js.name === 'string' ? { name: js.name.normalize('NFC') } : {}),
+    })
   }
   return out
 }
@@ -445,9 +618,16 @@ function grantsText(grants: Record<string, Level>): string {
   return entries.length === 0 ? '{}' : `{ ${entries.map(([s, l]) => `${yamlKey(s, PLAIN_SUBJECT)}: ${l}`).join(', ')} }`
 }
 
+/** A shared space's name as a YAML scalar: plain when that reads back the same, double-quoted otherwise. */
+function nameText(name: string): string {
+  return /^[\p{L}\p{N}_][\p{L}\p{N}_ .()'-]*$/u.test(name) && name.trim() === name && !/^(true|false|null|yes|no|on|off|y|n|~)$/i.test(name) && !/^[\d.+-]/.test(name)
+    ? name : JSON.stringify(name)
+}
+
 /** One entry of the section in block style, at `indent`. */
 function entryText(keySource: string, value: RuleValue, indent: string): string {
   let out = `${indent}${keySource}:\n`
+  if (value.name) out += `${indent}  name: ${nameText(value.name)}\n`
   if (value.grants !== null) out += `${indent}  grants: ${grantsText(value.grants)}\n`
   if (value.ai === false) out += `${indent}  ai: false\n`
   return out
@@ -472,11 +652,11 @@ function applyRules(text: string, changes: readonly Change[], opts: { implicitAd
   const want = new Map<string, RuleValue | null>()
   const pair = sectionPair(doc)
   const empty = !pair || pair.value === null || (isScalar(pair.value) && pair.value.value === null)
-  const adding = changes.some(([, v]) => v !== null && (v.grants !== null || v.ai !== null))
+  const adding = changes.some(([, v]) => v !== null && !emptyValue(v))
   if (empty && opts.implicitAdmins && adding && !changes.some(([f]) => f.normalize('NFC') === '')) {
     want.set('', { grants: Object.fromEntries(opts.implicitAdmins.map((a) => [a, 'manage' as Level])), ai: null })
   }
-  for (const [folder, v] of changes) want.set(folder.normalize('NFC'), v === null || (v.grants === null && v.ai === null) ? null : v)
+  for (const [folder, v] of changes) want.set(folder.normalize('NFC'), v === null || emptyValue(v) ? null : v)
   const before = currentRules(doc)
   const asked = new Map(want)
   if (empty) {
@@ -552,7 +732,7 @@ function viaDocument(doc: Document, map: YAMLMap, want: Map<string, RuleValue | 
       if (item) map.items.splice(map.items.indexOf(item), 1)
       continue
     }
-    const node = doc.createNode({ ...(v.grants !== null ? { grants: v.grants } : {}), ...(v.ai === false ? { ai: false } : {}) }) as YAMLMap
+    const node = doc.createNode({ ...(v.name ? { name: v.name } : {}), ...(v.grants !== null ? { grants: v.grants } : {}), ...(v.ai === false ? { ai: false } : {}) }) as YAMLMap
     if (item) item.value = node
     else map.add(doc.createPair(folder, node))
   }
@@ -564,7 +744,7 @@ function verify(out: string, asked: Map<string, RuleValue | null>, before: Map<s
   const expected = new Map(before)
   for (const [f, v] of asked) {
     if (v === null) expected.delete(f)
-    else expected.set(f, { grants: v.grants === null ? null : { ...v.grants }, ai: v.ai })
+    else expected.set(f, { grants: v.grants === null ? null : { ...v.grants }, ai: v.ai, ...(v.name ? { name: v.name.normalize('NFC') } : {}) })
   }
   const norm = (m: Map<string, RuleValue>) => JSON.stringify([...m].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
   if (norm(currentRules(load(out))) !== norm(expected)) throw new Error('permissions: the edited vihko.yaml does not hold the rules asked for')
@@ -597,7 +777,7 @@ export function moveRules(text: string, from: string, to: string, opts: { extra?
     if (!opts.keepFrom) changes.push([key, null])
     changes.push([t + key.slice(f.length), v])
   }
-  for (const e of opts.extra ?? []) changes.push([e.folder, { grants: e.grants, ai: e.ai }])
+  for (const e of opts.extra ?? []) changes.push([e.folder, { grants: e.grants, ai: e.ai, name: e.name ?? null }])
   return changes.length ? applyRules(text, changes) : text
 }
 
@@ -624,7 +804,7 @@ export function rewriteSubject(text: string, subject: string, to: string | null)
       const name = subjectKey(s) !== key ? s : to
       if (name !== null) grants[name] = maxLevel(grants[name] ?? null, l)!
     }
-    changes.push([folder, { grants, ai: v.ai }])
+    changes.push([folder, { ...v, grants }])
   }
   return changes.length ? applyRules(text, changes) : text
 }

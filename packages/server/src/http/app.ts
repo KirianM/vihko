@@ -32,7 +32,8 @@ import { historyErrorStatus, historyRoutes, purgeClientMessage, purgeErrorStatus
 import { UNAVAILABLE_MESSAGE, clientMessage } from '../history/reader.ts'
 import { PurgeError } from '../history/purge.ts'
 import { AccessError, AccessPolicy, AgentDenied, type Access } from '../access.ts'
-import { PermissionsEngine, groupSource, stateDirectory, type GroupSource } from '../permissions.ts'
+import { PermissionsEngine, groupSource, stateDirectory, type GroupSource, type PermissionsModel } from '../permissions.ts'
+import { diskSpaceFolders } from '../spaceFolders.ts'
 import { ConfigInvalidError, PermissionsFile } from '../permissionsFile.ts'
 import type { PermissionHolds } from '../permissionHolds.ts'
 import { permissionRoutes, rulesWithoutFolder } from './permissions.ts'
@@ -126,6 +127,12 @@ export interface AppDeps {
    * a grant to a group then reaches nobody (and is reported as unknown).
    */
   groups?: Partial<GroupSource>
+  /**
+   * Which permissions model levels come from (permissions.ts
+   * PermissionsModel): `legacy` by default until piece E switches every
+   * caller to `spaces`. Ignored with `policy`.
+   */
+  permissionsModel?: PermissionsModel
   /**
    * The access policy, when the caller shares it with others (the
    * collaboration hub, main.ts). One of its own over `index` by default.
@@ -258,7 +265,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const adminSettings = deps.adminSettings ?? new AdminSettings(auth.state)
   const policy = deps.policy ?? new AccessPolicy({
     index, holds: deps.holds,
-    permissions: new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(auth.state, deps.groups ?? groupSource(users)) }),
+    permissions: new PermissionsEngine({
+      source: () => workspace.permissions, directory: stateDirectory(auth.state, deps.groups ?? groupSource(users)),
+      folders: diskSpaceFolders(deps.notesDir), model: deps.permissionsModel,
+    }),
   })
   const permissions = policy.permissions
   const permissionsFile = new PermissionsFile({ notesDir: deps.notesDir, workspace, engine: permissions, history: deps.history?.recorder, onChange: deps.onPermissionsChanged })
