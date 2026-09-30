@@ -12,7 +12,9 @@
 //    after it) is an exact path from the notes root (it may cross spaces);
 // 4. any other wikilink (a name or a path suffix) resolves only among the
 //    notes of the source's space, by proximity (D-019), then by their
-//    aliases, also of that space. A name never reaches another space.
+//    aliases, also of that space and without proximity (an alias several
+//    notes share is ambiguous). A name never reaches another space, and an
+//    alias never beats a name or a path.
 // Notes in no space (the layout before spaces) form one group of their own,
 // so there everything resolves as it always did.
 import { caseFold } from './casefold.ts'
@@ -157,8 +159,13 @@ export class LinkIndex {
     const space = linkSpace(source)
     const byPath = this.pick(source, this.inSpace(this.byPath.get(key), space))
     if (byPath) return byPath.status === 'resolved' ? this.withAnchor(byPath.path, link.anchor, 'path') : byPath
-    const byAlias = this.aliases ? this.pick(source, this.inSpace(this.byAlias.get(key), space)) : null
-    if (byAlias) return byAlias.status === 'resolved' ? this.withAnchor(byAlias.path, link.anchor, 'alias') : byAlias
+    // Then aliases, without proximity: one note's alias leads to it; one shared by several notes is
+    // ambiguous, however near one of them is. So a note that takes an alias never captures a link
+    // another note's alias resolves (whoever writes it may not even see that note, D-056.20); the
+    // link shows its candidates, and a name or a path (which beat aliases) fixes it.
+    const byAlias = this.aliases ? this.inSpace(this.byAlias.get(key), space) : []
+    if (byAlias.length === 1) return this.withAnchor(byAlias[0]!, link.anchor, 'alias')
+    if (byAlias.length > 1) return { status: 'ambiguous', candidates: byAlias.sort() }
     return { status: 'missing' }
   }
 

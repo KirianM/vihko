@@ -98,6 +98,25 @@ test('ambiguity and aliases stay within the space', () => {
   assert.equal(at(index.resolve(source, wiki(alias))), 'missing')
 })
 
+test('an alias never beats a name or a path, and one several notes share is ambiguous however near one of them is', () => {
+  const root = `people/${m.aUsername()}`
+  const [far, near, name, alias] = [m.aFolder(), m.aFolder(), m.aTitle(), m.aTitle()]
+  const index = new LinkIndex()
+  const named = `${root}/${far}/${m.aFolder()}/${name}.md`
+  const aliased = `${root}/${far}/${m.aTitle()}.md`
+  const source = `${root}/${near}/${m.aTitle()}.md`
+  const nearby = `${root}/${near}/${m.aTitle()}.md`
+  index.set({ path: named })
+  index.set({ path: aliased, aliases: [alias] })
+  index.set({ path: source })
+  // A note right next to the link takes the other note's name and alias as its aliases.
+  index.set({ path: nearby, aliases: [name, alias] })
+  assert.equal(at(index.resolve(source, wiki(name))), named, 'a name beats an alias, however near')
+  assert.deepEqual(index.resolve(source, wiki(alias)), { status: 'ambiguous', candidates: [aliased, nearby].sort() })
+  index.set({ path: nearby })
+  assert.equal(at(index.resolve(source, wiki(alias))), aliased)
+})
+
 test('notes in no space (the layout before spaces) resolve among themselves, as they always did', () => {
   const index = new LinkIndex()
   const name = m.aTitle()
