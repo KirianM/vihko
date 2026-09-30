@@ -9,7 +9,7 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { RuleSet, anchorChanged, classifyPath, contentHash, extract, folderOf, parentFolder, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type Range } from '@vihko/core'
+import { RuleSet, anchorChanged, classifyPath, contentHash, extract, folderOf, isRootTarget, linkSpace, parentFolder, parseThreads, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type Range } from '@vihko/core'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
@@ -149,7 +149,38 @@ export interface EditPreview {
  * it can't see, never which or how many (D-018); `nowHidden`, that the note
  * moved is hidden from it at its new path (then without its ETag).
  */
-export type ScopedMoveReport = MoveReport & { hidden?: boolean; nowHidden?: NowHidden; audience?: AudienceChange }
+export type ScopedMoveReport = MoveReport & { hidden?: boolean; nowHidden?: NowHidden; audience?: AudienceChange; crossSpaceLinks?: CrossSpaceLinks }
+
+/**
+ * When a move takes a note or a folder to another space (D-056): the links
+ * it writes as paths from the notes root, in the notes the principal sees
+ * (the rest is only `hidden`, as ever, D-018). `incoming`: in other spaces'
+ * notes, to what moved: their readers will see `path` (or a broken link, if
+ * they can't read it there). `outgoing`: in what moved, to notes of the
+ * space it leaves: its new readers see those paths, not the notes.
+ */
+export interface CrossSpaceLinks {
+  /** Where it goes, as links from other spaces will name it: from the notes root, a note without `.md`. */
+  path: string
+  incoming: number
+  outgoing: number
+}
+
+/** The cross-space links of a move's (masked) report; undefined when it stays in its space. */
+function crossSpaceLinks(relinked: MoveReport['relinked'], moved: (path: string) => boolean, from: string, to: string): CrossSpaceLinks | undefined {
+  const space = linkSpace(to)
+  if (linkSpace(from) === space) return undefined
+  let incoming = 0
+  let outgoing = 0
+  for (const r of relinked) {
+    if (moved(r.path)) {
+      for (const c of r.changes) if (extract(c.after).links.some((l) => l.kind !== 'markdown' && isRootTarget(l.target))) outgoing++
+    } else if (linkSpace(r.path) !== space) {
+      incoming += r.changes.length
+    }
+  }
+  return { path: to.replace(/\.md$/i, ''), incoming, outgoing }
+}
 
 /** What `maskReport` filters: the parts of the reports of note moves, folder moves and link updates after external moves. */
 interface MaskableReport {
@@ -712,6 +743,8 @@ export class ScopedNotes {
     const report = await this.guardAsync(f, () => this.deps.notes.move(f, t, { ...moveOpts, actor: this.access.actor, canRead: (p) => this.access.canRead(p) }))
     const masked: ScopedMoveReport = this.maskReport(report)
     if (report.dryRun && audience) masked.audience = audience
+    const cross = crossSpaceLinks(masked.relinked, (p) => p === t, f, t)
+    if (cross) masked.crossSpaceLinks = cross
     if (!this.access.isAgent) return masked
     if (report.dryRun || report.etag === null) return masked
     // Its folders only take it where it can see it, but whatever the reason: hidden now, no ETag (the move rewrote its text).
@@ -925,7 +958,7 @@ export class ScopedNotes {
    * can't move, the copies go. The report names only what the person can
    * see; a dry run says whose access changes (`audience`).
    */
-  async moveFolder(from: string, to: string, opts: { dryRun?: boolean } & MoveHooks = {}): Promise<FolderMoveReport & { hidden: boolean; audience?: AudienceChange }> {
+  async moveFolder(from: string, to: string, opts: { dryRun?: boolean } & MoveHooks = {}): Promise<FolderMoveReport & { hidden: boolean; audience?: AudienceChange; crossSpaceLinks?: CrossSpaceLinks }> {
     const f = NoteService.checkFolder(from)
     const t = NoteService.checkFolder(to)
     this.assertFolder(f, 'manage')
@@ -952,8 +985,9 @@ export class ScopedNotes {
     const mask = (r: FolderMoveReport) => {
       const { filePaths, ...rest } = r
       const masked = this.maskReport(rest, back)
+      const cross = crossSpaceLinks(masked.relinked, (p) => p === t || p.startsWith(t + '/'), f, t)
       // Only the files in folders the person can read count.
-      return { ...masked, files: (filePaths ?? []).filter((p) => this.access.canRead(p)).length }
+      return { ...masked, files: (filePaths ?? []).filter((p) => this.access.canRead(p)).length, ...(cross ? { crossSpaceLinks: cross } : {}) }
     }
     if (opts.dryRun) {
       const r = mask(await this.deps.notes.moveFolder(f, t, { actor, dryRun: true, canRead }))
