@@ -77,6 +77,8 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
         { method: 'GET', path: q('/api/history/diff', { path: PATH.visible, id: visibleIds[0]!, against: 'current' }), expect: 200 },
       ],
       'GET /api/history/changes': [{ method: 'GET', path: q('/api/history/changes', { limit: '50' }), expect: 200 }],
+      // What its user reaches, space by space, within its folders (D-056).
+      'GET /api/spaces': [{ method: 'GET', path: '/api/spaces', expect: 200 }],
       'GET /api/history/resolved': [{ method: 'GET', path: q('/api/history/resolved', { path: PATH.visible }), expect: 200 }, { method: 'GET', path: q('/api/history/resolved', { path: PATH.secret }), ...expect(AI) }],
 
       'POST /api/note': [

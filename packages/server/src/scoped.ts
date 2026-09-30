@@ -62,6 +62,8 @@ export interface ScopedDeps {
   now: () => Date
   /** How links resolve over every indexed note (the indexer's), for `resolveLink`. */
   links?: () => LinkIndex
+  /** After a folder moved from vihko: what state.db and the trash keep by its path follows it (folderRefs.ts). */
+  onFolderMoved?: (from: string, to: string) => void
 }
 
 /**
@@ -1192,6 +1194,11 @@ export class ScopedNotes {
     if (copied) {
       await file!.removeRules(f, { actor })
         .catch((err) => this.deps.log?.(`the old rules of ${f} stay in vihko.yaml after it moved to ${t}: ${err instanceof Error ? err.message : String(err)}`))
+    }
+    try {
+      this.deps.onFolderMoved?.(f, t)
+    } catch (err) {
+      this.deps.log?.(`keys, pins or trash entries under ${f} still name it after it moved to ${t}: ${err instanceof Error ? err.message : String(err)}`)
     }
     return mask(report)
   }

@@ -395,9 +395,9 @@ test('the workspace settings name no template or templates folder the person can
   const h = await setup({ files: { ...FILES, [template]: noteText() }, config })
   try {
     const admin = (await h.admin('GET', '/api/workspace')).body
-    assert.deepEqual([admin.templates, admin.daily[0].template], [templates, template], 'the admin reads that folder')
+    assert.deepEqual([admin.templates, admin.daily[0].template], [[templates], template], 'the admin reads that folder')
     const member = await h.member('GET', '/api/workspace')
-    assert.deepEqual([member.body.templates, member.body.daily[0].template], [null, null])
+    assert.deepEqual([member.body.templates, member.body.daily[0].template], [[], null])
     assert.ok(!member.text.includes(DIR.admin), member.text)
     assert.equal(member.body.daily[0].id, series, 'the series itself is there')
   } finally { await h.close() }

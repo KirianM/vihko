@@ -33,6 +33,13 @@ export interface PermissionsFileOptions {
   history?: Pick<NoteHistory, 'prepare'>
   /** After each change (the workspace already reread): open editors are checked again (hub.ts). */
   onChange?: () => void
+  /**
+   * After `setRule` changed a folder's rule (someone shared it, or changed
+   * its members): the file's text before, and who did it. Whoever it now
+   * reaches is told (spaceService.ts `notifyShared`). Never for a move, a
+   * deletion or a renamed subject: nobody is added to anything by those.
+   */
+  onRuleSet?: (folder: string, before: string, actor: Actor) => void
 }
 
 export class PermissionsFile {
@@ -102,8 +109,20 @@ export class PermissionsFile {
    * takes its `name` too (the space's members are its grants):
    * `setRule('spaces/home-7k2q9x', { name: 'Home', grants: { ana: 'manage' }, ai: null })`.
    */
-  setRule(folder: string, value: RuleValue, opts: { actor: Actor; ifMatch?: string }) {
-    return this.update((t) => setRule(t, folder, value), opts)
+  async setRule(folder: string, value: RuleValue, opts: { actor: Actor; ifMatch?: string }) {
+    let before = ''
+    const r = await this.update((t) => {
+      before = t
+      return setRule(t, folder, value)
+    }, opts)
+    if (r.changed) {
+      try {
+        this.opts.onRuleSet?.(folder, before, opts.actor)
+      } catch {
+        // Telling people is never why a change fails.
+      }
+    }
+    return r
   }
 
   /**

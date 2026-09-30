@@ -30,7 +30,8 @@ const renameSeries: WorkspaceMigration = {
 }
 
 const SERIES = m.anId()
-const FOLDER = m.aFolder()
+/** The series' folder: in each person's own space (a series outside the spaces is offered to nobody, spec §1.6). */
+const FOLDER = `people/{user}/${m.aFolder()}`
 /** An old file written by hand: comments where the README puts them, and a key vihko doesn't know. */
 const OLD = `# Workspace settings
 dailyNotes:                 # the series

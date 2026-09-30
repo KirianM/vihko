@@ -7,7 +7,7 @@ import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { isIP, type LookupFunction } from 'node:net'
 import { posix } from 'node:path'
-import type { AttachmentsConfig } from '@vihko/core'
+import { spaceRootOf, type AttachmentsConfig } from '@vihko/core'
 import { isPublicAddress, type Resolver } from './cimd.ts'
 
 /** Types vihko stores, detected from the bytes (never from the name or the declared type). */
@@ -71,13 +71,19 @@ const pad = (n: number) => String(n).padStart(2, '0')
  *   after the time: the folder already says whose it is, and the names stay
  *   right when the folder is renamed with its note
  *   (`projects/plan.assets/2026-09-25-1012.png`).
+ * The fixed folder is relative to the root of the note's space (spec §1.6):
+ * with `adjuntos`, an image of a note in `spaces/home-7k2q9x` goes to
+ * `spaces/home-7k2q9x/adjuntos/`, so that no folder mixes the audiences of
+ * two spaces. A note in no space (the 1.0 layout) uses it from the notes root.
  * `n` > 1 adds a suffix for a name that is taken (`…-1012-2.png`).
  */
 export function attachmentPath(notePath: string, ext: string, now: Date, n = 1, config: AttachmentsConfig = { folder: null }): string {
   const stem = posix.basename(notePath).replace(/\.md$/i, '')
   const stamp = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`
   const perNote = config.perNote
-  const dir = perNote !== undefined ? noteAttachmentsDir(notePath, perNote) : config.folder ?? posix.dirname(notePath)
+  const space = spaceRootOf(notePath)
+  const fixed = config.folder === null ? null : space === null ? config.folder : `${space}/${config.folder}`
+  const dir = perNote !== undefined ? noteAttachmentsDir(notePath, perNote) : fixed ?? posix.dirname(notePath)
   const name = `${perNote !== undefined ? '' : `${stem}-`}${stamp}${n > 1 ? `-${n}` : ''}.${ext}`
   return dir === '.' ? name : `${dir}/${name}`
 }

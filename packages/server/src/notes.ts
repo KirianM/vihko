@@ -3,7 +3,7 @@
 // (fsutil.ts), lazy `uid` and deletion to trash.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, resolve } from 'node:path'
-import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, folderOf, isIgnoredDir, linkSpace, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
+import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, folderOf, isIgnoredDir, linkSpace, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, spaceRootOf, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
 import { commitText, createFile, followable, isPlainFile, linkNew, readStable, readText } from './fsutil.ts'
 import { attachmentPath, noteAttachmentsDir, sniffImage, suffixedName } from './attachments.ts'
 import { applyReplacements, beforeMoves, inTableRow, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
@@ -356,6 +356,11 @@ export class NoteService {
     this.history = opts.history ?? NO_HISTORY
   }
 
+  /** The state volume: the trash is its `trash/` (folderRefs.ts rewrites its entries' paths when a folder moves). */
+  get stateDir(): string {
+    return this.opts.stateDir
+  }
+
   /** Validates a note path: relative, no `..`, no hidden segments, ending in `.md` (and no NUL, which no file name holds). */
   static checkPath(path: string): string {
     if (typeof path !== 'string' || path === '') throw new NoteError('invalid_path', `invalid note path: ${String(path)}`)
@@ -572,7 +577,10 @@ export class NoteService {
    * one `canWrite` refuses.
    */
   private filesGoingWith(text: string, path: string, canWrite: (path: string) => boolean): string[] {
-    const shared = this.opts.attachments?.().folder ?? null
+    // The fixed folder is each space's own (attachments.ts `attachmentPath`).
+    const folder = this.opts.attachments?.().folder ?? null
+    const space = spaceRootOf(path)
+    const shared = folder === null ? null : space === null ? folder : `${space}/${folder}`
     const inShared = (p: string) => shared !== null && p.startsWith(shared + '/')
     // Its folder of images, unless it holds notes (as when moving) or is a link vihko doesn't follow.
     const assets = this.assetsOf(path)

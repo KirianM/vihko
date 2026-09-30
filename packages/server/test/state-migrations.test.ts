@@ -15,11 +15,11 @@ import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
-/** A state.db as version 5 left it (before groups, second factors, notices and languages). */
+/** A state.db as version 5 left it (before groups, second factors, notices, languages and pins). */
 function version5(file: string) {
   openState(file).close()
   const raw = new Database(file)
-  raw.exec(`drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
+  raw.exec(`drop table pins; drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
     alter table users drop column deleted_at; alter table sessions drop column user_agent; alter table profiles drop column language;`)
   raw.pragma('user_version = 5')
   raw.close()

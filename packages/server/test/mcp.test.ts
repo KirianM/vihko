@@ -278,9 +278,12 @@ test('reading: search, get_note, list_folder, related and resolve_link', async (
     const missing = await c.call('get_note', { path: m.aNotePath(P) })
     assert.deepEqual([missing.error, missing.data.error], [true, 'not_found'])
 
-    // At the top, only the way to the shared space (which entries is how the root lists spaces, piece S); in it, both folders.
+    // At the top, the spaces the person reaches (spec §6.2): their own and the shared one; in it, both folders.
     const root = await c.call('list_folder', {})
-    assert.ok(root.data.entries.length > 0 && root.data.entries.every((e: { kind: string; path: string }) => e.kind === 'folder' && (e.path === SHARED || SHARED.startsWith(e.path + '/'))), root.raw)
+    const roots = root.data.entries as { kind: string; path: string; space: { kind: string } }[]
+    assert.deepEqual(roots.map((e) => [e.kind, e.space.kind]), [['folder', 'personal'], ['folder', 'shared']], root.raw)
+    assert.equal(roots[1]!.path, SHARED)
+    assert.match(roots[0]!.path, /^people\/[^/]+$/u)
     const space = await c.call('list_folder', { folder: SHARED })
     assert.deepEqual(space.data.entries, byPath([OUT, P]).map((path) => ({ kind: 'folder', path })))
     const p = await c.call('list_folder', { folder: P })

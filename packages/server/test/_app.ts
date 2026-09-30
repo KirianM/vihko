@@ -16,13 +16,14 @@ const m = mother(import.meta.url)
 /**
  * The workspace of the daily-note tests (CONFIG), its names the mother's: a
  * templates folder, a series of one's own (in a folder per person, with a
- * template) and a shared one, and the attachments folder.
+ * template) and a shared one, and the attachments folder (relative to each
+ * note's space, spec §1.6).
  */
 export const DAILY = {
   templates: inShared(m.aFolder()),
   own: { id: m.anId(), label: m.aHeading(), folder: inShared(m.aFolder()), template: m.aTitle() },
   team: { id: m.anId(), folder: inShared(m.aFolder()) },
-  attachments: inShared(m.aFolder()),
+  attachments: m.aFolder(),
 }
 
 export const CONFIG = `# Workspace settings

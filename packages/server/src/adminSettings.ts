@@ -18,19 +18,30 @@ export interface AdminSettingsView {
    * one is still asked for it, D-040 3.4a).
    */
   twoFactor: TwoFactorPolicy
+  /**
+   * Who may create shared spaces (D-056.5): `everyone` (the default; whoever
+   * creates one is its first manager) or `admins` only.
+   */
+  spacesCreation: SpacesCreation
 }
 
-const DEFAULTS: AdminSettingsView = { membersLocalDownloads: false, twoFactor: 'optional' }
+/** Who may create shared spaces. */
+export type SpacesCreation = 'everyone' | 'admins'
+export const SPACES_CREATION: readonly SpacesCreation[] = ['everyone', 'admins']
+
+const DEFAULTS: AdminSettingsView = { membersLocalDownloads: false, twoFactor: 'optional', spacesCreation: 'everyone' }
 
 const KEYS: Record<keyof AdminSettingsView, string> = {
   membersLocalDownloads: 'admin.membersLocalDownloads',
   twoFactor: 'admin.twoFactor',
+  spacesCreation: 'admin.spacesCreation',
 }
 
 /** What each setting may be. */
 const VALID: { [K in keyof AdminSettingsView]: (v: unknown) => v is AdminSettingsView[K] } = {
   membersLocalDownloads: (v): v is boolean => typeof v === 'boolean',
   twoFactor: (v): v is TwoFactorPolicy => POLICIES.includes(v as TwoFactorPolicy),
+  spacesCreation: (v): v is SpacesCreation => SPACES_CREATION.includes(v as SpacesCreation),
 }
 
 export class AdminSettingsError extends Error {
@@ -62,13 +73,19 @@ export class AdminSettings {
     return this.view().twoFactor
   }
 
+  /** Who may create shared spaces now. */
+  spacesCreation(): SpacesCreation {
+    return this.view().spacesCreation
+  }
+
   /** Changes some settings, all or none. */
   set(patch: Record<string, unknown>): AdminSettingsView {
     const entries = Object.entries(patch ?? {}).filter(([, v]) => v !== undefined)
     for (const [k, v] of entries) {
       if (!(k in KEYS)) throw new AdminSettingsError(`unknown setting: ${k}`)
       if (!VALID[k as keyof AdminSettingsView](v)) {
-        throw new AdminSettingsError(k === 'twoFactor' ? `${k} must be one of ${POLICIES.join(', ')}` : `${k} must be true or false`)
+        const one = k === 'twoFactor' ? POLICIES : k === 'spacesCreation' ? SPACES_CREATION : null
+        throw new AdminSettingsError(one ? `${k} must be one of ${one.join(', ')}` : `${k} must be true or false`)
       }
     }
     const put = this.db.prepare('insert into settings (key, value) values (?, ?) on conflict(key) do update set value = excluded.value')

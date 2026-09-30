@@ -281,14 +281,20 @@ test('per-note images: the folder of images moves with its note and its grants, 
 })
 
 test('images go only where the writer may write: an attachments folder they can’t write refuses the upload, and nothing lands there (spec §3.8)', async () => {
-  const dropbox = `${DIR.admin}/${m.aFolder()}`
-  const config = `attachments:\n  mode: folder\n  folder: ${JSON.stringify(dropbox)}\n` + RULES
-  const h = await setup({ files: BASE, config })
+  // The attachments folder is each space's own (spec §1.6): for a note of the
+  // folder the other member shares with the member, it's in the other's space,
+  // outside what they share.
+  const dropbox = m.aFolder()
+  const config = `attachments:\n  mode: folder\n  folder: ${JSON.stringify(dropbox)}\n` + CONFIG
+  const note = `${LOOSE_DIR}/${m.aTitle()}.md`
+  const h = await setup({ files: { ...FILES, [note]: `# ${m.aHeading()}\n` }, config })
   try {
     const before = snapshot(h.notesDir)
-    const r = await h.member('POST', h.url('/api/attachments', { note: PATH.list }), PNG)
+    const r = await h.member('POST', h.url('/api/attachments', { note }), PNG)
     assert.deepEqual([r.status, r.body.error], [403, 'forbidden'])
     assert.deepEqual(snapshot(h.notesDir), before)
-    assert.equal((await h.admin('POST', h.url('/api/attachments', { note: PATH.list }), PNG)).status, 201)
+    const own = await h.other('POST', h.url('/api/attachments', { note }), PNG)
+    assert.equal(own.status, 201, own.text)
+    assert.ok(own.body.path.startsWith(`${home(OTHER.username)}/${dropbox}/`), own.body.path)
   } finally { await h.close() }
 })
