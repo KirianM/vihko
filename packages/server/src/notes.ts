@@ -8,6 +8,7 @@ import { commitText, createFile, followable, isPlainFile, linkNew, readStable, r
 import { attachmentPath, noteAttachmentsDir, sniffImage, suffixedName } from './attachments.ts'
 import { applyReplacements, beforeMoves, inTableRow, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
 import type { Indexer } from './indexer.ts'
+import type { RelinkRetries, RelinkRetry } from './relinkRetries.ts'
 import { applySplices, spliceOf, type Splice } from './edits.ts'
 import type { Db } from './db.ts'
 import type { Actor, Reason } from './actor.ts'
@@ -101,6 +102,13 @@ export interface NoteServiceOptions {
   attachments?: () => AttachmentsConfig
   /** The history: every write is recorded with its actor (M2). */
   history?: NoteHistory
+  /**
+   * Link rewrites a move couldn't make and no alias can stand in for (other
+   * spaces' links, D-056), tried again by `retryRelinks` after the next rescan.
+   */
+  retries?: RelinkRetries
+  /** A retry that failed again: given up, for whoever made the move to be told. */
+  onRelinkGaveUp?: (entry: RelinkRetry, failed: MoveReport['failed']) => void
 }
 
 export const DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -607,15 +615,22 @@ export class NoteService {
 
       // The rest of the notes, as the system. The plan is recalculated over the
       // current text: links to the note, and references to images in its folder of images.
-      const system: Actor = { kind: 'system', reason: { code: 'note_moved', from, to, by: opts.actor } }
+      const reason: RelinkRetry['reason'] = { code: 'note_moved', from, to, by: opts.actor }
+      const system: Actor = { kind: 'system', reason }
       await this.history.operation(system, null, () =>
         this.rewriteAll(others.map((src) => ({ path: src, change: (t: string) => movedNotePlan(t, src, src, before, after, map, place).splices })), system, report.failed, opts.onProgress))
 
       // Safety net: if something couldn't be rewritten, the old name stays as an alias.
-      // Not when aliases don't resolve links (vihko.yaml): it would save nothing.
+      // Not when aliases don't resolve links (vihko.yaml): it would save nothing. Nor
+      // when the note changed space: an alias only reaches the notes of its own space
+      // (a name never crosses spaces, D-056), and the links left in the space it
+      // left were names, those from other spaces paths from the root.
       const oldName = posix.basename(from).replace(/\.md$/i, '')
       const newName = posix.basename(to).replace(/\.md$/i, '')
-      if (report.failed.length && oldName !== newName && this.opts.indexer.linkAliases) {
+      const space = linkSpace(to)
+      const sameSpace = linkSpace(from) === space
+      const leftBehind = report.failed.filter((f) => f.path !== to)
+      if (leftBehind.some((f) => sameSpace && linkSpace(f.path) === space) && oldName !== newName && this.opts.indexer.linkAliases) {
         try {
           const aliasActor: Actor = { kind: 'system', reason: { code: 'alias_added', alias: oldName, from, to, by: opts.actor } }
           report.etag = (await this.edit(to, (t) => addToFrontmatterList(t, 'aliases', oldName), { actor: aliasActor })).etag
@@ -625,8 +640,36 @@ export class NoteService {
           report.failed.push({ path: to, error: f.error, message: `could not add the alias: ${f.message}` })
         }
       }
+      // What the alias doesn't stand in for is tried again after the next rescan.
+      const covered = (p: string) => report.aliasAdded !== null && sameSpace && linkSpace(p) === space
+      this.opts.retries?.record({ reason, moves: [{ from, to }], sources: leftBehind.map((f) => f.path).filter((p) => !covered(p)) })
       return report
     })
+  }
+
+  /**
+   * Tries again the link rewrites moves couldn't make (RelinkRetries), each
+   * by the rule of its move over the notes as they are now (as the links
+   * after a move made outside vihko are, `relinkMoved`), as the system, only
+   * in the notes that failed. Once per failure: what fails again is given
+   * up (`onRelinkGaveUp`). Moves no longer in place (the note moved on, or is
+   * back) have nothing left to do. Called after each rescan.
+   */
+  async retryRelinks(): Promise<void> {
+    const retries = this.opts.retries
+    if (!retries) return
+    for (const entry of retries.list()) {
+      await this.oneMoveAtATime(async () => {
+        const plan = this.planMoved(entry.moves)
+        const wanted = new Set(entry.sources)
+        const items = plan.items.filter((i) => wanted.has(i.path))
+        const failed: MoveReport['failed'] = []
+        const system: Actor = { kind: 'system', reason: entry.reason }
+        if (items.length) await this.history.operation(system, null, () => this.rewriteAll(items, system, failed))
+        retries.drop(entry.id)
+        if (failed.length) this.opts.onRelinkGaveUp?.(entry, failed)
+      })
+    }
   }
 
   private moving: Promise<unknown> = Promise.resolve()
@@ -1104,7 +1147,8 @@ export class NoteService {
     report.shifted.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
     if (opts.dryRun) return report
 
-    const system: Actor = { kind: 'system', reason: { code: 'folder_moved', from, to, by: opts.actor } }
+    const reason: RelinkRetry['reason'] = { code: 'folder_moved', from, to, by: opts.actor }
+    const system: Actor = { kind: 'system', reason }
     // 1. One rename moves everything. The destination is claimed first with an
     // empty folder (mkdir never reuses one), which the rename then replaces:
     // anything that lands there meanwhile makes the rename fail, never overwritten.
@@ -1153,6 +1197,8 @@ export class NoteService {
       ...own.map(([f, t]) => ({ path: t, change: (x: string) => movedNotePlan(x, f, t, before, after, map, copies.placeFor(f, t, place)).splices })),
       ...others.map((src) => ({ path: src, change: (x: string) => movedNotePlan(x, src, src, before, after, map, place).splices })),
     ], system, report.failed, opts.onProgress))
+    // No alias stands in for a folder's notes: what failed is tried again after the next rescan.
+    this.opts.retries?.record({ reason, moves: report.notes, sources: report.failed.map((f) => f.path) })
     return report
   }
 

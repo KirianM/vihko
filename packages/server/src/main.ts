@@ -14,6 +14,7 @@ import { Profiles } from './profiles.ts'
 import { Workspace } from './workspace.ts'
 import { Watcher } from './watcher.ts'
 import { ExternalMoves } from './externalMoves.ts'
+import { RelinkRetries } from './relinkRetries.ts'
 import { CollabHub } from './hub.ts'
 import { History } from './history/index.ts'
 import { lockState, type StateLock } from './lock.ts'
@@ -235,13 +236,15 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   await history.start()
   indexer.onApplied = (applied) => history.recorder.observeIndexed(applied)
 
+  // After each rescan, the link rewrites a move couldn't make are tried again (notes, below).
+  let afterRescan = () => {}
   const watcher = new Watcher({
     notesDir: config.notesDir,
     indexer,
     db: index,
     rescanMs: config.rescanSeconds * 1000,
     // The rescan also rereads vihko.yaml: its events can be lost like any other (NFS).
-    onReport: (kind, r) => { if (kind === 'rescan') { runtime.lastScan = r; reloadWorkspace() } },
+    onReport: (kind, r) => { if (kind === 'rescan') { runtime.lastScan = r; reloadWorkspace(); afterRescan() } },
     onError: (err) => log(`watcher: ${err instanceof Error ? err.message : String(err)}`),
     onChange: (paths) => {
       // Files that aren't notes reach the history here (notes, through the indexer).
@@ -255,7 +258,10 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   const notes = new NoteService({
     notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes,
     attachments: () => workspace.config.attachments, history: history.recorder,
+    retries: new RelinkRetries({ stateDir: config.stateDir, log }),
+    onRelinkGaveUp: (entry, failed) => log(`links in ${failed.length} note(s) still not updated after moving ${entry.reason.from} to ${entry.reason.to}: given up`),
   })
+  afterRescan = () => { notes.retryRelinks().catch((err) => log(`retrying link rewrites: ${err instanceof Error ? err.message : String(err)}`)) }
   // Saved editor states of notes that no longer exist (nor wait in the trash) go.
   const trashed = new Set(notes.trash().map((e) => e.path))
   hub.dropStaleStates((path) => trashed.has(path))
