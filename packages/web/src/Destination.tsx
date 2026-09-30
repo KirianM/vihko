@@ -43,7 +43,7 @@ export const joinPlace = (root: string, inner: string) => {
   return i ? `${root}/${i}` : root
 }
 
-/** The two fields: the place, and the folder inside it («Folder», with the existing ones suggested). */
+/** The two fields: the place (picking one starts at its root: `onRoot` clears the folder), and the folder inside it («Folder», with the existing ones suggested). */
 export function DestinationFields({ root, inner, onRoot, onInner, hint }: { root: string; inner: string; onRoot: (root: string) => void; onInner: (inner: string) => void; hint: string }) {
   const t = useT()
   const places = usePlaces()
@@ -58,7 +58,7 @@ export function DestinationFields({ root, inner, onRoot, onInner, hint }: { root
     <>
       <label className="field">
         <span>{t('move.space')}</span>
-        <select className="select" value={root} onChange={(e) => { onRoot(e.target.value); onInner('') }}>
+        <select className="select" value={root} onChange={(e) => onRoot(e.target.value)}>
           {!known && <option value={root}>{root}</option>}
           {places.map((p) => <option key={p.root} value={p.root}>{p.label}</option>)}
         </select>

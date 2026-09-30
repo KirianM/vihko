@@ -3,7 +3,7 @@
 // note, and move to the trash. History (M2) will live in
 // this same menu.
 import { useEffect, useState, type FormEvent } from 'react'
-import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, Text, TextField } from 'react-aria-components'
+import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, TextField } from 'react-aria-components'
 import { api, type MoveJob, type MoveReport } from '../api.ts'
 import { AudienceWarning, audienceChanges } from '../Audience.tsx'
 import { DestinationFields, joinPlace, splitPlace, usePlaces } from '../Destination.tsx'

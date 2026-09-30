@@ -461,7 +461,7 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
             ? t(a.user === a.by ? 'alerts.userChangedSelfBody' : 'alerts.userChangedBody', { when, user: a.user })
             : a.code === 'links_not_updated' ? t('alerts.linksNotUpdatedBody', { when })
             : a.code === 'space_changed' ? t('alerts.spaceChangedBody', { when })
-            : a.code === 'shared_with_you' ? t(a.path === null ? 'alerts.sharedWithYouGoneBody' : 'alerts.sharedWithYouBody', { when })
+            : a.code === 'shared_with_you' ? t(a.path === null ? 'alerts.sharedWithYouGoneBody' : a.kind === 'space' ? 'alerts.sharedWithYouBody' : 'alerts.sharedFolderBody', { when })
             : t('alerts.purgedAuthoredBody', { when })
         return frame({
           icon: a.code === 'history_purged_authored' || a.code === 'links_not_updated' ? icons.config : a.code === 'shared_with_you' || a.code === 'space_changed' ? icons.people : icons.person,

@@ -2,7 +2,7 @@
 // rewritten across the notes, as for a note) and delete (at once when empty;
 // otherwise, what it holds to the trash with it).
 import { useEffect, useState, type FormEvent } from 'react'
-import { Button, Dialog, Heading, Input, Label, Text, TextField } from 'react-aria-components'
+import { Button, Dialog, Heading, Input, Label, TextField } from 'react-aria-components'
 import { ApiError, api, type FolderContents, type FolderMoveReport, type MoveJob, type TrashEntry } from './api.ts'
 import { AudienceWarning, audienceChanges } from './Audience.tsx'
 import { DestinationFields, joinPlace, splitPlace, usePlaces } from './Destination.tsx'

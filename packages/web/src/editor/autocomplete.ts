@@ -11,7 +11,7 @@ import { keymap, type EditorView } from '@codemirror/view'
 import { withoutClosingHashes } from '@vihko/core/syntax'
 import { api } from '../api.ts'
 import {
-  NoteCatalog, completionContext, completionEnd, fold, folderOf, matchScore, rankHeadings, rankTags,
+  NoteCatalog, completionContext, completionEnd, fold, matchScore, rankHeadings, rankTags,
   type HeadingEntry, type TagEntry,
 } from './suggest.ts'
 

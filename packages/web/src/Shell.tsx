@@ -29,7 +29,7 @@ import { rememberNote } from './recent.ts'
 import { WINDOWS, modKTaken } from './keys.ts'
 import { useBackClose, useMobile, useVisualViewport } from './mobile.ts'
 import { PreferencesDialog, browserTimeZone } from './Preferences.tsx'
-import { FolderTree, ancestors, buildTree, type FolderInfoOf, type Node, type TreeAction } from './FolderTree.tsx'
+import { ancestors, buildTree, type FolderInfoOf, type Node, type TreeAction } from './FolderTree.tsx'
 import { DeleteFolderDialog, FolderMoveDialog, NewFolderDialog } from './FolderDialogs.tsx'
 import { RenameDialog, TrashDialog } from './editor/NoteActions.tsx'
 import { TagsView } from './TagsView.tsx'
@@ -398,7 +398,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const pick = <A extends unknown[]>(fn: (...a: A) => void) => (...a: A) => { setNavOpen(false); fn(...a) }
   /** A section's menu (a space, or a folder shared with the person). */
   const onSection = (action: SectionAction, s: Section) => {
-    setNavOpen(false)
+    // Pinning happens in place (the drawer stays open on a phone); the rest opens something over it.
+    if (action !== 'pin' && action !== 'unpin') setNavOpen(false)
     setSpaceIssue(null)
     if (action === 'newNote') { setCreateIn(s.root); setPalette('create') }
     else if (action === 'newFolder') setTreeDialog({ kind: 'newFolder', parent: s.root })

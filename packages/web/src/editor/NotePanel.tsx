@@ -11,7 +11,6 @@ import * as Y from 'yjs'
 import { api, canEdit, type CommentOp, type CommentOriginal, type Level, type NoteLinks, type OutgoingLink, type User } from '../api.ts'
 import { errorText, useT } from '../i18n.tsx'
 import { useTheme } from '../theme.ts'
-import { Icon } from '../ui.tsx'
 import { usePathLabels } from '../spaces.tsx'
 import { baseHue, userColor } from '../userColor.ts'
 import type { Session } from './collab.ts'
@@ -471,7 +470,7 @@ function LinksTab({ links, onNavigate, onPickAmbiguous, onOpenCandidate }: {
             {l.status === 'ambiguous' && (
               <ul className="link-candidates">
                 {(l.candidates ?? []).map((c) => (
-                  <li key={c}><Button className="link-btn link-candidate" onPress={() => onOpenCandidate(ambiguous(l), c)}>{c}</Button></li>
+                  <li key={c}><Button className="link-btn link-candidate" onPress={() => onOpenCandidate(ambiguous(l), c)}>{labels.label(c)}</Button></li>
                 ))}
               </ul>
             )}
