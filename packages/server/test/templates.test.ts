@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { CONFIG, DAILY, setup } from './_app.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -24,12 +25,12 @@ test('templates: a new note from any template note, in the person\'s timezone', 
   const zone = m.aTimeZone()
   await admin('PUT', '/api/profile', { timezone: zone })
   const title = m.aTitle()
-  const path = `${m.aFolder()}/${title}.md`
+  const path = inShared(`${m.aFolder()}/${title}.md`)
   const r = await admin('POST', '/api/note', { path, template })
   assert.equal(r.status, 201)
   assert.equal(readFileSync(join(notesDir, path), 'utf8'), `---\nuid: ${r.body.uid}\n---\n# ${title}\n\n${localTime(zone, now)} ${users.admin.username}\n`, zone)
   assert.equal((await admin('POST', '/api/note', { path, template })).body.error, 'exists')
-  const other = m.aNotePath()
+  const other = m.aNotePath(inShared(''))
   assert.equal((await admin('POST', '/api/note', { path: other, template: `${DAILY.templates}/${m.aTitle()}.md` })).body.error, 'not_found')
   assert.equal((await admin('POST', '/api/note', { path: other, template: 3 })).body.error, 'invalid')
   assert.ok(!existsSync(join(notesDir, other)))

@@ -4,18 +4,23 @@ import { chmodSync, existsSync, readFileSync, readdirSync, renameSync, rmSync, s
 import { join } from 'node:path'
 import type { Actor } from '@vihko/server'
 import { flakyGit, setup, sleep, who } from './_history.ts'
-import { yamlKey } from './_permissions.ts'
+import { SHARED, everyone, inShared } from './_permissions.ts'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 /** A user as `who()` shows them. */
 const user = (p: { username: string }) => `user:${p.username}`
+/** vihko.yaml as a test writes it, with the permissions of the setup kept (the shared space). */
+const yaml = (h: { users: { admin: { username: string }; member: { username: string } } }, text: string) => text + everyone(h.users.admin.username, h.users.member.username)
 
-// The setup copies testdata/vault: its notes (this one, tags.md, codigo.md,
-// Plan.md, hogar/, recetas/, adjuntos/, privado/…) are the fixed vault's. What
-// the tests write, and the notes and folders they make, are the mother's.
-const NOTE = 'hogar/Proxy.md'
+// The setup copies testdata/vault into the shared space: its notes (this one,
+// tags.md, codigo.md, Plan.md, hogar/, recetas/, adjuntos/, privado/…) are the
+// fixed vault's. What the tests write, and the notes and folders they make, are the mother's.
+const NOTE = inShared('hogar/Proxy.md')
+const TAGS = inShared('tags.md')
+const CODE = inShared('codigo.md')
+const PLAN = inShared('Plan.md')
 
 test('the history starts with the whole folder as one system version', async () => {
   const h = await setup()
@@ -26,7 +31,7 @@ test('the history starts with the whole folder as one system version', async () 
     assert.deepEqual(first.reason, { code: 'history_enabled' })
     assert.equal(who(first), 'system')
     const paths = first.files.map((f: any) => f.path)
-    for (const p of [NOTE, 'adjuntos/imagen.png', 'adjuntos/tablero.canvas', 'proyectos/vihko/Plan.sync-conflict-20260924-120000-ABCDEFG.md']) assert.ok(paths.includes(p), p)
+    for (const p of [NOTE, inShared('adjuntos/imagen.png'), inShared('adjuntos/tablero.canvas'), inShared('proyectos/vihko/Plan.sync-conflict-20260924-120000-ABCDEFG.md')]) assert.ok(paths.includes(p), p)
     for (const p of paths) assert.ok(!p.split('/').some((s: string) => s.startsWith('.')) && !p.endsWith('~'), `ignored file in the history: ${p}`)
     assert.ok(first.files.every((f: any) => f.change === 'created'))
     assert.deepEqual(await h.admin('GET', '/api/history/status').then((r) => r.body), { mode: 'managed', available: true, error: null })
@@ -117,35 +122,35 @@ test('external versions close after the quiet time; several files closing togeth
     // Whole seconds after the history's first commit (the floor of these dates) and before now.
     const first = Math.ceil(Date.now() / 1000)
     while (Date.now() < (first + 1) * 1000 + 50) await sleep(50)
-    const tags = join(h.notesDir, 'tags.md')
-    const code = join(h.notesDir, 'codigo.md')
+    const tags = join(h.notesDir, TAGS)
+    const code = join(h.notesDir, CODE)
     const [save1, save2] = [m.aSentence(), m.aSentence()]
     writeFileSync(tags, `${save1}\n`)
     utimesSync(tags, first, first)
     writeFileSync(code, `${m.aSentence()}\n`)
     utimesSync(code, first, first)
-    h.indexer.indexPaths(['tags.md', 'codigo.md'], { detectMoves: true })
+    h.indexer.indexPaths([TAGS, CODE], { detectMoves: true })
     writeFileSync(tags, `${save2}\n`)
     utimesSync(tags, first + 1, first + 1)
-    h.indexer.indexPaths(['tags.md'], { detectMoves: true })
+    h.indexer.indexPaths([TAGS], { detectMoves: true })
     // No closeAll: the quiet time (150 ms here) closes them.
     await sleep(400)
     await h.history.recorder.settle()
     const { changes } = await h.changes()
     assert.equal(who(changes[0]), 'external')
-    assert.deepEqual(changes[0].files.map((f: any) => f.path).sort(), ['codigo.md', 'tags.md'], 'one commit for both files')
+    assert.deepEqual(changes[0].files.map((f: any) => f.path).sort(), [CODE, TAGS].sort(), 'one commit for both files')
     assert.equal(changes[0].at, new Date((first + 1) * 1000).toISOString(), 'the last change\'s mtime')
-    const { versions } = await h.versions('tags.md')
+    const { versions } = await h.versions(TAGS)
     assert.deepEqual(versions.map(who), ['external', 'system'], 'both saves are one version')
-    const v = await h.admin('GET', `/api/history/version?path=tags.md&id=${versions[0].id}`)
+    const v = await h.admin('GET', `/api/history/version?path=${h.q(TAGS)}&id=${versions[0].id}`)
     assert.equal(v.body.text, `${save2}\n`)
   } finally { await h.close() }
 })
 
 test('a rename is a move by whoever did it, and its link rewrites one system commit at once; the history follows moves in a row', async () => {
   const h = await setup()
-  const renamed = m.aNotePath('hogar')
-  const moved = m.aNotePath(m.aFolder())
+  const renamed = m.aNotePath(inShared('hogar'))
+  const moved = m.aNotePath(inShared(m.aFolder()))
   try {
     const r = await h.admin('POST', '/api/note/move', { from: NOTE, to: renamed })
     assert.equal(r.status, 200)
@@ -154,7 +159,7 @@ test('a rename is a move by whoever did it, and its link rewrites one system com
     assert.equal(changes[0].reason.code, 'note_moved')
     assert.deepEqual(changes[0].reason.by, { kind: 'user', id: h.ids.admin, name: h.users.admin.username, key: `user:${h.ids.admin}` })
     assert.equal(who(changes[0]), 'system')
-    assert.deepEqual(changes[0].files.map((f: any) => [f.path, f.change]), [['hogar/enlaces.md', 'modified']])
+    assert.deepEqual(changes[0].files.map((f: any) => [f.path, f.change]), [[inShared('hogar/enlaces.md'), 'modified']])
     assert.deepEqual(changes[1].files.map((f: any) => [f.path, f.change, f.from]), [[renamed, 'moved', NOTE]])
     assert.equal(who(changes[1]), user(h.users.admin))
     await h.admin('POST', '/api/note/move', { from: renamed, to: moved })
@@ -177,8 +182,8 @@ test('a rename is a move by whoever did it, and its link rewrites one system com
 test('a folder moved: the history of its notes follows it', async () => {
   const h = await setup()
   try {
-    const to = `${m.aFolder()}/hogar`
-    const r = await h.admin('POST', '/api/folder/move', { from: 'hogar', to })
+    const to = inShared(`${m.aFolder()}/hogar`)
+    const r = await h.admin('POST', '/api/folder/move', { from: inShared('hogar'), to })
     assert.equal(r.status, 200)
     await h.settle()
     const { versions } = await h.versions(`${to}/Proxy.md`)
@@ -188,7 +193,7 @@ test('a folder moved: the history of its notes follows it', async () => {
     ])
     const { changes } = await h.changes()
     const move = changes.find((c: any) => c.files.some((f: any) => f.change === 'moved'))
-    assert.ok(move.files.some((f: any) => f.path === `${to}/Firewall.md` && f.from === 'hogar/Firewall.md'))
+    assert.ok(move.files.some((f: any) => f.path === `${to}/Firewall.md` && f.from === inShared('hogar/Firewall.md')))
   } finally { await h.close() }
 })
 
@@ -196,15 +201,15 @@ test('a note moved outside vihko is a move by external', async () => {
   const h = await setup()
   try {
     // The name as it is on disk (NFC or NFD, whatever the copy kept).
-    const from = 'recetas/' + readdirSync(join(h.notesDir, 'recetas')).find((f) => f.normalize('NFC') === 'índice.md')!
-    const to = m.aNotePath('recetas')
+    const from = inShared('recetas/') + readdirSync(join(h.notesDir, inShared('recetas'))).find((f) => f.normalize('NFC') === 'índice.md')!
+    const to = m.aNotePath(inShared('recetas'))
     renameSync(join(h.notesDir, from), join(h.notesDir, to))
     h.indexer.indexPaths([from, to], { detectMoves: true })
     await h.settle()
     const { versions } = await h.versions(to)
     assert.equal(versions[0].change, 'moved')
     assert.equal(who(versions[0]), 'external')
-    assert.equal(versions[0].from.normalize('NFC'), 'recetas/índice.md')
+    assert.equal(versions[0].from.normalize('NFC'), inShared('recetas/índice.md'))
   } finally { await h.close() }
 })
 
@@ -212,22 +217,23 @@ test('files that aren\'t notes come from the watcher; a folder of them renamed w
   const h = await setup()
   try {
     const image = `${m.aTitle()}.png`
-    const media = m.aFolder()
-    writeFileSync(join(h.notesDir, 'adjuntos', image), m.aSecret())
-    await h.history.recorder.observePaths([`adjuntos/${image}`])
-    renameSync(join(h.notesDir, 'adjuntos'), join(h.notesDir, media))
-    await h.history.recorder.observePaths(['adjuntos', media])
+    const media = inShared(m.aFolder())
+    const adj = inShared('adjuntos')
+    writeFileSync(join(h.notesDir, adj, image), m.aSecret())
+    await h.history.recorder.observePaths([`${adj}/${image}`])
+    renameSync(join(h.notesDir, adj), join(h.notesDir, media))
+    await h.history.recorder.observePaths([adj, media])
     await h.settle()
     const { changes } = await h.changes()
-    assert.deepEqual(changes[1].files.map((f: any) => [f.path, f.change]), [[`adjuntos/${image}`, 'created']])
+    assert.deepEqual(changes[1].files.map((f: any) => [f.path, f.change]), [[`${adj}/${image}`, 'created']])
     assert.equal(who(changes[1]), 'external')
     assert.deepEqual(changes[0].files.map((f: any) => [f.path, f.change, f.from]).sort(), [
-      [`${media}/imagen.png`, 'moved', 'adjuntos/imagen.png'],
-      [`${media}/${image}`, 'moved', `adjuntos/${image}`],
-      [`${media}/tablero.canvas`, 'moved', 'adjuntos/tablero.canvas'],
+      [`${media}/imagen.png`, 'moved', `${adj}/imagen.png`],
+      [`${media}/${image}`, 'moved', `${adj}/${image}`],
+      [`${media}/tablero.canvas`, 'moved', `${adj}/tablero.canvas`],
     ].sort())
     // Seen again (a late event): nothing new.
-    await h.history.recorder.observePaths([`${media}/imagen.png`, 'adjuntos/imagen.png'])
+    await h.history.recorder.observePaths([`${media}/imagen.png`, `${adj}/imagen.png`])
     await h.settle()
     assert.equal((await h.changes()).changes.length, changes.length)
   } finally { await h.close() }
@@ -235,13 +241,13 @@ test('files that aren\'t notes come from the watcher; a folder of them renamed w
 
 test('files over the size limit stay out of the history, with an alert', async () => {
   const big = Buffer.alloc(3000, 1)
-  const bigPath = `adjuntos/${m.aTitle()}.bin`
+  const bigPath = inShared(`adjuntos/${m.aTitle()}.bin`)
   const h = await setup({ config: 'history:\n  maxFileSize: 0.002\n', files: { [bigPath]: big } })
   try {
     const { changes } = await h.changes()
     const paths = changes[0].files.map((f: any) => f.path)
     assert.ok(!paths.includes(bigPath))
-    assert.ok(paths.includes('adjuntos/imagen.png'))
+    assert.ok(paths.includes(inShared('adjuntos/imagen.png')))
     const alerts = (await h.admin('GET', '/api/alerts')).body.alerts
     const a = alerts.find((x: any) => x.code === 'history_files_too_large')
     assert.deepEqual(a, { code: 'history_files_too_large', paths: [bigPath], limitMb: 0, actions: [] })
@@ -250,7 +256,7 @@ test('files over the size limit stay out of the history, with an alert', async (
     await h.settle()
     assert.equal((await h.versions(NOTE)).versions.length, 1)
     // A larger limit in vihko.yaml: the list follows it at once.
-    writeFileSync(join(h.notesDir, 'vihko.yaml'), 'history:\n  maxFileSize: 1\n')
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), yaml(h, 'history:\n  maxFileSize: 1\n'))
     h.workspace.reload()
     await h.history.configure()
     assert.ok(!(await h.admin('GET', '/api/alerts')).body.alerts.some((x: any) => x.code === 'history_files_too_large'))
@@ -258,12 +264,13 @@ test('files over the size limit stay out of the history, with an alert', async (
 })
 
 test('history.exclude keeps files out of the history without hiding them; a move across it leaves or enters the history', async () => {
-  const library = m.aFolder()
-  const drafts = m.aFolder()
+  const library = inShared(m.aFolder())
+  const drafts = inShared(m.aFolder())
   const BOOK = m.aNotePath(library)
-  const PDF = `adjuntos/${m.aTitle()}.pdf`
+  const PDF = inShared(`adjuntos/${m.aTitle()}.pdf`)
   const DRAFT = m.aNotePath(drafts)
-  const back = m.aNotePath('hogar')
+  const back = m.aNotePath(inShared('hogar'))
+  const recetas = inShared('recetas')
   const config = `history:\n  exclude:\n    - ${JSON.stringify(`${library}/**`)}\n    - "**/*.pdf"\n`
   const h = await setup({ config, files: { [BOOK]: `# ${m.aHeading()}\n`, [PDF]: m.aSecret(), [DRAFT]: `# ${m.aHeading()}\n` } })
   try {
@@ -300,16 +307,16 @@ test('history.exclude keeps files out of the history without hiding them; a move
     const v = (await h.versions(back)).versions[0]
     assert.ok((await h.admin('GET', `/api/history/version?path=${h.q(back)}&id=${v.id}`)).body.text.includes('Proxy'))
     // A folder moved into an excluded one: its files leave the history, by whoever moved it.
-    const inFolder = [...(await h.history.recorder.git.run(['ls-tree', '-r', '--name-only', 'HEAD', '--', 'recetas'])).stdout.toString().trim().split('\n')]
-    assert.equal((await h.admin('POST', '/api/folder/move', { from: 'recetas', to: `${library}/recetas` })).status, 200)
+    const inFolder = [...(await h.history.recorder.git.run(['ls-tree', '-r', '--name-only', 'HEAD', '--', recetas])).stdout.toString().trim().split('\n')]
+    assert.equal((await h.admin('POST', '/api/folder/move', { from: recetas, to: `${library}/recetas` })).status, 200)
     await h.settle()
     changes = (await h.changes()).changes
-    const folder = changes.find((c: any) => c.files.some((f: any) => f.path.startsWith('recetas/')))
+    const folder = changes.find((c: any) => c.files.some((f: any) => f.path.startsWith(`${recetas}/`)))
     assert.deepEqual(folder.files.map((f: any) => [f.path, f.change]).sort(), inFolder.map((p) => [p, 'deleted']).sort())
     assert.equal(who(folder), user(h.users.admin))
 
     // A new pattern applies at once; what the history holds stays.
-    writeFileSync(join(h.notesDir, 'vihko.yaml'), config + `    - ${JSON.stringify(drafts)}\n`)
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), yaml(h, config + `    - ${JSON.stringify(drafts)}\n`))
     h.workspace.reload()
     await h.history.configure()
     const before = (await h.versions(DRAFT)).versions.length
@@ -320,14 +327,14 @@ test('history.exclude keeps files out of the history without hiding them; a move
     assert.equal(secret.excluded, true)
 
     // An invalid pattern is a configuration error: the last valid list stays in force.
-    writeFileSync(join(h.notesDir, 'vihko.yaml'), `history:\n  exclude:\n    - ${JSON.stringify(`/${drafts}`)}\n`)
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), yaml(h, `history:\n  exclude:\n    - ${JSON.stringify(`/${drafts}`)}\n`))
     h.workspace.reload()
     await h.history.configure()
     assert.deepEqual(h.workspace.status.errors.map((e) => [e.code, e.at, e.detail]), [['invalid_pattern', 'history.exclude.0', `/${drafts}`]])
     assert.equal((await h.versions(DRAFT)).excluded, true)
 
     // Without the patterns, what is on disk enters the history at once.
-    writeFileSync(join(h.notesDir, 'vihko.yaml'), '')
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), yaml(h, ''))
     h.workspace.reload()
     await h.history.configure()
     await h.settle()
@@ -336,13 +343,13 @@ test('history.exclude keeps files out of the history without hiding them; a move
     assert.deepEqual(now.files.map((f: any) => [f.path, f.change]).sort(), [
       // (vihko.yaml changed too: its versions aren't listed to anyone, D-038.)
       [PDF, 'created'], [BOOK, 'created'], [DRAFT, 'modified'],
-      ...inFolder.map((p) => [`${library}/${p}`, 'created']),
+      ...inFolder.map((p) => [`${library}/${p.slice(SHARED.length + 1)}`, 'created']),
     ].sort())
   } finally { await h.close() }
 })
 
 test('history.exclude at startup: an excluded file changed while vihko was stopped is not recorded', async () => {
-  const excluded = m.aFolder()
+  const excluded = inShared(m.aFolder())
   const [diary, added] = [m.aNotePath(excluded), m.aNotePath(excluded)]
   const heading = `# ${m.aHeading()}\n`
   const config = `history:\n  exclude: ${JSON.stringify(excluded)}\n`
@@ -359,7 +366,7 @@ test('history.exclude at startup: an excluded file changed while vihko was stopp
 
 test('restoring a version never gives an image a name with a control character, nor reads another path for it', async () => {
   // A line break, URL-encoded in the note (the case under test): the history would read the path up to it.
-  const folder = m.aFolder()
+  const folder = inShared(m.aFolder())
   const [file, rest] = [m.aUniqueWord(), m.aUniqueWord()]
   const note = m.aNotePath(folder)
   const h = await setup({ files: { [note]: `# ${m.aHeading()}\n\n![](${file}%0A${rest}.png)\n`, [`${folder}/${file}`]: m.aSecret() } })
@@ -377,7 +384,7 @@ test('restoring a version never gives an image a name with a control character, 
 test('restoring a version brings back the images it linked that are gone, never over another file', async () => {
   // Image names are one word: a Markdown destination has no spaces.
   const [a, b, c] = [`${m.aUniqueWord()}.png`, `${m.aUniqueWord()}.png`, `${m.aUniqueWord()}.png`]
-  const folder = m.aFolder()
+  const folder = inShared(m.aFolder())
   const NOTE_WITH = m.aNotePath(folder)
   const [A, B, B2] = [m.aSecret(), m.aSecret(), m.aSecret()]
   // An external image (a URL) is never restored nor reported.
@@ -413,24 +420,24 @@ test('restoring a version brings back the images it linked that are gone, never 
 test('a deleted note shows its deletion and comes back by restoring an earlier version', async () => {
   const h = await setup()
   try {
-    const del = await h.admin('DELETE', `/api/note?path=${h.q('Plan.md')}`)
+    const del = await h.admin('DELETE', `/api/note?path=${h.q(PLAN)}`)
     assert.equal(del.status, 200)
     await h.settle()
-    const { versions } = await h.versions('Plan.md')
+    const { versions } = await h.versions(PLAN)
     assert.deepEqual(versions.map((v: any) => [v.change, who(v)]), [['deleted', user(h.users.admin)], ['created', 'system']])
-    const gone = await h.admin('GET', `/api/history/version?path=${h.q('Plan.md')}&id=${versions[0].id}`)
+    const gone = await h.admin('GET', `/api/history/version?path=${h.q(PLAN)}&id=${versions[0].id}`)
     assert.equal(gone.body.text, null)
-    assert.equal((await h.admin('POST', '/api/history/restore', { path: 'Plan.md', id: versions[0].id })).status, 400, 'a deletion has no text to restore')
-    const r = await h.admin('POST', '/api/history/restore', { path: 'Plan.md', id: versions[1].id })
+    assert.equal((await h.admin('POST', '/api/history/restore', { path: PLAN, id: versions[0].id })).status, 400, 'a deletion has no text to restore')
+    const r = await h.admin('POST', '/api/history/restore', { path: PLAN, id: versions[1].id })
     assert.equal(r.status, 200, JSON.stringify(r.body))
-    assert.ok(existsSync(join(h.notesDir, 'Plan.md')))
+    assert.ok(existsSync(join(h.notesDir, PLAN)))
     await h.settle()
-    assert.equal((await h.versions('Plan.md')).versions[0].change, 'restored')
+    assert.equal((await h.versions(PLAN)).versions[0].change, 'restored')
     // From the trash is a version too.
-    const del2 = await h.admin('DELETE', `/api/note?path=${h.q('tags.md')}`)
+    const del2 = await h.admin('DELETE', `/api/note?path=${h.q(TAGS)}`)
     await h.admin('POST', `/api/trash/${del2.body.id}/restore`, {})
     await h.settle()
-    const tags = (await h.versions('tags.md')).versions
+    const tags = (await h.versions(TAGS)).versions
     assert.deepEqual(tags.slice(0, 2).map((v: any) => [v.change, v.reason?.code ?? null]), [['restored', 'trash_restored'], ['deleted', null]])
   } finally { await h.close() }
 })
@@ -439,69 +446,73 @@ test('diffs by words against the previous version, the current text or another v
   const h = await setup()
   try {
     const [w1, w2, w3, w4, w5] = [m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord()]
-    await h.put('tags.md', () => `${w1} ${w2} ${w3}\n`)
+    await h.put(TAGS, () => `${w1} ${w2} ${w3}\n`)
     await h.settle()
-    await h.put('tags.md', () => `${w1} ${w4} ${w3}\n`)
+    await h.put(TAGS, () => `${w1} ${w4} ${w3}\n`)
     await h.settle()
-    const { versions } = await h.versions('tags.md')
-    const d = await h.admin('GET', `/api/history/diff?path=tags.md&id=${versions[0].id}`)
+    const { versions } = await h.versions(TAGS)
+    const d = await h.admin('GET', `/api/history/diff?path=${h.q(TAGS)}&id=${versions[0].id}`)
     // vihko gave the note a uid in its first write: the frontmatter is the same in both.
     const fm = d.body.ops[0][1] as string
     assert.match(fm, new RegExp(`^---\\nuid: \\w+\\n---\\n${w1} $`))
     assert.deepEqual(d.body.ops, [[0, fm], [-1, w2], [1, w4], [0, ` ${w3}\n`]])
     assert.equal(d.body.added, 1)
     assert.equal(d.body.removed, 1)
-    await h.put('tags.md', (t) => t.replace(new RegExp(`${w1} .*\\n$`), `${w5}\n`))
-    const cur = await h.admin('GET', `/api/history/diff?path=tags.md&id=${versions[1].id}&against=current`)
+    await h.put(TAGS, (t) => t.replace(new RegExp(`${w1} .*\\n$`), `${w5}\n`))
+    const cur = await h.admin('GET', `/api/history/diff?path=${h.q(TAGS)}&id=${versions[1].id}&against=current`)
     assert.deepEqual(cur.body.ops.slice(1), [[-1, w5], [1, `${w1} ${w2} ${w3}`], [0, '\n']], 'what the version has that the current text doesn\'t is inserted')
-    const other = await h.admin('GET', `/api/history/diff?path=tags.md&id=${versions[0].id}&against=${versions[1].id}`)
+    const other = await h.admin('GET', `/api/history/diff?path=${h.q(TAGS)}&id=${versions[0].id}&against=${versions[1].id}`)
     assert.deepEqual(other.body.ops, d.body.ops)
-    assert.equal((await h.admin('GET', `/api/history/diff?path=tags.md&id=${'0'.repeat(40)}`)).status, 404)
+    assert.equal((await h.admin('GET', `/api/history/diff?path=${h.q(TAGS)}&id=${'0'.repeat(40)}`)).status, 404)
   } finally { await h.close() }
 })
 
 test('versions come in pages', async () => {
   const h = await setup()
   try {
-    for (let i = 0; i < 5; i++) { await h.put('tags.md', (t) => t + `${m.aSentence()}\n`); await h.settle() }
-    const a = await h.versions('tags.md', '&limit=2')
+    for (let i = 0; i < 5; i++) { await h.put(TAGS, (t) => t + `${m.aSentence()}\n`); await h.settle() }
+    const a = await h.versions(TAGS, '&limit=2')
     assert.equal(a.versions.length, 2)
     assert.ok(a.next)
-    const b = await h.versions('tags.md', `&limit=2&cursor=${a.next}`)
-    const c = await h.versions('tags.md', `&limit=2&cursor=${b.next}`)
+    const b = await h.versions(TAGS, `&limit=2&cursor=${a.next}`)
+    const c = await h.versions(TAGS, `&limit=2&cursor=${b.next}`)
     assert.equal(c.next, null)
     const all = [...a.versions, ...b.versions, ...c.versions].map((v: any) => v.id)
     assert.equal(all.length, 6)
     assert.equal(new Set(all).size, 6)
-    assert.equal((await h.admin('GET', '/api/history/versions?path=tags.md&cursor=nonsense')).status, 400)
+    assert.equal((await h.admin('GET', `/api/history/versions?path=${h.q(TAGS)}&cursor=nonsense`)).status, 400)
     // A cursor is data, never a git option.
     const out = join(h.dir, 'written-by-git')
     const cursor = (v: unknown) => Buffer.from(JSON.stringify(v), 'utf8').toString('base64url')
-    assert.equal((await h.admin('GET', `/api/history/versions?path=tags.md&cursor=${cursor({ rev: `--output=${out}`, path: 'tags.md' })}`)).status, 400)
+    assert.equal((await h.admin('GET', `/api/history/versions?path=${h.q(TAGS)}&cursor=${cursor({ rev: `--output=${out}`, path: TAGS })}`)).status, 400)
     assert.equal((await h.admin('GET', `/api/history/changes?cursor=${cursor({ rev: `--output=${out}` })}`)).status, 400)
     assert.ok(!existsSync(out))
   } finally { await h.close() }
 })
 
 test('«Recent changes» filters file by file with the permission check, and by author', async () => {
-  // privado/ is the admin's alone: the member edits everything else.
-  const h = await setup({ config: ({ admin, member }) => `permissions:\n  "": { grants: { ${yamlKey(admin)}: manage, ${yamlKey(member)}: edit } }\n  privado: { grants: { ${yamlKey(admin)}: manage } }\n` })
+  // A note in the admin's own space, which the member doesn't see: the member edits the shared space.
+  const [privateFolder, privateTitle] = [m.aFolder(), m.aTitle()]
+  const privateOf = (admin: string) => `people/${admin}/${privateFolder}/${privateTitle}.md`
+  const h = await setup({ files: ({ admin }) => ({ [privateOf(admin)]: `# ${m.aHeading()}\n` }) })
+  const secret = privateOf(h.users.admin.username)
+  const privateDir = `people/${h.users.admin.username}/`
   try {
-    await h.put('privado/sin-ia.md', (t) => t + `${m.aSentence()}\n`)
+    await h.put(secret, (t) => t + `${m.aSentence()}\n`)
     await h.settle()
-    await h.put('tags.md', (t) => t + `${m.aSentence()}\n`, 'member')
+    await h.put(TAGS, (t) => t + `${m.aSentence()}\n`, 'member')
     await h.settle()
     const { changes, authors } = await h.changes('', 'member')
     assert.equal(changes.length, 2, 'the change with only a private file is left out')
-    assert.ok(changes.every((c: any) => c.files.every((f: any) => !f.path.startsWith('privado/'))))
+    assert.ok(changes.every((c: any) => c.files.every((f: any) => !f.path.startsWith(privateDir))))
     assert.deepEqual(authors.map((a: any) => a.key).sort(), ['system', `user:${h.ids.member}`, `user:${h.ids.admin}`].sort())
-    assert.equal((await h.member('GET', `/api/history/versions?path=${h.q('privado/sin-ia.md')}`)).status, 404)
+    assert.equal((await h.member('GET', `/api/history/versions?path=${h.q(secret)}`)).status, 404)
     const byMember = await h.changes(`&author=user:${h.ids.member}`, 'member')
     assert.deepEqual(byMember.changes.map((c: any) => who(c)), [user(h.users.member)])
     assert.deepEqual((await h.changes('&author=system', 'member')).changes.map((c: any) => c.reason.code), ['history_enabled'])
     // A note moved out of a folder the user can't read: where it was isn't said.
-    const outOfIt = m.aNotePath()
-    await h.admin('POST', '/api/note/move', { from: 'privado/sin-ia.md', to: outOfIt })
+    const outOfIt = m.aNotePath(SHARED)
+    await h.admin('POST', '/api/note/move', { from: secret, to: outOfIt })
     await h.settle()
     const all = (await h.changes('', 'member')).changes
     const moved = all[0].files.find((f: any) => f.path === outOfIt)
@@ -593,7 +604,7 @@ test('git failing so long that the queue reaches its cap: the oldest versions me
     // Three versions for a queue of two: the admin's of the note goes into the member's next one of the same note.
     await h.put(NOTE, (t) => t + `\n${byAdmin}\n`)
     h.history.recorder.closeAll()
-    await h.put('tags.md', (t) => t + `${byMember}\n`, 'member')
+    await h.put(TAGS, (t) => t + `${byMember}\n`, 'member')
     h.history.recorder.closeAll()
     await h.put(NOTE, (t) => t + `${byMemberAfter}\n`, 'member')
     h.history.recorder.closeAll()
@@ -606,24 +617,24 @@ test('git failing so long that the queue reaches its cap: the oldest versions me
     assert.equal(await merged(), null, 'gone once everything is in git')
     assert.deepEqual((await h.versions(NOTE)).versions.map(who), [`${user(h.users.member)},${user(h.users.admin)}`, 'system'], 'one version with both authors')
     assert.ok((await version(NOTE)).text.endsWith(`${byAdmin}\n${byMemberAfter}\n`))
-    assert.deepEqual((await h.versions('tags.md')).versions.map(who), [user(h.users.member), 'system'], 'another file keeps its own author')
+    assert.deepEqual((await h.versions(TAGS)).versions.map(who), [user(h.users.member), 'system'], 'another file keeps its own author')
 
     // Nothing written again: a version goes into a later one by the same author, with its own content.
     writeFileSync(flag, '')
-    await h.put('codigo.md', (t) => t + `${k1}\n`)
+    await h.put(CODE, (t) => t + `${k1}\n`)
     h.history.recorder.closeAll()
-    await h.put('Plan.md', (t) => t + `${a1}\n`, 'member')
+    await h.put(PLAN, (t) => t + `${a1}\n`, 'member')
     h.history.recorder.closeAll()
-    await h.put('tags.md', (t) => t + `${k2}\n`)
+    await h.put(TAGS, (t) => t + `${k2}\n`)
     h.history.recorder.closeAll()
     await until(async () => (await merged())?.versions === 1, 'the alert again')
     await gitBack()
     const { changes } = await h.changes()
     assert.deepEqual(changes.slice(0, 2).map((c: any) => [who(c), c.files.map((f: any) => f.path).sort()]), [
-      [user(h.users.admin), ['codigo.md', 'tags.md']],
-      [user(h.users.member), ['Plan.md']],
+      [user(h.users.admin), [CODE, TAGS].sort()],
+      [user(h.users.member), [PLAN]],
     ])
-    assert.ok((await version('codigo.md')).text.endsWith(`${k1}\n`))
+    assert.ok((await version(CODE)).text.endsWith(`${k1}\n`))
     assert.ok(h.logs.some((l) => /merging the oldest/.test(l)))
     assert.ok(!h.logs.some((l) => /dropped/.test(l)))
   } finally { await h.close(); rmSync(dir, { recursive: true, force: true }) }
@@ -632,13 +643,13 @@ test('git failing so long that the queue reaches its cap: the oldest versions me
 test('vihko.yaml turns the history off and on: nothing recorded meanwhile is attributed', async () => {
   const h = await setup()
   try {
-    writeFileSync(join(h.notesDir, 'vihko.yaml'), 'history:\n  mode: off\n')
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), yaml(h, 'history:\n  mode: off\n'))
     h.workspace.reload()
     await h.history.configure()
     assert.deepEqual((await h.admin('GET', '/api/history/status')).body, { mode: 'off', available: false, error: null })
     assert.equal((await h.admin('GET', `/api/history/versions?path=${h.q(NOTE)}`)).body.error, 'history_off')
     await h.put(NOTE, (t) => t + `\n${m.aSentence()}\n`)
-    writeFileSync(join(h.notesDir, 'vihko.yaml'), 'history:\n  mode: managed\n')
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), yaml(h, 'history:\n  mode: managed\n'))
     h.workspace.reload()
     await h.history.configure()
     await h.settle()
@@ -675,8 +686,8 @@ test('changes made while vihko was stopped are external, found at startup; what 
   await h.close()
   const file = join(h.notesDir, NOTE)
   writeFileSync(file, readFileSync(file, 'utf8') + `${m.aSentence()}\n`)
-  writeFileSync(join(h.notesDir, 'tags.md'), `${m.aSentence()}\n`)
-  rmSync(join(h.notesDir, 'codigo.md'))
+  writeFileSync(join(h.notesDir, TAGS), `${m.aSentence()}\n`)
+  rmSync(join(h.notesDir, CODE))
   const again = await setup({ dir: h.dir })
   try {
     await again.settle()
@@ -686,7 +697,7 @@ test('changes made while vihko was stopped are external, found at startup; what 
     assert.ok(pending.body.text.endsWith(`${pendingText}\n`), 'the pending version keeps its text from the journal')
     const { changes } = await again.changes()
     const startup = changes.find((c: any) => c.foundAtStartup)
-    assert.deepEqual(startup.files.map((f: any) => `${f.path} ${f.change}`).sort(), ['codigo.md deleted', `${NOTE} modified`, 'tags.md modified'])
+    assert.deepEqual(startup.files.map((f: any) => `${f.path} ${f.change}`).sort(), [`${CODE} deleted`, `${NOTE} modified`, `${TAGS} modified`].sort())
   } finally { await again.close() }
 })
 
@@ -694,13 +705,13 @@ test('a file whose mtime is older than its last version is dated at that version
   const h = await setup()
   try {
     await h.settle()
-    const file = join(h.notesDir, 'tags.md')
+    const file = join(h.notesDir, TAGS)
     writeFileSync(file, `${m.aSentence()}\n`)
     const old = new Date('2020-01-01T00:00:00Z')
     utimesSync(file, old, old)
-    h.indexer.indexPaths(['tags.md'], { detectMoves: true })
+    h.indexer.indexPaths([TAGS], { detectMoves: true })
     await h.settle()
-    const { versions } = await h.versions('tags.md')
+    const { versions } = await h.versions(TAGS)
     assert.equal(who(versions[0]), 'external')
     assert.ok(Date.parse(versions[0].at) >= Date.parse(versions[1].at), 'bounded by the previous version')
     assert.ok(statSync(file).mtimeMs < Date.parse(versions[1].at))

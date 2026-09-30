@@ -16,11 +16,12 @@ import { toolData } from '@vihko/server'
 import { api, login, makeDirs, startServer, waitFor } from './_collab.ts'
 import { PNG } from './_agents.ts'
 import { tempDir } from './_tmp.ts'
+import { inShared, sharedSpace } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 /** Where the clients write their notes, the section they write under, and the names of the two keys. */
-const FOLDER = m.aFolder()
+const FOLDER = inShared(m.aFolder())
 const SECTION = m.aTitle()
 const KEY = { rw: m.aKeyName(), ro: m.aKeyName() }
 
@@ -56,12 +57,12 @@ async function exercise(call: Call, tag: string, write: boolean): Promise<string
     return r.data
   }
   assert.ok((await ok('search', { query: 'Proxy' })).results.length > 0)
-  assert.ok((await ok('list_folder', { folder: 'hogar' })).entries.length > 0)
-  const note = await ok('get_note', { path: 'hogar/Proxy.md' })
-  await ok('related', { path: 'hogar/Proxy.md' })
-  assert.equal((await ok('resolve_link', { from: 'hogar/enlaces.md', link: 'Firewall' })).status, 'resolved')
-  assert.equal((await ok('changes_since', { path: 'hogar/Proxy.md', since: note.etag })).changed, false)
-  await ok('history', { path: 'hogar/Proxy.md' })
+  assert.ok((await ok('list_folder', { folder: inShared('hogar') })).entries.length > 0)
+  const note = await ok('get_note', { path: inShared('hogar/Proxy.md') })
+  await ok('related', { path: inShared('hogar/Proxy.md') })
+  assert.equal((await ok('resolve_link', { from: inShared('hogar/enlaces.md'), link: 'Firewall' })).status, 'resolved')
+  assert.equal((await ok('changes_since', { path: inShared('hogar/Proxy.md'), since: note.etag })).changed, false)
+  await ok('history', { path: inShared('hogar/Proxy.md') })
   await ok('daily_note', {})
   if (!write) return called
 
@@ -92,7 +93,8 @@ async function exercise(call: Call, tag: string, write: boolean): Promise<string
 
 async function server() {
   const { notes, env, admin } = makeDirs()
-  writeFileSync(join(notes, 'vihko.yaml'), 'daily:\n  diario:\n    folder: diario\n')
+  // The vault is in the shared space the admin manages (makeDirs); the series too.
+  writeFileSync(join(notes, 'vihko.yaml'), `${sharedSpace({ [admin.username]: 'manage' })}daily:\n  diario:\n    folder: ${JSON.stringify(inShared('diario'))}\n`)
   const srv = await startServer({ ...env, VIHKO_HISTORY_QUIET_SECONDS: '0.3' })
   const cookie = await login(srv)
   const key = async (input: Record<string, unknown>) => {
@@ -132,7 +134,7 @@ test('the SDK\'s client, in both protocol eras', { timeout: 120_000 }, async () 
       const ro = await sdk(s.url, s.ro, mode)
       assert.deepEqual(await ro.tools(), READ, `${mode}: a read-only key sees no tool that writes`)
       await exercise(ro.call, `sdk-ro-${mode}`, false)
-      assert.equal(JSON.parse(((await ro.client.callTool({ name: 'create_note', arguments: { path: m.aNotePath(), text: m.aSentence() } })) as { isError?: boolean; content: { text: string }[] }).content[0]!.text).error, 'forbidden', 'a read-only key: forbidden, in vihko\'s JSON')
+      assert.equal(JSON.parse(((await ro.client.callTool({ name: 'create_note', arguments: { path: m.aNotePath(FOLDER), text: m.aSentence() } })) as { isError?: boolean; content: { text: string }[] }).content[0]!.text).error, 'forbidden', 'a read-only key: forbidden, in vihko\'s JSON')
       await ro.client.close()
     }
     await s.mcp(false)
@@ -182,7 +184,7 @@ test('MCP Inspector in CLI mode, in both protocol eras', { timeout: 300_000 }, a
         return parse(r.out.result)
       }
       assert.deepEqual((await exercise(call(s.rw), `inspector-${era}`, true)).sort(), ALL, `${era}: every tool called`)
-      const refused = await inspector(home, s.url, s.ro, era, ['--method', 'tools/call', '--tool-name', 'create_note', '--tool-args-json', JSON.stringify({ path: m.aNotePath(), text: m.aSentence() })])
+      const refused = await inspector(home, s.url, s.ro, era, ['--method', 'tools/call', '--tool-name', 'create_note', '--tool-args-json', JSON.stringify({ path: m.aNotePath(FOLDER), text: m.aSentence() })])
       assert.ok(refused.code !== 0 || refused.out?.result?.isError === true, `${era}: ${JSON.stringify(refused.out)}`)
     }
     await s.mcp(false)
@@ -222,7 +224,7 @@ test('mcp-remote, the stdio bridge to a remote server', { timeout: 180_000 }, as
     await rw.client.close()
     const ro = await connect(s.ro)
     assert.deepEqual((await ro.client.listTools()).tools.map((t) => t.name).sort(), READ)
-    assert.equal(JSON.parse(((await ro.client.callTool({ name: 'edit_note', arguments: { path: m.aNotePath(), operations: [] } })) as { isError?: boolean; content: { text: string }[] }).content[0]!.text).error, 'forbidden', 'a read-only key: forbidden, in vihko\'s JSON')
+    assert.equal(JSON.parse(((await ro.client.callTool({ name: 'edit_note', arguments: { path: m.aNotePath(FOLDER), operations: [] } })) as { isError?: boolean; content: { text: string }[] }).content[0]!.text).error, 'forbidden', 'a read-only key: forbidden, in vihko\'s JSON')
     await ro.client.close()
     await s.mcp(false)
     await assert.rejects(connect(s.rw), /404/)

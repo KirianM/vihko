@@ -11,13 +11,14 @@ import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { Git, removeCrashLeftovers } from '@vihko/server'
 import { flakyGit, setup, who } from './_history.ts'
+import { inShared } from './_permissions.ts'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
-// A note of the fixed vault the setup copies (testdata/vault). The files a
+// A note of the fixed vault the setup copies (testdata/vault) into the shared space. The files a
 // crash leaves in the repository are git's own names: they are the case.
-const NOTE = 'hogar/Proxy.md'
+const NOTE = inShared('hogar/Proxy.md')
 
 test('what a crash leaves in the repository is removed, and nothing else: locks anywhere, fast-import\'s keep mark, temporary files, incomplete packs, crash reports, a dead gc\'s gc.pid', async () => {
   const h = await setup()
@@ -105,7 +106,7 @@ test('stale locks from a kill -9 before startup (main.lock, index.lock, HEAD.loc
     await h.history.recorder.settle()
     assert.equal((await h.admin('GET', '/api/history/status')).body.available, false)
     // …and the member's is open.
-    await h.put('tags.md', (t) => t + `${OPEN}\n`, 'member')
+    await h.put(inShared('tags.md'), (t) => t + `${OPEN}\n`, 'member')
   } finally { await h.close() }
   const journal = readFileSync(join(h.stateDir, 'history/journal.json'), 'utf8')
   assert.ok(journal.includes(QUEUED) && journal.includes(OPEN), 'both in the journal')
@@ -124,7 +125,7 @@ test('stale locks from a kill -9 before startup (main.lock, index.lock, HEAD.loc
     const note = (await again.versions(NOTE)).versions
     assert.deepEqual(note.map(who), [`user:${again.users.admin.username}`, 'system'])
     assert.ok((await again.admin('GET', `/api/history/version?path=${again.q(NOTE)}&id=${note[0].id}`)).body.text.includes(QUEUED))
-    const tags = (await again.versions('tags.md')).versions
+    const tags = (await again.versions(inShared('tags.md'))).versions
     assert.deepEqual(tags.map((v: any) => [who(v), v.foundAtStartup]), [[`user:${again.users.member.username}`, false], ['system', false]])
     assert.equal((await again.changes()).changes.length, total! + 2, 'each version once')
     for (const f of ['refs/heads/main.lock', 'HEAD.lock', 'index.lock']) {

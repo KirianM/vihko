@@ -11,6 +11,7 @@ import { contentHash, readFrontmatter } from '@vihko/core'
 import { MAX_WS_MESSAGE } from '@vihko/server'
 import { NoteLink, type Lineage } from '../../web/src/editor/lineage.ts'
 import { api, closeAll, connect, login, makeDirs, open, sleep, socket, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -43,7 +44,7 @@ const MARK = {
   unsent: m.aUniqueWord(),
 }
 
-const NOTE = 'hogar/Proxy.md'
+const NOTE = inShared('hogar/Proxy.md')
 
 /** Paths from the pending-copy alerts. */
 const orphaned = async (srv: Parameters<typeof api>[0], cookie: string) =>
@@ -160,7 +161,7 @@ test('WebSocket: rejected without a session, from another origin, or for a nonex
     assert.equal(await status({ cookie, origin: 'https://malicious.example' }), 403)
     assert.equal(await status({ cookie }), 101)
     // Nonexistent note: the connection is accepted but the document never loads.
-    const missing = m.aNotePath()
+    const missing = m.aNotePath(inShared(''))
     const doc = new Y.Doc()
     class AuthedWS extends WebSocket { constructor(u: string, p?: string | string[]) { super(u, p, { headers: { cookie } }) } }
     const wsp = new HocuspocusProviderWebsocket({ url, WebSocketPolyfill: AuthedWS })
@@ -353,7 +354,7 @@ test("deleted with the server down and pending edits: it isn't emptied or recrea
 test('a note whose path is too long to name its recovery log opens, and its copy is recovered after a crash', async () => {
   const { notes, env } = makeDirs()
   // Deep and long: URL-encoded, the path is far past the 255 bytes a file name may take (each name on its own fits).
-  const note = `${Array.from({ length: 6 }, () => `${m.aTitle()} ${m.aTitle()}`).join('/')}/${m.aTitle()}.md`
+  const note = inShared(`${Array.from({ length: 6 }, () => `${m.aTitle()} ${m.aTitle()}`).join('/')}/${m.aTitle()}.md`)
   assert.ok(Buffer.byteLength(encodeURIComponent(note)) > 255)
   mkdirSync(join(notes, note, '..'), { recursive: true })
   writeFileSync(join(notes, note), `# ${m.aHeading()}\n\n${m.aSentence()}\n`)
@@ -383,7 +384,7 @@ test('renaming an open note: editors are told, nothing is lost and the old path 
   const srv = await startServer(env)
   // A new name with a space in it.
   const name = `${m.aTitle()} ${m.aWord()}`
-  const TO = `hogar/${name}.md`
+  const TO = inShared(`hogar/${name}.md`)
   try {
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
@@ -402,7 +403,7 @@ test('renaming an open note: editors are told, nothing is lost and the old path 
     assert.deepEqual(moved[0], { type: 'vihko:moved', from: NOTE, to: TO })
     assert.ok(!existsSync(join(notes, NOTE)))
     assert.ok(readFileSync(join(notes, TO), 'utf8').includes(`${MARK.unflushed}\n`))
-    assert.ok(readFileSync(join(notes, 'hogar/enlaces.md'), 'utf8').includes(`[[${name}#Red]]`))
+    assert.ok(readFileSync(join(notes, inShared('hogar/enlaces.md')), 'utf8').includes(`[[${name}#Red]]`))
     a.close(); b.close()
     // It reopens at the new path and editing goes on as usual.
     const c = await connect(srv, cookie, TO)

@@ -9,6 +9,7 @@ import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path'
 import { readFrontmatter } from '@vihko/core'
 import { api, closeAll, connect, login, makeDirs, sleep, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -24,9 +25,9 @@ const MARK = {
   typed: m.aUniqueWord(),
 }
 
-const NOTE = 'hogar/Proxy.md'
+const NOTE = inShared('hogar/Proxy.md')
 // The vault's note, renamed on disk (the new name is the mother's).
-const TO = m.aNotePath('hogar')
+const TO = m.aNotePath(inShared('hogar'))
 
 const once = (text: string, line: string) => text.split('\n').filter((l) => l === line).length === 1
 

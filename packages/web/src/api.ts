@@ -407,7 +407,7 @@ export const api = {
   openToday: () => request<{ series: string; path: string; created: boolean }>('POST', '/api/daily', {}),
   orphan: (path: string, action: 'restore' | 'discard') => request<{ ok: true }>('POST', '/api/note/orphan', { path, action }),
   /** Notes held after moving outside vihko (D-038): move the folder's permissions with them, or release them. */
-  held: (id: string, action: 'move_permissions' | 'release') => request<{ ok: true }>('POST', `/api/permissions/holds/${encodeURIComponent(id)}`, { action }),
+  held: (id: string, action: 'release') => request<{ ok: true }>('POST', `/api/permissions/holds/${encodeURIComponent(id)}`, { action }),
   move: (from: string, to: string, dryRun = false) => request<MoveReport>('POST', '/api/note/move', { from, to, dryRun }),
   /** Moves a note; if rewriting the links takes long, they go on in the background (a job). */
   startMove: (from: string, to: string) => request<MoveReport | { job: MoveJob }>('POST', '/api/note/move', { from, to, background: true }).then(started<MoveReport>),

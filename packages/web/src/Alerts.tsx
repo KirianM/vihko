@@ -457,29 +457,47 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           body: t(a.fallback === 'closed' ? 'alerts.permissionsRejectedClosed' : 'alerts.permissionsRejectedLastGood'),
           actions: null,
         })
-      case 'permissions_held': {
-        const folder = <span className="mono">{a.folder || '/'}</span>
-        // From a personal folder, and not theirs to decide (D-046.4): only that it exists, and whose it is to decide.
-        const theirs = !a.personal || a.actions.length > 0
+      case 'permissions_held':
         return frame({
           icon: icons.moved,
           tone: 'warn',
           title: a.notes === 1 ? t('alerts.heldTitleOne') : t('alerts.heldTitle', { n: a.notes }),
-          body: !theirs ? rich(t('alerts.heldPersonal'), { folder })
-            : a.to !== null ? rich(t('alerts.heldBodyTo'), { folder, to: <span className="mono">{a.to}</span> }) : rich(t('alerts.heldBody'), { folder }),
-          actions: !theirs ? null : (
-            <>
-              {a.actions.includes('move_permissions') && <Button className="btn btn-primary" isDisabled={busy} onPress={() => act(() => api.held(a.id, 'move_permissions'))}>{t('alerts.heldMove')}</Button>}
-              {a.actions.includes('release') && <Button className="btn" isDisabled={busy} onPress={() => act(() => api.held(a.id, 'release'))}>{t('alerts.heldRelease')}</Button>}
-            </>
-          ),
+          body: rich(t('alerts.heldBody'), { folder: <span className="mono">{a.folder}</span> }),
+          actions: a.actions.includes('release') && <Button className="btn" isDisabled={busy} onPress={() => act(() => api.held(a.id, 'release'))}>{t('alerts.heldRelease')}</Button>,
         })
-      }
-      case 'attachments_shared_folder':
+      case 'missing_folder':
         return frame({
           icon: icons.config,
-          title: rich(t('alerts.sharedAttachmentsTitle'), { folder: <span className="mono">{a.folder}</span> }),
-          body: t('alerts.sharedAttachmentsBody'),
+          title: t('alerts.missingFolderTitle'),
+          body: t('alerts.missingFolderBody'),
+          extra: <ul className="alert-paths">{a.folders.map((f) => <li key={f}><span className="mono">{f}</span></li>)}</ul>,
+          actions: null,
+        })
+      case 'outside_spaces':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.outsideSpacesTitle'),
+          body: t('alerts.outsideSpacesBody'),
+          extra: <ul className="alert-paths">{a.paths.map((p) => <li key={p}><span className="mono">{p}</span></li>)}</ul>,
+          actions: null,
+        })
+      case 'person_folder_without_user':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.personFolderTitle'),
+          body: t('alerts.personFolderBody'),
+          extra: <ul className="alert-paths">{a.names.map((n) => <li key={n}><span className="mono">people/{n}</span></li>)}</ul>,
+          actions: null,
+        })
+      case 'space_without_members':
+      case 'space_without_managers':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t(a.code === 'space_without_members' ? 'alerts.spaceNoMembersTitle' : 'alerts.spaceNoManagersTitle', { name: a.name }),
+          body: rich(t(a.code === 'space_without_members' ? 'alerts.spaceNoMembersBody' : 'alerts.spaceNoManagersBody'), { path: <span className="mono">{a.path}</span> }),
           actions: null,
         })
       case 'login_attempts_blocked':

@@ -11,12 +11,15 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PNG, type setup } from './_agents.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
-/** The key's folder and the one outside it (a marker: nothing of it may reach the key). */
-export const DIR = { key: m.aFolder(), outside: m.aUniqueWord() }
+/** The folder outside the key's (its name a marker: nothing of it may reach the key). */
+const OUTSIDE = m.aUniqueWord()
+/** The key's folder and the one outside it, both in the shared space (_permissions.ts SHARED). */
+export const DIR = { key: inShared(m.aFolder()), outside: inShared(OUTSIDE) }
 /** Folders inside the key's: two holding a note of the same name, one holding only a hidden note (a marker), the daily notes'. */
 export const SUB = { a: m.aFolder(), b: m.aFolder(), onlyHidden: m.aUniqueWord(), daily: m.aFolder(), outsideDaily: m.aFolder() }
 /** Note names (without `.md`), as links name them. */
@@ -104,7 +107,7 @@ export const MARKERS = [
   PATH.broken, ...both(WORD.broken),
   SUB.onlyHidden, ...both(WORD.onlyHidden),
   ...both(WORD.revealed),
-  DIR.outside, ...both(WORD.other), ...both(WORD.outsideDup), NAME.outsideImage, ...both(WORD.moving), ...both(WORD.template),
+  OUTSIDE, ...both(WORD.other), ...both(WORD.outsideDup), NAME.outsideImage, ...both(WORD.moving), ...both(WORD.template),
 ]
 
 /**

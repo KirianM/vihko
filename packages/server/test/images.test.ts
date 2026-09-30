@@ -29,10 +29,12 @@ const SVG = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><s
 async function setup(opts: { maxImageBytes?: number; webDir?: string; externalImages?: ExternalImages; role?: 'admin' | 'member'; fetchTesting?: FetchImageOptions['testing'] } = {}) {
   const dir = tempDir('vihko-images-')
   const notesDir = join(dir, 'notes')
-  cpSync(VAULT, notesDir, { recursive: true })
   const user = m.aUser({ role: opts.role ?? 'admin' })
-  // A member sees nothing until something is granted (D-038): the user edits everywhere.
-  if (opts.role === 'member') writeFileSync(join(notesDir, 'vihko.yaml'), `permissions:\n  "": { grants: { ${JSON.stringify(user.username)}: edit } }\n`)
+  // The vault in the user's own space (D-056), which they manage whatever their role: no grants needed.
+  const home = `people/${user.username}`
+  cpSync(VAULT, join(notesDir, home), { recursive: true })
+  /** A path of the vault, as the notes folder has it. */
+  const v = (path: string) => (path === '' ? home : `${home}/${path}`)
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
@@ -56,7 +58,7 @@ async function setup(opts: { maxImageBytes?: number; webDir?: string; externalIm
     return { status: res.status, body: await res.json() as any }
   }
   const get = (path: string, headers: Record<string, string> = {}) => app.request(path, { headers: { cookie, ...headers } })
-  return { notesDir, app, upload, post, get, settings: new AdminSettings(state) }
+  return { notesDir, app, upload, post, get, v, settings: new AdminSettings(state) }
 }
 
 /** A local HTTP server for the URL downloads; routes by path. */
@@ -90,37 +92,39 @@ test('types are detected from the bytes; SVG and anything else is refused', () =
 
 // From here on, over a copy of the test vault: its notes are where images go.
 test('upload: stored next to the note, never overwrites, and the note is untouched', async () => {
-  const { notesDir, upload } = await setup()
-  const before = readFileSync(join(notesDir, 'proyectos/vihko/notas.md'), 'utf8')
-  const a = await upload('proyectos/vihko/notas.md', PNG)
+  const { notesDir, upload, v } = await setup()
+  const notas = v('proyectos/vihko/notas.md')
+  const before = readFileSync(join(notesDir, notas), 'utf8')
+  const a = await upload(notas, PNG)
   assert.equal(a.status, 201)
-  assert.match(a.body.path, /^proyectos\/vihko\/notas-\d{4}-\d{2}-\d{2}-\d{4}\.png$/)
-  assert.equal(a.body.src, a.body.path.slice('proyectos/vihko/'.length))
+  assert.ok(a.body.path.startsWith(v('proyectos/vihko/')), a.body.path)
+  assert.match(a.body.path.slice(v('proyectos/vihko/').length), /^notas-\d{4}-\d{2}-\d{2}-\d{4}\.png$/)
+  assert.equal(a.body.src, a.body.path.slice(v('proyectos/vihko/').length))
   assert.deepEqual(readFileSync(join(notesDir, a.body.path)), Buffer.from(PNG))
 
   // Same minute: a suffix. A file someone else put there first is kept as is.
   const taken = a.body.path.replace(/\.png$/, '-2.png')
   writeFileSync(join(notesDir, taken), 'someone else')
-  const b = await upload('proyectos/vihko/notas.md', PNG)
+  const b = await upload(notas, PNG)
   assert.equal(b.body.path, a.body.path.replace(/\.png$/, '-3.png'))
   assert.equal(readFileSync(join(notesDir, taken), 'utf8'), 'someone else')
-  assert.equal(readFileSync(join(notesDir, 'proyectos/vihko/notas.md'), 'utf8'), before)
-  assert.ok(!readdirSync(join(notesDir, 'proyectos/vihko')).some((f) => f.includes('.vihko-')), 'no temp files left')
+  assert.equal(readFileSync(join(notesDir, notas), 'utf8'), before)
+  assert.ok(!readdirSync(join(notesDir, v('proyectos/vihko'))).some((f) => f.includes('.vihko-')), 'no temp files left')
 
-  const root = await upload('Plan.md', JPEG)
-  assert.match(root.body.path, /^Plan-.*\.jpg$/)
-  assert.equal(root.body.src, root.body.path)
+  const root = await upload(v('Plan.md'), JPEG)
+  assert.ok(root.body.path.startsWith(v('Plan-')) && root.body.path.endsWith('.jpg'), root.body.path)
+  assert.equal(root.body.src, root.body.path.slice(v('').length + 1))
 })
 
 test('upload limits: type, size, note that exists and a valid path', async () => {
-  const { notesDir, upload } = await setup({ maxImageBytes: 64 })
-  const svg = await upload('Plan.md', new TextEncoder().encode('<svg/>'))
+  const { notesDir, upload, v } = await setup({ maxImageBytes: 64 })
+  const svg = await upload(v('Plan.md'), new TextEncoder().encode('<svg/>'))
   assert.deepEqual([svg.status, svg.body.error], [415, 'unsupported_type'])
   const big = new Uint8Array(65)
   big.set(PNG)
-  const tooBig = await upload('Plan.md', big)
+  const tooBig = await upload(v('Plan.md'), big)
   assert.deepEqual([tooBig.status, tooBig.body.error], [413, 'too_large'])
-  const missing = await upload(m.aNotePath(), PNG)
+  const missing = await upload(m.aNotePath(v('')), PNG)
   assert.deepEqual([missing.status, missing.body.error], [404, 'not_found'])
   for (const bad of ['../fuera.md', '/Plan.md', 'adjuntos/imagen.png', '.obsidian/x.md']) {
     const r = await upload(bad, PNG)
@@ -130,8 +134,8 @@ test('upload limits: type, size, note that exists and a valid path', async () =>
 })
 
 test('serving files: type, nosniff, revalidation, and the same path rules as notes', async () => {
-  const { notesDir, app, get, upload } = await setup()
-  const up = await upload('Plan.md', PNG)
+  const { notesDir, app, get, upload, v } = await setup()
+  const up = await upload(v('Plan.md'), PNG)
   const res = await get(`/api/file?path=${encodeURIComponent(up.body.path)}`)
   assert.equal(res.status, 200)
   assert.equal(res.headers.get('content-type'), 'image/png')
@@ -142,17 +146,17 @@ test('serving files: type, nosniff, revalidation, and the same path rules as not
   const etag = res.headers.get('etag')!
   assert.equal((await get(`/api/file?path=${encodeURIComponent(up.body.path)}`, { 'if-none-match': etag })).status, 304)
 
-  const drawing = `${m.aTitle()}.svg`
+  const drawing = v(`${m.aTitle()}.svg`)
   writeFileSync(join(notesDir, drawing), SVG)
   const svg = await get(`/api/file?path=${encodeURIComponent(drawing)}`)
   assert.equal(svg.headers.get('content-type'), 'image/svg+xml')
   assert.match(svg.headers.get('content-security-policy')!, /default-src 'none'.*sandbox/, 'an SVG opened on its own runs nothing')
-  const canvas = await get('/api/file?path=adjuntos/tablero.canvas')
+  const canvas = await get(`/api/file?path=${encodeURIComponent(v('adjuntos/tablero.canvas'))}`)
   assert.equal(canvas.headers.get('content-type'), 'application/octet-stream')
   assert.match(canvas.headers.get('content-disposition')!, /^attachment/)
 
-  const hidden = `.${m.aFolder()}`
-  const [secret, link] = [`${m.aTitle()}.png`, m.aFolder()]
+  const hidden = v(`.${m.aFolder()}`)
+  const [secret, link] = [`${m.aTitle()}.png`, v(m.aFolder())]
   mkdirSync(join(notesDir, hidden))
   writeFileSync(join(notesDir, hidden, 'x.png'), PNG)
   const outside = tempDir('vihko-outside-')
@@ -160,7 +164,7 @@ test('serving files: type, nosniff, revalidation, and the same path rules as not
   symlinkSync(outside, join(notesDir, link))
   const status = async (p: string) => (await get(`/api/file?path=${encodeURIComponent(p)}`)).status
   for (const p of ['../x.png', '/etc/passwd', 'a/../../x.png', 'a//b.png', '']) assert.equal(await status(p), 400, p)
-  for (const p of ['Plan.md', `${hidden}/x.png`, `${link}/${secret}`, `${m.aTitle()}.png`, 'adjuntos']) assert.equal(await status(p), 404, p)
+  for (const p of [v('Plan.md'), `${hidden}/x.png`, `${link}/${secret}`, v(`${m.aTitle()}.png`), v('adjuntos')]) assert.equal(await status(p), 404, p)
   assert.equal((await app.request(`/api/file?path=${encodeURIComponent(up.body.path)}`)).status, 401, 'needs a session')
 })
 
@@ -168,22 +172,23 @@ test('only a few images are received at once per person: beyond that, 429 and no
   const held: import('node:http').ServerResponse[] = []
   const { url, server } = await origin({ '/held.png': (res) => { held.push(res) } })
   try {
-    const { post, upload } = await setup()
-    const waiting = Array.from({ length: IMAGES_PER_USER }, () => post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/held.png` }))
+    const { post, upload, v } = await setup()
+    const plan = v('Plan.md')
+    const waiting = Array.from({ length: IMAGES_PER_USER }, () => post('/api/attachments/fetch', { note: plan, url: `${url}/held.png` }))
     const start = Date.now()
     while (held.length < IMAGES_PER_USER) {
       if (Date.now() - start > 5000) throw new Error('the downloads never reached the origin')
       await new Promise((r) => setTimeout(r, 20))
     }
-    const more = await post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/held.png` })
+    const more = await post('/api/attachments/fetch', { note: plan, url: `${url}/held.png` })
     assert.deepEqual([more.status, more.body.error], [429, 'busy'])
-    const up = await upload('Plan.md', new Uint8Array(PNG))
+    const up = await upload(plan, new Uint8Array(PNG))
     assert.deepEqual([up.status, up.body.error], [429, 'busy'], 'an upload waits its turn as well')
     assert.equal(held.length, IMAGES_PER_USER, 'nothing more was asked of the origin')
     for (const res of held) { res.setHeader('content-type', 'image/png'); res.end(PNG) }
     for (const r of await Promise.all(waiting)) assert.equal(r.status, 201)
     // Once they're in, the slots are free again.
-    assert.equal((await upload('Plan.md', new Uint8Array(PNG))).status, 201)
+    assert.equal((await upload(plan, new Uint8Array(PNG))).status, 201)
   } finally {
     server.close()
   }
@@ -203,13 +208,13 @@ test('by URL: a copy is downloaded and stored like an upload, following a few re
     '/slow': () => { /* never answers */ },
   })
   try {
-    const { notesDir, post } = await setup({ maxImageBytes: 100 })
-    const ok = await post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/moved` })
+    const { notesDir, post, v } = await setup({ maxImageBytes: 100 })
+    const ok = await post('/api/attachments/fetch', { note: v('Plan.md'), url: `${url}/moved` })
     assert.equal(ok.status, 201)
-    assert.match(ok.body.path, /^Plan-.*\.png$/)
+    assert.ok(ok.body.path.startsWith(v('Plan-')) && ok.body.path.endsWith('.png'), ok.body.path)
     assert.deepEqual(readFileSync(join(notesDir, ok.body.path)), Buffer.from(PNG))
 
-    const code = async (u: string) => { const r = await post('/api/attachments/fetch', { note: 'Plan.md', url: u }); return [r.status, r.body.error] }
+    const code = async (u: string) => { const r = await post('/api/attachments/fetch', { note: v('Plan.md'), url: u }); return [r.status, r.body.error] }
     assert.deepEqual(await code(`${url}/loop`), [502, 'fetch_failed'])
     assert.deepEqual(await code(`${url}/gone`), [502, 'fetch_failed'])
     assert.deepEqual(await code(`${url}/page`), [415, 'unsupported_type'])
@@ -218,7 +223,7 @@ test('by URL: a copy is downloaded and stored like an upload, following a few re
     assert.deepEqual(await code(`${url}/big`), [413, 'too_large'])
     assert.deepEqual(await code(`${url}/big-chunked`), [413, 'too_large'], 'the cap holds without a Content-Length')
     for (const bad of ['file:///etc/passwd', 'ftp://h/x.png', 'no es una url', `http://user:pw@127.0.0.1/x.png`]) assert.deepEqual(await code(bad), [400, 'invalid'], bad)
-    const noNote = await post('/api/attachments/fetch', { note: m.aNotePath(), url: `${url}/chart.png` })
+    const noNote = await post('/api/attachments/fetch', { note: m.aNotePath(v('')), url: `${url}/chart.png` })
     assert.deepEqual([noNote.status, noNote.body.error], [404, 'not_found'])
 
     await assert.rejects(fetchImage(`${url}/slow`, { maxBytes: 100, timeoutMs: 200 }), (e: Error & { code?: string }) => e.code === 'fetch_failed' && /timed out/.test(e.message))
@@ -249,29 +254,29 @@ test('by URL, a member: only public addresses (also after DNS and redirects), un
   }
   try {
     const member = await setup({ role: 'member', fetchTesting: testing })
-    const code = async (u: string) => { const r = await member.post('/api/attachments/fetch', { note: 'Plan.md', url: u }); return [r.status, r.body.error] }
-    const ok = await member.post('/api/attachments/fetch', { note: 'Plan.md', url: `http://images.example:${port}/chart.png` })
+    const code = async (u: string) => { const r = await member.post('/api/attachments/fetch', { note: member.v('Plan.md'), url: u }); return [r.status, r.body.error] }
+    const ok = await member.post('/api/attachments/fetch', { note: member.v('Plan.md'), url: `http://images.example:${port}/chart.png` })
     assert.equal(ok.status, 201, 'a public address: downloaded, from the address that was checked')
     for (const u of [
       `http://intranet.example:${port}/chart.png`, `http://mixed.example:${port}/chart.png`, `http://v6.example:${port}/chart.png`,
       `http://images.example:${port}/to-private`, `http://images.example:${port}/to-intranet`,
       'http://10.0.0.1/x.png', 'http://[::1]/x.png', 'http://169.254.169.254/latest/meta-data', 'http://[::ffff:192.168.0.1]/x.png',
     ]) assert.deepEqual(await code(u), [403, 'private_address'], u)
-    assert.equal((await member.post('/api/attachments/fetch', { note: 'Plan.md', url: `http://images.example:${port}/to-public` })).status, 201, 'a redirect to a public address is followed')
+    assert.equal((await member.post('/api/attachments/fetch', { note: member.v('Plan.md'), url: `http://images.example:${port}/to-public` })).status, 201, 'a redirect to a public address is followed')
 
     // Without the test's resolver: the system's, and loopback is not public.
     const plain = await setup({ role: 'member' })
-    assert.deepEqual([(await plain.post('/api/attachments/fetch', { note: 'Plan.md', url: `http://localhost:${port}/chart.png` })).body.error], ['private_address'])
-    assert.deepEqual([(await plain.post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/chart.png` })).body.error], ['private_address'])
-    assert.deepEqual([(await plain.post('/api/attachments/fetch', { note: 'Plan.md', url: `http://0x7f000001:${port}/chart.png` })).body.error], ['private_address'], 'another way of writing 127.0.0.1')
+    assert.deepEqual([(await plain.post('/api/attachments/fetch', { note: plain.v('Plan.md'), url: `http://localhost:${port}/chart.png` })).body.error], ['private_address'])
+    assert.deepEqual([(await plain.post('/api/attachments/fetch', { note: plain.v('Plan.md'), url: `${url}/chart.png` })).body.error], ['private_address'])
+    assert.deepEqual([(await plain.post('/api/attachments/fetch', { note: plain.v('Plan.md'), url: `http://0x7f000001:${port}/chart.png` })).body.error], ['private_address'], 'another way of writing 127.0.0.1')
     // The admin lets members reach the local network.
     plain.settings.set({ membersLocalDownloads: true })
-    assert.equal((await plain.post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/chart.png` })).status, 201)
+    assert.equal((await plain.post('/api/attachments/fetch', { note: plain.v('Plan.md'), url: `${url}/chart.png` })).status, 201)
     plain.settings.set({ membersLocalDownloads: false })
-    assert.equal((await plain.post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/chart.png` })).status, 403)
+    assert.equal((await plain.post('/api/attachments/fetch', { note: plain.v('Plan.md'), url: `${url}/chart.png` })).status, 403)
     // The vihko admin, from anywhere (the test above downloads from 127.0.0.1 as one).
     const admin = await setup({ role: 'admin' })
-    assert.equal((await admin.post('/api/attachments/fetch', { note: 'Plan.md', url: `${url}/chart.png` })).status, 201)
+    assert.equal((await admin.post('/api/attachments/fetch', { note: admin.v('Plan.md'), url: `${url}/chart.png` })).status, 201)
 
     await assert.rejects(fetchImage(`${url}/chart.png`, { maxBytes: 100, publicOnly: true }), (e: Error & { code?: string }) => e.code === 'private_address')
   } finally {

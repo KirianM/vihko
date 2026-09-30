@@ -2,9 +2,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { chmodSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, posix } from 'node:path'
 import { SESSION_COOKIE } from '@vihko/server'
 import { CONFIG, DAILY, setup } from './_app.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -76,9 +77,11 @@ test('attachments: vihko.yaml can send new images to a fixed folder', async () =
   const cookie = login.headers.get('set-cookie')!.split(';')[0]!
   assert.ok(cookie.startsWith(SESSION_COOKIE))
   const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13])
-  const res = await app.request('/api/attachments?note=hogar/Proxy.md', { method: 'POST', headers: { cookie, 'content-type': 'image/png' }, body: png })
+  const note = inShared('hogar/Proxy.md')
+  const res = await app.request(`/api/attachments?note=${encodeURIComponent(note)}`, { method: 'POST', headers: { cookie, 'content-type': 'image/png' }, body: png })
   const body = await res.json() as { path: string; src: string }
   assert.equal(res.status, 201)
   assert.match(body.path, new RegExp(`^${literally(DAILY.attachments)}/Proxy-\\d{4}-\\d{2}-\\d{2}-\\d{4}\\.png$`, 'u'))
-  assert.equal(body.src, `../${body.path}`, 'linked relative to the note')
+  assert.equal(body.src, posix.relative(posix.dirname(note), body.path), 'linked relative to the note')
+  assert.ok(body.src.startsWith('../'))
 })

@@ -7,7 +7,7 @@ import { parseThreads, reopener, resolveThread, type Change } from '@vihko/core'
 import { wordStats, type AuthorRef, type HistoryReader, type RawVersion } from '@vihko/server'
 import { ResolvedThreads } from '../src/history/resolved.ts'
 import { setup } from './_history.ts'
-import { yamlKey } from './_permissions.ts'
+import { inShared, sharedSpace } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -15,7 +15,7 @@ const m = mother(import.meta.url)
 const WRITER = m.aUsername()
 const REPLIER = m.aUsername()
 
-const NOTE = m.aNotePath(m.aFolder())
+const NOTE = m.aNotePath(inShared(m.aFolder()))
 /** The two sentences comments hang from, and what the comments say. */
 const [FIRST, SECOND] = [m.aSentence(), m.aSentence()]
 const [SAID, REPLIED, ASKED] = [m.aComment(), m.aComment(), m.aComment()]
@@ -100,7 +100,7 @@ test('a thread whose text was deleted can be read but not reopened; a reply more
 
 test('the resolved threads follow the note when it moves', async () => {
   const h = await setup({ files: { [NOTE]: TEXT } })
-  const moved = m.aNotePath(m.aFolder())
+  const moved = m.aNotePath(inShared(m.aFolder()))
   try {
     await h.put(NOTE, without(0), 'member')
     await h.settle()
@@ -116,10 +116,11 @@ test('the resolved threads follow the note when it moves', async () => {
 })
 
 test('the same permission check as the rest of the history, and its errors', async () => {
-  // Nobody reads privado/ (the fixed vault's): its history doesn't exist for anyone. (Nobody manages the root: whoever did would reach it, D-040 3.5.)
-  const h = await setup({ files: { [NOTE]: TEXT }, config: ({ admin, member }) => `permissions:\n  "": { grants: { ${yamlKey(admin)}: edit, ${yamlKey(member)}: edit } }\n  privado: { grants: {} }\n` })
+  // A note in a shared space with no members: its history doesn't exist for anyone.
+  const hidden = m.aNotePath(`spaces/${m.aSpaceFolder()}`)
+  const h = await setup({ files: { [NOTE]: TEXT, [hidden]: TEXT }, config: ({ admin, member }) => sharedSpace({ [admin]: 'edit', [member]: 'edit' }) })
   try {
-    assert.equal((await h.admin('GET', `/api/history/resolved?path=${h.q('privado/sin-ia.md')}`)).status, 404)
+    assert.equal((await h.admin('GET', `/api/history/resolved?path=${h.q(hidden)}`)).status, 404)
     assert.equal((await h.admin('GET', '/api/history/resolved?path=..%2Fx.md')).status, 400)
   } finally { await h.close() }
   const off = await setup({ files: { [NOTE]: TEXT }, config: 'history:\n  mode: off\n' })

@@ -20,7 +20,7 @@ const warnings = (text: string, strict?: readonly StrictSection[]) => {
 }
 
 test('vihko.yaml: empty or just comments is valid and turns nothing on', () => {
-  for (const text of ['', '# nothing yet\n', '---\n']) assert.deepEqual(parseWorkspaceConfig(text), { ok: true, config: EMPTY_WORKSPACE, warnings: [], sections: { permissions: { kind: 'implicit' } } })
+  for (const text of ['', '# nothing yet\n', '---\n']) assert.deepEqual(parseWorkspaceConfig(text), { ok: true, config: EMPTY_WORKSPACE, warnings: [], sections: { permissions: { kind: 'none' } } })
 })
 
 test('vihko.yaml: series, templates and attachments', () => {
@@ -155,19 +155,25 @@ test('vihko.yaml: a wrong value in a known key still makes the file unusable', (
   assert.deepEqual(brief(r.warnings), [['unknown_key', 'unknown', 1]])
 })
 
-test('vihko.yaml: permissions is a strict section: rejected, nobody reads; missing, the implicit one', () => {
-  const r = parseWorkspaceConfig(`templates: P\npermissions:\n  Privado: {grants: {${USER}: edit}}\n`)
+test('vihko.yaml: permissions is a strict section: rejected, nothing is shared; missing, none', () => {
+  // A folder of someone's personal space (D-056): keys are real paths inside a space.
+  const folder = `people/${m.aUsername()}/${m.aFolder()}`
+  const r = parseWorkspaceConfig(`templates: P\npermissions:\n  ${JSON.stringify(folder)}: {grants: {${USER}: edit}}\n`)
   assert.ok(r.ok)
   assert.deepEqual(r.warnings, [])
-  assert.deepEqual(r.sections.permissions, { kind: 'rules', rules: [{ folder: 'Privado', grants: { [USER]: 'edit' }, ai: null }] })
-  const bad = parseWorkspaceConfig(`templates: P\npermissions:\n  Privado: {${USER}: edit}\n`)
+  assert.deepEqual(r.sections.permissions, { kind: 'rules', rules: [{ folder, grants: { [USER]: 'edit' }, ai: null }] })
+  const bad = parseWorkspaceConfig(`templates: P\npermissions:\n  ${JSON.stringify(folder)}: {${USER}: edit}\n`)
   assert.ok(bad.ok, 'never blocks the rest')
   assert.equal(bad.config.templates, 'P')
   assert.deepEqual(bad.sections.permissions, { kind: 'closed' })
-  assert.deepEqual(brief(bad.warnings), [['section_rejected', 'permissions', 2], ['unknown_key', `permissions.Privado.${USER}`, 3]])
+  assert.deepEqual(brief(bad.warnings), [['section_rejected', 'permissions', 2], ['unknown_key', `permissions.${folder}.${USER}`, 3]])
+  // A folder in no space rejects it too.
+  const outside = parseWorkspaceConfig(`templates: P\npermissions:\n  ${JSON.stringify(m.aFolder())}: {grants: {${USER}: edit}}\n`)
+  assert.ok(outside.ok)
+  assert.deepEqual(outside.sections.permissions, { kind: 'closed' })
   const none = parseWorkspaceConfig('templates: P\n')
   assert.ok(none.ok)
-  assert.deepEqual(none.sections.permissions, { kind: 'implicit' })
+  assert.deepEqual(none.sections.permissions, { kind: 'none' })
 })
 
 // A stand-in for a security section (M4's permissions): strict, failing closed.

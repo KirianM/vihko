@@ -1,20 +1,24 @@
-// Who gains or loses access when something moves (D-038, «mover con aviso»):
-// the preview of a note or folder move says it, and the UI asks before
-// moving. Users and groups are named (everyone may see their names, D-038);
-// keys are only counted (they're their owners' own). Whoever manages a
-// folder above counts where they manage (D-040 3.5), as the engine says.
+// Who gains or loses access when something moves (D-038 «mover con aviso»,
+// spec §3.3): the preview of a note or folder move says it, and the UI asks
+// before moving. Users and groups are named (everyone may see their names,
+// D-038); keys are only counted (they're their owners' own). Moving to
+// another space also changes whose it is (`owner`): out of one's own space
+// it stops being theirs; into a folder someone shares, it goes into their
+// space.
 //
 // A folder moved from vihko takes its rules along (permissionsFile.ts): its
-// own rules and those under it move with it, and a `{user}` rule that would
-// stop matching it is written as a literal copy at the new path
-// (`ruleMove`). Only what inherits from above the folder changes hands.
-import {
-  RuleSet, folderOf, grantsAt, levelInReach, reachingGrants, subjectKey,
-  type Level, type PermissionRule, type RuleValue,
-} from '@vihko/core'
+// own rules and those under it move with it, and rules forgotten at the
+// destination go (core `moveRules`). Only what reaches it from above changes.
+import { SpaceRules, folderOf, parseSpacePath, rulesOf, type PermissionRule } from '@vihko/core'
 import { inFolders } from './access.ts'
 import type { KeyWithUser } from './keys.ts'
 import type { DirectoryUser, PermissionsEngine } from './permissions.ts'
+
+/** Whose a path is: a person's space (`owner`), a shared space (its root and name), or nobody's (outside the spaces). */
+export type SpaceOwner =
+  | { kind: 'personal'; owner: string }
+  | { kind: 'shared'; path: string; name: string }
+  | null
 
 export interface AudienceChange {
   users: { gain: { id: string; username: string }[]; lose: { id: string; username: string }[] }
@@ -22,78 +26,60 @@ export interface AudienceChange {
   groups: { gain: string[]; lose: string[] }
   /** How many keys (of anyone) gain or lose it. */
   keys: { gain: number; lose: number }
-}
-
-/** What moves with a folder: the rules to write at the new path besides its own literal ones (see the header). */
-export function ruleMove(engine: PermissionsEngine, from: string, to: string, folders: readonly string[]): { extra: (RuleValue & { folder: string })[]; rules: PermissionRule[] | null } {
-  const set = engine.rules()
-  const users = engine.directory.users()
-  if (!set) return { extra: [], rules: null }
-  const names = new Set(users.map((u) => subjectKey(u.username)))
-  const f = from.normalize('NFC')
-  const t = to.normalize('NFC')
-  const under = (k: string) => k === f || k.startsWith(f + '/')
-  const extra: (RuleValue & { folder: string })[] = []
-  for (const folder of new Set([f, ...folders.map((x) => x.normalize('NFC')).filter(under)])) {
-    const own = set.own(folder)
-    if (!own) continue
-    // A literal rule without grants over a `{user}` one takes that one's grants along (RuleSet.governing).
-    const u = own.user === null && own.rule.grants === null ? set.userRule(folder) : null
-    const m = own.user !== null ? own : u !== null && u.rule.grants !== null ? u : null
-    if (!m) continue
-    const grants = m.rule.grants === null ? null : grantsAt({ ...m, at: folder }, (n) => names.has(subjectKey(n)))
-    extra.push({ folder: t + folder.slice(f.length), grants, ai: own.user === null ? own.rule.ai : m.rule.ai })
-  }
-  // The rules as they'll be once it moved, as vihko.yaml will have them (core `moveRules`): every key under
-  // the folder moves, `{user}` rules too. The implicit section has no rule under any folder: it doesn't change.
-  const section = engine.section
-  if (section.kind !== 'rules') return { extra, rules: null }
-  const rules = section.rules.map((r): PermissionRule => (under(r.folder) ? { ...r, folder: t + r.folder.slice(f.length) } : r))
-  for (const e of extra) {
-    const i = rules.findIndex((r) => r.folder === e.folder)
-    const rule = { folder: e.folder, grants: e.grants, ai: e.ai }
-    if (i === -1) rules.push(rule)
-    else rules[i] = rule
-  }
-  return { extra, rules }
+  /** Whose it is before and after, when the move changes its space; null when it stays in its space. */
+  owner: { before: SpaceOwner; after: SpaceOwner } | null
 }
 
 /**
- * The change of audience of moving what is at the folders `pairs` (before →
- * after, each a folder and a sample path in it for the keys' folders), with
- * `after` rules (null: the same as now).
+ * The rules as they'll be once the folder `from` moved to `to`, as
+ * vihko.yaml will have them (core `moveRules`): every key under the folder
+ * moves, and keys already at the destination go.
+ */
+export function ruleMove(engine: PermissionsEngine, from: string, to: string): { rules: PermissionRule[] } {
+  const f = from.normalize('NFC')
+  const t = to.normalize('NFC')
+  const under = (k: string, root: string) => k === root || k.startsWith(root + '/')
+  const rules = rulesOf(engine.section)
+    .filter((r) => under(r.folder, f) || !under(r.folder, t))
+    .map((r): PermissionRule => (under(r.folder, f) ? { ...r, folder: t + r.folder.slice(f.length) } : r))
+  return { rules }
+}
+
+/** Whose `path` is under `rules`. */
+function ownerOf(engine: PermissionsEngine, rules: SpaceRules, path: string): SpaceOwner {
+  const s = parseSpacePath(path)
+  if (!s) return null
+  return s.space.kind === 'personal' ? { kind: 'personal', owner: s.space.owner } : { kind: 'shared', path: s.space.root, name: engine.spaceName(s.space.root, rules) ?? s.space.readable }
+}
+
+/**
+ * The change of audience of moving what is at the paths `pairs` (before →
+ * after: a note, or a sample path in a folder), with `afterRules` (null: the
+ * same as now).
  */
 export function audienceChange(engine: PermissionsEngine, keys: readonly KeyWithUser[], pairs: readonly { before: string; after: string }[], afterRules: PermissionRule[] | null = null): AudienceChange {
   const users = engine.directory.users()
-  const nowSet = engine.rules(users)
-  const thenSet = afterRules ? new RuleSet(afterRules) : nowSet
-  const names = new Set(users.map((u) => subjectKey(u.username)))
-  const exists = (n: string) => names.has(subjectKey(n))
+  const nowSet = engine.spaceRules()
+  const thenSet = afterRules ? new SpaceRules(afterRules) : nowSet
+  const exists = engine.ownerCheck(users)
   const groupsOf = new Map(users.map((u) => [u.id, engine.directory.groupsOf(u.id)]))
-  // What reaches a folder: its grants and whoever manages it from above (D-040 3.5).
-  const reach = (set: RuleSet | null, folder: string) => (set ? reachingGrants(set, folder, exists) : null)
-  const levelIn_ = (set: RuleSet | null, folder: string, u: DirectoryUser): Level | null => {
-    const r = reach(set, folder)
-    return r ? levelInReach(r, { username: u.username, groups: groupsOf.get(u.id) ?? [] }) : null
-  }
-  const grantedGroups = (set: RuleSet | null, folder: string): Set<string> => {
-    const r = reach(set, folder)
-    const subjects = r ? [...Object.keys(r.grants), ...r.above.map((m) => m.subject)] : []
-    return new Set(subjects.filter((s) => s.startsWith('@')).map((s) => s.slice(1)))
-  }
+  const levelIn = (set: SpaceRules, folder: string, u: DirectoryUser) => set.level(folder, { username: u.username, groups: groupsOf.get(u.id) ?? [] }, exists)
+  const grantedGroups = (set: SpaceRules, folder: string): Set<string> =>
+    new Set(set.reaching(folder).map((g) => g.subject).filter((s) => s.startsWith('@')).map((s) => s.slice(1)))
   const gainU = new Map<string, DirectoryUser>()
   const loseU = new Map<string, DirectoryUser>()
   const gainG = new Set<string>()
   const loseG = new Set<string>()
   const gainK = new Set<string>()
   const loseK = new Set<string>()
+  let owner: AudienceChange['owner'] = null
   for (const { before, after } of pairs) {
     const fb = folderOf(before)
     const fa = folderOf(after)
     const readers = new Map<string, [boolean, boolean]>()
     for (const u of users) {
-      const b = levelIn_(nowSet, fb, u) !== null
-      const a = levelIn_(thenSet, fa, u) !== null
+      const b = levelIn(nowSet, fb, u) !== null
+      const a = levelIn(thenSet, fa, u) !== null
       readers.set(u.id, [b, a])
       if (b && !a) loseU.set(u.id, u)
       if (!b && a) gainU.set(u.id, u)
@@ -105,16 +91,20 @@ export function audienceChange(engine: PermissionsEngine, keys: readonly KeyWith
     for (const k of keys) {
       if (k.status !== 'active') continue
       const [ub, ua] = readers.get(k.userId) ?? [false, false]
-      const b = ub && inFolders(before, k.folders) && nowSet?.aiClosedAt(fb) == null
-      const a = ua && inFolders(after, k.folders) && thenSet?.aiClosedAt(fa) == null
+      const b = ub && inFolders(before, k.folders) && nowSet.aiClosedAt(fb) === null
+      const a = ua && inFolders(after, k.folders) && thenSet.aiClosedAt(fa) === null
       if (b && !a) loseK.add(k.id)
       if (!b && a) gainK.add(k.id)
     }
+    const sb = parseSpacePath(before)?.space.root ?? null
+    const sa = parseSpacePath(after)?.space.root ?? null
+    if (owner === null && sb !== sa) owner = { before: ownerOf(engine, nowSet, before), after: ownerOf(engine, thenSet, after) }
   }
   const brief = (m: Map<string, DirectoryUser>) => [...m.values()].map((u) => ({ id: u.id, username: u.username })).sort((a, b) => a.username.localeCompare(b.username))
   return {
     users: { gain: brief(gainU), lose: brief(loseU) },
     groups: { gain: [...gainG].sort(), lose: [...loseG].sort() },
     keys: { gain: gainK.size, lose: loseK.size },
+    owner,
   }
 }

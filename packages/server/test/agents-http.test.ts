@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { markdownDest } from '@vihko/core'
 import { ROUTES } from '@vihko/server'
 import { PNG, setup } from './_agents.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -14,9 +15,9 @@ const nocase = (a: string, b: string) => Buffer.compare(Buffer.from(a.replace(/[
 const NO_SESSION = `vihko_session=${m.aSecret(43)}`
 
 /** The folder keys are limited to, a note in it; another folder and a note there. */
-const DIR = m.aFolder()
+const DIR = inShared(m.aFolder())
 const PLAN = m.aNotePath(DIR)
-const OUT_DIR = m.aFolder()
+const OUT_DIR = inShared(m.aFolder())
 const OUTSIDE = m.aNotePath(OUT_DIR)
 const FILES = {
   [PLAN]: `# ${m.aHeading()}\n\n${m.aSentence()}\n`,
@@ -36,7 +37,7 @@ test('switched off (the default), a key reaches nothing: 404 everywhere, as a ro
     const both = await key('GET', '/api/tree', undefined, { cookie: h.cookies.admin })
     assert.equal(both.status, 404)
     // From another origin too: off, there is nothing there (not even a CSRF 403).
-    assert.equal((await key('POST', '/api/note', { path: m.aNotePath(), text: m.aSentence() }, { origin: 'https://elsewhere.example' })).status, 404)
+    assert.equal((await key('POST', '/api/note', { path: m.aNotePath(DIR), text: m.aSentence() }, { origin: 'https://elsewhere.example' })).status, 404)
     assert.equal((await h.admin('GET', '/api/tree')).status, 200, 'the cookie still works without a key')
     assert.equal((await h.admin('GET', '/api/health')).status, 200)
   } finally { await h.close() }
@@ -350,7 +351,7 @@ function notCamel(v: unknown, at = ''): string[] {
 
 test('every answer of the routes open to keys is camelCase: fields, nested ones, reports and errors', async () => {
   const [target, twin, heading] = [m.aTitle(), m.aTitle(), m.aHeading()]
-  const [a, b] = [m.aFolder(), m.aFolder()]
+  const [a, b] = [inShared(m.aFolder()), inShared(m.aFolder())]
   const source = m.aNotePath(DIR)
   const files = {
     ...FILES,
@@ -389,7 +390,7 @@ test('every answer of the routes open to keys is camelCase: fields, nested ones,
     await ask('POST', '/api/note/edit', { path: source, ops: [{ op: 'append', text: m.aSentence() }] })
     await ask('POST', '/api/note/edit', { path: source, ops: [{ op: 'set_frontmatter', key: 'ai', value: false }], ifMatch: (await key('GET', h.url('/api/note', { path: source }))).body.etag })
     await ask('POST', '/api/daily', {})
-    await ask('POST', '/api/note/move', { from: `${DIR}/${target}.md`, to: `${m.aFolder()}/${target}.md`, dryRun: true })
+    await ask('POST', '/api/note/move', { from: `${DIR}/${target}.md`, to: `${inShared(m.aFolder())}/${target}.md`, dryRun: true })
     await ask('POST', '/api/note/move', { from: `${DIR}/${target}.md`, to: `${DIR}/${m.aTitle()}.md` })
     await ask('POST', h.url('/api/attachments', { note: created.path }), new Uint8Array(PNG))
     await h.settle()

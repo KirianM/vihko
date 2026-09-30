@@ -16,24 +16,19 @@ import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
-// The admin edits the root, not manages it: whoever manages it keeps
-// managing the shared folder whatever its grants say (D-040 3.5), and they have to read it only.
-const rules = (admin: string, member: string, shared: string, people: string) => `permissions:
-  "":
-    grants: { ${yamlKey(admin)}: edit }
+// A shared space the member manages and the admin only reads (the admin role gives nothing, D-038.1).
+const rules = (admin: string, member: string, shared: string) => `permissions:
   ${yamlKey(shared)}:
-    grants: { ${yamlKey(member)}: edit, ${yamlKey(admin)}: read }
-  ${yamlKey(`${people}/{user}`)}:
-    grants: { "{user}": manage }
+    grants: { ${yamlKey(member)}: manage, ${yamlKey(admin)}: read }
 `
 const note = () => `# ${m.aHeading()}\n\n${m.aSentence()}\n`
 
-/** A server's folders with its admin and a member: a shared note, and a note in the member's own folder. */
+/** A server's folders with its admin and a member: a note in a shared space, and a note in the member's personal space. */
 function prepare() {
   const { notes, env, admin } = makeDirs()
   const member = m.aUser()
-  const [shared, people] = [m.aFolder(), m.aFolder()]
-  const own = `${people}/${member.username}`
+  const shared = `spaces/${m.aSpaceFolder()}`
+  const own = `people/${member.username}`
   const list = m.aNotePath(shared)
   const diary = m.aNotePath(own)
   spawnSync(process.execPath, [CLI, 'user', 'create', member.username], { env: { ...process.env, ...env }, input: member.password })
@@ -41,8 +36,8 @@ function prepare() {
   mkdirSync(join(notes, own), { recursive: true })
   writeFileSync(join(notes, list), note())
   writeFileSync(join(notes, diary), note())
-  writeFileSync(join(notes, 'vihko.yaml'), rules(admin.username, member.username, shared, people))
-  return { notes, env, admin, member, shared, people, own, list, diary }
+  writeFileSync(join(notes, 'vihko.yaml'), rules(admin.username, member.username, shared))
+  return { notes, env, admin, member, shared, own, list, diary }
 }
 
 /** Opens a note and says whether the hub let it in (synced) or refused it. */
@@ -80,7 +75,7 @@ test('opening a note needs read; with read only, what the editor sends is droppe
 })
 
 test('access changed with the note open: the editor is told and closed; a move names where it went only to those who can read it there', async () => {
-  const { notes, env, admin, member, shared, people, list } = prepare()
+  const { notes, env, admin, member, shared, list } = prepare()
   const srv = await startServer({ ...env, VIHKO_HISTORY_QUIET_SECONDS: '0.4' })
   try {
     const k = await login(srv)
@@ -90,9 +85,9 @@ test('access changed with the note open: the editor is told and closed; a move n
     const got: { who: string; m: any }[] = []
     for (const [who, c] of [['member', memberEditor], ['admin', adminEditor]] as const) c.provider.on('stateless', ({ payload }: { payload: string }) => got.push({ who, m: JSON.parse(payload) }))
 
-    // The admin takes the member down to read.
-    const perm = await api(srv, k, 'GET', `/api/permissions?folder=${encodeURIComponent(shared)}`)
-    const put = await api(srv, k, 'PUT', '/api/permissions', { folder: shared, grants: { [member.username]: 'read', [admin.username]: 'edit' }, ifMatch: perm.body.etag })
+    // The member, who manages the space, hands editing to the admin and keeps reading.
+    const perm = await api(srv, l, 'GET', `/api/permissions?folder=${encodeURIComponent(shared)}`)
+    const put = await api(srv, l, 'PUT', '/api/permissions', { folder: shared, grants: { [member.username]: 'read', [admin.username]: 'edit' }, ifMatch: perm.body.etag })
     assert.equal(put.status, 200, JSON.stringify(put.body))
     await waitFor(() => got.some((g) => g.who === 'member' && g.m.type === 'vihko:access'), 'the member is told')
     assert.deepEqual(got.filter((g) => g.m.type === 'vihko:access').map((g) => [g.who, g.m.access]).sort(), [['admin', 'edit'], ['member', 'read']])
@@ -103,11 +98,11 @@ test('access changed with the note open: the editor is told and closed; a move n
     await sleep(1500)
     assert.ok(!readFileSync(join(notes, list), 'utf8').includes(afterDowngrade))
 
-    // The admin (edit now) moves it where the member can't read: they're told it's gone, not where.
+    // The admin (edit now) moves it to their own space, where the member can't read: they're told it's gone, not where.
     const k2 = await connect(srv, k, list)
     const moved: { who: string; to: unknown }[] = []
     for (const [who, c] of [['member', again], ['admin', k2]] as const) c.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'vihko:moved') moved.push({ who, to: m.to }) })
-    const to = m.aNotePath(`${people}/${admin.username}`)
+    const to = m.aNotePath(`people/${admin.username}`)
     const mv = await api(srv, k, 'POST', '/api/note/move', { from: list, to })
     assert.equal(mv.status, 200, JSON.stringify(mv.body))
     await waitFor(() => moved.length === 2, 'both editors told')

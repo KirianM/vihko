@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import { createHash, randomBytes } from 'node:crypto'
 import { OAuthServer, REGISTRATIONS_PER_HOUR, REGISTRATION_ADDRESSES, WindowLimit, publicUrlFrom, sameRedirect } from '@vihko/server'
 import { setup } from './_agents.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -17,7 +18,7 @@ const PUBLIC = 'https://notas.example.org'
 const RESOURCE = `${PUBLIC}/mcp`
 const REDIRECT = 'https://claude.example/api/mcp/auth_callback'
 /** A folder with a note (with a word to search for) and one hidden from agents; another folder. */
-const FOLDER = { own: m.aFolder(), other: m.aFolder() }
+const FOLDER = { own: inShared(m.aFolder()), other: inShared(m.aFolder()) }
 const WORD = m.aUniqueWord()
 const PATH = { plan: m.aNotePath(FOLDER.own), hidden: m.aNotePath(FOLDER.own), other: m.aNotePath(FOLDER.other) }
 const FILES = {
@@ -236,7 +237,7 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     assert.equal(found.error, false)
     assert.deepEqual(found.data.results.map((r: { path: string }) => r.path), [PATH.plan])
     assert.equal((await reader.call('get_note', { path: PATH.hidden })).data.error, 'agent_denied', 'ai: false stays hidden')
-    assert.equal(JSON.parse(((await reader.client.callTool({ name: 'create_note', arguments: { path: m.aNotePath(), text: m.aSentence() } })) as { isError?: boolean; content: { text: string }[] }).content[0]!.text).error, 'forbidden', 'a read-only key: forbidden, in vihko\'s JSON')
+    assert.equal(JSON.parse(((await reader.client.callTool({ name: 'create_note', arguments: { path: m.aNotePath(FOLDER.own), text: m.aSentence() } })) as { isError?: boolean; content: { text: string }[] }).content[0]!.text).error, 'forbidden', 'a read-only key: forbidden, in vihko\'s JSON')
     await reader.close()
 
     // The authorization is a key of the admin's, named after the client, used via OAuth.

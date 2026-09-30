@@ -17,14 +17,13 @@
 //
 // What a principal can't read doesn't exist for it: callers answer
 // `not_found`, never `forbidden`, and name nothing it can't see (D-030,
-// D-024). A person who can see a note (or a folder) but not do something in
-// it gets `forbidden`. And an agent that names a note that exists but is
-// hidden from it gets an explicit denial, `agent_denied` with the reason
-// (`ai_false`, `outside_key_folders`, or `user_no_access` when its user
-// can't see it), so that it doesn't take it for a broken link and delete,
-// redirect or duplicate it. The denial carries nothing of the note. Lists
-// still never show it: the agent only learns it exists if it already has
-// its name.
+// D-056.15). A person who can see a note (or a folder) but not do something
+// in it gets `forbidden`. An agent that names a note its user reads but that
+// is hidden from the agent gets an explicit denial, `agent_denied` with the
+// reason (`ai_false`, `outside_key_folders`), so that it doesn't take it for
+// a broken link and delete, redirect or duplicate it; that is no leak, its
+// user sees the note (D-035). The denial carries nothing of the note. A note
+// its user can't read is `not_found` for it too, exists or not (D-056.15).
 import { WORKSPACE_FILE, atLeast, classifyPath, folderOf, readFrontmatter, type Level } from '@vihko/core'
 import type { Actor, Via } from './actor.ts'
 import type { User } from './auth.ts'
@@ -66,11 +65,12 @@ export class AccessError extends Error {
 }
 
 /**
- * Why a note an agent named isn't for it: `ai: false` (in the note, a
- * frontmatter that can't be read, or its folder in vihko.yaml), out of its
- * key's folders, or its user can't see it.
+ * Why a note an agent named, which its user reads, isn't for it: `ai: false`
+ * (in the note, a frontmatter that can't be read, or its folder in
+ * vihko.yaml), or out of its key's folders. (A note its user can't read
+ * doesn't exist for it: `not_found`.)
  */
-export type DenyReason = 'ai_false' | 'outside_key_folders' | 'user_no_access'
+export type DenyReason = 'ai_false' | 'outside_key_folders'
 
 /**
  * An agent named a note that exists but is hidden from it (403
@@ -80,9 +80,7 @@ export class AgentDenied extends Error {
   readonly code = 'agent_denied'
   readonly reason: DenyReason
   constructor(reason: DenyReason) {
-    const why = reason === 'ai_false' ? 'it is marked as hidden from them'
-      : reason === 'outside_key_folders' ? 'it is outside the folders of this key'
-      : 'the person this key acts for has no access to it'
+    const why = reason === 'ai_false' ? 'it is marked as hidden from them' : 'it is outside the folders of this key'
     super(`This note exists but is not available to agents (${why}). `
       + 'Do not delete, rewrite or replace links to it, and do not create a note to replace it.')
     this.reason = reason
@@ -243,6 +241,16 @@ export class Access {
     return this.viewer.can(path, need) && !this.policy.holds?.held(path.normalize('NFC'))
   }
 
+  /**
+   * Whether `path` is a note held after a move made outside vihko in a folder
+   * where this principal writes (permissionHolds.ts): its name is taken there,
+   * and that is all that is said of it (spec §3.4 row 7, the one residue).
+   */
+  heldWhereWritable(path: string): boolean {
+    const p = path.normalize('NFC')
+    return this.mayWrite && !!this.policy.holds?.held(p) && this.viewer.can(p, 'edit') && (this.principal.kind === 'user' || this.agentReaches(p))
+  }
+
   /** Whether a path is within the key's folders (always, for a user). Says nothing about the note itself. */
   inScope(path: string): boolean {
     return this.principal.kind === 'user' || inFolders(path, this.principal.key.folders)
@@ -357,11 +365,25 @@ export class Access {
     return this.reasonFor(path)
   }
 
-  /** Why a note is hidden from an agent, known to exist and to be hidden (by its text, say). */
-  reasonFor(path: string): DenyReason {
-    if (!this.userCan(path, 'read')) return 'user_no_access'
+  /**
+   * Why a note is hidden from an agent, known to exist and to be hidden (by
+   * its text, say); null if its user can't read it (then it doesn't exist
+   * for the agent either: `hiddenError`).
+   */
+  reasonFor(path: string): DenyReason | null {
+    if (!this.userCan(path, 'read')) return null
     if (!this.inScope(path)) return 'outside_key_folders'
     return 'ai_false'
+  }
+
+  /**
+   * What to answer about a note known to exist that this principal can't
+   * read: `agent_denied` with the reason for an agent whose user reads it,
+   * `not_found` otherwise (a person, or a note its user can't read).
+   */
+  hiddenError(path: string): Error {
+    const reason = this.principal.kind === 'agent' ? this.reasonFor(path) : null
+    return reason ? new AgentDenied(reason) : new NoteError('not_found', `does not exist: ${path}`)
   }
 
   /**

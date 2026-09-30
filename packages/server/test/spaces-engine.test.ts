@@ -76,7 +76,7 @@ test('spaces engine: levels as each person has them, the admin role changing not
 
 test('spaces engine: a rejected or missing section leaves each person their own space and nothing else', () => {
   const s = scenario()
-  for (const p of [{ kind: 'closed' }, { kind: 'implicit' }] as Permissions[]) {
+  for (const p of [{ kind: 'closed' }, { kind: 'none' }] as Permissions[]) {
     s.set(p)
     assert.equal(s.engine.levelFor(s.member, `people/${s.member.username}/${m.aFolder()}`), 'manage')
     assert.equal(s.engine.levelFor(s.member, s.home), null)
@@ -156,10 +156,14 @@ test('spaces engine: the disk says which spaces and folders exist, never through
   assert.deepEqual(diskSpaceFolders(join(dir, m.aFolder())).shared(), [])
 })
 
-test('spaces engine: the legacy model is still the default', () => {
+test('spaces engine: the admin role gives nothing, and nothing outside the spaces is anyone’s', () => {
   const s = scenario()
-  const legacy = new PermissionsEngine({ source: () => ({ kind: 'implicit' }), directory: { users: () => [s.admin, s.member], groupsOf: () => [], groups: () => [] } })
-  assert.equal(legacy.model, 'legacy')
-  assert.equal(legacy.viewer(s.admin).level(''), 'manage')
-  assert.equal(legacy.levelFor(s.admin, ''), null)
+  const engine = new PermissionsEngine({ source: () => ({ kind: 'none' }), directory: { users: () => [s.admin, s.member], groupsOf: () => [], groups: () => [] } })
+  assert.equal(engine.model, 'spaces')
+  for (const f of ['', 'people', 'spaces', m.aFolder(), s.home]) assert.equal(engine.viewer(s.admin).level(f), null, f)
+  assert.equal(engine.viewer(s.admin).level(`people/${s.admin.username}/${m.aFolder()}`), 'manage')
+  assert.equal(engine.viewer(s.admin).level(`people/${s.member.username}`), null)
+  // Who manages, who reads: the readers of a folder, and its managers.
+  assert.deepEqual(s.engine.managersOf(s.home), [s.admin.username])
+  assert.deepEqual(s.engine.readers(s.home).map((r) => r.username).sort(), [s.admin.username, s.member.username, s.other.username].sort())
 })

@@ -240,6 +240,11 @@ export interface TrashEntry {
    * `stored`: its name in the entry's folder in the trash.
    */
   files?: { path: string; stored: string }[]
+  /**
+   * Who managed its shared space when the space was deleted (user ids,
+   * spec §3.5): once the space is gone, they still see and restore it.
+   */
+  managers?: string[]
 }
 
 /**
@@ -270,6 +275,19 @@ export interface FolderContents {
   files: string[]
   kept: string[]
   junk: string[]
+}
+
+/**
+ * A name taken by something spelled otherwise on a case-insensitive disk
+ * (`path`: the disk's spelling), told only where the person sees the whole
+ * folder (spec §3.4 row 6).
+ */
+export class ExistsAs extends NoteError {
+  readonly path: string
+  constructor(path: string) {
+    super('exists', `already exists as ${path}`)
+    this.path = path
+  }
 }
 
 /** A folder that can't be deleted as asked because of what it holds (`contents`, as the caller may show it). */
@@ -421,7 +439,7 @@ export class NoteService {
    * them), all in one entry and one version. `canWrite` says which files the
    * one deleting may take (an agent, within its key's folders).
    */
-  async delete(path: string, opts: { ifMatch?: string; actor: Actor; canWrite?: (path: string) => boolean }): Promise<TrashEntry> {
+  async delete(path: string, opts: { ifMatch?: string; actor: Actor; canWrite?: (path: string) => boolean; managers?: string[] }): Promise<TrashEntry> {
     const file = this.file(path)
     const id = newUid()
     // Open in the editor: flush what is pending and close it, telling its editors the trash entry.
@@ -450,7 +468,7 @@ export class NoteService {
       throw new NoteError('precondition_failed', `the note changed during deletion: ${path}`, moved === null ? null : contentHash(moved))
     }
     const files = this.setAside(going)
-    const entry: TrashEntry = { id, path, deletedAt: new Date().toISOString(), actor: opts.actor, etag: hash }
+    const entry: TrashEntry = { id, path, deletedAt: new Date().toISOString(), actor: opts.actor, etag: hash, ...(opts.managers ? { managers: opts.managers } : {}) }
     try {
       this.toTrash(entry, moved, files)
     } catch (err) {
@@ -953,14 +971,14 @@ export class NoteService {
    * (FolderContents `kept`) stops it before anything moves. `canWrite` is
    * passed on to each note's deletion. One version in the history.
    */
-  async trashFolder(path: string, actor: Actor, opts: { canWrite?: (path: string) => boolean } = {}): Promise<{ path: string; trashed: TrashEntry[] }> {
+  async trashFolder(path: string, actor: Actor, opts: { canWrite?: (path: string) => boolean; managers?: string[] } = {}): Promise<{ path: string; trashed: TrashEntry[] }> {
     const c = this.folderContents(path)
     if (c.kept.length) throw new NoteError('not_empty', `the folder holds what vihko never touches: ${path}`)
     return this.history.operation(actor, null, async () => {
       const trashed: TrashEntry[] = []
       for (const rel of c.notes) {
         try {
-          trashed.push(await this.delete(`${path}/${rel}`, { actor, canWrite: opts.canWrite }))
+          trashed.push(await this.delete(`${path}/${rel}`, { actor, canWrite: opts.canWrite, managers: opts.managers }))
         } catch (err) {
           if (!(err instanceof NoteError && err.code === 'not_found')) throw err // gone meanwhile: nothing to trash
         }
@@ -969,7 +987,7 @@ export class NoteService {
       const rest = this.folderContents(path)
       if (rest.notes.length || rest.kept.length) throw new NoteError('not_empty', `the folder is not empty: ${path}`)
       if (rest.files.length) {
-        const entry = this.trashFiles(path, rest.files.map((r) => `${path}/${r}`), actor)
+        const entry = this.trashFiles(path, rest.files.map((r) => `${path}/${r}`), actor, opts.managers)
         if (entry) trashed.push(entry)
       }
       this.removeFolder(path, rest.junk)
@@ -978,14 +996,14 @@ export class NoteService {
   }
 
   /** Files alone to the trash, as one entry (`kind: 'files'`, `path` the folder they're in); null if none was left to take. */
-  private trashFiles(folder: string, paths: readonly string[], actor: Actor): TrashEntry | null {
+  private trashFiles(folder: string, paths: readonly string[], actor: Actor, managers?: string[]): TrashEntry | null {
     const w = this.history.prepare(paths.map((p) => ({ path: p, after: null })), { actor, immediate: true })
     const files = this.setAside(paths)
     if (files.length === 0) {
       w.abort()
       return null
     }
-    const entry: TrashEntry = { id: newUid(), kind: 'files', path: folder, deletedAt: new Date().toISOString(), actor }
+    const entry: TrashEntry = { id: newUid(), kind: 'files', path: folder, deletedAt: new Date().toISOString(), actor, ...(managers ? { managers } : {}) }
     try {
       this.toTrash(entry, null, files)
     } catch (err) {
@@ -1436,7 +1454,7 @@ export class NoteService {
     for (const f of entry.files ?? []) if (!kept.has(f.stored)) rmSync(join(dir, f.stored), { force: true })
     rmSync(join(dir, 'note.md'), { force: true })
     const folder = entry.kind === 'files' ? entry.path : folderOf(restoredTo ?? entry.path)
-    const rest: TrashEntry = { id: entry.id, kind: 'files', path: folder, deletedAt: entry.deletedAt, actor: entry.actor, files: left }
+    const rest: TrashEntry = { id: entry.id, kind: 'files', path: folder, deletedAt: entry.deletedAt, actor: entry.actor, files: left, ...(entry.managers ? { managers: entry.managers } : {}) }
     writeFileSync(join(dir, 'meta.json'), JSON.stringify(rest, null, 2))
   }
 

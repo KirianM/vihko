@@ -9,15 +9,16 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { IMAGES_PER_USER, MAX_MCP_BODY } from '@vihko/server'
 import { PNG, setup } from './_agents.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
 /** The key's folder: a note whose name has a space (its images' names too), and one hidden from agents; another folder and a note there. */
-const DIR = m.aFolder()
+const DIR = inShared(m.aFolder())
 const PLAN = `${DIR}/${m.aUniqueWord()} ${m.aUniqueWord()}.md`
 const HIDDEN = m.aNotePath(DIR)
-const OUT_DIR = m.aFolder()
+const OUT_DIR = inShared(m.aFolder())
 const OUTSIDE = m.aNotePath(OUT_DIR)
 const FILES = {
   [PLAN]: `# ${m.aHeading()}\n\n${m.aSentence()}\n`,

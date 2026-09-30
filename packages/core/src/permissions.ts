@@ -1,37 +1,41 @@
-// Per-folder permissions (D-014, D-038): the strict `permissions` section of
-// vihko.yaml, how a folder's rule is found, and the edits vihko makes to the
-// file (keeping everything else in it as it was).
+// Per-folder permissions (D-014, D-038, D-056): the strict `permissions`
+// section of vihko.yaml, the levels it gives (sharing only adds), and the
+// edits vihko makes to the file (keeping everything else in it as it was).
 //
 //   permissions:
-//     "":                         # the root
-//       grants: { noa: manage }
-//     familia:
-//       grants: { "@familia": edit }
-//     "personas/{user}":
-//       grants: { "{user}": manage }
-//     personas/laura/diario:
+//     spaces/home-7k2q9x:             # a shared space: its name and members
+//       name: Home
+//       grants: { "@family": edit, ana: manage }
+//     spaces/home-7k2q9x/recipes:     # adds luis, who isn't a member of Home
+//       grants: { luis: read }
+//     spaces/home-7k2q9x/finances:
+//       ai: false
+//     people/ana/trips:               # a folder of ana's shared with luis
+//       grants: { luis: comment }
+//     people/ana:                     # ana's whole space closed to agents
 //       ai: false
 //
-// - Keys are folders from the notes root (`""` is the root). One segment may
-//   be `{user}`: the rule then holds for each user, at the folder named like
-//   them. Rules are identified by their key.
-// - Subjects: a user's name, `@group`, or `{user}` (only in a `{user}` rule).
+// - Keys are real folders from the notes root (core/spaces.ts): a shared
+//   space's root and what's under it; a folder inside a personal space. A
+//   personal space's root takes only `ai: false`, never grants (it isn't
+//   shared whole: that's what a shared space is). `name` only at a shared
+//   space's root. Anything else (`""`, `people`, `spaces`, anything outside
+//   them, a `{user}` segment) rejects the section.
+// - Subjects: a user's name or `@group`.
 // - Levels, from less to more: read < comment < edit < manage.
-// - A folder with no `grants` of its own inherits those of its nearest
-//   ancestor that has some; one with its own replaces them (never adds). The
-//   most specific rule wins: a literal folder over a `{user}` rule at the same
-//   depth, and either over an ancestor's. A `{user}` rule at a folder named
-//   like no user grants nothing: nobody sees it (it never inherits).
-// - Whoever manages a folder keeps `manage` in everything under it, whatever
-//   the grants of a subfolder say (D-040 3.5), except across a personal
-//   folder (one a `{user}` rule matches): nobody from above it manages into
-//   it (`managedFrom`).
+// - A person's level in a folder: `manage` in their own personal space
+//   (whatever is written); nothing in the space of someone who doesn't exist
+//   (deleted); otherwise the highest level the grants of the folder and of
+//   each folder above it, up to its space's root, give them by name or
+//   through a group. Grants only add: a subfolder never gives less than its
+//   parent (D-056.7). Being an admin changes nothing (D-038.1).
 // - `ai: false` holds for the folder and everything under it, on top of the
 //   notes' own `ai: false`. `ai: true` never reopens anything: ignored, with
 //   a notice.
 // - The section is strict (D-031.9): anything wrong in it rejects it whole,
-//   and then nobody reads anything (`closed`). Without the section, the
-//   implicit one applies: every admin manages the root.
+//   and then no grant applies (`closed`): each person still has their own
+//   space, which doesn't depend on the file. Without the section, the same
+//   (`none`): nobody shares anything.
 //
 // This module knows nothing of users or groups: the server resolves subjects
 // (and warns about the ones it doesn't know).
@@ -56,12 +60,9 @@ export function maxLevel(a: Level | null, b: Level | null): Level | null {
   return LEVELS.indexOf(a) >= LEVELS.indexOf(b) ? a : b
 }
 
-/** The segment that makes a rule hold for each user. */
-export const USER_SEGMENT = '{user}'
-
-/** One folder's rule as written. `grants` null: it inherits; `ai` null: nothing about agents. */
+/** One folder's rule as written. `grants` null: none of its own; `ai` null: nothing about agents. */
 export interface PermissionRule {
-  /** Its key: a folder (NFC), `""` for the root, maybe with a `{user}` segment. */
+  /** Its key: a real folder (NFC) in a space. */
   folder: string
   grants: Record<string, Level> | null
   ai: false | null
@@ -71,17 +72,22 @@ export interface PermissionRule {
 
 /**
  * The section as it applies:
- * - `implicit`: there is none; every admin manages the root.
- * - `closed`: it was rejected (and no valid one was in force): nobody reads.
- * - `rules`: the rules written, which may leave folders to nobody.
+ * - `none`: the file has none: no grants (each person has their own space).
+ * - `closed`: it was rejected (and no valid one was in force): no grants.
+ * - `rules`: the rules written.
  */
 export type Permissions =
-  | { kind: 'implicit' }
+  | { kind: 'none' }
   | { kind: 'closed' }
   | { kind: 'rules'; rules: PermissionRule[] }
 
-export const IMPLICIT_PERMISSIONS: Permissions = { kind: 'implicit' }
+export const NO_PERMISSIONS: Permissions = { kind: 'none' }
 export const CLOSED_PERMISSIONS: Permissions = { kind: 'closed' }
+
+/** The rules a section in force gives (none when it's missing or rejected). */
+export function rulesOf(p: Permissions): readonly PermissionRule[] {
+  return p.kind === 'rules' ? p.rules : []
+}
 
 /** A problem in the section: its code (ConfigErrorCode), where (as a key path) and a detail. */
 export type PermissionsReport = (code: 'not_a_map' | 'invalid_path' | 'invalid_value' | 'invalid_type' | 'not_boolean' | 'unknown_key' | 'ignored_value', at: string[], detail?: string | null) => void
@@ -90,20 +96,17 @@ const RULE_KEYS = ['grants', 'ai', 'name']
 const USERNAME = /^[\p{L}\p{N}._-]{2,64}$/u
 const GROUP = /^@[^\u0000-\u001f@/]{1,64}$/u
 
-/** Whether a subject is written as one: a user's name, `@group` or `{user}`. */
+/** Whether a subject is written as one: a user's name or `@group`. */
 export function isSubject(s: string): boolean {
-  return s === USER_SEGMENT || USERNAME.test(s) || (GROUP.test(s) && s.slice(1).trim() === s.slice(1))
+  return USERNAME.test(s) || (GROUP.test(s) && s.slice(1).trim() === s.slice(1))
 }
 
-/** A folder key: relative, no leading or trailing `/`, no `.`/`..` or hidden segments; at most one `{user}` and no other `{…}` segment. */
+/** A folder key: relative, no leading or trailing `/`, no `.`/`..` or hidden segments. */
 function folderProblem(key: string): string | null {
-  if (key === '') return null
+  if (key === '') return 'the root'
   if (/[\\\u0000-\u001f]/.test(key)) return 'control characters'
   const segs = key.split('/')
   if (!segs.every((s) => s !== '' && !s.startsWith('.') && s.trim() === s)) return 'not a folder'
-  if (segs.filter((s) => s === USER_SEGMENT).length > 1) return 'more than one {user}'
-  const other = segs.find((s) => s !== USER_SEGMENT && /^\{.*\}$/.test(s))
-  if (other) return `unknown ${other}`
   return null
 }
 
@@ -125,7 +128,6 @@ export function parsePermissions(raw: unknown, at: string[], report: Permissions
     seen.add(folder)
     if (!isRecord(value)) { report('not_a_map', here); continue }
     for (const k of Object.keys(value)) if (!RULE_KEYS.includes(k)) report('unknown_key', [...here, k])
-    const perUser = folder.split('/').includes(USER_SEGMENT)
     let grants: Record<string, Level> | null = null
     if (value.grants !== undefined && value.grants !== null) {
       if (!isRecord(value.grants)) report('not_a_map', [...here, 'grants'])
@@ -134,8 +136,7 @@ export function parsePermissions(raw: unknown, at: string[], report: Permissions
         for (const [rawSubject, level] of Object.entries(value.grants)) {
           const subject = rawSubject.normalize('NFC')
           const where = [...here, 'grants', rawSubject]
-          if (!isSubject(subject)) { report('invalid_value', where, 'user, @group, {user}'); continue }
-          if (subject === USER_SEGMENT && !perUser) { report('invalid_value', where, 'user, @group'); continue }
+          if (!isSubject(subject)) { report('invalid_value', where, 'user, @group'); continue }
           if (typeof level !== 'string' || !(LEVELS as readonly string[]).includes(level)) { report('invalid_value', where, LEVELS.join(', ')); continue }
           const key = subjectKey(subject)
           if (Object.keys(grants).some((s) => subjectKey(s) === key)) { report('invalid_value', where); continue }
@@ -143,6 +144,8 @@ export function parsePermissions(raw: unknown, at: string[], report: Permissions
         }
       }
     }
+    const keyProblem = spaceKeyProblem(folder, { grants })
+    if (keyProblem) { report('invalid_path', here, keyProblem); continue }
     let ai: false | null = null
     if (value.ai !== undefined && value.ai !== null) {
       if (value.ai === false) ai = false
@@ -170,18 +173,6 @@ export function subjectKey(subject: string): string {
   return subject.normalize('NFC').toLowerCase()
 }
 
-/** A rule applying to a folder: the rule, and the user its `{user}` segment names there (null without one). */
-export interface RuleMatch {
-  rule: PermissionRule
-  user: string | null
-}
-
-/** Where a folder's grants come from: the rule and the folder it's written for (an ancestor, or the folder itself). */
-export interface Governing extends RuleMatch {
-  /** The concrete folder the rule applies at (`personas/laura` for `personas/{user}`). */
-  at: string
-}
-
 /** The folder's parent, `""` for a top-level one; null for the root. */
 export function parentFolder(folder: string): string | null {
   if (folder === '') return null
@@ -202,236 +193,20 @@ export function selfAndAncestors(folder: string): string[] {
   return out
 }
 
-/**
- * The rules, ready to answer which one applies where. Pure: nothing about
- * users. Answers are remembered (the rules never change: a new file is a
- * new set).
- */
-export class RuleSet {
-  readonly rules: readonly PermissionRule[]
-  private literal = new Map<string, PermissionRule>()
-  /** `{user}` rules: their segments and where the `{user}` is. */
-  private patterns: { rule: PermissionRule; segs: string[]; at: number }[] = []
-  private ownCache = new Map<string, RuleMatch | null>()
-  private userCache = new Map<string, RuleMatch | null>()
-  private governingCache = new Map<string, Governing | null>()
-  private managedCache = new Map<string, string[]>()
+// --- Levels (see the header) ------------------------------------------------------
 
-  constructor(rules: readonly PermissionRule[]) {
-    this.rules = rules
-    for (const r of rules) {
-      const segs = r.folder === '' ? [] : r.folder.split('/')
-      const at = segs.indexOf(USER_SEGMENT)
-      if (at === -1) this.literal.set(r.folder, r)
-      else this.patterns.push({ rule: r, segs, at })
-    }
-    // Two `{user}` rules may match the same folder: the one with more of it written literally first wins.
-    this.patterns.sort((a, b) => b.at - a.at)
-  }
-
-  /** The rule written for exactly this folder: a literal one, else a `{user}` one matching it. */
-  own(folder: string): RuleMatch | null {
-    const f = folder.normalize('NFC')
-    const cached = this.ownCache.get(f)
-    if (cached !== undefined) return cached
-    const lit = this.literal.get(f)
-    const found: RuleMatch | null = lit ? { rule: lit, user: null } : this.userRule(f)
-    this.remember(this.ownCache, f, found)
-    return found
-  }
-
-  /** The `{user}` rule matching this folder, even under a literal one written for it. */
-  userRule(folder: string): RuleMatch | null {
-    const f = folder.normalize('NFC')
-    if (f === '' || this.patterns.length === 0) return null
-    const cached = this.userCache.get(f)
-    if (cached !== undefined) return cached
-    const segs = f.split('/')
-    let found: RuleMatch | null = null
-    for (const p of this.patterns) {
-      if (p.segs.length !== segs.length) continue
-      if (p.segs.every((s, i) => i === p.at || s === segs[i])) { found = { rule: p.rule, user: segs[p.at]! }; break }
-    }
-    this.remember(this.userCache, f, found)
-    return found
-  }
-
-  /**
-   * Where the folder's grants come from: its own rule with grants, or its
-   * nearest ancestor's; null if none has any. A literal rule without grants
-   * (only `ai: false`, say) over a `{user}` one leaves that one's grants in
-   * place: the folder never falls through to what's above it.
-   */
-  governing(folder: string): Governing | null {
-    const f = folder.normalize('NFC')
-    const cached = this.governingCache.get(f)
-    if (cached !== undefined) return cached
-    let found: Governing | null = null
-    for (const d of selfAndAncestors(f)) {
-      const m = this.own(d)
-      if (m && m.rule.grants !== null) { found = { ...m, at: d }; break }
-      const u = m && m.user === null ? this.userRule(d) : null
-      if (u && u.rule.grants !== null) { found = { ...u, at: d }; break }
-    }
-    this.remember(this.governingCache, f, found)
-    return found
-  }
-
-  /**
-   * Whether a folder is a personal one: a `{user}` rule matches it (also
-   * under a literal rule written for it). Managers from above never cross
-   * into one (D-040 3.5).
-   */
-  personal(folder: string): boolean {
-    return this.userRule(folder) !== null
-  }
-
-  /**
-   * The folders whose managers keep `manage` in `folder`, whatever its own
-   * grants say (D-040 3.5): those above it, from its parent up to the
-   * nearest personal folder (included, its managers reach under it); none
-   * for a personal folder itself.
-   */
-  managedFrom(folder: string): string[] {
-    const f = folder.normalize('NFC')
-    const cached = this.managedCache.get(f)
-    if (cached !== undefined) return cached
-    const out: string[] = []
-    if (!this.personal(f)) {
-      for (let a = parentFolder(f); a !== null; a = parentFolder(a)) {
-        out.push(a)
-        if (this.personal(a)) break
-      }
-    }
-    this.remember(this.managedCache, f, out)
-    return out
-  }
-
-  /** The folder (itself or an ancestor) whose `ai: false` closes it to agents; null if none does. */
-  aiClosedAt(folder: string): string | null {
-    for (const d of selfAndAncestors(folder.normalize('NFC'))) {
-      if (this.own(d)?.rule.ai === false || this.userRule(d)?.rule.ai === false) return d
-    }
-    return null
-  }
-
-  private remember<T>(cache: Map<string, T>, key: string, value: T) {
-    if (cache.size > 20_000) cache.clear()
-    cache.set(key, value)
-  }
-}
-
-/**
- * The grants a governing rule gives at its folder: `{user}` becomes the user
- * the folder is named after, and a folder named like nobody (`userExists`
- * false) gets none at all.
- */
-export function grantsAt(g: Governing, userExists: (name: string) => boolean): Record<string, Level> {
-  const grants = g.rule.grants ?? {}
-  if (g.user === null) return grants
-  if (!userExists(g.user)) return {}
-  const out: Record<string, Level> = {}
-  for (const [s, l] of Object.entries(grants)) out[s === USER_SEGMENT ? g.user : s] = maxLevel(out[s === USER_SEGMENT ? g.user : s] ?? null, l)!
-  return out
-}
-
-/** The highest level `grants` give a user (by name, and through their groups). */
-export function levelIn(grants: Record<string, Level>, user: { username: string; groups: readonly string[] }): Level | null {
-  const me = subjectKey(user.username)
-  const groups = new Set(user.groups.map((g) => subjectKey('@' + g)))
-  let level: Level | null = null
-  for (const [s, l] of Object.entries(grants)) {
-    const k = subjectKey(s)
-    if (k === me || groups.has(k)) level = maxLevel(level, l)
-  }
-  return level
-}
-
-/** A subject who manages a folder above one, and where that grant is written. */
-export interface ManagerAbove {
-  subject: string
-  /** The folder whose rule grants it `manage`. */
-  from: string
-  /** The rule's key as written (`personas/{user}`), when it isn't `from`. */
-  rule?: string
-}
-
-/** What reaches a folder: the grants governing it, and who keeps `manage` there from above (D-040 3.5). */
-export interface Reaching {
-  governing: Governing | null
-  /** Resolved (`{user}` is the person's name; a folder named like nobody: none). */
-  grants: Record<string, Level>
-  /** Whoever manages a folder of `RuleSet.managedFrom`, once per subject and rule. */
-  above: ManagerAbove[]
-}
-
-/** The grants that reach a folder under `set`, with `userExists` resolving `{user}` rules (`grantsAt`). */
-export function reachingGrants(set: RuleSet, folder: string, userExists: (name: string) => boolean): Reaching {
-  const governing = set.governing(folder)
-  const grants = governing ? grantsAt(governing, userExists) : {}
-  const above: ManagerAbove[] = []
-  const seen = new Set<string>()
-  for (const a of set.managedFrom(folder)) {
-    const g = set.governing(a)
-    if (!g || seen.has(g.at)) continue
-    seen.add(g.at)
-    for (const [subject, level] of Object.entries(grantsAt(g, userExists))) {
-      if (level === 'manage') above.push({ subject, from: g.at, ...(g.rule.folder !== g.at ? { rule: g.rule.folder } : {}) })
-    }
-  }
-  return { governing, grants, above }
-}
-
-/** A user's level in what reaches a folder: the highest its grants give them, or `manage` if they manage it from above. */
-export function levelInReach(reach: Reaching, user: { username: string; groups: readonly string[] }): Level | null {
-  const level = levelIn(reach.grants, user)
-  if (level === 'manage') return level
-  const me = subjectKey(user.username)
-  const groups = new Set(user.groups.map((g) => subjectKey('@' + g)))
-  return reach.above.some((m) => subjectKey(m.subject) === me || groups.has(subjectKey(m.subject))) ? 'manage' : level
-}
-
-// --- Spaces: sharing only adds (D-056) ------------------------------------------
-// The model of 0.1.0. The same section, with real paths as keys:
-//
-//   permissions:
-//     spaces/home-7k2q9x:             # a shared space: its name and members
-//       name: Home
-//       grants: { "@family": edit, ana: manage }
-//     spaces/home-7k2q9x/recipes:     # adds marta, who isn't a member of Home
-//       grants: { marta: read }
-//     spaces/home-7k2q9x/finances:
-//       ai: false
-//     people/ana/trips:               # a folder of ana's shared with luis
-//       grants: { luis: comment }
-//     people/ana:                     # ana's whole space closed to agents
-//       ai: false
-//
-// - Keys: a shared space's root and what's under it; a folder inside a
-//   personal space. A personal space's root takes only `ai: false`, never
-//   grants (it isn't shared whole: that's a shared space). `name` only at a
-//   shared space's root. Nothing else (`""`, `people`, `spaces`, anything
-//   outside them, `{user}`).
-// - A person's level in a folder: `manage` in their own personal space
-//   (whatever is written); nothing in the space of someone who doesn't exist
-//   (deleted); otherwise the highest level the grants of the folder and of
-//   each folder above it, up to its space's root, give them by name or
-//   through a group. Grants only add: a subfolder never gives less than its
-//   parent. Being an admin changes nothing.
-// - `ai: false` closes the folder and everything under it to agents.
-
-/** Why a key can't be in the section in the spaces model, or null. */
+/** Why a key can't be in the section, or null. */
 export type SpaceKeyProblem = 'user_segment' | 'outside_spaces' | 'personal_root_grants'
 
 /**
- * What's wrong with a rule in the spaces model (D-056, spec §1.2): a `{user}`
- * segment, a key in no space (the root, `people`, `spaces`, anything else),
- * or grants at a personal space's root. `name` outside a shared space's root
- * is the parser's (`invalid_value`).
+ * What's wrong with a rule's key (spec §1.2): a `{user}` segment (1.0's
+ * per-user rules), a key in no space (the root, `people`, `spaces`,
+ * anything else), or grants at a personal space's root. `name` outside a
+ * shared space's root is the parser's (`invalid_value`).
  */
 export function spaceKeyProblem(folder: string, rule: { grants: Record<string, Level> | null }): SpaceKeyProblem | null {
   const f = folder.normalize('NFC')
-  if (f.split('/').includes(USER_SEGMENT)) return 'user_segment'
+  if (f.split('/').includes('{user}')) return 'user_segment'
   const s = parseSpacePath(f)
   if (!s) return 'outside_spaces'
   if (s.space.kind === 'personal' && s.inner === '' && rule.grants !== null) return 'personal_root_grants'
@@ -461,8 +236,9 @@ export class SpaceRules {
   private byFolder = new Map<string, PermissionRule>()
   private reachCache = new Map<string, ReachingGrant[]>()
 
-  constructor(rules: readonly PermissionRule[]) {
-    this.rules = rules.filter((r) => spaceKeyProblem(r.folder, r) === null)
+  constructor(rules: readonly PermissionRule[] | Permissions) {
+    const list = 'kind' in rules ? rulesOf(rules) : rules
+    this.rules = list.filter((r) => spaceKeyProblem(r.folder, r) === null)
     for (const r of this.rules) this.byFolder.set(r.folder.normalize('NFC'), r)
   }
 
@@ -641,21 +417,12 @@ const nextLine = (text: string, at: number) => {
 
 type Change = [folder: string, value: RuleValue | null]
 
-/**
- * Sets each folder's rule (null, or both fields null: removes it) and
- * returns the new text. `implicitAdmins`: when the file has no section yet,
- * the implicit one (each of them manages the root) is written with the
- * change, so that the change doesn't take it away.
- */
-function applyRules(text: string, changes: readonly Change[], opts: { implicitAdmins?: readonly string[] } = {}): string {
+/** Sets each folder's rule (null, or every field null: removes it) and returns the new text. */
+function applyRules(text: string, changes: readonly Change[]): string {
   const doc = load(text)
   const want = new Map<string, RuleValue | null>()
   const pair = sectionPair(doc)
   const empty = !pair || pair.value === null || (isScalar(pair.value) && pair.value.value === null)
-  const adding = changes.some(([, v]) => v !== null && !emptyValue(v))
-  if (empty && opts.implicitAdmins && adding && !changes.some(([f]) => f.normalize('NFC') === '')) {
-    want.set('', { grants: Object.fromEntries(opts.implicitAdmins.map((a) => [a, 'manage' as Level])), ai: null })
-  }
   for (const [folder, v] of changes) want.set(folder.normalize('NFC'), v === null || emptyValue(v) ? null : v)
   const before = currentRules(doc)
   const asked = new Map(want)
@@ -751,9 +518,9 @@ function verify(out: string, asked: Map<string, RuleValue | null>, before: Map<s
   return out
 }
 
-/** Sets one folder's rule (both fields null: removes it), leaving the rest of the file as it was. */
-export function setRule(text: string, folder: string, value: RuleValue, opts: { implicitAdmins?: readonly string[] } = {}): string {
-  return applyRules(text, [[folder, value]], opts)
+/** Sets one folder's rule (every field null: removes it), leaving the rest of the file as it was. */
+export function setRule(text: string, folder: string, value: RuleValue): string {
+  return applyRules(text, [[folder, value]])
 }
 
 /** The rules the file has now, by folder (NFC). */
@@ -763,17 +530,21 @@ export function rulesInFile(text: string): Map<string, RuleValue> {
 
 /**
  * Moves the rules of `from` and every folder under it to `to` (a folder moved
- * or renamed from vihko). `extra`: rules to write as well, such as the
- * literal copy of a `{user}` rule that stops matching once the folder moves.
- * With `keepFrom`, the rules stay at `from` too (the first step of a move
- * that never leaves the folder without its rules).
+ * or renamed from vihko). Rules already written at `to` or under it (for a
+ * folder that didn't exist: a forgotten audience, spec §1.2) go: the folder
+ * brings its own. `extra`: rules to write as well. With `keepFrom`, the rules
+ * stay at `from` too (the first step of a move that never leaves the folder
+ * without its rules).
  */
 export function moveRules(text: string, from: string, to: string, opts: { extra?: readonly (RuleValue & { folder: string })[]; keepFrom?: boolean } = {}): string {
   const f = from.normalize('NFC')
   const t = to.normalize('NFC')
   const changes: Change[] = []
-  for (const [key, v] of currentRules(load(text))) {
-    if (key !== f && !key.startsWith(f + '/')) continue
+  const rules = currentRules(load(text))
+  const under = (key: string, root: string) => key === root || key.startsWith(root + '/')
+  for (const key of rules.keys()) if (under(key, t) && !under(key, f)) changes.push([key, null])
+  for (const [key, v] of rules) {
+    if (!under(key, f)) continue
     if (!opts.keepFrom) changes.push([key, null])
     changes.push([t + key.slice(f.length), v])
   }
@@ -792,7 +563,7 @@ export function removeRules(text: string, folder: string): string {
 /**
  * Rewrites a subject in every rule's grants: renamed to `to` (a group
  * renamed), or removed with `to` null (a user deleted, D-038.8). A rule left
- * with no grants keeps them empty: its folder stays closed, never inheriting.
+ * with no grants keeps them empty (which gives nobody anything).
  */
 export function rewriteSubject(text: string, subject: string, to: string | null): string {
   const key = subjectKey(subject)

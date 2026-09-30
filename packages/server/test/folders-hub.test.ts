@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { api, closeAll, connect, login, makeDirs, sleep, startServer, typeLine, waitFor } from './_collab.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -19,8 +20,8 @@ test('moving a folder with open notes: each editor follows its note, nothing typ
   const srv = await startServer(env)
   try {
     const cookie = await login(srv)
-    const a = await connect(srv, cookie, 'hogar/Proxy.md')
-    const b = await connect(srv, cookie, 'hogar/Red.md')
+    const a = await connect(srv, cookie, inShared('hogar/Proxy.md'))
+    const b = await connect(srv, cookie, inShared('hogar/Red.md'))
     const moved: { from: string; to: string }[] = []
     for (const c of [a, b]) c.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'vihko:moved') moved.push({ from: m.from, to: m.to }) })
     typeLine(a, MARK.unflushedA) // still in the debounce: the move flushes it first
@@ -28,16 +29,16 @@ test('moving a folder with open notes: each editor follows its note, nothing typ
     await waitFor(() => a.provider.unsyncedChanges === 0 && b.provider.unsyncedChanges === 0, 'sent to the server')
 
     // Into a new folder, a level down, with spaces in its name.
-    const to = `${m.aFolder()}/${m.aTitle()} ${m.aWord()}`
-    const r = await api(srv, cookie, 'POST', '/api/folder/move', { from: 'hogar', to })
+    const to = inShared(`${m.aFolder()}/${m.aTitle()} ${m.aWord()}`)
+    const r = await api(srv, cookie, 'POST', '/api/folder/move', { from: inShared('hogar'), to })
     assert.equal(r.status, 200, JSON.stringify(r.body))
     assert.deepEqual(r.body.failed, [])
     await waitFor(() => moved.length === 2, 'both editors told')
     assert.deepEqual(moved.sort((x, y) => (x.from < y.from ? -1 : 1)), [
-      { from: 'hogar/Proxy.md', to: `${to}/Proxy.md` },
-      { from: 'hogar/Red.md', to: `${to}/Red.md` },
+      { from: inShared('hogar/Proxy.md'), to: `${to}/Proxy.md` },
+      { from: inShared('hogar/Red.md'), to: `${to}/Red.md` },
     ])
-    assert.ok(!existsSync(join(notes, 'hogar')))
+    assert.ok(!existsSync(join(notes, inShared('hogar'))))
     assert.ok(readFileSync(join(notes, `${to}/Proxy.md`), 'utf8').includes(`${MARK.unflushedA}\n`))
     assert.ok(readFileSync(join(notes, `${to}/Red.md`), 'utf8').includes(`${MARK.unflushedB}\n`))
     a.close(); b.close()
@@ -48,11 +49,11 @@ test('moving a folder with open notes: each editor follows its note, nothing typ
     typeLine(c, MARK.afterMove)
     await waitFor(() => readFileSync(join(notes, `${to}/Proxy.md`), 'utf8').includes(MARK.afterMove), 'flushed at the new path')
     await sleep(1500) // a watcher round and a hub check
-    assert.ok(!existsSync(join(notes, 'hogar')), 'the old folder is not recreated')
+    assert.ok(!existsSync(join(notes, inShared('hogar'))), 'the old folder is not recreated')
     const alerts = (await api(srv, cookie, 'GET', '/api/alerts')).body.alerts as { code: string }[]
     assert.deepEqual(alerts.filter((x) => x.code === 'orphaned_note' || x.code === 'scan_aborted_mass_delete'), [], 'seen as vihko\'s own move')
     const tree = (await api(srv, cookie, 'GET', '/api/tree')).body
-    assert.ok(tree.folders.includes(to) && !tree.folders.includes('hogar'))
+    assert.ok(tree.folders.includes(to) && !tree.folders.includes(inShared('hogar')))
   } finally { closeAll(); await srv.stop() }
 })
 
@@ -61,7 +62,7 @@ test('moving a folder while someone types in a note that links into it: link rew
   const srv = await startServer(env)
   try {
     const cookie = await login(srv)
-    const outside = m.aNotePath()
+    const outside = m.aNotePath(inShared(''))
     const [before, after] = [m.aSentence().slice(0, -1), m.aSentence()]
     const created = await api(srv, cookie, 'POST', '/api/note', { path: outside, text: `# ${m.aHeading()}\n\n${before} [[hogar/Proxy]] ${after}\n` })
     assert.equal(created.status, 201, JSON.stringify(created.body))
@@ -72,7 +73,7 @@ test('moving a folder while someone types in a note that links into it: link rew
       for (let i = 0; typing; i++) { const t = `${MARK.typed}-${i}-END`; typed.push(t); typeLine(a, t); await sleep(3) }
     })()
     await sleep(50)
-    const r = await api(srv, cookie, 'POST', '/api/folder/move', { from: 'hogar', to: m.aFolder() })
+    const r = await api(srv, cookie, 'POST', '/api/folder/move', { from: inShared('hogar'), to: inShared(m.aFolder()) })
     await sleep(50)
     typing = false
     await typer

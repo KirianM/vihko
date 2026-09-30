@@ -1,10 +1,11 @@
-// The leak battery of M4 (m4-multiusuario.md §2, «Hecho cuando»): every HTTP
-// route, MCP tool and hub message is classified (a new one without its line
-// fails here), and two people and an agent walk every route and tool over the
-// same tree of the spec's scenario: no response or error carries a path, a
-// title, a fragment, a tag, a count or a candidate of what they can't see,
-// unless the request itself named it. What each one can't see is computed
-// with the access engine itself (the same the effective-access view uses).
+// The leak battery (M4's, m4-multiusuario.md §2, in spaces since D-056; spec
+// §8.2): every HTTP route, MCP tool and hub message is classified (a new one
+// without its line fails here), and two people and an agent walk every route
+// and tool over the same tree: no response or error carries a path, a title,
+// a fragment, a tag, a count or a candidate of what they can't see, unless
+// the request itself named it. What each one can't see is computed with the
+// access engine itself (the same the effective-access view uses). Writes
+// aimed at what they can't see are spaces-writes.test.ts's.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
@@ -20,19 +21,23 @@ const m = mother(import.meta.url)
 /** A conflict copy of the other member's note (its name as Syncthing writes it), with a word only it has. */
 const CONFLICT = PATH.otherNotes.replace(/\.md$/, '.sync-conflict-20260927-100000-ABCDEFG.md')
 const COPY = m.aUniqueWord()
-/** An image in the admin's folder (its name a word no text has). */
+/** An image in the admin's space (its name a word no text has). */
 const LOGO = m.aUniqueWord()
 const LOGO_PATH = `${DIR.admin}/${LOGO}.png`
-/** A folder inside the shared one, closed to the group by its own grants, and a note in it with a word only it has. */
-const SURPRISE_DIR = `${DIR.shared}/${m.aFolder()}`
+/** A folder of the admin's space shared with the member alone (a subfolder of a space they're not in), and a note in it with a word only it has. */
+const SURPRISE_DIR = `${DIR.admin}/${m.aFolder()}`
 const SURPRISE = `${SURPRISE_DIR}/${m.aTitle()}.md`
 const SURPRISE_WORD = m.aUniqueWord()
+/** A folder of the other member's space shared with the member (a loose shared folder), next to what isn't shared. */
+const LOOSE_DIR = `${home(OTHER.username)}/${m.aFolder()}`
+const LOOSE = `${LOOSE_DIR}/${m.aTitle()}.md`
+const LOOSE_WORD = m.aUniqueWord()
 const FILES = {
   ...BASE,
   [LOGO_PATH]: PNG,
   [CONFLICT]: `# ${m.aHeading()}\n\n${m.aSentence()} ${COPY}.\n`,
-  // Closed to the group by its own grants: its managers from above (the root's) still reach it (D-040 3.5).
   [SURPRISE]: `# ${m.aHeading()}\n\n${m.aSentence()} ${SURPRISE_WORD}.\n`,
+  [LOOSE]: `# ${m.aHeading()}\n\n${m.aSentence()} ${LOOSE_WORD}. [[${NAME.list}]]\n`,
 }
 
 const member = home(MEMBER.username)
@@ -47,7 +52,8 @@ const MARKS: Record<string, string[]> = {
   [PATH.diary]: [`${member}/`, WORD.diary, TAG.intimate],
   [PATH.cake]: [`${member}/`, WORD.cake],
   [PATH.memberPhoto]: [PATH.memberPhoto.slice(member.length + 1)],
-  [PATH.otherNotes]: [`${other}/`, WORD.other],
+  [PATH.otherNotes]: [PATH.otherNotes.slice(other.length), WORD.other],
+  [LOOSE]: [LOOSE_WORD],
   [CONFLICT]: ['sync-conflict', COPY],
   [PATH.adminPlan]: [`${admin}/`, WORD.admin],
   [PATH.adminPlanCased]: [`${admin}/`, WORD.admin],
@@ -93,7 +99,7 @@ test('every HTTP route, MCP tool and hub message is classified by what it needs 
 })
 
 test('two people and an agent over the same tree: nothing of what they can\'t see reaches them, through any route or tool', async () => {
-  const h = await setup({ files: FILES, config: RULES + `  ${yamlKey(`${admin}/${m.aFolder()}`)}:\n    grants: { ${yamlKey(ADMIN.username)}: manage }\n  ${yamlKey(SURPRISE_DIR)}:\n    grants: { ${yamlKey(MEMBER.username)}: manage }\n` })
+  const h = await setup({ files: FILES, config: RULES + `  ${yamlKey(SURPRISE_DIR)}:\n    grants: { ${yamlKey(MEMBER.username)}: manage }\n  ${yamlKey(LOOSE_DIR)}:\n    grants: { ${yamlKey(MEMBER.username)}: comment }\n` })
   try {
     await h.enable()
     const agentKey = await h.newKey('admin', { name: m.aKeyName(), canWrite: true })
@@ -102,7 +108,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       member: { kind: 'user', user: h.users.member },
       other: { kind: 'user', user: h.users.other },
       agent: agentPrincipal,
-      // The admin manages the root: they read everything but the personal folders (D-040 3.5), whatever their role lets them manage.
+      // The admin reads their own space and the spaces they're in, never anyone else's (D-038.1, D-056).
       admin: { kind: 'user', user: h.users.admin },
     }
     // What each one can't see, by the access engine: those notes' marks.
@@ -111,8 +117,12 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       const seen = new Set(Object.keys(MARKS).filter((p) => access.canRead(p)).flatMap((p) => MARKS[p]!))
       return [...new Set(Object.keys(MARKS).filter((p) => !access.canRead(p)).flatMap((p) => MARKS[p]!))].filter((m) => !seen.has(m))
     }
-    // A premise of the sweep (D-040 3.5): the root's manager (the agent's user) reaches the subfolder closed to the group; the group doesn't.
+    // Premises of the sweep: the admin's space's folder shared with the member alone; the other's folder shared with the member, and nothing else of the other's.
     assert.deepEqual((['member', 'other', 'agent', 'admin'] as Who[]).map((w) => h.policy.for(principals[w]).canRead(SURPRISE)), [true, false, true, true])
+    assert.deepEqual((['member', 'other', 'agent', 'admin'] as Who[]).map((w) => h.policy.for(principals[w]).canRead(LOOSE)), [true, true, false, false])
+    assert.deepEqual((['member', 'other', 'agent', 'admin'] as Who[]).map((w) => h.policy.for(principals[w]).canRead(PATH.otherNotes)), [false, true, false, false])
+    // Nobody sees what is outside the spaces, nor a person folder of nobody: not even the admin.
+    for (const w of ['member', 'other', 'agent', 'admin'] as Who[]) assert.deepEqual([PATH.rootPlan, PATH.nobodyNote].map((p) => h.policy.for(principals[w]).canRead(p)), [false, false], w)
     const own: Record<Who, string> = { member: PATH.cake, other: PATH.otherNotes, agent: PATH.adminPlan, admin: PATH.adminPlan }
     const hidden: Record<Who, string> = { member: PATH.adminPlan, other: PATH.cake, agent: PATH.cake, admin: PATH.cake }
     const hiddenFolder: Record<Who, string> = { member: DIR.admin, other: member, agent: member, admin: member }
@@ -283,8 +293,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       assert.ok(all.length > 5, `${who} has something not to see`)
       for (const call of calls(who)) {
         covered.add(call.route)
-        // The admin sees every folder's name to manage its permissions (D-038.1), never what is in it.
-        const marks = who === 'admin' && call.route === 'GET /api/permissions/folders' ? all.filter((mk) => !mk.endsWith('/')) : all
+        const marks = all
         const r = await send(call.method, call.path, call.body, call.headers)
         // The query as the server reads it (form encoding: a space is `+`).
         const asked = decodeURIComponent(call.path.replace(/\+/g, ' ')) + JSON.stringify(call.body ?? '')
@@ -295,8 +304,8 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         if (typeof call.expect === 'number') assert.equal(r.status, call.expect, where)
         // Whatever it can't see doesn't exist for a person: never `forbidden` about it.
         if (who !== 'agent' && r.status === 403 && asked.includes(hidden[who])) assert.fail(`${where}: forbidden about something it can't see`)
-        // An agent that names a note its user can't see is told why, and nothing else.
-        if (who === 'agent' && r.body?.error === 'agent_denied') assert.ok(['user_no_access', 'ai_false'].includes(r.body.reason), where)
+        // An agent that names a note its user can't see gets `not_found`, as for one that doesn't exist (D-056.15); a denial only for what its user sees.
+        if (who === 'agent' && r.body?.error === 'agent_denied') assert.equal(r.body.reason, 'ai_false', where)
       }
     }
     assert.deepEqual(Object.keys(ROUTE_NEEDS).filter((r) => !covered.has(r)), [], 'every route has its leak scenarios')
@@ -327,7 +336,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       const r = await c.call(name, args)
       const asked = JSON.stringify(args)
       assert.deepEqual(marks.filter((mk) => shows(r.raw, mk) && !asked.includes(mk)), [], `${name} ${asked}: ${r.raw.slice(0, 400)}`)
-      if (r.error && r.data?.error === 'agent_denied') assert.equal(r.data.reason, 'user_no_access', `${name} ${asked}`)
+      if (r.error && r.data?.error === 'agent_denied') assert.equal(r.data.reason, 'ai_false', `${name} ${asked}`)
     }
     await c.close()
     assert.deepEqual(Object.keys(TOOL_NEEDS).filter((t) => !toolsCovered.has(t)), [], 'every tool has its leak scenarios')
@@ -338,8 +347,8 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
 })
 
 test('with read or comment in a folder, nothing is written there through any route or tool that writes: forbidden, since they see it', async () => {
-  // A folder the member reads and the other comments on; the admin manages it.
-  const folder = m.aFolder()
+  // A folder of the admin's space the member reads and the other comments on; the admin manages it.
+  const folder = `${DIR.admin}/${m.aFolder()}`
   const note = m.aNotePath(folder)
   const image = `${folder}/${m.aUniqueWord()}.png`
   const config = RULES + `  ${yamlKey(folder)}:\n    grants: { ${yamlKey(MEMBER.username)}: read, ${yamlKey(OTHER.username)}: comment, ${yamlKey(ADMIN.username)}: manage }\n`

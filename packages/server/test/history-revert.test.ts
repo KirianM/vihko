@@ -11,7 +11,7 @@ import { applySplices } from '../src/edits.ts'
 import { planRevert } from '../src/history/revert.ts'
 import { contextAfter, contextBefore } from '../src/history/diff.ts'
 import { setup, who } from './_history.ts'
-import { yamlKey } from './_permissions.ts'
+import { SHARED, inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -218,7 +218,7 @@ test('long texts with little in common take bounded time, and a big piece is sho
 
 // --- Through the API, with the history recording -----------------------------------
 
-const PLAN = m.aNotePath(m.aFolder())
+const PLAN = m.aNotePath(inShared(m.aFolder()))
 
 /** A note written by an agent (one version), then by the person (another), both in git. */
 async function agentThenPerson(person: (t: string) => string) {
@@ -294,10 +294,11 @@ test('API: a clash is reported in the preview and not applied; the rest is', asy
 })
 
 test('API: errors as codes: a creation or a deletion is not revertible, a stale ifMatch, an unknown version, a note that cannot be read', async () => {
-  // privado/ is the fixed vault's (testdata/vault): nobody reads it here.
-  const h = await setup({ files: { [PLAN]: BEFORE }, config: ({ admin, member }) => `permissions:\n  "": { grants: { ${yamlKey(admin)}: manage, ${yamlKey(member)}: edit } }\n  privado: { grants: {} }\n` })
+  // A shared space with no members: nobody reads what is in it.
+  const nobodys = `spaces/${m.aSpaceFolder()}`
+  const h = await setup({ files: { [PLAN]: BEFORE, [m.aNotePath(nobodys)]: BEFORE } })
   try {
-    const NEW = m.aNotePath()
+    const NEW = m.aNotePath(SHARED)
     const created = await h.admin('POST', '/api/note', { path: NEW, text: `# ${m.aHeading()}\n` })
     assert.equal(created.status, 201)
     await h.put(NEW, (t) => t + `${m.aSentence()}\n`)
@@ -326,7 +327,7 @@ test('API: errors as codes: a creation or a deletion is not revertible, a stale 
     const unknown = await h.admin('POST', '/api/history/revert', { path: NEW, id: '0'.repeat(40) })
     assert.equal(unknown.status, 404)
     assert.equal((await h.admin('POST', '/api/history/revert', { path: NEW })).status, 400)
-    const hidden = await h.admin('POST', '/api/history/revert', { path: m.aNotePath('privado'), id: versions[0].id })
+    const hidden = await h.admin('POST', '/api/history/revert', { path: m.aNotePath(nobodys), id: versions[0].id })
     assert.deepEqual([hidden.status, hidden.body.error], [404, 'not_found'])
   } finally { await h.close() }
 })

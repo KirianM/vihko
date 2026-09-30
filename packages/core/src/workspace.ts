@@ -13,7 +13,7 @@
 //   restrictive setting.
 import { LineCounter, isMap, isScalar, isSeq, type Document } from 'yaml'
 import { parseYamlDocument } from './yaml.ts'
-import { IMPLICIT_PERMISSIONS, CLOSED_PERMISSIONS, parsePermissions, type Permissions } from './permissions.ts'
+import { NO_PERMISSIONS, CLOSED_PERMISSIONS, parsePermissions, type Permissions } from './permissions.ts'
 import { patternPeriod, patternTokens, seriesPath, type Series } from './series.ts'
 import { classifyPath } from './paths.ts'
 import { globProblem } from './glob.ts'
@@ -194,13 +194,13 @@ export interface StrictSection<T = unknown> {
 }
 
 /**
- * Per-folder permissions (D-014, D-038, permissions.ts). Missing, every admin
- * manages the root; rejected, nobody reads anything.
+ * Per-folder permissions (D-014, D-038, D-056, permissions.ts). Missing or
+ * rejected, nothing is shared: each person has only their own space.
  */
 export const PERMISSIONS_SECTION: StrictSection<Permissions> = {
   key: 'permissions',
   closed: CLOSED_PERMISSIONS,
-  missing: IMPLICIT_PERMISSIONS,
+  missing: NO_PERMISSIONS,
   parse: (raw, at, report, notice) => parsePermissions(raw, at, report, notice),
 }
 

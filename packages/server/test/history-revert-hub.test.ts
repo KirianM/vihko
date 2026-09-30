@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { everyone } from './_permissions.ts'
+import { everyone, inShared } from './_permissions.ts'
 import { CLI, api, closeAll, connect, login, makeDirs, startServer, typeLine, waitFor, type Srv } from './_collab.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -17,7 +17,7 @@ const [PERSON_1, PERSON_2] = [m.aUniqueWord(), m.aUniqueWord()]
 // The setup copies the fixed vault (testdata/vault): this note and its
 // headings («# Proxy», «## Red», «## Almacenamiento») are the vault's. What
 // the agent and the people write is the mother's.
-const NOTE = 'hogar/Proxy.md'
+const NOTE = inShared('hogar/Proxy.md')
 const q = encodeURIComponent
 const FAST = { VIHKO_HISTORY_QUIET_SECONDS: '0.4', VIHKO_HISTORY_MAX_SECONDS: '30' }
 
