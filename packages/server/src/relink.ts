@@ -3,7 +3,7 @@
 // we check where it resolves after the change; if it differs, it's rewritten
 // with the shortest form that still points to its destination.
 import { posix } from 'node:path'
-import { extract, markdownDest, resolveImageRef, shortestTarget, type ImageLink, type LinkIndex, type LinkRef, type Resolution } from '@vihko/core'
+import { extract, markdownDest, noteName, resolveImageRef, wikiLink, type ImageLink, type LinkIndex, type LinkRef, type Resolution } from '@vihko/core'
 
 export interface Replacement {
   from: number
@@ -78,7 +78,7 @@ export function planLinks(
     if (rb.status === 'resolved') {
       const want = map(rb.path)
       if (ra.status === 'resolved' && ra.path === want) continue
-      const raw = rewriteLink(link, srcAfter, want, after)
+      const raw = rewriteLink(link, srcAfter, want, after, { was: rb.path, inTable: inTableRow(text, link.from) })
       if (raw !== null) {
         if (raw !== link.raw) reps.push({ from: link.from, to: link.to, text: raw })
         continue
@@ -93,6 +93,12 @@ export function planLinks(
     shifts.push({ raw: link.raw, code, before: stateOf(rb), after: stateOf(ra) })
   }
   return { reps, shifts }
+}
+
+/** Whether the line holding `at` is a table row (starts with `|`): a `|` written there is `\|`. */
+export function inTableRow(text: string, at: number): boolean {
+  const start = text.lastIndexOf('\n', at - 1) + 1
+  return /^[ \t]*\|/.test(text.slice(start, at + 1))
 }
 
 /**
@@ -189,10 +195,18 @@ export function applyReplacements(text: string, reps: Replacement[]): string {
  * its relative path, encoded as image links are (`markdownDest`: spaces,
  * brackets, parentheses, `%`, `#`, `?`…), keeping its `#anchor` as written,
  * its `<…>` form, its text and its title; a wikilink by the shortest target
- * that resolves there (`shortestTarget`), keeping its anchor (`#…`) and
- * visible text (`|…`). Null if no form of it reaches `want`.
+ * that resolves there (`wikiLink`), keeping its anchor (`#…`) and visible
+ * text (`|…`). Null if no form of it reaches `want`.
+ *
+ * Visible text (D-056): a wikilink (not an embed) that has none and is now
+ * written from the notes root (to another space) gets the note's name, so
+ * that Obsidian and others don't show the path. One whose text is the name
+ * of the note it led to (`opts.was`), as vihko writes it, takes the new
+ * name when the note is renamed; and a text equal to the new target goes.
+ * `opts.inTable`: the link is in a table row, where a new `|` is written
+ * `\|`.
  */
-export function rewriteLink(link: LinkRef, src: string, want: string, index: LinkIndex): string | null {
+export function rewriteLink(link: LinkRef, src: string, want: string, index: LinkIndex, opts: { was?: string; inTable?: boolean } = {}): string | null {
   if (link.kind === 'markdown') {
     // The destination's span in the link (from the parser); without it, everything after `](`.
     const open = link.raw.indexOf('](')
@@ -205,10 +219,29 @@ export function rewriteLink(link: LinkRef, src: string, want: string, index: Lin
     const dest = markdownDest(posix.relative(posix.dirname(src), want)) + (hash === -1 ? '' : url.slice(hash))
     return link.raw.slice(0, start) + (angled ? `<${dest}>` : dest) + link.raw.slice(end)
   }
-  // Wikilink: name, progressively longer path suffixes, and finally the absolute path.
-  const target = shortestTarget(index, src, want)
+  // Wikilink: name, progressively longer path suffixes, and finally the path from the root.
+  const { target, display } = wikiLink(index, src, want)
   const r = index.resolve(src, { kind: 'wiki', target, anchor: null })
   if (r.status !== 'resolved' || r.path !== want) return null
-  const start = link.raw.indexOf(link.target, link.kind === 'embed' ? 3 : 2)
-  return link.raw.slice(0, start) + target + link.raw.slice(start + link.target.length)
+  const open = link.kind === 'embed' ? 3 : 2
+  const inner = link.raw.slice(open, -2)
+  const bar = inner.indexOf('|')
+  // In a table the bar is written `\|` (Obsidian's way), and stays so.
+  const escaped = bar > 0 && inner[bar - 1] === '\\'
+  const dest = bar === -1 ? inner : inner.slice(0, escaped ? bar - 1 : bar)
+  const start = dest.indexOf(link.target)
+  const newDest = start === -1 ? target + (link.anchor === null ? '' : `#${link.anchor}`) : dest.slice(0, start) + target + dest.slice(start + link.target.length)
+  const sep = escaped || (bar === -1 && opts.inTable) ? '\\|' : '|'
+  let shown: string | null = bar === -1 ? null : inner.slice(bar + 1)
+  if (shown !== null) {
+    // The visible text vihko wrote (the note's name) follows the note when it's renamed; any other stays as written.
+    const oldName = opts.was !== undefined ? noteName(opts.was) : null
+    const newName = noteName(want)
+    if (oldName !== null && oldName !== newName && shown.trim() === oldName) shown = shown.replace(oldName, newName)
+    // `[[plan|plan]]`: the text says nothing the target doesn't.
+    if (shown.trim() === target) shown = null
+  } else if (display !== null && link.kind === 'wiki') {
+    shown = display
+  }
+  return link.raw.slice(0, open) + newDest + (shown === null ? '' : sep + shown) + ']]'
 }

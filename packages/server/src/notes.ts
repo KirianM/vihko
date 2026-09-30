@@ -6,7 +6,7 @@ import { dirname, join, posix, resolve } from 'node:path'
 import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, folderOf, isIgnoredDir, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
 import { commitText, createFile, followable, isPlainFile, linkNew, readStable, readText } from './fsutil.ts'
 import { attachmentPath, noteAttachmentsDir, sniffImage, suffixedName } from './attachments.ts'
-import { applyReplacements, beforeMoves, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
+import { applyReplacements, beforeMoves, inTableRow, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
 import type { Indexer } from './indexer.ts'
 import { applySplices, spliceOf, type Splice } from './edits.ts'
 import type { Db } from './db.ts'
@@ -791,7 +791,7 @@ export class NoteService {
       if (now.status !== 'ambiguous' || !now.candidates.includes(target)) {
         throw new NoteError('edit_mismatch', `${link.raw} in ${path} is not ambiguous with ${target} among its candidates`)
       }
-      const next = rewriteLink(occurrence, path, target, index)
+      const next = rewriteLink(occurrence, path, target, index, { inTable: inTableRow(text, occurrence.from) })
       if (next === null) throw new NoteError('edit_mismatch', `no form of ${link.raw} leads to ${target} from ${path}`)
       raw = next
       return [spliceOf(text, occurrence.from, occurrence.to, next)]

@@ -17,7 +17,7 @@ export { describeLeftover, removeCrashLeftovers, type Leftover, type LeftoverKin
 export { historyRoutes, type ApiAuthor, type HistoryRoutesDeps } from './http/history.ts'
 export { DEFAULT_MAX_IMAGE_BYTES, FolderNotEmpty, NoteError, NoteService, type FolderContents, type TrashRestoreReport, type Actor, type Change, type HotDocuments, type NoteErrorCode, type FolderMoveReport, type MoveHooks, type MoveReport, type MovedRelinkReport, type NoteRead, type NoteServiceOptions, type ShiftGroup, type TrashEntry } from './notes.ts'
 export { commitText, createFile, readStable, readText, replaceText, rootIgnoresCase, spelledAsOnDisk, writeTmp, type CommitResult, type ReplaceResult } from './fsutil.ts'
-export { applyReplacements, beforeMoves, planLinks, planRelinks, rewriteLink, type LinkState, type Replacement, type Shift, type ShiftCode } from './relink.ts'
+export { applyReplacements, beforeMoves, inTableRow, planLinks, planRelinks, rewriteLink, type LinkState, type Replacement, type Shift, type ShiftCode } from './relink.ts'
 export { Auth, AuthError, MAX_PASSWORD, MIN_PASSWORD, NAME_PATTERN, hashPassword, needsRehash, sessionIdOf, userIdByName, verifyPassword, type Role, type SessionInfo, type User } from './auth.ts'
 export { LINK_DAYS, Users, UsersError, type Directory as UsersDirectory, type GroupInfo, type LinkKind, type NewLink, type UserHooks, type UserInfo, type UserStatus, type UsersErrorCode } from './users.ts'
 export { AdminSettings, AdminSettingsError, type AdminSettingsView } from './adminSettings.ts'
