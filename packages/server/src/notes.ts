@@ -780,7 +780,7 @@ export class NoteService {
    * leads there, nothing is written. On an open note it's an exact splice in
    * the live document. Returns the link as it is written now.
    */
-  async pinLink(path: string, link: { raw: string; at?: number }, target: string, opts: { actor: Actor }): Promise<{ etag: string; raw: string }> {
+  async pinLink(path: string, link: { raw: string; at?: number }, target: string, opts: { actor: Actor; sees?: (path: string) => boolean }): Promise<{ etag: string; raw: string }> {
     let raw = link.raw
     const r = await this.edit(path, (text) => {
       const index = this.opts.indexer.links
@@ -788,14 +788,15 @@ export class NoteService {
       if (!occurrence) throw new NoteError('edit_mismatch', `no link ${link.raw} in ${path}`)
       const now = index.resolve(path, occurrence)
       if (now.status === 'resolved' && now.path === target) return []
-      if (now.status !== 'ambiguous' || !now.candidates.includes(target)) {
+      // Ambiguous for whoever asks only if they see every candidate: otherwise, for them, it is broken (D-056.15).
+      if (now.status !== 'ambiguous' || !now.candidates.includes(target) || (opts.sees && !now.candidates.every(opts.sees))) {
         throw new NoteError('edit_mismatch', `${link.raw} in ${path} is not ambiguous with ${target} among its candidates`)
       }
       const next = rewriteLink(occurrence, path, target, index, { inTable: inTableRow(text, occurrence.from) })
       if (next === null) throw new NoteError('edit_mismatch', `no form of ${link.raw} leads to ${target} from ${path}`)
       raw = next
       return [spliceOf(text, occurrence.from, occurrence.to, next)]
-    }, opts)
+    }, { actor: opts.actor })
     return { etag: r.etag, raw }
   }
 

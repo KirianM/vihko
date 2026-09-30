@@ -4,7 +4,8 @@
 // A person sees what the folders' permissions give them (D-038); an agent
 // only what its user sees and its key allows. Nothing a principal can't see
 // leaks through a list, a count, a link, a preview or an error: it doesn't
-// exist (`not_found`), or, when an agent names a note that exists,
+// exist (`not_found`, and a link to it is broken, D-056.15), or, when an
+// agent names a note its person can read but that is hidden from the agent,
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
@@ -27,7 +28,7 @@ import type { KeyWithUser } from './keys.ts'
 import type { PermissionsEngine } from './permissions.ts'
 import type { PermissionsFile } from './permissionsFile.ts'
 import type { Profiles } from './profiles.ts'
-import type { LinkState } from './relink.ts'
+import { shiftCode, type LinkState } from './relink.ts'
 import { createFromTemplate } from './templates.ts'
 import type { HistoryReader } from './history/reader.ts'
 import type { Recorder } from './history/recorder.ts'
@@ -87,10 +88,12 @@ export class RequestError extends Error {
 }
 
 /**
- * An outgoing link as the API gives it. For an agent, `no_access`: it leads
- * to a note that exists but is hidden from it (or every candidate of an
- * ambiguous one is), without saying which; an ambiguous one keeps the
- * candidates it can see, with `othersNoAccess` if there are others.
+ * An outgoing link as the API gives it. One that leads to a note the person
+ * can't read is `missing`, as a broken one (D-056.15). For an agent,
+ * `no_access`: it leads to a note its person reads but that is hidden from
+ * it (or every candidate of an ambiguous one is), without saying which; an
+ * ambiguous one keeps the candidates it can see, with `othersNoAccess` if
+ * there are others.
  * `dstPath`: the note it leads to; `anchorOk`: 1 if its `#heading` is
  * there, 0 if not, null without one; `posFrom`: where it starts in the note.
  */
@@ -213,8 +216,9 @@ export interface NoteMeta { title: string; uid: string | null; fmError: string |
 
 /**
  * Where a link leads, written in a note (`resolveLink`), as in `links`.
- * `no_access`: to a note that exists but is hidden from the principal, with
- * `reason` when it is one note. `anchorOk`: whether the heading after `#`
+ * `no_access` (agents only): to a note its person reads but that is hidden
+ * from it, with `reason` when it is one note; what its person can't read is
+ * `missing`. `anchorOk`: whether the heading after `#`
  * is in the note it leads to (null without one).
  */
 export interface ResolvedLink {
@@ -408,11 +412,9 @@ export class ScopedNotes {
 
   /**
    * A note's outgoing links and backlinks (with their context), and the
-   * titles of an ambiguous link's candidates. A link to a note the
-   * principal can't read is `no_access` (the note isn't named, D-024); an
-   * ambiguous one keeps the candidates it can see, with `othersNoAccess`
-   * if there are others, and is `no_access` if it can see none. Backlinks
-   * from notes it can't see aren't there at all.
+   * titles of an ambiguous link's candidates. A link to a note the person
+   * can't read is broken for them (`maskedLink`, D-056.15). Backlinks from
+   * notes the principal can't see aren't there at all.
    *
    * A link from a note to itself (`[[#Heading]]`, or its own name) is not a
    * link between notes: it is never a backlink, and among the outgoing ones
@@ -453,18 +455,25 @@ export class ScopedNotes {
   }
 
   /**
-   * A link as the principal sees it (see `links`). For an agent, `no_access`
-   * carries the reason when every note it may lead to is hidden for the same
-   * one (the agent has the link, so it names them, as `resolveLink` does); a
-   * person gets no reason (D-024).
+   * A link as the principal sees it (see `links`). One that leads to a note
+   * the person can't read (or is ambiguous among notes of which they can't
+   * read one) is broken for them, exactly as a link to a note that doesn't
+   * exist (D-056.15): writing a link never tells anyone what exists. For an
+   * agent the same goes for what its person can't read; a note its person
+   * reads but that is hidden from the agent (`ai: false`, out of the key's
+   * folders) is `no_access`, with the reason when every note it may lead to
+   * is hidden for the same one (D-035), and an ambiguous link keeps the
+   * candidates it sees, with `othersNoAccess`.
    */
   private maskedLink(l: OutgoingLink): OutgoingLink {
-    const reasonFor = (p: string) => (this.access.isAgent ? this.access.reasonFor(p) : null)
-    if (l.dstPath !== null && !this.access.canRead(l.dstPath)) return noAccess(l, reasonFor(l.dstPath))
+    const person = (p: string) => this.access.userCanRead(p)
+    if (l.dstPath !== null && !person(l.dstPath)) return brokenLink(l)
+    if (l.candidates && !l.candidates.every(person)) return brokenLink(l)
+    if (l.dstPath !== null && !this.access.canRead(l.dstPath)) return noAccess(l, this.access.reasonFor(l.dstPath))
     if (!l.candidates) return l
     const visible = l.candidates.filter((c) => this.access.canRead(c))
     if (visible.length === 0) {
-      const reasons = new Set(l.candidates.map(reasonFor))
+      const reasons = new Set(l.candidates.map((c) => this.access.reasonFor(c)))
       return noAccess(l, reasons.size === 1 ? [...reasons][0]! : null)
     }
     return visible.length === l.candidates.length ? l : { ...l, candidates: visible, othersNoAccess: true }
@@ -472,10 +481,10 @@ export class ScopedNotes {
 
   /**
    * Where `link` leads, written in `from`: `[[Note#Heading]]`, `[text](path.md)`
-   * or a bare target (`Note#Heading`), by the same rules as `links`. A note
-   * the principal can't read is `no_access` (for an agent, with its reason
-   * when the link leads to that one note: it named it); never its path or
-   * title.
+   * or a bare target (`Note#Heading`), by the same rules as `links`
+   * (`maskedLink`): a note the person can't read is `missing`; one hidden
+   * from an agent only, `no_access` with its reason when the link leads to
+   * that one note (it named it); never its path or title.
    */
   resolveLink(from: string, link: string): ResolvedLink {
     const { path: src } = this.visible(from)
@@ -721,9 +730,17 @@ export class ScopedNotes {
     const moved = new Set([report.from, report.to].filter((p): p is string => typeof p === 'string'))
     const sees = (p: string) => moved.has(p) || this.access.canRead(back(p))
     const keep = <X>(list: X[], path: (x: X) => string) => list.filter((x) => (sees(path(x)) ? true : ((hidden = true), false)))
-    const stateOk = (s: LinkState) => s.status === 'resolved' ? sees(s.path) : s.status === 'ambiguous' ? s.candidates.every(sees) : true
+    // Where a link leads, as the principal would see it: to what they can't read, nowhere (D-056.15).
+    const shown = (s: LinkState): LinkState =>
+      s.status === 'resolved' ? (sees(s.path) ? s : { status: 'missing' }) : s.status === 'ambiguous' ? (s.candidates.every(sees) ? s : { status: 'missing' }) : s
     const shifted = keep(report.shifted, (g) => g.path).flatMap((g) => {
-      const changes = keep(g.changes, (c) => (stateOk(c.before) && stateOk(c.after) ? g.path : ''))
+      // A change they can't tell (broken before and after, for them) is no change to them.
+      const changes = g.changes.flatMap((c) => {
+        const before = shown(c.before)
+        const after = shown(c.after)
+        const code = shiftCode(before, after)
+        return code === null ? [] : [{ ...c, code, before, after }]
+      })
       return changes.length ? [{ ...g, links: changes.length, changes }] : []
     })
     // Images: an agent, those in its key's folders; a person, those in folders they can read.
@@ -960,13 +977,15 @@ export class ScopedNotes {
 
   /**
    * Fixes where one ambiguous link leads (D-031.2), in a note it can write,
-   * to a candidate it can see: one it can't is not a candidate for it.
+   * to a candidate it can see: one it can't is not a candidate for it, and a
+   * link with a candidate it can't see isn't ambiguous for it but broken
+   * (`maskedLink`): the same refusal as for a link that isn't ambiguous.
    */
   async pinLink(path: string, link: { raw: string; at?: number }, target: string): Promise<{ etag: string; raw: string }> {
     const p = this.writable(path)
     this.visible(p)
     if (typeof target !== 'string' || !this.access.canRead(target)) throw new NoteError('edit_mismatch', `${link.raw} in ${p} has no such candidate`)
-    return this.guardAsync(p, () => this.deps.notes.pinLink(p, link, target, { actor: this.access.actor }))
+    return this.guardAsync(p, () => this.deps.notes.pinLink(p, link, target, { actor: this.access.actor, sees: (c) => this.access.canRead(c) }))
   }
 
   /** Stores an image fetched from a URL for a note it can write, like an upload: nothing is fetched for a note it can't. */
@@ -1088,6 +1107,11 @@ function parseLink(link: string): Pick<LinkRef, 'kind' | 'target' | 'anchor'> | 
 }
 
 /** A link to a note hidden from the principal: its own text and why (if one reason), nothing of where it leads. */
+/** A link as a broken one looks: where it leads is nobody's business (D-056.15). */
+function brokenLink(l: OutgoingLink): OutgoingLink {
+  return { raw: l.raw, kind: l.kind, target: l.target, anchor: l.anchor, status: 'missing', dstPath: null, anchorOk: null, candidates: null, posFrom: l.posFrom }
+}
+
 function noAccess(l: { raw: string; kind: string; target: string; anchor: string | null; posFrom: number }, reason: DenyReason | null): OutgoingLink {
   return { raw: l.raw, kind: l.kind, target: l.target, anchor: l.anchor, status: 'no_access', dstPath: null, anchorOk: null, candidates: null, posFrom: l.posFrom, ...(reason ? { reason } : {}) }
 }

@@ -18,13 +18,14 @@
 // What a principal can't read doesn't exist for it: callers answer
 // `not_found`, never `forbidden`, and name nothing it can't see (D-030,
 // D-024). A person who can see a note (or a folder) but not do something in
-// it gets `forbidden`. And an agent that names a note that exists but is
-// hidden from it gets an explicit denial, `agent_denied` with the reason
-// (`ai_false`, `outside_key_folders`, or `user_no_access` when its user
-// can't see it), so that it doesn't take it for a broken link and delete,
-// redirect or duplicate it. The denial carries nothing of the note. Lists
-// still never show it: the agent only learns it exists if it already has
-// its name.
+// it gets `forbidden`. And an agent that names a note its user can see but
+// that is hidden from it gets an explicit denial, `agent_denied` with the
+// reason (`ai_false`, `outside_key_folders`), so that it doesn't take it for
+// a broken link and delete, redirect or duplicate it. The denial carries
+// nothing of the note. Lists still never show it: the agent only learns it
+// exists if it already has its name. A note its user can't see is, for the
+// agent as for the user, one that doesn't exist (`not_found`, D-056.15):
+// nobody learns what exists by naming paths or writing links.
 import { WORKSPACE_FILE, atLeast, classifyPath, folderOf, readFrontmatter, type Level } from '@vihko/core'
 import type { Actor, Via } from './actor.ts'
 import type { User } from './auth.ts'
@@ -66,11 +67,12 @@ export class AccessError extends Error {
 }
 
 /**
- * Why a note an agent named isn't for it: `ai: false` (in the note, a
- * frontmatter that can't be read, or its folder in vihko.yaml), out of its
- * key's folders, or its user can't see it.
+ * Why a note an agent named isn't for it, when its user can see it: `ai:
+ * false` (in the note, a frontmatter that can't be read, or its folder in
+ * vihko.yaml), or out of its key's folders. (What its user can't see is
+ * `not_found`, D-056.15.)
  */
-export type DenyReason = 'ai_false' | 'outside_key_folders' | 'user_no_access'
+export type DenyReason = 'ai_false' | 'outside_key_folders'
 
 /**
  * An agent named a note that exists but is hidden from it (403
@@ -81,8 +83,7 @@ export class AgentDenied extends Error {
   readonly reason: DenyReason
   constructor(reason: DenyReason) {
     const why = reason === 'ai_false' ? 'it is marked as hidden from them'
-      : reason === 'outside_key_folders' ? 'it is outside the folders of this key'
-      : 'the person this key acts for has no access to it'
+      : 'it is outside the folders of this key'
     super(`This note exists but is not available to agents (${why}). `
       + 'Do not delete, rewrite or replace links to it, and do not create a note to replace it.')
     this.reason = reason
@@ -348,20 +349,33 @@ export class Access {
 
   /**
    * Why a note an agent named is hidden from it, if the note exists (as
-   * indexed) and it can't read it; null otherwise (a user, it can, it isn't
-   * a note, or there is no such note). `hides` judges its text now.
+   * indexed), its user can read it and the agent can't; null otherwise (a
+   * user, it can, it isn't a note, there is no such note, or its user can't
+   * see it either: then it doesn't exist for the agent). `hides` judges its
+   * text now.
    */
   denial(path: string): DenyReason | null {
     if (this.principal.kind === 'user' || classifyPath(path) !== 'note' || this.canRead(path)) return null
-    if (!this.policy.indexed(path)) return null
+    if (!this.userCanRead(path) || !this.policy.indexed(path)) return null
     return this.reasonFor(path)
   }
 
-  /** Why a note is hidden from an agent, known to exist and to be hidden (by its text, say). */
+  /**
+   * Why a note its user can read is hidden from an agent (by its text, say):
+   * out of the key's folders, or `ai: false`.
+   */
   reasonFor(path: string): DenyReason {
-    if (!this.userCan(path, 'read')) return 'user_no_access'
     if (!this.inScope(path)) return 'outside_key_folders'
     return 'ai_false'
+  }
+
+  /**
+   * Whether the user the request acts for (an agent's, or the person) may
+   * read `path`, whatever the key or the note's text say: what isn't so
+   * doesn't exist for either of them (D-056.15).
+   */
+  userCanRead(path: string): boolean {
+    return this.userCan(path, 'read')
   }
 
   /**

@@ -65,18 +65,18 @@ test('§7.1: each person sees their folders and the shared one; the admin doesn\
       assert.equal(missing.text.replaceAll(JSON.stringify(absent).slice(1, -1), JSON.stringify(path).slice(1, -1)), r.text, 'no access and no note answer alike')
     }
 
-    // A link to a note one can't read: `no_access`, no path, no title, no candidates (D-024).
+    // A link to a note one can't read is broken for them, as one to a note that doesn't exist: no path, no title, no candidates (D-056.15).
     const kLinks = (await h.admin('GET', h.url('/api/note/links', { path: PATH.list }))).body
     const out = Object.fromEntries(kLinks.outgoing.map((l: { raw: string }) => [l.raw, l]))
     const cake = out[link(NAME.cake)]
-    assert.deepEqual([cake.status, cake.dstPath, cake.reason], ['no_access', null, undefined])
-    assert.equal(out['[[2026-09-27]]'].status, 'no_access')
-    assert.notEqual(out[link(NAME.plan)].status, 'no_access', 'the admin\'s own notes are candidates for them')
+    assert.deepEqual(cake, { raw: cake.raw, kind: 'wiki', target: NAME.cake, anchor: null, status: 'missing', dstPath: null, anchorOk: null, candidates: null, posFrom: cake.posFrom })
+    assert.equal(out['[[2026-09-27]]'].status, 'missing')
+    assert.notEqual(out[link(NAME.plan)].status, 'missing', 'the admin\'s own notes are candidates for them')
     assert.deepEqual(paths(kLinks.backlinks), sorted([PATH.settings, PATH.adminPlan]))
     const lLinks = (await h.member('GET', h.url('/api/note/links', { path: PATH.list }))).body
     const lout = Object.fromEntries(lLinks.outgoing.map((l: { raw: string }) => [l.raw, l]))
     assert.deepEqual([lout[link(NAME.cake)].status, lout[link(NAME.cake)].dstPath], ['resolved', PATH.cake])
-    assert.deepEqual([lout[link(NAME.plan)].status, lout[link(NAME.plan)].candidates], ['no_access', null])
+    assert.deepEqual([lout[link(NAME.plan)].status, lout[link(NAME.plan)].candidates], ['missing', null])
     assert.deepEqual(paths(lLinks.backlinks), sorted([PATH.diary, PATH.cake]))
 
     // Search, tags and their counts: only what each one reads.
@@ -185,7 +185,7 @@ test('§7.3: moving a note says who loses or gains access before moving it', asy
   } finally { await h.close() }
 })
 
-test('§7.4: the member\'s key doesn\'t see their diary; the admin\'s sees nothing of the member\'s, and says why when named', async () => {
+test('§7.4: the member\'s key doesn\'t see their diary; the admin\'s sees nothing of the member\'s, not even that what it names exists', async () => {
   const h = await setup({ files: FILES })
   try {
     await h.enable()
@@ -196,15 +196,16 @@ test('§7.4: the member\'s key doesn\'t see their diary; the admin\'s sees nothi
     assert.ok(!lt.folders.includes(PATH.diaryDir), 'a folder closed to agents doesn\'t show')
     const diary = await memberKey('GET', h.url('/api/note', { path: PATH.diary }))
     assert.deepEqual([diary.status, diary.body.error, diary.body.reason], [403, 'agent_denied', 'ai_false'])
+    // What its person can't read doesn't exist for it either (D-056.15).
     const theirs = await adminKey('GET', h.url('/api/note', { path: PATH.cake }))
-    assert.deepEqual([theirs.status, theirs.body.error, theirs.body.reason], [403, 'agent_denied', 'user_no_access'])
+    assert.deepEqual([theirs.status, theirs.body.error, theirs.body.reason], [404, 'not_found', undefined])
     assert.deepEqual((await adminKey('GET', h.url('/api/search', { q: WORD.cake }))).body.results, [])
     const nothing = await adminKey('GET', h.url('/api/note', { path: m.aNotePath(HOME.member) }))
     assert.deepEqual([nothing.status, nothing.body.error], [404, 'not_found'], 'a note that isn\'t there is still not_found')
-    // Its links to what its user can't see: `no_access`, with the reason.
+    // Its links to what its user can't see: broken, as for its user.
     const links = (await adminKey('GET', h.url('/api/note/links', { path: PATH.list }))).body
     const cake = links.outgoing.find((l: { raw: string }) => l.raw === link(NAME.cake))
-    assert.deepEqual([cake.status, cake.reason], ['no_access', 'user_no_access'])
+    assert.deepEqual([cake.status, cake.reason, cake.dstPath], ['missing', undefined, null])
   } finally { await h.close() }
 })
 

@@ -52,6 +52,20 @@ export interface Shift {
   after: LinkState
 }
 
+/**
+ * How a link's resolution changes from `before` to `after` (ShiftCode), or
+ * null if it doesn't: the same note, or still broken, or still ambiguous
+ * (maybe among other candidates).
+ */
+export function shiftCode(before: LinkState, after: LinkState): ShiftCode | null {
+  if (before.status === 'resolved') {
+    if (after.status === 'resolved') return after.path === before.path ? null : 'retargets'
+    return after.status === 'ambiguous' ? 'ambiguous' : 'breaks'
+  }
+  if (after.status === before.status) return null
+  return after.status === 'resolved' ? 'resolves' : after.status === 'ambiguous' ? 'ambiguous' : 'breaks'
+}
+
 const stateOf = (r: Resolution): LinkState =>
   r.status === 'resolved' ? { status: 'resolved', path: r.path } : r.status === 'ambiguous' ? { status: 'ambiguous', candidates: r.candidates } : { status: 'missing' }
 
