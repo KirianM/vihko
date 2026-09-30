@@ -1237,6 +1237,7 @@ export class NoteService {
         for (const img of this.imagesOf(text, f)) {
           if (img.path.startsWith(from + '/') || linkSpace(img.path) !== origin || !canRead(img.path) || planned.has(key(img.path, dir))) continue
           // The destination doesn't exist yet: only the copies planned here can take a name in it.
+          // TODO(piece S, D-056.21): next to the note until `attachments.folder` is relative to the space.
           const free = firstName(img.path, dir, (dest) => !taken.has(dest))
           if (free === undefined) continue
           taken.add(free)
@@ -1288,6 +1289,8 @@ export class NoteService {
     const toDir = posix.dirname(to)
     if (posix.dirname(from) === toDir) return plan
     // Changing space (D-056): what would stay behind in the space it leaves is copied.
+    // TODO(piece S, D-056.21): once `attachments.folder` is relative to the space (spec §1.6), copies
+    // follow the destination space's attachments config; until then they go next to the note.
     const origin = linkSpace(from)
     const crossing = origin !== linkSpace(to)
     const taken = new Set<string>()
