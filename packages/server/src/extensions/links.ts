@@ -6,7 +6,7 @@
 // D-031.1). The tables record the setting they were resolved with: when it
 // changes (live, or while vihko was stopped) every link is resolved again,
 // without reindexing a single note.
-import { LinkIndex, normKey, pathKeys, type Heading, type LinkRef } from '@vihko/core'
+import { LinkIndex, linkSpace, normKey, pathKeys, type Heading, type LinkRef } from '@vihko/core'
 import type { Extension } from '../extension.ts'
 
 interface LinkFacts {
@@ -37,7 +37,8 @@ export function linksExtension(opts: { aliases?: boolean } = {}): LinksExtension
   return {
     name: 'links',
     // 2: keys with full Unicode case folding. 3: the alias setting links were resolved with.
-    version: 3,
+    // 4: spaces (D-056): each key with the space its note is in, names resolved within it.
+    version: 4,
     // Anchors are checked against the headings, and the index is loaded from them.
     requires: ['headings'],
     get index() { return index },
@@ -55,13 +56,16 @@ export function linksExtension(opts: { aliases?: boolean } = {}): LinksExtension
         key   text primary key,
         value text not null
       )`,
-      // Resolution keys: path suffixes and normalised aliases.
+      // Resolution keys: path suffixes and normalised aliases, with the root of the
+      // note's space ('' for none), where a name or an alias resolves (core/resolve.ts).
       link_keys: `create table link_keys (
-        key  text not null,
-        path text not null,
-        kind text not null check (kind in ('path', 'alias')),
+        key   text not null,
+        path  text not null,
+        kind  text not null check (kind in ('path', 'alias')),
+        space text not null,
         primary key (key, path, kind)
-      )`,
+      );
+      create index link_keys_space on link_keys(space, key);`,
       links: `create table links (
         src_path   text not null,
         ord        integer not null,
@@ -102,7 +106,7 @@ export function linksExtension(opts: { aliases?: boolean } = {}): LinksExtension
 
       const delKeys = db.prepare('delete from link_keys where path = ?')
       const delLinks = db.prepare('delete from links where src_path = ?')
-      const insKey = db.prepare('insert or ignore into link_keys (key, path, kind) values (?, ?, ?)')
+      const insKey = db.prepare('insert or ignore into link_keys (key, path, kind, space) values (?, ?, ?, ?)')
       const insLink = db.prepare(`insert into links (src_path, ord, kind, raw, target, anchor, display, pos_from, pos_to, key, status)
                                   values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'missing')`)
       const update = db.prepare('update links set status = ?, dst_path = ?, via = ?, anchor_ok = ?, candidates = ? where src_path = ? and ord = ?')
@@ -131,8 +135,9 @@ export function linksExtension(opts: { aliases?: boolean } = {}): LinksExtension
         store(path, f) {
           delKeys.run(path)
           delLinks.run(path)
-          for (const k of pathKeys(path)) insKey.run(k, path, 'path')
-          for (const a of f.aliases) insKey.run(normKey(a), path, 'alias')
+          const space = linkSpace(path)
+          for (const k of pathKeys(path)) insKey.run(k, path, 'path', space)
+          for (const a of f.aliases) insKey.run(normKey(a), path, 'alias', space)
           f.links.forEach((l, i) => insLink.run(path, i, l.kind, l.raw, l.target, l.anchor, l.display, l.from, l.to, l.key))
           for (const k of index.set({ path, aliases: [...f.aliases], headings: f.headings })) affected.add(k)
         },
