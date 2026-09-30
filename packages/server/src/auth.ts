@@ -5,8 +5,9 @@
 import * as crypto from 'node:crypto'
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
-import { newUid, subjectKey } from '@vihko/core'
+import { isValidUsername, nameKey, newUid, subjectKey } from '@vihko/core'
 import type { Db } from './db.ts'
+import { PersonalFolderExists, PersonalFolders } from './personalFolders.ts'
 
 const scryptAsync = promisify(scrypt) as (pw: string, salt: Buffer, len: number, opts: object) => Promise<Buffer>
 
@@ -50,7 +51,7 @@ export interface User {
   disabled: boolean
 }
 
-export type AuthErrorCode = 'invalid_username' | 'weak_password' | 'user_exists' | 'already_setup' | 'invalid_token'
+export type AuthErrorCode = 'invalid_username' | 'weak_password' | 'user_exists' | 'already_setup' | 'invalid_token' | 'personal_folder_exists'
 
 /** A session as its owner sees it in «Account»: never its token. */
 export interface SessionInfo {
@@ -188,13 +189,25 @@ function rowToUser(r: { id: string; username: string; role: Role; disabled: numb
   return { id: r.id, username: r.username, role: r.role, disabled: !!r.disabled }
 }
 
+export interface AuthOptions {
+  /**
+   * The notes folder: each new user gets their personal folder,
+   * `people/<username>` (personalFolders.ts, D-056). Without it (tests of
+   * other things), none is made.
+   */
+  notesDir?: string
+}
+
 export class Auth {
   private db: Db
   /** Hash of a one-time token to create the first admin (in memory only). */
   private setupHash: string | null = null
+  /** Each new user's personal folder; null: none is made. */
+  readonly personalFolders: PersonalFolders | null
 
-  constructor(stateDb: Db) {
+  constructor(stateDb: Db, opts: AuthOptions = {}) {
     this.db = stateDb
+    this.personalFolders = opts.notesDir === undefined ? null : new PersonalFolders(opts.notesDir)
   }
 
   /** state.db, which other application state (keys, settings) shares. */
@@ -225,12 +238,32 @@ export class Auth {
    * still taken (its tombstone keeps it).
    */
   async createUser(username: string, password: string | null, role: Role): Promise<User> {
-    const name = this.newUsername(username)
+    this.newUsername(username)
     if (password !== null) strongEnough(password)
+    const hash = password === null ? '' : await hashPassword(password)
+    // Checked again after hashing, and from here on without awaiting: the
+    // folder and the row are made together, or neither.
+    const name = this.newUsername(username)
     const user: User = { id: newUid(), username: name, role, disabled: false }
-    this.db.prepare('insert into users (id, username, password_hash, role, created_at) values (?, ?, ?, ?, ?)')
-      .run(user.id, user.username, password === null ? '' : await hashPassword(password), role, new Date().toISOString())
+    const made = this.folder(() => this.personalFolders?.make(name) ?? false)
+    try {
+      this.db.prepare('insert into users (id, username, password_hash, role, created_at) values (?, ?, ?, ?, ?)')
+        .run(user.id, user.username, hash, role, new Date().toISOString())
+    } catch (err) {
+      if (made) this.personalFolders?.unmake(name)
+      throw err
+    }
     return user
+  }
+
+  /** Runs a personal folder's check or creation, its refusal as `personal_folder_exists`. */
+  private folder<T>(fn: () => T): T {
+    try {
+      return fn()
+    } catch (err) {
+      if (err instanceof PersonalFolderExists) throw new AuthError('personal_folder_exists', err.message)
+      throw err
+    }
   }
 
   /**
@@ -240,12 +273,17 @@ export class Auth {
    */
   newUsername(username: string): string {
     const name = username.normalize('NFC').trim()
-    if (!validName(name)) throw new AuthError('invalid_username', 'invalid username (2-64 letters, digits, ".", "_" or "-", and not a name JavaScript objects have)')
+    // Not starting with a dot either: `people/.ana` would be hidden, `people/..` outside (D-056, core isValidUsername).
+    if (!isValidUsername(name)) throw new AuthError('invalid_username', 'invalid username (2-64 letters, digits, ".", "_" or "-", not starting with ".", and not a name JavaScript objects have)')
     // Taken as the permissions compare names (any case, in any script): SQLite's
     // nocase only folds ASCII, and «ángela» would inherit «Ángela»'s grants.
+    // And as folders may collide (full case folding: `Straße` and `STRASSE`).
     const key = subjectKey(name)
+    const folded = nameKey(name)
     const names = this.db.prepare('select username from users').all() as { username: string }[]
-    if (names.some((r) => subjectKey(r.username) === key)) throw new AuthError('user_exists', `user ${name} already exists`)
+    if (names.some((r) => subjectKey(r.username) === key || nameKey(r.username) === folded)) throw new AuthError('user_exists', `user ${name} already exists`)
+    // Their folder: none yet, or an empty one.
+    this.folder(() => this.personalFolders?.check(name))
     return name
   }
 

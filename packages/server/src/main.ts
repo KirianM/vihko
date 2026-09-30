@@ -166,7 +166,13 @@ export async function start(config: Config, opts: StartOptions = {}) {
 async function run(config: Config, lock: StateLock, opts: StartOptions) {
   const log = (msg: string) => console.log(`[vihko] ${msg}`)
   const { state, index } = openStores(config, log)
-  const auth = new Auth(state)
+  // Each new user gets their personal folder (people/<name>, D-056).
+  const auth = new Auth(state, { notesDir: config.notesDir })
+  // The product's two folders, and the personal folder of each user there is, before the first scan (spec §7.1).
+  if (auth.personalFolders) {
+    auth.personalFolders.ensureLayout()
+    for (const u of state.prepare('select username from users where deleted_at is null').all() as { username: string }[]) auth.personalFolders.ensure(u.username)
+  }
   const keys = new ApiKeys(state)
   const integrations = new Integrations(state, { locked: config.integrationsLocked })
   // vihko.yaml in the current format before it's read (D-042.6): only here, never while it runs.

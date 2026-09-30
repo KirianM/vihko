@@ -117,10 +117,10 @@ function vaultWords(): Set<string> {
 for (const w of VAULT_WORDS) {
   taken.notes.add(w)
   taken.words.add(w)
-  taken.names.add(subjectKey(w))
+  taken.names.add(caseFold(subjectKey(w)))
 }
 for (const r of RESERVED) {
-  taken.names.add(subjectKey(r))
+  taken.names.add(caseFold(subjectKey(r)))
   taken.notes.add(caseFold(r))
 }
 
@@ -199,7 +199,7 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
           () => `${first.charAt(0)}${last}`,
         ])()
         return (chance(0.5) ? name.toLowerCase() : name) + suffix
-      }, (n) => NAME_PATTERN.test(n) && fresh(taken.names, subjectKey(n)))
+      }, (n) => NAME_PATTERN.test(n) && fresh(taken.names, caseFold(subjectKey(n))))
     },
 
     /** Someone to create: a new username, a password, and a role (member by default). */
@@ -230,7 +230,7 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
       return draw('group name', () => {
         const name = pick([() => pick(TEXT_WORDS), () => `${pick(TEXT_WORDS)}-${pick(TEXT_WORDS)}`, () => `${pick(TEXT_WORDS)}${int(2, 99)}`])()
         return (chance(0.3) ? capital(name) : name) + suffix
-      }, (n) => NAME_PATTERN.test(n) && fresh(taken.names, subjectKey(n)))
+      }, (n) => NAME_PATTERN.test(n) && fresh(taken.names, caseFold(subjectKey(n))))
     },
 
     /** A person's full name, as shown (not a username), unique in this process. */
