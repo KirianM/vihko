@@ -159,7 +159,7 @@ interface MaskableReport {
   from?: string
   to?: string
   kept?: MoveReport['kept']
-  images?: MoveReport['images']
+  images?: MoveReport['images'] | FolderMoveReport['images']
   notes?: { from: string; to: string }[]
   moves?: { from: string; to: string }[]
 }
@@ -708,7 +708,8 @@ export class ScopedNotes {
       ? audienceChange(this.deps.permissions, this.deps.keys(), [{ before: f, after: t }]) : undefined
     if (!opts.dryRun && this.access.isAgent && audience && widens(audience) && opts.confirmAudience !== true) throw new AudienceWidens(audience)
     const { confirmAudience: _, ...moveOpts } = opts
-    const report = await this.guardAsync(f, () => this.deps.notes.move(f, t, { ...moveOpts, actor: this.access.actor }))
+    // Images it takes to another space are only those the principal can read (D-056).
+    const report = await this.guardAsync(f, () => this.deps.notes.move(f, t, { ...moveOpts, actor: this.access.actor, canRead: (p) => this.access.canRead(p) }))
     const masked: ScopedMoveReport = this.maskReport(report)
     if (report.dryRun && audience) masked.audience = audience
     if (!this.access.isAgent) return masked
@@ -753,13 +754,17 @@ export class ScopedNotes {
       hidden,
     }
     if (report.kept) out.kept = keep(report.kept, (k) => k.path)
-    if (report.images) {
+    const images = report.images
+    if (images && 'moved' in images) {
       out.images = {
-        moved: report.images.moved.filter((m) => inReach(m.from)),
-        stayed: report.images.stayed.filter((x) => inReach(x.path)),
-        folder: report.images.folder,
-        failed: report.images.failed.filter((x) => inReach(x.path)),
+        moved: images.moved.filter((m) => inReach(m.from)),
+        copied: images.copied.filter((m) => inReach(m.from)),
+        stayed: images.stayed.filter((x) => inReach(x.path)),
+        folder: images.folder,
+        failed: images.failed.filter((x) => inReach(x.path)),
       }
+    } else if (images) {
+      out.images = { copied: images.copied.filter((m) => inReach(m.from)), failed: images.failed.filter((x) => inReach(x.path)) }
     }
     if (report.notes) out.notes = keep(report.notes, (n) => n.from)
     if (report.moves) out.moves = keep(report.moves, (m) => m.from).filter((m) => sees(m.to))
@@ -926,6 +931,8 @@ export class ScopedNotes {
     this.assertFolder(f, 'manage')
     this.assertFolder(parentFolder(t) ?? '', 'edit')
     const actor = this.access.actor
+    // Images it takes to another space are only those the person can read (D-056).
+    const canRead = (p: string) => this.access.canRead(p)
     const back = (p: string) => (p === t || p.startsWith(t + '/') ? f + p.slice(t.length) : p)
     const engine = this.deps.permissions
     const under = (this.deps.index.prepare("select path from folders where path = ? or path like ? escape '\\'").all(f, likePrefix(f)) as { path: string }[]).map((r) => r.path)
@@ -949,7 +956,7 @@ export class ScopedNotes {
       return { ...masked, files: (filePaths ?? []).filter((p) => this.access.canRead(p)).length }
     }
     if (opts.dryRun) {
-      const r = mask(await this.deps.notes.moveFolder(f, t, { actor, dryRun: true }))
+      const r = mask(await this.deps.notes.moveFolder(f, t, { actor, dryRun: true, canRead }))
       if (!engine || !this.deps.keys) return r
       const pairs = [...r.notes.map((n) => ({ before: n.from, after: n.to })), ...under.map((d) => ({ before: `${d}/_`, after: `${t}${d.slice(f.length)}/_` }))]
       return { ...r, audience: audienceChange(engine, this.deps.keys(), pairs, plan.rules) }
@@ -960,7 +967,7 @@ export class ScopedNotes {
     const afterCopy = copied ? file!.read().text : null
     let report: FolderMoveReport
     try {
-      report = await this.deps.notes.moveFolder(f, t, { actor, ...opts })
+      report = await this.deps.notes.moveFolder(f, t, { actor, ...opts, canRead })
     } catch (err) {
       // It didn't move: the copies go, unless someone changed the file meanwhile.
       if (copied) await file!.update((x) => (x === afterCopy ? before ?? '' : x), { actor }).catch(() => {})
