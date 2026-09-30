@@ -12,6 +12,10 @@
 // - `history_purged_authored`: someone purged from the history a note (or a
 //   version of it) they wrote in (D-040 3.6). The path is kept, and shown
 //   only while they can still read it (the caller judges, on each request).
+// - `links_not_updated`: a move they made (or an agent of theirs) left links
+//   in other notes that vihko couldn't update, even when it tried again after
+//   the next rescan (D-056.21). No path, name or count: those notes may be
+//   ones they can't read.
 //
 // Only ids are kept (who did it, to whom): names are looked up when shown,
 // so a rename shows the new one and a deleted user their tombstone's. Never
@@ -21,6 +25,7 @@ import { WORKSPACE_FILE, atLeast, type AccountChange, type Alert } from '@vihko/
 import type { Access } from './access.ts'
 import type { Db } from './db.ts'
 import type { Role } from './auth.ts'
+import type { Actor } from './actor.ts'
 
 export type { AccountChange }
 
@@ -37,6 +42,7 @@ export function readablePath(access: Access, path: string): boolean {
 /** A notice as the alert its person sees: names as they are now, a purge's path only while they can read it. */
 export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => string): Alert {
   const d = n.data
+  if (d.code === 'links_not_updated') return { code: d.code, id: n.id, at: n.at, actions: ['dismiss'] }
   const base = { id: n.id, at: n.at, by: nameOf(d.by), actions: ['dismiss' as const] }
   switch (d.code) {
     case 'account_changed': return { code: d.code, ...base, change: d.change, role: d.role }
@@ -52,6 +58,8 @@ export type NoticeData =
   | { code: 'user_account_changed'; change: AccountChange; by: string; user: string; role: Role | null }
   /** To whoever wrote in it: `by` purged `path` (with `version`, one version of it) from the history. */
   | { code: 'history_purged_authored'; by: string; path: string; version: boolean }
+  /** To whoever made a move: some links it left couldn't be updated, even retried. Nothing else. */
+  | { code: 'links_not_updated' }
 
 export type NoticeCode = NoticeData['code']
 
@@ -65,7 +73,7 @@ export interface Notice {
 /** The most notices a person keeps: older ones go first. */
 const MAX_PER_USER = 100
 
-const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored']
+const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated']
 
 export class Notices {
   private db: Db
@@ -127,6 +135,16 @@ export class Notices {
   toOtherAdmins(userId: string, by: string, change: AccountChange, role: Role | null = null) {
     const admins = this.db.prepare(`select id from users where role = 'admin' and deleted_at is null and id != ? and id != ?`).all(by, userId) as { id: string }[]
     for (const a of admins) this.add(a.id, { code: 'user_account_changed', change, by, user: userId, role })
+  }
+
+  /**
+   * The links a move left couldn't be updated, even retried (notes.ts
+   * `retryRelinks`): the person who made it is told (an agent's, for an
+   * agent's move); nobody for a move the system made on its own.
+   */
+  relinkGaveUp(by: Actor) {
+    const id = by.kind === 'user' ? by.id : by.kind === 'agent' ? by.onBehalfOf : null
+    if (id !== null) this.add(id, { code: 'links_not_updated' })
   }
 
   /** `by` purged `path` (or a version of it): whoever else wrote in what went is told. */

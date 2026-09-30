@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import { ADMIN, DIR, FILES, GROUP, MEMBER, NAME, NOBODY, OTHER, PATH, RULES, TAG, WORD, home, setup, type Name } from './_m4.ts'
+import { ADMIN, DIR, FILES, GROUP, LINK, MEMBER, NAME, NOBODY, OTHER, PATH, RULES, TAG, WORD, home, setup, type Name } from './_m4.ts'
 import { yamlKey } from './_permissions.ts'
 import { PermissionHolds } from '@vihko/server'
 import { mother } from '../../../test/mother.ts'
@@ -43,8 +43,11 @@ const rule = (folder: string, grants: [string, string][]) => `  ${folderKey(fold
 /** A note's text with a word to find it by. */
 const noteText = (word = m.aUniqueWord()) => `# ${m.aHeading()}\n\n${m.aSentence()} ${word}.\n`
 
+/** FILES with the shared list linking the member's cake by its path (D-056.4): a link into a personal space. */
+const LINKED = { ...FILES, [PATH.list]: (FILES[PATH.list] as string).replace(link(NAME.cake), LINK.cake) }
+
 test('§7.1: each person sees their space and the shared one; the admin doesn\'t read what isn\'t granted, nor anything outside the spaces', async () => {
-  const h = await setup({ files: FILES })
+  const h = await setup({ files: LINKED })
   try {
     const member = (await h.member('GET', '/api/tree')).body
     assert.deepEqual(paths(member.notes), sorted([PATH.list, PATH.diary, PATH.cake]))
@@ -65,7 +68,20 @@ test('§7.1: each person sees their space and the shared one; the admin doesn\'t
       assert.equal(missing.text.replaceAll(JSON.stringify(absent).slice(1, -1), JSON.stringify(path).slice(1, -1)), r.text, 'no access and no note answer alike')
     }
 
-    // (How links look to someone who can't read their destination is piece L's: links.test and spaces-leaks.)
+    // A link to a note one can't read is broken for them, as one to a note that doesn't exist: no path, no title, no candidates (D-056.15).
+    const kLinks = (await h.admin('GET', h.url('/api/note/links', { path: PATH.list }))).body
+    const out = Object.fromEntries(kLinks.outgoing.map((l: { raw: string }) => [l.raw, l]))
+    const cake = out[LINK.cake]
+    assert.deepEqual(cake, { raw: cake.raw, kind: 'wiki', target: LINK.cake.slice(2, -2), anchor: null, status: 'missing', dstPath: null, anchorOk: null, candidates: null, posFrom: cake.posFrom })
+    assert.equal(out['[[2026-09-27]]'].status, 'missing')
+    // A name never reaches another space: not even the admin's own notes are candidates (D-056.4).
+    assert.deepEqual([out[link(NAME.plan)].status, out[link(NAME.plan)].candidates], ['missing', null])
+    assert.deepEqual(paths(kLinks.backlinks), sorted([PATH.settings, PATH.adminPlan]))
+    const lLinks = (await h.member('GET', h.url('/api/note/links', { path: PATH.list }))).body
+    const lout = Object.fromEntries(lLinks.outgoing.map((l: { raw: string }) => [l.raw, l]))
+    assert.deepEqual([lout[LINK.cake].status, lout[LINK.cake].dstPath], ['resolved', PATH.cake])
+    assert.deepEqual([lout[link(NAME.plan)].status, lout[link(NAME.plan)].candidates], ['missing', null])
+    assert.deepEqual(paths(lLinks.backlinks), sorted([PATH.diary, PATH.cake]))
 
     // Search, tags and their counts: only what each one reads.
     assert.deepEqual((await h.admin('GET', h.url('/api/search', { q: WORD.diary }))).body.results, [])
@@ -186,7 +202,7 @@ test('§7.3: moving a note says who loses or gains access before moving it', asy
 })
 
 test('§7.4: the member\'s key doesn\'t see their diary; the admin\'s sees nothing of the member\'s, not even that it exists (D-056.15)', async () => {
-  const h = await setup({ files: FILES })
+  const h = await setup({ files: LINKED })
   try {
     await h.enable()
     const memberKey = h.withKey((await h.newKey('member', { name: m.aKeyName() })).token)
@@ -196,11 +212,16 @@ test('§7.4: the member\'s key doesn\'t see their diary; the admin\'s sees nothi
     assert.ok(!lt.folders.includes(PATH.diaryDir), 'a folder closed to agents doesn\'t show')
     const diary = await memberKey('GET', h.url('/api/note', { path: PATH.diary }))
     assert.deepEqual([diary.status, diary.body.error, diary.body.reason], [403, 'agent_denied', 'ai_false'])
+    // What its person can't read doesn't exist for it either (D-056.15).
     const theirs = await adminKey('GET', h.url('/api/note', { path: PATH.cake }))
-    const nothing = await adminKey('GET', h.url('/api/note', { path: m.aNotePath(HOME.member) }))
-    assert.deepEqual([theirs.status, theirs.body.error, theirs.body.reason], [404, 'not_found', undefined], 'its user can\'t read it: as if it weren\'t there')
-    assert.deepEqual([nothing.status, nothing.body.error], [404, 'not_found'])
+    assert.deepEqual([theirs.status, theirs.body.error, theirs.body.reason], [404, 'not_found', undefined])
     assert.deepEqual((await adminKey('GET', h.url('/api/search', { q: WORD.cake }))).body.results, [])
+    const nothing = await adminKey('GET', h.url('/api/note', { path: m.aNotePath(HOME.member) }))
+    assert.deepEqual([nothing.status, nothing.body.error], [404, 'not_found'], 'a note that isn\'t there is still not_found')
+    // Its links to what its user can't see: broken, as for its user.
+    const links = (await adminKey('GET', h.url('/api/note/links', { path: PATH.list }))).body
+    const cake = links.outgoing.find((l: { raw: string }) => l.raw === LINK.cake)
+    assert.deepEqual([cake.status, cake.reason, cake.dstPath], ['missing', undefined, null])
   } finally { await h.close() }
 })
 
@@ -235,7 +256,7 @@ test('§7.8: renaming a note linked from notes the renamer can\'t see: the repor
     const done = await h.admin('POST', '/api/note/move', { from: PATH.list, to })
     assert.equal(done.status, 200)
     assert.ok(!mentions(done.text, M), done.text)
-    assert.ok(readFileSync(join(h.notesDir, PATH.cake), 'utf8').includes(link(title)), 'rewritten as the system (D-018)')
+    assert.ok(readFileSync(join(h.notesDir, PATH.cake), 'utf8').includes(`[[${to.slice(0, -3)}`), 'rewritten as the system (D-018)')
   } finally { await h.close() }
 })
 

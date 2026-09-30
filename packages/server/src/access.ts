@@ -22,8 +22,11 @@
 // is hidden from the agent gets an explicit denial, `agent_denied` with the
 // reason (`ai_false`, `outside_key_folders`), so that it doesn't take it for
 // a broken link and delete, redirect or duplicate it; that is no leak, its
-// user sees the note (D-035). The denial carries nothing of the note. A note
-// its user can't read is `not_found` for it too, exists or not (D-056.15).
+// user sees the note (D-035). The denial carries nothing of the note. Lists
+// still never show it: the agent only learns it exists if it already has its
+// name. A note its user can't read is, for the agent as for the user, one
+// that doesn't exist (`not_found`, exists or not, D-056.15): nobody learns
+// what exists by naming paths or writing links.
 import { WORKSPACE_FILE, atLeast, classifyPath, folderOf, readFrontmatter, type Level } from '@vihko/core'
 import type { Actor, Via } from './actor.ts'
 import type { User } from './auth.ts'
@@ -68,7 +71,7 @@ export class AccessError extends Error {
  * Why a note an agent named, which its user reads, isn't for it: `ai: false`
  * (in the note, a frontmatter that can't be read, or its folder in
  * vihko.yaml), or out of its key's folders. (A note its user can't read
- * doesn't exist for it: `not_found`.)
+ * doesn't exist for it: `not_found`, D-056.15.)
  */
 export type DenyReason = 'ai_false' | 'outside_key_folders'
 
@@ -356,12 +359,14 @@ export class Access {
 
   /**
    * Why a note an agent named is hidden from it, if the note exists (as
-   * indexed) and it can't read it; null otherwise (a user, it can, it isn't
-   * a note, or there is no such note). `hides` judges its text now.
+   * indexed), its user can read it and the agent can't; null otherwise (a
+   * user, it can, it isn't a note, there is no such note, or its user can't
+   * see it either: then it doesn't exist for the agent). `hides` judges its
+   * text now.
    */
   denial(path: string): DenyReason | null {
     if (this.principal.kind === 'user' || classifyPath(path) !== 'note' || this.canRead(path)) return null
-    if (!this.policy.indexed(path)) return null
+    if (!this.userCanRead(path) || !this.policy.indexed(path)) return null
     return this.reasonFor(path)
   }
 
@@ -371,7 +376,7 @@ export class Access {
    * for the agent either: `hiddenError`).
    */
   reasonFor(path: string): DenyReason | null {
-    if (!this.userCan(path, 'read')) return null
+    if (!this.userCanRead(path)) return null
     if (!this.inScope(path)) return 'outside_key_folders'
     return 'ai_false'
   }
@@ -384,6 +389,15 @@ export class Access {
   hiddenError(path: string): Error {
     const reason = this.principal.kind === 'agent' ? this.reasonFor(path) : null
     return reason ? new AgentDenied(reason) : new NoteError('not_found', `does not exist: ${path}`)
+  }
+
+  /**
+   * Whether the user the request acts for (an agent's, or the person) may
+   * read `path`, whatever the key or the note's text say: what isn't so
+   * doesn't exist for either of them (D-056.15).
+   */
+  userCanRead(path: string): boolean {
+    return this.userCan(path, 'read')
   }
 
   /**

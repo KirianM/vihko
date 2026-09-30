@@ -566,10 +566,12 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // A new note, with the given text or from a template note (its variables
   // filled in with the person's date and name, D-030). Never overwrites.
   app.post('/api/note', async (c) => {
-    const { path, text, template, freshUid } = await c.req.json<{ path: string; text?: string; template?: string; freshUid?: boolean }>()
+    const { path, text, template, freshUid, fromLink } = await c.req.json<{ path: string; text?: string; template?: string; freshUid?: boolean; fromLink?: string }>()
     if (template !== undefined && typeof template !== 'string') return fail(c, 400, 'invalid', 'template must be a note path')
     if (text !== undefined && typeof text !== 'string') return fail(c, 400, 'invalid', 'text must be text')
-    return c.json(written(c, await scoped(c).create(path, { text, template, freshUid })), 201)
+    // `fromLink`: the note whose broken link this creates (never one of someone else's personal space, D-056.21).
+    if (fromLink !== undefined && typeof fromLink !== 'string') return fail(c, 400, 'invalid', 'fromLink must be a note path')
+    return c.json(written(c, await scoped(c).create(path, { text, template, freshUid, fromLink })), 201)
   })
 
   // The workspace settings the UI needs from vihko.yaml (reloaded when it changes).

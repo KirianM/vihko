@@ -216,6 +216,12 @@ export type Alert =
    */
   | { code: 'history_purged_authored'; id: string; path: string | null; version: boolean; by: string; at: string; actions: 'dismiss'[] }
   /**
+   * Addressed to one person (D-056.21): a move they made (or an agent of
+   * theirs) left links in other notes that couldn't be updated, even tried
+   * again after the next rescan. No path, name or count. Until dismissed.
+   */
+  | { code: 'links_not_updated'; id: string; at: string; actions: 'dismiss'[] }
+  /**
    * Second factors stored encrypted with a VIHKO_SECRET_KEY that isn't the
    * one in force (or with none set): their codes can't be checked, so those
    * people (`users`, names) sign in with a recovery code, or the admin takes

@@ -3,11 +3,12 @@
 // (fsutil.ts), lazy `uid` and deletion to trash.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, resolve } from 'node:path'
-import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, folderOf, isIgnoredDir, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
+import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, folderOf, isIgnoredDir, linkSpace, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
 import { commitText, createFile, followable, isPlainFile, linkNew, readStable, readText } from './fsutil.ts'
 import { attachmentPath, noteAttachmentsDir, sniffImage, suffixedName } from './attachments.ts'
-import { applyReplacements, beforeMoves, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
+import { applyReplacements, beforeMoves, inTableRow, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
 import type { Indexer } from './indexer.ts'
+import type { RelinkRetries, RelinkRetry } from './relinkRetries.ts'
 import { applySplices, spliceOf, type Splice } from './edits.ts'
 import type { Db } from './db.ts'
 import type { Actor, Reason } from './actor.ts'
@@ -101,6 +102,13 @@ export interface NoteServiceOptions {
   attachments?: () => AttachmentsConfig
   /** The history: every write is recorded with its actor (M2). */
   history?: NoteHistory
+  /**
+   * Link rewrites a move couldn't make and no alias can stand in for (other
+   * spaces' links, D-056), tried again by `retryRelinks` after the next rescan.
+   */
+  retries?: RelinkRetries
+  /** A retry that failed again: given up, for whoever made the move to be told. */
+  onRelinkGaveUp?: (entry: RelinkRetry, failed: MoveReport['failed']) => void
 }
 
 export const DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -147,9 +155,16 @@ export interface MoveReport {
    * other, are rewritten. It stays where it is (and is in `failed`, with the
    * links rewritten to reach it there) if the destination's name is taken or
    * it holds notes.
+   * `copied`: when the note goes to another space (D-056), the images it
+   * uses that would stay behind in the space it leaves (shared with other
+   * notes, or in another folder of that space), where its new readers
+   * wouldn't see them, are copied next to it (a taken name gets a suffix)
+   * and the note links the copies. Only images whoever moves it can read;
+   * the rest stay (`stayed`).
    */
   images: {
     moved: { from: string; to: string }[]
+    copied: { from: string; to: string }[]
     stayed: { path: string; reason: 'shared' | 'elsewhere' }[]
     folder: { from: string; to: string; files: number } | null
     failed: { path: string; to: string | null; outcome: 'stayed' | 'copied'; error: ErrorCode; message: string }[]
@@ -179,6 +194,15 @@ export interface FolderMoveReport {
   shifted: ShiftGroup[]
   /** Notes that couldn't be rewritten: an error code for the UI and a hint for developers. */
   failed: MoveReport['failed']
+  /**
+   * When the folder goes to another space (D-056): the images its notes use
+   * that stay behind in the space it leaves (outside the folder), copied
+   * next to each note that uses them (one copy per folder, a taken name gets
+   * a suffix), which then links the copy; only images whoever moves it can
+   * read. `failed`: a copy that couldn't be made (the note keeps linking the
+   * original).
+   */
+  images: { copied: { from: string; to: string }[]; failed: MoveReport['images']['failed'] }
   dryRun: boolean
 }
 
@@ -208,6 +232,25 @@ export interface ShiftGroup {
 export interface MoveHooks {
   onMoved?: (toRewrite: number) => void
   onProgress?: (done: number, total: number) => void
+}
+
+/** Options of a folder move. `canRead`: whether whoever moves it may read a file (the images copied to another space, D-056); all by default. */
+export interface FolderMoveOptions {
+  actor: Actor
+  dryRun?: boolean
+  canRead?: (path: string) => boolean
+  /** Whether a rewritten link may name this note: one whoever moves it can't read makes the move `exists` (D-056.20). All by default. */
+  mayName?: (path: string) => boolean
+}
+
+/** Options of a note move. `canRead`: whether whoever moves it may read a file (the images copied to another space, D-056); all by default. */
+export interface MoveOptions {
+  ifMatch?: string
+  actor: Actor
+  dryRun?: boolean
+  canRead?: (path: string) => boolean
+  /** Whether a rewritten link may name this note: one whoever moves it can't read makes the move `exists` (D-056.20). All by default. */
+  mayName?: (path: string) => boolean
 }
 
 /**
@@ -369,6 +412,33 @@ export class NoteService {
   }
 
   /**
+   * Whether a new note at `path` with `text` (its name, its path's suffixes
+   * and its aliases) would change where an indexed link leads, or make it
+   * ambiguous, when that link leads to a note `mayName` refuses, or is
+   * ambiguous among notes of which it refuses one.
+   */
+  private takesHiddenLink(path: string, text: string, mayName: (path: string) => boolean): boolean {
+    const now = this.opts.indexer.links
+    const aliases = this.opts.indexer.aliasesIn(text)
+    const then = now.clone()
+    then.set({ path, aliases })
+    const byKey = this.opts.db.prepare('select src_path, kind, target, anchor from links where key = ?')
+    for (const key of new Set([...pathKeys(path), ...aliases.map(normKey)])) {
+      for (const l of byKey.all(key) as { src_path: string; kind: 'wiki' | 'embed' | 'markdown'; target: string; anchor: string | null }[]) {
+        const before = now.resolve(l.src_path, l)
+        const hidden = before.status === 'resolved' ? !mayName(before.path) : before.status === 'ambiguous' && !before.candidates.every(mayName)
+        if (!hidden) continue
+        const after = then.resolve(l.src_path, l)
+        const same = before.status === 'resolved'
+          ? after.status === 'resolved' && after.path === before.path
+          : after.status === 'ambiguous' && before.status === 'ambiguous' && after.candidates.join('\n') === before.candidates.join('\n')
+        if (!same) return true
+      }
+    }
+    return false
+  }
+
+  /**
    * The note as whoever writes next will find it: an open note's text is its
    * editors' (ahead of the file by what they typed since the last flush), so
    * its ETag is the one an edit is checked against; otherwise, the file.
@@ -382,9 +452,16 @@ export class NoteService {
    * Creates a new note; never overwrites. Born with a `uid`. With `freshUid`
    * (a copy of another note, such as a template) a `uid` already in the text
    * is replaced, so the copy doesn't share its identity.
+   *
+   * A name in use answers `exists` without anything of the note there. So
+   * does, with `mayName`, a name (or an alias in the text) that would change
+   * where an existing link leads, or make it ambiguous, when it leads to a
+   * note `mayName` refuses (D-056.20): whoever creates can't read it, and
+   * the answer mustn't tell it apart from a taken name.
    */
-  async create(path: string, text: string, actor: Actor, opts: { freshUid?: boolean; reason?: Reason } = {}): Promise<{ path: string; etag: string; uid: string | null }> {
+  async create(path: string, text: string, actor: Actor, opts: { freshUid?: boolean; reason?: Reason; mayName?: (path: string) => boolean } = {}): Promise<{ path: string; etag: string; uid: string | null }> {
     const file = this.newFile(path)
+    if (opts.mayName && this.takesHiddenLink(path, text, opts.mayName)) throw nameTaken(path)
     mkdirSync(dirname(file), { recursive: true })
     if (opts.freshUid && this.uidIn(text)) text = setFrontmatterKey(text, this.uidKey, newUid())
     const withUid = this.ensureUid(text, null)
@@ -392,7 +469,7 @@ export class NoteService {
     const r = await commitText(file, withUid.text, null).catch((err) => { w.abort(); throw err })
     if (!r.ok) {
       w.abort()
-      throw new NoteError('exists', `already exists: ${path}`, r.current === null ? null : contentHash(r.current))
+      throw nameTaken(path)
     }
     w.done()
     this.opts.indexer.indexPaths([path])
@@ -577,7 +654,7 @@ export class NoteService {
    * links not yet rewritten. One move (of a note or a folder) at a time: each
    * plans over the links as the previous one left them.
    */
-  async move(from: string, to: string, opts: { ifMatch?: string; actor: Actor; dryRun?: boolean } & MoveHooks): Promise<MoveReport> {
+  async move(from: string, to: string, opts: MoveOptions & MoveHooks): Promise<MoveReport> {
     if (opts.dryRun) return (await this.moveNow(from, to, opts)).report
     return this.oneMoveAtATime(async () => {
       const hot = this.opts.hot
@@ -594,15 +671,22 @@ export class NoteService {
 
       // The rest of the notes, as the system. The plan is recalculated over the
       // current text: links to the note, and references to images in its folder of images.
-      const system: Actor = { kind: 'system', reason: { code: 'note_moved', from, to, by: opts.actor } }
+      const reason: RelinkRetry['reason'] = { code: 'note_moved', from, to, by: opts.actor }
+      const system: Actor = { kind: 'system', reason }
       await this.history.operation(system, null, () =>
         this.rewriteAll(others.map((src) => ({ path: src, change: (t: string) => movedNotePlan(t, src, src, before, after, map, place).splices })), system, report.failed, opts.onProgress))
 
       // Safety net: if something couldn't be rewritten, the old name stays as an alias.
-      // Not when aliases don't resolve links (vihko.yaml): it would save nothing.
+      // Not when aliases don't resolve links (vihko.yaml): it would save nothing. Nor
+      // when the note changed space: an alias only reaches the notes of its own space
+      // (a name never crosses spaces, D-056), and the links left in the space it
+      // left were names, those from other spaces paths from the root.
       const oldName = posix.basename(from).replace(/\.md$/i, '')
       const newName = posix.basename(to).replace(/\.md$/i, '')
-      if (report.failed.length && oldName !== newName && this.opts.indexer.linkAliases) {
+      const space = linkSpace(to)
+      const sameSpace = linkSpace(from) === space
+      const leftBehind = report.failed.filter((f) => f.path !== to)
+      if (leftBehind.some((f) => sameSpace && linkSpace(f.path) === space) && oldName !== newName && this.opts.indexer.linkAliases) {
         try {
           const aliasActor: Actor = { kind: 'system', reason: { code: 'alias_added', alias: oldName, from, to, by: opts.actor } }
           report.etag = (await this.edit(to, (t) => addToFrontmatterList(t, 'aliases', oldName), { actor: aliasActor })).etag
@@ -612,8 +696,36 @@ export class NoteService {
           report.failed.push({ path: to, error: f.error, message: `could not add the alias: ${f.message}` })
         }
       }
+      // What the alias doesn't stand in for is tried again after the next rescan.
+      const covered = (p: string) => report.aliasAdded !== null && sameSpace && linkSpace(p) === space
+      this.opts.retries?.record({ reason, moves: [{ from, to }], sources: leftBehind.map((f) => f.path).filter((p) => !covered(p)) })
       return report
     })
+  }
+
+  /**
+   * Tries again the link rewrites moves couldn't make (RelinkRetries), each
+   * by the rule of its move over the notes as they are now (as the links
+   * after a move made outside vihko are, `relinkMoved`), as the system, only
+   * in the notes that failed. Once per failure: what fails again is given
+   * up (`onRelinkGaveUp`). Moves no longer in place (the note moved on, or is
+   * back) have nothing left to do. Called after each rescan.
+   */
+  async retryRelinks(): Promise<void> {
+    const retries = this.opts.retries
+    if (!retries) return
+    for (const entry of retries.list()) {
+      await this.oneMoveAtATime(async () => {
+        const plan = this.planMoved(entry.moves)
+        const wanted = new Set(entry.sources)
+        const items = plan.items.filter((i) => wanted.has(i.path))
+        const failed: MoveReport['failed'] = []
+        const system: Actor = { kind: 'system', reason: entry.reason }
+        if (items.length) await this.history.operation(system, null, () => this.rewriteAll(items, system, failed))
+        retries.drop(entry.id)
+        if (failed.length) this.opts.onRelinkGaveUp?.(entry, failed)
+      })
+    }
   }
 
   private moving: Promise<unknown> = Promise.resolve()
@@ -644,25 +756,26 @@ export class NoteService {
   }
 
   /** The move itself (or, with dryRun, its plan), and what the rewrites of the other notes need. */
-  private async moveNow(from: string, to: string, opts: { ifMatch?: string; actor: Actor; dryRun?: boolean }) {
+  private async moveNow(from: string, to: string, opts: MoveOptions) {
     const fromFile = this.file(from)
     const toFile = this.newFile(to)
     const text = await readStable(fromFile)
     if (text === null) throw new NoteError('not_found', `does not exist: ${from}`)
-    if (readText(toFile) !== null) throw new NoteError('exists', `already exists: ${to}`)
+    if (readText(toFile) !== null) throw nameTaken(to)
     const hash = contentHash(text)
     if (opts.ifMatch !== undefined && opts.ifMatch !== hash) throw new NoteError('precondition_failed', `the note has changed: ${from}`, hash)
 
     const assets = this.planAssets(from, to)
     const { before, after, map, sources } = this.relinkContext(new Map([[from, to]]), assets.folder?.from ?? null)
 
-    const report: MoveReport = { from, to, relinked: [], shifted: [], kept: [], failed: [], aliasAdded: null, images: { moved: [], stayed: [], folder: null, failed: [] }, dryRun: !!opts.dryRun, etag: null }
-    const imagePlan = this.planImages(text, from, to, assets.folder?.from ?? null)
-    report.images = { moved: imagePlan.moved, stayed: imagePlan.stayed, folder: assets.folder, failed: [...assets.failed, ...imagePlan.unplaceable] }
-    const planned = movedNotePlan(text, from, to, before, after, map, placeOf(imagePlan.moved, assets.folder))
+    const report: MoveReport = { from, to, relinked: [], shifted: [], kept: [], failed: [], aliasAdded: null, images: { moved: [], copied: [], stayed: [], folder: null, failed: [] }, dryRun: !!opts.dryRun, etag: null }
+    const imagePlan = this.planImages(text, from, to, assets.folder?.from ?? null, opts.canRead)
+    report.images = { moved: imagePlan.moved, copied: imagePlan.copied, stayed: imagePlan.stayed, folder: assets.folder, failed: [...assets.failed, ...imagePlan.unplaceable] }
+    const planned = movedNotePlan(text, from, to, before, after, map, placeOf([...imagePlan.moved, ...imagePlan.copied], assets.folder))
     if (planned.changes.length) report.relinked.push({ path: to, links: planned.changes.length, changes: planned.changes })
     addShifts(report.shifted, to, planned.shifts)
     const others: string[] = []
+    const targets = [...planned.targets]
     for (const src of sources) {
       const t = readText(this.file(src))
       if (t === null) continue
@@ -670,7 +783,10 @@ export class NoteService {
       if (plan.changes.length) { report.relinked.push({ path: src, links: plan.changes.length, changes: plan.changes }); others.push(src) }
       addShifts(report.shifted, src, plan.shifts)
       for (const k of keptLinks(t, src, before, after, from, to)) report.kept.push({ path: src, ...k })
+      targets.push(...plan.targets)
     }
+    // A rewrite would name a note whoever moves it can't read: refused as a taken name, dry run included (D-056.20).
+    if (opts.mayName && !targets.every(opts.mayName)) throw nameTaken(to)
     const result = { report, others, before, after, map, place: placeOf([], assets.folder) }
     if (opts.dryRun) return result
 
@@ -680,10 +796,13 @@ export class NoteService {
     // Its folder of images (per-note mode) is renamed whole, and put back if the note can't move.
     const placed = this.placeImages(imagePlan.moved, posix.dirname(to), report)
     report.images.moved = placed
+    // Copies of what stays behind in the space it leaves: new files, gone again if the note can't move.
+    const copies = this.copyImages(imagePlan.copied, posix.dirname(to), report)
+    report.images.copied = copies.map(({ from, to }) => ({ from, to }))
     const folder = assets.folder && this.moveAssets(assets.folder, report) ? assets.folder : null
     report.images.folder = folder
     const unplace = () => {
-      for (const p of placed) rmSync(join(this.opts.notesDir, p.to), { force: true })
+      for (const p of [...placed, ...copies]) rmSync(join(this.opts.notesDir, p.to), { force: true })
       if (folder) this.unmoveAssets(folder)
     }
     // The other notes only ever point into the folder (the images moved one by one are only this note's).
@@ -696,7 +815,7 @@ export class NoteService {
       })
       report.relinked = report.relinked.filter((r) => r.path === to || result.others.includes(r.path))
     }
-    const final = movedNotePlan(text, from, to, before, after, map, placeOf(placed, folder))
+    const final = movedNotePlan(text, from, to, before, after, map, placeOf([...placed, ...copies], folder))
     report.relinked = report.relinked.filter((r) => r.path !== to)
     if (final.changes.length) report.relinked.unshift({ path: to, links: final.changes.length, changes: final.changes })
 
@@ -710,13 +829,14 @@ export class NoteService {
     const moved: FileChange[] = [
       { path: to, from, before: text, after: newText },
       ...placed.map((p) => ({ path: p.to, from: p.from })),
+      ...copies.map((c) => ({ path: c.to, before: null, after: c.bytes })),
       ...(folder ? [{ path: folder.to, from: folder.from, folder: true }] : []),
     ]
     const w = this.history.prepare(moved, { actor: opts.actor, immediate: true })
     try {
       mkdirSync(dirname(toFile), { recursive: true })
       const created = await commitText(toFile, newText, null)
-      if (!created.ok) throw new NoteError('exists', `already exists: ${to}`)
+      if (!created.ok) throw nameTaken(to)
       try {
         renameSync(fromFile, aside)
       } catch (err) {
@@ -798,7 +918,7 @@ export class NoteService {
    * leads there, nothing is written. On an open note it's an exact splice in
    * the live document. Returns the link as it is written now.
    */
-  async pinLink(path: string, link: { raw: string; at?: number }, target: string, opts: { actor: Actor }): Promise<{ etag: string; raw: string }> {
+  async pinLink(path: string, link: { raw: string; at?: number }, target: string, opts: { actor: Actor; sees?: (path: string) => boolean }): Promise<{ etag: string; raw: string }> {
     let raw = link.raw
     const r = await this.edit(path, (text) => {
       const index = this.opts.indexer.links
@@ -806,14 +926,15 @@ export class NoteService {
       if (!occurrence) throw new NoteError('edit_mismatch', `no link ${link.raw} in ${path}`)
       const now = index.resolve(path, occurrence)
       if (now.status === 'resolved' && now.path === target) return []
-      if (now.status !== 'ambiguous' || !now.candidates.includes(target)) {
+      // Ambiguous for whoever asks only if they see every candidate: otherwise, for them, it is broken (D-056.15).
+      if (now.status !== 'ambiguous' || !now.candidates.includes(target) || (opts.sees && !now.candidates.every(opts.sees))) {
         throw new NoteError('edit_mismatch', `${link.raw} in ${path} is not ambiguous with ${target} among its candidates`)
       }
-      const next = rewriteLink(occurrence, path, target, index)
+      const next = rewriteLink(occurrence, path, target, index, { inTable: inTableRow(text, occurrence.from) })
       if (next === null) throw new NoteError('edit_mismatch', `no form of ${link.raw} leads to ${target} from ${path}`)
       raw = next
       return [spliceOf(text, occurrence.from, occurrence.to, next)]
-    }, opts)
+    }, { actor: opts.actor })
     return { etag: r.etag, raw }
   }
 
@@ -1041,17 +1162,17 @@ export class NoteService {
    * `dryRun`, only reports what it would do. As with a note: the folder moves
    * first (`onMoved`), then the notes are rewritten one by one (`onProgress`).
    */
-  async moveFolder(from: string, to: string, opts: { actor: Actor; dryRun?: boolean } & MoveHooks): Promise<FolderMoveReport> {
+  async moveFolder(from: string, to: string, opts: FolderMoveOptions & MoveHooks): Promise<FolderMoveReport> {
     if (opts.dryRun) return this.moveFolderNow(from, to, opts)
     return this.oneMoveAtATime(() => this.moveFolderNow(from, to, opts))
   }
 
-  private async moveFolderNow(from: string, to: string, opts: { actor: Actor; dryRun?: boolean } & MoveHooks): Promise<FolderMoveReport> {
+  private async moveFolderNow(from: string, to: string, opts: FolderMoveOptions & MoveHooks): Promise<FolderMoveReport> {
     const fromDir = this.dir(from)
     const toDir = this.newDir(to)
     if (from === to || to.startsWith(from + '/')) throw new NoteError('invalid_path', `cannot move ${from} into itself`)
     if (!isDirectory(fromDir)) throw new NoteError('not_found', `no such folder: ${from}`)
-    if (existsSync(toDir)) throw new NoteError('exists', `already exists: ${to}`)
+    if (existsSync(toDir)) throw nameTaken(to)
 
     const inside = listFiles(fromDir)
     const notesInside = inside.filter((p) => classifyPath(`${from}/${p}`) === 'note')
@@ -1063,15 +1184,19 @@ export class NoteService {
       from, to, notes: [...moves].map(([f, t]) => ({ from: f, to: t })),
       files: inside.filter((p) => classifyPath(`${from}/${p}`) === 'other').length,
       filePaths: inside.filter((p) => classifyPath(`${from}/${p}`) === 'other').map((p) => `${from}/${p}`),
-      relinked: [], shifted: [], failed: [], dryRun: !!opts.dryRun,
+      relinked: [], shifted: [], failed: [], images: { copied: [], failed: [] }, dryRun: !!opts.dryRun,
     }
+    const copies = this.planFolderCopies(moves, from, to, opts.canRead)
+    report.images.copied = [...copies.planned.values()]
     const own: [string, string][] = []
+    const targets: string[] = []
     for (const [f, t] of moves) {
       const text = readText(join(this.opts.notesDir, f))
       if (text === null) continue
-      const plan = movedNotePlan(text, f, t, before, after, map, place)
+      const plan = movedNotePlan(text, f, t, before, after, map, copies.placeFor(f, t, place))
       if (plan.changes.length) { report.relinked.push({ path: t, links: plan.changes.length, changes: plan.changes }); own.push([f, t]) }
       addShifts(report.shifted, t, plan.shifts)
+      targets.push(...plan.targets)
     }
     const others: string[] = []
     for (const src of sources) {
@@ -1080,11 +1205,15 @@ export class NoteService {
       const plan = movedNotePlan(text, src, src, before, after, map, place)
       if (plan.changes.length) { report.relinked.push({ path: src, links: plan.changes.length, changes: plan.changes }); others.push(src) }
       addShifts(report.shifted, src, plan.shifts)
+      targets.push(...plan.targets)
     }
+    // A rewrite would name a note whoever moves it can't read: refused as a taken name, dry run included (D-056.20).
+    if (opts.mayName && !targets.every(opts.mayName)) throw nameTaken(to)
     report.shifted.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
     if (opts.dryRun) return report
 
-    const system: Actor = { kind: 'system', reason: { code: 'folder_moved', from, to, by: opts.actor } }
+    const reason: RelinkRetry['reason'] = { code: 'folder_moved', from, to, by: opts.actor }
+    const system: Actor = { kind: 'system', reason }
     // 1. One rename moves everything. The destination is claimed first with an
     // empty folder (mkdir never reuses one), which the rename then replaces:
     // anything that lands there meanwhile makes the rename fail, never overwritten.
@@ -1093,7 +1222,7 @@ export class NoteService {
       try {
         mkdirSync(toDir)
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw new NoteError('exists', `already exists: ${to}`)
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw nameTaken(to)
         throw err
       }
       const w = this.history.prepare([{ path: to, from, folder: true }], { actor: opts.actor, immediate: true })
@@ -1103,7 +1232,7 @@ export class NoteService {
         w.abort()
         try { rmdirSync(toDir) } catch { /* not ours any more: left as it is */ }
         const code = (err as NodeJS.ErrnoException).code
-        if (code === 'ENOTEMPTY' || code === 'EEXIST') throw new NoteError('exists', `already exists: ${to}`)
+        if (code === 'ENOTEMPTY' || code === 'EEXIST') throw nameTaken(to)
         throw err
       }
       w.done()
@@ -1122,15 +1251,84 @@ export class NoteService {
     )
     await locked()
     hot?.carrySaved?.(report.notes)
+    // The copies of what stays behind in the space it leaves, now that their folders are there.
+    report.images = this.makeFolderCopies(copies.planned, opts.actor)
+    copies.settle(report.images.copied)
     opts.onMoved?.(own.length + others.length)
 
     // 2. The moved notes' own links and image references, then the rest of the
     // notes, as the system, recalculated over the current text.
     await this.history.operation(system, null, () => this.rewriteAll([
-      ...own.map(([f, t]) => ({ path: t, change: (x: string) => movedNotePlan(x, f, t, before, after, map, place).splices })),
+      ...own.map(([f, t]) => ({ path: t, change: (x: string) => movedNotePlan(x, f, t, before, after, map, copies.placeFor(f, t, place)).splices })),
       ...others.map((src) => ({ path: src, change: (x: string) => movedNotePlan(x, src, src, before, after, map, place).splices })),
     ], system, report.failed, opts.onProgress))
+    // No alias stands in for a folder's notes: what failed is tried again after the next rescan.
+    this.opts.retries?.record({ reason, moves: report.notes, sources: report.failed.map((f) => f.path) })
     return report
+  }
+
+  /**
+   * For a folder going to another space (D-056): the images its notes use
+   * that would stay behind in the space it leaves (outside the folder, and
+   * readable by whoever moves it), each to be copied next to the notes that
+   * use it (`planned`, one per image and destination folder, keyed by both;
+   * names only predicted). `placeFor` tells a moved note where each image
+   * it uses ends up; `settle` puts in the names the copies really took
+   * (and drops those that couldn't be made).
+   */
+  private planFolderCopies(moves: Map<string, string>, from: string, to: string, canRead: (path: string) => boolean = () => true) {
+    const planned = new Map<string, { from: string; to: string }>()
+    const origin = linkSpace(from)
+    const key = (image: string, dir: string) => `${image}\u0000${dir}`
+    if (origin !== linkSpace(to)) {
+      const taken = new Set<string>()
+      for (const [f, t] of moves) {
+        const text = readText(join(this.opts.notesDir, f))
+        if (text === null) continue
+        const dir = posix.dirname(t)
+        for (const img of this.imagesOf(text, f)) {
+          if (img.path.startsWith(from + '/') || linkSpace(img.path) !== origin || !canRead(img.path) || planned.has(key(img.path, dir))) continue
+          // The destination doesn't exist yet: only the copies planned here can take a name in it.
+          // TODO(piece S, D-056.21): next to the note until `attachments.folder` is relative to the space.
+          const free = firstName(img.path, dir, (dest) => !taken.has(dest))
+          if (free === undefined) continue
+          taken.add(free)
+          planned.set(key(img.path, dir), { from: img.path, to: free })
+        }
+      }
+    }
+    return {
+      planned,
+      placeFor: (f: string, t: string, place: (p: string) => string) => {
+        const dir = posix.dirname(t)
+        return (p: string) => planned.get(key(p, dir))?.to ?? place(p)
+      },
+      settle: (made: { from: string; to: string }[]) => {
+        const byPlan = new Map(made.map((c) => [key(c.from, posix.dirname(c.to)), c]))
+        for (const k of [...planned.keys()]) {
+          const c = byPlan.get(k)
+          if (c) planned.set(k, c)
+          else planned.delete(k)
+        }
+      },
+    }
+  }
+
+  /** Makes the copies a folder move planned (planFolderCopies), each as a new file never over another, by whoever moves it. */
+  private makeFolderCopies(planned: Map<string, { from: string; to: string }>, actor: Actor): FolderMoveReport['images'] {
+    const out: FolderMoveReport['images'] = { copied: [], failed: [] }
+    for (const c of planned.values()) {
+      try {
+        const bytes = readFileSync(this.otherFile(c.from))
+        const dir = posix.dirname(c.to)
+        const free = firstName(c.from, dir, (path) => this.createNewFile(path, bytes, actor))
+        if (free === undefined) throw new NoteError('exists', `no free name for ${c.from} in ${dir}`)
+        out.copied.push({ from: c.from, to: free })
+      } catch (err) {
+        out.failed.push({ path: c.from, to: null, outcome: 'stayed', ...failure(err) })
+      }
+    }
+    return out
   }
 
   /**
@@ -1138,25 +1336,60 @@ export class NoteService {
    * those in its folder that no other note uses (by the index). The rest stay.
    * Names are only predicted here (the first free one); placing them decides.
    */
-  private planImages(text: string, from: string, to: string, assetsDir: string | null): Pick<MoveReport['images'], 'moved' | 'stayed'> & { unplaceable: MoveReport['images']['failed'] } {
-    const plan: ReturnType<NoteService['planImages']> = { moved: [], stayed: [], unplaceable: [] }
+  private planImages(text: string, from: string, to: string, assetsDir: string | null, canRead: (path: string) => boolean = () => true): Pick<MoveReport['images'], 'moved' | 'copied' | 'stayed'> & { unplaceable: MoveReport['images']['failed'] } {
+    const plan: ReturnType<NoteService['planImages']> = { moved: [], copied: [], stayed: [], unplaceable: [] }
     const toDir = posix.dirname(to)
     if (posix.dirname(from) === toDir) return plan
+    // Changing space (D-056): what would stay behind in the space it leaves is copied.
+    // TODO(piece S, D-056.21): once `attachments.folder` is relative to the space (spec §1.6), copies
+    // follow the destination space's attachments config; until then they go next to the note.
+    const origin = linkSpace(from)
+    const crossing = origin !== linkSpace(to)
     const taken = new Set<string>()
+    const freeName = (path: string) => {
+      const free = firstName(path, toDir, (dest) => !taken.has(dest) && !existsSync(join(this.opts.notesDir, dest)))
+      if (free === undefined) plan.unplaceable.push({ path, to: null, outcome: 'stayed', error: 'exists', message: `no free name for ${path} in ${toDir}` })
+      else taken.add(free)
+      return free
+    }
     for (const img of this.imagesOf(text, from)) {
       const path = img.path
       if (assetsDir !== null && path.startsWith(assetsDir + '/')) continue // goes with its folder
-      if (!img.beside) { plan.stayed.push({ path, reason: 'elsewhere' }); continue }
-      if (img.shared()) { plan.stayed.push({ path, reason: 'shared' }); continue }
-      const free = firstName(path, toDir, (dest) => !taken.has(dest) && !existsSync(join(this.opts.notesDir, dest)))
-      if (free === undefined) {
-        plan.unplaceable.push({ path, to: null, outcome: 'stayed', error: 'exists', message: `no free name for ${path} in ${toDir}` })
+      const reason = !img.beside ? 'elsewhere' : img.shared() ? 'shared' : null
+      if (reason === null) {
+        const free = freeName(path)
+        if (free !== undefined) plan.moved.push({ from: path, to: free })
         continue
       }
-      taken.add(free)
-      plan.moved.push({ from: path, to: free })
+      if (crossing && linkSpace(path) === origin && canRead(path)) {
+        const free = freeName(path)
+        if (free !== undefined) plan.copied.push({ from: path, to: free })
+        continue
+      }
+      plan.stayed.push({ path, reason })
     }
     return plan
+  }
+
+  /**
+   * Copies images into `dir` under their first free name, never over
+   * anything; the originals stay where they are. One that can't be copied
+   * is reported and stays (the note keeps linking it there).
+   */
+  private copyImages(copies: { from: string; to: string }[], dir: string, report: MoveReport): { from: string; to: string; bytes: Uint8Array }[] {
+    const out: { from: string; to: string; bytes: Uint8Array }[] = []
+    for (const c of copies) {
+      try {
+        const bytes = readFileSync(this.otherFile(c.from))
+        mkdirSync(join(this.opts.notesDir, dir), { recursive: true })
+        const free = firstName(c.from, dir, (path) => createFile(join(this.opts.notesDir, path), bytes))
+        if (free === undefined) throw new NoteError('exists', `no free name for ${c.from} in ${dir}`)
+        out.push({ from: c.from, to: free, bytes })
+      } catch (err) {
+        report.images.failed.push({ path: c.from, to: null, outcome: 'stayed', ...failure(err) })
+      }
+    }
+    return out
   }
 
   /**
@@ -1345,9 +1578,11 @@ export class NoteService {
    * already there counts as restored. The files go back next to the note,
    * wherever it goes (in `per-note` mode, into its folder of images). Files
    * `canWrite` refuses stay in the trash, as an entry of files alone. Files
-   * alone come back where they were (`to` doesn't apply).
+   * alone come back where they were (`to` doesn't apply). With `mayName`, a
+   * note that would take a link to a note it refuses isn't restored either,
+   * as a taken name (`create`, D-056.20).
    */
-  async restore(id: string, actor: Actor, to?: string, opts: { canWrite?: (path: string) => boolean } = {}): Promise<TrashRestoreReport> {
+  async restore(id: string, actor: Actor, to?: string, opts: { canWrite?: (path: string) => boolean; mayName?: (path: string) => boolean } = {}): Promise<TrashRestoreReport> {
     const entry = this.trashEntry(id)
     const dir = this.trashDir(id)
     if (entry === null || dir === null) throw new NoteError('not_found', `not in the trash: ${id}`)
@@ -1366,7 +1601,8 @@ export class NoteService {
     const path = to ?? entry.path
     // Back under its own name, whatever it is; a new one is vihko's to give.
     const file = path === entry.path ? this.file(path) : this.newFile(path)
-    if (readText(file) !== null) throw new NoteError('exists', `already exists: ${path}`)
+    if (readText(file) !== null) throw nameTaken(path)
+    if (opts.mayName && this.takesHiddenLink(path, text, opts.mayName)) throw nameTaken(path)
 
     // Its files first, next to where the note goes, under free names; then the
     // note, linking each where it landed. If the note can't go back, neither do they.
@@ -1393,7 +1629,7 @@ export class NoteService {
     if (!r.ok) {
       unplace()
       w.abort()
-      throw new NoteError('exists', `already exists: ${path}`)
+      throw nameTaken(path)
     }
     w.done()
     this.settleEntry(entry, dir, path, back.left)
@@ -1489,9 +1725,9 @@ export class NoteService {
    * the images it linked that no longer exist come back from the same commit
    * (`file`), never over an existing file, and only where `canWrite` allows.
    * One commit, by `actor`, with the reason `restored`. A note that no
-   * longer exists is created again.
+   * longer exists is created again (with `mayName`, as `create` does).
    */
-  async restoreVersion(path: string, version: { id: string; at: string; path: string; text: string }, opts: { ifMatch?: string; actor: Actor; file: (path: string) => Promise<Uint8Array | null>; canWrite?: (path: string) => boolean }): Promise<RestoreReport> {
+  async restoreVersion(path: string, version: { id: string; at: string; path: string; text: string }, opts: { ifMatch?: string; actor: Actor; file: (path: string) => Promise<Uint8Array | null>; canWrite?: (path: string) => boolean; mayName?: (path: string) => boolean }): Promise<RestoreReport> {
     const file = this.file(path)
     const reason: Reason = { code: 'restored', id: version.id, at: version.at }
     return this.history.operation(opts.actor, reason, async () => {
@@ -1500,7 +1736,7 @@ export class NoteService {
         etag = (await this.edit(path, () => version.text, { ifMatch: opts.ifMatch, actor: opts.actor })).etag
       } else {
         if (opts.ifMatch !== undefined) throw new NoteError('precondition_failed', `the note doesn't exist: ${path}`)
-        etag = (await this.create(path, version.text, opts.actor)).etag
+        etag = (await this.create(path, version.text, opts.actor, { mayName: opts.mayName })).etag
       }
       const images: RestoreReport['images'] = { restored: [], missing: [] }
       const seen = new Set<string>()
@@ -1581,6 +1817,13 @@ const asideOf = (file: string) => join(dirname(file), `.${posix.basename(file)}.
 
 const likePrefix = (dir: string) => dir.replace(/[\\%_]/g, (c) => '\\' + c) + '/%'
 
+/**
+ * A move's destination can't be taken: its name is in use, or the move would
+ * have to rewrite a link to a note whoever moves it can't read (D-056.20).
+ * Both answer alike, so that neither tells what exists.
+ */
+const nameTaken = (to: string) => new NoteError('exists', `that name isn't available here: ${to}`)
+
 /** A trash entry's id: the uid `delete` gives it (a ULID in Crockford base32). */
 const TRASH_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/
 
@@ -1631,7 +1874,7 @@ function movedNotePlan(text: string, from: string, to: string, before: LinkIndex
     ...imageReps.map((r) => ({ before: r.before, after: r.after })),
   ]
   const reps = [...imageReps, ...linkReps]
-  return { text: applyReplacements(text, reps), splices: relinkSplices(text, reps), changes, shifts }
+  return { text: applyReplacements(text, reps), splices: relinkSplices(text, reps), changes, shifts, targets: linkReps.map((r) => r.target) }
 }
 
 /** The link nearest to `at` (the first one without it). */

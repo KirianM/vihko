@@ -3,7 +3,7 @@
 // and the shortest link that reaches a note from the current one (D-019).
 // Plain data in and out, so it can be tested on its own.
 import { caseFold } from '@vihko/core/casefold'
-import { LinkIndex, shortestTarget } from '@vihko/core/resolve'
+import { LinkIndex, wikiLink } from '@vihko/core/resolve'
 
 /** A note as the tree lists it. */
 export interface NoteEntry { path: string; title: string; aliases?: readonly string[] }
@@ -92,11 +92,19 @@ interface Prepared { note: NoteEntry; title: string; name: string; path: string;
 export class NoteCatalog {
   private readonly prepared: Prepared[]
   private readonly index: LinkIndex
+  private readonly pathOnly: ReadonlySet<string>
   private readonly collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
-  /** `aliases`: whether aliases resolve links (vihko.yaml). Either way they're suggested, and inserted as `[[Note|alias]]`. */
-  constructor(notes: readonly NoteEntry[], opts: { aliases?: boolean } = {}) {
+  /**
+   * `aliases`: whether aliases resolve links (vihko.yaml). Either way they're
+   * suggested, and inserted as `[[Note|alias]]`. `pathOnly`: the folders the
+   * tree shows only as the way to what the person reads (`/api/tree`): the
+   * notes of those aren't all here, so a link between notes that only share
+   * such a folder is written from the notes root (core `shortestTarget`).
+   */
+  constructor(notes: readonly NoteEntry[], opts: { aliases?: boolean; pathOnly?: readonly string[] } = {}) {
     this.index = new LinkIndex({ aliases: opts.aliases ?? true })
+    this.pathOnly = new Set(opts.pathOnly ?? [])
     this.prepared = notes.map((note) => ({
       note,
       title: fold(note.title || baseName(note.path)),
@@ -134,7 +142,17 @@ export class NoteCatalog {
 
   /** The shortest wikilink target that reaches `path` from `source` without ambiguity. */
   linkTarget(source: string, path: string): string {
-    return shortestTarget(this.index, source, path)
+    return this.linkForm(source, path).target
+  }
+
+  /**
+   * How a link to `path` is written in `source` (core `wikiLink`, D-056): the
+   * shortest target and, when it is a path from the notes root (another
+   * space, or a folder shared from someone's space), the note's name as
+   * visible text (`[[spaces/home-7k2q9x/list|list]]`).
+   */
+  linkForm(source: string, path: string): { target: string; display: string | null } {
+    return wikiLink(this.index, source, path, { whole: (folder) => !this.pathOnly.has(folder) })
   }
 
   /** Where a wikilink target written in `source` leads, or null if it's missing or ambiguous. */

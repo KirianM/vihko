@@ -2,6 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { NoteCatalog, completionContext, completionEnd, matchScore, rankHeadings, rankTags, type NoteEntry } from '../src/editor/suggest.ts'
 import { markdownLinkNote, wikiLinkNote } from '../src/editor/createLink.ts'
+import { mother } from '../../../test/mother.ts'
+
+const m = mother(import.meta.url)
 
 const NOTES: NoteEntry[] = [
   { path: 'Plan.md', title: 'Plan general' },
@@ -145,4 +148,25 @@ test('suggestions fold case like links and tags: «Straße» and «STRASSE»', (
   assert.equal(c.rank('STRASSE', 'x.md')[0]?.path, 'Straße.md')
   assert.equal(c.resolve('x.md', 'strasse'), 'Straße.md')
   assert.deepEqual(rankTags([{ tag: 'strasse', count: 1 }], 'Straß').map((t) => t.tag), ['strasse'])
+})
+
+test('links to other spaces: the path from the notes root with the name shown; within a folder shared whole, the name', () => {
+  const mine = `people/${m.aUsername()}`
+  const theirs = `people/${m.aUsername()}`
+  const home = `spaces/${m.aSpaceFolder()}`
+  const [shared, other] = [`${theirs}/${m.aFolder()}`, `${theirs}/${m.aFolder()}`]
+  const [a, b, c, list, own] = [m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle()]
+  const notes: NoteEntry[] = [
+    { path: `${mine}/${own}.md`, title: own },
+    { path: `${home}/${list}.md`, title: list },
+    { path: `${shared}/${a}.md`, title: a },
+    { path: `${shared}/${m.aFolder()}/${b}.md`, title: b },
+    { path: `${other}/${c}.md`, title: c },
+  ]
+  // What someone sees of another person's space: two folders they were given, the rest of it only as the way there.
+  const cat = new NoteCatalog(notes, { pathOnly: ['people', theirs, 'spaces'] })
+  assert.deepEqual(cat.linkForm(`${mine}/${own}.md`, `${home}/${list}.md`), { target: `${home}/${list}`, display: list })
+  assert.deepEqual(cat.linkForm(`${shared}/${a}.md`, notes[3]!.path), { target: b, display: null })
+  assert.deepEqual(cat.linkForm(`${shared}/${a}.md`, `${other}/${c}.md`), { target: `${other}/${c}`, display: c })
+  assert.equal(cat.linkTarget(`${home}/${list}.md`, `${mine}/${own}.md`), `${mine}/${own}`)
 })

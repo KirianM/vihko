@@ -9,7 +9,7 @@ export {
 } from './markdown.ts'
 export { markdownParser, vihkoSyntax, withoutClosingHashes } from './syntax.ts'
 export { caseFold } from './casefold.ts'
-export { LinkIndex, joinPath, normKey, pathKeys, shortestTarget, type LinkIndexOptions, type NoteKeys, type Resolution } from './resolve.ts'
+export { LinkIndex, isRootTarget, joinPath, linkSpace, normKey, noteName, pathKeys, shortestTarget, wikiLink, type LinkIndexOptions, type NoteKeys, type Resolution } from './resolve.ts'
 export { classifyPath, conflictOriginal, hasControlCharacter, isIgnoredDir, trimSlashes, trimTrailingSlashes, type PathKind } from './paths.ts'
 export type { AccountChange, Alert, AlertAction, AlertCode, ConfigMigrationRef, ErrorCode } from './codes.ts'
 export { newUid } from './uid.ts'

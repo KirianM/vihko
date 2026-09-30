@@ -62,6 +62,9 @@ export const PATH = {
   rootPlan: `${NAME.plan}.md`,
 }
 
+/** Links to the notes of FILES that others link to from another space: their path from the notes root, without `.md` (D-056.4). */
+export const LINK = { list: `[[${PATH.list.slice(0, -3)}]]`, cake: `[[${PATH.cake.slice(0, -3)}]]` }
+
 /** A 1×1 PNG. */
 export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
 
@@ -207,18 +210,24 @@ export async function setup(opts: M4Setup = {}) {
   }
 }
 
-/** The vault of the scenario: a shared folder, each person's own, the member's diary and recipes, and notes that link across. */
+/**
+ * The vault of the scenario: a shared folder, each person's own, the member's
+ * diary and recipes, and notes that link across spaces (by their path from
+ * the notes root, D-056.4). The list's links to the cake and the plan are by
+ * name: broken for everyone, since a name never reaches another space (a test
+ * that needs a link into a personal space writes `LINK.cake` in the list).
+ */
 export const FILES: Record<string, string | Uint8Array> = {
   // An image destination with a space is no image: written as %20.
   [PATH.list]: `---\ntags: [${TAG.home}]\nuid: ${UID.list}\n---\n# ${m.aHeading()}\n\n${m.aSentence()} [[${NAME.cake}]] [[2026-09-27]]. [[${NAME.plan}]]\n\n![](${NAME.photo.replaceAll(' ', '%20')}.png)\n`,
   [PATH.photo]: PNG,
-  [PATH.diary]: `---\ntags: [${TAG.home}, ${TAG.intimate}]\n---\n# ${m.aHeading()} ${MEMBER.username}\n\n${m.aSentence()} ${WORD.diary}. [[${NAME.list}]]\n`,
-  [PATH.cake]: `---\nuid: ${UID.cake}\n---\n# ${m.aHeading()} ${MEMBER.username}\n\n${m.aSentence()} ${WORD.cake}. [[${NAME.list}]]\n`,
+  [PATH.diary]: `---\ntags: [${TAG.home}, ${TAG.intimate}]\n---\n# ${m.aHeading()} ${MEMBER.username}\n\n${m.aSentence()} ${WORD.diary}. ${LINK.list}\n`,
+  [PATH.cake]: `---\nuid: ${UID.cake}\n---\n# ${m.aHeading()} ${MEMBER.username}\n\n${m.aSentence()} ${WORD.cake}. ${LINK.list}\n`,
   [PATH.memberPhoto]: PNG,
   [PATH.otherNotes]: `# ${m.aHeading()} ${OTHER.username}\n\n${m.aSentence()} ${WORD.other}.\n`,
-  [PATH.adminPlan]: `# ${m.aHeading()} ${ADMIN.username}\n\n${m.aSentence()} ${WORD.admin}. [[${NAME.list}]]\n`,
+  [PATH.adminPlan]: `# ${m.aHeading()} ${ADMIN.username}\n\n${m.aSentence()} ${WORD.admin}. ${LINK.list}\n`,
   [PATH.adminPlanCased]: `# ${m.aHeading()} ${ADMIN.username}\n\n${m.aSentence()} ${WORD.admin}.\n`,
   [PATH.nobodyNote]: `# ${m.aHeading()}\n\n${m.aSentence()} ${WORD.nobody}.\n`,
-  [PATH.settings]: `# ${m.aHeading()}\n\n${m.aSentence()} ${WORD.settings}. [[${NAME.list}]]\n`,
+  [PATH.settings]: `# ${m.aHeading()}\n\n${m.aSentence()} ${WORD.settings}. ${LINK.list}\n`,
   [PATH.rootPlan]: `# ${m.aHeading()}\n\n${m.aSentence()} ${WORD.settings} ${WORD.root}.\n`,
 }

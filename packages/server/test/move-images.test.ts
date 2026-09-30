@@ -124,7 +124,7 @@ test('renaming within the folder moves no image', async () => {
     'x.png': PNG,
   })
   const r = await notes.move(`${PROJ}/${PLAN}.md`, `${PROJ}/${RENAMED}.md`, { actor: me })
-  assert.deepEqual(r.images, { moved: [], stayed: [], folder: null, failed: [] })
+  assert.deepEqual(r.images, { moved: [], copied: [], stayed: [], folder: null, failed: [] })
   assert.ok(has(`${PROJ}/${PLAN}.png`))
   assert.ok(read(`${PROJ}/${RENAMED}.md`).endsWith(`![](${PLAN}.png) ![](../x.png)\n`))
 })
