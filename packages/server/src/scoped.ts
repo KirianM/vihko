@@ -740,7 +740,8 @@ export class ScopedNotes {
     if (!opts.dryRun && this.access.isAgent && audience && widens(audience) && opts.confirmAudience !== true) throw new AudienceWidens(audience)
     const { confirmAudience: _, ...moveOpts } = opts
     // Images it takes to another space are only those the principal can read (D-056).
-    const report = await this.guardAsync(f, () => this.deps.notes.move(f, t, { ...moveOpts, actor: this.access.actor, canRead: (p) => this.access.canRead(p) }))
+    // A move that would have to rewrite a link to a note its person can't read is refused as a taken name (D-056.20).
+    const report = await this.guardAsync(f, () => this.deps.notes.move(f, t, { ...moveOpts, actor: this.access.actor, canRead: (p) => this.access.canRead(p), mayName: this.mayName }))
     const masked: ScopedMoveReport = this.maskReport(report)
     if (report.dryRun && audience) masked.audience = audience
     const cross = crossSpaceLinks(masked.relinked, (p) => p === t, f, t)
@@ -751,6 +752,14 @@ export class ScopedNotes {
     const w = this.written(t, report.etag, false)
     return w.nowHidden ? { ...masked, etag: null, nowHidden: w.nowHidden } : masked
   }
+
+  /**
+   * Whether a move may rewrite a link so that it names this note (D-056.20):
+   * only one the person (an agent's person) can read. What only the agent
+   * can't see (`ai: false`, outside its key) it may already learn by naming
+   * it (`agent_denied`, D-035), so that alone doesn't refuse a move.
+   */
+  private readonly mayName = (path: string) => this.access.userCanRead(path)
 
   /**
    * A move's report (a note's, a folder's, or the links after moves made
@@ -990,7 +999,7 @@ export class ScopedNotes {
       return { ...masked, files: (filePaths ?? []).filter((p) => this.access.canRead(p)).length, ...(cross ? { crossSpaceLinks: cross } : {}) }
     }
     if (opts.dryRun) {
-      const r = mask(await this.deps.notes.moveFolder(f, t, { actor, dryRun: true, canRead }))
+      const r = mask(await this.deps.notes.moveFolder(f, t, { actor, dryRun: true, canRead, mayName: this.mayName }))
       if (!engine || !this.deps.keys) return r
       const pairs = [...r.notes.map((n) => ({ before: n.from, after: n.to })), ...under.map((d) => ({ before: `${d}/_`, after: `${t}${d.slice(f.length)}/_` }))]
       return { ...r, audience: audienceChange(engine, this.deps.keys(), pairs, plan.rules) }
@@ -1001,7 +1010,7 @@ export class ScopedNotes {
     const afterCopy = copied ? file!.read().text : null
     let report: FolderMoveReport
     try {
-      report = await this.deps.notes.moveFolder(f, t, { actor, ...opts, canRead })
+      report = await this.deps.notes.moveFolder(f, t, { actor, ...opts, canRead, mayName: this.mayName })
     } catch (err) {
       // It didn't move: the copies go, unless someone changed the file meanwhile.
       if (copied) await file!.update((x) => (x === afterCopy ? before ?? '' : x), { actor }).catch(() => {})

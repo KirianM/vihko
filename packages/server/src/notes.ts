@@ -239,6 +239,8 @@ export interface FolderMoveOptions {
   actor: Actor
   dryRun?: boolean
   canRead?: (path: string) => boolean
+  /** Whether a rewritten link may name this note: one whoever moves it can't read makes the move `exists` (D-056.20). All by default. */
+  mayName?: (path: string) => boolean
 }
 
 /** Options of a note move. `canRead`: whether whoever moves it may read a file (the images copied to another space, D-056); all by default. */
@@ -247,6 +249,8 @@ export interface MoveOptions {
   actor: Actor
   dryRun?: boolean
   canRead?: (path: string) => boolean
+  /** Whether a rewritten link may name this note: one whoever moves it can't read makes the move `exists` (D-056.20). All by default. */
+  mayName?: (path: string) => boolean
 }
 
 /**
@@ -705,7 +709,7 @@ export class NoteService {
     const toFile = this.newFile(to)
     const text = await readStable(fromFile)
     if (text === null) throw new NoteError('not_found', `does not exist: ${from}`)
-    if (readText(toFile) !== null) throw new NoteError('exists', `already exists: ${to}`)
+    if (readText(toFile) !== null) throw nameTaken(to)
     const hash = contentHash(text)
     if (opts.ifMatch !== undefined && opts.ifMatch !== hash) throw new NoteError('precondition_failed', `the note has changed: ${from}`, hash)
 
@@ -719,6 +723,7 @@ export class NoteService {
     if (planned.changes.length) report.relinked.push({ path: to, links: planned.changes.length, changes: planned.changes })
     addShifts(report.shifted, to, planned.shifts)
     const others: string[] = []
+    const targets = [...planned.targets]
     for (const src of sources) {
       const t = readText(this.file(src))
       if (t === null) continue
@@ -726,7 +731,10 @@ export class NoteService {
       if (plan.changes.length) { report.relinked.push({ path: src, links: plan.changes.length, changes: plan.changes }); others.push(src) }
       addShifts(report.shifted, src, plan.shifts)
       for (const k of keptLinks(t, src, before, after, from, to)) report.kept.push({ path: src, ...k })
+      targets.push(...plan.targets)
     }
+    // A rewrite would name a note whoever moves it can't read: refused as a taken name, dry run included (D-056.20).
+    if (opts.mayName && !targets.every(opts.mayName)) throw nameTaken(to)
     const result = { report, others, before, after, map, place: placeOf([], assets.folder) }
     if (opts.dryRun) return result
 
@@ -776,7 +784,7 @@ export class NoteService {
     try {
       mkdirSync(dirname(toFile), { recursive: true })
       const created = await commitText(toFile, newText, null)
-      if (!created.ok) throw new NoteError('exists', `already exists: ${to}`)
+      if (!created.ok) throw nameTaken(to)
       try {
         renameSync(fromFile, aside)
       } catch (err) {
@@ -1112,7 +1120,7 @@ export class NoteService {
     const toDir = this.newDir(to)
     if (from === to || to.startsWith(from + '/')) throw new NoteError('invalid_path', `cannot move ${from} into itself`)
     if (!isDirectory(fromDir)) throw new NoteError('not_found', `no such folder: ${from}`)
-    if (existsSync(toDir)) throw new NoteError('exists', `already exists: ${to}`)
+    if (existsSync(toDir)) throw nameTaken(to)
 
     const inside = listFiles(fromDir)
     const notesInside = inside.filter((p) => classifyPath(`${from}/${p}`) === 'note')
@@ -1129,12 +1137,14 @@ export class NoteService {
     const copies = this.planFolderCopies(moves, from, to, opts.canRead)
     report.images.copied = [...copies.planned.values()]
     const own: [string, string][] = []
+    const targets: string[] = []
     for (const [f, t] of moves) {
       const text = readText(join(this.opts.notesDir, f))
       if (text === null) continue
       const plan = movedNotePlan(text, f, t, before, after, map, copies.placeFor(f, t, place))
       if (plan.changes.length) { report.relinked.push({ path: t, links: plan.changes.length, changes: plan.changes }); own.push([f, t]) }
       addShifts(report.shifted, t, plan.shifts)
+      targets.push(...plan.targets)
     }
     const others: string[] = []
     for (const src of sources) {
@@ -1143,7 +1153,10 @@ export class NoteService {
       const plan = movedNotePlan(text, src, src, before, after, map, place)
       if (plan.changes.length) { report.relinked.push({ path: src, links: plan.changes.length, changes: plan.changes }); others.push(src) }
       addShifts(report.shifted, src, plan.shifts)
+      targets.push(...plan.targets)
     }
+    // A rewrite would name a note whoever moves it can't read: refused as a taken name, dry run included (D-056.20).
+    if (opts.mayName && !targets.every(opts.mayName)) throw nameTaken(to)
     report.shifted.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
     if (opts.dryRun) return report
 
@@ -1157,7 +1170,7 @@ export class NoteService {
       try {
         mkdirSync(toDir)
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw new NoteError('exists', `already exists: ${to}`)
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw nameTaken(to)
         throw err
       }
       const w = this.history.prepare([{ path: to, from, folder: true }], { actor: opts.actor, immediate: true })
@@ -1167,7 +1180,7 @@ export class NoteService {
         w.abort()
         try { rmdirSync(toDir) } catch { /* not ours any more: left as it is */ }
         const code = (err as NodeJS.ErrnoException).code
-        if (code === 'ENOTEMPTY' || code === 'EEXIST') throw new NoteError('exists', `already exists: ${to}`)
+        if (code === 'ENOTEMPTY' || code === 'EEXIST') throw nameTaken(to)
         throw err
       }
       w.done()
@@ -1746,6 +1759,13 @@ const asideOf = (file: string) => join(dirname(file), `.${posix.basename(file)}.
 
 const likePrefix = (dir: string) => dir.replace(/[\\%_]/g, (c) => '\\' + c) + '/%'
 
+/**
+ * A move's destination can't be taken: its name is in use, or the move would
+ * have to rewrite a link to a note whoever moves it can't read (D-056.20).
+ * Both answer alike, so that neither tells what exists.
+ */
+const nameTaken = (to: string) => new NoteError('exists', `that name isn't available here: ${to}`)
+
 /** A trash entry's id: the uid `delete` gives it (a ULID in Crockford base32). */
 const TRASH_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/
 
@@ -1796,7 +1816,7 @@ function movedNotePlan(text: string, from: string, to: string, before: LinkIndex
     ...imageReps.map((r) => ({ before: r.before, after: r.after })),
   ]
   const reps = [...imageReps, ...linkReps]
-  return { text: applyReplacements(text, reps), splices: relinkSplices(text, reps), changes, shifts }
+  return { text: applyReplacements(text, reps), splices: relinkSplices(text, reps), changes, shifts, targets: linkReps.map((r) => r.target) }
 }
 
 /** The link nearest to `at` (the first one without it). */

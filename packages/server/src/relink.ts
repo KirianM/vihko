@@ -11,6 +11,11 @@ export interface Replacement {
   text: string
 }
 
+/** A rewrite of a link to a note: `target`, the note it keeps leading to (what the rewritten text names). */
+export interface LinkReplacement extends Replacement {
+  target: string
+}
+
 /**
  * Replacements so a note's links keep their destination.
  * `srcBefore`/`srcAfter`: the note's path before and after (they differ if it's the moved note).
@@ -83,8 +88,8 @@ export function planLinks(
   before: LinkIndex,
   after: LinkIndex,
   map: (path: string) => string,
-): { reps: Replacement[]; shifts: Shift[] } {
-  const reps: Replacement[] = []
+): { reps: LinkReplacement[]; shifts: Shift[] } {
+  const reps: LinkReplacement[] = []
   const shifts: Shift[] = []
   for (const link of extract(text).links) {
     const rb = before.resolve(srcBefore, link)
@@ -94,7 +99,7 @@ export function planLinks(
       if (ra.status === 'resolved' && ra.path === want) continue
       const raw = rewriteLink(link, srcAfter, want, after, { was: rb.path, inTable: inTableRow(text, link.from) })
       if (raw !== null) {
-        if (raw !== link.raw) reps.push({ from: link.from, to: link.to, text: raw })
+        if (raw !== link.raw) reps.push({ from: link.from, to: link.to, text: raw, target: want })
         continue
       }
       // No form of the link reaches its destination any more: it is left as it is, and said.
