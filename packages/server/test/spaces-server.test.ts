@@ -400,6 +400,37 @@ test('a closed space converted into a shared space: its members see all of it, w
   }
 })
 
+test('a closed space transferred or converted: links into it from other spaces follow it, and its own links by name still lead where they did (D-018, D-056.4)', async () => {
+  for (const action of ['transfer', 'convert'] as const) {
+    const h = await setup()
+    try {
+      // In the member's space, a note linking another by name; the admin's and the other's notes link to it by path.
+      const [a, b] = [`${h.home('member')}/${m.aTitle()}.md`, `${h.home('member')}/${m.aFolder()}/${m.aTitle()}.md`]
+      const name = b.slice(b.lastIndexOf('/') + 1, -3)
+      const across = `[[${b.slice(0, -3)}]]`
+      const [mine, theirs] = [`${h.home('admin')}/${m.aTitle()}.md`, `${h.home('other')}/${m.aTitle()}.md`]
+      h.write(a, `# ${m.aHeading()}\n\n${m.aSentence()} [[${name}]]\n`)
+      h.write(b, `# ${m.aHeading()}\n\n${m.aSentence()}\n`)
+      h.write(mine, `# ${m.aHeading()}\n\n${m.aSentence()} ${across}\n`)
+      h.write(theirs, `# ${m.aHeading()}\n\n${m.aSentence()} ${across}\n`)
+      await deletedMember(h)
+      const input = action === 'transfer' ? { action, to: h.created.admin.id } : { action, name: m.aSpaceName(), members: { [h.names.admin]: 'manage' } }
+      const r = await h.admin('POST', `/api/admin/users/${h.created.member.id}/space`, { ...input, confirm: h.created.admin.password })
+      assert.equal(r.status, 200, r.text)
+      const dest = r.body.plan.to as string
+      const moved = (p: string) => dest + p.slice(h.home('member').length)
+      const out = async (path: string) => ((await h.admin('GET', `/api/note/links?path=${encodeURIComponent(path)}`)).body.outgoing as { status: string; dstPath: string | null }[])
+      // From another space: rewritten to the new path (as the system), and it leads to the same note.
+      assert.deepEqual((await out(mine)).map((l) => [l.status, l.dstPath]), [['resolved', moved(b)]], action)
+      assert.ok(readFileSync(join(h.notesDir, theirs), 'utf8').includes(`[[${moved(b).slice(0, -3)}`), `${action}: also in notes whoever did it can't read`)
+      // Inside it, by name: the same note.
+      assert.deepEqual((await out(moved(a))).map((l) => [l.status, l.dstPath]), [['resolved', moved(b)]], action)
+    } finally {
+      h.close()
+    }
+  }
+})
+
 test('a closed space deleted: gone from the disk and vihko.yaml, without the trash, its older trash entries too', async () => {
   const h = await setup()
   try {
