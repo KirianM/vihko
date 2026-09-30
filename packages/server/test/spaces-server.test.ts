@@ -513,7 +513,8 @@ test('whoever is added to a shared space or receives a folder is told, only whil
     await h.services.permissionsFile.setRule(trips, { grants: null, ai: null }, { actor })
     assert.deepEqual((await noticesOf('other')).map(brief).at(-1), { kind: 'folder', by: h.names.member, path: null, name: null, owner: null, space: null })
     const text = (await h.other('GET', '/api/alerts')).text
-    assert.ok(!text.includes(folder) && !text.includes(trips))
+    // As a value of its own (a short folder name may well be part of the space's name).
+    assert.ok(!text.includes(JSON.stringify(folder)) && !text.includes(trips), text)
   } finally {
     h.close()
   }
