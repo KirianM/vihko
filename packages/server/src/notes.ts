@@ -158,8 +158,10 @@ export interface MoveReport {
    * `copied`: when the note goes to another space (D-056), the images it
    * uses that would stay behind in the space it leaves (shared with other
    * notes, or in another folder of that space), where its new readers
-   * wouldn't see them, are copied next to it (a taken name gets a suffix)
-   * and the note links the copies. Only images whoever moves it can read;
+   * wouldn't see them, are copied where a new image of it would go there
+   * (next to it, its folder of images, or its new space's attachments
+   * folder, D-056.21; a taken name gets a suffix) and the note links the
+   * copies. Only images whoever moves it can read;
    * the rest stay (`stayed`).
    */
   images: {
@@ -197,8 +199,9 @@ export interface FolderMoveReport {
   /**
    * When the folder goes to another space (D-056): the images its notes use
    * that stay behind in the space it leaves (outside the folder), copied
-   * next to each note that uses them (one copy per folder, a taken name gets
-   * a suffix), which then links the copy; only images whoever moves it can
+   * where a new image of each note that uses them would go (D-056.21: one
+   * copy per such folder, a taken name gets a suffix), which then links the
+   * copy; only images whoever moves it can
    * read. `failed`: a copy that couldn't be made (the note keeps linking the
    * original).
    */
@@ -804,11 +807,12 @@ export class NoteService {
     // Its folder of images (per-note mode) is renamed whole, and put back if the note can't move.
     const placed = this.placeImages(imagePlan.moved, posix.dirname(to), report)
     report.images.moved = placed
-    // Copies of what stays behind in the space it leaves: new files, gone again if the note can't move.
-    const copies = this.copyImages(imagePlan.copied, posix.dirname(to), report)
-    report.images.copied = copies.map(({ from, to }) => ({ from, to }))
     const folder = assets.folder && this.moveAssets(assets.folder, report) ? assets.folder : null
     report.images.folder = folder
+    // Copies of what stays behind in the space it leaves: new files, gone again if the note can't move.
+    // They go where a new image of the note would (copiesDir), its folder of images already in place.
+    const copies = this.copyImages(imagePlan.copied, this.copiesDir(to), report)
+    report.images.copied = copies.map(({ from, to }) => ({ from, to }))
     const unplace = () => {
       for (const p of [...placed, ...copies]) rmSync(join(this.opts.notesDir, p.to), { force: true })
       if (folder) this.unmoveAssets(folder)
@@ -1276,6 +1280,16 @@ export class NoteService {
   }
 
   /**
+   * Where the images a note copies when it goes to another space go
+   * (D-056.21): where a new image of that note would go (vihko.yaml
+   * `attachments`, attachments.ts `attachmentPath`): next to it, in its own
+   * folder of images, or in the fixed folder of the space it goes to.
+   */
+  private copiesDir(notePath: string): string {
+    return posix.dirname(attachmentPath(notePath, 'png', new Date(0), 1, this.opts.attachments?.() ?? { folder: null }))
+  }
+
+  /**
    * For a folder going to another space (D-056): the images its notes use
    * that would stay behind in the space it leaves (outside the folder, and
    * readable by whoever moves it), each to be copied next to the notes that
@@ -1293,12 +1307,12 @@ export class NoteService {
       for (const [f, t] of moves) {
         const text = readText(join(this.opts.notesDir, f))
         if (text === null) continue
-        const dir = posix.dirname(t)
+        const dir = this.copiesDir(t)
         for (const img of this.imagesOf(text, f)) {
           if (img.path.startsWith(from + '/') || linkSpace(img.path) !== origin || !canRead(img.path) || planned.has(key(img.path, dir))) continue
-          // The destination doesn't exist yet: only the copies planned here can take a name in it.
-          // TODO(piece S, D-056.21): next to the note until `attachments.folder` is relative to the space.
-          const free = firstName(img.path, dir, (dest) => !taken.has(dest))
+          // Where a new image of the note would go (D-056.21): a folder that may already be there,
+          // or one in the destination, where only the copies planned here can take a name.
+          const free = firstName(img.path, dir, (dest) => !taken.has(dest) && !existsSync(join(this.opts.notesDir, dest)))
           if (free === undefined) continue
           taken.add(free)
           planned.set(key(img.path, dir), { from: img.path, to: free })
@@ -1308,7 +1322,7 @@ export class NoteService {
     return {
       planned,
       placeFor: (f: string, t: string, place: (p: string) => string) => {
-        const dir = posix.dirname(t)
+        const dir = this.copiesDir(t)
         return (p: string) => planned.get(key(p, dir))?.to ?? place(p)
       },
       settle: (made: { from: string; to: string }[]) => {
@@ -1329,6 +1343,7 @@ export class NoteService {
       try {
         const bytes = readFileSync(this.otherFile(c.from))
         const dir = posix.dirname(c.to)
+        mkdirSync(join(this.opts.notesDir, dir), { recursive: true })
         const free = firstName(c.from, dir, (path) => this.createNewFile(path, bytes, actor))
         if (free === undefined) throw new NoteError('exists', `no free name for ${c.from} in ${dir}`)
         out.copied.push({ from: c.from, to: free })
@@ -1348,15 +1363,15 @@ export class NoteService {
     const plan: ReturnType<NoteService['planImages']> = { moved: [], copied: [], stayed: [], unplaceable: [] }
     const toDir = posix.dirname(to)
     if (posix.dirname(from) === toDir) return plan
-    // Changing space (D-056): what would stay behind in the space it leaves is copied.
-    // TODO(piece S, D-056.21): once `attachments.folder` is relative to the space (spec §1.6), copies
-    // follow the destination space's attachments config; until then they go next to the note.
+    // Changing space (D-056): what would stay behind in the space it leaves is copied, where the
+    // destination puts a new image of the note (its space's `attachments`, D-056.21).
     const origin = linkSpace(from)
     const crossing = origin !== linkSpace(to)
+    const copiesDir = crossing ? this.copiesDir(to) : toDir
     const taken = new Set<string>()
-    const freeName = (path: string) => {
-      const free = firstName(path, toDir, (dest) => !taken.has(dest) && !existsSync(join(this.opts.notesDir, dest)))
-      if (free === undefined) plan.unplaceable.push({ path, to: null, outcome: 'stayed', error: 'exists', message: `no free name for ${path} in ${toDir}` })
+    const freeName = (path: string, dir = toDir) => {
+      const free = firstName(path, dir, (dest) => !taken.has(dest) && !existsSync(join(this.opts.notesDir, dest)))
+      if (free === undefined) plan.unplaceable.push({ path, to: null, outcome: 'stayed', error: 'exists', message: `no free name for ${path} in ${dir}` })
       else taken.add(free)
       return free
     }
@@ -1370,7 +1385,7 @@ export class NoteService {
         continue
       }
       if (crossing && linkSpace(path) === origin && canRead(path)) {
-        const free = freeName(path)
+        const free = freeName(path, copiesDir)
         if (free !== undefined) plan.copied.push({ from: path, to: free })
         continue
       }

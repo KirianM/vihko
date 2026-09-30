@@ -14,8 +14,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { readFrontmatter } from '@vihko/core'
+import { dirname, join, posix } from 'node:path'
+import { DEFAULT_ATTACHMENTS_SUFFIX, readFrontmatter } from '@vihko/core'
 import { Auth, Indexer, NoteError, NoteService, Notices, Profiles, RelinkRetries, Workspace, createServer, openIndex, openState, type RelinkRetry, type Runtime } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { yamlKey } from './_permissions.ts'
@@ -302,6 +302,48 @@ test('a folder taken to another space: links kept, and the images its notes use 
   assert.equal(h.body(`${to}/${note}.md`), `![](${img}) [[${s.space.member}/${outside}|${outside}]]\n`)
   assert.equal(h.body(`${s.space.member}/${outside}.md`), `[[${to}/${note}|${note}]]\n`)
   assert.ok(h.has(`${s.space.member}/${assets}/${img}`) && h.has(`${to}/${img}`))
+})
+
+test('D-056.21: the images copied to another space go where the attachments settings put a new image there: its space\'s folder, or the note\'s own folder of images', async () => {
+  /** Where a note's first image reference leads, from the notes root. */
+  const imageOf = (h: Awaited<ReturnType<typeof setup>>, note: string) => {
+    const ref = /!\[[^\]]*\]\(<?([^)>]+)>?\)/.exec(h.body(note))![1]!
+    return posix.join(posix.dirname(note), decodeURI(ref))
+  }
+  for (const mode of ['folder', 'per-note'] as const) {
+    const attachments = m.aFolder()
+    const [note, sibling, inside] = [m.aTitle(), m.aTitle(), m.aTitle()]
+    const project = m.aFolder()
+    const img = `${m.aUniqueWord()}.png`
+    const h = await setup((s) => ({
+      'vihko.yaml': s.rules + (mode === 'folder' ? `attachments:\n  mode: folder\n  folder: ${JSON.stringify(attachments)}\n` : 'attachments:\n  mode: per-note\n'),
+      // An image two notes use (it stays), one of them in a folder that goes too.
+      [`${s.space.member}/${note}.md`]: `![](${img})\n`,
+      [`${s.space.member}/${sibling}.md`]: `![](${img})\n`,
+      [`${s.space.member}/${project}/${inside}.md`]: `![](../${img})\n`,
+      [`${s.space.member}/${img}`]: PNG,
+    }))
+    const { s } = h
+    const where = (to: string) => (mode === 'folder' ? `${s.home}/${attachments}` : `${to.slice(0, -3)}${DEFAULT_ATTACHMENTS_SUFFIX}`)
+    // A note.
+    const to = `${s.home}/${note}.md`
+    const preview = await h.as('member')('POST', '/api/note/move', { from: `${s.space.member}/${note}.md`, to, dryRun: true })
+    assert.deepEqual(preview.body.images.copied, [{ from: `${s.space.member}/${img}`, to: `${where(to)}/${img}` }], mode)
+    const r = await h.as('member')('POST', '/api/note/move', { from: `${s.space.member}/${note}.md`, to })
+    assert.equal(r.status, 200, r.text)
+    assert.deepEqual(r.body.images.copied, [{ from: `${s.space.member}/${img}`, to: `${where(to)}/${img}` }], mode)
+    assert.ok(h.has(`${where(to)}/${img}`) && h.has(`${s.space.member}/${img}`), mode)
+    assert.equal(imageOf(h, to), `${where(to)}/${img}`, `${mode}: the note links the copy`)
+    // A folder.
+    const folderTo = `${s.home}/${project}`
+    const moved = await h.as('member')('POST', '/api/folder/move', { from: `${s.space.member}/${project}`, to: folderTo })
+    assert.equal(moved.status, 200, moved.text)
+    const insideTo = `${folderTo}/${inside}.md`
+    const copy = moved.body.images.copied[0]?.to
+    // In the space's folder, where a copy of that image already is: a name of its own.
+    assert.ok(typeof copy === 'string' && copy.startsWith(`${where(insideTo)}/`) && h.has(copy), `${mode}: ${JSON.stringify(moved.body.images)}`)
+    assert.equal(imageOf(h, insideTo), copy, `${mode}: the note in the folder links its copy`)
+  }
 })
 
 test('a failed rewrite: the alias only where it helps (the same space); links from other spaces are retried after the next rescan', { skip: process.getuid?.() === 0 }, async () => {
