@@ -129,8 +129,8 @@ export class PermissionsFile {
 
   /**
    * Removes a user's or group's grants everywhere (`@name` for a group): a
-   * user deleted (D-038.8). Their folders stay closed: a rule left without
-   * grants never inherits. Piece U calls it.
+   * user deleted (D-038.8). Their personal space is nobody's from then on
+   * (D-056.8), whatever is written for it. users.ts calls it.
    */
   removeSubjectGrants(subject: string, opts: { actor: Actor }) {
     return this.update((t) => rewriteSubject(t, subject, null), opts)

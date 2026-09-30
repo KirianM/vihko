@@ -13,7 +13,7 @@ import { api, login } from '../_collab.ts'
 import { AUTHOR, CO_AUTHOR, snapshot, userGit } from '../_userGit.ts'
 import { mother } from '../../../../test/mother.ts'
 import { rng } from './_vault.ts'
-import { NOTES, PASSWORD, SEED, USER, cleanup, metric, startServer, timed, workspace, type Server } from './_harness.ts'
+import { NOTES, PASSWORD, SEED, USER, cleanup, config, metric, startServer, timed, workspace, type Server } from './_harness.ts'
 
 const COMMITS = Number(process.env.ACCEPTANCE_GIT_COMMITS ?? 2000)
 const m = mother(import.meta.url)
@@ -26,7 +26,7 @@ test(`unmanaged history over ${NOTES} notes and ${COMMITS} commits of the user's
   let srv: Server | null = null
   try {
     // Their repository: the vault, then their commits (fast-import: one pack, as after a gc).
-    writeFileSync(join(ws.notesDir, 'vihko.yaml'), 'history:\n  mode: unmanaged\n')
+    writeFileSync(join(ws.notesDir, 'vihko.yaml'), config('history:\n  mode: unmanaged\n'))
     const repo = userGit(ws.notesDir)
     const r = rng(SEED)
     const files = readdirSync(ws.notesDir, { recursive: true, withFileTypes: true })
