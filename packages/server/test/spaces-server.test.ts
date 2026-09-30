@@ -374,8 +374,13 @@ test('a closed space converted into a shared space: its members see all of it, w
   try {
     const { shared, note, own } = await deletedMember(h)
     const name = m.aSpaceName()
-    const bad = await h.admin('POST', `/api/admin/users/${h.created.member.id}/space`, { action: 'convert', name, members: {}, confirm: h.created.admin.password })
-    assert.equal(bad.body.error, 'invalid', 'members are needed')
+    // Someone has to manage it (D-056.22): a dry run says so too.
+    for (const members of [{}, { [h.names.admin]: 'edit', [`@${h.group}`]: 'read' }]) {
+      for (const dryRun of [true, false]) {
+        const bad = await h.admin('POST', `/api/admin/users/${h.created.member.id}/space`, { action: 'convert', name, members, dryRun, confirm: h.created.admin.password })
+        assert.deepEqual([bad.status, bad.body.error], [400, 'space_needs_manager'], JSON.stringify({ members, dryRun }))
+      }
+    }
     const r = await h.admin('POST', `/api/admin/users/${h.created.member.id}/space`, { action: 'convert', name, members: { [h.names.admin]: 'manage', [`@${h.group}`]: 'read' }, confirm: h.created.admin.password })
     assert.equal(r.status, 200, r.text)
     const dest = r.body.plan.to as string
@@ -395,9 +400,16 @@ test('a closed space converted into a shared space: its members see all of it, w
   }
 })
 
-test('a closed space deleted: gone from the disk and vihko.yaml, without the trash', async () => {
+test('a closed space deleted: gone from the disk and vihko.yaml, without the trash, its older trash entries too', async () => {
   const h = await setup()
   try {
+    // Something the member deleted from their space before, and something the other deleted elsewhere.
+    const old = `${h.home('member')}/${m.aTitle()}.md`
+    const elsewhere = `${h.home('other')}/${m.aTitle()}.md`
+    h.write(old, m.aParagraph())
+    h.write(elsewhere, m.aParagraph())
+    await h.notes.delete(old, { actor: { kind: 'user', id: h.created.member.id } })
+    const kept = await h.notes.delete(elsewhere, { actor: { kind: 'user', id: h.created.other.id } })
     const { shared } = await deletedMember(h)
     const dry = await h.admin('POST', `/api/admin/users/${h.created.member.id}/space`, { action: 'delete', dryRun: true })
     assert.deepEqual(dry.body.plan, { action: 'delete', from: h.home('member'), to: null, notes: 2, files: 0, sharedFolders: 1, people: 1 })
@@ -406,6 +418,7 @@ test('a closed space deleted: gone from the disk and vihko.yaml, without the tra
     assert.ok(!existsSync(join(h.notesDir, h.home('member'))))
     assert.ok(!readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8').includes(shared))
     assert.deepEqual((await h.admin('GET', '/api/trash')).body.entries, [])
+    assert.deepEqual(h.notes.trash().map((e) => e.id), [kept.id], 'only what was deleted elsewhere is left in the trash')
     assert.equal((h.index.prepare("select count(*) n from notes where path like 'people/%'").get() as { n: number }).n, 0)
     // No closed space left for that person.
     assert.equal((await h.admin('POST', `/api/admin/users/${h.created.member.id}/space`, { action: 'delete', confirm: h.created.admin.password })).status, 404)
@@ -429,6 +442,39 @@ test('the spaces routes are for people: a key reads GET /api/spaces within its f
     assert.deepEqual([within.personal, within.spaces.map((x: any) => x.path)], [null, [s.path]])
     const routes: [string, string][] = [['POST', '/api/spaces'], ['POST', '/api/spaces/leave'], ['POST', '/api/spaces/pin'], ['POST', '/api/spaces/rename'], ['GET', '/api/admin/spaces']]
     for (const [method, route] of routes) assert.equal((await h.withKey(all.token)(method, route, method === 'GET' ? undefined : {})).status, 404, route)
+  } finally {
+    h.close()
+  }
+})
+
+test('whoever is added to a shared space or receives a folder is told, only while they can see it, never the one who did it', async () => {
+  const h = await setup()
+  try {
+    const noticesOf = async (who: Name) => (await h.as(who)('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'shared_with_you')
+    const brief = (a: any) => ({ kind: a.kind, by: a.by, path: a.path, name: a.name, owner: a.owner, space: a.space })
+    // Added when the space is made.
+    const s = await newSpace(h, 'member', { [h.names.other]: 'edit' })
+    assert.deepEqual((await noticesOf('other')).map(brief), [{ kind: 'space', by: h.names.member, path: s.path, name: s.name, owner: null, space: null }])
+    assert.deepEqual(await noticesOf('member'), [], 'not whoever did it')
+    assert.deepEqual(await noticesOf('admin'), [])
+    // A new member through the members of its root (a group: each person in it); a raised level is no news.
+    const actor = { kind: 'user' as const, id: h.created.member.id }
+    await h.services.permissionsFile.setRule(s.path, { name: s.name, grants: { [h.names.member]: 'manage', [h.names.other]: 'manage', [h.names.admin]: 'read' }, ai: null }, { actor })
+    assert.equal((await noticesOf('other')).length, 1)
+    assert.deepEqual((await noticesOf('admin')).map(brief), [{ kind: 'space', by: h.names.member, path: s.path, name: s.name, owner: null, space: null }])
+    // A folder of one's own shared: its name and owner.
+    const folder = m.aFolder()
+    const trips = `${h.home('member')}/${folder}`
+    mkdirSync(join(h.notesDir, trips))
+    await h.services.permissionsFile.setRule(trips, { grants: { [`@${h.group}`]: 'comment' }, ai: null }, { actor })
+    const got = (await noticesOf('other')).map(brief)
+    assert.deepEqual(got.at(-1), { kind: 'folder', by: h.names.member, path: trips, name: folder, owner: h.names.member, space: null })
+    assert.equal((await noticesOf('member')).length, 0, 'the owner, in the group too, isn\'t told of their own share')
+    // No longer shared: nothing of it is shown any more.
+    await h.services.permissionsFile.setRule(trips, { grants: null, ai: null }, { actor })
+    assert.deepEqual((await noticesOf('other')).map(brief).at(-1), { kind: 'folder', by: h.names.member, path: null, name: null, owner: null, space: null })
+    const text = (await h.other('GET', '/api/alerts')).text
+    assert.ok(!text.includes(folder) && !text.includes(trips))
   } finally {
     h.close()
   }

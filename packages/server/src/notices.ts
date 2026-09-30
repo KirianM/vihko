@@ -18,6 +18,9 @@
 //   belong to; and, to every other admin, the same (and a deleted person's
 //   space deleted). The space's path is kept; its name is looked up when
 //   shown, and a personal space's path only while they can read it.
+// - `shared_with_you`: someone added them to a shared space or shared a
+//   folder with them (D-056.22). The path is kept; it and every name are
+//   shown only while they can still see it.
 //
 // Only ids are kept (who did it, to whom): names are looked up when shown,
 // so a rename shows the new one and a deleted user their tombstone's. Never
@@ -61,6 +64,16 @@ export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => s
         : null
       return { code: d.code, ...base, change: d.change, user: d.user === null ? null : nameOf(d.user), to: d.to === null ? null : nameOf(d.to), space: shown }
     }
+    case 'shared_with_you': {
+      const s = parseSpacePath(d.path)
+      const none = { code: d.code, ...base, kind: d.kind, path: null, name: null, owner: null, space: null }
+      if (!s || access.level(d.path) === null) return none
+      if (d.kind === 'space') return { ...none, path: d.path, name: spaceName(s.space.root) }
+      const name = d.path.slice(d.path.lastIndexOf('/') + 1)
+      return s.space.kind === 'personal'
+        ? { ...none, path: d.path, name, owner: s.space.owner }
+        : { ...none, path: d.path, name, space: spaceName(s.space.root) }
+    }
   }
 }
 
@@ -73,6 +86,8 @@ export type NoticeData =
   | { code: 'history_purged_authored'; by: string; path: string; version: boolean }
   /** `by` did `change` to a space (`space`: its path, null once deleted), concerning `user` and, for a transfer, `to` (ids). */
   | { code: 'space_changed'; change: SpaceChange; by: string; user: string | null; to: string | null; space: string | null }
+  /** `by` added them to the shared space at `path` (`space`), or shared the folder at `path` with them (`folder`). */
+  | { code: 'shared_with_you'; kind: 'space' | 'folder'; by: string; path: string }
 
 export type NoticeCode = NoticeData['code']
 
@@ -86,7 +101,7 @@ export interface Notice {
 /** The most notices a person keeps: older ones go first. */
 const MAX_PER_USER = 100
 
-const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'space_changed']
+const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'space_changed', 'shared_with_you']
 
 export class Notices {
   private db: Db

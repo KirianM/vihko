@@ -18,8 +18,8 @@
 import { lstatSync, mkdirSync, readdirSync, rmdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  LEVELS, SPACES, isSpaceRoot, maxLevel, newSpaceFolder, parseSpaceFolder, parseSpacePath, personalRoot, rulesInFile, setRule, sharedRoot, spaceNameProblem, subjectKey,
-  type Level, type RuleValue,
+  LEVELS, SPACES, SpaceRules, isSpaceRoot, maxLevel, newSpaceFolder, parseSpaceFolder, parseSpacePath, personalRoot, rulesInFile, setRule, sharedRoot, spaceNameProblem, subjectKey,
+  type Level, type PermissionRule, type RuleValue,
 } from '@vihko/core'
 import type { Access } from './access.ts'
 import { AccessError } from './access.ts'
@@ -35,10 +35,10 @@ import type { PermissionsEngine, SharedEntry, SharedSpaceInfo, SpaceEntry } from
 import type { PermissionsFile } from './permissionsFile.ts'
 import type { Users } from './users.ts'
 
-/** A request about spaces that can't be made as it is: `invalid` (400), `leave_via_group` and `space_has_managers` (409). */
+/** A request about spaces that can't be made as it is: `invalid` and `space_needs_manager` (400), `leave_via_group` and `space_has_managers` (409). */
 export class SpaceError extends Error {
   readonly status: 400 | 409
-  readonly code: 'invalid' | 'leave_via_group' | 'space_has_managers'
+  readonly code: 'invalid' | 'leave_via_group' | 'space_has_managers' | 'space_needs_manager'
   readonly extra: Record<string, unknown>
   constructor(status: SpaceError['status'], code: SpaceError['code'], message: string, extra: Record<string, unknown> = {}) {
     super(message)
@@ -163,13 +163,19 @@ export class SpaceService {
     for (const k of Object.keys(members)) if (subjectKey(k) === subjectKey(user.username)) delete members[k]
     const grants: Record<string, Level> = { [user.username]: 'manage', ...members }
     const root = this.newSharedFolder(name)
+    let before = ''
     try {
-      await this.opts.file.update((t) => setRule(t, root, { name, grants, ai: null }), { actor: access.actor })
+      await this.opts.file.update((t) => {
+        before = t
+        return setRule(t, root, { name, grants, ai: null })
+      }, { actor: access.actor })
     } catch (err) {
       try { rmdirSync(join(this.opts.notesDir, root)) } catch { /* something landed in it: left */ }
       throw err
     }
     this.opts.indexer.indexFolders([root])
+    // Its first members are told they were added.
+    this.notifyShared(root, before, access.actor)
     return this.entry(access, root)
   }
 
@@ -345,7 +351,8 @@ export class SpaceService {
     } else if (action === 'convert') {
       name = this.spaceName(input.name)
       members = this.members(input.members ?? {})
-      if (Object.keys(members).length === 0) throw new SpaceError(400, 'invalid', 'a shared space needs members')
+      // Someone has to manage it (D-056.22): its members, and later who else joins, are theirs to decide.
+      if (!Object.values(members).includes('manage')) throw new SpaceError(400, 'space_needs_manager', 'a shared space needs at least one member who manages it')
     }
     const counts = this.contentCounts(from)
     const shared = this.sharedCounts(from, gone.username)
@@ -361,6 +368,8 @@ export class SpaceService {
         return out
       }, { actor: access.actor })
       this.deleteTree(from)
+      // Its older trash entries too: nobody could ever see or restore them (D-056.22).
+      this.opts.refs.dropTrash(from)
       this.opts.state.prepare("delete from pins where path = ? or path like ? escape '\\'").run(from, likePrefix(from))
       this.opts.notices.spaceChanged([], admin.id, { change: 'personal_deleted', user: gone.id, to: null, space: null })
       return plan(null)
@@ -406,6 +415,35 @@ export class SpaceService {
       this.opts.notices.spaceChanged(told, admin.id, { change: 'personal_converted', user: gone.id, to: null, space: dest })
     }
     return plan(dest)
+  }
+
+  // --- Telling people they were added ------------------------------------------------
+
+  /**
+   * After a folder's rule changed (`before`: vihko.yaml's text then): whoever
+   * sees the folder now and didn't before is told (D-056.22), that `actor`
+   * added them to the shared space (its root) or shared the folder with them.
+   * Never the one who did it, and only for a person's change under the
+   * spaces model. What they're told is only what they can see (notices.ts).
+   */
+  notifyShared(folder: string, before: string, actor: Actor): void {
+    if (actor.kind !== 'user' || this.engine.model !== 'spaces') return
+    const f = folder.normalize('NFC')
+    const s = parseSpacePath(f)
+    if (!s || !this.isFolder(f)) return
+    const then = new SpaceRules([...rulesInFile(before)].map(([k, v]): PermissionRule => ({ folder: k, grants: v.grants, ai: v.ai, ...(v.name ? { name: v.name } : {}) })))
+    const now = this.engine.spaceRules()
+    const dir = this.engine.directory
+    const users = dir.users()
+    const names = new Set(users.map((u) => u.username.normalize('NFC')))
+    const exists = (n: string) => names.has(n.normalize('NFC'))
+    const kind = s.space.kind === 'shared' && s.inner === '' ? 'space' : 'folder'
+    for (const u of users) {
+      if (u.id === actor.id) continue
+      const who = { username: u.username, groups: dir.groupsOf(u.id) }
+      if (then.level(f, who, exists) !== null || now.level(f, who, exists) === null) continue
+      this.opts.notices.add(u.id, { code: 'shared_with_you', kind, by: actor.id, path: f })
+    }
   }
 
   // --- Helpers -------------------------------------------------------------------------

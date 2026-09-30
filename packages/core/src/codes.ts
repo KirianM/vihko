@@ -66,6 +66,7 @@ export type ErrorCode =
   | 'personal_folder_exists' // a new user whose personal folder (people/<name>) already exists with something in it, made outside vihko
   | 'leave_via_group' // leaving a space or a folder one reaches through a group (`group`): the admin takes them out of the group
   | 'space_has_managers' // the admin assigns a manager only to a shared space that has none
+  | 'space_needs_manager' // a deleted person's space made a shared space needs at least one member who manages it
 
 /**
  * Space-level alerts: what vihko has detected in the notes folder that needs
@@ -231,6 +232,15 @@ export type Alert =
    * `space`: its path and name while the person can still see it, else null.
    */
   | { code: 'space_changed'; id: string; change: SpaceChange; by: string; user: string | null; to: string | null; space: { path: string; name: string | null } | null; at: string; actions: 'dismiss'[] }
+
+  /**
+   * Addressed to one person (D-056.22): `by` (a name) added them to a shared
+   * space (`kind: 'space'`, `name` its name) or shared a folder with them
+   * (`kind: 'folder'`, `name` the folder's; `owner` the personal space's
+   * owner, or `space` the shared space's name) at `at`. Its path and names
+   * only while they can still see it; all null otherwise.
+   */
+  | { code: 'shared_with_you'; id: string; kind: 'space' | 'folder'; by: string; path: string | null; name: string | null; owner: string | null; space: string | null; at: string; actions: 'dismiss'[] }
 
 /** What was done to a space that someone is told about (`space_changed`). */
 export type SpaceChange = 'manager_assigned' | 'admin_joined' | 'personal_transferred' | 'personal_converted' | 'personal_deleted'

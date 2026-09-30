@@ -7,7 +7,7 @@
 // Only moves made from vihko (a folder moved or renamed, a deleted person's
 // space transferred or converted). A folder moved outside vihko is a new
 // folder as far as these are concerned.
-import { readdirSync, readFileSync, renameSync } from 'node:fs'
+import { readdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Db } from './db.ts'
 import { writeTmp } from './fsutil.ts'
@@ -43,6 +43,26 @@ export class FolderRefs {
     const pins = this.rewritePins(from, to)
     const trash = this.rewriteTrash(from, to)
     return { keys, pins, trash }
+  }
+
+  /**
+   * Drops the trash entries of what was deleted under `folder` (a deleted
+   * person's space, deleted for good: nobody could see or restore them).
+   * How many went.
+   */
+  dropTrash(folder: string): number {
+    const root = join(this.stateDir, 'trash')
+    let ids: string[]
+    try { ids = readdirSync(root) } catch { return 0 }
+    let n = 0
+    for (const id of ids) {
+      let path: unknown
+      try { path = (JSON.parse(readFileSync(join(root, id, 'meta.json'), 'utf8')) as { path?: unknown }).path } catch { continue }
+      if (typeof path !== 'string' || movedPath(path, folder, folder) === null) continue
+      rmSync(join(root, id), { recursive: true, force: true })
+      n++
+    }
+    return n
   }
 
   /** Keys' and OAuth codes' folders (JSON lists). How many rows changed. */

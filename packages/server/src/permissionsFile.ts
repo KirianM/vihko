@@ -33,6 +33,13 @@ export interface PermissionsFileOptions {
   history?: Pick<NoteHistory, 'prepare'>
   /** After each change (the workspace already reread): open editors are checked again (hub.ts). */
   onChange?: () => void
+  /**
+   * After `setRule` changed a folder's rule (someone shared it, or changed
+   * its members): the file's text before, and who did it. Whoever it now
+   * reaches is told (spaceService.ts `notifyShared`). Never for a move, a
+   * deletion or a renamed subject: nobody is added to anything by those.
+   */
+  onRuleSet?: (folder: string, before: string, actor: Actor) => void
 }
 
 export class PermissionsFile {
@@ -107,10 +114,22 @@ export class PermissionsFile {
    * shared space's root takes its `name` too (the space's members are its
    * grants): `setRule('spaces/home-7k2q9x', { name: 'Home', grants: { ana: 'manage' }, ai: null })`.
    */
-  setRule(folder: string, value: RuleValue, opts: { actor: Actor; ifMatch?: string }) {
+  async setRule(folder: string, value: RuleValue, opts: { actor: Actor; ifMatch?: string }) {
     // The spaces model has no implicit section: nothing is written for it.
     const implicit = this.opts.engine.model === 'legacy' && this.opts.engine.section.kind === 'implicit' ? this.admins() : undefined
-    return this.update((t) => setRule(t, folder, value, { implicitAdmins: implicit }), opts)
+    let before = ''
+    const r = await this.update((t) => {
+      before = t
+      return setRule(t, folder, value, { implicitAdmins: implicit })
+    }, opts)
+    if (r.changed) {
+      try {
+        this.opts.onRuleSet?.(folder, before, opts.actor)
+      } catch {
+        // Telling people is never why a change fails.
+      }
+    }
+    return r
   }
 
   /** Moves the rules of a folder and those under it (see core `moveRules`). */

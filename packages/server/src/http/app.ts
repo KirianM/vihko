@@ -278,7 +278,11 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     }),
   })
   const permissions = policy.permissions
-  const permissionsFile = new PermissionsFile({ notesDir: deps.notesDir, workspace, engine: permissions, history: deps.history?.recorder, onChange: deps.onPermissionsChanged })
+  const permissionsFile = new PermissionsFile({
+    notesDir: deps.notesDir, workspace, engine: permissions, history: deps.history?.recorder, onChange: deps.onPermissionsChanged,
+    // Whoever a share or a new member reaches is told (spaceService.ts `notifyShared`).
+    onRuleSet: (folder, before, actor) => { spaces.notifyShared(folder, before, actor) },
+  })
   const twoFactor = deps.twoFactor ?? new TwoFactor(auth.state, { now })
   const notices = deps.notices ?? new Notices(auth.state, { now })
   const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
