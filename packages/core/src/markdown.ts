@@ -99,7 +99,8 @@ const HTML_COMMENT = /<!--[\s\S]*?(?:-->|$)/g
 function parseWikiRaw(raw: string, kind: 'wiki' | 'embed', from: number, to: number): LinkRef {
   const inner = raw.slice(kind === 'embed' ? 3 : 2, -2)
   const bar = inner.indexOf('|')
-  const dest = bar === -1 ? inner : inner.slice(0, bar)
+  // In a table the bar is written `\|` (Obsidian's way): the `\` isn't part of the target.
+  const dest = bar === -1 ? inner : inner.slice(0, bar > 0 && inner[bar - 1] === '\\' ? bar - 1 : bar)
   const display = bar === -1 ? null : inner.slice(bar + 1).trim()
   const hash = dest.indexOf('#')
   return {
@@ -117,7 +118,7 @@ function parseWikiRaw(raw: string, kind: 'wiki' | 'embed', from: number, to: num
 function wikiTargetSpan(raw: string, kind: 'wiki' | 'embed', from: number): { destFrom: number; destTo: number } {
   const start = kind === 'embed' ? 3 : 2
   const inner = raw.slice(start, -2)
-  const end = inner.search(/[|#]/)
+  const end = inner.search(/\\(?=\|)|[|#]/)
   const dest = end === -1 ? inner : inner.slice(0, end)
   const lead = dest.length - dest.trimStart().length
   return { destFrom: from + start + lead, destTo: from + start + dest.trimEnd().length }

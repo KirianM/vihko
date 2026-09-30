@@ -135,3 +135,10 @@ test('withoutRanges: removes the ranges within the window and keeps words apart'
   assert.equal(withoutRanges(text, x.comments, 5, 33), 'two three.', 'ranges cut by the window are clipped')
   assert.equal(withoutRanges(text, []), text)
 })
+
+test('in a table, a wikilink written with `\\|` (as Obsidian does) has its target without the `\\` and its visible text', () => {
+  const [target, shown, anchor] = [`people/${m.aUsername()}/${m.aFolder()}`, m.aSentence(2), m.aHeading()]
+  const text = `| a | b |\n| --- | --- |\n| [[${target}\\|${shown}]] | [[${target}#${anchor}\\|${shown}]] |\n`
+  const links = extract(text).links
+  assert.deepEqual(links.map((l) => [l.target, l.anchor, l.display]), [[target, null, shown.trim()], [target, anchor, shown.trim()]])
+})
