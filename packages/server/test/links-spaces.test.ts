@@ -16,7 +16,7 @@ import assert from 'node:assert/strict'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { readFrontmatter } from '@vihko/core'
-import { Auth, Indexer, NoteService, Profiles, RelinkRetries, Workspace, createServer, openIndex, openState, type RelinkRetry, type Runtime } from '@vihko/server'
+import { Auth, Indexer, NoteError, NoteService, Notices, Profiles, RelinkRetries, Workspace, createServer, openIndex, openState, type RelinkRetry, type Runtime } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { yamlKey } from './_permissions.ts'
 import { create, type Person } from './_people.ts'
@@ -75,11 +75,14 @@ async function setup(files: (s: Scenario) => Record<string, string | Buffer>, op
   const workspace = new Workspace({ notesDir })
   const indexer = new Indexer({ notesDir, db: index })
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
+  // As main.ts wires it: a move's links given up tell whoever made it.
+  const notices = new Notices(state)
   const notes = new NoteService({
     notesDir, stateDir, indexer, db: index, attachments: () => workspace.config.attachments,
-    retries: new RelinkRetries({ stateDir }), onRelinkGaveUp: opts.onGaveUp,
+    retries: new RelinkRetries({ stateDir }),
+    onRelinkGaveUp: (e) => { opts.onGaveUp?.(e); notices.relinkGaveUp(e.reason.by) },
   })
-  const { app, services } = createServer({ auth, profiles: new Profiles(state), workspace, notes, index, indexer, notesDir, runtime, permissionsModel: 'spaces' })
+  const { app, services } = createServer({ auth, profiles: new Profiles(state), workspace, notes, index, indexer, notesDir, runtime, notices, permissionsModel: 'spaces' })
   const users = {} as Record<Role, Person>
   for (const r of ROLES) users[r] = await create(auth, s.people[r])
   runtime.rescan({})
@@ -100,7 +103,7 @@ async function setup(files: (s: Scenario) => Record<string, string | Buffer>, op
   const read = (p: string) => readFileSync(join(notesDir, p), 'utf8')
   /** A note's text without its frontmatter (a moved note gets its `uid`). */
   const body = (p: string) => read(p).replace(/^---\n[\s\S]*?\n---\n/, '')
-  return { s, dir, notesDir, notes, indexer, runtime, as, agent, read, body, write, has: (p: string) => existsSync(join(notesDir, p)) }
+  return { s, dir, notesDir, notes, indexer, runtime, as, agent, read, body, write, users, has: (p: string) => existsSync(join(notesDir, p)) }
 }
 
 const q = (path: string, params: Record<string, string>) => `${path}?${new URLSearchParams(params)}`
@@ -314,7 +317,7 @@ test('a failed rewrite: the alias only where it helps (the same space); links fr
     [`${s.home}/${lockedLater}/${later}.md`]: `[[${s.space.member}/${other}|${other}]]\n`,
   }), { onGaveUp: (e) => gaveUp.push(e) })
   const { s } = h
-  const actor = { kind: 'user' as const, id: m.anId() }
+  const actor = { kind: 'user' as const, id: h.users.member.id }
   const lock = (dirs: string[], mode: number) => { for (const d of dirs) chmodSync(join(h.notesDir, d), mode) }
   const lockedDirs = [`${s.space.member}/${locked}`, `${s.home}/${locked}`]
   lock(lockedDirs, 0o555)
@@ -344,4 +347,106 @@ test('a failed rewrite: the alias only where it helps (the same space); links fr
   assert.equal(gaveUp.length, 1, 'nothing more given up')
   await h.notes.retryRelinks()
   assert.equal(gaveUp.length, 1, 'each failure is retried once')
+  // Whoever moved it is told, with nothing of the notes: no path, name or count.
+  const alerts = (await h.as('member')('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'links_not_updated')
+  assert.equal(alerts.length, 1)
+  assert.deepEqual(Object.keys(alerts[0]).sort(), ['actions', 'at', 'code', 'id'])
+  assert.deepEqual((await h.as('other')('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'links_not_updated'), [])
+})
+
+/**
+ * The residual leak of D-056.20: `member` shares a folder (the trip) with
+ * `other`; a note of the member's outside it (the budget) is what a link by
+ * name in the trip leads to. A rename or a move by `other` that would have
+ * to rewrite that link (and so name the budget) is refused exactly as a
+ * taken name, preview included, for them and their agent.
+ */
+async function residual() {
+  const [finance, budget, plan, draft, notesName, taken, takenMine] = [m.aFolder(), m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle()]
+  const h = await setup((s) => ({
+    [`${s.space.member}/${finance}/${budget}.md`]: `# ${budget}\n`,
+    [`${s.trips}/${plan}.md`]: `[[${budget}]]\n`,
+    [`${s.trips}/${draft}.md`]: `# ${draft}\n`,
+    [`${s.trips}/${notesName}.md`]: `${m.aSentence()} [[${budget}]]\n`,
+    [`${s.trips}/${taken}.md`]: `# ${taken}\n`,
+    [`${s.space.other}/${takenMine}.md`]: `# ${takenMine}\n`,
+  }))
+  const { s } = h
+  const p = {
+    budget: `${s.space.member}/${finance}/${budget}.md`, plan: `${s.trips}/${plan}.md`, draft: `${s.trips}/${draft}.md`,
+    notes: `${s.trips}/${notesName}.md`, taken: `${s.trips}/${taken}.md`, takenMine: `${s.space.other}/${takenMine}.md`,
+    renameTo: `${s.trips}/${budget}.md`, moveTo: `${s.space.other}/${notesName}.md`,
+  }
+  return { h, s, p, budget, finance }
+}
+
+test('D-056.20: a rename or move that would name a note the actor can’t read answers as a taken name, preview included', async () => {
+  const { h, p, budget, finance } = await residual()
+  const before = [p.plan, p.draft, p.notes].map((x) => h.read(x))
+  const move = (from: string, to: string, dryRun: boolean) => h.as('other')('POST', '/api/note/move', { from, to, dryRun })
+  // What a real taken name answers, with the path echoed as the request's.
+  const same = (a: { status: number; text: string }, b: { status: number; text: string }, aTo: string, bTo: string) => {
+    assert.equal(a.status, 409, a.text)
+    assert.equal(JSON.parse(a.text).error, 'exists')
+    assert.deepEqual([a.status, a.text.replaceAll(aTo, bTo)], [b.status, b.text])
+  }
+  for (const dryRun of [true, false]) {
+    // Rename: `draft` would take the name the plan's link finds in the budget.
+    same(await move(p.draft, p.renameTo, dryRun), await move(p.draft, p.taken, dryRun), p.renameTo, p.taken)
+    // Move: `notes` links the budget by name; out of the member's space the link would have to name it.
+    same(await move(p.notes, p.moveTo, dryRun), await move(p.notes, p.takenMine, dryRun), p.moveTo, p.takenMine)
+  }
+  assert.deepEqual([p.plan, p.draft, p.notes].map((x) => h.read(x)), before, 'nothing written')
+  assert.ok(!h.has(p.renameTo) && !h.has(p.moveTo))
+  // The member reads the budget: the same rename goes through, and the plan's link keeps its note.
+  const own = await h.as('member')('POST', '/api/note/move', { from: p.draft, to: p.renameTo })
+  assert.equal(own.status, 200, own.text)
+  assert.equal(h.body(p.plan), `[[${finance}/${budget}]]\n`)
+})
+
+test('D-056.20: an agent gets the same answer as for a taken name', async () => {
+  const { h, p } = await residual()
+  const agent = h.agent('other')
+  const refusal = async (from: string, to: string, dryRun: boolean) => {
+    try {
+      await agent.move(from, to, { dryRun })
+    } catch (err) {
+      assert.ok(err instanceof NoteError)
+      return { code: err.code, message: err.message, etag: err.etag }
+    }
+    assert.fail(`${from} → ${to} went through`)
+  }
+  for (const dryRun of [true, false]) {
+    const hidden = await refusal(p.draft, p.renameTo, dryRun)
+    const real = await refusal(p.draft, p.taken, dryRun)
+    assert.equal(hidden.code, 'exists')
+    assert.deepEqual({ ...hidden, message: hidden.message.replace(p.renameTo, p.taken) }, real)
+    const moved = await refusal(p.notes, p.moveTo, dryRun)
+    const movedReal = await refusal(p.notes, p.takenMine, dryRun)
+    assert.deepEqual({ ...moved, message: moved.message.replace(p.moveTo, p.takenMine) }, movedReal)
+  }
+  assert.ok(!h.has(p.renameTo) && !h.has(p.moveTo))
+})
+
+test('D-056.21: never creating from a link in a note of someone else’s personal space; from one’s own, as ever', async () => {
+  const { h, s, p, budget } = await residual()
+  const absent = m.aTitle()
+  h.write(p.draft, `[[${absent}]]\n`)
+  h.runtime.rescan({})
+  const create = (r: 'member' | 'other', path: string, fromLink: string) => h.as(r)('POST', '/api/note', { path, text: '', fromLink })
+  // A link that leads to the hidden budget and one that leads nowhere: the same refusal.
+  const hidden = await create('other', p.renameTo, p.plan)
+  const none = await create('other', `${s.trips}/${absent}.md`, p.draft)
+  assert.deepEqual([hidden.status, hidden.body.error], [403, 'forbidden'])
+  assert.equal(none.text, hidden.text)
+  assert.ok(!h.has(p.renameTo) && !h.has(`${s.trips}/${absent}.md`))
+  // From a note one can't read at all: as if it didn't exist.
+  const unseen = await create('other', `${s.space.other}/${m.aTitle()}.md`, p.budget)
+  assert.deepEqual([unseen.status, unseen.body.error], [404, 'not_found'])
+  // The owner creates from a link in their own space; anyone from their own.
+  assert.equal((await create('member', `${s.trips}/${absent}.md`, p.draft)).status, 201)
+  const mine = `${s.space.other}/${m.aTitle()}.md`
+  h.write(mine, `[[${budget}]]\n`)
+  h.runtime.rescan({})
+  assert.equal((await create('other', `${s.space.other}/${budget}.md`, mine)).status, 201)
 })
