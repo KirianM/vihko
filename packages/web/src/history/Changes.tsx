@@ -10,7 +10,8 @@ import { errorText, useT } from '../i18n.tsx'
 import { SearchButton } from '../Palette.tsx'
 import { MenuButton, ThemeToggle } from '../ui.tsx'
 import { historyApi, type Change, type ChangeFile, type HistoryAuthor, type HistoryStatus } from './api.ts'
-import { changeKindText, filterOptions, isNote, pathLabel, uidOf } from './format.ts'
+import { changeKindText, filterOptions, isNote, uidOf } from './format.ts'
+import { usePathLabels } from '../spaces.tsx'
 import { HistoryNotice } from './HistoryTab.tsx'
 import { AdminPurge, purgedText } from './Purge.tsx'
 import { Authors, Counts, HistoryIcon, useDates } from './ui.tsx'
@@ -20,6 +21,7 @@ const FEW = 6
 
 function ChangeCard({ change, onOpen }: { change: Change; onOpen: (file: ChangeFile, change: Change) => void }) {
   const t = useT()
+  const { label: pathLabel } = usePathLabels()
   const dates = useDates()
   const [all, setAll] = useState(false)
   const files = all ? change.files : change.files.slice(0, FEW)
@@ -73,6 +75,7 @@ export function ChangesPage({ status, notes, admin, onOpenVersion, onUnauthorize
   onUnauthorized: () => void
 }) {
   const t = useT()
+  const { label: pathLabel } = usePathLabels()
   const dates = useDates()
   const filterId = useId()
   const [author, setAuthor] = useState('')
@@ -157,7 +160,7 @@ export function ChangesPage({ status, notes, admin, onOpenVersion, onUnauthorize
               </select>
               {admin && (<>
                 <span className="spacer" />
-                <AdminPurge onPurged={(r) => { setPurged(purgedText(t, r)); setReload((n) => n + 1) }} />
+                <AdminPurge onPurged={(r) => { setPurged(purgedText(t, r, pathLabel)); setReload((n) => n + 1) }} />
               </>)}
             </div>
             {purged && <p className="alerts-done" role="status">{purged}</p>}

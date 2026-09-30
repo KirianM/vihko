@@ -7,12 +7,13 @@ import { Header, Menu, MenuItem, MenuSection, Popover, Text } from 'react-aria-c
 import { ApiError, api } from '../api.ts'
 import { errorText, useT } from '../i18n.tsx'
 import { Icon } from '../ui.tsx'
+import { usePathLabels } from '../spaces.tsx'
 import { forgetSuggestions } from './autocomplete.ts'
 import type { NewLinkedNote } from './createLink.ts'
 
 const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1).replace(/\.md$/i, '')
 const templateIcon = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6" /></svg>
-const folderLabel = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')).split('/').join(' / ') : null)
+
 
 export function useCreateLink(source: string, templates: readonly string[], onCreated: (path: string) => void) {
   const t = useT()
@@ -25,7 +26,7 @@ export function useCreateLink(source: string, templates: readonly string[], onCr
     setError(null)
     setBusy(true)
     try {
-      const r = template ? await api.createFromTemplate(note.path, template) : await api.createNote(note.path, `# ${note.title}\n`)
+      const r = template ? await api.createFromTemplate(note.path, template, { fromLink: source }) : await api.createNote(note.path, `# ${note.title}\n`, { fromLink: source })
       forgetSuggestions()
       onCreated(r.path)
     } catch (e) {
@@ -60,6 +61,8 @@ export type CreateLinkState = ReturnType<typeof useCreateLink>
 
 export function CreateLinkUi({ state }: { state: CreateLinkState }) {
   const t = useT()
+  const labels = usePathLabels()
+  const folderLabel = (p: string) => labels.where(p, true)
   const { menu, error, templates } = state
   return (
     <>
@@ -72,11 +75,11 @@ export function CreateLinkUi({ state }: { state: CreateLinkState }) {
       {menu && (
         <Popover className="menu-popover create-link-popover" triggerRef={menu.anchor} isOpen placement="bottom start"
           onOpenChange={(open) => { if (!open) state.closeMenu() }}>
-          <Menu className="menu" autoFocus="first" aria-label={t('palette.createIn', { name: menu.note.title, folder: folderLabel(menu.note.path) ?? t('palette.root') })}
+          <Menu className="menu" autoFocus="first" aria-label={t('palette.createIn', { name: menu.note.title, folder: folderLabel(menu.note.path) })}
             onAction={(key) => void state.create(menu.note, key === 'blank' ? undefined : String(key).slice(2))}>
             <MenuSection>
               <Header className="menu-header">
-                {t('palette.createIn', { name: menu.note.title, folder: folderLabel(menu.note.path) ?? t('palette.root') })}
+                {t('palette.createIn', { name: menu.note.title, folder: folderLabel(menu.note.path) })}
               </Header>
               <MenuItem id="blank" className="menu-item" textValue={t('editor.linkCreateBlank')}>
                 {Icon.plus}<Text slot="label">{t('editor.linkCreateBlank')}</Text>

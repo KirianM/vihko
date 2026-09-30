@@ -2,6 +2,7 @@
 import { createContext, useContext } from 'react'
 import { Button } from 'react-aria-components'
 import { useT } from './i18n.tsx'
+import { usePathLabels, useSpaces } from './spaces.tsx'
 import { useTheme } from './theme.ts'
 
 export function Mark({ size = 22 }: { size?: number }) {
@@ -100,9 +101,13 @@ export const noteName = (path: string) => path.slice(path.lastIndexOf('/') + 1).
 export function Crumbs({ path }: { path: string | null }) {
   const t = useT()
   const perms = useContext(FolderPermissionsContext)
+  const labels = usePathLabels()
+  const spaces = useSpaces()
+  const shown = path ? spaces.show(path) : null
   const parts = path ? path.split('/') : []
-  const folders = parts.slice(0, -1)
-  const folder = folders.join('/')
+  // The space and its folders as the person sees them (D-056): never `people/<me>` nor a space's folder id.
+  const folders = shown ? [labels.spaceLabel(shown), ...shown.folders] : parts.slice(0, -1)
+  const folder = parts.slice(0, -1).join('/')
   return (
     <>
       <span className="crumbs">
@@ -110,7 +115,7 @@ export function Crumbs({ path }: { path: string | null }) {
         {parts.length > 0 && <b>{parts[parts.length - 1]!.replace(/\.md$/i, '')}</b>}
       </span>
       {path && perms?.can(folder) && (
-        <Button className="btn btn-icon btn-quiet crumbs-perm" aria-label={t('folder.permissionsOf', { folder: `/${folder}` })} onPress={() => perms.open(folder)}>{Icon.people}</Button>
+        <Button className="btn btn-icon btn-quiet crumbs-perm" aria-label={t('folder.permissionsOf', { folder: labels.label(folder) })} onPress={() => perms.open(folder)}>{Icon.people}</Button>
       )}
     </>
   )

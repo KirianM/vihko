@@ -14,6 +14,8 @@ import { recentNotes } from './recent.ts'
 import { useTheme } from './theme.ts'
 import { useBackClose, useMobile } from './mobile.ts'
 import { newNote, type NewNote } from './newNote.ts'
+import { rootOf, usePathLabels } from './spaces.tsx'
+import { usePlaces } from './Destination.tsx'
 import { Icon } from './ui.tsx'
 
 export type PaletteMode = 'search' | 'create'
@@ -29,9 +31,7 @@ export function SearchButton() {
   return <Button className="btn btn-icon mobile-only" aria-label={t('palette.input')} onPress={open}>{Icon.search}</Button>
 }
 
-const folderOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/i, '')
-const folderLabel = (folder: string) => folder.split('/').join(' / ')
 /** To compare commands ignoring case and accents. */
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
 
@@ -53,15 +53,19 @@ function Snippet({ text, start, end }: { text: string; start: string; end: strin
 const noteIcon = <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6" /></svg>
 const commandIcon = <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
 
+/** A note among the results: its title, its folders in its space and, when it isn't one's own, its space (spec §5.5). */
 function NoteOption({ path, title, snippet }: { path: string; title: string; snippet?: ReactNode }) {
-  const folder = folderOf(path)
+  const labels = usePathLabels()
+  const folders = labels.folders(path)
+  const space = labels.spaceTag(path)
   return (
     <ListBoxItem id={`n:${path}`} textValue={title || baseName(path)} className="palette-item">
       <span className="palette-icon">{noteIcon}</span>
       <span className="palette-text">
         <span className="palette-title">
           {title || baseName(path)}
-          {folder && <span className="palette-path"> {folderLabel(folder)} /</span>}
+          {folders && <span className="palette-path"> {folders} /</span>}
+          {space && <span className="palette-space">{space}</span>}
         </span>
         {snippet}
       </span>
@@ -89,7 +93,10 @@ interface Props {
   onCreated: (path: string) => void
 }
 
-export function Palette({ mode, folder, openPath, notes, templates, onToday, onNewFolder, onLanguage, onClose, onMode, onOpen, onCreated }: Props) {
+export function Palette({ mode, folder: current, openPath, notes, templates, onToday, onNewFolder, onLanguage, onClose, onMode, onOpen, onCreated }: Props) {
+  // Where a new note goes: the current folder, or another place picked with «in …» (spec §5.5).
+  const places = usePlaces()
+  const [folder, setFolder] = useState(current)
   const t = useT()
   const { effective } = useTheme()
   const { choice } = useLanguageChoice()
@@ -126,7 +133,8 @@ export function Palette({ mode, folder, openPath, notes, templates, onToday, onN
   // Create shows up once the results for what was typed have arrived: this way a
   // quick ↵ opens the matching note instead of creating another with the same name.
   // A query with a filter (`tag:x`) is a search, never the name of a new note.
-  const note = commandMode || (mode === 'search' && (found?.q !== text || hasSearchFilter(query))) ? null : newNote(query, folder)
+  // A leading «/» is the root of the space it's created in, never the notes root (D-056).
+  const note = commandMode || (mode === 'search' && (found?.q !== text || hasSearchFilter(query))) ? null : newNote(query, folder, rootOf(folder) ?? folder)
 
   async function create(note: NewNote, template?: string) {
     setBusy(true)
@@ -154,7 +162,17 @@ export function Palette({ mode, folder, openPath, notes, templates, onToday, onN
     }
   }
 
-  const where = note?.folder ? folderLabel(note.folder) : t('palette.root')
+  const labels = usePathLabels()
+  const where = note ? labels.where(note.folder) : ''
+  // Templates by the space they're in, one's own first (spec §3.7).
+  const templateGroups = (() => {
+    const groups = new Map<string, string[]>()
+    for (const tpl of templates) {
+      const space = labels.space(tpl)
+      groups.set(space, [...(groups.get(space) ?? []), tpl])
+    }
+    return [...groups.entries()]
+  })()
   const [before, after] = t('palette.createIn', { name: note?.title ?? '' }).split('{folder}')
   const hints = mode === 'create' ? ['palette.keyCreate'] as const
     : commandMode ? ['palette.keyMove', 'palette.keyRun'] as const
@@ -205,14 +223,14 @@ export function Palette({ mode, folder, openPath, notes, templates, onToday, onN
                   <ListBoxItem id="create" textValue={t('palette.createIn', { name: note.title, folder: where })} className="palette-item palette-create">
                     <span className="palette-icon palette-icon-accent">{Icon.plus}</span>
                     <span className="palette-grow">{before}<b>{where}</b>{after}</span>
-                    {note.folder === folder && <span className="palette-meta">{t('palette.currentFolder')}</span>}
+                    {note.folder === current && <span className="palette-meta">{t('palette.currentFolder')}</span>}
                   </ListBoxItem>
                 </ListBoxSection>
               )}
-              {note && templates.length > 0 && (
-                <ListBoxSection className="palette-section">
-                  <Header className="palette-header">{t('palette.fromTemplate')}</Header>
-                  {templates.map((tpl) => {
+              {note && templateGroups.map(([space, list]) => (
+                <ListBoxSection key={space} className="palette-section">
+                  <Header className="palette-header">{templateGroups.length > 1 ? t('palette.fromTemplateIn', { space }) : t('palette.fromTemplate')}</Header>
+                  {list.map((tpl) => {
                     const label = t('palette.createWith', { name: note.title, template: baseName(tpl) })
                     const [pre, post] = t('palette.createWith', { name: note.title }).split('{template}')
                     return (
@@ -223,7 +241,7 @@ export function Palette({ mode, folder, openPath, notes, templates, onToday, onN
                     )
                   })}
                 </ListBoxSection>
-              )}
+              ))}
               {matching.length > 0 && (
                 <ListBoxSection className="palette-section">
                   <Header className="palette-header">{t('palette.commands')}</Header>
@@ -236,6 +254,15 @@ export function Palette({ mode, folder, openPath, notes, templates, onToday, onN
                 </ListBoxSection>
               )}
             </ListBox>
+            {mode === 'create' && places.length > 1 && (
+              <label className="palette-into">
+                <span className="palette-header">{t('palette.into')}</span>
+                <select className="select" value={places.some((p) => p.root === folder) ? folder : ''} onChange={(e) => setFolder(e.target.value || current)}>
+                  {!places.some((p) => p.root === folder) && <option value="">{labels.where(folder)}</option>}
+                  {places.map((p) => <option key={p.root} value={p.root}>{p.label}</option>)}
+                </select>
+              </label>
+            )}
             {mode === 'search' && !commandMode && (
               <div className="palette-filters">
                 <span className="palette-header">{t('palette.filtersHint')}</span>

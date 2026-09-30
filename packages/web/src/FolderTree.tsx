@@ -42,6 +42,19 @@ export function buildTree(notes: TreeNote[], folderPaths: string[] = []): Node[]
   return root.children!
 }
 
+/** What is inside `folder` in a tree of `buildTree` (a space's root: its folders and notes); empty if it isn't there. */
+export function childrenOf(tree: Node[], folder: string): Node[] {
+  let list = tree
+  let at = ''
+  for (const seg of folder.split('/')) {
+    at = at ? `${at}/${seg}` : seg
+    const next = list.find((n) => n.children !== null && n.path === at)
+    if (!next) return []
+    list = next.children!
+  }
+  return list
+}
+
 /** Folder keys above a path, so it shows in the tree. */
 export const ancestors = (path: string) => path.split('/').slice(0, -1).map((_, i, a) => `d:${a.slice(0, i + 1).join('/')}`)
 
@@ -88,8 +101,8 @@ const DRAG_TYPE = 'application/x-vihko-tree-key'
 const LONG_PRESS_MS = 500
 
 /** The folder a drop lands in: on a folder, into it; on or next to a note, into that note's folder. */
-function dropFolder(target: { type: 'root' } | { type: 'item'; key: Key; dropPosition: 'on' | 'before' | 'after' }): string {
-  if (target.type === 'root') return ''
+function dropFolder(target: { type: 'root' } | { type: 'item'; key: Key; dropPosition: 'on' | 'before' | 'after' }, root: string): string {
+  if (target.type === 'root') return root
   const key = String(target.key)
   const path = key.slice(2)
   return target.dropPosition === 'on' && key.startsWith('d:') ? path : parentOf(path)
@@ -131,8 +144,12 @@ function RowMenu({ node, actions, open, onOpenChange, onAction }: { node: Node; 
   )
 }
 
-export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAction, onDrop, draggable, emptyText, folderInfo = noInfo }: {
+export function FolderTree({ nodes, root = '', label, selected, expanded, onExpanded, onOpen, onAction, onDrop, draggable, emptyText, folderInfo = noInfo }: {
   nodes: Node[]
+  /** The folder the tree shows the inside of (a space's root): what's dropped on its empty space goes there. */
+  root?: string
+  /** The tree's accessible name (the space's). */
+  label?: string
   selected: string | null
   expanded: Set<Key>
   onExpanded: (keys: Set<Key>) => void
@@ -165,15 +182,15 @@ export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAc
       if (!types.has(DRAG_TYPE) || !dragged.current) return 'cancel'
       if (target.type === 'item' && target.dropPosition !== 'on') return 'cancel'
       // Only into a folder where the person edits (the server answers the rest: moving a folder needs `manage` in it).
-      const into = folderInfo(dropFolder(target))
+      const into = folderInfo(dropFolder(target, root))
       if (into && !atLeast(into.level, 'edit')) return 'cancel'
-      return canDrop(dragged.current, dropFolder(target)) ? 'move' : 'cancel'
+      return canDrop(dragged.current, dropFolder(target, root)) ? 'move' : 'cancel'
     },
     onDrop: async (e) => {
       const item = e.items.find((i) => i.kind === 'text' && i.types.has(DRAG_TYPE))
       if (!item || item.kind !== 'text') return
       const key = await item.getText(DRAG_TYPE)
-      const folder = dropFolder(e.target)
+      const folder = dropFolder(e.target, root)
       if (canDrop(key, folder)) onDrop(key, folder)
     },
   })
@@ -217,7 +234,7 @@ export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAc
     <div onKeyDown={onKeyDown} className="tree-wrap">
       <Tree
         className="tree"
-        aria-label={t('shell.folders')}
+        aria-label={label ?? t('shell.folders')}
         items={nodes}
         // Rows are cached per item: the open menu lives outside them.
         dependencies={[menu, folderInfo]}

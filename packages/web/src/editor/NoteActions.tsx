@@ -6,14 +6,21 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, Text, TextField } from 'react-aria-components'
 import { api, type MoveJob, type MoveReport } from '../api.ts'
 import { AudienceWarning, audienceChanges } from '../Audience.tsx'
+import { DestinationFields, joinPlace, splitPlace, usePlaces } from '../Destination.tsx'
 import { ShiftPreview } from '../Shifts.tsx'
 import { errorText, useT, type MessageKey } from '../i18n.tsx'
+import { usePathLabels } from '../spaces.tsx'
 import { Icon, noteName } from '../ui.tsx'
 import '../actions.css'
 
 const folderOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
-/** "hogar/enlaces.md" → "hogar / enlaces", like the header breadcrumbs. */
-const label = (path: string) => path.replace(/\.md$/i, '').split('/').join(' / ')
+
+/** The server's `exists` for a move: the generic «not available here» (D-056.20), never whether something hidden is there. */
+export function moveError(t: ReturnType<typeof useT>, err: unknown): string {
+  const code = err instanceof Error && 'code' in err ? String(err.code) : ''
+  if (code === 'exists') return t('move.notAvailable')
+  return errorText(t, err)
+}
 
 /** Destination path from the fields; null without a name. */
 function targetPath(name: string, folder: string): string | null {
@@ -39,8 +46,15 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
   onStarted: (job: MoveJob) => void
 }) {
   const t = useT()
+  const labels = usePathLabels()
+  const label = labels.label
+  const places = usePlaces()
   const [name, setName] = useState(noteName(path))
-  const [folder, setFolder] = useState(initialFolder ?? folderOf(path))
+  const start = initialFolder ?? folderOf(path)
+  const [dest, setDest] = useState<{ root: string; inner: string } | null>(null)
+  // Where it goes: a place (a space, or a folder shared with them) and the folder inside it.
+  const { root, inner } = dest ?? splitPlace(places, start)
+  const folder = joinPlace(root, inner)
   const [preview, setPreview] = useState<Preview>({ kind: 'idle' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -59,7 +73,7 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
     const timer = setTimeout(() => {
       api.move(path, to, true)
         .then((report) => { if (live) setPreview({ kind: 'ready', report }) })
-        .catch((e) => { if (live) setPreview({ kind: 'error', message: errorText(t, e) }) })
+        .catch((e) => { if (live) setPreview({ kind: 'error', message: moveError(t, e) }) })
     }, 250)
     return () => { live = false; clearTimeout(timer) }
   }, [path, to, changed, t])
@@ -87,7 +101,7 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
       if ('job' in r) onStarted(r.job)
       else onMoved(r.report.to, r.report)
     } catch (err) {
-      setError(errorText(t, err))
+      setError(moveError(t, err))
       setBusy(false)
     }
   }
@@ -101,11 +115,8 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
             <Label>{t('rename.name')}</Label>
             <Input />
           </TextField>
-          <TextField className="field" value={folder} onChange={setFolder}>
-            <Label>{t('rename.folder')}</Label>
-            <Input />
-            <Text slot="description" className="hint">{t('rename.folderHint')}</Text>
-          </TextField>
+          <DestinationFields root={root} inner={inner} hint={t('rename.folderHint')}
+            onRoot={(r) => setDest({ root: r, inner: '' })} onInner={(i) => setDest({ root, inner: i })} />
         </div>
         <div className="preview" aria-live="polite">
           <div className="preview-head">{t(report?.shifted.length ? 'rename.previewPlain' : 'rename.preview')}</div>
@@ -113,7 +124,7 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
             {preview.kind === 'idle' && <span className="preview-note">{t('rename.previewUnchanged')}</span>}
             {preview.kind === 'loading' && <span className="preview-note">{t('rename.previewLoading')}</span>}
             {preview.kind === 'error' && <span className="error-text" role="alert">{preview.message}</span>}
-            {report && <AudienceWarning audience={report.audience} confirmed={confirmed} onConfirm={setConfirmed} />}
+            {report && <AudienceWarning audience={report.audience} confirmed={confirmed} onConfirm={setConfirmed} cross={report.crossSpaceLinks} copied={report.images.copied?.length ?? 0} />}
             {nothing && <span className="preview-note">{t('rename.previewNone')}</span>}
             {report && <ShiftPreview groups={report.shifted} />}
             {report?.relinked.flatMap((r) => r.changes.map((c, i) => (
@@ -124,6 +135,12 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
                 </span>
               </div>
             )))}
+            {report?.images.copied?.map((img) => (
+              <div className="preview-row preview-image" key={`c:${img.from}`}>
+                <span className="preview-src">{label(img.from)}</span>
+                <span>{t('rename.imageCopied')} <code>{label(img.to)}</code></span>
+              </div>
+            ))}
             {report?.images.moved.map((img) => (
               <div className="preview-row preview-image" key={`m:${img.from}`}>
                 <span className="preview-src">{label(img.from)}</span>

@@ -1,18 +1,20 @@
-// The permissions UI (D-038, m4 §4): a folder's permissions dialog (who has
-// which level, inherited rows with where they come from, «own permissions ·
-// restore inheritance», the cascade said plainly, closed to agents), the
-// effective access of a folder (who and why), of a person or of a key (which
-// folders, as a tree), and the admin's list of every folder's name to open
-// its permissions (D-038.1: names, never contents).
+// Sharing (D-056, spec §5.3): who a folder is shared with. The members of a
+// shared space are its root's grants («Members of Home»); a folder of one's
+// own space is shared with people or groups at a level. Sharing only adds
+// (D-056.7): what the folders above give is shown, where it comes from, and
+// can't be taken away here; a level below it isn't offered. The effective
+// access of a folder (who and why), of a person or of a key (which folders,
+// as a tree), and the locks of the tree are here too.
 //
 // Changes are a draft saved at once with vihko.yaml's ETag: if the file
 // changed meanwhile (412), the dialog loads it again and says so; if vihko
 // can't write it as it is (409 `config_invalid`), it's fixed by hand.
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Button, Dialog, Heading, Input, Tab, TabList, TabPanel, Tabs, TextField } from 'react-aria-components'
-import { ApiError, LEVELS, api, atLeast, type EffectiveAccess, type FolderLock, type FolderPermissions, type Grants, type Level, type User } from './api.ts'
+import { useEffect, useMemo, useState } from 'react'
+import { Button, Dialog, Heading, Tab, TabList, TabPanel, Tabs } from 'react-aria-components'
+import { ApiError, LEVELS, api, atLeast, type EffectiveAccess, type FolderPermissions, type GrantSource, type Grants, type Level, type User } from './api.ts'
 import { Toggle } from './Agents.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
+import { usePathLabels } from './spaces.tsx'
 import { Icon } from './ui.tsx'
 import './actions.css'
 import './agents.css'
@@ -21,25 +23,28 @@ import './permissions.css'
 type Translate = ReturnType<typeof useT>
 
 export const LEVEL_LABEL: Record<Level, MessageKey> = { read: 'level.read', comment: 'level.comment', edit: 'level.edit', manage: 'level.manage' }
-/** A folder as the dialogs name it: `/familia/recetas`, `/` for the root. */
-export const folderLabel = (folder: string) => `/${folder}`
-const baseName = (folder: string) => (folder === '' ? '/' : folder.slice(folder.lastIndexOf('/') + 1))
+const baseName = (folder: string) => folder.slice(folder.lastIndexOf('/') + 1)
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 const isGroup = (s: string) => s.startsWith('@')
+const key = (s: string) => s.normalize('NFC').toLowerCase()
 /** Users first, then groups, alphabetically. */
 const sortSubjects = (a: string, b: string) => (isGroup(a) === isGroup(b) ? collator.compare(a, b) : isGroup(a) ? 1 : -1)
 const same = (a: Grants | null, b: Grants | null) => {
-  if (a === null || b === null) return a === b
-  const ka = Object.keys(a).sort()
-  return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k])
+  const x = a && Object.keys(a).length ? a : null
+  const y = b && Object.keys(b).length ? b : null
+  if (x === null || y === null) return x === y
+  const kx = Object.keys(x).sort()
+  return kx.length === Object.keys(y).length && kx.every((k) => x[k] === y[k])
 }
+const higher = (a: Level | null, b: Level) => (a === null || LEVELS.indexOf(b) > LEVELS.indexOf(a) ? b : a)
 
-/** The level picker of a row: a native select, as in the rest of the settings. */
-function LevelSelect({ value, label, disabled, onChange }: { value: Level; label: string; disabled?: boolean; onChange: (l: Level) => void }) {
+/** The level picker of a row: a native select, as in the rest of the settings; only `from` and above. */
+function LevelSelect({ value, label, from, onChange }: { value: Level; label: string; from?: Level | null; onChange: (l: Level) => void }) {
   const t = useT()
+  const options = LEVELS.filter((l) => l === value || !from || LEVELS.indexOf(l) > LEVELS.indexOf(from))
   return (
-    <select className="select perm-level" aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value as Level)}>
-      {LEVELS.map((l) => <option key={l} value={l}>{t(LEVEL_LABEL[l])}</option>)}
+    <select className="select perm-level" aria-label={label} value={value} onChange={(e) => onChange(e.target.value as Level)}>
+      {options.map((l) => <option key={l} value={l}>{t(LEVEL_LABEL[l])}</option>)}
     </select>
   )
 }
@@ -50,59 +55,37 @@ function Subject({ subject, me }: { subject: string; me: string }) {
     <span className="perm-subject">
       <span className={`perm-avatar${isGroup(subject) ? ' perm-avatar-group' : ''}`} aria-hidden="true">{isGroup(subject) ? Icon.people : subject.slice(0, 1).toUpperCase()}</span>
       <span className="perm-name">{subject}</span>
-      {subject.toLowerCase() === me.toLowerCase() && <span className="perm-you">{t('perm.you')}</span>}
+      {key(subject) === key(me) && <span className="perm-you">{t('perm.you')}</span>}
     </span>
   )
 }
 
-/** A folder link inside the dialog: opens that folder's permissions, if whoever looks may. */
-function FolderLink({ folder, canOpen, onOpen }: { folder: string; canOpen: (f: string) => boolean; onOpen: (f: string) => void }) {
-  if (!canOpen(folder)) return <span className="mono">{folderLabel(folder)}</span>
-  return <Button className="perm-folder-link mono" onPress={() => onOpen(folder)}>{folderLabel(folder)}</Button>
+/** Why someone has access, in words: their own space, or through whom and where it's shared. */
+function viaText(t: Translate, via: GrantSource, username: string, where: (folder: string) => string): string {
+  if (via.owner) return t('perm.viaOwner')
+  const through = key(via.subject) === key(username) ? t('perm.viaDirect') : t('perm.viaGroup', { group: via.subject })
+  return `${through} · ${t('perm.viaFolder', { folder: where(via.from) })}`
 }
 
-/** Why someone has access, in words: through whom and where it's written (or which folder above they manage). */
-function viaText(t: Translate, via: FolderPermissions['access'][number]['via'][number], username: string): string {
-  const through = via.subject.toLowerCase() === username.toLowerCase() || via.subject === '{user}' ? t('perm.viaDirect') : t('perm.viaGroup', { group: via.subject })
-  const where = via.above ? t('perm.viaAbove', { folder: folderLabel(via.from) })
-    : via.rule ? t('perm.viaRule', { rule: via.rule }) : t('perm.viaFolder', { folder: folderLabel(via.from) })
-  return `${through} · ${where}`
-}
+type Draft = { grants: Grants; ai: boolean }
 
 /**
- * Who sees a folder with no grants (D-040 3.5): nobody at all, and in a
- * personal folder not the admin either; elsewhere, only whoever manages it
- * from above.
+ * Who a folder is shared with. `onAccessLost`: the person gave away their
+ * own `manage` and can't see this any more.
  */
-function nobodyText(view: FolderPermissions): MessageKey {
-  if (view.managedAbove.length > 0) return 'perm.onlyAbove'
-  return view.personal !== null ? 'perm.nobody' : 'perm.nobodyAtAll'
-}
-
-/** Whoever manages it from above, with where: «noa (in /), @family (in /family)». */
-function managersText(t: Translate, managers: FolderPermissions['managedAbove']): string {
-  return managers.map((m) => t('perm.managerAt', { who: m.subject, folder: folderLabel(m.from) })).join(', ')
-}
-
-type Draft = { grants: Grants | null; ai: boolean }
-
-/**
- * A folder's permissions. `canOpen`: whether a folder named inside (where
- * something is inherited from) opens its own permissions here. `onAccessLost`:
- * the person gave away their own `manage` and can't see them any more.
- */
-export function PermissionsDialog({ folder: start, me, canOpen, onClose, onChanged, onAccessLost, onUnauthorized }: {
+export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost, onUnauthorized }: {
   folder: string
   me: User
-  canOpen: (folder: string) => boolean
+  /** Whether a folder named inside opens its own dialog (unused: rows above are only named). */
+  canOpen?: (folder: string) => boolean
   onClose: () => void
-  /** Saved: the tree's locks and levels may have changed. */
+  /** Saved: the tree's marks and levels may have changed. */
   onChanged: () => void
   onAccessLost: () => void
   onUnauthorized: () => void
 }) {
   const t = useT()
-  const [folder, setFolder] = useState(start)
+  const labels = usePathLabels()
   const [view, setView] = useState<FolderPermissions | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [directory, setDirectory] = useState<{ users: string[]; groups: string[] } | null>(null)
@@ -116,55 +99,61 @@ export function PermissionsDialog({ folder: start, me, canOpen, onClose, onChang
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
     setError(err instanceof ApiError && err.code === 'config_invalid' ? t('perm.configInvalid') : errorText(t, err))
   }
-  const literal = (v: FolderPermissions) => (v.own && v.own.user === null ? v.own : null)
+  const ownAi = (v: FolderPermissions) => v.ai.closed && v.ai.from === v.folder
   const show = (v: FolderPermissions) => {
     setView(v)
-    const own = literal(v)
-    setDraft({ grants: own?.grants ? { ...own.grants } : null, ai: own?.ai === true })
+    setDraft({ grants: { ...(v.own.grants ?? {}) }, ai: ownAi(v) })
   }
-  const load = (f: string) => api.permissions(f).then(show).catch((err) => { setView(null); fail(err) })
-  useEffect(() => { setError(null); setNotice(null); setView(null); void load(folder) }, [folder]) // eslint-disable-line react-hooks/exhaustive-deps
+  const load = () => api.permissions(folder).then(show).catch((err) => { setView(null); fail(err) })
+  useEffect(() => { setError(null); setNotice(null); setView(null); void load() }, [folder]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { api.directory().then(setDirectory).catch(() => setDirectory({ users: [], groups: [] })) }, [])
 
-  const own = view ? literal(view) : null
-  const savedGrants = own?.grants ?? null
-  // Without grants of its own, what governs it: a `{user}` rule matching it, or what its parent gives.
-  const fallback = view?.userRule
-    ? { kind: 'user' as const, grants: view.userRule.grants, rule: view.userRule.rule, from: folder }
-    : view?.inherited ? { kind: 'inherited' as const, grants: view.inherited.grants, rule: view.inherited.rule, from: view.inherited.from } : null
-  const readOnly = !view || !view.canEdit || view.section === 'closed'
-  const custom = draft?.grants ?? null
-  const aiFromAbove = !!view && view.ai.closed && own?.ai !== true
-  const dirty = !!view && !!draft && (!same(draft.grants, savedGrants) || draft.ai !== (own?.ai === true))
-  // Without own grants nor anything above (the root, or the implicit section): what applies now.
-  const shown: Grants = custom ?? fallback?.grants ?? view?.effective.grants ?? {}
-  const subjects = Object.keys(shown).sort(sortSubjects)
-  const meKey = me.username.toLowerCase()
-  // Whoever manages it from above keeps `manage` here whatever it says (D-040 3.5): the others among them.
-  const managers = view?.managedAbove ?? []
-  const othersAbove = managers.filter((m) => m.subject.toLowerCase() !== meKey)
-  const onlyMe = subjects.length > 0 && subjects.every((s) => s.toLowerCase() === meKey) && othersAbove.length === 0
-  // Giving away one's own `manage` (not the admin, nor whoever manages it from above): they won't see these permissions again.
-  const losesManage = me.role !== 'admin' && custom !== null && !atLeast(custom[Object.keys(custom).find((s) => s.toLowerCase() === meKey) ?? ''] ?? null, 'manage')
-    && !!view?.access.some((a) => a.id === me.id && a.level === 'manage' && a.via.every((v) => !isGroup(v.subject) && !v.above))
-  const candidates = useMemo(() => {
-    if (!directory || custom === null) return { users: [], groups: [] }
-    const taken = new Set(Object.keys(custom).map((s) => s.toLowerCase()))
-    return {
-      users: directory.users.filter((u) => !taken.has(u.toLowerCase())).sort(collator.compare),
-      groups: directory.groups.filter((g) => !taken.has(`@${g}`.toLowerCase())).sort(collator.compare),
-    }
-  }, [directory, custom])
+  /** Where each subject gets a level from above here: the highest, by subject. */
+  const above = useMemo(() => {
+    const m = new Map<string, Level>()
+    for (const i of view?.inherited ?? []) for (const [s, l] of Object.entries(i.grants)) m.set(key(s), higher(m.get(key(s)) ?? null, l))
+    // In someone's space, its owner manages all of it.
+    if (view?.owner) m.set(key(view.owner), 'manage')
+    return m
+  }, [view])
 
-  const setGrants = (grants: Grants | null) => setDraft((d) => (d ? { ...d, grants } : d))
+  const isSpaceRoot = !!view && view.space !== null && view.space.path === view.folder
+  const personalRoot = !!view && view.owner !== null && view.folder === `people/${view.owner}`
+  const readOnly = !view || !view.canEdit || view.section === 'closed'
+  const grants = draft?.grants ?? {}
+  const subjects = Object.keys(grants).sort(sortSubjects)
+  const aiFromAbove = !!view && view.ai.closed && view.ai.from !== view.folder
+  const dirty = !!view && !!draft && (!same(draft.grants, view.own.grants) || draft.ai !== ownAi(view))
+  // Giving away one's own `manage` written here, with nothing else that gives it (their space, a group, a folder above): they won't see this again.
+  const meKey = key(me.username)
+  const mine = (g: Grants | null) => Object.entries(g ?? {}).find(([s]) => key(s) === meKey)?.[1] ?? null
+  const keepsManage = !!view?.access.find((a) => a.id === me.id)?.via.some((v) => v.level === 'manage' && !(v.from === view.folder && key(v.subject) === meKey))
+  const losesManage = !!view && mine(view.own.grants) === 'manage' && !atLeast(mine(grants), 'manage') && !keepsManage
+  const candidates = useMemo(() => {
+    if (!directory || !view) return { users: [], groups: [] }
+    const taken = new Set(Object.keys(grants).map(key))
+    // Nobody who already manages it from above: nothing could be added for them.
+    const open = (s: string) => !taken.has(key(s)) && above.get(key(s)) !== 'manage'
+    return {
+      users: directory.users.filter((u) => open(u) && key(u) !== key(view.owner ?? '')).sort(collator.compare),
+      groups: directory.groups.filter((g) => open(`@${g}`)).sort(collator.compare),
+    }
+  }, [directory, grants, above, view])
+  const addFrom = adding.subject ? above.get(key(adding.subject)) ?? null : null
+  // The level to add, never below what they already get from above.
+  useEffect(() => {
+    if (addFrom && !(LEVELS.indexOf(adding.level) > LEVELS.indexOf(addFrom))) setAdding((a) => ({ ...a, level: LEVELS[LEVELS.indexOf(addFrom) + 1] ?? 'manage' }))
+  }, [addFrom]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setGrants = (g: Grants) => setDraft((d) => (d ? { ...d, grants: g } : d))
   const save = async () => {
     if (!view || !draft || busy) return
     setBusy(true)
     setError(null)
     setNotice(null)
     const change: { grants?: Grants | null; ai?: false | null } = {}
-    if (!same(draft.grants, savedGrants)) change.grants = draft.grants
-    if (draft.ai !== (own?.ai === true)) change.ai = draft.ai ? false : null
+    if (!same(draft.grants, view.own.grants)) change.grants = Object.keys(draft.grants).length ? draft.grants : null
+    if (draft.ai !== ownAi(view)) change.ai = draft.ai ? false : null
     try {
       const r = await api.setPermissions(folder, change, view.etag)
       onChanged()
@@ -174,7 +163,7 @@ export function PermissionsDialog({ folder: start, me, canOpen, onClose, onChang
     } catch (err) {
       if (err instanceof ApiError && err.code === 'precondition_failed') {
         // vihko.yaml changed meanwhile (another person, an editor): what it says now, and nothing was saved.
-        await load(folder)
+        await load()
         setNotice(null)
         setError(t('perm.stale'))
       } else fail(err)
@@ -183,103 +172,89 @@ export function PermissionsDialog({ folder: start, me, canOpen, onClose, onChang
   }
 
   const add = () => {
-    if (!adding.subject || custom === null) return
-    setGrants({ ...custom, [adding.subject]: adding.level })
+    if (!adding.subject) return
+    setGrants({ ...grants, [adding.subject]: adding.level })
     setAdding({ subject: '', level: 'read' })
   }
 
-  let origin: ReactNode = null
-  if (view && custom !== null) {
-    origin = (
-      <p className="perm-origin">
-        <span className="perm-origin-text">{Icon.lock}<strong>{t('perm.own')}</strong></span>
-        {fallback && !readOnly && <Button className="perm-inline-btn" onPress={() => setGrants(null)}>{t(fallback.kind === 'user' ? 'perm.restoreUser' : 'perm.restore')}</Button>}
-      </p>
-    )
-  } else if (view && fallback) {
-    origin = (
-      <p className="perm-origin">
-        <span className="perm-origin-text">
-          {fallback.kind === 'user'
-            ? <span>{t('perm.byUserRule', { rule: fallback.rule })}</span>
-            : <span>{t('perm.inheritsFrom')} <FolderLink folder={fallback.from} canOpen={canOpen} onOpen={setFolder} />{fallback.rule !== fallback.from && <> {t('perm.ruleParen', { rule: fallback.rule })}</>}</span>}
-        </span>
-        {!readOnly && <Button className="perm-inline-btn" onPress={() => setGrants({ ...fallback.grants })}>{t('perm.customize')}</Button>}
-      </p>
-    )
-  } else if (view) {
-    origin = (
-      <p className="perm-origin">
-        <span className="perm-origin-text">{t('perm.noneWritten')}</span>
-        {!readOnly && <Button className="perm-inline-btn" onPress={() => setGrants({ ...view.effective.grants })}>{t('perm.customize')}</Button>}
-      </p>
-    )
-  }
-
+  const spaceName = view?.space?.name ?? (view?.space ? labels.space(view.space.path) : '')
+  const title = !view ? t('perm.title', { name: baseName(folder) })
+    : isSpaceRoot ? t('spaces.membersOf', { name: spaceName })
+    : personalRoot ? t('spaces.agentsTitle')
+    : t('perm.title', { name: baseName(folder) })
+  const nobody = !!view && view.owner !== null && subjects.length === 0 && view.inherited.length === 0
   const rowLabel = (s: string) => t('perm.levelOf', { who: s })
   return (
-    <Dialog className="dialog perm-dialog" aria-label={t('perm.title', { name: baseName(folder) })}>
+    <Dialog className="dialog perm-dialog" aria-label={title}>
       <div className="dialog-fields">
         <div>
-          <Heading slot="title" className="dialog-title">{t('perm.title', { name: baseName(folder) })}</Heading>
-          <p className="perm-path mono">{folderLabel(folder)}</p>
+          <Heading slot="title" className="dialog-title">{title}</Heading>
+          <p className="perm-path">{labels.label(folder)}</p>
         </div>
         {error && <p className="error-text" role="alert">{error}</p>}
         {!view ? (!error && <p className="hint">{t('common.loading')}</p>) : (
           <Tabs selectedKey={tab} onSelectionChange={(k) => setTab(k === 'access' ? 'access' : 'grants')}>
             <TabList className="cfg-tabs" aria-label={t('perm.tabs')}>
-              <Tab id="grants" className="cfg-tab">{t('perm.tabGrants')}</Tab>
+              <Tab id="grants" className="cfg-tab">{t(isSpaceRoot ? 'spaces.membersTab' : 'perm.tabGrants')}</Tab>
               <Tab id="access" className="cfg-tab">{t('perm.tabAccess')}</Tab>
             </TabList>
             <TabPanel id="grants" className="cfg-panel perm-panel">
               {view.section === 'closed' && <p className="key-locked" role="note">{Icon.alert}<span>{t('perm.sectionClosed')}</span></p>}
-              {view.section === 'implicit' && <p className="hint">{t('perm.implicit')}</p>}
               {readOnly && view.section !== 'closed' && <p className="hint">{t('perm.readOnly')}</p>}
-              {origin}
-              {view.userRule && custom !== null && <p className="hint">{t('perm.overridesUserRule', { rule: view.userRule.rule })}</p>}
-              {subjects.length === 0 ? (
-                <p className="perm-nobody">{Icon.lock}<span>{t(nobodyText(view))}</span></p>
-              ) : (
-                <ul className="perm-rows" aria-label={t('perm.rows')}>
-                  {subjects.map((s) => (
-                    <li key={s} className="perm-row">
-                      <Subject subject={s} me={me.username} />
-                      {custom !== null && !readOnly ? (<>
-                        <LevelSelect value={custom[s]!} label={rowLabel(s)} onChange={(l) => setGrants({ ...custom, [s]: l })} />
-                        <Button className="btn btn-icon btn-quiet perm-remove" aria-label={t('perm.remove', { who: s })} onPress={() => { const next = { ...custom }; delete next[s]; setGrants(next) }}>{Icon.close}</Button>
-                      </>) : (
-                        <span className="perm-row-level">
-                          <span className="perm-level-text">{t(LEVEL_LABEL[shown[s]!])}</span>
-                          {custom === null && fallback && (
-                            <span className="perm-row-from">
-                              {fallback.kind === 'user' ? t('perm.fromUserRule', { rule: fallback.rule }) : <>{t('perm.inheritedFrom')} <FolderLink folder={fallback.from} canOpen={canOpen} onOpen={setFolder} /></>}
-                            </span>
-                          )}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {onlyMe && <p className="hint">{t('perm.onlyYou')}</p>}
-              {managers.length > 0 && <p className="hint perm-managers">{t('perm.managedAbove', { who: managersText(t, managers) })}</p>}
-              {custom !== null && !readOnly && (
-                <div className="perm-add">
-                  <select className="select perm-add-who" aria-label={t('perm.addWho')} value={adding.subject} onChange={(e) => setAdding({ ...adding, subject: e.target.value })}>
-                    <option value="">{t('perm.addPick')}</option>
-                    {candidates.users.length > 0 && <optgroup label={t('perm.people')}>{candidates.users.map((u) => <option key={u} value={u}>{u}</option>)}</optgroup>}
-                    {candidates.groups.length > 0 && <optgroup label={t('perm.groups')}>{candidates.groups.map((g) => <option key={g} value={`@${g}`}>@{g}</option>)}</optgroup>}
-                  </select>
-                  <LevelSelect value={adding.level} label={t('perm.addLevel')} onChange={(level) => setAdding({ ...adding, level })} />
-                  <Button className="btn" isDisabled={!adding.subject} onPress={add}>{Icon.plus}{t('perm.add')}</Button>
-                </div>
-              )}
-              {losesManage && <p className="key-once" role="note">{Icon.alert}<span>{t('perm.losesManage')}</span></p>}
-              <p className="perm-cascade">{t('perm.cascade')}</p>
-              <p className="hint">{t('perm.levels')}</p>
+              {personalRoot ? (
+                <p className="perm-nobody">{Icon.lock}<span>{t('perm.personalRoot')}</span></p>
+              ) : (<>
+                {view.inherited.map((i) => (
+                  <div key={i.from} className="perm-inherited">
+                    <p className="perm-origin"><span className="perm-origin-text">{t('perm.byFolder', { folder: labels.label(i.from) })}</span></p>
+                    <ul className="perm-rows" aria-label={t('perm.byFolder', { folder: labels.label(i.from) })}>
+                      {Object.keys(i.grants).sort(sortSubjects).map((s) => (
+                        <li key={s} className="perm-row">
+                          <Subject subject={s} me={me.username} />
+                          <span className="perm-row-level"><span className="perm-level-text">{t(LEVEL_LABEL[i.grants[s]!])}</span></span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+                {view.inherited.length > 0 && <p className="perm-origin"><span className="perm-origin-text"><strong>{t(isSpaceRoot ? 'spaces.membersTab' : 'perm.here')}</strong></span></p>}
+                {nobody ? (
+                  <p className="perm-nobody">{Icon.lock}<span>{t('perm.onlyYou')}</span></p>
+                ) : subjects.length === 0 ? (
+                  <p className="perm-nobody"><span>{t(isSpaceRoot ? 'perm.noMembers' : 'perm.noneHere')}</span></p>
+                ) : (
+                  <ul className="perm-rows" aria-label={t('perm.rows')}>
+                    {subjects.map((s) => (
+                      <li key={s} className="perm-row">
+                        <Subject subject={s} me={me.username} />
+                        {!readOnly ? (<>
+                          <LevelSelect value={grants[s]!} label={rowLabel(s)} from={above.get(key(s)) ?? null} onChange={(l) => setGrants({ ...grants, [s]: l })} />
+                          <Button className="btn btn-icon btn-quiet perm-remove" aria-label={t('perm.remove', { who: s })} onPress={() => { const next = { ...grants }; delete next[s]; setGrants(next) }}>{Icon.close}</Button>
+                        </>) : (
+                          <span className="perm-row-level"><span className="perm-level-text">{t(LEVEL_LABEL[grants[s]!])}</span></span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {!readOnly && (
+                  <div className="perm-add">
+                    <select className="select perm-add-who" aria-label={t('perm.addWho')} value={adding.subject} onChange={(e) => setAdding({ ...adding, subject: e.target.value })}>
+                      <option value="">{t('perm.addPick')}</option>
+                      {candidates.users.length > 0 && <optgroup label={t('perm.people')}>{candidates.users.map((u) => <option key={u} value={u}>{u}</option>)}</optgroup>}
+                      {candidates.groups.length > 0 && <optgroup label={t('perm.groups')}>{candidates.groups.map((g) => <option key={g} value={`@${g}`}>@{g}</option>)}</optgroup>}
+                    </select>
+                    <LevelSelect value={adding.level} label={t('perm.addLevel')} from={addFrom} onChange={(level) => setAdding({ ...adding, level })} />
+                    <Button className="btn" isDisabled={!adding.subject} onPress={add}>{Icon.plus}{t('perm.add')}</Button>
+                  </div>
+                )}
+                {losesManage && <p className="key-once" role="note">{Icon.alert}<span>{t('perm.losesManage')}</span></p>}
+                <p className="perm-cascade">{t('perm.onlyAdds')}</p>
+                <p className="hint">{t('perm.levels')}</p>
+              </>)}
               <div className="switches perm-agents">
                 <Toggle label={t('perm.aiTitle')}
-                  hint={aiFromAbove ? (view.ai.from === folder ? t('perm.aiByRule') : t('perm.aiFrom', { folder: folderLabel(view.ai.from ?? '') })) : t('perm.aiHint')}
+                  hint={aiFromAbove ? t('perm.aiFrom', { folder: labels.label(view.ai.from ?? '') }) : t('perm.aiHint')}
                   value={aiFromAbove || !!draft?.ai} disabled={readOnly || aiFromAbove}
                   onChange={(v) => setDraft((d) => (d ? { ...d, ai: v } : d))} />
               </div>
@@ -303,11 +278,12 @@ export function PermissionsDialog({ folder: start, me, canOpen, onClose, onChang
 /** Who can read, comment, edit or manage a folder, and why (saved permissions). */
 export function FolderAccess({ view }: { view: FolderPermissions }) {
   const t = useT()
+  const labels = usePathLabels()
   const rows = [...view.access].sort((a, b) => LEVELS.indexOf(b.level) - LEVELS.indexOf(a.level) || collator.compare(a.username, b.username))
   return (
     <>
       <p className="hint">{t('perm.accessIntro')}</p>
-      {rows.length === 0 ? <p className="perm-nobody">{Icon.lock}<span>{t(nobodyText(view))}</span></p> : (
+      {rows.length === 0 ? <p className="perm-nobody">{Icon.lock}<span>{t('perm.nobodyAtAll')}</span></p> : (
         <ul className="perm-rows" aria-label={t('perm.tabAccess')}>
           {rows.map((a) => (
             <li key={a.id} className="perm-row perm-row-access">
@@ -317,7 +293,7 @@ export function FolderAccess({ view }: { view: FolderPermissions }) {
               </span>
               <span className="perm-row-level">
                 <span className="perm-level-text">{t(LEVEL_LABEL[a.level])}</span>
-                {a.via.map((v, i) => <span key={i} className="perm-row-from">{viaText(t, v, a.username)}</span>)}
+                {a.via.map((v, i) => <span key={i} className="perm-row-from">{viaText(t, v, a.username, labels.label)}</span>)}
               </span>
             </li>
           ))}
@@ -336,12 +312,11 @@ function treeRows<T extends { folder: string }>(items: T[]): { folder: string; d
     all.add(i.folder)
     if (i.folder !== '') {
       const parts = i.folder.split('/')
-      for (let n = 1; n < parts.length; n++) all.add(parts.slice(0, n).join('/'))
+      // Not `people` nor `spaces`: a space's root is where the tree starts.
+      for (let n = 2; n < parts.length; n++) all.add(parts.slice(0, n).join('/'))
     }
   }
   const sorted = [...all].sort((a, b) => {
-    if (a === '') return -1
-    if (b === '') return 1
     const pa = a.split('/'), pb = b.split('/')
     for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
       const c = collator.compare(pa[i]!, pb[i]!)
@@ -349,20 +324,21 @@ function treeRows<T extends { folder: string }>(items: T[]): { folder: string; d
     }
     return pa.length - pb.length
   })
-  return sorted.map((f) => ({ folder: f, depth: f === '' ? 0 : f.split('/').length - (all.has('') ? 0 : 1), item: byPath.get(f) ?? null }))
+  return sorted.map((f) => ({ folder: f, depth: Math.max(0, f.split('/').length - 2), item: byPath.get(f) ?? null }))
 }
 
 /** Which folders a person or a key reaches, as a tree, with the level in each. */
 export function AccessTree({ access }: { access: EffectiveAccess }) {
   const t = useT()
-  const rows = treeRows(access.folders)
+  const labels = usePathLabels()
+  const rows = treeRows(access.folders.filter((f) => f.folder.split('/').length >= 2))
   if (rows.length === 0) return <p className="perm-nobody">{Icon.lock}<span>{t('perm.seesNothing')}</span></p>
   return (
     <ul className="access-tree" aria-label={t('perm.accessTree')}>
       {rows.map((r) => (
         <li key={r.folder} className={`access-row${r.item ? '' : ' access-row-path'}`} style={{ paddingLeft: `calc(${r.depth} * var(--space-4) + var(--space-3))` }}>
           <span className="access-icon" aria-hidden="true">{Icon.folder}</span>
-          <span className="access-name">{r.folder === '' ? t('perm.root') : baseName(r.folder)}</span>
+          <span className="access-name">{r.depth === 0 ? labels.space(r.folder) || r.folder : baseName(r.folder)}</span>
           {r.item
             ? <span className={`access-level access-level-${r.item.level}`}>{t(LEVEL_LABEL[r.item.level])}</span>
             : <span className="access-way">{t('perm.onlyWay')}</span>}
@@ -399,54 +375,13 @@ export function AccessDialog({ who, title, onClose, onUnauthorized }: { who: { u
   )
 }
 
-/**
- * Every folder's name with its locks, to open its permissions: the admin's
- * view in «Users and groups» (D-038.1: the names, never what's inside).
- */
-export function FolderPermissionsList({ refresh, onOpen, onUnauthorized }: { refresh: number; onOpen: (folder: string) => void; onUnauthorized: () => void }) {
-  const t = useT()
-  const [folders, setFolders] = useState<FolderLock[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState('')
-  useEffect(() => {
-    api.permissionFolders().then((r) => setFolders(r.folders)).catch((err) => {
-      if (err instanceof ApiError && err.status === 401) return onUnauthorized()
-      setError(errorText(t, err))
-    })
-  }, [refresh]) // eslint-disable-line react-hooks/exhaustive-deps
-  if (error) return <p className="error-text" role="alert">{error}</p>
-  if (!folders) return <p className="hint">{t('common.loading')}</p>
-  const q = filter.trim().toLowerCase()
-  const rows = treeRows(folders.map((f) => ({ ...f, folder: f.path }))).filter((r) => !q || r.folder.toLowerCase().includes(q))
-  return (
-    <div className="perm-folders">
-      {folders.length > 8 && (
-        <TextField className="field folder-filter" value={filter} onChange={setFilter} aria-label={t('keys.folderFilter')}>
-          <Input placeholder={t('keys.folderFilter')} />
-        </TextField>
-      )}
-      <ul className="access-tree" aria-label={t('perm.foldersList')}>
-        {rows.map((r) => (
-          <li key={r.folder} className="access-row" style={{ paddingLeft: `calc(${q ? 0 : r.depth} * var(--space-4) + var(--space-3))` }}>
-            <span className="access-icon" aria-hidden="true">{Icon.folder}</span>
-            <span className="access-name">{r.folder === '' ? t('perm.root') : q ? r.folder : baseName(r.folder)}</span>
-            <LockBadges own={!!r.item?.ownGrants} ai={!!r.item?.aiClosed} />
-            <span className="spacer" />
-            {r.item?.canEdit && <Button className="btn perm-open" aria-label={t('perm.openFor', { folder: folderLabel(r.folder) })} onPress={() => onOpen(r.folder)}>{t('perm.open')}</Button>}
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-/** The marks of a folder with permissions of its own, or closed to agents (tree and lists). */
+/** The marks of a folder shared with someone, or closed to agents (tree and lists). */
 export function LockBadges({ own, ai }: { own: boolean; ai: boolean }) {
   const t = useT()
   if (!own && !ai) return null
   return (
     <span className="lock-badges">
-      {own && <span className="lock-badge" role="img" aria-label={t('perm.lockOwn')} title={t('perm.lockOwn')}>{Icon.lock}</span>}
+      {own && <span className="lock-badge" role="img" aria-label={t('perm.lockOwn')} title={t('perm.lockOwn')}>{Icon.people}</span>}
       {ai && <span className="lock-badge lock-badge-ai" role="img" aria-label={t('perm.lockAi')} title={t('perm.lockAi')}>{Icon.eyeOff}</span>}
     </span>
   )

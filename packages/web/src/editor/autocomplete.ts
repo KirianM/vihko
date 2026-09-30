@@ -18,6 +18,8 @@ import {
 export interface AutocompleteText {
   /** Detail of a tag suggestion: how many notes use it. */
   tagCount: (n: number) => string
+  /** Where a note is, as the person sees it: its space when it isn't their own, and its folders (spaces.tsx). */
+  where: (path: string) => string
 }
 
 const TTL_MS = 10_000
@@ -44,7 +46,7 @@ class Cached<T> {
 }
 
 const notes = new Cached(() => Promise.all([api.tree(), api.workspace().catch(() => null)])
-  .then(([r, w]) => new NoteCatalog(r.notes, { aliases: w?.links.aliases ?? true })))
+  .then(([r, w]) => new NoteCatalog(r.notes, { aliases: w?.links.aliases ?? true, pathOnly: r.pathOnly })))
 const tags = new Cached<TagEntry[]>(() => api.tags())
 const headings = new Map<string, Cached<HeadingEntry[]>>()
 const headingsOf = (path: string) => {
@@ -87,7 +89,14 @@ function ownHeadings(state: EditorState): HeadingEntry[] {
   return out
 }
 
-const folderLabel = (path: string) => folderOf(path).split('/').filter(Boolean).join(' / ')
+/** Whether a position is inside a Markdown table. */
+function inTable(state: EditorState, pos: number): boolean {
+  for (let n: { name: string; parent: unknown } | null = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent as typeof n) {
+    if (n.name === 'Table') return true
+  }
+  // A row being typed may not parse as a table yet: a line that starts with `|`.
+  return /^\s*\|/.test(state.doc.lineAt(pos).text)
+}
 
 /**
  * Inserts `text` over `from`–`to` inside a `[[…]]`: if the old rest of that
@@ -142,14 +151,20 @@ export function linkAutocomplete(note: string, text: AutocompleteText) {
 
     if (c.kind === 'note') {
       const options = catalog.rank(c.query, note).map((m): Completion => {
-        const folder = folderLabel(m.path)
+        const folder = text.where(m.path)
         const title = catalog.displays(m.path)[0] ?? ''
         return {
           label: m.label,
           detail: m.alias ? `→ ${title}${folder ? ` · ${folder}` : ''}` : folder,
           type: 'note',
-          apply: (view, completion, f, to) =>
-            insertInLink(view, completion, f, to, catalog.linkTarget(note, m.path), /^[^[\]|#\n]*/, m.alias ? `|${m.alias}` : ''),
+          apply: (view, completion, f, to) => {
+            // To another space, from the notes root with the note's name to show (D-056.17): `[[spaces/x-id/note|note]]`.
+            const form = catalog.linkForm(note, m.path)
+            const shown = m.alias ?? form.display
+            // Inside a table a bare `|` would end the cell: Obsidian's `\|` (core reads it back).
+            const bar = inTable(view.state, f) ? '\\|' : '|'
+            insertInLink(view, completion, f, to, form.target, /^[^[\]|#\n]*/, shown ? `${bar}${shown}` : '')
+          },
         }
       })
       return options.length ? { from, options, filter: false } : null

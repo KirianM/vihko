@@ -82,8 +82,8 @@ export type CommentOp =
 export interface OutgoingLink {
   raw: string
   kind: 'wiki' | 'embed' | 'md'
-  /** `no_access`: a note that exists but isn't the person's to read (D-024): no path, no title. */
-  status: 'resolved' | 'ambiguous' | 'missing' | 'no_access'
+  /** A link to what the person can't read is `missing`, as one to a note that doesn't exist (D-056.15). */
+  status: 'resolved' | 'ambiguous' | 'missing'
   dstPath: string | null
   candidates: string[] | null
   /** Where the link starts in the note as indexed (a hint to find that occurrence). */
@@ -128,6 +128,8 @@ export interface MoveReport {
    */
   images: {
     moved: { from: string; to: string }[]
+    /** Going to another space (D-056): images it shares with notes that stay are copied there. */
+    copied?: { from: string; to: string }[]
     stayed: { path: string; reason: 'shared' | 'elsewhere' }[]
     /** In per-note mode (vihko.yaml), the note's folder of images, which moves with it whole. */
     folder: { from: string; to: string; files: number } | null
@@ -135,8 +137,17 @@ export interface MoveReport {
   }
   /** In a dry run, whose access changes (D-038): the UI asks before moving. */
   audience?: AudienceChange
+  /** To another space: the links it writes as paths from the notes root. */
+  crossSpaceLinks?: CrossSpaceLinks
   dryRun: boolean
 }
+/**
+ * A move to another space (D-056): `incoming` links in other spaces' notes
+ * will name `path` (their readers see that path, or a broken link if they
+ * can't read it); `outgoing` links in what moved now name notes of the space
+ * it leaves by their path.
+ */
+export interface CrossSpaceLinks { path: string; incoming: number; outgoing: number }
 /** What a folder move does (or would do, with `dryRun`): every note in it goes along, links kept. */
 export interface FolderMoveReport {
   from: string
@@ -147,8 +158,11 @@ export interface FolderMoveReport {
   relinked: MoveReport['relinked']
   shifted: ShiftGroup[]
   failed: MoveReport['failed']
+  /** Going to another space: images its notes share with notes that stay, copied there. */
+  images?: { copied: { from: string; to: string }[]; failed: MoveReport['images']['failed'] }
   /** In a dry run, whose access changes (D-038): the UI asks before moving. */
   audience?: AudienceChange
+  crossSpaceLinks?: CrossSpaceLinks
   dryRun: boolean
 }
 /**
@@ -179,18 +193,17 @@ export interface TagCount { tag: string; count: number; total: number }
  * A trash entry: a note (`path`) with the files that went with it (its
  * images only it used), or files alone (`kind: 'files'`, `path` their folder).
  */
-export interface TrashEntry { id: string; path: string; deletedAt: string; kind?: 'files'; files?: { path: string }[] }
+export interface TrashEntry { id: string; path: string; deletedAt: string; kind?: 'files'; files?: { path: string }[]; space?: string | null }
 /**
  * What a folder holds, as `not_empty` says when it can't just be deleted
  * (paths relative to it, each list capped: `total` says how many). `kept`:
- * what vihko never touches (hidden folders, links); `locked`: how many
- * things in it the person can't edit. Either keeps the folder from going.
+ * what vihko never touches (hidden folders, links), which keeps the folder
+ * from going. Whoever deletes a folder sees all of it (D-056).
  */
 export interface FolderContents {
   notes: { total: number; paths: string[] }
   files: { total: number; paths: string[] }
   kept: { total: number; paths: string[] }
-  locked: number
 }
 /** Installation settings the UI needs. */
 export interface ServerConfig {
@@ -275,36 +288,53 @@ export interface UserInfo {
 export type Level = 'read' | 'comment' | 'edit' | 'manage'
 export const LEVELS: readonly Level[] = ['read', 'comment', 'edit', 'manage']
 export const atLeast = (have: Level | null | undefined, need: Level) => have != null && LEVELS.indexOf(have) >= LEVELS.indexOf(need)
-/** A user name, `@group`, or `{user}` (in a `{user}` rule), with its level. */
+/** A user name or `@group`, with its level. */
 export type Grants = Record<string, Level>
-/** A grant that gives someone access to a folder: to them or to a group of theirs, written for `from` (or `rule`, a `{user}` rule's key). */
-/** Why someone has access: a grant, where it's written, and `above` when it's `manage` of a folder above that reaches here whatever this one's grants say. */
-export interface GrantSource { subject: string; level: Level; from: string; rule?: string; above?: true }
-/** Whoever manages a folder from above (D-040 3.5), and where. */
-export interface ManagerAbove { subject: string; from: string; rule?: string }
-/** A folder's rule, who has access and why (GET /api/permissions). */
+/** Why someone has access: a grant to them or a group of theirs, written for `from`; `owner` when it's their own space. */
+export interface GrantSource { subject: string; level: Level; from: string; owner?: true }
+/**
+ * Who a folder is shared with (GET /api/permissions, D-056): its own grants,
+ * those of the folders above it in its space (they only add: they can't be
+ * taken away here), whose personal space it is in or which shared space, and
+ * who has access and why.
+ */
 export interface FolderPermissions {
   folder: string
   /** vihko.yaml's ETag: a change names it (412 if the file changed). */
   etag: string
-  /** `implicit`: no section yet (the admins manage the root); `closed`: rejected, nobody reads. */
-  section: 'rules' | 'implicit' | 'closed'
-  /** The rule written for this folder: literal (`user` null), or a `{user}` rule matching it. */
-  own: { rule: string; user: string | null; grants: Grants | null; ai: boolean } | null
-  /** What the parent gives: from which folder, resolved. */
-  inherited: { from: string; rule: string; grants: Grants } | null
-  /** A `{user}` rule with grants matching this folder, resolved. */
-  userRule: { rule: string; user: string; grants: Grants } | null
-  /** What applies here, and the folder it's written for. */
-  effective: { from: string | null; rule: string | null; grants: Grants }
-  /** Who manages it from above, whatever its own grants say; none into a personal folder. */
-  managedAbove: ManagerAbove[]
-  /** The personal folder (a `{user}` rule's) it is or is in; null if none. */
-  personal: string | null
+  /** `none`: nothing written yet (the first change writes it); `closed`: rejected, nothing is shared until it's fixed. */
+  section: 'rules' | 'none' | 'closed'
+  /** The grants written for this folder (null: none). */
+  own: { grants: Grants | null }
+  /** The grants of the folders above it in its space, from the space's root down. */
+  inherited: { from: string; grants: Grants }[]
+  /** Whose personal space it is in; null in a shared space. */
+  owner: string | null
+  /** The shared space it is in; null in a personal space. */
+  space: { path: string; name: string | null } | null
   ai: { closed: boolean; from: string | null }
   canEdit: boolean
   access: { id: string; username: string; level: Level; via: GrantSource[] }[]
 }
+
+/** A shared space the person belongs to (GET /api/spaces). */
+export interface SpaceEntry { path: string; id: string; name: string; level: Level; managers: string[]; aiClosed: boolean }
+/** A folder someone shares with the person outside their spaces: of someone's personal space (`owner`) or of a shared space they don't belong to (`space`). */
+export interface SharedEntry { path: string; level: Level; owner?: string; space?: { path: string; id: string; name: string }; pinned: boolean }
+/** What a person reaches, space by space (GET /api/spaces). */
+export interface SpacesInfo {
+  personal: { path: string } | null
+  spaces: SpaceEntry[]
+  shared: SharedEntry[]
+  /** Whether they may create a shared space (the admin's setting). */
+  canCreate: boolean
+}
+/** A shared space in the admin's directory: its name, managers and how many members; never anything inside it. */
+export interface SpaceInfo { path: string; id: string; name: string; managers: string[]; members: number; aiClosed: boolean }
+/** A deleted person's personal space, closed: nobody sees it (D-056.8). */
+export interface ClosedSpace { userId: string; username: string; path: string }
+/** What becoming of a deleted person's space involves: counts only. */
+export interface PersonalSpacePlan { action: 'transfer' | 'convert' | 'delete'; from: string; to: string | null; notes: number; files: number; sharedFolders: number; people: number }
 /** A folder's lock and the person's level in it (GET /api/permissions/folders). */
 export interface FolderLock { path: string; level: Level | null; ownGrants: boolean; aiClosed: boolean; canEdit: boolean }
 /** What a person or a key reaches, folder by folder. */
@@ -314,7 +344,11 @@ export interface AudienceChange {
   users: { gain: { id: string; username: string }[]; lose: { id: string; username: string }[] }
   groups: { gain: string[]; lose: string[] }
   keys: { gain: number; lose: number }
+  /** Whose it is before and after, when the move changes its space (D-056); null when it stays in its space. */
+  owner?: { before: SpaceOwner; after: SpaceOwner } | null
 }
+/** Whose a path is: a person's space (`owner`) or a shared space (its root and name). */
+export type SpaceOwner = { kind: 'personal'; owner: string } | { kind: 'shared'; path: string; name: string } | null
 
 /** A new one-time link, shown once: `url` with VIHKO_PUBLIC_URL, otherwise this origin + `path`. */
 export interface NewLink { token: string; kind: 'invite' | 'reset'; expiresAt: string; path: string; url: string | null }
@@ -322,7 +356,7 @@ export interface GroupInfo { id: string; name: string; members: { id: string; us
 /** The second factor's policy (D-036): required, optional (the default) or disabled. */
 export type TwoFactorPolicy = 'required' | 'optional' | 'disabled'
 /** The admin's settings: members downloading images from the local network (off by default), and the second factor's policy. */
-export interface AdminSettings { membersLocalDownloads: boolean; twoFactor: TwoFactorPolicy }
+export interface AdminSettings { membersLocalDownloads: boolean; twoFactor: TwoFactorPolicy; spacesCreation: 'everyone' | 'admins' }
 /**
  * After the password (signing in, or with a one-time link): the session, or
  * the second step first, with a short-lived pending sign-in: a code, or
@@ -394,10 +428,33 @@ export const api = {
   tags: () => request<{ tags: TagCount[] }>('GET', '/api/tags').then((r) => r.tags),
   headings: (path: string) => request<{ headings: { level: number; text: string }[] }>('GET', `/api/note/headings?path=${encodeURIComponent(path)}`).then((r) => r.headings),
   search: (q: string) => request<SearchResponse>('GET', `/api/search?q=${encodeURIComponent(q)}`),
-  /** `freshUid`: the text may carry another note's uid (a copy): it gets a new one. */
-  createNote: (path: string, text: string, opts: { freshUid?: boolean } = {}) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, text, ...opts }),
+  /**
+   * `freshUid`: the text may carry another note's uid (a copy): it gets a new
+   * one. `fromLink`: the note whose broken link this creates (never allowed in
+   * someone else's personal space, D-056.21).
+   */
+  createNote: (path: string, text: string, opts: { freshUid?: boolean; fromLink?: string } = {}) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, text, ...opts }),
   /** A new note with the text of the template note, its variables filled in by the server. */
-  createFromTemplate: (path: string, template: string) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, template }),
+  createFromTemplate: (path: string, template: string, opts: { fromLink?: string } = {}) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, template, ...opts }),
+  /** What the person reaches: their space, the shared spaces they belong to, what's shared with them. */
+  spaces: () => request<SpacesInfo>('GET', '/api/spaces'),
+  /** A new shared space; whoever creates it manages it. */
+  createSpace: (name: string, members: Grants = {}) => request<{ space: SpaceEntry }>('POST', '/api/spaces', { name, members }).then((r) => r.space),
+  renameSpace: (path: string, name: string) => request<{ space: SpaceEntry }>('POST', '/api/spaces/rename', { path, name }).then((r) => r.space),
+  /** A shared space and everything in it (to the trash with `trash`). */
+  deleteSpace: (path: string, trash = true) => request<{ path: string }>('DELETE', `/api/spaces?path=${encodeURIComponent(path)}${trash ? '&trash=true' : ''}`),
+  /** Leaves a space, or stops seeing a folder shared with one (`leave_via_group` through a group). */
+  leaveSpace: (path: string) => request<{ path: string }>('POST', '/api/spaces/leave', { path }),
+  pinShared: (path: string, pinned: boolean) => request<{ path: string; pinned: boolean }>('POST', '/api/spaces/pin', { path, pinned }),
+  /** The admin: every shared space (names, managers, how many members) and deleted people's closed spaces. */
+  adminSpaces: () => request<{ spaces: SpaceInfo[]; closed: ClosedSpace[] }>('GET', '/api/admin/spaces'),
+  assignManager: (path: string, userId: string, confirm: string) => request<{ space: SpaceInfo }>('POST', '/api/admin/spaces/managers', { path, userId, confirm }).then((r) => r.space),
+  joinSpace: (path: string, level: Level, confirm: string) => request<{ space: SpaceInfo }>('POST', '/api/admin/spaces/join', { path, level, confirm }).then((r) => r.space),
+  /** Before deleting someone: what their space shares, as counts. */
+  personalSummary: (userId: string) => request<{ path: string; exists: boolean; sharedFolders: number; people: number }>('GET', `/api/admin/users/${encodeURIComponent(userId)}/space`),
+  /** A deleted person's closed space: transferred, made a shared space or deleted (`dryRun`: what it would do). */
+  settleSpace: (userId: string, input: { action: PersonalSpacePlan['action']; to?: string; name?: string; members?: Grants; dryRun?: boolean; confirm?: string }) =>
+    request<{ plan: PersonalSpacePlan }>('POST', `/api/admin/users/${encodeURIComponent(userId)}/space`, input).then((r) => r.plan),
   workspace: () => request<WorkspaceInfo>('GET', '/api/workspace'),
   profile: () => request<Profile>('GET', '/api/profile'),
   updateProfile: (patch: Partial<Profile>) => request<Profile>('PUT', '/api/profile', patch),

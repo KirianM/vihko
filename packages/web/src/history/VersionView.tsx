@@ -15,7 +15,8 @@ import { copyText } from '../copy.ts'
 import { errorText, useT } from '../i18n.tsx'
 import { historyApi, type Against, type Diff, type PurgeReport, type RestoreReport, type RevertReport, type SkippedPiece, type Version } from './api.ts'
 import { PurgeDialog } from './Purge.tsx'
-import { changeGroups, changeText, pathLabel } from './format.ts'
+import { changeGroups, changeText } from './format.ts'
+import { usePathLabels } from '../spaces.tsx'
 import { Authors, Counts, HistoryIcon, snippet, useDates, type VersionsStore } from './ui.tsx'
 
 /** Line breaks of an edit that is only line breaks can't be seen: each gets a visible mark. */
@@ -58,6 +59,7 @@ export function VersionView({ path, id, store, exists, session, closeLabel, onCl
   onPurged?: (report: PurgeReport) => void
 }) {
   const t = useT()
+  const { label: pathLabel } = usePathLabels()
   const dates = useDates()
   const compareLabel = useId()
   const showLabel = useId()

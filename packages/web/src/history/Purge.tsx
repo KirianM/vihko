@@ -11,7 +11,7 @@ import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, Text, TextF
 import { errorText, useT } from '../i18n.tsx'
 import { ConfirmField, codeError, useConfirmWith } from '../TwoFactor.tsx'
 import { historyApi, type PurgeReport } from './api.ts'
-import { pathLabel } from './format.ts'
+import { usePathLabels } from '../spaces.tsx'
 import { useDates } from './ui.tsx'
 import './purge.css'
 
@@ -33,6 +33,7 @@ export function PurgeDialog({ path, version, onCancel, onDone }: {
   onDone: (report: PurgeReport) => void
 }) {
   const t = useT()
+  const { label: pathLabel } = usePathLabels()
   const dates = useDates()
   const [preview, setPreview] = useState<PurgeReport | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -104,7 +105,7 @@ export function PurgeDialog({ path, version, onCancel, onDone }: {
 }
 
 /** The purge's notice, once done: what went. */
-export function purgedText(t: ReturnType<typeof useT>, r: PurgeReport): string {
+export function purgedText(t: ReturnType<typeof useT>, r: PurgeReport, pathLabel: (path: string) => string): string {
   return t(r.version ? 'purge.doneVersion' : 'purge.done', { n: r.versions.length, name: pathLabel(r.path) })
 }
 

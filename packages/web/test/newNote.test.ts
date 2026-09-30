@@ -19,11 +19,13 @@ test('a «/» separates folders, from the folder it is created from; the title i
   assert.deepEqual(newNote(`${a}/${b}/${title}`, from), { path: `${from}/${a}/${b}/${title}.md`, folder: `${from}/${a}/${b}`, title })
 })
 
-test('a leading «/» starts from the root', () => {
+test('a leading «/» starts from the root of the space it is created in', () => {
   const a = m.aFolder()
   const title = m.aTitle()
-  assert.deepEqual(newNote(`/${a}/${title}`, m.aFolderPath()), { path: `${a}/${title}.md`, folder: a, title })
-  assert.deepEqual(newNote(` /${title}`, m.aFolderPath()), { path: `${title}.md`, folder: '', title })
+  const root = `spaces/${m.aSpaceFolder()}`
+  const from = `${root}/${m.aFolderPath()}`
+  assert.deepEqual(newNote(`/${a}/${title}`, from, root), { path: `${root}/${a}/${title}.md`, folder: `${root}/${a}`, title })
+  assert.deepEqual(newNote(` /${title}`, from, root), { path: `${root}/${title}.md`, folder: root, title })
 })
 
 // The literals are the cases: what a typed name is cleaned of.
