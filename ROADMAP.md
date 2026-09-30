@@ -247,6 +247,8 @@ related projects.
   note needs it.
 - Purge from the history everything no longer in the folder, listing what is
   lost before confirming.
+- Themes: light and dark as the first two of a theme system (palette and type
+  per theme), so others can be added.
 
 ## Why this order
 

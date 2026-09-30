@@ -300,7 +300,7 @@ docker compose logs vihko
 ```
 
 ```text
-[vihko] vihko 1.0.0
+[vihko] vihko 1.0.1
 [vihko] no vihko.yaml: nothing configured
 [vihko] index ready: 0 added, 0 changed, 0 removed, 0 unchanged
 [vihko] listening on http://0.0.0.0:8080
