@@ -243,7 +243,7 @@ test('with templates configured, «create» asks which one', async () => {
   mkdirSync(`${NOTES}/${TEMPLATES}`, { recursive: true })
   writeFileSync(`${NOTES}/${TEMPLATES}/${template}.md`, `# {{title}}\n\n${line}\n`)
   writeWorkspace(`templates: ${JSON.stringify(TEMPLATES)}\n`)
-  await expect.poll(async () => (await (await k.request.get('/api/workspace')).json() as { templates: string | null }).templates).toBe(TEMPLATES)
+  await expect.poll(async () => (await (await k.request.get('/api/workspace')).json() as { templates: string[] }).templates).toEqual([TEMPLATES])
   await expect.poll(async () => {
     const { notes } = await (await k.request.get('/api/tree')).json() as { notes: { path: string }[] }
     return notes.some((n) => n.path === `${TEMPLATES}/${template}.md`)

@@ -15,6 +15,13 @@ export interface DailyOptions {
   notes: NoteService
   /** The clock (tests). */
   now?: () => Date
+  /**
+   * Whether a series is offered to a person (under the spaces model: where
+   * they can write today's note, spec §1.6). One that isn't is neither their
+   * default nor there when asked for by id (`not_found`, whatever is on the
+   * disk). Every series by default.
+   */
+  offered?: (user: User, series: Series) => boolean
 }
 
 export interface DailyToday {
@@ -40,7 +47,7 @@ export class DailyNotes {
    * falls back to the first. With no series, daily notes are off.
    */
   seriesFor(user: User, requested?: string | null): Series {
-    const all = this.opts.workspace.config.daily
+    const all = this.opts.workspace.config.daily.filter((s) => this.opts.offered?.(user, s) ?? true)
     if (requested) {
       const s = all.find((x) => x.id === requested)
       if (!s) throw new NoteError('not_found', `no daily-note series ${requested} in vihko.yaml`)

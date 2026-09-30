@@ -203,10 +203,10 @@ export interface ServerConfig {
 }
 /** A stored image: `path` from the notes root, `src` relative to the note (to link it). */
 export interface Attachment { path: string; src: string }
-/** What the UI needs from vihko.yaml: daily-note series and the templates folder. */
+/** What the UI needs from vihko.yaml: daily-note series and the templates folders (those the person can read, `{user}` made theirs). */
 export interface WorkspaceInfo {
   daily: Series[]
-  templates: string | null
+  templates: string[]
   /** `aliases`: whether aliases resolve links (vihko.yaml `links.aliases`). */
   links: { aliases: boolean }
 }

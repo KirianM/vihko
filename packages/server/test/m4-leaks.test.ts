@@ -269,6 +269,18 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
           route: `${method} ${path.replace(/\/nope(?=\/members\/)/, '/:id').replace(/members\/nope$/, 'members/:userId').replace(/\/nope/, '/:id')}`,
           method, path, body: method === 'GET' || method === 'DELETE' ? undefined : {}, expect: adminOnly(who),
         })),
+        // Spaces (D-056): what the person reaches, and the spaces routes naming what they can't see.
+        { route: 'GET /api/spaces', method: 'GET', path: '/api/spaces', expect: 200 },
+        { route: 'POST /api/spaces', method: 'POST', path: '/api/spaces', body: { name: 7 } },
+        { route: 'POST /api/spaces/rename', method: 'POST', path: '/api/spaces/rename', body: { path: folder, name: m.aSpaceName() } },
+        { route: 'DELETE /api/spaces', method: 'DELETE', path: q('/api/spaces', { path: folder }) },
+        { route: 'POST /api/spaces/leave', method: 'POST', path: '/api/spaces/leave', body: { path: folder } },
+        { route: 'POST /api/spaces/pin', method: 'POST', path: '/api/spaces/pin', body: { path: folder, pinned: true } },
+        { route: 'GET /api/admin/spaces', method: 'GET', path: '/api/admin/spaces', expect: adminOnly(who) },
+        { route: 'POST /api/admin/spaces/managers', method: 'POST', path: '/api/admin/spaces/managers', body: { path: folder, userId: h.users.member.id }, expect: who === 'admin' ? 404 : adminOnly(who) },
+        { route: 'POST /api/admin/spaces/join', method: 'POST', path: '/api/admin/spaces/join', body: { path: folder }, expect: who === 'admin' ? 404 : adminOnly(who) },
+        { route: 'GET /api/admin/users/:id/space', method: 'GET', path: '/api/admin/users/nope/space', expect: who === 'admin' ? 404 : adminOnly(who) },
+        { route: 'POST /api/admin/users/:id/space', method: 'POST', path: '/api/admin/users/nope/space', body: { action: 'delete', dryRun: true }, expect: who === 'admin' ? 404 : adminOnly(who) },
         // Last: it ends the session.
         { route: 'POST /api/auth/logout', method: 'POST', path: '/api/auth/logout' },
       ]

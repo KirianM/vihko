@@ -12,17 +12,23 @@
 // - `history_purged_authored`: someone purged from the history a note (or a
 //   version of it) they wrote in (D-040 3.6). The path is kept, and shown
 //   only while they can still read it (the caller judges, on each request).
+// - `space_changed`: the admin did something to a space that concerns them
+//   (D-056.8, spec §2.4 and §2.6): made them a manager, joined a space they
+//   manage, gave them a deleted person's space or made it a shared space they
+//   belong to; and, to every other admin, the same (and a deleted person's
+//   space deleted). The space's path is kept; its name is looked up when
+//   shown, and a personal space's path only while they can read it.
 //
 // Only ids are kept (who did it, to whom): names are looked up when shown,
 // so a rename shows the new one and a deleted user their tombstone's. Never
 // anything of a note's content. Each person keeps their latest notices only.
 import { randomUUID } from 'node:crypto'
-import { WORKSPACE_FILE, atLeast, type AccountChange, type Alert } from '@vihko/core'
+import { WORKSPACE_FILE, atLeast, parseSpacePath, type AccountChange, type Alert, type SpaceChange } from '@vihko/core'
 import type { Access } from './access.ts'
 import type { Db } from './db.ts'
 import type { Role } from './auth.ts'
 
-export type { AccountChange }
+export type { AccountChange, SpaceChange }
 
 /**
  * Whether someone can read a path of the history now, as a note (or file)
@@ -34,14 +40,27 @@ export function readablePath(access: Access, path: string): boolean {
   return path !== WORKSPACE_FILE && access.canRead(path) && atLeast(access.level(path), 'read')
 }
 
-/** A notice as the alert its person sees: names as they are now, a purge's path only while they can read it. */
-export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => string): Alert {
+/**
+ * A notice as the alert its person sees: names as they are now, a purge's
+ * path only while they can read it, a space's name as it is now (`spaceName`)
+ * and a personal space's path only while they can see it (a shared space's
+ * name and path are no secret, spec §3.4 row 9).
+ */
+export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => string, spaceName: (root: string) => string | null = () => null): Alert {
   const d = n.data
   const base = { id: n.id, at: n.at, by: nameOf(d.by), actions: ['dismiss' as const] }
   switch (d.code) {
     case 'account_changed': return { code: d.code, ...base, change: d.change, role: d.role }
     case 'user_account_changed': return { code: d.code, ...base, change: d.change, role: d.role, user: nameOf(d.user) }
     case 'history_purged_authored': return { code: d.code, ...base, path: readablePath(access, d.path) ? d.path : null, version: d.version }
+    case 'space_changed': {
+      const s = d.space === null ? null : parseSpacePath(d.space)
+      const shown = s === null ? null
+        : s.space.kind === 'shared' && s.inner === '' ? { path: d.space!, name: spaceName(s.space.root) }
+        : access.level(d.space!) !== null ? { path: d.space!, name: null }
+        : null
+      return { code: d.code, ...base, change: d.change, user: d.user === null ? null : nameOf(d.user), to: d.to === null ? null : nameOf(d.to), space: shown }
+    }
   }
 }
 
@@ -52,6 +71,8 @@ export type NoticeData =
   | { code: 'user_account_changed'; change: AccountChange; by: string; user: string; role: Role | null }
   /** To whoever wrote in it: `by` purged `path` (with `version`, one version of it) from the history. */
   | { code: 'history_purged_authored'; by: string; path: string; version: boolean }
+  /** `by` did `change` to a space (`space`: its path, null once deleted), concerning `user` and, for a transfer, `to` (ids). */
+  | { code: 'space_changed'; change: SpaceChange; by: string; user: string | null; to: string | null; space: string | null }
 
 export type NoticeCode = NoticeData['code']
 
@@ -65,7 +86,7 @@ export interface Notice {
 /** The most notices a person keeps: older ones go first. */
 const MAX_PER_USER = 100
 
-const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored']
+const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'space_changed']
 
 export class Notices {
   private db: Db
@@ -127,6 +148,26 @@ export class Notices {
   toOtherAdmins(userId: string, by: string, change: AccountChange, role: Role | null = null) {
     const admins = this.db.prepare(`select id from users where role = 'admin' and deleted_at is null and id != ? and id != ?`).all(by, userId) as { id: string }[]
     for (const a of admins) this.add(a.id, { code: 'user_account_changed', change, by, user: userId, role })
+  }
+
+  /**
+   * The admin (`by`) did something to a space: `to` (ids) are told, and every
+   * other admin too (never the one who did it, nor twice).
+   */
+  spaceChanged(to: Iterable<string>, by: string, data: Omit<Extract<NoticeData, { code: 'space_changed' }>, 'code' | 'by'>, opts: { admins?: boolean } = {}) {
+    const told = new Set<string>([by])
+    for (const id of to) {
+      if (told.has(id)) continue
+      told.add(id)
+      this.add(id, { code: 'space_changed', by, ...data })
+    }
+    if (opts.admins === false) return
+    const admins = this.db.prepare(`select id from users where role = 'admin' and deleted_at is null`).all() as { id: string }[]
+    for (const a of admins) {
+      if (told.has(a.id)) continue
+      told.add(a.id)
+      this.add(a.id, { code: 'space_changed', by, ...data })
+    }
   }
 
   /** `by` purged `path` (or a version of it): whoever else wrote in what went is told. */

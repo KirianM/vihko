@@ -63,6 +63,9 @@ export type ErrorCode =
   | 'two_factor_required' // the admin requires a second factor: one's own can't be turned off
   | 'two_factor_off' // no second factor in force to change
   | 'hold_owner_only' // notes held after leaving a personal folder: only whoever manages that folder releases them (D-046.4)
+  | 'personal_folder_exists' // a new user whose personal folder (people/<name>) already exists with something in it, made outside vihko
+  | 'leave_via_group' // leaving a space or a folder one reaches through a group (`group`): the admin takes them out of the group
+  | 'space_has_managers' // the admin assigns a manager only to a shared space that has none
 
 /**
  * Space-level alerts: what vihko has detected in the notes folder that needs
@@ -210,6 +213,27 @@ export type Alert =
    * theirs away (`vihko user reset-2fa`). Only admins see it.
    */
   | { code: 'two_factor_unreadable'; users: string[]; actions: never[] }
+  /**
+   * Addressed to one person (D-056.8, spec §2.4 and §2.6): what someone did
+   * to a space that concerns them, until they dismiss it. `by` (a name) did
+   * `change` at `at` (ISO):
+   * - `manager_assigned`: the admin made `user` a manager of `space` (told to
+   *   `user`, and to every other admin);
+   * - `admin_joined`: the admin `by` added themselves to `space` (told to its
+   *   managers);
+   * - `personal_transferred`: the admin gave the deleted `user`'s personal
+   *   space to `to`, where it is now `space` (told to `to`, and to every other
+   *   admin);
+   * - `personal_converted`: the admin made the deleted `user`'s personal space
+   *   the shared space `space` (told to its members, and to every other admin);
+   * - `personal_deleted`: the admin deleted the deleted `user`'s personal
+   *   space (told to every other admin).
+   * `space`: its path and name while the person can still see it, else null.
+   */
+  | { code: 'space_changed'; id: string; change: SpaceChange; by: string; user: string | null; to: string | null; space: { path: string; name: string | null } | null; at: string; actions: 'dismiss'[] }
+
+/** What was done to a space that someone is told about (`space_changed`). */
+export type SpaceChange = 'manager_assigned' | 'admin_joined' | 'personal_transferred' | 'personal_converted' | 'personal_deleted'
 
 /** One of vihko.yaml's format migrations, as the log and the admin see it (server configMigrations.ts). */
 export interface ConfigMigrationRef {

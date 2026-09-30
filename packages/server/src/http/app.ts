@@ -11,7 +11,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
-import { WORKSPACE_FILE, classifyPath, conflictOriginal, imageMarkdown, type Alert, type ErrorCode } from '@vihko/core'
+import { WORKSPACE_FILE, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, seriesPath, type Alert, type ConfigError, type ErrorCode, type Series, type WorkspaceConfig } from '@vihko/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
@@ -61,6 +61,9 @@ import { Notices, noticeAlert } from '../notices.ts'
 import { VERSION } from '../version.ts'
 import type { ConfigMigrations } from '../configMigrations.ts'
 import { dismissStateMigration, stateMigrationAlerts } from '../state.ts'
+import { FolderRefs } from '../folderRefs.ts'
+import { SpaceError, SpaceService } from '../spaceService.ts'
+import { spaceRoutes } from './spaces.ts'
 
 export const SESSION_COOKIE = 'vihko_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
@@ -201,6 +204,8 @@ export interface Services {
   users: Users
   /** Images being received, by the API and the MCP server alike (imageSlots.ts). */
   imageSlots: ImageSlots
+  /** Spaces (D-056): what each person reaches, for the MCP server's instructions and `list_folder("")` too. */
+  spaces: SpaceService
 }
 
 export type ExternalImages = 'allow' | 'block'
@@ -256,7 +261,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const { auth, notes, index, profiles, workspace } = deps
   const externalImages = deps.externalImages ?? 'allow'
   const now = deps.now ?? (() => new Date())
-  const daily = new DailyNotes({ workspace, profiles, notes, now })
+  // Under the spaces model, a person's series are those where they can write today's note (spec §1.6).
+  const offered = (user: User, s: Series) => permissions.model !== 'spaces' || permissions.viewer(user).can(seriesPath(s, profiles.now(user.id, now()), user.username), 'edit')
+  const daily = new DailyNotes({ workspace, profiles, notes, now, offered })
   const jobs = new MoveJobs()
   const moveWaitMs = deps.moveWaitMs ?? 1000
   const keys = deps.keys ?? new ApiKeys(auth.state)
@@ -275,16 +282,27 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const twoFactor = deps.twoFactor ?? new TwoFactor(auth.state, { now })
   const notices = deps.notices ?? new Notices(auth.state, { now })
   const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
+  // Keys' folders, pins and the trash follow a folder moved from vihko (folderRefs.ts).
+  const refs = new FolderRefs({ state: auth.state, stateDir: notes.stateDir })
   const scopedDeps: ScopedDeps = {
     notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links,
     permissions, permissionsFile, keys: () => keys.listAll(), orphans: deps.orphans, externalMoves: deps.externalMoves,
+    onFolderMoved: (from, to) => { refs.moved(from, to) },
   }
   // A user deleted, a group renamed or deleted: their grants in vihko.yaml
   // follow, first (if vihko.yaml can't be written, nothing changes).
   users.hooks.onUserDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(name, { actor: by }) }
   users.hooks.onGroupRenamed ??= async (from, to, by) => { await permissionsFile.renameSubject(`@${from}`, `@${to}`, { actor: by }) }
   users.hooks.onGroupDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(`@${name}`, { actor: by }) }
-  const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users, imageSlots: new ImageSlots() }
+  // Deleting someone closes their space for everyone (D-056.8): open editors are checked again at once.
+  users.hooks.onUserRemoved ??= () => { deps.onPermissionsChanged?.() }
+  // So does taking someone out of a group (spec §8.4): they stop seeing what it gave them at once.
+  users.hooks.onMembersChanged ??= () => { deps.onPermissionsChanged?.() }
+  const spaces = new SpaceService({
+    notesDir: deps.notesDir, state: auth.state, engine: permissions, file: permissionsFile, users, notices, settings: adminSettings, refs, notes, indexer: deps.indexer, now,
+    deleteFolder: (access, path, o) => new ScopedNotes(scopedDeps, access).deleteFolder(path, o),
+  })
+  const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users, imageSlots: new ImageSlots(), spaces }
   const app = new Hono<Env>()
   /** The request's operations, as whoever is asking. */
   const scoped = (c: Context<Env>) => services.scoped(c.get('access'))
@@ -307,7 +325,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       console.error(`history: ${err.message}`)
       return fail(c, 503, 'history_unavailable', UNAVAILABLE_MESSAGE)
     }
-    if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' ? 409 : 400, err.code, err.message)
+    if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' || err.code === 'personal_folder_exists' ? 409 : 400, err.code, err.message)
+    if (err instanceof SpaceError) return fail(c, err.status, err.code, err.message, err.extra)
     if (err instanceof KeyError) return fail(c, keyErrorStatus(err), err.code, err.message)
     if (err instanceof IntegrationsError) return fail(c, err.code === 'integrations_locked' ? 409 : 400, err.code, err.message)
     if (err instanceof ConfigInvalidError) return fail(c, 409, 'config_invalid', err.message)
@@ -576,13 +595,16 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   // The workspace settings the UI needs from vihko.yaml (reloaded when it changes).
-  // Paths the person can't read aren't named (D-038): a series' template, the templates folder.
+  // Paths the person can't read aren't named (D-038): a series' template, the templates folders
+  // (each with `{user}` made the person's, spec §1.6). Under the spaces model, only the series
+  // where the person can write today's note are offered (spec §1.6, §3.4 row 12).
   app.get('/api/workspace', (c) => {
     const w = workspace.config
     const access = c.get('access')
+    const user = c.get('user')
     return c.json({
-      daily: w.daily.map((s) => ({ ...s, template: s.template !== null && access.canRead(s.template) ? s.template : null })),
-      templates: w.templates !== null && access.level(w.templates) !== null ? w.templates : null,
+      daily: w.daily.filter((s) => offered(user, s)).map((s) => ({ ...s, template: s.template !== null && access.canRead(s.template) ? s.template : null })),
+      templates: w.templates.map((t) => t.replaceAll('{user}', user.username)).filter((t) => access.level(t) !== null),
       links: w.links,
     })
   })
@@ -808,14 +830,15 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       for (const a of stateMigrationAlerts(auth.state)) alerts.push(a)
       // What the file leaves out, and the grants and rules that name nothing that exists.
       const missing = rulesWithoutFolder(permissions, index).map((f) => ({ code: 'missing_folder' as const, at: `permissions.${f}`, line: null, detail: f }))
-      const warnings = [...ws.warnings, ...permissions.unknownSubjects(), ...missing]
+      const warnings = [...ws.warnings, ...permissions.unknownSubjects(), ...missing, ...(permissions.model === 'spaces' ? outsideSpaces(workspace.config) : [])]
       if (warnings.length) alerts.push({ code: 'config_warnings', file: WORKSPACE_FILE, warnings, actions: [] })
       if (workspace.permissionsFallback) alerts.push({ code: 'permissions_rejected', fallback: workspace.permissionsFallback, actions: [] })
       for (const sr of workspace.config.daily) {
         if (sr.template && !noteExists.get(sr.template)) alerts.push({ code: 'config_template_missing', series: sr.id, template: sr.template, actions: [] })
       }
+      // Under the spaces model the folder is each space's own (spec §1.6): nothing is shared across spaces.
       const shared = workspace.config.attachments.folder
-      if (shared !== null && permissions.directory.users().length > 1) alerts.push({ code: 'attachments_shared_folder', folder: shared, actions: [] })
+      if (shared !== null && permissions.model !== 'spaces' && permissions.directory.users().length > 1) alerts.push({ code: 'attachments_shared_folder', folder: shared, actions: [] })
     }
     for (const a of deps.holds?.alerts((p) => noteExists.get(p) !== undefined, { admin, canManage: (f) => access.canManage(f) }) ?? []) alerts.push(a)
     for (const { path } of index.prepare("select path from alerts where kind = 'sync_conflict' order by path").all() as { path: string }[]) {
@@ -842,7 +865,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const unreadable = admin ? twoFactor.unreadable() : []
     if (unreadable.length) alerts.push({ code: 'two_factor_unreadable', users: unreadable.map(nameOf).sort(), actions: [] })
     // Notices addressed to this person (notices.ts), last: what others did to their account or their writing.
-    if (!access.isAgent) for (const n of notices.of(c.get('user').id)) alerts.push(noticeAlert(n, access, nameOf))
+    if (!access.isAgent) for (const n of notices.of(c.get('user').id)) alerts.push(noticeAlert(n, access, nameOf, (root) => permissions.spaceName(root)))
     return c.json({ alerts })
   })
 
@@ -891,6 +914,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   permissionRoutes(app, { engine: permissions, file: permissionsFile, index, keys, policy, holds: deps.holds })
 
+  // Spaces: what each person reaches, shared spaces, leaving, pins, and the admin's (http/spaces.ts).
+  spaceRoutes(app, { spaces, confirm: tf.confirmIdentity })
+
   // OAuth for the MCP server: its addresses for clients, and the consent page's (session).
   oauthRoutes(app, { oauth, integrations, ui: deps.webDir !== undefined, clientAddress: ipOf, confirm: tf.confirmIdentity })
 
@@ -918,6 +944,26 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   }
 
   return { app, services }
+}
+
+/**
+ * Paths of vihko.yaml outside `people/` and `spaces/` (D-056.4, spec §1.6),
+ * where nobody reads or writes: a series' folder, a templates folder, the
+ * agents' guide. Ignored, and told to the admin (`outside_spaces`). `{user}`
+ * stands for any person.
+ */
+export function outsideSpaces(w: WorkspaceConfig): ConfigError[] {
+  const out: ConfigError[] = []
+  const outside = (p: string) => parseSpacePath(p.replaceAll('{user}', 'user')) === null
+  for (const s of w.daily) {
+    const sample = seriesPath(s, { year: 2026, month: 9, day: 30 }, 'user')
+    if (parseSpacePath(sample) === null) out.push({ code: 'outside_spaces', at: `daily.${s.id}.folder`, line: null, detail: s.folder })
+  }
+  w.templates.forEach((t, i) => {
+    if (outside(t)) out.push({ code: 'outside_spaces', at: w.templates.length === 1 ? 'templates' : `templates.${i}`, line: null, detail: t })
+  })
+  if (w.mcp.instructions !== null && outside(w.mcp.instructions)) out.push({ code: 'outside_spaces', at: 'mcp.instructions', line: null, detail: w.mcp.instructions })
+  return out
 }
 
 /** The socket's address under @hono/node-server; undefined for a request made in-process. */

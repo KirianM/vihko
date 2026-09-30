@@ -262,12 +262,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     can: (folder: string) => admin || !!locks.get(folder)?.canEdit,
     open: (folder: string) => setTreeDialog({ kind: 'permissions', path: folder }),
   } : null), [locks, admin])
-  // Template notes: those in the templates folder of vihko.yaml, subfolders included.
+  // Template notes: those in the templates folders of vihko.yaml, subfolders included.
   const templates = useMemo(() => {
-    const dir = workspace?.templates
-    if (!dir || !notes) return []
+    const dirs = workspace?.templates ?? []
+    if (!dirs.length || !notes) return []
     const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
-    return notes.map((n) => n.path).filter((p) => p.startsWith(`${dir}/`)).sort(collator.compare)
+    return notes.map((n) => n.path).filter((p) => dirs.some((dir) => p.startsWith(`${dir}/`))).sort(collator.compare)
   }, [workspace, notes])
   // Previous and next in the header when the open note belongs to a daily-note series.
   const dailyNav = useMemo(() => {
