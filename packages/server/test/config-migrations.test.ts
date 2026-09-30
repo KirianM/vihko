@@ -20,6 +20,7 @@ const topPair = (doc: Document, key: string) => (isMap(doc.contents) ? (doc.cont
 const renameSeries: WorkspaceMigration = {
   id: 'daily-notes-renamed',
   description: 'dailyNotes is now daily',
+  version: 2,
   apply(doc) {
     const old = topPair(doc, 'dailyNotes')
     if (!old || topPair(doc, 'daily')) return false
@@ -37,8 +38,8 @@ dailyNotes:                 # the series
     folder: ${JSON.stringify(FOLDER)}   # shared
 someday: { a: 1,   b: 2 }   # unknown
 `
-/** The same, only the key renamed: its line's spacing and comment stay. */
-const NEW = OLD.replace('dailyNotes:', 'daily:')
+/** The same, only the key renamed (its line's spacing and comment stay) and the format's version added under the header. */
+const NEW = OLD.replace('dailyNotes:', 'version: 2\ndaily:')
 
 function setup(text: string | null = OLD) {
   const dir = tempDir('vihko-config-migrations-')
@@ -141,7 +142,7 @@ test('a file that isn\'t valid YAML is left alone: a log line, and the workspace
 test('a migration that throws: nothing written or copied, a log line and an alert until a start succeeds', async () => {
   const s = setup()
   const detail = m.aSentence()
-  const throws: WorkspaceMigration = { id: 'throws', description: m.aSentence(), apply: () => { throw new Error(detail) } }
+  const throws: WorkspaceMigration = { id: 'throws', description: m.aSentence(), version: 2, apply: () => { throw new Error(detail) } }
   const r = s.runner([renameSeries, throws])
   assert.equal(await r.run(), 'failed')
   assert.equal(readFileSync(s.file, 'utf8'), OLD)

@@ -112,6 +112,14 @@ export type Alert =
    * `detail` is for developers. Only admins see it.
    */
   | { code: 'config_migration_failed'; file: string; migration: ConfigMigrationRef | null; detail: string; actions: never[] }
+  /**
+   * vihko migrated its application database (`file`, state.db) from schema
+   * version `from` to `to` when it started, at `at` (ISO), after copying it
+   * as it was to `backup` (a path in the state volume). Only when an
+   * existing database changed, never a new one. Only admins see it, until
+   * one of them dismisses it.
+   */
+  | { code: 'state_migrated'; id: string; file: string; from: number; to: number; backup: string; at: string; actions: 'dismiss'[] }
   /** A daily-note series names a template note that doesn't exist: its notes are created empty. */
   | { code: 'config_template_missing'; series: string; template: string; actions: never[] }
   /**

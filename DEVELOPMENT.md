@@ -315,6 +315,42 @@ the folders in a temporary one (`--dir`, on local disk), and removes the
 container and the folders at the end; `--keep` leaves them to look at. A
 failure prints what didn't hold and the container's log.
 
+## Deprecations
+
+The 1.x contract is listed in
+[guide/upgrading.md](guide/upgrading.md#what-a-version-number-promises): the
+HTTP API, the MCP tools, `vihko.yaml`, what vihko writes into notes and the
+Docker interface. When something there has to change within a major, the old
+form is deprecated, not removed: it keeps working until the next major, the
+changelog says so (under "Deprecated", and in "Upgrade notes" what to use
+instead), and whoever still uses it is told:
+
+- **HTTP API**: its responses carry `Deprecation`
+  ([RFC 9745](https://www.rfc-editor.org/rfc/rfc9745)), `Sunset`
+  ([RFC 8594](https://www.rfc-editor.org/rfc/rfc8594), the earliest date the
+  next major may remove it) and a `Link` to the changelog with
+  `rel="deprecation"`.
+- **MCP tools**: the tool's description says it's deprecated and what to use
+  instead, and so does each of its results.
+- **The vihko admin**: a workspace alert naming the key that used it, once
+  per key and thing.
+
+A form of `vihko.yaml` that changes is rewritten at start by a migration
+instead (core's `workspaceMigrations.ts`, with its `config_migrated` alert).
+
+### The `version` of `vihko.yaml`
+
+`version` is the number of `vihko.yaml`'s format, not of vihko: 1 until the
+first migration, and each release that adds migrations gives them the next
+number (`version` of each `WorkspaceMigration`; `WORKSPACE_VERSION` is the
+highest). Migrations never go by it: each one looks for its old form in the
+content, so a number changed by hand can't make one skip. When a start
+rewrites the file, it raises `version` to the current format (adding it
+under the file's header if it was missing), so an older vihko, after a roll
+back, reads a `version` newer than its own and says so (`newer_version`)
+instead of only ignoring the new forms as unknown keys. A file with nothing to
+migrate isn't rewritten for its number alone.
+
 ## Screenshots
 
 The README's screenshots (`.github/assets/screenshots/`) come from a script,

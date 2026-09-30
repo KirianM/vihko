@@ -58,6 +58,7 @@ const icons = {
   config: svg(<><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></>),
   moved: svg(<><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4" /><path d="M14 3v6h6v3" /><path d="M14 18h7M18 15l3 3-3 3" /></>),
   person: svg(<><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>),
+  database: svg(<><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5" /><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" /></>),
 }
 
 /** Changed links in a report, as a total. */
@@ -328,6 +329,13 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           body: rich(t('alerts.configMigratedBody'), { when: dates.dateTime(a.at), backup: <span className="mono">{a.backup}</span> }),
           extra: migrationList(a.migrations),
           actions: <Button className="btn" isDisabled={busy} onPress={() => act(() => api.dismissConfigMigration(a.id))}>{t('alerts.dismiss')}</Button>,
+        })
+      case 'state_migrated':
+        return frame({
+          icon: icons.database,
+          title: rich(t('alerts.stateMigratedTitle'), { file: <span className="mono">{a.file}</span> }),
+          body: rich(t('alerts.stateMigratedBody', { from: a.from, to: a.to }), { when: dates.dateTime(a.at), backup: <span className="mono">{a.backup}</span> }),
+          actions: <Button className="btn" isDisabled={busy} onPress={() => act(() => api.dismissStateMigration(a.id))}>{t('alerts.dismiss')}</Button>,
         })
       case 'config_migration_failed':
         return frame({

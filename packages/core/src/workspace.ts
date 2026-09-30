@@ -19,12 +19,13 @@ import { classifyPath } from './paths.ts'
 import { globProblem } from './glob.ts'
 import { toData } from './frontmatter.ts'
 import { trimTrailingSlashes } from './paths.ts'
+import { WORKSPACE_VERSION } from './workspaceMigrations.ts'
 
 /** Name of the file at the root of the notes folder. */
 export const WORKSPACE_FILE = 'vihko.yaml'
 
-/** The newest `version` of vihko.yaml this vihko understands. A missing `version` is 1. */
-export const WORKSPACE_VERSION = 1
+/** The newest `version` of vihko.yaml this vihko understands: the format its migrations bring files to (workspaceMigrations.ts). */
+export { WORKSPACE_VERSION }
 
 export interface WorkspaceConfig {
   /** Folder holding the templates offered when creating a note, or null. */
