@@ -1089,7 +1089,7 @@ export class ScopedNotes {
       return this.deps.notes.restore(id, this.access.actor, undefined, { canWrite })
     }
     const dest = this.writable(to ?? entry.path)
-    return this.guardAsync(dest, () => this.deps.notes.restore(id, this.access.actor, dest, { canWrite }))
+    return this.guardAsync(dest, () => this.deps.notes.restore(id, this.access.actor, dest, { canWrite, mayName: this.mayName }))
   }
 
   /** A sync tool's conflict copy the indexer found, in a folder the person can read. */

@@ -1560,9 +1560,11 @@ export class NoteService {
    * already there counts as restored. The files go back next to the note,
    * wherever it goes (in `per-note` mode, into its folder of images). Files
    * `canWrite` refuses stay in the trash, as an entry of files alone. Files
-   * alone come back where they were (`to` doesn't apply).
+   * alone come back where they were (`to` doesn't apply). With `mayName`, a
+   * note that would take a link to a note it refuses isn't restored either,
+   * as a taken name (`create`, D-056.20).
    */
-  async restore(id: string, actor: Actor, to?: string, opts: { canWrite?: (path: string) => boolean } = {}): Promise<TrashRestoreReport> {
+  async restore(id: string, actor: Actor, to?: string, opts: { canWrite?: (path: string) => boolean; mayName?: (path: string) => boolean } = {}): Promise<TrashRestoreReport> {
     const entry = this.trashEntry(id)
     const dir = this.trashDir(id)
     if (entry === null || dir === null) throw new NoteError('not_found', `not in the trash: ${id}`)
@@ -1581,7 +1583,8 @@ export class NoteService {
     const path = to ?? entry.path
     // Back under its own name, whatever it is; a new one is vihko's to give.
     const file = path === entry.path ? this.file(path) : this.newFile(path)
-    if (readText(file) !== null) throw new NoteError('exists', `already exists: ${path}`)
+    if (readText(file) !== null) throw nameTaken(path)
+    if (opts.mayName && this.takesHiddenLink(path, text, opts.mayName)) throw nameTaken(path)
 
     // Its files first, next to where the note goes, under free names; then the
     // note, linking each where it landed. If the note can't go back, neither do they.
@@ -1608,7 +1611,7 @@ export class NoteService {
     if (!r.ok) {
       unplace()
       w.abort()
-      throw new NoteError('exists', `already exists: ${path}`)
+      throw nameTaken(path)
     }
     w.done()
     this.settleEntry(entry, dir, path, back.left)
@@ -1704,9 +1707,9 @@ export class NoteService {
    * the images it linked that no longer exist come back from the same commit
    * (`file`), never over an existing file, and only where `canWrite` allows.
    * One commit, by `actor`, with the reason `restored`. A note that no
-   * longer exists is created again.
+   * longer exists is created again (with `mayName`, as `create` does).
    */
-  async restoreVersion(path: string, version: { id: string; at: string; path: string; text: string }, opts: { ifMatch?: string; actor: Actor; file: (path: string) => Promise<Uint8Array | null>; canWrite?: (path: string) => boolean }): Promise<RestoreReport> {
+  async restoreVersion(path: string, version: { id: string; at: string; path: string; text: string }, opts: { ifMatch?: string; actor: Actor; file: (path: string) => Promise<Uint8Array | null>; canWrite?: (path: string) => boolean; mayName?: (path: string) => boolean }): Promise<RestoreReport> {
     const file = this.file(path)
     const reason: Reason = { code: 'restored', id: version.id, at: version.at }
     return this.history.operation(opts.actor, reason, async () => {
@@ -1715,7 +1718,7 @@ export class NoteService {
         etag = (await this.edit(path, () => version.text, { ifMatch: opts.ifMatch, actor: opts.actor })).etag
       } else {
         if (opts.ifMatch !== undefined) throw new NoteError('precondition_failed', `the note doesn't exist: ${path}`)
-        etag = (await this.create(path, version.text, opts.actor)).etag
+        etag = (await this.create(path, version.text, opts.actor, { mayName: opts.mayName })).etag
       }
       const images: RestoreReport['images'] = { restored: [], missing: [] }
       const seen = new Set<string>()

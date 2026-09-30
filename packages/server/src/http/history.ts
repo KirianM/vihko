@@ -192,6 +192,8 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     // The images it brings back: only from folders whoever asks can read, and to where they can write.
     const r = await notes.restoreVersion(path, { id: v.id, at: v.at, path: v.path, text: v.text }, {
       ifMatch, actor: access.actor, file: (p) => reader.file(v.id, p), canWrite: (p) => access.canWrite(p),
+      // Brought back where it no longer is, it mustn't take a link to what its person can't read (D-056.20).
+      mayName: (p) => access.userCanRead(p),
     })
     c.header('ETag', `"${r.etag}"`)
     return c.json(r)
