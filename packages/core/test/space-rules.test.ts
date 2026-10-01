@@ -1,4 +1,4 @@
-// The spaces model of the permissions (D-056, spec §1.2 and §2.1): the
+// The spaces model of the permissions: the
 // section's keys, a shared space's name, and levels (sharing only adds).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -15,7 +15,7 @@ const OTHER = m.aUsername()
 const GONE = m.aUsername()
 const GROUP = m.aGroupName()
 const HOME_NAME = m.aSpaceName()
-// A space as 0.1.0-rc.1 and rc.2 made it: its name in vihko.yaml (read only for the start that renames it, D-056.33).
+// A space as 0.1.0-rc.1 and rc.2 made it: its name in vihko.yaml (read only for the start that renames it).
 const HOME = `spaces/${m.aLegacySpaceFolder(HOME_NAME)}`
 const RECIPES = `${HOME}/${m.aFolder()}`
 const FINANCES = `${HOME}/${m.aFolder()}`

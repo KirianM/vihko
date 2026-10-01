@@ -166,7 +166,7 @@ test('vihko.yaml: a wrong value in a known key still makes the file unusable', (
 })
 
 test('vihko.yaml: permissions is a strict section: rejected, nothing is shared; missing, none', () => {
-  // A folder of someone's personal space (D-056): keys are real paths inside a space.
+  // A folder of someone's personal space: keys are real paths inside a space.
   const folder = `people/${m.aUsername()}/${m.aFolder()}`
   const r = parseWorkspaceConfig(`templates: P\npermissions:\n  ${JSON.stringify(folder)}: {grants: {${USER}: edit}}\n`)
   assert.ok(r.ok)

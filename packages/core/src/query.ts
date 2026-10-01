@@ -9,7 +9,7 @@
 import { caseFold } from './casefold.ts'
 import { trimSlashes, trimTrailingSlashes } from './paths.ts'
 
-/** The same normalisation as `normalizeTag` in markdown.ts (D-019: case-insensitive, full case folding). */
+/** The same normalisation as `normalizeTag` in markdown.ts (case-insensitive, full case folding). */
 const normalizeTag = (t: string) => caseFold(t.replace(/^#/, ''))
 
 export interface SearchFilter {

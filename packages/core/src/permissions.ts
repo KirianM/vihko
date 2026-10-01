@@ -1,4 +1,4 @@
-// Per-folder permissions (D-014, D-038, D-056): the strict `permissions`
+// Per-folder permissions: the strict `permissions`
 // section of vihko.yaml, the levels it gives (sharing only adds), and the
 // edits vihko makes to the file (keeping everything else in it as it was).
 //
@@ -19,7 +19,7 @@
 //   personal space's root takes only `ai: false`, never grants (it isn't
 //   shared whole: that's what a shared space is). `name`, only at a shared
 //   space's root, is 0.1.0-rc.1 and rc.2's: read for the start that renames
-//   such a space's folder to it (D-056.33), never written. Anything else (`""`, `people`, `spaces`, anything outside
+//   such a space's folder to it, never written. Anything else (`""`, `people`, `spaces`, anything outside
 //   them, a `{user}` segment) rejects the section.
 // - Subjects: a user's name or `@group`.
 // - Levels, from less to more: read < comment < edit < manage.
@@ -28,11 +28,13 @@
 //   (deleted); otherwise the highest level the grants of the folder and of
 //   each folder above it, up to its space's root, give them by name or
 //   through a group. Grants only add: a subfolder never gives less than its
-//   parent (D-056.7). Being an admin changes nothing (D-038.1).
+//   parent, so nothing hidden takes up names where people create. Being an
+//   admin changes nothing: admins manage, they don't read what isn't shared
+//   with them.
 // - `ai: false` holds for the folder and everything under it, on top of the
 //   notes' own `ai: false`. `ai: true` never reopens anything: ignored, with
 //   a notice.
-// - The section is strict (D-031.9): anything wrong in it rejects it whole,
+// - The section is strict, failing closed: anything wrong in it rejects it whole,
 //   and then no grant applies (`closed`): each person still has their own
 //   space, which doesn't depend on the file. Without the section, the same
 //   (`none`): nobody shares anything.
@@ -66,7 +68,7 @@ export interface PermissionRule {
   folder: string
   grants: Record<string, Level> | null
   ai: false | null
-  /** 0.1.0-rc.1 and rc.2's name of a shared space, at its root (`spaces/<readable>-<id>`): what the start renames its folder to (D-056.33). */
+  /** 0.1.0-rc.1 and rc.2's name of a shared space, at its root (`spaces/<readable>-<id>`): what the start renames its folder to. */
   name?: string
 }
 
@@ -152,8 +154,8 @@ export function parsePermissions(raw: unknown, at: string[], report: Permissions
       else if (value.ai === true) notice('ignored_value', [...here, 'ai'], 'ai: true')
       else report('not_boolean', [...here, 'ai'])
     }
-    // `name` is 0.1.0-rc.1 and rc.2's (a space's name, D-056.14): the folder is the
-    // name now (D-056.33), and the start renames such a folder to it. Read, never written.
+    // `name` is 0.1.0-rc.1 and rc.2's (a space's name): the folder is the
+    // name now, and the start renames such a folder to it. Read, never written.
     let name: string | null = null
     if (value.name !== undefined && value.name !== null) {
       const root = parseSpacePath(folder)
@@ -197,7 +199,7 @@ export function selfAndAncestors(folder: string): string[] {
 export type SpaceKeyProblem = 'user_segment' | 'outside_spaces' | 'personal_root_grants'
 
 /**
- * What's wrong with a rule's key (spec §1.2): a `{user}` segment (1.0's
+ * What's wrong with a rule's key: a `{user}` segment (1.0's
  * per-user rules), a key in no space (the root, `people`, `spaces`,
  * anything else), or grants at a personal space's root. `name` outside a
  * shared space's root is the parser's (`invalid_value`).
@@ -529,7 +531,7 @@ export function rulesInFile(text: string): Map<string, RuleValue> {
 /**
  * Moves the rules of `from` and every folder under it to `to` (a folder moved
  * or renamed from vihko). Rules already written at `to` or under it (for a
- * folder that didn't exist: a forgotten audience, spec §1.2) go: the folder
+ * folder that didn't exist: a forgotten audience) go: the folder
  * brings its own. `extra`: rules to write as well. With `keepFrom`, the rules
  * stay at `from` too (the first step of a move that never leaves the folder
  * without its rules).
@@ -560,7 +562,7 @@ export function removeRules(text: string, folder: string): string {
 
 /**
  * Rewrites a subject in every rule's grants: renamed to `to` (a group
- * renamed), or removed with `to` null (a user deleted, D-038.8). A rule left
+ * renamed), or removed with `to` null (a user deleted). A rule left
  * with no grants keeps them empty (which gives nobody anything).
  */
 export function rewriteSubject(text: string, subject: string, to: string | null): string {

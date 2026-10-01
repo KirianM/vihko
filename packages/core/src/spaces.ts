@@ -1,10 +1,11 @@
-// Spaces (D-056): where every note lives. The notes folder holds `vihko.yaml`
-// and two folders whose names are fixed by the product (D-056.3):
+// Spaces: where every note lives. The notes folder holds `vihko.yaml` and two
+// folders whose names are fixed by the product, apart so that a space's name
+// never collides with a username:
 //
 //   notes/
 //     vihko.yaml
 //     people/<username>/          a person's personal space («My notes»)
-//       .vihko/                   reserved for their note settings (D-056.16)
+//       .vihko/                   reserved for their note settings
 //     spaces/<name>/              a shared space, such as spaces/Home
 //
 // - A path has one real form, the same for everyone: from the notes root,
@@ -12,7 +13,7 @@
 //   space's root.
 // - A personal space is named after its owner, whose username is unique and
 //   never changes. A shared space's folder is its name as it was written
-//   (NFC): the name people see (D-056.33). Shared spaces' names are unique in
+//   (NFC): the name people see, which keeps the files clean. Shared spaces' names are unique in
 //   the installation without regard to case (`nameKey`), and visible to
 //   everyone in it (not what the spaces hold, nor who is in them). Renaming a
 //   space renames its folder.
@@ -33,7 +34,7 @@ export const PEOPLE = 'people'
 export const SPACES = 'spaces'
 /** Inside a personal space, the folder reserved for that person's note settings (hidden: never indexed or served). */
 export const SETTINGS_FOLDER = '.vihko'
-/** What starts a personal space's address in the browser: `~ana/…` (D-056.29). */
+/** What starts a personal space's address in the browser: `~ana/…`. */
 export const PERSONAL_ADDRESS = '~'
 
 /** The longest a shared space's name is, in characters. */
@@ -58,7 +59,7 @@ export interface SharedSpace {
   root: string
   /** Its folder under `spaces/`, as the disk spells it (NFC). */
   folder: string
-  /** Its name: the folder's (D-056.33). */
+  /** Its name: the folder's. */
   name: string
 }
 
@@ -97,7 +98,7 @@ export type SpaceNameProblem = 'empty' | 'too_long' | 'control_characters' | 'sp
 
 /**
  * What's wrong with a name for a new shared space (or one renamed), or null.
- * The name is its folder (D-056.33), so besides `empty`, `too_long` (over
+ * The name is its folder, so besides `empty`, `too_long` (over
  * SPACE_NAME_MAX characters), `control_characters` and `spaces_around` (a
  * space at the start or the end):
  * - `invalid_characters`: `/` or `\`, which no folder's name can hold;
@@ -137,7 +138,7 @@ export function isSpaceFolderName(folder: string): boolean {
 // `spaces/<readable>-<id>/`: a readable part made from the space's name when
 // it was created, and after the last hyphen an id of six lowercase letters
 // and digits; the name people saw was in vihko.yaml (`name`). Read only to
-// rename them to their names when vihko starts (D-056.33).
+// rename them to their names when vihko starts.
 
 /** The id of a legacy shared space's folder: six lowercase letters and digits. */
 const LEGACY_ID = /^[a-z0-9]{6}$/
@@ -249,7 +250,7 @@ export function placement(folder: string): 'inside' | 'outside' {
 /**
  * Whether a path is reserved by vihko: the `.vihko` folder at the root of a
  * space (a person's or a shared one, in any case) and what's in it, for its
- * settings, never notes (D-056.16, .28). Hidden too, so never indexed,
+ * settings, never notes. Hidden too, so never indexed,
  * served nor kept in the history; this says it whatever the rule for
  * hidden names becomes.
  */
@@ -260,7 +261,7 @@ export function isReserved(path: string): boolean {
 }
 
 /**
- * A path's address in the browser (`?note=`, D-056.29): the same for
+ * A path's address in the browser (`?note=`): the same for
  * everyone who can open it, and without the product's folders, which are
  * nobody's to see. A shared space by its name (`Home/list.md`), a personal
  * one by `~` and its owner (`~ana/trips/Rome.md`). Null for a path in no
@@ -275,7 +276,7 @@ export function addressOf(path: string): string | null {
 
 /**
  * The real path an address names (addressOf), or null. A path from the
- * notes root (`people/…`, `spaces/…`, the addresses before D-056.29) is
+ * notes root (`people/…`, `spaces/…`, as addresses were written in 0.1.0's first candidates) is
  * taken as it is, with `legacy` set so the caller writes the new address.
  */
 export function pathOfAddress(address: string): { path: string; legacy: boolean } | null {
@@ -302,7 +303,7 @@ export type DisplaySpace =
   | { kind: 'person'; root: string; owner: string }
   | { kind: 'shared'; root: string; name: string }
 
-/** A real path as one person sees it (D-056, spec §5.6): the space, the folders inside it, and the name. */
+/** A real path as one person sees it: the space, the folders inside it, and the name. */
 export interface DisplayPath {
   space: DisplaySpace
   /** The folders from the space's root down to the note's (not the root itself). */
