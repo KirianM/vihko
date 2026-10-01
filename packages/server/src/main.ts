@@ -41,6 +41,8 @@ import { Users } from './users.ts'
 import { TwoFactor } from './twoFactor.ts'
 import { secretBoxFrom, type SecretBox } from './secretKey.ts'
 import { VERSION } from './version.ts'
+import { AdminSettings } from './adminSettings.ts'
+import { Retention } from './retention.ts'
 
 export interface Config {
   notesDir: string
@@ -297,8 +299,11 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   if (config.secretBox) log(`VIHKO_SECRET_KEY: second factors are stored encrypted${sealed ? ` (${sealed} encrypted now)` : ''}`)
   const unreadable = twoFactor.unreadable().length
   if (unreadable) log(`${unreadable} second factor(s) can't be read ${config.secretBox ? 'with this VIHKO_SECRET_KEY' : 'without VIHKO_SECRET_KEY'}: those people sign in with a recovery code, or run vihko user reset-2fa <name>`)
+  // The trash's and the history's retention: off until the admin turns it on; it runs weekly.
+  const retention = new Retention({ stateDir: config.stateDir, settings: new AdminSettings(state), trash: () => notes.trash(), history, notices, log })
+  retention.start()
   const { app, services } = createServer({
-    notices,
+    notices, retention,
     auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users, twoFactor,
     policy, holds, onPermissionsChanged: () => hub.recheckAccess(), configMigrations, noteSettings,
     // The MCP server, at /mcp (off until the admin turns it on).
@@ -336,6 +341,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   }
 
   const stop = async () => {
+    retention.stop()
     watcher.stop()
     await hub.close()
     await history.close()

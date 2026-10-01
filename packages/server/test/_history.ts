@@ -32,6 +32,8 @@ export interface HistorySetup {
   gcEvery?: number
   /** Before anything starts, once the files are there (the user's own git repository, say). */
   prepare?: (dirs: { dir: string; notesDir: string }) => void
+  /** The history's clock (ms): when its versions say they were made. */
+  now?: () => number
 }
 
 export async function setup(opts: HistorySetup = {}) {
@@ -63,7 +65,7 @@ export async function setup(opts: HistorySetup = {}) {
   const logs: string[] = []
   const history = new History({
     notesDir, stateDir, config: () => workspace.config.history, git: opts.git,
-    quietMs: opts.quietMs ?? 150, maxOpenMs: opts.maxOpenMs ?? 60_000, tickMs: 20, retryMs: 50, queueMax: opts.queueMax, gcEvery: opts.gcEvery,
+    quietMs: opts.quietMs ?? 150, maxOpenMs: opts.maxOpenMs ?? 60_000, tickMs: 20, retryMs: 50, queueMax: opts.queueMax, gcEvery: opts.gcEvery, now: opts.now,
     nameOf: (a) => (a.kind === 'user' ? auth.username(a.id) ?? a.id : a.kind), log: (m) => logs.push(m),
   })
   await history.open()
@@ -113,7 +115,7 @@ export async function setup(opts: HistorySetup = {}) {
     index.close()
     state.close()
   }
-  return { dir, notesDir, stateDir, app, history, notes, indexer, workspace, auth, users, ids, logs, admin, member: as('member'), settle, versions, changes, put, close, q }
+  return { dir, notesDir, stateDir, app, history, notes, indexer, workspace, auth, state, users, ids, logs, admin, member: as('member'), settle, versions, changes, put, close, q }
 }
 
 /** A git that fails while `flag` exists (a broken repository, a full disk…). */

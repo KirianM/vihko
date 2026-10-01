@@ -367,8 +367,8 @@ test('a new password of one\'s own ends a reset link made for them: nobody gets 
 test('the admin\'s settings: members downloading from the local network, off by default', async () => {
   const s = await setup()
   try {
-    assert.deepEqual((await s.admin('GET', '/api/admin/settings')).body, { membersLocalDownloads: false, twoFactor: 'optional', spacesCreation: 'everyone' })
-    assert.deepEqual((await s.admin('PUT', '/api/admin/settings', { membersLocalDownloads: true })).body, { membersLocalDownloads: true, twoFactor: 'optional', spacesCreation: 'everyone' })
+    assert.deepEqual((await s.admin('GET', '/api/admin/settings')).body, { membersLocalDownloads: false, twoFactor: 'optional', spacesCreation: 'everyone', trashRetentionDays: null, historyRetentionDays: null })
+    assert.deepEqual((await s.admin('PUT', '/api/admin/settings', { membersLocalDownloads: true })).body, { membersLocalDownloads: true, twoFactor: 'optional', spacesCreation: 'everyone', trashRetentionDays: null, historyRetentionDays: null })
     assert.equal((await s.admin('PUT', '/api/admin/settings', { membersLocalDownloads: 'yes' })).status, 400)
     assert.equal((await s.admin('PUT', '/api/admin/settings', { other: true })).status, 400)
   } finally {

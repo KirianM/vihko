@@ -24,7 +24,13 @@
 //   DELETE /api/admin/users/:id/sessions       ends all their sessions
 //   GET    /api/admin/groups, POST { name }, PATCH /:id { name }, DELETE /:id
 //   POST   /api/admin/groups/:id/members { userId }, DELETE /api/admin/groups/:id/members/:userId
-//   GET    /api/admin/settings, PUT { membersLocalDownloads?, twoFactor?, spacesCreation?, confirm? }  (a new policy, with `confirm`)
+//   GET    /api/admin/settings, PUT { membersLocalDownloads?, twoFactor?, spacesCreation?, trashRetentionDays?,
+//                                       historyRetentionDays?, confirm? }  (a new policy, or a retention turned on
+//                                       or shortened, with `confirm`)
+//   GET    /api/admin/retention                { lastRun, nextRun, history }: the retention's last and next run (retention.ts)
+//   POST   /api/admin/retention/preview        { trashRetentionDays?, historyRetentionDays? } → what the next run would
+//                                               remove with them: counts and bytes, never a path
+//   POST   /api/admin/retention/run            { confirm } → a run now, with the settings in force: what it removed
 //
 // Guessing a link (or the current password) counts in the login limits, as a
 // password or the first-boot token does (loginLimit.ts); a link, by the
@@ -40,7 +46,8 @@
 import type { Context, Hono } from 'hono'
 import { AuthError, sessionIdOf, type Auth, type User } from '../auth.ts'
 import type { Access } from '../access.ts'
-import type { AdminSettings } from '../adminSettings.ts'
+import { MAX_RETENTION_DAYS, retentionTightened, type AdminSettings } from '../adminSettings.ts'
+import type { Retention } from '../retention.ts'
 import type { AttemptResult, LoginLimiter } from '../loginLimit.ts'
 import { UsersError, type NewLink, type Users } from '../users.ts'
 import type { Notices } from '../notices.ts'
@@ -69,6 +76,10 @@ export interface UserRoutesDeps {
   confirm: (c: Context<Env>, confirm: unknown) => Promise<Response | null>
   /** Notices addressed to one person. */
   notices: Notices
+  /** The trash's and the history's retention: its runs, and what one would remove. */
+  retention?: Retention
+  /** Whether the history is vihko's own (managed): only that one is thinned. */
+  managedHistory?: () => boolean
 }
 
 const fail = (c: Context, status: 400 | 403 | 404, error: string, message: string) => c.json({ error, message }, status)
@@ -274,16 +285,51 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
 
   app.get('/api/admin/settings', admin, (c) => c.json(settings.view()))
 
-  // A new policy for the second factor is confirmed (D-040 3.4a): it decides
-  // whether anyone is asked for one. The other settings aren't.
+  // A new policy for the second factor is confirmed: it decides whether
+  // anyone is asked for one. So is a retention turned on or shortened: the
+  // next run removes for good what the preview counted. The other settings
+  // aren't.
   app.put('/api/admin/settings', admin, async (c) => {
     const { confirm, ...patch } = await body(c)
     const policy = patch.twoFactor
-    if (policy !== undefined && POLICIES.includes(policy as TwoFactorPolicy) && policy !== settings.twoFactorPolicy()) {
+    const newPolicy = policy !== undefined && POLICIES.includes(policy as TwoFactorPolicy) && policy !== settings.twoFactorPolicy()
+    if (newPolicy || retentionTightened(settings.view(), patch)) {
       const refused = await deps.confirm(c, confirm)
       if (refused) return refused
     }
     return c.json(settings.set(patch))
+  })
+
+  // The retention's runs (retention.ts): the last one's counts and when the next one is.
+  app.get('/api/admin/retention', admin, (c) => {
+    const status = deps.retention?.status() ?? { lastRun: null, nextRun: null }
+    return c.json({ ...status, history: deps.managedHistory?.() ?? false })
+  })
+
+  // What the next run would remove with these periods (missing: as they are; null: off).
+  // Counts and bytes of the whole installation, never a path: the admin doesn't read every space.
+  app.post('/api/admin/retention/preview', admin, async (c) => {
+    const b = await body(c)
+    const now = settings.view()
+    const days = (k: 'trashRetentionDays' | 'historyRetentionDays') => {
+      const v = b[k]
+      if (v === undefined) return now[k]
+      if (v === null || (Number.isInteger(v) && (v as number) >= 1 && (v as number) <= MAX_RETENTION_DAYS)) return v as number | null
+      throw new UsersError('invalid', `${k} must be null (off) or a whole number of days from 1 to ${MAX_RETENTION_DAYS}`)
+    }
+    const periods = { trashRetentionDays: days('trashRetentionDays'), historyRetentionDays: days('historyRetentionDays') }
+    if (!deps.retention) return c.json({ trash: { entries: 0, bytes: 0 }, history: null })
+    return c.json(await deps.retention.preview(periods))
+  })
+
+  // A run now, with the settings in force (not waiting for the weekly one): it
+  // removes for good what the preview counted, so it's confirmed at the moment.
+  app.post('/api/admin/retention/run', admin, async (c) => {
+    const { confirm } = await body(c)
+    const refused = await deps.confirm(c, confirm)
+    if (refused) return refused
+    if (!deps.retention) return c.json({ at: new Date().toISOString(), trash: { entries: 0, bytes: 0 }, history: null, failed: false })
+    return c.json(await deps.retention.run())
   })
 }
 

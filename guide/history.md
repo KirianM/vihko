@@ -221,9 +221,37 @@ starting point» holds every file.
 With the API or MCP on and the history not `managed`, admins get an alert:
 what an agent writes gets no version of its own in vihko to undo it by.
 
+## Retention
+
+By default the history keeps every version for good. The admin can turn on
+**Delete history versions older than…** (days or months) in «Users and
+groups» → Retention, for the whole installation; once a week (or at once,
+with «Run now»), versions older than that are removed:
+
+- **The current version of every note stays.** Each file keeps the version it
+  had at that moment (with its author and date), so a note nobody touched in
+  years still has one version, and a note changed since shows what it was
+  then and every change after. That oldest version kept shows as the one
+  that created the note, since nothing before it is left.
+- Everything newer stays as it was: authors, dates, moves.
+- A note deleted before then, and not in the trash, keeps nothing.
+- A note in the trash keeps its whole history, however old, so restoring it
+  brings back its versions too. When its trash entry is emptied (by the
+  trash's own retention), its history goes with it, newer versions included;
+  a new note under the same name keeps its own.
+
+It applies only to the managed history, never to your own git repository.
+Before it's turned on or shortened, the admin sees how many versions would go,
+and confirms. Like a purge, it rewrites the history: the versions after the
+first one removed get new ids, so a link to a version kept from before
+stops working after a run that removed something (it runs weekly, not
+nightly, to keep that rare). What it removes can only come back from a backup. See
+[Operations](operations.md#retention) for when it runs.
+
 ## Purging
 
-Everything stays in the history for good. Purging rewrites the history without
+Everything stays in the history for good, unless the admin turned on
+[retention](#retention). Purging rewrites the history without
 something that should never have been kept, such as a password pasted into a
 note. It can't be undone.
 

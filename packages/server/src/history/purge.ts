@@ -117,7 +117,7 @@ export interface PurgeReport {
 }
 
 /** A commit as the purge reads it: its identities and dates exactly as stored, and its files against its parent. */
-interface Commit {
+export interface Commit {
   id: string
   parent: string | null
   author: string
@@ -243,62 +243,100 @@ async function purge(opts: PurgeOptions, target: string, git: Git): Promise<Omit
   return report
 }
 
-/**
- * Writes the rewritten history and moves `main` to it, in the one step that
- * checks nothing moved it meanwhile; `saved` runs in between (the journal,
- * with vihko stopped). Then nothing unreachable is left.
- */
+/** Writes the rewritten history and moves `main` to it (rewriteHistory); the journal is saved in between (with vihko stopped). */
 async function rewrite(git: Git, p: Planned, saved: () => void) {
   const { commits, first, plan, head, report } = p
+  report.head = await rewriteHistory(git, commits, first, commits.slice(first).map((c) => plan.rewrite(c)), head!, { beforeMove: saved })
+}
+
+/**
+ * Writes `built` (what `commits.slice(first)` become) on top of the commit
+ * before `first`, into a ref of its own, and moves `main` to it in the one
+ * step that checks nothing moved it meanwhile (it was at `head`).
+ * `beforeMove` runs right before that step, `afterMove` right after. Then
+ * nothing unreachable is left (`compact`). Resolves with the new head (null:
+ * no commit left). A process killed half way leaves the history as it was,
+ * or rewritten and not yet compacted.
+ */
+export async function rewriteHistory(git: Git, commits: Commit[], first: number, built: Rewritten[], head: string, hooks: { beforeMove?: () => void; afterMove?: () => void } = {}): Promise<string | null> {
   const parent = first === 0 ? null : commits[first - 1]!.id
-  const newHead = await importRewritten(git, parent, commits.slice(first), commits.slice(first).map((c) => plan.rewrite(c)))
+  const newHead = await importRewritten(git, parent, commits.slice(first), built)
   crashPoint('purge-imported')
-  report.head = newHead
-  saved()
+  hooks.beforeMove?.()
   try {
-    if (newHead) await git.run(['update-ref', '-m', 'vihko history purge', HISTORY_REF, newHead, head!])
-    else await git.run(['update-ref', '-d', HISTORY_REF, head!])
+    if (newHead) await git.run(['update-ref', '-m', 'vihko history rewrite', HISTORY_REF, newHead, head])
+    else await git.run(['update-ref', '-d', HISTORY_REF, head])
   } catch (err) {
     throw new PurgeError('history_moved', `the history changed while it was being rewritten; nothing was changed (${err instanceof Error ? err.message : String(err)})`)
   }
+  hooks.afterMove?.()
   crashPoint('purge-moved')
   await compact(git)
+  return newHead
 }
 
 // --- Reading ----------------------------------------------------------------------
 
-/** Every commit of the history, oldest first, with its files against its parent (the first one's, all created). */
-async function readHistory(git: Git): Promise<Commit[]> {
-  const { stdout } = await git.run(
-    ['log', '--reverse', '--first-parent', '--root', '-z', '--raw', '--no-renames', '--no-abbrev', '--date=raw', FORMAT, HISTORY_REF, '--'],
-    { timeoutMs: 600_000 },
-  )
+/**
+ * Every commit of the history, oldest first, with its files against its
+ * parent (the first one's, all created). Read as git writes it, a record at
+ * a time: a long history never holds the server up in one go.
+ */
+export async function readHistory(git: Git): Promise<Commit[]> {
   const out: Commit[] = []
-  for (const rec of stdout.toString('utf8').split('\x1e').slice(1)) {
-    const parts = rec.split('\x1f')
-    if (parts.length < 6) throw new GitError('failed', 'git log: unexpected output')
-    const [id, parents, author, committer, message] = parts as [string, string, string, string, string]
-    const tokens = parts.slice(5).join('\x1f').replace(/^[\0\n]+/, '').split('\0')
-    const files: Commit['files'] = []
-    for (let i = 0; i + 1 < tokens.length; i += 2) {
-      const meta = tokens[i]!
-      if (!meta.startsWith(':')) break
-      const [, mode, oldOid, newOid, status] = meta.slice(1).split(' ') as [string, string, string, string, string]
-      files.push({
-        status: status[0]!, mode,
-        oldOid: ZERO.test(oldOid) ? null : oldOid,
-        newOid: ZERO.test(newOid) ? null : newOid,
-        path: tokens[i + 1]!,
-      })
+  let rest: Buffer = Buffer.alloc(0)
+  let seen = false
+  const records = (chunk: Buffer, last: boolean) => {
+    rest = rest.length ? Buffer.concat([rest, chunk]) : chunk
+    // A record runs up to the next separator (ASCII: never inside a character of UTF-8).
+    let start = 0
+    for (let i = rest.indexOf(0x1e); i >= 0 || last; i = rest.indexOf(0x1e, start)) {
+      const end = i < 0 ? rest.length : i
+      if (seen && end > start) parseRecord(rest.toString('utf8', start, end), out)
+      seen = true
+      start = end + 1
+      if (i < 0) break
     }
-    out.push({ id, parent: parents ? parents.split(' ')[0]! : null, author, committer, message, files })
+    rest = rest.subarray(Math.min(start, rest.length))
   }
+  await git.run(
+    ['log', '--reverse', '--first-parent', '--root', '-z', '--raw', '--no-renames', '--no-abbrev', '--date=raw', FORMAT, HISTORY_REF, '--'],
+    { timeoutMs: 600_000, onStdout: (chunk) => { records(chunk, false) } },
+  )
+  if (seen) records(Buffer.alloc(0), true)
   return out
+}
+
+/** One commit of `git log` as `readHistory` asks for it. */
+function parseRecord(rec: string, out: Commit[]) {
+  const parts = rec.split('\x1f')
+  if (parts.length < 6) throw new GitError('failed', 'git log: unexpected output')
+  const [id, parents, author, committer, message] = parts as [string, string, string, string, string]
+  const tokens = parts.slice(5).join('\x1f').replace(/^[\0\n]+/, '').split('\0')
+  const files: Commit['files'] = []
+  for (let i = 0; i + 1 < tokens.length; i += 2) {
+    const meta = tokens[i]!
+    if (!meta.startsWith(':')) break
+    const [, mode, oldOid, newOid, status] = meta.slice(1).split(' ') as [string, string, string, string, string]
+    files.push({
+      status: status[0]!, mode,
+      oldOid: ZERO.test(oldOid) ? null : oldOid,
+      newOid: ZERO.test(newOid) ? null : newOid,
+      path: tokens[i + 1]!,
+    })
+  }
+  out.push({ id, parent: parents ? parents.split(' ')[0]! : null, author, committer, message, files })
 }
 
 // --- What to take out -------------------------------------------------------------
 
-type Op = { op: 'M'; mode: string; oid: string; path: string } | { op: 'D'; path: string }
+export type Op = { op: 'M'; mode: string; oid: string; path: string } | { op: 'D'; path: string }
+
+/** A commit as it is written again: its changes against its rewritten parent, and whether a move trailer stays. */
+export interface Rewritten {
+  ops: Op[]
+  keepMove: (from: string, to: string) => boolean
+}
 
 interface Plan {
   version: string | null
@@ -311,7 +349,7 @@ interface Plan {
   /** Whether this commit's tree has anything the purge takes out. */
   touches(c: Commit): boolean
   /** The commit's changes against its rewritten parent, and whether a move trailer stays. */
-  rewrite(c: Commit): { ops: Op[]; keepMove: (from: string, to: string) => boolean }
+  rewrite(c: Commit): Rewritten
   /** Whether a path's journal entries go (the whole path purged). */
   forget(path: string): boolean
   /** What the history's newest commit has for a path after the purge, given what it has now. */
@@ -326,7 +364,7 @@ const subjectOf = (message: string) => message.split('\n')[0] ?? ''
 /** The users among a commit's authors (an agent is not a person, whoever it acts for). */
 const peopleOf = (message: string) => [...new Set(parseMessage(message).parsedAuthors.flatMap((a) => (a.kind === 'user' ? [a.id] : [])))]
 
-function opOf(f: Commit['files'][number]): Op {
+export function opOf(f: Commit['files'][number]): Op {
   return f.newOid === null ? { op: 'D', path: f.path } : { op: 'M', mode: f.mode, oid: f.newOid, path: f.path }
 }
 
@@ -441,16 +479,30 @@ function sharedWith(commits: Commit[], contents: Set<string>, purged: (path: str
 
 /**
  * The rewritten commits on top of `parent`, into a ref of their own (`main`
- * isn't touched). One fast-import run: each commit's id is asked for as soon
- * as it's written, so a later message can point to it (a restore's version).
- * Resolves with the new head (the parent itself when every commit went).
+ * isn't touched). One fast-import run, streamed: a commit's new id is asked
+ * for only when a later message points to it (a restore's version) or to a
+ * commit dropped right after it, and for the last one. Resolves with the new
+ * head (the parent itself when every commit went).
  */
-async function importRewritten(git: Git, parent: string | null, commits: Commit[], built: ReturnType<Plan['rewrite']>[]): Promise<string | null> {
+async function importRewritten(git: Git, parent: string | null, commits: Commit[], built: Rewritten[]): Promise<string | null> {
   await git.run(['update-ref', '-d', WORK_REF])
+  const emitted = built.filter((b) => b.ops.length).length
+  if (emitted === 0) return parent
+  // The new ids later messages name: a dropped commit is named by the one written before it.
+  const named = new Set<string>()
+  for (const c of commits) {
+    if (!c.message.includes('Vihko-Restored-From') && !c.message.includes('Vihko-Reason')) continue
+    for (const line of c.message.split('\n')) if (/^Vihko-(Restored-From|Reason):/.test(line)) for (const id of line.match(/\b[0-9a-f]{40}\b/g) ?? []) named.add(id)
+  }
+  const needed = new Set<number>()
+  let lastEmitted = -1
+  for (let i = 0; i < commits.length; i++) {
+    if (built[i]!.ops.length) lastEmitted = i
+    if (named.has(commits[i]!.id) && lastEmitted >= 0) needed.add(lastEmitted)
+  }
+  needed.add(lastEmitted)
   const renamed = new Map<string, string | null>()
   let last = parent
-  const emitted = built.filter((b) => b.ops.length).length
-  if (emitted === 0) return last
   let buf = ''
   const lines: string[] = []
   let waiting: ((line: string) => void) | null = null
@@ -480,20 +532,18 @@ async function importRewritten(git: Git, parent: string | null, commits: Commit[
         const msg = Buffer.from(rewriteMessage(c.message, renamed, b.keepMove), 'utf8')
         await write(stdin, `commit ${WORK_REF}\nmark :${mark}\nauthor ${c.author}\ncommitter ${c.committer}\ndata ${msg.byteLength}\n`)
         await write(stdin, msg)
-        await write(stdin, '\n')
-        if (first) {
-          // The first one goes on top of the kept history; the ref is new, so without `from` it's a root.
-          if (last) await write(stdin, `from ${last}\n`)
-          first = false
-        }
-        for (const op of b.ops) {
-          await write(stdin, op.op === 'D' ? `D ${quotePath(op.path)}\n` : `M ${op.mode} ${op.oid} ${quotePath(op.path)}\n`)
-        }
-        await write(stdin, `\nget-mark :${mark}\n`)
-        const id = await nextLine()
-        if (!/^[0-9a-f]{40}$/.test(id)) throw new GitError('failed', `fast-import: no id for the commit replacing ${c.id}`)
-        renamed.set(c.id, id)
-        last = id
+        // The first one goes on top of the kept history; the ref is new, so without `from` it's a root.
+        let ops = first && last ? `\nfrom ${last}\n` : '\n'
+        first = false
+        for (const op of b.ops) ops += op.op === 'D' ? `D ${quotePath(op.path)}\n` : `M ${op.mode} ${op.oid} ${quotePath(op.path)}\n`
+        await write(stdin, ops + '\n')
+        if (needed.has(i)) {
+          await write(stdin, `get-mark :${mark}\n`)
+          const id = await nextLine()
+          if (!/^[0-9a-f]{40}$/.test(id)) throw new GitError('failed', `fast-import: no id for the commit replacing ${c.id}`)
+          last = id
+        } else last = null
+        renamed.set(c.id, last)
         if (mark === Math.ceil(emitted / 2)) crashPoint('purge-importing')
       }
       await write(stdin, 'done\n')
@@ -522,7 +572,7 @@ function rewriteMessage(message: string, renamed: Map<string, string | null>, ke
 }
 
 /** Nothing unreachable left: no work ref, no reflog, no loose object or pack holding what was purged. */
-async function compact(git: Git) {
+export async function compact(git: Git) {
   await git.run(['update-ref', '-d', WORK_REF])
   await git.run(['reflog', 'expire', '--expire=now', '--expire-unreachable=now', '--all'])
   await git.run(['gc', '--prune=now', '--quiet'], { timeoutMs: 1_800_000 })

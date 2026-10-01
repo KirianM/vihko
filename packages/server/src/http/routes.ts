@@ -102,6 +102,9 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'DELETE /api/admin/groups/:id/members/:userId': 'session',
   'GET /api/admin/settings': 'session',
   'PUT /api/admin/settings': 'session',
+  'GET /api/admin/retention': 'session',
+  'POST /api/admin/retention/preview': 'session',
+  'POST /api/admin/retention/run': 'session',
   'GET /api/account/2fa': 'session',
   'POST /api/account/2fa/setup': 'session',
   'POST /api/account/2fa/enable': 'session',
@@ -209,6 +212,10 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'DELETE /api/admin/groups/:id/members/:userId': 'admin',
   'GET /api/admin/settings': 'admin',
   'PUT /api/admin/settings': 'admin',
+  // Retention (retention.ts): counts and dates only, never a path.
+  'GET /api/admin/retention': 'admin',
+  'POST /api/admin/retention/preview': 'admin',
+  'POST /api/admin/retention/run': 'admin',
   // The second factor (D-036): the sign-in's second step, one's own, and the admin's reset.
   'POST /api/auth/login/code': 'none',
   'POST /api/auth/2fa/setup': 'none',

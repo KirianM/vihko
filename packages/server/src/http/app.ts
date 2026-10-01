@@ -61,6 +61,7 @@ import { followable } from '../fsutil.ts'
 import { sameHost } from './origin.ts'
 import { Users, UsersError } from '../users.ts'
 import { AdminSettings, AdminSettingsError } from '../adminSettings.ts'
+import { Retention } from '../retention.ts'
 import { inviteRoutes, userRoutes, usersErrorStatus, type UserRoutesDeps } from './users.ts'
 import { TwoFactor } from '../twoFactor.ts'
 import { twoFactorHttp } from './twoFactor.ts'
@@ -178,6 +179,12 @@ export interface AppDeps {
   users?: Users
   /** The admin's settings (state.db). By default, over the same state.db as `auth`. */
   adminSettings?: AdminSettings
+  /**
+   * The trash's and the history's retention (retention.ts). By default, one
+   * over the app's settings, notes and history, without its nightly runs
+   * (main.ts passes the one it starts).
+   */
+  retention?: Retention
   /** The second factor (state.db). By default, over the same state.db as `auth`, on the app's clock. */
   twoFactor?: TwoFactor
   /** Notices addressed to one person (state.db). By default, over the same state.db as `auth`, on the app's clock. */
@@ -316,6 +323,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
   const twoFactor = deps.twoFactor ?? new TwoFactor(auth.state, { now })
   const notices = deps.notices ?? new Notices(auth.state, { now })
+  const retention = deps.retention ?? new Retention({ stateDir: notes.stateDir, settings: adminSettings, trash: () => notes.trash(), history: deps.history, notices, now: () => now().getTime() })
   const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
   // Keys' folders, pins and the trash follow a folder moved from vihko (folderRefs.ts).
   const refs = new FolderRefs({ state: auth.state, stateDir: notes.stateDir })
@@ -517,6 +525,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     auth, users, settings: adminSettings, limiter, ipOf, tooMany, publicUrl: deps.publicUrl ?? null,
     deviceOf: (c, username) => limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username),
     passwordAccepted: tf.passwordAccepted, confirm: tf.confirmIdentity, notices,
+    retention, managedHistory: () => deps.history?.status().mode === 'managed',
   }
   // A one-time link (an invitation or a reset): no session yet.
   app.use('/api/invite/*', authBody)
