@@ -138,15 +138,18 @@ test('the MCP request limit is vihko\'s own, 4 MiB: an image of about 3 MB fits 
       body,
     })
     const call = (data: string) => JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'attach_image', arguments: { note: PLAN, data } } })
+    // The limit is in bytes: a note path with accents takes more bytes than characters.
+    const bytes = (s: string) => Buffer.byteLength(s)
     // Bytes that aren't an image, as big as fits: the request is read, and the tool answers.
-    const envelope = call('').length
+    const envelope = bytes(call(''))
     const fits = Buffer.alloc(Math.floor((MAX_MCP_BODY - envelope) * 3 / 4) - 3, 1).toString('base64')
     assert.ok(Buffer.from(fits, 'base64').length > 3_000_000, 'about 3 MB of bytes')
+    assert.ok(bytes(call(fits)) <= MAX_MCP_BODY)
     const read = await post(call(fits))
     assert.equal(read.status, 200)
     assert.match(await read.text(), /unsupported_type/)
     // One byte over the limit: refused before any tool runs.
-    const over = await post(call(fits + 'A'.repeat(MAX_MCP_BODY - call(fits).length + 1)))
+    const over = await post(call(fits + 'A'.repeat(MAX_MCP_BODY - bytes(call(fits)) + 1)))
     assert.equal(over.status, 413)
     assert.deepEqual(listing(h.notesDir), before, 'nothing stored')
   } finally { await h.close() }
