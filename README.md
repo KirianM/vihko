@@ -9,12 +9,16 @@
 > end-on, open on its spine, with the diamond that marks an AI agent's work
 > in the app.
 
-A self-hosted, open source notes system over plain Markdown files, with its own
-web UI, multiple users, live collaboration, and a server-side index you can
-query from the UI and, optionally, from an API and an MCP server.
+A self-hosted, open source notes system over plain Markdown files, for one
+group of people: a family, a team, a few friends. Each person has a space of
+their own, shared spaces hold what belongs to several, and anyone can share a
+folder of theirs with someone in particular. With its own web UI, live
+collaboration, and a server-side index you can query from the UI and,
+optionally, from an API and an MCP server.
 
 Your notes stay a folder of `.md` files. If vihko disappears, you lose nothing.
 
+<!-- The screenshots below show the earlier single-tree layout: regenerate them for the spaces layout (npm run screenshots) before 0.1.0 is published. -->
 <img src=".github/assets/screenshots/desktop.png" width="900" alt="vihko on a computer, half in the light theme and half in the dark one: the folder tree on the left, a note in the middle with the vihko logo, a highlighted passage, links, tags, a task list, a table and a YAML code block, a second person's cursor, and the side panel on the right with a comment thread about that passage">
 
 ## The problem it solves
@@ -40,8 +44,14 @@ server**, giving up full offline mode.
   that vihko rebuilds from the files whenever it needs to. Delete it and
   nothing is lost.
 - **A complete notes system on its own**: web UI (desktop and phone), several
-  people with per-folder permissions, real-time co-editing between people and
-  the agents they allow in, comments, and a history of every note.
+  people, each with their own space («My notes»), shared spaces for what
+  belongs to several, folders shared one by one, real-time co-editing between
+  people and the agents they allow in, comments, and a history of every note.
+- **Spaces on disk, too.** Each person's notes are in `people/<name>/`, each
+  shared space's in `spaces/<name>-<id>/`: the same paths for everyone, for
+  agents and for any other editor. The admin manages people and spaces but
+  doesn't read other people's notes in vihko; whoever runs the server can
+  read the files, so one installation is for one group that trusts them.
 - **Closed by default.** The API and the MCP server for AI agents are built in
   but **off** until an admin turns them on. Without them, nothing gets in or
   out except through the people who sign in. No telemetry, no update checks,
@@ -61,7 +71,9 @@ You need Docker with Compose on Linux (amd64 or arm64).
 
 > [!NOTE]
 > The `compose.yaml` on `main`, which the commands below download, pulls
-> `ghcr.io/kirianm/vihko:1`: every 1.x release, never an incompatible version.
+> `ghcr.io/kirianm/vihko:0.1`: every 0.1.x release, which only fix things. In
+> 0.x a new minor version may change things; you move to it by changing the
+> tag, after reading its upgrade notes.
 
 ```sh
 mkdir vihko && cd vihko
@@ -85,14 +97,16 @@ The log of the first start prints a one-time token:
 ```
 
 Open `http://<your-server>:8080`, paste the token, and choose the admin's name
-and password (10 characters or more). That's it: create notes in the UI, or
-drop `.md` files into `notes/`. Then: [First steps in the app](guide/first-steps.md)
-shows notes, folders, links, search and sharing in a few minutes.
+and password (10 characters or more). That's it: you're in «My notes», your
+own space. Create notes in the UI, or drop `.md` files into
+`notes/people/<your name>/`. Then: [First steps in the app](guide/first-steps.md)
+shows notes, spaces, links, search and sharing in a few minutes.
 
-Port 8080 taken? `VIHKO_HOST_PORT=8098 docker compose up -d`. Already have
-notes, on this disk or on NFS? Point the `./notes` volume at that folder, and
-write its owner into `.env` instead:
-[The user and file ownership](guide/install.md#the-user-and-file-ownership).
+Port 8080 taken? `VIHKO_HOST_PORT=8098 docker compose up -d`. Notes folder on
+NFS? Point the `./notes` volume at it, and write its owner into `.env`
+instead: [The user and file ownership](guide/install.md#the-user-and-file-ownership).
+Already have notes? Copy them into your own space or a shared space's folder:
+anything outside `people/` and `spaces/` isn't shown.
 The [installation guide](guide/install.md) explains every line of the compose
 file.
 
@@ -100,22 +114,23 @@ file.
 
 - [Installation](guide/install.md): requirements, the compose file, first
   start, environment variables.
-- [First steps in the app](guide/first-steps.md): notes, folders, links,
+- [First steps in the app](guide/first-steps.md): notes, spaces, links,
   tags, search, sharing, and the phone.
 - [Notes and Markdown](guide/notes.md): what vihko reads and writes in your
   files, and editing them with other tools.
 - [Configuration](guide/configuration.md): `vihko.yaml`, the workspace
   settings that live with your notes.
-- [Users and permissions](guide/users-and-permissions.md): inviting people,
-  groups, per-folder permissions, two-step verification.
+- [Spaces, people and sharing](guide/users-and-permissions.md): your own
+  space, shared spaces, sharing a folder, inviting people, groups, two-step
+  verification.
 - [History](guide/history.md): versions of every note, and how to purge one.
 - [Agents](guide/agents.md): API keys, MCP on your network and remote MCP
   with OAuth.
 - [API](guide/api.md): the HTTP API reference.
 - [Upgrading](guide/upgrading.md): versions, image tags, updating and rolling
   back.
-- [What 1.x keeps stable](guide/compatibility.md): what scripts and agents
-  can rely on across 1.x.
+- [What 0.x tries to keep](guide/compatibility.md): what scripts and agents
+  build on, and how 0.x versions may change it.
 - [Backups](guide/backups.md): what to back up, and how to restore.
 - [Reverse proxy](guide/reverse-proxy.md): HTTPS and a public address.
 - [Operations](guide/operations.md): the command line, logs, NFS, and common
@@ -125,8 +140,12 @@ The full index is in [guide/README.md](guide/README.md).
 
 ## Status
 
-1.0 (`1.0.1`), the first stable release. See [ROADMAP.md](ROADMAP.md)
-for what's done and what's next. Report bugs and ideas in the issues;
+`0.1.0`, the first release of the relaunch around spaces. vihko was first
+released as 1.0.x, with one folder tree for everyone; that line was withdrawn,
+and there is no upgrade path from it ([Upgrading](guide/upgrading.md#coming-from-vihko-10x)).
+While vihko is at 0.x, a minor version may change things, always with upgrade
+notes; 1.0 will come once the model has settled through real use. See
+[ROADMAP.md](ROADMAP.md) for what's done and what's next. Report bugs and ideas in the issues;
 security vulnerabilities privately, as [SECURITY.md](SECURITY.md) explains.
 
 ## Stack
