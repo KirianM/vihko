@@ -33,8 +33,9 @@ identity provider.
    `image:` line names it (see [The image and its tags](#the-image-and-its-tags)).
 
 2. Read [the compose file](#the-compose-file) below and adjust it: which
-   image tag, which port, and where your notes are. To use a notes folder you
-   already have, change `./notes` to its path.
+   image tag, which port, and where your notes are (`./notes`, or any path on
+   your disk). Notes you already have go into a space once vihko runs: see
+   [Notes you already have](#notes-you-already-have).
 
 3. Create the two folders yourself, before the first start, and write the
    owner of the notes folder into `.env`, next to `compose.yaml`:
@@ -176,9 +177,9 @@ notes/
 - Inside them, any folders and any names: vihko imposes nothing else.
 - **What you put anywhere else** (at the root, next to `people/` and
   `spaces/`) isn't seen by anyone in vihko, and the admins get an alert that
-  lists it. To use notes you already have, an Obsidian vault say, copy them
-  into your own folder, `people/<you>/`, or into a shared space's folder. See
-  [Notes and Markdown](notes.md#with-obsidian-and-other-editors).
+  lists it and names the folder to move it into. To use notes you already
+  have, an Obsidian vault say, see
+  [Notes you already have](#notes-you-already-have).
 
 The folder can be shared with other editors or sync tools while vihko runs.
 
@@ -366,6 +367,39 @@ user created: alex (admin)
 `read -rs` keeps the password off the screen and out of your shell history.
 Without `--admin`, the user is a member. [Operations](operations.md#the-command-line)
 lists every command.
+
+### Notes you already have
+
+vihko 0.1.0 has no import command yet (one is planned). To bring a folder of
+notes you already have, an Obsidian vault say, copy its files on the disk,
+once your account exists:
+
+- **Into your own space**, `people/<your username>/` inside the notes folder:
+  only you see them, and you share what you like from there.
+- **Or into a shared space's folder**, `spaces/<readable>-<id>/`: create the
+  space in vihko first (that makes the folder), then copy into it. Every
+  member sees all of it.
+
+Copy them as the user vihko runs as (the owner of the notes folder, as in
+`.env`), for example:
+
+```sh
+cp -a ~/my-vault/. notes/people/alex/
+```
+
+What keeps working, because inside a space a name is looked up among that
+space's notes: links by name (`[[Plan]]`) or by a path inside the vault
+(`[[projects/Plan]]`), relative Markdown links, images, tags, frontmatter and
+the notes' `uid`s. What doesn't: links written from the vault's root with a
+leading slash (`[[/projects/Plan]]`, what Obsidian writes with «Absolute path
+in vault»), because the root is now the notes folder. Before copying, set
+Obsidian to «Shortest path when possible», or fix those links afterwards.
+
+vihko picks the files up within a minute (the periodic rescan), or at once
+after `docker compose restart`. Copied to the root of the notes folder by
+mistake, they're seen by nobody, and the admins get the alert «Something is
+outside the spaces», which names the exact folder to move them into: the
+admin's own space, `people/<admin>/`.
 
 ### Next steps
 

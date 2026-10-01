@@ -42,13 +42,20 @@ Docker image and volumes.
 - **The admin's «Spaces» page**: every shared space's name, managers and
   member count, never its content; assign a manager to a space without one;
   join a space, visibly; decide what becomes of a deleted person's space
-  (transfer it, make it a shared space, or delete it).
+  (transfer it, make it a shared space, or delete it). Deleting a person
+  offers to transfer or convert their space right there, and while a
+  deleted person's space is undecided the admins get `closed_spaces`.
+- **Move to a new space…** and **Move to My notes…**, in a folder's menu and
+  in the share dialog: since a subfolder can't be closed to those who see the
+  folder above it, the way out is to make it a space of its own
+  (`POST /api/spaces/from-folder`), with the usual move confirmation.
 - **Notices**: when someone adds you to a space or shares a folder with you;
   when the admin changes a space that concerns you; when a move of yours
   left links in other spaces that couldn't be updated.
 - **Alerts** for the admins: what is in the notes folder outside every space
-  (`outside_spaces`), folders in `people/` named after nobody, and shared
-  spaces without members or managers.
+  (`outside_spaces`, with `into`, the admin's own space to move it into),
+  folders in `people/` named after nobody, and shared spaces without members
+  or managers.
 - **HTTP API**: `GET /api/spaces` and `GET /api/spaces/members` for keys; the
   move report's `crossSpaceLinks`, `images.copied` and `audience.owner`; the
   error codes `outside_space`, `space_root`, `held_inside`,
@@ -58,7 +65,8 @@ Docker image and volumes.
   its `space`; the server's instructions name the person's space, the shared
   spaces and the folders shared with them, and how to link across spaces.
 - **`vihko.yaml`**: `name` at a shared space's root; `templates` takes a list
-  of folders, each with `{user}`.
+  of folders, each with `{user}`; `mcp.instructions` takes `{user}` too, so
+  each person's agents get their own guide.
 - `guide/compatibility.md` for 0.x: the whole surface, taken from the code.
 - From the 1.0.1 work not published before: the dark theme's bold and
   headings stand out; Ctrl+E (inline code), Ctrl+Shift+S (strikethrough),
@@ -77,8 +85,11 @@ Docker image and volumes.
   agents, `agent_denied` keeps only the reasons `ai_false` and
   `outside_key_folders`.
 - **A name that would make someone else's link lead to a note you can't
-  read** isn't available for a new note, a rename or a move: `exists`, as for
-  a taken name.
+  read** isn't available for a new note, a rename, a move, a restore or an
+  alias added by an edit when that link is in a note you read: `exists`, as
+  for a taken name. When the link is in a note you can't read, vihko keeps it
+  on its note as the system (history reason `links_kept`) and says nothing.
+  A move's dry run doesn't check.
 - **Permissions are checked before the disk**: a request about something you
   can't read answers `not_found`, whether it exists or not.
 - `GET/PUT /api/permissions` (the UI's) answer `inherited`, `owner`, `space`
@@ -86,7 +97,23 @@ Docker image and volumes.
 - `attachments.folder` is relative to each note's space.
 - A series, templates folder or agents' guide outside a space is ignored,
   with a warning.
-- The admin's purge notice names the path only to an admin who can read it.
+- The admin's purge notice names the path only to an admin who can read it,
+  or who purged it. An admin joining a space tells its managers and the other
+  admins.
+- What could tell someone about what they can't read doesn't any more: a
+  move's progress counts only the notes you read; the admin's rescan answers
+  counts, the list of everyone's keys leaves out folders the admin doesn't
+  read (`foldersHidden`), the purge preview of a path the admin can't read
+  says nothing of it (`hidden`), and a transfer's preview never looks into
+  the recipient's space; history cursors are opaque; restoring from the trash
+  names only what is left where you read; signing out clears the editor's
+  suggestions.
+- Creating a note from a broken `[[spaces/…]]` or `[[people/…]]` link creates
+  it at that path; where you can't create, the answer is a taken name's.
+- `everyone`, `all`, `public` and `anyone` can't name a group; `.vihko/` is
+  reserved at the root of every space.
+- The command line prints an account error with its code, `error (<code>)`.
+- The theme is kept on each device, not in the account.
 - `GET /api/trash` (the UI's) gives each entry's `space`; a deleted shared
   space's notes stay restorable by its managers.
 - Usernames can't start with a dot.
@@ -109,7 +136,8 @@ Docker image and volumes.
 
 - **No upgrade path from 1.0.x.** Start with an empty notes folder (and an
   empty state folder), then copy your notes into your own space,
-  `people/<you>/`, or into a shared space's folder. A 1.0.x notes folder
+  `people/<you>/`, or into a shared space's folder (see
+  [Notes you already have](guide/install.md#notes-you-already-have)). A 1.0.x notes folder
   under 0.1.0 shows nothing: its notes are outside every space and its
   `permissions` section is rejected.
 - In `compose.yaml`, use `ghcr.io/kirianm/vihko:0.1` (or take the new file).

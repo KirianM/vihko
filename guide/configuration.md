@@ -349,6 +349,16 @@ agents): a note in a shared space reaches its members' agents. It's read
 fresh for each request, so editing the note is enough. See
 [Agents](agents.md).
 
+`{user}` in the path is the username of the person the agent acts for, so
+each person can keep their own guide in their own space:
+
+```yaml
+mcp:
+  instructions: people/{user}/For agents
+```
+
+Someone without that note gets vihko's instructions alone.
+
 ### `permissions`
 
 ```yaml

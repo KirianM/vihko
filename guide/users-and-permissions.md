@@ -107,6 +107,16 @@ space, or another shared space. This is on purpose. Where you can create a
 note, you see everything around it, and nothing hidden there can get in your
 way or tell you it exists.
 
+**Move to a new space.** Say «gifts» is a folder of the shared space Home, and
+the presents are for someone who is also a member. The folder's menu (or the
+share dialog) → **Move to a new space…** makes it a shared space of its own,
+named «gifts» (you can change the name), which you manage: only the people the
+folder itself was shared with come along, and you add whoever else should see
+it. The usual move confirmation says who stops seeing it, and links to its
+notes keep working. From a shared space you can also **Move to My notes…**, to
+keep it to yourself. Making the new space takes being allowed to create spaces
+(see [What the admin can do with spaces](#what-the-admin-can-do-with-spaces)).
+
 A person's level is the highest any grant gives them, by name or through any
 of their groups.
 
@@ -143,6 +153,13 @@ shared space.
   («Who has access…»), or stop seeing it («Leave», then «Stop seeing it»).
   Stopping seeing it deletes nothing: to see it again, you have to share it
   again.
+- **A known limit of sharing to edit.** A link by name finds notes anywhere in
+  your space, and one to a note someone can't read looks broken to them. So
+  whoever can edit the folder you share can write an alias and a link in it,
+  and tell from whether the link works if you have a note by that name in the
+  rest of your space. It takes `edit` (not `read` or `comment`); the share
+  dialog says so when you give it. Keep what nobody may even guess at in
+  another space.
 
 **The share dialog.** «Share…» opens it on any folder you manage, in your
 space or in a shared space. It lists who has access and why: «Here» for what
@@ -277,8 +294,8 @@ manages it, and how many members it has. Never what's inside.
 - **Assign a manager** to a space that has none (its last manager left, or
   nobody was ever given access). The person and the other admins are told.
 - **Join** a space, as one more member, at a level the admin chooses (`read`
-  by default). It's confirmed at the moment, the space's managers are told,
-  and the admin shows up in its member list. That is the only way for an
+  by default). It's confirmed at the moment, the space's managers and the
+  other admins are told, and the admin shows up in its member list. That is the only way for an
   admin to see what's inside a space that isn't theirs.
 - **Who can create spaces**: everyone (the default) or admins only.
 - The page also shows what is in the notes folder outside every space, and
@@ -308,23 +325,30 @@ Both are in the user's «Actions» menu.
 - Their grants are removed from `vihko.yaml`.
 - **Their space closes**: nobody sees it, the admin neither, and the folders
   they shared stop being seen by whoever received them. The delete dialog
-  says how many shared folders and how many people that is.
+  says how many shared folders and how many people that is, and asks what
+  becomes of the space: **decide later** (the default), **transfer it** to
+  someone, or **make it a shared space**, with the same choices and counts as
+  below. Transferring or converting it right there is confirmed at the moment
+  with the admin's code or password, before the person is deleted.
 - Their notes stay on disk, and the history still says what they wrote, under
   their name.
 - **Their username is reserved**: nobody else can take it, so a newcomer
   never inherits their folder.
 
-Afterwards, the closed space shows in Preferences → Spaces, under «Spaces of
-deleted people». The admin decides what becomes of it, without reading
+Decided later, the closed space shows in Preferences → Spaces, under «Spaces
+of deleted people», and the admins get an alert for as long as one is waiting
+for a decision. The admin decides what becomes of it, without reading
 anything in it, and confirms at the moment:
 
 - **Transfer…** to someone: it goes whole into their space, as a folder named
-  after the deleted person (`people/noa/sam/`). What was shared stays shared.
+  after the deleted person (`people/noa/sam/`, or `people/noa/sam-2/` if
+  that name is taken there). What was shared stays shared.
   A broken link by name in its notes may start leading to a note of whoever
   receives it, if one has that name; the dialog says so.
 - **Make it a shared space…**, with the members the admin chooses (at least
   one who manages it). Its members will see everything the person had, also
-  what they never shared; the dialog says so.
+  what they never shared; the dialog says so. The person's own settings
+  folder (`.vihko/`) doesn't come along.
 - **Delete…**: its files are deleted from the disk, with no trash, since
   nobody could see it. The history keeps what it had, with nobody to read it;
   the admin can purge it by path ([History](history.md#purging)).

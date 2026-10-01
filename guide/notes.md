@@ -188,10 +188,13 @@ every other note**, so none of them changes its destination:
   Links in other spaces are tried again after the next rescan; if they still
   can't be updated, you get a notice, without names.
 - A name that would make an existing link lead to a note you can't read (or
-  make it ambiguous) isn't available: the dialog says «That name isn’t
-  available here», as for a name that is taken. Nothing is revealed, and the
-  other link keeps its destination. Creating a note with such a name is
-  refused the same way.
+  make it ambiguous): if that link is in a note you read, the name isn't
+  available, and renaming says «That name isn’t available here», as for a
+  name that is taken (the preview doesn't tell beforehand). If the link is in
+  a note you can't read, the rename goes through and vihko rewrites that
+  link so it keeps leading to its note. Either way nothing is revealed, and
+  the other link keeps its destination. Creating or restoring a note with
+  such a name, or adding it as an alias through the API, goes the same way.
 
 Images next to the note that only it uses move with it (see
 [`attachments`](configuration.md#attachments-where-new-images-go)). When a

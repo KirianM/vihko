@@ -402,8 +402,9 @@ mcp:
 
 vihko appends the note's text to the server's instructions, for each key that
 can read the note. A key that can't read it (a folder outside its reach, or
-`ai: false`) gets the server's instructions alone. See
-[Configuration](configuration.md).
+`ai: false`) gets the server's instructions alone. With `{user}` in the path
+(`people/{user}/For agents.md`), each person's agents get that person's own
+note. See [Configuration](configuration.md).
 
 ### The icon
 
