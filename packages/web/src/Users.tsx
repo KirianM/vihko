@@ -5,7 +5,7 @@
 // admin creates and fills. And the admin's settings: members downloading
 // images from the local network (D-038.6) and the second factor's policy
 // (D-036: required, optional or disabled), whose state each person's row
-// shows and the admin can reset. What lets the admin into someone else's
+// shows and the admin can reset; and retention (Retention.tsx). What lets the admin into someone else's
 // account (a reset link, their second factor's reset, a new role), a new
 // admin and a new policy ask for the confirmation at the moment, the admin's
 // own code or password (D-040 3.1, 3.4a, D-046.1); the person and the other

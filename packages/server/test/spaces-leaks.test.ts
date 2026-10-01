@@ -277,6 +277,8 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
           ['PATCH', '/api/admin/groups/nope'], ['DELETE', '/api/admin/groups/nope'], ['POST', '/api/admin/groups/nope/members'],
           ['DELETE', '/api/admin/groups/nope/members/nope'], ['GET', '/api/admin/settings'], ['PUT', '/api/admin/settings'],
           ['DELETE', '/api/admin/config-migrations/nope'], ['DELETE', '/api/admin/state-migrations/nope'],
+          // Retention: counts and dates of the whole installation, never a path.
+          ['GET', '/api/admin/retention'], ['POST', '/api/admin/retention/preview'],
         ] as const).map(([method, path]) => ({
           route: `${method} ${path.replace(/\/nope(?=\/members\/)/, '/:id').replace(/members\/nope$/, 'members/:userId').replace(/\/nope/, '/:id')}`,
           method, path, body: method === 'GET' || method === 'DELETE' ? undefined : {}, expect: adminOnly(who),

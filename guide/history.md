@@ -231,7 +231,8 @@ than that are removed:
 - **The current version of every note stays.** Each file keeps the version it
   had at that moment (with its author and date), so a note nobody touched in
   years still has one version, and a note changed since shows what it was
-  then and every change after.
+  then and every change after. That oldest version kept shows as the one
+  that created the note, since nothing before it is left.
 - Everything newer stays as it was: authors, dates, moves.
 - A note deleted before then, and not in the trash, keeps nothing.
 - A note in the trash keeps its whole history, however old, so restoring it
