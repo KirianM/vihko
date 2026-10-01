@@ -24,9 +24,27 @@
 .dialog .field input { height: var(--control-lg); font-size: 16px; border-radius: var(--radius-md); }
 .dialog .field input:focus-visible, .dialog .field input[data-focused] { outline: 2px solid var(--accent); outline-offset: -1px; }
 
-/* Native select and checkbox (preferences): the same look as the text fields */
-.select { font: inherit; font-size: 16px; height: var(--control-lg); padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--field); color: var(--ink); }
+/*
+ * Native select and checkbox: the same look as the text fields in every
+ * engine. Every <select> is `.select`. The browser's own arrow is dropped
+ * (Safari draws it against the edge) for a chevron of two gradients in a
+ * token colour, so it follows the theme, with room for it on the right.
+ */
+.select {
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  font: inherit; font-size: 16px; line-height: normal; height: var(--control-lg);
+  padding: 0 34px 0 10px; text-overflow: ellipsis;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-md);
+  background-color: var(--field); color: var(--ink);
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%;
+  background-size: 5px 5px; background-repeat: no-repeat;
+  cursor: pointer;
+}
+.select:hover:not(:disabled) { border-color: var(--muted); }
 .select:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.select:disabled { opacity: .55; cursor: default; }
+.select option { color: var(--ink); background-color: var(--surface); }
 .check { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 20px; color: var(--ink); cursor: pointer; }
 .check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); flex-shrink: 0; }
 .check-text { display: flex; flex-direction: column; gap: 2px; }
