@@ -142,3 +142,18 @@ test('adding to a list: flow, block, from a scalar, and creating it', async () =
   const crlf = addToFrontmatterList('---\r\naliases:\r\n  - a\r\n---\r\n', 'aliases', 'V')
   assert.equal(crlf, '---\r\naliases:\r\n  - a\r\n  - V\r\n---\r\n')
 })
+
+test('a template\'s frontmatter with placeholders ({{date}}, read as YAML before they are filled) is read without a warning', async () => {
+  const warnings: string[] = []
+  const listen = (w: Error) => warnings.push(w.message)
+  process.on('warning', listen)
+  try {
+    // Literal: the placeholder is the case (a template, before {{date}} is filled in).
+    const fm = readFrontmatter('---\ndate: {{date}}\ntitle: "{{title}}"\n---\n# {{title}}\n')
+    assert.equal(fm.error, null)
+    await new Promise((r) => setImmediate(r))
+    assert.deepEqual(warnings, [])
+  } finally {
+    process.off('warning', listen)
+  }
+})
