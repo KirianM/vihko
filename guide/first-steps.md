@@ -12,15 +12,21 @@ The UI is in English or Spanish, following your browser's language.
   [Home and «On opening»](#home-and-on-opening)): your recent notes, what others changed lately in the notes you
   read, what someone shared with you in the last 30 days, and buttons for a
   new note, today's note, search and a new space. The logo at the top of the
-  sidebar always takes you there. Home only ever shows what you can read.
+  sidebar always takes you there. Home only ever shows what you can read. Its
+  heading has a house: a shared space called «Home» is something else (in
+  the sidebar, every space has the mark of its kind).
 - **The sidebar**, on the left: the «Search or create…» box, «New note»
   (the `+`) and, when daily notes are set up, «Today's note»; then «Folders»
-  and «Tags». «Folders» has one section per space:
-  - **My notes**: your own space. Only you see it, except what you share.
-  - **Each shared space** you belong to, by its name, such as «Home».
+  and «Tags». «Folders» has one section per space, each with the mark of its
+  kind:
+  - **My notes** (a person): your own space. Only you see it, except what
+    you share.
+  - **Each shared space** you belong to (two people), by its name, such as
+    «Home».
   - **New space**, to create one.
   - **Shared with me**: folders other people share with you, with whose they
-    are. Pin one and it gets a section of its own, next to your spaces.
+    are. Pin one and it gets a section of its own (a folder), next to your
+    spaces, instead of being listed here.
 
   At the bottom: «Recent changes», the workspace alerts when there are any,
   your name (it opens «Preferences») and «Sign out». [Spaces, people and
@@ -406,7 +412,7 @@ To open something else when you come in:
 
 1. Your name → Preferences → **On opening**.
 2. Choose:
-   - **Home**, the default;
+   - **Home, vihko's start page**, the default;
    - **The last note (on this device)**: the note you had open last in this
      browser. Your phone and your computer each remember their own;
    - **A specific note**: type part of its name in **Note** and pick it from

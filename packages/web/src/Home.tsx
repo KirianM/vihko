@@ -67,7 +67,8 @@ export function HomePage({ user, refresh, onOpen, onReveal, onNewNote, onToday, 
       </header>
       <div className="home-page">
         <div className="home-top">
-          <h1>{t('home.title')}</h1>
+          {/* The house: Home is vihko's start page, never a space (even one called «Home»: spaces have their people mark). */}
+          <h1 className="home-title">{Icon.home}<span>{t('home.title')}</span></h1>
           <p className="home-hello">{t('home.hello', { user: user.username })}</p>
         </div>
         <div className="home-actions" role="group" aria-label={t('home.actions')}>

@@ -111,7 +111,7 @@ test('«On opening»: the last note, a chosen one, today\'s only if it exists, a
 
   // The last note opened on this device.
   let prefs = await openPrefs(u)
-  await expect(prefs.getByRole('radio', { name: 'Inicio', exact: true })).toBeChecked()
+  await expect(prefs.getByRole('radio', { name: 'Inicio, la portada de vihko' })).toBeChecked()
   // No daily series for them yet: «today's» isn't offered.
   await expect(prefs.getByRole('radio', { name: 'La nota de hoy, si ya existe' })).toHaveCount(0)
   await prefs.getByRole('radio', { name: 'La última nota (en este dispositivo)' }).check()
@@ -151,10 +151,36 @@ test('«On opening»: the last note, a chosen one, today\'s only if it exists, a
 
   // Home.
   prefs = await openPrefs(u)
-  await prefs.getByRole('radio', { name: 'Inicio', exact: true }).check()
+  await prefs.getByRole('radio', { name: 'Inicio, la portada de vihko' }).check()
   await prefs.getByRole('button', { name: 'Guardar' }).click()
   await u.goto('/')
   await expect(home(u)).toBeVisible()
+})
+
+test('a space called like Home is never taken for it: the page has its house, every space its mark, and «On opening» says which', async () => {
+  // Literal: the name the page has is the case under test.
+  const space = (await call(k, 'post', '/api/spaces', { name: 'Inicio', members: { [USER.username]: 'edit' } }, 201)).space.path as string
+  try {
+    await u.goto('/')
+    await expect(home(u)).toBeVisible()
+    const house = await u.locator('.home-title svg').innerHTML()
+    const section = u.locator('nav.sidebar section.space-section', { has: u.getByRole('button', { name: 'Inicio', exact: true }) })
+    await expect(section.locator('.space-kind svg')).toBeVisible()
+    expect(await section.locator('.space-kind svg').innerHTML()).not.toBe(house)
+    // «My notes» has a mark of its own too, another one.
+    const mineMark = await u.locator('nav.sidebar section.space-section-mine .space-kind svg').innerHTML()
+    expect(new Set([house, mineMark, await section.locator('.space-kind svg').innerHTML()]).size).toBe(3)
+    // The theme is this device's (an earlier test chose one): its button, as `shots` does.
+    await u.screenshot({ path: `${SHOTS}/home-vs-space-light.png` })
+    await u.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()
+    await u.screenshot({ path: `${SHOTS}/home-vs-space-dark.png` })
+    await u.getByRole('button', { name: 'Cambiar a tema claro' }).click()
+    const prefs = await openPrefs(u)
+    await expect(prefs.getByRole('radio', { name: 'Inicio, la portada de vihko' })).toBeVisible()
+    await prefs.getByRole('button', { name: 'Cancelar' }).click()
+  } finally {
+    await k.request.delete(`/api/spaces?path=${q(space)}&trash=true`)
+  }
 })
 
 /** Home, light and dark, on a computer and on a phone. */

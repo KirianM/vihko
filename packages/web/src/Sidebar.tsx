@@ -102,6 +102,8 @@ function SpaceSection({ section, open, onToggle, onAction, children }: {
       <div className="space-head">
         <Button className="space-toggle" aria-expanded={open} onPress={onToggle}>
           <span className="space-chevron" aria-hidden="true">{Icon.chevron}</span>
+          {/* What kind of place it is, at a glance: one's own, a shared space, a folder shared with them. */}
+          <span className="space-kind" aria-hidden="true">{section.kind === 'mine' ? Icon.person : section.kind === 'shared' ? Icon.people : Icon.folder}</span>
           <span className="space-name" id={headId}>{section.name}</span>
           {section.detail && <span className="space-detail">{section.detail}</span>}
         </Button>
