@@ -72,6 +72,41 @@ test('a series of one\'s own with the pattern of vihko.yaml\'s is one series: no
   }
 })
 
+test('«Today\'s note» with no choice: one\'s own series first, then a space\'s, then the installation\'s; the one it opens stays', async () => {
+  const installation = m.anId()
+  const h = await setup({ config: `daily:\n  ${installation}:\n    folder: ${JSON.stringify(`people/{user}/${m.aFolder()}`)}\n` })
+  try {
+    h.clock.now = today()
+    const space = (await h.member('POST', '/api/spaces', { name: m.aSpaceName(), members: { [h.names.other]: 'edit' } })).body.space.path as string
+    // The member opens today's note while the installation's is the only series: that one becomes their choice.
+    const first = await h.member('POST', '/api/daily', {})
+    assert.equal(first.body.series, installation, first.text)
+    assert.equal((await h.member('GET', '/api/profile')).body.dailySeries, installation)
+    // The space gets a series: listed before the installation's, but the member's choice stays.
+    const spaceSeries = m.anId()
+    assert.equal((await put(h, 'member', (s) => { s.daily.push({ id: spaceSeries, label: null, folder: m.aFolder(), name: '{YYYY}-{MM}-{DD}', template: null }) }, space)).status, 200)
+    const listed = (await h.member('GET', '/api/workspace')).body.daily.map((s: any) => s.id) as string[]
+    assert.equal(listed.length, 2)
+    assert.ok(listed[0]!.endsWith(`-${spaceSeries}`) && listed[0]!.startsWith('sp-'), listed.join())
+    assert.equal(listed[1], installation)
+    assert.equal((await h.member('GET', '/api/daily')).body.series, installation)
+    assert.equal((await h.member('POST', '/api/daily', {})).body.series, installation)
+    // Someone who never chose: the space's before the installation's, and their own before both.
+    assert.equal((await h.other('GET', '/api/daily')).body.series, listed[0])
+    const own = m.anId()
+    assert.equal((await put(h, 'other', (s) => { s.daily.push({ id: own, label: null, folder: m.aFolder(), name: '{YYYY}-{MM}-{DD}', template: null }) })).status, 200)
+    assert.equal((await h.other('GET', '/api/daily')).body.series, `me-${own}`)
+    assert.equal((await h.other('GET', '/api/profile')).body.dailySeries, null, 'looking chooses nothing')
+    assert.equal((await h.other('POST', '/api/daily', {})).body.series, `me-${own}`)
+    assert.equal((await h.other('GET', '/api/profile')).body.dailySeries, `me-${own}`)
+    // Asking for a series by its id opens it without changing the choice.
+    assert.equal((await h.other('POST', '/api/daily', { series: installation })).body.series, installation)
+    assert.equal((await h.other('GET', '/api/profile')).body.dailySeries, `me-${own}`)
+  } finally {
+    h.close()
+  }
+})
+
 test('a shared space\'s settings: its managers change them, its members read them and get their series, templates, images folder and guide; nobody else', async () => {
   const h = await setup()
   try {

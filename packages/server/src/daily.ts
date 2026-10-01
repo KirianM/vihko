@@ -45,8 +45,9 @@ export class DailyNotes {
 
   /**
    * The series a person's «Today» uses: the one asked for, their own choice
-   * or else the first in vihko.yaml. A choice that vihko.yaml no longer has
-   * falls back to the first. With no series, daily notes are off.
+   * or else the first offered (`seriesOf` lists their own first, then their
+   * spaces', then vihko.yaml's). A choice no longer offered falls back to
+   * the first. With no series, daily notes are off.
    */
   seriesFor(user: User, requested?: string | null): Series {
     const all = (this.opts.seriesOf?.(user) ?? this.opts.workspace.config.daily).filter((s) => this.opts.offered?.(user, s) ?? true)
@@ -95,19 +96,26 @@ export class DailyNotes {
     const series = this.seriesFor(user, requested)
     const now = this.opts.profiles.now(user.id, this.instant())
     const path = seriesPath(series, now, user.username)
+    // The first time «Today's note» opens without a choice, the series it
+    // used becomes the choice: a series added later (a space's, say) never
+    // takes its place without the person choosing it in Preferences.
+    const opened = (created: boolean) => {
+      if (!requested && this.opts.profiles.get(user.id).dailySeries === null) this.opts.profiles.update(user.id, { dailySeries: series.id })
+      return { series: series.id, path, created }
+    }
     try {
       this.opts.notes.read(path)
-      return { series: series.id, path, created: false }
+      return opened(false)
     } catch (err) {
       if (!(err instanceof NoteError) || err.code !== 'not_found') throw err
     }
     try {
       const template = series.template && (opts.template?.(series.template) ?? true) ? series.template : null
       await createFromTemplate(this.opts.notes, { path, template, user, now, missing: 'empty', actor: opts.actor, mayName: opts.mayName })
-      return { series: series.id, path, created: true }
+      return opened(true)
     } catch (err) {
       // Created meanwhile by someone else: that one opens. A name refused (nothing there) stays refused.
-      if (err instanceof NoteError && err.code === 'exists' && this.exists(path)) return { series: series.id, path, created: false }
+      if (err instanceof NoteError && err.code === 'exists' && this.exists(path)) return opened(false)
       throw err
     }
   }

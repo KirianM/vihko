@@ -201,10 +201,12 @@ daily:
 ```
 
 Each entry is a **series**: a folder and a name pattern that give one note per
-day, week, month or year. The first series is the default. Each person picks
-theirs in Preferences («Daily note series»), with the option to open today's
-note when vihko opens (it only opens a note that exists; it never creates
-one). A person can also make series of their own without this file: see
+day, week, month or year. Each person picks theirs in Preferences («Daily
+note series»), with the option to open today's note when vihko opens (it only
+opens a note that exists; it never creates one). Until they pick one, the
+default is their own first series, else the first of their shared spaces',
+else the first here; the first time «Today» opens a note, that series becomes
+their choice, so a series added later never takes its place. A person can also make series of their own without this file: see
 [A daily journal](first-steps.md#a-daily-journal).
 
 «Today» (in the sidebar, the search box's commands, or Ctrl+Alt+D, ⌘⌥D on a
@@ -568,7 +570,7 @@ agents: For agents              # a note of this space: its guide for agents
 
 | Setting | What a person gets |
 |---|---|
-| Daily-note series | `vihko.yaml`'s, those of the shared spaces they belong to, and their own: those where they can write today's note. Two series that give the same note are one (the first in that order is kept), so a personal series that repeats one of the installation's isn't offered twice |
+| Daily-note series | `vihko.yaml`'s, those of the shared spaces they belong to, and their own: those where they can write today's note. Two series that give the same note are one (the first in that order is kept), so a personal series that repeats one of the installation's isn't offered twice. They're listed the other way round, their own first: until a person chooses, the first is the default |
 | Templates folders | `vihko.yaml`'s, those of their spaces, and their own: those they can read |
 | Where new images go | For a note of a space, that space's setting if it has one; otherwise `vihko.yaml`'s |
 | Guide for agents | `vihko.yaml`'s, then that of each shared space the agent's key reaches, then the person's own, in that order. Each is a note the agent must be able to read |

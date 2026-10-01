@@ -542,7 +542,12 @@ explains it.
 - **How it adds up** with `vihko.yaml`, for each person: daily-note series
   are `vihko.yaml`'s, then those of each shared space they're in, then their
   own, and two that give the same note are one (the first is kept); only
-  those where they can write today's note are offered. Templates folders are
+  those where they can write today's note are offered, listed the other way
+  round (their own first, `vihko.yaml`'s last: `GET /api/workspace`'s
+  `daily`). With no `dailySeries` in the profile, today's note is the first
+  listed, and the first `POST /api/daily` (or `daily_note` that opens or
+  creates it) without a `series` writes that series' id as the profile's
+  `dailySeries`. Templates folders are
   the union of the three, those they can read. New images of a note follow
   its space's `attachments`, otherwise `vihko.yaml`'s. The guides for agents
   come in order: `mcp.instructions`, each shared space the key reaches, the

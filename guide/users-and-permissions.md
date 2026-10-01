@@ -271,7 +271,7 @@ themselves. Nothing replaces anything, except for images:
 
 | Setting | What a person gets |
 |---|---|
-| Daily note series | All of them: the installation's, those of the spaces where they can edit, and their own. They choose one in Preferences |
+| Daily note series | All of them: their own, those of the spaces where they can edit, and the installation's, in that order. They choose one in Preferences; until they do, «Today's note» opens the first, and the first one it opens stays their choice |
 | Templates folders | All of them: the installation's, their spaces', and their own |
 | Where a new image goes | The setting of **the note's space**, if it has one; otherwise the installation's. Never someone else's |
 | Guide for agents | All of them, one after another: the installation's, then each space's, then their own |

@@ -240,7 +240,7 @@ different things:
 | | What it's for |
 |---|---|
 | **Your note settings** | **Making** things of your own: a daily note series, a templates folder, where your new images go, a guide for agents |
-| **Daily note series** | **Choosing** which series «Today's note» opens, among all you have: the installation's (set by the admin), those of the shared spaces you're in (set by their managers) and your own. It only shows once you have one |
+| **Daily note series** | **Choosing** which series «Today's note» opens, among all you have: your own, those of the shared spaces you're in (set by their managers) and the installation's (set by the admin). It only shows once you have one |
 
 So to start a journal you go to «Your note settings» first, and then, if you
 have more than one series, you pick it in «Daily note series».
@@ -310,9 +310,11 @@ rules are in [Configuration](configuration.md#daily-daily-notes).
 
 **If you have more than one series** (yours, and one of a space you're in,
 say): Preferences → **Daily note series** → pick the one «Today's note»
-should open → **Save**. Until you pick one, it opens the first in that list,
-and the list can change when a space you're in adds a series: pick yours
-once and it stays.
+should open → **Save**. Until you pick one, it opens the first in that list:
+your own series come first, then your spaces', then the installation's. The
+first time you open «Today's note», the series it opened becomes your choice,
+so a series a space adds later never takes its place: you change it only in
+Preferences.
 
 ### A templates folder
 
