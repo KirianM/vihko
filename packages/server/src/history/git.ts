@@ -1,4 +1,4 @@
-// The system's git binary, as the history uses it (D-016): always
+// The system's git binary, as the history uses it: always
 // asynchronous (never a synchronous spawn on a write's path), with an isolated
 // environment (no system or user configuration, no hooks, no automatic gc),
 // NUL-separated outputs, and a time limit on every call.

@@ -1,4 +1,4 @@
-// The permissions API (D-038, D-056: sharing a folder), for the share
+// The permissions API (sharing a folder), for the share
 // dialog. Session only (http/routes.ts): a key never reaches it.
 //
 //   GET /api/permissions?folder=           the folder's own grants, those it inherits (each with where from), its owner, agents, and who has access
@@ -7,8 +7,8 @@
 //   GET /api/permissions/access?user=|key= the folders a person or a key reaches, and at what level
 //   POST /api/permissions/holds/:id        { action: 'release' } notes held after an external move (permissionHolds.ts)
 //
-// Who: whoever has `manage` in the folder (D-038.4, spec §2.2). The admin
-// role counts for nothing (D-038.1, D-056): the admin never sees the names
+// Who: whoever has `manage` in the folder. The admin
+// role counts for nothing (the admin manages, but doesn't read): the admin never sees the names
 // of folders inside spaces they don't read. Others: 403 if they see the
 // folder, 404 if not. A personal space's root can't be shared whole (only
 // `ai: false` there); a folder in no space doesn't exist for anyone.
@@ -88,7 +88,7 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
       /** Closed to agents (`ai: false`), and where that's set: here, or above (then it can't be undone here). */
       ai: { closed: aiAt !== null, from: aiAt },
       canEdit: c.get('access').canManage(folder),
-      /** Who has access and why (effective access, D-038). */
+      /** Who has access and why (effective access). */
       access: engine.audience(folder),
     }
   }
@@ -119,7 +119,7 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
         }
       }
     }
-    // A personal space isn't shared whole: that's a shared space (spec §1.2).
+    // A personal space isn't shared whole: that's a shared space.
     if (spaceKeyProblem(folder, { grants }) === 'personal_root_grants') throw new RequestError(400, 'invalid', 'a personal space is not shared whole: share a folder in it')
     let ai: false | null = written?.ai ?? null
     if (body.ai !== undefined) {
@@ -128,7 +128,7 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
     }
     const ifMatch = typeof body.ifMatch === 'string' ? body.ifMatch.replace(/^W\//, '').replace(/^"|"$/g, '') : undefined
     if (ifMatch === undefined) throw new RequestError(428, 'precondition_required', 'ifMatch: the ETag of vihko.yaml the change was planned on')
-    // A name rc.1 or rc.2 wrote at a shared space's root stays, for the start that renames its folder to it (D-056.33).
+    // A name rc.1 or rc.2 wrote at a shared space's root stays, for the start that renames its folder to it.
     const value: RuleValue = { grants, ai, name: written?.name ?? null }
     await file.setRule(folder, value, { actor: c.get('access').actor, ifMatch })
     // The dialog after the change: whoever made it may have given their own `manage` away.
@@ -159,11 +159,10 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
     return c.json({ folders, section: engine.section.kind })
   })
 
-  // What a person or a key reaches, folder by folder (D-038, effective
+  // What a person or a key reaches, folder by folder (effective
   // access per person or key): a person, their own and their keys'. The
   // admin, anyone's, but only among the folders the admin reads too: the
-  // names of folders in spaces the admin doesn't read are never shown
-  // (D-056, spec §2.4).
+  // names of folders in spaces the admin doesn't read are never shown.
   app.get('/api/permissions/access', (c) => {
     const me = c.get('user')
     const access = c.get('access')

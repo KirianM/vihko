@@ -1,4 +1,4 @@
-// Comment threads resolved from a note (D-023, D-032.5): the ones that left it
+// Comment threads resolved from a note: the ones that left it
 // in the last 30 days, found by comparing its versions. Only through the
 // HistoryReader interface, so it works on any history (vihko's own, or the
 // notes folder's git in unmanaged mode).

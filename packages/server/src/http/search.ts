@@ -23,7 +23,7 @@ const like = (s: string) => s.replace(/[\\%_]/g, (c) => '\\' + c)
 
 /**
  * SQL condition on `n.path` for a filter. A tag matches itself and every tag
- * nested under it (`tag:hogar` → `hogar/red`, D-019); a path, that folder
+ * nested under it (`tag:hogar` → `hogar/red`); a path, that folder
  * with its subfolders or that exact note. Both ignore case.
  */
 function condition(f: SearchFilter): { sql: string; params: unknown[] } {

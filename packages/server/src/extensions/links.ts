@@ -1,9 +1,9 @@
-// Links between notes and their resolution (D-019). Each link records the
+// Links between notes and their resolution. Each link records the
 // key it looks up; the in-memory LinkIndex says which keys a batch touched,
 // so `finalize` re-resolves only the links that may have changed state.
 //
 // Whether aliases resolve links comes from vihko.yaml (`links.aliases`,
-// D-031.1). The tables record the setting they were resolved with: when it
+// on by default, off for folders shared with Obsidian). The tables record the setting they were resolved with: when it
 // changes (live, or while vihko was stopped) every link is resolved again,
 // without reindexing a single note.
 import { LinkIndex, linkSpace, normKey, pathKeys, type Heading, type LinkRef } from '@vihko/core'
@@ -37,8 +37,8 @@ export function linksExtension(opts: { aliases?: boolean } = {}): LinksExtension
   return {
     name: 'links',
     // 2: keys with full Unicode case folding. 3: the alias setting links were resolved with.
-    // 4: spaces (D-056): each key with the space its note is in, names resolved within it.
-    // 5: no link leads to another space, paths included (D-056.30): every link resolved again.
+    // 4: spaces: each key with the space its note is in, names resolved within it.
+    // 5: no link leads to another space, paths included: every link resolved again.
     version: 5,
     // Anchors are checked against the headings, and the index is loaded from them.
     requires: ['headings'],

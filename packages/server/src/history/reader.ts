@@ -4,7 +4,7 @@
 //
 // Implementing one: pages are always bounded (never walk the whole history to
 // answer one page), cursors are opaque strings, and `canRead` is asked for
-// every file a change lists (the permission filter, D-014, D-016).
+// every file a change lists (the permission filter).
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import type { Author } from '../actor.ts'
 
@@ -119,7 +119,7 @@ export function matchesAuthor(authors: readonly AuthorRef[], filter: string | nu
  * goes on (a commit, a path, maybe a path the note had in a place the client
  * can't read): only the server makes one and only the server reads it, so a
  * client can't point a page at another note's history, nor learn where the
- * note was (D-056.28). A restart makes them stale (`invalid`): the list is
+ * note was. A restart makes them stale (`invalid`): the list is
  * loaded again.
  */
 const CURSOR_KEY = randomBytes(32)

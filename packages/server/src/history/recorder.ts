@@ -1,13 +1,13 @@
-// The managed history's recorder (D-016, D-032, D-033): turns every change to
+// The managed history's recorder: turns every change to
 // the notes folder into versions with their authors, and commits them to a
 // git repository of vihko's own in the state volume (`history.git`).
 //
-// Product rules it implements (docs: M2 specification, §3 and §4):
+// Product rules it implements:
 // - What people type in the editor accumulates in one open version per note
 //   (the hub reports who typed and each flush), closed after `quietMs`
 //   without changes or `maxOpenMs` after it opened. Someone who starts
 //   writing where others were closes their version first, with the text
-//   from right before their change, and starts one of their own (D-034 3.4);
+//   from right before their change, and starts one of their own, so a version never mixes people who weren't writing together;
 //   whoever was already writing goes on in it with them.
 // - Any other write is its own version, and right before it whatever was
 //   pending on that file is closed with the content from before the write:
@@ -565,7 +565,7 @@ export class Recorder {
     this.scheduleDrain(0)
   }
 
-  // --- A purge while vihko runs (D-038.9) ----------------------------------------------
+  // --- A purge while vihko runs ---------------------------------------------------------
 
   /**
    * Runs `rewrite` (history/purge.ts, with the lock this process already
@@ -641,8 +641,8 @@ export class Recorder {
   // --- Recording: the collaboration hub -----------------------------------------
 
   /**
-   * Whether `actor` starting to type in `path` now closes the open version
-   * (D-034 3.4): what others typed is open (a version, or typing not yet
+   * Whether `actor` starting to type in `path` now closes the open version:
+   * what others typed is open (a version, or typing not yet
    * flushed) and they aren't in it, nor among those who have been writing
    * in the note since it was last quiet (`writers`).
    */
@@ -661,7 +661,7 @@ export class Recorder {
    * keystroke per flush and person). `before`: the note's text right before
    * it, when it may start a version (`startsVersion`): then what others typed
    * until that moment closes first as their version, with that text, and
-   * this person's first write starts one of their own (D-034 3.4). Whoever
+   * this person's first write starts one of their own. Whoever
    * was writing goes on in it with them; the next one to come in closes it
    * again. Once the note is quiet, it starts over.
    */

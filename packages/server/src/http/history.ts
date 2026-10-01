@@ -1,12 +1,13 @@
-// History API (the same principal and filter as the rest, D-014): a note's
-// history is only for whoever has `edit` where it is now (D-034 3.5, D-038),
+// History API (the same principal and filter as the rest): a note's
+// history is only for whoever has `edit` where it is now (sharing a note to
+// read doesn't give away its past),
 // and «Recent changes» filters file by file the same way. Everyone reads it
 // through agentHistory.ts: only versions from where they could edit it (and,
 // for an agent, whose text it could see). Someone who can read the note but
 // not edit it gets `forbidden`; someone who can't read it, `not_found`.
 // Authors come back with their current name (state.db), never the one
 // stored in the commit; reasons as codes with their data, which the UI
-// words (D-025).
+// words in the reader's language.
 //
 //   GET  /api/history/status
 //   GET  /api/history/versions?path=&cursor=&limit=   (`excluded`: history.exclude keeps it out)
@@ -42,9 +43,9 @@ export interface HistoryRoutesDeps {
   auth: Auth
   /** A key's name (`Claude Code`), for agent authors; null if unknown. */
   keyName?: (id: string) => string | null
-  /** Notices addressed to one person: whoever wrote in what is purged is told (D-040 3.6). */
+  /** Notices addressed to one person: whoever wrote in what is purged is told. */
   notices?: Notices
-  /** The confirmation at the moment (http/twoFactor.ts): the admin purging what they can't read (D-040 3.6). */
+  /** The confirmation at the moment (http/twoFactor.ts): the admin purging what they can't read. */
   confirm?: (c: Context<Env>, confirm: unknown) => Promise<Response | null>
 }
 
@@ -193,7 +194,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     // The images it brings back: only from folders whoever asks can read, and to where they can write.
     const r = await notes.restoreVersion(path, { id: v.id, at: v.at, path: v.path, text: v.text }, {
       ifMatch, actor: access.actor, file: (p) => reader.file(v.id, p), canWrite: (p) => access.canWrite(p),
-      // Brought back where it no longer is, it mustn't take a link to what its person can't read (D-056.20).
+      // Brought back where it no longer is, it mustn't take a link to what its person can't read: that would reveal it.
       mayName: (p) => access.userCanRead(p),
     })
     c.header('ETag', `"${r.etag}"`)
@@ -236,7 +237,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     })
   })
 
-  // Purging from the UI (D-038.9): a note or one of its versions, by whoever
+  // Purging from the UI: a note or one of its versions, by whoever
   // manages the folder it is in (a note deleted since, too: its history is
   // still there), never anything else (with `path` alone, that file only,
   // not what is under it; with `version`, only that note's content in that
@@ -245,7 +246,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
   // `dryRun`, what it would take out, for the confirmation. The history
   // pauses while it's rewritten; the admin gets a notice (who and what,
   // never the content), and so does every other person who wrote in what
-  // went (D-040 3.6: its path only while they can read it). The admin
+  // went (its path only while they can read it). The admin
   // purging anything they can't read (the path, or a file under it) confirms
   // at the moment, as for a key (`confirmRequired` in the dry run says so).
   // The answer names no other path the person can't read, and nothing of
@@ -267,7 +268,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     // Whether it takes out anything the person can't read: only the admin gets that far with it.
     const blind = (p: PurgeReport) => !readablePath(access, p.path) || p.commits.some((v) => v.files.some((f) => !readablePath(access, f.path)))
     // The admin's preview of a path they can't read says nothing of it: not whether it ever existed, nor
-    // when anything there was written (D-038.1, D-056.8). Only the purge itself, confirmed, does anything.
+    // when anything there was written: the admin manages, but doesn't read. Only the purge itself, confirmed, does anything.
     const unseen = { path, version: body.version ?? null, hidden: true, versions: [], filesRemoved: 0, onDisk: 0, sharedWith: [], movedFrom: [] }
     if (admin && !manages && !readablePath(access, path)) {
       if (body.dryRun === true) return c.json({ ...unseen, dryRun: true, confirmRequired: !!deps.confirm })
@@ -341,7 +342,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     return c.json({ ok: true })
   })
 
-  // Comment threads that left the note in the last 30 days (D-032.5): each one
+  // Comment threads that left the note in the last 30 days: each one
   // whole, with what it takes to put it back (`place`), who resolved it and
   // whether its text is still there. Reopening is an edit in the editor
   // session, like resolving: there is no endpoint that writes it.

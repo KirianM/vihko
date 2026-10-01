@@ -1,4 +1,4 @@
-// «Revert this change» (D-034.1): undo what one version changed, on the note
+// «Revert this change»: undo what one version changed, on the note
 // as it is now, and keep everything written since. A three-way merge: the
 // base is the version's text, what is wanted is the note right before that
 // version, and what is there is the note now.
@@ -125,7 +125,7 @@ function firstEndingFrom(list: readonly Hunk[], x: number): number {
 const shorten = (s: string) => (s.length <= MAX_PIECE_TEXT ? s : `${s.slice(0, MAX_PIECE_TEXT / 2)}…${s.slice(-MAX_PIECE_TEXT / 2)}`)
 
 /**
- * The note's `uid` is its identity (D-005): if the version gave the note its
+ * The note's `uid` is its identity, not its path: if the version gave the note its
  * `uid`, reverting doesn't take it away (it goes back exactly where that
  * version put it).
  */

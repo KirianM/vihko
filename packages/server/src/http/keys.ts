@@ -5,10 +5,10 @@
 //   PUT    /api/admin/integrations      { api?, mcp?, membersCanCreateKeys?, oauthRegistration? }   the vihko admin only
 //   GET    /api/keys[?all=1]            this user's keys; with all=1, the admin gets everyone's
 //   POST   /api/keys                    { name, canWrite?, folders?, expiresAt?, confirm } → { key, token } (the token, once).
-//                                        `confirm`: the current TOTP code, or the password without a second factor (D-036)
+//                                        `confirm`: the current TOTP code, or the password without a second factor
 //   PATCH  /api/keys/:id                { name?, canWrite?, folders?, expiresAt?, confirm? } its owner (an OAuth authorization too).
 //                                        A change that lets it do more (writing, more folders, a later expiry or none)
-//                                        takes `confirm`, as a new key does (D-046.2); narrowing or renaming, nothing
+//                                        takes `confirm`, as a new key does; narrowing or renaming, nothing
 //   POST   /api/keys/:id/rotate         { confirm } → { key, token }: a new secret (once); the old one works 10 more minutes. Its owner
 //   DELETE /api/keys/:id                revokes it: its owner or the admin
 import type { Context, Hono } from 'hono'
@@ -26,7 +26,7 @@ export interface KeyRoutesDeps {
   publicUrl?: string | null
   /**
    * Confirms that the person is there now (the current TOTP code, or the
-   * password without one, D-036): null if so, the response otherwise.
+   * password without one): null if so, the response otherwise.
    */
   confirm: (c: Context<Env>, confirm: unknown) => Promise<Response | null>
 }
@@ -60,7 +60,7 @@ export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
     if (c.req.query('all') === '1') {
       if (!isAdmin(c)) return c.json({ error: 'forbidden', message: 'admins only' }, 403)
       // Someone else's key is limited to folders of their spaces: the admin sees only those the admin
-      // reads too, and `foldersHidden` when there are others (never their names, D-056, spec §2.4).
+      // reads too, and `foldersHidden` when there are others (never their names).
       const access = c.get('access')
       const me = c.get('user').id
       return c.json({
@@ -95,7 +95,7 @@ export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
     if (!mayCreate(c)) return c.json({ error: 'forbidden', message: 'members may not change keys here' }, 403)
     const b = await body(c)
     const input: KeyInput = { name: b.name, canWrite: b.canWrite, folders: b.folders, expiresAt: b.expiresAt }
-    // Letting it do more is as good as a new key: confirmed the same way (D-046.2).
+    // Letting it do more is as good as a new key: confirmed the same way.
     if (keys.widens(key.id, input)) {
       const refused = await deps.confirm(c, b.confirm)
       if (refused) return refused
