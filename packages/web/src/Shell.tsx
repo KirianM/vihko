@@ -1,6 +1,6 @@
 // Main structure: folder tree and the note open in the editor.
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, type Key } from 'react-aria-components'
+import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, Tooltip, TooltipTrigger, type Key } from 'react-aria-components'
 import { seriesNeighbors } from '@vihko/core/series'
 import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type SpaceEntry, type SpacesInfo, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
 import { SpacesContext, notePathOf, rootOf, usePathLabels, useSpacesValue } from './spaces.tsx'
@@ -32,7 +32,7 @@ import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
 import { shiftedNotice } from './Shifts.tsx'
 import { OpenPaletteContext, Palette, SearchButton, type PaletteMode } from './Palette.tsx'
 import { rememberNote } from './recent.ts'
-import { WINDOWS, modKTaken } from './keys.ts'
+import { MAC, WINDOWS, keys, modKTaken } from './keys.ts'
 import { useBackClose, useMobile, useVisualViewport } from './mobile.ts'
 import { PreferencesDialog, browserTimeZone } from './Preferences.tsx'
 import { ancestors, buildTree, type FolderInfoOf, type Node, type TreeAction } from './FolderTree.tsx'
@@ -581,8 +581,19 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <div className="sidebar-head">
             <Brand />
             <span className="spacer" />
-            {dailyOn && <Button className="btn btn-icon" aria-label={t('shell.today')} onPress={() => void openToday()}>{Icon.calendar}</Button>}
-            {editsSomewhere && <Button className="btn btn-icon" aria-label={t('shell.newNote')} onPress={() => setPalette('create')}>{Icon.plus}</Button>}
+            {/* Icons only: each says what it is on hover and focus, with its shortcut, under the name it has everywhere else. */}
+            {dailyOn && (
+              <TooltipTrigger delay={400} closeDelay={0}>
+                <Button className="btn btn-icon" aria-label={t('shell.today')} aria-keyshortcuts={MAC ? 'Meta+Alt+D' : 'Control+Alt+D'} onPress={() => void openToday()}>{Icon.calendar}</Button>
+                <Tooltip className="tip" placement="bottom" offset={6}>{t('format.withKeys', { label: t('shell.today'), keys: keys('Mod-Alt-d') })}</Tooltip>
+              </TooltipTrigger>
+            )}
+            {editsSomewhere && (
+              <TooltipTrigger delay={400} closeDelay={0}>
+                <Button className="btn btn-icon" aria-label={t('shell.newNote')} onPress={() => setPalette('create')}>{Icon.plus}</Button>
+                <Tooltip className="tip" placement="bottom" offset={6}>{t('shell.newNote')}</Tooltip>
+              </TooltipTrigger>
+            )}
           </div>
           <Button className="btn sidebar-search" onPress={() => setPalette('search')}>
             {Icon.search}<span>{t('shell.search')}</span><kbd>⌘K</kbd>

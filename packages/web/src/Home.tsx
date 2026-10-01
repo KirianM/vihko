@@ -72,7 +72,7 @@ export function HomePage({ user, refresh, onOpen, onReveal, onNewNote, onToday, 
         </div>
         <div className="home-actions" role="group" aria-label={t('home.actions')}>
           {onNewNote && <Button className="btn btn-primary" onPress={onNewNote}>{Icon.plus}{t('home.newNote')}</Button>}
-          {onToday && <Button className="btn" onPress={onToday}>{Icon.calendar}{t('home.today')}</Button>}
+          {onToday && <Button className="btn" onPress={onToday}>{Icon.calendar}{t('shell.today')}</Button>}
           <Button className="btn" onPress={onSearch}>{Icon.search}{t('home.search')}</Button>
           {onNewSpace && <Button className="btn" onPress={onNewSpace}>{Icon.people}{t('home.newSpace')}</Button>}
         </div>

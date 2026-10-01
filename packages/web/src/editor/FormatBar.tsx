@@ -11,22 +11,13 @@ import { Fragment, useEffect, useRef, type ReactNode } from 'react'
 import { Button, Menu, MenuItem, MenuTrigger, Popover, Separator, Toolbar, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { canEdit, type Level } from '../api.ts'
 import { useT } from '../i18n.tsx'
-import { MAC } from '../keys.ts'
+import { keys } from '../keys.ts'
 import { Icon } from '../ui.tsx'
 import { NOTHING_ACTIVE, SHORTCUTS, activeFormats, insertLink, insertTable, runFormat, toggleCodeBlock, toggleHeading, toggleInline, toggleList, toggleQuote, type Active } from './format.ts'
 import { tag, wikilink, type Edit } from './insert.ts'
 import { insertionRange } from './insertAt.ts'
 import { useViewState } from './viewUpdates.ts'
 import './format.css'
-
-/** `Mod-Alt-k` as shown: Ctrl+Alt+K, or ⌥⌘K on a Mac. */
-function keys(binding: string): string {
-  const parts = binding.split('-')
-  const key = parts.pop()!.toUpperCase()
-  const mods = parts.map((p) => (p === 'Mod' ? (MAC ? 'Meta' : 'Ctrl') : p))
-  const mac: Record<string, string> = { Ctrl: '⌃', Alt: '⌥', Shift: '⇧', Meta: '⌘' }
-  return MAC ? ['Ctrl', 'Alt', 'Shift', 'Meta'].filter((m) => mods.includes(m)).map((m) => mac[m]).join('') + key : [...mods, key].join('+')
-}
 
 interface Props {
   view: EditorView | null

@@ -297,9 +297,9 @@ each starting with the same headings.
 
 4. Press **Save**.
 
-The calendar button, at the top of the sidebar next to `+` («Today's note»),
-now shows. Press it (or **Daily note** on Home, or Ctrl+Alt+D, ⌘⌥D on a
-Mac): vihko creates today's note, «My notes / Journal / 2026 / 2026-10-01»,
+The calendar button, at the top of the sidebar next to `+`, now shows («Today's
+note», its tooltip says, with the shortcut). Press it (or **Today's note** on
+Home, `>today's note` in the ⌘K box, or Ctrl+Alt+D, ⌘⌥D on a Mac): vihko creates today's note, «My notes / Journal / 2026 / 2026-10-01»,
 from the template, and opens it. Pressed again the same day, it opens that
 note; it never overwrites one. The arrows in the note's header go to the
 previous and next notes of the series that exist.
@@ -397,7 +397,7 @@ which also explains how the installation's, the space's and yours add up.
 
 **Home** is the page vihko opens by default: your recent notes, what others
 changed lately in the notes you read, what was shared with you in the last
-30 days, and the buttons **Write a note**, **Daily note** (when you have a
+30 days, and the buttons **Write a note**, **Today's note** (when you have a
 daily series), **Open search** and **Create a space**. It only ever shows
 what you can read. The vihko logo, at the top of the sidebar, always takes
 you there.

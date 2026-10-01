@@ -159,6 +159,25 @@ test('previous and next in the header: the nearest notes of the series that exis
   await expect(prev).toHaveCount(0)
 })
 
+test('one name for «Today\'s note»: the sidebar\'s button and its tooltip, Home and the ⌘K box', async () => {
+  await k.goto('/')
+  await expect(k.getByRole('group', { name: 'Accesos rápidos' }).getByRole('button', { name: 'Nota de hoy' })).toBeVisible()
+  // The sidebar's icon says it on hover, with its shortcut (Chromium on Linux: Ctrl). React Aria
+  // shows tooltips on hover once it knows a mouse is in use: a click on the page first.
+  await k.locator('.home-top h1').click()
+  await todayButton(k).hover()
+  await expect(k.getByRole('tooltip')).toHaveText('Nota de hoy (Ctrl+Alt+D)')
+  for (const theme of ['light', 'dark'] as const) {
+    await k.emulateMedia({ colorScheme: theme })
+    await k.screenshot({ path: `${SHOTS}/today-tooltip-${theme}.png`, clip: { x: 0, y: 0, width: 640, height: 320 } })
+  }
+  await k.emulateMedia({ colorScheme: null })
+  await k.mouse.move(800, 600)
+  await k.keyboard.press('Control+k')
+  await expect(k.getByRole('dialog').getByText('> nota de hoy')).toBeVisible()
+  await k.keyboard.press('Escape')
+})
+
 test('palette: «today\'s note» command and a new note from a template', async () => {
   await k.goto(`/?note=${encodeURIComponent(inVault('Plan.md'))}`)
   await expect(todayButton(k)).toBeVisible()

@@ -11,6 +11,15 @@ export const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.te
  */
 export const WINDOWS = typeof navigator !== 'undefined' && /Win/.test(navigator.platform)
 
+/** `Mod-Alt-k` as shown: Ctrl+Alt+K, or ⌥⌘K on a Mac. */
+export function keys(binding: string): string {
+  const parts = binding.split('-')
+  const key = parts.pop()!.toUpperCase()
+  const mods = parts.map((p) => (p === 'Mod' ? (MAC ? 'Meta' : 'Ctrl') : p))
+  const mac: Record<string, string> = { Ctrl: '⌃', Alt: '⌥', Shift: '⇧', Meta: '⌘' }
+  return MAC ? ['Ctrl', 'Alt', 'Shift', 'Meta'].filter((m) => mods.includes(m)).map((m) => mac[m]).join('') + key : [...mods, key].join('+')
+}
+
 type Taker = (e: KeyboardEvent) => boolean
 const takers = new Set<Taker>()
 
