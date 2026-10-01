@@ -386,6 +386,42 @@ test('a closed space transferred: into the recipient\'s, with what was shared st
   }
 })
 
+test('deleting a person can settle their space at once (D-056.28): what is asked is checked, and confirmed, before anyone is deleted', async () => {
+  const h = await setup()
+  try {
+    const shared = `${h.home('member')}/${m.aFolder()}`
+    h.write(`${shared}/${m.aTitle()}.md`, m.aParagraph())
+    h.write(`${h.home('member')}/${m.aTitle()}.md`, m.aParagraph())
+    await h.rule(shared, { grants: { [h.names.other]: 'edit' } })
+    assert.equal((await h.admin('POST', `/api/admin/users/${h.created.member.id}/disable`)).status, 200)
+    const url = `/api/admin/users/${h.created.member.id}/space`
+    const alive = async () => (await h.admin('GET', '/api/admin/users')).body.users.some((u: { id: string }) => u.id === h.created.member.id)
+    // Its preview: the same counts as in «Spaces», nothing deleted.
+    const dry = await h.admin('POST', url, { action: 'transfer', to: h.created.other.id, deleteUser: true, dryRun: true })
+    assert.equal(dry.status, 200, dry.text)
+    assert.deepEqual(dry.body.plan, { action: 'transfer', from: h.home('member'), to: `${h.home('other')}/${h.names.member}`, notes: 2, files: 0, sharedFolders: 1, people: 1 })
+    // What can't be done, or isn't confirmed, deletes nobody.
+    for (const bad of [
+      { action: 'transfer', to: h.created.member.id, confirm: h.created.admin.password },
+      { action: 'convert', name: m.aSpaceName(), members: { [h.names.other]: 'edit' }, confirm: h.created.admin.password },
+      { action: 'delete', confirm: h.created.admin.password },
+      { action: 'transfer', to: h.created.other.id },
+    ]) {
+      const r = await h.admin('POST', url, { ...bad, deleteUser: true })
+      assert.notEqual(r.status, 200, JSON.stringify(bad))
+      assert.ok(await alive(), JSON.stringify(bad))
+    }
+    const r = await h.admin('POST', url, { action: 'transfer', to: h.created.other.id, deleteUser: true, confirm: h.created.admin.password })
+    assert.equal(r.status, 200, r.text)
+    assert.equal(await alive(), false)
+    assert.ok(existsSync(join(h.notesDir, h.home('other'), h.names.member)))
+    assert.ok(!existsSync(join(h.notesDir, h.home('member'))))
+    assert.deepEqual((await h.admin('GET', '/api/admin/spaces')).body.closed, [])
+  } finally {
+    h.close()
+  }
+})
+
 test('the transfer\'s preview never looks into the recipient\'s space (D-056.28): the same plan whatever is there; a name taken there is found only when it moves, and a free one taken', async () => {
   const h = await setup()
   try {

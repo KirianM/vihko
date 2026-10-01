@@ -6,12 +6,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DIR, FILES, MEMBER, NOBODY, PATH, RULES, home, setup } from './_m4.ts'
+import { ADMIN, DIR, FILES, MEMBER, NOBODY, OTHER, PATH, RULES, home, setup } from './_m4.ts'
 import { yamlKey } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
-type Alert = { code: string; paths?: string[]; names?: string[]; path?: string; name?: string; warnings?: { code: string; at: string | null; detail: string | null }[] }
+type Alert = { code: string; paths?: string[]; names?: string[]; people?: string[]; into?: string; path?: string; name?: string; warnings?: { code: string; at: string | null; detail: string | null }[] }
 const alertsOf = async (who: (method: string, path: string) => Promise<{ body: any }>) => (await who('GET', '/api/alerts')).body.alerts as Alert[]
 
 test('the admin is told what is outside the spaces, person folders of nobody, and shared spaces without members or managers; nobody else is', async () => {
@@ -29,6 +29,8 @@ test('the admin is told what is outside the spaces, person folders of nobody, an
     const outside = admin.find((a) => a.code === 'outside_spaces')!
     assert.ok(outside.paths!.includes(stray) && outside.paths!.includes(PATH.rootPlan) && outside.paths!.includes(`spaces/${noId}`), JSON.stringify(outside))
     assert.ok(!outside.paths!.includes('vihko.yaml'))
+    // Where it can go: the admin's own space, by its exact path (D-056.28).
+    assert.equal(outside.into, home(ADMIN.username))
     assert.deepEqual(admin.find((a) => a.code === 'person_folder_without_user')?.names, [NOBODY])
     assert.deepEqual(admin.filter((a) => a.code === 'space_without_members').map((a) => a.path), [empty])
     assert.deepEqual(admin.filter((a) => a.code === 'space_without_managers').map((a) => [a.path, a.name]), [[headless, name]])
@@ -39,10 +41,16 @@ test('the admin is told what is outside the spaces, person folders of nobody, an
     for (const who of [h.member, h.other]) {
       assert.deepEqual((await alertsOf(who)).filter((a) => ['outside_spaces', 'person_folder_without_user', 'space_without_members', 'space_without_managers'].includes(a.code)), [])
     }
-    // A deleted person's folder is their closed space: not a stray.
+    // A deleted person's folder is their closed space: not a stray, but the admin is reminded while it waits for a decision (D-056.28).
     assert.equal((await h.admin('POST', `/api/admin/users/${h.users.other.id}/disable`)).status, 200)
     assert.equal((await h.admin('DELETE', `/api/admin/users/${h.users.other.id}`)).status, 200)
-    assert.deepEqual((await alertsOf(h.admin)).find((a) => a.code === 'person_folder_without_user')?.names, [NOBODY])
+    const after = await alertsOf(h.admin)
+    assert.deepEqual(after.find((a) => a.code === 'person_folder_without_user')?.names, [NOBODY])
+    assert.deepEqual(after.find((a) => a.code === 'closed_spaces')?.people, [OTHER.username])
+    assert.deepEqual((await alertsOf(h.member)).filter((a) => a.code === 'closed_spaces'), [])
+    // Decided (here, deleted), the reminder goes.
+    assert.equal((await h.admin('POST', `/api/admin/users/${h.users.other.id}/space`, { action: 'delete', confirm: ADMIN.password })).status, 200)
+    assert.equal((await alertsOf(h.admin)).find((a) => a.code === 'closed_spaces'), undefined)
   } finally { await h.close() }
 })
 

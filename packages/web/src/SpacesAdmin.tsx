@@ -116,6 +116,112 @@ function JoinDialog({ space, onClose, onDone }: { space: SpaceInfo; onClose: () 
   )
 }
 
+/** What is asked of a deleted person's space: to whom it goes, or the shared space it becomes. */
+interface SettleInput { to: string; name: string; members: Grants }
+
+/** Whether `input` says enough for `action`: someone to transfer it to, or a name and someone who manages it. */
+const settleReady = (action: PersonalSpacePlan['action'], input: SettleInput) =>
+  action === 'delete' || (action === 'transfer' ? !!input.to : !!input.name.trim() && Object.values(input.members).includes('manage'))
+
+/** The request for `action` with `input`, as the server takes it. */
+const settleRequest = (action: PersonalSpacePlan['action'], input: SettleInput) =>
+  ({ action, ...(action === 'transfer' ? { to: input.to } : {}), ...(action === 'convert' ? { name: input.name.trim(), members: input.members } : {}) })
+
+/** The fields of a transfer (to whom) or a conversion (its name and members, at least one who manages it). */
+function SettleFields({ action, value, onChange, users, groups }: {
+  action: PersonalSpacePlan['action']
+  value: SettleInput
+  onChange: (v: SettleInput) => void
+  users: UserInfo[]
+  groups: string[]
+}) {
+  const t = useT()
+  const [adding, setAdding] = useState<{ who: string; level: Level }>({ who: '', level: 'manage' })
+  const people = users.filter((u) => u.status !== 'disabled').sort((a, b) => collator.compare(a.username, b.username))
+  const members = value.members
+  if (action === 'transfer') {
+    return (
+      <label className="field">
+        <span>{t('spacesAdmin.transferTo')}</span>
+        <select className="select" value={value.to} onChange={(e) => onChange({ ...value, to: e.target.value })}>
+          <option value="">{t('spacesAdmin.pick')}</option>
+          {people.map((u) => <option key={u.id} value={u.id}>{u.username}</option>)}
+        </select>
+      </label>
+    )
+  }
+  if (action !== 'convert') return null
+  return (<>
+    <TextField className="field" value={value.name} onChange={(name) => onChange({ ...value, name })} maxLength={64} isRequired>
+      <Label>{t('spaces.name')}</Label>
+      <Input autoComplete="off" />
+    </TextField>
+    <fieldset className="key-fieldset">
+      <legend>{t('spacesAdmin.convertMembers')}</legend>
+      {Object.keys(members).length > 0 && (
+        <ul className="group-members">
+          {Object.entries(members).sort(([a], [b]) => collator.compare(a, b)).map(([s, l]) => (
+            <li key={s} className="member-chip">
+              <span>{s} · {t(LEVEL_LABEL[l])}</span>
+              <Button className="chip-remove" aria-label={t('perm.remove', { who: s })} onPress={() => { const next = { ...members }; delete next[s]; onChange({ ...value, members: next }) }}>{Icon.close}</Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="perm-add">
+        <select className="select perm-add-who" aria-label={t('perm.addWho')} value={adding.who} onChange={(e) => setAdding({ ...adding, who: e.target.value })}>
+          <option value="">{t('perm.addPick')}</option>
+          <optgroup label={t('perm.people')}>{people.filter((u) => !(u.username in members)).map((u) => <option key={u.id} value={u.username}>{u.username}</option>)}</optgroup>
+          {groups.length > 0 && <optgroup label={t('perm.groups')}>{groups.filter((g) => !(`@${g}` in members)).map((g) => <option key={g} value={`@${g}`}>@{g}</option>)}</optgroup>}
+        </select>
+        <select className="select perm-level" aria-label={t('perm.addLevel')} value={adding.level} onChange={(e) => setAdding({ ...adding, level: e.target.value as Level })}>
+          {LEVELS.map((l) => <option key={l} value={l}>{t(LEVEL_LABEL[l])}</option>)}
+        </select>
+        <Button className="btn" isDisabled={!adding.who} onPress={() => { onChange({ ...value, members: { ...members, [adding.who]: adding.level } }); setAdding({ who: '', level: 'edit' }) }}>{Icon.plus}{t('perm.add')}</Button>
+      </div>
+      <Text className="hint">{t('spacesAdmin.convertNeedsManager')}</Text>
+    </fieldset>
+  </>)
+}
+
+/** What it would do, as the dry run says it: counts, nothing named; and what a transfer may change in its links. */
+function SettleConsequences({ action, username, plan }: { action: PersonalSpacePlan['action']; username: string; plan: PersonalSpacePlan | null }) {
+  const t = useT()
+  const counts = plan && [
+    t(plan.notes === 1 ? 'folder.notesOne' : 'folder.notesMany', { n: plan.notes }),
+    t(plan.files === 1 ? 'folder.filesOne' : 'folder.filesMany', { n: plan.files }),
+  ].join(', ')
+  return (<>
+    {action === 'transfer' && <li>{t('spacesAdmin.transfer1', { user: username })}</li>}
+    {action === 'transfer' && <li>{t('spacesAdmin.transferLinks')}</li>}
+    {action === 'convert' && <li>{t('spacesAdmin.convert1', { user: username })}</li>}
+    {action === 'delete' && <li>{t('spacesAdmin.delete1')}</li>}
+    {action === 'delete' && <li>{t('spacesAdmin.delete2')}</li>}
+    {plan && <li>{t('spacesAdmin.holds', { what: counts ?? '' })}</li>}
+    {plan && plan.sharedFolders > 0 && <li>{t('spacesAdmin.shared', { folders: plan.sharedFolders, people: plan.people })}</li>}
+  </>)
+}
+
+/** The dry run of settling a space (`live`: the person isn't deleted yet), each time what is asked is complete. */
+function useSettlePlan(userId: string, action: PersonalSpacePlan['action'] | null, input: SettleInput, live: boolean) {
+  const t = useT()
+  const [plan, setPlan] = useState<PersonalSpacePlan | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const ready = action !== null && settleReady(action, input)
+  const key = action === null ? '' : JSON.stringify(settleRequest(action, input))
+  useEffect(() => {
+    setPlan(null)
+    setError(null)
+    if (!ready || action === null) return
+    let live_ = true
+    api.settleSpace(userId, { ...settleRequest(action, input), dryRun: true, ...(live ? { deleteUser: true } : {}) })
+      .then((p) => { if (live_) setPlan(p) })
+      .catch((err) => { if (live_) setError(errorText(t, err)) })
+    return () => { live_ = false }
+  }, [key, ready]) // eslint-disable-line react-hooks/exhaustive-deps
+  return { plan, error, ready }
+}
+
 /**
  * What becomes of a deleted person's space: transfer it to someone, make it
  * a shared space with members (at least one who manages it), or delete it.
@@ -130,87 +236,95 @@ function SettleDialog({ closed, action, users, groups, onClose, onDone }: {
   onDone: () => void
 }) {
   const t = useT()
-  const [to, setTo] = useState('')
-  const [name, setName] = useState(closed.username)
-  const [members, setMembers] = useState<Grants>({})
-  const [adding, setAdding] = useState<{ who: string; level: Level }>({ who: '', level: 'manage' })
-  const [plan, setPlan] = useState<PersonalSpacePlan | null>(null)
-  const [planError, setPlanError] = useState<string | null>(null)
-  const input = { action, ...(action === 'transfer' ? { to } : {}), ...(action === 'convert' ? { name: name.trim(), members } : {}) }
-  const ready = action === 'delete' || (action === 'transfer' ? !!to : !!name.trim() && Object.values(members).includes('manage'))
-  const key = JSON.stringify(input)
-  useEffect(() => {
-    setPlan(null)
-    setPlanError(null)
-    if (!ready) return
-    let live = true
-    api.settleSpace(closed.userId, { ...input, dryRun: true })
-      .then((p) => { if (live) setPlan(p) })
-      .catch((err) => { if (live) setPlanError(errorText(t, err)) })
-    return () => { live = false }
-  }, [key, ready]) // eslint-disable-line react-hooks/exhaustive-deps
-  const people = users.filter((u) => u.status !== 'disabled').sort((a, b) => collator.compare(a.username, b.username))
+  const [input, setInput] = useState<SettleInput>({ to: '', name: closed.username, members: {} })
+  const { plan, error: planError, ready } = useSettlePlan(closed.userId, action, input, false)
   const title = t(action === 'transfer' ? 'spacesAdmin.transferTitle' : action === 'convert' ? 'spacesAdmin.convertTitle' : 'spacesAdmin.deleteTitle', { user: closed.username })
-  const counts = plan && [
-    t(plan.notes === 1 ? 'folder.notesOne' : 'folder.notesMany', { n: plan.notes }),
-    t(plan.files === 1 ? 'folder.filesOne' : 'folder.filesMany', { n: plan.files }),
-  ].join(', ')
   return (
     <ConfirmedDialog title={title} danger={action === 'delete'} ready={ready && plan !== null} onClose={onClose}
       confirm={t(action === 'transfer' ? 'spacesAdmin.transferConfirm' : action === 'convert' ? 'spacesAdmin.convertConfirm' : 'spacesAdmin.deleteConfirm')}
-      onConfirm={async (secret) => { await api.settleSpace(closed.userId, { ...input, confirm: secret }); onDone() }}>
-      {action === 'transfer' && (
-        <label className="field">
-          <span>{t('spacesAdmin.transferTo')}</span>
-          <select className="select" value={to} onChange={(e) => setTo(e.target.value)}>
-            <option value="">{t('spacesAdmin.pick')}</option>
-            {people.map((u) => <option key={u.id} value={u.id}>{u.username}</option>)}
-          </select>
-        </label>
-      )}
-      {action === 'convert' && (<>
-        <TextField className="field" value={name} onChange={setName} maxLength={64} isRequired>
-          <Label>{t('spaces.name')}</Label>
-          <Input autoComplete="off" />
-        </TextField>
-        <fieldset className="key-fieldset">
-          <legend>{t('spacesAdmin.convertMembers')}</legend>
-          {Object.keys(members).length > 0 && (
-            <ul className="group-members">
-              {Object.entries(members).sort(([a], [b]) => collator.compare(a, b)).map(([s, l]) => (
-                <li key={s} className="member-chip">
-                  <span>{s} · {t(LEVEL_LABEL[l])}</span>
-                  <Button className="chip-remove" aria-label={t('perm.remove', { who: s })} onPress={() => { const next = { ...members }; delete next[s]; setMembers(next) }}>{Icon.close}</Button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="perm-add">
-            <select className="select perm-add-who" aria-label={t('perm.addWho')} value={adding.who} onChange={(e) => setAdding({ ...adding, who: e.target.value })}>
-              <option value="">{t('perm.addPick')}</option>
-              <optgroup label={t('perm.people')}>{people.filter((u) => !(u.username in members)).map((u) => <option key={u.id} value={u.username}>{u.username}</option>)}</optgroup>
-              {groups.length > 0 && <optgroup label={t('perm.groups')}>{groups.filter((g) => !(`@${g}` in members)).map((g) => <option key={g} value={`@${g}`}>@{g}</option>)}</optgroup>}
-            </select>
-            <select className="select perm-level" aria-label={t('perm.addLevel')} value={adding.level} onChange={(e) => setAdding({ ...adding, level: e.target.value as Level })}>
-              {LEVELS.map((l) => <option key={l} value={l}>{t(LEVEL_LABEL[l])}</option>)}
-            </select>
-            <Button className="btn" isDisabled={!adding.who} onPress={() => { setMembers({ ...members, [adding.who]: adding.level }); setAdding({ who: '', level: 'edit' }) }}>{Icon.plus}{t('perm.add')}</Button>
-          </div>
-          <Text className="hint">{t('spacesAdmin.convertNeedsManager')}</Text>
-        </fieldset>
-      </>)}
+      onConfirm={async (secret) => { await api.settleSpace(closed.userId, { ...settleRequest(action, input), confirm: secret }); onDone() }}>
+      <SettleFields action={action} value={input} onChange={setInput} users={users} groups={groups} />
       <ul className="consequences">
-        {action === 'transfer' && <li>{t('spacesAdmin.transfer1', { user: closed.username })}</li>}
-        {action === 'transfer' && <li>{t('spacesAdmin.transferLinks')}</li>}
-        {action === 'convert' && <li>{t('spacesAdmin.convert1', { user: closed.username })}</li>}
-        {action === 'delete' && <li>{t('spacesAdmin.delete1')}</li>}
-        {action === 'delete' && <li>{t('spacesAdmin.delete2')}</li>}
-        {plan && <li>{t('spacesAdmin.holds', { what: counts ?? '' })}</li>}
-        {plan && plan.sharedFolders > 0 && <li>{t('spacesAdmin.shared', { folders: plan.sharedFolders, people: plan.people })}</li>}
+        <SettleConsequences action={action} username={closed.username} plan={plan} />
       </ul>
       {!ready && <p className="hint">{t(action === 'transfer' ? 'spacesAdmin.pickSomeone' : 'spacesAdmin.convertNeedsManager')}</p>}
       {planError && <p className="error-text" role="alert">{planError}</p>}
     </ConfirmedDialog>
+  )
+}
+
+/**
+ * Deleting a person (D-056.28): what deleting does, and what becomes of
+ * their space, right there: decided later in «Spaces» (it stays closed, and
+ * the admin is reminded), transferred to someone, or made a shared space,
+ * with the same dry run as in «Spaces». Settling it is confirmed with the
+ * admin's code or password, before the person goes.
+ */
+export function DeletePersonDialog({ user, summary, users, groups, consequences, onClose, onDone }: {
+  user: UserInfo
+  /** What their space shares (GET /api/admin/users/:id/space); null while it loads. */
+  summary: { exists: boolean; sharedFolders: number; people: number } | null
+  users: UserInfo[]
+  groups: string[]
+  /** What deleting the account does, as the users page words it. */
+  consequences: string[]
+  onClose: () => void
+  onDone: () => void
+}) {
+  const t = useT()
+  const [choice, setChoice] = useState<'later' | 'transfer' | 'convert'>('later')
+  const [input, setInput] = useState<SettleInput>({ to: '', name: user.username, members: {} })
+  const [secret, setSecret] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const action = choice === 'later' ? null : choice
+  const { plan, error: planError, ready } = useSettlePlan(user.id, action, input, true)
+  const settles = action !== null
+  const canGo = !busy && (!settles || (ready && plan !== null && !!secret.trim()))
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!canGo) return
+    setBusy(true)
+    setError(null)
+    try {
+      if (action === null) await api.deleteUser(user.id)
+      else await api.settleSpace(user.id, { ...settleRequest(action, input), deleteUser: true, confirm: secret.trim() })
+      onDone()
+    } catch (err) {
+      setError(codeError(t, err))
+      setBusy(false)
+    }
+  }
+  const others = users.filter((u) => u.id !== user.id)
+  return (
+    <Dialog className="dialog dialog-narrow" role="alertdialog">
+      <form onSubmit={(e) => void submit(e)}>
+        <div className="dialog-fields">
+          <Heading slot="title" className="dialog-title">{t('users.deleteTitle', { user: user.username })}</Heading>
+          <ul className="consequences">{consequences.map((c) => <li key={c}>{c}</li>)}</ul>
+          {summary?.exists && (
+            <fieldset className="key-fieldset">
+              <legend>{t('users.deleteSpace')}</legend>
+              {(['later', 'transfer', 'convert'] as const).map((c) => (
+                <label key={c} className="check">
+                  <input type="radio" name="deleteSpace" checked={choice === c} disabled={busy} onChange={() => setChoice(c)} />
+                  <span className="check-text">{t(c === 'later' ? 'users.deleteSpaceLater' : c === 'transfer' ? 'users.deleteSpaceTransfer' : 'users.deleteSpaceConvert')}</span>
+                </label>
+              ))}
+              {action !== null && <SettleFields action={action} value={input} onChange={setInput} users={others} groups={groups} />}
+              {action !== null && <ul className="consequences"><SettleConsequences action={action} username={user.username} plan={plan} /></ul>}
+              {planError && <p className="error-text" role="alert">{planError}</p>}
+            </fieldset>
+          )}
+          {settles && <Identity value={secret} onChange={setSecret} hint={t('spacesAdmin.confirmHint')} />}
+          {error && <p className="error-text" role="alert">{error}</p>}
+        </div>
+        <div className="dialog-actions">
+          <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" className="btn btn-danger" isDisabled={!canGo}>{t(settles ? 'users.deleteAndSettle' : 'users.deleteConfirm')}</Button>
+        </div>
+      </form>
+    </Dialog>
   )
 }
 
@@ -333,7 +447,7 @@ export function SpacesPage({ user: me, onUnauthorized, onChanged }: { user: User
         {(outside || strays) && (
           <section className="settings-section" aria-labelledby="spaces-outside">
             <h2 id="spaces-outside">{t('spacesAdmin.outside')}</h2>
-            {outside && <p className="hint">{t('alerts.outsideSpacesBody')}</p>}
+            {outside && <p className="hint">{t('alerts.outsideSpacesBody').replace('{into}', `${outside.into}/`)}</p>}
             {outside && <ul className="alert-paths">{outside.paths.map((p) => <li key={p}><span className="mono">{p}</span></li>)}</ul>}
             {strays && <p className="hint">{t('alerts.personFolderBody')}</p>}
             {strays && <ul className="alert-paths">{strays.names.map((n) => <li key={n}><span className="mono">people/{n}</span></li>)}</ul>}

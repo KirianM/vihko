@@ -196,9 +196,16 @@ export type Alert =
   /**
    * What is in the notes folder outside every space (`paths`: top-level
    * names, and folders in `spaces/` that aren't a space): nobody sees it in
-   * vihko (D-056.4). Only admins see it.
+   * vihko (D-056.4). `into`: the admin's own space, where they can move it
+   * on the disk (D-056.28). Only admins see it.
    */
-  | { code: 'outside_spaces'; paths: string[]; actions: never[] }
+  | { code: 'outside_spaces'; paths: string[]; into: string; actions: never[] }
+  /**
+   * Spaces of deleted people nobody has decided about yet (`people`: their
+   * usernames, D-056.28): closed, nobody sees them until the admin
+   * transfers, converts or deletes each one. Only admins see it.
+   */
+  | { code: 'closed_spaces'; people: string[]; actions: never[] }
   /** Folders in `people/` named like no user, active, disabled or deleted (`names`): nobody sees them. Only admins see it. */
   | { code: 'person_folder_without_user'; names: string[]; actions: never[] }
   /** A shared space nobody has access to (`path`, `name`): the admin assigns a manager (spec §2.4). Only admins see it. */

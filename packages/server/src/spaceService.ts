@@ -379,21 +379,26 @@ export class SpaceService {
    *   and its rules from vihko.yaml; the history keeps what it had.
    * Links into it are rewritten as a folder move rewrites them, and keys,
    * pins and the trash follow (folderRefs.ts). `dryRun`: what it would do.
+   *
+   * `live`: the person isn't deleted yet (D-056.28: deleting them offers to
+   * settle their space at once, `deleteAndSettle`): only the dry run, of a
+   * transfer to someone else or a conversion.
    */
-  async personal(access: Access, userId: string, input: { action?: unknown; to?: unknown; name?: unknown; members?: unknown; dryRun?: unknown }): Promise<PersonalSpacePlan> {
+  async personal(access: Access, userId: string, input: { action?: unknown; to?: unknown; name?: unknown; members?: unknown; dryRun?: unknown }, opts: { live?: boolean } = {}): Promise<PersonalSpacePlan> {
     const admin = this.admin(access)
-    const gone = this.opts.state.prepare('select id, username from users where id = ? and deleted_at is not null').get(userId) as { id: string; username: string } | undefined
+    const gone = this.opts.state.prepare(`select id, username from users where id = ? and deleted_at is ${opts.live ? '' : 'not '}null`).get(userId) as { id: string; username: string } | undefined
     const from = gone ? personalRoot(gone.username) : null
     if (!gone || !from || !this.isFolder(from)) throw new NoteError('not_found', 'no closed space for that user')
     const action = input.action
     if (action !== 'transfer' && action !== 'convert' && action !== 'delete') throw new SpaceError(400, 'invalid', 'action must be transfer, convert or delete')
+    if (opts.live && (action === 'delete' || input.dryRun !== true)) throw new SpaceError(400, 'invalid', 'a person\'s space is deleted only once they are')
     const dryRun = input.dryRun === true
     let to: string | null = null
     let recipient: { id: string; username: string } | null = null
     let name = ''
     let members: Record<string, Level> = {}
     if (action === 'transfer') {
-      recipient = typeof input.to === 'string' ? this.opts.users.get(input.to) : null
+      recipient = typeof input.to === 'string' && input.to !== gone.id ? this.opts.users.get(input.to) : null
       if (!recipient) throw new NoteError('not_found', 'no such user')
       to = `${personalRoot(recipient.username)}/${gone.username}`
     } else if (action === 'convert') {
@@ -469,6 +474,19 @@ export class SpaceService {
       this.opts.notices.spaceChanged(told, admin.id, { change: 'personal_converted', user: gone.id, to: null, space: dest })
     }
     return plan(dest)
+  }
+
+  /**
+   * Deletes a person (disabled first, as `Users.remove` asks) and settles
+   * their space at once, transferring or converting it (D-056.28): what
+   * `input` asks is checked before anything happens; then the person goes,
+   * and their space with them. If settling fails after that, the space is
+   * closed as with any deletion, and the admin's alert says so.
+   */
+  async deleteAndSettle(access: Access, userId: string, input: { action?: unknown; to?: unknown; name?: unknown; members?: unknown }): Promise<PersonalSpacePlan> {
+    await this.personal(access, userId, { ...input, dryRun: true }, { live: true })
+    await this.opts.users.remove(userId, access.actor)
+    return this.personal(access, userId, { ...input, dryRun: false })
   }
 
   // --- Telling people they were added ------------------------------------------------

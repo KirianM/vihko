@@ -18,6 +18,7 @@ import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import { AccessDialog } from './Permissions.tsx'
+import { DeletePersonDialog } from './SpacesAdmin.tsx'
 import { SearchButton } from './Palette.tsx'
 import { Icon, MenuButton, NAME_INPUT, ThemeToggle } from './ui.tsx'
 import './actions.css'
@@ -298,12 +299,12 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState<Open | null>(null)
-  /** Before deleting someone: what their space shares with others, as counts (spec §2.6). */
-  const [summary, setSummary] = useState<{ id: string; sharedFolders: number; people: number } | null>(null)
+  /** Before deleting someone: whether they have a space, and what it shares with others, as counts (spec §2.6). */
+  const [summary, setSummary] = useState<{ id: string; exists: boolean; sharedFolders: number; people: number } | null>(null)
   useEffect(() => {
     if (open?.kind !== 'confirm' || open.action !== 'delete') return
     const id = open.user.id
-    api.personalSummary(id).then((s) => setSummary({ id, sharedFolders: s.sharedFolders, people: s.people })).catch(() => {})
+    api.personalSummary(id).then((s) => setSummary({ id, exists: s.exists, sharedFolders: s.sharedFolders, people: s.people })).catch(() => {})
   }, [open])
 
   const fail = (err: unknown) => {
@@ -427,7 +428,12 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
   let dialog: ReactNode = null
   if (open?.kind === 'new') dialog = <NewUserDialog onClose={close} onCreated={(user, link) => { setOpen({ kind: 'link', user, link, created: true }); void load() }} />
   else if (open?.kind === 'link') dialog = <LinkDialog user={open.user} link={open.link} created={open.created} onClose={close} />
-  else if (open?.kind === 'confirm') {
+  else if (open?.kind === 'confirm' && open.action === 'delete') {
+    // Deleting someone offers to settle their space right there (D-056.28).
+    const c = confirmFor('delete', open.user)
+    dialog = <DeletePersonDialog key={`delete-${open.user.id}`} user={open.user} summary={summary?.id === open.user.id ? summary : null}
+      users={users ?? []} groups={(groups ?? []).map((g) => g.name)} consequences={c.items} onClose={close} onDone={done} />
+  } else if (open?.kind === 'confirm') {
     const c = confirmFor(open.action, open.user)
     dialog = <ConfirmDialog key={`${open.action}-${open.user.id}`} title={c.title} items={c.items} confirm={c.confirm} danger={c.danger} identity={c.identity} onClose={close} onConfirm={c.go} />
   } else if (open?.kind === 'policy') {

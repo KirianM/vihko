@@ -4,7 +4,7 @@
 // names anything inside a space.
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { PEOPLE, SPACES, WORKSPACE_FILE, isValidUsername, parseSpaceFolder, spaceRootOf, type Alert, type ConfigError } from '@vihko/core'
+import { PEOPLE, SPACES, WORKSPACE_FILE, isValidUsername, parseSpaceFolder, personalRoot, spaceRootOf, type Alert, type ConfigError } from '@vihko/core'
 import type { Db } from './db.ts'
 import type { PermissionsEngine } from './permissions.ts'
 
@@ -13,6 +13,8 @@ export interface SpaceAlertsDeps {
   engine: PermissionsEngine
   /** state.db: the names of deleted users (their folders are their closed spaces, not strays). */
   state: Db
+  /** The admin who asks: what is outside the spaces can go into their own space (`outside_spaces`). */
+  username: string
 }
 
 /** The entries of a folder, but hidden ones; empty if it can't be read. */
@@ -24,7 +26,7 @@ function entries(dir: string): { name: string; dir: boolean }[] {
   }
 }
 
-/** `outside_spaces`, `person_folder_without_user`, `space_without_members` and `space_without_managers`, for the admin. */
+/** `outside_spaces`, `person_folder_without_user`, `closed_spaces`, `space_without_members` and `space_without_managers`, for the admin. */
 export function spaceAlerts(deps: SpaceAlertsDeps): Alert[] {
   const out: Alert[] = []
   const outside: string[] = []
@@ -39,13 +41,16 @@ export function spaceAlerts(deps: SpaceAlertsDeps): Alert[] {
   const users = new Set(deps.engine.directory.users().map((u) => u.username.normalize('NFC')))
   const deleted = new Set((deps.state.prepare('select username from users where deleted_at is not null').all() as { username: string }[]).map((r) => r.username.normalize('NFC')))
   const strays: string[] = []
+  const closed: string[] = []
   for (const e of entries(join(deps.notesDir, PEOPLE))) {
     if (!e.dir) { outside.push(`${PEOPLE}/${e.name}`); continue }
-    // A deleted user's folder is their closed space (D-056.8): not a stray.
-    if (!isValidUsername(e.name) || (!users.has(e.name) && !deleted.has(e.name))) strays.push(e.name)
+    // A deleted user's folder is their closed space (D-056.8): not a stray, but undecided while it is there (D-056.28).
+    if (isValidUsername(e.name) && !users.has(e.name) && deleted.has(e.name)) closed.push(e.name)
+    else if (!isValidUsername(e.name) || !users.has(e.name)) strays.push(e.name)
   }
-  if (outside.length) out.push({ code: 'outside_spaces', paths: outside.sort(), actions: [] })
+  if (outside.length) out.push({ code: 'outside_spaces', paths: outside.sort(), into: personalRoot(deps.username), actions: [] })
   if (strays.length) out.push({ code: 'person_folder_without_user', names: strays.sort(), actions: [] })
+  if (closed.length) out.push({ code: 'closed_spaces', people: closed.sort(), actions: [] })
   for (const s of deps.engine.sharedSpaces()) {
     if (s.members === 0) out.push({ code: 'space_without_members', path: s.path, name: s.name, actions: [] })
     else if (s.managers.length === 0) out.push({ code: 'space_without_managers', path: s.path, name: s.name, actions: [] })

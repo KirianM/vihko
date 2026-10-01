@@ -526,6 +526,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         {view === 'alerts' ? (
           <AlertsPage
             onOpen={setOpenPath}
+            onSpaces={showSpaces}
             onChanged={(n) => { setAlerts(n); void loadTree() }}
             onUnauthorized={onUnauthorized}
           />

@@ -178,8 +178,10 @@ function rich(text: string, parts: Record<string, ReactNode>): ReactNode[] {
   return text.split(/\{(\w+)\}/).map((chunk, i) => (i % 2 ? <Fragment key={i}>{parts[chunk] ?? `{${chunk}}`}</Fragment> : chunk))
 }
 
-export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
+export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
   onOpen: (path: string) => void
+  /** The admin's «Spaces» page, where a deleted person's space is decided. */
+  onSpaces: () => void
   /** After loading or after an action: the alert count, for the sidebar. */
   onChanged: (count: number) => void
   onUnauthorized: () => void
@@ -524,9 +526,19 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           icon: icons.warn,
           tone: 'warn',
           title: t('alerts.outsideSpacesTitle'),
-          body: t('alerts.outsideSpacesBody'),
+          // Where it can go: the admin's own space, by its exact path (D-056.28).
+          body: rich(t('alerts.outsideSpacesBody'), { into: <span className="mono">{a.into}/</span> }),
           extra: <ul className="alert-paths">{a.paths.map((p) => <li key={p}><span className="mono">{p}</span></li>)}</ul>,
           actions: null,
+        })
+      case 'closed_spaces':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: a.people.length === 1 ? t('alerts.closedSpacesTitleOne', { user: a.people[0]! }) : t('alerts.closedSpacesTitle', { n: a.people.length }),
+          body: t('alerts.closedSpacesBody'),
+          extra: a.people.length > 1 ? <ul className="alert-paths">{a.people.map((n) => <li key={n}>{n}</li>)}</ul> : undefined,
+          actions: <Button className="btn" onPress={onSpaces}>{t('alerts.closedSpacesGo')}</Button>,
         })
       case 'person_folder_without_user':
         return frame({

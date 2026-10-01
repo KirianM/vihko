@@ -21,7 +21,8 @@
 //   POST   /api/admin/spaces/join          { path, level?, confirm } → { space }: the admin as a member (`read` by default)
 //   GET    /api/admin/users/:id/space      { path, exists, sharedFolders, people }: before deleting someone
 //   POST   /api/admin/users/:id/space      { action: transfer|convert|delete, to?, name?, members?, dryRun?, confirm }
-//                                            → { plan }: a deleted person's closed space
+//                                            → { plan }: a deleted person's closed space; with `deleteUser: true`, a
+//                                            disabled person deleted and their space transferred or converted at once
 import type { Context, Hono } from 'hono'
 import type { Access } from '../access.ts'
 import type { User } from '../auth.ts'
@@ -93,6 +94,14 @@ export function spaceRoutes(app: Hono<Env>, deps: SpaceRoutesDeps) {
     const b = await body(c)
     const id = c.req.param('id') ?? ''
     const input = { action: b.action, to: b.to, name: b.name, members: b.members }
+    // Someone not deleted yet: deleting them and settling their space at once (D-056.28).
+    if (b.deleteUser === true) {
+      const plan = await spaces.personal(access(c), id, { ...input, dryRun: true }, { live: true })
+      if (b.dryRun === true) return c.json({ plan })
+      const refused = await deps.confirm(c, b.confirm)
+      if (refused) return refused
+      return c.json({ plan: await spaces.deleteAndSettle(access(c), id, input) })
+    }
     const plan = await spaces.personal(access(c), id, { ...input, dryRun: true })
     if (b.dryRun === true) return c.json({ plan })
     const refused = await deps.confirm(c, b.confirm)

@@ -466,8 +466,11 @@ export const api = {
   joinSpace: (path: string, level: Level, confirm: string) => request<{ space: SpaceInfo }>('POST', '/api/admin/spaces/join', { path, level, confirm }).then((r) => r.space),
   /** Before deleting someone: what their space shares, as counts. */
   personalSummary: (userId: string) => request<{ path: string; exists: boolean; sharedFolders: number; people: number }>('GET', `/api/admin/users/${encodeURIComponent(userId)}/space`),
-  /** A deleted person's closed space: transferred, made a shared space or deleted (`dryRun`: what it would do). */
-  settleSpace: (userId: string, input: { action: PersonalSpacePlan['action']; to?: string; name?: string; members?: Grants; dryRun?: boolean; confirm?: string }) =>
+  /**
+   * A deleted person's closed space: transferred, made a shared space or deleted (`dryRun`: what it would do).
+   * With `deleteUser`, a disabled person not deleted yet: deleted, and their space transferred or converted at once (D-056.28).
+   */
+  settleSpace: (userId: string, input: { action: PersonalSpacePlan['action']; to?: string; name?: string; members?: Grants; dryRun?: boolean; confirm?: string; deleteUser?: boolean }) =>
     request<{ plan: PersonalSpacePlan }>('POST', `/api/admin/users/${encodeURIComponent(userId)}/space`, input).then((r) => r.plan),
   workspace: () => request<WorkspaceInfo>('GET', '/api/workspace'),
   profile: () => request<Profile>('GET', '/api/profile'),

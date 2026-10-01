@@ -840,7 +840,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       for (const sr of workspace.config.daily) {
         if (sr.template && !noteExists.get(sr.template)) alerts.push({ code: 'config_template_missing', series: sr.id, template: sr.template, actions: [] })
       }
-      for (const a of spaceAlerts({ notesDir: deps.notesDir, engine: permissions, state: auth.state })) alerts.push(a)
+      for (const a of spaceAlerts({ notesDir: deps.notesDir, engine: permissions, state: auth.state, username: c.get('user').username })) alerts.push(a)
     }
     // Grants for folders that don't exist: to whoever manages the space they're in (spec §1.2), never the admin as such.
     if (!access.isAgent) {
