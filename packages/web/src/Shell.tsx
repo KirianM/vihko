@@ -235,6 +235,20 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const todayRef = useRef<(() => void) | null>(null)
   todayRef.current = dailyOn ? () => void openToday() : null
 
+  // The tree and the sidebar, live (D-056.36): the server says «read your tree again» when someone
+  // else's change concerns what this person sees (GET /api/events). The browser reconnects by itself.
+  useEffect(() => {
+    if (typeof EventSource === 'undefined') return
+    const events = new EventSource('/api/events')
+    let timer: ReturnType<typeof setTimeout> | null = null
+    events.addEventListener('tree', () => {
+      if (timer) return
+      timer = setTimeout(() => { timer = null; void loadTree() }, 150)
+    })
+    return () => { if (timer) clearTimeout(timer); events.close() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // The hub says this session ended (disabled, sessions closed, a new password elsewhere): sign in again.
   useEffect(() => {
     const ended = () => onUnauthorized()

@@ -52,6 +52,13 @@ its entries are kept at the end of this file.
   open on that device, a note you pick by its name, or today's note if it
   already exists (never created on coming in; offered when you have a daily
   series). It replaces «Open today's note when vihko opens».
+- **The tree and the sidebar are live**: what someone else creates, renames,
+  moves or deletes where you read, a folder shared with you or taken back, or
+  a space you're added to or removed from, shows without reloading. The
+  server only says «read your tree again» (`GET /api/events`, a server-sent
+  event stream), and only to those a change concerns: never what changed,
+  and never to someone who can't read it. A reverse proxy must not buffer
+  `/api/events` (most don't for `text/event-stream`).
 - **«Back»** on the pages (Account, Agents and API, Privacy, Users and
   groups, Spaces, Alerts, Recent changes): to the note or Home you came from.
 

@@ -24,7 +24,9 @@ The UI is in English or Spanish, following your browser's language.
 
   At the bottom: «Recent changes», the workspace alerts when there are any,
   your name (it opens «Preferences») and «Sign out». [Spaces, people and
-  sharing](users-and-permissions.md) explains the spaces.
+  sharing](users-and-permissions.md) explains the spaces. The tree follows
+  what other people create, rename, move or delete where you read, and what
+  is shared with you, without reloading.
 - **The note**, in the middle: its text, always editable in place (unless
   you only read it). Changes are saved on their own: the header says
   «Saving…» and then «Saved to disk».

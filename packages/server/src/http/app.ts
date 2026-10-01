@@ -25,6 +25,8 @@ import { DailyNotes } from '../daily.ts'
 import { ProfileError, isNotePath, type Profile, type Profiles } from '../profiles.ts'
 import { historyFor } from '../agentHistory.ts'
 import { homeView } from '../home.ts'
+import { LiveTree } from '../liveTree.ts'
+import { streamSSE } from 'hono/streaming'
 import type { Workspace } from '../workspace.ts'
 import { MoveJobs } from './jobs.ts'
 import type { ExternalMoves } from '../externalMoves.ts'
@@ -204,6 +206,8 @@ export interface Services {
   /** Images being received, by the API and the MCP server alike (imageSlots.ts). */
   imageSlots: ImageSlots
   /** Spaces (D-056): what each person reaches, for the MCP server's instructions and `list_folder("")` too. */
+  /** The tree, live (liveTree.ts): main.ts tells it when vihko.yaml was changed by hand. */
+  live: LiveTree
   spaces: SpaceService
 }
 
@@ -277,8 +281,20 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     }),
   })
   const permissions = policy.permissions
+  // The tree and the sidebar, live (liveTree.ts): told what changes the tree, and when who reaches what may have.
+  const live = new LiveTree({
+    policy,
+    viewOf: (user) => {
+      const rules = permissions.spaceRules()
+      // Only what they see: a rule of a folder they don't reach never weighs in.
+      const seen = rules.rules.map((r) => [r.folder, permissions.levelFor(user, r.folder, rules), r.ai] as const).filter(([, level]) => level !== null)
+      return { spaces: permissions.spacesFor(user), seen }
+    },
+  })
+  deps.indexer.onTreeChange((paths) => live.pathsChanged(paths))
+  const permissionsChanged = () => { deps.onPermissionsChanged?.(); live.viewChanged() }
   const permissionsFile = new PermissionsFile({
-    notesDir: deps.notesDir, workspace, engine: permissions, history: deps.history?.recorder, onChange: deps.onPermissionsChanged,
+    notesDir: deps.notesDir, workspace, engine: permissions, history: deps.history?.recorder, onChange: permissionsChanged,
     // Whoever a share or a new member reaches is told (spaceService.ts `notifyShared`).
     onRuleSet: (folder, before, actor) => { spaces.notifyShared(folder, before, actor) },
   })
@@ -298,15 +314,15 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   users.hooks.onGroupRenamed ??= async (from, to, by) => { await permissionsFile.renameSubject(`@${from}`, `@${to}`, { actor: by }) }
   users.hooks.onGroupDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(`@${name}`, { actor: by }) }
   // Deleting someone closes their space for everyone (D-056.8): open editors are checked again at once.
-  users.hooks.onUserRemoved ??= () => { deps.onPermissionsChanged?.() }
+  users.hooks.onUserRemoved ??= () => { permissionsChanged() }
   // So does taking someone out of a group (spec §8.4): they stop seeing what it gave them at once.
-  users.hooks.onMembersChanged ??= () => { deps.onPermissionsChanged?.() }
+  users.hooks.onMembersChanged ??= () => { permissionsChanged() }
   const spaces = new SpaceService({
     notesDir: deps.notesDir, state: auth.state, engine: permissions, file: permissionsFile, users, notices, settings: adminSettings, refs, notes, indexer: deps.indexer, now,
     deleteFolder: (access, path, o) => new ScopedNotes(scopedDeps, access).deleteFolder(path, o),
     moveFolder: (access, from, to, o) => new ScopedNotes(scopedDeps, access).moveFolder(from, to, o),
   })
-  const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users, imageSlots: new ImageSlots(), spaces }
+  const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users, imageSlots: new ImageSlots(), spaces, live }
   const app = new Hono<Env>()
   /** The request's operations, as whoever is asking. */
   const scoped = (c: Context<Env>) => services.scoped(c.get('access'))
@@ -629,6 +645,28 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     // «On opening» a note: one the person reads now (D-056.35); any other is as missing.
     if (isNotePath(patch.onOpenNote) && !c.get('access').canRead(patch.onOpenNote.normalize('NFC'))) return fail(c, 404, 'not_found', 'no such note')
     return c.json(shownProfile(profiles.update(c.get('user').id, patch), c.get('access')))
+  })
+
+  // The tree, live (liveTree.ts): a server-sent event stream that only ever
+  // says «read your tree again» (`tree`), to this person, when a change
+  // concerns what they see. A comment every 25 s keeps proxies from closing it.
+  app.get('/api/events', (c) => {
+    const access = c.get('access')
+    if (access.isAgent) return fail(c, 404, 'not_found', 'does not exist')
+    c.header('Cache-Control', 'no-store')
+    c.header('X-Accel-Buffering', 'no')
+    return streamSSE(c, async (stream) => {
+      let wake: (() => void) | null = null
+      const stop = live.subscribe(c.get('user'), () => { void stream.writeSSE({ event: 'tree', data: '{}' }).catch(() => {}) })
+      stream.onAbort(() => { stop(); wake?.() })
+      await stream.writeSSE({ event: 'ready', data: '{}' })
+      while (!stream.aborted && !stream.closed) {
+        // Unref'd: a stream left waiting never keeps the process alive.
+        await new Promise<void>((resolve) => { wake = resolve; setTimeout(resolve, 25_000).unref() })
+        if (!stream.aborted && !stream.closed) await stream.write(': keep-alive\n\n').catch(() => {})
+      }
+      stop()
+    })
   })
 
   // «Home» (D-056.35, home.ts): the person's recent notes, what others changed

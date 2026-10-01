@@ -212,12 +212,15 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
     git: config.history.git, quietMs: config.history.quietMs, maxOpenMs: config.history.maxOpenMs, sweepMs: config.history.sweepMs,
     nameOf: (a) => (a.kind === 'user' ? auth.username(a.id) ?? a.id : a.kind === 'agent' ? keys.nameOf(a.id) ?? a.id : a.kind),
   })
+  let liveTree: { viewChanged(): void } | null = null
   /** Rereads vihko.yaml and applies what the index, the history and open editors depend on. */
   const reloadWorkspace = () => {
     if (!workspace.reload()) return
     indexer.setLinkAliases(workspace.config.links.aliases)
     history.configure().catch((e) => log(`history: ${e instanceof Error ? e.message : String(e)}`))
     follow?.recheckAccess()
+    // vihko.yaml changed by hand: whoever reaches something else now reads their tree again (liveTree.ts).
+    liveTree?.viewChanged()
   }
 
   const runtime: Runtime = {
@@ -298,6 +301,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
     // The MCP server, at /mcp (off until the admin turns it on).
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log, icons: markIcons(webDir) }) },
   })
+  liveTree = services.live
   // Shared spaces of 0.1.0-rc.1 and rc.2 take their names as folders (D-056.33), before anyone can ask for them.
   await renameLegacySpaces({ notesDir: config.notesDir, file: services.permissionsFile, notes, refs: new FolderRefs({ state, stateDir: config.stateDir }), indexer, log })
     .catch((err) => log(`renaming the shared spaces of earlier versions: ${err instanceof Error ? err.message : String(err)}`))
