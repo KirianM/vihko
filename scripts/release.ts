@@ -10,7 +10,7 @@
 // and, on GitHub Actions, writes the step's outputs: `version`, `prerelease`,
 // `latest` and `tags` (the image tags, as docker/metadata-action lines).
 //
-// The image tags (D-042): a stable 1.2.3 gets 1.2.3, 1.2, 1 and latest; a
+// The image tags: a stable 1.2.3 gets 1.2.3, 1.2, 1 and latest; a
 // pre-release (any `-…` suffix) only its exact tag. A moving tag goes only
 // forward: a fix for an older line (1.1.5 once 1.2.0 is out) doesn't take 1
 // or latest back to it. The functions are pure, so test/release.test.ts

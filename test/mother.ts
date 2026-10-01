@@ -307,12 +307,12 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
       }, (f) => fresh(taken.notes, caseFold(f)))
     },
 
-    /** A shared space's name (what people see, and its folder: D-056.33): 1 to 3 words, unique like titles, valid as a space's. */
+    /** A shared space's name (what people see, and its folder): 1 to 3 words, unique like titles, valid as a space's. */
     aSpaceName(): string {
       return draw('space name', () => capital(Array.from({ length: int(1, 3) }, () => pick(TEXT_WORDS)).join(' ')), (t) => spaceNameProblem(t) === null && fresh(taken.notes, caseFold(t)))
     },
 
-    /** A new shared space's folder under `spaces/`: its name (D-056.33), `name` or a new one. */
+    /** A new shared space's folder under `spaces/`: its name, `name` or a new one. */
     aSpaceFolder(name?: string): string {
       return name ?? m.aSpaceName()
     },

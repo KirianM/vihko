@@ -9,7 +9,7 @@
 //
 //   npm run screenshots     (builds the UI first; needs Docker)
 //
-// The vault follows the spaces layout (D-056): the shown note is in a shared
+// The vault follows the spaces layout: the shown note is in a shared
 // space («Team», which both people belong to), the admin has notes of their
 // own («My notes»), and the member shares a folder of theirs with the admin
 // («Shared with me»).

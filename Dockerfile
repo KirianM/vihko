@@ -41,7 +41,7 @@ COPY packages/web packages/web
 RUN npm run build --workspace @vihko/web
 
 FROM node:26-trixie-slim
-# The note history keeps its versions with the system's git (D-016).
+# The note history keeps its versions with the system's git.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git \
  && rm -rf /var/lib/apt/lists/*
