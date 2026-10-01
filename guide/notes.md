@@ -12,20 +12,30 @@ what it never touches.
 
 | In the folder | For vihko |
 |---|---|
-| A file ending in `.md` (any case) | A note: indexed, searchable, editable |
-| Any other file (images, PDFs…) | A file: shown and linked, with the permissions of its folder |
+| `people/<username>/` | That person's own space, «My notes» for them |
+| `spaces/<name>-<id>/` | A shared space, such as `spaces/home-7k2q9x/` |
+| A file ending in `.md` (any case), inside a space | A note: indexed, searchable, editable |
+| Any other file (images, PDFs…), inside a space | A file: shown and linked, to whoever can read its folder |
+| Anything at the root other than `people/`, `spaces/` and `vihko.yaml` | Seen by nobody in vihko; the admins get an alert |
 | A name starting with `.` (`.git/`, `.obsidian/`, `.trash/`) or ending in `~` | Ignored, with everything under it |
 | A symbolic link, to a file or a folder | Ignored: vihko never reads, serves, indexes or writes through one |
 | A Syncthing conflict copy (`Plan.sync-conflict-20260928-101200-ABCDEFG.md`) | Not indexed; an alert points to it next to the original |
 | `vihko.yaml` at the root | The [workspace configuration](configuration.md), hidden from everyone |
 
-vihko imposes no structure: any folders, any names. Nothing needs frontmatter.
+Two folder names are fixed: `people/` and `spaces/`, at the root. Inside a
+space, vihko imposes no structure: any folders, any names. Nothing needs
+frontmatter. [Spaces, people and sharing](users-and-permissions.md) explains
+the spaces.
+
+A note's path is the same for everyone, from the root of the notes folder:
+`spaces/home-7k2q9x/recipes/Bread.md`. The UI shows it as each person sees
+it: «Home / recipes / Bread», or «My notes / …» for your own.
 
 Names are taken exactly as the disk spells them. On a filesystem that ignores
 case (a macOS or Windows folder shared into the container, an SMB share),
-`Projects/plan.md` would open `projects/plan.md`, but the permissions of a
-folder go by its name as written: vihko answers only to the spelling on disk,
-and any other spelling doesn't exist for it.
+`Projects/plan.md` would open `projects/plan.md`, but who can read a folder
+goes by its name as written: vihko answers only to the spelling on disk, and
+any other spelling doesn't exist for it.
 
 vihko keeps nothing of its own in the notes folder. Its database, index,
 history, trash and editor recovery files live in the state volume. The only
@@ -105,28 +115,48 @@ vihko reads both kinds of Markdown links. The editor writes wikilinks.
 | `[[Plan]]` | The note named `Plan` |
 | `[[Plan\|the plan]]` | The same, showing «the plan» |
 | `[[Plan#Budget]]` | The heading «Budget» in `Plan` |
-| `[[launch/Plan]]` | A note whose path ends in `launch/Plan` |
-| `[[/projects/launch/Plan]]` | Exactly `projects/launch/Plan.md`, from the root |
+| `[[launch/Plan]]` | A note of the same space whose path ends in `launch/Plan` |
+| `[[spaces/home-7k2q9x/Plan\|Plan]]` | A note in another space: its path from the root of the notes folder |
+| `[[/spaces/home-7k2q9x/launch/Plan]]` | Exactly `spaces/home-7k2q9x/launch/Plan.md`, from the root |
 | `[text](../launch/Plan.md)` | A standard Markdown link, relative to the note |
 | `![[Plan]]` | Also a link to `Plan` (vihko doesn't show one note inside another) |
 
-A `[[name]]` is resolved like this, in order:
+What a link means depends only on the file and the space it's in, never on
+who reads it:
 
-1. **Exact name**, ignoring case (and Unicode forms). Never a partial match.
-2. **Nearest wins.** With several candidates, the one that shares the deepest
-   folder with the linking note wins; then the one fewer levels below that
-   folder (a `Plan.md` next to you beats one in a subfolder).
-3. **Still tied: ambiguous.** vihko never picks silently. The link is marked
-   ambiguous; clicking it lists the candidates, and «Pin» rewrites that link to
-   the shortest form that always leads to the one you chose.
-4. **Aliases**, from the notes' frontmatter, as a last resort.
+1. **A wikilink that starts with `people/` or `spaces/`** is a path from the
+   root of the notes folder. It can reach any space.
+2. **A Markdown link, or `[[/path]]`**, is an exact path (relative to the
+   note, or from the root). It can reach any space.
+3. **Any other `[[name]]`** is looked for **only among the notes of its own
+   space**, ignoring case (and Unicode forms), never as a partial match:
+   - **nearest wins**: with several candidates, the one that shares the
+     deepest folder with the linking note wins; then the one fewer levels
+     below that folder (a `Plan.md` next to you beats one in a subfolder);
+   - **still tied: ambiguous.** vihko never picks silently. Clicking the link
+     lists the candidates, and «Pin» rewrites that link to the shortest form
+     that always leads to the one you chose;
+   - **aliases** from the frontmatter of the notes of that space, as a last
+     resort. An alias that several notes share is ambiguous.
 
-A link is shown as resolved, broken, ambiguous, pointing to a missing heading,
-or **no access**: a note that exists but that you can't read is shown dimmed
-with a lock, with no path, title or preview, so nobody is tempted to create a
-duplicate.
+A name never reaches another space: `[[Shopping list]]` in «My notes» never
+leads to the shopping list of «Home». To link there, write its path from the
+root; the `[[` suggestions do it for you, and show each note's space.
 
-Links inside code blocks and inline code aren't links.
+A folder named `people` or `spaces` at the root of a space hides behind rule
+1: link its notes by name, relatively, or with a leading `/`. vihko warns when
+you create one.
+
+A link is shown as resolved, ambiguous, pointing to a missing heading, or
+**broken**. A link to a note you can't read looks exactly like a link to a
+note that doesn't exist: broken, with nothing of where it leads, so nobody
+learns what exists by writing links. The note may well be there for others:
+in a folder someone shares with you, a link by name may lead to one of the
+owner's notes that isn't shared with you. For that reason vihko doesn't offer
+to create a note from a broken link in someone else's space.
+
+Links inside code blocks and inline code aren't links. Inside a table, the
+`|` of a wikilink is written `\|` (as Obsidian does), and vihko reads both.
 
 ## Renames and moves
 
@@ -138,6 +168,12 @@ every other note**, so none of them changes its destination:
   the note, with what would break it (spaces, brackets, parentheses, `%`,
   `#`, `?`…) percent-encoded, and keeps its `#heading`, its `<…>` form and
   its title.
+- **Across spaces**, a wikilink is written with the path from the notes root,
+  without a leading `/` (a form Obsidian understands too), and with the
+  note's name as the text shown: `[[spaces/home-7k2q9x/Shopping list|Shopping
+  list]]`. When the note is renamed from vihko, that text follows the new
+  name, as long as it's still the note's name. A note that moves to another
+  space has its links by name to its old space rewritten the same way.
 - It does it in every note, including ones you can't read or edit, as vihko
   itself on your behalf: those notes' history says «Links updated when “Plan”
   was renamed to “Launch plan”», with your name, and whoever can edit them can
@@ -147,12 +183,26 @@ every other note**, so none of them changes its destination:
   with the same name now takes over), that link is rewritten too, with the
   shortest form that keeps its destination.
 - If a rewrite fails (the file changed meanwhile), vihko adds the old name to
-  the note's `aliases`, so the link keeps working, and tells you which notes
-  to check. With `links.aliases: false` it only tells you.
+  the note's `aliases`, so links from its own space keep working, and tells
+  you which notes to check. With `links.aliases: false` it only tells you.
+  Links in other spaces are tried again after the next rescan; if they still
+  can't be updated, you get a notice, without names.
+- A name that would make an existing link lead to a note you can't read (or
+  make it ambiguous) isn't available: the dialog says «That name isn’t
+  available here», as for a name that is taken. Nothing is revealed, and the
+  other link keeps its destination. Creating a note with such a name is
+  refused the same way.
 
 Images next to the note that only it uses move with it (see
-[`attachments`](configuration.md#attachments-where-new-images-go)). Moving a
-folder moves everything in it and rewrites the links into it the same way.
+[`attachments`](configuration.md#attachments-where-new-images-go)). When a
+note moves to another space, the images it shares with other notes are
+copied to the new space, so its new readers see them, and the note links the
+copies. Moving a folder moves everything in it and rewrites the links into it
+the same way.
+
+Moving to another space changes who sees the note and whose it is: the dialog
+says so and asks you to confirm (see
+[Moving things between spaces](users-and-permissions.md#moving-things-between-spaces)).
 
 **Moved outside vihko** (a shell, a file manager, a sync tool): vihko notices
 the same note at the new path (same `uid`, or the same content) and keeps it as
@@ -219,8 +269,9 @@ Images from other sites (`![](https://…)`) load directly in the browser, which
 tells that site someone is looking. `VIHKO_EXTERNAL_IMAGES=block` stops that
 for the whole installation (see [Install](install.md)).
 
-An image has the permissions of the folder it's in: a person who can't read
-that folder can't see the image, even in a note they can read.
+An image can be seen by whoever can read the folder it's in: a person who
+can't read that folder can't see the image, even in a note they can read. New
+images always go inside the note's space.
 
 ## The trash
 
@@ -231,7 +282,7 @@ sees it close.
 **Its images go with it**: the ones next to it that no other note uses, the
 same ones that would go with it if you moved it to another folder (in
 `per-note` mode, what its own folder of images holds that no other note uses).
-Images another note also uses, in another folder, or in the shared
+Images another note also uses, in another folder, or in the space's
 attachments folder of [`attachments`](configuration.md#attachments-where-new-images-go)
 stay where they are. An agent takes along only images in its key's folders and
 out of folders closed to agents.
@@ -240,7 +291,8 @@ out of folders closed to agents.
 - Later, in «Recent changes», open the change that deleted it: «Restore it as
   it was before» puts it back from the history, images included.
 - A person sees, and restores, only what was deleted from folders where they
-  can edit.
+  can edit. What was in a shared space that has since been deleted is seen
+  and restored by the people who managed it, somewhere they can write.
 
 Restoring never overwrites anything. If a note with that name exists by then,
 the note isn't restored: rename or move that one first. If one of its images'
@@ -271,10 +323,14 @@ Two things keep a folder from being deleted, and the dialog says which:
 - **What vihko never touches**: a hidden folder inside it (`.git/`,
   `.obsidian/`, another program's) or a symbolic link. vihko doesn't read,
   move or delete those; remove them with another tool first.
-- **Things you can't edit**, such as someone's personal folder inside it:
-  counted, never named.
+- **Notes held** after a move made outside vihko (see
+  [Folders moved outside vihko](users-and-permissions.md#folders-moved-outside-vihko)):
+  release them first.
 
-Deleting a folder takes `manage` in it, as renaming or moving it does.
+Deleting a folder takes `manage` in it, as renaming or moving it does. Whoever
+manages a folder sees everything in it, so the list is complete. A space's
+root isn't deleted as a folder: a shared space is deleted from its menu
+(«Delete space…»), and your own space can't be deleted.
 
 ## Files changed outside vihko
 
@@ -294,6 +350,21 @@ Edit, add, move or delete files with any tool while vihko runs:
   alerts the admins.
 - **The history** records outside changes as «Outside vihko», or «while vihko
   was stopped». See [History](history.md#changes-made-outside-vihko).
+
+### With Obsidian and other editors
+
+- **With the whole notes folder open**, links inside a space and links that
+  start with `people/` or `spaces/` work as in vihko. One difference: a name
+  that doesn't exist in its own space but does in another, Obsidian finds
+  there, while vihko shows it broken.
+- **With only your own space open** (`people/<you>/`), everything inside it
+  works; links to other spaces are broken there.
+- **Files added outside a space** (at the root of the notes folder) aren't
+  seen by anyone in vihko, and the admins get an alert. To bring an existing
+  vault in, copy it into your own folder (`people/<you>/`), or into a shared
+  space's folder (`spaces/<name>-<id>/`) after creating the space in the UI.
+  Its links by name keep working inside that space; links written as
+  `[[/path]]` from the old root need the new path.
 
 ## What vihko never does to your files
 
