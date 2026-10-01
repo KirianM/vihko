@@ -526,7 +526,7 @@ reference; step by step, from the UI:
 
 | Whose | File | Edited from |
 |---|---|---|
-| A person's own | `people/<username>/.vihko/settings.yaml` | Preferences › «Your note settings» (or «My notes» › «Settings…» in the sidebar) |
+| A person's own | `people/<username>/.vihko/settings.yaml` | Preferences › «Your note settings» (or «My notes» › «Your note settings…» in the sidebar) |
 | A shared space's | `spaces/<name>/.vihko/settings.yaml` | The space's «Settings…» in the sidebar (its managers) |
 
 ```yaml

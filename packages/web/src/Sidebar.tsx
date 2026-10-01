@@ -114,8 +114,9 @@ function SpaceSection({ section, open, onToggle, onAction, children }: {
               <Menu className="menu" onAction={(k: Key) => onAction(k as SectionAction)}>
                 {actions.map((a) => (
                   <MenuItem key={a} id={a} className={a === 'delete' || a === 'leave' ? 'menu-item menu-item-danger' : 'menu-item'}>
-                    {a === 'newNote' ? Icon.plus : a === 'newFolder' ? Icon.folderPlus : a === 'rename' ? Icon.rename : a === 'delete' ? Icon.trash : a === 'members' || a === 'share' || a === 'access' ? Icon.people : a === 'agents' ? Icon.eyeOff : null}
-                    {t(ACTION_LABEL[a])}
+                    {a === 'newNote' ? Icon.plus : a === 'newFolder' ? Icon.folderPlus : a === 'rename' ? Icon.rename : a === 'delete' ? Icon.trash : a === 'members' || a === 'share' || a === 'access' ? Icon.people : a === 'agents' ? Icon.eyeOff : a === 'settings' ? Icon.settings : null}
+                    {/* One's own settings go by the name Preferences gives them. */}
+                    {t(a === 'settings' && section.kind === 'mine' ? 'settings.mineMenu' : ACTION_LABEL[a])}
                   </MenuItem>
                 ))}
               </Menu>

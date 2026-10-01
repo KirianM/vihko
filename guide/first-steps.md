@@ -252,7 +252,7 @@ So to start a journal you go to «Your note settings» first, and then, if you
 have more than one series, you pick it in «Daily note series».
 
 «Your note settings» is also in the menu of «My notes» in the sidebar (its
-`⋯` button, or right-click it) → **Settings…**. Every path you type there is
+`⋯` button, or right-click it) → **Your note settings…**. Every path you type there is
 inside «My notes»: `Journal` means «My notes / Journal».
 
 ### A daily journal

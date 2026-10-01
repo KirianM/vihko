@@ -105,6 +105,21 @@ test('one\'s own settings, from Preferences: a series and a templates folder in 
   await k.getByRole('dialog', { name: 'Ajustes de tus notas' }).getByRole('button', { name: 'Cancelar' }).click()
 })
 
+test('one\'s own settings go by one name: «Your note settings» in Preferences and in the menu of «My notes»', async () => {
+  await k.goto('/')
+  await k.getByRole('button', { name: 'Acciones de «Mis notas»' }).click()
+  await expect(k.getByRole('menuitem', { name: 'Ajustes…' })).toHaveCount(0)
+  for (const theme of ['light', 'dark'] as const) {
+    await k.emulateMedia({ colorScheme: theme })
+    await k.screenshot({ path: `${SHOTS}/mine-menu-${theme}.png`, clip: { x: 0, y: 0, width: 640, height: 480 } })
+  }
+  await k.emulateMedia({ colorScheme: null })
+  await k.getByRole('menuitem', { name: 'Ajustes de tus notas…' }).click()
+  const dialog = k.getByRole('dialog', { name: 'Ajustes de tus notas' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+})
+
 test('a space\'s settings, by its manager from the space\'s menu: where its new images go; a member reads them and can\'t change them', async ({ browser }) => {
   await k.goto('/')
   await k.getByRole('button', { name: `Acciones de «${SPACE_NAME}»` }).click()
