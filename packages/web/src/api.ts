@@ -371,7 +371,20 @@ export interface GroupInfo { id: string; name: string; members: { id: string; us
 /** The second factor's policy (D-036): required, optional (the default) or disabled. */
 export type TwoFactorPolicy = 'required' | 'optional' | 'disabled'
 /** The admin's settings: members downloading images from the local network (off by default), and the second factor's policy. */
-export interface AdminSettings { membersLocalDownloads: boolean; twoFactor: TwoFactorPolicy; spacesCreation: 'everyone' | 'admins' }
+export interface AdminSettings {
+  membersLocalDownloads: boolean
+  twoFactor: TwoFactorPolicy
+  spacesCreation: 'everyone' | 'admins'
+  /** Trash entries older than this many days are removed at night; null: never. */
+  trashRetentionDays: number | null
+  /** History versions older than this many days are removed at night (each note keeps its current one); null: never. */
+  historyRetentionDays: number | null
+}
+
+/** What a retention run removes, or would (counts and sizes; `history` null: no managed history to thin). */
+export interface RetentionCounts { trash: { entries: number; bytes: number }; history: { versions: number; bytes: number } | null }
+/** The retention's last run, the next one (ISO; null while both settings are off), and whether the history is vihko's own. */
+export interface RetentionStatus { lastRun: (RetentionCounts & { at: string; failed: boolean }) | null; nextRun: string | null; history: boolean }
 /**
  * After the password (signing in, or with a one-time link): the session, or
  * the second step first, with a short-lived pending sign-in: a code, or
@@ -566,8 +579,11 @@ export const api = {
   access: (who: { user: string } | { key: string }) =>
     request<EffectiveAccess>('GET', `/api/permissions/access?${'user' in who ? `user=${encodeURIComponent(who.user)}` : `key=${encodeURIComponent(who.key)}`}`),
   adminSettings: () => request<AdminSettings>('GET', '/api/admin/settings'),
-  /** A new second-factor policy is confirmed with `confirm` (D-040 3.4a). */
+  /** A new second-factor policy, or a retention turned on or shortened, is confirmed with `confirm`. */
   setAdminSettings: (patch: Partial<AdminSettings> & { confirm?: string }) => request<AdminSettings>('PUT', '/api/admin/settings', patch),
+  retentionStatus: () => request<RetentionStatus>('GET', '/api/admin/retention'),
+  /** What the next run would remove with these periods (null: off). */
+  retentionPreview: (periods: { trashRetentionDays: number | null; historyRetentionDays: number | null }) => request<RetentionCounts>('POST', '/api/admin/retention/preview', periods),
   /** Takes someone's second factor away (the vihko admin). */
   resetTwoFactor: (id: string, confirm: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/2fa/reset`, { confirm }).then((r) => r.user),
   twoFactor: () => request<TwoFactorInfo>('GET', '/api/account/2fa'),

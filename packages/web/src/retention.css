@@ -1,0 +1,11 @@
+/* «Users and groups» → Retention, on top of the settings pages (agents.css).
+   Design system tokens only. */
+
+.retention-setting { display: flex; flex-direction: column; gap: var(--space-2); }
+/* How long, under its switch, lined up with the switch's text */
+.retention-period { display: flex; align-items: center; gap: var(--space-2); margin-left: calc(36px + var(--space-3)); font-size: 14px; line-height: 20px; color: var(--ink-2); }
+.retention-amount { flex: 0 0 auto; }
+.retention-amount input { width: 88px; height: var(--control-md); font-size: 14px; }
+.retention-amount input[aria-invalid="true"] { border-color: var(--danger); }
+.retention-actions { display: flex; justify-content: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+@media (pointer: coarse) { .retention-amount input { height: var(--touch); } }

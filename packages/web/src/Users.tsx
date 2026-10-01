@@ -19,6 +19,7 @@ import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import { AccessDialog } from './Permissions.tsx'
 import { DeletePersonDialog } from './SpacesAdmin.tsx'
+import { RetentionSection } from './Retention.tsx'
 import { SearchButton } from './Palette.tsx'
 import { Icon, MenuButton, NAME_INPUT, ThemeToggle } from './ui.tsx'
 import './actions.css'
@@ -567,6 +568,8 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
             </div>
           )}
         </section>
+
+        {settings !== null && <RetentionSection settings={settings} onSettings={setSettings} onUnauthorized={onUnauthorized} />}
 
       </div>
       <ModalOverlay className="modal-overlay" isOpen={open !== null} isDismissable={open?.kind !== 'link'} isKeyboardDismissDisabled={open?.kind === 'link'}
