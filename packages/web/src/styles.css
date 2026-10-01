@@ -384,6 +384,9 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
   .palette-item { min-height: var(--touch); padding: 12px; }
   .palette-create { color: var(--accent); gap: 10px; }
   .note { padding: var(--space-6) var(--space-4); }
+  /* No rubber-band bounce on a phone, a short note included: the page never scrolls, only these do, and only as far as they hold. */
+  html, body { overscroll-behavior: none; }
+  .note, .alerts-page, .home-page, .changes-page, .sidebar-tree, .panel-scroll { overscroll-behavior-y: none; }
   .alerts-page { padding: var(--space-6) var(--space-4); }
   .alerts-page h1 { font-size: 28px; line-height: 34px; }
   .alert-card { flex-wrap: wrap; padding: var(--space-4); }

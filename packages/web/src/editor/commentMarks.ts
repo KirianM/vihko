@@ -4,7 +4,7 @@
 // panel is closed, a notice below each paragraph with comments opens it and,
 // beside it on a wide screen, so does a click on the commented text.
 import { syntaxTree } from '@codemirror/language'
-import { Facet, StateEffect, StateField, type EditorState, type Range } from '@codemirror/state'
+import { EditorSelection, EditorState, Facet, StateEffect, StateField, Transaction, type Range, type TransactionSpec } from '@codemirror/state'
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view'
 import { parseThreads, type Thread } from './comments.ts'
 import { focusChanged, touches } from './livePreview.ts'
@@ -164,4 +164,31 @@ const openOnClick = EditorView.domEventHandlers({
   },
 })
 
-export const commentMarks = [threadsField, style, reach, commentDecorations, openOnClick]
+/**
+ * The cursor never lands inside a comment's `<!-- … -->` by moving it with
+ * the keyboard: what's typed there would be hidden in the comment once the
+ * cursor leaves (a long line with a comment wraps when its syntax shows, and
+ * «End» went to the end of the visual line, inside the comment). A cursor
+ * the keyboard would leave inside one goes to its end when moving forward,
+ * to its start when moving back. A click inside a comment that shows is
+ * left where it is: that is someone choosing to edit it.
+ */
+export function outOfComments(tr: Transaction): TransactionSpec | null {
+  if (!tr.selection || tr.docChanged || !tr.isUserEvent('select') || tr.isUserEvent('select.pointer')) return null
+  const threads = tr.startState.field(threadsField, false)
+  if (!threads?.length) return null
+  const before = tr.startState.selection.main.head
+  let moved = false
+  const ranges = tr.selection.ranges.map((r) => {
+    const t = threads.find((x) => r.head > x.from && r.head < x.to)
+    if (!t) return r
+    moved = true
+    const to = r.head >= before ? t.to : t.from
+    return r.empty ? EditorSelection.cursor(to) : EditorSelection.range(r.anchor, to)
+  })
+  return moved ? { selection: EditorSelection.create(ranges, tr.selection.mainIndex), scrollIntoView: tr.scrollIntoView, userEvent: tr.annotation(Transaction.userEvent) } : null
+}
+
+const keepOutOfComments = EditorState.transactionFilter.of((tr) => outOfComments(tr) ?? tr)
+
+export const commentMarks = [threadsField, style, reach, commentDecorations, openOnClick, keepOutOfComments]
