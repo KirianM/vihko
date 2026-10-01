@@ -9,13 +9,20 @@
 //
 //   npm run screenshots     (builds the UI first; needs Docker)
 //
+// The vault follows the spaces layout (D-056): the shown note is in a shared
+// space («Team», which both people belong to), the admin has notes of their
+// own («My notes»), and the member shares a folder of theirs with the admin
+// («Shared with me»).
+//
 // SCREENSHOTS_PORT (4630) is vihko's port; the browser server takes the next
-// one. Everything runs from a temporary folder, removed at the end.
+// one. SCREENSHOTS_OUT writes the images to another folder (to look at them
+// before they replace the committed ones). Everything runs from a temporary
+// folder, removed at the end.
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { baseHue } from '@vihko/core'
@@ -25,7 +32,7 @@ import { prepareStateDir } from '../packages/server/src/volumes.ts'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const VAULT = join(ROOT, 'scripts/screenshots/vault')
-const OUT = join(ROOT, '.github/assets/screenshots')
+const OUT = process.env.SCREENSHOTS_OUT ? resolve(process.env.SCREENSHOTS_OUT) : join(ROOT, '.github/assets/screenshots')
 const CLI = join(ROOT, 'packages/server/src/cli.ts')
 const PORT = Number(process.env.SCREENSHOTS_PORT ?? 4630)
 const BROWSER_PORT = PORT + 1
@@ -35,7 +42,7 @@ const IMAGE = `mcr.microsoft.com/playwright:v${PLAYWRIGHT}-noble`
 const CONTAINER = `vihko-screenshots-${process.pid}`
 
 /** The note shown, and the passage the member commented on (the thread is added to the copy, dated a little before now). */
-const NOTE = 'handbook/Welcome.md'
+const NOTE = 'spaces/team-k3v9q2/handbook/Welcome.md'
 const COMMENTED = 'If vihko ever went away, we would still have every word.'
 /** Where the member's cursor rests, at the end of this line: the admin sees it, with the member's name. */
 const CARET = 'Turn on the API and MCP'
@@ -212,6 +219,8 @@ async function main() {
   const admin = await open(browser, ADMIN, DESKTOP)
   await admin.locator('.cm-ySelectionCaret').waitFor()
   await admin.getByRole('tab', { name: /^Comments/ }).click()
+  // «Shared with me» unfolded: the folder the member shares with the admin, by its owner.
+  await admin.locator('.space-shared-toggle').click()
   const light = await shoot(admin, 'desktop-light.png', 'light')
   const dark = await shoot(admin, 'desktop-dark.png', 'dark')
   const [w, h] = [DESKTOP.viewport.width * DESKTOP.deviceScaleFactor, DESKTOP.viewport.height * DESKTOP.deviceScaleFactor]
