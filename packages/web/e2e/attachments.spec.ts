@@ -59,8 +59,10 @@ test('a pasted image goes to the note\'s own folder; renaming the note takes the
   await k.getByRole('menuitem', { name: 'Renombrar o mover…' }).click()
   const dialog = k.getByRole('dialog')
   await dialog.getByLabel('Nuevo nombre').fill(RENAMED)
-  await expect(dialog.locator('.preview-image')).toHaveText(`${SHOWN} / ${TITLE}.assets /carpeta de la nota (1 archivo): va con ella como ${SHOWN} / ${RENAMED}.assets /`)
-  await expect(dialog.locator('.preview-change', { hasText: `![](${ASSETS}/${name}) → ![](${RENAMED_ASSETS}/${name})` })).toHaveCount(2)
+  // In words, never Markdown nor paths on disk.
+  await expect(dialog.locator('.preview-line', { hasText: 'carpeta de imágenes' })).toHaveText(`La carpeta de imágenes de la nota (1 archivo) va con ella a ${SHOWN} / ${RENAMED}.assets.`)
+  await expect(dialog.locator('.preview-line', { hasText: `la imagen ${name} se enlaza en su nuevo sitio` })).toHaveCount(2)
+  await expect(dialog.locator('.preview')).not.toContainText('![')
   await k.screenshot({ path: `${E2E_DIR}/shots/move-assets-folder.png` })
   await dialog.getByRole('button', { name: 'Renombrar y actualizar 2 enlaces' }).click()
   await expect(k.locator('.crumbs')).toHaveText(`${SHOWN} / ${RENAMED}`)

@@ -31,17 +31,32 @@ export function shownName(raw: string): string {
   return target.slice(target.lastIndexOf('/') + 1) || target
 }
 
-/** The rewrites, one line each: «In My notes / Home, the link to Trip is updated so it keeps working». */
+/**
+ * The rewrites, one line per note and what its links lead to: «In My notes /
+ * Home, the link to Trip is updated so it keeps working», «…, 3 links to
+ * Trip are updated…».
+ */
 export function RelinkRows({ relinked }: { relinked: MoveReport['relinked'] }) {
   const t = useT()
   const { label } = usePathLabels()
+  const rows: { path: string; kind: 'link' | 'image'; to: string; n: number }[] = []
+  for (const r of relinked) {
+    for (const c of r.changes) {
+      const row = rows.find((x) => x.path === r.path && x.kind === c.kind && x.to === c.to)
+      if (row) row.n++
+      else rows.push({ path: r.path, kind: c.kind, to: c.to, n: 1 })
+    }
+  }
+  const key = (row: (typeof rows)[number]) => row.kind === 'image'
+    ? (row.n === 1 ? 'preview.imageUpdated' : 'preview.imageUpdatedMany')
+    : (row.n === 1 ? 'preview.linkUpdated' : 'preview.linkUpdatedMany')
   return (
     <>
-      {relinked.flatMap((r) => r.changes.map((c, i) => (
-        <p className="preview-line" key={`${r.path}#${i}`}>
-          {t(c.kind === 'image' ? 'preview.imageUpdated' : 'preview.linkUpdated', { where: label(r.path), name: c.kind === 'image' ? fileName(c.to) : noteName(c.to) })}
+      {rows.map((row) => (
+        <p className="preview-line" key={`${row.path}\u0000${row.kind}\u0000${row.to}`}>
+          {t(key(row), { where: label(row.path), name: row.kind === 'image' ? fileName(row.to) : noteName(row.to), n: row.n })}
         </p>
-      )))}
+      ))}
     </>
   )
 }

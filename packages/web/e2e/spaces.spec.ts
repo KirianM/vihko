@@ -3,7 +3,8 @@
 // comments and can't change it; a shared space created from the sidebar for
 // a group, edited by three at once, which one can't leave through the group
 // and stops seeing when taken out of it; a note moved from one's own space
-// into a shared one, and its links; a link to what someone can't read,
+// into a shared one, with the links it leaves broken (links never cross
+// spaces); a link to what someone can't read,
 // broken for them whether it exists or not; the name a move can't take; the
 // last manager leaving and the admin assigning another from the directory,
 // which never shows what's inside; a deleted person's space made a shared
@@ -12,7 +13,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, readFileSync } from 'node:fs'
 import { ADMIN, MEMBER, NOTES, personal, specMother } from './env.ts'
-import { literally, newUser, signIn, spaceTree } from './helpers.ts'
+import { literally, newUser, noteInUrl, signIn, spaceTree } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const q = encodeURIComponent
@@ -191,7 +192,7 @@ test('three people: the admin creates a space for a group; the three edit a note
   await expect(spaceTree(o, CASA)).toHaveCount(0)
 })
 
-test('the member moves a note of her own into the space: it stops being hers, her links by name are written across spaces, and her diary\'s link still leads to it', async () => {
+test('the member moves a note of her own into the space: it stops being hers, the dialog says in words which links will be broken, and nothing is rewritten across spaces (D-056.30)', async () => {
   const dir = `${personal(MEMBER)}/${m.aFolder()}`
   const moved = `${dir}/${m.aTitle()}.md`
   const target = `${dir}/${m.aTitle()}.md`
@@ -201,6 +202,9 @@ test('the member moves a note of her own into the space: it stops being hers, he
   await note(a, diary, `# ${baseName(diary)}\n\n[[${baseName(moved)}]]\n`)
   await a.goto(`/?note=${q(moved)}`)
   await expect(a.locator('.cm-content')).toBeVisible()
+  // The address names her space without its system folder (D-056.29), and the old one was replaced.
+  await expect(a).toHaveURL(new RegExp(noteInUrl(moved)))
+  expect(a.url()).not.toContain('people')
   await a.getByRole('button', { name: 'Más acciones' }).click()
   await a.getByRole('menuitem', { name: 'Renombrar o mover…' }).click()
   const dialog = a.getByRole('dialog')
@@ -208,6 +212,17 @@ test('the member moves a note of her own into the space: it stops being hers, he
   const warning = dialog.getByRole('group', { name: 'Cambia de espacio' })
   await expect(warning).toContainText(`Dejará de ser tuya: será de los miembros de ${CASA}.`)
   await expect(warning).toContainText(ADMIN.username)
+  // The links it leaves broken, both ways (by where they are on disk: her space before the shared one), in plain
+  // words: no Markdown, no path on disk.
+  const broken = warning.getByRole('group', { name: '2 enlaces quedarán rotos' })
+  await expect(broken.getByRole('listitem')).toHaveText([
+    `En Mis notas / ${baseName(diary)}, el enlace a ${baseName(moved)} quedará roto (ahora está en ${CASA}).`,
+    `En ${CASA} / ${baseName(moved)}, el enlace a ${baseName(target)} quedará roto (${baseName(target)} se queda en Mis notas).`,
+  ])
+  await expect(dialog).not.toContainText('[[')
+  await expect(dialog).not.toContainText('people/')
+  await expect(dialog).not.toContainText('spaces/')
+  await a.screenshot({ path: `${process.env.SHOTS ?? '/tmp'}/move-across-spaces.png` })
   const submit = dialog.getByRole('button', { name: /^Mover/ })
   await expect(submit).toBeDisabled()
   await warning.getByRole('checkbox', { name: 'Entiendo que cambia quién puede verlo' }).check()
@@ -215,21 +230,23 @@ test('the member moves a note of her own into the space: it stops being hers, he
   const to = `${casa}/${baseName(moved)}.md`
   await expect(a.locator('.crumbs')).toContainText(`${CASA} / ${baseName(moved)}`, SLOW)
   expect(existsSync(`${NOTES}/${moved}`)).toBe(false)
-  // Its link by name to a note of her space: now from the notes root, with the name to show.
-  await expect.poll(() => disk(to)).toContain(`[[${target.replace(/\.md$/, '')}|${baseName(target)}]]`)
-  // Her diary's link names it where it is now, and still leads there.
-  await expect.poll(() => disk(diary)).toContain(`[[${to.replace(/\.md$/, '')}|${baseName(moved)}]]`)
-  await expect.poll(async () => (await linkStatus(a, diary, `[[${to.replace(/\.md$/, '')}|${baseName(moved)}]]`))?.dstPath).toBe(to)
+  await expect(a).toHaveURL(new RegExp(noteInUrl(to)))
+  expect(a.url()).not.toContain('spaces')
+  // Nothing rewritten: its link by name stays, and so does her diary's; both are broken now.
+  await expect.poll(() => disk(to)).toContain(`\n[[${baseName(target)}]]\n`)
+  expect(disk(diary)).toContain(`\n[[${baseName(moved)}]]\n`)
+  await expect.poll(async () => (await linkStatus(a, diary, `[[${baseName(moved)}]]`))?.status).toBe('missing')
+  await expect.poll(async () => (await linkStatus(a, to, `[[${baseName(target)}]]`))?.status).toBe('missing')
 })
 
-test('a link to what someone can\'t read is broken for them, whether it exists or not; nothing offers to create it in someone else\'s space', async () => {
-  // The admin's own folder, shared with the other (not in the space): a note linking into the space.
+test('a link to what someone can\'t read is broken for them, whether it exists or not; nothing offers to create it in someone else\'s space; and no link reaches another space (D-056.30)', async () => {
+  // The admin's own folder, shared with the other: a note linking to a note of the admin's they can't read, and to nothing.
   const dir = `${personal(ADMIN)}/${m.aFolder()}`
-  const inCasa = `${casa}/${m.aTitle()}.md`
-  const nowhere = `${casa}/${m.aTitle()}.md`
+  const privateNote = `${personal(ADMIN)}/${m.aFolder()}/${m.aTitle()}.md`
+  const nowhere = `${personal(ADMIN)}/${m.aFolder()}/${m.aTitle()}.md`
   const linking = `${dir}/${m.aTitle()}.md`
-  await note(k, inCasa, `# ${baseName(inCasa)}\n`)
-  const real = `[[${inCasa.replace(/\.md$/, '')}]]`
+  await note(k, privateNote, `# ${baseName(privateNote)}\n`)
+  const real = `[[${privateNote.replace(/\.md$/, '')}]]`
   const none = `[[${nowhere.replace(/\.md$/, '')}]]`
   await note(k, linking, `# ${baseName(linking)}\n\n${real}\n\n${none}\n`)
   const perms = await call(k, 'get', `/api/permissions?folder=${q(dir)}`) as { etag: string }
@@ -247,17 +264,18 @@ test('a link to what someone can\'t read is broken for them, whether it exists o
   await expect(badges.first()).toHaveText('no existe')
   await expect(badges.nth(1)).toHaveText('no existe')
   await expect(o.locator('.cm-content').getByRole('button', { name: 'crear', exact: true })).toHaveCount(0)
-  // Probing a path of the admin's by writing a link in one's own note tells nothing either.
+  // A link from one's own space to another space never resolves, even to a note one reads (the shared one above),
+  // and offers nothing to create there.
   const probe = `${personal(OTHER)}/${m.aTitle()}.md`
   const hidden = `[[${personal(ADMIN)}/${m.aFolder()}/${m.aTitle()}]]`
-  const exists = `[[${linking.replace(/\.md$/, '')}]]`
-  const privateNote = `${personal(ADMIN)}/${m.aFolder()}/${m.aTitle()}.md`
-  await note(k, privateNote, `# ${baseName(privateNote)}\n`)
-  const secret = `[[${privateNote.replace(/\.md$/, '')}]]`
-  await note(o, probe, `# ${baseName(probe)}\n\n${hidden}\n\n${secret}\n\n${exists}\n`)
-  await expect.poll(async () => (await linkStatus(o, probe, secret))?.status, SLOW).toBe('missing')
+  const readable = `[[${linking.replace(/\.md$/, '')}]]`
+  await note(o, probe, `# ${baseName(probe)}\n\n${hidden}\n\n${real}\n\n${readable}\n`)
+  await expect.poll(async () => (await linkStatus(o, probe, readable))?.status, SLOW).toBe('missing')
   expect((await linkStatus(o, probe, hidden))?.status).toBe('missing')
-  expect((await linkStatus(o, probe, exists))?.status).toBe('resolved')
+  expect((await linkStatus(o, probe, real))?.status).toBe('missing')
+  await o.goto(`/?note=${q(probe)}`)
+  await expect(o.locator('.cm-wikilink-badge')).toHaveCount(3)
+  await expect(o.locator('.cm-content').getByRole('button', { name: 'crear', exact: true })).toHaveCount(0)
 })
 
 test('a rename that would take someone\'s link, in a note the renamer reads, to a note they can\'t see is refused as a name that isn\'t available (the preview doesn\'t check)', async () => {

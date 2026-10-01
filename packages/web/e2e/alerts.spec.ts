@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { ADMIN, E2E_DIR, MEMBER, NOTES, SPACE, SPACE_NAME, freshFolder, inVault, personal, specMother } from './env.ts'
-import { literally, signIn } from './helpers.ts'
+import { literally, noteInUrl, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 /** A path of the vault's space as the UI shows it: `spaces/x-id/a/b.md` → `<its name> / a / b`. */
@@ -46,7 +46,7 @@ test('duplicate uid: appears after the rescan and both notes open', async ({ bro
   await expect(both.getByRole('button')).toHaveCount(0) // fixed in the frontmatter, not with a button
   await both.getByRole('link', { name: label(`${FOLDER}/${copy}.md`) }).click()
   await expect(k.locator('.crumbs b')).toHaveText(copy)
-  await expect(k).toHaveURL(new RegExp(`\\?note=${literally(encodeURIComponent(`${FOLDER}/${copy}.md`)).replace(/%20/g, '(?:\\+|%20)')}$`))
+  await expect(k).toHaveURL(new RegExp(`\\?${noteInUrl(`${FOLDER}/${copy}.md`)}$`))
   await expect(k.locator('.cm-content')).toBeVisible()
   await k.goto('/?view=alerts')
   await card(k, uid).getByRole('link', { name: label(`${FOLDER}/${original}.md`) }).click()

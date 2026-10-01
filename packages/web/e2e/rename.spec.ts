@@ -3,7 +3,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { ADMIN, E2E_DIR, MEMBER, NOTES, SPACE, SPACE_NAME, inVault, specMother } from './env.ts'
-import { editorText, literally, png, sendFiles, signIn } from './helpers.ts'
+import { editorText, literally, noteInUrl, png, sendFiles, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 /** A sentence no other text of the spec contains (it carries a unique word). */
@@ -15,7 +15,7 @@ const inner = (path: string) => path.slice(SPACE.length + 1)
 /** A generated name as a Markdown link destination (they have only letters and spaces: vihko writes a space as %20). */
 const dest = (path: string) => path.replace(/ /g, '%20')
 /** The path in the page's URL (?note=…): a space as `+` or `%20`. */
-const inUrl = (path: string) => new RegExp(`note=${literally(encodeURIComponent(path)).replace(/%20/g, '(?:\\+|%20)')}`)
+const inUrl = (path: string) => new RegExp(noteInUrl(path))
 
 const DIR_NAME = m.aFolder()
 const DIR = inVault(DIR_NAME)
@@ -74,12 +74,13 @@ test('rename with preview: links are rewritten on disk and both editors follow t
   await expect(dialog.getByText('Escribe otro nombre u otra carpeta')).toBeVisible()
   await dialog.getByLabel('Nuevo nombre').fill(NEW_NAME)
 
-  const rows = dialog.locator('.preview-row')
-  await expect(rows).toHaveCount(4)
-  await expect(rows.nth(0)).toHaveText(`${label(LINKS)}[[${NAME}]] → [[${NEW_NAME}]]`)
-  await expect(dialog.locator('.preview-change', { hasText: `[[${NAME}#${SECTION}]] → [[${NEW_NAME}#${SECTION}]]` })).toBeVisible()
-  await expect(dialog.locator('.preview-change', { hasText: `(${dest(NAME)}.md) → [${LINK_TEXT}](${dest(NEW_NAME)}.md)` })).toBeVisible()
-  await expect(dialog.locator('.preview-kept')).toHaveText(`${label(LINKS)}[[${ALIAS}]] sigue funcionando por alias: no se toca`)
+  // In words (D-056.29): where, and to which note; never the Markdown of the links.
+  const rows = dialog.locator('.preview-line')
+  await expect(rows).toHaveText([
+    `En ${label(LINKS)}, 3 enlaces a ${NEW_NAME} se actualizan para que sigan funcionando.`,
+    `En ${label(LINKS)}, el enlace a ${NEW_NAME} sigue funcionando por un alias: no se toca.`,
+  ])
+  await expect(dialog.locator('.preview')).not.toContainText('[[')
   const submit = dialog.getByRole('button', { name: 'Renombrar y actualizar 3 enlaces' })
   await expect(submit).toBeEnabled()
   await shot(k, 'rename-light')
@@ -130,8 +131,8 @@ test('a name that already exists is explained and cannot be confirmed', async ()
 test('move to another folder: the button says "Mover" and only what would stop resolving changes', async () => {
   const dialog = await openRename(k)
   await dialog.getByLabel('Carpeta').fill(`${DIR_NAME}/${ARCHIVE}`)
-  await expect(dialog.locator('.preview-change')).toHaveText(`[${LINK_TEXT}](${dest(NEW_NAME)}.md) → [${LINK_TEXT}](${dest(`${ARCHIVE}/${NEW_NAME}`)}.md)`)
-  await expect(dialog.locator('.preview-kept', { hasText: `[[${NEW_NAME}]] sigue funcionando: no se toca` })).toBeVisible()
+  await expect(dialog.locator('.preview-line:not(.preview-kept)')).toHaveText(`En ${label(LINKS)}, el enlace a ${NEW_NAME} se actualiza para que siga funcionando.`)
+  await expect(dialog.locator('.preview-kept', { hasText: `el enlace a ${NEW_NAME} sigue funcionando: no se toca` }).first()).toBeVisible()
   await dialog.getByRole('button', { name: 'Mover y actualizar 1 enlace' }).click()
   for (const p of [k, a]) {
     await expect(p.locator('.crumbs')).toHaveText(label(MOVED))
@@ -279,9 +280,9 @@ test('moving a note with images: its pasted image goes with it, a shared one sta
 
   const dialog = await openRename(k)
   await dialog.getByLabel('Carpeta').fill(inner(to))
-  await expect(dialog.locator('.preview-image').first()).toHaveText(`${label(`${from}/${pasted}`)}va con la nota a ${label(`${to}/${pasted}`)}`)
-  await expect(dialog.locator('.preview-image.preview-kept')).toHaveText(`${label(`${from}/${shared}`)}se queda: la usan otras notas`)
-  await expect(dialog.locator('.preview-change')).toHaveText(`![](${dest(shared)}) → ![](${dest(`../${fromName}/${shared}`)})`)
+  await expect(dialog.locator('.preview-line', { hasText: 'va con la nota' })).toHaveText(`La imagen ${pasted} va con la nota a ${label(to)}.`)
+  await expect(dialog.locator('.preview-kept', { hasText: shared })).toHaveText(`La imagen ${shared} se queda en ${label(from)}: la usan otras notas.`)
+  await expect(dialog.locator('.preview-line', { hasText: 'se enlaza' })).toHaveText(`En ${label(`${to}/${tripName}`)}, la imagen ${shared} se enlaza en su nuevo sitio.`)
   await shot(k, 'move-images')
   await dialog.getByRole('button', { name: 'Mover con 1 imagen y actualizar 1 enlace' }).click()
   await expect(k.locator('.crumbs')).toHaveText(label(`${to}/${tripName}`))
@@ -339,7 +340,7 @@ test('the preview lists ambiguous links the move would resolve, by note, and the
   const shifts = dialog.locator('.shifts')
   await expect(shifts.locator('strong')).toHaveText('3 enlaces no se reescriben pero cambiarán adónde llevan')
   await expect(shifts.locator('.shifts-src')).toHaveText(sources.map((x) => `${label(x.path)}${x.count}`))
-  await expect(shifts.locator('.shifts-row').first()).toHaveText(`[[${name}]] era ambiguo; llevará a ${label(`${dir}/${name}`)}`)
+  await expect(shifts.locator('.shifts-row').first()).toHaveText(`El enlace «${name}» era ambiguo; llevará a ${label(`${dir}/${name}`)}`)
   await shot(k, 'rename-shifts-light')
   // Dark and phone, before deciding.
   await dialog.getByRole('button', { name: 'Cancelar' }).click()
