@@ -117,6 +117,42 @@ export class Indexer {
    */
   onApplied: ((applied: AppliedChanges) => void) | null = null
 
+  /** Who hears what changes the tree (liveTree.ts): notes added, removed, moved or retitled, folders made or gone. */
+  private treeListeners = new Set<(paths: string[]) => void>()
+
+  /**
+   * Hears the paths whose change shows in a tree: a note added, removed,
+   * moved (both paths) or whose title changed, and a folder made, moved or
+   * removed. Never anything else of them. Returns how to stop.
+   */
+  onTreeChange(listener: (paths: string[]) => void): () => void {
+    this.treeListeners.add(listener)
+    return () => { this.treeListeners.delete(listener) }
+  }
+
+  private treeChanged(paths: Iterable<string>) {
+    const list = [...new Set(paths)]
+    if (list.length === 0) return
+    for (const l of this.treeListeners) {
+      try { l(list) } catch { /* a listener's failure is its own */ }
+    }
+  }
+
+  /** The titles of these notes as indexed now, to tell which a batch retitles. */
+  private titlesOf(paths: readonly string[]): Map<string, string> {
+    const get = this.db.prepare('select title from notes where path = ?')
+    return new Map(paths.map((p) => [p, (get.get(p) as { title: string } | undefined)?.title ?? '']))
+  }
+
+  /** The notes of a report whose tree changes: added, removed, moved, and changed with another title than `before`. */
+  private treePaths(report: ScanReport, before: Map<string, string>): string[] {
+    const now = this.titlesOf(report.changed)
+    return [
+      ...report.added, ...report.removed, ...report.moved.flatMap((m) => [m.from, m.to]),
+      ...report.changed.filter((p) => now.get(p) !== before.get(p)),
+    ]
+  }
+
   /** Notes that left or entered the index in recent batches without a pair yet (moves.ts). */
   private recent: { removed: (MoveCandidate & { at: number })[]; added: (MoveCandidate & { at: number })[] } = { removed: [], added: [] }
 
@@ -189,15 +225,24 @@ export class Indexer {
       this.commitMoves(moves, report)
     }
 
+    const titles = this.titlesOf(report.changed)
     this.apply(upserts, touch, report.aborted ? [] : gone, conflicts)
     this.applied(upserts, report)
     this.announce(report)
+    const tree = this.treePaths(report, titles)
     // Like notes, folders aren't dropped by a scan that stopped (an unmounted share looks empty).
-    if (!report.aborted) this.db.transaction(() => {
-      this.db.prepare('delete from folders').run()
-      const ins = this.db.prepare('insert into folders (path) values (?)')
-      for (const d of dirs) ins.run(d)
-    })()
+    if (!report.aborted) {
+      const had = new Set((this.db.prepare('select path from folders').all() as { path: string }[]).map((r) => r.path))
+      this.db.transaction(() => {
+        this.db.prepare('delete from folders').run()
+        const ins = this.db.prepare('insert into folders (path) values (?)')
+        for (const d of dirs) ins.run(d)
+      })()
+      const now = new Set(dirs)
+      for (const d of had) if (!now.has(d)) tree.push(d)
+      for (const d of now) if (!had.has(d)) tree.push(d)
+    }
+    this.treeChanged(tree)
     return report
   }
 
@@ -207,11 +252,12 @@ export class Indexer {
    * longer does goes, with everything recorded under it. A full scan does the
    * same for all.
    */
-  indexFolders(paths: Iterable<string>) {
+  indexFolders(given: Iterable<string>) {
+    const paths = [...new Set(given)]
     const ins = this.db.prepare('insert or ignore into folders (path) values (?)')
     const del = this.db.prepare("delete from folders where path = ? or path like ? escape '\\'")
     this.db.transaction(() => {
-      for (const p of new Set(paths)) {
+      for (const p of paths) {
         if (!p || classifyPath(p) === 'ignored') continue
         let dir = false
         try { dir = lstatSync(join(this.opts.notesDir, p)).isDirectory() && followable(this.opts.notesDir, p) } catch { /* gone */ }
@@ -222,6 +268,7 @@ export class Indexer {
         for (const a of [...ancestorsOf(p), p, ...sub]) ins.run(a)
       }
     })()
+    this.treeChanged(paths.filter((p) => p && classifyPath(p) !== 'ignored'))
   }
 
   /**
@@ -254,6 +301,7 @@ export class Indexer {
     }
     const removed = [...report.removed]
     if (detectMoves) this.commitMoves(this.pairMoves(gone, upserts, report), report)
+    const titles = this.titlesOf(report.changed)
     this.apply(upserts, touch, removed, null, conflictsNow, conflictsGone)
     this.applied(upserts, report)
     if (detectMoves) this.announce(report)
@@ -262,6 +310,7 @@ export class Indexer {
       const ins = this.db.prepare('insert or ignore into folders (path) values (?)')
       this.db.transaction(() => { for (const p of report.added) for (const a of ancestorsOf(p)) ins.run(a) })()
     }
+    this.treeChanged(this.treePaths(report, titles))
     return report
   }
 

@@ -20,7 +20,7 @@ import { useDates } from './history/ui.tsx'
 import { AccessDialog } from './Permissions.tsx'
 import { DeletePersonDialog } from './SpacesAdmin.tsx'
 import { SearchButton } from './Palette.tsx'
-import { Icon, MenuButton, NAME_INPUT, ThemeToggle } from './ui.tsx'
+import { BackButton, Icon, MenuButton, NAME_INPUT, ThemeToggle } from './ui.tsx'
 import './actions.css'
 import './agents.css'
 import './users.css'
@@ -456,6 +456,7 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
     <>
       <header className="main-head">
         <MenuButton />
+        <BackButton />
         <span className="spacer" />
         <SearchButton />
         <ThemeToggle />

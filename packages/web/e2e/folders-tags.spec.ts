@@ -253,7 +253,7 @@ test('⌘K: tag: and path: filters, combinable with text and negation; a filter 
   await expect(titles()).toHaveCount(1)
   await expect(titles().first()).toContainText(MOVABLE)
   await expect(k.locator('.palette-list mark').first()).toHaveText(WORD)
-  await input.fill(`${WORD} path:${inVault('hogar')}`) // a folder of the vault (testdata/vault)
+  await input.fill(`${WORD} path:"${inVault('hogar')}"`) // a folder of the vault (testdata/vault)
   await expect(k.locator('.palette-empty')).toHaveText('Ninguna nota coincide.')
   await k.keyboard.press('Escape')
 })
@@ -262,6 +262,8 @@ test('phone: tabs in the drawer, the tags view, and a long press opens a row\'s 
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, storageState: await k.context().storageState() })
   const phone = await ctx.newPage()
   await phone.goto('/')
+  // Home first (D-056.35); the drawer behind the menu.
+  await phone.getByRole('button', { name: 'Abrir carpetas' }).tap()
   await expect(phone.getByRole('dialog', { name: 'Carpetas' })).toBeVisible()
   const drawer = phone.getByRole('dialog', { name: 'Carpetas' })
   await drawer.getByRole('row', { name: DIR, exact: true }).click()

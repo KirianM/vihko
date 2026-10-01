@@ -13,7 +13,7 @@ what it never touches.
 | In the folder | For vihko |
 |---|---|
 | `people/<username>/` | That person's own space, «My notes» for them |
-| `spaces/<name>-<id>/` | A shared space, such as `spaces/home-7k2q9x/` |
+| `spaces/<name>/` | A shared space, such as `spaces/Home/` |
 | A file ending in `.md` (any case), inside a space | A note: indexed, searchable, editable |
 | Any other file (images, PDFs…), inside a space | A file: shown and linked, to whoever can read its folder |
 | Anything at the root other than `people/`, `spaces/` and `vihko.yaml` | Seen by nobody in vihko; the admins get an alert |
@@ -28,7 +28,7 @@ frontmatter. [Spaces, people and sharing](users-and-permissions.md) explains
 the spaces.
 
 A note's path is the same for everyone, from the root of the notes folder:
-`spaces/home-7k2q9x/recipes/Bread.md`. The UI shows it as each person sees
+`spaces/Home/recipes/Bread.md`. The UI shows it as each person sees
 it: «Home / recipes / Bread», or «My notes / …» for your own.
 
 Names are taken exactly as the disk spells them. On a filesystem that ignores
@@ -368,7 +368,7 @@ Edit, add, move or delete files with any tool while vihko runs:
 - **Files added outside a space** (at the root of the notes folder) aren't
   seen by anyone in vihko, and the admins get an alert. To bring an existing
   vault in, copy it into your own folder (`people/<you>/`), or into a shared
-  space's folder (`spaces/<name>-<id>/`) after creating the space in the UI.
+  space's folder (`spaces/<name>/`) after creating the space in the UI.
   Its links by name keep working inside that space; links written as
   `[[/path]]` from the old root need the new path.
 

@@ -14,6 +14,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { existsSync, readFileSync } from 'node:fs'
 import { ADMIN, MEMBER, NOTES, personal, specMother } from './env.ts'
 import { literally, newUser, noteInUrl, signIn, spaceTree } from './helpers.ts'
+import { readablePart } from '@vihko/core/spaces'
 
 const m = specMother(import.meta.url)
 const q = encodeURIComponent
@@ -151,7 +152,7 @@ test('three people: the admin creates a space for a group; the three edit a note
   await dialog.getByRole('button', { name: 'Crear espacio' }).click()
   await expect(spaceTree(k, CASA)).toBeVisible()
   casa = await spaceRoot(k, CASA)
-  expect(casa).toMatch(/^spaces\/[^/]+-[a-z0-9]{6}$/)
+  expect(casa).toBe(`spaces/${CASA}`)
 
   const shared = `${casa}/${m.aTitle()}.md`
   await note(k, shared, `# ${baseName(shared)}\n\n${m.aSentence()}\n`)
@@ -471,6 +472,42 @@ test('someone new sees «My notes» empty and creates their first note there', a
   await expect(f.locator('.crumbs')).toContainText(`Mis notas / ${title}`)
   await expect.poll(() => existsSync(`${NOTES}/${personal(FRESH)}/${title}.md`)).toBe(true)
   await f.context().close()
+})
+
+test('a space\'s folder is its name (D-056.33): renaming it moves the open note\'s address, a taken name is refused by name, and an rc.1 or rc.2 address finds it', async () => {
+  const before = m.aSpaceName()
+  const after = m.aSpaceName()
+  const created = await call(a, 'post', '/api/spaces', { name: before }, 201) as { space: { path: string } }
+  expect(created.space.path).toBe(`spaces/${before}`)
+  const inner = `${m.aFolder()}/${m.aTitle()}.md`
+  await note(a, `spaces/${before}/${inner}`, `# ${baseName(inner)}\n\n${m.aSentence()}\n`)
+  await a.goto(`/?note=${q(`${before}/${inner}`)}`)
+  await expect(a.locator('.cm-content')).toBeVisible()
+  await sectionMenu(a, before, 'Renombrar…')
+  const dialog = a.getByRole('dialog', { name: `Renombrar «${before}»` })
+  await expect(dialog.getByText('Todos en vihko ven los nombres de los espacios compartidos', { exact: false })).toBeVisible()
+  await dialog.getByLabel('Nombre', { exact: true }).fill(after)
+  await dialog.getByRole('button', { name: 'Renombrar', exact: true }).click()
+  await expect(spaceTree(a, after)).toBeVisible()
+  // The open note follows its folder: the address names the space by its new name.
+  await expect(a).toHaveURL(new RegExp(noteInUrl(`spaces/${after}/${inner}`)))
+  await expect(a.locator('.crumbs')).toContainText(`${after} / `)
+  await expect.poll(() => existsSync(`${NOTES}/spaces/${after}/${inner}`)).toBe(true)
+  expect(existsSync(`${NOTES}/spaces/${before}`)).toBe(false)
+
+  // Another person, in no space of that name, is told it's taken, by its name.
+  await o.getByRole('button', { name: 'Nuevo espacio' }).click()
+  const fresh = o.getByRole('dialog', { name: 'Nuevo espacio compartido' })
+  await fresh.getByLabel('Nombre', { exact: true }).fill(after.toLowerCase() === after ? after.toUpperCase() : after.toLowerCase())
+  await fresh.getByRole('button', { name: 'Crear espacio' }).click()
+  await expect(fresh.getByRole('alert')).toHaveText(`Ya hay un espacio llamado «${after}»: elige otro nombre.`)
+  await fresh.getByRole('button', { name: 'Cancelar' }).click()
+
+  // An address of the folder rc.1 or rc.2 would have made for it leads to the space it is now.
+  const legacy = `${readablePart(after)}-${m.pick(['k3v9q2', '7k2q9x', 'qa23l6'])}`
+  await a.goto(`/?note=${q(`${legacy}/${inner}`)}`)
+  await expect(a.locator('.cm-content')).toBeVisible(SLOW)
+  await expect(a).toHaveURL(new RegExp(noteInUrl(`spaces/${after}/${inner}`)))
 })
 
 test.describe('phone', () => {

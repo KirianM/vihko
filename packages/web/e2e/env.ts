@@ -33,7 +33,7 @@ export type Grants = Record<string, Level>
 
 /**
  * The shared space the fixed vault (testdata/vault) is in (D-056): its name,
- * and its root, `spaces/<readable>-<id>`. Both people of the servers belong
+ * and its root, `spaces/<name>`. Both people of the servers belong
  * to it; each also has their own space, `people/<username>`.
  */
 export const SPACE_NAME = people.aSpaceName()
@@ -85,7 +85,7 @@ export function permissionsSection(grants: Grants = {}, rules: Record<string, Ru
     const v = ruleValue(r)
     return (v.grants ? `    grants: ${map(v.grants)}\n` : '') + (v.ai === false ? '    ai: false\n' : '')
   }
-  return `permissions:\n  ${JSON.stringify(SPACE)}:\n    name: ${JSON.stringify(SPACE_NAME)}\n    grants: ${map({ ...SPACE_GRANTS, ...grants })}\n`
+  return `permissions:\n  ${JSON.stringify(SPACE)}:\n    grants: ${map({ ...SPACE_GRANTS, ...grants })}\n`
     + Object.entries(rules).map(([folder, r]) => `  ${JSON.stringify(folder)}:\n${rule(r)}`).join('')
 }
 

@@ -57,6 +57,10 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'GET /api/workspace': 'session',
   'GET /api/profile': 'session',
   'PUT /api/profile': 'session',
+  'GET /api/home': 'session',
+  'GET /api/events': 'session',
+  'GET /api/settings': 'session',
+  'PUT /api/settings': 'session',
   'POST /api/folder': 'session',
   'DELETE /api/folder': 'session',
   'POST /api/folder/move': 'session',
@@ -160,6 +164,13 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'GET /api/workspace': 'none',
   'GET /api/profile': 'none',
   'PUT /api/profile': 'none',
+  // «Home» (D-056.35): only what the person reads now, note by note.
+  'GET /api/home': 'filtered',
+  // The tree, live (D-056.36): «read your tree again», only to whom a change concerns.
+  'GET /api/events': 'filtered',
+  // Note settings: one's own, or a shared space's (read by its members, changed by its managers).
+  'GET /api/settings': 'filtered',
+  'PUT /api/settings': 'manage',
   'GET /api/integrations': 'none',
   'PUT /api/admin/integrations': 'admin',
   'GET /api/keys': 'none',

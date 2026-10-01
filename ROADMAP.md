@@ -14,8 +14,8 @@ anything you can't see getting in your way or telling you it exists.
 
 - [x] Two fixed folders in the notes folder: `people/<username>/` (each
       person's own space, «My notes», made with their account, also for a
-      single-person install) and `spaces/<readable>-<id>/` (shared spaces;
-      the id is the identity, the name lives in `vihko.yaml` and can change).
+      single-person install) and `spaces/<name>/` (shared spaces, whose
+      folder is their name: unique in the installation, renamed with them).
       What appears outside them is seen by nobody, and the admins are told.
 - [x] Permissions engine: sharing only adds. Everyone who reads a folder sees
       everything in it; a subfolder can add people, never take them away. No
@@ -49,6 +49,14 @@ anything you can't see getting in your way or telling you it exists.
 - [x] Leak tests over every route, tool and editor message, extended to
       writes (create, rename, move over hidden names), and browser tests with
       three people.
+- [x] Note settings of each person and each shared space
+      (`.vihko/settings.yaml`): daily-note series, templates, where images
+      go and a guide for agents, adding to `vihko.yaml`'s; edited from
+      vihko or by hand.
+- [x] Home, where vihko opens (recent notes, others' changes, what was
+      shared lately), and «On opening» to choose otherwise; the tree and
+      the sidebar follow others' changes live; the frontmatter out of reach
+      of what is done in the note's body.
 - [x] Also: the dark theme's bold and headings; Ctrl+E, Ctrl+Shift+S and
       Ctrl+K over a selection; an alert to the admins when `state.db`
       migrates at start; `vihko.yaml` rewrites raise its `version`; an
@@ -69,15 +77,14 @@ message; and an installation built from the documentation alone works.
       computer), editing or reading; remembered while browsing.
 - [ ] «Show the Markdown»: on the line being edited, always, or as little as
       possible (experimental, on the same editor; no WYSIWYG editor).
-- [ ] Per-person settings in two layers: what the UI does (language,
-      opening mode, Markdown) in the account, and the theme on each device;
-      what their notes do (their own daily-note series, templates and guide
-      for agents) as a file in their space, in the reserved
-      `people/<username>/.vihko/`.
+- [ ] The UI's per-person settings: opening mode and Markdown in the
+      account, next to the language and «On opening» (what their notes do
+      is already their space's settings file, in 0.1.0).
 - [ ] A link picker when adding a link (`[[`, the toolbar button, Ctrl+K)
       with «This space» (a normal link) and «Other spaces», which inserts a
-      Markdown link to the note's vihko address by its uid (`…/?n=<uid>`):
-      it survives renames and moves and shows no paths, and vihko writes the
+      Markdown link to the note's vihko address by its uid, written
+      relative, without the domain (`[text](/?n=<uid>)`): it survives
+      renames, moves and a new domain, and shows no paths, and vihko writes the
       uid into the linked note the first time it's needed. The editor
       recognises its own addresses: the note's title and space when the
       reader can read it, a plain link otherwise.

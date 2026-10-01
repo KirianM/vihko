@@ -106,8 +106,8 @@ export function NewSpaceDialog({ me, onClose, onCreated }: { me: string; onClose
   )
 }
 
-/** Renames a shared space: only its name changes, never its folder, so links to it stay as they are. */
-export function RenameSpaceDialog({ path, name: current, onClose, onRenamed }: { path: string; name: string; onClose: () => void; onRenamed: () => void }) {
+/** Renames a shared space: its folder (and its notes' addresses) take the new name; links between its notes stay as they are. */
+export function RenameSpaceDialog({ path, name: current, onClose, onRenamed }: { path: string; name: string; onClose: () => void; onRenamed: (space: SpaceEntry) => void }) {
   const t = useT()
   const [name, setName] = useState(current)
   const [busy, setBusy] = useState(false)
@@ -118,8 +118,7 @@ export function RenameSpaceDialog({ path, name: current, onClose, onRenamed }: {
     setBusy(true)
     setError(null)
     try {
-      await api.renameSpace(path, cleanName(name))
-      onRenamed()
+      onRenamed(await api.renameSpace(path, cleanName(name)))
     } catch (err) {
       setError(spaceError(t, err))
       setBusy(false)
@@ -149,7 +148,11 @@ export function RenameSpaceDialog({ path, name: current, onClose, onRenamed }: {
 /** The text of an error about spaces: leaving through a group names the group. */
 export function spaceError(t: ReturnType<typeof useT>, err: unknown): string {
   if (err instanceof ApiError && err.code === 'leave_via_group' && typeof err.data?.group === 'string') return t('spaces.viaGroup', { group: `@${err.data.group}` })
-  if (err instanceof ApiError && err.code === 'invalid' && typeof err.data?.problem === 'string') return t('spaces.nameInvalid')
+  if (err instanceof ApiError && err.code === 'space_name_taken' && typeof err.data?.name === 'string') return t('spaces.nameTaken', { name: err.data.name })
+  if (err instanceof ApiError && err.code === 'invalid' && typeof err.data?.problem === 'string') {
+    const p = err.data.problem
+    return t(p === 'invalid_characters' ? 'spaces.nameSlash' : p === 'invalid_name' ? 'spaces.nameReserved' : 'spaces.nameInvalid')
+  }
   return errorText(t, err)
 }
 

@@ -12,7 +12,7 @@ import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
 import { errorText, useT } from './i18n.tsx'
 import { LEVEL_LABEL } from './Permissions.tsx'
 import { SearchButton } from './Palette.tsx'
-import { Icon, MenuButton, ThemeToggle } from './ui.tsx'
+import { BackButton, Icon, MenuButton, ThemeToggle } from './ui.tsx'
 import './actions.css'
 import './agents.css'
 import './users.css'
@@ -375,6 +375,7 @@ export function SpacesPage({ user: me, onUnauthorized, onChanged }: { user: User
     <>
       <header className="main-head">
         <MenuButton />
+        <BackButton />
         <span className="spacer" />
         <SearchButton />
         <ThemeToggle />

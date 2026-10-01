@@ -858,15 +858,25 @@ export class CollabHub implements HotDocuments {
    * the latest text), it stops being flushed and its sessions are closed. With
    * `trash`, editors are told the trash entry so they can restore it.
    */
-  async discard(path: string, opts: { ifMatch?: string; trash?: { id: string; actor: Actor } } = {}) {
+  async discard(path: string, opts: { ifMatch?: string; trash?: { id: string; actor: Actor }; run?: () => Promise<void> } = {}) {
     await withLock(path, async () => {
       const h = this.hot.get(path)
-      if (!h) return
+      if (!h) { await opts.run?.(); return }
       await this.flushNow(path, h)
       if (opts.ifMatch !== undefined && !h.orphaned && opts.ifMatch !== h.flushedHash) {
         throw new NoteError('precondition_failed', `the note has changed: ${path}`, h.flushedHash)
       }
       h.discarded = true
+      // What deletes it runs here, with the document locked; editors hear of the trash only once it's all there
+      // (its images too): told before, someone could look at, or restore, an entry not finished yet.
+      if (opts.run) {
+        try {
+          await opts.run()
+        } catch (err) {
+          h.discarded = false
+          throw err
+        }
+      }
       if (opts.trash) {
         const msg = { type: TRASHED_MESSAGE, path, id: opts.trash.id, by: this.actorName(opts.trash.actor) }
         this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify(msg))

@@ -422,13 +422,21 @@ test('trashing an open note tells its editors the entry, and restoring it reopen
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
     const messages: { type: string; id?: string; by?: string }[] = []
-    a.provider.on('stateless', ({ payload }: { payload: string }) => messages.push(JSON.parse(payload)))
+    // When the notice comes, the deletion is over: the note is off the disk and its entry is in the trash
+    // (told before, an editor could restore an entry not finished yet; its images were still there).
+    const when: { noteThere: boolean; entryThere: boolean }[] = []
+    a.provider.on('stateless', ({ payload }: { payload: string }) => {
+      const msg = JSON.parse(payload)
+      messages.push(msg)
+      if (msg.type === 'vihko:trashed') when.push({ noteThere: existsSync(join(notes, NOTE)), entryThere: existsSync(join(env.VIHKO_STATE_DIR, 'trash', msg.id, 'meta.json')) })
+    })
     typeLine(a, MARK.lastLine)
     await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
     const del = await api(srv, cookie, 'DELETE', `/api/note?path=${encodeURIComponent(NOTE)}`)
     assert.equal(del.status, 200)
     await waitFor(() => messages.some((m) => m.type === 'vihko:trashed'), 'trash notice')
     assert.deepEqual(messages.find((m) => m.type === 'vihko:trashed'), { type: 'vihko:trashed', path: NOTE, id: del.body.id, by: admin.username })
+    assert.deepEqual(when, [{ noteThere: false, entryThere: true }])
     // The editor is still around and retries: it does not resurrect the note, not even by typing.
     typeLine(a, MARK.afterDelete)
     await sleep(1500)

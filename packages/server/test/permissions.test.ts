@@ -264,14 +264,14 @@ test('§7.8 (D-056.30): renaming a note that other spaces link by path: those li
   } finally { await h.close() }
 })
 
-test('the permissions API: who sees and changes what, what reaches a folder from above, ai, a space\'s name kept, and effective access', async () => {
+test('the permissions API: who sees and changes what, what reaches a folder from above, ai, a legacy space name kept, and effective access', async () => {
   const name = m.aSpaceName()
   const config = RULES.replace(`  ${yamlKey(DIR.shared)}:\n`, `  ${yamlKey(DIR.shared)}:\n    name: ${JSON.stringify(name)}\n`)
   assert.notEqual(config, RULES)
   const h = await setup({ files: FILES, config })
   try {
     const root = (await h.admin('GET', h.url('/api/permissions', { folder: DIR.shared }))).body
-    assert.deepEqual([root.section, root.own, root.inherited, root.owner, root.space, root.canEdit], ['rules', { grants: { [`@${GROUP}`]: 'edit', [A]: 'manage' } }, [], null, { path: DIR.shared, name }, true])
+    assert.deepEqual([root.section, root.own, root.inherited, root.owner, root.space, root.canEdit], ['rules', { grants: { [`@${GROUP}`]: 'edit', [A]: 'manage' } }, [], null, { path: DIR.shared, name: DIR.shared.slice('spaces/'.length) }, true])
     assert.deepEqual(root.access.map((a: { username: string; level: string }) => [a.username, a.level]).sort(), [[A, 'manage'], [M, 'edit'], [O, 'edit']].sort())
     // The member edits the shared space but doesn't manage it: they see it, can't see or change who it's shared with.
     assert.deepEqual([(await h.member('GET', h.url('/api/permissions', { folder: DIR.shared }))).status], [403])
@@ -288,10 +288,10 @@ test('the permissions API: who sees and changes what, what reaches a folder from
     assert.equal(shared.status, 200, shared.text)
     assert.deepEqual(shared.body.inherited, [{ from: DIR.shared, grants: { [`@${GROUP}`]: 'edit', [A]: 'manage' } }])
     assert.equal((await h.member('GET', h.url('/api/permissions', { folder: sub }))).body.canEdit, true, 'the member manages it now')
-    // Changing the space's members keeps its name.
+    // Changing the space's members keeps the name rc.1 or rc.2 wrote (for the start that renames its folder to it, D-056.33); the space's name is its folder's.
     const again = await h.admin('PUT', '/api/permissions', { folder: DIR.shared, grants: { [`@${GROUP}`]: 'comment', [A]: 'manage' }, ifMatch: shared.body.etag })
     assert.equal(again.status, 200, again.text)
-    assert.equal(again.body.space.name, name)
+    assert.equal(again.body.space.name, DIR.shared.slice('spaces/'.length))
     assert.ok(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8').includes(name))
     // ai: false, by whoever manages it; inherited below, not undone there.
     const mine = (await h.member('GET', h.url('/api/permissions', { folder: PATH.diaryDir }))).body

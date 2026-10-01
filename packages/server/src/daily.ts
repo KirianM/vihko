@@ -22,6 +22,8 @@ export interface DailyOptions {
    * disk). Every series by default.
    */
   offered?: (user: User, series: Series) => boolean
+  /** Every series a person may be offered (vihko.yaml's and their spaces' and own settings, noteSettings.ts); vihko.yaml's by default. */
+  seriesOf?: (user: User) => Series[]
 }
 
 export interface DailyToday {
@@ -47,7 +49,7 @@ export class DailyNotes {
    * falls back to the first. With no series, daily notes are off.
    */
   seriesFor(user: User, requested?: string | null): Series {
-    const all = this.opts.workspace.config.daily.filter((s) => this.opts.offered?.(user, s) ?? true)
+    const all = (this.opts.seriesOf?.(user) ?? this.opts.workspace.config.daily).filter((s) => this.opts.offered?.(user, s) ?? true)
     if (requested) {
       const s = all.find((x) => x.id === requested)
       if (!s) throw new NoteError('not_found', `no daily-note series ${requested} in vihko.yaml`)

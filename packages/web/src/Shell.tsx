@@ -4,6 +4,10 @@ import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, type
 import { seriesNeighbors } from '@vihko/core/series'
 import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type SpaceEntry, type SpacesInfo, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
 import { SpacesContext, notePathOf, rootOf, usePathLabels, useSpacesValue } from './spaces.tsx'
+import { renamedPath } from './legacyAddress.ts'
+import { openingNote } from './onOpen.ts'
+import { HomePage } from './Home.tsx'
+import { NoteSettingsDialog } from './NoteSettings.tsx'
 import { addressOf } from '@vihko/core/spaces'
 import { SpaceSections, type Section, type SectionAction } from './Sidebar.tsx'
 import { DeleteSpaceDialog, LeaveSpaceDialog, NewSpaceDialog, RenameSpaceDialog, spaceError } from './SpaceDialogs.tsx'
@@ -19,7 +23,7 @@ import { useChooseLanguage } from './language.ts'
 import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
-import { Brand, Crumbs, FolderPermissionsContext, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
+import { BackContext, Brand, Crumbs, FolderPermissionsContext, GoHomeContext, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
 import { TrashToast, type Trashed } from './TrashToast.tsx'
 import { managesFolder, noteFolder } from './levels.ts'
 import { PinOfferToast, type PinOffer } from './PinOffer.tsx'
@@ -54,6 +58,7 @@ type TreeDialog =
   | { kind: 'renameSpace'; section: Section }
   | { kind: 'leaveSpace'; section: Section }
   | { kind: 'deleteSpace'; space: SpaceEntry }
+  | { kind: 'settings'; space: string | null; name: string | null }
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 /** Views that aren't a note, in the URL as `?view=` (no router). */
@@ -108,13 +113,39 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   versionRef.current = version
   const setOpenPath = (path: string | null) => { setView(null); setVersion(null); setOpenPathState(path) }
   const openVersion = (path: string, id: string) => { setView(null); setOpenPathState(path); setVersion(id) }
-  const showAlerts = () => { setOpenPathState(null); setVersion(null); setView('alerts') }
-  const showChanges = () => { setOpenPathState(null); setVersion(null); setView('changes') }
-  const showAgents = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('agents') }
-  const showPrivacy = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('privacy') }
-  const showUsers = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('users') }
-  const showAccount = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('account') }
-  const showSpaces = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('spaces') }
+  /**
+   * Where «Back» on a page (Account, Agents, Alerts…) goes (D-056.35): where
+   * the person was when they left a note or Home for the pages; going from
+   * one page to another keeps it. Null: Home.
+   */
+  const [returnTo, setReturnTo] = useState<{ path: string; version: string | null } | null>(null)
+  /** Coming in with nothing asked for: «On opening» is being decided (Home isn't shown until it is). */
+  const [opening, setOpening] = useState(() => openPath === null && view === null)
+  const viewRef = useRef(view)
+  viewRef.current = view
+  const openPathRef = useRef(openPath)
+  openPathRef.current = openPath
+  const show = (v: View) => {
+    setPrefsOpen(false)
+    if (viewRef.current === null) setReturnTo(openPathRef.current ? { path: openPathRef.current, version: versionRef.current } : null)
+    setOpenPathState(null)
+    setVersion(null)
+    setView(v)
+  }
+  const showAlerts = () => show('alerts')
+  const showChanges = () => show('changes')
+  const showAgents = () => show('agents')
+  const showPrivacy = () => show('privacy')
+  const showUsers = () => show('users')
+  const showAccount = () => show('account')
+  const showSpaces = () => show('spaces')
+  /** «Home» (D-056.35): nothing open, no page. The logo leads here. */
+  const goHome = () => { setPrefsOpen(false); setNavOpen(false); setReturnTo(null); setOpenPath(null) }
+  const goBack = () => {
+    const to = returnTo
+    setReturnTo(null)
+    if (to) { setView(null); setOpenPathState(to.path); setVersion(to.version) } else setOpenPath(null)
+  }
   const historyStatus = useHistoryStatus()
   const historyOn = historyStatus !== null && historyStatus.mode !== 'off'
   /** The note at `?note=` doesn't exist, but its version was asked for: shown on its own (restoring creates it again). */
@@ -136,8 +167,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [jobIssue, setJobIssue] = useState<string | null>(null)
   const [palette, setPalette] = useState<PaletteMode | null>(null)
   const mobile = useMobile()
-  // On a phone with nothing open, start at the tree: it's the only way in.
-  const [navOpen, setNavOpen] = useState(() => mobile && !openPath && !view)
+  // On a phone too, vihko opens at Home (D-056.35): the tree is behind the menu button.
+  const [navOpen, setNavOpen] = useState(false)
   const [expanded, setExpanded] = useState<Set<Key>>(() => new Set(openPath ? ancestors(openPath) : []))
   useBackClose(mobile && navOpen, () => setNavOpen(false))
   useVisualViewport(mobile)
@@ -176,13 +207,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       // First sign-in: the browser's timezone becomes the person's (editable in Preferences).
       if (!p.timezone) p = await api.updateProfile({ timezone: browserTimeZone() }).catch(() => p)
       setProfile(p)
-      // «Open on start» only opens today's note if it exists: it never creates one (D-030).
-      if (!p.openDailyOnStart || !startedEmpty) return
-      const today = await api.today().catch(() => null)
-      if (!today?.exists) return
-      setOpenPathState((current) => current ?? today.path)
-      setNavOpen(false)
-    }).catch(() => {})
+      // «On opening» (D-056.35), when nothing else was asked for: a note only if it exists and they
+      // read it (today's is never created on coming in, D-030); otherwise Home stays.
+      if (!startedEmpty) return
+      const target = await openingNote(p).catch(() => null)
+      if (target) setOpenPathState((current) => current ?? target)
+      setOpening(false)
+    }).catch(() => {}).finally(() => setOpening(false))
     // vihko.yaml can change at any time (another editor, git pull): read again on coming back.
     const refresh = () => { if (document.visibilityState === 'visible') { void loadWorkspace(); void loadAlerts() } }
     window.addEventListener('focus', refresh)
@@ -205,6 +236,20 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   }
   const todayRef = useRef<(() => void) | null>(null)
   todayRef.current = dailyOn ? () => void openToday() : null
+
+  // The tree and the sidebar, live (D-056.36): the server says «read your tree again» when someone
+  // else's change concerns what this person sees (GET /api/events). The browser reconnects by itself.
+  useEffect(() => {
+    if (typeof EventSource === 'undefined') return
+    const events = new EventSource('/api/events')
+    let timer: ReturnType<typeof setTimeout> | null = null
+    events.addEventListener('tree', () => {
+      if (timer) return
+      timer = setTimeout(() => { timer = null; void loadTree() }, 150)
+    })
+    return () => { if (timer) clearTimeout(timer); events.close() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // The hub says this session ended (disabled, sessions closed, a new password elsewhere): sign in again.
   useEffect(() => {
@@ -258,6 +303,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setNoAccess(null)
     // Check that it exists before opening co-editing: the hub rejects notes that don't exist.
     api.note(openPath).then(() => { setReady(openPath); rememberNote(openPath) }).catch((err) => {
+      // Moved again a moment ago, while its editor reopened it at the last place it heard of: follow it.
+      if (err instanceof ApiError && err.code === 'not_found' && typeof err.data?.movedTo === 'string') return setOpenPathState(err.data.movedTo)
       if (versionRef.current && err instanceof ApiError && err.code === 'not_found') setMissing(openPath)
       // Neither missing nor someone else's is told apart (D-024, D-038).
       else if (err instanceof ApiError && (err.code === 'not_found' || err.code === 'forbidden')) setNoAccess(openPath)
@@ -265,6 +312,20 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openPath])
+
+  // An address of a shared space from 0.1.0-rc.1 or rc.2 (`casa-7k2q9x/…`): the space it was renamed to (D-056.33).
+  useEffect(() => {
+    if (!noAccess || noAccess !== openPath || !spaces) return
+    const to = renamedPath(noAccess, spaces)
+    if (to) setOpenPathState(to)
+  }, [noAccess, openPath, spaces])
+
+  /** Shows a folder or space in the sidebar (Home's «Shared with you»): its folders open; on a phone, the drawer. */
+  const reveal = (path: string) => {
+    setSideTab('folders')
+    setExpanded((e) => new Set([...e, ...ancestors(`${path}/_`)]))
+    if (mobile) setNavOpen(true)
+  }
 
   const tree = useMemo(() => (notes ? buildTree(notes, folders) : []), [notes, folders])
   const admin = user.role === 'admin'
@@ -415,6 +476,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     else if ((action === 'members' && s.level === 'manage') || action === 'share' || action === 'agents') setTreeDialog({ kind: 'permissions', path: s.root })
     else if (action === 'members' || action === 'access') setTreeDialog({ kind: 'members', path: s.root })
     else if (action === 'rename') setTreeDialog({ kind: 'renameSpace', section: s })
+    else if (action === 'settings') setTreeDialog({ kind: 'settings', space: s.kind === 'shared' ? s.root : null, name: s.kind === 'shared' ? s.name : null })
     else if (action === 'leave') setTreeDialog({ kind: 'leaveSpace', section: s })
     else if (action === 'delete') {
       const space = spaces?.spaces.find((x) => x.path === s.root)
@@ -489,6 +551,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     <TimeZoneContext.Provider value={profile?.timezone ?? browserTimeZone()}>
     <OpenPaletteContext.Provider value={() => setPalette('search')}>
     <OpenNavContext.Provider value={mobile ? () => setNavOpen(true) : null}>
+    <GoHomeContext.Provider value={goHome}>
+    <BackContext.Provider value={view !== null ? goBack : null}>
     <FolderPermissionsContext.Provider value={folderPermissions}>
     <div className="shell">
       {mobile ? (
@@ -583,6 +647,18 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               onRestored={restoredDone}
             />
           </Suspense>
+        ) : !openPath && !opening ? (
+          <HomePage
+            user={user}
+            refresh={notes}
+            onOpen={setOpenPath}
+            onReveal={reveal}
+            onNewNote={editsSomewhere ? () => { setCreateIn(mine); setPalette('create') } : null}
+            onToday={dailyOn ? () => void openToday() : null}
+            onSearch={() => setPalette('search')}
+            onNewSpace={spaces?.canCreate ? () => setTreeDialog({ kind: 'newSpace' }) : null}
+            onUnauthorized={onUnauthorized}
+          />
         ) : (
           <>
             <header className="main-head">
@@ -600,7 +676,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
                   <p>{t('note.noAccessHint')}</p>
                 </div>
               )}
-              {!openPath && !error && <p className="empty">{t('shell.empty')}</p>}
+              {!openPath && !error && <p className="empty">{t('common.loading')}</p>}
             </div>
           </>
         )}
@@ -702,7 +778,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             }} />
           )}
           {treeDialog?.kind === 'renameSpace' && (
-            <RenameSpaceDialog path={treeDialog.section.root} name={treeDialog.section.name} onClose={closeTreeDialog} onRenamed={() => { closeTreeDialog(); void loadTree() }} />
+            <RenameSpaceDialog path={treeDialog.section.root} name={treeDialog.section.name} onClose={closeTreeDialog} onRenamed={(space) => folderPlaced(treeDialog.section.root, space.path)} />
           )}
           {treeDialog?.kind === 'leaveSpace' && (
             <LeaveSpaceDialog path={treeDialog.section.root} name={treeDialog.section.name} kind={treeDialog.section.kind === 'shared' ? 'shared' : 'received'} onClose={closeTreeDialog} onLeft={() => {
@@ -719,6 +795,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               if (openPath?.startsWith(`${root}/`)) setOpenPath(null)
               void loadTree()
             }} />
+          )}
+          {treeDialog?.kind === 'settings' && (
+            <NoteSettingsDialog space={treeDialog.space} name={treeDialog.name} onClose={closeTreeDialog} onSaved={() => { closeTreeDialog(); void loadWorkspace() }} />
           )}
           {treeDialog?.kind === 'trashNote' && (
             <TrashDialog path={treeDialog.path} onClose={closeTreeDialog} onTrashed={(id) => {
@@ -759,10 +838,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           onAccount={showAccount}
           onUsers={user.role === 'admin' ? showUsers : null}
           onSpaces={user.role === 'admin' ? showSpaces : null}
+          onNoteSettings={() => { setPrefsOpen(false); setTreeDialog({ kind: 'settings', space: null, name: null }) }}
         />
       )}
     </div>
     </FolderPermissionsContext.Provider>
+    </BackContext.Provider>
+    </GoHomeContext.Provider>
     </OpenNavContext.Provider>
     </OpenPaletteContext.Provider>
     </TimeZoneContext.Provider>

@@ -10,6 +10,106 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.0-rc.3] - Unreleased
+
+### Upgrade notes
+
+- **A shared space's folder is its name**: `spaces/Home/`, not
+  `spaces/home-7k2q9x/`. When it starts, vihko renames each shared space made
+  by rc.1 or rc.2 to the name it had (or, if that name can't be a folder's,
+  to its folder's readable part), as a rename from vihko would: its notes,
+  its rules in `vihko.yaml`, the keys, pins and trash entries that named it,
+  and the history all follow, and the `name` key goes from `vihko.yaml`. If
+  another space or folder already has that name, the space is left as it is
+  and the admins get the alert `space_not_renamed`; each start tries again.
+  Nothing to do otherwise. Scripts and agents that kept a space's path should
+  ask `GET /api/spaces` (or `list_folder("")`) again.
+- **Names of shared spaces are unique** in the installation, without regard
+  to case, and visible to everyone in it (not what a space holds or who is in
+  it). Creating or renaming a space to a name another has answers
+  `409 space_name_taken`.
+- **The `id` of shared spaces is gone** from `GET /api/spaces`,
+  `GET /api/admin/spaces` and MCP's `list_folder("")`: a space is its `path`,
+  and its `name` is its folder's.
+- **Note addresses** of a shared space are `?note=Home/…`. One saved with an
+  rc.1 or rc.2 folder (`?note=home-7k2q9x/…`) opens the note in the space it
+  became, for whoever is in it.
+- **`state.db` migrates** (a new version: what vihko opens when each person
+  comes in). «Open today's note when vihko opens» carries over as «On
+  opening: today's note». `openDailyOnStart` of `/api/profile` is deprecated:
+  use `onOpen`.
+
+### Added
+
+- **Home**: where vihko opens, and where the sidebar's logo always leads.
+  Your recent notes, what others changed lately in the notes you read (and
+  who, where you may see the history), what was shared with you in the last
+  30 days, and quick actions (new note, today's note, search, new space). All
+  of it from the index, the history and your notices; nothing is stored for
+  it, and nothing in it is anything you can't read. On a phone, vihko opens
+  at Home too, with the folders behind the menu button.
+- **«On opening»** in Preferences: Home (the default), the last note you had
+  open on that device, a note you pick by its name, or today's note if it
+  already exists (never created on coming in; offered when you have a daily
+  series). It replaces «Open today's note when vihko opens».
+- **The tree and the sidebar are live**: what someone else creates, renames,
+  moves or deletes where you read, a folder shared with you or taken back, or
+  a space you're added to or removed from, shows without reloading. The
+  server only says «read your tree again» (`GET /api/events`, a server-sent
+  event stream), and only to those a change concerns: never what changed,
+  and never to someone who can't read it. A reverse proxy must not buffer
+  `/api/events` (most don't for `text/event-stream`).
+- **«Back»** on the pages (Account, Agents and API, Privacy, Users and
+  groups, Spaces, Alerts, Recent changes): to the note or Home you came from.
+- **Settings of a person or a space**, without touching `vihko.yaml`: daily
+  notes, templates folders, where new images go and a guide for agents.
+  Yours, in Preferences › «Your note settings»; a shared space's, from its
+  «Settings…» (its managers). They live in the space,
+  `people/<you>/.vihko/settings.yaml` or `spaces/<name>/.vihko/settings.yaml`
+  (one format, with `version`, paths relative to the space), and add to the
+  installation's: the series and templates of `vihko.yaml`, your spaces and
+  your own (a series that gives the same notes as another is offered once);
+  a space's images setting for its notes; agents get the installation's
+  guide, then each space's their key reaches, then yours. vihko writes only
+  what changed and keeps comments; a hand edit applies at once, and what's
+  wrong in it is an alert to whom the file belongs (never the admin as
+  such). `GET/PUT /api/settings`, alert `settings_invalid`.
+
+### Changed
+
+- **The frontmatter is protected in the editor**: select all (Ctrl/Cmd+A)
+  selects the body, and deleting, typing, pasting or dropping in the body
+  never reaches the frontmatter, so a note never loses its `uid`, aliases,
+  tags or `ai: false` by accident. It's edited by opening its folded block
+  (where select all takes its YAML). Other editors, the API and MCP are as
+  before.
+- **Renaming a shared space renames its folder** (and its notes' addresses);
+  links between its notes stay as they are, since they never leave the space.
+- `spaces/` holds shared spaces by name: any folder there is a space but a
+  hidden one, one starting with `~`, one ending with `.`, `~` or `.md`, and
+  `people` or `spaces`. A space's name can't hold `/` or `\` (`400 invalid`
+  with `problem: invalid_characters`), nor be one of those names
+  (`invalid_name`).
+
+### Fixed
+
+- «End» on a long line with a comment at its end could leave the cursor
+  inside the comment's hidden syntax, and what was typed vanished into the
+  comment: the keyboard never leaves the cursor inside a comment now.
+- A phone no longer bounces a short note (or the page) past its ends.
+- Templates no longer show in search (unless asked for by their folder with
+  `path:`), in the tags and in Home.
+- Reading a template's frontmatter (`date: {{date}}`) no longer writes a
+  warning to vihko's log.
+- Trashing a note open in the editor right after pasting an image into it
+  could tell its editors before the image was in the trash: they are told
+  once the whole entry is there.
+- An open note whose folder was moved and moved back (through the API, by
+  someone else) could end shown as missing, and a reload opened its old
+  path: a `not_found` for a note vihko moved in the last two minutes says
+  where it went (`movedTo`), to whoever reads it there, and the editor
+  follows it.
+
 ## [0.1.0-rc.2] - 2026-10-01
 
 What the first real install of rc.1 brought up: links now stay inside their

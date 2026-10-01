@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { classifyPath, isValidUsername, parseSpaceFolder, spaceNameProblem } from '@vihko/core'
+import { classifyPath, isSpaceRoot, isValidUsername, legacySpaceFolder, nameKey, spaceNameProblem } from '@vihko/core'
 import { caseFold } from '@vihko/core/casefold'
 import { subjectKey as coreSubjectKey } from '../packages/core/src/permissions.ts'
 import { MIN_PASSWORD as SERVER_MIN_PASSWORD, NAME_PATTERN as SERVER_NAME_PATTERN, NoteService } from '@vihko/server'
@@ -30,17 +30,21 @@ test('usernames and group names are valid and never repeat under subjectKey, nor
   assert.ok(names.some((n) => /[^\x00-\x7f]/.test(n)), 'some names are not ASCII')
 })
 
-test('usernames can be personal spaces; space names and folders are valid, their ids never repeat', () => {
+test('usernames can be personal spaces; space names are valid folders that never repeat; legacy ids never repeat', () => {
   for (let i = 0; i < 200; i++) assert.ok(isValidUsername(m.aUsername()))
+  const names = new Set<string>()
   const ids = new Set<string>()
   for (let i = 0; i < 200; i++) {
     const name = m.aSpaceName()
     assert.equal(spaceNameProblem(name), null, name)
-    const folder = m.aSpaceFolder(name)
-    const parsed = parseSpaceFolder(folder)
-    assert.ok(parsed, folder)
-    assert.ok(!ids.has(parsed.id), `${parsed.id} repeats`)
-    ids.add(parsed.id)
+    assert.equal(m.aSpaceFolder(name), name)
+    assert.ok(isSpaceRoot(`spaces/${name}`), name)
+    assert.ok(!names.has(nameKey(name)), `${name} repeats`)
+    names.add(nameKey(name))
+    const legacy = legacySpaceFolder(m.aLegacySpaceFolder(name))
+    assert.ok(legacy)
+    assert.ok(!ids.has(legacy.id), `${legacy.id} repeats`)
+    ids.add(legacy.id)
   }
 })
 

@@ -7,7 +7,7 @@ import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from 'r
 import { Button, Dialog, Heading, Modal, ModalOverlay } from 'react-aria-components'
 import { ApiError, api, type Alert, type MoveJob, type MovedRelinkReport } from './api.ts'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
-import { Icon, MenuButton, ThemeToggle, noteName as fileName } from './ui.tsx'
+import { BackButton, Icon, MenuButton, ThemeToggle, noteName as fileName } from './ui.tsx'
 import { noteHref, usePathLabels } from './spaces.tsx'
 import { SearchButton } from './Palette.tsx'
 import type { ConfigError, ConfigMigrationRef } from '@vihko/core/codes'
@@ -359,6 +359,15 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           extra: configList(a.warnings),
           actions: null,
         })
+      case 'settings_invalid':
+        return frame({
+          icon: icons.config,
+          tone: 'warn',
+          title: a.space ? t('alerts.spaceSettingsInvalidTitle', { name: a.space.name }) : t('alerts.settingsInvalidTitle'),
+          body: t('alerts.settingsInvalidBody'),
+          extra: configList(a.errors),
+          actions: null,
+        })
       case 'config_migrated':
         return frame({
           icon: icons.config,
@@ -555,6 +564,14 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           body: rich(t(a.code === 'space_without_members' ? 'alerts.spaceNoMembersBody' : 'alerts.spaceNoManagersBody'), { path: <b>{a.name}</b> }),
           actions: null,
         })
+      case 'space_not_renamed':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.spaceNotRenamedTitle', { name: a.name }),
+          body: rich(t('alerts.spaceNotRenamedBody'), { name: <b>{a.name}</b>, wanted: <b>{a.wanted}</b> }),
+          actions: null,
+        })
       case 'login_attempts_blocked':
         return frame({
           icon: icons.warn,
@@ -587,6 +604,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
     <>
       <header className="main-head">
         <MenuButton />
+        <BackButton />
         <span className="spacer" />
         <SearchButton />
         <ThemeToggle />

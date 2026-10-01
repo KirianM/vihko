@@ -15,7 +15,8 @@ const OTHER = m.aUsername()
 const GONE = m.aUsername()
 const GROUP = m.aGroupName()
 const HOME_NAME = m.aSpaceName()
-const HOME = `spaces/${m.aSpaceFolder(HOME_NAME)}`
+// A space as 0.1.0-rc.1 and rc.2 made it: its name in vihko.yaml (read only for the start that renames it, D-056.33).
+const HOME = `spaces/${m.aLegacySpaceFolder(HOME_NAME)}`
 const RECIPES = `${HOME}/${m.aFolder()}`
 const FINANCES = `${HOME}/${m.aFolder()}`
 const TRIPS = `people/${OWNER}/${m.aFolder()}`
@@ -46,7 +47,7 @@ const SPEC = `permissions:
     ai: false
 `
 
-test('spaces model: the section as written, with a space name', () => {
+test('spaces model: the section as written, with a legacy space name', () => {
   assert.deepEqual(rulesOf(SPEC), [
     { folder: HOME, grants: { [`@${GROUP}`]: 'edit', [OWNER]: 'manage' }, ai: null, name: HOME_NAME },
     { folder: RECIPES, grants: { [OTHER]: 'read' }, ai: null },
@@ -56,8 +57,8 @@ test('spaces model: the section as written, with a space name', () => {
   ])
 })
 
-test('spaces model: a name only at a shared space root, and a valid one', () => {
-  for (const [key, name] of [[RECIPES, HOME_NAME], [`people/${OWNER}`, HOME_NAME], [HOME, ''], [HOME, ` ${HOME_NAME}`]] as const) {
+test('spaces model: a legacy name only at a shared space root, any text there', () => {
+  for (const [key, name] of [[RECIPES, HOME_NAME], [`people/${OWNER}`, HOME_NAME]] as const) {
     const r = parseWorkspaceConfig(`permissions:\n  ${key}:\n    name: ${JSON.stringify(name)}\n`)
     assert.ok(r.ok)
     assert.deepEqual(r.sections.permissions, { kind: 'closed' }, `${key}: ${name}`)
@@ -65,6 +66,12 @@ test('spaces model: a name only at a shared space root, and a valid one', () => 
   }
   const r = parseWorkspaceConfig(`permissions:\n  ${HOME}:\n    name: 12\n`)
   assert.ok(r.ok && r.warnings.some((w) => w.code === 'invalid_type'))
+  // At a shared space's root any text is kept as it was: it rejects nothing (the start falls back to the readable part).
+  for (const name of ['', ` ${HOME_NAME}`, `${HOME_NAME}/${m.aWord()}`]) {
+    const ok = parseWorkspaceConfig(`permissions:\n  ${HOME}:\n    name: ${JSON.stringify(name)}\n`)
+    assert.ok(ok.ok)
+    assert.deepEqual(ok.sections.permissions, { kind: 'rules', rules: [{ folder: HOME, grants: null, ai: null, name }] }, name)
+  }
 })
 
 test('spaces model: which keys it takes', () => {
@@ -75,7 +82,7 @@ test('spaces model: which keys it takes', () => {
   assert.equal(spaceKeyProblem(TRIPS, g), null)
   assert.equal(spaceKeyProblem(`people/${OWNER}`, none), null)
   assert.equal(spaceKeyProblem(`people/${OWNER}`, g), 'personal_root_grants')
-  for (const key of ['', 'people', 'spaces', m.aFolder(), `${m.aFolder()}/${m.aFolder()}`, `spaces/${m.aFolder().replace(/\W/g, '')}`, 'people/.x']) {
+  for (const key of ['', 'people', 'spaces', m.aFolder(), `${m.aFolder()}/${m.aFolder()}`, `spaces/.${m.aWord()}`, `spaces/~${m.aWord()}`, 'spaces/people', 'people/.x']) {
     assert.equal(spaceKeyProblem(key, g), 'outside_spaces', key)
   }
   assert.equal(spaceKeyProblem('people/{user}', g), 'user_segment')
@@ -137,7 +144,7 @@ test('spaces model: ai: false closes down to everything under it, within the spa
   assert.equal(rules.aiClosedAt(m.aFolder()), null)
 })
 
-test('spaces model: what reaches a folder, its name, what has grants', () => {
+test('spaces model: what reaches a folder, a legacy name, what has grants', () => {
   const rules = new SpaceRules(rulesOf(SPEC))
   assert.deepEqual(rules.reaching(RECIPES), [
     { subject: `@${GROUP}`, level: 'edit', from: HOME },
@@ -145,8 +152,8 @@ test('spaces model: what reaches a folder, its name, what has grants', () => {
     { subject: OTHER, level: 'read', from: RECIPES },
   ])
   assert.deepEqual(rules.reaching(DIARY), [])
-  assert.equal(rules.name(HOME), HOME_NAME)
-  assert.equal(rules.name(RECIPES), null)
+  assert.equal(rules.legacyName(HOME), HOME_NAME)
+  assert.equal(rules.legacyName(RECIPES), null)
   assert.deepEqual(rules.granted().sort(), [HOME, RECIPES, TRIPS].sort())
 })
 

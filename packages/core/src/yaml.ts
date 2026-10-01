@@ -10,7 +10,9 @@ import { isMap, isPair, isScalar, isSeq, parseDocument, YAMLParseError, type Doc
  * keys kept the server busy for minutes.
  */
 export function parseYamlDocument(text: string, opts: { lineCounter?: LineCounter } = {}): Document {
-  const doc = parseDocument(text, { schema: 'core', uniqueKeys: false, prettyErrors: false, lineCounter: opts.lineCounter })
+  // logLevel error: yaml's own warnings (a template's `date: {{date}}`, a map as a key) would go to the process's
+  // log as Node warnings, telling nobody anything; what matters is in `errors`.
+  const doc = parseDocument(text, { schema: 'core', uniqueKeys: false, prettyErrors: false, lineCounter: opts.lineCounter, logLevel: 'error' })
   if (doc.errors.length === 0) {
     const at = repeatedKey(doc.contents)
     if (at !== null) doc.errors.push(new YAMLParseError([at, at + 1], 'DUPLICATE_KEY', 'Map keys must be unique'))

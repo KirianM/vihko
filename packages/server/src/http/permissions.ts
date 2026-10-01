@@ -128,7 +128,7 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
     }
     const ifMatch = typeof body.ifMatch === 'string' ? body.ifMatch.replace(/^W\//, '').replace(/^"|"$/g, '') : undefined
     if (ifMatch === undefined) throw new RequestError(428, 'precondition_required', 'ifMatch: the ETag of vihko.yaml the change was planned on')
-    // A shared space's name stays as it is: it's changed with the space (renaming it).
+    // A name rc.1 or rc.2 wrote at a shared space's root stays, for the start that renames its folder to it (D-056.33).
     const value: RuleValue = { grants, ai, name: written?.name ?? null }
     await file.setRule(folder, value, { actor: c.get('access').actor, ifMatch })
     // The dialog after the change: whoever made it may have given their own `manage` away.

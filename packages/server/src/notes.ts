@@ -70,9 +70,11 @@ export interface HotDocuments {
   edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }>
   /**
    * The note is deleted: flush what is pending, close its sessions and never
-   * flush it again. With `trash`, its editors are told the trash entry.
+   * flush it again. `run`, the deletion itself, runs with the note flushed and
+   * locked (if it throws, the note stays open). With `trash`, its editors are
+   * told the trash entry once `run` is done.
    */
-  discard(path: string, opts?: { ifMatch?: string; trash?: { id: string; actor: Actor } }): Promise<void>
+  discard(path: string, opts?: { ifMatch?: string; trash?: { id: string; actor: Actor }; run?: () => Promise<void> }): Promise<void>
   /**
    * The note is moved while open: `run` does the move on disk with the note
    * flushed and locked, and returns the text left at the destination.
@@ -99,7 +101,8 @@ export interface NoteServiceOptions {
    * default. Asked on each upload and each move (in `per-note` mode a note's
    * folder of images moves with it).
    */
-  attachments?: () => AttachmentsConfig
+  /** Where new images of a note go: vihko.yaml's, or its space's settings for the notes of that space (noteSettings.ts). */
+  attachments?: (notePath?: string) => AttachmentsConfig
   /** The history: every write is recorded with its actor (M2). */
   history?: NoteHistory
   /**
@@ -350,6 +353,23 @@ export class ExistsAs extends NoteError {
   }
 }
 
+/**
+ * A note that isn't at `path` because vihko moved it a moment ago (`movedTo`,
+ * NoteService.movedTo): `not_found`, saying where it went, to whoever reads
+ * it there. An editor that followed one move missed the next while it
+ * reopened the note (moved there and back).
+ */
+export class MovedAway extends NoteError {
+  readonly movedTo: string
+  constructor(path: string, to: string) {
+    super('not_found', `${path} was moved to ${to}`)
+    this.movedTo = to
+  }
+}
+
+/** How long a move from vihko is remembered for MovedAway. */
+export const RECENT_MOVE_MS = 120_000
+
 /** A folder that can't be deleted as asked because of what it holds (`contents`, as the caller may show it). */
 export class FolderNotEmpty extends NoteError {
   readonly contents: unknown
@@ -374,6 +394,35 @@ export class NoteService {
   }
 
   /** The state volume: the trash is its `trash/` (folderRefs.ts rewrites its entries' paths when a folder moves). */
+  /** Notes vihko moved lately: where each went, and when (MovedAway). */
+  private recentMoves = new Map<string, { to: string; at: number }>()
+
+  private remember(pairs: readonly { from: string; to: string }[]) {
+    const now = Date.now()
+    for (const [p, m] of this.recentMoves) if (now - m.at > RECENT_MOVE_MS) this.recentMoves.delete(p)
+    for (const { from, to } of pairs) {
+      this.recentMoves.set(from, { to, at: now })
+      // Back where it was: that path holds the note again.
+      this.recentMoves.delete(to)
+    }
+  }
+
+  /**
+   * Where the note that was at `path` a moment ago is now, if vihko moved it
+   * (following one move after another, within RECENT_MOVE_MS) and it's
+   * there; null otherwise. Whether the asker reads it is the caller's.
+   */
+  movedTo(path: string): string | null {
+    const now = Date.now()
+    let at = path
+    for (let hops = 0; hops < 20; hops++) {
+      const m = this.recentMoves.get(at)
+      if (!m || now - m.at > RECENT_MOVE_MS || m.to === path) break
+      at = m.to
+    }
+    return at !== path && this.isFile(at) ? at : null
+  }
+
   get stateDir(): string {
     return this.opts.stateDir
   }
@@ -601,10 +650,20 @@ export class NoteService {
    * one deleting may take (an agent, within its key's folders).
    */
   async delete(path: string, opts: { ifMatch?: string; actor: Actor; canWrite?: (path: string) => boolean; managers?: string[] }): Promise<TrashEntry> {
-    const file = this.file(path)
     const id = newUid()
-    // Open in the editor: flush what is pending and close it, telling its editors the trash entry.
-    if (this.opts.hot?.has(path)) await this.opts.hot.discard(path, { ifMatch: opts.ifMatch, trash: { id, actor: opts.actor } })
+    // Open in the editor: flushed and closed, and its editors told the trash entry once it's all in the trash.
+    if (this.opts.hot?.has(path)) {
+      let entry: TrashEntry | null = null
+      await this.opts.hot.discard(path, { ifMatch: opts.ifMatch, trash: { id, actor: opts.actor }, run: async () => { entry = await this.trashNow(path, id, opts) } })
+      // Closed meanwhile (the hub had nothing open by then): deleted all the same.
+      return entry ?? this.trashNow(path, id, opts)
+    }
+    return this.trashNow(path, id, opts)
+  }
+
+  /** The deletion of `delete`, with the trash entry's `id`. */
+  private async trashNow(path: string, id: string, opts: { ifMatch?: string; actor: Actor; canWrite?: (path: string) => boolean; managers?: string[] }): Promise<TrashEntry> {
+    const file = this.file(path)
     const current = await readStable(file)
     if (current === null) throw new NoteError('not_found', `does not exist: ${path}`)
     const hash = contentHash(current)
@@ -657,7 +716,7 @@ export class NoteService {
    */
   private filesGoingWith(text: string, path: string, canWrite: (path: string) => boolean): string[] {
     // The fixed folder is each space's own (attachments.ts `attachmentPath`).
-    const folder = this.opts.attachments?.().folder ?? null
+    const folder = this.opts.attachments?.(path).folder ?? null
     const space = spaceRootOf(path)
     const shared = folder === null ? null : space === null ? folder : `${space}/${folder}`
     const inShared = (p: string) => shared !== null && p.startsWith(shared + '/')
@@ -753,6 +812,7 @@ export class NoteService {
         })
         : await this.moveNow(from, to, opts)
       hot?.carrySaved?.([{ from, to }])
+      this.remember([{ from, to }])
       const { report, others, before, after, map, place } = moved
       opts.onMoved?.(counted(others, opts.counts))
 
@@ -1343,6 +1403,7 @@ export class NoteService {
     )
     await locked()
     hot?.carrySaved?.(report.notes)
+    this.remember(report.notes)
     // The copies of what stays behind in the space it leaves, now that their folders are there.
     report.images = this.makeFolderCopies(copies.planned, opts.actor)
     copies.settle(report.images.copied)
@@ -1366,7 +1427,7 @@ export class NoteService {
    * folder of images, or in the fixed folder of the space it goes to.
    */
   private copiesDir(notePath: string): string {
-    return posix.dirname(attachmentPath(notePath, 'png', new Date(0), 1, this.opts.attachments?.() ?? { folder: null }))
+    return posix.dirname(attachmentPath(notePath, 'png', new Date(0), 1, this.opts.attachments?.(notePath) ?? { folder: null }))
   }
 
   /**
@@ -1522,7 +1583,7 @@ export class NoteService {
 
   /** In `per-note` mode, the note's own folder of images if it exists: the files in it (relative to it, hidden ones included) and whether any is a note. */
   private assetsOf(notePath: string): { dir: string; files: string[]; holdsNotes: boolean } | null {
-    const suffix = this.opts.attachments?.().perNote
+    const suffix = this.opts.attachments?.(notePath).perNote
     if (suffix === undefined) return null
     const dir = noteAttachmentsDir(notePath, suffix)
     if (classifyPath(dir) !== 'other' || !isDirectory(join(this.opts.notesDir, dir))) return null
@@ -1537,7 +1598,7 @@ export class NoteService {
    * folder move, with its own relinking).
    */
   private planAssets(from: string, to: string): { folder: MoveReport['images']['folder']; failed: MoveReport['images']['failed'] } {
-    const suffix = this.opts.attachments?.().perNote
+    const suffix = this.opts.attachments?.(from).perNote
     if (suffix === undefined) return { folder: null, failed: [] }
     const dst = noteAttachmentsDir(to, suffix)
     const assets = noteAttachmentsDir(from, suffix) === dst ? null : this.assetsOf(from)
@@ -1631,7 +1692,7 @@ export class NoteService {
     if (bytes.byteLength > this.maxImageBytes) throw new NoteError('too_large', `${bytes.byteLength} bytes, the limit is ${this.maxImageBytes}`)
     const type = sniffImage(bytes)
     if (!type) throw new NoteError('unsupported_type', 'only PNG, JPEG, GIF, WebP and AVIF images are stored')
-    const config = this.opts.attachments?.() ?? { folder: null }
+    const config = this.opts.attachments?.(notePath) ?? { folder: null }
     for (let n = 1; n <= 1000; n++) {
       const path = attachmentPath(notePath, type.ext, now, n, config)
       const file = this.otherFile(path)
@@ -1710,7 +1771,7 @@ export class NoteService {
 
     // Its files first, next to where the note goes, under free names; then the
     // note, linking each where it landed. If the note can't go back, neither do they.
-    const perNote = this.opts.attachments?.().perNote
+    const perNote = this.opts.attachments?.(entry.path).perNote
     const relocate = (p: string) => {
       if (path === entry.path) return p
       const assets = perNote === undefined ? null : noteAttachmentsDir(entry.path, perNote)

@@ -125,3 +125,28 @@
   .toast { bottom: var(--space-4); flex-wrap: wrap; }
   .toast-text { flex: 1 1 200px; }
 }
+/* «On opening» (Preferences.tsx, D-056.35): the choices, and the note picked by its name. */
+.prefs-open { border: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.prefs-open legend { padding: 0; margin-bottom: var(--space-1); font-size: 13px; color: var(--ink-2); }
+.prefs-open > .hint { margin: 0 0 var(--space-1); font-size: 12px; color: var(--muted); }
+.prefs-note { display: flex; flex-direction: column; gap: var(--space-2); padding-left: 28px; }
+.prefs-note-chosen { margin: 0; font-size: 14px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.prefs-note-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius-md); }
+.prefs-note-list li + li { border-top: 1px solid var(--line); }
+.btn.prefs-note-item { width: 100%; height: auto; min-height: var(--control-lg); flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; padding: var(--space-1) var(--space-3); text-align: left; }
+.prefs-note-title { font-size: 14px; color: var(--ink); }
+.btn.prefs-note-item[aria-pressed="true"] { background: var(--accent-soft); }
+/* Note settings (NoteSettings.tsx): a person's or a shared space's. */
+.settings-dialog { width: min(640px, 100%); }
+.settings-group { border: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.settings-group legend { padding: 0; margin-bottom: var(--space-1); font-size: 13px; color: var(--ink-2); }
+.settings-group > .hint { margin: 0 0 var(--space-1); font-size: 12px; color: var(--muted); }
+.settings-series { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; gap: var(--space-2) var(--space-3); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); align-items: end; }
+.settings-series .settings-remove { grid-column: 3; grid-row: 1; align-self: start; }
+.btn.settings-add { align-self: flex-start; }
+.settings-textarea { font: inherit; font-size: 14px; padding: var(--space-2) var(--space-3); border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--field); color: var(--ink); resize: vertical; }
+.settings-problems { margin: var(--space-1) 0 0; padding-left: var(--space-4); }
+@media (max-width: 760px) {
+  .settings-series { grid-template-columns: minmax(0, 1fr) auto; }
+  .settings-series .settings-remove { grid-column: 2; }
+}

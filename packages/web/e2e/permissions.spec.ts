@@ -238,7 +238,8 @@ test('a member closes her space to agents and shares a folder of it with someone
   await outsider.reload()
   await outsider.getByRole('button', { name: 'Compartido conmigo' }).click()
   const section = `${KITCHEN} · de ${MEMBER.username}`
-  await outsider.getByRole('button', { name: KITCHEN, exact: false }).filter({ hasText: `de ${MEMBER.username}` }).click()
+  // In the sidebar (Home lists it too, under «Shared with you lately»).
+  await outsider.getByRole('navigation').getByRole('button', { name: KITCHEN, exact: false }).filter({ hasText: `de ${MEMBER.username}` }).click()
   const tree = spaceTree(outsider, section)
   await expect(row(tree, RECIPE).getByRole('button', { name: /Acciones/ })).toHaveCount(0)
   await expect(row(outsider, DIARY)).toHaveCount(0)
@@ -322,6 +323,8 @@ test('on a phone and in dark mode: the dialog, the marks and the warning fit', a
   await page.getByLabel('Nombre de usuario').fill(MEMBER.username)
   await page.getByLabel('Contraseña').fill(MEMBER.password)
   await page.getByRole('button', { name: 'Entrar' }).last().tap()
+  // Home first (D-056.35): the tree is behind the menu.
+  await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
   await expect(mine(page)).toBeVisible()
   await expect(row(mine(page), KITCHEN).getByRole('img', { name: 'Compartida' })).toBeVisible()
   await shot(page, 'permissions-tree-mobile-dark')

@@ -121,13 +121,16 @@ function useAgentHiding(path: string, c: CollabState): 'ai' | 'frontmatter' | nu
  * session is opened again: collab.ts). Null until known, and `none` when
  * they can't read it any more.
  */
-function useLevel(path: string, c: CollabState): Level | 'none' | null {
+function useLevel(path: string, c: CollabState, onMovedAway?: (to: string) => void): Level | 'none' | null {
   const [level, setLevel] = useState<{ path: string; value: Level | 'none' } | null>(null)
   useEffect(() => {
     if (c.access === 'none') return setLevel({ path, value: 'none' })
     let live = true
     api.note(path).then((n) => { if (live) setLevel({ path, value: n.level ?? 'edit' }) }, (e) => {
-      if (live && e instanceof ApiError && e.code === 'not_found') setLevel({ path, value: 'none' })
+      if (!live || !(e instanceof ApiError) || e.code !== 'not_found') return
+      // Moved again by vihko a moment ago, while this editor reopened it here: follow it.
+      if (typeof e.data?.movedTo === 'string' && onMovedAway) return onMovedAway(e.data.movedTo)
+      setLevel({ path, value: 'none' })
     })
     return () => { live = false }
   }, [path, c.access])
@@ -296,7 +299,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
   const t = useT()
   const c = useCollab(path)
   const hiding = useAgentHiding(path, c)
-  const level = useLevel(path, c)
+  const level = useLevel(path, c, (to) => onMoved(to))
   const gone = level === 'none'
   const known: Level | null = level === 'none' ? null : level
   const editable = canEdit(known)

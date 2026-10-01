@@ -9,16 +9,17 @@
 //   rules to the engine.
 // - Asking about a path the person can't see answers `not_found`, whether it
 //   exists or not; one they see but can't change this way, `forbidden`.
-// - A shared space's folder is `spaces/<readable>-<id>` and never changes
-//   (D-056.14): renaming one changes its name in vihko.yaml, not the folder.
-//   Names are not unique: the id tells spaces apart, and names are no secret
-//   (spec §3.4 row 9).
+// - A shared space's folder is its name, `spaces/<name>` (D-056.33): renaming
+//   one renames its folder (links don't change: they never leave a space,
+//   D-056.30). Names are unique in the installation, without regard to case
+//   (core nameKey), and no secret: saying one is taken tells nothing of what
+//   the space holds or who is in it.
 // - Agents only read what a person reaches (`view`); everything else is for
 //   people (spec §2.5).
 import { lstatSync, mkdirSync, readdirSync, rmdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  LEVELS, SPACES, SpaceRules, isReserved, isSpaceRoot, maxLevel, newSpaceFolder, parseSpaceFolder, parseSpacePath, personalRoot, rulesInFile, setRule, sharedRoot, spaceNameProblem, subjectKey,
+  LEVELS, SPACES, SpaceRules, isReserved, isSpaceRoot, maxLevel, nameKey, parseSpacePath, personalRoot, removeRules, rulesInFile, setRule, sharedRoot, spaceNameProblem, subjectKey,
   type Level, type PermissionRule, type RuleValue,
 } from '@vihko/core'
 import type { Access } from './access.ts'
@@ -30,16 +31,16 @@ import type { FolderRefs } from './folderRefs.ts'
 import { followable } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService } from './notes.ts'
-import type { ScopedFolderMove } from './scoped.ts'
+import { RequestError, type ScopedFolderMove } from './scoped.ts'
 import type { Notices } from './notices.ts'
 import type { PermissionsEngine, SharedEntry, SharedSpaceInfo, SpaceEntry } from './permissions.ts'
 import type { PermissionsFile } from './permissionsFile.ts'
 import type { Users } from './users.ts'
 
-/** A request about spaces that can't be made as it is: `invalid` and `space_needs_manager` (400), `leave_via_group` and `space_has_managers` (409). */
+/** A request about spaces that can't be made as it is: `invalid` and `space_needs_manager` (400), `leave_via_group`, `space_has_managers` and `space_name_taken` (409). */
 export class SpaceError extends Error {
   readonly status: 400 | 409
-  readonly code: 'invalid' | 'leave_via_group' | 'space_has_managers' | 'space_needs_manager'
+  readonly code: 'invalid' | 'leave_via_group' | 'space_has_managers' | 'space_needs_manager' | 'space_name_taken'
   readonly extra: Record<string, unknown>
   constructor(status: SpaceError['status'], code: SpaceError['code'], message: string, extra: Record<string, unknown> = {}) {
     super(message)
@@ -88,7 +89,7 @@ export interface ClosedSpace {
 export interface PersonalSpacePlan {
   action: PersonalAction
   from: string
-  /** Where it goes (null: deleted, or a dry run of a conversion, whose id is drawn when it's made). */
+  /** Where it goes (null: deleted). */
   to: string | null
   notes: number
   files: number
@@ -120,8 +121,12 @@ export interface SpaceServiceOptions {
   indexer: Indexer
   /** Deletes a folder as a principal (scoped.ts `deleteFolder`): a shared space goes this way. */
   deleteFolder: (access: Access, path: string, opts: { trash: boolean }) => Promise<unknown>
-  /** Moves a folder as a principal into a new shared space's root (scoped.ts `moveFolder` with `newSpace`). */
-  moveFolder: (access: Access, from: string, to: string, opts: { dryRun: boolean; newSpace: { name: string } }) => Promise<ScopedFolderMove>
+  /**
+   * Moves a folder as a principal (scoped.ts `moveFolder`): into a new shared
+   * space's root (`newSpace`), or a shared space's root to its new name
+   * (`renameSpace`).
+   */
+  moveFolder: (access: Access, from: string, to: string, opts: { dryRun: boolean; newSpace?: true; renameSpace?: true }) => Promise<ScopedFolderMove>
   log?: (msg: string) => void
   now?: () => Date
 }
@@ -167,10 +172,11 @@ export class SpaceService {
   // --- Shared spaces ---------------------------------------------------------------
 
   /**
-   * A new shared space named `name`: its folder under `spaces/`, and its rule
-   * with the name and its members, the creator managing it (D-056.5). With
-   * the setting `spacesCreation: admins`, only an admin may. `members`: more
-   * people or groups, with their level.
+   * A new shared space named `name`: its folder `spaces/<name>`, and its rule
+   * with its members, the creator managing it (D-056.5). With the setting
+   * `spacesCreation: admins`, only an admin may. `members`: more people or
+   * groups, with their level. A name another space has, in any case, is
+   * `space_name_taken` (D-056.33).
    */
   async create(access: Access, input: { name: unknown; members?: unknown }): Promise<SpaceEntry> {
     const user = this.person(access)
@@ -185,7 +191,8 @@ export class SpaceService {
     try {
       await this.opts.file.update((t) => {
         before = t
-        return setRule(t, root, { name, grants, ai: null })
+        // Rules left at that path by a space that went outside vihko (a forgotten audience) aren't this one's.
+        return setRule(removeRules(t, root), root, { grants, ai: null })
       }, { actor: access.actor })
     } catch (err) {
       try { rmdirSync(join(this.opts.notesDir, root)) } catch { /* something landed in it: left */ }
@@ -203,33 +210,42 @@ export class SpaceService {
    * it managing it, with the folder's own grants; what it holds goes to the
    * new space's root, as a folder move goes (links kept, the audience of the
    * move in its preview). Whoever may move the folder, if they may create
-   * spaces. `dryRun`: the move's preview (the new space's id is drawn when
-   * it's made).
+   * spaces. `dryRun`: the move's preview. A name another space has is
+   * `space_name_taken`, in the preview too.
    */
   async fromFolder(access: Access, input: { path?: unknown; name?: unknown; dryRun?: unknown }): Promise<{ space: SpaceEntry | null; report: ScopedFolderMove }> {
     const user = this.person(access)
     if (this.opts.settings.spacesCreation() === 'admins' && user.role !== 'admin') throw new AccessError('only admins create shared spaces here')
     if (typeof input.path !== 'string') throw new SpaceError(400, 'invalid', 'expected the folder\'s path')
     const folder = NoteService.checkFolder(input.path)
+    if (isSpaceRoot(folder)) throw new RequestError(400, 'space_root', 'only a folder inside a space becomes a space of its own')
     const name = this.spaceName(input.name ?? folder.slice(folder.lastIndexOf('/') + 1))
     const dryRun = input.dryRun === true
     const root = this.newSharedFolder(name, { claim: false })
-    const report = await this.opts.moveFolder(access, folder, root, { dryRun, newSpace: { name } })
+    const report = await this.opts.moveFolder(access, folder, root, { dryRun, newSpace: true })
     if (dryRun) return { space: null, report }
     this.opts.indexer.indexFolders([root])
     return { space: this.entry(access, root), report }
   }
 
-  /** Renames a shared space (`manage` at its root): only its name in vihko.yaml changes, never its folder (D-056.14). */
+  /**
+   * Renames a shared space (`manage` at its root): its folder becomes
+   * `spaces/<name>` (D-056.33), with everything in it, its rules, and what
+   * keys, pins and the trash keep by its path (a folder move from vihko,
+   * scoped.ts). Links don't change: they never leave a space. A name another
+   * space has is `space_name_taken`; the same name in another case renames
+   * it too.
+   */
   async rename(access: Access, path: unknown, name: unknown): Promise<SpaceEntry> {
     this.person(access)
     const root = this.sharedRootFor(access, path, 'manage')
     const n = this.spaceName(name)
-    await this.opts.file.update((t) => {
-      const current = rulesInFile(t).get(root) ?? { grants: null, ai: null }
-      return setRule(t, root, { ...current, name: n })
-    }, { actor: access.actor })
-    return this.entry(access, root)
+    const to = sharedRoot(n)
+    if (to === root) return this.entry(access, root)
+    this.checkFree(n, root)
+    await this.opts.moveFolder(access, root, to, { dryRun: false, renameSpace: true })
+    this.opts.indexer.indexFolders([root, to])
+    return this.entry(access, to)
   }
 
   /**
@@ -270,7 +286,7 @@ export class SpaceService {
         if ((folder !== p && !folder.startsWith(p + '/')) || !v.grants) continue
         const grants = Object.fromEntries(Object.entries(v.grants).filter(([k]) => subjectKey(k) !== me))
         if (Object.keys(grants).length === Object.keys(v.grants).length) continue
-        // A space's root keeps its name (and an empty list of members); another folder left without grants loses its rule's grants.
+        // A space's root keeps an empty list of members; another folder left without grants loses its rule's grants.
         const keep = Object.keys(grants).length > 0 || isSpaceRoot(folder)
         out = setRule(out, folder, { ...v, grants: keep ? grants : null })
       }
@@ -305,7 +321,7 @@ export class SpaceService {
     }))
     return {
       path: folder,
-      space: s.space.kind === 'shared' ? { path: s.space.root, name: this.engine.spaceName(s.space.root) ?? s.space.readable } : null,
+      space: s.space.kind === 'shared' ? { path: s.space.root, name: s.space.name } : null,
       owner: s.space.kind === 'personal' ? s.space.owner : null,
       members,
     }
@@ -436,7 +452,8 @@ export class SpaceService {
     const counts = this.contentCounts(from)
     const shared = this.sharedCounts(from, gone.username)
     const plan = (dest: string | null): PersonalSpacePlan => ({ action, from, to: dest, ...counts, sharedFolders: shared.folders, people: shared.people })
-    // A new space's id is drawn when it's made: a dry run doesn't say it.
+    // A conversion's name must be free, in the dry run too (D-056.33).
+    if (action === 'convert') to = this.newSharedFolder(name, { claim: false })
     if (dryRun) return plan(to)
 
     if (action === 'delete') {
@@ -457,7 +474,8 @@ export class SpaceService {
     const dest = action === 'transfer' ? this.freeFolder(to!) : this.newSharedFolder(name, { claim: false })
     // Its rules first at the new path too, then the folder, then the old rules go (as a folder move does, scoped.ts).
     await this.opts.file.update((t) => {
-      let out = t
+      // Rules left at a new space's path by one that went outside vihko aren't this one's.
+      let out = action === 'convert' ? removeRules(t, dest) : t
       const rules = rulesInFile(t)
       for (const [folder, v] of rules) {
         if (folder !== from && !folder.startsWith(from + '/')) continue
@@ -467,7 +485,7 @@ export class SpaceService {
         if (folder === from && action === 'convert') continue
         out = setRule(out, at, value)
       }
-      if (action === 'convert') out = setRule(out, dest, { name, grants: members, ai: rules.get(from)?.ai ?? null })
+      if (action === 'convert') out = setRule(out, dest, { grants: members, ai: rules.get(from)?.ai ?? null })
       return out
     }, { actor: access.actor })
     try {
@@ -622,33 +640,42 @@ export class SpaceService {
   }
 
   /**
-   * A new shared space's root, `spaces/<readable>-<id>`, with an id no space
-   * has (on the disk, or named by a rule, in any case). With `claim` (the
-   * default) its folder is made at once, never over one that exists.
+   * A new shared space's root, `spaces/<name>` (D-056.33): `space_name_taken`
+   * if something in `spaces/` has that name in any case (core nameKey). With
+   * `claim` (the default) its folder is made at once, never over one that
+   * exists (`space_name_taken` too).
    */
   private newSharedFolder(name: string, opts: { claim?: boolean } = {}): string {
     const dir = join(this.opts.notesDir, SPACES)
     mkdirSync(dir, { recursive: true })
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const taken = new Set<string>()
-      try {
-        for (const e of readdirSync(dir)) taken.add(e.slice(e.lastIndexOf('-') + 1).toLowerCase())
-      } catch { /* none yet */ }
-      for (const r of this.engine.spaceRules().rules) {
-        const s = parseSpacePath(r.folder)
-        if (s?.space.kind === 'shared') taken.add(s.space.id)
-      }
-      const folder = newSpaceFolder(name, (id) => taken.has(id))
-      const root = sharedRoot(folder)
-      if (opts.claim === false) return root
-      try {
-        mkdirSync(join(this.opts.notesDir, root))
-        return root
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
-      }
+    this.checkFree(name)
+    const root = sharedRoot(name)
+    if (opts.claim === false) return root
+    try {
+      mkdirSync(join(this.opts.notesDir, root))
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw taken(name)
+      throw err
     }
-    throw new Error('no free shared space folder after 5 tries')
+    return root
+  }
+
+  /**
+   * Unless no entry of `spaces/` (but hidden ones, and `self`, the space
+   * being renamed) has `name` in any case: `space_name_taken`, with the
+   * name as that one writes it. Names of shared spaces are visible to
+   * everyone in the installation (D-056.33): saying one exists reveals
+   * nothing else.
+   */
+  private checkFree(name: string, self: string | null = null): void {
+    const key = nameKey(name)
+    let entries: string[] = []
+    try { entries = readdirSync(join(this.opts.notesDir, SPACES)) } catch { /* none yet */ }
+    for (const raw of entries) {
+      const e = raw.normalize('NFC')
+      if (e.startsWith('.') || sharedRoot(e) === self) continue
+      if (nameKey(e) === key) throw taken(e)
+    }
   }
 
   /** Adds (or raises) one person's grant at a shared space's root, keeping its name, members and `ai`. */
@@ -671,13 +698,12 @@ export class SpaceService {
     const found = this.engine.spacesFor(access.user).spaces.find((s) => s.path === root)
     if (found) return found
     // Just written, and the disk (NFS) or the rules not caught up yet: as it was asked for.
-    const s = parseSpacePath(root)!
-    return { path: root, id: s.space.kind === 'shared' ? s.space.id : '', name: this.engine.spaceName(root) ?? '', level: access.level(root) ?? 'manage', managers: [], aiClosed: false }
+    return { path: root, name: this.engine.spaceName(root) ?? '', level: access.level(root) ?? 'manage', managers: [], aiClosed: false }
   }
 
   /** A shared space as the admin's directory has it. */
   private info(root: string): SharedSpaceInfo {
-    return this.engine.sharedSpaces().find((s) => s.path === root) ?? { path: root, id: parseSpaceFolder(root.slice(SPACES.length + 1))?.id ?? '', name: this.engine.spaceName(root) ?? '', managers: [], members: 0, aiClosed: false }
+    return this.engine.sharedSpaces().find((s) => s.path === root) ?? { path: root, name: this.engine.spaceName(root) ?? '', managers: [], members: 0, aiClosed: false }
   }
 
   /** Whether a folder exists as the disk spells it (never through a symbolic link). */
@@ -759,6 +785,10 @@ export class SpaceService {
 
 function notFound(): NoteError {
   return new NoteError('not_found', 'no such folder')
+}
+
+function taken(name: string): SpaceError {
+  return new SpaceError(409, 'space_name_taken', `there's already a space called ${name}`, { name })
 }
 
 /** A LIKE pattern for everything under a folder. */

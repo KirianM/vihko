@@ -186,6 +186,14 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'POST /api/admin/users', method: 'POST', path: '/api/admin/users', body: { username: m.aUsername(), password: m.aPassword() }, expect: adminOnly(who) },
 
         { route: 'GET /api/tree', method: 'GET', path: '/api/tree', expect: 200 },
+        // «Home» (D-056.35): recent, changed by others, shared lately; a person's only.
+        { route: 'GET /api/home', method: 'GET', path: '/api/home', expect: who === 'agent' ? 404 : 200 },
+        // The tree, live (D-056.36): a stream that never ends for a person (live-tree.test.ts covers it); an agent has none.
+        ...(who === 'agent' ? [{ route: 'GET /api/events', method: 'GET', path: '/api/events', expect: 404 }] : []),
+        // Note settings: one's own; a space's, what they don't read as missing.
+        { route: 'GET /api/settings', method: 'GET', path: '/api/settings', expect: who === 'agent' ? 404 : 200 },
+        { route: 'GET /api/settings', method: 'GET', path: q('/api/settings', { space: DIR.shared }) },
+        { route: 'PUT /api/settings', method: 'PUT', path: '/api/settings', body: { space: DIR.shared, settings: { version: 1, daily: [], templates: [], attachments: null, agents: null }, ifMatch: 'x' } },
         { route: 'GET /api/tags', method: 'GET', path: '/api/tags', expect: 200 },
         ...[WORD.diary, WORD.cake, WORD.other, WORD.admin, WORD.settings, WORD.nobody, NAME.list, SURPRISE_WORD, NAME.plan, `tag:${TAG.intimate}`, `tag:${TAG.home}`, `path:"${DIR.people}"`, `path:"${DIR.admin}"`, `path:"${DIR.shared}"`, COPY]
           .map((s) => ({ route: 'GET /api/search', method: 'GET', path: q('/api/search', { q: s }), expect: 200 })),

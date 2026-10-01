@@ -42,7 +42,7 @@ const IMAGE = `mcr.microsoft.com/playwright:v${PLAYWRIGHT}-noble`
 const CONTAINER = `vihko-screenshots-${process.pid}`
 
 /** The note shown, and the passage the member commented on (the thread is added to the copy, dated a little before now). */
-const NOTE = 'spaces/team-k3v9q2/handbook/Welcome.md'
+const NOTE = 'spaces/Team/handbook/Welcome.md'
 const COMMENTED = 'If vihko ever went away, we would still have every word.'
 /** Where the member's cursor rests, at the end of this line: the admin sees it, with the member's name. */
 const CARET = 'Turn on the API and MCP'

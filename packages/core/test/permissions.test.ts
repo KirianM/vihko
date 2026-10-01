@@ -68,7 +68,7 @@ test('permissions: any doubt rejects the whole section (nothing is shared), with
   // 1.0's per-user subject is no subject now.
   assert.deepEqual(rejected(`permissions:\n  ${HOME}: {grants: {"{user}": read}}\n`), [['section_rejected', 'permissions', 1], ['invalid_value', `permissions.${HOME}.grants.{user}`, 2]])
   // Keys in no space (spec §1.2): the root, the fixed folders, anything else; a `{user}` segment; grants at a personal root.
-  for (const key of ['', 'people', 'spaces', m.aFolder(), `${m.aFolder()}/${m.aFolder()}`, 'people/{user}', `${HOME}/{user}`, `spaces/${m.aFolder()}_`, '../fuera']) {
+  for (const key of ['', 'people', 'spaces', m.aFolder(), `${m.aFolder()}/${m.aFolder()}`, 'people/{user}', `${HOME}/{user}`, `spaces/.${m.aWord()}`, `spaces/~${m.aWord()}`, '../fuera']) {
     assert.deepEqual(rejected(`permissions:\n  ${JSON.stringify(key)}: {grants: {${MEMBER}: read}}\n`)[0], ['section_rejected', 'permissions', 1], key)
   }
   assert.deepEqual(rejected(`permissions:\n  people/${MEMBER}: {grants: {${OTHER}: read}}\n`), at(`people/${MEMBER}`))

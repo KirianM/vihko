@@ -29,14 +29,18 @@ export {
   SpaceRules, spaceKeyProblem, type Grantee, type ReachingGrant, type SpaceKeyProblem,
 } from './permissions.ts'
 export {
-  PEOPLE, PERSONAL_ADDRESS, READABLE_MAX, SETTINGS_FOLDER, SPACES, SPACE_ID, SPACE_ID_LENGTH, SPACE_NAME_MAX,
-  addressOf, displayPath, isReserved, isSpaceRoot, isValidUsername, nameKey, newSpaceFolder, newSpaceId, parseSpaceFolder, parseSpacePath,
+  PEOPLE, PERSONAL_ADDRESS, SETTINGS_FOLDER, SPACES, SPACE_NAME_MAX,
+  addressOf, displayPath, isReserved, isSpaceFolderName, isSpaceRoot, isValidUsername, legacySpaceFolder, nameKey, parseSpacePath,
   pathOfAddress, personalRoot, placement, readablePart, settingsFolder, sharedRoot, spaceNameProblem, spaceOf, spaceRootOf,
-  type DisplayPath, type DisplaySpace, type PersonalSpace, type SharedSpace, type Space, type SpaceKind, type SpacePath,
+  type DisplayPath, type DisplaySpace, type PersonalSpace, type SharedSpace, type Space, type SpaceKind, type SpaceNameProblem, type SpacePath,
 } from './spaces.ts'
 export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'
 export { DEFAULT_HISTORY_MAX_FILE_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode, type McpConfig } from './workspace.ts'
 export { WORKSPACE_MIGRATIONS, formatVersion, migrateWorkspaceText, type MigrationOutcome, type WorkspaceMigration } from './workspaceMigrations.ts'
+export {
+  EMPTY_NOTE_SETTINGS, NOTE_SETTINGS_FILE, NOTE_SETTINGS_VERSION, NoteSettingsFileError, noteSettingsPath, parseNoteSettings, resolveNoteSettings, spacePathProblem, writeNoteSettings,
+  type NoteSettings, type ResolvedNoteSettings, type SettingsAttachments, type SettingsSeries,
+} from './noteSettings.ts'
 export { globProblem, pathMatcher, type GlobProblem } from './glob.ts'
 export {
   anchorChanged, cleanText, commentKey, formatComment, goneThreads, normalizeAnchor, parseComments, parseThreads, removedThread, reopener, replyTo, resolveThread,

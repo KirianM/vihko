@@ -21,7 +21,7 @@ import { useDates } from './history/ui.tsx'
 import { AccessDialog } from './Permissions.tsx'
 import { SearchButton } from './Palette.tsx'
 import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
-import { Diamond, Icon, MenuButton, ThemeToggle } from './ui.tsx'
+import { BackButton, Diamond, Icon, MenuButton, ThemeToggle } from './ui.tsx'
 import { usePathLabels } from './spaces.tsx'
 import { typedSegments } from './typedPath.ts'
 import './actions.css'
@@ -506,6 +506,7 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
     <>
       <header className="main-head">
         <MenuButton />
+        <BackButton />
         <span className="spacer" />
         <SearchButton />
         <ThemeToggle />
