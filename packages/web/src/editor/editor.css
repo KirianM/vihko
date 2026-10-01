@@ -62,7 +62,7 @@
 .editor .cm-link-missing { color: var(--danger); text-decoration-style: dashed; }
 /* Markdown links followed on click, as wikilinks (livePreview.ts, tables.ts). */
 .editor .cm-md-link.cm-link-resolved, .editor .cm-md-link.cm-link-ambiguous, .editor .cm-md-link.cm-link-external, .editor .cm-table [data-link-raw] { cursor: pointer; }
-/* A note that exists but isn't yours to read (D-024): dimmed, with a lock; never «create». */
+/* A note that exists but isn't yours to read: dimmed, with a lock; never «create». */
 .editor .cm-wikilink-no_access a, .editor .cm-link-no_access { color: var(--muted); text-decoration-style: dotted; cursor: default; }
 .editor .cm-wikilink-no_access .cm-wikilink-badge { display: inline-flex; align-items: center; gap: 3px; background: var(--chip); color: var(--muted); }
 .editor .cm-bullet { color: var(--muted); display: inline-block; width: 1ch; }

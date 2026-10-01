@@ -1,5 +1,5 @@
 // The «create» action of a broken link: creates the note where the link will find it and
-// opens it. With templates configured (D-030), a small menu asks which one
+// opens it. With templates configured, a small menu asks which one
 // first. Never overwrites: if the note appeared meanwhile and the link now
 // leads there, it's simply opened.
 import { useState } from 'react'

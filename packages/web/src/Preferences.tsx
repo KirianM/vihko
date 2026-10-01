@@ -1,6 +1,6 @@
 // The person's own preferences (state.db): their timezone, which decides what
 // day "today" is, the daily note (which series «Today» opens) and what vihko
-// opens when they come in («On opening», D-056.35). Reached from the user row
+// opens when they come in («On opening»). Reached from the user row
 // of the sidebar, and the way to the other settings pages (one's own note
 // settings, one's account, «Agents and API», privacy and, for the vihko
 // admin, «Users and groups»). Choosing one's daily series and defining one's
@@ -21,7 +21,7 @@ const ON_OPEN: readonly OnOpen[] = ['home', 'last', 'note', 'daily']
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
 
 /**
- * The note «On opening» opens (D-056.35), picked by its name from the notes
+ * The note «On opening» opens, picked by its name from the notes
  * the person reads now (their tree): never typed as a path.
  */
 function NotePicker({ value, onChange }: { value: string | null; onChange: (path: string) => void }) {
@@ -78,7 +78,7 @@ export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgen
   /** Open one's account (password, sessions), or «Users and groups» (the vihko admin; null for anyone else). */
   onAccount: () => void
   onUsers: (() => void) | null
-  /** The admin's directory of shared spaces (D-056); null for anyone else. */
+  /** The admin's directory of shared spaces; null for anyone else. */
   onSpaces: (() => void) | null
   /** One's own note settings (series, templates, images, guide for agents). */
   onNoteSettings: () => void
@@ -88,7 +88,7 @@ export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgen
   const series = workspace?.daily ?? []
   const [timezone, setTimezone] = useState(profile.timezone ?? browserTimeZone())
   const [dailySeries, setDailySeries] = useState(series.find((s) => s.id === profile.dailySeries)?.id ?? series[0]?.id ?? '')
-  // «Daily note» is offered only to someone with a series (D-056.35); one chosen before stays shown while it's the choice.
+  // «Daily note» is offered only to someone with a series; one chosen before stays shown while it's the choice.
   const [onOpen, setOnOpen] = useState<OnOpen>(profile.onOpen)
   const [onOpenNote, setOnOpenNote] = useState<string | null>(profile.onOpenNote)
   const choices = ON_OPEN.filter((c) => c !== 'daily' || series.length > 0 || profile.onOpen === 'daily')

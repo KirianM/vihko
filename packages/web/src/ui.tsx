@@ -22,7 +22,7 @@ export function Mark({ size = 22 }: { size?: number }) {
  */
 export const NAME_INPUT = { autoCapitalize: 'none', autoCorrect: 'off', spellCheck: false } as const
 
-/** Goes to «Home» (D-056.35): the sidebar's logo is the way there, from anywhere. Null outside the shell. */
+/** Goes to «Home»: the sidebar's logo is the way there, from anywhere. Null outside the shell. */
 export const GoHomeContext = createContext<(() => void) | null>(null)
 
 /** The logo and the name; in the shell, a link to «Home». */
@@ -38,7 +38,7 @@ export function Brand({ size }: { size?: number }) {
   )
 }
 
-/** Where «Back» on a settings page goes (D-056.35): where the person was before it (Shell). Null: no button. */
+/** Where «Back» on a settings page goes: where the person was before it (Shell). Null: no button. */
 export const BackContext = createContext<(() => void) | null>(null)
 
 /** «Back», on the settings pages: to the note, Home or page the person came from. */
@@ -122,7 +122,7 @@ export function Crumbs({ path }: { path: string | null }) {
   const spaces = useSpaces()
   const shown = path ? spaces.show(path) : null
   const parts = path ? path.split('/') : []
-  // The space and its folders as the person sees them (D-056): never `people/<me>` nor a space's folder id.
+  // The space and its folders as the person sees them: never `people/<me>` nor a space's folder id.
   const folders = shown ? [labels.spaceLabel(shown), ...shown.folders] : parts.slice(0, -1)
   const folder = parts.slice(0, -1).join('/')
   return (

@@ -1,6 +1,7 @@
 // What a rename or a move does, in a person's words (the rename and folder
 // dialogs): which links are updated and where, the images that go with it,
-// the links it leaves broken when it goes to another space (D-056.30). Never
+// the links it leaves broken when it goes to another space (a link never
+// leads to another space). Never
 // raw Markdown nor a path as it is on disk: notes and places by the names
 // people see (spaces.tsx), as «In My notes / Home, the link to Trip will be
 // broken (it now lives in Family)».
@@ -106,7 +107,7 @@ export function KeptRows({ kept, to }: { kept: MoveReport['kept']; to: string })
 }
 
 /**
- * The links a move to another space leaves broken (D-056.30), each in
+ * The links a move to another space leaves broken, each in
  * words: where the link is, the note it led to, and the space that note is
  * in now. `dest`: where what moves goes (a note or a folder), to tell a
  * note that moved from one that stays.

@@ -2,9 +2,9 @@
 // the editor's fonts) with the word diff inline against the previous version
 // or the current note, «change N of M» to go through the changes, and
 // «Restore this version», asked first because it replaces the text for
-// everyone who has the note open (D-033). «Revert this change» undoes only
+// everyone who has the note open. «Revert this change» undoes only
 // what this version changed, on the note as it is now, with a preview of what
-// is undone and what isn't because it was changed afterwards (D-034.1).
+// is undone and what isn't because it was changed afterwards.
 // «Changes | Content only» shows the version's text without marks, to copy
 // from. It is in the URL (`?note=…&version=<id>`), so a link opens it and the
 // back button closes it.
@@ -55,7 +55,7 @@ export function VersionView({ path, id, store, exists, session, closeLabel, onCl
   onRestored: (report: RestoreReport, path: string) => void
   /** A change was reverted: the notice, with what couldn't be undone. Without it, there is no «Revert this change». */
   onReverted?: (report: RevertReport) => void
-  /** This version was purged (D-038.9). Without it, there is no «Purge this version» (only whoever manages the folder). */
+  /** This version was purged. Without it, there is no «Purge this version» (only whoever manages the folder). */
   onPurged?: (report: PurgeReport) => void
 }) {
   const t = useT()

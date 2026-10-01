@@ -12,7 +12,7 @@ import { markdownLinkNote, missingBadge, onCreateButton, wikiLinkNote } from './
 // --- Link state (resolved by the server's index) ----------
 
 export interface LinkInfo {
-  /** A link to what the person can't read is `missing`, as one to a note that doesn't exist (D-056.15). */
+  /** A link to what the person can't read is `missing`, as one to a note that doesn't exist, so links can't probe for notes. */
   status: 'resolved' | 'ambiguous' | 'missing'
   path: string | null
   candidates: string[] | null
@@ -59,7 +59,7 @@ export const linkUrl = (url: string) => url.trim().replace(/^<(.*)>$/s, '$1')
 /**
  * What clicking a link does, the same for a wikilink and a Markdown link, in
  * the text or in a table: to a note that resolves, it opens it; an ambiguous
- * one offers its candidates (D-031.2); an http(s) or mailto one opens in a new
+ * one offers its candidates; an http(s) or mailto one opens in a new
  * tab, without the page it opens reaching this one. null for the rest (broken,
  * no access, another scheme, not resolved yet): the click goes through, the
  * cursor enters and the link can be edited.

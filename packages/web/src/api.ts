@@ -62,11 +62,11 @@ export interface Note {
   meta: { title: string; uid: string | null; fmError: string | null } | null
   /** Whether its text hides it from every agent: `ai: false` (or any doubt), or a frontmatter that can't be read. */
   hiddenFromAgents: 'ai' | 'frontmatter' | null
-  /** What the person may do where it is (D-038.5): below `edit`, the editor is read-only. */
+  /** What the person may do where it is: below `edit`, the editor is read-only. */
   level?: Level
 }
 
-/** Whether a level lets the person write the note (`Level`, below: from less to more, D-038.5). */
+/** Whether a level lets the person write the note (`Level`, below: from less to more). */
 export const canEdit = (level: Level | null | undefined) => level === 'edit' || level === 'manage'
 
 /**
@@ -82,7 +82,7 @@ export type CommentOp =
 export interface OutgoingLink {
   raw: string
   kind: 'wiki' | 'embed' | 'md'
-  /** A link to what the person can't read is `missing`, as one to a note that doesn't exist (D-056.15). */
+  /** A link to what the person can't read is `missing`, as one to a note that doesn't exist, so links can't probe for notes. */
   status: 'resolved' | 'ambiguous' | 'missing'
   dstPath: string | null
   candidates: string[] | null
@@ -94,7 +94,7 @@ export interface OutgoingLink {
 /** A note's links: outgoing, backlinks and the titles of ambiguous links' candidates. */
 export interface NoteLinks { outgoing: OutgoingLink[]; backlinks: Backlink[]; titles: Record<string, string> }
 export interface Backlink { path: string; title: string; raw: string; context: string }
-/** A comment thread's text as the index first saw it (D-031.6); `changed` compares it with the saved note. */
+/** A comment thread's text as the index first saw it; `changed` compares it with the saved note. */
 export interface CommentOriginal { id: string; original: string; changed: boolean }
 export interface SearchResult { path: string; title: string; snippet: string }
 /** Search results; the snippet highlight uses control characters, not HTML. */
@@ -103,7 +103,7 @@ export interface SearchResponse { results: SearchResult[]; highlight?: { start: 
 /** A link's resolution in a move report: where it leads, among which notes it is ambiguous, or broken. */
 export type LinkState = { status: 'resolved'; path: string } | { status: 'ambiguous'; candidates: string[] } | { status: 'missing' }
 /**
- * A link a move leaves as it is but whose resolution changes (D-019):
+ * A link a move leaves as it is but whose resolution changes:
  * `resolves` (it was ambiguous or broken), `ambiguous`, `retargets` or `breaks`.
  * `before` in the paths before the move, `after` in those after it.
  */
@@ -114,7 +114,7 @@ export interface ShiftGroup { path: string; links: number; changes: Shift[] }
 /** One rewrite in a note: its text before and after, and the note (`link`) or image (`image`) it keeps leading to. */
 export interface RelinkChange { before: string; after: string; kind: 'link' | 'image'; to: string }
 /**
- * A link a move to another space leaves broken (D-056.30: a link never leads
+ * A link a move to another space leaves broken (a link never leads
  * to another space): in `path` (where that note is after the move), to `to`
  * (where the note it led to is after the move).
  */
@@ -137,14 +137,14 @@ export interface MoveReport {
    */
   images: {
     moved: { from: string; to: string }[]
-    /** Going to another space (D-056): images it shares with notes that stay are copied there. */
+    /** Going to another space: images it shares with notes that stay are copied there. */
     copied?: { from: string; to: string }[]
     stayed: { path: string; reason: 'shared' | 'elsewhere' }[]
     /** In per-note mode (vihko.yaml), the note's folder of images, which moves with it whole. */
     folder: { from: string; to: string; files: number } | null
     failed: { path: string; to: string | null; outcome: 'stayed' | 'copied'; error: ErrorCode; message: string }[]
   }
-  /** In a dry run, whose access changes (D-038): the UI asks before moving. */
+  /** In a dry run, whose access changes: the UI asks before moving. */
   audience?: AudienceChange
   /** To another space: the links it leaves broken. */
   brokenLinks?: BrokenLink[]
@@ -162,7 +162,7 @@ export interface FolderMoveReport {
   failed: MoveReport['failed']
   /** Going to another space: images its notes share with notes that stay, copied there. */
   images?: { copied: { from: string; to: string }[]; failed: MoveReport['images']['failed'] }
-  /** In a dry run, whose access changes (D-038): the UI asks before moving. */
+  /** In a dry run, whose access changes: the UI asks before moving. */
   audience?: AudienceChange
   /** To another space: the links it leaves broken. */
   brokenLinks?: BrokenLink[]
@@ -201,7 +201,7 @@ export interface TrashEntry { id: string; path: string; deletedAt: string; kind?
  * What a folder holds, as `not_empty` says when it can't just be deleted
  * (paths relative to it, each list capped: `total` says how many). `kept`:
  * what vihko never touches (hidden folders, links), which keeps the folder
- * from going. Whoever deletes a folder sees all of it (D-056).
+ * from going. Whoever deletes a folder sees all of it.
  */
 export interface FolderContents {
   notes: { total: number; paths: string[] }
@@ -227,7 +227,7 @@ export interface WorkspaceInfo {
   links: { aliases: boolean }
 }
 /** The person's own settings (state.db). `language`: the UI's, null = automatic (the browser's). */
-/** What vihko opens when the person comes in (D-056.35): Home, this device's last note, a note they chose, or today's note if it exists. */
+/** What vihko opens when the person comes in: Home, this device's last note, a note they chose, or today's note if it exists. */
 export type OnOpen = 'home' | 'last' | 'note' | 'daily'
 export interface Profile { timezone: string | null; dailySeries: string | null; onOpen: OnOpen; onOpenNote: string | null; openDailyOnStart: boolean; language: Language | null }
 
@@ -242,7 +242,7 @@ export interface NoteSettingsForm {
 export interface SettingsProblem { code: string; at: string | null; line: number | null; detail: string | null }
 export interface SettingsView { space: string; etag: string; settings: NoteSettingsForm; errors: SettingsProblem[]; canEdit: boolean }
 
-/** «Home» (GET /api/home, D-056.35): only what the person reads now. */
+/** «Home» (GET /api/home): only what the person reads now. */
 export interface HomeNote { path: string; title: string; at: string }
 export interface HomeView {
   recent: HomeNote[]
@@ -251,7 +251,7 @@ export interface HomeView {
 }
 
 /**
- * The integration switches (D-035.1): the API with keys and the MCP server,
+ * The integration switches: the API with keys and the MCP server,
  * whether members may create keys, whether OAuth clients may register
  * themselves, whether the server's administrator locks the API and MCP off
  * (VIHKO_INTEGRATIONS=off), whether this person may create or change keys,
@@ -306,10 +306,10 @@ export interface UserInfo {
   groups: string[]
   /** A link that still works: what for and until when (never its token). */
   link: { kind: 'invite' | 'reset'; expiresAt: string } | null
-  /** Whether they set up a second factor (D-036), and since when. */
+  /** Whether they set up a second factor, and since when. */
   twoFactor: { enabled: boolean; enabledAt: string | null }
 }
-/** A folder permission level, from less to more (D-038.5). */
+/** A folder permission level, from less to more. */
 export type Level = 'read' | 'comment' | 'edit' | 'manage'
 export const LEVELS: readonly Level[] = ['read', 'comment', 'edit', 'manage']
 export const atLeast = (have: Level | null | undefined, need: Level) => have != null && LEVELS.indexOf(have) >= LEVELS.indexOf(need)
@@ -318,7 +318,7 @@ export type Grants = Record<string, Level>
 /** Why someone has access: a grant to them or a group of theirs, written for `from`; `owner` when it's their own space. */
 export interface GrantSource { subject: string; level: Level; from: string; owner?: true }
 /**
- * Who a folder is shared with (GET /api/permissions, D-056): its own grants,
+ * Who a folder is shared with (GET /api/permissions): its own grants,
  * those of the folders above it in its space (they only add: they can't be
  * taken away here), whose personal space it is in or which shared space, and
  * who has access and why.
@@ -355,8 +355,8 @@ export interface SpacesInfo {
   canCreate: boolean
 }
 /**
- * Who has access to a folder the person reads (GET /api/spaces/members,
- * D-056.27): each one with their level and why; `from` null where the grant
+ * Who has access to a folder the person reads (GET /api/spaces/members):
+ * each one with their level and why; `from` null where the grant
  * is written in a folder the person doesn't read.
  */
 export interface MembersView {
@@ -367,7 +367,7 @@ export interface MembersView {
 }
 /** A shared space in the admin's directory: its name, managers and how many members; never anything inside it. */
 export interface SpaceInfo { path: string; name: string; managers: string[]; members: number; aiClosed: boolean }
-/** A deleted person's personal space, closed: nobody sees it (D-056.8). */
+/** A deleted person's personal space, closed: nobody sees it, not even the admin. */
 export interface ClosedSpace { userId: string; username: string; path: string }
 /** What becoming of a deleted person's space involves: counts only. */
 export interface PersonalSpacePlan { action: 'transfer' | 'convert' | 'delete'; from: string; to: string | null; notes: number; files: number; sharedFolders: number; people: number }
@@ -380,7 +380,7 @@ export interface AudienceChange {
   users: { gain: { id: string; username: string }[]; lose: { id: string; username: string }[] }
   groups: { gain: string[]; lose: string[] }
   keys: { gain: number; lose: number }
-  /** Whose it is before and after, when the move changes its space (D-056); null when it stays in its space. */
+  /** Whose it is before and after, when the move changes its space; null when it stays in its space. */
   owner?: { before: SpaceOwner; after: SpaceOwner } | null
 }
 /** Whose a path is: a person's space (`owner`) or a shared space (its root and name). */
@@ -389,7 +389,7 @@ export type SpaceOwner = { kind: 'personal'; owner: string } | { kind: 'shared';
 /** A new one-time link, shown once: `url` with VIHKO_PUBLIC_URL, otherwise this origin + `path`. */
 export interface NewLink { token: string; kind: 'invite' | 'reset'; expiresAt: string; path: string; url: string | null }
 export interface GroupInfo { id: string; name: string; members: { id: string; username: string }[] }
-/** The second factor's policy (D-036): required, optional (the default) or disabled. */
+/** The second factor's policy: required, optional (the default) or disabled. */
 export type TwoFactorPolicy = 'required' | 'optional' | 'disabled'
 /** The admin's settings: members downloading images from the local network (off by default), and the second factor's policy. */
 export interface AdminSettings {
@@ -480,7 +480,8 @@ export const api = {
   /**
    * `freshUid`: the text may carry another note's uid (a copy): it gets a new
    * one. `fromLink`: the note whose broken link this creates (never allowed in
-   * someone else's personal space, D-056.21).
+   * someone else's personal space: there a link that looks
+   * broken may lead to a note this person can't read).
    */
   createNote: (path: string, text: string, opts: { freshUid?: boolean; fromLink?: string } = {}) => request<{ path: string; etag: string; uid: string | null }>('POST', '/api/note', { path, text, ...opts }),
   /** A new note with the text of the template note, its variables filled in by the server. */
@@ -489,7 +490,7 @@ export const api = {
   spaces: () => request<SpacesInfo>('GET', '/api/spaces'),
   /** A new shared space; whoever creates it manages it. */
   createSpace: (name: string, members: Grants = {}) => request<{ space: SpaceEntry }>('POST', '/api/spaces', { name, members }).then((r) => r.space),
-  /** «Move to a new space» (D-056.28): the folder becomes a shared space of its own, named `name`; `dryRun`: the move's preview. */
+  /** «Move to a new space»: the folder becomes a shared space of its own, named `name`; `dryRun`: the move's preview. */
   spaceFromFolder: (path: string, name: string, dryRun = false) => request<{ space?: SpaceEntry; report: FolderMoveReport }>('POST', '/api/spaces/from-folder', { path, name, dryRun }),
   renameSpace: (path: string, name: string) => request<{ space: SpaceEntry }>('POST', '/api/spaces/rename', { path, name }).then((r) => r.space),
   /** A shared space and everything in it (to the trash with `trash`). */
@@ -507,7 +508,7 @@ export const api = {
   personalSummary: (userId: string) => request<{ path: string; exists: boolean; sharedFolders: number; people: number }>('GET', `/api/admin/users/${encodeURIComponent(userId)}/space`),
   /**
    * A deleted person's closed space: transferred, made a shared space or deleted (`dryRun`: what it would do).
-   * With `deleteUser`, a disabled person not deleted yet: deleted, and their space transferred or converted at once (D-056.28).
+   * With `deleteUser`, a disabled person not deleted yet: deleted, and their space transferred or converted at once.
    */
   settleSpace: (userId: string, input: { action: PersonalSpacePlan['action']; to?: string; name?: string; members?: Grants; dryRun?: boolean; confirm?: string; deleteUser?: boolean }) =>
     request<{ plan: PersonalSpacePlan }>('POST', `/api/admin/users/${encodeURIComponent(userId)}/space`, input).then((r) => r.plan),
@@ -522,7 +523,7 @@ export const api = {
   /** Opens today's note, creating it from its template if it doesn't exist. */
   openToday: () => request<{ series: string; path: string; created: boolean }>('POST', '/api/daily', {}),
   orphan: (path: string, action: 'restore' | 'discard') => request<{ ok: true }>('POST', '/api/note/orphan', { path, action }),
-  /** Notes held after moving outside vihko (D-038): move the folder's permissions with them, or release them. */
+  /** Notes held after moving outside vihko (held, so the move opens nothing to anyone): move the folder's permissions with them, or release them. */
   held: (id: string, action: 'release') => request<{ ok: true }>('POST', `/api/permissions/holds/${encodeURIComponent(id)}`, { action }),
   move: (from: string, to: string, dryRun = false) => request<MoveReport>('POST', '/api/note/move', { from, to, dryRun }),
   /** Moves a note; if rewriting the links takes long, they go on in the background (a job). */
@@ -543,7 +544,7 @@ export const api = {
   /** Everyone's keys, with their user: the vihko admin only. */
   allKeys: () => request<{ keys: KeyWithUser[] }>('GET', '/api/keys?all=1').then((r) => r.keys),
   /** A new key: the token comes back this once and never again. */
-  /** `confirm`: the current code, or the password without a second factor (D-036). */
+  /** `confirm`: the current code, or the password without a second factor. */
   createKey: (input: KeyInput & { name: string; confirm: string }) => request<{ key: KeyInfo; token: string }>('POST', '/api/keys', input),
   /** A change that lets it do more (writing, more folders, a later expiry or none) takes `confirm`, as a new key does. */
   updateKey: (id: string, patch: KeyInput & { confirm?: string }) => request<{ key: KeyInfo }>('PATCH', `/api/keys/${encodeURIComponent(id)}`, patch).then((r) => r.key),
@@ -577,7 +578,7 @@ export const api = {
   createUser: (username: string, role: UserInfo['role'], confirm?: string) =>
     request<{ user: UserInfo; link: NewLink }>('POST', '/api/admin/users', { username, role, ...(confirm === undefined ? {} : { confirm }) }),
   /** A new link for them (an invitation, or a reset if they have a password); the earlier one stops working. */
-  /** A new link; a reset (they have a password) is confirmed with `confirm` (D-040 3.1). */
+  /** A new link; a reset (they have a password) is confirmed with `confirm`. */
   userLink: (id: string, confirm?: string) => request<{ link: NewLink; user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/link`, confirm ? { confirm } : {}),
   setRole: (id: string, role: UserInfo['role'], confirm: string) => request<{ user: UserInfo }>('PUT', `/api/admin/users/${encodeURIComponent(id)}/role`, { role, confirm }).then((r) => r.user),
   disableUser: (id: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/disable`).then((r) => r.user),

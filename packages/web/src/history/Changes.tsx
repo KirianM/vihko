@@ -1,8 +1,8 @@
-// «Recent changes» (`?view=changes`, D-032.6): what changed across the notes,
+// «Recent changes» (`?view=changes`): what changed across the notes,
 // by day, with who did it, why and which files, filterable by author. Read
 // only: a note opens at that change, and undoing is done note by note from
 // there. Meant for reviewing what an agent did. The vihko admin also purges
-// from here any path by its name (Purge.tsx, D-049); and whoever may purge
+// from here any path by its name (Purge.tsx); and whoever may purge
 // a note deleted since (its folder's manager, or the admin) does from its
 // «deleted» line.
 import { useEffect, useId, useState } from 'react'
@@ -142,7 +142,7 @@ export function ChangesPage({ status, notes, admin, onOpenVersion, onUnauthorize
 
   /**
    * Opens the note at that change. A note that moved since is found by its
-   * uid (D-005); one that no longer exists opens on its own, where restoring
+   * uid; one that no longer exists opens on its own, where restoring
    * creates it again.
    */
   const open = async (file: ChangeFile, change: Change) => {

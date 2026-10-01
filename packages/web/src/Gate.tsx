@@ -122,7 +122,7 @@ export function Setup({ onDone }: { onDone: (u: User) => void }) {
 }
 
 /**
- * A one-time link (`/invite/<token>`, D-038.3): someone the admin invited, or
+ * A one-time link (`/invite/<token>`, no email needed and the admin never knows the password): someone the admin invited, or
  * whose password is being reset, chooses it here and is signed in. A link
  * that doesn't work (unknown, used or expired) gets the same message either
  * way. Then, as after a password at sign-in, the second factor: its code if

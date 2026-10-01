@@ -1,8 +1,8 @@
-// «Move with a warning» (D-038, spec §3.3): when moving a note or a folder
+// «Move with a warning»: when moving a note or a folder
 // changes who can see it, the move's preview says who gains and who loses
 // access (people and groups by name, agent keys counted), whose it becomes
-// when it changes space (D-056), which links it leaves broken (a link never
-// leads to another space, D-056.30) and which images are copied, and the
+// when it changes space, which links it leaves broken (a link never
+// leads to another space) and which images are copied, and the
 // move waits for an explicit confirmation.
 // Access comes from the folder, so a move takes on the new folder's.
 import { useId } from 'react'
@@ -19,7 +19,7 @@ export function audienceChanges(a: AudienceChange | undefined | null): boolean {
   return a.users.gain.length + a.users.lose.length + a.groups.gain.length + a.groups.lose.length + a.keys.gain + a.keys.lose > 0 || !!a.owner
 }
 
-/** Whose it becomes, in words (spec §3.3): out of one's own space, into someone's, between shared spaces. */
+/** Whose it becomes, in words: out of one's own space, into someone's, between shared spaces. */
 function ownerText(t: ReturnType<typeof useT>, me: string, owner: { before: SpaceOwner; after: SpaceOwner }): string | null {
   const { before, after } = owner
   if (!after) return null

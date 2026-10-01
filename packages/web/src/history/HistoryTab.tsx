@@ -29,7 +29,7 @@ export function HistoryTab({ store, status, current, onOpen, path, canPurge = fa
   onOpen: (id: string) => void
   /** The note, for purging its history. */
   path?: string
-  /** Whoever manages its folder purges its history (D-038.9, managed history only). */
+  /** Whoever manages its folder purges its history (managed history only). */
   canPurge?: boolean
   onPurged?: (report: PurgeReport) => void
 }) {

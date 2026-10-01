@@ -61,7 +61,7 @@ interface Props {
   /** An ambiguous link was clicked: open the picker of its candidates. */
   onPickAmbiguous?: PickAmbiguous
   /**
-   * The person may read (or comment) but not edit (D-038.5): nothing can be
+   * The person may read (or comment) but not edit: nothing can be
    * typed, pasted or dropped, and nothing is offered that writes (creating a
    * note from a broken link). The text can still be selected, to comment on it.
    */
@@ -103,13 +103,13 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
         syntaxHighlighting(moreClasses),
         EditorView.lineWrapping,
         livePreview,
-        // Before the keymaps: select all takes the body, and nothing done in the body reaches the frontmatter (D-056.34).
+        // Before the keymaps: select all takes the body, and nothing done in the body reaches the frontmatter (losing it by accident would drop `uid`, tags and `ai: false`).
         frontmatterGuard,
         navigate.of((p) => nav.current(p)),
         pickAmbiguous.of((link, anchor) => pick.current?.(link, anchor)),
         notePath.of(path),
         EditorState.readOnly.of(readOnly),
-        // Never from a link in a note of someone else's personal space (D-056.21): there a link that
+        // Never from a link in a note of someone else's personal space: there a link that
         // looks broken may lead to one of the owner's notes this person can't read.
         readOnly || othersPersonal ? [] : createLinkUi.of({
           label: t('editor.linkCreate'),

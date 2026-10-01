@@ -1,4 +1,5 @@
-// The frontmatter is protected from what is done in the body (D-056.34):
+// The frontmatter is protected from what is done in the body (losing it
+// by accident would drop `uid`, tags and `ai: false` unnoticed):
 // select all, deleting, pasting, dropping or typing over a selection never
 // reach it, so its `uid`, aliases, tags and, above all, an `ai: false` are
 // never lost by accident, without anyone noticing. It is edited by opening

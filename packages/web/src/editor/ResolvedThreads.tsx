@@ -1,4 +1,4 @@
-// Comment threads resolved in the last 30 days (D-032.5), at the end of the
+// Comment threads resolved in the last 30 days, at the end of the
 // Comments tab. The history lists them (GET /api/history/resolved); reopening
 // one puts it back through the editor session, the way resolving took it out:
 // there is no endpoint that writes them (one core for every write).

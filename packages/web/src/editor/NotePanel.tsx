@@ -193,12 +193,12 @@ function ThreadCard({ tv, original, active, color, confirm, onSelect, onReply, o
   original: string | null
   active: boolean
   color: (author: string) => string
-  /** What to ask before resolving; null: nothing (the history keeps it, D-032.5). */
+  /** What to ask before resolving; null: nothing (the history keeps it). */
   confirm: string | null
   onSelect: () => void
   /** Null: the person can't reply (they may only read). */
   onReply: ((text: string) => void) | null
-  /** Null: the person can't resolve this thread (D-038.5: with `comment`, only their own, with no one else's replies). */
+  /** Null: the person can't resolve this thread (with `comment`, only their own, with no one else's replies). */
   onResolve: (() => void) | null
 }) {
   const t = useT()
@@ -252,7 +252,7 @@ function CommentsTab({ view, session, user, originals, request, done, level }: {
   originals: CommentOriginal[] | null
   request: Request | null
   done: () => void
-  /** What the person may do in the note (D-038.5): `read` only reads; `comment` comments through the server. */
+  /** What the person may do in the note: `read` only reads; `comment` comments through the server. */
   level: Level
 }) {
   const t = useT()
@@ -276,9 +276,9 @@ function CommentsTab({ view, session, user, originals, request, done, level }: {
   const [draft, setDraft] = useState<Draft | null>(null)
   const list = useRef<HTMLDivElement>(null)
 
-  // With history, resolving can be undone from «Resolved» (D-032.5): managed,
+  // With history, resolving can be undone from «Resolved»: managed,
   // no need to ask; unmanaged, only what reaches a commit; off or unavailable, asked as before.
-  // Without `edit` there's no history to see (D-034 3.5): resolving is asked, and «Resolved» isn't there.
+  // Without `edit` there's no history to see (sharing a note doesn't give its past): resolving is asked, and «Resolved» isn't there.
   const history = useHistoryState()
   const mode = history?.available && editing ? history.mode : 'off'
   const confirm = mode === 'managed' ? null : mode === 'unmanaged' ? t('comments.resolved.confirmUnmanaged') : t('comments.resolveConfirm')
@@ -353,8 +353,8 @@ function CommentsTab({ view, session, user, originals, request, done, level }: {
     }
     if (picked === id) setPicked(null)
   }
-  // With `comment`, only one's own threads (D-038.5); with `edit`, anyone's.
-  // With `comment`, only a thread they started and nobody else replied to (D-038.5, D-040 3.7): resolving takes the replies out too.
+  // With `comment`, only one's own threads; with `edit`, anyone's.
+  // With `comment`, only a thread they started and nobody else replied to: resolving takes the replies out too.
   const mayResolve = (th: Thread) => editing || (commenting && th.comments.every((c) => c.author === user.username))
   const select = (th: Thread) => {
     setPicked(th.id)
@@ -562,7 +562,7 @@ export function NotePanel({ panel, view, session, user, level, links, originals,
   view: EditorView | null
   session: Session | null
   user: User
-  /** What the person may do in the note (D-038.5). */
+  /** What the person may do in the note. */
   level: Level
   links: LinksData | null
   /** Comment threads' text as the index first saw it (null until loaded). */

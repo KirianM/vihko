@@ -1,9 +1,9 @@
-// Purging from the history (D-038.9): a note, or one of its versions, by whoever
+// Purging from the history: a note, or one of its versions, by whoever
 // manages its folder; any path by its name (a note or a folder), by the vihko
 // admin from «Recent changes», who needn't be able to read it. The confirmation lists what is lost
 // (the versions, by date; never their content) and says it can't be undone;
 // the server works it out without changing anything first (`dryRun`). The
-// admin is told who purged what, and so is whoever wrote in it (D-040 3.6).
+// admin is told who purged what, and so is whoever wrote in it.
 // The admin purging something they can't read confirms at the moment, with
 // their code or password (`confirmRequired`).
 import { useEffect, useMemo, useState, type FormEvent } from 'react'

@@ -155,7 +155,7 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .side-tabs-head .btn-icon { width: 32px; height: 32px; border-color: transparent; color: var(--muted); }
 .side-tabs .sidebar-tree { outline: none; }
 
-/* Spaces in the sidebar (D-056): one section per space, each with its tree */
+/* Spaces in the sidebar: one section per space, each with its tree */
 .spaces { display: flex; flex-direction: column; gap: var(--space-2); }
 .space-section { display: flex; flex-direction: column; }
 .space-head { display: flex; align-items: center; gap: var(--space-1); min-height: var(--control-sm); }

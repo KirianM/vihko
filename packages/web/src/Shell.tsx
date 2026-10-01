@@ -77,11 +77,11 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const chooseLanguage = useChooseLanguage()
   const [notes, setNotes] = useState<TreeNote[] | null>(null)
   const [folders, setFolders] = useState<string[]>([])
-  /** Folders shown only as the way to what the person sees (D-038). */
+  /** Folders shown only as the way to what the person sees. */
   const [pathOnly, setPathOnly] = useState<Set<string>>(() => new Set())
   /** The person's level in each folder they see, and the folders' locks (the admin: every folder). Null until loaded. */
   const [locks, setLocks] = useState<Map<string, FolderLock> | null>(null)
-  /** What the person reaches, space by space (D-056); null until loaded. */
+  /** What the person reaches, space by space; null until loaded. */
   const [spaces, setSpaces] = useState<SpacesInfo | null>(null)
   const spacesValue = useSpacesValue(user.username, spaces)
   /** Paths as the person sees them, for what the shell itself shows (the context is provided below). */
@@ -101,7 +101,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [alerts, setAlerts] = useState(0)
   /** Notices addressed to this person when they came in (M4.1): said at once, kept in «Alerts» until dismissed there. */
   const [arrived, setArrived] = useState<PersonalNotice[] | null>(null)
-  // `?note=` is the note's address (D-056.29); one from before it is read too, and written back as an address below.
+  // `?note=` is the note's address (never `people/` nor `spaces/`); one from before it is read too, and written back as an address below.
   const [openPath, setOpenPathState] = useState<string | null>(() => notePathOf(location.search))
   const [view, setView] = useState<View | null>(() => {
     const v = new URLSearchParams(location.search).get('view')
@@ -114,7 +114,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const setOpenPath = (path: string | null) => { setView(null); setVersion(null); setOpenPathState(path) }
   const openVersion = (path: string, id: string) => { setView(null); setOpenPathState(path); setVersion(id) }
   /**
-   * Where «Back» on a page (Account, Agents, Alerts…) goes (D-056.35): where
+   * Where «Back» on a page (Account, Agents, Alerts…) goes: where
    * the person was when they left a note or Home for the pages; going from
    * one page to another keeps it. Null: Home.
    */
@@ -139,7 +139,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const showUsers = () => show('users')
   const showAccount = () => show('account')
   const showSpaces = () => show('spaces')
-  /** «Home» (D-056.35): nothing open, no page. The logo leads here. */
+  /** «Home»: nothing open, no page. The logo leads here. */
   const goHome = () => { setPrefsOpen(false); setNavOpen(false); setReturnTo(null); setOpenPath(null) }
   const goBack = () => {
     const to = returnTo
@@ -167,7 +167,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [jobIssue, setJobIssue] = useState<string | null>(null)
   const [palette, setPalette] = useState<PaletteMode | null>(null)
   const mobile = useMobile()
-  // On a phone too, vihko opens at Home (D-056.35): the tree is behind the menu button.
+  // On a phone too, vihko opens at Home: the tree is behind the menu button.
   const [navOpen, setNavOpen] = useState(false)
   const [expanded, setExpanded] = useState<Set<Key>>(() => new Set(openPath ? ancestors(openPath) : []))
   useBackClose(mobile && navOpen, () => setNavOpen(false))
@@ -207,8 +207,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       // First sign-in: the browser's timezone becomes the person's (editable in Preferences).
       if (!p.timezone) p = await api.updateProfile({ timezone: browserTimeZone() }).catch(() => p)
       setProfile(p)
-      // «On opening» (D-056.35), when nothing else was asked for: a note only if it exists and they
-      // read it (today's is never created on coming in, D-030); otherwise Home stays.
+      // «On opening», when nothing else was asked for: a note only if it exists and they
+      // read it (today's is never created on coming in: no empty notes); otherwise Home stays.
       if (!startedEmpty) return
       const target = await openingNote(p).catch(() => null)
       if (target) setOpenPathState((current) => current ?? target)
@@ -237,7 +237,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const todayRef = useRef<(() => void) | null>(null)
   todayRef.current = dailyOn ? () => void openToday() : null
 
-  // The tree and the sidebar, live (D-056.36): the server says «read your tree again» when someone
+  // The tree and the sidebar, live: the server says «read your tree again» when someone
   // else's change concerns what this person sees (GET /api/events). The browser reconnects by itself.
   useEffect(() => {
     if (typeof EventSource === 'undefined') return
@@ -306,14 +306,14 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       // Moved again a moment ago, while its editor reopened it at the last place it heard of: follow it.
       if (err instanceof ApiError && err.code === 'not_found' && typeof err.data?.movedTo === 'string') return setOpenPathState(err.data.movedTo)
       if (versionRef.current && err instanceof ApiError && err.code === 'not_found') setMissing(openPath)
-      // Neither missing nor someone else's is told apart (D-024, D-038).
+      // Neither missing nor someone else's is told apart: nobody learns what exists by asking.
       else if (err instanceof ApiError && (err.code === 'not_found' || err.code === 'forbidden')) setNoAccess(openPath)
       else fail(err)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openPath])
 
-  // An address of a shared space from 0.1.0-rc.1 or rc.2 (`casa-7k2q9x/…`): the space it was renamed to (D-056.33).
+  // An address of a shared space from 0.1.0-rc.1 or rc.2 (`casa-7k2q9x/…`): the space it was renamed to when spaces lost their ids.
   useEffect(() => {
     if (!noAccess || noAccess !== openPath || !spaces) return
     const to = renamedPath(noAccess, spaces)
@@ -335,9 +335,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     const l = locks.get(path)
     return { level: l?.level ?? null, canEdit: l?.canEdit ?? false, own: l?.ownGrants ?? false, ai: l?.aiClosed ?? false, pathOnly: pathOnly.has(path) }
   }, [locks, pathOnly])
-  /** Whether this person may open who a folder is shared with: where they manage it (the admin role counts for nothing, D-056). */
+  /** Whether this person may open who a folder is shared with: where they manage it (the admin role counts for nothing: the admin manages, not reads). */
   const canManageFolder = (folder: string) => !!locks?.get(folder)?.canEdit
-  /** Nowhere to write: no «New note» (read-only mode signals, D-038.5). Their own space always is. */
+  /** Nowhere to write: no «New note» (read-only mode signals). Their own space always is. */
   const editsSomewhere = !locks || !!spaces?.personal || [...locks.values()].some((l) => atLeast(l.level, 'edit'))
   // The header's way to share a note's folder (only once the levels are known), never the root of one's own space.
   const folderPermissions = useMemo(() => (locks ? {
@@ -361,7 +361,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     }
     return null
   }, [openPath, notes, workspace])
-  /** Where things are created: the open note's folder, else the root of the person's own space (never the notes root, D-056). */
+  /** Where things are created: the open note's folder, else the root of the person's own space (never the notes root). */
   const mine = spaces?.personal?.path ?? `people/${user.username}`
   const folder = openPath?.includes('/') && rootOf(openPath) ? openPath.slice(0, openPath.lastIndexOf('/')) : mine
   /** Where the palette's «new folder» creates: the open note's folder, else their own space, where this person may (as the tree: `edit`). */
@@ -381,7 +381,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     else if (action === 'newFolder') setTreeDialog({ kind: 'newFolder', parent: node.path })
     else if (action === 'moveFolder') setTreeDialog({ kind: 'moveFolder', path: node.path })
     else if (action === 'toNewSpace') setTreeDialog({ kind: 'toNewSpace', path: node.path })
-    // To one's own space: the move of always, its destination there (D-056.28).
+    // To one's own space: the move of always, its destination there.
     else if (action === 'toMine') setTreeDialog({ kind: 'moveFolder', path: node.path, parent: mine })
     else if (action === 'deleteFolder') setTreeDialog({ kind: 'deleteFolder', path: node.path })
     else if (action === 'permissions') setTreeDialog({ kind: 'permissions', path: node.path })
@@ -444,7 +444,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     const path = key.slice(2)
     const to = folder ? `${folder}/${baseName(path)}` : baseName(path)
     try {
-      // Between sections of the sidebar is between spaces: always through the dialog (spec §5.4).
+      // Between sections of the sidebar is between spaces: always through the dialog.
       if (rootOf(path) !== rootOf(to)) return setTreeDialog(key.startsWith('n:') ? { kind: 'moveNote', path, folder } : { kind: 'moveFolder', path, parent: folder })
       if (key.startsWith('n:')) {
         const preview = await api.move(path, to, true)
@@ -452,7 +452,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         noteMoved(path, to, await api.move(path, to))
       } else {
         const preview = await api.moveFolder(path, to, true)
-        // Who sees it changes: never in silence (D-038), the dialog asks.
+        // Who sees it changes: never in silence, the dialog asks.
         if (preview.relinked.length || preview.shifted.length || audienceChanges(preview.audience)) return setTreeDialog({ kind: 'moveFolder', path, parent: folder })
         folderMoved(await api.moveFolder(path, to))
       }
@@ -472,7 +472,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setSpaceIssue(null)
     if (action === 'newNote') { setCreateIn(s.root); setPalette('create') }
     else if (action === 'newFolder') setTreeDialog({ kind: 'newFolder', parent: s.root })
-    // Managers change who's in; every other member only sees it (D-056.27).
+    // Managers change who's in; every other member only sees it.
     else if ((action === 'members' && s.level === 'manage') || action === 'share' || action === 'agents') setTreeDialog({ kind: 'permissions', path: s.root })
     else if (action === 'members' || action === 'access') setTreeDialog({ kind: 'members', path: s.root })
     else if (action === 'rename') setTreeDialog({ kind: 'renameSpace', section: s })

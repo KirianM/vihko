@@ -1,4 +1,4 @@
-// The sidebar's spaces (D-056, spec §5.1): «My notes» (the person's own
+// The sidebar's spaces: «My notes» (the person's own
 // space, without its `people/<me>` prefix), one section per shared space,
 // the folders shared with them they pinned, «+ New space» where they may,
 // and «Shared with me», folded: every folder others share with them, each
@@ -49,14 +49,14 @@ export function sectionActions(s: Section): SectionAction[] {
   if (atLeast(s.level, 'edit')) out.push('newNote', 'newFolder')
   if (s.kind === 'mine') return [...out, 'agents', 'settings']
   if (s.kind === 'shared') {
-    // Every member sees who the others are (D-056.27); only managers change it.
+    // Every member sees who the others are (they already see their edits and presence); only managers change it.
     out.push('members')
     if (s.level === 'manage') out.push('settings', 'rename')
     out.push('leave')
     if (s.level === 'manage') out.push('delete')
     return out
   }
-  // Whoever manages it shares it further; everyone else sees who has access (D-056.27).
+  // Whoever manages it shares it further; everyone else sees who has access.
   out.push(s.level === 'manage' ? 'share' : 'access')
   out.push(s.pinned ? 'unpin' : 'pin', 'leave')
   return out
@@ -163,7 +163,7 @@ export function SpaceSections(p: SpaceSectionsProps) {
       onDrop={p.onDrop}
       draggable={p.draggable}
       folderInfo={p.folderInfo}
-      // Out of one's own space or a shared one, to a new space; from a shared one, to one's own too (D-056.28).
+      // Out of one's own space or a shared one, to a new space; from a shared one, to one's own too.
       spaceMoves={s.kind === 'mine' || s.kind === 'shared' ? { newSpace: p.info.canCreate, mine: s.kind === 'shared' } : undefined}
       emptyText={s.kind === 'mine' ? (
         <span className="space-empty">

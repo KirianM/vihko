@@ -1,9 +1,9 @@
-// Sharing (D-056, spec §5.3): who a folder is shared with. The members of a
+// Sharing: who a folder is shared with. The members of a
 // shared space are its root's grants («Members of Home»); a folder of one's
 // own space is shared with people or groups at a level. Sharing only adds
-// (D-056.7): what the folders above give is shown, where it comes from, and
-// can't be taken away here; a level below it isn't offered. The effective
-// access of a folder (who and why), of a person or of a key (which folders,
+// (so nothing hidden takes up names where notes are created): what the
+// folders above give is shown, where it comes from, and can't be taken
+// away here; a level below it isn't offered. The effective access of a folder (who and why), of a person or of a key (which folders,
 // as a tree), and the locks of the tree are here too.
 //
 // Changes are a draft saved at once with vihko.yaml's ETag: if the file
@@ -77,7 +77,7 @@ export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost
   folder: string
   me: User
   /**
-   * «Move to a new space» or «to My notes» (D-056.28), where this folder can't
+   * «Move to a new space» or «to My notes», where this folder can't
    * be closed to those who see the one above it: the dialog that does it.
    */
   onMoveTo?: (target: 'newSpace' | 'mine') => void
@@ -146,13 +146,13 @@ export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost
     }
   }, [directory, grants, above, view])
   const addFrom = adding.subject ? above.get(key(adding.subject)) ?? null : null
-  // A folder inside a space can't be closed to those who see the one above it (D-056.7): it can move out instead (D-056.28).
+  // A folder inside a space can't be closed to those who see the one above it (sharing only adds): it can move out instead.
   const inner = !!view && !isSpaceRoot && !personalRoot && view.space !== null
   const ownSpace = !!view && view.owner !== null && key(view.owner) === meKey
   const inShared = !!view && view.owner === null
   const toNewSpace = inner && !readOnly && (ownSpace || inShared) && !!spaces.info?.canCreate && !!onMoveTo
   const toMine = inner && !readOnly && inShared && !!onMoveTo
-  // Edit in a folder of one's own space: whoever edits may work out the names of notes linked from it (D-056.28, a known limit).
+  // Edit in a folder of one's own space: whoever edits may work out the names of notes linked from it (a known limit).
   const probes = !!view && ownSpace && !personalRoot && Object.values(grants).some((l) => atLeast(l, 'edit'))
   // The level to add, never below what they already get from above.
   useEffect(() => {
@@ -414,8 +414,8 @@ export function LockBadges({ own, ai }: { own: boolean; ai: boolean }) {
 }
 
 /**
- * Who has access to a space or a folder shared with the person, read-only
- * (D-056.27): every member sees who the others are and at what level, and
+ * Who has access to a space or a folder shared with the person, read-only:
+ * every member sees who the others are and at what level, and
  * why (their own grant, a group, the owner's space). Where a grant comes
  * from a folder the person doesn't read, only that it comes from above.
  */

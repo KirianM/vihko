@@ -21,7 +21,7 @@ import './actions.css'
 type ExternalMove = Extract<Alert, { code: 'external_move' }>
 type Translate = ReturnType<typeof useT>
 
-/** Notices addressed to one person (M4.1, D-056.21–22): theirs to dismiss, and said when they come in. */
+/** Notices addressed to one person: theirs to dismiss, and said when they come in. */
 export type PersonalNotice = Extract<Alert, { code: 'account_changed' | 'user_account_changed' | 'history_purged_authored' | 'links_not_updated' | 'space_changed' | 'shared_with_you' | 'retention_ran' }>
 export const isPersonalNotice = (a: Alert): a is PersonalNotice =>
   a.code === 'account_changed' || a.code === 'user_account_changed' || a.code === 'history_purged_authored'
@@ -105,7 +105,7 @@ const icons = {
 const linkCount = (r: MovedRelinkReport) => r.relinked.reduce((n, x) => n + x.links, 0)
 
 /**
- * «Update links» for notes moved outside vihko (D-031.4): the preview (what a
+ * «Update links» for notes moved outside vihko (never rewritten on its own, the other tool may still be writing): the preview (what a
  * vihko move would have rewritten) and, on confirming, the rewrite itself; a
  * long one hands its job to `onStarted`.
  */
@@ -185,7 +185,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
 }) {
   const t = useT()
   const dates = useDates()
-  // Paths as the person sees them (D-056): the space, its folders and the name.
+  // Paths as the person sees them: the space, its folders and the name.
   const { label } = usePathLabels()
   const noteName = label
   const [alerts, setAlerts] = useState<Alert[] | null>(null)
@@ -447,7 +447,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
         return frame({
           icon: icons.config,
           title: t(a.version ? 'alerts.purgedVersionTitle' : 'alerts.purgedTitle', { by: a.by }),
-          // The path only where the admin can read it (D-056.24, .26): otherwise that it happened, and when.
+          // The path only where the admin can read it (or purged it themselves): otherwise that it happened, and when.
           body: rich(t(a.path === null ? (a.version ? 'alerts.purgedVersionBodyHidden' : 'alerts.purgedBodyHidden') : a.version ? 'alerts.purgedVersionBody' : 'alerts.purgedBody'), {
             path: a.path === null ? null : mono(a.path),
             version: <span className="mono">{a.version?.slice(0, 7) ?? ''}</span>,
@@ -534,7 +534,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           icon: icons.warn,
           tone: 'warn',
           title: t('alerts.outsideSpacesTitle'),
-          // Where it can go: the admin's own space, by its exact path (D-056.28).
+          // Where it can go: the admin's own space, by its exact path.
           body: t('alerts.outsideSpacesBody'),
           // Where each one is on the server's disk (the only place it is): labelled as such.
           extra: <ul className="alert-paths">{a.paths.map((p) => <li key={p}><span className="mono">{t('alerts.onDisk', { path: p })}</span></li>)}</ul>,

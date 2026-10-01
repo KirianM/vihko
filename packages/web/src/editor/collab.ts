@@ -4,7 +4,7 @@
 // when anyone moves or trashes it from vihko and when it was moved outside
 // vihko and the hub followed it, and when this session ended (then the
 // application signs out). When the person's access to the note changes while
-// it's open (D-038), the hub says what they have now and closes it: it's
+// it's open, the hub says what they have now and closes it: it's
 // opened again at once with that (read-only below `edit`), or, with no access
 // left, not at all. If the hub refuses the tab's
 // copy on a reconnection (another document generation, see lineage.ts), the

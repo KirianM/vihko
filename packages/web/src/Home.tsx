@@ -1,4 +1,4 @@
-// «Home» (D-056.35): where vihko opens by default and where the sidebar's
+// «Home»: where vihko opens by default and where the sidebar's
 // logo always leads. The person's recent notes, what others changed in what
 // they read, what was shared with them lately, and the quick actions. All of
 // it from GET /api/home (the index, the history and their notices): nothing

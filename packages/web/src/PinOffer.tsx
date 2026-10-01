@@ -1,4 +1,4 @@
-// After opening one of an ambiguous link's candidates (D-031.2): the note
+// After opening one of an ambiguous link's candidates: the note
 // you came from still has the ambiguous link, and this offers to pin it to
 // the note you are now in. Only on that explicit press is anything written.
 import { useEffect, useState } from 'react'

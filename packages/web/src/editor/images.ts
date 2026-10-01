@@ -1,4 +1,4 @@
-// Images in the editor (D-028): `![alt](path)` and `![[image.png]]` are shown
+// Images in the editor: `![alt](path)` and `![[image.png]]` are shown
 // as the image, resolved against the note's folder, and pasting or dropping an
 // image hands it to whoever uploads it. The text of the note never changes
 // here; this only decorates it.
@@ -198,7 +198,7 @@ export function imageUrl(text: string): string | null {
   return /^https?:\/\/\S+$/i.test(t) && isImageRef(t) ? t : null
 }
 
-// Nothing is pasted or dropped into a read-only editor (D-038.5).
+// Nothing is pasted or dropped into a read-only editor.
 const imageInput = EditorView.domEventHandlers({
   paste(e, view) {
     const host = view.state.facet(imageHost)
