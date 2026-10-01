@@ -68,3 +68,22 @@ test('home, without a history: one\'s own space by when it changed; what others 
     h.close()
   }
 })
+
+test('home finds the person\'s templates folders once, however many notes it looks at', async () => {
+  // Each time costs the person's spaces and their settings files, read from
+  // the disk: once per note, a Home over a few hundred notes held the whole
+  // server for seconds.
+  const h = await spacesSetup()
+  try {
+    for (let i = 0; i < 40; i++) h.write(`${h.home('member')}/${m.aFolder()}/${m.aTitle()}.md`, `# ${m.aHeading()}\n\n${m.aSentence()}\n`)
+    const settings = h.services.noteSettings
+    const templates = settings.templates.bind(settings)
+    let asked = 0
+    settings.templates = (spaces, own) => { asked++; return templates(spaces, own) }
+    const home = (await h.member('GET', '/api/home')).body
+    assert.ok(home.recent.length > 0)
+    assert.equal(asked, 1)
+  } finally {
+    h.close()
+  }
+})

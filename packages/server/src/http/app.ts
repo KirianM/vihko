@@ -744,7 +744,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (access.isAgent) return fail(c, 404, 'not_found', 'does not exist')
     const status = deps.history?.status()
     const reader = deps.history && status && status.mode !== 'off' && status.available ? historyFor(access, deps.history.reader()) : null
-    return c.json(await homeView(access, { index, history: reader, notices, nameOf: (id) => auth.username(id) ?? id, keyName: (id) => keys.nameOf(id), now, excluded: (p) => scoped(c).inTemplates(p) }))
+    // Asked of every note Home looks at (hundreds): its folders are found once.
+    return c.json(await homeView(access, { index, history: reader, notices, nameOf: (id) => auth.username(id) ?? id, keyName: (id) => keys.nameOf(id), now, excluded: scoped(c).inTemplatesTest() }))
   })
 
   // Today's note (D-030): GET says where it is and whether it exists, POST

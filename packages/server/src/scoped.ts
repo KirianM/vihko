@@ -722,7 +722,16 @@ export class ScopedNotes {
 
   /** Whether a path is in one of this person's templates folders. */
   inTemplates(path: string): boolean {
-    return this.templateFolders().some((f) => path === f || path.startsWith(f + '/'))
+    return this.inTemplatesTest()(path)
+  }
+
+  /**
+   * `inTemplates` for many paths at once: the folders are found once (each
+   * time costs the person's spaces and their settings files, from the disk).
+   */
+  inTemplatesTest(): (path: string) => boolean {
+    const folders = this.templateFolders()
+    return (path) => folders.some((f) => path === f || path.startsWith(f + '/'))
   }
 
   /** SQL condition on `alias.path`: not in a templates folder of this person (but those `keep` says). */
