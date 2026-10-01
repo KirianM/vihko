@@ -329,6 +329,17 @@ export interface SpacesInfo {
   /** Whether they may create a shared space (the admin's setting). */
   canCreate: boolean
 }
+/**
+ * Who has access to a folder the person reads (GET /api/spaces/members,
+ * D-056.27): each one with their level and why; `from` null where the grant
+ * is written in a folder the person doesn't read.
+ */
+export interface MembersView {
+  path: string
+  space: { path: string; name: string } | null
+  owner: string | null
+  members: { username: string; level: Level; via: { subject: string; level: Level; from: string | null; owner?: true }[] }[]
+}
 /** A shared space in the admin's directory: its name, managers and how many members; never anything inside it. */
 export interface SpaceInfo { path: string; id: string; name: string; managers: string[]; members: number; aiClosed: boolean }
 /** A deleted person's personal space, closed: nobody sees it (D-056.8). */
@@ -445,6 +456,8 @@ export const api = {
   deleteSpace: (path: string, trash = true) => request<{ path: string }>('DELETE', `/api/spaces?path=${encodeURIComponent(path)}${trash ? '&trash=true' : ''}`),
   /** Leaves a space, or stops seeing a folder shared with one (`leave_via_group` through a group). */
   leaveSpace: (path: string) => request<{ path: string }>('POST', '/api/spaces/leave', { path }),
+  /** Who has access to a folder one reads (a space's members); not_found for anything one doesn't. */
+  members: (path: string) => request<MembersView>('GET', `/api/spaces/members?path=${encodeURIComponent(path)}`),
   pinShared: (path: string, pinned: boolean) => request<{ path: string; pinned: boolean }>('POST', '/api/spaces/pin', { path, pinned }),
   /** The admin: every shared space (names, managers, how many members) and deleted people's closed spaces. */
   adminSpaces: () => request<{ spaces: SpaceInfo[]; closed: ClosedSpace[] }>('GET', '/api/admin/spaces'),

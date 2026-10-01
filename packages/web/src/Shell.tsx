@@ -8,7 +8,7 @@ import { SpaceSections, type Section, type SectionAction } from './Sidebar.tsx'
 import { DeleteSpaceDialog, LeaveSpaceDialog, NewSpaceDialog, RenameSpaceDialog, spaceError } from './SpaceDialogs.tsx'
 import { SpacesPage } from './SpacesAdmin.tsx'
 import { audienceChanges } from './Audience.tsx'
-import { PermissionsDialog } from './Permissions.tsx'
+import { MembersDialog, PermissionsDialog } from './Permissions.tsx'
 import { AlertsPage, NoticeToast, isPersonalNotice, type PersonalNotice } from './Alerts.tsx'
 import { AgentsPage } from './Agents.tsx'
 import { PrivacyPage } from './Privacy.tsx'
@@ -44,6 +44,7 @@ type TreeDialog =
   | { kind: 'moveFolder'; path: string; parent?: string }
   | { kind: 'deleteFolder'; path: string }
   | { kind: 'permissions'; path: string }
+  | { kind: 'members'; path: string }
   | { kind: 'moveNote'; path: string; folder?: string }
   | { kind: 'trashNote'; path: string }
   | { kind: 'newSpace' }
@@ -403,7 +404,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setSpaceIssue(null)
     if (action === 'newNote') { setCreateIn(s.root); setPalette('create') }
     else if (action === 'newFolder') setTreeDialog({ kind: 'newFolder', parent: s.root })
-    else if (action === 'members' || action === 'share' || action === 'agents') setTreeDialog({ kind: 'permissions', path: s.root })
+    // Managers change who's in; every other member only sees it (D-056.27).
+    else if ((action === 'members' && s.level === 'manage') || action === 'share' || action === 'agents') setTreeDialog({ kind: 'permissions', path: s.root })
+    else if (action === 'members' || action === 'access') setTreeDialog({ kind: 'members', path: s.root })
     else if (action === 'rename') setTreeDialog({ kind: 'renameSpace', section: s })
     else if (action === 'leave') setTreeDialog({ kind: 'leaveSpace', section: s })
     else if (action === 'delete') {
@@ -667,6 +670,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               void loadTree()
             }} />
           )}
+          {treeDialog?.kind === 'members' && <MembersDialog path={treeDialog.path} me={user} onClose={closeTreeDialog} onUnauthorized={onUnauthorized} />}
           {treeDialog?.kind === 'permissions' && (
             <PermissionsDialog folder={treeDialog.path} me={user} canOpen={canManageFolder} onClose={closeTreeDialog}
               onChanged={() => void loadTree()} onAccessLost={closeTreeDialog} onUnauthorized={onUnauthorized} />

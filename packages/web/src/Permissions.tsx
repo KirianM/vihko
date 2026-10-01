@@ -11,7 +11,7 @@
 // can't write it as it is (409 `config_invalid`), it's fixed by hand.
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Dialog, Heading, Tab, TabList, TabPanel, Tabs } from 'react-aria-components'
-import { ApiError, LEVELS, api, atLeast, type EffectiveAccess, type FolderPermissions, type GrantSource, type Grants, type Level, type User } from './api.ts'
+import { ApiError, LEVELS, api, atLeast, type EffectiveAccess, type FolderPermissions, type GrantSource, type Grants, type Level, type MembersView, type User } from './api.ts'
 import { Toggle } from './Agents.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { usePathLabels, useSpaces, useSpacesValue } from './spaces.tsx'
@@ -386,5 +386,60 @@ export function LockBadges({ own, ai }: { own: boolean; ai: boolean }) {
       {own && <span className="lock-badge" role="img" aria-label={t('perm.lockOwn')} title={t('perm.lockOwn')}>{Icon.people}</span>}
       {ai && <span className="lock-badge lock-badge-ai" role="img" aria-label={t('perm.lockAi')} title={t('perm.lockAi')}>{Icon.eyeOff}</span>}
     </span>
+  )
+}
+
+/**
+ * Who has access to a space or a folder shared with the person, read-only
+ * (D-056.27): every member sees who the others are and at what level, and
+ * why (their own grant, a group, the owner's space). Where a grant comes
+ * from a folder the person doesn't read, only that it comes from above.
+ */
+export function MembersDialog({ path, me, onClose, onUnauthorized }: { path: string; me: User; onClose: () => void; onUnauthorized: () => void }) {
+  const t = useT()
+  const labels = usePathLabels()
+  const [view, setView] = useState<MembersView | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    api.members(path).then(setView).catch((err) => {
+      if (err instanceof ApiError && err.status === 401) return onUnauthorized()
+      setError(errorText(t, err))
+    })
+  }, [path]) // eslint-disable-line react-hooks/exhaustive-deps
+  const root = !!view?.space && view.space.path === view.path
+  const title = root ? t('spaces.membersOf', { name: view!.space!.name }) : t('spaces.accessTitle', { name: baseName(path) })
+  const why = (v: MembersView['members'][number]['via'][number], username: string) => {
+    if (v.owner) return t('perm.viaOwner')
+    const through = key(v.subject) === key(username) ? t('perm.viaDirect') : t('perm.viaGroup', { group: v.subject })
+    return `${through} · ${v.from === null ? t('perm.viaAbove') : t('perm.viaFolder', { folder: labels.label(v.from) })}`
+  }
+  const rows = [...(view?.members ?? [])].sort((a, b) => LEVELS.indexOf(b.level) - LEVELS.indexOf(a.level) || collator.compare(a.username, b.username))
+  return (
+    <Dialog className="dialog perm-dialog" aria-label={title}>
+      <div className="dialog-fields">
+        <div>
+          <Heading slot="title" className="dialog-title">{title}</Heading>
+          <p className="perm-path">{labels.label(path)}</p>
+        </div>
+        {error && <p className="error-text" role="alert">{error}</p>}
+        {!view ? (!error && <p className="hint">{t('common.loading')}</p>) : (<>
+          <ul className="perm-rows" aria-label={title}>
+            {rows.map((a) => (
+              <li key={a.username} className="perm-row perm-row-access">
+                <Subject subject={a.username} me={me.username} />
+                <span className="perm-row-level">
+                  <span className="perm-level-text">{t(LEVEL_LABEL[a.level])}</span>
+                  {a.via.map((v, i) => <span key={i} className="perm-row-from">{why(v, a.username)}</span>)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="hint">{t(root ? 'spaces.membersReadOnly' : 'spaces.accessReadOnly')}</p>
+        </>)}
+      </div>
+      <div className="dialog-actions">
+        <Button className="btn" onPress={onClose} autoFocus>{t('perm.close')}</Button>
+      </div>
+    </Dialog>
   )
 }

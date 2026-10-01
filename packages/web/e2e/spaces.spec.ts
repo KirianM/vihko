@@ -106,7 +106,17 @@ test('two people: the member shares a folder of her own space to comment; the ot
   await o.getByRole('button', { name: `Acciones de «${title}»`, exact: true }).first().click()
   await expect(o.getByRole('menuitem', { name: 'Quitar de la barra' })).toBeVisible()
   await expect(o.getByRole('menuitem', { name: /Renombrar/ })).toHaveCount(0)
-  await o.keyboard.press('Escape')
+  await expect(o.getByRole('menuitem', { name: 'Compartir…' })).toHaveCount(0)
+  // Who has access, read-only (D-056.27): the owner and them, nothing to change.
+  await o.getByRole('menuitem', { name: 'Quién tiene acceso…' }).click()
+  const access = o.getByRole('dialog', { name: `Quién tiene acceso a «${SHARED}»` })
+  await expect(access.getByRole('listitem')).toHaveText([
+    new RegExp(`${literally(MEMBER.username)}.*Gestionar.*Es su espacio`),
+    new RegExp(`${literally(OTHER.username)}.*\\(tú\\).*Comentar.*Directamente`),
+  ])
+  await expect(access.getByRole('combobox')).toHaveCount(0)
+  await expect(access.getByRole('button', { name: 'Guardar' })).toHaveCount(0)
+  await access.getByRole('button', { name: 'Cerrar' }).click()
   const move = await o.request.post('/api/folder/move', { data: { from: `${personal(MEMBER)}/${SHARED}`, to: `${personal(MEMBER)}/${m.aFolder()}` } })
   expect(move.status()).toBe(403)
 
@@ -156,6 +166,16 @@ test('three people: the admin creates a space for a group; the three edit a note
   await expect.poll(() => disk(shared), SLOW).toContain(typed.a)
   await expect.poll(() => disk(shared), SLOW).toContain(typed.o)
   await expect(o.locator('.crumbs')).toContainText(`${CASA} / ${baseName(shared)}`)
+
+  // A member who doesn't manage it sees who's in and at what level, through the group, and can't change it (D-056.27).
+  await sectionMenu(o, CASA, 'Miembros…')
+  const membersOf = o.getByRole('dialog', { name: `Miembros de ${CASA}` })
+  await expect(membersOf.getByRole('listitem')).toHaveCount(3)
+  await expect(membersOf.getByRole('listitem').filter({ hasText: ADMIN.username })).toContainText('Gestionar')
+  await expect(membersOf.getByRole('listitem').filter({ hasText: OTHER.username })).toContainText(new RegExp(`Editar.*Por @${literally(GROUP)}`))
+  await expect(membersOf.getByRole('button', { name: 'Guardar' })).toHaveCount(0)
+  await o.screenshot({ path: `${process.env.SHOTS ?? '/tmp'}/spaces-members-readonly.png` })
+  await membersOf.getByRole('button', { name: 'Cerrar' }).click()
 
   // Through the group: leaving says so, and nothing changes.
   await sectionMenu(o, CASA, 'Salir')

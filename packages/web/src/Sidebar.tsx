@@ -12,7 +12,7 @@ import { useT, type MessageKey } from './i18n.tsx'
 import { Icon } from './ui.tsx'
 
 /** What a section's menu offers. */
-export type SectionAction = 'newNote' | 'newFolder' | 'members' | 'share' | 'agents' | 'rename' | 'leave' | 'delete' | 'pin' | 'unpin'
+export type SectionAction = 'newNote' | 'newFolder' | 'members' | 'access' | 'share' | 'agents' | 'rename' | 'leave' | 'delete' | 'pin' | 'unpin'
 
 /** A section of the sidebar: a space, or a folder shared with the person. */
 export interface Section {
@@ -32,6 +32,7 @@ const ACTION_LABEL: Record<SectionAction, MessageKey> = {
   newNote: 'folder.newNote',
   newFolder: 'folder.newSub',
   members: 'spaces.members',
+  access: 'spaces.access',
   share: 'folder.permissions',
   agents: 'spaces.agents',
   rename: 'spaces.rename',
@@ -47,12 +48,15 @@ export function sectionActions(s: Section): SectionAction[] {
   if (atLeast(s.level, 'edit')) out.push('newNote', 'newFolder')
   if (s.kind === 'mine') return [...out, 'agents']
   if (s.kind === 'shared') {
-    if (s.level === 'manage') out.push('members', 'rename')
+    // Every member sees who the others are (D-056.27); only managers change it.
+    out.push('members')
+    if (s.level === 'manage') out.push('rename')
     out.push('leave')
     if (s.level === 'manage') out.push('delete')
     return out
   }
-  if (s.level === 'manage') out.push('share')
+  // Whoever manages it shares it further; everyone else sees who has access (D-056.27).
+  out.push(s.level === 'manage' ? 'share' : 'access')
   out.push(s.pinned ? 'unpin' : 'pin', 'leave')
   return out
 }
@@ -102,7 +106,7 @@ function SpaceSection({ section, open, onToggle, onAction, children }: {
               <Menu className="menu" onAction={(k: Key) => onAction(k as SectionAction)}>
                 {actions.map((a) => (
                   <MenuItem key={a} id={a} className={a === 'delete' || a === 'leave' ? 'menu-item menu-item-danger' : 'menu-item'}>
-                    {a === 'newNote' ? Icon.plus : a === 'newFolder' ? Icon.folderPlus : a === 'rename' ? Icon.rename : a === 'delete' ? Icon.trash : a === 'members' || a === 'share' ? Icon.people : a === 'agents' ? Icon.eyeOff : null}
+                    {a === 'newNote' ? Icon.plus : a === 'newFolder' ? Icon.folderPlus : a === 'rename' ? Icon.rename : a === 'delete' ? Icon.trash : a === 'members' || a === 'share' || a === 'access' ? Icon.people : a === 'agents' ? Icon.eyeOff : null}
                     {t(ACTION_LABEL[a])}
                   </MenuItem>
                 ))}
