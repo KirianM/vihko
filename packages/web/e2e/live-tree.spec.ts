@@ -80,5 +80,6 @@ test('a folder shared with the member appears in «Shared with me» at once, and
   await expect(async () => { await openShared(); await expect(entry).toBeVisible({ timeout: 500 }) }).toPass(LIVE)
   await share(null)
   await expect(entry).toHaveCount(0, LIVE)
-  await expect(a.getByText(base(secret))).toHaveCount(0)
+  // Nor its note, which the sidebar would show only from the tree it's sent (its name alone may be any other's too).
+  expect((await call(a, 'get', '/api/tree')).notes.map((n: { path: string }) => n.path)).not.toContain(secret)
 })
