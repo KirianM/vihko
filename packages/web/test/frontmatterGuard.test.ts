@@ -6,7 +6,7 @@ import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
-/** A note with frontmatter (a uid and `ai: false`, the case D-056.34 is for) and a body. */
+/** A note with frontmatter (a uid and `ai: false`, what the guard keeps from being lost by accident) and a body. */
 function aNote() {
   const fm = `---\nuid: ${m.anId()}\nai: false\ntags: [${m.aTag()}]\n---\n`
   const body = `# ${m.aHeading()}\n\n${m.aParagraph()}\n`

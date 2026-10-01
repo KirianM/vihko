@@ -1,8 +1,8 @@
-// Managing a shared space together (D-056), with two sessions: two people
+// Managing a shared space together, with two sessions: two people
 // manage a space; one shares a subfolder with someone from outside it, and
 // the other keeps seeing and managing it: what the space gives is shown as
 // inherited, can't be taken away there, and no level below it is offered
-// (sharing only adds, D-056.7). The admin role counts for nothing: the admin
+// (sharing only adds). The admin role counts for nothing: the admin
 // isn't a member, sees nothing of it until the subfolder is shared with him,
 // and then gets it in «Shared with me». In one's own space, a folder with no
 // one else says so, and the space's root is never shared whole.

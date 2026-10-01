@@ -93,7 +93,7 @@ test('a «/» in the name is a folder: created under the current one (missing fo
   await removeNote(inVault(`hogar/${folder}`), name)
 })
 
-test('a leading «/» creates it from the root of the current space (D-056: never the notes root)', async () => {
+test('a leading «/» creates it from the root of the current space (never the notes root)', async () => {
   await k.keyboard.press('Control+k')
   const [folder, name] = [freshFolder(() => m.aFolder()), m.aTitle()]
   await field().fill(`/${folder}/${name}`)
@@ -105,7 +105,7 @@ test('a leading «/» creates it from the root of the current space (D-056: neve
 
 /**
  * A folder of the admin's own space shared with the member to read only
- * (D-056: in the vault's space she edits, and sharing only adds), with a note
+ * (in the vault's space she edits, and sharing only adds), with a note
  * in it; the member's grant is waited for.
  */
 async function readOnlyFolder() {
@@ -214,7 +214,7 @@ test('command «new folder»: in the open note\'s folder, or the root with none;
   await expect(dialog).toHaveCount(0)
 })
 
-test('command «new folder» from a folder one only reads: it creates in one\'s own space (D-056: there is always somewhere to create)', async ({ browser }) => {
+test('command «new folder» from a folder one only reads: it creates in one\'s own space (there is always somewhere to create)', async ({ browser }) => {
   const { folder, note } = await readOnlyFolder()
   const member = await signIn(browser, MEMBER)
   try {

@@ -135,7 +135,7 @@ test('a broken wikilink creates its note where the link will find it', () => {
   assert.equal(wikiLinkNote('a/b.md', '[[#Sección]]'), null)
 })
 
-test('D-056.30: a broken link creates its note only in the note’s own space; into another space, nothing to create', () => {
+test('a broken link creates its note only in the note’s own space; into another space, nothing to create', () => {
   const owner = `people/${m.aUsername()}`
   const source = `${owner}/${m.aFolder()}/${m.aTitle()}.md`
   const space = `spaces/${m.aSpaceFolder()}`
@@ -166,7 +166,7 @@ test('suggestions fold case like links and tags: «Straße» and «STRASSE»', (
   assert.deepEqual(rankTags([{ tag: 'strasse', count: 1 }], 'Straß').map((t) => t.tag), ['strasse'])
 })
 
-test('D-056.30: suggestions are only of the note’s own space; in a folder seen in part, the path from the root with the name shown', () => {
+test('suggestions are only of the note’s own space; in a folder seen in part, the path from the root with the name shown', () => {
   const mine = `people/${m.aUsername()}`
   const theirs = `people/${m.aUsername()}`
   const home = `spaces/${m.aSpaceFolder()}`

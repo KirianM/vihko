@@ -1,4 +1,4 @@
-// «Revert this change» and «Content only» in the browser (D-034.1): another
+// «Revert this change» and «Content only» in the browser: another
 // writer's version (written through the API, as an agent would) is undone on
 // the note as it is now, with what the person wrote after it kept; a piece
 // changed afterwards is shown in the preview and left alone; the other editor

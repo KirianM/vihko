@@ -1,5 +1,5 @@
-// OAuth consent (m3 §7): registration is off until the admin turns it on,
-// right under the MCP server's switch (D-049); a registered client sends the person to
+// OAuth consent: registration is off until the admin turns it on,
+// right under the MCP server's switch; a registered client sends the person to
 // /oauth/authorize; they sign in, see who asks and where it goes back to,
 // and answer with the choices of a new key (read-only and every folder by
 // default). The browser goes back to the client with a code (or
@@ -155,7 +155,7 @@ test('a client asks: the person signs in, sees who asks, and approves it read-on
   await expect(page.getByRole('checkbox', { name: /Puede escribir/ })).not.toBeChecked()
   await expect(page.getByRole('radio', { name: 'Todas las carpetas que ves' })).toBeChecked()
   await expect(page.getByText(`Has iniciado sesión como ${ADMIN.username}.`)).toBeVisible()
-  // Saying yes is confirmed at the moment (D-036), even just signed in: the password, without a second factor.
+  // Saying yes is confirmed at the moment, even just signed in (a forgotten session mustn't hand out access): the password, without a second factor.
   await expect(page.getByRole('button', { name: 'Autorizar' })).toBeDisabled()
   await page.getByLabel('Tu contraseña').fill(ADMIN.password)
   await page.screenshot({ path: `${SHOTS}/consent-light.png`, fullPage: true, animations: 'disabled' })

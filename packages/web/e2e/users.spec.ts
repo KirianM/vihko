@@ -1,4 +1,4 @@
-// «Users and groups» (M4, D-038.3 and .8), with two browsers: the admin
+// «Users and groups», with two browsers: the admin
 // creates a member and copies the one-time link; the member opens it in
 // another session, chooses a password and is in, with a note open; the
 // admin disables them and their session is cut at once (their open note
@@ -22,7 +22,7 @@ const HOME = m.aGroupName()
 test.describe.configure({ mode: 'serial' })
 test.beforeAll(async () => {
   mkdirSync(SHOTS, { recursive: true })
-  // A member sees only their own space until something is shared (D-056): the newcomer, once she exists, edits the vault's space.
+  // A member sees only their own space until something is shared: the newcomer, once she exists, edits the vault's space.
   await usePermissions({ grants: { [NEWCOMER.username]: 'edit' } })
 })
 test.afterAll(() => usePermissions())

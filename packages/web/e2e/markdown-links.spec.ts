@@ -1,4 +1,4 @@
-// Markdown links are followed as wikilinks are (D-019): one to a note opens
+// Markdown links are followed as wikilinks are: one to a note opens
 // it, an http(s) one opens in a new tab and the app stays, the same in a
 // table, and a broken one (or another scheme) takes the click into its text
 // to edit it.

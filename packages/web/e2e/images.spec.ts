@@ -1,4 +1,4 @@
-// Images in notes (D-028): pasted, dropped and picked files land next to the
+// Images in notes: pasted, dropped and picked files land next to the
 // note and render in the editor; an image URL is copied or linked; external
 // images carry a mark; a missing one shows a broken state.
 import { expect, test, type Page } from '@playwright/test'

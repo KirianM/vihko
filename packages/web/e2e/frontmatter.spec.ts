@@ -1,4 +1,5 @@
-// The frontmatter is protected in the editor (D-056.34): select all and
+// The frontmatter is protected in the editor, so losing it by accident never
+// drops `ai: false` unnoticed: select all and
 // delete, type over it or paste never reach it (its uid and `ai: false`
 // stay), undo brings the body back, and in two sessions the other one sees
 // the body go and the frontmatter stay; it is still edited by opening its

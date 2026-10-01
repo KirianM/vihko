@@ -6,7 +6,7 @@
 //
 // If the hub keeps its saved state and the file is changed with another
 // editor meanwhile (vihko running), the change is merged into that state and
-// the tab's copy merges as usual: no copy, nothing twice (D-032.4).
+// the tab's copy merges as usual: no copy, nothing twice.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { ADMIN, E2E_DIR, MEMBER, NOTES, inVault, specMother } from './env.ts'

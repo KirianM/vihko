@@ -1,4 +1,4 @@
-// The tree and the sidebar, live (D-056.36), with two people in their own
+// The tree and the sidebar, live, with two people in their own
 // sessions: what one creates, renames, moves or deletes where the other
 // reads shows in the other's tree without reloading; what one shares with
 // the other appears in «Shared with me», and goes when it's taken back.

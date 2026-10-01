@@ -1,4 +1,5 @@
-// Notices addressed to a person (M4.1, D-040 3.1 and 3.6) in real browsers:
+// Notices addressed to a person (so the admin never acts on someone's account
+// or history behind their back) in real browsers:
 // the admin resets a member's second factor, confirming with his own
 // password; the member sees it when she signs in, and so does the other
 // admin, in theirs. The admin purges from the history, in «Recent changes»,
@@ -19,7 +20,7 @@ const OTHER_ADMIN = m.aUser({ role: 'admin' })
 const SHARED_NAME = freshFolder(() => m.aFolder())
 const SHARED_DIR = inVault(SHARED_NAME)
 const SHARED = m.aNotePath(SHARED_DIR)
-// A folder of the member's own space: the admin, who manages the vault's space, can't read it (D-056).
+// A folder of the member's own space: the admin, who manages the vault's space, can't read it.
 const PRIVATE_NAME = m.aFolder()
 const PRIVATE_DIR = `${personal(PERSON)}/${PRIVATE_NAME}`
 const PRIVATE = m.aNotePath(PRIVATE_DIR)
@@ -64,7 +65,7 @@ async function password(browser: Browser, user: { username: string; password: st
   await page.getByLabel('Nombre de usuario').fill(user.username)
   await page.getByLabel('Contraseña').fill(user.password)
   await page.getByRole('button', { name: 'Entrar' }).last().click()
-  // Signed in: the shell, at Home (D-056.35; on a phone the tree is behind the menu).
+  // Signed in: the shell, at Home (on a phone the tree is behind the menu).
   await expect(page.locator('.shell')).toBeVisible()
   return page
 }
@@ -169,7 +170,7 @@ test('a purge tells whoever wrote in it, without the content; what the admin can
     if (path === PRIVATE) await admin.setViewportSize({ width: 390, height: 844 })
     await admin.getByRole('button', { name: 'Purgar del historial…' }).click()
     const form = admin.getByRole('dialog', { name: 'Purgar del historial' })
-    // As the admin sees it (D-056.29): the space by its name, or the person's whose it is; never `people/` nor `spaces/`.
+    // As the admin sees it (the system folders are never shown): the space by its name, or the person's whose it is; never `people/` nor `spaces/`.
     const typed = path === PRIVATE ? `${PERSON.username} / ${PRIVATE_NAME} / ${title(PRIVATE)}` : `${SPACE_NAME} / ${SHARED_NAME} / ${title(SHARED)}`
     await form.getByLabel('Ruta (nota o carpeta)').fill(typed)
     await admin.screenshot({ path: `${SHOTS}/notices-purge-form-${path === PRIVATE ? 'mobile' : 'light'}.png`, animations: 'disabled' })

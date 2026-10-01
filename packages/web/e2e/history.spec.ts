@@ -133,7 +133,7 @@ test('a version opens in the main area: read only, its diff, compared with the p
   // The editor gives way to the version (read only: no editor on screen).
   await expect(k.locator('.cm-content')).toBeHidden()
   const text = k.locator('.v-text')
-  // What was typed, and the uid the note got when it was first opened (D-015).
+  // What was typed, and the uid the note got when it was first opened (a uid is only written when vihko writes the note anyway).
   await expect(text.locator('ins').filter({ hasText: TYPED })).toHaveCount(1)
   await expect(text.locator('ins').filter({ hasText: /^---\nuid: \w+\n---$/ })).toHaveCount(1)
   await expect(text).not.toContainText(OUTSIDE)

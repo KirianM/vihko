@@ -12,7 +12,7 @@ const people = mother('web acceptance: the people of the server')
 export const ADMIN = people.aUser({ role: 'admin' })
 export const MEMBER = people.aUser({ role: 'member' })
 export const USERS: NewUser[] = [ADMIN, MEMBER]
-/** The shared space the generated vault is in (D-056: every note is in a space): its name and root. */
+/** The shared space the generated vault is in (every note is in a space): its name and root. */
 export const SPACE_NAME = people.aSpaceName()
 export const SPACE = `spaces/${people.aSpaceFolder(SPACE_NAME)}`
 /** Both users see all of it: the admin manages the space, the member edits it (a member reads only what is shared with them). */

@@ -8,7 +8,7 @@ const m = mother(import.meta.url)
 
 const entry = (path: string) => ({ path, name: path.slice('spaces/'.length), level: 'edit' as const, managers: [], aiClosed: false })
 
-test('an address of a space of rc.1 or rc.2 leads to the space it was renamed to, among those the person reaches (D-056.33)', () => {
+test('an address of a space of rc.1 or rc.2 leads to the space it was renamed to, among those the person reaches', () => {
   const name = m.aSpaceName()
   const root = `spaces/${name}`
   const old = `spaces/${m.aLegacySpaceFolder(name)}`

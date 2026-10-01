@@ -67,14 +67,14 @@ export async function signIn(browser: Browser, user: { username: string; passwor
   await page.getByLabel('Contraseña').fill(user.password)
   await page.getByRole('button', { name: 'Entrar' }).last().click()
   if (note) await expect(page.locator('.cm-content')).toBeVisible()
-  // «My notes» is always there: the first of the sidebar's trees (one per space, D-056).
+  // «My notes» is always there: the first of the sidebar's trees (one per space).
   else await expect(page.getByRole('treegrid').first()).toBeVisible()
   return page
 }
 
 /**
  * Dismisses the notices addressed to whoever `page` is signed in as (what
- * others shared with them, D-056.22; what the admin did to their account):
+ * others shared with them; what the admin did to their account):
  * other specs on the same server leave some, and a notice that comes in with
  * the session closes a phone's drawer and shows a toast.
  */
@@ -90,7 +90,7 @@ export const spaceTree = (page: Page, name: string | RegExp) => page.getByRole('
 /**
  * Someone new, created by the admin (`admin`: a page with their session) and
  * signed up through their link with their password, as a person would: the
- * API never takes a new user's password (D-046.1). A new admin is confirmed
+ * API never takes a new user's password, so the admin never knows anyone's. A new admin is confirmed
  * with the admin's password (the servers' admin has no second factor).
  */
 export async function newUser(admin: Page, user: { username: string; password: string; role?: 'admin' | 'member' }) {
@@ -111,8 +111,8 @@ export async function newUser(admin: Page, user: { username: string; password: s
 export const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 
 /**
- * A pattern for `note=<the note's address>` in the browser's URL (D-056.29:
- * `home-7k2q9x/…` or `~ana/…`, never `people/` nor `spaces/`), however the
+ * A pattern for `note=<the note's address>` in the browser's URL (the space's
+ * name or `~<username>`, then the rest: never `people/` nor `spaces/`), however the
  * query encodes it (`+` or `%20`, `~` or `%7E`).
  */
 /** The path of the note open in `page`, read from its address (`?note=`). */

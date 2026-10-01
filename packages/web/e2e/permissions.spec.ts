@@ -1,8 +1,8 @@
-// Sharing (D-056), with several browsers at once: the admin shares a folder
+// Sharing, with several browsers at once: the admin shares a folder
 // of his own space with a member (the dialog, the mark in the tree); links in
 // it to his notes she can't read are broken like a note that doesn't exist,
 // with nothing to create, and opening them says the neutral «doesn't exist or
-// no access» (D-056.15, .21); a move to another space says whose it becomes
+// no access», so nobody probes paths by writing links; a move to another space says whose it becomes
 // and who loses it, and waits for a confirmation; a member closes her space
 // to agents and shares a folder of it with someone new, who finds it in
 // «Shared with me» and can only read it, while the admin sees none of it; the
@@ -329,7 +329,7 @@ test('on a phone and in dark mode: the dialog, the marks and the warning fit', a
   await page.getByLabel('Nombre de usuario').fill(MEMBER.username)
   await page.getByLabel('Contraseña').fill(MEMBER.password)
   await page.getByRole('button', { name: 'Entrar' }).last().tap()
-  // Home first (D-056.35): the tree is behind the menu.
+  // Home first: the tree is behind the menu.
   await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
   await expect(mine(page)).toBeVisible()
   await expect(row(mine(page), KITCHEN).getByRole('img', { name: 'Compartida' })).toBeVisible()

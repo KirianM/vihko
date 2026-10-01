@@ -1,4 +1,4 @@
-// A note hidden from agents (`ai: false`, D-014) says so, discreetly, in its
+// A note hidden from agents (`ai: false`) says so, discreetly, in its
 // header, with why on hover (or on a press, on a phone). An unreadable
 // frontmatter hides it the same way, and says so. It follows the text: a
 // change to the frontmatter shows or removes it once saved. And it is true:

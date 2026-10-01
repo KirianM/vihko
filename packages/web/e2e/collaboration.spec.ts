@@ -11,7 +11,7 @@ import { editorText, literally, signIn, usePermissions, writeWorkspace } from '.
 const m = specMother(import.meta.url)
 /** A sentence no other line or comment contains (it carries a unique word): found by its text. */
 const line = () => `${m.aSentence(m.anInt(2, 5)).slice(0, -1)} ${m.aUniqueWord()}.`
-/** A folder of the member's own space, which she shares with the admin (D-056: only there can he be below edit). */
+/** A folder of the member's own space, which she shares with the admin (only there can he be below edit: sharing only adds). */
 const NAME = m.aFolder()
 const DIR = `${personal(MEMBER)}/${NAME}`
 const TITLE = m.aTitle()
@@ -114,7 +114,7 @@ test('a comment by someone who may only comment reaches the other editor live; t
   await his.getByRole('button', { name: 'Resolver y borrar' }).click()
   await expect(panel(a).locator('.thread', { hasText: TEXT.admins })).toHaveCount(0)
   await expect.poll(() => disk()).not.toContain(TEXT.admins)
-  // One of theirs with a reply from the member: resolving it would take the member's words out too, so it isn't theirs to do (D-040 3.7).
+  // One of theirs with a reply from the member: resolving it would take the member's words out too, so it isn't theirs to do.
   await k.locator('.cm-line', { hasText: FIRST }).click()
   await panel(k).getByRole('button', { name: 'Comentar la selección' }).click()
   await panel(k).getByPlaceholder('Escribe un comentario…').fill(TEXT.another)
