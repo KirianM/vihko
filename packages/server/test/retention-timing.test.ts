@@ -46,7 +46,7 @@ async function generate(stateDir: string) {
           ops = `D "${paths[f]}"\n`
         } else {
           live.add(f)
-          texts[f] = texts[f]!.length > 6000 ? `# ${m.aHeading()}\n` : texts[f] + sentences[i % sentences.length] + '\n'
+          texts[f] = texts[f]!.length > 6000 ? `# ${m.aHeading()}\n` : texts[f]! + sentences[i % sentences.length]! + '\n'
           ops = `M 100644 inline "${paths[f]}"\ndata ${Buffer.byteLength(texts[f]!)}\n${texts[f]}\n`
         }
         const msg = Buffer.from(`Edit\n\nVihko-Actor: user ${people[i % people.length]}\n`)
