@@ -21,6 +21,12 @@ type Scope = Page | ReturnType<Page['locator']>
 const row = (scope: Scope, name: string) => scope.getByRole('row').filter({ has: ('page' in scope ? scope.page() : scope).locator('.tree-label', { hasText: new RegExp(`^${literally(name)}$`, 'u') }) })
 /** A row of «Users and groups»: the name first, then something that can't continue a username. */
 const userRow = (page: Page, name: string) => page.getByRole('row', { name: new RegExp(`^${literally(name)}(?![\\p{L}\\p{N}._-])`, 'u') })
+/**
+ * A folder of an access dialog's tree by its name, exactly: other specs'
+ * folders share the space, and a random word may be part of one of their
+ * names («huerta» of «huerta extramuros»).
+ */
+const folderNamed = (dialog: ReturnType<Page['locator']>, name: string) => dialog.locator('.access-name', { hasText: new RegExp(`^${literally(name)}$`, 'u') })
 /** A subject as vihko writes it in vihko.yaml: plain when that reads back the same, quoted otherwise. */
 const yamlSubject = (s: string) => (/^[\p{L}\p{N}_][\p{L}\p{N}._-]*$/u.test(s) && !/^(true|false|null|yes|no|on|off|y|n|~)$/i.test(s) && !/^[\d.+-]/.test(s) ? s : JSON.stringify(s))
 /** A folder as vihko writes it as a key of vihko.yaml (core's yamlKey with PLAIN_KEY). */
@@ -259,14 +265,14 @@ test('a member closes her space to agents and shares a folder of it with someone
   await k.getByRole('menuitem', { name: 'Ver a qué carpetas llega' }).click()
   const access = k.getByRole('dialog', { name: `Acceso de ${OUTSIDER.username}` })
   await expect(access).toContainText('No llega a ninguna carpeta.')
-  await expect(access).not.toContainText(KITCHEN)
+  await expect(folderNamed(access, KITCHEN)).toHaveCount(0)
   await access.getByRole('button', { name: 'Cerrar' }).click()
   // The member's, among the folders the admin reads too: the vault's space, never hers.
   await userRow(k, MEMBER.username).getByRole('button', { name: `Acciones para ${MEMBER.username}` }).click()
   await k.getByRole('menuitem', { name: 'Ver a qué carpetas llega' }).click()
   const hers = k.getByRole('dialog', { name: `Acceso de ${MEMBER.username}` })
   await expect(hers.getByRole('listitem').filter({ hasText: new RegExp(`^${literally(SPACE_NAME)}Editar$`, 'u') })).toBeVisible()
-  await expect(hers).not.toContainText(KITCHEN)
+  await expect(folderNamed(hers, KITCHEN)).toHaveCount(0)
   await shot(k, 'permissions-user-access-light')
   await hers.getByRole('button', { name: 'Cerrar' }).click()
   await member.context().close()
