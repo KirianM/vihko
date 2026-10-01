@@ -298,6 +298,7 @@ function moveResult(r: ScopedMoveReport) {
     from: r.from, to: r.to, dry_run: r.dryRun, ...(r.etag ? { etag: r.etag } : {}),
     relinked: r.relinked, shifted: r.shifted, kept: r.kept, failed: r.failed, alias_added: r.aliasAdded, hidden: r.hidden ?? false, images: r.images,
     ...(r.audience ? { audience: audienceResult(r.audience) } : {}),
+    ...(r.brokenLinks ? { broken_links: r.brokenLinks } : {}),
     ...(r.nowHidden ? hiddenFields(r.nowHidden) : {}),
   }
 }
@@ -789,6 +790,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       + '`alias_added`, the old name, added to the note\'s aliases when a rewrite failed, so that the links left behind still lead to it (null otherwise); '
       + '`hidden`, true when notes you can\'t see link to it too (vihko rewrites them as well, without naming them); '
       + '`images`, what happened to the note\'s images; '
+      + '`broken_links`, when it goes to another space: the links that will be broken (`path`, the note holding the link; `to`, the note it led to), because a link never leads to another space and nothing is rewritten across spaces; '
       + '`audience` (with dry_run), who gains or loses access to it in its new folder: people and groups by name, keys counted. '
       + 'Who can see a note depends on its folder. A move that would open it to anyone who can\'t see it now fails with `audience_widens` and that `audience`: '
       + 'ask the person you act for, saying who would gain access, and only if they agree move it again with confirm_audience: true. A move that only narrows access needs nothing. '

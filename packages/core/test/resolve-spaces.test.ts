@@ -1,11 +1,13 @@
-// Link resolution with spaces (D-056, spec §4.2): a name resolves only in
-// its note's space; a path from the notes root (`people/…`, `spaces/…`),
-// a relative Markdown link or `[[/path]]` reach any space; what vihko
-// writes to reach a note (shortestTarget, wikiLink) never starts with `/`
-// and carries the note's name as visible text when it crosses spaces.
+// Link resolution with spaces (D-056, spec §4.2): a link never leaves its
+// note's space (D-056.30). A name resolves only in its note's space; a path
+// from the notes root (`people/…`, `spaces/…`), a relative Markdown link or
+// `[[/path]]` are exact, and lead to a note only in that same space: into
+// another space they're broken, as a link to nothing. What vihko writes to
+// reach a note (shortestTarget, wikiLink) never starts with `/` and never
+// reaches another space.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { LinkIndex, isRootTarget, linkSpace, shortestTarget, wikiLink, type Resolution } from '@vihko/core'
+import { LinkIndex, isRootTarget, linkSpace, sameSpace, shortestTarget, wikiLink, type Resolution } from '@vihko/core'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -45,18 +47,24 @@ test('a name resolves only among the notes of its own space', () => {
   assert.equal(at(l.index.resolve(l.notes.sharedSource, wiki(`${l.folder}/${l.name}`))), 'missing')
 })
 
-test('a path from the notes root reaches any space, exactly and in any case; so do [[/path]] and relative Markdown', () => {
+test('D-056.30: no path leads to another space: from the notes root, [[/path]] or relative Markdown, they are broken there and exact within the space', () => {
   const l = layout()
   const root = l.notes.sharedName.slice(0, -3)
-  assert.equal(at(l.index.resolve(l.notes.theirsNote, wiki(root))), l.notes.sharedName)
-  assert.equal(at(l.index.resolve(l.notes.theirsNote, wiki(root.toUpperCase()))), l.notes.sharedName)
-  assert.equal(at(l.index.resolve(l.notes.theirsNote, wiki('/' + root))), l.notes.sharedName)
-  assert.equal(at(l.index.resolve(l.notes.theirsNote, wiki(l.notes.mineName.slice(0, -3)))), l.notes.mineName)
+  // Into another space, in any form and any case: broken, exactly like a link to nothing.
+  for (const target of [root, root.toUpperCase(), '/' + root, l.notes.mineName.slice(0, -3)]) {
+    assert.equal(at(l.index.resolve(l.notes.theirsNote, wiki(target))), 'missing', target)
+  }
+  assert.equal(at(l.index.resolve(`${l.mine}/${l.folder}/x.md`, { kind: 'markdown', target: `../../../${l.notes.sharedName}`, anchor: null })), 'missing')
+  assert.equal(at(l.index.resolve(l.notes.mineSource, { kind: 'markdown', target: `../${l.theirs.split('/')[1]}/${l.notes.theirsNote.split('/').pop()}`, anchor: null })), 'missing')
+  // Within the note's own space the same forms reach it, exactly and in any case.
+  assert.equal(at(l.index.resolve(l.notes.sharedSource, wiki(root))), l.notes.sharedName)
+  assert.equal(at(l.index.resolve(l.notes.sharedSource, wiki(root.toUpperCase()))), l.notes.sharedName)
+  assert.equal(at(l.index.resolve(l.notes.sharedSource, wiki('/' + root))), l.notes.sharedName)
+  assert.equal(at(l.index.resolve(l.notes.mineSource, wiki(l.notes.mineName.slice(0, -3)))), l.notes.mineName)
+  assert.equal(at(l.index.resolve(l.notes.mineSource, { kind: 'markdown', target: `${l.folder}/${l.name}.md`, anchor: null })), l.notes.mineName)
   // Exact: the root path of a folder the note isn't in reaches nothing (no suffix heuristics from the root).
-  assert.equal(at(l.index.resolve(l.notes.theirsNote, wiki(`${l.mine}/${l.name}`))), 'missing')
   assert.equal(at(l.index.resolve(l.notes.mineSource, wiki(`${l.mine}/${l.name}`))), 'missing')
-  // A relative Markdown link crosses spaces as it is written.
-  assert.equal(at(l.index.resolve(`${l.mine}/${l.folder}/x.md`, { kind: 'markdown', target: `../../../${l.notes.sharedName}`, anchor: null })), l.notes.sharedName)
+  assert.ok(sameSpace(l.notes.mineSource, l.notes.mineName) && !sameSpace(l.notes.mineSource, l.notes.sharedName))
 })
 
 test('`people` or `spaces` alone is a name, and only a first segment makes a root path', () => {
@@ -131,13 +139,13 @@ test('notes in no space (the layout before spaces) resolve among themselves, as 
   assert.equal(at(index.resolve(person, wiki(name))), 'missing')
 })
 
-test('what vihko writes: the name inside a space, the path from the root (never with /) and the name as visible text across spaces', () => {
+test('what vihko writes: the name inside a space; to another space, nothing that resolves', () => {
   const l = layout()
   assert.deepEqual(wikiLink(l.index, l.notes.mineSource, l.notes.mineName), { target: l.name, display: null })
-  const toShared = wikiLink(l.index, l.notes.mineSource, l.notes.sharedName)
-  assert.deepEqual(toShared, { target: l.notes.sharedName.slice(0, -3), display: l.name })
-  assert.ok(!toShared.target.startsWith('/'))
-  assert.equal(shortestTarget(l.index, l.notes.sharedSource, l.notes.theirsNote), l.notes.theirsNote.slice(0, -3))
+  // Another space has no form that reaches it (D-056.30): whatever comes back leads nowhere, and callers check sameSpace.
+  for (const [source, path] of [[l.notes.mineSource, l.notes.sharedName], [l.notes.sharedSource, l.notes.theirsNote]] as const) {
+    assert.equal(at(l.index.resolve(source, wiki(shortestTarget(l.index, source, path)))), 'missing')
+  }
   // Someone who sees only part of the source's space (not the folder the two notes share): the path from the root,
   // which means the same for everyone; within a folder they see whole, the name.
   const whole = (folder: string) => folder.startsWith(`${l.mine}/${l.folder}`)
@@ -157,7 +165,7 @@ test('what vihko writes: the name inside a space, the path from the root (never 
   assert.ok(!t.startsWith('spaces/') && !t.startsWith('/'), t)
 })
 
-test('property: from any note, what vihko writes reaches the note, never starts with /, and names only within the space', () => {
+test('property: from any note, what vihko writes to a note of its space reaches it and never starts with /; nothing reaches another space', () => {
   const people = Array.from({ length: m.anInt(1, 3) }, () => `people/${m.aUsername()}`)
   const spaces = Array.from({ length: m.anInt(1, 3) }, () => `spaces/${m.aSpaceFolder()}`)
   const roots = [...people, ...spaces]
@@ -175,9 +183,14 @@ test('property: from any note, what vihko writes reaches the note, never starts 
     for (const path of paths) {
       for (const whole of [undefined, () => false]) {
         const { target, display } = wikiLink(index, source, path, { whole })
+        if (!sameSpace(source, path)) {
+          // Not even the path from the root: a link never leaves its space.
+          assert.equal(at(index.resolve(source, wiki(target))), 'missing', `${source} → ${path}: ${target}`)
+          assert.equal(at(index.resolve(source, wiki(path.slice(0, -3)))), 'missing', `${source} → ${path} from the root`)
+          continue
+        }
         assert.ok(!target.startsWith('/'), `${source} → ${path}: ${target}`)
         assert.equal(at(index.resolve(source, wiki(target))), path, `${source} → ${path}: ${target}`)
-        if (!isRootTarget(target)) assert.equal(linkSpace(source), linkSpace(path), `a name across spaces: ${source} → ${target}`)
         assert.equal(display !== null, isRootTarget(target))
       }
     }

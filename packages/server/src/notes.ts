@@ -3,10 +3,10 @@
 // (fsutil.ts), lazy `uid` and deletion to trash.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, resolve } from 'node:path'
-import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, folderOf, isIgnoredDir, isReserved, linkSpace, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, spaceRootOf, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
+import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, folderOf, isIgnoredDir, isReserved, linkSpace, newUid, sameSpace, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, spaceRootOf, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
 import { commitText, createFile, followable, isPlainFile, linkNew, readStable, readText } from './fsutil.ts'
 import { attachmentPath, noteAttachmentsDir, sniffImage, suffixedName } from './attachments.ts'
-import { applyReplacements, beforeMoves, inTableRow, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
+import { applyReplacements, beforeMoves, inTableRow, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type ImageReplacement, type LinkReplacement, type Replacement, type Shift } from './relink.ts'
 import type { Indexer } from './indexer.ts'
 import type { RelinkRetries, RelinkRetry } from './relinkRetries.ts'
 import { applySplices, spliceOf, type Splice } from './edits.ts'
@@ -118,9 +118,10 @@ export interface MoveReport {
   to: string
   /**
    * Notes whose links are rewritten (or would be, in dryRun): number of links and
-   * each change, text before and after.
+   * each change, text before and after, what it is (a link to a note, or a
+   * reference to an image) and where it leads (`to`, from the notes root).
    */
-  relinked: { path: string; links: number; changes: { before: string; after: string }[] }[]
+  relinked: { path: string; links: number; changes: RelinkChange[] }[]
   /**
    * Links the move doesn't rewrite but whose resolution it changes (D-019): an
    * ambiguous or broken link that will lead to a note, one that will be broken
@@ -174,6 +175,14 @@ export interface MoveReport {
   dryRun: boolean
   /** The moved note's ETag at its new path, as the move left it (its own links rewritten, the alias added); null in a dry run. */
   etag: string | null
+}
+
+/** One rewrite in a note: its text before and after, and the note (`link`) or image (`image`) it keeps leading to. */
+export interface RelinkChange {
+  before: string
+  after: string
+  kind: 'link' | 'image'
+  to: string
 }
 
 /** What a folder move does (or would do, with `dryRun`). */
@@ -474,9 +483,8 @@ export class NoteService {
 
   /**
    * The rewrites `linksTaken` left to the system, once the note at `path`
-   * has its name: each of those links keeps leading to its note (with the
-   * visible text of a link written from the notes root, as any rewrite). A
-   * rewrite that fails leaves that link as the change left it.
+   * has its name: each of those links keeps leading to its note, as any
+   * rewrite. A rewrite that fails leaves that link as the change left it.
    */
   private async keepLinks(taken: LinksTaken | null, path: string, actor: Actor): Promise<void> {
     if (!taken || taken.keep.length === 0) return
@@ -757,15 +765,14 @@ export class NoteService {
 
       // Safety net: if something couldn't be rewritten, the old name stays as an alias.
       // Not when aliases don't resolve links (vihko.yaml): it would save nothing. Nor
-      // when the note changed space: an alias only reaches the notes of its own space
-      // (a name never crosses spaces, D-056), and the links left in the space it
-      // left were names, those from other spaces paths from the root.
+      // when the note changed space: nothing is rewritten across spaces, the links
+      // left behind are broken on purpose (D-056.30), and an alias only reaches the
+      // notes of its own space.
       const oldName = posix.basename(from).replace(/\.md$/i, '')
       const newName = posix.basename(to).replace(/\.md$/i, '')
-      const space = linkSpace(to)
-      const sameSpace = linkSpace(from) === space
+      const within = sameSpace(from, to)
       const leftBehind = report.failed.filter((f) => f.path !== to)
-      if (leftBehind.some((f) => sameSpace && linkSpace(f.path) === space) && oldName !== newName && this.opts.indexer.linkAliases) {
+      if (within && leftBehind.length > 0 && oldName !== newName && this.opts.indexer.linkAliases) {
         try {
           const aliasActor: Actor = { kind: 'system', reason: { code: 'alias_added', alias: oldName, from, to, by: opts.actor } }
           report.etag = (await this.edit(to, (t) => addToFrontmatterList(t, 'aliases', oldName), { actor: aliasActor })).etag
@@ -776,8 +783,8 @@ export class NoteService {
         }
       }
       // What the alias doesn't stand in for is tried again after the next rescan.
-      const covered = (p: string) => report.aliasAdded !== null && sameSpace && linkSpace(p) === space
-      this.opts.retries?.record({ reason, moves: [{ from, to }], sources: leftBehind.map((f) => f.path).filter((p) => !covered(p)) })
+      const covered = report.aliasAdded !== null
+      this.opts.retries?.record({ reason, moves: [{ from, to }], sources: covered ? [] : leftBehind.map((f) => f.path) })
       return report
     })
   }
@@ -1070,7 +1077,7 @@ export class NoteService {
       const imageReps = planImageRelinks(text, m.from, m.to, (p) => p, imageHere)
       const { reps, shifts } = planLinks(text, m.from, m.to, before, after, map)
       const all = [...imageReps, ...reps]
-      return { splices: relinkSplices(text, all), changes: [...changesOf(text, reps), ...imageReps.map((r) => ({ before: r.before, after: r.after }))], shifts }
+      return { splices: relinkSplices(text, all), changes: [...changesOf(text, reps), ...imageReps.map(imageChange)], shifts }
     }
     for (const m of moves) {
       const text = readText(this.file(m.to))
@@ -1949,7 +1956,9 @@ const relinkSplices = (text: string, reps: Replacement[]): Splice[] =>
   [...reps].sort((a, b) => b.from - a.from).map((r) => spliceOf(text, r.from, r.to, r.text))
 
 /** Each replacement as the preview shows it: the text before and after. */
-const changesOf = (text: string, reps: Replacement[]) => reps.map((r) => ({ before: text.slice(r.from, r.to), after: r.text }))
+const changesOf = (text: string, reps: LinkReplacement[]): RelinkChange[] => reps.map((r) => ({ before: text.slice(r.from, r.to), after: r.text, kind: 'link', to: r.target }))
+/** An image reference's rewrite as a report lists it. */
+const imageChange = (r: ImageReplacement): RelinkChange => ({ before: r.before, after: r.after, kind: 'image', to: r.image })
 
 /** Where each image ends up: the ones moved one by one, and those in a folder of images that moves whole. */
 const placeOf = (moves: { from: string; to: string }[], folder: { from: string; to: string } | null = null) => {
@@ -1969,7 +1978,7 @@ function movedNotePlan(text: string, from: string, to: string, before: LinkIndex
   const { reps: linkReps, shifts } = planLinks(text, from, to, before, after, map)
   const changes = [
     ...changesOf(text, linkReps),
-    ...imageReps.map((r) => ({ before: r.before, after: r.after })),
+    ...imageReps.map(imageChange),
   ]
   const reps = [...imageReps, ...linkReps]
   return { text: applyReplacements(text, reps), splices: relinkSplices(text, reps), changes, shifts, targets: linkReps.map((r) => r.target) }
@@ -1986,7 +1995,7 @@ function movedNotePlan(text: string, from: string, to: string, before: LinkIndex
 function nameGuard(mayName: ((path: string) => boolean) | undefined, dryRun: boolean) {
   let hit = false
   return {
-    shown(src: string, plan: { changes: { before: string; after: string }[]; targets: string[] }) {
+    shown(src: string, plan: { changes: RelinkChange[]; targets: string[] }) {
       if (!mayName || !mayName(src)) return plan.changes
       // The first `targets.length` changes are the links' (movedNotePlan), in order.
       const hidden = plan.targets.map((t) => !mayName(t))

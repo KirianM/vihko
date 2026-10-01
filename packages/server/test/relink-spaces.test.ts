@@ -1,13 +1,14 @@
-// Links rewritten when a note changes space or is renamed (D-056, spec §4.4):
-// a move never changes where a link leads; across spaces vihko writes the
-// path from the notes root with the note's name as visible text (so that
-// Obsidian and other editors show the name), keeps that text in step with
-// renames, drops it when the link comes back inside the space, and in a
-// table writes the bar as `\|`, which both vihko and Obsidian read.
+// Links when a note changes space or is renamed (D-056.30, spec §4.4): a
+// link never leads to another space, so a move rewrites nothing across
+// spaces. The moved note's links stay as written and resolve in its new
+// space (or are broken there); links left behind that led to it are broken;
+// both are reported as shifts (`breaks`) for the preview to list. Inside a
+// space a rename keeps every link on its note, as ever, and in a table the
+// bar stays `\|`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { LinkIndex, extract } from '@vihko/core'
-import { applyReplacements, planRelinks } from '@vihko/server'
+import { applyReplacements, planLinks, planRelinks } from '@vihko/server'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -53,59 +54,65 @@ function leads(index: LinkIndex, src: string, text: string): (string | null)[] {
   })
 }
 
-test('a note taken to a shared space: its links by name to its old space become paths from the root, with the name shown', () => {
+/** The codes of the links a move leaves as they are but whose destination changes, and where each led. */
+function shifts(text: string, src: string, srcAfter: string, ix: ReturnType<typeof indexes>) {
+  return planLinks(text, src, srcAfter, ix.before, ix.after, ix.map).shifts.map((s) => [s.code, s.before.status === 'resolved' ? s.before.path : null])
+}
+
+test('a note taken to a shared space: nothing in it is rewritten; its links to the space it left are broken there, and said', () => {
   const s = scene()
   const to = `${s.shared}/${s.name}.md`
   const ix = indexes(s.notes, s.note, to, s.heading)
-  const text = `[[${s.plan}]] and [[${s.plan}#${s.heading}]], ![[${s.plan}]], [[${s.plan}|${m.aWord()}]] and [[#${s.heading}]].\n`
-  const out = relinked(text, s.note, to, ix)
-  const root = s.planPath.slice(0, -3)
-  const custom = extract(text).links[3]!.display
-  assert.equal(out, `[[${root}|${s.plan}]] and [[${root}#${s.heading}|${s.plan}]], ![[${root}]], [[${root}|${custom}]] and [[#${s.heading}]].\n`)
-  assert.deepEqual(leads(ix.after, to, out), [s.planPath, s.planPath, s.planPath, s.planPath, to])
-  assert.ok(!out.includes('[[/'), 'never a leading slash: Obsidian does not read it')
+  const md = `[${m.aWord()}](${encodeURI(s.plan)}.md)`
+  const text = `[[${s.plan}]] and [[${s.plan}#${s.heading}]], ![[${s.plan}]], [[${s.plan}|${m.aWord()}]], ${md} and [[#${s.heading}]].\n`
+  assert.equal(relinked(text, s.note, to, ix), text)
+  // Each was leading to the plan, in the space it left: now broken (the heading of the note itself still works).
+  assert.deepEqual(leads(ix.after, to, text), [null, null, null, null, null, to])
+  assert.deepEqual(shifts(text, s.note, to, ix), Array.from({ length: 5 }, () => ['breaks', s.planPath]))
 })
 
-test('links to a note that changed space: from its old space and from others, the new root path; from its new space, the name again', () => {
+test('links to a note that changed space: never rewritten, from its old space or any other; broken where they were, resolved by name where it went', () => {
   const s = scene()
   const to = `${s.shared}/${s.name}.md`
   const ix = indexes(s.notes, s.note, to, s.heading)
   const oldRoot = s.note.slice(0, -3)
-  const newRoot = to.slice(0, -3)
-  const custom = m.aSentence(2)
-  assert.equal(relinked(`[[${s.name}]]\n`, s.inMine, s.inMine, ix), `[[${newRoot}|${s.name}]]\n`)
-  assert.equal(relinked(`[[${oldRoot}|${s.name}]] [[${oldRoot}|${custom}]]\n`, s.inTheirs, s.inTheirs, ix), `[[${newRoot}|${s.name}]] [[${newRoot}|${custom}]]\n`)
-  // Back inside its space: the text vihko wrote says nothing the name doesn't.
-  assert.equal(relinked(`[[${oldRoot}|${s.name}]] [[${oldRoot}|${custom}]]\n`, s.inShared, s.inShared, ix), `[[${s.name}]] [[${s.name}|${custom}]]\n`)
+  const byName = `[[${s.name}]] [[${s.name}|${m.aSentence(2)}]]\n`
+  // In its old space: left as written, and broken.
+  assert.equal(relinked(byName, s.inMine, s.inMine, ix), byName)
+  assert.deepEqual(shifts(byName, s.inMine, s.inMine, ix), [['breaks', s.note], ['breaks', s.note]])
+  // From a third space it never led anywhere (a link never leaves its space), and still doesn't.
+  const fromRoot = `[[${oldRoot}]] [[${to.slice(0, -3)}]]\n`
+  assert.equal(relinked(fromRoot, s.inTheirs, s.inTheirs, ix), fromRoot)
+  assert.deepEqual(leads(ix.after, s.inTheirs, fromRoot), [null, null])
+  assert.deepEqual(shifts(fromRoot, s.inTheirs, s.inTheirs, ix), [])
+  // In the space it went to, a name that was broken now leads to it.
+  assert.deepEqual(leads(ix.after, s.inShared, byName), [to, to])
+  assert.deepEqual(shifts(byName, s.inShared, s.inShared, ix), [['resolves', null], ['resolves', null]])
 })
 
-test('renaming a note another space links to: the path and the name vihko wrote as its text follow it; any other text stays', () => {
+test('renaming a note: links in its space follow it, by name or path; a link from another space stays as it is, broken as before', () => {
   const s = scene()
   const newName = m.aTitle()
   const to = `${s.mine}/${newName}.md`
   const ix = indexes(s.notes, s.note, to, s.heading)
   const oldRoot = s.note.slice(0, -3)
   const custom = m.aSentence(2)
-  const text = `[[${oldRoot}|${s.name}]], [[${oldRoot}#${s.heading}|${s.name}]], [[${oldRoot}|${custom}]], [[${oldRoot}]]\n`
-  const out = relinked(text, s.inShared, s.inShared, ix)
-  const root = to.slice(0, -3)
-  assert.equal(out, `[[${root}|${newName}]], [[${root}#${s.heading}|${newName}]], [[${root}|${custom}]], [[${root}|${newName}]]\n`)
-  assert.deepEqual(leads(ix.after, s.inShared, out), [to, to, to, to])
-  // Inside its own space, by name as before.
-  assert.equal(relinked(`[[${s.name}]]\n`, s.inMine, s.inMine, ix), `[[${newName}]]\n`)
+  const text = `[[${s.name}]], [[${s.name}#${s.heading}|${custom}]], [[${oldRoot}]]\n`
+  const out = relinked(text, s.inMine, s.inMine, ix)
+  assert.equal(out, `[[${newName}]], [[${newName}#${s.heading}|${custom}]], [[${newName}]]\n`)
+  assert.deepEqual(leads(ix.after, s.inMine, out), [to, to, to])
+  const elsewhere = `[[${oldRoot}|${s.name}]]\n`
+  assert.equal(relinked(elsewhere, s.inShared, s.inShared, ix), elsewhere)
 })
 
-test('in a table, the visible text is written after `\\|`, which vihko and Obsidian read as the bar', () => {
+test('in a table, a link rewritten inside its space keeps its visible text after `\\|`, which vihko and Obsidian read as the bar', () => {
   const s = scene()
-  const to = `${s.shared}/${s.name}.md`
+  const newName = m.aTitle()
+  const to = `${s.mine}/${m.aFolder()}/${newName}.md`
   const ix = indexes(s.notes, s.note, to, s.heading)
-  const newRoot = to.slice(0, -3)
-  const oldRoot = s.note.slice(0, -3)
-  const text = `| a | b |\n| --- | --- |\n| [[${s.name}]] | [[${oldRoot}\\|${s.name}]] |\n`
-  const fromMine = relinked(`| a | b |\n| --- | --- |\n| [[${s.name}]] | x |\n`, s.inMine, s.inMine, ix)
-  assert.equal(fromMine, `| a | b |\n| --- | --- |\n| [[${newRoot}\\|${s.name}]] | x |\n`)
-  assert.deepEqual(leads(ix.after, s.inMine, fromMine), [to])
-  const fromTheirs = relinked(text.replace(`[[${s.name}]]`, 'x'), s.inTheirs, s.inTheirs, ix)
-  assert.equal(fromTheirs, `| a | b |\n| --- | --- |\n| x | [[${newRoot}\\|${s.name}]] |\n`)
-  assert.deepEqual(extract(fromTheirs).links.map((l) => [l.target, l.display]), [[newRoot, s.name]])
+  const custom = m.aWord()
+  const out = relinked(`| a | b |\n| --- | --- |\n| [[${s.name}\\|${custom}]] | x |\n`, s.inMine, s.inMine, ix)
+  assert.equal(out, `| a | b |\n| --- | --- |\n| [[${newName}\\|${custom}]] | x |\n`)
+  assert.deepEqual(extract(out).links.map((l) => [l.target, l.display]), [[newName, custom]])
+  assert.deepEqual(leads(ix.after, s.inMine, out), [to])
 })

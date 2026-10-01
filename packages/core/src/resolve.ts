@@ -4,19 +4,22 @@
 // Browser-safe entry point (@vihko/core/resolve): no Node modules here.
 //
 // With spaces (D-056, spec §4.2), what a link means depends only on the file
-// and the space it is in, never on who reads it:
+// and the space it is in, never on who reads it, and a link never leaves its
+// note's space (D-056.30):
 // 1. an empty target (`[[#Heading]]`) is the note itself;
-// 2. a relative Markdown link, or `[[/path]]`, is an exact path (it may
-//    cross spaces);
+// 2. a relative Markdown link, or `[[/path]]`, is an exact path, which
+//    leads to a note only when that note is in the source's space;
 // 3. a wikilink whose first segment is `people` or `spaces` (and has more
-//    after it) is an exact path from the notes root (it may cross spaces);
+//    after it) is an exact path from the notes root, also only within the
+//    source's space: `[[spaces/…]]` into another space is broken;
 // 4. any other wikilink (a name or a path suffix) resolves only among the
 //    notes of the source's space, by proximity (D-019), then by their
 //    aliases, also of that space and without proximity (an alias several
-//    notes share is ambiguous). A name never reaches another space, and an
-//    alias never beats a name or a path.
-// Notes in no space (the layout before spaces) form one group of their own,
-// so there everything resolves as it always did.
+//    notes share is ambiguous). An alias never beats a name or a path.
+// A link that would reach another space is broken: exactly what a link to a
+// note that doesn't exist looks like (D-056.15). Notes in no space (the
+// layout before spaces) form one group of their own, so there everything
+// resolves as it always did.
 import { caseFold } from './casefold.ts'
 import type { LinkRef } from './markdown.ts'
 import { PEOPLE, SPACES, spaceRootOf } from './spaces.ts'
@@ -149,9 +152,10 @@ export class LinkIndex {
 
     if (link.kind === 'markdown' || link.target.startsWith('/') || isRootTarget(link.target)) {
       // Relative path (Markdown), absolute from the root (`[[/folder/Note]]`)
-      // or from the notes root to a space (`[[spaces/home-7k2q9x/Note]]`):
-      // exact full-path match, no heuristics, in any space.
-      const hits = [...(this.byPath.get(key) ?? [])].filter((p) => normKey(stripMd(p)) === key)
+      // or from the notes root (`[[spaces/home-7k2q9x/Note]]`): exact
+      // full-path match, no heuristics, and only in the source's own space.
+      const space = linkSpace(source)
+      const hits = this.inSpace(this.byPath.get(key), space).filter((p) => normKey(stripMd(p)) === key)
       return hits.length === 1 ? this.withAnchor(hits[0]!, link.anchor, 'path') : { status: 'missing' }
     }
 
@@ -208,10 +212,11 @@ export class LinkIndex {
 /**
  * The shortest wikilink target that, written in `source`, resolves to `path`:
  * the name, then progressively longer path suffixes, which ends at the path
- * from the notes root (`spaces/home-7k2q9x/Note`, the only form that reaches
- * another space, never with a leading `/`: Obsidian doesn't read that). The
- * absolute `/folder/Note` (D-019) only as a last resort, for a note in no
- * space. Without the `.md` extension.
+ * from the notes root (never with a leading `/`: Obsidian doesn't read
+ * that). The absolute `/folder/Note` (D-019) only as a last resort, for a
+ * note in no space. Without the `.md` extension. A note of another space
+ * has no such target (D-056.30): what this returns then resolves nowhere,
+ * and callers check (`sameSpace`).
  *
  * `opts.whole`: whether `index` holds every note under a folder (all of
  * them by default: the server's index does). A reader who sees only part of
@@ -241,14 +246,19 @@ function commonFolder(a: string, b: string): string {
   return x.slice(0, n).join('/')
 }
 
+/** Whether a link in `source` may lead to `path` at all: both in the same space (D-056.30). */
+export function sameSpace(source: string, path: string): boolean {
+  return linkSpace(source) === linkSpace(path)
+}
+
 /**
- * How vihko writes a wikilink to `path` in `source` (D-056): the shortest
- * target (`shortestTarget`, with its `opts`) and, when that target is
- * written from the notes root (another space, or a reader who sees only
- * part of this one), the visible text: the note's name, so that Obsidian
- * and other editors show `shopping list`, not
- * `spaces/home-7k2q9x/shopping list`. Null inside a space, where the name
- * is already what shows.
+ * How vihko writes a wikilink to `path` in `source`, a note of the same
+ * space (D-056.30: never across spaces): the shortest target
+ * (`shortestTarget`, with its `opts`) and, when that target had to be the
+ * path from the notes root (a reader who sees only part of the space, a
+ * folder shared from someone's), the visible text: the note's name, so that
+ * vihko, Obsidian and other editors show `trip`, not `people/ana/trips/trip`.
+ * Null otherwise, where the name is already what shows.
  */
 export function wikiLink(index: LinkIndex, source: string, path: string, opts: { whole?: (folder: string) => boolean } = {}): { target: string; display: string | null } {
   const target = shortestTarget(index, source, path, opts)
