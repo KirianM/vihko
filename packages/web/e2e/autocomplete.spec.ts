@@ -6,7 +6,7 @@
 import { expect, test, type Browser, type Locator, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { markdownDest } from '../../core/src/images.ts'
-import { ADMIN, E2E_DIR, NOTES, SPACE_NAME, inVault, personal, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, SPACE_NAME, inVault, personal, specMother } from './env.ts'
 import { literally, signIn, writeWorkspace } from './helpers.ts'
 
 const m = specMother(import.meta.url)
@@ -369,4 +369,41 @@ test('phone: the editor bar\'s [[ opens the suggestions and a tap inserts the li
   await expect.poll(() => disk()).toMatch(new RegExp(`\\n${literally(word)} \\[\\[${literally(DEST)}\\]\\]\\n?$`, 'u'))
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
   await ctx.close()
+})
+
+test('signing out forgets the suggestions: whoever signs in next in the same tab never gets what was loaded for the one before (D-056.28)', async ({ browser }) => {
+  const start = m.aUniqueWord()
+  const [theirs, mine] = [`${start}-${m.aTag()}`, `${start}-${m.aTag()}`]
+  const line = m.aSentence()
+  // The admin's tag, in a note of their own space (the member can't read it); the member's, in hers.
+  const adminNote = `${personal(ADMIN)}/${m.aTitle()}.md`
+  const memberNote = `${personal(MEMBER)}/${m.aTitle()}.md`
+  const member = await signIn(browser, MEMBER)
+  expect((await member.request.post('/api/note', { data: { path: memberNote, text: `# ${m.aHeading()}\n\n${line}\n\n#${mine}\n` } })).status()).toBe(201)
+  await member.context().close()
+  const page = await signIn(browser, ADMIN)
+  expect((await page.request.post('/api/note', { data: { path: adminNote, text: `# ${m.aHeading()}\n\n${line}\n\n#${theirs}\n` } })).status()).toBe(201)
+  await page.goto(`/?note=${encodeURIComponent(adminNote)}`)
+  const typeAfter = async () => {
+    const l = page.locator('.cm-line', { hasText: line })
+    await l.click({ position: { x: 2, y: 8 } })
+    await toLineEnd(l)
+    await page.keyboard.type(` #${start}`)
+  }
+  await typeAfter()
+  await expect(option(page, `#${theirs}`)).toBeVisible()
+  await page.keyboard.press('Escape')
+  // Signing out, and the member in the same tab.
+  await page.getByRole('button', { name: 'Cerrar sesión' }).click()
+  await page.getByLabel('Nombre de usuario').fill(MEMBER.username)
+  await page.getByLabel('Contraseña').fill(MEMBER.password)
+  await page.getByRole('button', { name: 'Entrar' }).last().click()
+  // Opened from the tree: the page isn't loaded again, so only signing out can have forgotten what it kept.
+  const name = memberNote.slice(memberNote.lastIndexOf('/') + 1, -3)
+  await page.getByRole('treegrid').first().getByRole('row', { name, exact: true }).click()
+  await expect(page.locator('.cm-line', { hasText: line })).toBeVisible()
+  await typeAfter()
+  await expect(option(page, `#${mine}`)).toBeVisible()
+  await expect(option(page, `#${theirs}`)).toHaveCount(0)
+  await page.context().close()
 })

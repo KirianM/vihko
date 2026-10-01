@@ -292,6 +292,71 @@ test('a rename that would take someone\'s link, in a note the renamer reads, to 
   expect(disk(linking)).toContain(`[[${name}]]`)
 })
 
+test('a subfolder can\'t be closed, so it moves out: «Move to a new space» makes it a space of its own, which the others stop seeing (D-056.28)', async () => {
+  const name = m.aFolder()
+  const dir = `${casa}/${name}`
+  const inside = `${dir}/${m.aTitle()}.md`
+  await folder(k, dir)
+  await note(k, inside, `# ${baseName(inside)}\n`)
+  await k.goto('/')
+  const row = spaceTree(k, CASA).getByRole('row', { name, exact: true })
+  // Its share dialog says why it can't be closed, and offers the way out.
+  await row.click({ button: 'right' })
+  await k.getByRole('menuitem', { name: 'Compartir…' }).click()
+  const share = k.getByRole('dialog', { name: `Compartir «${name}»` })
+  await expect(share.getByText('Una subcarpeta no se puede cerrar a quien ve la de arriba', { exact: false })).toBeVisible()
+  await expect(share.getByRole('button', { name: 'Mover a Mis notas…' })).toBeVisible()
+  await share.getByRole('button', { name: 'Mover a un espacio nuevo…' }).click()
+  const dialog = k.getByRole('dialog').filter({ has: k.getByRole('heading', { name: `¿Mover «${name}» a un espacio nuevo?` }) })
+  await expect(dialog.getByLabel('Nombre', { exact: true })).toHaveValue(name)
+  // The usual confirmation: who stops seeing it.
+  const warning = dialog.getByRole('group', { name: 'Cambia de espacio' })
+  await expect(warning).toContainText(MEMBER.username, SLOW)
+  const submit = dialog.getByRole('button', { name: 'Mover al espacio nuevo' })
+  await expect(submit).toBeDisabled()
+  await warning.getByRole('checkbox', { name: 'Entiendo que cambia quién puede verlo' }).check()
+  await submit.click()
+  // A space of its own, theirs to manage, with the note at its root.
+  await expect(spaceTree(k, name)).toBeVisible(SLOW)
+  await expect(spaceTree(k, name).getByRole('row', { name: baseName(inside), exact: true })).toBeVisible()
+  await expect(spaceTree(k, CASA).getByRole('row', { name, exact: true })).toHaveCount(0)
+  const root = await spaceRoot(k, name)
+  expect(existsSync(`${NOTES}/${root}/${baseName(inside)}.md`)).toBe(true)
+  // The member, who saw it through Casa, doesn't any more.
+  await a.goto('/')
+  await expect(spaceTree(a, CASA)).toBeVisible()
+  await expect(spaceTree(a, CASA).getByRole('row', { name, exact: true })).toHaveCount(0)
+  await expect(spaceTree(a, name)).toHaveCount(0)
+
+  // From the folder's menu too; to one's own space, the move of always with «My notes» as its destination.
+  const other = m.aFolder()
+  await folder(k, `${casa}/${other}`)
+  await k.reload()
+  await spaceTree(k, CASA).getByRole('row', { name: other, exact: true }).click({ button: 'right' })
+  await expect(k.getByRole('menuitem', { name: 'Mover a un espacio nuevo…' })).toBeVisible()
+  await k.getByRole('menuitem', { name: 'Mover a Mis notas…' }).click()
+  const move = k.getByRole('dialog').filter({ has: k.getByRole('heading', { name: new RegExp(literally(other)) }) })
+  await expect(move.getByRole('combobox', { name: 'Espacio' })).toHaveValue(personal(ADMIN))
+  await move.getByRole('button', { name: 'Cancelar' }).click()
+})
+
+test('sharing a folder of one\'s own space to edit says that whoever edits may work out names of notes linked from it (D-056.28)', async () => {
+  const dir = `${personal(MEMBER)}/${m.aFolder()}`
+  await folder(a, dir)
+  await a.goto('/')
+  await spaceTree(a, 'Mis notas').getByRole('row', { name: baseName(dir), exact: true }).click({ button: 'right' })
+  await a.getByRole('menuitem', { name: 'Compartir…' }).click()
+  const dialog = a.getByRole('dialog', { name: `Compartir «${baseName(dir)}»` })
+  const probes = dialog.getByText('Quien edita aquí puede averiguar cómo se llaman otras notas de tu espacio', { exact: false })
+  await dialog.getByRole('combobox', { name: 'Persona o grupo' }).selectOption(OTHER.username)
+  await dialog.getByRole('combobox', { name: 'Nivel', exact: true }).selectOption('comment')
+  await dialog.getByRole('button', { name: 'Añadir' }).click()
+  await expect(probes).toHaveCount(0)
+  await dialog.getByRole('combobox', { name: `Nivel de ${OTHER.username}` }).selectOption('edit')
+  await expect(probes).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+})
+
 test('the last manager leaves the space; the admin is told and assigns another from the directory, which never shows what\'s inside', async () => {
   await k.goto('/')
   await sectionMenu(k, CASA, 'Salir')
@@ -317,7 +382,7 @@ test('the last manager leaves the space; the admin is told and assigns another f
   await expect(a.locator('.alert-card', { hasText: `ha hecho que ${MEMBER.username} gestione ${CASA}` })).toBeVisible(SLOW)
 })
 
-test('the admin deletes two people: their spaces close; one becomes a shared space its members see, the other goes to someone, with the warning about links', async ({ browser }) => {
+test('the admin deletes two people: one\'s space closes, the admin is reminded, and it becomes a shared space its members see; the other\'s goes to someone from the delete dialog itself, with the warning about links', async ({ browser }) => {
   // What they have before going.
   const g = await signIn(browser, GONE)
   const gNote = `${personal(GONE)}/${m.aFolder()}/${m.aTitle()}.md`
@@ -327,12 +392,14 @@ test('the admin deletes two people: their spaces close; one becomes a shared spa
   await note(l, lNote, `# ${baseName(lNote)}\n`)
   await g.context().close()
   await l.context().close()
-  for (const u of [GONE, LEFT]) {
-    const id = await userId(k, u.username)
-    await call(k, 'post', `/api/admin/users/${id}/disable`)
-    await call(k, 'delete', `/api/admin/users/${id}`)
-  }
-  await k.goto('/?view=spaces')
+  for (const u of [GONE, LEFT]) await call(k, 'post', `/api/admin/users/${await userId(k, u.username)}/disable`)
+  await call(k, 'delete', `/api/admin/users/${await userId(k, GONE.username)}`)
+  // Undecided, the admin is reminded (D-056.28), and goes from there to «Spaces».
+  await k.goto('/?view=alerts')
+  const reminder = k.locator('.alert-card', { hasText: GONE.username }).filter({ hasText: 'nadie los ve, tampoco tú' })
+  await expect(reminder).toBeVisible(SLOW)
+  await reminder.getByRole('button', { name: 'Ir a Espacios' }).click()
+  await expect(k.getByRole('heading', { name: 'Espacios', level: 1 })).toBeVisible()
   const closed = (u: { username: string }) => k.locator('.group-card', { hasText: `Espacio de ${u.username}` })
 
   // Made a shared space: the member manages it and sees it.
@@ -351,16 +418,27 @@ test('the admin deletes two people: their spaces close; one becomes a shared spa
   await a.goto('/')
   await expect(spaceTree(a, name)).toBeVisible(SLOW)
 
-  // Transferred to the member: into her space, as a folder; the dialog warns about broken links.
-  await closed(LEFT).getByRole('button', { name: 'Traspasar…' }).click()
-  dialog = k.getByRole('alertdialog', { name: `Traspasar el espacio de ${LEFT.username}` })
+  await k.goto('/?view=alerts')
+  await expect(k.getByRole('heading', { name: 'Avisos', level: 1 })).toBeVisible()
+  await expect(k.locator('.alert-card', { hasText: GONE.username })).toHaveCount(0)
+
+  // Transferred to the member right from the delete dialog: into her space, as a folder; it warns about broken links.
+  await k.goto('/?view=users')
+  await k.getByRole('row', { name: new RegExp(`^${literally(LEFT.username)}(?![\\p{L}\\p{N}._-])`, 'u') }).getByRole('button', { name: `Acciones para ${LEFT.username}` }).click()
+  await k.getByRole('menuitem', { name: 'Borrar' }).click()
+  dialog = k.getByRole('alertdialog', { name: `¿Borrar a ${LEFT.username}?` })
+  await dialog.getByRole('radio', { name: 'Traspasarlo a alguien' }).check()
   await expect(dialog).toContainText('Algún enlace roto de sus notas puede empezar a llevar a una nota de quien lo recibe')
   await dialog.getByRole('combobox', { name: 'A quién' }).selectOption({ label: MEMBER.username })
-  await expect(dialog).toContainText('Contiene 1 nota, 0 archivos.')
+  await expect(dialog).toContainText('Contiene 1 nota, 0 archivos.', SLOW)
+  const go = dialog.getByRole('button', { name: 'Borrar y decidir su espacio' })
+  await expect(go).toBeDisabled()
   await dialog.getByLabel('Tu contraseña').fill(ADMIN.password)
-  await dialog.getByRole('button', { name: 'Traspasar' }).click()
-  await expect(k.locator('.group-card', { hasText: `Espacio de ${LEFT.username}` })).toHaveCount(0)
+  await go.click()
+  await expect(dialog).toHaveCount(0)
   await expect.poll(() => existsSync(`${NOTES}/${personal(MEMBER)}/${LEFT.username}/${baseName(lNote)}.md`)).toBe(true)
+  await k.goto('/?view=spaces')
+  await expect(k.locator('.group-card', { hasText: `Espacio de ${LEFT.username}` })).toHaveCount(0)
 })
 
 test('someone new sees «My notes» empty and creates their first note there', async ({ browser }) => {
