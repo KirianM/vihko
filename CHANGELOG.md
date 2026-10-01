@@ -10,6 +10,31 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [Unreleased]
+
+### Added
+
+- **Retention**, off by default: in «Users and groups» → Retention the admin
+  can have vihko empty the trash after so many days, and delete history
+  versions older than so many days or months, every night at 03:00 server
+  time. The current version of every note is always kept, and so is the whole
+  history of notes still in the trash; once a note's trash entry is emptied,
+  its history goes with it. Turning either on, or shortening it, shows first
+  what the next run would remove (counts and sizes, never a path) and asks
+  for your code or password. Every admin is told what each run removed. See
+  [Operations](guide/operations.md#retention) and
+  [Backups](guide/backups.md#retention-and-backups).
+- `trashRetentionDays` and `historyRetentionDays` in `GET/PUT
+  /api/admin/settings`, `GET /api/admin/retention`, `POST
+  /api/admin/retention/preview`, and the admins' `retention_ran` notice.
+
+### Upgrade notes
+
+- Nothing changes until an admin turns retention on. When they do, what it
+  removes is gone from vihko for good: keep backups for longer than the
+  periods you choose if you want a way back. A run rewrites the history, so
+  links to a version (`&version=<id>`) kept from before a run stop working.
+
 ## [0.1.0-rc.2] - 2026-10-01
 
 What the first real install of rc.1 brought up: links now stay inside their

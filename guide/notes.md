@@ -306,11 +306,13 @@ names was taken meanwhile by another file, the image comes back with a number
 (`plan-2026-09-28-1012-2.png`) and the note links it there; an identical file
 already there counts as restored.
 
-vihko never empties the trash on its own by default. A later release may add
-a setting to keep entries only for a while, off unless you turn it on. Each
-entry sits in its own folder under
-`trash/` in the state volume (`note.md`, its images under `files/`, and a
-`meta.json` that lists them); delete those by hand if you need the space.
+vihko never empties the trash on its own by default. The admin can turn on
+**Empty the trash after…** in «Users and groups» → Retention: then, every
+night, what was deleted longer ago than that leaves the trash for good, with
+its images (see [Operations](operations.md#retention)). Each entry sits in
+its own folder under `trash/` in the state volume (`note.md`, its images
+under `files/`, and a `meta.json` that lists them); with vihko stopped, you
+can also delete those by hand if you need the space.
 
 ### Deleting a folder
 

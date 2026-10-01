@@ -163,6 +163,7 @@ The lines to know:
 | `removed N saved editor state(s) whose note no longer exists` | Saved editor states of notes deleted or moved away while vihko was stopped were cleaned up. A pending recovery is never removed. Nothing to do. |
 | `history sweep (…): N changes` | The notes folder compared with the history: N changes vihko hadn't recorded were saved as versions. In brackets, when: `startup` (changes made while vihko was stopped), `enabled` (the first start with the history on: every note's starting point), `resumed` (the history had been off or unavailable), `periodic` (the regular check, hourly by default: `VIHKO_HISTORY_SWEEP_SECONDS`). Nothing is printed when there are no changes. |
 | `listening on http://0.0.0.0:8080` | Ready. The address is inside the container. |
+| `retention: N trash entries and M history version(s) removed` | The nightly [retention](#retention) ran. With `(failed part way)`, a line before it says why; the next night tries again. |
 | `first boot: no users yet…` | No users yet; the next line has the one-time token. See [Installation](install.md#first-start). |
 | `public URL …` | `VIHKO_PUBLIC_URL` is set. |
 | `VIHKO_TRUSTED_PROXIES is unset: …` | You set a public URL but not the proxy's address. See [Reverse proxy](reverse-proxy.md#tell-vihko-about-the-proxy). |
@@ -335,14 +336,55 @@ write to the notes, and each keep its own history of them.
   stopped) and it's rebuilt.
 - The history grows with every version, attachments included (up to 20 MB
   each by default). Files you don't need versions of can be kept out with
-  `history.exclude`: see [History](history.md).
+  `history.exclude`: see [History](history.md). Older versions can go on
+  their own: see [Retention](#retention).
 - The trash keeps deleted notes (with their images) and the files of deleted
-  folders until you remove them. There's no way to empty it from the UI yet:
-  each entry is a folder in `state/trash/`; with vihko stopped, delete the
-  ones you don't need.
+  folders until they're removed: by [Retention](#retention) if the admin
+  turned it on, or by hand (each entry is a folder in `state/trash/`; with
+  vihko stopped, delete the ones you don't need).
 - Every `state.db` migration leaves a `state.db.bak-v<N>` copy; remove old
   ones once you're happy with an update.
 
+## Retention
+
+By default vihko keeps everything: the trash is never emptied and the history
+keeps every version. In «Users and groups» → **Retention** the admin can turn
+on two settings for the whole installation:
+
+- **Empty the trash after…** (days): trash entries deleted longer ago than
+  that are removed for good, with the images and files that went with them.
+- **Delete history versions older than…** (days or months): versions older
+  than that leave the [history](history.md#retention). The current version of
+  every note is always kept (each file keeps the version it had at that
+  moment), and so is the whole history of notes still in the trash; once a
+  note's trash entry is emptied, its history goes with it. It only applies
+  to the history vihko keeps itself (`history.mode: managed`), never to your
+  own git repository.
+
+Turning one on, or shortening it, first shows what the next run would remove
+(how many trash entries and versions, and their size; never a path, since the
+admin doesn't read everyone's spaces) and asks for your current code, or your
+password without two-step verification. A longer period, or off, is saved at
+once.
+
+They apply once a night, at 03:00 in the server's time zone (the container's
+`TZ`, UTC unless you set it). If someone is writing then, the run waits, ten
+minutes at a time, for up to three hours. While the history is being
+rewritten nothing new reaches it: notes are saved as usual, and their versions
+are added right after. On a history of 100,000 versions the run takes seconds.
+Every admin gets an alert with what it removed (counts only); the section in
+«Users and groups» shows the last run and the next one.
+
+What retention removes can't be brought back from vihko: only from a backup
+taken before (see [Backups](backups.md#retention-and-backups)). A run cut
+short (vihko stopped, a power cut) leaves the history either as it was or
+already thinned, and the next night finishes the work; what it has to finish
+is kept in `state/retention.json`.
+
+Rewriting the history gives the versions newer than the first one removed new
+ids: a link to a version kept from before (an address with `&version=`, or an
+id an agent noted) stops working after the night's run, as after a
+[purge](history.md#purging).
 ## Common problems
 
 ### "port is already allocated"

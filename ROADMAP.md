@@ -53,6 +53,10 @@ anything you can't see getting in your way or telling you it exists.
       Ctrl+K over a selection; an alert to the admins when `state.db`
       migrates at start; `vihko.yaml` rewrites raise its `version`; an
       upgrade smoke test before each release.
+- [x] Retention, off by default: the admin can have the trash emptied after
+      so many days and history versions older than so many days or months
+      deleted, every night; each note keeps its current version, and a note
+      in the trash its whole history. Previewed in counts and confirmed.
 
 **Done when:** three people (an admin and two members) work at the same time
 with their own spaces, a shared space and a folder shared between two of

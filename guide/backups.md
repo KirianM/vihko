@@ -13,6 +13,7 @@ consistent, and how to restore it.
 | **The history** | `state/history.git/` and `state/history/` | Every version of every note, when vihko manages the history (the default). It doesn't travel with the notes folder: copying the notes doesn't copy their history. |
 | **The trash** | `state/trash/` | Deleted notes and folders, which people can still restore. |
 | **Editor states** | `state/collab/` | For each note opened in the editor, its saved editor state (`.ystate`): the note as its last editor left it, so that a browser that was offline merges its typing into the same note instead of adding a second copy. And, for a note open when vihko stopped, its recovery log (`.ylog`): typing not yet written to the file. It holds one `.ystate` for every note ever opened, so it's rarely empty. Back it up with the rest of the state volume. |
+| **Retention's progress** | `state/retention.json` | What the nightly [retention](operations.md#retention) still has to finish after a run cut short, and its last run's counts. Small. |
 | **`vihko.yaml` copies** | `state/config-backups/` | The file as it was before an upgrade rewrote it. See [Upgrading](upgrading.md#what-happens-at-start). |
 | **The second-factor key** | Wherever you keep `VIHKO_SECRET_KEY` or its file | Only if you use it. **Back it up apart from the state volume**, in a password manager for example: whoever has both can compute people's second-factor codes. See [The second-factor key](install.md#the-second-factor-key). |
 
@@ -134,6 +135,24 @@ there for an instant and you can leave them out.
   still in the history, so you can bring any note back from there.
 - **Only the state volume**: people, keys and settings go back to the time of
   the copy; the notes don't.
+
+### Retention and backups
+
+With [retention](operations.md#retention) on, what leaves the trash or the
+history at night is gone from vihko for good: **your backups are the only way
+back**, so keep them for longer than the retention periods if you want that
+way back. For instance, with the trash emptied after 30 days and backups kept
+for 90, a note deleted by mistake can still be found in a backup for two more
+months.
+
+- A backup from before a run still holds what the run removed. Restoring it
+  brings that back, and the next night removes it again unless you lengthen or
+  turn off retention first.
+- Restoring an older state volume doesn't touch the notes folder, and the
+  other way round. Restore both, as above.
+- The run rewrites `state/history.git/`. A copy taken while it runs can catch
+  it half way: stop vihko, or use a snapshot, as described above. Avoid taking
+  copies at 03:00 server time, when it runs, if you copy with vihko running.
 
 ## Test your restore
 
