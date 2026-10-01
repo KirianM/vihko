@@ -197,7 +197,7 @@ main(process.argv.slice(2)).catch((err) => {
   const prefix = serving ? '[vihko] ' : 'error: '
   // What the person can fix, said in a line each: a stack trace would only hide it.
   if (err instanceof StartupError) for (const line of err.lines) console.error(`${prefix}${line}`)
-  else if (err instanceof AuthError) console.error(`error: ${err.message}`)
+  else if (err instanceof AuthError) console.error(`error (${err.code}): ${err.message}`)
   else if (err instanceof UsersError) console.error(`error (${err.code}): ${err.message}`)
   else if (err instanceof PurgeError || err instanceof StateInUseError) console.error(`${serving ? '[vihko] ' : ''}error (${err.code}): ${err.message}`)
   else {

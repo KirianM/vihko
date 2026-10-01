@@ -5,7 +5,7 @@
 // each is; and the path schemas give an example in the person's own space.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setup, type Name, type Spaces } from './_spacesApp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -46,6 +46,31 @@ test('instructions: the person\'s own space, the spaces they belong to and what 
       assert.ok(JSON.stringify(read.inputSchema).includes(`people/${h.names.member}/projects/plan.md`))
     } finally {
       await c.close()
+    }
+  } finally {
+    h.close()
+  }
+})
+
+test('instructions: a workspace guide with `{user}` in its path is each person\'s own (D-056.28)', async () => {
+  const h = await setup()
+  try {
+    await h.enable()
+    const name = `${m.aTitle()}.md`
+    const words = { member: m.aUniqueWord(), other: m.aUniqueWord() }
+    for (const who of ['member', 'other'] as const) h.write(`${h.home(who)}/${name}`, `# ${m.aHeading()}\n\n${m.aSentence()} ${words[who]}.\n`)
+    const yaml = join(h.notesDir, 'vihko.yaml')
+    writeFileSync(yaml, `${existsSync(yaml) ? readFileSync(yaml, 'utf8') : ''}mcp:\n  instructions: ${JSON.stringify(`people/{user}/${name}`)}\n`)
+    h.workspace.reload()
+    for (const [who, theirs] of [['member', 'other'], ['other', 'member']] as const) {
+      const c = await h.mcp((await h.newKey(who, { name: m.aKeyName() })).token)
+      try {
+        const text = c.instructions()
+        assert.ok(text.includes(words[who]), `${who}: their own guide`)
+        assert.ok(!text.includes(words[theirs]), `${who}: never someone else's`)
+      } finally {
+        await c.close()
+      }
     }
   } finally {
     h.close()

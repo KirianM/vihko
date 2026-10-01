@@ -20,11 +20,11 @@
 //                                               a reset, with `confirm`
 //   PUT    /api/admin/users/:id/role           { role, confirm }
 //   POST   /api/admin/users/:id/disable | enable
-//   DELETE /api/admin/users/:id                only someone disabled
+//   DELETE /api/admin/users/:id                only someone disabled (or, deleting them, their space settled at once: http/spaces.ts)
 //   DELETE /api/admin/users/:id/sessions       ends all their sessions
 //   GET    /api/admin/groups, POST { name }, PATCH /:id { name }, DELETE /:id
 //   POST   /api/admin/groups/:id/members { userId }, DELETE /api/admin/groups/:id/members/:userId
-//   GET    /api/admin/settings, PUT { membersLocalDownloads?, twoFactor?, confirm? }  (a new policy, with `confirm`)
+//   GET    /api/admin/settings, PUT { membersLocalDownloads?, twoFactor?, spacesCreation?, confirm? }  (a new policy, with `confirm`)
 //
 // Guessing a link (or the current password) counts in the login limits, as a
 // password or the first-boot token does (loginLimit.ts); a link, by the

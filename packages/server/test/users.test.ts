@@ -413,7 +413,7 @@ test('the CLI creates a user from its arguments as documented: `--admin` before 
     }
     const again = cli(['user', 'create', member])
     assert.equal(again.status, 1, 'a user that exists: an error')
-    assert.match(again.stderr, /^error: /)
+    assert.match(again.stderr, /^error \(user_exists\): /, 'its code, as every other error')
     assert.equal(s.auth.userCount(), 4, 'the two of setup and the two created: none named after an option')
   } finally {
     await s.close()
