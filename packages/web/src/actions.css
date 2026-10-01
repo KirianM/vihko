@@ -88,6 +88,13 @@
 .toast-warn .toast-icon { color: var(--warn-strong); }
 .btn-quiet { border-color: transparent; color: var(--muted); }
 
+/* --- A path typed that names several differing only in case: which one ---- */
+.case-choose { display: flex; flex-direction: column; gap: var(--space-1); }
+.case-choose-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
+.case-choose-list .btn { width: 100%; height: auto; min-height: var(--control-md); padding-block: var(--space-1); justify-content: space-between; gap: var(--space-2); white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.case-choose-list .btn > span { flex: none; }
+.case-choose-kind { font-size: 12px; color: var(--muted); }
+
 @media (max-width: 760px) {
   /* The "More actions" button leaves no room in the note header: the save
      state keeps its icon and its text stays for screen readers only. */

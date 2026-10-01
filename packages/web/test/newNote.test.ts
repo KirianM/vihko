@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { newNote, scopePathFilters } from '../src/newNote.ts'
+import { alignNewNote, newNote, scopePathFilters } from '../src/newNote.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -50,4 +50,18 @@ test('a path filter typed inside a space searches in the current space; one from
 
 test('without a name there is nothing to create', () => {
   for (const typed of ['', '   ', '/', `${m.aFolder()}/`, `${m.aFolder()}/  `, '...', '\u0001']) assert.equal(newNote(typed, m.aFolderPath()), null, JSON.stringify(typed))
+})
+
+test('the folders typed for a new note take the spelling of those that exist, in any case; several in case are each a choice', () => {
+  const base = `people/${m.aUsername()}/${m.aFolder()}`
+  const there = m.aFolder().toLowerCase()
+  const title = m.aTitle()
+  const fresh = m.aFolder()
+  const folders = [base, `${base}/${there.toUpperCase()}`]
+  const typed = newNote(`${there}/${fresh}/${title}`, base)!
+  assert.deepEqual(alignNewNote(typed, base, folders), [{ path: `${base}/${there.toUpperCase()}/${fresh}/${title}.md`, folder: `${base}/${there.toUpperCase()}/${fresh}`, title }])
+  const alone = newNote(title, base)!
+  assert.deepEqual(alignNewNote(alone, base, folders), [alone], 'no folder typed: where it was')
+  const both = alignNewNote(newNote(`${there}/${title}`, base)!, base, [...folders, `${base}/${there}`])
+  assert.deepEqual(both.map((n) => n.folder).sort(), [`${base}/${there.toUpperCase()}`, `${base}/${there}`].sort())
 })

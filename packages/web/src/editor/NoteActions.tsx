@@ -50,6 +50,8 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
   const [name, setName] = useState(noteName(path))
   const start = initialFolder ?? folderOf(path)
   const [dest, setDest] = useState<{ root: string; inner: string } | null>(null)
+  /** The folder typed names several that differ only in case: not until one is chosen. */
+  const [ambiguous, setAmbiguous] = useState(false)
   // Where it goes: a place (a space, or a folder shared with them) and the folder inside it.
   const { root, inner } = dest ?? splitPlace(places, start)
   const folder = joinPlace(root, inner)
@@ -87,7 +89,7 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
   const submitKey: MessageKey = `rename.${action}${count}${m ? 'Images' : ''}`
   const images = t(m === 1 ? 'rename.imagesOne' : 'rename.imagesMany', { n: m })
   const nothing = !!report && report.relinked.length === 0 && report.shifted.length === 0 && report.kept.length === 0 && report.images.moved.length === 0 && report.images.stayed.length === 0 && !report.images.folder && report.images.failed.length === 0
-  const blocked = audienceChanges(report?.audience) && !confirmed
+  const blocked = (audienceChanges(report?.audience) && !confirmed) || ambiguous
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -114,7 +116,7 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
             <Input />
           </TextField>
           <DestinationFields root={root} inner={inner} hint={t('rename.folderHint')}
-            onRoot={(r) => setDest({ root: r, inner: '' })} onInner={(i) => setDest({ root, inner: i })} />
+            onRoot={(r) => setDest({ root: r, inner: '' })} onInner={(i) => setDest({ root, inner: i })} onAmbiguous={setAmbiguous} />
         </div>
         <div className="preview" aria-live="polite">
           <div className="preview-head">{t(report?.shifted.length ? 'rename.previewPlain' : 'rename.preview')}</div>

@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, Switch, Tab, TabList, TabPanel, Tabs, Text, TextField } from 'react-aria-components'
 import { keyWidens } from '@vihko/core/keyScope'
+import { normKey } from '@vihko/core/resolve'
 import { ApiError, api, type Integrations, type KeyInfo, type KeyWithUser, type User } from './api.ts'
 import { copyText } from './copy.ts'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
@@ -22,6 +23,7 @@ import { SearchButton } from './Palette.tsx'
 import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
 import { Diamond, Icon, MenuButton, ThemeToggle } from './ui.tsx'
 import { usePathLabels } from './spaces.tsx'
+import { typedSegments } from './typedPath.ts'
 import './actions.css'
 import './agents.css'
 
@@ -77,10 +79,12 @@ export function FolderPicker({ all, chosen, onChange }: { all: string[] | null; 
   const [filter, setFilter] = useState('')
   if (all === null) return <p className="hint">{t('common.loading')}</p>
   if (all.length === 0) return <p className="hint">{t('keys.noFolders')}</p>
-  const q = filter.trim().toLowerCase()
+  // Typed as the folders are shown («My notes / diary», `/` with or without spaces), in any case (typedPath.ts).
+  const q = normKey(typedSegments(filter).join('/'))
+  const asTyped = (f: string) => normKey(typedSegments(labels.label(f)).join('/'))
   // From each space's root down (D-056): `people` and `spaces` themselves are nobody's.
   const inSpaces = all.filter((f) => f.split('/').length >= 2)
-  const shown = q ? inSpaces.filter((f) => labels.label(f).toLowerCase().includes(q)) : inSpaces
+  const shown = q ? inSpaces.filter((f) => asTyped(f).includes(q)) : inSpaces
   const toggle = (f: string, on: boolean) => onChange(on ? [...chosen.filter((c) => !c.startsWith(f + '/')), f] : chosen.filter((c) => c !== f))
   return (
     <div className="folder-pick">
