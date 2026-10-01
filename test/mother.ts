@@ -26,7 +26,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { caseFold } from '../packages/core/src/casefold.ts'
-import { newSpaceFolder } from '../packages/core/src/spaces.ts'
+import { readablePart, spaceNameProblem } from '../packages/core/src/spaces.ts'
 import { testSeed } from './seed.ts'
 
 /** This run's seed (VIHKO_TEST_SEED, or chosen now and put in the environment). */
@@ -299,14 +299,20 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
       }, (f) => fresh(taken.notes, caseFold(f)))
     },
 
-    /** A shared space's name (what people see; D-056.14): 1 to 3 words, unique like titles. */
+    /** A shared space's name (what people see, and its folder: D-056.33): 1 to 3 words, unique like titles, valid as a space's. */
     aSpaceName(): string {
-      return draw('space name', () => capital(Array.from({ length: int(1, 3) }, () => pick(TEXT_WORDS)).join(' ')), (t) => fresh(taken.notes, caseFold(t)))
+      return draw('space name', () => capital(Array.from({ length: int(1, 3) }, () => pick(TEXT_WORDS)).join(' ')), (t) => spaceNameProblem(t) === null && fresh(taken.notes, caseFold(t)))
     },
 
-    /** A new shared space's folder (`<readable>-<id>`, core newSpaceFolder) for `name`, its id unique in this process. */
+    /** A new shared space's folder under `spaces/`: its name (D-056.33), `name` or a new one. */
     aSpaceFolder(name?: string): string {
-      return newSpaceFolder(name ?? m.aSpaceName(),(id) => !fresh(taken.spaceIds, id), () => faker.string.alphanumeric({ length: 6, casing: 'lower' }))
+      return name ?? m.aSpaceName()
+    },
+
+    /** A shared space's folder as 0.1.0-rc.1 and rc.2 made it, `<readable>-<id>` (core readablePart), its id unique in this process. */
+    aLegacySpaceFolder(name?: string): string {
+      const id = draw('legacy space id', () => faker.string.alphanumeric({ length: 6, casing: 'lower' }), (i) => fresh(taken.spaceIds, i))
+      return `${readablePart(name ?? m.aSpaceName())}-${id}`
     },
 
     /** A folder path of `depth` new segments (1 by default). */

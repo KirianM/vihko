@@ -25,6 +25,7 @@ export { AdminSettings, AdminSettingsError, SPACES_CREATION, type AdminSettingsV
 export { SpaceError, SpaceService, type ClosedSpace, type PersonalAction, type PersonalSpacePlan, type PersonalSummary, type SharedView, type SpaceServiceOptions, type SpacesResponse } from './spaceService.ts'
 export { spaceRoutes, type SpaceRoutesDeps } from './http/spaces.ts'
 export { FolderRefs, movedPath, type RefsReport } from './folderRefs.ts'
+export { legacyTarget, renameLegacySpaces, type LegacySpacesDeps, type LegacySpacesReport } from './legacySpaces.ts'
 export { PersonalFolderExists, PersonalFolders } from './personalFolders.ts'
 export { POLICIES, RECOVERY_CODES, TOTP_DIGITS, TOTP_PERIOD, TOTP_WINDOW, TwoFactor, asRecovery, asTotp, base32Decode, base32Encode, hotp, totp, totpStep, type CodeResult, type SetupData, type TwoFactorPolicy, type TwoFactorStatus } from './twoFactor.ts'
 export { PendingSignIns, secondFactorAccount, twoFactorHttp, type PendingStep, type TwoFactorHttpDeps } from './http/twoFactor.ts'

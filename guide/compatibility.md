@@ -21,9 +21,8 @@ writes into your notes folder.
   fields and error codes; and the meaning of a field once it exists. When one
   has to change, we say so, and we prefer adding a new name to renaming an
   old one. In particular:
-  - `people/` and `spaces/` are fixed. A shared space's folder is
-    `<readable>-<id>`: its id never changes, and its readable part isn't
-    renamed when the space is.
+  - `people/` and `spaces/` are fixed. A shared space's folder is its name
+    (since 0.1.0-rc.3): renaming the space renames its folder.
   - A username is permanent: it is the name of the person's folder and part
     of every link into it.
   - Folders whose name starts with a dot are vihko's or other tools': vihko
@@ -71,8 +70,8 @@ note. Every path vihko serves is inside a space:
 | Path | What it is |
 |---|---|
 | `people/<username>/…` | A person's own space («My notes» in the UI). `<username>` is the person's username as it was created; it never changes |
-| `spaces/<readable>-<id>/…` | A shared space, such as `spaces/home-7k2q9x/`. `<id>` is 6 lowercase letters and digits after the last hyphen: the space's identity. `<readable>` is made from the space's name when it's created and never changes; the name people see is kept in `vihko.yaml` and can change |
-| `people/<username>/.vihko/`, `spaces/<readable>-<id>/.vihko/` | Reserved for the settings of that person or space in a later version (settings, never notes). Hidden, like every name that starts with a dot, and refused as a note or folder in any case (`invalid_path`). A person's doesn't come along when their space becomes a shared one |
+| `spaces/<name>/…` | A shared space, such as `spaces/Home/`. The folder is the space's name as it was written (in NFC), and renaming the space renames it |
+| `people/<username>/.vihko/`, `spaces/<name>/.vihko/` | Reserved for the settings of that person or space in a later version (settings, never notes). Hidden, like every name that starts with a dot, and refused as a note or folder in any case (`invalid_path`). A person's doesn't come along when their space becomes a shared one |
 | `vihko.yaml` | The workspace configuration, at the root. Nobody sees it in vihko |
 | Anything else | In no space: nobody sees it in vihko, and the admins get the `outside_spaces` alert |
 
@@ -81,21 +80,33 @@ note. Every path vihko serves is inside a space:
   tries gets `400 outside_space`. A space's root is never created, renamed,
   moved or deleted as a folder: `400 space_root` (a shared space is deleted as
   a space; see below).
-- A folder in `spaces/` without an id at the end is not a space. One whose
-  name happens to end in `-` and six letters or digits is taken as a space,
-  with no members until the admin assigns a manager. Only someone writing on
-  the disk can make either.
+- Any folder in `spaces/` is a shared space, but one whose name starts with
+  `.` or `~`, ends with `.`, `~` or `.md`, or is `people` or `spaces` in any
+  case: those are in no space. One made on the disk has no members until the
+  admin assigns a manager.
 - A folder in `people/` named after no user (active, disabled or deleted) is
   seen by nobody, and the admins get `person_folder_without_user`.
-- A shared space's name is not unique (the id tells spaces apart), and it is
-  not secret: the admin's directory lists every shared space by name.
+- **A shared space's name is unique in the installation**, without regard to
+  case, and it is not secret: everyone who can sign in can learn that a name
+  is taken (creating a space with it answers `space_name_taken`), and the
+  admin's directory lists every shared space by name. What a space holds and
+  who is in it stay private. A name can't hold `/` or `\`, start with `.` or
+  `~`, end with `.`, `~` or `.md`, or be `people` or `spaces`.
+- Shared spaces made by 0.1.0-rc.1 or rc.2 were `spaces/<readable>-<id>/`,
+  with their name in `vihko.yaml` (`name`). Each start renames such a folder
+  to its name (or, when the name can't be a folder's, to its readable part)
+  as a rename from vihko would, and removes `name`; when another space or
+  folder has that name, it's left as it is and the admins get
+  `space_not_renamed` until a start can.
 - The UI never shows `people/` nor `spaces/`. A note's address in the
   browser is `?note=<address>`, the same for everyone who can open it: a
-  shared space by its folder (`?note=home-7k2q9x/plan.md`), a person's space
-  by `~` and the username (`?note=~ana/trips/Rome.md`). An address with the
-  path from the notes root (as vihko wrote it before 0.1.0-rc.2) still opens
-  the note and is replaced by the new form. Other query parameters (`view`,
-  `version`) may be added; addresses of another form may be added too.
+  shared space by its name (`?note=Home/plan.md`), a person's space by `~`
+  and the username (`?note=~ana/trips/Rome.md`). An address with the path
+  from the notes root (as vihko wrote it before 0.1.0-rc.2) still opens the
+  note and is replaced by the new form, and so does one of a space renamed
+  from rc.1 or rc.2 (`?note=home-7k2q9x/plan.md`), for whoever is in it.
+  Other query parameters (`view`, `version`) may be added; addresses of
+  another form may be added too.
 - A link never leads to another space (see [What vihko writes into your
   notes folder](#what-vihko-writes-into-your-notes-folder)).
 
@@ -133,7 +144,7 @@ write (write).
 | Method and path | Key | Request | Response |
 |---|---|---|---|
 | `GET /api/tree` | read | — | `notes` (`path`, `title`, `uid`, `aliases`), `folders`, `pathOnly` |
-| `GET /api/spaces` | read | — | `personal` (`path`, or null when the key doesn't reach it), `spaces` (`path`, `id`, `name`, `level`, `managers`, `aiClosed`), `shared` (`path`, `level`, `pinned`, and `owner` in a personal space or `space` with `path`, `id`, `name`), `canCreate` (always false for a key) |
+| `GET /api/spaces` | read | — | `personal` (`path`, or null when the key doesn't reach it), `spaces` (`path`, `name`, `level`, `managers`, `aiClosed`), `shared` (`path`, `level`, `pinned`, and `owner` in a personal space or `space` with `path`, `name`), `canCreate` (always false for a key). A shared space's `name` is its folder's |
 | `GET /api/spaces/members` | read | `path` (a folder) | `path`, `space` (`path`, `name`, or null in a personal space), `owner` (or null in a shared space), `members` (`username`, `level`, `via`: `subject`, `level`, `from` (null where the asker doesn't read that folder), and `owner: true` for a person's own space) |
 | `GET /api/note` | read | `path` | `path`, `text`, `etag`, `meta` (`title`, `uid`, `fmError`, or null), `hiddenFromAgents` |
 | `GET /api/note/links` | read | `path` | `outgoing` (`raw`, `kind`, `target`, `anchor`, `status`, `dstPath`, `anchorOk`, `candidates`, `posFrom`, and `othersNoAccess`, `reason`, `self` when they apply), `backlinks` (`path`, `title`, `raw`, `context`), `titles` |
@@ -187,7 +198,9 @@ Details that go with them:
   so that it keeps leading to its note when another note took its name
   (created, restored or given an alias by someone who can't read the note
   holding the link) has the reason `links_kept`, with `to` (the note that
-  took the name, or null where the reader can't read it) and `by`.
+  took the name, or null where the reader can't read it) and `by`. A space
+  of 0.1.0-rc.1 or rc.2 renamed to its name when vihko started has the
+  reason `space_renamed`, with `from` and `to` (its roots).
 - **Edits by operation**: `append` (`text`), `append_under_heading`
   (`heading`, `text`), `find_replace` (`find`, `replace`, `expectedCount`),
   `replace_section` (`heading`, `text`) and `set_frontmatter` (`key`,
@@ -265,13 +278,13 @@ can't call, they can change in any release.
 
 | Method and path | Who | Request | Response, and codes of its own |
 |---|---|---|---|
-| `POST /api/spaces` | Anyone, or only admins with the setting `spacesCreation: admins` (`403 forbidden` otherwise) | `name`, `members`? (`{ "<user>" or "@<group>": level }`) | `201`: `space` (as in `GET /api/spaces`). The creator manages it |
-| `POST /api/spaces/from-folder` | `manage` in the folder and `edit` in its parent, and who may create spaces | `path` (a folder inside a space), `name`? (the folder's own by default), `dryRun`? | A dry run: `report` (the folder move's, with `audience`). Otherwise `201`: `space` (as in `GET /api/spaces`), `report`. The folder becomes a shared space of its own: what it holds goes to the new space's root, with the folder's own grants and its mover managing it. `400 space_root` for a space's root |
-| `POST /api/spaces/rename` | `manage` at the space's root | `path`, `name` | `space`. Only the name changes, never the folder |
+| `POST /api/spaces` | Anyone, or only admins with the setting `spacesCreation: admins` (`403 forbidden` otherwise) | `name`, `members`? (`{ "<user>" or "@<group>": level }`) | `201`: `space` (as in `GET /api/spaces`), at `spaces/<name>`. The creator manages it. `409 space_name_taken` with `name` (as the other space writes it) when a space has that name in any case; `400 invalid` with `problem` for a name that can't be a space's folder (`empty`, `too_long`, `control_characters`, `spaces_around`, `invalid_characters`, `invalid_name`) |
+| `POST /api/spaces/from-folder` | `manage` in the folder and `edit` in its parent, and who may create spaces | `path` (a folder inside a space), `name`? (the folder's own by default), `dryRun`? | A dry run: `report` (the folder move's, with `audience`). Otherwise `201`: `space` (as in `GET /api/spaces`), `report`. The folder becomes a shared space of its own, `spaces/<name>`: what it holds goes to the new space's root, with the folder's own grants and its mover managing it. `400 space_root` for a space's root; `409 space_name_taken` (in a dry run too) and `400 invalid` as for `POST /api/spaces` |
+| `POST /api/spaces/rename` | `manage` at the space's root | `path`, `name` | `space`, at its new path. Its folder becomes `spaces/<name>` with everything in it, its rules, and the keys, pins and trash entries that named it; links don't change. Another case of its own name renames it too. `409 space_name_taken` and `400 invalid` as for `POST /api/spaces` |
 | `DELETE /api/spaces` | `manage` at the space's root | `path`, `trash`? (query) | `path`. With `trash=true`, what it holds goes to the trash, which its managers keep seeing; otherwise only an empty space goes (`409 not_empty`) |
 | `POST /api/spaces/leave` | A grant of one's own there | `path` | `path`. One's own grants there and below go; nothing is deleted. `409 leave_via_group` with `group` when it comes through a group; `400 invalid` for one's own space, or a grant from a folder above |
 | `POST /api/spaces/pin` | What is shared with one | `path`, `pinned` | `path`, `pinned` |
-| `GET /api/admin/spaces` | The vihko admin | — | `spaces` (`path`, `id`, `name`, `managers`, `members` (a count), `aiClosed`), `closed` (`userId`, `username`, `path`: the spaces of deleted people) |
+| `GET /api/admin/spaces` | The vihko admin | — | `spaces` (`path`, `name`, `managers`, `members` (a count), `aiClosed`), `closed` (`userId`, `username`, `path`: the spaces of deleted people) |
 | `POST /api/admin/spaces/managers` | The vihko admin, confirmed at the moment | `path`, `userId`, `confirm` | `space`. Only for a space without managers: `409 space_has_managers` otherwise |
 | `POST /api/admin/spaces/join` | The vihko admin, confirmed at the moment | `path`, `level`? (`read` by default), `confirm` | `space` |
 | `GET /api/admin/users/:id/space` | The vihko admin | — | `path`, `exists`, `sharedFolders`, `people` (counts) |
@@ -309,6 +322,7 @@ codes 0.1.0 added for spaces:
 | `person_folder_without_user` | Admins | `names`: folders in `people/` named after no user |
 | `space_without_members` | Admins | `path`, `name`: a shared space nobody has access to |
 | `space_without_managers` | Admins | `path`, `name`: a shared space with members but nobody who manages it |
+| `space_not_renamed` | Admins | `path`, `name` (its folder now) and `wanted` (its name in 0.1.0-rc.1 or rc.2): a space vihko couldn't rename to its name when it started, because another space or folder has it. Each start tries again |
 | `missing_folder` | Whoever manages the space | `folders`: grants in `vihko.yaml` for folders that don't exist. Never the admin as such |
 | `permissions_held` | Who could have made that move from vihko | `id`, `folder`, `notes` (a count): notes held after a move made outside vihko |
 | `shared_with_you` | The person added | `kind` (`space` or `folder`), `by`, `path`, `name`, `owner`, `space`: someone added them to a space or shared a folder with them. Names and path only while they can still see it |
@@ -378,8 +392,8 @@ reaches within the key, each `kind: "folder"` with its `path` and a `space`:
 | `space.kind` | The root | Other fields |
 |---|---|---|
 | `personal` | Their own space, `people/<username>` | — |
-| `shared` | A shared space they belong to | `id`, `name`, `level` |
-| `received` | A folder someone shares with them | `level`, and `owner` (in a personal space) or `name` and `id` (of its shared space) |
+| `shared` | A shared space they belong to | `name`, `level` |
+| `received` | A folder someone shares with them | `level`, and `owner` (in a personal space) or `name` (of its shared space) |
 
 With `recursive`, the folders and notes under those roots follow.
 
@@ -456,12 +470,16 @@ What goes with them:
   `{{date:FORMAT}}`, with the tokens `YYYY`, `YY`, `MM`, `M`, `DD`, `D`,
   `GGGG`, `WW`, `W`, `HH`, `mm` and text in `[brackets]`.
 - **Permission keys** are real folders: a shared space's root
-  (`spaces/<readable>-<id>`) or a folder below it, or a folder inside a
-  personal space (`people/<user>/<folder>`, and below). A personal space's
-  root (`people/<user>`) takes only `ai: false`. Anything else rejects the
+  (`spaces/<name>`) or a folder below it, or a folder inside a personal
+  space (`people/<user>/<folder>`, and below). A personal space's root
+  (`people/<user>`) takes only `ai: false`. Anything else rejects the
   section: `""`, `people`, `spaces`, a path in no space, a `{user}` segment,
   grants at a personal space's root, `name` anywhere but a shared space's
   root, a key written twice.
+- **`name`** at a shared space's root is 0.1.0-rc.1 and rc.2's (the
+  space's name). Since rc.3 the folder is the name: vihko never writes it,
+  reads it only to rename such a space's folder when it starts, and then
+  removes it.
 - **Subjects**: a username, or `@group`. **Levels**: `read`, `comment`,
   `edit` and `manage`. No group can be named `everyone`, `all`, `public` or
   `anyone` (`400 invalid_group_name`): those subjects are kept for grants to
@@ -551,8 +569,8 @@ else into a note unless someone asks it to (an edit, a comment, a
 |---|---|
 | The two folders | `people/` and `spaces/`, made when vihko starts if they're missing |
 | A person's folder | `people/<username>/`, made when the user is created, and again at start if it went missing |
-| A shared space's folder | `spaces/<readable>-<id>/`, made when the space is created, or when a folder becomes a space of its own («Move to a new space»). The readable part is the name in lowercase, without accents, anything else than letters and digits made a hyphen, at most 40 characters (`space` when nothing is left) |
-| A shared space's name and members | `permissions.<root>.name` and `.grants` in `vihko.yaml` |
+| A shared space's folder | `spaces/<name>/`, the space's name as written, made when the space is created, or when a folder becomes a space of its own («Move to a new space»), and renamed with the space. A space of 0.1.0-rc.1 or rc.2 (`spaces/<readable>-<id>/`) is renamed to its name when vihko starts |
+| A shared space's members | `permissions.<root>.grants` in `vihko.yaml` |
 | The note's identity | `uid: <id>` in the frontmatter, added only when vihko writes the note anyway: created, edited or moved from vihko. vihko writes a ULID today and reads any text or number as a `uid` |
 | An alias after a rename | The old name added to `aliases`, only when a link to the note from its own space couldn't be rewritten and `links.aliases` is on |
 | Frontmatter changes | Only that key's value, in place; a new key at the end of the block; a note without frontmatter gets a block at the top. The rest stays byte for byte |

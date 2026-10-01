@@ -555,6 +555,14 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           body: rich(t(a.code === 'space_without_members' ? 'alerts.spaceNoMembersBody' : 'alerts.spaceNoManagersBody'), { path: <b>{a.name}</b> }),
           actions: null,
         })
+      case 'space_not_renamed':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.spaceNotRenamedTitle', { name: a.name }),
+          body: rich(t('alerts.spaceNotRenamedBody'), { name: <b>{a.name}</b>, wanted: <b>{a.wanted}</b> }),
+          actions: null,
+        })
       case 'login_attempts_blocked':
         return frame({
           icon: icons.warn,

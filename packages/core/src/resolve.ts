@@ -66,7 +66,7 @@ export function pathKeys(path: string): string[] {
 
 /**
  * The group a note's names resolve in (rule 4): the root of its space
- * (`people/ana`, `spaces/home-7k2q9x`), or `''` for a note in no space.
+ * (`people/ana`, `spaces/Home`), or `''` for a note in no space.
  */
 export function linkSpace(path: string): string {
   return spaceRootOf(path) ?? ''
@@ -152,7 +152,7 @@ export class LinkIndex {
 
     if (link.kind === 'markdown' || link.target.startsWith('/') || isRootTarget(link.target)) {
       // Relative path (Markdown), absolute from the root (`[[/folder/Note]]`)
-      // or from the notes root (`[[spaces/home-7k2q9x/Note]]`): exact
+      // or from the notes root (`[[spaces/Home/Note]]`): exact
       // full-path match, no heuristics, and only in the source's own space.
       const space = linkSpace(source)
       const hits = this.inSpace(this.byPath.get(key), space).filter((p) => normKey(stripMd(p)) === key)

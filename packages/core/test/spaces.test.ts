@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  PEOPLE, PERSONAL_ADDRESS, SETTINGS_FOLDER, SPACES, SPACE_ID, SPACE_NAME_MAX, addressOf, displayPath, isReserved, isSpaceRoot, isValidUsername, nameKey, newSpaceFolder, newSpaceId,
-  parseSpaceFolder, parseSpacePath, pathOfAddress, personalRoot, placement, readablePart, settingsFolder, sharedRoot, spaceNameProblem, spaceOf, spaceRootOf,
+  PEOPLE, PERSONAL_ADDRESS, SETTINGS_FOLDER, SPACES, SPACE_NAME_MAX, addressOf, displayPath, isReserved, isSpaceFolderName, isSpaceRoot, isValidUsername,
+  legacySpaceFolder, nameKey, parseSpacePath, pathOfAddress, personalRoot, placement, readablePart, settingsFolder, sharedRoot, spaceNameProblem, spaceOf, spaceRootOf,
 } from '@vihko/core'
 import { mother } from '../../../test/mother.ts'
 
@@ -26,13 +26,15 @@ test('spaces: a path in a personal space', () => {
   assert.ok(!isSpaceRoot(path))
 })
 
-test('spaces: a path in a shared space', () => {
-  const folder = m.aSpaceFolder()
-  const { readable, id } = parseSpaceFolder(folder)!
+test('spaces: a path in a shared space, whose folder is its name (D-056.33)', () => {
+  const name = m.aSpaceName()
   const inner = m.aNotePath(m.aFolder())
-  assert.deepEqual(parseSpacePath(`${sharedRoot(folder)}/${inner}`), { space: { kind: 'shared', root: `spaces/${folder}`, folder, id, readable }, inner })
-  assert.ok(isSpaceRoot(`spaces/${folder}`))
-  assert.equal(spaceOf(`spaces/${folder}`)?.kind, 'shared')
+  assert.deepEqual(parseSpacePath(`${sharedRoot(name)}/${inner}`), { space: { kind: 'shared', root: `spaces/${name}`, folder: name, name }, inner })
+  assert.ok(isSpaceRoot(`spaces/${name}`))
+  assert.equal(spaceOf(`spaces/${name}`)?.kind, 'shared')
+  // A folder of 0.1.0-rc.1 or rc.2 is a space too, by that name, until vihko renames it.
+  const legacy = m.aLegacySpaceFolder()
+  assert.deepEqual(spaceOf(`spaces/${legacy}`), { kind: 'shared', root: `spaces/${legacy}`, folder: legacy, name: legacy })
 })
 
 test('spaces: what is in no space', () => {
@@ -46,11 +48,11 @@ test('spaces: what is in no space', () => {
   assert.equal(spaceOf(`SPACES/${m.aSpaceFolder()}`), null)
   // Under people/, only what can be a username (literals: the names are the case).
   for (const name of ['..', '.x', 'x', 'a b', '__proto__', 'Constructor']) assert.equal(spaceOf(`people/${name}/n.md`), null, name)
-  // Under spaces/, only a folder with an id after the last hyphen. (A readable
-  // part may end in six letters after a hyphen: `_` keeps this one from it.)
-  const readable = `${readablePart(m.aSpaceName())}_`
-  for (const name of [readable, `${readable}-`, `-${newSpaceId()}`, `${readable}-${newSpaceId().toUpperCase()}x`, `${readable}-abc12`, `${readable}-abc1234`, `.${readable}-${newSpaceId()}`]) {
+  // Under spaces/, only a name a space's folder can have (literals: each is the case).
+  const word = m.aWord()
+  for (const name of [`.${word}`, `~${word}`, `${word}.`, `${word}~`, `${word}.md`, `${word}.MD`, 'people', 'Spaces', '..']) {
     assert.equal(spaceOf(`spaces/${name}/n.md`), null, name)
+    assert.ok(!isSpaceFolderName(name), name)
   }
   assert.equal(placement(`people/${user}`), 'inside')
   assert.equal(placement(`people/${user}/${m.aFolder()}`), 'inside')
@@ -63,6 +65,8 @@ test('spaces: paths in NFD are read in NFC', () => {
   const s = parseSpacePath(path)!
   assert.equal(s.space.root, 'people/José'.normalize('NFC'))
   assert.equal(s.inner, 'Canción.md'.normalize('NFC'))
+  const shared = spaceOf('spaces/Música'.normalize('NFD'))!
+  assert.equal(shared.kind === 'shared' && shared.name, 'Música'.normalize('NFC'))
 })
 
 test('spaces: usernames, as folders', () => {
@@ -72,9 +76,10 @@ test('spaces: usernames, as folders', () => {
   for (const good of ['ana.', 'a.na', 'José', '_x', 'x-']) assert.ok(isValidUsername(good), good)
   // Uniqueness under full case folding, as links.
   assert.equal(nameKey('Straße'), nameKey('STRASSE'))
+  assert.equal(nameKey('Música'.normalize('NFD')), nameKey('MÚSICA'))
 })
 
-test('spaces: a shared space name', () => {
+test('spaces: a shared space name, which is its folder', () => {
   assert.equal(spaceNameProblem(m.aSpaceName()), null)
   assert.equal(spaceNameProblem(''), 'empty')
   assert.equal(spaceNameProblem(` ${m.aSpaceName()}`), 'spaces_around')
@@ -83,46 +88,24 @@ test('spaces: a shared space name', () => {
   assert.equal(spaceNameProblem('x'.repeat(SPACE_NAME_MAX + 1)), 'too_long')
   // Characters, not UTF-16 units.
   assert.equal(spaceNameProblem('😀'.repeat(SPACE_NAME_MAX)), null)
+  // What no folder's name can hold, and names the notes folder can't give a space (literals: each is the case).
+  const name = m.aSpaceName()
+  for (const bad of [`${name}/${m.aWord()}`, `${name}\\${m.aWord()}`]) assert.equal(spaceNameProblem(bad), 'invalid_characters', bad)
+  for (const bad of [`.${name}`, `~${name}`, `${name}.`, `${name}~`, `${name}.md`, 'people', 'SPACES']) assert.equal(spaceNameProblem(bad), 'invalid_name', bad)
+  // What a space's name may have that a username can't.
+  for (const good of [`${name} & ${m.aWord()}`, `${name}: ${m.aWord()}?`, `${name} (${m.aWord()})`, '家族', `${name}.md.bak`, `${name}-7k2q9x`]) assert.equal(spaceNameProblem(good), null, good)
 })
 
-test('spaces: the readable part of a new space', () => {
-  // Literals: the transformation is the case.
-  assert.equal(readablePart('Casa'), 'casa')
+test('spaces: the folders of 0.1.0-rc.1 and rc.2', () => {
+  // Literals: the hyphens and the transformation are the case.
+  assert.deepEqual(legacySpaceFolder('casa-7k2q9x'), { readable: 'casa', id: '7k2q9x' })
+  assert.deepEqual(legacySpaceFolder('lista-de-la-compra-000000'), { readable: 'lista-de-la-compra', id: '000000' })
+  for (const bad of ['casa', 'casa-', '-7k2q9x', 'casa-7K2Q9X', 'casa-7k2q9', ' casa-7k2q9x', '.casa-7k2q9x']) assert.equal(legacySpaceFolder(bad), null, bad)
   assert.equal(readablePart('Lista de la Compra!'), 'lista-de-la-compra')
   assert.equal(readablePart('Ñandú   & Pingüino'), 'nandu-pinguino')
-  assert.equal(readablePart('--Año 2026--'), 'ano-2026')
-  assert.equal(readablePart('家族'), '家族')
   assert.equal(readablePart('!!!'), 'space')
-  assert.equal(readablePart('.hidden'), 'hidden')
-  assert.equal([...readablePart('palabra '.repeat(20))].length <= 40, true)
-  assert.ok(!readablePart('palabra '.repeat(20)).endsWith('-'))
-  // Always a valid folder of a space, whatever the name.
-  for (let i = 0; i < 50; i++) {
-    const folder = newSpaceFolder(m.aSpaceName() + m.pick(['', '?', ' / ', '..', ':']), () => false)
-    assert.ok(parseSpaceFolder(folder), folder)
-    assert.ok(isSpaceRoot(`spaces/${folder}`), folder)
-  }
-})
-
-test('spaces: ids', () => {
-  for (let i = 0; i < 100; i++) assert.match(newSpaceId(), SPACE_ID)
-  assert.equal(newSpaceId(new Uint8Array([0, 1, 25, 26, 35, 36])), 'abz09a')
-  // A new folder never takes an id already in use.
-  const used = new Set<string>()
-  const ids = ['aaaaaa', 'aaaaaa', 'bbbbbb']
-  const name = m.aSpaceName()
-  used.add('aaaaaa')
-  assert.equal(newSpaceFolder(name, (id) => used.has(id), () => ids.shift()!), `${readablePart(name)}-bbbbbb`)
-  assert.throws(() => newSpaceFolder(name, () => false, () => 'NOTANID'))
-  assert.throws(() => newSpaceFolder(name, () => true))
-})
-
-test('spaces: a folder name as readable part and id', () => {
-  // Literals: the hyphens are the case.
-  assert.deepEqual(parseSpaceFolder('casa-7k2q9x'), { readable: 'casa', id: '7k2q9x' })
-  assert.deepEqual(parseSpaceFolder('lista-de-la-compra-000000'), { readable: 'lista-de-la-compra', id: '000000' })
-  assert.deepEqual(parseSpaceFolder('Casa Grande-abcdef'), { readable: 'Casa Grande', id: 'abcdef' })
-  for (const bad of ['casa', 'casa-', '-7k2q9x', 'casa-7K2Q9X', 'casa-7k2q9', ' casa-7k2q9x', '.casa-7k2q9x']) assert.equal(parseSpaceFolder(bad), null, bad)
+  const legacy = m.aLegacySpaceFolder()
+  assert.ok(legacySpaceFolder(legacy), legacy)
 })
 
 test('spaces: the reserved settings folder, at the root of every space (D-056.16, .28)', () => {
@@ -150,26 +133,22 @@ test('spaces: how each person sees a path', () => {
   assert.deepEqual(displayPath(`people/${me}/${folder}/${title}.md`, me), { space: { kind: 'mine', root: `people/${me}` }, folders: [folder], name: title })
   assert.deepEqual(displayPath(`people/${other}/${folder}/${title}.md`, me), { space: { kind: 'person', root: `people/${other}`, owner: other }, folders: [folder], name: title })
   const name = m.aSpaceName()
-  const sf = m.aSpaceFolder(name)
-  const { id, readable } = parseSpaceFolder(sf)!
-  const root = `spaces/${sf}`
-  assert.deepEqual(displayPath(`${root}/${title}.md`, me, (r) => (r === root ? name : null)), { space: { kind: 'shared', root, id, name }, folders: [], name: title })
-  // Without a name, the readable part.
-  assert.equal((displayPath(`${root}/${title}.md`, me)!.space as { name: string }).name, readable)
+  const root = `spaces/${name}`
+  assert.deepEqual(displayPath(`${root}/${title}.md`, me), { space: { kind: 'shared', root, name }, folders: [], name: title })
   // A root, and a file that isn't a note.
-  assert.deepEqual(displayPath(root, me, () => name), { space: { kind: 'shared', root, id, name }, folders: [], name: '' })
+  assert.deepEqual(displayPath(root, me), { space: { kind: 'shared', root, name }, folders: [], name: '' })
   assert.equal(displayPath(`people/${me}/${folder}/${title}.png`, me)!.name, `${title}.png`)
   assert.equal(displayPath(m.aNotePath(), me), null)
 })
 
-test('spaces: a note’s address in the browser never shows the product’s folders, and reads back (D-056.29)', () => {
+test('spaces: a note’s address in the browser never shows the product’s folders, and reads back (D-056.29, .33)', () => {
   const owner = m.aUsername()
-  const folder = m.aSpaceFolder()
+  const name = m.aSpaceName()
   const inner = m.aNotePath(m.aFolderPath(2))
   const mine = `${personalRoot(owner)}/${inner}`
-  const shared = `${sharedRoot(folder)}/${inner}`
+  const shared = `${sharedRoot(name)}/${inner}`
   assert.equal(addressOf(mine), `${PERSONAL_ADDRESS}${owner}/${inner}`)
-  assert.equal(addressOf(shared), `${folder}/${inner}`)
+  assert.equal(addressOf(shared), `${name}/${inner}`)
   for (const path of [mine, shared]) {
     const address = addressOf(path)!
     assert.ok(!address.startsWith(`${PEOPLE}/`) && !address.startsWith(`${SPACES}/`), address)
@@ -178,10 +157,10 @@ test('spaces: a note’s address in the browser never shows the product’s fold
     assert.deepEqual(pathOfAddress(path), { path, legacy: true })
   }
   assert.equal(addressOf(personalRoot(owner)), `${PERSONAL_ADDRESS}${owner}`)
+  assert.equal(addressOf(sharedRoot(name)), name)
   // In no space, no address; and what names no space reads as nothing.
   assert.equal(addressOf(inner), null)
-  // A first folder with no space id after a hyphen (a word has none) names no shared space.
-  for (const address of ['', `${m.aWord()}/${m.aNotePath()}`, `${PEOPLE}/`, `${SPACES}/${m.aWord()}/${inner}`, `${PERSONAL_ADDRESS}/${inner}`, `${PERSONAL_ADDRESS}..`]) {
+  for (const address of ['', `${PEOPLE}/`, `${SPACES}/.${m.aWord()}/${inner}`, `${PERSONAL_ADDRESS}/${inner}`, `${PERSONAL_ADDRESS}..`, `.${m.aWord()}/${inner}`]) {
     assert.equal(pathOfAddress(address), null, address)
   }
 })

@@ -1,6 +1,6 @@
 // Agents under the spaces model (D-056.14, spec §6.2; piece S): the MCP
 // server's instructions tell the agent the person's own space and the spaces
-// and folders they reach (each with its path, and a space's id and name),
+// and folders they reach (each with its path, and a space's name),
 // within the key; `list_folder("")` lists those roots with what kind of space
 // each is; and the path schemas give an example in the person's own space.
 import { test } from 'node:test'
@@ -16,7 +16,7 @@ async function newSpace(h: Spaces, who: Name, members?: Record<string, string>) 
   const name = m.aSpaceName()
   const r = await h.as(who)('POST', '/api/spaces', { name, ...(members ? { members } : {}) })
   assert.equal(r.status, 201, r.text)
-  return { name, path: r.body.space.path as string, id: r.body.space.id as string }
+  return { name, path: r.body.space.path as string }
 }
 
 const literally = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -34,7 +34,7 @@ test('instructions: the person\'s own space, the spaces they belong to and what 
     try {
       const text = c.instructions()
       assert.match(text, new RegExp(`The person you act for is ${literally(h.names.member)}\\. Their personal space is "${literally(h.home('member'))}/"`))
-      assert.ok(text.includes(`"${home.path}" (id ${home.id}, named ${JSON.stringify(home.name)}, manage)`), text)
+      assert.ok(text.includes(`"${home.path}" (named ${JSON.stringify(home.name)}, manage)`), text)
       assert.ok(text.includes(`"${trips}" (comment, from ${h.names.admin})`), text)
       assert.match(text, /a link never leads to another space/)
       assert.match(text, /Moving a note to another space changes who can see it and whose it is/)
@@ -128,7 +128,7 @@ test('list_folder(""): the roots the person reaches, each with its kind of space
       assert.equal(top.error, false, top.raw)
       assert.deepEqual(top.data.entries, [
         { kind: 'folder', path: h.home('other'), space: { kind: 'personal' } },
-        { kind: 'folder', path: home.path, space: { kind: 'shared', id: home.id, name: home.name, level: 'read' } },
+        { kind: 'folder', path: home.path, space: { kind: 'shared', name: home.name, level: 'read' } },
         { kind: 'folder', path: trips, space: { kind: 'received', level: 'edit', owner: h.names.admin } },
       ])
       const deep = await c.call('list_folder', { folder: '', recursive: true, limit: 500 })

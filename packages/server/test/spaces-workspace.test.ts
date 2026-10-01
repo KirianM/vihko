@@ -20,7 +20,7 @@ async function newSpace(h: Spaces, who: Name, members?: Record<string, string>) 
   const name = m.aSpaceName()
   const r = await h.as(who)('POST', '/api/spaces', { name, ...(members ? { members } : {}) })
   assert.equal(r.status, 201, r.text)
-  return { name, path: r.body.space.path as string, id: r.body.space.id as string }
+  return { name, path: r.body.space.path as string }
 }
 
 test('state.db of 0.1.0 is version 10, with the pins', () => {

@@ -60,10 +60,10 @@ searches never include either.
   application/json`), except file uploads and downloads.
 - Notes are named by their path from the notes root, with the `.md`
   extension, the same for everyone: `people/noa/plan.md` in Noa's own space,
-  `spaces/home-7k2q9x/projects/plan.md` in the shared space «Home». Every note
+  `spaces/Home/projects/plan.md` in the shared space «Home». Every note
   is inside a space: `GET /api/spaces` says which ones the key reaches. In a
   query string, URL-encode the path: with `curl`, use `-G` and
-  `--data-urlencode "path=spaces/home-7k2q9x/projects/my plan.md"`.
+  `--data-urlencode "path=spaces/Home/projects/my plan.md"`.
 - Dates are ISO 8601 in UTC.
 - When vihko writes a note, it may add a `uid` to its frontmatter: the note's
   identity, which stays when the note moves. Leave it as it is.
@@ -194,7 +194,7 @@ key's folders:
 {
   "personal": { "path": "people/noa" },
   "spaces": [
-    { "path": "spaces/home-7k2q9x", "id": "7k2q9x", "name": "Home", "level": "edit", "managers": ["sam"], "aiClosed": false }
+    { "path": "spaces/Home", "name": "Home", "level": "edit", "managers": ["sam"], "aiClosed": false }
   ],
   "shared": [
     { "path": "people/sam/trips", "level": "comment", "owner": "sam", "pinned": false }
@@ -228,9 +228,9 @@ curl -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/tree"
 ```json
 {
   "notes": [
-    { "path": "spaces/home-7k2q9x/projects/plan.md", "title": "Plan", "uid": "01JB2R…", "aliases": [] }
+    { "path": "spaces/Home/projects/plan.md", "title": "Plan", "uid": "01JB2R…", "aliases": [] }
   ],
-  "folders": ["people", "people/noa", "spaces", "spaces/home-7k2q9x", "spaces/home-7k2q9x/projects"],
+  "folders": ["people", "people/noa", "spaces", "spaces/Home", "spaces/Home/projects"],
   "pathOnly": ["people", "spaces"]
 }
 ```
@@ -245,12 +245,12 @@ see.
 
 ```sh
 curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/note" \
-  --data-urlencode "path=spaces/home-7k2q9x/projects/plan.md"
+  --data-urlencode "path=spaces/Home/projects/plan.md"
 ```
 
 ```json
 {
-  "path": "spaces/home-7k2q9x/projects/plan.md",
+  "path": "spaces/Home/projects/plan.md",
   "text": "# Plan\n\n- Draft the budget\n- Book the room\n",
   "etag": "sha256:7e24…",
   "meta": { "title": "Plan", "uid": null, "fmError": null },
@@ -292,19 +292,19 @@ as a prefix. Filters narrow it:
 
 | Filter | Keeps |
 |---|---|
-| `path:spaces/home-7k2q9x/projects` | Notes in that folder and below, or that one note (quote a path with spaces: `path:"my notes"`) |
+| `path:spaces/Home/projects` | Notes in that folder and below, or that one note (quote a path with spaces: `path:"my notes"`) |
 | `tag:work` | Notes with that tag, or a tag nested under it (`work/meetings`) |
 | `-path:…`, `-tag:…` | Excludes instead |
 
 ```sh
 curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/search" \
-  --data-urlencode "q=budget path:spaces/home-7k2q9x/projects -tag:done"
+  --data-urlencode "q=budget path:spaces/Home/projects -tag:done"
 ```
 
 ```json
 {
   "results": [
-    { "path": "spaces/home-7k2q9x/projects/plan.md", "title": "Plan", "snippet": "- Draft the \u0002budget\u0003" }
+    { "path": "spaces/Home/projects/plan.md", "title": "Plan", "snippet": "- Draft the \u0002budget\u0003" }
   ],
   "highlight": { "start": "\u0002", "end": "\u0003" }
 }
@@ -325,7 +325,7 @@ in). It never overwrites: `409 exists` if the note is there.
 ```sh
 curl -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: application/json" \
   "$VIHKO/api/note" \
-  -d '{"path": "spaces/home-7k2q9x/projects/meeting.md", "text": "# Meeting\n\n"}'
+  -d '{"path": "spaces/Home/projects/meeting.md", "text": "# Meeting\n\n"}'
 ```
 
 `201` with the new note's `path`, `uid` and `etag`. Folders on the way are
@@ -338,7 +338,7 @@ created. The path must be inside a space (`400 outside_space` otherwise).
 ```sh
 curl -X PUT -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: application/json" \
   -H 'If-Match: "sha256:7e24…"' \
-  "$VIHKO/api/note?path=spaces/home-7k2q9x/projects/plan.md" \
+  "$VIHKO/api/note?path=spaces/Home/projects/plan.md" \
   -d '{"text": "# Plan\n\n- Draft the budget\n- Book the room\n"}'
 ```
 
@@ -375,7 +375,7 @@ answers `409 edit_mismatch`.
 ```sh
 curl -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: application/json" \
   "$VIHKO/api/note/edit" \
-  -d '{"path": "spaces/home-7k2q9x/projects/plan.md", "ops": [{"op": "append_under_heading", "heading": "Plan", "text": "- Send the invites"}]}'
+  -d '{"path": "spaces/Home/projects/plan.md", "ops": [{"op": "append_under_heading", "heading": "Plan", "text": "- Send the invites"}]}'
 ```
 
 ```json
@@ -399,7 +399,7 @@ relative links. It never overwrites.
 ```sh
 curl -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: application/json" \
   "$VIHKO/api/note/move" \
-  -d '{"from": "spaces/home-7k2q9x/projects/meeting.md", "to": "spaces/home-7k2q9x/archive/meeting.md", "dryRun": true}'
+  -d '{"from": "spaces/Home/projects/meeting.md", "to": "spaces/Home/archive/meeting.md", "dryRun": true}'
 ```
 
 The report says which notes' links were (or would be) rewritten (`relinked`),
@@ -431,7 +431,7 @@ hasn't changed.
 
 ```sh
 curl -X DELETE -H "Authorization: Bearer $VIHKO_KEY" \
-  "$VIHKO/api/note?path=spaces/home-7k2q9x/projects/meeting.md"
+  "$VIHKO/api/note?path=spaces/Home/projects/meeting.md"
 ```
 
 The answer is the trash entry: its `id`, `path`, `deletedAt`, who deleted it
@@ -463,7 +463,7 @@ Upload an image with its bytes as the body, naming the note it's for:
 
 ```sh
 curl -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: image/png" \
-  "$VIHKO/api/attachments?note=spaces/home-7k2q9x/projects/plan.md" --data-binary @diagram.png
+  "$VIHKO/api/attachments?note=spaces/Home/projects/plan.md" --data-binary @diagram.png
 ```
 
 `201` with the stored file's `path`, its `src` (the path relative to the
@@ -471,7 +471,7 @@ note) and `markdown`, the link ready to write into the note, with what would
 break a Markdown link escaped:
 
 ```json
-{ "path": "spaces/home-7k2q9x/projects/my plan-2026-09-28-1201.png", "src": "my plan-2026-09-28-1201.png", "markdown": "![](my%20plan-2026-09-28-1201.png)" }
+{ "path": "spaces/Home/projects/my plan-2026-09-28-1201.png", "src": "my plan-2026-09-28-1201.png", "markdown": "![](my%20plan-2026-09-28-1201.png)" }
 ```
 
 vihko stores it where `vihko.yaml` says (next to the note by default), but
@@ -516,7 +516,7 @@ been quiet for a while. Until then, `versions` lists who is writing under
 
 ```sh
 curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/history/versions" \
-  --data-urlencode "path=spaces/home-7k2q9x/projects/plan.md" --data-urlencode "limit=5"
+  --data-urlencode "path=spaces/Home/projects/plan.md" --data-urlencode "limit=5"
 ```
 
 Restoring and reverting write like any edit: they appear in the history under
@@ -572,7 +572,7 @@ Read a note, change it, and write it back only if nobody changed it in between
 ```sh
 #!/bin/sh
 set -eu
-note="spaces/home-7k2q9x/projects/plan.md"
+note="spaces/Home/projects/plan.md"
 
 etag=$(curl -sf -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/note" \
   --data-urlencode "path=$note" | jq -r .etag)

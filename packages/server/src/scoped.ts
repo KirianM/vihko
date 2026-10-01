@@ -1179,18 +1179,26 @@ export class ScopedNotes {
    * can see; a dry run says whose access changes, and whose it becomes
    * (`audience`).
    *
-   * `newSpace`: `to` is the root of a shared space that doesn't exist yet,
-   * named `name`, and the folder becomes it (D-056.28, «Move to a new
-   * space»): what it holds goes to its root, with the folder's own grants
-   * and whoever moves it managing it; who may create spaces is the caller's
-   * to judge (spaceService.ts `fromFolder`).
+   * `newSpace`: `to` is the root of a shared space that doesn't exist yet
+   * (`spaces/<its name>`), and the folder becomes it (D-056.28, «Move to a
+   * new space»): what it holds goes to its root, with the folder's own
+   * grants and whoever moves it managing it; who may create spaces, and
+   * whether the name is free, is the caller's to judge (spaceService.ts
+   * `fromFolder`).
+   *
+   * `renameSpace`: `from` is a shared space's root and `to` its new one
+   * (D-056.33): only who manages it may; whether the name is free is the
+   * caller's to judge (spaceService.ts `rename`). Its rules go along, but
+   * the name 0.1.0-rc.1 or rc.2 wrote at its root (`name`), which the
+   * folder is now.
    */
-  async moveFolder(from: string, to: string, opts: { dryRun?: boolean; newSpace?: { name: string } } & MoveHooks = {}): Promise<ScopedFolderMove> {
-    const { newSpace, ...hooks } = opts
+  async moveFolder(from: string, to: string, opts: { dryRun?: boolean; newSpace?: true; renameSpace?: true } & MoveHooks = {}): Promise<ScopedFolderMove> {
+    const { newSpace, renameSpace, ...hooks } = opts
     const f = NoteService.checkFolder(from)
     const t = NoteService.checkFolder(to)
-    this.assertFolderToChange(f)
-    const space = newSpace ? this.newSpaceRule(f, t, newSpace.name) : null
+    if (renameSpace) this.assertSpaceRename(f, t)
+    else this.assertFolderToChange(f)
+    const space = newSpace ? this.newSpaceRule(f, t) : renameSpace ? this.renamedSpaceRule(f, t) : null
     if (!space) {
       assertPlacement(t, true)
       this.assertFolder(parentFolder(t)!, 'edit')
@@ -1242,13 +1250,30 @@ export class ScopedNotes {
     return mask(report)
   }
 
+  /** Unless `from` is a shared space's root this person manages, and `to` another shared space's root: a space renamed (`moveFolder` with `renameSpace`). */
+  private assertSpaceRename(from: string, to: string) {
+    const s = parseSpacePath(from)
+    const target = parseSpacePath(to)
+    if (this.access.isAgent || !s || s.space.kind !== 'shared' || s.inner !== '' || !target || target.space.kind !== 'shared' || target.inner !== '') {
+      throw new RequestError(400, 'invalid', 'only a shared space\'s root is renamed to another one')
+    }
+    this.assertFolder(from, 'manage')
+  }
+
+  /** The rule of a shared space renamed (`moveFolder` with `renameSpace`) at its new root: as it was, without 0.1.0-rc.1 or rc.2's `name`. */
+  private renamedSpaceRule(from: string, to: string): PermissionRule {
+    const engine = this.deps.permissions
+    const own = engine ? rulesOf(engine.section).find((r) => r.folder === from.normalize('NFC')) : undefined
+    return { folder: to, grants: own?.grants ?? null, ai: own?.ai ?? null }
+  }
+
   /**
-   * The rule of the new shared space `root` (not there yet, named `name`) a
-   * folder becomes (`moveFolder` with `newSpace`): the folder's own grants
-   * and `ai`, with whoever moves it managing it. Only a folder inside a space
-   * (not a space's root), to a shared space's root nothing is at.
+   * The rule of the new shared space `root` (not there yet) a folder becomes
+   * (`moveFolder` with `newSpace`): the folder's own grants and `ai`, with
+   * whoever moves it managing it. Only a folder inside a space (not a
+   * space's root), to a shared space's root nothing is at.
    */
-  private newSpaceRule(folder: string, root: string, name: string): PermissionRule & { name: string } {
+  private newSpaceRule(folder: string, root: string): PermissionRule {
     const s = parseSpacePath(folder)
     if (!s || s.inner === '') throw new RequestError(400, 'space_root', 'only a folder inside a space becomes a space of its own')
     const target = parseSpacePath(root)
@@ -1259,7 +1284,7 @@ export class ScopedNotes {
     const grants: Record<string, Level> = {}
     for (const [subject, level] of Object.entries(own?.grants ?? {})) if (subjectKey(subject) !== subjectKey(me)) grants[subject] = level
     grants[me] = 'manage'
-    return { folder: root, grants, ai: own?.ai ?? null, name }
+    return { folder: root, grants, ai: own?.ai ?? null }
   }
 
   // --- Other requests about notes -----------------------------------------------

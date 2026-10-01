@@ -322,9 +322,9 @@ export interface FolderPermissions {
 }
 
 /** A shared space the person belongs to (GET /api/spaces). */
-export interface SpaceEntry { path: string; id: string; name: string; level: Level; managers: string[]; aiClosed: boolean }
+export interface SpaceEntry { path: string; name: string; level: Level; managers: string[]; aiClosed: boolean }
 /** A folder someone shares with the person outside their spaces: of someone's personal space (`owner`) or of a shared space they don't belong to (`space`). */
-export interface SharedEntry { path: string; level: Level; owner?: string; space?: { path: string; id: string; name: string }; pinned: boolean }
+export interface SharedEntry { path: string; level: Level; owner?: string; space?: { path: string; name: string }; pinned: boolean }
 /** What a person reaches, space by space (GET /api/spaces). */
 export interface SpacesInfo {
   personal: { path: string } | null
@@ -345,7 +345,7 @@ export interface MembersView {
   members: { username: string; level: Level; via: { subject: string; level: Level; from: string | null; owner?: true }[] }[]
 }
 /** A shared space in the admin's directory: its name, managers and how many members; never anything inside it. */
-export interface SpaceInfo { path: string; id: string; name: string; managers: string[]; members: number; aiClosed: boolean }
+export interface SpaceInfo { path: string; name: string; managers: string[]; members: number; aiClosed: boolean }
 /** A deleted person's personal space, closed: nobody sees it (D-056.8). */
 export interface ClosedSpace { userId: string; username: string; path: string }
 /** What becoming of a deleted person's space involves: counts only. */

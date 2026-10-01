@@ -1,10 +1,11 @@
 // The admin's alerts about the spaces (D-056, spec §1.1, §2.4, §5.7): what
 // in the notes folder is in no space, folders in `people/` named like no
-// user, and shared spaces without members or without managers. None of them
-// names anything inside a space.
+// user, shared spaces without members or without managers, and those of
+// 0.1.0-rc.1 or rc.2 not renamed to their names yet. None of them names
+// anything inside a space.
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { PEOPLE, SPACES, WORKSPACE_FILE, isValidUsername, parseSpaceFolder, personalRoot, spaceRootOf, type Alert, type ConfigError } from '@vihko/core'
+import { PEOPLE, SPACES, WORKSPACE_FILE, isSpaceFolderName, isValidUsername, personalRoot, sharedRoot, spaceRootOf, type Alert, type ConfigError } from '@vihko/core'
 import type { Db } from './db.ts'
 import type { PermissionsEngine } from './permissions.ts'
 
@@ -36,7 +37,7 @@ export function spaceAlerts(deps: SpaceAlertsDeps): Alert[] {
     outside.push(e.name)
   }
   for (const e of entries(join(deps.notesDir, SPACES))) {
-    if (!e.dir || parseSpaceFolder(e.name) === null) outside.push(`${SPACES}/${e.name}`)
+    if (!e.dir || !isSpaceFolderName(e.name)) outside.push(`${SPACES}/${e.name}`)
   }
   const users = new Set(deps.engine.directory.users().map((u) => u.username.normalize('NFC')))
   const deleted = new Set((deps.state.prepare('select username from users where deleted_at is not null').all() as { username: string }[]).map((r) => r.username.normalize('NFC')))
@@ -51,9 +52,13 @@ export function spaceAlerts(deps: SpaceAlertsDeps): Alert[] {
   if (outside.length) out.push({ code: 'outside_spaces', paths: outside.sort(), into: personalRoot(deps.username), actions: [] })
   if (strays.length) out.push({ code: 'person_folder_without_user', names: strays.sort(), actions: [] })
   if (closed.length) out.push({ code: 'closed_spaces', people: closed.sort(), actions: [] })
+  const rules = deps.engine.spaceRules()
   for (const s of deps.engine.sharedSpaces()) {
     if (s.members === 0) out.push({ code: 'space_without_members', path: s.path, name: s.name, actions: [] })
     else if (s.managers.length === 0) out.push({ code: 'space_without_managers', path: s.path, name: s.name, actions: [] })
+    // A space of 0.1.0-rc.1 or rc.2 the start couldn't rename to its name (legacySpaces.ts): it tries again at each start.
+    const wanted = rules.legacyName(s.path)
+    if (wanted !== null && sharedRoot(wanted) !== s.path) out.push({ code: 'space_not_renamed', path: s.path, name: s.name, wanted, actions: [] })
   }
   return out
 }

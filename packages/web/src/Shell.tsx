@@ -4,6 +4,7 @@ import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, type
 import { seriesNeighbors } from '@vihko/core/series'
 import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type SpaceEntry, type SpacesInfo, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
 import { SpacesContext, notePathOf, rootOf, usePathLabels, useSpacesValue } from './spaces.tsx'
+import { renamedPath } from './legacyAddress.ts'
 import { addressOf } from '@vihko/core/spaces'
 import { SpaceSections, type Section, type SectionAction } from './Sidebar.tsx'
 import { DeleteSpaceDialog, LeaveSpaceDialog, NewSpaceDialog, RenameSpaceDialog, spaceError } from './SpaceDialogs.tsx'
@@ -265,6 +266,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openPath])
+
+  // An address of a shared space from 0.1.0-rc.1 or rc.2 (`casa-7k2q9x/…`): the space it was renamed to (D-056.33).
+  useEffect(() => {
+    if (!noAccess || noAccess !== openPath || !spaces) return
+    const to = renamedPath(noAccess, spaces)
+    if (to) setOpenPathState(to)
+  }, [noAccess, openPath, spaces])
 
   const tree = useMemo(() => (notes ? buildTree(notes, folders) : []), [notes, folders])
   const admin = user.role === 'admin'
@@ -702,7 +710,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             }} />
           )}
           {treeDialog?.kind === 'renameSpace' && (
-            <RenameSpaceDialog path={treeDialog.section.root} name={treeDialog.section.name} onClose={closeTreeDialog} onRenamed={() => { closeTreeDialog(); void loadTree() }} />
+            <RenameSpaceDialog path={treeDialog.section.root} name={treeDialog.section.name} onClose={closeTreeDialog} onRenamed={(space) => folderPlaced(treeDialog.section.root, space.path)} />
           )}
           {treeDialog?.kind === 'leaveSpace' && (
             <LeaveSpaceDialog path={treeDialog.section.root} name={treeDialog.section.name} kind={treeDialog.section.kind === 'shared' ? 'shared' : 'received'} onClose={closeTreeDialog} onLeft={() => {

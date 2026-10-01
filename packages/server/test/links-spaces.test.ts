@@ -195,7 +195,7 @@ test('D-056.30: links stay in their space: a name or a path into another space i
   const h = await setup((s) => ({
     [`${s.home}/${list}.md`]: `# ${list}\n`,
     [`${s.home}/${inside}.md`]: `[[${list}]] [[${s.home}/${list}|${list}]] [${m.aWord()}](${encodeURI(list)}.md)\n`,
-    [`${s.space.member}/${mine}.md`]: `[[${list}]] [[${s.home}/${list}|${list}]] [[/${s.home}/${list}]] [${m.aWord()}](../../${s.home}/${encodeURI(list)}.md)\n`,
+    [`${s.space.member}/${mine}.md`]: `[[${list}]] [[${s.home}/${list}|${list}]] [[/${s.home}/${list}]] [${m.aWord()}](../../${encodeURI(s.home)}/${encodeURI(list)}.md)\n`,
     [`${s.space.other}/${mine}.md`]: `[[${s.home}/${list}|${list}]]\n`,
   }))
   const { s } = h

@@ -44,7 +44,7 @@ version: 1
 
 templates:
   - people/{user}/Templates
-  - spaces/home-7k2q9x/Templates
+  - spaces/Home/Templates
 
 daily:
   journal:
@@ -52,10 +52,10 @@ daily:
     folder: people/{user}/journal
   household:
     label: Household log
-    folder: spaces/home-7k2q9x/log
-    template: spaces/home-7k2q9x/Templates/Log
+    folder: spaces/Home/log
+    template: spaces/Home/Templates/Log
   weekly:
-    folder: spaces/home-7k2q9x/weeks
+    folder: spaces/Home/weeks
     name: "{GGGG}-W{WW}"
 
 attachments:
@@ -69,19 +69,18 @@ history:
   mode: managed
   maxFileSize: 20
   exclude:
-    - spaces/home-7k2q9x/archive/**
+    - spaces/Home/archive/**
     - "**/*.pdf"
 
 mcp:
-  instructions: spaces/home-7k2q9x/For agents
+  instructions: spaces/Home/For agents
 
 permissions:
-  spaces/home-7k2q9x:              # the shared space «Home»
-    name: Home
+  spaces/Home:                     # the shared space «Home»: its folder is its name
     grants: { noa: manage, "@family": edit }
-  spaces/home-7k2q9x/recipes:      # a neighbour who isn't in Home sees recipes too
+  spaces/Home/recipes:             # a neighbour who isn't in Home sees recipes too
     grants: { sam: read }
-  spaces/home-7k2q9x/finances:
+  spaces/Home/finances:
     ai: false
   people/noa/trips:                # a folder of Noa's, shared with Sam
     grants: { sam: comment }
@@ -112,11 +111,11 @@ hidden folder (a name that starts with `.`). A trailing `/` on a folder is
 fine.
 
 Paths to notes and folders must be **inside a space**: `people/<user>/…` or
-`spaces/<name>-<id>/…` (see [Notes and Markdown](notes.md)). A series'
+`spaces/<name>/…` (see [Notes and Markdown](notes.md)). A series'
 folder, a templates folder or `mcp.instructions` anywhere else is ignored, and
-the admins get a warning (`outside_spaces`). A shared space's folder, with its
-id, shows in the address bar when you open one of its notes
-(`?note=home-7k2q9x%2F…`; a person's space shows as `~<username>`), and on
+the admins get a warning (`outside_spaces`). A shared space's folder, its
+name, shows in the address bar when you open one of its notes
+(`?note=Home%2F…`; a person's space shows as `~<username>`), and on
 the disk.
 
 ### `version`
@@ -143,7 +142,7 @@ templates: people/{user}/Templates
 # or several:
 templates:
   - people/{user}/Templates
-  - spaces/home-7k2q9x/Templates
+  - spaces/Home/Templates
 ```
 
 A folder, or a list of folders. `{user}` is the person creating the note, so
@@ -187,9 +186,9 @@ daily:
     label: Journal                 # optional, shown in the UI
     folder: people/{user}/journal  # where its notes go: inside a space
     name: "{YYYY}-{MM}-{DD}"       # optional; this is the default
-    template: spaces/home-7k2q9x/Templates/Daily   # optional note
+    template: spaces/Home/Templates/Daily   # optional note
   weekly:
-    folder: spaces/home-7k2q9x/weeks
+    folder: spaces/Home/weeks
     name: "{GGGG}-W{WW}"
 ```
 
@@ -252,15 +251,15 @@ attachments:
 This decides where vihko puts an image you upload, paste or save from a URL.
 Images already in your notes stay where they are.
 
-| Mode | Where a new image goes | Example for `spaces/home-7k2q9x/projects/plan.md` |
+| Mode | Where a new image goes | Example for `spaces/Home/projects/plan.md` |
 |---|---|---|
-| `next-to-note` (default) | Next to the note, named after it and the time (UTC) | `spaces/home-7k2q9x/projects/plan-2026-09-28-1012.png` |
-| `folder` | All in one folder **of the note's space**, with the same kind of name | `spaces/home-7k2q9x/images/plan-2026-09-28-1012.png` |
-| `per-note` | In a folder of its own next to the note, named after the note plus `suffix` | `spaces/home-7k2q9x/projects/plan.assets/2026-09-28-1012.png` |
+| `next-to-note` (default) | Next to the note, named after it and the time (UTC) | `spaces/Home/projects/plan-2026-09-28-1012.png` |
+| `folder` | All in one folder **of the note's space**, with the same kind of name | `spaces/Home/images/plan-2026-09-28-1012.png` |
+| `per-note` | In a folder of its own next to the note, named after the note plus `suffix` | `spaces/Home/projects/plan.assets/2026-09-28-1012.png` |
 
 - `folder` is relative to the root of each note's space: with `folder:
   images`, an image of a note in «My notes» goes to `people/<you>/images/`,
-  and one of a note in «Home» to `spaces/home-7k2q9x/images/`. No folder
+  and one of a note in «Home» to `spaces/Home/images/`. No folder
   ever mixes the images of two spaces.
 - `folder` alone implies `mode: folder`. `mode: folder` without `folder` is an
   error, and so is `folder` with another mode, or `suffix` without
@@ -308,7 +307,7 @@ history:
   mode: managed        # managed (default), unmanaged or off
   maxFileSize: 20      # MB
   exclude:
-    - spaces/home-7k2q9x/archive/**
+    - spaces/Home/archive/**
     - "**/*.pdf"
     - people/noa/drafts/private.md
 ```
@@ -340,7 +339,7 @@ from the history for good.
 
 ```yaml
 mcp:
-  instructions: spaces/home-7k2q9x/For agents   # .md is added if missing
+  instructions: spaces/Home/For agents   # .md is added if missing
 ```
 
 A note whose text the MCP server gives connected agents as instructions,
@@ -365,12 +364,11 @@ Someone without that note gets vihko's instructions alone.
 
 ```yaml
 permissions:
-  spaces/home-7k2q9x:              # a shared space: its name and its members
-    name: Home
+  spaces/Home:                     # a shared space: its members
     grants: { noa: manage, "@family": edit }
-  spaces/home-7k2q9x/recipes:      # adds sam, who isn't a member of Home
+  spaces/Home/recipes:             # adds sam, who isn't a member of Home
     grants: { sam: read }
-  spaces/home-7k2q9x/finances:
+  spaces/Home/finances:
     ai: false                      # closed to agents, with everything under it
   people/noa/trips:                # a folder of Noa's, shared with Sam
     grants: { sam: comment }
@@ -393,7 +391,7 @@ manager.
 
 | Key | What it can hold |
 |---|---|
-| `spaces/<name>-<id>` (a shared space's root) | `name`, `grants`, `ai` |
+| `spaces/<name>` (a shared space's root) | `grants`, `ai` |
 | A folder below a shared space's root | `grants`, `ai` |
 | `people/<user>` (a person's space) | Only `ai: false`. A person's space is never shared whole: share a folder in it, or use a shared space |
 | A folder inside a person's space, `people/<user>/<folder>` and below | `grants`, `ai` |
@@ -407,9 +405,13 @@ key that YAML would read as something else.
 
 | Key | Value | Meaning |
 |---|---|---|
-| `name` | text | A shared space's name, as people see it: up to 64 characters, no control characters, no spaces at either end. Only at a shared space's root. Without it, the readable part of its folder |
 | `grants` | map of subject → level | Who gets what in this folder and below. Left out, or `{}`: nobody is added here |
 | `ai` | `false` | Closes the folder and everything under it to agents |
+
+A shared space's name is its folder's: there's no key for it. (0.1.0-rc.1
+and rc.2 wrote `name` at a shared space's root, with a folder like
+`spaces/home-7k2q9x`; vihko renames such a folder to that name when it
+starts and removes `name`.)
 
 **Subjects** in `grants`:
 

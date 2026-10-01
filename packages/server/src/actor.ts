@@ -37,6 +37,9 @@ export type Actor =
  *   it was (history/revert.ts).
  * - `history_enabled`, `history_resumed`: what was in the folder when the
  *   history started, or changed while it was off.
+ * - `space_renamed`: a shared space of 0.1.0-rc.1 or rc.2 (`from`, its
+ *   `<readable>-<id>` folder) renamed to its name (`to`) when vihko started
+ *   (D-056.33, legacySpaces.ts).
  * - `recovered`: text vihko wrote back from its own copy (the collaboration
  *   hub) whose typists it doesn't know.
  * - `follow_external_move`, `keep_copy`, `crash_recovery`: the hub's own
@@ -48,6 +51,7 @@ export type Reason =
   | { code: 'links_after_external_move'; moves: { from: string; to: string }[]; by: Actor }
   | { code: 'alias_added'; alias: string; from: string; to: string; by: Actor }
   | { code: 'links_kept'; to: string; by: Actor }
+  | { code: 'space_renamed'; from: string; to: string }
   | { code: 'restored'; id: string; at: string }
   | { code: 'trash_restored'; id: string }
   | { code: 'reverted'; id: string; at: string }

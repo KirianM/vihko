@@ -15,7 +15,6 @@ New here? Read [[Onboarding]], then [[How we write notes]]. #handbook #start-her
 
 ```yaml
 permissions:
-  spaces/team-k3v9q2:
-    name: Team
+  spaces/Team:
     grants: { hanna: manage, ravi: edit }
 ```

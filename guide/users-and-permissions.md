@@ -18,7 +18,7 @@ for the admin, in «Spaces». How it's written in `vihko.yaml` is in
 | | What it is | Whose | In the notes folder |
 |---|---|---|---|
 | **My notes** | Your own space | Yours: only you see it, except what you share | `people/<your username>/` |
-| **A shared space**, such as «Home» | A place for what belongs to several people | Its members': everyone in it sees everything in it | `spaces/<name>-<id>/`, such as `spaces/home-7k2q9x/` |
+| **A shared space**, such as «Home» | A place for what belongs to several people | Its members': everyone in it sees everything in it | `spaces/<name>/`, such as `spaces/Home/` |
 | **Shared with me** | Folders other people share with you from their own space, or a folder of a shared space you're not a member of | Still theirs, or still the space's | Where they are: `people/ana/trips/` |
 
 The sidebar shows them in that order: «My notes», then each shared space you
@@ -61,15 +61,24 @@ installation; vihko doesn't keep several isolated groups apart in one.
 ### Create one
 
 In the sidebar, **New space**. Give it a name and, if you like, its first
-members, each with a level. You manage it: you can add more people later. Its
-name can change whenever you like («Rename…» in its menu): only the name
-people see changes, never its folder, so links to its notes keep working.
+members, each with a level. You manage it: you can add more people later.
+
+Its name is also its folder's (`spaces/Home/`) and the start of its notes'
+addresses (`?note=Home/…`). It can change whenever you like («Rename…» in
+its menu): its folder is renamed with it, and links between its notes keep
+working, since they never leave the space. An address someone saved with the
+old name stops working.
 
 The admin can reserve creating spaces to admins: Preferences → Spaces → «Who
 can create spaces». Then the «New space» button only shows for admins.
 
-Two spaces may have the same name. Names of shared spaces aren't secret: the
-admin's directory lists them all.
+**Names of shared spaces are unique, and everyone in the installation can see
+them.** Two spaces can't have the same name, not even in different case
+(«Home» and «home»): if a name is taken, vihko says «There's already a space
+called Home: choose another name», to anyone, whether they're in that space
+or not. So a name tells everyone that a space exists; what it holds and who
+is in it stay private. Choose names you don't mind others seeing. A name
+can't have `/` or `\`, start with `.` or `~`, or end with `.`, `~` or `.md`.
 
 ### Members
 

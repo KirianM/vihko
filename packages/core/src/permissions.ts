@@ -3,12 +3,11 @@
 // edits vihko makes to the file (keeping everything else in it as it was).
 //
 //   permissions:
-//     spaces/home-7k2q9x:             # a shared space: its name and members
-//       name: Home
+//     spaces/Home:                    # a shared space: its members
 //       grants: { "@family": edit, ana: manage }
-//     spaces/home-7k2q9x/recipes:     # adds luis, who isn't a member of Home
+//     spaces/Home/recipes:            # adds luis, who isn't a member of Home
 //       grants: { luis: read }
-//     spaces/home-7k2q9x/finances:
+//     spaces/Home/finances:
 //       ai: false
 //     people/ana/trips:               # a folder of ana's shared with luis
 //       grants: { luis: comment }
@@ -18,8 +17,9 @@
 // - Keys are real folders from the notes root (core/spaces.ts): a shared
 //   space's root and what's under it; a folder inside a personal space. A
 //   personal space's root takes only `ai: false`, never grants (it isn't
-//   shared whole: that's what a shared space is). `name` only at a shared
-//   space's root. Anything else (`""`, `people`, `spaces`, anything outside
+//   shared whole: that's what a shared space is). `name`, only at a shared
+//   space's root, is 0.1.0-rc.1 and rc.2's: read for the start that renames
+//   such a space's folder to it (D-056.33), never written. Anything else (`""`, `people`, `spaces`, anything outside
 //   them, a `{user}` segment) rejects the section.
 // - Subjects: a user's name or `@group`.
 // - Levels, from less to more: read < comment < edit < manage.
@@ -40,7 +40,7 @@
 // This module knows nothing of users or groups: the server resolves subjects
 // (and warns about the ones it doesn't know).
 import { isMap, isScalar, type Document, type Pair, type YAMLMap } from 'yaml'
-import { parseSpacePath, spaceNameProblem } from './spaces.ts'
+import { parseSpacePath } from './spaces.ts'
 import { parseYamlDocument } from './yaml.ts'
 
 /** What a grant allows, from less to more. */
@@ -66,7 +66,7 @@ export interface PermissionRule {
   folder: string
   grants: Record<string, Level> | null
   ai: false | null
-  /** A shared space's name (only at its root, `spaces/<readable>-<id>`), when written. */
+  /** 0.1.0-rc.1 and rc.2's name of a shared space, at its root (`spaces/<readable>-<id>`): what the start renames its folder to (D-056.33). */
   name?: string
 }
 
@@ -152,16 +152,14 @@ export function parsePermissions(raw: unknown, at: string[], report: Permissions
       else if (value.ai === true) notice('ignored_value', [...here, 'ai'], 'ai: true')
       else report('not_boolean', [...here, 'ai'])
     }
+    // `name` is 0.1.0-rc.1 and rc.2's (a space's name, D-056.14): the folder is the
+    // name now (D-056.33), and the start renames such a folder to it. Read, never written.
     let name: string | null = null
     if (value.name !== undefined && value.name !== null) {
       const root = parseSpacePath(folder)
       if (typeof value.name !== 'string') report('invalid_type', [...here, 'name'], 'string')
       else if (!root || root.space.kind !== 'shared' || root.inner !== '') report('invalid_value', [...here, 'name'], 'only at a shared space root')
-      else {
-        const problem = spaceNameProblem(value.name.normalize('NFC'))
-        if (problem) report('invalid_value', [...here, 'name'], problem)
-        else name = value.name.normalize('NFC')
-      }
+      else name = value.name.normalize('NFC')
     }
     rules.push({ folder, grants, ai, ...(name !== null ? { name } : {}) })
   }
@@ -306,8 +304,8 @@ export class SpaceRules {
     return null
   }
 
-  /** A shared space's name as written at its root; null if none is. */
-  name(root: string): string | null {
+  /** The name 0.1.0-rc.1 or rc.2 wrote at a shared space's root (PermissionRule `name`); null if none is. */
+  legacyName(root: string): string | null {
     return this.byFolder.get(root.normalize('NFC'))?.name ?? null
   }
 

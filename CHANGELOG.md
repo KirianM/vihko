@@ -10,6 +10,41 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.0-rc.3] - Unreleased
+
+### Upgrade notes
+
+- **A shared space's folder is its name**: `spaces/Home/`, not
+  `spaces/home-7k2q9x/`. When it starts, vihko renames each shared space made
+  by rc.1 or rc.2 to the name it had (or, if that name can't be a folder's,
+  to its folder's readable part), as a rename from vihko would: its notes,
+  its rules in `vihko.yaml`, the keys, pins and trash entries that named it,
+  and the history all follow, and the `name` key goes from `vihko.yaml`. If
+  another space or folder already has that name, the space is left as it is
+  and the admins get the alert `space_not_renamed`; each start tries again.
+  Nothing to do otherwise. Scripts and agents that kept a space's path should
+  ask `GET /api/spaces` (or `list_folder("")`) again.
+- **Names of shared spaces are unique** in the installation, without regard
+  to case, and visible to everyone in it (not what a space holds or who is in
+  it). Creating or renaming a space to a name another has answers
+  `409 space_name_taken`.
+- **The `id` of shared spaces is gone** from `GET /api/spaces`,
+  `GET /api/admin/spaces` and MCP's `list_folder("")`: a space is its `path`,
+  and its `name` is its folder's.
+- **Note addresses** of a shared space are `?note=Home/…`. One saved with an
+  rc.1 or rc.2 folder (`?note=home-7k2q9x/…`) opens the note in the space it
+  became, for whoever is in it.
+
+### Changed
+
+- **Renaming a shared space renames its folder** (and its notes' addresses);
+  links between its notes stay as they are, since they never leave the space.
+- `spaces/` holds shared spaces by name: any folder there is a space but a
+  hidden one, one starting with `~`, one ending with `.`, `~` or `.md`, and
+  `people` or `spaces`. A space's name can't hold `/` or `\` (`400 invalid`
+  with `problem: invalid_characters`), nor be one of those names
+  (`invalid_name`).
+
 ## [0.1.0-rc.2] - 2026-10-01
 
 What the first real install of rc.1 brought up: links now stay inside their

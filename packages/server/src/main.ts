@@ -6,7 +6,9 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Auth } from './auth.ts'
 import { openIndex } from './db.ts'
-import { createApp, type ExternalImages, type Runtime } from './http/app.ts'
+import { createServer, type ExternalImages, type Runtime } from './http/app.ts'
+import { FolderRefs } from './folderRefs.ts'
+import { renameLegacySpaces } from './legacySpaces.ts'
 import { Indexer } from './indexer.ts'
 import { DEFAULT_MAX_IMAGE_BYTES, NoteService } from './notes.ts'
 import { openState } from './state.ts'
@@ -289,13 +291,16 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   if (config.secretBox) log(`VIHKO_SECRET_KEY: second factors are stored encrypted${sealed ? ` (${sealed} encrypted now)` : ''}`)
   const unreadable = twoFactor.unreadable().length
   if (unreadable) log(`${unreadable} second factor(s) can't be read ${config.secretBox ? 'with this VIHKO_SECRET_KEY' : 'without VIHKO_SECRET_KEY'}: those people sign in with a recovery code, or run vihko user reset-2fa <name>`)
-  const app = createApp({
+  const { app, services } = createServer({
     notices,
     auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users, twoFactor,
     policy, holds, onPermissionsChanged: () => hub.recheckAccess(), configMigrations,
     // The MCP server, at /mcp (off until the admin turns it on).
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log, icons: markIcons(webDir) }) },
   })
+  // Shared spaces of 0.1.0-rc.1 and rc.2 take their names as folders (D-056.33), before anyone can ask for them.
+  await renameLegacySpaces({ notesDir: config.notesDir, file: services.permissionsFile, notes, refs: new FolderRefs({ state, stateDir: config.stateDir }), indexer, log })
+    .catch((err) => log(`renaming the shared spaces of earlier versions: ${err instanceof Error ? err.message : String(err)}`))
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   hub.attach(server, SESSION_COOKIE)
   // serve() opens the port asynchronously: only announced once it's actually listening.

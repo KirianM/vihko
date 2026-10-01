@@ -264,7 +264,7 @@ test('per-note images: the folder of images moves with its note and its grants, 
     // Moving it to the member's own space: the preview says whose it becomes, and who stops seeing it (the admin); the other keeps its images.
     const mine = m.aNotePath(home(MEMBER.username))
     const preview = (await h.member('POST', '/api/note/move', { from: note, to: mine, dryRun: true })).body
-    assert.deepEqual(preview.audience.owner, { before: { kind: 'shared', path: DIR.shared, name: DIR.shared.replace(/^spaces\/(.*)-[a-z0-9]{6}$/, '$1') }, after: { kind: 'personal', owner: MEMBER.username } })
+    assert.deepEqual(preview.audience.owner, { before: { kind: 'shared', path: DIR.shared, name: DIR.shared.slice('spaces/'.length) }, after: { kind: 'personal', owner: MEMBER.username } })
     assert.deepEqual(preview.audience.users.lose.map((u: { username: string }) => u.username), [ADMIN.username])
     assert.deepEqual(preview.audience.users.gain, [])
     // Renamed: its folder of images goes with it, and its grants with the folder.

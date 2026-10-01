@@ -63,8 +63,8 @@ export const INSTRUCTIONS_SPACES = 20
 /**
  * Where the person an agent acts for keeps their notes and what they share
  * (spec §6.2, D-056.14): their personal space, and the shared spaces and
- * folders they reach within the key, each with its path (and a space's id
- * and name, which people write: given as data, quoted).
+ * folders they reach within the key, each with its path (and a space's
+ * name, its folder's, which people write: given as data, quoted).
  */
 function spacesGuide(access: Access, v: SpacesResponse): string[] {
   const me = access.user.username
@@ -73,7 +73,7 @@ function spacesGuide(access: Access, v: SpacesResponse): string[] {
     ? `- The person you act for is ${me}. Their personal space is "${v.personal.path}/": their own notes go there unless they say otherwise.`
     : `- The person you act for is ${me}. This key doesn't reach their personal space ("people/${me}/").`)
   const all = [
-    ...v.spaces.map((s) => ({ kind: 'space' as const, text: `"${s.path}" (id ${s.id}, named ${JSON.stringify(s.name)}, ${s.level})` })),
+    ...v.spaces.map((s) => ({ kind: 'space' as const, text: `"${s.path}" (named ${JSON.stringify(s.name)}, ${s.level})` })),
     ...v.shared.map((s) => ({ kind: 'shared' as const, text: `"${s.path}" (${s.level}, ${s.owner ? `from ${s.owner}` : `in the space named ${JSON.stringify(s.space?.name ?? '')}`})` })),
   ]
   const shown = all.slice(0, INSTRUCTIONS_SPACES)

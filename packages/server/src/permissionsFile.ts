@@ -106,8 +106,8 @@ export class PermissionsFile {
 
   /**
    * Sets one folder's rule (all null: removes it). A shared space's root
-   * takes its `name` too (the space's members are its grants):
-   * `setRule('spaces/home-7k2q9x', { name: 'Home', grants: { ana: 'manage' }, ai: null })`.
+   * takes its members (its grants), never a name (the folder is it, D-056.33):
+   * `setRule('spaces/Home', { grants: { ana: 'manage' }, ai: null })`.
    */
   async setRule(folder: string, value: RuleValue, opts: { actor: Actor; ifMatch?: string }) {
     let before = ''
