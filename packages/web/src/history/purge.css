@@ -7,3 +7,11 @@
 .purge-warn { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--danger); }
 .purge-row { display: flex; justify-content: flex-end; padding: var(--space-2) 0; }
 .btn.purge-open { color: var(--danger); }
+/* What the history holds that the admin may purge: deleted notes first, or those matching what is typed. */
+.purge-pick { display: flex; flex-direction: column; gap: var(--space-1); }
+.purge-pick-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius-md); }
+.purge-pick-list .btn.purge-pick-item { width: 100%; height: auto; min-height: var(--control-md); padding-block: var(--space-1); justify-content: space-between; gap: var(--space-2); border-radius: 0; color: var(--ink-2); white-space: normal; text-align: left; }
+.purge-pick-name { overflow-wrap: anywhere; }
+.purge-pick-deleted { flex: none; font-size: 12px; color: var(--muted); }
+/* «Purge…» beside a deleted note in «Recent changes». */
+.btn.c-purge { flex: none; height: auto; padding: 0 var(--space-1); line-height: 20px; color: var(--danger); }

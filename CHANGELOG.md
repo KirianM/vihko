@@ -10,6 +10,34 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [Unreleased]
+
+<!-- rc.2: purging and paths typed by people -->
+### Added
+
+- `GET /api/history/purgeable`: what the person may purge and reads, to pick
+  from (deleted notes marked). The admin's purge form offers it, deleted notes
+  first.
+- Purge a note just deleted from the notice that offers to restore it, and one
+  deleted earlier from its «deleted» line in Recent changes.
+
+### Changed
+
+- Paths people type in the interface are found as links are: as they see
+  them («My notes / diary / day», «Home / recipes»), in any case. The admin's
+  purge, where something is moved and a new note's folders in the palette use
+  an existing folder whatever its capitals, and ask which one when several
+  differ only in capitals. The API stays exact.
+
+### Fixed
+
+- Purging a note whose name was typed in other capitals, or from a path such
+  as «my notes/…», found nothing after asking for the code again and again:
+  the admin's purge form takes the path as the admin sees it, never asks for
+  `people/…`, and finds the note in any case; when nothing there has history it says so instead of
+  purging nothing; and it asks for the code or password once per purge.
+<!-- /rc.2: purging and paths typed by people -->
+
 ## [0.1.0-rc.1] - 2026-10-01
 
 The first release of the relaunch: vihko around **spaces**. Each person has a

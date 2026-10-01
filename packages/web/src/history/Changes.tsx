@@ -2,24 +2,32 @@
 // by day, with who did it, why and which files, filterable by author. Read
 // only: a note opens at that change, and undoing is done note by note from
 // there. Meant for reviewing what an agent did. The vihko admin also purges
-// from here any path by its name (Purge.tsx, D-049).
+// from here any path by its name (Purge.tsx, D-049); and whoever may purge
+// a note deleted since (its folder's manager, or the admin) does from its
+// «deleted» line.
 import { useEffect, useId, useState } from 'react'
 import { Button } from 'react-aria-components'
 import { ApiError, type TreeNote } from '../api.ts'
 import { errorText, useT } from '../i18n.tsx'
 import { SearchButton } from '../Palette.tsx'
 import { MenuButton, ThemeToggle } from '../ui.tsx'
-import { historyApi, type Change, type ChangeFile, type HistoryAuthor, type HistoryStatus } from './api.ts'
+import { historyApi, type Change, type ChangeFile, type HistoryAuthor, type HistoryStatus, type PurgeReport } from './api.ts'
 import { changeKindText, filterOptions, isNote, uidOf } from './format.ts'
 import { noteHref, usePathLabels } from '../spaces.tsx'
 import { HistoryNotice } from './HistoryTab.tsx'
-import { AdminPurge, purgedText } from './Purge.tsx'
+import { AdminPurge, PurgeDialog, purgedText } from './Purge.tsx'
 import { Authors, Counts, HistoryIcon, useDates } from './ui.tsx'
 
 /** Files shown per change before «Show N more». */
 const FEW = 6
 
-function ChangeCard({ change, onOpen }: { change: Change; onOpen: (file: ChangeFile, change: Change) => void }) {
+function ChangeCard({ change, onOpen, purgeable, onPurge }: {
+  change: Change
+  onOpen: (file: ChangeFile, change: Change) => void
+  /** What the person may purge (GET /api/history/purgeable). */
+  purgeable: ReadonlySet<string>
+  onPurge: (path: string) => void
+}) {
   const t = useT()
   const { label: pathLabel } = usePathLabels()
   const dates = useDates()
@@ -53,6 +61,9 @@ function ChangeCard({ change, onOpen }: { change: Change; onOpen: (file: ChangeF
                 : <span className="c-file-path">{pathLabel(f.path)}</span>}
             </span>
             <Counts added={f.added} removed={f.removed} />
+            {f.change === 'deleted' && purgeable.has(f.path) && (
+              <Button className="btn btn-sm btn-quiet c-purge" aria-label={t('purge.rowLabel', { name: pathLabel(f.path) })} onPress={() => onPurge(f.path)}>{t('purge.row')}</Button>
+            )}
           </li>
         ))}
       </ul>
@@ -86,6 +97,17 @@ export function ChangesPage({ status, notes, admin, onOpenVersion, onUnauthorize
   /** The admin's last purge, said once done; the list reloads without what went. */
   const [purged, setPurged] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
+  /** What this person may purge (managed history only); a deleted note among it offers «Purge…». */
+  const [purgeable, setPurgeable] = useState<ReadonlySet<string>>(new Set())
+  const [purging, setPurging] = useState<string | null>(null)
+  const managed = status?.mode === 'managed'
+  useEffect(() => {
+    if (!managed) return setPurgeable(new Set())
+    let live = true
+    historyApi.purgeable().then((r) => { if (live) setPurgeable(new Set(r.paths.map((p) => p.path))) }, () => {})
+    return () => { live = false }
+  }, [managed, reload])
+  const purgedNow = (r: PurgeReport) => { setPurged(purgedText(t, r, pathLabel)); setReload((n) => n + 1) }
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -160,7 +182,7 @@ export function ChangesPage({ status, notes, admin, onOpenVersion, onUnauthorize
               </select>
               {admin && (<>
                 <span className="spacer" />
-                <AdminPurge onPurged={(r) => { setPurged(purgedText(t, r, pathLabel)); setReload((n) => n + 1) }} />
+                <AdminPurge onPurged={purgedNow} />
               </>)}
             </div>
             {purged && <p className="alerts-done" role="status">{purged}</p>}
@@ -173,7 +195,7 @@ export function ChangesPage({ status, notes, admin, onOpenVersion, onUnauthorize
               <section key={g.key} className="changes-day" aria-labelledby={`${filterId}-${g.key}`}>
                 <h2 id={`${filterId}-${g.key}`}>{dates.day(g.key)}</h2>
                 <ul className="changes-list">
-                  {g.items.map((c) => <ChangeCard key={c.id} change={c} onOpen={(f, ch) => void open(f, ch)} />)}
+                  {g.items.map((c) => <ChangeCard key={c.id} change={c} onOpen={(f, ch) => void open(f, ch)} purgeable={purgeable} onPurge={setPurging} />)}
                 </ul>
               </section>
             ))}
@@ -183,6 +205,7 @@ export function ChangesPage({ status, notes, admin, onOpenVersion, onUnauthorize
           </>
         )}
       </div>
+      {purging && <PurgeDialog path={purging} onCancel={() => setPurging(null)} onDone={(r) => { setPurging(null); purgedNow(r) }} />}
     </>
   )
 }
