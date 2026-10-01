@@ -3,7 +3,7 @@
 // note goes. The editor only shows the badge; creating is the note view's job.
 import { Facet } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
-import { joinPath } from '@vihko/core/resolve'
+import { isRootTarget, joinPath } from '@vihko/core/resolve'
 import { resolveImageRef } from '@vihko/core/images'
 
 /** A broken link the person asked to create: where the note goes and its title. */
@@ -43,14 +43,16 @@ const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) :
  * Where the note of a missing wikilink is created so that the link resolves to
  * it: the link's name in the note's folder. A target with folders
  * (`[[project/Plan]]`) keeps them below that folder, and one from the root
- * (`[[/project/Plan]]`) is created there. Null if no valid name is left.
+ * (`[[/project/Plan]]`, or one into a space, `[[spaces/home-7k2q9x/Plan]]`
+ * or `[[people/ana/Plan]]`, D-056.4) is created there. Null if no valid
+ * name is left.
  */
 export function wikiLinkNote(source: string, raw: string): NewLinkedNote | null {
   const embed = raw.startsWith('!')
   const inner = raw.slice(embed ? 3 : 2, -2)
   const target = inner.split('|')[0]!.replace(/#.*$/, '').trim()
   if (!target) return null
-  const fromRoot = target.startsWith('/')
+  const fromRoot = target.startsWith('/') || isRootTarget(target)
   const parts = target.replace(/^\/+/, '').replace(/\.md$/i, '').split('/').map((p) => p.trim())
   // A name that would have to change to be a valid file (hidden, control characters…) wouldn't match the link.
   if (parts.some((p) => p === '' || p === '..' || cleanSegment(p) !== p.normalize('NFC'))) return null

@@ -114,7 +114,7 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
           <ul>
             <li>{t('privacy.peopleFolders')}</li>
             <li>{t('privacy.peopleManagers')}</li>
-            <li>{withCode(t('privacy.peoplePersonal'), { rule: '{user}' })}</li>
+            <li>{t('privacy.peoplePersonal')}</li>
             <li>{t('privacy.peopleAdmin')}</li>
           </ul>
         </section>

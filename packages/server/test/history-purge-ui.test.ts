@@ -145,9 +145,9 @@ test('a manager purges a note\'s whole history (that file alone); the admin purg
     await h.settle()
     const list = (await versionsOf(PATH.list, h.member)) as { authors: { name: string }[] }[]
     assert.equal(list[0]!.authors[0]!.name, MEMBER.username, 'the write made during the purge has its version')
-    // Both where the admin can't read: who, never where (D-056.24).
+    // Both where the admin can't read: who, never where (D-056.24), but for his own purge, whose path he wrote (D-056.26).
     const alerts = ((await h.admin('GET', '/api/alerts')).body.alerts as { code: string; path: string | null; by: string }[]).filter((a) => a.code === 'history_purged')
-    assert.deepEqual(alerts.map((a) => [a.path, a.by]), [[null, MEMBER.username], [null, ADMIN.username]])
+    assert.deepEqual(alerts.map((a) => [a.path, a.by]), [[null, MEMBER.username], [home(OTHER.username), ADMIN.username]])
   } finally { await h.close() }
 })
 

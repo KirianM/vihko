@@ -135,6 +135,17 @@ test('a broken wikilink creates its note where the link will find it', () => {
   assert.equal(wikiLinkNote('a/b.md', '[[#Sección]]'), null)
 })
 
+test('a broken link into a space, by its path from the notes root, creates the note there, never under the current folder (D-056.4)', () => {
+  const source = `people/${m.aUsername()}/${m.aFolder()}/${m.aTitle()}.md`
+  const space = `spaces/${m.aSpaceFolder()}`
+  const [folder, title] = [m.aFolder(), m.aTitle()]
+  assert.deepEqual(wikiLinkNote(source, `[[${space}/${folder}/${title}|${title}]]`), { path: `${space}/${folder}/${title}.md`, title, raw: `[[${space}/${folder}/${title}|${title}]]` })
+  const person = `people/${m.aUsername()}`
+  assert.equal(wikiLinkNote(source, `[[${person}/${title}]]`)?.path, `${person}/${title}.md`)
+  // `[[people]]` alone is a note's name, next to the source.
+  assert.equal(wikiLinkNote(source, '[[people]]')?.path, `${source.slice(0, source.lastIndexOf('/'))}/people.md`)
+})
+
 test('a broken Markdown link creates the .md it points to, relative to the note', () => {
   assert.equal(markdownLinkNote('a/b.md', '[x](nueva.md)', 'nueva.md')?.path, 'a/nueva.md')
   assert.equal(markdownLinkNote('a/b.md', '[x](../Otra%20nota.md)', '../Otra%20nota.md')?.path, 'Otra nota.md')

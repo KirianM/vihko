@@ -335,14 +335,14 @@ export class SpaceService {
 
   /**
    * The admin adds themselves to a shared space (spec §2.4): a member row
-   * like any other, at `level` (`read` by default), which its managers are
-   * told of.
+   * like any other, at `level` (`read` by default), which its managers and
+   * the other admins are told of (D-056.22).
    */
   async join(access: Access, path: unknown, level: unknown): Promise<SharedSpaceInfo> {
     const { admin, root, level: l } = this.checkJoin(access, path, level)
     const managers = this.engine.spaceAudience(root).filter((u) => u.level === 'manage' && u.id !== admin.id).map((u) => u.id)
     await this.grant(root, admin.username, l, access.actor)
-    this.opts.notices.spaceChanged(managers, admin.id, { change: 'admin_joined', user: admin.id, to: null, space: root }, { admins: false })
+    this.opts.notices.spaceChanged(managers, admin.id, { change: 'admin_joined', user: admin.id, to: null, space: root })
     return this.info(root)
   }
 

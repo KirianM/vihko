@@ -216,7 +216,7 @@ test('permissions and spaces: rejected, notes held after a move outside vihko, g
   await k.goto('/?view=alerts')
   const rejected = card(k, 'no se pueden usar')
   await expect(rejected.getByRole('heading')).toHaveText('Los permisos de vihko.yaml no se pueden usar')
-  await expect(rejected).toContainText('nadie puede leer ninguna nota')
+  await expect(rejected).toContainText('no hay nada compartido: cada persona solo lee su propio espacio')
   const many = card(k, `${held.notes} notas retenidas`)
   // The folder as the admin sees it: the space's name, never its folder's id.
   await expect(many).toContainText(label(held.folder))

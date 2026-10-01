@@ -293,15 +293,24 @@ test('the admin assigns a manager only to a space without one, confirmed, and th
   }
 })
 
-test('the admin joins a space as a member, visibly: its managers are told', async () => {
+test('the admin joins a space as a member, visibly: its managers and the other admins are told (D-056.22)', async () => {
   const h = await setup()
   try {
+    const second = m.aUser({ role: 'admin' })
+    await h.auth.createUser(second.username, second.password, 'admin')
     const s = await newSpace(h, 'member')
     const r = await h.admin('POST', '/api/admin/spaces/join', { path: s.path, level: 'edit', confirm: h.created.admin.password })
     assert.equal(r.status, 200, r.text)
     assert.deepEqual((await h.admin('GET', '/api/spaces')).body.spaces.map((x: any) => [x.path, x.level]), [[s.path, 'edit']])
     const told = (await h.member('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'space_changed')
     assert.deepEqual(told.map((a: any) => [a.change, a.by]), [['admin_joined', h.names.admin]])
+    const res = await h.app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: second.username, password: second.password }) })
+    const cookie = res.headers.get('set-cookie')!.split(';')[0]!
+    const alerts = await (await h.app.request('/api/alerts', { headers: { cookie } })).json() as { alerts: any[] }
+    assert.deepEqual(alerts.alerts.filter((a) => a.code === 'space_changed').map((a) => [a.change, a.by, a.space]), [['admin_joined', h.names.admin, { path: s.path, name: s.name }]])
+    // Not whoever joined; nor the other member, who doesn't manage it.
+    assert.equal((await h.admin('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'space_changed').length, 0)
+    assert.equal((await h.other('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'space_changed').length, 0)
     assert.equal((await h.admin('POST', '/api/admin/spaces/join', { path: s.path, level: 'own', confirm: h.created.admin.password })).status, 400)
   } finally {
     h.close()

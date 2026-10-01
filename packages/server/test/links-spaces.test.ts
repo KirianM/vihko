@@ -562,6 +562,24 @@ test('D-056.28: an alias added by an edit is a name taken like a new note’s: r
   assert.equal(h.read(mine), before)
 })
 
+test('creating from a broken link into another space, by its path from the root: there if the person may create there, otherwise a taken name’s answer whether or not anything is there', async () => {
+  const { h, s, p } = await residual()
+  const source = `${s.space.other}/${m.aTitle()}.md`
+  h.write(source, `# ${m.aTitle()}\n`)
+  h.runtime.rescan({})
+  const create = (path: string) => h.as('other')('POST', '/api/note', { path, text: '', fromLink: source })
+  // Into the shared trip (they edit it), and into the member's space, where they can't create: by name of what is hidden and of nothing.
+  assert.equal((await create(`${s.trips}/${m.aTitle()}.md`)).status, 201)
+  const hidden = await create(p.budget)
+  const nothing = await create(`${s.space.member}/${m.aFolder()}/${m.aTitle()}.md`)
+  const real = await create(p.taken)
+  assert.deepEqual([hidden.status, hidden.body.error], [409, 'exists'], hidden.text)
+  assert.equal(hidden.text.replaceAll(p.budget, p.taken), real.text)
+  assert.deepEqual([nothing.status, nothing.body.error], [409, 'exists'], nothing.text)
+  // Read-only there (the recipes): the same answer.
+  assert.deepEqual((await create(`${s.recipes}/${m.aTitle()}.md`)).body.error, 'exists')
+})
+
 test('D-056.21: never creating from a link in a note of someone else’s personal space; from one’s own, as ever', async () => {
   const { h, s, p, budget } = await residual()
   const absent = m.aTitle()

@@ -859,8 +859,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
         const paths = a.paths.filter((p) => access.canRead(p))
         if (paths.length) alerts.push({ ...a, paths })
       } else if (a.code === 'history_purged') {
-        // What was purged, named only to an admin who can read where it was (D-056.24).
-        if (admin) alerts.push(a.path !== null && access.level(a.path) !== null ? a : { ...a, path: null })
+        // What was purged, named only to an admin who can read where it was (D-056.24), or who purged it (they wrote it, D-056.26).
+        const named = a.path !== null && (access.level(a.path) !== null || deps.history?.purgedBy(a.id) === c.get('user').id)
+        if (admin) alerts.push(named ? a : { ...a, path: null })
       } else if (admin) alerts.push(a)
     }
     // Agents writing with no version of their own to undo them by (D-034 3.8).

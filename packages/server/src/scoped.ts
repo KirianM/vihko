@@ -712,7 +712,9 @@ export class ScopedNotes {
    * note of someone else's personal space (D-056.21): there a link that looks
    * broken may lead to one of the owner's notes the person can't read, and
    * creating would take the owner's link. Refused whether or not that is so
-   * (`forbidden`), so the answer tells nothing.
+   * (`forbidden`), so the answer tells nothing. From a link into a place the
+   * person can't create in (another space, by its path from the root), the
+   * answer is a taken name's (D-056.28): it says nothing of what is there.
    */
   async create(path: string, opts: { text?: string; template?: string; freshUid?: boolean; fromLink?: string }): Promise<{ path: string; uid: string | null } & Written> {
     if (opts.fromLink !== undefined) {
@@ -722,7 +724,7 @@ export class ScopedNotes {
         throw new AccessError('a note is not created from a link in someone else\'s personal space')
       }
     }
-    const p = this.creatable(path)
+    const p = opts.fromLink === undefined ? this.creatable(path) : this.creatableFromLink(path)
     const actor = this.access.actor
     let r: { path: string; etag: string; uid: string | null }
     if (opts.template !== undefined) {
@@ -736,6 +738,17 @@ export class ScopedNotes {
     }
     // Its own text (and the uid it is told) is known to it; a template's filling isn't.
     return { path: r.path, uid: r.uid, ...this.written(r.path, r.etag, opts.template === undefined) }
+  }
+
+  /** `creatable`, for a note made from a link: a place the person can't create in answers as a taken name. */
+  private creatableFromLink(path: string): string {
+    const p = NoteService.checkPath(path)
+    try {
+      return this.creatable(p)
+    } catch (err) {
+      if (err instanceof AccessError || (err instanceof NoteError && err.code === 'not_found')) throw new NoteError('exists', `that name isn't available here: ${p}`)
+      throw err
+    }
   }
 
   /**
