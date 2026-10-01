@@ -5,32 +5,51 @@ wrong.
 
 ## What a version number promises
 
-vihko follows [semantic versioning](https://semver.org). The major version
-(the `1` in `1.4.2`) goes up for any change that makes you do something by
-hand, or that breaks something built on vihko, in any of these:
+vihko is at **0.x**: the relaunch of the project around spaces, before a
+stable 1.0. In 0.x:
 
-- `vihko.yaml`, the workspace configuration;
-- the HTTP API;
-- the MCP tools;
-- what vihko writes into your notes (the `uid` in the frontmatter, comments,
-  attachments);
-- the Docker interface: the volumes, the environment variables and the port;
-- the command line: the `vihko` commands, their options and exit status.
+- **A minor version (0.1 → 0.2) may change things you rely on**, in any of
+  these:
+  - `vihko.yaml`, the workspace configuration;
+  - the HTTP API;
+  - the MCP tools;
+  - what vihko writes into your notes and your notes folder;
+  - the Docker interface: the volumes, the environment variables and the
+    port;
+  - the command line: the `vihko` commands, their options and exit status.
 
-Within a major version, updates only add or fix things. When something in that
-list has to change, the old form keeps working, with a deprecation warning,
-until the next major version. [What 1.x keeps stable](compatibility.md) lists
-that surface item by item: every API route and MCP tool, every `vihko.yaml`
-key, the environment variables, the commands, and what vihko writes into
-notes.
+  Each such change is in the changelog's *Upgrade notes* for that version,
+  with what to do. Read them before moving to a new minor version.
+- **A patch version (0.1.0 → 0.1.1) only fixes things.**
+- **Your notes stay plain Markdown files** in any version, and vihko migrates
+  its own data (`state.db`, `vihko.yaml`) on its own when it starts.
 
-Two exceptions, each announced in the changelog:
+[What 0.x tries to keep](compatibility.md) lists that surface item by item:
+every API route and MCP tool, every `vihko.yaml` key, the environment
+variables, the commands, and what vihko writes into the notes folder. Once the
+model has settled through real use, 1.0 will freeze it.
+
+Two rules hold in every release, announced in the changelog:
 
 - **Security comes first.** If keeping something as it is would leave
-  installations open to an attack, a 1.x release can change it or turn it off
+  installations open to an attack, any release can change it or turn it off
   at once. The changelog says so under *Security*, with what to use instead.
 - **A default can change to close something**, never to open it, announced
   in the *Upgrade notes*. Features that are off by default stay off.
+
+## Coming from vihko 1.0.x
+
+vihko was first released as 1.0.x, with a single folder tree and per-folder
+permissions. That line was withdrawn, and 0.1.0 relaunched the project around
+spaces. **There is no upgrade path from 1.0.x**: vihko 0.1.0 doesn't move
+notes into spaces or convert the old permissions. Start 0.1.0 with an empty
+notes folder and an empty state folder, then copy your notes into your own
+space, `people/<you>/`, or into a shared space's folder (see
+[Notes and Markdown](notes.md#with-obsidian-and-other-editors)).
+
+Pointed at a 1.0.x notes folder, 0.1.0 starts, but nobody sees the notes
+(they're outside every space), the old `permissions` section is rejected, and
+the admins get alerts saying so.
 
 Some things are outside the promise ([What isn't covered](compatibility.md#what-isnt-covered)
 lists them all), among them:
@@ -43,13 +62,13 @@ lists them all), among them:
 
 | Tag | Use it when |
 |---|---|
-| `ghcr.io/kirianm/vihko:1` | Recommended. Every 1.x release, never 2.0. |
-| `ghcr.io/kirianm/vihko:1.4` | You want fixes only, no new features. |
-| `ghcr.io/kirianm/vihko:1.4.2` | You want to choose each update yourself, or to [roll back](#rolling-back). |
-| `ghcr.io/kirianm/vihko:latest` | Don't. It jumps to a new major version on a `docker compose pull`, and a major version can need you to do something first. |
-| `ghcr.io/kirianm/vihko:1.1.0-rc.1` | Testing a release candidate. Candidates are only published under their exact tag; `1` and `latest` never point to one. |
+| `ghcr.io/kirianm/vihko:0.1` | Recommended. Every 0.1.x release: fixes only. |
+| `ghcr.io/kirianm/vihko:0.1.0` | You want to choose each update yourself, or to [roll back](#rolling-back). |
+| `ghcr.io/kirianm/vihko:0` | Don't. It moves to every new minor version on a `docker compose pull`, and in 0.x one can need you to do something first. |
+| `ghcr.io/kirianm/vihko:latest` | Don't, for the same reason. |
+| `ghcr.io/kirianm/vihko:0.2.0-rc.1` | Testing a release candidate. Candidates are only published under their exact tag; moving tags never point to one. |
 
-A moving tag (`1`, `1.4`, `latest`) only goes forward: a fix published for an
+A moving tag (`0.1`, `0`, `latest`) only goes forward: a fix published for an
 older line doesn't move it back.
 
 ## How to update
@@ -63,7 +82,7 @@ older line doesn't move it back.
 2. **Read what changed**: the release notes on
    [GitHub Releases](https://github.com/KirianM/vihko/releases), the same text
    as [CHANGELOG.md](../CHANGELOG.md). Its *Upgrade notes* list anything to do
-   by hand and anything deprecated. Always read them before a new major
+   by hand and anything that changed. Always read them before a new minor
    version.
 
 3. **Back up** the notes folder and the state volume: see
@@ -87,11 +106,11 @@ older line doesn't move it back.
    docker compose logs --tail 20 vihko
    ```
 
-To move to a new major version, change the tag in `compose.yaml` (from `:1` to
-`:2`) after reading its upgrade notes, then run step 4.
+To move to a new minor version, change the tag in `compose.yaml` (from `:0.1`
+to `:0.2`) after reading its upgrade notes, then run step 4.
 
 From a release candidate, change the tag to the next candidate, or to the
-moving tag of its line (such as `:1`) once its release is out.
+moving tag of its line (such as `:0.2`) once its release is out.
 
 ## What happens at start
 
@@ -140,7 +159,7 @@ An older vihko refuses to start with a newer `state.db`, and restarts in a
 loop with:
 
 ```text
-Error: state.db is at version 9, newer than this install (8). Did you roll back to an older version of vihko?
+Error: state.db is at version 11, newer than this install (10). Did you roll back to an older version of vihko?
 ```
 
 To go back:
@@ -168,7 +187,7 @@ To go back:
    ```sh
    mv state/state.db state/state.db.newer
    rm -f state/state.db-wal state/state.db-shm
-   cp -p state/state.db.bak-v8 state/state.db
+   cp -p state/state.db.bak-v10 state/state.db
    ```
 
    (Use the copy you found in step 2; `-p` keeps its owner.)
@@ -188,7 +207,7 @@ To go back:
    updating:
 
    ```yaml
-       image: ghcr.io/kirianm/vihko:1.3.2
+       image: ghcr.io/kirianm/vihko:0.1.3
    ```
 
 6. **Start it** and read the log:
@@ -200,8 +219,8 @@ To go back:
 
    The index rebuilds on its own if the versions differ.
 
-Stay on the pinned tag until a fixed release is out, then go back to `:1` and
-update as usual. If the update broke something, please
+Stay on the pinned tag until a fixed release is out, then go back to the
+moving tag of your line (such as `:0.2`) and update as usual. If the update broke something, please
 [open an issue](https://github.com/KirianM/vihko/issues).
 
 If you don't have the migration copy (you deleted it, or you're going back
