@@ -30,6 +30,7 @@
 //   GET    /api/admin/retention                { lastRun, nextRun, history }: the retention's last and next run (retention.ts)
 //   POST   /api/admin/retention/preview        { trashRetentionDays?, historyRetentionDays? } → what the next run would
 //                                               remove with them: counts and bytes, never a path
+//   POST   /api/admin/retention/run            { confirm } → a run now, with the settings in force: what it removed
 //
 // Guessing a link (or the current password) counts in the login limits, as a
 // password or the first-boot token does (loginLimit.ts); a link, by the
@@ -319,6 +320,16 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
     const periods = { trashRetentionDays: days('trashRetentionDays'), historyRetentionDays: days('historyRetentionDays') }
     if (!deps.retention) return c.json({ trash: { entries: 0, bytes: 0 }, history: null })
     return c.json(await deps.retention.preview(periods))
+  })
+
+  // A run now, with the settings in force (not waiting for the weekly one): it
+  // removes for good what the preview counted, so it's confirmed at the moment.
+  app.post('/api/admin/retention/run', admin, async (c) => {
+    const { confirm } = await body(c)
+    const refused = await deps.confirm(c, confirm)
+    if (refused) return refused
+    if (!deps.retention) return c.json({ at: new Date().toISOString(), trash: { entries: 0, bytes: 0 }, history: null, failed: false })
+    return c.json(await deps.retention.run())
   })
 }
 

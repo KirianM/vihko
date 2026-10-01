@@ -1,12 +1,13 @@
 // «Users and groups» → Retention (the vihko admin): two settings for the
-// whole installation, off by default, that the nightly run applies: empty
+// whole installation, off by default, that the weekly run applies: empty
 // the trash after so many days, and delete history versions older than so
 // many days or months (each note keeps its current version, and a note in
 // the trash its whole history). Turning one on, or shortening it, first
 // shows what the next run would remove (counts and sizes, never a path: the
 // admin doesn't read every space) and is confirmed with the admin's own code
-// or password; anything that removes less is saved at once. Below, what the
-// last run removed and when the next one is.
+// or password; anything that removes less is saved at once. «Run now»
+// applies what is saved without waiting for the week, with the same preview
+// and confirmation. Below, what the last run removed and when the next one is.
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, TextField } from 'react-aria-components'
 import { ApiError, api, type AdminSettings, type RetentionCounts, type RetentionStatus } from './api.ts'
@@ -54,8 +55,17 @@ function useBytes() {
   }
 }
 
-/** Before saving what removes more: what the next run would remove, and the admin's code or password. */
-function ConfirmRetention({ next, onClose, onSaved }: { next: Periods; onClose: () => void; onSaved: (s: AdminSettings) => void }) {
+/**
+ * Before saving what removes more (`save`), or before a run now (`run`):
+ * what the run would remove, and the admin's code or password.
+ */
+function ConfirmRetention({ next, mode, onClose, onSaved, onRan }: {
+  next: Periods
+  mode: 'save' | 'run'
+  onClose: () => void
+  onSaved: (s: AdminSettings) => void
+  onRan: () => void
+}) {
   const t = useT()
   const bytes = useBytes()
   const how = useConfirmWith()
@@ -72,7 +82,10 @@ function ConfirmRetention({ next, onClose, onSaved }: { next: Periods; onClose: 
     setBusy(true)
     setError(null)
     try {
-      onSaved(await api.setAdminSettings({ ...next, confirm: secret.trim() }))
+      if (mode === 'run') {
+        await api.retentionRun(secret.trim())
+        onRan()
+      } else onSaved(await api.setAdminSettings({ ...next, confirm: secret.trim() }))
     } catch (err) {
       setError(codeError(t, err))
       setBusy(false)
@@ -88,20 +101,21 @@ function ConfirmRetention({ next, onClose, onSaved }: { next: Periods; onClose: 
         : counts.history.versions === 0 ? t('retention.previewHistoryNone')
         : t(counts.history.versions === 1 ? 'retention.previewHistoryOne' : 'retention.previewHistory', { n: counts.history.versions, size: bytes(counts.history.bytes) }))
     }
-    items.push(t('retention.previewNightly'), t('retention.previewForGood'))
+    if (mode === 'save') items.push(t('retention.previewWeekly'))
+    items.push(t('retention.previewForGood'))
   }
   return (
     <Dialog className="dialog dialog-narrow" role="alertdialog">
       <form onSubmit={(e) => void go(e)}>
         <div className="dialog-fields">
-          <Heading slot="title" className="dialog-title">{t('retention.confirmTitle')}</Heading>
+          <Heading slot="title" className="dialog-title">{t(mode === 'run' ? 'retention.runTitle' : 'retention.confirmTitle')}</Heading>
           {counts === null && !error ? <p className="hint">{t('common.loading')}</p> : <ul className="consequences" data-testid="retention-preview">{items.map((x) => <li key={x}>{x}</li>)}</ul>}
           <ConfirmField how={how} value={secret} onChange={setSecret} hint={t('retention.confirmHint')} />
           {error && <p className="error-text" role="alert">{error}</p>}
         </div>
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className="btn btn-danger" isDisabled={busy || counts === null || !secret.trim()}>{t('retention.confirm')}</Button>
+          <Button type="submit" className="btn btn-danger" isDisabled={busy || counts === null || !secret.trim()}>{t(mode === 'run' ? 'retention.runConfirm' : 'retention.confirm')}</Button>
         </div>
       </form>
     </Dialog>
@@ -116,7 +130,7 @@ export function RetentionSection({ settings, onSettings, onUnauthorized }: { set
   const fresh = () => ({ trash: periodOf(saved.trashRetentionDays, { amount: 30, unit: 'days' }, false), history: periodOf(saved.historyRetentionDays, { amount: 12, unit: 'months' }, true) })
   const [form, setForm] = useState(fresh)
   const [status, setStatus] = useState<RetentionStatus | null>(null)
-  const [confirming, setConfirming] = useState<Periods | null>(null)
+  const [confirming, setConfirming] = useState<{ next: Periods; mode: 'save' | 'run' } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fail = (err: unknown) => {
@@ -134,7 +148,7 @@ export function RetentionSection({ settings, onSettings, onUnauthorized }: { set
   const save = async () => {
     if (!changed) return
     const periods = next as Periods
-    if (tighter(saved, periods)) return setConfirming(periods)
+    if (tighter(saved, periods)) return setConfirming({ next: periods, mode: 'save' })
     setBusy(true)
     setError(null)
     try { done(await api.setAdminSettings(periods)) } catch (err) { fail(err) }
@@ -180,10 +194,15 @@ export function RetentionSection({ settings, onSettings, onUnauthorized }: { set
           )}
         </div>
         {!valid && <p className="error-text" role="alert">{t('retention.invalid', { max: MAX_DAYS })}</p>}
-        {(changed || !valid) && (
+        {(changed || !valid) ? (
           <div className="retention-actions">
             <Button className="btn" isDisabled={busy} onPress={() => setForm(fresh())}>{t('common.cancel')}</Button>
             <Button className="btn btn-primary" isDisabled={busy || !changed} onPress={() => void save()}>{t('retention.save')}</Button>
+          </div>
+        ) : (saved.trashRetentionDays !== null || saved.historyRetentionDays !== null) && (
+          // What is saved, applied now instead of at the next weekly run.
+          <div className="retention-actions">
+            <Button className="btn" isDisabled={busy} onPress={() => setConfirming({ next: saved, mode: 'run' })}>{t('retention.runNow')}</Button>
           </div>
         )}
       </div>
@@ -195,7 +214,8 @@ export function RetentionSection({ settings, onSettings, onUnauthorized }: { set
       </p>
       {error && <p className="error-text" role="alert">{error}</p>}
       <ModalOverlay className="modal-overlay" isOpen={confirming !== null} isDismissable onOpenChange={(o) => { if (!o) setConfirming(null) }}>
-        <Modal className="modal">{confirming && <ConfirmRetention next={confirming} onClose={() => setConfirming(null)} onSaved={done} />}</Modal>
+        <Modal className="modal">{confirming && <ConfirmRetention next={confirming.next} mode={confirming.mode} onClose={() => setConfirming(null)} onSaved={done}
+          onRan={() => { setConfirming(null); void load() }} />}</Modal>
       </ModalOverlay>
     </section>
   )

@@ -584,6 +584,8 @@ export const api = {
   retentionStatus: () => request<RetentionStatus>('GET', '/api/admin/retention'),
   /** What the next run would remove with these periods (null: off). */
   retentionPreview: (periods: { trashRetentionDays: number | null; historyRetentionDays: number | null }) => request<RetentionCounts>('POST', '/api/admin/retention/preview', periods),
+  /** A run now, with the settings in force, confirmed with the admin's code or password: what it removed. */
+  retentionRun: (confirm: string) => request<RetentionCounts & { at: string; failed: boolean }>('POST', '/api/admin/retention/run', { confirm }),
   /** Takes someone's second factor away (the vihko admin). */
   resetTwoFactor: (id: string, confirm: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/2fa/reset`, { confirm }).then((r) => r.user),
   twoFactor: () => request<TwoFactorInfo>('GET', '/api/account/2fa'),

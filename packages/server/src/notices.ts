@@ -25,7 +25,7 @@
 // - `shared_with_you`: someone added them to a shared space or shared a
 //   folder with them (D-056.22). The path is kept; it and every name are
 //   shown only while they can still see it.
-// - `retention_ran`: to every admin, what the nightly retention removed:
+// - `retention_ran`: to every admin, what the retention removed:
 //   how many trash entries and history versions, never a path.
 //
 // Only ids are kept (who did it, to whom): names are looked up when shown,
@@ -99,7 +99,7 @@ export type NoticeData =
   | { code: 'space_changed'; change: SpaceChange; by: string; user: string | null; to: string | null; space: string | null }
   /** `by` added them to the shared space at `path` (`space`), or shared the folder at `path` with them (`folder`). */
   | { code: 'shared_with_you'; kind: 'space' | 'folder'; by: string; path: string }
-  /** To every admin: the nightly retention removed that many trash entries and history versions (or failed). Counts only. */
+  /** To every admin: the retention removed that many trash entries and history versions (or failed). Counts only. */
   | { code: 'retention_ran'; trashEntries: number; versions: number; failed: boolean }
 
 export type NoticeCode = NoticeData['code']
@@ -208,7 +208,7 @@ export class Notices {
     }
   }
 
-  /** The nightly retention removed something (or failed): every admin is told, with counts only. */
+  /** A retention run removed something (or failed): every admin is told, with counts only. */
   retentionRan(data: Omit<Extract<NoticeData, { code: 'retention_ran' }>, 'code'>) {
     const admins = this.db.prepare(`select id from users where role = 'admin' and deleted_at is null`).all() as { id: string }[]
     for (const a of admins) this.add(a.id, { code: 'retention_ran', ...data })

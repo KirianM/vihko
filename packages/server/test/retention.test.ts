@@ -374,9 +374,47 @@ for (const crashAt of ['purge-importing', 'purge-moved']) {
   })
 }
 
-test('the nightly run is at the hour asked, the next day once it has passed', () => {
-  const at = new Date(2026, 9, 1, 2, 59).getTime()
-  assert.equal(nextAt(at, 3), new Date(2026, 9, 1, 3, 0).getTime())
-  assert.equal(nextAt(new Date(2026, 9, 1, 3, 0).getTime(), 3), new Date(2026, 9, 2, 3, 0).getTime())
-  assert.equal(nextAt(new Date(2026, 9, 1, 23, 30).getTime(), 3), new Date(2026, 9, 2, 3, 0).getTime())
+test('the run is weekly: on the day and hour asked, the next week once it has passed', () => {
+  // 1 October 2026 is a Thursday; Sunday is 4 October.
+  const at = (d: number, h: number, min = 0) => new Date(2026, 9, d, h, min).getTime()
+  assert.equal(new Date(at(1, 12)).getDay(), 4)
+  assert.equal(nextAt(at(1, 12), 3, 0), at(4, 3))
+  assert.equal(nextAt(at(4, 2, 59), 3, 0), at(4, 3))
+  assert.equal(nextAt(at(4, 3), 3, 0), at(11, 3))
+  assert.equal(nextAt(at(4, 23, 30), 3, 0), at(11, 3))
+  assert.equal(nextAt(at(1, 12), 3, 4), at(8, 3), 'Thursday at noon: the next Thursday')
+  assert.equal(nextAt(at(1, 2), 3, 4), at(1, 3))
+})
+
+test('«Run now»: confirmed at the moment, with the settings in force; it removes what the preview counted and a second one finds nothing', async () => {
+  const NOTE = inShared(m.aNotePath(m.aFolder()))
+  const h = await setup({ files: { [NOTE]: `# ${m.aHeading()}\n` } })
+  try {
+    await h.notes.delete(NOTE, { actor: { kind: 'user', id: h.ids.admin } })
+    const metaDir = join(h.stateDir, 'trash')
+    const [id] = readdirSync(metaDir)
+    const metaFile = join(metaDir, id!, 'meta.json')
+    // Deleted two days ago, as far as the trash is concerned.
+    const meta = JSON.parse(readFileSync(metaFile, 'utf8')) as TrashEntry
+    writeFileSync(metaFile, JSON.stringify({ ...meta, deletedAt: new Date(Date.now() - 2 * DAY).toISOString() }))
+    const password = h.users.admin.password
+    assert.equal((await h.admin('PUT', '/api/admin/settings', { trashRetentionDays: 1, confirm: password })).status, 200)
+    const preview = await h.admin('POST', '/api/admin/retention/preview', {})
+    assert.equal(preview.body.trash.entries, 1)
+
+    assert.equal((await h.admin('POST', '/api/admin/retention/run', {})).body.error, 'confirmation_required')
+    assert.equal((await h.admin('POST', '/api/admin/retention/run', { confirm: m.aPassword() })).status, 403)
+    assert.equal(h.notes.trash().length, 1, 'nothing ran')
+    assert.equal((await h.member('POST', '/api/admin/retention/run', { confirm: h.users.member.password })).status, 403)
+
+    const run = await h.admin('POST', '/api/admin/retention/run', { confirm: password })
+    assert.equal(run.status, 200)
+    assert.deepEqual(run.body.trash, preview.body.trash)
+    assert.equal(run.body.failed, false)
+    assert.equal(h.notes.trash().length, 0)
+    const status = await h.admin('GET', '/api/admin/retention')
+    assert.deepEqual(status.body.lastRun.trash, preview.body.trash)
+    const again = await h.admin('POST', '/api/admin/retention/run', { confirm: password })
+    assert.deepEqual(again.body.trash, { entries: 0, bytes: 0 })
+  } finally { await h.close() }
 })

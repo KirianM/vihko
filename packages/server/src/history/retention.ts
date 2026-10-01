@@ -1,6 +1,6 @@
 // Automatic retention of the managed history: the versions older than the
 // admin's period go, while vihko runs (the retention service, retention.ts,
-// calls it at night). The rewrite is the purge's (purge.ts): the new commits
+// calls it weekly, or when the admin asks). The rewrite is the purge's (purge.ts): the new commits
 // go to a ref of their own, `refs/heads/main` moves at the end in one step
 // that checks it didn't move meanwhile, and the repository is compacted.
 // A process killed half way leaves the history as it was, or rewritten and

@@ -1,6 +1,6 @@
 // Automatic retention: the two admin settings that empty the trash and thin
-// the history (adminSettings.ts), both off by default, and the nightly run
-// that applies them.
+// the history (adminSettings.ts), both off by default, and the weekly run
+// that applies them (or one the admin starts now, confirmed: http/users.ts).
 //
 // - The trash: entries deleted more than `trashRetentionDays` ago are removed
 //   for good, with the images and files that went with them. Each entry is
@@ -14,9 +14,12 @@
 //   its deletion: the run writes those notes down (`retention.json`) before
 //   removing the entries, so a run cut short still takes their history out
 //   the next time.
-// - It runs once a night (at `hour`, the server's local time), postponed
-//   while someone is writing, up to `MAX_POSTPONE_MS`. The history pauses
-//   while it's rewritten: notes are still written, and their versions wait.
+// - It runs once a week (on `weekday` at `hour`, the server's local time:
+//   Sunday at 03:00), postponed while someone is writing, up to
+//   `MAX_POSTPONE_MS`. Weekly, not nightly: rewriting the history gives the
+//   versions after the first one removed new ids, and a run that finds
+//   nothing to drop rewrites nothing. The history pauses while it's
+//   rewritten: notes are still written, and their versions wait.
 // - Every admin is told what it removed, with counts only (never a path: the
 //   admin doesn't read other people's spaces). Turning a setting on, or
 //   shortening it, shows first what the next run would remove (`preview`),
@@ -35,7 +38,7 @@ import type { Notices } from './notices.ts'
 import type { TrashEntry } from './notes.ts'
 
 const DAY_MS = 86_400_000
-/** How long a busy night postpones the run, at most (then it runs anyway). */
+/** How long someone writing postpones a scheduled run, at most (then it runs anyway). */
 const MAX_POSTPONE_MS = 3 * 3_600_000
 /** How long it waits each time someone is writing. */
 const POSTPONE_MS = 10 * 60_000
@@ -79,6 +82,8 @@ export interface RetentionOptions {
   now?: () => number
   /** The hour it runs at, the server's local time (3). */
   hour?: number
+  /** The day of the week it runs on, 0 for Sunday as `Date#getDay` (0). */
+  weekday?: number
 }
 
 export class Retention {
@@ -133,7 +138,7 @@ export class Retention {
     return this.running
   }
 
-  /** Starts the nightly runs. */
+  /** Starts the weekly runs. */
   start() {
     this.schedule()
   }
@@ -147,17 +152,20 @@ export class Retention {
   private schedule() {
     if (this.timer) clearTimeout(this.timer)
     const now = this.now()
-    this.next = nextAt(now, this.opts.hour ?? 3)
-    this.timer = setTimeout(() => { void this.nightly(this.next!) }, this.next - now)
+    this.next = nextAt(now, this.opts.hour ?? 3, this.opts.weekday ?? 0)
+    // A week is longer than a timer may wait: it wakes up daily until it's time.
+    const wait = Math.min(this.next - now, DAY_MS)
+    const due = this.next
+    this.timer = setTimeout(() => { if (this.now() >= due) void this.scheduled(due); else this.schedule() }, wait)
     this.timer.unref()
   }
 
-  /** At night: postponed while someone is writing (up to a limit), then run, and the next night scheduled. */
-  private async nightly(due: number) {
+  /** Its time: postponed while someone is writing (up to a limit), then run, and the next one scheduled. */
+  private async scheduled(due: number) {
     const s = this.opts.settings.view()
     const on = s.trashRetentionDays !== null || s.historyRetentionDays !== null || this.state.compactPending
     if (on && this.opts.history?.busy() && this.now() - due < MAX_POSTPONE_MS) {
-      this.timer = setTimeout(() => { void this.nightly(due) }, POSTPONE_MS)
+      this.timer = setTimeout(() => { void this.scheduled(due) }, POSTPONE_MS)
       this.timer.unref()
       return
     }
@@ -287,11 +295,12 @@ function filesOf(e: TrashEntry): DeletedFile[] {
   return out
 }
 
-/** The next time it's `hour`:00 (local time) after `now`. */
-export function nextAt(now: number, hour: number): number {
+/** The next time it's `hour`:00 (local time) on `weekday` (0: Sunday) after `now`. */
+export function nextAt(now: number, hour: number, weekday: number): number {
   const d = new Date(now)
   d.setHours(hour, 0, 0, 0)
-  if (d.getTime() <= now) d.setDate(d.getDate() + 1)
+  d.setDate(d.getDate() + ((weekday - d.getDay() + 7) % 7))
+  if (d.getTime() <= now) d.setDate(d.getDate() + 7)
   return d.getTime()
 }
 

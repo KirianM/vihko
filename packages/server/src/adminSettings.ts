@@ -25,12 +25,12 @@ export interface AdminSettingsView {
   spacesCreation: SpacesCreation
   /**
    * Trash entries deleted more than this many days ago are removed for good,
-   * with their images, at the nightly run (retention.ts). Null, the default:
+   * with their images, at the weekly run (retention.ts). Null, the default:
    * the trash is never emptied on its own.
    */
   trashRetentionDays: number | null
   /**
-   * History versions older than this many days are removed at the nightly
+   * History versions older than this many days are removed at the weekly
    * run, keeping each note's version at that moment (history/retention.ts).
    * Null, the default: the history keeps everything.
    */

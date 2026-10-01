@@ -1,7 +1,8 @@
 // «Users and groups» → Retention: off by default; turning a period on shows
 // first what the next run would remove (counts, never a path) and asks for
 // the admin's password; a longer period, or off, is saved at once; what is
-// saved is what the page shows after a reload. On a phone too.
+// saved is what the page shows after a reload. «Run now» applies what is
+// saved at once, with the same preview and confirmation. On a phone too.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, E2E_DIR, specMother } from './env.ts'
@@ -50,11 +51,11 @@ test('the admin turns retention on after a preview and the password, lengthens i
   await expect(section(page).getByRole('combobox', { name: 'Unidad' })).toHaveValue('months')
   await section(page).getByRole('button', { name: 'Guardar' }).click()
   const dialog = page.getByRole('alertdialog')
-  await expect(dialog.getByRole('heading')).toHaveText('¿Borrar más a partir de esta noche?')
+  await expect(dialog.getByRole('heading')).toHaveText('¿Borrar más a partir de la próxima vez?')
   const preview = dialog.getByTestId('retention-preview')
   await expect(preview).toContainText('papelera')
   await expect(preview).toContainText('historial')
-  await expect(preview).toContainText('cada noche')
+  await expect(preview).toContainText('cada semana')
   await page.screenshot({ path: `${SHOTS}/retention-confirm.png` })
   const confirm = dialog.getByRole('button', { name: 'Guardar y borrar' })
   await expect(confirm).toBeDisabled()
@@ -75,6 +76,20 @@ test('the admin turns retention on after a preview and the password, lengthens i
   await expect(section(page).getByTestId('retention-status')).toContainText('Aún no se ha aplicado.')
   await expect(section(page).getByTestId('retention-status')).toContainText('Próxima:')
   await section(page).screenshot({ path: `${SHOTS}/retention-on.png` })
+
+  // Run now: the same preview and confirmation, then the last run says so.
+  await section(page).getByRole('button', { name: 'Aplicar ahora' }).click()
+  const run = page.getByRole('alertdialog')
+  await expect(run.getByRole('heading')).toHaveText('¿Aplicar la retención ahora?')
+  await expect(run.getByTestId('retention-preview')).toContainText('papelera')
+  await expect(run.getByTestId('retention-preview')).not.toContainText('cada semana')
+  await run.getByLabel('Tu contraseña').fill(m.aPassword())
+  await run.getByRole('button', { name: 'Borrar ahora' }).click()
+  await expect(run.getByRole('alert')).toBeVisible()
+  await run.getByLabel('Tu contraseña').fill(ADMIN.password)
+  await run.getByRole('button', { name: 'Borrar ahora' }).click()
+  await expect(run).toBeHidden()
+  await expect(section(page).getByTestId('retention-status')).toContainText('Última vez:')
 
   // Longer: saved at once, nothing to confirm.
   await section(page).getByRole('textbox', { name: 'Días en la papelera' }).fill('60')

@@ -234,7 +234,7 @@ export type Alert =
    */
   | { code: 'links_not_updated'; id: string; at: string; actions: 'dismiss'[] }
   /**
-   * Addressed to every admin: the nightly retention run at `at`
+   * Addressed to every admin: a retention run (weekly, or started by an admin) at `at`
    * removed `trashEntries` trash entries and `versions` history versions
    * (counts only, never a path), or `failed` (the log says why; what it did
    * before failing is counted). Until each dismisses theirs.
