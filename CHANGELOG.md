@@ -10,11 +10,34 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
-## [Unreleased]
+## [0.1.0-rc.2] - Unreleased
 
-<!-- rc.2: purging and paths typed by people -->
+What the first real install of rc.1 brought up: links now stay inside their
+space, the interface never shows the folders `people/` and `spaces/`, paths
+are typed as people see them, purging works as it should, and the selects
+look the same in every browser.
+
+### Upgrade notes
+
+- **Links no longer cross spaces.** A link, by name or by path (`[[spaces/…]]`,
+  `[[people/…]]`, `[[/…]]`, a relative Markdown link), only leads to a note of
+  its own space. Links rc.1 wrote into another space
+  (`[[spaces/home-7k2q9x/Plan|Plan]]`) are broken from now on; nothing rewrites them. vihko rebuilds the links in
+  its index once at start (nothing to do).
+- **The move report's `crossSpaceLinks` is gone**, replaced by `brokenLinks`
+  (over MCP, the new `broken_links`): the links a move to another space leaves
+  broken, each with `path` and `to`. Each change in `relinked` has two more
+  fields, `kind` and `to`.
+- **Note addresses in the browser** are `?note=home-7k2q9x/…` for a shared
+  space and `?note=~<username>/…` for a person's. Links and bookmarks with the
+  old form (`?note=people/…`, `?note=spaces/…`) still open the note.
+
 ### Added
 
+- **The move dialog lists, in plain words, the links a move to another space
+  leaves broken** («In My notes / Home, the link to Trip will be broken (it
+  now lives in Family)»), in the moved note and in the notes left behind, and
+  asks to confirm.
 - `GET /api/history/purgeable`: what the person may purge and reads, to pick
   from (deleted notes marked). The admin's purge form offers it, deleted notes
   first.
@@ -23,6 +46,20 @@ its entries are kept at the end of this file.
 
 ### Changed
 
+- **Links stay inside their space** (wikilinks, embeds of notes and Markdown
+  links to notes): a path into another space is broken, exactly like a link
+  to a note that doesn't exist. vihko never writes a link to another space:
+  a move to another space rewrites nothing across spaces (its links stay and
+  resolve in the new space), the `[[` suggestions only offer notes of the
+  same space, and «create» on a broken link only creates in that space.
+  Images still travel with the note.
+- **No screen, field or notice shows `people/` or `spaces/`**, the admin's
+  included: spaces and people by their names. The browser's address uses the
+  space's folder, or `~` and the username.
+- The rename and move previews speak in sentences with the names people see,
+  never raw Markdown or paths on disk.
+- Every select (`<select>`) has the same look in Chromium, Firefox and Safari,
+  light and dark: its own chevron in the theme's colours, with room for it.
 - Paths people type in the interface are found as links are: as they see
   them («My notes / diary / day», «Home / recipes»), in any case. The admin's
   purge, where something is moved and a new note's folders in the palette use
@@ -36,7 +73,6 @@ its entries are kept at the end of this file.
   the admin's purge form takes the path as the admin sees it, never asks for
   `people/…`, and finds the note in any case; when nothing there has history it says so instead of
   purging nothing; and it asks for the code or password once per purge.
-<!-- /rc.2: purging and paths typed by people -->
 
 ## [0.1.0-rc.1] - 2026-10-01
 
