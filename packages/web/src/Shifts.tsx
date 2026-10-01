@@ -1,8 +1,10 @@
 // Links a move leaves as they are but whose resolution changes (D-019: an
 // ambiguous link is never resolved silently): in the rename and folder-move
 // previews, by source note, so whoever moves decides whether to go ahead.
+// In words: each link by the name it shows, never its Markdown.
 import type { LinkState, Shift, ShiftGroup } from './api.ts'
 import { useT } from './i18n.tsx'
+import { shownName } from './MovePreview.tsx'
 import { Icon, noteName } from './ui.tsx'
 import { usePathLabels } from './spaces.tsx'
 
@@ -28,11 +30,21 @@ function describe(t: ReturnType<typeof useT>, c: Shift, label: Label): string {
   return t('shift.breaks')
 }
 
-export function ShiftPreview({ groups }: { groups: ShiftGroup[] }) {
+/** A link that led to a note and will be broken: a move to another space lists those apart (MovePreview `BrokenRows`). */
+const isBreak = (c: Shift) => c.code === 'breaks' && c.before.status === 'resolved'
+
+/** `withoutBreaks`: leave out the links that will be broken, already listed apart. */
+export function ShiftPreview({ groups, withoutBreaks = false }: { groups: ShiftGroup[]; withoutBreaks?: boolean }) {
   const t = useT()
   const { label } = usePathLabels()
-  if (groups.length === 0) return null
-  const n = shiftCount(groups)
+  const shown = withoutBreaks
+    ? groups.flatMap((g) => {
+      const changes = g.changes.filter((c) => !isBreak(c))
+      return changes.length ? [{ ...g, links: changes.length, changes }] : []
+    })
+    : groups
+  if (shown.length === 0) return null
+  const n = shiftCount(shown)
   return (
     <section className="shifts" aria-label={t(n === 1 ? 'shift.titleOne' : 'shift.titleMany', { n })}>
       <div className="shifts-head">
@@ -42,7 +54,7 @@ export function ShiftPreview({ groups }: { groups: ShiftGroup[] }) {
           <span className="shifts-hint">{t('shift.hint')}</span>
         </span>
       </div>
-      {groups.map((g) => (
+      {shown.map((g) => (
         <div className="shifts-group" key={g.path}>
           <div className="shifts-src">
             <span>{label(g.path)}</span>
@@ -50,7 +62,7 @@ export function ShiftPreview({ groups }: { groups: ShiftGroup[] }) {
           </div>
           {g.changes.map((c, i) => (
             <div className="shifts-row" key={i}>
-              <code>{c.raw}</code> <span>{describe(t, c, label)}</span>
+              {t('shift.row', { name: shownName(c.raw), what: describe(t, c, label) })}
             </div>
           ))}
         </div>

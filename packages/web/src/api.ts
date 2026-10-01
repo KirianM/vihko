@@ -111,11 +111,20 @@ export interface Shift { raw: string; code: 'resolves' | 'ambiguous' | 'retarget
 /** Those links, by source note. */
 export interface ShiftGroup { path: string; links: number; changes: Shift[] }
 
+/** One rewrite in a note: its text before and after, and the note (`link`) or image (`image`) it keeps leading to. */
+export interface RelinkChange { before: string; after: string; kind: 'link' | 'image'; to: string }
+/**
+ * A link a move to another space leaves broken (D-056.30: a link never leads
+ * to another space): in `path` (where that note is after the move), to `to`
+ * (where the note it led to is after the move).
+ */
+export interface BrokenLink { path: string; to: string }
+
 /** What a rename or move does (or would do, with `dryRun`). */
 export interface MoveReport {
   from: string
   to: string
-  relinked: { path: string; links: number; changes: { before: string; after: string }[] }[]
+  relinked: { path: string; links: number; changes: RelinkChange[] }[]
   shifted: ShiftGroup[]
   kept: { path: string; raw: string; via: 'path' | 'alias' }[]
   failed: { path: string; error: ErrorCode; message: string }[]
@@ -137,17 +146,10 @@ export interface MoveReport {
   }
   /** In a dry run, whose access changes (D-038): the UI asks before moving. */
   audience?: AudienceChange
-  /** To another space: the links it writes as paths from the notes root. */
-  crossSpaceLinks?: CrossSpaceLinks
+  /** To another space: the links it leaves broken. */
+  brokenLinks?: BrokenLink[]
   dryRun: boolean
 }
-/**
- * A move to another space (D-056): `incoming` links in other spaces' notes
- * will name `path` (their readers see that path, or a broken link if they
- * can't read it); `outgoing` links in what moved now name notes of the space
- * it leaves by their path.
- */
-export interface CrossSpaceLinks { path: string; incoming: number; outgoing: number }
 /** What a folder move does (or would do, with `dryRun`): every note in it goes along, links kept. */
 export interface FolderMoveReport {
   from: string
@@ -162,7 +164,8 @@ export interface FolderMoveReport {
   images?: { copied: { from: string; to: string }[]; failed: MoveReport['images']['failed'] }
   /** In a dry run, whose access changes (D-038): the UI asks before moving. */
   audience?: AudienceChange
-  crossSpaceLinks?: CrossSpaceLinks
+  /** To another space: the links it leaves broken. */
+  brokenLinks?: BrokenLink[]
   dryRun: boolean
 }
 /**
