@@ -162,6 +162,8 @@ export function SpaceSections(p: SpaceSectionsProps) {
       onDrop={p.onDrop}
       draggable={p.draggable}
       folderInfo={p.folderInfo}
+      // Out of one's own space or a shared one, to a new space; from a shared one, to one's own too (D-056.28).
+      spaceMoves={s.kind === 'mine' || s.kind === 'shared' ? { newSpace: p.info.canCreate, mine: s.kind === 'shared' } : undefined}
       emptyText={s.kind === 'mine' ? (
         <span className="space-empty">
           <span>{t('spaces.mineEmpty')}</span>

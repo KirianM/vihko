@@ -9,7 +9,7 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { PEOPLE, SPACES, anchorChanged, classifyPath, contentHash, extract, folderOf, isRootTarget, isSpaceRoot, linkSpace, parentFolder, parseSpacePath, parseThreads, placement, rulesOf, spaceOf, spaceRootOf, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type Range } from '@vihko/core'
+import { PEOPLE, SPACES, anchorChanged, classifyPath, contentHash, extract, folderOf, isRootTarget, isSpaceRoot, linkSpace, parentFolder, parseSpacePath, parseThreads, placement, rulesOf, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
 import { lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
@@ -167,6 +167,9 @@ export interface EditPreview {
  * moved is hidden from it at its new path (then without its ETag).
  */
 export type ScopedMoveReport = MoveReport & { hidden?: boolean; nowHidden?: NowHidden; audience?: AudienceChange; crossSpaceLinks?: CrossSpaceLinks }
+
+/** A folder move's report as the person gets it (`moveFolder`). */
+export type ScopedFolderMove = FolderMoveReport & { hidden: boolean; audience?: AudienceChange; crossSpaceLinks?: CrossSpaceLinks }
 
 /**
  * When a move takes a note or a folder to another space (D-056): the links
@@ -1173,20 +1176,32 @@ export class ScopedNotes {
    * folder can't move, the copies go. The report names only what the person
    * can see; a dry run says whose access changes, and whose it becomes
    * (`audience`).
+   *
+   * `newSpace`: `to` is the root of a shared space that doesn't exist yet,
+   * named `name`, and the folder becomes it (D-056.28, «Move to a new
+   * space»): what it holds goes to its root, with the folder's own grants
+   * and whoever moves it managing it; who may create spaces is the caller's
+   * to judge (spaceService.ts `fromFolder`).
    */
-  async moveFolder(from: string, to: string, opts: { dryRun?: boolean } & MoveHooks = {}): Promise<FolderMoveReport & { hidden: boolean; audience?: AudienceChange; crossSpaceLinks?: CrossSpaceLinks }> {
+  async moveFolder(from: string, to: string, opts: { dryRun?: boolean; newSpace?: { name: string } } & MoveHooks = {}): Promise<ScopedFolderMove> {
+    const { newSpace, ...hooks } = opts
     const f = NoteService.checkFolder(from)
     const t = NoteService.checkFolder(to)
     this.assertFolderToChange(f)
-    assertPlacement(t, true)
-    this.assertFolder(parentFolder(t)!, 'edit')
+    const space = newSpace ? this.newSpaceRule(f, t, newSpace.name) : null
+    if (!space) {
+      assertPlacement(t, true)
+      this.assertFolder(parentFolder(t)!, 'edit')
+    }
     const actor = this.access.actor
     // Images it takes to another space are only those the person can read (D-056).
     const canRead = (p: string) => this.access.canRead(p)
     const back = (p: string) => (p === t || p.startsWith(t + '/') ? f + p.slice(t.length) : p)
     const engine = this.deps.permissions
     const under = (this.deps.index.prepare("select path from folders where path = ? or path like ? escape '\\'").all(f, likePrefix(f)) as { path: string }[]).map((r) => r.path)
-    const plan = engine ? ruleMove(engine, f, t) : { rules: null }
+    const moved = engine ? ruleMove(engine, f, t) : { rules: null }
+    // A new space: its root's rule in place of the folder's own.
+    const plan = space && moved.rules ? { rules: [...moved.rules.filter((r) => r.folder !== t), space] } : moved
     const mask = (r: FolderMoveReport) => {
       const { filePaths, ...rest } = r
       const masked = this.maskReport(rest, back)
@@ -1200,14 +1215,14 @@ export class ScopedNotes {
       const pairs = [...r.notes.map((n) => ({ before: n.from, after: n.to })), ...under.map((d) => ({ before: `${d}/_`, after: `${t}${d.slice(f.length)}/_` }))]
       return { ...r, audience: audienceChange(engine, this.deps.keys(), pairs, plan.rules) }
     }
-    await this.clearForgotten(parentFolder(t)!)
+    if (!space) await this.clearForgotten(parentFolder(t)!)
     const file = this.deps.permissionsFile
     const before = file?.read().text ?? null
-    const copied = file ? (await file.moveRules(f, t, { actor, keepFrom: true })).changed : false
+    const copied = file ? (await file.moveRules(f, t, { actor, keepFrom: true, ...(space ? { extra: [space] } : {}) })).changed : false
     const afterCopy = copied ? file!.read().text : null
     let report: FolderMoveReport
     try {
-      report = await this.spelled(t, () => this.deps.notes.moveFolder(f, t, { actor, ...opts, canRead, mayName: this.mayName, counts: this.counts }))
+      report = await this.spelled(t, () => this.deps.notes.moveFolder(f, t, { actor, ...hooks, canRead, mayName: this.mayName, counts: this.counts }))
     } catch (err) {
       // It didn't move: the copies go, unless someone changed the file meanwhile.
       if (copied) await file!.update((x) => (x === afterCopy ? before ?? '' : x), { actor }).catch(() => {})
@@ -1223,6 +1238,26 @@ export class ScopedNotes {
       this.deps.log?.(`keys, pins or trash entries under ${f} still name it after it moved to ${t}: ${err instanceof Error ? err.message : String(err)}`)
     }
     return mask(report)
+  }
+
+  /**
+   * The rule of the new shared space `root` (not there yet, named `name`) a
+   * folder becomes (`moveFolder` with `newSpace`): the folder's own grants
+   * and `ai`, with whoever moves it managing it. Only a folder inside a space
+   * (not a space's root), to a shared space's root nothing is at.
+   */
+  private newSpaceRule(folder: string, root: string, name: string): PermissionRule & { name: string } {
+    const s = parseSpacePath(folder)
+    if (!s || s.inner === '') throw new RequestError(400, 'space_root', 'only a folder inside a space becomes a space of its own')
+    const target = parseSpacePath(root)
+    if (this.access.isAgent || !target || target.space.kind !== 'shared' || target.inner !== '') throw new RequestError(400, 'invalid', 'not a new shared space\'s root')
+    const engine = this.deps.permissions
+    const own = engine ? rulesOf(engine.section).find((r) => r.folder === folder.normalize('NFC')) : undefined
+    const me = this.access.user.username
+    const grants: Record<string, Level> = {}
+    for (const [subject, level] of Object.entries(own?.grants ?? {})) if (subjectKey(subject) !== subjectKey(me)) grants[subject] = level
+    grants[me] = 'manage'
+    return { folder: root, grants, ai: own?.ai ?? null, name }
   }
 
   // --- Other requests about notes -----------------------------------------------

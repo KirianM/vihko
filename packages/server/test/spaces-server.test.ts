@@ -135,6 +135,54 @@ test('creating a shared space: anyone by default, only admins with the setting; 
   }
 })
 
+test('«Move to a new space» (D-056.28): a folder becomes a shared space of its own, its mover managing it, its links kept, with the move\'s audience in the preview', async () => {
+  const h = await setup()
+  try {
+    // A shared space of the member's and the other's, with a folder the other mustn't see any more.
+    const casa = await newSpace(h, 'member', { [h.names.other]: 'edit' })
+    const folderName = m.aFolder()
+    const folder = `${casa.path}/${folderName}`
+    const [inside, sub, linking] = [`${folder}/${m.aTitle()}.md`, `${folder}/${m.aFolder()}`, `${casa.path}/${m.aTitle()}.md`]
+    h.write(inside, `# ${m.aHeading()}\n`)
+    h.write(`${sub}/${m.aTitle()}.md`, `# ${m.aHeading()}\n`)
+    h.write(linking, `[[${inside.slice(casa.path.length + 1, -3)}]]\n`)
+    // A grant of the folder's own (the admin) and one of a subfolder (the admin too): they come along.
+    await h.rule(folder, { grants: { [h.names.admin]: 'read' } })
+    const url = '/api/spaces/from-folder'
+    const dry = await h.member('POST', url, { path: folder, dryRun: true })
+    assert.equal(dry.status, 200, dry.text)
+    assert.equal(dry.body.space, undefined)
+    assert.deepEqual(dry.body.report.audience.users.lose.map((u: any) => u.username), [h.names.other])
+    assert.deepEqual(dry.body.report.audience.owner.after, { kind: 'shared', path: dry.body.report.to, name: folderName })
+    assert.ok(existsSync(join(h.notesDir, inside)), 'a dry run moves nothing')
+    // Only whoever may move it: the other edits the space but doesn't manage the folder.
+    assert.deepEqual((await h.other('POST', url, { path: folder })).body.error, 'forbidden')
+    // A space's own root doesn't become another.
+    assert.deepEqual((await h.member('POST', url, { path: casa.path, dryRun: true })).body.error, 'space_root')
+    const r = await h.member('POST', url, { path: folder })
+    assert.equal(r.status, 201, r.text)
+    const root = r.body.space.path as string
+    assert.match(root, /^spaces\/[^/]+-[a-z0-9]{6}$/)
+    assert.equal(r.body.space.name, folderName)
+    const moved = (p: string) => root + p.slice(folder.length)
+    assert.ok(existsSync(join(h.notesDir, moved(inside))) && !existsSync(join(h.notesDir, folder)))
+    const rules = rulesInFile(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8'))
+    assert.deepEqual(rules.get(root), { name: folderName, grants: { [h.names.admin]: 'read', [h.names.member]: 'manage' }, ai: null })
+    assert.equal(rules.get(folder), undefined)
+    // The other no longer reads it; the member manages it; the link from the space it left follows it.
+    assert.equal((await h.other('GET', `/api/note?path=${encodeURIComponent(moved(inside))}`)).status, 404)
+    assert.equal((await h.member('GET', '/api/spaces')).body.spaces.find((s: any) => s.path === root)?.level, 'manage')
+    assert.ok(readFileSync(join(h.notesDir, linking), 'utf8').includes(`[[${moved(inside).slice(0, -3)}|`))
+    // With the setting `spacesCreation: admins`, a member can't.
+    const other = `${h.home('member')}/${m.aFolder()}`
+    h.write(`${other}/${m.aTitle()}.md`, `# ${m.aHeading()}\n`)
+    await h.admin('PUT', '/api/admin/settings', { spacesCreation: 'admins' })
+    assert.deepEqual((await h.member('POST', url, { path: other, dryRun: true })).body.error, 'forbidden')
+  } finally {
+    h.close()
+  }
+})
+
 test('renaming a space changes its name, never its folder; only its managers may, and others learn nothing', async () => {
   const h = await setup()
   try {

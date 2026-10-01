@@ -9,6 +9,8 @@
 // A person (session):
 //   POST   /api/spaces                     { name, members? } → 201 { space }: a new shared space, its creator managing it;
 //                                            403 with the setting `spacesCreation: admins`, for a member
+//   POST   /api/spaces/from-folder         { path, name?, dryRun? } → dry run: { report }; 201 { space, report }: a folder of a
+//                                            space becomes a shared space of its own («Move to a new space», D-056.28)
 //   POST   /api/spaces/rename              { path, name } → { space }: `manage` at its root; the folder never changes
 //   DELETE /api/spaces?path=&trash=true    `manage` at its root: what it holds to the trash (with trash=true), its rules out
 //   POST   /api/spaces/leave               { path } → { path }: one's own grants there and under it go;
@@ -51,6 +53,12 @@ export function spaceRoutes(app: Hono<Env>, deps: SpaceRoutesDeps) {
   app.post('/api/spaces', async (c) => {
     const b = await body(c)
     return c.json({ space: await spaces.create(access(c), { name: b.name, members: b.members }) }, 201)
+  })
+
+  app.post('/api/spaces/from-folder', async (c) => {
+    const b = await body(c)
+    const r = await spaces.fromFolder(access(c), { path: b.path, name: b.name, dryRun: b.dryRun })
+    return r.space === null ? c.json({ report: r.report }) : c.json({ space: r.space, report: r.report }, 201)
   })
 
   app.post('/api/spaces/rename', async (c) => {

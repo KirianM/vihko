@@ -852,7 +852,8 @@ export class NoteService {
     const imagePlan = this.planImages(text, from, to, assets.folder?.from ?? null, opts.canRead)
     report.images = { moved: imagePlan.moved, copied: imagePlan.copied, stayed: imagePlan.stayed, folder: assets.folder, failed: [...assets.failed, ...imagePlan.unplaceable] }
     const planned = movedNotePlan(text, from, to, before, after, map, placeOf([...imagePlan.moved, ...imagePlan.copied], assets.folder))
-    const guard = nameGuard(opts.mayName, !!opts.dryRun)
+    // The moved note names itself by where it goes: judged where it was (whoever moves it reads it).
+    const guard = nameGuard(opts.mayName && ((p) => opts.mayName!(p === to ? from : p)), !!opts.dryRun)
     const ownChanges = guard.shown(from, planned)
     if (ownChanges.length) report.relinked.push({ path: to, links: ownChanges.length, changes: ownChanges })
     addShifts(report.shifted, to, planned.shifts)
@@ -1271,7 +1272,8 @@ export class NoteService {
     const copies = this.planFolderCopies(moves, from, to, opts.canRead)
     report.images.copied = [...copies.planned.values()]
     const own: [string, string][] = []
-    const guard = nameGuard(opts.mayName, !!opts.dryRun)
+    // The moved notes name themselves by where they go: judged where they were (whoever moves them reads them).
+    const guard = nameGuard(opts.mayName && ((p) => opts.mayName!(p === to || p.startsWith(to + '/') ? from + p.slice(to.length) : p)), !!opts.dryRun)
     for (const [f, t] of moves) {
       const text = readText(join(this.opts.notesDir, f))
       if (text === null) continue

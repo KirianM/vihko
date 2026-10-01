@@ -30,6 +30,7 @@ import type { FolderRefs } from './folderRefs.ts'
 import { followable } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService } from './notes.ts'
+import type { ScopedFolderMove } from './scoped.ts'
 import type { Notices } from './notices.ts'
 import type { PermissionsEngine, SharedEntry, SharedSpaceInfo, SpaceEntry } from './permissions.ts'
 import type { PermissionsFile } from './permissionsFile.ts'
@@ -119,6 +120,8 @@ export interface SpaceServiceOptions {
   indexer: Indexer
   /** Deletes a folder as a principal (scoped.ts `deleteFolder`): a shared space goes this way. */
   deleteFolder: (access: Access, path: string, opts: { trash: boolean }) => Promise<unknown>
+  /** Moves a folder as a principal into a new shared space's root (scoped.ts `moveFolder` with `newSpace`). */
+  moveFolder: (access: Access, from: string, to: string, opts: { dryRun: boolean; newSpace: { name: string } }) => Promise<ScopedFolderMove>
   log?: (msg: string) => void
   now?: () => Date
 }
@@ -192,6 +195,29 @@ export class SpaceService {
     // Its first members are told they were added.
     this.notifyShared(root, before, access.actor)
     return this.entry(access, root)
+  }
+
+  /**
+   * «Move to a new space» (D-056.28): a folder of a space becomes a shared
+   * space of its own, named `name` (its own name by default), whoever moves
+   * it managing it, with the folder's own grants; what it holds goes to the
+   * new space's root, as a folder move goes (links kept, the audience of the
+   * move in its preview). Whoever may move the folder, if they may create
+   * spaces. `dryRun`: the move's preview (the new space's id is drawn when
+   * it's made).
+   */
+  async fromFolder(access: Access, input: { path?: unknown; name?: unknown; dryRun?: unknown }): Promise<{ space: SpaceEntry | null; report: ScopedFolderMove }> {
+    const user = this.person(access)
+    if (this.opts.settings.spacesCreation() === 'admins' && user.role !== 'admin') throw new AccessError('only admins create shared spaces here')
+    if (typeof input.path !== 'string') throw new SpaceError(400, 'invalid', 'expected the folder\'s path')
+    const folder = NoteService.checkFolder(input.path)
+    const name = this.spaceName(input.name ?? folder.slice(folder.lastIndexOf('/') + 1))
+    const dryRun = input.dryRun === true
+    const root = this.newSharedFolder(name, { claim: false })
+    const report = await this.opts.moveFolder(access, folder, root, { dryRun, newSpace: { name } })
+    if (dryRun) return { space: null, report }
+    this.opts.indexer.indexFolders([root])
+    return { space: this.entry(access, root), report }
   }
 
   /** Renames a shared space (`manage` at its root): only its name in vihko.yaml changes, never its folder (D-056.14). */

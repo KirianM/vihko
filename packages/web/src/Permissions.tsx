@@ -73,9 +73,14 @@ type Draft = { grants: Grants; ai: boolean }
  * Who a folder is shared with. `onAccessLost`: the person gave away their
  * own `manage` and can't see this any more.
  */
-export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost, onUnauthorized }: {
+export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost, onUnauthorized, onMoveTo }: {
   folder: string
   me: User
+  /**
+   * «Move to a new space» or «to My notes» (D-056.28), where this folder can't
+   * be closed to those who see the one above it: the dialog that does it.
+   */
+  onMoveTo?: (target: 'newSpace' | 'mine') => void
   /** Whether a folder named inside opens its own dialog (unused: rows above are only named). */
   canOpen?: (folder: string) => boolean
   onClose: () => void
@@ -86,6 +91,7 @@ export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost
 }) {
   const t = useT()
   const labels = usePathLabels()
+  const spaces = useSpaces()
   const [view, setView] = useState<FolderPermissions | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [directory, setDirectory] = useState<{ users: string[]; groups: string[] } | null>(null)
@@ -140,6 +146,14 @@ export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost
     }
   }, [directory, grants, above, view])
   const addFrom = adding.subject ? above.get(key(adding.subject)) ?? null : null
+  // A folder inside a space can't be closed to those who see the one above it (D-056.7): it can move out instead (D-056.28).
+  const inner = !!view && !isSpaceRoot && !personalRoot && view.space !== null
+  const ownSpace = !!view && view.owner !== null && key(view.owner) === meKey
+  const inShared = !!view && view.owner === null
+  const toNewSpace = inner && !readOnly && (ownSpace || inShared) && !!spaces.info?.canCreate && !!onMoveTo
+  const toMine = inner && !readOnly && inShared && !!onMoveTo
+  // Edit in a folder of one's own space: whoever edits may work out the names of notes linked from it (D-056.28, a known limit).
+  const probes = !!view && ownSpace && !personalRoot && Object.values(grants).some((l) => atLeast(l, 'edit'))
   // The level to add, never below what they already get from above.
   useEffect(() => {
     if (addFrom && !(LEVELS.indexOf(adding.level) > LEVELS.indexOf(addFrom))) setAdding((a) => ({ ...a, level: LEVELS[LEVELS.indexOf(addFrom) + 1] ?? 'manage' }))
@@ -249,7 +263,17 @@ export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost
                   </div>
                 )}
                 {losesManage && <p className="key-once" role="note">{Icon.alert}<span>{t('perm.losesManage')}</span></p>}
+                {probes && <p className="key-once" role="note">{Icon.alert}<span>{t('perm.editProbes')}</span></p>}
                 <p className="perm-cascade">{t('perm.onlyAdds')}</p>
+                {inner && (toNewSpace || toMine) && (
+                  <div className="perm-move">
+                    <p className="hint">{t('perm.whyNotClose')}</p>
+                    <div className="perm-move-actions">
+                      {toNewSpace && <Button className="btn" onPress={() => onMoveTo!('newSpace')}>{t('folder.toNewSpace')}</Button>}
+                      {toMine && <Button className="btn" onPress={() => onMoveTo!('mine')}>{t('folder.toMine')}</Button>}
+                    </div>
+                  </div>
+                )}
                 <p className="hint">{t('perm.levels')}</p>
               </>)}
               <div className="switches perm-agents">

@@ -118,6 +118,7 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'GET /api/permissions/access': 'session',
   'POST /api/permissions/holds/:id': 'session',
   'POST /api/spaces': 'session',
+  'POST /api/spaces/from-folder': 'session',
   'POST /api/spaces/rename': 'session',
   'DELETE /api/spaces': 'session',
   'POST /api/spaces/leave': 'session',
@@ -267,6 +268,8 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   // Who has access to a folder one reads (D-056.27): names and levels, nothing of folders one doesn't read.
   'GET /api/spaces/members': 'read',
   'POST /api/spaces': 'none',
+  // A folder becoming a space of its own: `manage` in it and the right to create spaces.
+  'POST /api/spaces/from-folder': 'manage',
   'POST /api/spaces/pin': 'filtered',
   'POST /api/spaces/rename': 'manage',
   'DELETE /api/spaces': 'manage',

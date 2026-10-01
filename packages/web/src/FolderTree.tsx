@@ -60,7 +60,14 @@ export const ancestors = (path: string) => path.split('/').slice(0, -1).map((_, 
 
 export const parentOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 
-export type TreeAction = 'newNote' | 'newFolder' | 'moveFolder' | 'deleteFolder' | 'permissions' | 'moveNote' | 'trashNote'
+export type TreeAction = 'newNote' | 'newFolder' | 'moveFolder' | 'toNewSpace' | 'toMine' | 'deleteFolder' | 'permissions' | 'moveNote' | 'trashNote'
+
+/**
+ * Where a folder of this tree's space may move out to (D-056.28): a new
+ * space of its own (`newSpace`, if the person may create spaces) and, from
+ * a shared space, their own (`mine`).
+ */
+export interface SpaceMoves { newSpace: boolean; mine: boolean }
 
 /**
  * What the person may do in a folder, and its marks. `level` null: no access
@@ -73,14 +80,19 @@ export type FolderInfoOf = (path: string) => FolderInfo | undefined
 const noInfo: FolderInfoOf = () => undefined
 
 /** The menu's actions a row offers: those the person's level allows. */
-function rowActions(node: Node, info: FolderInfoOf): TreeAction[] {
+function rowActions(node: Node, info: FolderInfoOf, moves: SpaceMoves | undefined): TreeAction[] {
   if (node.children !== null) {
     const f = info(node.path)
     if (!f) return ['newNote', 'newFolder', 'moveFolder', 'deleteFolder']
     const out: TreeAction[] = []
     if (atLeast(f.level, 'edit')) out.push('newNote', 'newFolder')
     if (f.canEdit) out.push('permissions')
-    if (f.level === 'manage') out.push('moveFolder', 'deleteFolder')
+    if (f.level === 'manage') {
+      out.push('moveFolder')
+      if (moves?.newSpace) out.push('toNewSpace')
+      if (moves?.mine) out.push('toMine')
+      out.push('deleteFolder')
+    }
     return out
   }
   const f = info(parentOf(node.path))
@@ -130,6 +142,8 @@ function RowMenu({ node, actions, open, onOpenChange, onAction }: { node: Node; 
               {has('newFolder') && <MenuItem id="newFolder" className="menu-item">{Icon.folderPlus}{t('folder.newSub')}</MenuItem>}
               {has('permissions') && <MenuItem id="permissions" className="menu-item">{Icon.people}{t('folder.permissions')}</MenuItem>}
               {has('moveFolder') && <MenuItem id="moveFolder" className="menu-item">{Icon.rename}{t('folder.renameMenu')}</MenuItem>}
+              {has('toNewSpace') && <MenuItem id="toNewSpace" className="menu-item">{Icon.people}{t('folder.toNewSpace')}</MenuItem>}
+              {has('toMine') && <MenuItem id="toMine" className="menu-item">{Icon.rename}{t('folder.toMine')}</MenuItem>}
               {has('deleteFolder') && <MenuItem id="deleteFolder" className="menu-item menu-item-danger">{Icon.trash}{t('folder.delete')}</MenuItem>}
             </>
           ) : (
@@ -144,7 +158,7 @@ function RowMenu({ node, actions, open, onOpenChange, onAction }: { node: Node; 
   )
 }
 
-export function FolderTree({ nodes, root = '', label, selected, expanded, onExpanded, onOpen, onAction, onDrop, draggable, emptyText, folderInfo = noInfo }: {
+export function FolderTree({ nodes, root = '', label, selected, expanded, onExpanded, onOpen, onAction, onDrop, draggable, emptyText, folderInfo = noInfo, spaceMoves }: {
   nodes: Node[]
   /** The folder the tree shows the inside of (a space's root): what's dropped on its empty space goes there. */
   root?: string
@@ -163,6 +177,8 @@ export function FolderTree({ nodes, root = '', label, selected, expanded, onExpa
   emptyText: ReactNode
   /** The person's level and the marks of each folder (`/api/permissions/folders` and the tree's `pathOnly`). */
   folderInfo?: FolderInfoOf
+  /** Where its folders may move out to (none by default). */
+  spaceMoves?: SpaceMoves
 }) {
   const t = useT()
   const [menu, setMenu] = useState<string | null>(null)
@@ -227,7 +243,7 @@ export function FolderTree({ nodes, root = '', label, selected, expanded, onExpa
     if (!row) return
     e.preventDefault()
     const node = find(nodes, row.dataset.key!)
-    if (node && rowActions(node, folderInfo).length) setMenu(node.id)
+    if (node && rowActions(node, folderInfo, spaceMoves).length) setMenu(node.id)
   }
 
   return (
@@ -251,7 +267,7 @@ export function FolderTree({ nodes, root = '', label, selected, expanded, onExpa
       >
         {function render(node: Node) {
           const info = node.children !== null ? folderInfo(node.path) : undefined
-          const actions = rowActions(node, folderInfo)
+          const actions = rowActions(node, folderInfo, spaceMoves)
           return (
             <TreeItem id={node.id} textValue={node.name} className="tree-item">
               <TreeItemContent>

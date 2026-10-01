@@ -187,6 +187,88 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
   )
 }
 
+/**
+ * «Move to a new space» (D-056.28): sharing only adds, so what some of a
+ * space's members mustn't see goes to a space of its own. The folder becomes
+ * a shared space named as it is (the name can change), whoever moves it its
+ * only manager besides what the folder itself was shared with; the preview
+ * says who stops seeing it, and the move waits for that to be confirmed.
+ */
+export function MoveToNewSpaceDialog({ path, onClose, onMoved }: { path: string; onClose: () => void; onMoved: (root: string) => void }) {
+  const t = useT()
+  const [name, setName] = useState(baseName(path))
+  const [preview, setPreview] = useState<Preview>({ kind: 'idle' })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [confirmed, setConfirmed] = useState(false)
+  const chosen = name.trim()
+  useEffect(() => {
+    setError(null)
+    setConfirmed(false)
+    if (!chosen) return setPreview({ kind: 'idle' })
+    setPreview({ kind: 'loading' })
+    let live = true
+    const timer = setTimeout(() => {
+      api.spaceFromFolder(path, chosen, true)
+        .then((r) => { if (live) setPreview({ kind: 'ready', report: r.report }) })
+        .catch((e) => { if (live) setPreview({ kind: 'error', message: spaceMoveError(t, e) }) })
+    }, 250)
+    return () => { live = false; clearTimeout(timer) }
+  }, [path, chosen, t])
+  const report = preview.kind === 'ready' ? preview.report : null
+  const notes = report ? t(report.notes.length === 1 ? 'folder.notesOne' : 'folder.notesMany', { n: report.notes.length }) : ''
+  const files = report ? t(report.files === 1 ? 'folder.filesOne' : 'folder.filesMany', { n: report.files }) : ''
+  const blocked = audienceChanges(report?.audience) && !confirmed
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!report || busy || blocked || !chosen) return
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await api.spaceFromFolder(path, chosen)
+      onMoved(r.space!.path)
+    } catch (err) {
+      setError(spaceMoveError(t, err))
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog className="dialog">
+      <form onSubmit={submit}>
+        <div className="dialog-fields">
+          <Heading slot="title" className="dialog-title">{t('folder.toNewSpaceTitle', { name: baseName(path) })}</Heading>
+          <p className="dialog-text">{t('folder.toNewSpaceIntro')}</p>
+          <TextField className="field" value={name} onChange={setName} maxLength={64} autoFocus isRequired>
+            <Label>{t('spaces.name')}</Label>
+            <Input autoComplete="off" />
+          </TextField>
+        </div>
+        <div className="preview" aria-live="polite">
+          <div className="preview-head">{t('rename.preview')}</div>
+          <div className="preview-body">
+            {preview.kind === 'loading' && <span className="preview-note">{t('rename.previewLoading')}</span>}
+            {preview.kind === 'error' && <span className="error-text" role="alert">{preview.message}</span>}
+            {report && <AudienceWarning audience={report.audience} confirmed={confirmed} onConfirm={setConfirmed} cross={report.crossSpaceLinks} copied={report.images?.copied.length ?? 0} />}
+            {report && <span className="preview-note">{t('folder.previewContents', { notes, files })}</span>}
+            {report && <ShiftPreview groups={report.shifted} />}
+          </div>
+        </div>
+        {error && <p className="error-text dialog-error" role="alert">{error}</p>}
+        <div className="dialog-actions">
+          <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={!report || busy || blocked || !chosen}>{t('folder.toNewSpaceSubmit')}</Button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
+/** A new space's name the server refuses says so; the rest, as for a folder. */
+function spaceMoveError(t: ReturnType<typeof useT>, err: unknown): string {
+  if (err instanceof ApiError && err.code === 'invalid' && typeof err.data?.problem === 'string') return t('spaces.nameInvalid')
+  return folderError(t, err)
+}
+
 /** The contents a `not_empty` answer carries, if it has them. */
 function contentsOf(err: unknown): FolderContents | null {
   if (!(err instanceof ApiError) || err.code !== 'not_empty') return null

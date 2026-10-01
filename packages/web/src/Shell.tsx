@@ -30,7 +30,7 @@ import { WINDOWS, modKTaken } from './keys.ts'
 import { useBackClose, useMobile, useVisualViewport } from './mobile.ts'
 import { PreferencesDialog, browserTimeZone } from './Preferences.tsx'
 import { ancestors, buildTree, type FolderInfoOf, type Node, type TreeAction } from './FolderTree.tsx'
-import { DeleteFolderDialog, FolderMoveDialog, NewFolderDialog } from './FolderDialogs.tsx'
+import { DeleteFolderDialog, FolderMoveDialog, MoveToNewSpaceDialog, NewFolderDialog } from './FolderDialogs.tsx'
 import { RenameDialog, TrashDialog } from './editor/NoteActions.tsx'
 import { TagsView } from './TagsView.tsx'
 import type { RestoreReport } from './history/api.ts'
@@ -42,6 +42,7 @@ import { VersionView } from './history/VersionView.tsx'
 type TreeDialog =
   | { kind: 'newFolder'; parent: string }
   | { kind: 'moveFolder'; path: string; parent?: string }
+  | { kind: 'toNewSpace'; path: string }
   | { kind: 'deleteFolder'; path: string }
   | { kind: 'permissions'; path: string }
   | { kind: 'members'; path: string }
@@ -315,6 +316,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     if (action === 'newNote') { setCreateIn(node.path); setPalette('create') }
     else if (action === 'newFolder') setTreeDialog({ kind: 'newFolder', parent: node.path })
     else if (action === 'moveFolder') setTreeDialog({ kind: 'moveFolder', path: node.path })
+    else if (action === 'toNewSpace') setTreeDialog({ kind: 'toNewSpace', path: node.path })
+    // To one's own space: the move of always, its destination there (D-056.28).
+    else if (action === 'toMine') setTreeDialog({ kind: 'moveFolder', path: node.path, parent: mine })
     else if (action === 'deleteFolder') setTreeDialog({ kind: 'deleteFolder', path: node.path })
     else if (action === 'permissions') setTreeDialog({ kind: 'permissions', path: node.path })
     else if (action === 'moveNote') setTreeDialog({ kind: 'moveNote', path: node.path })
@@ -659,6 +663,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             }} />
           )}
           {treeDialog?.kind === 'moveFolder' && <FolderMoveDialog path={treeDialog.path} initialParent={treeDialog.parent} onClose={closeTreeDialog} onMoved={folderMoved} onStarted={moveStarted} />}
+          {treeDialog?.kind === 'toNewSpace' && (
+            <MoveToNewSpaceDialog path={treeDialog.path} onClose={closeTreeDialog} onMoved={(root) => {
+              const from = treeDialog.path
+              folderPlaced(from, root)
+            }} />
+          )}
           {treeDialog?.kind === 'deleteFolder' && (
             <DeleteFolderDialog path={treeDialog.path} onClose={closeTreeDialog} onDeleted={(entries) => {
               const path = treeDialog.path
@@ -674,6 +684,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           {treeDialog?.kind === 'members' && <MembersDialog path={treeDialog.path} me={user} onClose={closeTreeDialog} onUnauthorized={onUnauthorized} />}
           {treeDialog?.kind === 'permissions' && (
             <PermissionsDialog folder={treeDialog.path} me={user} canOpen={canManageFolder} onClose={closeTreeDialog}
+              onMoveTo={(target) => setTreeDialog(target === 'mine' ? { kind: 'moveFolder', path: treeDialog.path, parent: mine } : { kind: 'toNewSpace', path: treeDialog.path })}
               onChanged={() => void loadTree()} onAccessLost={closeTreeDialog} onUnauthorized={onUnauthorized} />
           )}
           {treeDialog?.kind === 'moveNote' && (

@@ -452,6 +452,8 @@ export const api = {
   spaces: () => request<SpacesInfo>('GET', '/api/spaces'),
   /** A new shared space; whoever creates it manages it. */
   createSpace: (name: string, members: Grants = {}) => request<{ space: SpaceEntry }>('POST', '/api/spaces', { name, members }).then((r) => r.space),
+  /** «Move to a new space» (D-056.28): the folder becomes a shared space of its own, named `name`; `dryRun`: the move's preview. */
+  spaceFromFolder: (path: string, name: string, dryRun = false) => request<{ space?: SpaceEntry; report: FolderMoveReport }>('POST', '/api/spaces/from-folder', { path, name, dryRun }),
   renameSpace: (path: string, name: string) => request<{ space: SpaceEntry }>('POST', '/api/spaces/rename', { path, name }).then((r) => r.space),
   /** A shared space and everything in it (to the trash with `trash`). */
   deleteSpace: (path: string, trash = true) => request<{ path: string }>('DELETE', `/api/spaces?path=${encodeURIComponent(path)}${trash ? '&trash=true' : ''}`),
