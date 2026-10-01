@@ -10,6 +10,49 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.0-rc.4] - 2026-10-02
+
+What writing step-by-step guides for rc.3 turned up, and tests that only
+failed with some random data.
+
+### Added
+
+- Step-by-step guides: your own note settings (a daily journal, templates,
+  where new images go, a guide for agents), a shared space's settings and how
+  the installation's, the space's and yours add up, Home and «On opening»,
+  making and sharing spaces, «Shared with me», and turning retention on.
+- `guideMissing` in `GET/PUT /api/settings`, and the `settings_guide_missing`
+  alert: a guide for agents that names a note that doesn't exist is saved,
+  with a warning, and its owner is told until the note exists.
+- Tooltips with the shortcut on the sidebar's icon buttons.
+
+### Changed
+
+- **«Today's note» stays on the series you use.** With no choice saved, your
+  own series come first, then your spaces', then the installation's; the
+  first time you open today's note, that series becomes your choice
+  (`dailySeries` in your profile), so a series a space adds later never
+  takes over. Change it in Preferences.
+- One name for it everywhere: «Today's note».
+- Preferences: «Daily note series» and «Your note settings» sit together,
+  each saying what it is for; the «My notes» menu says «Your note settings…».
+- Members and Share dialogs ask before closing with unsaved changes; your own
+  row offers «Leave» instead of removing yourself.
+- Retention's confirm button says what will happen («Save», «Save and
+  remove», «Run now», «Remove now»).
+- A pinned folder is listed once; each sidebar section shows what kind it is;
+  Home has its own mark, so a space called Home can't be taken for it.
+
+### Fixed
+
+- «X added you to <space>» kept the space's old path after a rename and said
+  you no longer saw it; notices now follow folders as vihko moves them.
+- A notice for a folder shared by its owner named the owner twice.
+
+### Upgrade notes
+
+- Test it with `ghcr.io/kirianm/vihko:0.1.0-rc.4` (the new `compose.yaml` names it).
+
 ## [0.1.0-rc.3] - 2026-10-01
 
 ### Upgrade notes
