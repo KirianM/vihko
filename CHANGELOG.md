@@ -10,7 +10,7 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
-## [0.1.0] - unreleased
+## [0.1.0-rc.1] - 2026-10-01
 
 The first release of the relaunch: vihko around **spaces**. Each person has a
 space of their own, shared spaces hold what belongs to several people, and
@@ -140,7 +140,8 @@ Docker image and volumes.
   [Notes you already have](guide/install.md#notes-you-already-have)). A 1.0.x notes folder
   under 0.1.0 shows nothing: its notes are outside every space and its
   `permissions` section is rejected.
-- In `compose.yaml`, use `ghcr.io/kirianm/vihko:0.1` (or take the new file).
+- Test it with `ghcr.io/kirianm/vihko:0.1.0-rc.1` (the new `compose.yaml` names it); `:0.1`
+  exists from 0.1.0 on.
 
 <details>
 <summary>Earlier: the withdrawn 1.0.x line</summary>
