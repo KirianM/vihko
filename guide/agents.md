@@ -50,7 +50,7 @@ The last two switches, and one more:
 Whoever runs the server can lock the API and the MCP server off with the
 environment variable `VIHKO_INTEGRATIONS=off`. Then they stay off whatever the
 page says, and the page shows them locked. The lock covers any integration a
-later 1.x release adds too. Removing the variable and restarting
+later release adds too. Removing the variable and restarting
 vihko lifts the lock.
 
 If the API or the MCP server is on while `vihko.yaml` keeps the history
@@ -67,14 +67,15 @@ and a 43-character secret.
 vihko_01JB2Q7ZK4M8N6P3R5T7V9X1YC_…
 ```
 
-The key acts for you. It sees at most what you see now: when your permissions
-change, the key follows them. On top of that, each key has its own limits.
+The key acts for you. It sees at most what you see now (your own space, the
+shared spaces you belong to and what others share with you): when that
+changes, the key follows. On top of that, each key has its own limits.
 
 | Setting | Default | What it does |
 |---|---|---|
 | Name | (required) | Who the key is for: "Claude Code", "Backup script". The history and the editor show it |
 | Permissions | Read only | **Read only**, or **Reads and writes**: create, edit, move and trash notes, and add images to them |
-| Folders | Every folder you see | Or only the folders you choose, with everything inside them |
+| Folders | Every folder you see | Or only the folders you choose, with everything inside them: your own space (`people/<you>`), a shared space (`spaces/home-7k2q9x`), or any folder in them |
 | Expiry | Never expires | 7 days, 30 days, 90 days or 1 year |
 
 Whatever the settings, a key never sees:
@@ -82,11 +83,16 @@ Whatever the settings, a key never sees:
 - a note with `ai: false` in its frontmatter (also `no`, `off`, `"false"` or
   `0`), or a note whose frontmatter can't be read;
 - anything in a folder closed to agents (`ai: false` on the folder, set in its
-  permissions: see [Spaces, people and sharing](users-and-permissions.md));
+  share dialog, or on all of «My notes» from its «Agents…»: see
+  [Spaces, people and sharing](users-and-permissions.md#closing-things-to-agents));
 - an image or other file that such a note uses;
 - anything outside the key's folders, or that its person can't read.
 
 A key that may write only writes where its person has `edit`.
+
+When a folder vihko knows a key by is moved or renamed from vihko, the key
+follows it. A key never creates, renames, leaves or deletes spaces, shares
+folders or moves folders: that's for people, in the UI.
 
 ### Create a key
 
@@ -131,19 +137,27 @@ a key's secret.
 
 ## What an agent can't see
 
-Notes hidden from an agent don't exist for it: they don't show up in searches,
-listings, backlinks, tags, counts or recent changes.
+There are two kinds of notes an agent can't see.
 
-An agent only learns that such a note exists if it already has its name:
+**Notes its person can't read** (in someone else's space, in a space they
+aren't a member of) don't exist for the agent, as they don't for the person:
+naming one answers `not_found`, whether it exists or not, and a link to one
+is `missing`, like a link to a note that doesn't exist.
 
-- A link to it, in a note the agent can read, has the status `no_access`.
+**Notes its person reads but that are hidden from agents** (`ai: false`, a
+folder closed to agents, or outside the key's folders) don't show up in
+searches, listings, backlinks, tags, counts or recent changes either. But the
+agent is told they exist when it already has their name:
+
+- A link to one, in a note the agent can read, has the status `no_access`.
 - Naming it (reading it by its path, writing to its path, asking for its
-  history) answers `agent_denied` with a reason: `ai_false`,
-  `outside_key_folders` or `user_no_access`.
+  history) answers `agent_denied` with a reason: `ai_false` or
+  `outside_key_folders`.
 
-This is on purpose. An agent that took a hidden note for a broken link might
-delete the link, point it elsewhere or write a new note in its place. The
-denial tells it to leave the note alone, and says nothing of what's in it.
+This is on purpose. An agent that took such a note for a broken link might
+delete the link, point it elsewhere or write a new note in its place, over
+something its person cares about. The denial tells it to leave the note
+alone, and says nothing of what's in it.
 
 One known limit: searches and listings use the index. A note marked `ai: false`
 from outside vihko (another editor, a sync tool) drops out of them once vihko
@@ -246,7 +260,7 @@ The server offers these tools. A read-only key is offered only the reading ones
 |---|---|
 | `search` | Full-text search over the notes the key can read, best first, with `path:` and `tag:` filters and `-` to exclude one |
 | `get_note` | A note by its path or `uid`: its text, ETag, frontmatter, title, and its outgoing and incoming links. Long notes come in pieces |
-| `list_folder` | The folders and notes in a folder (`""` is the root), optionally everything under it |
+| `list_folder` | The folders and notes in a folder, optionally everything under it. With `""`, the spaces the person reaches: their own, the shared spaces they belong to (with their names), and the folders others share with them (with whose they are) |
 | `related` | How a note connects to others: its links with the titles they lead to, and the notes that link to it with the text around each link |
 | `resolve_link` | Where a link written in a note leads: resolved, ambiguous (with candidates), missing or `no_access` |
 | `daily_note` | Today's note of the person the key acts for, in their time zone. With a key that writes, it creates the note from its template if it doesn't exist yet (`create: false` only looks) |
@@ -280,7 +294,15 @@ reads a note gets `forbidden` from `history`, `revert_change` and
 
 Conventions the tools share:
 
-- Paths are relative to the notes root and include `.md`: `projects/plan.md`.
+- Paths are relative to the notes root and include `.md`, and are the same
+  for everyone: `people/noa/projects/plan.md` for a note in Noa's space,
+  `spaces/home-7k2q9x/recipes/Bread.md` for one in the shared space «Home».
+  Nothing can be created outside a space (`outside_space`).
+- Links follow the [same rules as in the UI](notes.md#links): by name inside
+  a space, with the path from the notes root to another space
+  (`[[spaces/home-7k2q9x/Bread|Bread]]`). A name never reaches another space.
+- Moving a note to another space changes who can see it and whose it is: a
+  move that shows it to more people needs `confirm_audience`, as below.
 - Every read returns the note's ETag (`sha256:…`). Operations that replace text
   (`find_replace`, `replace_section`, `set_frontmatter`) need it as `if_match`,
   so the agent plans changes on the text it read. Appends don't. If the note
@@ -319,7 +341,7 @@ Like the API, it doesn't change the note. It answers where the image went and
 break a Markdown link escaped:
 
 ```json
-{ "path": "projects/my plan-2026-09-29-1015.png", "src": "my plan-2026-09-29-1015.png", "markdown": "![The new floor plan](my%20plan-2026-09-29-1015.png)" }
+{ "path": "people/noa/projects/my plan-2026-09-29-1015.png", "src": "my plan-2026-09-29-1015.png", "markdown": "![The new floor plan](my%20plan-2026-09-29-1015.png)" }
 ```
 
 The agent writes `markdown` where it belongs with `edit_note` (an `append`, or
@@ -359,14 +381,23 @@ For larger images:
 When an agent connects, the server tells it who it acts for, what the key may
 do and where, and how to work with vihko: that note text is data, how to use
 ETags, to leave notes it can't access alone, and to ask the person before a
-move that would show a note to more people.
+move that would show a note to more people. It also tells it where the person
+keeps their notes:
 
-You can add your own guide for agents: a note that says how this workspace is
-organised and what goes where. Name it in `vihko.yaml`:
+- their own space, `people/<username>/`, where their own notes go unless they
+  say otherwise (or that the key doesn't reach it);
+- the shared spaces they belong to, each with its path, id, name and their
+  level, and the folders others share with them, with whose they are (20 at
+  most; `list_folder` with `""` lists them all);
+- how to write links inside a space and to another space, and that moving a
+  note to another space changes who sees it and whose it is.
+
+You can add your own guide for agents: a note that says how your notes are
+organised and what goes where. Name it in `vihko.yaml`, inside a space:
 
 ```yaml
 mcp:
-  instructions: Guides/Agents.md
+  instructions: spaces/home-7k2q9x/For agents.md
 ```
 
 vihko appends the note's text to the server's instructions, for each key that
@@ -552,10 +583,12 @@ trash. See [History](history.md).
 
 - **Close what agents shouldn't read.** Mark folders with private or sensitive
   content as closed to agents: diaries, health, finances, anything with
-  passwords or personal data of other people. A folder's permissions dialog has
-  **Closed to agents**; it applies to everything inside, including notes
-  created later, and nothing inside can reopen it. For a single note, add
-  `ai: false` to its frontmatter.
+  passwords or personal data of other people. A folder's share dialog has
+  **Closed to agents**, and «My notes» has it under «Agents…»; it applies to
+  everything inside, including notes created later, and nothing inside can
+  reopen it. For a single note, add `ai: false` to its frontmatter. Each
+  person decides this for their own space; whoever manages a shared space,
+  for it.
 - **Give each key the least it needs.** A new key is read-only and reaches
   every folder its person sees. Limit it to the folders the agent works in, and
   only let it write when it has to. Use one key per agent.
