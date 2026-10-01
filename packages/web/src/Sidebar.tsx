@@ -1,8 +1,9 @@
 // The sidebar's spaces: «My notes» (the person's own
 // space, without its `people/<me>` prefix), one section per shared space,
 // the folders shared with them they pinned, «+ New space» where they may,
-// and «Shared with me», folded: every folder others share with them, each
-// with its owner or its space. Each section is the tree of that space or
+// and «Shared with me», folded: the other folders others share with them
+// (a pinned one is listed once, in its own section), each with its owner or
+// its space. Each section is the tree of that space or
 // folder, with a menu of what the person may do there.
 import { useState, type ReactNode } from 'react'
 import { Button, Menu, MenuItem, MenuTrigger, Popover, type Key } from 'react-aria-components'
@@ -62,15 +63,19 @@ export function sectionActions(s: Section): SectionAction[] {
   return out
 }
 
-/** The sections of the sidebar, in order: «My notes», the shared spaces by name, then the pinned folders. */
+/**
+ * The sections of the sidebar, in order: «My notes», the shared spaces by
+ * name, then the pinned folders (`top`); and the folders shared with the
+ * person they haven't pinned, for «Shared with me» (`received`).
+ */
 export function sectionsOf(info: SpacesInfo, t: ReturnType<typeof useT>): { top: Section[]; received: Section[] } {
   const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
   const top: Section[] = []
   if (info.personal) top.push({ root: info.personal.path, kind: 'mine', name: t('spaces.mine'), detail: null, level: 'manage' })
   for (const s of [...info.spaces].sort((a, b) => collator.compare(a.name, b.name))) top.push({ root: s.path, kind: 'shared', name: s.name, detail: null, level: s.level })
-  const received = [...info.shared].sort((a, b) => collator.compare(baseName(a.path), baseName(b.path))).map((s) => receivedSection(s, t))
-  for (const r of received) if (r.pinned) top.push(r)
-  return { top, received }
+  const all = [...info.shared].sort((a, b) => collator.compare(baseName(a.path), baseName(b.path))).map((s) => receivedSection(s, t))
+  for (const r of all) if (r.pinned) top.push(r)
+  return { top, received: all.filter((r) => !r.pinned) }
 }
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)

@@ -48,6 +48,8 @@ function noticeTitle(a: PersonalNotice): { key: MessageKey; parts: NoticeParts }
     case 'shared_with_you': {
       if (a.path === null) return { key: 'alerts.sharedWithYouNeutral', parts: { by: a.by } }
       if (a.kind === 'space') return { key: 'alerts.addedToSpace', parts: { by: a.by, space: a.name ?? '' } }
+      // Whose it is, only when someone else shared it: «sam shared “Trips” with you», never «… · sam’s» after it.
+      if (a.owner && a.owner.normalize('NFC').toLowerCase() === a.by.normalize('NFC').toLowerCase()) return { key: 'alerts.sharedFolder', parts: { by: a.by, name: a.name ?? '' } }
       return a.owner
         ? { key: 'alerts.sharedFolderOf', parts: { by: a.by, name: a.name ?? '', owner: a.owner } }
         : { key: 'alerts.sharedFolderIn', parts: { by: a.by, name: a.name ?? '', space: a.space ?? '' } }

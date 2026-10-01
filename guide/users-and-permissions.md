@@ -330,8 +330,9 @@ To keep it at hand:
 1. Unfold «Shared with me», open the menu of «Trips» (`⋯`) → **Pin to the
    sidebar**.
 2. «Trips sam’s» now has a section of its own in the sidebar, next to your
-   spaces, with its notes. **Unpin from the sidebar**, in the same menu,
-   puts it back.
+   spaces, with its notes, and leaves «Shared with me» (which goes away when
+   everything in it is pinned). **Unpin from the sidebar**, in the same
+   menu, puts it back there.
 
 The same menu has **Who has access…** (everyone who sees it, and at what
 level) and **Leave**, which stops you seeing it («Stop seeing it»). Nothing

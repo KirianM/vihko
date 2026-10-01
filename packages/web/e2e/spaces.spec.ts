@@ -97,11 +97,21 @@ test('two people: the member shares a folder of her own space to comment; the ot
 
   // The other is told, and finds it in «Shared with me», with its owner.
   await o.reload()
-  await expect(o.getByRole('status').filter({ hasText: `${MEMBER.username} ha compartido contigo «${SHARED}» · de ${MEMBER.username}` })).toBeVisible()
+  // Whose it is goes without saying when its owner shared it: named once.
+  const told = o.getByRole('status').filter({ hasText: `${MEMBER.username} ha compartido contigo «${SHARED}»` })
+  await expect(told).toBeVisible()
+  await expect(told).not.toContainText('· de')
   await o.getByRole('button', { name: 'Compartido conmigo' }).click()
   const title = `${SHARED} · de ${MEMBER.username}`
   await sectionMenu(o, title, 'Fijar en la barra')
-  // Pinned: a section of its own at the top, open.
+  // Pinned: a section of its own at the top, open, and listed only there (not in «Shared with me» as well).
+  await expect(o.getByRole('button', { name: `Acciones de «${title}»`, exact: true })).toHaveCount(1)
+  await expect(o.getByRole('button', { name: 'Compartido conmigo' })).toHaveCount(0)
+  for (const theme of ['light', 'dark'] as const) {
+    await o.emulateMedia({ colorScheme: theme })
+    await o.locator('nav.sidebar').screenshot({ path: `${E2E_DIR}/shots/pinned-once-${theme}.png` })
+  }
+  await o.emulateMedia({ colorScheme: null })
   const pinned = spaceTree(o, title).first()
   await expect(pinned.getByRole('row', { name: baseName(SHARED_NOTE), exact: true })).toBeVisible()
   // Received: not renamed, moved or deleted from here; no «Renombrar» in its menu.

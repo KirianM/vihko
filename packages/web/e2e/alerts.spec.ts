@@ -246,13 +246,16 @@ test('notes addressed to one person: links a move left, what the admin did to a 
   const a = await signIn(browser, MEMBER)
   const [by, user, space, name, owner] = [m.aUsername(), m.aUsername(), m.aSpaceName(), m.aFolder(), m.aUsername()]
   const at = '2026-03-14T09:30:00Z'
-  const ids = Array.from({ length: 7 }, () => m.aSecret(8))
+  const ids = Array.from({ length: 8 }, () => m.aSecret(8))
+  const theirs = m.aFolder()
   await mockAlerts(a, [
     { code: 'links_not_updated', id: ids[0], at, actions: ['dismiss'] },
     { code: 'space_changed', id: ids[1], change: 'manager_assigned', by, user, to: null, space: { path: `spaces/${m.aSpaceFolder(space)}`, name: space }, at, actions: ['dismiss'] },
     { code: 'space_changed', id: ids[2], change: 'personal_deleted', by, user, to: null, space: null, at, actions: ['dismiss'] },
     { code: 'shared_with_you', id: ids[3], kind: 'space', by, path: `spaces/${m.aSpaceFolder(space)}`, name: space, owner: null, space: null, at, actions: ['dismiss'] },
     { code: 'shared_with_you', id: ids[4], kind: 'folder', by, path: `people/${owner}/${name}`, name, owner, space: null, at, actions: ['dismiss'] },
+    // Shared by its owner: whose it is isn't said twice.
+    { code: 'shared_with_you', id: ids[7], kind: 'folder', by: owner, path: `people/${owner}/${theirs}`, name: theirs, owner, space: null, at, actions: ['dismiss'] },
     // No longer shared with them: nothing of it is named.
     { code: 'shared_with_you', id: ids[5], kind: 'folder', by, path: null, name: null, owner: null, space: null, at, actions: ['dismiss'] },
     // Purged where the admin who reads the alert can't read: no path.
@@ -266,6 +269,8 @@ test('notes addressed to one person: links a move left, what the admin did to a 
   await expect(card(a, `${by} ha borrado el espacio de ${user}`)).toBeVisible()
   await expect(card(a, `${by} te ha añadido a ${space}`)).toBeVisible()
   await expect(card(a, `${by} ha compartido contigo «${name}» · de ${owner}`)).toBeVisible()
+  await expect(card(a, `${owner} ha compartido contigo «${theirs}»`)).toBeVisible()
+  await expect(card(a, `${owner} ha compartido contigo «${theirs}»`)).not.toContainText('· de')
   await expect(card(a, `${by} compartió algo contigo que ya no ves`)).toBeVisible()
   const purged = card(a, `${by} purgó una ruta del historial`)
   await expect(purged).toContainText('una ruta de un espacio que no lees')
