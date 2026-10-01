@@ -359,6 +359,15 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           extra: configList(a.warnings),
           actions: null,
         })
+      case 'settings_invalid':
+        return frame({
+          icon: icons.config,
+          tone: 'warn',
+          title: a.space ? t('alerts.spaceSettingsInvalidTitle', { name: a.space.name }) : t('alerts.settingsInvalidTitle'),
+          body: t('alerts.settingsInvalidBody'),
+          extra: configList(a.errors),
+          actions: null,
+        })
       case 'config_migrated':
         return frame({
           icon: icons.config,

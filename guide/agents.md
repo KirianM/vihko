@@ -409,6 +409,14 @@ can read the note. A key that can't read it (a folder outside its reach, or
 (`people/{user}/For agents.md`), each person's agents get that person's own
 note. See [Configuration](configuration.md).
 
+A shared space and a person can each add a guide of their own without
+`vihko.yaml`: a note of the space, named under «Guide for agents» in the
+space's «Settings…» (its managers) or in Preferences › «Your note settings»
+(see [Settings of a person or a space](configuration.md#settings-of-a-person-or-a-space)).
+An agent gets, in this order: the server's instructions, the guide in
+`vihko.yaml`, the guide of each shared space its key reaches, and its
+person's own guide. Each is there only if the key can read that note.
+
 ### The icon
 
 The server gives MCP clients vihko's mark as its icon (a PNG and an SVG,

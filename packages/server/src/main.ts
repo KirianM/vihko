@@ -9,6 +9,7 @@ import { openIndex } from './db.ts'
 import { createServer, type ExternalImages, type Runtime } from './http/app.ts'
 import { FolderRefs } from './folderRefs.ts'
 import { renameLegacySpaces } from './legacySpaces.ts'
+import { NoteSettingsStore } from './noteSettings.ts'
 import { Indexer } from './indexer.ts'
 import { DEFAULT_MAX_IMAGE_BYTES, NoteService } from './notes.ts'
 import { openState } from './state.ts'
@@ -269,9 +270,11 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   })
   watcher.start()
 
+  // Each space's note settings (noteSettings.ts): where a space's new images go, among the rest.
+  const noteSettings = new NoteSettingsStore({ notesDir: config.notesDir })
   const notes = new NoteService({
     notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes,
-    attachments: () => workspace.config.attachments, history: history.recorder,
+    attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments, history: history.recorder,
     retries: new RelinkRetries({ stateDir: config.stateDir, log }),
     // Whoever made the move is told, without names or counts (D-056.21); the log has the rest.
     onRelinkGaveUp: (entry, failed) => {
@@ -297,7 +300,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   const { app, services } = createServer({
     notices,
     auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users, twoFactor,
-    policy, holds, onPermissionsChanged: () => hub.recheckAccess(), configMigrations,
+    policy, holds, onPermissionsChanged: () => hub.recheckAccess(), configMigrations, noteSettings,
     // The MCP server, at /mcp (off until the admin turns it on).
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log, icons: markIcons(webDir) }) },
   })

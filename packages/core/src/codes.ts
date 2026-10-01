@@ -222,6 +222,13 @@ export type Alert =
    */
   | { code: 'space_not_renamed'; path: string; name: string; wanted: string; actions: never[] }
   /**
+   * Note settings (`.vihko/settings.yaml`) written by hand with something
+   * wrong: what applies leaves it out (`errors`, as vihko.yaml's). The
+   * person's own (`space` null), or a shared space's (`space`), told to
+   * its managers. Never to the admin as such.
+   */
+  | { code: 'settings_invalid'; space: { path: string; name: string } | null; errors: ConfigError[]; actions: never[] }
+  /**
    * Addressed to one person (M4.1): the vihko admin `by` (their name) gave
    * them a password reset link, took their second factor away or changed
    * their role (to `role`) at `at` (ISO). Until they dismiss it.

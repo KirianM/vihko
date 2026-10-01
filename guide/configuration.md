@@ -8,7 +8,10 @@ folder, so it travels, and is backed up, with the notes.
 Settings that belong to the installation (ports, volumes, the public address,
 the second factor's key) are environment variables instead: see
 [Install](install.md). Settings that belong to a person (language, timezone,
-which daily note is theirs) are in their account.
+which daily note is theirs) are in their account. A person, and a shared
+space, can add their own daily notes, templates and guide for agents in a
+settings file of their space: see
+[Settings of a person or a space](#settings-of-a-person-or-a-space).
 
 ## The basics
 
@@ -243,6 +246,9 @@ Together, `folder` and `name` must name exactly one note per period:
   note, «Today» creates another one.
 - If the template doesn't exist, the series' notes are created empty and an
   admin alert says so. A template the person can't read isn't used.
+- A person can add series for themselves, and a shared space's managers for
+  the space, without `vihko.yaml`: see
+  [Settings of a person or a space](#settings-of-a-person-or-a-space).
 
 ### `attachments`: where new images go
 
@@ -363,7 +369,9 @@ mcp:
   instructions: people/{user}/For agents
 ```
 
-Someone without that note gets vihko's instructions alone.
+Someone without that note gets vihko's instructions alone. A shared space and
+a person can add a guide of their own after this one (`agents` in their
+[settings](#settings-of-a-person-or-a-space)).
 
 ### `permissions`
 
@@ -502,6 +510,82 @@ rules behind. Notes vihko recognises as having moved to where someone who
 didn't read them would are held, hidden from everyone, until someone who
 could have made that move releases them. See
 [Spaces, people and sharing](users-and-permissions.md#folders-moved-outside-vihko).
+
+## Settings of a person or a space
+
+`vihko.yaml` is for the whole installation, and only an admin with access to
+the disk edits it. A person can add their own daily notes, templates and
+guide for agents, and a shared space its own, without touching it: each
+space has a settings file, in the same format for both.
+
+| Whose | File | Edited from |
+|---|---|---|
+| A person's own | `people/<username>/.vihko/settings.yaml` | Preferences › «Your note settings» |
+| A shared space's | `spaces/<name>/.vihko/settings.yaml` | The space's «Settings…» in the sidebar (its managers) |
+
+```yaml
+version: 1
+
+daily:
+  journal:
+    label: Journal
+    folder: journal/{YYYY}      # inside this space
+    name: "{YYYY}-{MM}-{DD}"
+    template: Templates/Daily
+
+templates: Templates            # a folder, or a list of folders
+
+attachments:                    # where new images of this space's notes go
+  mode: folder
+  folder: images
+
+agents: For agents              # a note of this space: its guide for agents
+```
+
+- **Every path is relative to the space**: `journal/{YYYY}` in Noa's file is
+  `people/noa/journal/{YYYY}`. Nothing in the file names `people/` or
+  `spaces/`, so renaming a space changes nothing in it. A path can't leave
+  the space (`..`, a leading `/`) or enter a hidden folder, and `{user}`
+  isn't allowed in a series (the space already says whose it is).
+- The keys mean what they mean in `vihko.yaml`: [`daily`](#daily-daily-notes),
+  [`templates`](#templates), [`attachments`](#attachments-where-new-images-go),
+  and `agents`, which is the space's [`mcp.instructions`](#mcpinstructions).
+  `version` is the format's number, `1` now; a file without it is version 1.
+- **Who reads and changes it.** A person's file is theirs alone. A shared
+  space's file is changed by its managers, and read by its members only to
+  apply it; someone who isn't a member never reads it. Nobody sees the file
+  as a note: `.vihko/` is hidden, never indexed, never served and never in a
+  note's history.
+- **vihko writes it** when someone saves the form, atomically, and only the
+  keys that changed: comments and key order stay. You can also edit it by
+  hand while vihko runs; it applies at once.
+
+### How they add up
+
+| Setting | What a person gets |
+|---|---|
+| Daily-note series | `vihko.yaml`'s, those of the shared spaces they belong to, and their own: those where they can write today's note. Two series that give the same note are one (the first in that order is kept), so a personal series that repeats one of the installation's isn't offered twice |
+| Templates folders | `vihko.yaml`'s, those of their spaces, and their own: those they can read |
+| Where new images go | For a note of a space, that space's setting if it has one; otherwise `vihko.yaml`'s |
+| Guide for agents | `vihko.yaml`'s, then that of each shared space the agent's key reaches, then the person's own, in that order. Each is a note the agent must be able to read |
+
+A space's series get an id of their own (`me-<id>` for one's own space,
+`sp-<code>-<id>` for a shared one's), so they never take the id of one in
+`vihko.yaml`.
+
+### When a settings file is wrong
+
+A file edited by hand can have mistakes. vihko applies what it can:
+
+- a key it doesn't know is ignored; a key with a wrong value (a series with a
+  bad pattern, a path out of the space) is left out, and the rest applies;
+- a file that isn't valid YAML applies nothing;
+- a `version` newer than vihko's applies what vihko understands.
+
+Each mistake is an alert, with its line, **to whom the file belongs**: the
+person, for their own; the managers, for a shared space's. Never to the
+admin as such. The form refuses to save settings with a mistake and says
+which.
 
 ## When something is wrong
 

@@ -71,7 +71,7 @@ note. Every path vihko serves is inside a space:
 |---|---|
 | `people/<username>/…` | A person's own space («My notes» in the UI). `<username>` is the person's username as it was created; it never changes |
 | `spaces/<name>/…` | A shared space, such as `spaces/Home/`. The folder is the space's name as it was written (in NFC), and renaming the space renames it |
-| `people/<username>/.vihko/`, `spaces/<name>/.vihko/` | Reserved for the settings of that person or space in a later version (settings, never notes). Hidden, like every name that starts with a dot, and refused as a note or folder in any case (`invalid_path`). A person's doesn't come along when their space becomes a shared one |
+| `people/<username>/.vihko/`, `spaces/<name>/.vihko/` | The settings of that person or space (since 0.1.0-rc.3, `settings.yaml`: see [Settings of a person or a space](#settings-of-a-person-or-a-space)), never notes. Hidden, like every name that starts with a dot, and refused as a note or folder in any case (`invalid_path`). A person's doesn't come along when their space becomes a shared one |
 | `vihko.yaml` | The workspace configuration, at the root. Nobody sees it in vihko |
 | Anything else | In no space: nobody sees it in vihko, and the admins get the `outside_spaces` alert |
 
@@ -307,7 +307,9 @@ can't call, they can change in any release.
 | `POST /api/admin/rescan` | The vihko admin | `force`?, `confirmRemoval`? | Counts only: `added`, `changed`, `removed`, `moved`, `unchanged`, `aborted`, `massDelete` |
 | `GET /api/move-jobs/:id` | Whoever started the move | — | `done` and `total` count only the notes the person reads |
 | `GET/PUT /api/admin/settings` | The vihko admin | `spacesCreation`? (`everyone` or `admins`) | The settings, with `spacesCreation` |
-| `GET /api/workspace` | Anyone | — | `templates`: the templates folders the person can read, `{user}` made theirs |
+| `GET /api/workspace` | Anyone | — | `daily`: the series the person can write today's note in, from `vihko.yaml`, their shared spaces' settings and their own (0.1.0-rc.3); `templates`: the templates folders the person can read, from the same three, `{user}` made theirs |
+| `GET /api/settings` | One's own; a shared space's members | `space`? (a shared space's root; one's own space when left out) | Since 0.1.0-rc.3: `space` (the root), `etag`, `settings` (`version`, `daily` (`id`, `label`, `folder`, `name`, `template`), `templates`, `attachments` (`mode`, and `folder` or `suffix`; null: as `vihko.yaml` says), `agents`; paths relative to the space), `errors` (what is wrong in the file: `code`, `at`, `line`, `detail`), `canEdit` (oneself, or a manager). `404 not_found` for a space the person isn't in, or anything that isn't a space's root |
+| `PUT /api/settings` | One's own; a shared space's managers | `space`?, `settings` (as `GET` gives them), `ifMatch` | As `GET`. `400 invalid` with `errors` (nothing written), `428 precondition_required` without `ifMatch`, `412 precondition_failed` when the file changed, `403 forbidden` for a member who doesn't manage the space |
 
 A new user (`POST /api/admin/users`, `vihko user create`) gets their folder,
 `people/<username>/`; when that folder already exists with something in it,
@@ -331,6 +333,7 @@ codes 0.1.0 added for spaces:
 | `shared_with_you` | The person added | `kind` (`space` or `folder`), `by`, `path`, `name`, `owner`, `space`: someone added them to a space or shared a folder with them. Names and path only while they can still see it |
 | `space_changed` | The people concerned, and the other admins | `change` (`manager_assigned`, `admin_joined`, `personal_transferred`, `personal_converted`, `personal_deleted`), `by`, `user`, `to`, `space` |
 | `links_not_updated` | Whoever made the move | Links in other notes a move of theirs couldn't update, even retried. No path, name or count |
+| `settings_invalid` | The person, for their own settings; a shared space's managers, for the space's. Never the admin as such | `space` (null for one's own; otherwise `path` and `name`), `errors` (`code`, `at`, `line`, `detail`): what is wrong in a settings file (0.1.0-rc.3) |
 
 `history_purged` names the path only to an admin who can read where it was,
 or who purged it; to the others, `path` is null.
@@ -431,8 +434,10 @@ and that a link never leads to another space; that moving a note to another
 space changes who sees it and whose it is, and leaves broken the links
 between it and the space it leaves; what to do with notes it can't see; and, for a key that
 writes, how to use ETags, `confirm_audience` and `ai: false`. Then the
-workspace's own guide, when `mcp.instructions` names a note the key can read.
-Their wording isn't covered.
+workspace's own guide, when `mcp.instructions` names a note the key can read;
+then (0.1.0-rc.3) the guide of each shared space the key reaches and the
+person's own (`agents` in their settings), each when the key can read that
+note. Their wording isn't covered.
 
 ## `vihko.yaml`
 
@@ -502,6 +507,46 @@ What goes with them:
   deletes a folder, or when a user or group is deleted or renamed; and a
   format rewrite at start after an upgrade, which may raise `version`.
   Comments, key order and keys it doesn't know stay.
+
+## Settings of a person or a space
+
+Since 0.1.0-rc.3, each space can have a settings file at
+`<space root>/.vihko/settings.yaml`: `people/<username>/.vihko/settings.yaml`
+for a person, `spaces/<name>/.vihko/settings.yaml` for a shared space. One
+format for both. [Configuration](configuration.md#settings-of-a-person-or-a-space)
+explains it.
+
+| Key | Type | What it does |
+|---|---|---|
+| `version` | whole number from 1 | The file's format (1 when left out). A newer one is read as far as vihko can, with `newer_version` |
+| `daily.<id>` | as in `vihko.yaml`: `label`, `folder`, `name`, `template` | The space's daily-note series. Patterns take `{YYYY}`, `{MM}`, `{DD}`, `{GGGG}` and `{WW}`, not `{user}` (`pattern_token`) |
+| `templates` | folder, or list of folders | The space's templates folders |
+| `attachments` | as in `vihko.yaml`: `mode`, `folder`, `suffix` | Where new images of the space's notes go |
+| `agents` | note | The space's guide for agents |
+
+- **Paths are relative to the space's root**, never from the notes root: no
+  leading `/`, `..`, `.` or hidden segment (`invalid_path`). Renaming a space
+  changes nothing in its file.
+- **How it's read**: a key vihko doesn't know is ignored (`unknown_key`); a
+  known key with a wrong value is left out, and the rest applies; a file
+  that isn't YAML applies nothing. Each problem has a code (the same as
+  `vihko.yaml`'s), where it is and its line, and goes to the file's owner as
+  `settings_invalid`.
+- **Who reads it**: a person's, they alone; a shared space's, its members, to
+  apply it. A key never reads or changes a settings file. Nobody gets it as a
+  note or a file.
+- **How it adds up** with `vihko.yaml`, for each person: daily-note series
+  are `vihko.yaml`'s, then those of each shared space they're in, then their
+  own, and two that give the same note are one (the first is kept); only
+  those where they can write today's note are offered. Templates folders are
+  the union of the three, those they can read. New images of a note follow
+  its space's `attachments`, otherwise `vihko.yaml`'s. The guides for agents
+  come in order: `mcp.instructions`, each shared space the key reaches, the
+  person's own.
+- **Series ids**: a space's series are offered as `me-<id>` (one's own
+  space) or `sp-<8 hex digits>-<id>` (a shared space's, from its root), so
+  they never take one of `vihko.yaml`'s. A `dailySeries` in the profile
+  names them that way. How the hex digits are made isn't covered.
 
 ## Environment variables
 
@@ -574,6 +619,7 @@ else into a note unless someone asks it to (an edit, a comment, a
 | A person's folder | `people/<username>/`, made when the user is created, and again at start if it went missing |
 | A shared space's folder | `spaces/<name>/`, the space's name as written, made when the space is created, or when a folder becomes a space of its own («Move to a new space»), and renamed with the space. A space of 0.1.0-rc.1 or rc.2 (`spaces/<readable>-<id>/`) is renamed to its name when vihko starts |
 | A shared space's members | `permissions.<root>.grants` in `vihko.yaml` |
+| Settings of a person or a space | `<space root>/.vihko/settings.yaml`, written when someone saves them in the UI: atomically, only the keys that changed, `version` added first when missing; comments and key order stay |
 | The note's identity | `uid: <id>` in the frontmatter, added only when vihko writes the note anyway: created, edited or moved from vihko. vihko writes a ULID today and reads any text or number as a `uid` |
 | An alias after a rename | The old name added to `aliases`, only when a link to the note from its own space couldn't be rewritten and `links.aliases` is on |
 | Frontmatter changes | Only that key's value, in place; a new key at the end of the block; a note without frontmatter gets a block at the top. The rest stays byte for byte |

@@ -61,6 +61,19 @@ its entries are kept at the end of this file.
   `/api/events` (most don't for `text/event-stream`).
 - **«Back»** on the pages (Account, Agents and API, Privacy, Users and
   groups, Spaces, Alerts, Recent changes): to the note or Home you came from.
+- **Settings of a person or a space**, without touching `vihko.yaml`: daily
+  notes, templates folders, where new images go and a guide for agents.
+  Yours, in Preferences › «Your note settings»; a shared space's, from its
+  «Settings…» (its managers). They live in the space,
+  `people/<you>/.vihko/settings.yaml` or `spaces/<name>/.vihko/settings.yaml`
+  (one format, with `version`, paths relative to the space), and add to the
+  installation's: the series and templates of `vihko.yaml`, your spaces and
+  your own (a series that gives the same notes as another is offered once);
+  a space's images setting for its notes; agents get the installation's
+  guide, then each space's their key reaches, then yours. vihko writes only
+  what changed and keeps comments; a hand edit applies at once, and what's
+  wrong in it is an alert to whom the file belongs (never the admin as
+  such). `GET/PUT /api/settings`, alert `settings_invalid`.
 
 ### Changed
 

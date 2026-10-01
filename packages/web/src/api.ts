@@ -231,6 +231,17 @@ export interface WorkspaceInfo {
 export type OnOpen = 'home' | 'last' | 'note' | 'daily'
 export interface Profile { timezone: string | null; dailySeries: string | null; onOpen: OnOpen; onOpenNote: string | null; openDailyOnStart: boolean; language: Language | null }
 
+/** Note settings of a person or a shared space (GET/PUT /api/settings): paths inside the space. */
+export interface NoteSettingsForm {
+  version: number
+  daily: { id: string; label: string | null; folder: string; name: string; template: string | null }[]
+  templates: string[]
+  attachments: { mode: 'next-to-note' } | { mode: 'folder'; folder: string } | { mode: 'per-note'; suffix: string } | null
+  agents: string | null
+}
+export interface SettingsProblem { code: string; at: string | null; line: number | null; detail: string | null }
+export interface SettingsView { space: string; etag: string; settings: NoteSettingsForm; errors: SettingsProblem[]; canEdit: boolean }
+
 /** «Home» (GET /api/home, D-056.35): only what the person reads now. */
 export interface HomeNote { path: string; title: string; at: string }
 export interface HomeView {
@@ -490,6 +501,8 @@ export const api = {
   workspace: () => request<WorkspaceInfo>('GET', '/api/workspace'),
   profile: () => request<Profile>('GET', '/api/profile'),
   home: () => request<HomeView>('GET', '/api/home'),
+  settings: (space?: string) => request<SettingsView>('GET', `/api/settings${space ? `?space=${encodeURIComponent(space)}` : ''}`),
+  saveSettings: (space: string | null, settings: NoteSettingsForm, ifMatch: string) => request<SettingsView>('PUT', '/api/settings', { ...(space ? { space } : {}), settings, ifMatch }),
   updateProfile: (patch: Partial<Profile>) => request<Profile>('PUT', '/api/profile', patch),
   /** Where today's note is and whether it exists; creates nothing. */
   today: () => request<{ series: string; path: string; exists: boolean }>('GET', '/api/daily'),

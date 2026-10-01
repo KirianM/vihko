@@ -44,7 +44,7 @@ export interface ScopedDeps {
    * The templates folders for a person (vihko.yaml's `templates`, `{user}` theirs): their notes are
    * left out of search, tags and Home (they are skeletons, `{{title}}` and all), never out of the tree or of opening them.
    */
-  templateFolders?: (username: string) => string[]
+  templateFolders?: (user: { id: string; username: string }) => string[]
   /** The rules of vihko.yaml, for what moves with a folder and the audience of a move. */
   permissions?: PermissionsEngine
   /** vihko.yaml's permissions, rewritten when a folder moves or is deleted from vihko. */
@@ -63,7 +63,7 @@ export interface ScopedDeps {
   daily: DailyNotes
   profiles: Profiles
   /** Where new images go (vihko.yaml), to know whether an agent may put one there. */
-  attachments: () => AttachmentsConfig
+  attachments: (notePath?: string) => AttachmentsConfig
   now: () => Date
   /** How links resolve over every indexed note (the indexer's), for `resolveLink`. */
   links?: () => LinkIndex
@@ -717,7 +717,7 @@ export class ScopedNotes {
 
   /** The templates folders of this person (ScopedDeps `templateFolders`). */
   templateFolders(): string[] {
-    return this.deps.templateFolders?.(this.access.user.username) ?? []
+    return this.deps.templateFolders?.(this.access.user) ?? []
   }
 
   /** Whether a path is in one of this person's templates folders. */
@@ -909,7 +909,7 @@ export class ScopedNotes {
     this.visible(f)
     const t = this.creatable(to)
     // Its folder of images (per-note mode) goes with it, with its rules (spec §3.8): its audience counts too.
-    const suffix = this.deps.attachments().perNote
+    const suffix = this.deps.attachments(f).perNote
     const assets = suffix !== undefined ? { from: noteAttachmentsDir(f, suffix), to: noteAttachmentsDir(t, suffix) } : null
     const engine = this.deps.permissions
     const assetRules = engine && assets && assets.from !== assets.to && rulesOf(engine.section).some((r) => r.folder === assets.from || r.folder.startsWith(assets.from + '/'))
@@ -1031,7 +1031,7 @@ export class ScopedNotes {
   async attach(note: string, bytes: Uint8Array) {
     const p = this.writable(note)
     this.visible(p)
-    const probe = attachmentPath(p, 'png', this.deps.now(), 1, this.deps.attachments())
+    const probe = attachmentPath(p, 'png', this.deps.now(), 1, this.deps.attachments(p))
     if (!this.access.canWrite(probe)) {
       throw new AccessError(this.access.isAgent ? `images for ${p} go outside this key's folders` : `images for ${p} go where you can't write`)
     }

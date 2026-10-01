@@ -12,7 +12,7 @@ import { useT, type MessageKey } from './i18n.tsx'
 import { Icon } from './ui.tsx'
 
 /** What a section's menu offers. */
-export type SectionAction = 'newNote' | 'newFolder' | 'members' | 'access' | 'share' | 'agents' | 'rename' | 'leave' | 'delete' | 'pin' | 'unpin'
+export type SectionAction = 'newNote' | 'newFolder' | 'members' | 'access' | 'share' | 'agents' | 'settings' | 'rename' | 'leave' | 'delete' | 'pin' | 'unpin'
 
 /** A section of the sidebar: a space, or a folder shared with the person. */
 export interface Section {
@@ -35,6 +35,7 @@ const ACTION_LABEL: Record<SectionAction, MessageKey> = {
   access: 'spaces.access',
   share: 'folder.permissions',
   agents: 'spaces.agents',
+  settings: 'settings.menu',
   rename: 'spaces.rename',
   leave: 'spaces.leave',
   delete: 'spaces.delete',
@@ -46,11 +47,11 @@ const ACTION_LABEL: Record<SectionAction, MessageKey> = {
 export function sectionActions(s: Section): SectionAction[] {
   const out: SectionAction[] = []
   if (atLeast(s.level, 'edit')) out.push('newNote', 'newFolder')
-  if (s.kind === 'mine') return [...out, 'agents']
+  if (s.kind === 'mine') return [...out, 'agents', 'settings']
   if (s.kind === 'shared') {
     // Every member sees who the others are (D-056.27); only managers change it.
     out.push('members')
-    if (s.level === 'manage') out.push('rename')
+    if (s.level === 'manage') out.push('settings', 'rename')
     out.push('leave')
     if (s.level === 'manage') out.push('delete')
     return out

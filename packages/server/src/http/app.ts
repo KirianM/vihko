@@ -11,7 +11,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
-import { WORKSPACE_FILE, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, seriesPath, spaceRootOf, type Alert, type ConfigError, type ErrorCode, type Series, type WorkspaceConfig } from '@vihko/core'
+import { NoteSettingsFileError, WORKSPACE_FILE, parseNoteSettings, writeNoteSettings, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, personalRoot, seriesPath, spaceRootOf, type Alert, type ConfigError, type ErrorCode, type Series, type WorkspaceConfig } from '@vihko/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
@@ -26,6 +26,8 @@ import { ProfileError, isNotePath, type Profile, type Profiles } from '../profil
 import { historyFor } from '../agentHistory.ts'
 import { homeView } from '../home.ts'
 import { LiveTree } from '../liveTree.ts'
+import { NoteSettingsStore } from '../noteSettings.ts'
+import { settingsFromBody } from './settingsBody.ts'
 import { streamSSE } from 'hono/streaming'
 import type { Workspace } from '../workspace.ts'
 import { MoveJobs } from './jobs.ts'
@@ -182,6 +184,8 @@ export interface AppDeps {
   notices?: Notices
   /** vihko.yaml rewritten to the current format at start (configMigrations.ts): the admins' alerts. */
   configMigrations?: ConfigMigrations
+  /** Each space's note settings (noteSettings.ts); one of its own by default. main.ts shares its NoteService's. */
+  noteSettings?: NoteSettingsStore
   /** Only tests: how «Save a copy» resolves names and which addresses count as public. */
   imageFetchTesting?: FetchImageOptions['testing']
 }
@@ -208,6 +212,8 @@ export interface Services {
   /** Spaces (D-056): what each person reaches, for the MCP server's instructions and `list_folder("")` too. */
   /** The tree, live (liveTree.ts): main.ts tells it when vihko.yaml was changed by hand. */
   live: LiveTree
+  /** Each space's note settings: the MCP server adds their guides for agents. */
+  noteSettings: NoteSettingsStore
   spaces: SpaceService
 }
 
@@ -266,7 +272,17 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const now = deps.now ?? (() => new Date())
   // Under the spaces model, a person's series are those where they can write today's note (spec §1.6).
   const offered = (user: User, s: Series) => permissions.viewer(user).can(seriesPath(s, profiles.now(user.id, now()), user.username), 'edit')
-  const daily = new DailyNotes({ workspace, profiles, notes, now, offered })
+  // Each space's note settings (noteSettings.ts): series, templates, images and agents' guides of a space or a person.
+  const noteSettings = deps.noteSettings ?? new NoteSettingsStore({ notesDir: deps.notesDir })
+  /** The shared spaces someone belongs to: whose settings add to theirs. */
+  const spacesOf = (user: { id: string; username: string }) => permissions.spacesFor(user).spaces.map((s) => s.path)
+  const seriesOf = (user: User) => noteSettings.series(workspace.config.daily, spacesOf(user), personalRoot(user.username), user.username)
+  /** Templates folders for someone: vihko.yaml's (`{user}` theirs), their spaces' and their own; not yet filtered by what they read. */
+  const templateFolders = (user: { id: string; username: string }) => [...new Set([
+    ...workspace.config.templates.map((t) => t.replaceAll('{user}', user.username).normalize('NFC')),
+    ...noteSettings.templates(spacesOf(user), personalRoot(user.username)),
+  ])]
+  const daily = new DailyNotes({ workspace, profiles, notes, now, offered, seriesOf })
   const jobs = new MoveJobs()
   const moveWaitMs = deps.moveWaitMs ?? 1000
   const keys = deps.keys ?? new ApiKeys(auth.state)
@@ -304,8 +320,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Keys' folders, pins and the trash follow a folder moved from vihko (folderRefs.ts).
   const refs = new FolderRefs({ state: auth.state, stateDir: notes.stateDir })
   const scopedDeps: ScopedDeps = {
-    notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links,
-    templateFolders: (username) => workspace.config.templates.map((t) => t.replaceAll('{user}', username).normalize('NFC')),
+    notes, index, notesDir: deps.notesDir, daily, profiles, attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments, now, links: () => deps.indexer.links,
+    templateFolders,
     permissions, permissionsFile, keys: () => keys.listAll(), orphans: deps.orphans, externalMoves: deps.externalMoves, holds: deps.holds,
     onFolderMoved: (from, to) => { refs.moved(from, to) },
   }
@@ -323,7 +339,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     deleteFolder: (access, path, o) => new ScopedNotes(scopedDeps, access).deleteFolder(path, o),
     moveFolder: (access, from, to, o) => new ScopedNotes(scopedDeps, access).moveFolder(from, to, o),
   })
-  const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users, imageSlots: new ImageSlots(), spaces, live }
+  const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users, imageSlots: new ImageSlots(), spaces, live, noteSettings }
   const app = new Hono<Env>()
   /** The request's operations, as whoever is asking. */
   const scoped = (c: Context<Env>) => services.scoped(c.get('access'))
@@ -626,10 +642,52 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const access = c.get('access')
     const user = c.get('user')
     return c.json({
-      daily: w.daily.filter((s) => offered(user, s)).map((s) => ({ ...s, template: s.template !== null && access.canRead(s.template) ? s.template : null })),
-      templates: w.templates.map((t) => t.replaceAll('{user}', user.username)).filter((t) => access.level(t) !== null),
+      daily: seriesOf(user).filter((s) => offered(user, s)).map((s) => ({ ...s, template: s.template !== null && access.canRead(s.template) ? s.template : null })),
+      templates: templateFolders(user).filter((t) => access.level(t) !== null),
       links: w.links,
     })
+  })
+
+  // Note settings (noteSettings.ts): a person's own, or a shared space's
+  // (`space`: its root). One's own: read and changed by them alone. A shared
+  // space's: read by its members, changed by its managers. Anything else is
+  // `not_found`, as for what doesn't exist; a key has none of this.
+  const settingsRoot = (c: Context<Env>, space: unknown, change: boolean): string | Response => {
+    const access = c.get('access')
+    if (access.isAgent) return fail(c, 404, 'not_found', 'does not exist')
+    const own = personalRoot(c.get('user').username)
+    if (space === undefined || space === null || space === '' || space === own) return own
+    const s = typeof space === 'string' ? parseSpacePath(space.normalize('NFC')) : null
+    if (!s || s.space.kind !== 'shared' || s.inner !== '' || access.level(s.space.root) === null) return fail(c, 404, 'not_found', 'no such space')
+    if (change && !access.canManage(s.space.root)) return fail(c, 403, 'forbidden', 'only its managers change a space\'s settings')
+    return s.space.root
+  }
+  const settingsView = (r: { root: string; etag: string; settings: unknown; errors: unknown }, canEdit: boolean) => ({ space: r.root, etag: r.etag, settings: r.settings, errors: r.errors, canEdit })
+
+  app.get('/api/settings', (c) => {
+    const root = settingsRoot(c, c.req.query('space'), false)
+    if (root instanceof Response) return root
+    const own = root === personalRoot(c.get('user').username)
+    return c.json(settingsView(noteSettings.read(root), own || c.get('access').canManage(root)))
+  })
+
+  app.put('/api/settings', async (c) => {
+    const body = await c.req.json<{ space?: unknown; settings?: unknown; ifMatch?: unknown }>()
+    const root = settingsRoot(c, body.space, true)
+    if (root instanceof Response) return root
+    const next = settingsFromBody(body.settings)
+    if (next === null) return fail(c, 400, 'invalid', 'settings: version, daily, templates, attachments and agents, as GET gives them')
+    // What's wrong in them is said, with where; nothing is written.
+    const problems = parseNoteSettings(writeNoteSettings(null, next)).errors
+    if (problems.length) return fail(c, 400, 'invalid', 'the settings have problems', { errors: problems })
+    if (typeof body.ifMatch !== 'string') return fail(c, 428, 'precondition_required', 'ifMatch: the ETag of the settings the change was planned on')
+    try {
+      const r = await noteSettings.write(root, next, { ifMatch: body.ifMatch })
+      return c.json(settingsView(r, true))
+    } catch (err) {
+      if (err instanceof NoteSettingsFileError) return fail(c, 409, 'config_invalid', err.message)
+      throw err
+    }
   })
 
   /** A profile as its person may see it: the note «On opening» names only while they can read it (otherwise, home). */
@@ -935,6 +993,17 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (unreadable.length) alerts.push({ code: 'two_factor_unreadable', users: unreadable.map(nameOf).sort(), actions: [] })
     // Notices addressed to this person (notices.ts), last: what others did to their account or their writing.
     if (!access.isAgent) for (const n of notices.of(c.get('user').id)) alerts.push(noticeAlert(n, access, nameOf, (root) => permissions.spaceName(root)))
+    // Note settings written by hand with something wrong (noteSettings.ts): to whom they belong, the person or a space's managers.
+    if (!access.isAgent) {
+      const me = c.get('user')
+      const own = noteSettings.read(personalRoot(me.username))
+      if (own.errors.length) alerts.push({ code: 'settings_invalid', space: null, errors: own.errors, actions: [] })
+      for (const s of permissions.spacesFor(me).spaces) {
+        if (!access.canManage(s.path)) continue
+        const r = noteSettings.read(s.path)
+        if (r.errors.length) alerts.push({ code: 'settings_invalid', space: { path: s.path, name: s.name }, errors: r.errors, actions: [] })
+      }
+    }
     return c.json({ alerts })
   })
 

@@ -176,7 +176,9 @@ The history is for whoever can edit the note.
 - **With a group of people, for good:** **New space**, in the sidebar, makes
   a shared space; add its members with a level (read, comment, edit or
   manage). Everything in it belongs to all of them. Its menu has
-  «Members…», «Rename…», «Leave» and «Delete space…».
+  «Members…», «Rename…», «Leave» and «Delete space…», and, for its
+  managers, «Settings…»: the space's own daily notes, templates, where its
+  images go and its guide for agents, for all its members.
 - **One folder of yours, with someone:** in «My notes», the folder's menu →
   **Share…**, add people or groups and pick a level. They find it under
   «Shared with me»; it stays yours.
@@ -191,8 +193,13 @@ groups and spaces work, and how an admin adds people:
 Your name, at the bottom of the sidebar, opens **Preferences**:
 
 - **Timezone**: what day «today» is for you.
-- **Daily note series**, when `vihko.yaml` declares daily notes
+- **Daily note series**, when there are daily notes for you
   ([Configuration](configuration.md#daily-daily-notes)).
+- **Your note settings**: daily notes, templates folders, where new images
+  go and a guide for agents, for your own space and for you alone. Paths are
+  inside «My notes». They add to the installation's; a series the
+  installation already has isn't offered twice
+  ([Settings of a person or a space](configuration.md#settings-of-a-person-or-a-space)).
 - **On opening**: what vihko shows when you come in without asking for
   anything else. **Home** (the default), **the last note** you had open on
   that device, **a specific note** you pick by its name, or **today's note**

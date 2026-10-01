@@ -101,7 +101,8 @@ export interface NoteServiceOptions {
    * default. Asked on each upload and each move (in `per-note` mode a note's
    * folder of images moves with it).
    */
-  attachments?: () => AttachmentsConfig
+  /** Where new images of a note go: vihko.yaml's, or its space's settings for the notes of that space (noteSettings.ts). */
+  attachments?: (notePath?: string) => AttachmentsConfig
   /** The history: every write is recorded with its actor (M2). */
   history?: NoteHistory
   /**
@@ -715,7 +716,7 @@ export class NoteService {
    */
   private filesGoingWith(text: string, path: string, canWrite: (path: string) => boolean): string[] {
     // The fixed folder is each space's own (attachments.ts `attachmentPath`).
-    const folder = this.opts.attachments?.().folder ?? null
+    const folder = this.opts.attachments?.(path).folder ?? null
     const space = spaceRootOf(path)
     const shared = folder === null ? null : space === null ? folder : `${space}/${folder}`
     const inShared = (p: string) => shared !== null && p.startsWith(shared + '/')
@@ -1426,7 +1427,7 @@ export class NoteService {
    * folder of images, or in the fixed folder of the space it goes to.
    */
   private copiesDir(notePath: string): string {
-    return posix.dirname(attachmentPath(notePath, 'png', new Date(0), 1, this.opts.attachments?.() ?? { folder: null }))
+    return posix.dirname(attachmentPath(notePath, 'png', new Date(0), 1, this.opts.attachments?.(notePath) ?? { folder: null }))
   }
 
   /**
@@ -1582,7 +1583,7 @@ export class NoteService {
 
   /** In `per-note` mode, the note's own folder of images if it exists: the files in it (relative to it, hidden ones included) and whether any is a note. */
   private assetsOf(notePath: string): { dir: string; files: string[]; holdsNotes: boolean } | null {
-    const suffix = this.opts.attachments?.().perNote
+    const suffix = this.opts.attachments?.(notePath).perNote
     if (suffix === undefined) return null
     const dir = noteAttachmentsDir(notePath, suffix)
     if (classifyPath(dir) !== 'other' || !isDirectory(join(this.opts.notesDir, dir))) return null
@@ -1597,7 +1598,7 @@ export class NoteService {
    * folder move, with its own relinking).
    */
   private planAssets(from: string, to: string): { folder: MoveReport['images']['folder']; failed: MoveReport['images']['failed'] } {
-    const suffix = this.opts.attachments?.().perNote
+    const suffix = this.opts.attachments?.(from).perNote
     if (suffix === undefined) return { folder: null, failed: [] }
     const dst = noteAttachmentsDir(to, suffix)
     const assets = noteAttachmentsDir(from, suffix) === dst ? null : this.assetsOf(from)
@@ -1691,7 +1692,7 @@ export class NoteService {
     if (bytes.byteLength > this.maxImageBytes) throw new NoteError('too_large', `${bytes.byteLength} bytes, the limit is ${this.maxImageBytes}`)
     const type = sniffImage(bytes)
     if (!type) throw new NoteError('unsupported_type', 'only PNG, JPEG, GIF, WebP and AVIF images are stored')
-    const config = this.opts.attachments?.() ?? { folder: null }
+    const config = this.opts.attachments?.(notePath) ?? { folder: null }
     for (let n = 1; n <= 1000; n++) {
       const path = attachmentPath(notePath, type.ext, now, n, config)
       const file = this.otherFile(path)
@@ -1770,7 +1771,7 @@ export class NoteService {
 
     // Its files first, next to where the note goes, under free names; then the
     // note, linking each where it landed. If the note can't go back, neither do they.
-    const perNote = this.opts.attachments?.().perNote
+    const perNote = this.opts.attachments?.(entry.path).perNote
     const relocate = (p: string) => {
       if (path === entry.path) return p
       const assets = perNote === undefined ? null : noteAttachmentsDir(entry.path, perNote)

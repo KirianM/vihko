@@ -7,6 +7,7 @@ import { SpacesContext, notePathOf, rootOf, usePathLabels, useSpacesValue } from
 import { renamedPath } from './legacyAddress.ts'
 import { openingNote } from './onOpen.ts'
 import { HomePage } from './Home.tsx'
+import { NoteSettingsDialog } from './NoteSettings.tsx'
 import { addressOf } from '@vihko/core/spaces'
 import { SpaceSections, type Section, type SectionAction } from './Sidebar.tsx'
 import { DeleteSpaceDialog, LeaveSpaceDialog, NewSpaceDialog, RenameSpaceDialog, spaceError } from './SpaceDialogs.tsx'
@@ -57,6 +58,7 @@ type TreeDialog =
   | { kind: 'renameSpace'; section: Section }
   | { kind: 'leaveSpace'; section: Section }
   | { kind: 'deleteSpace'; space: SpaceEntry }
+  | { kind: 'settings'; space: string | null; name: string | null }
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 /** Views that aren't a note, in the URL as `?view=` (no router). */
@@ -474,6 +476,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     else if ((action === 'members' && s.level === 'manage') || action === 'share' || action === 'agents') setTreeDialog({ kind: 'permissions', path: s.root })
     else if (action === 'members' || action === 'access') setTreeDialog({ kind: 'members', path: s.root })
     else if (action === 'rename') setTreeDialog({ kind: 'renameSpace', section: s })
+    else if (action === 'settings') setTreeDialog({ kind: 'settings', space: s.kind === 'shared' ? s.root : null, name: s.kind === 'shared' ? s.name : null })
     else if (action === 'leave') setTreeDialog({ kind: 'leaveSpace', section: s })
     else if (action === 'delete') {
       const space = spaces?.spaces.find((x) => x.path === s.root)
@@ -793,6 +796,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               void loadTree()
             }} />
           )}
+          {treeDialog?.kind === 'settings' && (
+            <NoteSettingsDialog space={treeDialog.space} name={treeDialog.name} onClose={closeTreeDialog} onSaved={() => { closeTreeDialog(); void loadWorkspace() }} />
+          )}
           {treeDialog?.kind === 'trashNote' && (
             <TrashDialog path={treeDialog.path} onClose={closeTreeDialog} onTrashed={(id) => {
               const path = treeDialog.path
@@ -832,6 +838,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           onAccount={showAccount}
           onUsers={user.role === 'admin' ? showUsers : null}
           onSpaces={user.role === 'admin' ? showSpaces : null}
+          onNoteSettings={() => { setPrefsOpen(false); setTreeDialog({ kind: 'settings', space: null, name: null }) }}
         />
       )}
     </div>

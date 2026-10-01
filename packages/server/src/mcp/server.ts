@@ -136,9 +136,9 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
     const access = ctx.authInfo?.extra?.access as Access | undefined
     // Never without a key: `/mcp` below only calls the handler once it has judged one.
     if (!access) throw new Error('an MCP request without a principal')
-    const guide = workspaceGuide(access)
     // Under the spaces model, where the person keeps their notes and what they share (spec §6.2).
     const spaces = services.spaces.view(access)
+    const guide = [workspaceGuide(access), ...settingsGuides(access, spaces)].filter((g): g is string => g !== null).join('\n\n---\n\n') || null
     const own = instructions(access, spaces)
     const server = new McpServer({ name: 'vihko', version: VERSION, icons: opts.icons }, { instructions: guide ? `${own}\n\n${guide}` : own })
     registerTools(server, {
@@ -164,6 +164,30 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
     } catch {
       return null
     }
+  }
+
+  /**
+   * The guides for agents of the spaces' and the person's own note settings
+   * (noteSettings.ts): of each shared space the key reaches, then the
+   * person's own if it reaches their space. Each a note read as the key; one
+   * it can't read is left out.
+   */
+  const settingsGuides = (access: Access, v: SpacesResponse): string[] => {
+    const out: string[] = []
+    const read = (note: string): string | null => {
+      try { return services.scoped(access).read(note).text } catch { return null }
+    }
+    for (const s of v.spaces) {
+      const g = services.noteSettings.read(s.path).resolved.agents
+      const text = g ? read(g) : null
+      if (text !== null) out.push(`The guide for agents of the shared space ${JSON.stringify(s.name)} (the note ${g}), for what you do in it:\n\n${text}`)
+    }
+    if (v.personal) {
+      const g = services.noteSettings.read(v.personal.path).resolved.agents
+      const text = g ? read(g) : null
+      if (text !== null) out.push(`${access.user.username}'s own guide for agents (the note ${g}):\n\n${text}`)
+    }
+    return out
   }
 
   const fail = (c: Context, status: 400 | 401 | 403 | 404 | 405, error: string, message: string, headers: Record<string, string> = {}) =>
