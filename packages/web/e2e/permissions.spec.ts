@@ -238,7 +238,8 @@ test('a member closes her space to agents and shares a folder of it with someone
   await outsider.reload()
   await outsider.getByRole('button', { name: 'Compartido conmigo' }).click()
   const section = `${KITCHEN} · de ${MEMBER.username}`
-  await outsider.getByRole('button', { name: KITCHEN, exact: false }).filter({ hasText: `de ${MEMBER.username}` }).click()
+  // In the sidebar (Home lists it too, under «Shared with you lately»).
+  await outsider.getByRole('navigation').getByRole('button', { name: KITCHEN, exact: false }).filter({ hasText: `de ${MEMBER.username}` }).click()
   const tree = spaceTree(outsider, section)
   await expect(row(tree, RECIPE).getByRole('button', { name: /Acciones/ })).toHaveCount(0)
   await expect(row(outsider, DIARY)).toHaveCount(0)
