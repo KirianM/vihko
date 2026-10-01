@@ -260,7 +260,7 @@ test('a link to what someone can\'t read is broken for them, whether it exists o
   expect((await linkStatus(o, probe, exists))?.status).toBe('resolved')
 })
 
-test('a rename that would take someone\'s link to a note the renamer can\'t see is refused as a name that isn\'t available', async () => {
+test('a rename that would take someone\'s link, in a note the renamer reads, to a note they can\'t see is refused as a name that isn\'t available (the preview doesn\'t check)', async () => {
   // The admin shares a folder with the other to edit; in it, [[<name>]] leads to a private note of the admin's.
   const privateDir = `${personal(ADMIN)}/${m.aFolder()}`
   const sharedDir = `${personal(ADMIN)}/${m.aFolder()}`
@@ -279,8 +279,12 @@ test('a rename that would take someone\'s link to a note the renamer can\'t see 
   await o.getByRole('menuitem', { name: 'Renombrar o mover…' }).click()
   const dialog = o.getByRole('dialog')
   await dialog.getByLabel('Nuevo nombre').fill(name)
+  // The preview tells nothing (D-056.28): the refusal comes when renaming, as for a taken name.
+  const rename = dialog.getByRole('button', { name: /^Renombrar/ })
+  await expect(rename).toBeEnabled(SLOW)
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  await rename.click()
   await expect(dialog.getByRole('alert')).toHaveText('Ese nombre no está disponible aquí.', SLOW)
-  await expect(dialog.getByRole('button', { name: /^Renombrar/ })).toBeDisabled()
   // A name that is simply taken says the same.
   await dialog.getByLabel('Nuevo nombre').fill(baseName(linking))
   await expect(dialog.getByRole('alert')).toHaveText('Ese nombre no está disponible aquí.', SLOW)

@@ -1896,6 +1896,7 @@ function subjectOf(q: QCommit, ops: FastOp[], created: Set<string>): string {
     case 'folder_moved': return `Update links after moving folder ${s('from')} to ${s('to')}`
     case 'links_after_external_move': return 'Update links after moves outside vihko'
     case 'alias_added': return `Add alias ${s('alias')} to ${s('to')}`
+    case 'links_kept': return `Keep links when ${s('to')} took their name`
     case 'restored': return `Restore ${target} from ${s('id').slice(0, 10)}`
     case 'trash_restored': return `Restore ${target} from the trash`
     case 'reverted': return `Revert ${s('id').slice(0, 10)} in ${target}`

@@ -397,11 +397,12 @@ test('a failed rewrite: the alias only where it helps (the same space); links fr
 })
 
 /**
- * The residual leak of D-056.20: `member` shares a folder (the trip) with
- * `other`; a note of the member's outside it (the budget) is what a link by
- * name in the trip leads to. A rename or a move by `other` that would have
- * to rewrite that link (and so name the budget) is refused exactly as a
- * taken name, preview included, for them and their agent.
+ * The residual leak of D-056.20, as D-056.28 leaves it: `member` shares a
+ * folder (the trip) with `other`; a note of the member's outside it (the
+ * budget) is what a link by name in the trip leads to. A rename or a move by
+ * `other` that would have to rewrite that link (in a note they read, so
+ * naming the budget to them) is refused exactly as a taken name, for them
+ * and their agent; the preview doesn't check, and names nothing hidden.
  */
 async function residual() {
   const [finance, budget, plan, draft, notesName, taken, takenMine] = [m.aFolder(), m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle()]
@@ -422,7 +423,7 @@ async function residual() {
   return { h, s, p, budget, finance }
 }
 
-test('D-056.20: a rename or move that would name a note the actor can’t read answers as a taken name, preview included', async () => {
+test('D-056.20/.28: a rename or move that would rewrite, in a note the actor reads, a link to a note they can’t read answers as a taken name; the preview doesn’t check and names nothing hidden', async () => {
   const { h, p, budget, finance } = await residual()
   const before = [p.plan, p.draft, p.notes].map((x) => h.read(x))
   const move = (from: string, to: string, dryRun: boolean) => h.as('other')('POST', '/api/note/move', { from, to, dryRun })
@@ -432,11 +433,16 @@ test('D-056.20: a rename or move that would name a note the actor can’t read a
     assert.equal(JSON.parse(a.text).error, 'exists')
     assert.deepEqual([a.status, a.text.replaceAll(aTo, bTo)], [b.status, b.text])
   }
-  for (const dryRun of [true, false]) {
-    // Rename: `draft` would take the name the plan's link finds in the budget.
-    same(await move(p.draft, p.renameTo, dryRun), await move(p.draft, p.taken, dryRun), p.renameTo, p.taken)
-    // Move: `notes` links the budget by name; out of the member's space the link would have to name it.
-    same(await move(p.notes, p.moveTo, dryRun), await move(p.notes, p.takenMine, dryRun), p.moveTo, p.takenMine)
+  // Rename: `draft` would take the name the plan's link finds in the budget.
+  same(await move(p.draft, p.renameTo, false), await move(p.draft, p.taken, false), p.renameTo, p.taken)
+  // Move: `notes` links the budget by name; out of the member's space the link would have to name it.
+  same(await move(p.notes, p.moveTo, false), await move(p.notes, p.takenMine, false), p.moveTo, p.takenMine)
+  // The preview answers with its plan, the rewrite that would name the budget left out.
+  for (const [from, to] of [[p.draft, p.renameTo], [p.notes, p.moveTo]] as const) {
+    const preview = await move(from, to, true)
+    assert.equal(preview.status, 200, preview.text)
+    assert.equal(preview.body.dryRun, true)
+    assert.ok(!preview.text.includes(`${finance}/${budget}`), preview.text)
   }
   assert.deepEqual([p.plan, p.draft, p.notes].map((x) => h.read(x)), before, 'nothing written')
   assert.ok(!h.has(p.renameTo) && !h.has(p.moveTo))
@@ -458,16 +464,102 @@ test('D-056.20: an agent gets the same answer as for a taken name', async () => 
     }
     assert.fail(`${from} → ${to} went through`)
   }
-  for (const dryRun of [true, false]) {
-    const hidden = await refusal(p.draft, p.renameTo, dryRun)
-    const real = await refusal(p.draft, p.taken, dryRun)
-    assert.equal(hidden.code, 'exists')
-    assert.deepEqual({ ...hidden, message: hidden.message.replace(p.renameTo, p.taken) }, real)
-    const moved = await refusal(p.notes, p.moveTo, dryRun)
-    const movedReal = await refusal(p.notes, p.takenMine, dryRun)
-    assert.deepEqual({ ...moved, message: moved.message.replace(p.moveTo, p.takenMine) }, movedReal)
-  }
+  const hidden = await refusal(p.draft, p.renameTo, false)
+  const real = await refusal(p.draft, p.taken, false)
+  assert.equal(hidden.code, 'exists')
+  assert.deepEqual({ ...hidden, message: hidden.message.replace(p.renameTo, p.taken) }, real)
+  const moved = await refusal(p.notes, p.moveTo, false)
+  const movedReal = await refusal(p.notes, p.takenMine, false)
+  assert.deepEqual({ ...moved, message: moved.message.replace(p.moveTo, p.takenMine) }, movedReal)
+  // Its preview doesn't check either.
+  const preview = await agent.move(p.draft, p.renameTo, { dryRun: true })
+  assert.equal(preview.dryRun, true)
+  assert.ok(!JSON.stringify(preview).includes(p.budget))
   assert.ok(!h.has(p.renameTo) && !h.has(p.moveTo))
+})
+
+/**
+ * D-056.28: the link at stake is in a note of the member's that `other`
+ * can't read (the memo), so no rewrite of it would show them anything:
+ * what `other` does goes through, and the system keeps the memo's link on
+ * the member's note, without telling them.
+ */
+async function unseen() {
+  const [finance, privy, budget, memo, draft, alias, aliased, aliasMemo] = [m.aFolder(), m.aFolder(), m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle()]
+  const h = await setup((s) => ({
+    [`${s.space.member}/${finance}/${budget}.md`]: `# ${budget}\n`,
+    [`${s.space.member}/${finance}/${aliased}.md`]: `---\naliases: [${JSON.stringify(alias)}]\n---\n# ${aliased}\n`,
+    [`${s.space.member}/${privy}/${memo}.md`]: `${m.aSentence()} [[${budget}]]\n`,
+    [`${s.space.member}/${privy}/${aliasMemo}.md`]: `[[${alias}]]\n`,
+    [`${s.trips}/${draft}.md`]: `# ${draft}\n`,
+  }))
+  const { s } = h
+  const p = {
+    budget: `${s.space.member}/${finance}/${budget}.md`, aliased: `${s.space.member}/${finance}/${aliased}.md`,
+    memo: `${s.space.member}/${privy}/${memo}.md`, aliasMemo: `${s.space.member}/${privy}/${aliasMemo}.md`,
+    draft: `${s.trips}/${draft}.md`, takesName: `${s.trips}/${budget}.md`,
+  }
+  /** Where the links in `path` lead, as the member reads them. */
+  const leads = async (path: string) => (await h.as('member')('GET', q('/api/note/links', { path }))).body.outgoing.map((l: any) => [l.status, l.dstPath])
+  return { h, s, p, finance, budget, alias, leads }
+}
+
+test('D-056.28: a rename whose link at stake is in a note the actor can’t read goes through, and the system keeps that link on its note', async () => {
+  const { h, p, finance, budget, leads } = await unseen()
+  const memoBefore = h.read(p.memo)
+  // The preview is a plan like any other: nothing hidden in it.
+  const preview = await h.as('other')('POST', '/api/note/move', { from: p.draft, to: p.takesName, dryRun: true })
+  assert.equal(preview.status, 200, preview.text)
+  assert.ok(!preview.text.includes(p.memo) && !preview.text.includes(`${finance}/${budget}`), preview.text)
+  const r = await h.as('other')('POST', '/api/note/move', { from: p.draft, to: p.takesName })
+  assert.equal(r.status, 200, r.text)
+  assert.ok(!r.text.includes(p.memo) && !r.text.includes(`${finance}/${budget}`), r.text)
+  assert.ok(h.has(p.takesName))
+  // The memo's link was rewritten by the system and still leads to the budget.
+  assert.notEqual(h.read(p.memo), memoBefore)
+  assert.ok(h.read(p.memo).includes(`[[${finance}/${budget}]]`), h.read(p.memo))
+  assert.deepEqual(await leads(p.memo), [['resolved', p.budget]])
+})
+
+test('D-056.28: creating a note, by any route, whose name would take a link in a note its person can’t read: created, and the link kept on its note', async () => {
+  const { h, p, finance, budget, leads } = await unseen()
+  const plain = await h.as('other')('POST', '/api/note', { path: p.takesName, text: '' })
+  assert.equal(plain.status, 201, plain.text)
+  // The answer is a creation's like any other: it tells nothing of the rewrite.
+  const elsewhere = await h.as('other')('POST', '/api/note', { path: `${posix.dirname(p.takesName)}/${m.aTitle()}.md`, text: '' })
+  assert.deepEqual(Object.keys(plain.body).sort(), Object.keys(elsewhere.body).sort())
+  assert.ok(!plain.text.includes(`${finance}/${budget}`), plain.text)
+  assert.ok(h.read(p.memo).includes(`[[${finance}/${budget}]]`), h.read(p.memo))
+  assert.deepEqual(await leads(p.memo), [['resolved', p.budget]])
+  // An agent's create_note (the scoped create the MCP tool calls), the same.
+  const again = `${posix.dirname(p.takesName)}/${m.aFolder()}/${budget}.md`
+  await h.agent('other').create(again, { text: '' })
+  assert.ok(h.has(again))
+  assert.deepEqual(await leads(p.memo), [['resolved', p.budget]])
+})
+
+test('D-056.28: an alias added by an edit is a name taken like a new note’s: refused where the actor reads the link, kept by the system where they don’t', async () => {
+  const { h, p, alias, leads } = await unseen()
+  const etag = async (path: string) => (await h.as('other')('GET', q('/api/note', { path }))).body.etag
+  const withAlias = `---\naliases: [${JSON.stringify(alias)}]\n---\n${m.aSentence()}\n`
+  // The alias memo, which `other` can't read, leads by alias to a note of the member's: the alias would make it ambiguous, so the system keeps it.
+  const put = await h.as('other')('PUT', q('/api/note', { path: p.draft }), { text: withAlias }, { 'if-match': await etag(p.draft) })
+  assert.equal(put.status, 200, put.text)
+  assert.deepEqual(await leads(p.aliasMemo), [['resolved', p.aliased]])
+  // The same link, now also in a note of the trip `other` reads: an alias added there is refused as a taken name, and nothing is written.
+  const plan = `${posix.dirname(p.draft)}/${m.aTitle()}.md`
+  const mine = `${posix.dirname(p.draft)}/${m.aTitle()}.md`
+  h.write(plan, `[[${alias}]]\n`)
+  h.write(mine, `# ${m.aTitle()}\n`)
+  h.runtime.rescan({})
+  const before = h.read(mine)
+  const refused = await h.as('other')('PUT', q('/api/note', { path: mine }), { text: withAlias }, { 'if-match': await etag(mine) })
+  assert.deepEqual([refused.status, refused.body?.error], [409, 'exists'], refused.text)
+  assert.equal(h.read(mine), before)
+  // By operation (the edit agents use), the same.
+  const op = await h.as('other')('POST', '/api/note/edit', { path: mine, ifMatch: await etag(mine), ops: [{ op: 'set_frontmatter', key: 'aliases', value: [alias] }] })
+  assert.deepEqual([op.status, op.body?.error], [409, 'exists'], op.text)
+  assert.equal(h.read(mine), before)
 })
 
 test('D-056.21: never creating from a link in a note of someone else’s personal space; from one’s own, as ever', async () => {
@@ -569,13 +661,20 @@ test('D-056.20: an alias written in any note never captures a link: names beat a
   h.runtime.rescan({})
   const byMember = async () => byRaw((await h.as('member')('GET', q('/api/note/links', { path: p.plan }))).body.outgoing)
   assert.equal((await byMember())[`[[${alias}]]`].dstPath, p.budget)
-  // The other person writes both, the budget's name and its alias, as aliases of their note: a plain write, never refused.
-  const etag = (await h.as('other')('GET', q('/api/note', { path: mine }))).body.etag
-  const put = await h.as('other')('PUT', q('/api/note', { path: mine }), { text: `---\naliases: [${JSON.stringify(budget)}, ${JSON.stringify(alias)}]\n---\n# ${draft}\n` }, { 'if-match': etag })
+  // The other person writes the budget's name as an alias of their note: a name beats an alias, so nothing changes and nothing is refused.
+  const etag = async () => (await h.as('other')('GET', q('/api/note', { path: mine }))).body.etag
+  const put = await h.as('other')('PUT', q('/api/note', { path: mine }), { text: `---\naliases: [${JSON.stringify(budget)}]\n---\n# ${draft}\n` }, { 'if-match': await etag() })
   assert.equal(put.status, 200, put.text)
+  assert.deepEqual([(await byMember())[`[[${budget}]]`].status, (await byMember())[`[[${budget}]]`].dstPath], ['resolved', p.budget], 'a name beats an alias')
+  // The budget's alias too: the plan's link by alias would change, and the plan is a note they read (D-056.28): a taken name.
+  const refused = await h.as('other')('PUT', q('/api/note', { path: mine }), { text: `---\naliases: [${JSON.stringify(budget)}, ${JSON.stringify(alias)}]\n---\n# ${draft}\n` }, { 'if-match': await etag() })
+  assert.deepEqual([refused.status, refused.body?.error], [409, 'exists'], refused.text)
+  // The member, who reads the budget, writes it: the link by alias isn't taken but ambiguous between the two, which its owner sees and can fix.
+  const memberEtag = (await h.as('member')('GET', q('/api/note', { path: mine }))).body.etag
+  const own = await h.as('member')('PUT', q('/api/note', { path: mine }), { text: `---\naliases: [${JSON.stringify(budget)}, ${JSON.stringify(alias)}]\n---\n# ${draft}\n` }, { 'if-match': memberEtag })
+  assert.equal(own.status, 200, own.text)
   const after = await byMember()
   assert.deepEqual([after[`[[${budget}]]`].status, after[`[[${budget}]]`].dstPath], ['resolved', p.budget], 'a name beats an alias')
-  // The link by alias isn't taken: ambiguous between the two, which its owner sees and can fix.
   assert.deepEqual([after[`[[${alias}]]`].status, after[`[[${alias}]]`].candidates], ['ambiguous', [p.budget, mine].sort()])
   // For the other person, a link among notes of which one is hidden is broken, as before.
   const theirs = byRaw((await h.as('other')('GET', q('/api/note/links', { path: p.plan }))).body.outgoing)

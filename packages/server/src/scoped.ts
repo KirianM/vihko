@@ -759,13 +759,17 @@ export class ScopedNotes {
     return { created: false, ...this.written(p, r.etag, true) }
   }
 
-  /** Applies `fn` to the current text as the principal; an agent never edits a note it can't see. */
+  /**
+   * Applies `fn` to the current text as the principal; an agent never edits
+   * a note it can't see. An alias the edit adds is a name the note takes, as
+   * when creating one (D-056.28, `mayName`).
+   */
   private edit(path: string, fn: (text: string) => string | ReturnType<typeof planEdits>, opts: { ifMatch?: string }) {
     const p = this.writable(path)
     return this.guardAsync(p, () => this.deps.notes.edit(p, (t) => {
       if (this.access.hides(t)) throw this.access.hiddenError(p)
       return fn(t)
-    }, { ifMatch: opts.ifMatch, actor: this.access.actor }))
+    }, { ifMatch: opts.ifMatch, actor: this.access.actor, mayName: this.mayName }))
   }
 
   /**
@@ -867,7 +871,8 @@ export class ScopedNotes {
     let report: MoveReport
     try {
       // Images it takes to another space are only those the principal can read (D-056).
-      // A move that would have to rewrite a link to a note its person can't read is refused as a taken name (D-056.20).
+      // A move that would have to rewrite, in a note its person reads, a link to a note they can't
+      // is refused as a taken name; the dry run leaves that rewrite out instead (D-056.20, .28).
       report = await this.guardAsync(f, () => this.spelled(t, () => this.deps.notes.move(f, t, { ...moveOpts, actor: this.access.actor, canRead: (p) => this.access.canRead(p), mayName: this.mayName })))
     } catch (err) {
       if (copied) await file!.removeRules(assets!.to, { actor: this.access.actor }).catch(() => {})
@@ -891,9 +896,10 @@ export class ScopedNotes {
   }
 
   /**
-   * Whether a move may rewrite a link so that it names this note, or a new
-   * note may take a link that leads to it (D-056.20): only one the person
-   * (an agent's person) can read. What only the agent
+   * Whether a move may rewrite, in a note the person reads, a link so that
+   * it names this note, or a new name may take such a link that leads to it
+   * (D-056.20, .23, .28): only one the person (an agent's person) can read;
+   * also whether the person reads the note holding the link. What only the agent
    * can't see (`ai: false`, outside its key) it may already learn by naming
    * it (`agent_denied`, D-035), so that alone doesn't refuse a move.
    */

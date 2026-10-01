@@ -420,18 +420,27 @@ export class NoteService {
   }
 
   /**
-   * Whether a new note at `path` with `text` (its name, its path's suffixes
-   * and its aliases) would change where an indexed link leads, or make it
-   * ambiguous, when that link leads to a note `mayName` refuses, or is
-   * ambiguous among notes of which it refuses one.
+   * The indexed links a note at `path` with `aliases` would take (D-056.20,
+   * .23, refined by .28): those that lead now to a note `mayName` refuses, or
+   * are ambiguous among notes of which it refuses one, and would lead
+   * elsewhere, or be ambiguous among others, once it is there. `keys`: the
+   * names the change brings (all of a new note's; only the new aliases of an
+   * edit).
+   *
+   * `refuse`: one of those links is in a note `mayName` accepts (whoever acts
+   * reads it): keeping it would mean rewriting it with where it leads, which
+   * they mustn't learn, so the change is refused as a taken name. `keep`: the
+   * notes, none of them readable by whoever acts, holding the others that
+   * led to one note; the system rewrites them (`keepLinks`) so each keeps
+   * leading there, and nobody is told.
    */
-  private takesHiddenLink(path: string, text: string, mayName: (path: string) => boolean): boolean {
+  private linksTaken(path: string, aliases: string[], keys: Iterable<string>, mayName: (path: string) => boolean): LinksTaken {
     const now = this.opts.indexer.links
-    const aliases = this.opts.indexer.aliasesIn(text)
     const then = now.clone()
-    then.set({ path, aliases })
+    then.set({ ...(now.get(path) ?? {}), path, aliases })
+    const keep = new Set<string>()
     const byKey = this.opts.db.prepare('select src_path, kind, target, anchor from links where key = ?')
-    for (const key of new Set([...pathKeys(path), ...aliases.map(normKey)])) {
+    for (const key of new Set(keys)) {
       for (const l of byKey.all(key) as { src_path: string; kind: 'wiki' | 'embed' | 'markdown'; target: string; anchor: string | null }[]) {
         const before = now.resolve(l.src_path, l)
         const hidden = before.status === 'resolved' ? !mayName(before.path) : before.status === 'ambiguous' && !before.candidates.every(mayName)
@@ -440,10 +449,36 @@ export class NoteService {
         const same = before.status === 'resolved'
           ? after.status === 'resolved' && after.path === before.path
           : after.status === 'ambiguous' && before.status === 'ambiguous' && after.candidates.join('\n') === before.candidates.join('\n')
-        if (!same) return true
+        if (same) continue
+        if (mayName(l.src_path)) return { refuse: true, keep: [], before: now, after: then, mayName }
+        // An ambiguous link led to no one note: there is nothing to keep it on.
+        if (before.status === 'resolved') keep.add(l.src_path)
       }
     }
-    return false
+    return { refuse: false, keep: [...keep].sort(), before: keep.size ? now.clone() : now, after: then, mayName }
+  }
+
+  /** `linksTaken` for an edit of the note at `path` from `was` to `next`: only the aliases it adds count (D-056.28). */
+  private aliasesTaken(path: string, was: string, next: string, mayName: (path: string) => boolean): LinksTaken | null {
+    if (!this.opts.indexer.linkAliases) return null
+    const had = new Set(this.opts.indexer.aliasesIn(was).map(normKey))
+    const aliases = this.opts.indexer.aliasesIn(next)
+    const added = aliases.map(normKey).filter((k) => !had.has(k))
+    return added.length ? this.linksTaken(path, aliases, added, mayName) : null
+  }
+
+  /**
+   * The rewrites `linksTaken` left to the system, once the note at `path`
+   * has its name: each of those links keeps leading to its note (with the
+   * visible text of a link written from the notes root, as any rewrite). A
+   * rewrite that fails leaves that link as the change left it.
+   */
+  private async keepLinks(taken: LinksTaken | null, path: string, actor: Actor): Promise<void> {
+    if (!taken || taken.keep.length === 0) return
+    const system: Actor = { kind: 'system', reason: { code: 'links_kept', to: path, by: actor } }
+    const failed: MoveReport['failed'] = []
+    const plan = (text: string, src: string) => relinkSplices(text, planLinks(text, src, src, taken.before, taken.after, (p) => p).reps.filter((r) => !taken.mayName(r.target)))
+    await this.history.operation(system, null, () => this.rewriteAll(taken.keep.map((src) => ({ path: src, change: (t: string) => plan(t, src) })), system, failed))
   }
 
   /**
@@ -461,15 +496,19 @@ export class NoteService {
    * (a copy of another note, such as a template) a `uid` already in the text
    * is replaced, so the copy doesn't share its identity.
    *
-   * A name in use answers `exists` without anything of the note there. So
-   * does, with `mayName`, a name (or an alias in the text) that would change
-   * where an existing link leads, or make it ambiguous, when it leads to a
-   * note `mayName` refuses (D-056.20): whoever creates can't read it, and
-   * the answer mustn't tell it apart from a taken name.
+   * A name in use answers `exists` without anything of the note there. With
+   * `mayName`, a name (or an alias in the text) that would change where an
+   * existing link leads, or make it ambiguous, when it leads to a note
+   * `mayName` refuses (D-056.20, .23, .28): if that link is in a note whoever
+   * creates reads, `exists` too (keeping it would show them where it leads,
+   * and the answer mustn't tell it apart from a taken name); if it isn't,
+   * the note is created and the system rewrites that link so it keeps
+   * leading where it did, without saying so.
    */
   async create(path: string, text: string, actor: Actor, opts: { freshUid?: boolean; reason?: Reason; mayName?: (path: string) => boolean } = {}): Promise<{ path: string; etag: string; uid: string | null }> {
     const file = this.newFile(path)
-    if (opts.mayName && this.takesHiddenLink(path, text, opts.mayName)) throw nameTaken(path)
+    const taken = opts.mayName ? this.newNoteTakes(path, text, opts.mayName) : null
+    if (taken?.refuse) throw nameTaken(path)
     mkdirSync(dirname(file), { recursive: true })
     if (opts.freshUid && this.uidIn(text)) text = setFrontmatterKey(text, this.uidKey, newUid())
     const withUid = this.ensureUid(text, null)
@@ -481,7 +520,14 @@ export class NoteService {
     }
     w.done()
     this.opts.indexer.indexPaths([path])
+    await this.keepLinks(taken, path, actor)
     return { path, etag: contentHash(withUid.text), uid: withUid.uid }
+  }
+
+  /** `linksTaken` for a new note at `path` with `text`: its name, its path's suffixes and its aliases. */
+  private newNoteTakes(path: string, text: string, mayName: (path: string) => boolean): LinksTaken {
+    const aliases = this.opts.indexer.aliasesIn(text)
+    return this.linksTaken(path, aliases, [...pathKeys(path), ...aliases.map(normKey)], mayName)
   }
 
   /** Replaces the entire content. `ifMatch` is mandatory: what hasn't been read isn't overwritten. */
@@ -494,7 +540,24 @@ export class NoteService {
    * hasn't changed since it was read. If the note had no `uid`, it gets one in
    * this same write; if it had one, it's kept even if the new text omits it.
    */
-  async edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }> {
+  async edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor; mayName?: (path: string) => boolean }): Promise<{ etag: string }> {
+    // An alias the edit adds is a name the note takes, as when creating one (D-056.28).
+    const mayName = opts.mayName
+    if (mayName) {
+      let taken: LinksTaken | null = null
+      const r = await this.editNow(path, (t) => {
+        const change = fn(t)
+        taken = this.aliasesTaken(path, t, changedText(t, change), mayName)
+        if (taken?.refuse) throw new NoteError('exists', `that alias isn't available here: ${path}`)
+        return change
+      }, { ifMatch: opts.ifMatch, actor: opts.actor })
+      await this.keepLinks(taken, path, opts.actor)
+      return r
+    }
+    return this.editNow(path, fn, { ifMatch: opts.ifMatch, actor: opts.actor })
+  }
+
+  private async editNow(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }> {
     const hot = this.opts.hot
     if (hot?.has(path)) return hot.edit(path, fn, opts)
     const file = this.file(path)
@@ -783,21 +846,22 @@ export class NoteService {
     const imagePlan = this.planImages(text, from, to, assets.folder?.from ?? null, opts.canRead)
     report.images = { moved: imagePlan.moved, copied: imagePlan.copied, stayed: imagePlan.stayed, folder: assets.folder, failed: [...assets.failed, ...imagePlan.unplaceable] }
     const planned = movedNotePlan(text, from, to, before, after, map, placeOf([...imagePlan.moved, ...imagePlan.copied], assets.folder))
-    if (planned.changes.length) report.relinked.push({ path: to, links: planned.changes.length, changes: planned.changes })
+    const guard = nameGuard(opts.mayName, !!opts.dryRun)
+    const ownChanges = guard.shown(from, planned)
+    if (ownChanges.length) report.relinked.push({ path: to, links: ownChanges.length, changes: ownChanges })
     addShifts(report.shifted, to, planned.shifts)
     const others: string[] = []
-    const targets = [...planned.targets]
     for (const src of sources) {
       const t = readText(this.file(src))
       if (t === null) continue
       const plan = movedNotePlan(t, src, src, before, after, map, placeOf([], assets.folder))
-      if (plan.changes.length) { report.relinked.push({ path: src, links: plan.changes.length, changes: plan.changes }); others.push(src) }
+      const shown = guard.shown(src, plan)
+      if (plan.changes.length) others.push(src)
+      if (shown.length) report.relinked.push({ path: src, links: shown.length, changes: shown })
       addShifts(report.shifted, src, plan.shifts)
       for (const k of keptLinks(t, src, before, after, from, to)) report.kept.push({ path: src, ...k })
-      targets.push(...plan.targets)
     }
-    // A rewrite would name a note whoever moves it can't read: refused as a taken name, dry run included (D-056.20).
-    if (opts.mayName && !targets.every(opts.mayName)) throw nameTaken(to)
+    if (guard.refused) throw nameTaken(to)
     const result = { report, others, before, after, map, place: placeOf([], assets.folder) }
     if (opts.dryRun) return result
 
@@ -1201,26 +1265,27 @@ export class NoteService {
     const copies = this.planFolderCopies(moves, from, to, opts.canRead)
     report.images.copied = [...copies.planned.values()]
     const own: [string, string][] = []
-    const targets: string[] = []
+    const guard = nameGuard(opts.mayName, !!opts.dryRun)
     for (const [f, t] of moves) {
       const text = readText(join(this.opts.notesDir, f))
       if (text === null) continue
       const plan = movedNotePlan(text, f, t, before, after, map, copies.placeFor(f, t, place))
-      if (plan.changes.length) { report.relinked.push({ path: t, links: plan.changes.length, changes: plan.changes }); own.push([f, t]) }
+      const shown = guard.shown(f, plan)
+      if (plan.changes.length) own.push([f, t])
+      if (shown.length) report.relinked.push({ path: t, links: shown.length, changes: shown })
       addShifts(report.shifted, t, plan.shifts)
-      targets.push(...plan.targets)
     }
     const others: string[] = []
     for (const src of sources) {
       const text = readText(this.file(src))
       if (text === null) continue
       const plan = movedNotePlan(text, src, src, before, after, map, place)
-      if (plan.changes.length) { report.relinked.push({ path: src, links: plan.changes.length, changes: plan.changes }); others.push(src) }
+      const shown = guard.shown(src, plan)
+      if (plan.changes.length) others.push(src)
+      if (shown.length) report.relinked.push({ path: src, links: shown.length, changes: shown })
       addShifts(report.shifted, src, plan.shifts)
-      targets.push(...plan.targets)
     }
-    // A rewrite would name a note whoever moves it can't read: refused as a taken name, dry run included (D-056.20).
-    if (opts.mayName && !targets.every(opts.mayName)) throw nameTaken(to)
+    if (guard.refused) throw nameTaken(to)
     report.shifted.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
     if (opts.dryRun) return report
 
@@ -1625,7 +1690,8 @@ export class NoteService {
     // Back under its own name, whatever it is; a new one is vihko's to give.
     const file = path === entry.path ? this.file(path) : this.newFile(path)
     if (readText(file) !== null) throw nameTaken(path)
-    if (opts.mayName && this.takesHiddenLink(path, text, opts.mayName)) throw nameTaken(path)
+    const taken = opts.mayName ? this.newNoteTakes(path, text, opts.mayName) : null
+    if (taken?.refuse) throw nameTaken(path)
 
     // Its files first, next to where the note goes, under free names; then the
     // note, linking each where it landed. If the note can't go back, neither do they.
@@ -1657,6 +1723,7 @@ export class NoteService {
     w.done()
     this.settleEntry(entry, dir, path, back.left)
     this.opts.indexer.indexPaths([path, ...back.placed.map((p) => p.to)])
+    await this.keepLinks(taken, path, actor)
     return { path, etag: contentHash(final), files: back.placed.map(({ from, to }) => ({ from, to })), left: back.left.map((f) => f.path) }
   }
 
@@ -1898,6 +1965,38 @@ function movedNotePlan(text: string, from: string, to: string, before: LinkIndex
   ]
   const reps = [...imageReps, ...linkReps]
   return { text: applyReplacements(text, reps), splices: relinkSplices(text, reps), changes, shifts, targets: linkReps.map((r) => r.target) }
+}
+
+/**
+ * D-056.20 as D-056.28 refines it, for a move: a rewrite in a note whoever
+ * moves it reads (`mayName` accepts it) that would name a note they can't
+ * read refuses the move as a taken name (`refused`); the rewrites in notes
+ * they don't read are the system's, as any other, and refuse nothing. A dry
+ * run refuses nothing: its preview leaves those rewrites out (`shown`, the
+ * changes the report lists of a note's plan), so it tells nothing either.
+ */
+function nameGuard(mayName: ((path: string) => boolean) | undefined, dryRun: boolean) {
+  let hit = false
+  return {
+    shown(src: string, plan: { changes: { before: string; after: string }[]; targets: string[] }) {
+      if (!mayName || !mayName(src)) return plan.changes
+      // The first `targets.length` changes are the links' (movedNotePlan), in order.
+      const hidden = plan.targets.map((t) => !mayName(t))
+      if (!hidden.includes(true)) return plan.changes
+      hit = true
+      return dryRun ? plan.changes.filter((_, i) => !hidden[i]) : plan.changes
+    },
+    get refused() { return hit && !dryRun },
+  }
+}
+
+/** What a new name takes (NoteService `linksTaken`). */
+interface LinksTaken {
+  refuse: boolean
+  keep: string[]
+  before: LinkIndex
+  after: LinkIndex
+  mayName: (path: string) => boolean
 }
 
 /** The link nearest to `at` (the first one without it). */
