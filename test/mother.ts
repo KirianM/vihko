@@ -56,6 +56,8 @@ const taken = {
   notes: new Set<string>(),
   /** caseFold of tags and unique words. */
   words: new Set<string>(),
+  /** caseFold of unique words: none contains another. */
+  uniques: [] as string[],
   /** caseFold of display names, and e-mail addresses. */
   display: new Set<string>(),
   /** Shared spaces' ids. */
@@ -257,11 +259,17 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
 
     /**
      * A word no other value of this process contains (two words run
-     * together, never a word of any sentence): a search for it finds only
-     * where the test put it.
+     * together, never a word of any sentence, nor part of another unique
+     * word or containing one): a search for it, or a locator matching any
+     * part of a text, finds only where the test put it.
      */
     aUniqueWord(): string {
-      return draw('unique word', () => `${pick(TEXT_WORDS)}${pick(TEXT_WORDS)}`, (w) => w.length <= 28 && fresh(taken.words, caseFold(w)))
+      return draw('unique word', () => `${pick(TEXT_WORDS)}${pick(TEXT_WORDS)}`, (w) => {
+        const key = caseFold(w)
+        if (w.length > 28 || taken.uniques.some((u) => u.includes(key) || key.includes(u)) || !fresh(taken.words, key)) return false
+        taken.uniques.push(key)
+        return true
+      })
     },
 
     /** A tag's name (no `#`): letters, unique in this process under case folding. */
