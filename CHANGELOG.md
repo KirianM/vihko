@@ -37,6 +37,12 @@ its entries are kept at the end of this file.
 
 ### Changed
 
+- **The frontmatter is protected in the editor**: select all (Ctrl/Cmd+A)
+  selects the body, and deleting, typing, pasting or dropping in the body
+  never reaches the frontmatter, so a note never loses its `uid`, aliases,
+  tags or `ai: false` by accident. It's edited by opening its folded block
+  (where select all takes its YAML). Other editors, the API and MCP are as
+  before.
 - **Renaming a shared space renames its folder** (and its notes' addresses);
   links between its notes stay as they are, since they never leave the space.
 - `spaces/` holds shared spaces by name: any folder there is a space but a
