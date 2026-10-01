@@ -2,10 +2,12 @@
 // first what the next run would remove (counts, never a path) and asks for
 // the admin's password; a longer period, or off, is saved at once; what is
 // saved is what the page shows after a reload. «Run now» applies what is
-// saved at once, with the same preview and confirmation. On a phone too.
+// saved at once, with the same preview and confirmation. The confirming
+// button says what it does, as the preview counted: «Save» when nothing
+// would go, «Save and remove» when something would. On a phone too.
 import { expect, test, type Page } from '@playwright/test'
-import { mkdirSync } from 'node:fs'
-import { ADMIN, E2E_DIR, specMother } from './env.ts'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { ADMIN, E2E_DIR, inVault, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
@@ -37,9 +39,30 @@ async function open(page: Page) {
 
 test('the admin turns retention on after a preview and the password, lengthens it at once, and turns it off', async ({ browser }) => {
   const page = await signIn(browser, ADMIN)
+  // Something in the trash for a month: a note deleted, its entry dated back (the state volume is vihko's own).
+  const old = `${inVault(m.aTitle())}.md`
+  expect((await page.request.post('/api/note', { data: { path: old, text: `# ${m.aHeading()}\n` } })).ok()).toBe(true)
+  const entry = await (await page.request.delete(`/api/note?path=${encodeURIComponent(old)}`)).json() as { id: string }
+  const meta = `${E2E_DIR}/state/trash/${entry.id}/meta.json`
+  writeFileSync(meta, JSON.stringify({ ...JSON.parse(readFileSync(meta, 'utf8')), deletedAt: new Date(Date.now() - 30 * 86_400_000).toISOString() }, null, 2))
   await open(page)
   await expect(trashSwitch(page)).not.toBeChecked()
   await expect(historySwitch(page)).not.toBeChecked()
+
+  // Only the history, with nothing that old: the preview says so, and the button only saves.
+  await flipHistory(page)
+  await section(page).getByRole('button', { name: 'Guardar' }).click()
+  const nothing = page.getByRole('alertdialog')
+  await expect(nothing.getByTestId('retention-preview')).toContainText('Ahora no hay versiones del historial tan antiguas.')
+  await expect(nothing.getByRole('button', { name: 'Guardar', exact: true })).toBeVisible()
+  await expect(nothing.getByRole('button', { name: 'Guardar y borrar' })).toHaveCount(0)
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme })
+    await nothing.screenshot({ path: `${SHOTS}/retention-confirm-nothing-${theme}.png` })
+  }
+  await page.emulateMedia({ colorScheme: null })
+  await nothing.getByRole('button', { name: 'Cancelar' }).click()
+  await flipHistory(page)
 
   // On: how long, then the preview and the password.
   await flipTrash(page)
@@ -56,7 +79,12 @@ test('the admin turns retention on after a preview and the password, lengthens i
   await expect(preview).toContainText('papelera')
   await expect(preview).toContainText('historial')
   await expect(preview).toContainText('cada semana')
-  await page.screenshot({ path: `${SHOTS}/retention-confirm.png` })
+  await expect(preview).toContainText(/La papelera pierde ahora \d+ entradas?/)
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme })
+    await dialog.screenshot({ path: `${SHOTS}/retention-confirm-${theme}.png` })
+  }
+  await page.emulateMedia({ colorScheme: null })
   const confirm = dialog.getByRole('button', { name: 'Guardar y borrar' })
   await expect(confirm).toBeDisabled()
   await dialog.getByLabel('Tu contraseña').fill(m.aPassword())

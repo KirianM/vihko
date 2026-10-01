@@ -104,6 +104,10 @@ function ConfirmRetention({ next, mode, onClose, onSaved, onRan }: {
     if (mode === 'save') items.push(t('retention.previewWeekly'))
     items.push(t('retention.previewForGood'))
   }
+  // The button says what it does, as the preview counted it: nothing to remove now is only saving (or running).
+  const removes = counts !== null && ((next.trashRetentionDays !== null && counts.trash.entries > 0)
+    || (next.historyRetentionDays !== null && counts.history !== null && counts.history.versions > 0))
+  const confirm = mode === 'run' ? (removes ? 'retention.runConfirm' : 'retention.runNow') : (removes ? 'retention.confirm' : 'retention.save')
   return (
     <Dialog className="dialog dialog-narrow" role="alertdialog">
       <form onSubmit={(e) => void go(e)}>
@@ -115,7 +119,7 @@ function ConfirmRetention({ next, mode, onClose, onSaved, onRan }: {
         </div>
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className="btn btn-danger" isDisabled={busy || counts === null || !secret.trim()}>{t(mode === 'run' ? 'retention.runConfirm' : 'retention.confirm')}</Button>
+          <Button type="submit" className={`btn ${removes ? 'btn-danger' : 'btn-primary'}`} isDisabled={busy || counts === null || !secret.trim()}>{t(confirm)}</Button>
         </div>
       </form>
     </Dialog>
