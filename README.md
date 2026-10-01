@@ -18,8 +18,7 @@ optionally, from an API and an MCP server.
 
 Your notes stay a folder of `.md` files. If vihko disappears, you lose nothing.
 
-<!-- The screenshots below show the earlier single-tree layout: regenerate them for the spaces layout (npm run screenshots) before 0.1.0 is published. -->
-<img src=".github/assets/screenshots/desktop.png" width="900" alt="vihko on a computer, half in the light theme and half in the dark one: the folder tree on the left, a note in the middle with the vihko logo, a highlighted passage, links, tags, a task list, a table and a YAML code block, a second person's cursor, and the side panel on the right with a comment thread about that passage">
+<img src=".github/assets/screenshots/desktop.png" width="900" alt="vihko on a computer, half in the light theme and half in the dark one: on the left, the sidebar with My notes, the shared space Team open on its handbook folder, and Shared with me holding a folder another person shares; in the middle, a note of the Team space with the vihko logo, a highlighted passage, links, tags, a task list, a table, a YAML block that gives the space its name and members, and a second person's cursor; on the right, a comment thread about that passage">
 
 ## The problem it solves
 
@@ -62,7 +61,7 @@ server**, giving up full offline mode.
   tier.
 
 <p align="center">
-  <img src=".github/assets/screenshots/mobile.png" width="420" alt="The same note on a phone, in the light and the dark theme side by side: the commented passage highlighted with «2 comments in this paragraph» under it, links, tags, the task list, and the formatting bar at the bottom">
+  <img src=".github/assets/screenshots/mobile.png" width="420" alt="The same note on a phone, in the light and the dark theme side by side, with its place in the header (the Team space, its handbook folder): the commented passage highlighted with «2 comments in this paragraph» under it, links, tags, the task list, and the formatting bar at the bottom">
 </p>
 
 ## Quick start
