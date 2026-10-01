@@ -253,7 +253,7 @@ test('⌘K: tag: and path: filters, combinable with text and negation; a filter 
   await expect(titles()).toHaveCount(1)
   await expect(titles().first()).toContainText(MOVABLE)
   await expect(k.locator('.palette-list mark').first()).toHaveText(WORD)
-  await input.fill(`${WORD} path:${inVault('hogar')}`) // a folder of the vault (testdata/vault)
+  await input.fill(`${WORD} path:"${inVault('hogar')}"`) // a folder of the vault (testdata/vault)
   await expect(k.locator('.palette-empty')).toHaveText('Ninguna nota coincide.')
   await k.keyboard.press('Escape')
 })
