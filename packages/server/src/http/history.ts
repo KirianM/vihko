@@ -17,6 +17,7 @@
 //   GET  /api/history/changes?cursor=&limit=&author=
 //   GET  /api/history/resolved?path=
 //   POST /api/history/purge { path, version?, dryRun?, confirm? }   (`manage`, or the admin by name)
+//   GET  /api/history/purgeable                         (what the person may purge and reads: `manage`, or the admin)
 //   DELETE /api/history/purges/:id                      (the admin: a purge's notice, dismissed)
 import type { Context, Hono } from 'hono'
 import { WORKSPACE_FILE, folderOf } from '@vihko/core'
@@ -296,6 +297,25 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
       // The real purge will ask for the confirmation at the moment (the admin, something they can't read).
       ...(r.dryRun ? { confirmRequired: admin && !!deps.confirm && blind(r) } : {}),
     })
+  })
+
+  // What this person may purge, to choose from instead of typing a path: the
+  // files the managed history holds versions of (`deleted`: its last version
+  // deletes it) that they could purge and can read now. Whoever manages a
+  // folder, the notes in it; the admin, any file they read (a path they can't
+  // read is still purged by its name, never listed). Nothing for an agent,
+  // and nothing in any other mode.
+  app.get('/api/history/purgeable', async (c) => {
+    const access = c.get('access')
+    if (access.isAgent) throw new AccessError('purging is for people')
+    const admin = c.get('user').role === 'admin'
+    const may = (p: string) => {
+      if (!readablePath(access, p)) return false
+      if (admin) return true
+      try { NoteService.checkPath(p) } catch { return false }
+      return access.canManage(folderOf(p))
+    }
+    return c.json({ paths: (await history.purgeable()).filter((f) => may(f.path)) })
   })
 
   // The admin's notice of a purge, dismissed.

@@ -1,11 +1,16 @@
 // Notice after a note goes to the trash, with "Restore" as undo. Shown to whoever
 // trashed it and to whoever had it open (naming who trashed it). Also after a
-// folder went with what it held: "Restore" brings back every entry.
+// folder went with what it held: "Restore" brings back every entry. Whoever
+// may purge the note's history (its folder's manager, or the admin; managed
+// history only) does it from here too: the trash keeps the file, the
+// history lets it go.
 import { useState } from 'react'
 import { Button } from 'react-aria-components'
 import { ApiError, api } from './api.ts'
 import { errorText, useT } from './i18n.tsx'
 import { Icon, noteName } from './ui.tsx'
+import { PurgeDialog, purgedText } from './history/Purge.tsx'
+import { usePathLabels } from './spaces.tsx'
 import './actions.css'
 
 /**
@@ -15,10 +20,19 @@ import './actions.css'
  */
 export interface Trashed { id: string; path: string; by: string | null; folder?: string[] }
 
-export function TrashToast({ trashed, onRestored, onDismiss }: { trashed: Trashed; onRestored: (path: string) => void; onDismiss: () => void }) {
+export function TrashToast({ trashed, canPurge = false, onRestored, onDismiss }: {
+  trashed: Trashed
+  /** Whether this person may purge the note's history (not a folder's: that is the admin's, in «Recent changes»). */
+  canPurge?: boolean
+  onRestored: (path: string) => void
+  onDismiss: () => void
+}) {
   const t = useT()
+  const { label: pathLabel } = usePathLabels()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [purging, setPurging] = useState(false)
+  const [purged, setPurged] = useState<string | null>(null)
   const name = trashed.folder ? trashed.path.slice(trashed.path.lastIndexOf('/') + 1) : noteName(trashed.path)
 
   const restore = async () => {
@@ -44,10 +58,13 @@ export function TrashToast({ trashed, onRestored, onDismiss }: { trashed: Trashe
       <span className="toast-icon">{Icon.trash}</span>
       <span className="toast-text" role={trashed.by ? 'alert' : 'status'}>
         {trashed.folder ? t('trash.folderDone', { name }) : trashed.by ? t('trash.doneBy', { user: trashed.by, name }) : t('trash.done', { name })}
+        {purged && <span>{purged}</span>}
         {error && <span className="error-text">{error}</span>}
       </span>
       <Button className="btn" onPress={() => void restore()} isDisabled={busy}>{t('trash.restore')}</Button>
+      {canPurge && !trashed.folder && !purged && <Button className="btn btn-quiet purge-open" onPress={() => setPurging(true)} isDisabled={busy}>{t('purge.fromTrash')}</Button>}
       <Button className="btn btn-icon btn-quiet" aria-label={t('trash.dismiss')} onPress={onDismiss}>{Icon.close}</Button>
+      {purging && <PurgeDialog path={trashed.path} onCancel={() => setPurging(false)} onDone={(r) => { setPurging(false); setPurged(purgedText(t, r, pathLabel)) }} />}
     </div>
   )
 }

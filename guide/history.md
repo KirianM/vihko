@@ -233,12 +233,19 @@ note. It can't be undone.
   history…» in the History tab takes every version of that note out, and
   «Purge this version…», on a version, takes out only what that version
   wrote (wherever it was, what was there right before stays). It never touches
-  other notes, or what's under a folder.
-- **An admin** purges any path by its name, a note or a whole folder, or one
-  version of a note, with «Purge from the history…» in **Recent changes**,
-  without having to read it. When it includes something the admin
-  can't read, they confirm at the moment (their app's code, or their
-  password).
+  other notes, or what's under a folder. A note just deleted is purged from
+  the notice that offers to restore it («Purge from the history…»), and one
+  deleted earlier from its «deleted» line in **Recent changes** («Purge…»).
+- **An admin** purges a note or a whole folder, or one version of a note,
+  with «Purge from the history…» in **Recent changes**. They type it as they
+  see it, the space and what's inside («My notes / diary / 2026-09-27»,
+  «Home / recipes»), in any case, or pick it from what the history holds
+  that they read (deleted notes first). As with links, capitals don't matter:
+  if two notes there differ only in capitals, vihko asks which one. If
+  nothing there has history, it says so. Where the admin doesn't read, they
+  name the space (by its name, or a person's by their username) and the rest
+  exactly, and vihko purges it without showing what's there; they confirm
+  once, at the moment (their app's code, or their password).
 
 Before purging, vihko shows how many versions are affected, and warns when the
 same content is still in the history elsewhere (a copy of the note, or its

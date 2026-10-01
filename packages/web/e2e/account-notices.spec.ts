@@ -168,9 +168,13 @@ test('a purge tells whoever wrote in it, without the content; what the admin can
     if (path === PRIVATE) await admin.setViewportSize({ width: 390, height: 844 })
     await admin.getByRole('button', { name: 'Purgar del historial…' }).click()
     const form = admin.getByRole('dialog', { name: 'Purgar del historial' })
-    await form.getByLabel('Ruta (nota o carpeta)').fill(path)
+    // As the admin sees it (D-056.29): the space by its name, or the person's whose it is; never `people/` nor `spaces/`.
+    const typed = path === PRIVATE ? `${PERSON.username} / ${PRIVATE_NAME} / ${title(PRIVATE)}` : `${SPACE_NAME} / ${SHARED_NAME} / ${title(SHARED)}`
+    await form.getByLabel('Ruta (nota o carpeta)').fill(typed)
     await admin.screenshot({ path: `${SHOTS}/notices-purge-form-${path === PRIVATE ? 'mobile' : 'light'}.png`, animations: 'disabled' })
     await form.getByRole('button', { name: 'Purgar…' }).click()
+    // Where he can't read, nothing tells a note from a folder of that name: he says which.
+    if (path === PRIVATE) await form.getByRole('button', { name: `${typed} nota`, exact: true }).click()
     await expect(form).toHaveCount(0)
     const dialog = admin.getByRole('alertdialog')
     const go = dialog.getByRole('button', { name: 'Purgar el historial' })

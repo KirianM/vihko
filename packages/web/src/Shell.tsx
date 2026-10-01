@@ -644,6 +644,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <TrashToast
             key={trashed.id}
             trashed={trashed}
+            canPurge={historyStatus?.mode === 'managed' && (admin || locks?.get(trashed.path.slice(0, trashed.path.lastIndexOf('/')))?.level === 'manage')}
             onRestored={(path) => {
               if (trashed.folder) setExpanded((e) => new Set([...e, ...ancestors(path), path]))
               else setOpenPath(path)

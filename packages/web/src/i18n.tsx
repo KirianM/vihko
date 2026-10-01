@@ -851,9 +851,23 @@ const es = {
   'purge.doneVersion': 'Versión de {name} purgada.',
   'purge.adminOpen': 'Purgar del historial…',
   'purge.adminTitle': 'Purgar del historial',
-  'purge.adminIntro': 'Quita del historial una nota o una carpeta entera por su ruta, o una sola versión de una nota, sin necesidad de leerla: para un secreto pegado por error. No se puede deshacer.',
+  'purge.adminIntro': 'Quita del historial una nota o una carpeta entera, o una sola versión de una nota, sin necesidad de leerla: para un secreto pegado por error. No se puede deshacer.',
   'purge.adminPath': 'Ruta (nota o carpeta)',
-  'purge.adminPathPlaceholder': 'carpeta/nota.md',
+  'purge.adminPathPlaceholder': '{mine} / carpeta / nota',
+  'purge.adminPathHint': 'Como la ves: el espacio y lo de dentro, sin importar mayúsculas. O elige abajo.',
+  'purge.pickDeleted': 'Notas borradas que siguen en el historial:',
+  'purge.pickMatching': 'En el historial:',
+  'purge.deleted': 'borrada',
+  'purge.noSpace': 'No hay ningún espacio ni ninguna persona llamados como empieza «{typed}».',
+  'purge.noHistory': 'No hay nada en el historial en {name}.',
+  'purge.doneNothing': 'No había nada en el historial en {name}: no se ha purgado nada.',
+  'purge.fromTrash': 'Purgar del historial…',
+  'purge.row': 'Purgar…',
+  'purge.rowLabel': 'Purgar {name} del historial…',
+  'typed.several': 'Hay varias que solo se distinguen por las mayúsculas. ¿Cuál?',
+  'typed.note': 'nota',
+  'typed.folder': 'carpeta',
+  'typed.file': 'archivo',
   'purge.adminVersion': 'Versión (opcional)',
   'purge.adminVersionHint': 'La versión es su identificador (de «Cambios recientes» o de la línea de órdenes). Sin ella, se purga la ruta entera.',
   'purge.adminGo': 'Purgar…',
@@ -2208,9 +2222,23 @@ const en: Record<keyof typeof es, string> = {
   'purge.doneVersion': 'Version of {name} purged.',
   'purge.adminOpen': 'Purge from the history…',
   'purge.adminTitle': 'Purge from the history',
-  'purge.adminIntro': 'Takes a note or a whole folder out of the history by its path, or a single version of a note, without having to read it: for a secret pasted by mistake. It can’t be undone.',
+  'purge.adminIntro': 'Takes a note or a whole folder out of the history, or a single version of a note, without having to read it: for a secret pasted by mistake. It can’t be undone.',
   'purge.adminPath': 'Path (note or folder)',
-  'purge.adminPathPlaceholder': 'folder/note.md',
+  'purge.adminPathPlaceholder': '{mine} / folder / note',
+  'purge.adminPathHint': 'As you see it: the space and what’s inside, in any case. Or pick one below.',
+  'purge.pickDeleted': 'Deleted notes still in the history:',
+  'purge.pickMatching': 'In the history:',
+  'purge.deleted': 'deleted',
+  'purge.noSpace': 'No space or person is called what «{typed}» starts with.',
+  'purge.noHistory': 'Nothing in the history at {name}.',
+  'purge.doneNothing': 'Nothing was in the history at {name}: nothing was purged.',
+  'purge.fromTrash': 'Purge from the history…',
+  'purge.row': 'Purge…',
+  'purge.rowLabel': 'Purge {name} from the history…',
+  'typed.several': 'Several differ only in capitals. Which one?',
+  'typed.note': 'note',
+  'typed.folder': 'folder',
+  'typed.file': 'file',
   'purge.adminVersion': 'Version (optional)',
   'purge.adminVersionHint': 'The version is its id (from «Recent changes» or the command line). Without it, the whole path is purged.',
   'purge.adminGo': 'Purge…',
@@ -2732,6 +2760,9 @@ void _allConfigErrorsTranslated
 /** A language the UI is translated into (the list is `LANGUAGES` of @vihko/core). */
 export type Lang = Language
 const dictionaries: Record<Lang, Record<MessageKey, string>> = { es, en }
+
+/** A text in every language the UI has (distinct): what a person may type for a label, whatever language they use. */
+export const inEveryLanguage = (key: MessageKey): string[] => [...new Set(Object.values(dictionaries).map((d) => d[key]))]
 
 /** Each language by its own name, the same whatever language the UI is in. */
 export const LANGUAGE_NAMES: Record<Lang, string> = { en: 'English', es: 'Español' }

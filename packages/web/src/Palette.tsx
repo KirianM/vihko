@@ -2,7 +2,7 @@
 // `path:` filters), creating a note in the current folder (or at a path from
 // it: newNote.ts), and commands (by typing ">"). React Aria combobox: focus
 // stays in the field and the arrow keys move the active option.
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Autocomplete, Button, Dialog, Header, Input, ListBox, ListBoxItem, ListBoxSection, Modal, ModalOverlay, TextField, type Key,
 } from 'react-aria-components'
@@ -13,7 +13,7 @@ import { errorText, useLanguageChoice, useT, type LangChoice } from './i18n.tsx'
 import { recentNotes } from './recent.ts'
 import { useTheme } from './theme.ts'
 import { useBackClose, useMobile } from './mobile.ts'
-import { newNote, scopePathFilters, type NewNote } from './newNote.ts'
+import { alignNewNote, newNote, scopePathFilters, type NewNote } from './newNote.ts'
 import { rootOf, usePathLabels } from './spaces.tsx'
 import { usePlaces } from './Destination.tsx'
 import { Icon } from './ui.tsx'
@@ -134,7 +134,15 @@ export function Palette({ mode, folder: current, openPath, notes, templates, onT
   // quick ↵ opens the matching note instead of creating another with the same name.
   // A query with a filter (`tag:x`) is a search, never the name of a new note.
   // A leading «/» is the root of the space it's created in, never the notes root (D-056).
-  const note = commandMode || (mode === 'search' && (found?.q !== text || hasSearchFilter(query))) ? null : newNote(query, folder, rootOf(folder) ?? folder)
+  const typedNote = commandMode || (mode === 'search' && (found?.q !== text || hasSearchFilter(query))) ? null : newNote(query, folder, rootOf(folder) ?? folder)
+  // Its folders as they are on disk, typed in any case (typedPath.ts); several in case: one to choose.
+  const knownFolders = useMemo(() => {
+    const out = new Set<string>()
+    for (const n of notes ?? []) for (let i = n.path.indexOf('/'); i !== -1; i = n.path.indexOf('/', i + 1)) out.add(n.path.slice(0, i))
+    return [...out]
+  }, [notes])
+  const choices = typedNote ? alignNewNote(typedNote, query.trimStart().startsWith('/') ? (rootOf(folder) ?? folder) : folder, knownFolders) : []
+  const note = choices.length === 1 ? choices[0]! : null
 
   async function create(note: NewNote, template?: string) {
     setBusy(true)
@@ -153,6 +161,7 @@ export function Palette({ mode, folder: current, openPath, notes, templates, onT
     const k = String(key)
     if (k.startsWith('n:')) { onClose(); onOpen(k.slice(2)) }
     else if (k === 'create' && note && !busy) void create(note)
+    else if (k.startsWith('create:') && !busy) { const c = choices[Number(k.slice(7))]; if (c) void create(c) }
     else if (k.startsWith('t:') && note && !busy) void create(note, k.slice(2))
     else if (k.startsWith('c:')) {
       const c = commands.find((x) => `c:${x.id}` === k)
@@ -173,7 +182,7 @@ export function Palette({ mode, folder: current, openPath, notes, templates, onT
     }
     return [...groups.entries()]
   })()
-  const [before, after] = t('palette.createIn', { name: note?.title ?? '' }).split('{folder}')
+  const [before, after] = t('palette.createIn', { name: note?.title ?? typedNote?.title ?? '' }).split('{folder}')
   const hints = mode === 'create' ? ['palette.keyCreate'] as const
     : commandMode ? ['palette.keyMove', 'palette.keyRun'] as const
     : ['palette.keyMove', 'palette.keyOpen'] as const
@@ -225,6 +234,20 @@ export function Palette({ mode, folder: current, openPath, notes, templates, onT
                     <span className="palette-grow">{before}<b>{where}</b>{after}</span>
                     {note.folder === current && <span className="palette-meta">{t('palette.currentFolder')}</span>}
                   </ListBoxItem>
+                </ListBoxSection>
+              )}
+              {choices.length > 1 && (
+                <ListBoxSection className="palette-section">
+                  <Header className="palette-header">{t('typed.several')}</Header>
+                  {choices.map((c, i) => {
+                    const at = labels.where(c.folder)
+                    return (
+                      <ListBoxItem key={c.path} id={`create:${i}`} textValue={t('palette.createIn', { name: c.title, folder: at })} className="palette-item palette-create">
+                        <span className="palette-icon palette-icon-accent">{Icon.plus}</span>
+                        <span className="palette-grow">{before}<b>{at}</b>{after}</span>
+                      </ListBoxItem>
+                    )
+                  })}
                 </ListBoxSection>
               )}
               {note && templateGroups.map(([space, list]) => (
