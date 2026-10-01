@@ -67,10 +67,11 @@ This is the whole `compose.yaml`:
 # Minimal example. Adjust the volume paths to your system.
 services:
   vihko:
-    # :0.1 gets every 0.1.x release (fixes only). In 0.x a new minor version
-    # (0.2) may change things: you move to it by changing the tag, after
-    # reading its upgrade notes.
-    image: ghcr.io/kirianm/vihko:0.1
+    # A release candidate, under its exact tag (candidates are only published
+    # that way). From 0.1.0 on, this line says :0.1, which gets every 0.1.x
+    # release (fixes only); a new minor version (0.2) may change things and
+    # you move to it by changing the tag, after reading its upgrade notes.
+    image: ghcr.io/kirianm/vihko:0.1.0-rc.1
     restart: unless-stopped
     # Hardening: nothing is written outside the two volumes, no Linux
     # capabilities, and no way to gain privileges. vihko needs none of them.
