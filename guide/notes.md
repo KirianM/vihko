@@ -307,8 +307,8 @@ names was taken meanwhile by another file, the image comes back with a number
 already there counts as restored.
 
 vihko never empties the trash on its own by default. The admin can turn on
-**Empty the trash after…** in «Users and groups» → Retention: then, every
-night, what was deleted longer ago than that leaves the trash for good, with
+**Empty the trash after…** in «Users and groups» → Retention: then, once a
+week, what was deleted longer ago than that leaves the trash for good, with
 its images (see [Operations](operations.md#retention)). Each entry sits in
 its own folder under `trash/` in the state volume (`note.md`, its images
 under `files/`, and a `meta.json` that lists them); with vihko stopped, you

@@ -55,7 +55,7 @@ anything you can't see getting in your way or telling you it exists.
       upgrade smoke test before each release.
 - [x] Retention, off by default: the admin can have the trash emptied after
       so many days and history versions older than so many days or months
-      deleted, every night; each note keeps its current version, and a note
+      deleted, every week or at once; each note keeps its current version, and a note
       in the trash its whole history. Previewed in counts and confirmed.
 
 **Done when:** three people (an admin and two members) work at the same time

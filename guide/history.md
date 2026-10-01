@@ -225,8 +225,8 @@ what an agent writes gets no version of its own in vihko to undo it by.
 
 By default the history keeps every version for good. The admin can turn on
 **Delete history versions older than…** (days or months) in «Users and
-groups» → Retention, for the whole installation; every night, versions older
-than that are removed:
+groups» → Retention, for the whole installation; once a week (or at once,
+with «Run now»), versions older than that are removed:
 
 - **The current version of every note stays.** Each file keeps the version it
   had at that moment (with its author and date), so a note nobody touched in
@@ -244,7 +244,8 @@ It applies only to the managed history, never to your own git repository.
 Before it's turned on or shortened, the admin sees how many versions would go,
 and confirms. Like a purge, it rewrites the history: the versions after the
 first one removed get new ids, so a link to a version kept from before
-stops working. What it removes can only come back from a backup. See
+stops working after a run that removed something (it runs weekly, not
+nightly, to keep that rare). What it removes can only come back from a backup. See
 [Operations](operations.md#retention) for when it runs.
 
 ## Purging

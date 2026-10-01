@@ -479,7 +479,7 @@ app's code, or your password if you have no second factor.
   becomes of a deleted person's space;
 - an admin purging from the history something they can't read;
 - an admin turning on, or shortening, the trash's or the history's
-  [retention](operations.md#retention).
+  [retention](operations.md#retention), or running it now.
 
 A session left open on someone's computer isn't enough to do any of these.
 
@@ -530,7 +530,7 @@ when they sign in and in the alerts until they dismiss them:
   tried again;
 - someone purged from the history a note or a version they wrote in (see
   [History](history.md#purging));
-- to every admin: what the nightly [retention](operations.md#retention)
+- to every admin: what a [retention](operations.md#retention) run
   removed (how many trash entries and history versions, never which), or that
   it failed. The authors of what it removes aren't told: it's the
   installation's setting, not someone's decision about their notes.

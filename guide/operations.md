@@ -163,7 +163,7 @@ The lines to know:
 | `removed N saved editor state(s) whose note no longer exists` | Saved editor states of notes deleted or moved away while vihko was stopped were cleaned up. A pending recovery is never removed. Nothing to do. |
 | `history sweep (…): N changes` | The notes folder compared with the history: N changes vihko hadn't recorded were saved as versions. In brackets, when: `startup` (changes made while vihko was stopped), `enabled` (the first start with the history on: every note's starting point), `resumed` (the history had been off or unavailable), `periodic` (the regular check, hourly by default: `VIHKO_HISTORY_SWEEP_SECONDS`). Nothing is printed when there are no changes. |
 | `listening on http://0.0.0.0:8080` | Ready. The address is inside the container. |
-| `retention: N trash entries and M history version(s) removed` | The nightly [retention](#retention) ran. With `(failed part way)`, a line before it says why; the next night tries again. |
+| `retention: N trash entries and M history version(s) removed` | A [retention](#retention) run ended (the weekly one, or «Run now»). With `(failed part way)`, a line before it says why; the next run tries again. |
 | `first boot: no users yet…` | No users yet; the next line has the one-time token. See [Installation](install.md#first-start). |
 | `public URL …` | `VIHKO_PUBLIC_URL` is set. |
 | `VIHKO_TRUSTED_PROXIES is unset: …` | You set a public URL but not the proxy's address. See [Reverse proxy](reverse-proxy.md#tell-vihko-about-the-proxy). |
@@ -367,9 +367,11 @@ admin doesn't read everyone's spaces) and asks for your current code, or your
 password without two-step verification. A longer period, or off, is saved at
 once.
 
-They apply once a night, at 03:00 in the server's time zone (the container's
-`TZ`, UTC unless you set it). If someone is writing then, the run waits, ten
-minutes at a time, for up to three hours. While the history is being
+They apply once a week, on Sundays at 03:00 in the server's time zone (the
+container's `TZ`, UTC unless you set it). If someone is writing then, the run
+waits, ten minutes at a time, for up to three hours. **Run now**, in the same
+section, applies what is saved at once, with the same preview and
+confirmation. A run that finds nothing to remove changes nothing. While the history is being
 rewritten nothing new reaches it: notes are saved as usual, and their versions
 are added right after. On a history of 100,000 versions the run takes seconds.
 Every admin gets an alert with what it removed (counts only); the section in
@@ -378,13 +380,14 @@ Every admin gets an alert with what it removed (counts only); the section in
 What retention removes can't be brought back from vihko: only from a backup
 taken before (see [Backups](backups.md#retention-and-backups)). A run cut
 short (vihko stopped, a power cut) leaves the history either as it was or
-already thinned, and the next night finishes the work; what it has to finish
+already thinned, and the next run finishes the work; what it has to finish
 is kept in `state/retention.json`.
 
 Rewriting the history gives the versions newer than the first one removed new
 ids: a link to a version kept from before (an address with `&version=`, or an
-id an agent noted) stops working after the night's run, as after a
-[purge](history.md#purging).
+id an agent noted) stops working after a run that removed versions, as after
+a [purge](history.md#purging). That's why it runs weekly and not every
+night.
 ## Common problems
 
 ### "port is already allocated"
