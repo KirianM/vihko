@@ -82,6 +82,9 @@ test('note paths are valid, and titles, folders and tags never repeat under case
   const text = Array.from({ length: 200 }, () => m.aParagraph()).join(' ')
   const inText = new Set(text.toLowerCase().split(/[\s.]+/))
   for (const w of words) assert.ok(!inText.has(w), `${w} is in no sentence`)
+  // Not even as part of a longer text: a locator matching any part of a text finds only where it was put.
+  for (const w of words) assert.ok(!text.toLowerCase().includes(w), `${w} is part of no sentence`)
+  for (const w of words) assert.deepEqual(words.filter((o) => o.includes(w)), [w], `${w} is part of no other unique word`)
   for (const t of tags) assert.ok(!inText.has(t.toLowerCase()), `the tag ${t} is in no sentence`)
 })
 

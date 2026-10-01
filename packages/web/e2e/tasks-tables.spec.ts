@@ -19,7 +19,12 @@ const NEW_TASK = words(2)
 const [COL1, COL2, COL3] = [m.aWord(), m.aWord(), m.aWord()]
 const BOLD = words(2)
 const CODE = m.aUniqueWord()
-const CELL = m.aTitle()
+/**
+ * The cell the tests click and type into, found by its text: a unique word, since
+ * Playwright's `hasText` matches any part of a cell, in any case, and a title can be
+ * one word the wide table's cells also use (`Algeciras` in «Rua algeciras orígenes»).
+ */
+const CELL = m.aUniqueWord()
 const [QTY1, QTY2] = [m.anInt(1, 9), m.anInt(10, 99)]
 const TYPED = m.aWord()
 /** A table-like text in a code block. */
