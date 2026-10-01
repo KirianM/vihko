@@ -9,6 +9,7 @@ import { readFileSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type * as Y from 'yjs'
 import { api, closeAll, connect, login, makeDirs, startServer, typeLine, waitFor } from './_collab.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -21,7 +22,7 @@ const MARK = {
   writtenOverIt: m.aUniqueWord(),
 }
 
-const NOTE = 'hogar/Proxy.md'
+const NOTE = inShared('hogar/Proxy.md')
 
 /** The Yjs client ids of the text items holding `needle`. */
 function clientsOf(doc: Y.Doc, needle: string): Set<number> {

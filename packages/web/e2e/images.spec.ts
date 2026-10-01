@@ -5,11 +5,11 @@ import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { markdownDest } from '../../core/src/images.ts'
-import { ADMIN, E2E_DIR, EXTERNAL_PORT, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, EXTERNAL_PORT, NOTES, inVault, specMother } from './env.ts'
 import { literally, png, sendFiles, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
-const DIR = m.aFolder()
+const DIR = inVault(m.aFolder())
 const TITLE = m.aTitle()
 const NOTE = `${DIR}/${TITLE}.md`
 /** Images on the "external" server, one it has and one it doesn't; two missing from the vault. */

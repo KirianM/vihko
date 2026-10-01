@@ -11,12 +11,11 @@ New here? Read [[Onboarding]], then [[How we write notes]]. #handbook #start-her
 | Folder | What goes there |
 |---|---|
 | `meetings` | The weekly syncs, date first |
-| `people` | A personal folder each, private |
+| `projects` | One note per project, linked from the syncs |
 
 ```yaml
 permissions:
-  "":
+  spaces/team-k3v9q2:
+    name: Team
     grants: { hanna: manage, ravi: edit }
-  people/{user}:
-    grants: { "{user}": manage }
 ```

@@ -21,6 +21,7 @@ import { AccessDialog } from './Permissions.tsx'
 import { SearchButton } from './Palette.tsx'
 import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
 import { Diamond, Icon, MenuButton, ThemeToggle } from './ui.tsx'
+import { usePathLabels } from './spaces.tsx'
 import './actions.css'
 import './agents.css'
 
@@ -61,16 +62,25 @@ export function allFolders(notes: { path: string }[], folders: string[]): string
   })
 }
 
+/** A key's folder as the person sees it (D-056): its space and the folders inside. */
+function FolderName({ path }: { path: string }) {
+  const labels = usePathLabels()
+  return <span className="mono">{labels.label(path)} /</span>
+}
+
 const within = (folder: string, chosen: readonly string[]) => chosen.some((c) => folder !== c && folder.startsWith(c + '/'))
 
 /** The folders a key reaches, chosen from the tree: every folder, or only some (with what's inside them). */
 export function FolderPicker({ all, chosen, onChange }: { all: string[] | null; chosen: string[]; onChange: (f: string[]) => void }) {
   const t = useT()
+  const labels = usePathLabels()
   const [filter, setFilter] = useState('')
   if (all === null) return <p className="hint">{t('common.loading')}</p>
   if (all.length === 0) return <p className="hint">{t('keys.noFolders')}</p>
   const q = filter.trim().toLowerCase()
-  const shown = q ? all.filter((f) => f.toLowerCase().includes(q)) : all
+  // From each space's root down (D-056): `people` and `spaces` themselves are nobody's.
+  const inSpaces = all.filter((f) => f.split('/').length >= 2)
+  const shown = q ? inSpaces.filter((f) => labels.label(f).toLowerCase().includes(q)) : inSpaces
   const toggle = (f: string, on: boolean) => onChange(on ? [...chosen.filter((c) => !c.startsWith(f + '/')), f] : chosen.filter((c) => c !== f))
   return (
     <div className="folder-pick">
@@ -82,12 +92,12 @@ export function FolderPicker({ all, chosen, onChange }: { all: string[] | null; 
       <ul className="folder-list" aria-label={t('keys.folders')}>
         {shown.map((f) => {
           const inherited = within(f, chosen)
-          const depth = q ? 0 : f.split('/').length - 1
+          const depth = q ? 0 : f.split('/').length - 2
           return (
             <li key={f} style={{ paddingLeft: `calc(${depth} * var(--space-4))` }}>
               <label className="check">
                 <input type="checkbox" checked={inherited || chosen.includes(f)} disabled={inherited} onChange={(e) => toggle(f, e.target.checked)} />
-                <span className="check-text">{q ? f.split('/').join(' / ') : f.slice(f.lastIndexOf('/') + 1)}</span>
+                <span className="check-text">{q ? labels.label(f) : depth === 0 ? labels.space(f) : f.slice(f.lastIndexOf('/') + 1)}</span>
               </label>
             </li>
           )
@@ -383,6 +393,8 @@ function KeyCard({ k, owner, actions }: { k: KeyInfo; owner?: string; actions: R
   const dates = useDates()
   const row = (label: MessageKey, value: ReactNode) => <div className="key-row"><dt>{t(label)}</dt><dd>{value}</dd></div>
   const expiry = !k.expiresAt ? t('keys.expiresNever') : t(k.status === 'expired' ? 'keys.expired' : 'keys.expires', { date: dates.dateTime(k.expiresAt) })
+  // Someone else's key may reach folders of their spaces the admin doesn't read: never named (D-056).
+  const hiddenFolders = 'foldersHidden' in k && k.foldersHidden === true
   return (
     <li className={`key-card key-card-${k.status}`}>
       <div className="key-head">
@@ -394,7 +406,12 @@ function KeyCard({ k, owner, actions }: { k: KeyInfo; owner?: string; actions: R
       </div>
       <dl className="key-meta">
         {row('keys.permissions', t(k.canWrite ? 'keys.readWrite' : 'keys.readOnly'))}
-        {row('keys.folders', k.folders.length === 0 ? t('keys.foldersAllShort') : <span className="key-folders">{k.folders.map((f) => <span key={f} className="mono">{f}/</span>)}</span>)}
+        {row('keys.folders', k.folders.length === 0 && !hiddenFolders ? t('keys.foldersAllShort') : (
+          <span className="key-folders">
+            {k.folders.map((f) => <FolderName key={f} path={f} />)}
+            {hiddenFolders && <span>{t(k.folders.length ? 'keys.foldersHiddenMore' : 'keys.foldersHidden')}</span>}
+          </span>
+        ))}
         {row('keys.expiry', expiry)}
         {row('keys.lastUsed', k.lastUsedAt ? t('keys.lastUsedAt', { date: dates.dateTime(k.lastUsedAt), via: viaLabel(t, k.lastVia) }) : t('keys.neverUsed'))}
         {k.revokedAt && row('keys.revokedAt', dates.dateTime(k.revokedAt))}

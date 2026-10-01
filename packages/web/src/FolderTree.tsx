@@ -42,12 +42,32 @@ export function buildTree(notes: TreeNote[], folderPaths: string[] = []): Node[]
   return root.children!
 }
 
+/** What is inside `folder` in a tree of `buildTree` (a space's root: its folders and notes); empty if it isn't there. */
+export function childrenOf(tree: Node[], folder: string): Node[] {
+  let list = tree
+  let at = ''
+  for (const seg of folder.split('/')) {
+    at = at ? `${at}/${seg}` : seg
+    const next = list.find((n) => n.children !== null && n.path === at)
+    if (!next) return []
+    list = next.children!
+  }
+  return list
+}
+
 /** Folder keys above a path, so it shows in the tree. */
 export const ancestors = (path: string) => path.split('/').slice(0, -1).map((_, i, a) => `d:${a.slice(0, i + 1).join('/')}`)
 
 export const parentOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 
-export type TreeAction = 'newNote' | 'newFolder' | 'moveFolder' | 'deleteFolder' | 'permissions' | 'moveNote' | 'trashNote'
+export type TreeAction = 'newNote' | 'newFolder' | 'moveFolder' | 'toNewSpace' | 'toMine' | 'deleteFolder' | 'permissions' | 'moveNote' | 'trashNote'
+
+/**
+ * Where a folder of this tree's space may move out to (D-056.28): a new
+ * space of its own (`newSpace`, if the person may create spaces) and, from
+ * a shared space, their own (`mine`).
+ */
+export interface SpaceMoves { newSpace: boolean; mine: boolean }
 
 /**
  * What the person may do in a folder, and its marks. `level` null: no access
@@ -60,14 +80,19 @@ export type FolderInfoOf = (path: string) => FolderInfo | undefined
 const noInfo: FolderInfoOf = () => undefined
 
 /** The menu's actions a row offers: those the person's level allows. */
-function rowActions(node: Node, info: FolderInfoOf): TreeAction[] {
+function rowActions(node: Node, info: FolderInfoOf, moves: SpaceMoves | undefined): TreeAction[] {
   if (node.children !== null) {
     const f = info(node.path)
     if (!f) return ['newNote', 'newFolder', 'moveFolder', 'deleteFolder']
     const out: TreeAction[] = []
     if (atLeast(f.level, 'edit')) out.push('newNote', 'newFolder')
     if (f.canEdit) out.push('permissions')
-    if (f.level === 'manage') out.push('moveFolder', 'deleteFolder')
+    if (f.level === 'manage') {
+      out.push('moveFolder')
+      if (moves?.newSpace) out.push('toNewSpace')
+      if (moves?.mine) out.push('toMine')
+      out.push('deleteFolder')
+    }
     return out
   }
   const f = info(parentOf(node.path))
@@ -88,8 +113,8 @@ const DRAG_TYPE = 'application/x-vihko-tree-key'
 const LONG_PRESS_MS = 500
 
 /** The folder a drop lands in: on a folder, into it; on or next to a note, into that note's folder. */
-function dropFolder(target: { type: 'root' } | { type: 'item'; key: Key; dropPosition: 'on' | 'before' | 'after' }): string {
-  if (target.type === 'root') return ''
+function dropFolder(target: { type: 'root' } | { type: 'item'; key: Key; dropPosition: 'on' | 'before' | 'after' }, root: string): string {
+  if (target.type === 'root') return root
   const key = String(target.key)
   const path = key.slice(2)
   return target.dropPosition === 'on' && key.startsWith('d:') ? path : parentOf(path)
@@ -117,6 +142,8 @@ function RowMenu({ node, actions, open, onOpenChange, onAction }: { node: Node; 
               {has('newFolder') && <MenuItem id="newFolder" className="menu-item">{Icon.folderPlus}{t('folder.newSub')}</MenuItem>}
               {has('permissions') && <MenuItem id="permissions" className="menu-item">{Icon.people}{t('folder.permissions')}</MenuItem>}
               {has('moveFolder') && <MenuItem id="moveFolder" className="menu-item">{Icon.rename}{t('folder.renameMenu')}</MenuItem>}
+              {has('toNewSpace') && <MenuItem id="toNewSpace" className="menu-item">{Icon.people}{t('folder.toNewSpace')}</MenuItem>}
+              {has('toMine') && <MenuItem id="toMine" className="menu-item">{Icon.rename}{t('folder.toMine')}</MenuItem>}
               {has('deleteFolder') && <MenuItem id="deleteFolder" className="menu-item menu-item-danger">{Icon.trash}{t('folder.delete')}</MenuItem>}
             </>
           ) : (
@@ -131,8 +158,12 @@ function RowMenu({ node, actions, open, onOpenChange, onAction }: { node: Node; 
   )
 }
 
-export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAction, onDrop, draggable, emptyText, folderInfo = noInfo }: {
+export function FolderTree({ nodes, root = '', label, selected, expanded, onExpanded, onOpen, onAction, onDrop, draggable, emptyText, folderInfo = noInfo, spaceMoves }: {
   nodes: Node[]
+  /** The folder the tree shows the inside of (a space's root): what's dropped on its empty space goes there. */
+  root?: string
+  /** The tree's accessible name (the space's). */
+  label?: string
   selected: string | null
   expanded: Set<Key>
   onExpanded: (keys: Set<Key>) => void
@@ -146,6 +177,8 @@ export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAc
   emptyText: ReactNode
   /** The person's level and the marks of each folder (`/api/permissions/folders` and the tree's `pathOnly`). */
   folderInfo?: FolderInfoOf
+  /** Where its folders may move out to (none by default). */
+  spaceMoves?: SpaceMoves
 }) {
   const t = useT()
   const [menu, setMenu] = useState<string | null>(null)
@@ -165,15 +198,15 @@ export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAc
       if (!types.has(DRAG_TYPE) || !dragged.current) return 'cancel'
       if (target.type === 'item' && target.dropPosition !== 'on') return 'cancel'
       // Only into a folder where the person edits (the server answers the rest: moving a folder needs `manage` in it).
-      const into = folderInfo(dropFolder(target))
+      const into = folderInfo(dropFolder(target, root))
       if (into && !atLeast(into.level, 'edit')) return 'cancel'
-      return canDrop(dragged.current, dropFolder(target)) ? 'move' : 'cancel'
+      return canDrop(dragged.current, dropFolder(target, root)) ? 'move' : 'cancel'
     },
     onDrop: async (e) => {
       const item = e.items.find((i) => i.kind === 'text' && i.types.has(DRAG_TYPE))
       if (!item || item.kind !== 'text') return
       const key = await item.getText(DRAG_TYPE)
-      const folder = dropFolder(e.target)
+      const folder = dropFolder(e.target, root)
       if (canDrop(key, folder)) onDrop(key, folder)
     },
   })
@@ -210,14 +243,14 @@ export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAc
     if (!row) return
     e.preventDefault()
     const node = find(nodes, row.dataset.key!)
-    if (node && rowActions(node, folderInfo).length) setMenu(node.id)
+    if (node && rowActions(node, folderInfo, spaceMoves).length) setMenu(node.id)
   }
 
   return (
     <div onKeyDown={onKeyDown} className="tree-wrap">
       <Tree
         className="tree"
-        aria-label={t('shell.folders')}
+        aria-label={label ?? t('shell.folders')}
         items={nodes}
         // Rows are cached per item: the open menu lives outside them.
         dependencies={[menu, folderInfo]}
@@ -234,7 +267,7 @@ export function FolderTree({ nodes, selected, expanded, onExpanded, onOpen, onAc
       >
         {function render(node: Node) {
           const info = node.children !== null ? folderInfo(node.path) : undefined
-          const actions = rowActions(node, folderInfo)
+          const actions = rowActions(node, folderInfo, spaceMoves)
           return (
             <TreeItem id={node.id} textValue={node.name} className="tree-item">
               <TreeItemContent>

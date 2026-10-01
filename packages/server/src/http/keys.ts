@@ -59,7 +59,17 @@ export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
   app.get('/api/keys', (c) => {
     if (c.req.query('all') === '1') {
       if (!isAdmin(c)) return c.json({ error: 'forbidden', message: 'admins only' }, 403)
-      return c.json({ keys: keys.listAll() })
+      // Someone else's key is limited to folders of their spaces: the admin sees only those the admin
+      // reads too, and `foldersHidden` when there are others (never their names, D-056, spec §2.4).
+      const access = c.get('access')
+      const me = c.get('user').id
+      return c.json({
+        keys: keys.listAll().map((k) => {
+          if (k.userId === me) return { ...k, foldersHidden: false }
+          const folders = k.folders.filter((f) => access.level(f) !== null)
+          return { ...k, folders, foldersHidden: folders.length < k.folders.length }
+        }),
+      })
     }
     return c.json({ keys: keys.list(c.get('user').id) })
   })

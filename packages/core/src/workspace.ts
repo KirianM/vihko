@@ -13,7 +13,7 @@
 //   restrictive setting.
 import { LineCounter, isMap, isScalar, isSeq, type Document } from 'yaml'
 import { parseYamlDocument } from './yaml.ts'
-import { IMPLICIT_PERMISSIONS, CLOSED_PERMISSIONS, parsePermissions, type Permissions } from './permissions.ts'
+import { NO_PERMISSIONS, CLOSED_PERMISSIONS, parsePermissions, type Permissions } from './permissions.ts'
 import { patternPeriod, patternTokens, seriesPath, type Series } from './series.ts'
 import { classifyPath } from './paths.ts'
 import { globProblem } from './glob.ts'
@@ -28,8 +28,12 @@ export const WORKSPACE_FILE = 'vihko.yaml'
 export { WORKSPACE_VERSION }
 
 export interface WorkspaceConfig {
-  /** Folder holding the templates offered when creating a note, or null. */
-  templates: string | null
+  /**
+   * Folders holding the templates offered when creating a note, in the order
+   * written (empty: none). vihko.yaml takes one folder or a list; each may
+   * hold `{user}`, the person creating the note (`people/{user}/Templates`).
+   */
+  templates: string[]
   /** Daily-note series, in the order declared (the first is the default). */
   daily: Series[]
   /** Where new images go (D-028, D-031.5). */
@@ -97,7 +101,7 @@ export interface AttachmentsConfig {
 export const DEFAULT_ATTACHMENTS_SUFFIX = '.assets'
 
 export const EMPTY_WORKSPACE: WorkspaceConfig = {
-  templates: null, daily: [], attachments: { folder: null }, links: { aliases: true },
+  templates: [], daily: [], attachments: { folder: null }, links: { aliases: true },
   history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB, exclude: [] },
   mcp: { instructions: null },
 }
@@ -140,6 +144,9 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = {
  * - `missing_folder`: rules for a folder that doesn't exist (moved or
  *   deleted outside vihko): kept, and applied again if it comes back.
  *   Reported by the server.
+ * - `outside_spaces`: a path (a series' folder, a templates folder, the
+ *   agents' guide) outside `people/` and `spaces/` (D-056.4), where nobody
+ *   reads or writes: ignored. Reported by the server under the spaces model.
  * Inside a strict section, any other code (an unknown key included) is a
  * warning that comes with `section_rejected`.
  */
@@ -148,7 +155,7 @@ export type ConfigErrorCode =
   | 'invalid_path' | 'invalid_id' | 'pattern_token' | 'pattern_period' | 'unreadable'
   | 'invalid_value' | 'invalid_pattern'
   | 'unknown_key' | 'newer_version' | 'not_supported' | 'section_rejected'
-  | 'ignored_value' | 'unknown_subject' | 'missing_folder'
+  | 'ignored_value' | 'unknown_subject' | 'missing_folder' | 'outside_spaces'
 
 export interface ConfigError {
   code: ConfigErrorCode
@@ -194,13 +201,13 @@ export interface StrictSection<T = unknown> {
 }
 
 /**
- * Per-folder permissions (D-014, D-038, permissions.ts). Missing, every admin
- * manages the root; rejected, nobody reads anything.
+ * Per-folder permissions (D-014, D-038, D-056, permissions.ts). Missing or
+ * rejected, nothing is shared: each person has only their own space.
  */
 export const PERMISSIONS_SECTION: StrictSection<Permissions> = {
   key: 'permissions',
   closed: CLOSED_PERMISSIONS,
-  missing: IMPLICIT_PERMISSIONS,
+  missing: NO_PERMISSIONS,
   parse: (raw, at, report, notice) => parsePermissions(raw, at, report, notice),
 }
 
@@ -243,7 +250,7 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
   if (!isRecord(data)) return { ok: false, errors: [{ code: 'not_a_map', at: null, line: 1, detail: null }], warnings }
 
   const config: WorkspaceConfig = {
-    templates: null, daily: [], attachments: { folder: null }, links: { aliases: true },
+    templates: [], daily: [], attachments: { folder: null }, links: { aliases: true },
     history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB, exclude: [] },
     mcp: { instructions: null },
   }
@@ -270,7 +277,14 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
     return value
   }
 
-  if (data.templates !== undefined && data.templates !== null) config.templates = folder(data.templates, ['templates'])
+  if (data.templates !== undefined && data.templates !== null) {
+    // One folder alone is a list of one.
+    const list = Array.isArray(data.templates) ? data.templates : [data.templates]
+    list.forEach((t: unknown, i) => {
+      const f = folder(t, Array.isArray(data.templates) ? ['templates', String(i)] : ['templates'])
+      if (f !== null && !config.templates.includes(f)) config.templates.push(f)
+    })
+  }
 
   if (data.attachments !== undefined && data.attachments !== null) {
     if (!isRecord(data.attachments)) fail('not_a_map', ['attachments'])

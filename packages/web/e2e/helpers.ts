@@ -1,7 +1,7 @@
-import { expect, request, type Browser, type Page } from '@playwright/test'
+import { expect, request, type APIRequestContext, type Browser, type Page } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 import { crc32, deflateSync } from 'node:zlib'
-import { ADMIN, BASE_URL, NOTES, PERMISSIONS, permissionsSection, ROOT_GRANTS, type Grants } from './env.ts'
+import { ADMIN, BASE_URL, NOTES, PERMISSIONS, permissionsSection, SPACE, SPACE_GRANTS, type Grants, type Rule } from './env.ts'
 
 /** Writes vihko.yaml with `text` and `permissions` (by default the ones every spec runs under, env.ts); with nothing, only those. */
 export function writeWorkspace(text = '', permissions = PERMISSIONS) {
@@ -9,24 +9,25 @@ export function writeWorkspace(text = '', permissions = PERMISSIONS) {
 }
 
 /**
- * The permissions of a spec, in vihko.yaml: ROOT_GRANTS plus `grants` at
- * the root, and `rules` for other folders (`config`, other keys of the file,
- * before them). Returns once vihko has read it, as the root's grants say to
- * the admin: the whole file is read at once, so the rules are in force too
- * (when the root's grants don't change, the spec waits for its rules itself).
- * With nothing, the baseline back: every spec that calls it in `beforeAll`
- * calls it again in `afterAll`, after whatever it undoes with its grants.
+ * The permissions of a spec, in vihko.yaml: SPACE_GRANTS plus `grants` at
+ * the vault's space, and `rules` for other folders (real paths from the
+ * notes root; `config`, other keys of the file, before them). Returns once
+ * vihko has read it, as the space's grants say to the admin: the whole file
+ * is read at once, so the rules are in force too (when the space's grants
+ * don't change, the spec waits for its rules itself). With nothing, the
+ * baseline back: every spec that calls it in `beforeAll` calls it again in
+ * `afterAll`, after whatever it undoes with its grants.
  */
-export async function usePermissions(opts: { grants?: Grants; rules?: Record<string, Grants>; config?: string } = {}) {
+export async function usePermissions(opts: { grants?: Grants; rules?: Record<string, Rule>; config?: string } = {}) {
   writeWorkspace(opts.config, permissionsSection(opts.grants, opts.rules))
-  const expected = { ...ROOT_GRANTS, ...opts.grants }
+  const expected = { ...SPACE_GRANTS, ...opts.grants }
   const api = await request.newContext({ baseURL: BASE_URL })
   try {
     const login = await api.post('/api/auth/login', { data: { username: ADMIN.username, password: ADMIN.password } })
     expect(login.status(), await login.text()).toBe(200)
     await expect.poll(async () => {
-      const r = await api.get('/api/permissions?folder=')
-      return r.ok() ? ((await r.json()) as { own: { grants: Grants } | null }).own?.grants : r.status()
+      const r = await api.get(`/api/permissions?folder=${encodeURIComponent(SPACE)}`)
+      return r.ok() ? ((await r.json()) as { own: { grants: Grants | null } }).own.grants : r.status()
     }, { message: 'vihko reads the new vihko.yaml', timeout: 15_000 }).toEqual(expected)
   } finally {
     await api.dispose()
@@ -42,9 +43,25 @@ export async function signIn(browser: Browser, user: { username: string; passwor
   await page.getByLabel('Contraseña').fill(user.password)
   await page.getByRole('button', { name: 'Entrar' }).last().click()
   if (note) await expect(page.locator('.cm-content')).toBeVisible()
-  else await expect(page.getByRole('treegrid')).toBeVisible()
+  // «My notes» is always there: the first of the sidebar's trees (one per space, D-056).
+  else await expect(page.getByRole('treegrid').first()).toBeVisible()
   return page
 }
+
+/**
+ * Dismisses the notices addressed to whoever `page` is signed in as (what
+ * others shared with them, D-056.22; what the admin did to their account):
+ * other specs on the same server leave some, and a notice that comes in with
+ * the session closes a phone's drawer and shows a toast.
+ */
+export async function dismissNotices(api: APIRequestContext) {
+  const { alerts } = await (await api.get('/api/alerts')).json() as { alerts: { id?: string; code: string; actions: string[] }[] }
+  const personal = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you']
+  for (const a of alerts) if (a.id && personal.includes(a.code)) await api.delete(`/api/account/notices/${encodeURIComponent(a.id)}`)
+}
+
+/** The sidebar's tree of a space or a shared folder, by the name the sidebar gives it («Mis notas», the space's name). */
+export const spaceTree = (page: Page, name: string | RegExp) => page.getByRole('treegrid', { name, exact: typeof name === 'string' })
 
 /**
  * Someone new, created by the admin (`admin`: a page with their session) and

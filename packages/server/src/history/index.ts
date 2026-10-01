@@ -139,6 +139,11 @@ export class History {
     return report
   }
 
+  /** Who made the purge a `history_purged` alert tells of (its `id`): their user id, or null. */
+  purgedBy(noticeId: string): string | null {
+    return this.notices.all().find((n) => n.id === noticeId)?.by ?? null
+  }
+
   alerts(): Alert[] {
     const purged = this.notices.all().map((n: PurgeNotice): Alert => ({
       code: 'history_purged', id: n.id, path: n.path, version: n.version, by: this.opts.nameOf?.({ kind: 'user', id: n.by }) ?? n.by, at: n.at, actions: ['dismiss'],

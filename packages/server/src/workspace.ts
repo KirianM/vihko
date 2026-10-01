@@ -6,24 +6,24 @@
 // alert until the file is fixed. Parts of a usable file that were left out
 // (unknown keys, a rejected strict section) raise another.
 //
-// Permissions always fail closed (D-038): a section rejected (or a file that
-// can't be used) when vihko starts leaves nobody reading anything until it's
-// fixed; once a valid one was in force, it stays while the file is wrong. No
-// file, or a file without the section: the implicit one (every admin
-// manages the root). While vihko runs, that only once the file has stayed so
-// for a moment (`settleMs`): an editor that truncates the file and writes it
-// again leaves it empty for an instant, and the implicit rule would open
-// every note, other people's personal folders included, to every admin.
+// Permissions always fail closed (D-038, D-056): a section rejected (or a
+// file that can't be used) when vihko starts shares nothing until it's
+// fixed (each person keeps their own space); once a valid one was in force,
+// it stays while the file is wrong. No file, or a file without the section:
+// nothing is shared either (`none`). While vihko runs, that only once the
+// file has stayed so for a moment (`settleMs`): an editor that truncates the
+// file and writes it again leaves it empty for an instant, and every shared
+// space would vanish from its members' open editors meanwhile.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { CLOSED_PERMISSIONS, EMPTY_WORKSPACE, IMPLICIT_PERMISSIONS, WORKSPACE_FILE, parseWorkspaceConfig, type ConfigError, type Permissions, type WorkspaceConfig } from '@vihko/core'
+import { CLOSED_PERMISSIONS, EMPTY_WORKSPACE, NO_PERMISSIONS, WORKSPACE_FILE, parseWorkspaceConfig, type ConfigError, type Permissions, type WorkspaceConfig } from '@vihko/core'
 
 export interface WorkspaceOptions {
   notesDir: string
   log?: (msg: string) => void
   /**
    * How long the file must stay without permissions (deleted, emptied, the
-   * section gone) before the implicit ones replace those in force (2 s).
+   * section gone) before no permissions replace those in force (2 s).
    */
   settleMs?: number
   /** When the file has stayed so: reread it (main.ts, to apply it everywhere); `reload` by default. */
@@ -49,7 +49,7 @@ export class Workspace {
   private permsFallback: 'last_good' | 'closed' | null = null
   /** Read once (at start, nothing is in force to keep). */
   private started = false
-  /** The file without permissions, since when (its text, null if missing): the implicit ones wait until it stays so. */
+  /** The file without permissions, since when (its text, null if missing): no permissions wait until it stays so. */
   private opening: { text: string | null; since: number } | null = null
   private settleTimer: NodeJS.Timeout | null = null
 
@@ -107,12 +107,12 @@ export class Workspace {
     this.lastText = text
     const before = JSON.stringify([this.good, this.problems, this.ignored, this.perms, this.permsFallback])
     if (text === null) {
-      // No file: nothing is configured. Deleting it turns everything off, and the permissions are the implicit ones.
+      // No file: nothing is configured. Deleting it turns everything off, and nothing is shared.
       this.good = EMPTY_WORKSPACE
       this.hasGood = false
       this.problems = []
       this.ignored = []
-      this.offerPermissions(IMPLICIT_PERMISSIONS, text)
+      this.offerPermissions(NO_PERMISSIONS, text)
     } else {
       const r = parseWorkspaceConfig(text)
       if (r.ok) {
@@ -140,18 +140,18 @@ export class Workspace {
   }
 
   /**
-   * The permissions the file has now: in force at once, except the implicit
-   * ones while others are in force, which wait until the file has stayed so
+   * The permissions the file has now: in force at once, except none at all
+   * while some grants are in force, which waits until the file has stayed so
    * for `settleMs` (see the header). Meanwhile those in force stay, and the
    * file is read again then.
    */
   private offerPermissions(p: Permissions, text: string | null) {
     const settle = this.opts.settleMs ?? PERMISSIONS_SETTLE_MS
-    if (p.kind === 'implicit' && this.started && this.perms.kind !== 'implicit' && settle > 0) {
+    if (p.kind === 'none' && this.started && this.perms.kind === 'rules' && this.perms.rules.length > 0 && settle > 0) {
       const now = Date.now()
       if (this.opening === null || this.opening.text !== text) {
         this.opening = { text, since: now }
-        this.opts.log?.(`${WORKSPACE_FILE} has no permissions now: if it stays so for ${settle / 1000} s, every admin manages the root`)
+        this.opts.log?.(`${WORKSPACE_FILE} has no permissions now: if it stays so for ${settle / 1000} s, nothing is shared`)
       }
       const wait = this.opening.since + settle - now
       if (wait > 0) {

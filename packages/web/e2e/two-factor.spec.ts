@@ -134,7 +134,7 @@ test('a member sets it up from «Account»: nothing is on until a code from the 
   await admin.context().close()
 
   const page = await password(browser, PERSON.username, PERSON.password)
-  await expect(page.getByRole('treegrid')).toBeVisible()
+  await expect(page.getByRole('treegrid').first()).toBeVisible()
   await openSettings(page, 'Cuenta', 'account')
   const section = page.getByRole('region', { name: 'Verificación en dos pasos' })
   await expect(section).toContainText('un código de 6 cifras de una app de autenticación')
@@ -189,7 +189,7 @@ test('signing in: the password, then the app\'s code, which works once; or a rec
   const code = await app.next()
   await page.getByLabel('Código de verificación').fill(code)
   await page.getByRole('button', { name: 'Verificar' }).click()
-  await expect(page.getByRole('treegrid')).toBeVisible()
+  await expect(page.getByRole('treegrid').first()).toBeVisible()
   // The same code again, still within its window: refused. In the same browser,
   // whose failures count for this account there and not for the whole address
   // (which every spec's sign-ins share).
@@ -207,7 +207,7 @@ test('signing in: the password, then the app\'s code, which works once; or a rec
   await expect(other.getByRole('heading', { level: 1 })).toHaveText('Has usado un código de recuperación')
   await expect(other.getByRole('status')).toHaveText('Te quedan 9 códigos de recuperación.')
   await other.getByRole('button', { name: 'Continuar' }).click()
-  await expect(other.getByRole('treegrid')).toBeVisible()
+  await expect(other.getByRole('treegrid').first()).toBeVisible()
   session = other
 
   // A recovery code works once.
@@ -246,7 +246,7 @@ test('new recovery codes and another app ask for a code of the second factor, ne
   await page.getByLabel('Código de recuperación').fill(recovery[1]!)
   await page.getByRole('button', { name: 'Verificar' }).click()
   await page.getByRole('button', { name: 'Continuar' }).click()
-  await expect(page.getByRole('treegrid')).toBeVisible()
+  await expect(page.getByRole('treegrid').first()).toBeVisible()
   await openSettings(page, 'Cuenta', 'account')
   const section = page.getByRole('region', { name: 'Verificación en dos pasos' })
 
@@ -323,7 +323,7 @@ test('required: an invited member sets it up before getting in; the admin sees w
   await expect(phone.getByRole('heading', { level: 1 })).toHaveText('Guarda tus códigos de recuperación')
   await expect(phone.getByRole('list', { name: 'Códigos de recuperación' }).getByRole('listitem')).toHaveCount(10)
   await phone.getByRole('button', { name: 'Continuar' }).tap()
-  await expect(phone.getByRole('treegrid')).toBeVisible()
+  await expect(phone.getByRole('treegrid').first()).toBeVisible()
   await ctx.close()
 
   // The admin: who has it, who will set it up at sign-in (the admin too), and a reset.

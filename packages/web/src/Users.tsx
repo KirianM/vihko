@@ -17,7 +17,8 @@ import { CopyButton, Toggle } from './Agents.tsx'
 import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
-import { AccessDialog, FolderPermissionsList, PermissionsDialog } from './Permissions.tsx'
+import { AccessDialog } from './Permissions.tsx'
+import { DeletePersonDialog } from './SpacesAdmin.tsx'
 import { SearchButton } from './Palette.tsx'
 import { Icon, MenuButton, NAME_INPUT, ThemeToggle } from './ui.tsx'
 import './actions.css'
@@ -50,7 +51,6 @@ type Open =
   | { kind: 'renameGroup'; group: GroupInfo }
   | { kind: 'deleteGroup'; group: GroupInfo }
   | { kind: 'access'; user: UserInfo }
-  | { kind: 'permissions'; folder: string }
 
 const linkUrl = (l: NewLink) => l.url ?? `${location.origin}${l.path}`
 
@@ -299,8 +299,13 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState<Open | null>(null)
-  /** The folders' list again after a permissions change. */
-  const [foldersSeq, setFoldersSeq] = useState(0)
+  /** Before deleting someone: whether they have a space, and what it shares with others, as counts (spec §2.6). */
+  const [summary, setSummary] = useState<{ id: string; exists: boolean; sharedFolders: number; people: number } | null>(null)
+  useEffect(() => {
+    if (open?.kind !== 'confirm' || open.action !== 'delete') return
+    const id = open.user.id
+    api.personalSummary(id).then((s) => setSummary({ id, exists: s.exists, sharedFolders: s.sharedFolders, people: s.people })).catch(() => {})
+  }, [open])
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -370,7 +375,11 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
       }
       case 'delete': return {
         title: t('users.deleteTitle', { user }), danger: true, confirm: t('users.deleteConfirm'),
-        items: [t('users.delete1'), t('users.delete2'), t('users.delete3'), t('users.delete4'), t('users.delete5')],
+        items: [
+          t('users.delete1'), t('users.delete2'), t('users.delete3'),
+          ...(summary?.id === u.id && summary.sharedFolders > 0 ? [t('users.deleteShared', { folders: summary.sharedFolders, people: summary.people })] : []),
+          t('users.delete4'), t('users.delete5'),
+        ],
         go: async () => { await api.deleteUser(u.id); done() },
       }
       case 'enableAdmin': return {
@@ -419,7 +428,12 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
   let dialog: ReactNode = null
   if (open?.kind === 'new') dialog = <NewUserDialog onClose={close} onCreated={(user, link) => { setOpen({ kind: 'link', user, link, created: true }); void load() }} />
   else if (open?.kind === 'link') dialog = <LinkDialog user={open.user} link={open.link} created={open.created} onClose={close} />
-  else if (open?.kind === 'confirm') {
+  else if (open?.kind === 'confirm' && open.action === 'delete') {
+    // Deleting someone offers to settle their space right there (D-056.28).
+    const c = confirmFor('delete', open.user)
+    dialog = <DeletePersonDialog key={`delete-${open.user.id}`} user={open.user} summary={summary?.id === open.user.id ? summary : null}
+      users={users ?? []} groups={(groups ?? []).map((g) => g.name)} consequences={c.items} onClose={close} onDone={done} />
+  } else if (open?.kind === 'confirm') {
     const c = confirmFor(open.action, open.user)
     dialog = <ConfirmDialog key={`${open.action}-${open.user.id}`} title={c.title} items={c.items} confirm={c.confirm} danger={c.danger} identity={c.identity} onClose={close} onConfirm={c.go} />
   } else if (open?.kind === 'policy') {
@@ -436,9 +450,6 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
       onConfirm={async () => { await api.deleteGroup(g.id); done() }} />
   } else if (open?.kind === 'access') {
     dialog = <AccessDialog who={{ user: open.user.id }} title={t('perm.userAccessTitle', { user: open.user.username })} onClose={close} onUnauthorized={onUnauthorized} />
-  } else if (open?.kind === 'permissions') {
-    dialog = <PermissionsDialog folder={open.folder} me={me} canOpen={() => true} onClose={close}
-      onChanged={() => setFoldersSeq((n) => n + 1)} onAccessLost={close} onUnauthorized={onUnauthorized} />
   }
 
   return (
@@ -534,12 +545,6 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
               ))}
             </ul>
           )}
-        </section>
-
-        <section className="settings-section" aria-labelledby="users-folders">
-          <h2 id="users-folders">{t('perm.foldersTitle')}</h2>
-          <p className="hint">{t('perm.foldersIntro')}</p>
-          <FolderPermissionsList refresh={foldersSeq} onOpen={(folder) => setOpen({ kind: 'permissions', folder })} onUnauthorized={onUnauthorized} />
         </section>
 
         <section className="settings-section" aria-labelledby="users-settings">

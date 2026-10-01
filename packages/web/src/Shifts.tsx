@@ -4,10 +4,11 @@
 import type { LinkState, Shift, ShiftGroup } from './api.ts'
 import { useT } from './i18n.tsx'
 import { Icon, noteName } from './ui.tsx'
+import { usePathLabels } from './spaces.tsx'
 
-/** "hogar/enlaces.md" → "hogar / enlaces", like the header breadcrumbs. */
-const label = (path: string) => path.replace(/\.md$/i, '').split('/').join(' / ')
-const target = (s: LinkState) => (s.status === 'resolved' ? label(s.path) : '')
+type Label = (path: string) => string
+
+const target = (s: LinkState, label: Label) => (s.status === 'resolved' ? label(s.path) : '')
 
 export const shiftCount = (groups: ShiftGroup[]) => groups.reduce((n, g) => n + g.links, 0)
 
@@ -20,15 +21,16 @@ export function shiftedNotice(t: ReturnType<typeof useT>, name: string, groups: 
   return t(n === 1 ? 'move.shiftedOne' : 'move.shiftedMany', { name, n, notes })
 }
 
-function describe(t: ReturnType<typeof useT>, c: Shift): string {
-  if (c.code === 'resolves') return t(c.before.status === 'ambiguous' ? 'shift.resolvesAmbiguous' : 'shift.resolvesMissing', { target: target(c.after) })
+function describe(t: ReturnType<typeof useT>, c: Shift, label: Label): string {
+  if (c.code === 'resolves') return t(c.before.status === 'ambiguous' ? 'shift.resolvesAmbiguous' : 'shift.resolvesMissing', { target: target(c.after, label) })
   if (c.code === 'ambiguous') return t('shift.ambiguous', { candidates: c.after.status === 'ambiguous' ? c.after.candidates.map(label).join(', ') : '' })
-  if (c.code === 'retargets') return t('shift.retargets', { target: target(c.after), was: target(c.before) })
+  if (c.code === 'retargets') return t('shift.retargets', { target: target(c.after, label), was: target(c.before, label) })
   return t('shift.breaks')
 }
 
 export function ShiftPreview({ groups }: { groups: ShiftGroup[] }) {
   const t = useT()
+  const { label } = usePathLabels()
   if (groups.length === 0) return null
   const n = shiftCount(groups)
   return (
@@ -48,7 +50,7 @@ export function ShiftPreview({ groups }: { groups: ShiftGroup[] }) {
           </div>
           {g.changes.map((c, i) => (
             <div className="shifts-row" key={i}>
-              <code>{c.raw}</code> <span>{describe(t, c)}</span>
+              <code>{c.raw}</code> <span>{describe(t, c, label)}</span>
             </div>
           ))}
         </div>

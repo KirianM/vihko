@@ -1,7 +1,7 @@
 // Utilities shared by the collaboration tests (real server as a separate process).
 import assert from 'node:assert/strict'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { cpSync } from 'node:fs'
+import { cpSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
@@ -9,6 +9,7 @@ import WebSocket from 'ws'
 import type * as Y from 'yjs'
 import { openLineage } from '../../web/src/editor/lineage.ts'
 import { tempDir } from './_tmp.ts'
+import { SHARED, sharedSpace } from './_permissions.ts'
 import { mother, type NewUser } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -31,13 +32,18 @@ export interface Srv { proc: ChildProcess; base: string; out: string[]; env: Rec
 /** The admin each state folder was made with (makeDirs), who `login` signs in. */
 const admins = new Map<string, NewUser>()
 
-/** A copy of the test vault and a state with a new admin (the mother's), who `login(srv)` signs in. */
+/**
+ * A copy of the test vault in the shared space (_permissions.ts SHARED),
+ * which the new admin (the mother's, who `login(srv)` signs in) manages, and
+ * a state with that admin.
+ */
 export function makeDirs() {
   const dir = tempDir('vihko-hub-')
   const notes = join(dir, 'notes')
-  cpSync(VAULT, notes, { recursive: true })
+  cpSync(VAULT, join(notes, SHARED), { recursive: true })
   const env = { VIHKO_NOTES_DIR: notes, VIHKO_STATE_DIR: join(dir, 'state'), VIHKO_HOST: '127.0.0.1', VIHKO_PORT: String(nextPort++) }
   const admin = m.aUser({ role: 'admin' })
+  writeFileSync(join(notes, 'vihko.yaml'), sharedSpace({ [admin.username]: 'manage' }))
   spawnSync(process.execPath, [CLI, 'user', 'create', admin.username, '--admin'], { env: { ...process.env, ...env }, input: admin.password })
   admins.set(env.VIHKO_STATE_DIR, admin)
   return { notes, env, admin }

@@ -455,6 +455,11 @@ export class Indexer {
     return path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/i, '')
   }
 
+  /** The aliases a note's text gives it, as the index would take them. */
+  aliasesIn(text: string): string[] {
+    return this.aliasesOf(extract(text, { tagsKey: this.keys.tags }))
+  }
+
   private aliasesOf(x: Extracted): string[] {
     const v = x.frontmatter.data[this.keys.aliases]
     const list = Array.isArray(v) ? v : typeof v === 'string' ? [v] : []

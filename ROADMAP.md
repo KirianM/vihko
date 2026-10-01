@@ -1,264 +1,155 @@
 # Roadmap
 
-Each milestone is a usable release with a checkable definition of done. The
-reasons behind the order are at the end.
+vihko is at 0.x: the relaunch of the project around spaces. Each 0.x minor
+version is a usable release with a checkable definition of done; a minor
+version may change the model or the contract, always with upgrade notes. 1.0
+comes once real use says the model has settled. What came before the
+relaunch is summarised at the end.
 
-## M1 · Notes, one user
+## 0.1.0 · Spaces
 
-Goal: a complete notes system from the UI, without integrations.
+Goal: one installation for one group, where each person has a space of their
+own and what belongs to several people lives in shared spaces, without
+anything you can't see getting in your way or telling you it exists.
 
-- [x] TypeScript monorepo: shared package (`lezer-markdown` parser, link
-      resolution, byte-preserving frontmatter patching), server and web. CI with
-      typecheck, tests, browser tests and the Docker image.
-- [x] Edge-case vault for tests (ambiguous links, Unicode, exotic frontmatter,
-      sync-conflict files, temporary files).
-- [x] Indexer: watcher + periodic rescan, exclusion list, guard against mass
-      deletions.
-- [x] Split the indexer into extensions (a DAG): each set of derived tables
-      is an extension with its own version, run in dependency order; bumping
-      one rebuilds only it and its dependents. Ground for the first real
-      extension (embeddings, M7).
-- [x] `index.db`: FTS5 (`unicode61 remove_diacritics 2`), links with states,
-      tags, headings. Deterministic rebuild test.
-- [x] Write core: hot/cold notes, `if_match`, trash, lazy `uid`, move/rename
-      rewriting links.
-- [x] Collaboration hub: notes open in an editor are live Yjs documents; the
-      file stays the source of truth. A note deleted outside vihko while open
-      keeps a copy until someone decides.
-- [x] Editor: CodeMirror 6 on Yjs with live preview, presence and link states.
-- [x] UI: folder tree, ⌘K search-or-create, side panel with comments,
-      links/backlinks and outline, rename/move with preview, trash, workspace
-      alerts. Translatable (English and Spanish).
-- [x] Responsive layout for phones and an installable PWA (no offline mode;
-      installing needs HTTPS).
-- [x] Images: upload, paste and by URL (local copy or link); they travel with
-      their note when it moves to another folder; external images can be
-      blocked by the administrator.
-- [x] Autocomplete in the editor: `[[` suggests notes and aliases, `#`
-      suggests existing tags.
-- [x] A broken `[[link]]` offers to create the note (in the current note's
-      folder).
-- [x] Tasks and tables in the editor: `- [ ]` toggles with a click; Markdown
-      tables render as tables outside the cursor.
-- [x] Folders and tags in the tree: create, rename and move folders (also by
-      dragging notes), a tags view, and `tag:`/`path:` filters in search.
-- [x] Review after comparing with other systems: configurable alias
-      resolution; a picker and «pin this target» for ambiguous links; a
-      generation number so a stale tab can't duplicate a note; detection of
-      renames made outside vihko with an «update links» alert (an open note
-      follows its file); per-note attachment subfolders; «text changed» marks
-      on comments and confirmation before resolving; argon2id passwords; a
-      tolerant, versioned `vihko.yaml` (strict only for permissions); full
-      Unicode case folding in links.
-- [x] Server errors and alerts as translatable codes.
-- [x] Local auth: an admin created from the CLI or a one-time token, sessions.
-      A principal on every query from day one.
-- [x] Docker image and example compose file with the two volumes.
-- [x] `vihko.yaml`: the workspace configuration file, read at start and
-      reloaded on change (first users: daily-note series and templates).
-- [x] User profile with a timezone (defaults to the browser's).
-- [x] Templates: plain `.md` notes with fixed variables (`{{date}}`,
-      `{{date:format}}`, `{{user}}`, `{{title}}`), copied only on creation; no
-      code.
-- [x] Daily note, optional: series declared in `vihko.yaml` (folder and name
-      pattern, `{user}` for personal ones, optional template); each person picks
-      theirs. «Today» opens it or creates it (never overwriting), in the
-      person's timezone; previous/next in the header.
+- [x] Two fixed folders in the notes folder: `people/<username>/` (each
+      person's own space, «My notes», made with their account, also for a
+      single-person install) and `spaces/<readable>-<id>/` (shared spaces;
+      the id is the identity, the name lives in `vihko.yaml` and can change).
+      What appears outside them is seen by nobody, and the admins are told.
+- [x] Permissions engine: sharing only adds. Everyone who reads a folder sees
+      everything in it; a subfolder can add people, never take them away. No
+      implicit rule, no `{user}` rules, no managers from above; being an admin
+      grants nothing. Permissions are checked before the disk, so a name you
+      can't see never answers differently from one that doesn't exist.
+- [x] Shared spaces: anyone creates one (or only admins, a setting), its
+      creator manages it; members, renaming, leaving (not through a group),
+      deleting to the trash its managers keep seeing.
+- [x] Folders shared from one's own space, in «Shared with me» with their
+      owner; pinning them to the sidebar; who has access, shown read-only to
+      every member.
+- [x] Links resolve within their space: a name never reaches another space;
+      links across spaces are written from the notes root with the note's
+      name as text; a link to what you can't read looks broken; a rename,
+      move or new note that would retarget a link to a hidden note isn't
+      available; images a note shares are copied when it changes space.
+- [x] Moving between spaces says who gains and loses access, and whose it
+      becomes, before anything moves; agents confirm it explicitly.
+- [x] The admin: a directory of shared spaces (names, managers, member
+      counts, never content), assigning a manager, joining a space visibly,
+      and deciding what becomes of a deleted person's closed space
+      (transfer, make it shared, delete). Notices to the people concerned.
+- [x] API and MCP: `GET /api/spaces` and `/api/spaces/members`;
+      `list_folder("")` lists the spaces a person reaches; the server's
+      instructions tell agents where the person keeps their notes. Keys'
+      folders, pins and the trash follow folders moved from vihko.
+- [x] `vihko.yaml`: permissions keyed by spaces, templates as a list with
+      `{user}`, `attachments.folder` relative to each space.
+- [x] Leak tests over every route, tool and editor message, extended to
+      writes (create, rename, move over hidden names), and browser tests with
+      three people.
+- [x] Also: the dark theme's bold and headings; Ctrl+E, Ctrl+Shift+S and
+      Ctrl+K over a selection; an alert to the admins when `state.db`
+      migrates at start; `vihko.yaml` rewrites raise its `version`; an
+      upgrade smoke test before each release.
 
-**Done when:** with `docker compose up` over an existing folder of 1,000 notes
-you can search, edit and rename without breaking links; a change made with
-another editor shows up live; deleting the index and rebuilding it yields an
-identical dump; a `kill -9` loses no edits.
+**Done when:** three people (an admin and two members) work at the same time
+with their own spaces, a shared space and a folder shared between two of
+them; the leak battery passes over every HTTP route, MCP tool and editor
+message; and an installation built from the documentation alone works.
 
-## M2 · History
+## 0.2 · Reading and editing
 
-- [x] Git in the state volume (managed mode, the default): commits after a
-      quiet period with authorship (user, agent on behalf of a user, system
-      with its reason, external). What people type in the editor shares a
-      version; any other write is its own, so "just before the agent" always
-      exists. Notes and attachments up to 20 MB (configurable); nothing is
-      ever dropped. History never blocks a write, and a `kill -9` loses no
-      authorship.
-- [x] Unmanaged mode (reads the user's own git in the folder, never writes to
-      it) and off, chosen in `vihko.yaml`.
-- [x] UI: per-note history in the side panel, a read-only version view with an
-      inline word diff, and restore (a new version, bringing back the images
-      that version linked).
-- [x] Recent changes: a read-only, workspace-wide feed of changes, filterable
-      by author.
-- [x] Resolved comments listed from history and reopenable; resolving no
-      longer asks for confirmation in managed mode.
-- [x] Edits an offline tab couldn't send merge after an external change vihko
-      saw while running (instead of going to a copy).
+- [ ] A reading mode with a switch («Read / Edit»), on the same editor: no
+      Markdown shows, links and tasks work with a tap, others' changes show
+      live, and the reader isn't a cursor. Whoever can't edit is always in
+      reading mode.
+- [ ] «Open notes in»: automatic (reading on a phone, editing on a
+      computer), editing or reading; remembered while browsing.
+- [ ] «Show the Markdown»: on the line being edited, always, or as little as
+      possible (experimental, on the same editor; no WYSIWYG editor).
+- [ ] Per-person settings in two layers: what the UI does (language,
+      opening mode, Markdown) in the account, and the theme on each device;
+      what their notes do (their own daily-note series, templates and guide
+      for agents) as a file in their space, in the reserved
+      `people/<username>/.vihko/`.
 
-**Done when:** any change, wherever it came from, can be seen and undone from
-the UI with its author.
+## 0.3 · Videos
 
-## M2.1 · History follow-ups (before agents)
-
-From the review after comparing M2 with other systems.
-
-- [x] External changes in a row to a file are one version (30 s quiet, 5 min
-      at most), closed by any vihko write, as typing is.
-- [x] A long git outage never drops a version silently: past the queue's cap,
-      versions merge into the next one, with an alert.
-- [x] `history.exclude` in `vihko.yaml`: patterns kept out of the history
-      without hiding them from vihko.
-- [x] `vihko history purge <path or version>` from the command line (vihko
-      stopped): rewrites the managed history without it, for a secret an agent
-      or a person pasted by mistake.
-
-## M3 · Agents
-
-- [x] HTTP API with API keys (`vihko_<id>_<secret>`, only the secret's
-      hash kept, optional expiry). What a key may do: read, or read and
-      write, in every folder its user sees or only in some. Rotation with 10
-      minutes of grace for the old secret. ETag + `If-Match` → 412,
-      `If-None-Match: *`. Off by default: the vihko admin turns it on,
-      `VIHKO_INTEGRATIONS=off` locks it off; only the routes classified for
-      keys, through the single filtering point. Keys are managed in «Agents
-      and API».
-- [x] Remote MCP: bearer token on the LAN, OAuth 2.1 when there is a public
-      URL (`VIHKO_PUBLIC_URL`: Client ID Metadata Documents, fetched with SSRF
-      protections, and dynamic registration, 5 an hour per address; PKCE;
-      consent in the UI, showing the client's domain; the authorization as a
-      revocable key); the tools that write only for a key that may write.
-- [x] Tools: `search`, `get_note`, `list_folder`, `related`/backlinks,
-      `resolve_link`, `create_note`, `edit_note` (flat operations with
-      `if_match` and `dry_run`), `changes_since`, `move`, `delete` to trash,
-      `daily_note` (today's note of the represented person, created if
-      needed), `history` and `revert_change`, and appending at the end or
-      under a heading. Everything that comes from notes (text, titles,
-      frontmatter, paths, snippets) is framed as data, not instructions.
-- [x] The history says who wrote a version and how: «Claude Code · on behalf
-      of Noa · via MCP» (the API, MCP, or MCP with OAuth).
-- [x] Login limits (exponential waits per client, account and address),
-      before exposing vihko with a public URL.
-- [x] Revert this change: undo only what one version changed (an agent's),
-      applied to the current text, keeping what was written after; what can't
-      be reverted is reported. A content-only view of a version, to copy from.
-- [x] An alert when the API or MCP is on while the history is unmanaged
-      (writes from vihko have no version of their own there), or off.
-- [x] `ai: false` restriction enforced at the single filtering point.
-- [x] Handshake tests with real MCP clients in CI (the SDK, MCP Inspector and
-      `mcp-remote`, with a key and with OAuth).
-- [x] Privacy page: what leaves, where to and when.
-
-**Done when:** an agent writes a plan, the user edits it in the UI and the
-agent sees those changes, with safeguards and everything in the history.
-
-## M4 · Multi-user
-
-- [x] Users and groups; accounts created with a one-time, expiring link (no
-      SMTP), which also resets passwords; deactivate (cuts sessions, keys and
-      OAuth at once) and delete (history keeps the name).
-- [x] Per-folder permissions in `vihko.yaml`, managed from the UI: `read`,
-      `comment`, `edit` and `manage`; inherited, with a folder's own grants
-      replacing the inherited ones; deny by default. `manage` shares the folder.
-      Optional `{user}` rules (e.g. a folder per person). A folder can be
-      closed to agents (`ai: false`, inherited, only closes).
-- [x] The vihko admin manages users, groups and permissions but only reads what
-      is granted to them, like anyone else.
-- [x] Single filtering point with leak tests over every endpoint, tool and
-      editor message (titles, backlinks, counts, candidates, errors).
-- [x] Link rewriting as the system across permissions; moving something that
-      changes who can see it asks first.
-- [x] Presence and cursors across users in the editor; read-only and
-      comment-only editing.
-- [x] Purge from history in the UI: whoever manages the folder, or the admin by
-      path; on top of the M2.1 command.
-- [x] A note's history (versions, diffs, resolved comments, its part of recent
-      changes) needs edit permission, and so does restoring: sharing a note to
-      read doesn't share its past.
-- [x] An open version closes when someone who wasn't in it starts typing.
-- [x] Saving a copy of an image by URL: members only from public addresses
-      unless the admin allows the local network.
-- [x] Second factor for users: TOTP with recovery codes; the admin makes it
-      required, optional or disabled, and can reset a user's; asked again
-      before OAuth consent and before creating a key.
-
-**Done when:** two users with different permissions work at the same time and
-the tests prove neither sees anything they shouldn't.
-
-## M4.1 · Multi-user follow-ups (before release)
-
-From the review after comparing M4 with other systems.
-
-- [x] Resetting someone's access or second factor, or changing their role,
-      asks the admin to confirm who they are, and the person and the other
-      admins are told.
-- [x] Whoever manages a folder keeps managing everything under it, except
-      inside a personal (`{user}`) folder.
-- [x] An agent that moves a note where more people can see it has to confirm
-      that audience explicitly.
-- [x] The editor's presence is signed by the server.
-- [x] Turning the second factor off for the workspace keeps it for whoever has
-      it; TOTP secrets are encrypted when the server administrator sets a key.
-- [x] Whoever wrote in what gets purged from the history is told, without the
-      content.
-- [x] User and group names are unique in any case, in any script.
-
-## M5 · Release (v1.0)
-
-- [x] Release policy: semver, changelog, Docker tags, migrations of `state.db`
-      and `vihko.yaml`.
-- [x] Final name.
-- [x] Installation and operations documentation (volumes, backups including
-      the history in the state volume, NFS).
-- [x] Security review.
-- [x] From the release candidates: a formatting toolbar for people who don't
-      write Markdown (above the note on a computer, over the keyboard on a
-      phone); integration switches closed by default; the admin's purge in
-      «Recent changes».
-- [x] Public repository.
-
-**Done when:** a third party installs and uses it following only the
-documentation.
-
-## M6 · Events
-
-- [ ] Event log with a cursor.
-- [ ] Webhooks: HMAC with timestamp, real retries, SQLite outbox, stable event
-      id, delivery log, auto-disable.
-- [ ] Loop breaker ("expected writes" + body hash).
-
-**Done when:** a real integration with another application works using only
-these generic pieces.
-
-## M7 · Retrieval
-
-- [ ] Configurable conventions for note types (decisions, projects…).
-- [ ] Embeddings in a worker thread, `sqlite-vec`, hybrid search; never
-      embeddings of what the agent cannot see.
-- [ ] Intent tools: `project_context`, `decisions`, `timeline`.
-
-**Done when:** an agent working on one project retrieves decisions taken in
-related projects.
+- [ ] Videos in notes without transcoding (MP4, MOV, WebM, told by their
+      bytes), with a warning when the browser can't play the format. vihko
+      writes `![](clip.mp4)` and also reads `![[clip.mp4]]`.
+- [ ] `VIHKO_MAX_VIDEO_MB`, 500 MB by default; files served by ranges and
+      streamed.
+- [ ] A trash screen: what's in it, how much it takes, restore, and empty it
+      with confirmation (it never empties on its own).
+- [ ] External videos as a card that loads nothing from outside, with an
+      optional «click to load» for domains the admin lists.
+- [ ] Uploading videos through the API (`POST /api/attachments`).
 
 ## Later
 
+- Public or wiki areas: a space or folder open to every person with an
+  account, at a level (`public: read | comment | edit`).
+- Events: an event log with a cursor; webhooks (HMAC with timestamp, real
+  retries, SQLite outbox, stable event id, delivery log, auto-disable); a
+  loop breaker. Done when a real integration with another application works
+  using only these generic pieces.
+- Retrieval: configurable conventions for note types (decisions,
+  projects…); embeddings in a worker thread with `sqlite-vec` and hybrid
+  search, never of what the agent can't see; intent tools
+  (`project_context`, `decisions`, `timeline`).
+- Importing an existing vault into a space from the UI, rewriting its links
+  from the root.
+- Themes: light and dark as the first two of a theme system (palette and type
+  per theme), so others can be added.
+- Purge from the history everything no longer in the folder, listing what is
+  lost before confirming.
+- Syntax highlighting in code blocks, per language, each loaded only when a
+  note needs it.
 - E-reader: EPUB per collection and OPDS, with highlights flowing back.
 - Graph view.
 - OIDC, passkeys.
 - Suggestion mode for agents.
 - Quotes with a text selector in the UI.
-- Request access to a note (with the event log of M6).
-- Syntax highlighting in code blocks, per language, each loaded only when a
-  note needs it.
-- Purge from the history everything no longer in the folder, listing what is
-  lost before confirming.
-- Themes: light and dark as the first two of a theme system (palette and type
-  per theme), so others can be added.
+- Asking for access (with the event log): to join a shared space you know
+  of (its name isn't secret), or for a higher level in a folder someone
+  already shares with you; never from a link that looks broken, which may
+  lead to what you can't see.
 
 ## Why this order
 
-1. **Yjs from M1.** The editor is collaborative from birth even with one user:
-   no rewriting the write path later, and several tabs or devices and live
-   external changes work from the start.
-2. **History before agents.** The safety net exists before AI is allowed to
-   write.
-3. **Agents before multi-user.** It is the reason for the project and works
-   with one user. The permission engine is born in M1 (a principal on every
-   query), so M4 adds users and rules without rewriting anything.
-4. **Public after multi-user.** v1.0 = notes + history + agents + multi-user.
-   Events and retrieval arrive as 1.x.
+1. **The model first.** Spaces change where every note lives and who sees
+   it; everything after it builds on that, so it comes before anything else
+   and alone.
+2. **Reading before videos.** How people read and edit touches every note
+   every day; videos are a new kind of content on top.
+3. **Integrations later.** Events and retrieval wait until the model and the
+   contract have settled, so they don't have to be redone.
+
+## Before the relaunch: the 1.0.x line
+
+vihko was first built as one folder tree for everyone, with per-folder
+permissions, and released as 1.0.x. That line was withdrawn: its single tree
+couldn't keep what someone can't see from showing (a name taken by a hidden
+note, a lock on a link) and gave nobody a space of their own. Its history is
+in git; the milestones it went through:
+
+- **M1 · Notes, one user**: Markdown files as the source of truth, a
+  disposable SQLite index with a watcher and a periodic rescan, a
+  collaborative editor (Yjs, CodeMirror 6) that keeps the file as the truth,
+  links that follow renames, tags, search, images, templates and daily notes,
+  `vihko.yaml`, Docker.
+- **M2 · History**: every change kept in git in the state volume with its
+  author, restore, «Recent changes», resolved comments, `history.exclude` and
+  purging.
+- **M3 · Agents**: an HTTP API with keys and an MCP server (with OAuth for
+  remote clients), off by default, never seeing more than their person;
+  login limits; reverting one change.
+- **M4 · Multi-user**: users and groups, one-time links, per-folder
+  permissions, read-only and comment-only editing, presence, a second factor,
+  leak tests over every endpoint.
+- **M5 · Release**: release policy, the name, documentation, two security
+  reviews, the public repository, and 1.0.0 and 1.0.1.
+
+All of that is still in vihko 0.1.0, reshaped for spaces.

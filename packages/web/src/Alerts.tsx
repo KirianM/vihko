@@ -7,7 +7,8 @@ import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from 'r
 import { Button, Dialog, Heading, Modal, ModalOverlay } from 'react-aria-components'
 import { ApiError, api, type Alert, type MoveJob, type MovedRelinkReport } from './api.ts'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
-import { MenuButton, ThemeToggle, noteName as fileName } from './ui.tsx'
+import { Icon, MenuButton, ThemeToggle, noteName as fileName } from './ui.tsx'
+import { usePathLabels } from './spaces.tsx'
 import { SearchButton } from './Palette.tsx'
 import type { ConfigError, ConfigMigrationRef } from '@vihko/core/codes'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
@@ -19,14 +20,36 @@ import './actions.css'
 type ExternalMove = Extract<Alert, { code: 'external_move' }>
 type Translate = ReturnType<typeof useT>
 
-/** Notices addressed to one person (M4.1): theirs to dismiss, and said when they come in. */
-export type PersonalNotice = Extract<Alert, { code: 'account_changed' | 'user_account_changed' | 'history_purged_authored' }>
+/** Notices addressed to one person (M4.1, D-056.21–22): theirs to dismiss, and said when they come in. */
+export type PersonalNotice = Extract<Alert, { code: 'account_changed' | 'user_account_changed' | 'history_purged_authored' | 'links_not_updated' | 'space_changed' | 'shared_with_you' }>
 export const isPersonalNotice = (a: Alert): a is PersonalNotice =>
   a.code === 'account_changed' || a.code === 'user_account_changed' || a.code === 'history_purged_authored'
+  || a.code === 'links_not_updated' || a.code === 'space_changed' || a.code === 'shared_with_you'
 
-/** A notice's title: its text's key, and what goes in it (names; the path only if they can still read it). */
-function noticeTitle(a: PersonalNotice): { key: MessageKey; parts: { by: string; user?: string; path?: string } } {
+type NoticeParts = { by?: string; user?: string; path?: string; to?: string; space?: string; name?: string; owner?: string }
+
+/** A notice's title: its text's key, and what goes in it (names; a path or a space only while they can still see it). */
+function noticeTitle(a: PersonalNotice): { key: MessageKey; parts: NoticeParts } {
   switch (a.code) {
+    case 'links_not_updated': return { key: 'alerts.linksNotUpdated', parts: {} }
+    case 'space_changed': {
+      const space = a.space?.name ?? undefined
+      const known = { by: a.by, ...(a.user ? { user: a.user } : {}), ...(a.to ? { to: a.to } : {}), ...(space ? { space } : {}) }
+      switch (a.change) {
+        case 'manager_assigned': return { key: space ? 'alerts.spaceManagerAssigned' : 'alerts.spaceManagerAssignedNeutral', parts: known }
+        case 'admin_joined': return { key: space ? 'alerts.spaceAdminJoined' : 'alerts.spaceAdminJoinedNeutral', parts: known }
+        case 'personal_transferred': return { key: 'alerts.spaceTransferred', parts: known }
+        case 'personal_converted': return { key: space ? 'alerts.spaceConverted' : 'alerts.spaceConvertedNeutral', parts: known }
+        case 'personal_deleted': return { key: 'alerts.spaceDeleted', parts: known }
+      }
+    }
+    case 'shared_with_you': {
+      if (a.path === null) return { key: 'alerts.sharedWithYouNeutral', parts: { by: a.by } }
+      if (a.kind === 'space') return { key: 'alerts.addedToSpace', parts: { by: a.by, space: a.name ?? '' } }
+      return a.owner
+        ? { key: 'alerts.sharedFolderOf', parts: { by: a.by, name: a.name ?? '', owner: a.owner } }
+        : { key: 'alerts.sharedFolderIn', parts: { by: a.by, name: a.name ?? '', space: a.space ?? '' } }
+    }
     case 'account_changed': return {
       key: a.change === 'reset_link' ? 'alerts.accountResetLink' : a.change === 'two_factor_reset' ? 'alerts.accountTwoFactor' : a.role === 'admin' ? 'alerts.accountPromoted' : 'alerts.accountDemoted',
       parts: { by: a.by },
@@ -41,10 +64,24 @@ function noticeTitle(a: PersonalNotice): { key: MessageKey; parts: { by: string;
   }
 }
 
-/** A notice's title as plain text (the toast when one comes in). */
-export function noticeText(t: Translate, a: PersonalNotice): string {
+/** A notice's title as plain text (the toast when one comes in); `where` shows a path as the person sees it. */
+export function noticeText(t: Translate, a: PersonalNotice, where: (path: string) => string): string {
   const { key, parts } = noticeTitle(a)
-  return t(key, { ...parts, ...(parts.path ? { path: label(parts.path) } : {}) })
+  return t(key, { ...parts, ...(parts.path ? { path: where(parts.path) } : {}) })
+}
+
+/** The notices that came in with the session: said at once, kept in «Alerts» until dismissed there. */
+export function NoticeToast({ notices, onSee, onDismiss }: { notices: PersonalNotice[]; onSee: () => void; onDismiss: () => void }) {
+  const t = useT()
+  const labels = usePathLabels()
+  return (
+    <div className="toast">
+      <span className="toast-icon">{Icon.alert}</span>
+      <span className="toast-text" role="status">{notices.length === 1 ? noticeText(t, notices[0]!, labels.label) : t('notices.many', { n: notices.length })}</span>
+      <Button className="btn" onPress={onSee}>{t('notices.see')}</Button>
+      <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={onDismiss}>{Icon.close}</Button>
+    </div>
+  )
 }
 
 const svg = (children: ReactNode) => (
@@ -58,6 +95,7 @@ const icons = {
   config: svg(<><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></>),
   moved: svg(<><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4" /><path d="M14 3v6h6v3" /><path d="M14 18h7M18 15l3 3-3 3" /></>),
   person: svg(<><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>),
+  people: svg(<><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8" /></>),
   database: svg(<><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5" /><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" /></>),
 }
 
@@ -76,6 +114,7 @@ function RelinkDialog({ alert, onClose, onDone, onStarted }: {
   onStarted: (job: MoveJob) => void
 }) {
   const t = useT()
+  const { label } = usePathLabels()
   const [report, setReport] = useState<MovedRelinkReport | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -132,25 +171,26 @@ function RelinkDialog({ alert, onClose, onDone, onStarted }: {
   )
 }
 
-/** `hogar/Proxy.md` → `hogar / Proxy`, like in the breadcrumbs. */
-const noteName = (path: string) => path.replace(/\.md$/i, '').split('/').join(' / ')
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
-/** "hogar/enlaces.md" → "hogar / enlaces", like the header breadcrumbs. */
-const label = (path: string) => path.replace(/\.md$/i, '').split('/').join(' / ')
 
 /** Replaces `{key}` placeholders in a translated text with elements (paths in monospace, names in bold). */
 function rich(text: string, parts: Record<string, ReactNode>): ReactNode[] {
   return text.split(/\{(\w+)\}/).map((chunk, i) => (i % 2 ? <Fragment key={i}>{parts[chunk] ?? `{${chunk}}`}</Fragment> : chunk))
 }
 
-export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
+export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
   onOpen: (path: string) => void
+  /** The admin's «Spaces» page, where a deleted person's space is decided. */
+  onSpaces: () => void
   /** After loading or after an action: the alert count, for the sidebar. */
   onChanged: (count: number) => void
   onUnauthorized: () => void
 }) {
   const t = useT()
   const dates = useDates()
+  // Paths as the person sees them (D-056): the space, its folders and the name.
+  const { label } = usePathLabels()
+  const noteName = label
   const [alerts, setAlerts] = useState<Alert[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -201,8 +241,9 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
   }
 
   const noteLink = (path: string) => (
-    <a className="mono" href={`?note=${encodeURIComponent(path)}`} onClick={(e) => { e.preventDefault(); onOpen(path) }}>{path}</a>
+    <a className="mono" href={`?note=${encodeURIComponent(path)}`} onClick={(e) => { e.preventDefault(); onOpen(path) }}>{label(path)}</a>
   )
+  const mono = (path: string) => <span className="mono">{label(path)}</span>
   const adminOnly = <span className="alert-hint">{t('alerts.adminOnly')}</span>
 
   /** vihko.yaml problems: line and key path, then what's wrong. */
@@ -278,12 +319,12 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           icon: icons.moved,
           tone: 'accent',
           title: one
-            ? rich(t('alerts.movedTitle'), { from: <span className="mono">{one.from}</span>, to: <span className="mono">{one.to}</span> })
+            ? rich(t('alerts.movedTitle'), { from: mono(one.from), to: mono(one.to) })
             : t('alerts.movedTitleMany', { n: a.moves.length }),
           body: t(a.links === 1 ? 'alerts.movedBodyOne' : 'alerts.movedBody', { n: a.links }),
           extra: !one && (
             <ul className="alert-paths">
-              {a.moves.slice(0, 10).map((m) => <li key={m.from}><span className="mono">{m.from}</span> → {noteLink(m.to)}</li>)}
+              {a.moves.slice(0, 10).map((m) => <li key={m.from}>{mono(m.from)} → {noteLink(m.to)}</li>)}
               {a.moves.length > 10 && <li>{t('alerts.movedMore', { n: a.moves.length - 10 })}</li>}
             </ul>
           ),
@@ -358,7 +399,7 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
         return frame({
           icon: icons.config,
           title: t('alerts.templateTitle', { series: a.series }),
-          body: rich(t('alerts.templateBody'), { template: <span className="mono">{a.template}</span> }),
+          body: rich(t('alerts.templateBody'), { template: mono(a.template) }),
           actions: null,
         })
       case 'history_unavailable':
@@ -382,7 +423,7 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           body: t('alerts.historyTooLargeBody', { limit: a.limitMb }),
           extra: (
             <ul className="alert-paths">
-              {a.paths.slice(0, 10).map((p) => <li key={p}><span className="mono">{p}</span></li>)}
+              {a.paths.slice(0, 10).map((p) => <li key={p}>{mono(p)}</li>)}
               {a.paths.length > 10 && <li>{t('alerts.movedMore', { n: a.paths.length - 10 })}</li>}
             </ul>
           ),
@@ -400,8 +441,9 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
         return frame({
           icon: icons.config,
           title: t(a.version ? 'alerts.purgedVersionTitle' : 'alerts.purgedTitle', { by: a.by }),
-          body: rich(t(a.version ? 'alerts.purgedVersionBody' : 'alerts.purgedBody'), {
-            path: <span className="mono">{a.path}</span>,
+          // The path only where the admin can read it (D-056.24, .26): otherwise that it happened, and when.
+          body: rich(t(a.path === null ? (a.version ? 'alerts.purgedVersionBodyHidden' : 'alerts.purgedBodyHidden') : a.version ? 'alerts.purgedVersionBody' : 'alerts.purgedBody'), {
+            path: a.path === null ? null : mono(a.path),
             version: <span className="mono">{a.version?.slice(0, 7) ?? ''}</span>,
             when: dates.dateTime(a.at),
           }),
@@ -409,18 +451,24 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
         })
       case 'account_changed':
       case 'user_account_changed':
-      case 'history_purged_authored': {
+      case 'history_purged_authored':
+      case 'links_not_updated':
+      case 'space_changed':
+      case 'shared_with_you': {
         const when = dates.dateTime(a.at)
         const n = noticeTitle(a)
         const body = a.code === 'account_changed'
           ? t(a.change === 'reset_link' ? 'alerts.accountResetLinkBody' : a.change === 'two_factor_reset' ? 'alerts.accountTwoFactorBody' : 'alerts.accountRoleBody', { when })
           : a.code === 'user_account_changed'
             ? t(a.user === a.by ? 'alerts.userChangedSelfBody' : 'alerts.userChangedBody', { when, user: a.user })
+            : a.code === 'links_not_updated' ? t('alerts.linksNotUpdatedBody', { when })
+            : a.code === 'space_changed' ? t('alerts.spaceChangedBody', { when })
+            : a.code === 'shared_with_you' ? t(a.path === null ? 'alerts.sharedWithYouGoneBody' : a.kind === 'space' ? 'alerts.sharedWithYouBody' : 'alerts.sharedFolderBody', { when })
             : t('alerts.purgedAuthoredBody', { when })
         return frame({
-          icon: a.code === 'history_purged_authored' ? icons.config : icons.person,
-          tone: a.code === 'account_changed' ? 'accent' : undefined,
-          title: rich(t(n.key), { by: <b>{n.parts.by}</b>, user: <b>{n.parts.user}</b>, path: <span className="mono">{n.parts.path}</span> }),
+          icon: a.code === 'history_purged_authored' || a.code === 'links_not_updated' ? icons.config : a.code === 'shared_with_you' || a.code === 'space_changed' ? icons.people : icons.person,
+          tone: a.code === 'account_changed' || a.code === 'shared_with_you' ? 'accent' : undefined,
+          title: rich(t(n.key), { by: <b>{n.parts.by}</b>, user: <b>{n.parts.user}</b>, path: n.parts.path ? mono(n.parts.path) : null, to: <b>{n.parts.to}</b>, space: <b>{n.parts.space}</b>, name: <b>{n.parts.name}</b>, owner: <b>{n.parts.owner}</b> }),
           body,
           actions: <Button className="btn" isDisabled={busy} onPress={() => act(() => api.dismissNotice(a.id))}>{t('alerts.dismiss')}</Button>,
         })
@@ -457,29 +505,57 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           body: t(a.fallback === 'closed' ? 'alerts.permissionsRejectedClosed' : 'alerts.permissionsRejectedLastGood'),
           actions: null,
         })
-      case 'permissions_held': {
-        const folder = <span className="mono">{a.folder || '/'}</span>
-        // From a personal folder, and not theirs to decide (D-046.4): only that it exists, and whose it is to decide.
-        const theirs = !a.personal || a.actions.length > 0
+      case 'permissions_held':
         return frame({
           icon: icons.moved,
           tone: 'warn',
           title: a.notes === 1 ? t('alerts.heldTitleOne') : t('alerts.heldTitle', { n: a.notes }),
-          body: !theirs ? rich(t('alerts.heldPersonal'), { folder })
-            : a.to !== null ? rich(t('alerts.heldBodyTo'), { folder, to: <span className="mono">{a.to}</span> }) : rich(t('alerts.heldBody'), { folder }),
-          actions: !theirs ? null : (
-            <>
-              {a.actions.includes('move_permissions') && <Button className="btn btn-primary" isDisabled={busy} onPress={() => act(() => api.held(a.id, 'move_permissions'))}>{t('alerts.heldMove')}</Button>}
-              {a.actions.includes('release') && <Button className="btn" isDisabled={busy} onPress={() => act(() => api.held(a.id, 'release'))}>{t('alerts.heldRelease')}</Button>}
-            </>
-          ),
+          body: rich(t('alerts.heldBody'), { folder: mono(a.folder) }),
+          actions: a.actions.includes('release') && <Button className="btn" isDisabled={busy} onPress={() => act(() => api.held(a.id, 'release'))}>{t('alerts.heldRelease')}</Button>,
         })
-      }
-      case 'attachments_shared_folder':
+      case 'missing_folder':
         return frame({
           icon: icons.config,
-          title: rich(t('alerts.sharedAttachmentsTitle'), { folder: <span className="mono">{a.folder}</span> }),
-          body: t('alerts.sharedAttachmentsBody'),
+          title: t('alerts.missingFolderTitle'),
+          body: t('alerts.missingFolderBody'),
+          extra: <ul className="alert-paths">{a.folders.map((f) => <li key={f}>{mono(f)}</li>)}</ul>,
+          actions: null,
+        })
+      case 'outside_spaces':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.outsideSpacesTitle'),
+          // Where it can go: the admin's own space, by its exact path (D-056.28).
+          body: rich(t('alerts.outsideSpacesBody'), { into: <span className="mono">{a.into}/</span> }),
+          extra: <ul className="alert-paths">{a.paths.map((p) => <li key={p}><span className="mono">{p}</span></li>)}</ul>,
+          actions: null,
+        })
+      case 'closed_spaces':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: a.people.length === 1 ? t('alerts.closedSpacesTitleOne', { user: a.people[0]! }) : t('alerts.closedSpacesTitle', { n: a.people.length }),
+          body: t('alerts.closedSpacesBody'),
+          extra: a.people.length > 1 ? <ul className="alert-paths">{a.people.map((n) => <li key={n}>{n}</li>)}</ul> : undefined,
+          actions: <Button className="btn" onPress={onSpaces}>{t('alerts.closedSpacesGo')}</Button>,
+        })
+      case 'person_folder_without_user':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.personFolderTitle'),
+          body: t('alerts.personFolderBody'),
+          extra: <ul className="alert-paths">{a.names.map((n) => <li key={n}><span className="mono">people/{n}</span></li>)}</ul>,
+          actions: null,
+        })
+      case 'space_without_members':
+      case 'space_without_managers':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t(a.code === 'space_without_members' ? 'alerts.spaceNoMembersTitle' : 'alerts.spaceNoManagersTitle', { name: a.name }),
+          body: rich(t(a.code === 'space_without_members' ? 'alerts.spaceNoMembersBody' : 'alerts.spaceNoManagersBody'), { path: <b>{a.name}</b> }),
           actions: null,
         })
       case 'login_attempts_blocked':
@@ -497,7 +573,7 @@ export function AlertsPage({ onOpen, onChanged, onUnauthorized }: {
           title: t('alerts.syncTitle'),
           body: a.note
             ? rich(t('alerts.syncBody'), { file: <span className="mono">{baseName(a.path)}</span>, note: <b>{noteName(a.note)}</b> })
-            : rich(t('alerts.syncBodyAlone'), { file: <span className="mono">{a.path}</span> }),
+            : rich(t('alerts.syncBodyAlone'), { file: mono(a.path) }),
           extra: shown && <pre className="alert-copy" aria-label={t('alerts.copyLabel')} tabIndex={0}>{copies[a.path]}</pre>,
           actions: (
             <>

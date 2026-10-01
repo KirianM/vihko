@@ -61,7 +61,10 @@ async function main(argv: string[]) {
     const state = openState(join(config.stateDir, 'state.db'))
     try {
       if (process.stdin.isTTY) process.stderr.write('password (read from stdin; end with Ctrl-D): ')
-      const user = await new Auth(state).createUser(args.name, await readStdin(), args.admin ? 'admin' : 'member')
+      // With their personal folder (people/<name>, D-056), and the product's two folders if this is the first thing that runs.
+      const auth = new Auth(state, { notesDir: config.notesDir })
+      auth.personalFolders?.ensureLayout()
+      const user = await auth.createUser(args.name, await readStdin(), args.admin ? 'admin' : 'member')
       console.log(`user created: ${user.username} (${user.role})`)
     } finally {
       state.close()
@@ -194,7 +197,7 @@ main(process.argv.slice(2)).catch((err) => {
   const prefix = serving ? '[vihko] ' : 'error: '
   // What the person can fix, said in a line each: a stack trace would only hide it.
   if (err instanceof StartupError) for (const line of err.lines) console.error(`${prefix}${line}`)
-  else if (err instanceof AuthError) console.error(`error: ${err.message}`)
+  else if (err instanceof AuthError) console.error(`error (${err.code}): ${err.message}`)
   else if (err instanceof UsersError) console.error(`error (${err.code}): ${err.message}`)
   else if (err instanceof PurgeError || err instanceof StateInUseError) console.error(`${serving ? '[vihko] ' : ''}error (${err.code}): ${err.message}`)
   else {

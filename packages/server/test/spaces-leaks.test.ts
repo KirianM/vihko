@@ -1,14 +1,15 @@
-// The leak battery of M4 (m4-multiusuario.md §2, «Hecho cuando»): every HTTP
-// route, MCP tool and hub message is classified (a new one without its line
-// fails here), and two people and an agent walk every route and tool over the
-// same tree of the spec's scenario: no response or error carries a path, a
-// title, a fragment, a tag, a count or a candidate of what they can't see,
-// unless the request itself named it. What each one can't see is computed
-// with the access engine itself (the same the effective-access view uses).
+// The leak battery (M4's, m4-multiusuario.md §2, in spaces since D-056; spec
+// §8.2): every HTTP route, MCP tool and hub message is classified (a new one
+// without its line fails here), and two people and an agent walk every route
+// and tool over the same tree: no response or error carries a path, a title,
+// a fragment, a tag, a count or a candidate of what they can't see, unless
+// the request itself named it. What each one can't see is computed with the
+// access engine itself (the same the effective-access view uses). Writes
+// aimed at what they can't see are spaces-writes.test.ts's.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { MessageType } from '@hocuspocus/server'
 import * as server from '@vihko/server'
 import { HUB_MESSAGES, ROUTE_NEEDS, TOOL_NEEDS, type Principal } from '@vihko/server'
@@ -20,19 +21,23 @@ const m = mother(import.meta.url)
 /** A conflict copy of the other member's note (its name as Syncthing writes it), with a word only it has. */
 const CONFLICT = PATH.otherNotes.replace(/\.md$/, '.sync-conflict-20260927-100000-ABCDEFG.md')
 const COPY = m.aUniqueWord()
-/** An image in the admin's folder (its name a word no text has). */
+/** An image in the admin's space (its name a word no text has). */
 const LOGO = m.aUniqueWord()
 const LOGO_PATH = `${DIR.admin}/${LOGO}.png`
-/** A folder inside the shared one, closed to the group by its own grants, and a note in it with a word only it has. */
-const SURPRISE_DIR = `${DIR.shared}/${m.aFolder()}`
+/** A folder of the admin's space shared with the member alone (a subfolder of a space they're not in), and a note in it with a word only it has. */
+const SURPRISE_DIR = `${DIR.admin}/${m.aFolder()}`
 const SURPRISE = `${SURPRISE_DIR}/${m.aTitle()}.md`
 const SURPRISE_WORD = m.aUniqueWord()
+/** A folder of the other member's space shared with the member (a loose shared folder), next to what isn't shared. */
+const LOOSE_DIR = `${home(OTHER.username)}/${m.aFolder()}`
+const LOOSE = `${LOOSE_DIR}/${m.aTitle()}.md`
+const LOOSE_WORD = m.aUniqueWord()
 const FILES = {
   ...BASE,
   [LOGO_PATH]: PNG,
   [CONFLICT]: `# ${m.aHeading()}\n\n${m.aSentence()} ${COPY}.\n`,
-  // Closed to the group by its own grants: its managers from above (the root's) still reach it (D-040 3.5).
   [SURPRISE]: `# ${m.aHeading()}\n\n${m.aSentence()} ${SURPRISE_WORD}.\n`,
+  [LOOSE]: `# ${m.aHeading()}\n\n${m.aSentence()} ${LOOSE_WORD}. [[${NAME.list}]]\n`,
 }
 
 const member = home(MEMBER.username)
@@ -47,7 +52,8 @@ const MARKS: Record<string, string[]> = {
   [PATH.diary]: [`${member}/`, WORD.diary, TAG.intimate],
   [PATH.cake]: [`${member}/`, WORD.cake],
   [PATH.memberPhoto]: [PATH.memberPhoto.slice(member.length + 1)],
-  [PATH.otherNotes]: [`${other}/`, WORD.other],
+  [PATH.otherNotes]: [PATH.otherNotes.slice(other.length), WORD.other],
+  [LOOSE]: [LOOSE_WORD],
   [CONFLICT]: ['sync-conflict', COPY],
   [PATH.adminPlan]: [`${admin}/`, WORD.admin],
   [PATH.adminPlanCased]: [`${admin}/`, WORD.admin],
@@ -93,7 +99,7 @@ test('every HTTP route, MCP tool and hub message is classified by what it needs 
 })
 
 test('two people and an agent over the same tree: nothing of what they can\'t see reaches them, through any route or tool', async () => {
-  const h = await setup({ files: FILES, config: RULES + `  ${yamlKey(`${admin}/${m.aFolder()}`)}:\n    grants: { ${yamlKey(ADMIN.username)}: manage }\n  ${yamlKey(SURPRISE_DIR)}:\n    grants: { ${yamlKey(MEMBER.username)}: manage }\n` })
+  const h = await setup({ files: FILES, config: RULES + `  ${yamlKey(SURPRISE_DIR)}:\n    grants: { ${yamlKey(MEMBER.username)}: manage }\n  ${yamlKey(LOOSE_DIR)}:\n    grants: { ${yamlKey(MEMBER.username)}: comment }\n` })
   try {
     await h.enable()
     const agentKey = await h.newKey('admin', { name: m.aKeyName(), canWrite: true })
@@ -102,7 +108,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       member: { kind: 'user', user: h.users.member },
       other: { kind: 'user', user: h.users.other },
       agent: agentPrincipal,
-      // The admin manages the root: they read everything but the personal folders (D-040 3.5), whatever their role lets them manage.
+      // The admin reads their own space and the spaces they're in, never anyone else's (D-038.1, D-056).
       admin: { kind: 'user', user: h.users.admin },
     }
     // What each one can't see, by the access engine: those notes' marks.
@@ -111,8 +117,12 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       const seen = new Set(Object.keys(MARKS).filter((p) => access.canRead(p)).flatMap((p) => MARKS[p]!))
       return [...new Set(Object.keys(MARKS).filter((p) => !access.canRead(p)).flatMap((p) => MARKS[p]!))].filter((m) => !seen.has(m))
     }
-    // A premise of the sweep (D-040 3.5): the root's manager (the agent's user) reaches the subfolder closed to the group; the group doesn't.
+    // Premises of the sweep: the admin's space's folder shared with the member alone; the other's folder shared with the member, and nothing else of the other's.
     assert.deepEqual((['member', 'other', 'agent', 'admin'] as Who[]).map((w) => h.policy.for(principals[w]).canRead(SURPRISE)), [true, false, true, true])
+    assert.deepEqual((['member', 'other', 'agent', 'admin'] as Who[]).map((w) => h.policy.for(principals[w]).canRead(LOOSE)), [true, true, false, false])
+    assert.deepEqual((['member', 'other', 'agent', 'admin'] as Who[]).map((w) => h.policy.for(principals[w]).canRead(PATH.otherNotes)), [false, true, false, false])
+    // Nobody sees what is outside the spaces, nor a person folder of nobody: not even the admin.
+    for (const w of ['member', 'other', 'agent', 'admin'] as Who[]) assert.deepEqual([PATH.rootPlan, PATH.nobodyNote].map((p) => h.policy.for(principals[w]).canRead(p)), [false, false], w)
     const own: Record<Who, string> = { member: PATH.cake, other: PATH.otherNotes, agent: PATH.adminPlan, admin: PATH.adminPlan }
     const hidden: Record<Who, string> = { member: PATH.adminPlan, other: PATH.cake, agent: PATH.cake, admin: PATH.cake }
     const hiddenFolder: Record<Who, string> = { member: DIR.admin, other: member, agent: member, admin: member }
@@ -269,6 +279,22 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
           route: `${method} ${path.replace(/\/nope(?=\/members\/)/, '/:id').replace(/members\/nope$/, 'members/:userId').replace(/\/nope/, '/:id')}`,
           method, path, body: method === 'GET' || method === 'DELETE' ? undefined : {}, expect: adminOnly(who),
         })),
+        // Spaces (D-056): what the person reaches, and the spaces routes naming what they can't see.
+        { route: 'GET /api/spaces', method: 'GET', path: '/api/spaces', expect: 200 },
+        { route: 'POST /api/spaces', method: 'POST', path: '/api/spaces', body: { name: 7 } },
+        ...[folder, `${folder}/${m.aFolder()}`].map((p) => ({ route: 'POST /api/spaces/from-folder', method: 'POST', path: '/api/spaces/from-folder', body: { path: p, dryRun: true } })),
+        // Who has access to a folder (D-056.27): what they can't read is as missing.
+        ...[folder, DIR.shared].map((f) => ({ route: 'GET /api/spaces/members', method: 'GET', path: q('/api/spaces/members', { path: f }) })),
+        { route: 'GET /api/spaces/members', method: 'GET', path: q('/api/spaces/members', { path: folder }), expect: 404 },
+        { route: 'POST /api/spaces/rename', method: 'POST', path: '/api/spaces/rename', body: { path: folder, name: m.aSpaceName() } },
+        { route: 'DELETE /api/spaces', method: 'DELETE', path: q('/api/spaces', { path: folder }) },
+        { route: 'POST /api/spaces/leave', method: 'POST', path: '/api/spaces/leave', body: { path: folder } },
+        { route: 'POST /api/spaces/pin', method: 'POST', path: '/api/spaces/pin', body: { path: folder, pinned: true } },
+        { route: 'GET /api/admin/spaces', method: 'GET', path: '/api/admin/spaces', expect: adminOnly(who) },
+        { route: 'POST /api/admin/spaces/managers', method: 'POST', path: '/api/admin/spaces/managers', body: { path: folder, userId: h.users.member.id }, expect: who === 'admin' ? 404 : adminOnly(who) },
+        { route: 'POST /api/admin/spaces/join', method: 'POST', path: '/api/admin/spaces/join', body: { path: folder }, expect: who === 'admin' ? 404 : adminOnly(who) },
+        { route: 'GET /api/admin/users/:id/space', method: 'GET', path: '/api/admin/users/nope/space', expect: who === 'admin' ? 404 : adminOnly(who) },
+        { route: 'POST /api/admin/users/:id/space', method: 'POST', path: '/api/admin/users/nope/space', body: { action: 'delete', dryRun: true }, expect: who === 'admin' ? 404 : adminOnly(who) },
         // Last: it ends the session.
         { route: 'POST /api/auth/logout', method: 'POST', path: '/api/auth/logout' },
       ]
@@ -283,8 +309,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       assert.ok(all.length > 5, `${who} has something not to see`)
       for (const call of calls(who)) {
         covered.add(call.route)
-        // The admin sees every folder's name to manage its permissions (D-038.1), never what is in it.
-        const marks = who === 'admin' && call.route === 'GET /api/permissions/folders' ? all.filter((mk) => !mk.endsWith('/')) : all
+        const marks = all
         const r = await send(call.method, call.path, call.body, call.headers)
         // The query as the server reads it (form encoding: a space is `+`).
         const asked = decodeURIComponent(call.path.replace(/\+/g, ' ')) + JSON.stringify(call.body ?? '')
@@ -295,8 +320,8 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         if (typeof call.expect === 'number') assert.equal(r.status, call.expect, where)
         // Whatever it can't see doesn't exist for a person: never `forbidden` about it.
         if (who !== 'agent' && r.status === 403 && asked.includes(hidden[who])) assert.fail(`${where}: forbidden about something it can't see`)
-        // An agent that names a note its user can't see is told why, and nothing else.
-        if (who === 'agent' && r.body?.error === 'agent_denied') assert.ok(['user_no_access', 'ai_false'].includes(r.body.reason), where)
+        // An agent that names a note its user can't see gets `not_found`, as for one that doesn't exist (D-056.15); a denial only for what its user sees.
+        if (who === 'agent' && r.body?.error === 'agent_denied') assert.equal(r.body.reason, 'ai_false', where)
       }
     }
     assert.deepEqual(Object.keys(ROUTE_NEEDS).filter((r) => !covered.has(r)), [], 'every route has its leak scenarios')
@@ -327,7 +352,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       const r = await c.call(name, args)
       const asked = JSON.stringify(args)
       assert.deepEqual(marks.filter((mk) => shows(r.raw, mk) && !asked.includes(mk)), [], `${name} ${asked}: ${r.raw.slice(0, 400)}`)
-      if (r.error && r.data?.error === 'agent_denied') assert.equal(r.data.reason, 'user_no_access', `${name} ${asked}`)
+      if (r.error && r.data?.error === 'agent_denied') assert.equal(r.data.reason, 'ai_false', `${name} ${asked}`)
     }
     await c.close()
     assert.deepEqual(Object.keys(TOOL_NEEDS).filter((t) => !toolsCovered.has(t)), [], 'every tool has its leak scenarios')
@@ -338,8 +363,8 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
 })
 
 test('with read or comment in a folder, nothing is written there through any route or tool that writes: forbidden, since they see it', async () => {
-  // A folder the member reads and the other comments on; the admin manages it.
-  const folder = m.aFolder()
+  // A folder of the admin's space the member reads and the other comments on; the admin manages it.
+  const folder = `${DIR.admin}/${m.aFolder()}`
   const note = m.aNotePath(folder)
   const image = `${folder}/${m.aUniqueWord()}.png`
   const config = RULES + `  ${yamlKey(folder)}:\n    grants: { ${yamlKey(MEMBER.username)}: read, ${yamlKey(OTHER.username)}: comment, ${yamlKey(ADMIN.username)}: manage }\n`
@@ -404,3 +429,98 @@ test('with read or comment in a folder, nothing is written there through any rou
     assert.deepEqual({ text: text(), files: listing(), yaml: readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8') }, before, 'nothing was written')
   } finally { await h.close() }
 })
+
+test('where a route used to give away what is in a space someone can\'t read (D-056.28): the admin\'s rescan, keys and purge preview, a move\'s progress, the history cursor, a restore\'s leftovers', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    await h.enable()
+    const memberHome = home(MEMBER.username)
+    /** What would give the member's own space away: any path under it. */
+    const hidesMember = (text: string) => !text.includes(`${memberHome}/`)
+
+    // The admin's rescan after a change made outside vihko in the member's space: how many, never which.
+    const outside = `${memberHome}/${m.aFolder()}/${m.aTitle()}.md`
+    mkdirSync(join(h.notesDir, dirname(outside)), { recursive: true })
+    writeFileSync(join(h.notesDir, outside), `# ${m.aHeading()}\n`)
+    const scan = await h.admin('POST', '/api/admin/rescan', {})
+    assert.equal(scan.status, 200, scan.text)
+    assert.ok(scan.body.added >= 1, scan.text)
+    assert.ok(hidesMember(scan.text), scan.text)
+
+    // Everyone's keys, for the admin: a key of the member's limited to a folder of their space doesn't name it.
+    const keyFolder = dirname(outside)
+    const memberKey = await h.newKey('member', { name: m.aKeyName(), folders: [keyFolder] })
+    const all = await h.admin('GET', '/api/keys?all=1')
+    const listed = all.body.keys.find((k: { id: string }) => k.id === memberKey.key.id)
+    assert.deepEqual([listed.folders, listed.foldersHidden], [[], true])
+    assert.ok(hidesMember(all.text), all.text)
+    // The member's own list still says where it reaches.
+    assert.deepEqual((await h.member('GET', '/api/keys')).body.keys.find((k: { id: string }) => k.id === memberKey.key.id).folders, [keyFolder])
+
+    // The admin's purge preview of a path in the member's space: the same whether it exists or not, and nothing about when it was written.
+    const preview = async (path: string) => {
+      const r = await h.admin('POST', '/api/history/purge', { path, dryRun: true })
+      assert.equal(r.status, 200, r.text)
+      return { ...r.body, path: null }
+    }
+    const real = await preview(PATH.cake)
+    assert.deepEqual(real, await preview(`${memberHome}/${m.aTitle()}.md`))
+    assert.deepEqual(real, await preview(memberHome))
+    assert.deepEqual([real.hidden, real.versions, real.onDisk, real.confirmRequired], [true, [], 0, true])
+    // The member, who manages their own space, gets the real preview of their note.
+    assert.ok((await h.member('POST', '/api/history/purge', { path: PATH.cake, dryRun: true })).body.versions.length > 0)
+
+    // A rename whose links are rewritten in notes the mover can't read: its progress counts only the notes they read.
+    const target = `${DIR.shared}/${m.aTitle()}.md`
+    const readable = `${DIR.shared}/${m.aTitle()}.md`
+    const hidden = [`${home(ADMIN.username)}/${m.aTitle()}.md`, `${DIR.admin}/${m.aTitle()}.md`]
+    const asLink = `[[${target.slice(0, -3)}]]`
+    for (const [p, text] of [[target, `# ${m.aHeading()}\n`], [readable, `${asLink}\n`], ...hidden.map((p) => [p, `${asLink}\n`])] as [string, string][]) {
+      assert.equal((await h.admin('POST', '/api/note', { path: p, text })).status, 201, p)
+    }
+    const totals: number[] = []
+    const mover = h.services.scoped(h.policy.for({ kind: 'user', user: h.users.member }))
+    const report = await mover.move(target, `${DIR.shared}/${m.aTitle()}.md`, { onMoved: (n) => totals.push(n), onProgress: (_done, total) => totals.push(total) })
+    assert.equal(report.hidden, true)
+    assert.deepEqual([...new Set(totals)], [1], 'one note they read; the others are never counted')
+
+    // The history cursor of a note that came from someone's personal space: opaque, never the path it had there.
+    const before = `${memberHome}/${m.aTitle()}.md`
+    assert.equal((await h.member('POST', '/api/note', { path: before, text: `# ${m.aHeading()}\n` })).status, 201)
+    await h.settle()
+    const cur = (await h.member('GET', h.url('/api/note', { path: before }))).body
+    assert.equal((await h.member('PUT', h.url('/api/note', { path: before }), { text: cur.text + `${m.aSentence()}\n` }, { 'if-match': `"${cur.etag}"` })).status, 200)
+    await h.settle()
+    const after = `${DIR.shared}/${m.aTitle()}.md`
+    assert.equal((await h.member('POST', '/api/note/move', { from: before, to: after })).status, 200)
+    await h.settle()
+    let cursor: string | null = ''
+    for (let pages = 0; cursor !== null && pages < 10; pages++) {
+      const r = await h.other('GET', h.url('/api/history/versions', { path: after, limit: '1', ...(cursor ? { cursor } : {}) }))
+      assert.equal(r.status, 200, r.text)
+      assert.ok(hidesMember(r.text), r.text)
+      cursor = r.body.next
+      if (cursor) assert.ok(hidesMember(Buffer.from(cursor, 'base64url').toString('latin1')) && hidesMember(cursor), 'the cursor says nothing')
+    }
+
+    // A folder of the member's deleted with files only a subfolder of it shares: restoring them names only what the restorer reads.
+    const project = `${memberHome}/${m.aFolder()}`
+    const sub = `${project}/${m.aFolder()}`
+    const secret = `${project}/${m.aUniqueWord()}.pdf`
+    mkdirSync(join(h.notesDir, sub), { recursive: true })
+    writeFileSync(join(h.notesDir, secret), PNG)
+    writeFileSync(join(h.notesDir, `${sub}/${m.aUniqueWord()}.png`), PNG)
+    h.runtime.rescan({})
+    const perms = (await h.member('GET', h.url('/api/permissions', { folder: sub }))).body
+    assert.equal((await h.member('PUT', '/api/permissions', { folder: sub, grants: { [OTHER.username]: 'edit' }, ifMatch: perms.etag })).status, 200)
+    // Deleted as the note service does it (the rules stay: deleting from the UI takes them away too).
+    await h.notes.trashFolder(project, { kind: 'user', id: h.users.member.id })
+    const entry = ((await h.other('GET', '/api/trash')).body.entries as { id: string; kind?: string }[]).find((e) => e.kind === 'files')
+    assert.ok(entry, 'the other person sees what was deleted where they edit')
+    const restored = await h.other('POST', `/api/trash/${entry.id}/restore`, {})
+    assert.equal(restored.status, 200, restored.text)
+    assert.deepEqual(restored.body.left, [])
+    assert.ok(!restored.text.includes(secret.slice(project.length)), restored.text)
+  } finally { await h.close() }
+})
+

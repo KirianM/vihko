@@ -8,7 +8,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { seedLine, testSeed } from '../../../test/seed.ts'
-import { E2E_DIR, E2E_PORT, LOCKED_PORT, PERMISSIONS, PUBLIC_URL, USERS } from './env.ts'
+import { E2E_DIR, E2E_PORT, LOCKED_PORT, PERMISSIONS, PUBLIC_URL, SPACE, USERS } from './env.ts'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const cli = root + 'packages/server/src/cli.ts'
@@ -20,12 +20,13 @@ mkdirSync(E2E_DIR, { recursive: true })
 const seed = testSeed()
 writeFileSync(E2E_DIR + '/seed', `${seed}\n`)
 console.log(seedLine(seed, 'node packages/web/e2e/serve.ts'))
-cpSync(root + 'testdata/vault', env.VIHKO_NOTES_DIR, { recursive: true })
+// The vault goes into a shared space both people belong to (D-056: nothing is seen outside a space).
+cpSync(root + 'testdata/vault', `${env.VIHKO_NOTES_DIR}/${SPACE}`, { recursive: true })
 const locked = { ...process.env, VIHKO_NOTES_DIR: E2E_DIR + '/locked/notes', VIHKO_STATE_DIR: E2E_DIR + '/locked/state' }
-mkdirSync(locked.VIHKO_NOTES_DIR, { recursive: true })
-writeFileSync(locked.VIHKO_NOTES_DIR + '/Bloqueada.md', '# Bloqueada\n')
+mkdirSync(`${locked.VIHKO_NOTES_DIR}/${SPACE}`, { recursive: true })
+writeFileSync(`${locked.VIHKO_NOTES_DIR}/${SPACE}/Bloqueada.md`, '# Bloqueada\n')
 for (const e of [env, locked]) {
-  // Both users see everything (D-038: a member reads only what is granted).
+  // Both see the vault's space (a member reads only what is shared with them); each has their own space too.
   writeFileSync(e.VIHKO_NOTES_DIR + '/vihko.yaml', PERMISSIONS)
   for (const u of USERS) {
     execFileSync(process.execPath, ['--no-experimental-webstorage', cli, 'user', 'create', u.username, ...(u.role === 'admin' ? ['--admin'] : [])], { env: e, input: u.password })

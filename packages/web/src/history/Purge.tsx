@@ -11,7 +11,7 @@ import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, Text, TextF
 import { errorText, useT } from '../i18n.tsx'
 import { ConfirmField, codeError, useConfirmWith } from '../TwoFactor.tsx'
 import { historyApi, type PurgeReport } from './api.ts'
-import { pathLabel } from './format.ts'
+import { usePathLabels } from '../spaces.tsx'
 import { useDates } from './ui.tsx'
 import './purge.css'
 
@@ -33,6 +33,7 @@ export function PurgeDialog({ path, version, onCancel, onDone }: {
   onDone: (report: PurgeReport) => void
 }) {
   const t = useT()
+  const { label: pathLabel } = usePathLabels()
   const dates = useDates()
   const [preview, setPreview] = useState<PurgeReport | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -57,7 +58,9 @@ export function PurgeDialog({ path, version, onCancel, onDone }: {
   }
 
   const n = preview?.versions.length ?? 0
-  const asks = !!preview?.confirmRequired && n > 0
+  // A path the admin can't read: nothing about it is shown before purging, and the purge is confirmed.
+  const hidden = preview?.hidden === true
+  const asks = !!preview?.confirmRequired && (n > 0 || hidden)
   return (
     <ModalOverlay className="modal-overlay" isOpen onOpenChange={(o) => { if (!o && !busy) onCancel() }} isDismissable={!busy}>
       <Modal className="modal">
@@ -66,7 +69,8 @@ export function PurgeDialog({ path, version, onCancel, onDone }: {
             <Heading slot="title" className="dialog-title">{t(version ? 'purge.titleVersion' : 'purge.title', { name: pathLabel(path) })}</Heading>
             <p className="dialog-text">{t(version ? 'purge.bodyVersion' : 'purge.body')}</p>
             {!preview && !error && <p className="dialog-text" role="status">{t('purge.loading')}</p>}
-            {preview && n === 0 && <p className="dialog-text" role="status">{t('purge.nothing')}</p>}
+            {preview && n === 0 && !hidden && <p className="dialog-text" role="status">{t('purge.nothing')}</p>}
+            {hidden && <p className="dialog-text" role="status">{t('purge.hidden')}</p>}
           </div>
           {preview && n > 0 && (
             <section className="preview purge-preview" aria-label={t('purge.lost', { n })}>
@@ -82,7 +86,7 @@ export function PurgeDialog({ path, version, onCancel, onDone }: {
               </ul>
             </section>
           )}
-          {preview && n > 0 && (
+          {preview && (n > 0 || hidden) && (
             <div className="dialog-fields purge-notes">
               <p className="purge-warn" role="note">{t('purge.cantUndo')}</p>
               {preview.onDisk > 0 && <p className="hint">{t(version ? 'purge.noteStays' : 'purge.onDisk')}</p>}
@@ -95,7 +99,7 @@ export function PurgeDialog({ path, version, onCancel, onDone }: {
           {error && <p className="error-text dialog-error" role="alert">{error}</p>}
           <div className="dialog-actions">
             <Button className="btn" autoFocus isDisabled={busy} onPress={onCancel}>{t('common.cancel')}</Button>
-            <Button className="btn btn-danger" isDisabled={busy || !preview || n === 0 || (asks && !secret.trim())} onPress={() => void purge()}>{t(version ? 'purge.confirmVersion' : 'purge.confirm')}</Button>
+            <Button className="btn btn-danger" isDisabled={busy || !preview || (n === 0 && !hidden) || (asks && !secret.trim())} onPress={() => void purge()}>{t(version ? 'purge.confirmVersion' : 'purge.confirm')}</Button>
           </div>
         </Dialog>
       </Modal>
@@ -104,7 +108,7 @@ export function PurgeDialog({ path, version, onCancel, onDone }: {
 }
 
 /** The purge's notice, once done: what went. */
-export function purgedText(t: ReturnType<typeof useT>, r: PurgeReport): string {
+export function purgedText(t: ReturnType<typeof useT>, r: PurgeReport, pathLabel: (path: string) => string): string {
   return t(r.version ? 'purge.doneVersion' : 'purge.done', { n: r.versions.length, name: pathLabel(r.path) })
 }
 

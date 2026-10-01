@@ -37,6 +37,7 @@ import { NoteError, NoteService } from '../notes.ts'
 import type { AudienceChange } from '../audience.ts'
 import { AudienceWidens, HIGHLIGHT_END, HIGHLIGHT_START, RequestError, type NowHidden, type ScopedMoveReport, type ScopedNotes, type ScopedRevertReport } from '../scoped.ts'
 import type { TextCache } from './texts.ts'
+import type { SpacesResponse } from '../spaceService.ts'
 
 /** What each tool call acts with: one key, over one request. */
 export interface ToolContext {
@@ -52,6 +53,12 @@ export interface ToolContext {
   /** Longest wait `changes_since` accepts, in seconds, and how often it looks. */
   maxWaitSeconds?: number
   pollMs?: number
+  /**
+   * Under the spaces model (D-056): what the person reaches, within the key
+   * (spaceService.ts `view`). `list_folder("")` lists these roots, and paths
+   * are described from the person's own space.
+   */
+  spaces?: () => SpacesResponse
 }
 
 const READ: ToolAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
@@ -135,7 +142,7 @@ export const LEAVE_IT = 'do not delete, rewrite or replace links to notes you ca
 
 const NAME_ALIASES ={ note: 'path', file: 'path', note_path: 'path', etag: 'if_match', q: 'query', source: 'from', destination: 'to', id: 'version' }
 
-const path = z.string().min(1).describe('Path of the note from the notes root, with its .md extension, e.g. "projects/plan.md".')
+const notePath = z.string().min(1).describe('Path of the note from the notes root, with its .md extension, e.g. "projects/plan.md".')
 const ifMatch = z.string().describe('The ETag ("sha256:…") of the text the change was planned on, as get_note or the last edit returned it.')
 
 // --- Output --------------------------------------------------------------------
@@ -345,6 +352,8 @@ export const TOOL_NEEDS = {
 /** The server's tools for this key: the ones that write only if it may write. */
 export function registerTools(server: McpServer, ctx: ToolContext) {
   const { access, scoped, texts } = ctx
+  // Under the spaces model, the example is in the person's own space (spec §6.2).
+  const path = ctx.spaces ? z.string().min(1).describe(`Path of the note from the notes root, with its .md extension, e.g. ${JSON.stringify(`people/${access.user.username}/projects/plan.md`)}.`) : notePath
   const keyId = access.principal.kind === 'agent' ? access.principal.key.id : `user:${access.user.id}`
   const run = <A>(fn: (args: A, signal: AbortSignal) => Promise<CallToolResult> | CallToolResult) =>
     async (args: A, c: { mcpReq: { signal: AbortSignal } }): Promise<CallToolResult> => {
@@ -450,9 +459,13 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('list_folder', {
     title: 'List a folder',
-    description: 'The folders and notes in a folder you can see ("" is the root), folders first. With recursive, everything under it. Paged: pass next_offset back as offset.',
+    description: ctx.spaces
+      ? 'The folders and notes in a folder you can see, folders first. "" lists the spaces the person you act for reaches: their own (`space.kind` personal), the shared spaces they belong to (shared, with its name) and the folders others share with them (received, with its owner or its space). With recursive, everything under it. Paged: pass next_offset back as offset.'
+      : 'The folders and notes in a folder you can see ("" is the root), folders first. With recursive, everything under it. Paged: pass next_offset back as offset.',
     inputSchema: input(z.object({
-      folder: z.string().default('').describe('Folder from the notes root, e.g. "projects" or "" for the root.'),
+      folder: z.string().default('').describe(ctx.spaces
+        ? `Folder from the notes root, e.g. ${JSON.stringify(`people/${access.user.username}/projects`)}, or "" for the spaces you reach.`
+        : 'Folder from the notes root, e.g. "projects" or "" for the root.'),
       recursive: z.boolean().default(false).describe('Everything under the folder, not only what is directly in it.'),
       limit: z.number().int().min(1).max(500).default(100).describe('Entries per page (at most 500).'),
       offset: z.number().int().min(0).default(0),
@@ -462,6 +475,27 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     const f = trimSlashes(folder.trim())
     if (f) NoteService.checkFolder(f)
     const tree = scoped.tree()
+    if (f === '' && ctx.spaces) {
+      // The roots the person reaches (spec §6.2), then, recursive, what the key sees under them.
+      const v = ctx.spaces()
+      const roots = [
+        ...(v.personal ? [{ kind: 'folder' as const, path: v.personal.path, space: { kind: 'personal' as const } }] : []),
+        ...v.spaces.map((s) => ({ kind: 'folder' as const, path: s.path, space: { kind: 'shared' as const, id: s.id, name: s.name, level: s.level } })),
+        ...v.shared.map((s) => ({
+          kind: 'folder' as const, path: s.path,
+          space: { kind: 'received' as const, level: s.level, ...(s.owner ? { owner: s.owner } : {}), ...(s.space ? { name: s.space.name, id: s.space.id } : {}) },
+        })),
+      ]
+      const inside = (p: string) => roots.some((r) => p.startsWith(r.path + '/'))
+      const entries = [
+        ...roots,
+        ...(recursive ? [
+          ...tree.folders.filter(inside).map((d) => ({ kind: 'folder' as const, path: d })),
+          ...tree.notes.filter((n) => inside(n.path)).map((n) => ({ kind: 'note' as const, path: n.path, title: n.title })),
+        ] : []),
+      ]
+      return reply({ folder: f, entries: entries.slice(offset, offset + limit), next_offset: offset + limit < entries.length ? offset + limit : null })
+    }
     const under = (p: string) => f === '' || p.startsWith(f + '/')
     const direct = (p: string) => under(p) && !p.slice(f ? f.length + 1 : 0).includes('/')
     const pick = recursive ? under : direct
@@ -505,7 +539,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('resolve_link', {
     title: 'Resolve a link',
-    description: 'Which note a link leads to when written in a given note: `[[Note]]`, `[[Note#Heading]]`, `[text](path.md)`, or just the name. `status`: resolved (with its path), ambiguous (with the candidates you can see; `others_no_access` if there are more), missing (no such note), or no_access (a note that exists but is not available to you, with the reason: `ai_false`, `outside_key_folders` or `user_no_access`): ' + LEAVE_IT,
+    description: 'Which note a link leads to when written in a given note: `[[Note]]`, `[[Note#Heading]]`, `[text](path.md)`, or just the name. `status`: resolved (with its path), ambiguous (with the candidates you can see; `others_no_access` if there are more), missing (no such note), or no_access (a note that exists but is not available to you, with the reason: `ai_false` or `outside_key_folders`): ' + LEAVE_IT,
     inputSchema: input(z.object({
       from: path.describe('The note the link is written in.'),
       link: z.string().min(1).describe('The link, e.g. "[[Plan#Tasks]]" or "Plan".'),

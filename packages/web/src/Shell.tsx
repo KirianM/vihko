@@ -2,10 +2,14 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, type Key } from 'react-aria-components'
 import { seriesNeighbors } from '@vihko/core/series'
-import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
+import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type SpaceEntry, type SpacesInfo, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
+import { SpacesContext, rootOf, usePathLabels, useSpacesValue } from './spaces.tsx'
+import { SpaceSections, type Section, type SectionAction } from './Sidebar.tsx'
+import { DeleteSpaceDialog, LeaveSpaceDialog, NewSpaceDialog, RenameSpaceDialog, spaceError } from './SpaceDialogs.tsx'
+import { SpacesPage } from './SpacesAdmin.tsx'
 import { audienceChanges } from './Audience.tsx'
-import { PermissionsDialog } from './Permissions.tsx'
-import { AlertsPage, isPersonalNotice, noticeText, type PersonalNotice } from './Alerts.tsx'
+import { MembersDialog, PermissionsDialog } from './Permissions.tsx'
+import { AlertsPage, NoticeToast, isPersonalNotice, type PersonalNotice } from './Alerts.tsx'
 import { AgentsPage } from './Agents.tsx'
 import { PrivacyPage } from './Privacy.tsx'
 import { UsersPage } from './Users.tsx'
@@ -25,8 +29,8 @@ import { rememberNote } from './recent.ts'
 import { WINDOWS, modKTaken } from './keys.ts'
 import { useBackClose, useMobile, useVisualViewport } from './mobile.ts'
 import { PreferencesDialog, browserTimeZone } from './Preferences.tsx'
-import { FolderTree, ancestors, buildTree, type FolderInfoOf, type Node, type TreeAction } from './FolderTree.tsx'
-import { DeleteFolderDialog, FolderMoveDialog, NewFolderDialog } from './FolderDialogs.tsx'
+import { ancestors, buildTree, type FolderInfoOf, type Node, type TreeAction } from './FolderTree.tsx'
+import { DeleteFolderDialog, FolderMoveDialog, MoveToNewSpaceDialog, NewFolderDialog } from './FolderDialogs.tsx'
 import { RenameDialog, TrashDialog } from './editor/NoteActions.tsx'
 import { TagsView } from './TagsView.tsx'
 import type { RestoreReport } from './history/api.ts'
@@ -38,14 +42,20 @@ import { VersionView } from './history/VersionView.tsx'
 type TreeDialog =
   | { kind: 'newFolder'; parent: string }
   | { kind: 'moveFolder'; path: string; parent?: string }
+  | { kind: 'toNewSpace'; path: string }
   | { kind: 'deleteFolder'; path: string }
   | { kind: 'permissions'; path: string }
+  | { kind: 'members'; path: string }
   | { kind: 'moveNote'; path: string; folder?: string }
   | { kind: 'trashNote'; path: string }
+  | { kind: 'newSpace' }
+  | { kind: 'renameSpace'; section: Section }
+  | { kind: 'leaveSpace'; section: Section }
+  | { kind: 'deleteSpace'; space: SpaceEntry }
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 /** Views that aren't a note, in the URL as `?view=` (no router). */
-const VIEWS = ['alerts', 'changes', 'agents', 'privacy', 'users', 'account'] as const
+const VIEWS = ['alerts', 'changes', 'agents', 'privacy', 'users', 'account', 'spaces'] as const
 type View = (typeof VIEWS)[number]
 /** Earlier names of a view, still opened (bookmarks, links already sent); the URL then says the current one. */
 const VIEW_ALIASES: Record<string, View> = { avisos: 'alerts' }
@@ -64,6 +74,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [pathOnly, setPathOnly] = useState<Set<string>>(() => new Set())
   /** The person's level in each folder they see, and the folders' locks (the admin: every folder). Null until loaded. */
   const [locks, setLocks] = useState<Map<string, FolderLock> | null>(null)
+  /** What the person reaches, space by space (D-056); null until loaded. */
+  const [spaces, setSpaces] = useState<SpacesInfo | null>(null)
+  const spacesValue = useSpacesValue(user.username, spaces)
+  /** Paths as the person sees them, for what the shell itself shows (the context is provided below). */
+  const shellLabels = usePathLabels(spacesValue)
+  /** Something went wrong with a space's action (pinning, from the sidebar). */
+  const [spaceIssue, setSpaceIssue] = useState<string | null>(null)
   /** The open note can't be read: it doesn't exist or isn't the person's to see (the same message for both). */
   const [noAccess, setNoAccess] = useState<string | null>(null)
   /** Sidebar: the folder tree or the tags; a picked tag lists its notes. */
@@ -94,6 +111,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const showPrivacy = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('privacy') }
   const showUsers = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('users') }
   const showAccount = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('account') }
+  const showSpaces = () => { setPrefsOpen(false); setOpenPathState(null); setVersion(null); setView('spaces') }
   const historyStatus = useHistoryStatus()
   const historyOn = historyStatus !== null && historyStatus.mode !== 'off'
   /** The note at `?note=` doesn't exist, but its version was asked for: shown on its own (restoring creates it again). */
@@ -134,6 +152,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     api.tree().then((r) => { setNotes(r.notes); setFolders(r.folders); setPathOnly(new Set(r.pathOnly ?? [])) }).catch(fail),
     // Without it the tree offers every action and the server answers: never a reason to fail the page.
     api.permissionFolders().then((r) => setLocks(new Map(r.folders.map((f) => [f.path, f])))).catch(() => {}),
+    api.spaces().then(setSpaces).catch(fail),
   ])
   const loadWorkspace = () => api.workspace().then(setWorkspace).catch(() => {})
   const loadAlerts = () => api.alerts().then((a) => setAlerts(a.length)).catch(() => {})
@@ -252,22 +271,21 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     const l = locks.get(path)
     return { level: l?.level ?? null, canEdit: l?.canEdit ?? false, own: l?.ownGrants ?? false, ai: l?.aiClosed ?? false, pathOnly: pathOnly.has(path) }
   }, [locks, pathOnly])
-  /** Whether this person may open a folder's permissions (the admin, any folder's; others, where they manage). */
-  const canManageFolder = (folder: string) => admin || !!locks?.get(folder)?.canEdit
-  /** Nowhere to write: no «New note» (read-only mode signals, D-038.5). */
-  const editsSomewhere = !locks || [...locks.values()].some((l) => atLeast(l.level, 'edit'))
-  const editsRoot = !locks || atLeast(locks.get('')?.level, 'edit')
-  // The header's way to a note's folder permissions (only once the levels are known).
+  /** Whether this person may open who a folder is shared with: where they manage it (the admin role counts for nothing, D-056). */
+  const canManageFolder = (folder: string) => !!locks?.get(folder)?.canEdit
+  /** Nowhere to write: no «New note» (read-only mode signals, D-038.5). Their own space always is. */
+  const editsSomewhere = !locks || !!spaces?.personal || [...locks.values()].some((l) => atLeast(l.level, 'edit'))
+  // The header's way to share a note's folder (only once the levels are known), never the root of one's own space.
   const folderPermissions = useMemo(() => (locks ? {
-    can: (folder: string) => admin || !!locks.get(folder)?.canEdit,
+    can: (folder: string) => !!locks.get(folder)?.canEdit && folder !== spaces?.personal?.path,
     open: (folder: string) => setTreeDialog({ kind: 'permissions', path: folder }),
-  } : null), [locks, admin])
-  // Template notes: those in the templates folder of vihko.yaml, subfolders included.
+  } : null), [locks, spaces])
+  // Template notes: those in the templates folders of vihko.yaml, subfolders included.
   const templates = useMemo(() => {
-    const dir = workspace?.templates
-    if (!dir || !notes) return []
+    const dirs = workspace?.templates ?? []
+    if (!dirs.length || !notes) return []
     const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
-    return notes.map((n) => n.path).filter((p) => p.startsWith(`${dir}/`)).sort(collator.compare)
+    return notes.map((n) => n.path).filter((p) => dirs.some((dir) => p.startsWith(`${dir}/`))).sort(collator.compare)
   }, [workspace, notes])
   // Previous and next in the header when the open note belongs to a daily-note series.
   const dailyNav = useMemo(() => {
@@ -279,10 +297,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     }
     return null
   }, [openPath, notes, workspace])
-  const folder = openPath?.includes('/') ? openPath.slice(0, openPath.lastIndexOf('/')) : ''
-  /** Where the palette's «new folder» creates: the open note's folder, else the root, where this person may (as the tree: `edit`). */
+  /** Where things are created: the open note's folder, else the root of the person's own space (never the notes root, D-056). */
+  const mine = spaces?.personal?.path ?? `people/${user.username}`
+  const folder = openPath?.includes('/') && rootOf(openPath) ? openPath.slice(0, openPath.lastIndexOf('/')) : mine
+  /** Where the palette's «new folder» creates: the open note's folder, else their own space, where this person may (as the tree: `edit`). */
   const mayCreateIn = (path: string) => !locks || atLeast(locks.get(path)?.level, 'edit')
-  const newFolderIn = mayCreateIn(folder) ? folder : mayCreateIn('') ? '' : null
+  const newFolderIn = mayCreateIn(folder) ? folder : mine
   const created = (path: string) => {
     setPalette(null)
     void loadTree()
@@ -296,6 +316,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     if (action === 'newNote') { setCreateIn(node.path); setPalette('create') }
     else if (action === 'newFolder') setTreeDialog({ kind: 'newFolder', parent: node.path })
     else if (action === 'moveFolder') setTreeDialog({ kind: 'moveFolder', path: node.path })
+    else if (action === 'toNewSpace') setTreeDialog({ kind: 'toNewSpace', path: node.path })
+    // To one's own space: the move of always, its destination there (D-056.28).
+    else if (action === 'toMine') setTreeDialog({ kind: 'moveFolder', path: node.path, parent: mine })
     else if (action === 'deleteFolder') setTreeDialog({ kind: 'deleteFolder', path: node.path })
     else if (action === 'permissions') setTreeDialog({ kind: 'permissions', path: node.path })
     else if (action === 'moveNote') setTreeDialog({ kind: 'moveNote', path: node.path })
@@ -344,7 +367,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setMoveJob(null)
     if (end.kind === 'done') {
       const r = end.report
-      if ('images' in r) { if (moveNotice(r)) setMoveIssue(r) }
+      if ('kept' in r) { if (moveNotice(r)) setMoveIssue(r) }
       else if ('notes' in r) setFolderIssue(r.failed.length || r.shifted.length ? r : null)
     } else {
       setJobIssue(end.kind === 'lost' ? t('job.lost', { name: baseName(job.to).replace(/\.md$/i, '') }) : end.message)
@@ -357,9 +380,11 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     const path = key.slice(2)
     const to = folder ? `${folder}/${baseName(path)}` : baseName(path)
     try {
+      // Between sections of the sidebar is between spaces: always through the dialog (spec §5.4).
+      if (rootOf(path) !== rootOf(to)) return setTreeDialog(key.startsWith('n:') ? { kind: 'moveNote', path, folder } : { kind: 'moveFolder', path, parent: folder })
       if (key.startsWith('n:')) {
         const preview = await api.move(path, to, true)
-        if (preview.relinked.length || preview.shifted.length || preview.images.moved.length || preview.images.stayed.length || preview.images.folder || preview.images.failed.length || audienceChanges(preview.audience)) return setTreeDialog({ kind: 'moveNote', path, folder })
+        if (preview.relinked.length || preview.shifted.length || preview.images.moved.length || preview.images.stayed.length || preview.images.copied?.length || preview.images.folder || preview.images.failed.length || audienceChanges(preview.audience)) return setTreeDialog({ kind: 'moveNote', path, folder })
         noteMoved(path, to, await api.move(path, to))
       } else {
         const preview = await api.moveFolder(path, to, true)
@@ -376,6 +401,30 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
 
   // In the drawer, whatever you pick closes it.
   const pick = <A extends unknown[]>(fn: (...a: A) => void) => (...a: A) => { setNavOpen(false); fn(...a) }
+  /** A section's menu (a space, or a folder shared with the person). */
+  const onSection = (action: SectionAction, s: Section) => {
+    // Pinning happens in place (the drawer stays open on a phone); the rest opens something over it.
+    if (action !== 'pin' && action !== 'unpin') setNavOpen(false)
+    setSpaceIssue(null)
+    if (action === 'newNote') { setCreateIn(s.root); setPalette('create') }
+    else if (action === 'newFolder') setTreeDialog({ kind: 'newFolder', parent: s.root })
+    // Managers change who's in; every other member only sees it (D-056.27).
+    else if ((action === 'members' && s.level === 'manage') || action === 'share' || action === 'agents') setTreeDialog({ kind: 'permissions', path: s.root })
+    else if (action === 'members' || action === 'access') setTreeDialog({ kind: 'members', path: s.root })
+    else if (action === 'rename') setTreeDialog({ kind: 'renameSpace', section: s })
+    else if (action === 'leave') setTreeDialog({ kind: 'leaveSpace', section: s })
+    else if (action === 'delete') {
+      const space = spaces?.spaces.find((x) => x.path === s.root)
+      if (space) setTreeDialog({ kind: 'deleteSpace', space })
+    } else {
+      api.pinShared(s.root, action === 'pin').then(() => loadTree()).catch((err) => {
+        if (err instanceof ApiError && err.status === 401) return onUnauthorized()
+        setSpaceIssue(spaceError(t, err))
+      })
+    }
+  }
+  /** Notes of a folder (and everything under it), as the tree has them. */
+  const notesUnder = (folder: string) => (notes ?? []).filter((n) => n.path.startsWith(`${folder}/`)).length
   const treeView = (
     <Tabs className="side-tabs" selectedKey={sideTab} onSelectionChange={(k) => setSideTab(k === 'tags' ? 'tags' : 'folders')}>
       <div className="side-tabs-head">
@@ -383,20 +432,14 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <Tab id="folders" className="side-tab">{t('shell.folders')}</Tab>
           <Tab id="tags" className="side-tab">{t('sidebar.tags')}</Tab>
         </TabList>
-        <span className="spacer" />
-        {sideTab === 'folders' && editsRoot && (
-          <Button className="btn btn-icon btn-quiet" aria-label={t('folder.new')} onPress={pick(() => setTreeDialog({ kind: 'newFolder', parent: '' }))}>{Icon.folderPlus}</Button>
-        )}
       </div>
       <TabPanel id="folders" className="sidebar-tree">
-        {notes === null
+        {notes === null || spaces === null
           ? <div className="empty">{t('common.loading')}</div>
-          // Nothing shared yet is not an empty notes folder.
-          : tree.length === 0 && locks && ![...locks.values()].some((l) => l.level !== null)
-            ? <div className="empty" role="status">{t('shell.noAccess')}</div>
-            : (
-            <FolderTree
-              nodes={tree}
+          : (
+            <SpaceSections
+              info={spaces}
+              tree={tree}
               selected={openPath}
               expanded={expanded}
               onExpanded={setExpanded}
@@ -404,10 +447,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               onAction={onTreeAction}
               onDrop={(key, folder) => void onDrop(key, folder)}
               draggable={!mobile}
-              emptyText={t('shell.noNotes')}
               folderInfo={folderInfo}
+              onSection={onSection}
+              onNewSpace={pick(() => setTreeDialog({ kind: 'newSpace' }))}
+              onFirstNote={pick(() => { setCreateIn(mine); setPalette('create') })}
             />
           )}
+        {spaceIssue && <p className="error-text space-issue" role="alert">{spaceIssue}</p>}
       </TabPanel>
       <TabPanel id="tags" className="sidebar-tree">
         <TagsView selected={tag} onSelect={setTag} openPath={openPath} onOpen={mobile ? pick(setOpenPath) : setOpenPath} refresh={notes} />
@@ -436,6 +482,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   )
 
   return (
+    <SpacesContext.Provider value={spacesValue}>
     <TimeZoneContext.Provider value={profile?.timezone ?? browserTimeZone()}>
     <OpenPaletteContext.Provider value={() => setPalette('search')}>
     <OpenNavContext.Provider value={mobile ? () => setNavOpen(true) : null}>
@@ -483,6 +530,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         {view === 'alerts' ? (
           <AlertsPage
             onOpen={setOpenPath}
+            onSpaces={showSpaces}
             onChanged={(n) => { setAlerts(n); void loadTree() }}
             onUnauthorized={onUnauthorized}
           />
@@ -492,6 +540,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <PrivacyPage user={user} onUnauthorized={onUnauthorized} onAgents={showAgents} />
         ) : view === 'users' && user.role === 'admin' ? (
           <UsersPage user={user} onUnauthorized={onUnauthorized} />
+        ) : view === 'spaces' && user.role === 'admin' ? (
+          <SpacesPage user={user} onUnauthorized={onUnauthorized} onChanged={() => void loadTree()} />
         ) : view === 'account' ? (
           <AccountPage user={user} onUnauthorized={onUnauthorized} />
         ) : view === 'changes' ? (
@@ -552,19 +602,14 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           </>
         )}
         {arrived && view !== 'alerts' && (
-          <div className="toast">
-            <span className="toast-icon">{Icon.alert}</span>
-            <span className="toast-text" role="status">{arrived.length === 1 ? noticeText(t, arrived[0]!) : t('notices.many', { n: arrived.length })}</span>
-            <Button className="btn" onPress={() => { setArrived(null); setNavOpen(false); showAlerts() }}>{t('notices.see')}</Button>
-            <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setArrived(null)}>{Icon.close}</Button>
-          </div>
+          <NoticeToast notices={arrived} onSee={() => { setArrived(null); setNavOpen(false); showAlerts() }} onDismiss={() => setArrived(null)} />
         )}
         {moveIssue && <MoveToast report={moveIssue} onDismiss={() => setMoveIssue(null)} />}
         {outsideMove && outsideMove.to === openPath && (
           <div className="toast">
             <span className="toast-icon">{Icon.rename}</span>
             <span className="toast-text" role="status">
-              {t('movedOutside.done', { name: baseName(outsideMove.from).replace(/\.md$/i, ''), to: outsideMove.to })}
+              {t('movedOutside.done', { name: baseName(outsideMove.from).replace(/\.md$/i, ''), to: shellLabels.label(outsideMove.to) })}
               {outsideMove.links ? ` ${t(outsideMove.links === 1 ? 'movedOutside.linksOne' : 'movedOutside.links', { n: outsideMove.links })}` : ''}
             </span>
             {!!outsideMove.links && <Button className="btn" onPress={() => { setOutsideMove(null); showAlerts() }}>{t('movedOutside.review')}</Button>}
@@ -618,6 +663,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             }} />
           )}
           {treeDialog?.kind === 'moveFolder' && <FolderMoveDialog path={treeDialog.path} initialParent={treeDialog.parent} onClose={closeTreeDialog} onMoved={folderMoved} onStarted={moveStarted} />}
+          {treeDialog?.kind === 'toNewSpace' && (
+            <MoveToNewSpaceDialog path={treeDialog.path} onClose={closeTreeDialog} onMoved={(root) => {
+              const from = treeDialog.path
+              folderPlaced(from, root)
+            }} />
+          )}
           {treeDialog?.kind === 'deleteFolder' && (
             <DeleteFolderDialog path={treeDialog.path} onClose={closeTreeDialog} onDeleted={(entries) => {
               const path = treeDialog.path
@@ -630,12 +681,40 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               void loadTree()
             }} />
           )}
+          {treeDialog?.kind === 'members' && <MembersDialog path={treeDialog.path} me={user} onClose={closeTreeDialog} onUnauthorized={onUnauthorized} />}
           {treeDialog?.kind === 'permissions' && (
             <PermissionsDialog folder={treeDialog.path} me={user} canOpen={canManageFolder} onClose={closeTreeDialog}
+              onMoveTo={(target) => setTreeDialog(target === 'mine' ? { kind: 'moveFolder', path: treeDialog.path, parent: mine } : { kind: 'toNewSpace', path: treeDialog.path })}
               onChanged={() => void loadTree()} onAccessLost={closeTreeDialog} onUnauthorized={onUnauthorized} />
           )}
           {treeDialog?.kind === 'moveNote' && (
             <RenameDialog path={treeDialog.path} initialFolder={treeDialog.folder} onClose={closeTreeDialog} onMoved={(to, r) => noteMoved(treeDialog.path, to, r)} onStarted={moveStarted} />
+          )}
+          {treeDialog?.kind === 'newSpace' && (
+            <NewSpaceDialog me={user.username} onClose={closeTreeDialog} onCreated={() => {
+              closeTreeDialog()
+              setSideTab('folders')
+              void loadTree()
+            }} />
+          )}
+          {treeDialog?.kind === 'renameSpace' && (
+            <RenameSpaceDialog path={treeDialog.section.root} name={treeDialog.section.name} onClose={closeTreeDialog} onRenamed={() => { closeTreeDialog(); void loadTree() }} />
+          )}
+          {treeDialog?.kind === 'leaveSpace' && (
+            <LeaveSpaceDialog path={treeDialog.section.root} name={treeDialog.section.name} kind={treeDialog.section.kind === 'shared' ? 'shared' : 'received'} onClose={closeTreeDialog} onLeft={() => {
+              const root = treeDialog.section.root
+              closeTreeDialog()
+              if (openPath?.startsWith(`${root}/`)) setOpenPath(null)
+              void loadTree()
+            }} />
+          )}
+          {treeDialog?.kind === 'deleteSpace' && (
+            <DeleteSpaceDialog space={treeDialog.space} notes={notesUnder(treeDialog.space.path)} onClose={closeTreeDialog} onDeleted={() => {
+              const root = treeDialog.space.path
+              closeTreeDialog()
+              if (openPath?.startsWith(`${root}/`)) setOpenPath(null)
+              void loadTree()
+            }} />
           )}
           {treeDialog?.kind === 'trashNote' && (
             <TrashDialog path={treeDialog.path} onClose={closeTreeDialog} onTrashed={(id) => {
@@ -675,6 +754,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           onPrivacy={showPrivacy}
           onAccount={showAccount}
           onUsers={user.role === 'admin' ? showUsers : null}
+          onSpaces={user.role === 'admin' ? showSpaces : null}
         />
       )}
     </div>
@@ -682,5 +762,6 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     </OpenNavContext.Provider>
     </OpenPaletteContext.Provider>
     </TimeZoneContext.Provider>
+    </SpacesContext.Provider>
   )
 }

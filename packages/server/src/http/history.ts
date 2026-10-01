@@ -126,7 +126,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
       // A note deleted since has no text now, and can be restored.
       let text: string | null = null
       try { text = notes.read(path).text } catch (err) { if (!(err instanceof NoteError && err.code === 'not_found')) throw err }
-      if (text !== null && access.hides(text)) throw new AgentDenied(access.reasonFor(path))
+      if (text !== null && access.hides(text)) throw access.hiddenError(path)
     }
     return path
   }
@@ -174,7 +174,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     if (against === 'previous') base = v.before
     else if (against === 'current') {
       try { base = notes.read(path).text } catch (err) { if (err instanceof NoteError && err.code === 'not_found') base = null; else throw err }
-      if (base !== null && c.get('access').hides(base)) throw new AgentDenied(c.get('access').reasonFor(path))
+      if (base !== null && c.get('access').hides(base)) throw c.get('access').hiddenError(path)
     } else base = (await versionOf(reader, path, against)).text
     return c.json(wordDiff(base ?? '', v.text ?? ''))
   })
@@ -192,6 +192,8 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     // The images it brings back: only from folders whoever asks can read, and to where they can write.
     const r = await notes.restoreVersion(path, { id: v.id, at: v.at, path: v.path, text: v.text }, {
       ifMatch, actor: access.actor, file: (p) => reader.file(v.id, p), canWrite: (p) => access.canWrite(p),
+      // Brought back where it no longer is, it mustn't take a link to what its person can't read (D-056.20).
+      mayName: (p) => access.userCanRead(p),
     })
     c.header('ETag', `"${r.etag}"`)
     return c.json(r)
@@ -263,6 +265,11 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     const run = (dryRun: boolean) => history.purge({ path, version: body.version as string | undefined, dryRun, exact: !admin, by: user.id })
     // Whether it takes out anything the person can't read: only the admin gets that far with it.
     const blind = (p: PurgeReport) => !readablePath(access, p.path) || p.commits.some((v) => v.files.some((f) => !readablePath(access, f.path)))
+    // The admin's preview of a path they can't read says nothing of it: not whether it ever existed, nor
+    // when anything there was written (D-038.1, D-056.8). Only the purge itself, confirmed, does anything.
+    if (body.dryRun === true && admin && !manages && !readablePath(access, path)) {
+      return c.json({ path, version: body.version ?? null, dryRun: true, hidden: true, versions: [], filesRemoved: 0, onDisk: 0, sharedWith: [], movedFrom: [], confirmRequired: !!deps.confirm })
+    }
     let r: PurgeReport
     if (body.dryRun === true) r = await run(true)
     else {

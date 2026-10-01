@@ -77,6 +77,11 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
         { method: 'GET', path: q('/api/history/diff', { path: PATH.visible, id: visibleIds[0]!, against: 'current' }), expect: 200 },
       ],
       'GET /api/history/changes': [{ method: 'GET', path: q('/api/history/changes', { limit: '50' }), expect: 200 }],
+      // What its user reaches, space by space, within its folders (D-056).
+      'GET /api/spaces': [{ method: 'GET', path: '/api/spaces', expect: 200 }],
+      // Who has access (D-056.27): to its folder; outside it, or what it can't see, as missing.
+      'GET /api/spaces/members': [[DIR.key, 200], [DIR.outside, 404], [`${DIR.key}/${SUB.onlyHidden}`, 200], [`${DIR.key}/${m.aFolder()}`, 404]]
+        .map(([p, s]) => ({ method: 'GET', path: q('/api/spaces/members', { path: p as string }), expect: s as number })),
       'GET /api/history/resolved': [{ method: 'GET', path: q('/api/history/resolved', { path: PATH.visible }), expect: 200 }, { method: 'GET', path: q('/api/history/resolved', { path: PATH.secret }), ...expect(AI) }],
 
       'POST /api/note': [
@@ -179,7 +184,9 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
     // The tree: no hidden note, no folder that only holds hidden notes, nothing outside.
     const tree = JSON.parse(responses['GET /api/tree']![0]!.text)
     assert.deepEqual(tree.notes.map((n: { path: string }) => n.path).sort(), [PATH.dupA, PATH.dupB, PATH.movedIn, PATH.revealed, PATH.visible].sort())
-    assert.deepEqual(tree.folders, [DIR.key, `${DIR.key}/${SUB.a}`, `${DIR.key}/${SUB.b}`].sort(binary))
+    // The folders on the way to the key's (`spaces`, the space) show too.
+    const space = DIR.key.slice(0, DIR.key.lastIndexOf('/'))
+    assert.deepEqual(tree.folders, ['spaces', space, DIR.key, `${DIR.key}/${SUB.a}`, `${DIR.key}/${SUB.b}`].sort(binary))
 
     // A note hidden once: its history starts where the key could see it.
     const rev = JSON.parse(responses['GET /api/history/versions']![2]!.text).versions

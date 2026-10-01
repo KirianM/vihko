@@ -15,6 +15,13 @@ export interface DailyOptions {
   notes: NoteService
   /** The clock (tests). */
   now?: () => Date
+  /**
+   * Whether a series is offered to a person (under the spaces model: where
+   * they can write today's note, spec §1.6). One that isn't is neither their
+   * default nor there when asked for by id (`not_found`, whatever is on the
+   * disk). Every series by default.
+   */
+  offered?: (user: User, series: Series) => boolean
 }
 
 export interface DailyToday {
@@ -40,7 +47,7 @@ export class DailyNotes {
    * falls back to the first. With no series, daily notes are off.
    */
   seriesFor(user: User, requested?: string | null): Series {
-    const all = this.opts.workspace.config.daily
+    const all = this.opts.workspace.config.daily.filter((s) => this.opts.offered?.(user, s) ?? true)
     if (requested) {
       const s = all.find((x) => x.id === requested)
       if (!s) throw new NoteError('not_found', `no daily-note series ${requested} in vihko.yaml`)
@@ -64,14 +71,25 @@ export class DailyNotes {
     return { series: series.id, path, exists }
   }
 
+  private exists(path: string): boolean {
+    try {
+      this.opts.notes.read(path)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   /**
    * Today's note: opened if it exists, otherwise created from the series
    * template. Never overwrites: if someone creates it at the same moment,
    * the one that is there wins and both open it. `actor`: who creates it
    * (an agent on the user's behalf); `template`: whether the series
-   * template may be used (an agent that can't read it gets an empty note).
+   * template may be used (an agent that can't read it gets an empty note);
+   * `mayName`: as for any creation (NoteService.create): a name that would
+   * take a link to a note it refuses is `exists`, as a taken name.
    */
-  async open(user: User, requested?: string | null, opts: { actor?: Actor; template?: (path: string) => boolean } = {}): Promise<{ series: string; path: string; created: boolean }> {
+  async open(user: User, requested?: string | null, opts: { actor?: Actor; template?: (path: string) => boolean; mayName?: (path: string) => boolean } = {}): Promise<{ series: string; path: string; created: boolean }> {
     const series = this.seriesFor(user, requested)
     const now = this.opts.profiles.now(user.id, this.instant())
     const path = seriesPath(series, now, user.username)
@@ -83,10 +101,11 @@ export class DailyNotes {
     }
     try {
       const template = series.template && (opts.template?.(series.template) ?? true) ? series.template : null
-      await createFromTemplate(this.opts.notes, { path, template, user, now, missing: 'empty', actor: opts.actor })
+      await createFromTemplate(this.opts.notes, { path, template, user, now, missing: 'empty', actor: opts.actor, mayName: opts.mayName })
       return { series: series.id, path, created: true }
     } catch (err) {
-      if (err instanceof NoteError && err.code === 'exists') return { series: series.id, path, created: false }
+      // Created meanwhile by someone else: that one opens. A name refused (nothing there) stays refused.
+      if (err instanceof NoteError && err.code === 'exists' && this.exists(path)) return { series: series.id, path, created: false }
       throw err
     }
   }

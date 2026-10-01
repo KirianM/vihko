@@ -5,12 +5,13 @@
 // made in one session reaching another.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, inVault, personal, specMother } from './env.ts'
 import { signIn, usePermissions } from './helpers.ts'
 
 const m = specMother(import.meta.url)
-const DIR = m.aFolder()
-const RO_DIR = m.aFolder()
+const DIR = inVault(m.aFolder())
+/** A folder of the admin's own space, shared with the member below edit (sharing only adds: never inside the vault's space, where she edits). */
+const RO_DIR = `${personal(ADMIN)}/${m.aFolder()}`
 const SHOTS = `${E2E_DIR}/shots`
 /** A line of three words no other line has (the last one is unique): short enough never to wrap. */
 const line = () => [m.aWord(), m.aWord(), m.aUniqueWord()] as const
@@ -172,7 +173,7 @@ test('on Windows, a character typed with AltGr (Ctrl+Alt there) is not taken for
   const n = note(DIR, `${text(words)}\n`)
   const [a, b, c] = words
   // Today's note on, so that Ctrl+Alt+D has something to take.
-  await usePermissions({ config: `daily:\n  ${m.anId()}:\n    label: ${JSON.stringify(m.aHeading())}\n    folder: ${JSON.stringify(m.aFolder())}\n` })
+  await usePermissions({ config: `daily:\n  ${m.anId()}:\n    label: ${JSON.stringify(m.aHeading())}\n    folder: ${JSON.stringify(inVault(m.aFolder()))}\n` })
   const ctx = await browser.newContext({ storageState: await k.context().storageState() })
   // Windows, as CodeMirror and vihko read it when they load.
   await ctx.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'Win32' }))

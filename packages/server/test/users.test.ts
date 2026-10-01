@@ -281,6 +281,11 @@ test('groups: created, renamed and deleted by the admin (the grants hooks first)
     assert.deepEqual([(await s.admin('POST', '/api/admin/groups', { name: swapCase(name) })).body.error], ['group_exists'])
     // Invalid by their form: empty, one character, a subject's `@`, a space, a slash.
     for (const bad of ['', 'x', `@${name}`, 'con espacio', 'a/b']) assert.deepEqual((await s.admin('POST', '/api/admin/groups', { name: bad })).body.error, 'invalid_group_name', bad)
+    // Reserved for grants to everyone, should they come (D-056.28): the names are the case under test, in any case.
+    for (const reserved of ['everyone', 'All', 'PUBLIC', 'anyone']) {
+      assert.deepEqual((await s.admin('POST', '/api/admin/groups', { name: reserved })).body.error, 'invalid_group_name', reserved)
+      assert.deepEqual((await s.admin('PATCH', `/api/admin/groups/${g.id}`, { name: reserved })).body.error, 'invalid_group_name', reserved)
+    }
     await s.admin('POST', `/api/admin/groups/${g.id}/members`, { userId: s.users.member.id })
     const both = await s.admin('POST', `/api/admin/groups/${g.id}/members`, { userId: s.users.admin.id })
     assert.deepEqual(both.body.group.members.map((u: any) => u.username), [s.users.member.username, s.users.admin.username].sort(nocase))
@@ -362,8 +367,8 @@ test('a new password of one\'s own ends a reset link made for them: nobody gets 
 test('the admin\'s settings: members downloading from the local network, off by default', async () => {
   const s = await setup()
   try {
-    assert.deepEqual((await s.admin('GET', '/api/admin/settings')).body, { membersLocalDownloads: false, twoFactor: 'optional' })
-    assert.deepEqual((await s.admin('PUT', '/api/admin/settings', { membersLocalDownloads: true })).body, { membersLocalDownloads: true, twoFactor: 'optional' })
+    assert.deepEqual((await s.admin('GET', '/api/admin/settings')).body, { membersLocalDownloads: false, twoFactor: 'optional', spacesCreation: 'everyone' })
+    assert.deepEqual((await s.admin('PUT', '/api/admin/settings', { membersLocalDownloads: true })).body, { membersLocalDownloads: true, twoFactor: 'optional', spacesCreation: 'everyone' })
     assert.equal((await s.admin('PUT', '/api/admin/settings', { membersLocalDownloads: 'yes' })).status, 400)
     assert.equal((await s.admin('PUT', '/api/admin/settings', { other: true })).status, 400)
   } finally {
@@ -408,7 +413,7 @@ test('the CLI creates a user from its arguments as documented: `--admin` before 
     }
     const again = cli(['user', 'create', member])
     assert.equal(again.status, 1, 'a user that exists: an error')
-    assert.match(again.stderr, /^error: /)
+    assert.match(again.stderr, /^error \(user_exists\): /, 'its code, as every other error')
     assert.equal(s.auth.userCount(), 4, 'the two of setup and the two created: none named after an option')
   } finally {
     await s.close()
@@ -423,7 +428,7 @@ test('state.db: version 5 migrates keeping its users, with a copy before and a l
   openState(file, { log: (msg) => created.push(msg) }).close()
   assert.deepEqual(created, [], 'a new database is no news')
   const raw = new Database(file)
-  raw.exec(`drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
+  raw.exec(`drop table pins; drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
     alter table users drop column deleted_at; alter table sessions drop column user_agent; alter table profiles drop column language;`)
   raw.prepare("insert into users (id, username, password_hash, role, created_at) values ('01U', ?, 'x', 'admin', '2026-01-01T00:00:00Z')").run(admin)
   raw.prepare("insert into users (id, username, password_hash, role, created_at, disabled) values ('02U', ?, 'x', 'member', '2026-01-01T00:00:00Z', 1)").run(member)

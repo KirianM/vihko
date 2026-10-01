@@ -6,12 +6,12 @@
 // admin is confirmed at the moment. Groups, and one's own account.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
-import { ADMIN, BASE_URL, E2E_DIR, MEMBER, PUBLIC_URL, specMother } from './env.ts'
+import { ADMIN, BASE_URL, E2E_DIR, MEMBER, PUBLIC_URL, inVault, specMother } from './env.ts'
 import { literally, signIn, usePermissions } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
-const NOTE = 'hogar/Proxy.md'
+const NOTE = inVault('hogar/Proxy.md')
 // People and groups of this spec (a deleted user's name stays reserved, and other specs make their own).
 const NEWCOMER = m.aUser({ role: 'member' })
 /** Someone the admin makes admin from the start: only invited, then removed. */
@@ -22,7 +22,7 @@ const HOME = m.aGroupName()
 test.describe.configure({ mode: 'serial' })
 test.beforeAll(async () => {
   mkdirSync(SHOTS, { recursive: true })
-  // A member sees nothing until something is granted (D-038): the newcomer, once she exists, edits everything.
+  // A member sees only their own space until something is shared (D-056): the newcomer, once she exists, edits the vault's space.
   await usePermissions({ grants: { [NEWCOMER.username]: 'edit' } })
 })
 test.afterAll(() => usePermissions())
@@ -77,7 +77,7 @@ test('the admin invites a member by link, the member joins in another browser, a
   await expect(member.getByRole('alert')).toHaveText('Las dos contraseñas no coinciden.')
   await member.getByLabel('Repite la contraseña').fill(NEWCOMER.password)
   await member.getByRole('button', { name: 'Guardar y entrar' }).click()
-  await expect(member.getByRole('treegrid')).toBeVisible()
+  await expect(member.getByRole('treegrid').first()).toBeVisible()
   await expect(member).toHaveURL(/\/$/)
   await member.goto(`/?note=${encodeURIComponent(NOTE)}`)
   await expect(member.locator('.cm-content')).toBeVisible()

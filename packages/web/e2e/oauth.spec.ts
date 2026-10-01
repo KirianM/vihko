@@ -9,7 +9,7 @@
 import { expect, test, type APIRequestContext, type Browser, type Page } from '@playwright/test'
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
-import { ADMIN, BASE_URL, E2E_DIR, MEMBER, PUBLIC_URL, specMother } from './env.ts'
+import { ADMIN, BASE_URL, E2E_DIR, MEMBER, PUBLIC_URL, SPACE_NAME, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
@@ -218,7 +218,7 @@ test('with write and one folder, the key says so; denying sends the client acces
   expect(tokens.scope).toBe('read write')
   await page.goto('/?view=agents')
   await expect(card(page)).toContainText('Lee y escribe')
-  await expect(card(page)).toContainText('proyectos/')
+  await expect(card(page)).toContainText(`${SPACE_NAME} / proyectos /`)
 
   const denied = await browser.newContext()
   const other = await denied.newPage()

@@ -8,11 +8,18 @@ The UI is in English or Spanish, following your browser's language.
 
 ## The screen
 
-- **The sidebar**, on the left: «Folders» (the folder tree) and «Tags», the
-  «Search or create…» box, and buttons for «New note», «New folder» and, when
-  daily notes are set up, «Today's note». At the bottom: «Recent changes»,
-  the workspace alerts when there are any, your name (it opens
-  «Preferences») and «Sign out».
+- **The sidebar**, on the left: the «Search or create…» box, «New note»
+  (the `+`) and, when daily notes are set up, «Today's note»; then «Folders»
+  and «Tags». «Folders» has one section per space:
+  - **My notes**: your own space. Only you see it, except what you share.
+  - **Each shared space** you belong to, by its name, such as «Home».
+  - **New space**, to create one.
+  - **Shared with me**: folders other people share with you, with whose they
+    are. Pin one and it gets a section of its own, next to your spaces.
+
+  At the bottom: «Recent changes», the workspace alerts when there are any,
+  your name (it opens «Preferences») and «Sign out». [Spaces, people and
+  sharing](users-and-permissions.md) explains the spaces.
 - **The note**, in the middle: its text, always editable in place (unless
   you only read it). Changes are saved on their own: the header says
   «Saving…» and then «Saved to disk».
@@ -22,14 +29,16 @@ The UI is in English or Spanish, following your browser's language.
 ## Create a note
 
 - Press **New note** (the `+` in the sidebar), type a name and press Enter.
-  The note is created in the folder of the note you have open (at the root
-  when none is open); the list says where: «Create “Plan” in projects».
+  The note is created in the folder of the note you have open (in «My notes»
+  when none is open); the list says where, and «Create in» lets you pick
+  another space or folder.
 - **In a given folder:** open the folder's menu in the tree (right-click the
   folder, press its `⋯` button, or long-press it on a phone) → **New note
-  here**. Or type a path in New note: `projects/Plan` creates `Plan` in the
-  folder `projects` inside the current folder, and `/projects/Plan` counts
-  from the root of the notes; missing folders are created, and the list says
-  where the note will go. The note's heading is only its name (`# Plan`).
+  here**. A space's own menu has it too. Or type a path in New note:
+  `projects/Plan` creates `Plan` in the folder `projects` inside the current
+  folder, and `/projects/Plan` counts from the root of the current space;
+  missing folders are created, and the list says where the note will go. The
+  note's heading is only its name (`# Plan`).
 - **From a template:** when `vihko.yaml` names a templates folder, New note
   also lists «From a template» (see [Configuration](configuration.md#templates)).
 
@@ -44,8 +53,8 @@ selected (Ctrl+Alt+K anywhere). Pressed again, a format comes off.
 
 ## Folders
 
-- **New folder** (the folder icon in the sidebar), or a folder's menu →
-  **New folder inside…**.
+- A space's menu, or a folder's menu → **New folder
+  inside…**.
 - A folder's menu also has **Rename or move…** and **Delete folder**. An
   empty folder goes at once; otherwise the dialog lists what it holds and
   **Send to trash and delete** sends it all to the trash in one step, which
@@ -59,11 +68,17 @@ history), brings both back.
 ## Link notes
 
 Type `[[` and the start of a note's name: the list suggests notes by title,
-file name and alias; Enter or Tab inserts the link. After the name, `#`
-suggests the note's headings, and `|` the text to show instead.
+file name and alias, with the space of those that are elsewhere; Enter or Tab
+inserts the link. After the name, `#` suggests the note's headings, and `|`
+the text to show instead.
 
+- Inside a space, a link is the note's name: `[[Plan]]`. To another space, it
+  is the note's path from the notes root, with its name to show:
+  `[[spaces/home-7k2q9x/Plan|Plan]]`. The suggestions write the right one. A
+  name alone never reaches another space.
 - Click a link to open its note. A link to a note that doesn't exist yet is
-  marked «missing»: click it and choose «create» to make that note.
+  marked «missing»: click it and choose «create» to make that note. A link to
+  a note you can't read looks just the same, on purpose.
 - The side panel's «Links» tab lists the note's outgoing links and its
   backlinks (the notes that link here).
 
@@ -92,6 +107,8 @@ instead):
   | `path:"my notes/"` | Quotes for values with spaces |
 
   So `budget tag:projects -tag:done` finds «budget» in the open projects.
+  Results come from every space you can read, each with its space; a `path:`
+  is inside the space you're in.
 - **Create a note**: type a name that no note has and choose «Create».
 - **Commands**: type `>` for the list: new note, today's note, insert image,
   dark or light theme.
@@ -108,6 +125,10 @@ links to update, or when the move changes who can see it.
 vihko rewrites **every link to the note, in every note**, so none of them
 breaks, and takes along the images only that note uses. Moving a folder does
 the same for everything in it. The details: [Renames and moves](notes.md#renames-and-moves).
+
+The dialog's «Space» lets you move a note to another space. That changes who
+sees it and whose it is («It stops being yours: it will belong to the members
+of Home»): the dialog says so, and asks you to confirm.
 
 ## Images
 
@@ -134,13 +155,20 @@ notes. A deleted note is restored from there. More in [History](history.md).
 
 The history is for whoever can edit the note.
 
-## Share a folder
+## Share
 
-People get access by folder, never by note. With `manage` on a folder (or as
-an admin), open its menu in the tree → **Permissions…**, press «Change
-permissions», add people or groups and pick a level: read, comment, edit or
-manage. How levels, groups and personal folders work, and how an admin adds
-people: [Users and permissions](users-and-permissions.md).
+- **With a group of people, for good:** **New space**, in the sidebar, makes
+  a shared space; add its members with a level (read, comment, edit or
+  manage). Everything in it belongs to all of them. Its menu has
+  «Members…», «Rename…», «Leave» and «Delete space…».
+- **One folder of yours, with someone:** in «My notes», the folder's menu →
+  **Share…**, add people or groups and pick a level. They find it under
+  «Shared with me»; it stays yours.
+
+Sharing only adds: everyone who sees a folder sees everything in it. Keep
+what someone shouldn't see in another folder or another space. How levels,
+groups and spaces work, and how an admin adds people:
+[Spaces, people and sharing](users-and-permissions.md).
 
 ## Preferences
 
@@ -151,12 +179,14 @@ Your name, at the bottom of the sidebar, opens **Preferences**:
   `vihko.yaml` declares daily notes ([Configuration](configuration.md#daily-daily-notes)).
 - **Account**: the language, your password, the browsers you're signed in
   from, and two-step verification.
-- **Users and groups** (admins): people, groups, and the settings.
+- **Users and groups** and **Spaces** (admins): people, groups, the
+  directory of shared spaces, and the settings.
 - **Agents and API**: keys for scripts and assistants ([Agents](agents.md)).
 - **Privacy**: what agents can see of your notes.
 
 The sun or moon button, in the note's header, switches between the light and
-dark theme (so does `>` in the ⌘K box).
+dark theme (so does `>` in the ⌘K box). The theme is kept on each device, not
+in your account: your phone can stay dark while your computer is light.
 
 vihko speaks English and Spanish. It starts in your browser's language; to
 change it, go to Preferences → Account → Language, or type `>language` in the

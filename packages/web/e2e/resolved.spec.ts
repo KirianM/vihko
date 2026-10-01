@@ -4,11 +4,11 @@
 // thread whose text is gone, and the history off as before.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, inVault, specMother } from './env.ts'
 import { literally, signIn, writeWorkspace } from './helpers.ts'
 
 const m = specMother(import.meta.url)
-const DIR = m.aFolder()
+const DIR = inVault(m.aFolder())
 const NOTE = m.aNotePath(DIR)
 /** The commented sentences, and the comments: the first thread (with a reply) and the second. */
 const [S1, S2] = [m.aSentence(), m.aSentence()]

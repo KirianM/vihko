@@ -10,15 +10,16 @@ import { join } from 'node:path'
 import { Git } from '@vihko/server'
 import { CLI, makeDirs, startServer } from './_collab.ts'
 import { setup, who } from './_history.ts'
+import { SHARED, inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
-// A note of the fixed vault the setup copies (testdata/vault); what is purged is the mother's.
-const NOTE = 'hogar/Proxy.md'
+// A note of the fixed vault the setup copies (testdata/vault) into the shared space; what is purged is the mother's.
+const NOTE = inShared('hogar/Proxy.md')
 const m = mother(import.meta.url)
 /** A folder to purge, with a note in it, and another one purged later. */
-const SECRETS = m.aFolder()
+const SECRETS = inShared(m.aFolder())
 const KEY_NOTE = m.aNotePath(SECRETS)
-const OTHERS = m.aFolder()
+const OTHERS = inShared(m.aFolder())
 const OTHER_NOTE = m.aNotePath(OTHERS)
 /** `text` for a regular expression that matches it literally. */
 const re = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
@@ -59,7 +60,7 @@ const envOf = (h: { notesDir: string; stateDir: string }) => ({ VIHKO_NOTES_DIR:
 
 test('purging a path: gone from every version, the journal and the repository; the rest keeps its authors, dates, trailers and moves', async () => {
   const h = await setup({ quietMs: 60_000, files: { [KEY_NOTE]: `# ${m.aHeading()}\n` } })
-  const MOVED = m.aNotePath(m.aFolder())
+  const MOVED = m.aNotePath(inShared(m.aFolder()))
   let history: unknown[]
   try {
     await h.put(KEY_NOTE, (t) => t + `${SECRET}\n`)
@@ -133,7 +134,7 @@ test('purging a path: gone from every version, the journal and the repository; t
 })
 
 test('purging one version: only its content goes, from that version and wherever the file still holds it', async () => {
-  const folder = m.aFolder()
+  const folder = inShared(m.aFolder())
   const [N, M] = [m.aNotePath(folder), m.aNotePath(folder)]
   const [first, second, third] = [m.aSentence(), m.aSentence(), m.aSentence()]
   const h = await setup({ files: { [N]: `${first}\n`, [M]: `${third}\n` } })
@@ -188,7 +189,7 @@ test('purging one version: only its content goes, from that version and wherever
 })
 
 test('a purged note that was moved or copied: the report says where the same content stays, and no move trailer names it', async () => {
-  const [OLD, NEW, COPY] = [m.aNotePath(), m.aNotePath(), m.aNotePath()]
+  const [OLD, NEW, COPY] = [m.aNotePath(SHARED), m.aNotePath(SHARED), m.aNotePath(SHARED)]
   const heading = `# ${m.aHeading()}\n`
   const h = await setup({ files: { [OLD]: `${heading}${SHARED_SECRET}\n`, [COPY]: `${heading}${SHARED_SECRET}\n` } })
   try {
@@ -239,9 +240,9 @@ test('the purge refuses while vihko runs (and a second server refuses too), in u
     assert.match(r.out, new RegExp(`error \\(${code}\\)`), r.out)
   }
   assert.equal(purge(env, []).status, 2)
-  assert.equal(purge(env, [NOTE, m.aNotePath()]).status, 2)
+  assert.equal(purge(env, [NOTE, m.aNotePath(SHARED)]).status, 2)
   const id = (await commits(env.VIHKO_STATE_DIR)).at(-1)!.id
-  const other = purge(env, [m.aNotePath(), '--version', id])
+  const other = purge(env, [m.aNotePath(SHARED), '--version', id])
   assert.match(other.out, /error \(not_a_version\)/)
 
   // After the kill -9 the lock is free: the purge runs.

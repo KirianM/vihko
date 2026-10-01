@@ -6,7 +6,7 @@
 import { expect, test, type Browser, type Locator, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { markdownDest } from '../../core/src/images.ts'
-import { ADMIN, E2E_DIR, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, SPACE_NAME, inVault, personal, specMother } from './env.ts'
 import { literally, signIn, writeWorkspace } from './helpers.ts'
 
 const m = specMother(import.meta.url)
@@ -26,8 +26,13 @@ const accented = () => {
   }
 }
 
-const DIR = m.aFolder()
-const TEMPLATES = m.aFolder()
+const NAME = m.aFolder()
+const DIR = inVault(NAME)
+/** The folder as the UI names it. */
+const SHOWN = `${SPACE_NAME} / ${NAME}`
+const TEMPLATES = inVault(m.aFolder())
+/** A folder of the admin's own space: another space than the vault's. */
+const OWN = `${personal(ADMIN)}/${m.aFolder()}`
 const SOURCE = m.aNotePath(DIR)
 const FILE = `${NOTES}/${SOURCE}`
 const SHOTS = `${E2E_DIR}/shots`
@@ -93,7 +98,7 @@ test.afterAll(async () => {
     if (n.path.startsWith(`${DIR}/`) || n.path.startsWith(`${TEMPLATES}/`)) await k.request.delete(`/api/note?path=${encodeURIComponent(n.path)}`)
   }
   await k.context().close()
-  for (const d of [DIR, TEMPLATES]) rmSync(`${NOTES}/${d}`, { recursive: true, force: true })
+  for (const d of [DIR, TEMPLATES, OWN]) rmSync(`${NOTES}/${d}`, { recursive: true, force: true })
 })
 
 const list = (page: Page) => page.locator('.vihko-complete')
@@ -166,6 +171,30 @@ test('an alias finds the note and becomes the visible text', async () => {
   await expect.poll(() => disk()).toContain(` [[${DEST}|${ALIAS}]]\n`)
 })
 
+test('a note of another space: suggested, and written from the notes root with its name to show; in a table, with `\\|`', async () => {
+  // A note of the admin's own space, linked from the vault's space (D-056.17).
+  // It stays until the end: the links to it must keep resolving (they'd be broken ones the next tests count).
+  const title = accented()
+  const path = `${OWN}/${title}.md`
+  mkdirSync(`${NOTES}/${OWN}`, { recursive: true })
+  writeFileSync(`${NOTES}/${path}`, `# ${title}\n`)
+  await expect.poll(async () => ((await (await k.request.get('/api/tree')).json()).notes as { path: string }[]).some((n) => n.path === path)).toBe(true)
+  // The suggestions' catalog is kept a few seconds: a fresh page knows the new note.
+  await k.goto(`/?note=${encodeURIComponent(SOURCE)}`)
+  await expect(k.locator('.cm-content')).toBeVisible()
+  const target = path.replace(/\.md$/, '')
+  await typeAtEnd(k, ` [[${fold(title)}`)
+  await accept(k, starts(title))
+  await expect.poll(() => disk()).toContain(` [[${target}|${title}]]\n`)
+  // In a table, a bare `|` would end the cell.
+  await k.keyboard.press('Enter')
+  await k.keyboard.type(`\n| ${m.aWord()} | ${m.aWord()} |\n| - | - |\n| [[${fold(title)}`)
+  await accept(k, starts(title))
+  await expect.poll(() => disk()).toContain(`| [[${target}\\|${title}]]`)
+  await k.locator('.cm-h1').first().click()
+  await expect(k.locator('.cm-wikilink-resolved', { hasText: title }).first()).toBeVisible()
+})
+
 test('# suggests tags in use with their counts; never inside code or for a heading', async () => {
   await typeAtEnd(k, ` #${TAG_START}`)
   await expect(option(k, `#${TAG_A}`)).toContainText('1 nota')
@@ -196,7 +225,7 @@ test('a broken link offers to create the note in this folder; the link then reso
   await k.locator('.cm-h1').first().click()
   const broken = k.locator('.cm-wikilink-missing', { hasText: missing })
   await expect(broken.locator('.cm-wikilink-badge')).toHaveText('no existe · crear')
-  await expect(broken.getByRole('button', { name: 'crear' })).toHaveAttribute('title', `Crear «${missing}» en ${DIR}`)
+  await expect(broken.getByRole('button', { name: 'crear' })).toHaveAttribute('title', `Crear «${missing}» en ${SHOWN}`)
   await k.screenshot({ path: `${SHOTS}/create-link-light.png`, animations: 'disabled' })
   await broken.getByRole('button', { name: 'crear' }).click()
 
@@ -243,7 +272,7 @@ test('with templates configured, «create» asks which one', async () => {
   mkdirSync(`${NOTES}/${TEMPLATES}`, { recursive: true })
   writeFileSync(`${NOTES}/${TEMPLATES}/${template}.md`, `# {{title}}\n\n${line}\n`)
   writeWorkspace(`templates: ${JSON.stringify(TEMPLATES)}\n`)
-  await expect.poll(async () => (await (await k.request.get('/api/workspace')).json() as { templates: string | null }).templates).toBe(TEMPLATES)
+  await expect.poll(async () => (await (await k.request.get('/api/workspace')).json() as { templates: string[] }).templates).toEqual([TEMPLATES])
   await expect.poll(async () => {
     const { notes } = await (await k.request.get('/api/tree')).json() as { notes: { path: string }[] }
     return notes.some((n) => n.path === `${TEMPLATES}/${template}.md`)
@@ -262,7 +291,7 @@ test('with templates configured, «create» asks which one', async () => {
   await expect(menu).toHaveCount(0)
   await k.getByRole('button', { name: 'Cambiar a tema claro' }).click()
   await create.click()
-  await expect(menu).toContainText(`Crear «${fresh}» en ${DIR}`)
+  await expect(menu).toContainText(`Crear «${fresh}» en ${SHOWN}`)
   await expect(menu.getByRole('menuitem', { name: 'Nota en blanco' })).toBeFocused()
   await k.screenshot({ path: `${SHOTS}/create-link-template-light.png`, animations: 'disabled' })
   await menu.getByRole('menuitem', { name: template }).click()
@@ -340,4 +369,41 @@ test('phone: the editor bar\'s [[ opens the suggestions and a tap inserts the li
   await expect.poll(() => disk()).toMatch(new RegExp(`\\n${literally(word)} \\[\\[${literally(DEST)}\\]\\]\\n?$`, 'u'))
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
   await ctx.close()
+})
+
+test('signing out forgets the suggestions: whoever signs in next in the same tab never gets what was loaded for the one before (D-056.28)', async ({ browser }) => {
+  const start = m.aUniqueWord()
+  const [theirs, mine] = [`${start}-${m.aTag()}`, `${start}-${m.aTag()}`]
+  const line = m.aSentence()
+  // The admin's tag, in a note of their own space (the member can't read it); the member's, in hers.
+  const adminNote = `${personal(ADMIN)}/${m.aTitle()}.md`
+  const memberNote = `${personal(MEMBER)}/${m.aTitle()}.md`
+  const member = await signIn(browser, MEMBER)
+  expect((await member.request.post('/api/note', { data: { path: memberNote, text: `# ${m.aHeading()}\n\n${line}\n\n#${mine}\n` } })).status()).toBe(201)
+  await member.context().close()
+  const page = await signIn(browser, ADMIN)
+  expect((await page.request.post('/api/note', { data: { path: adminNote, text: `# ${m.aHeading()}\n\n${line}\n\n#${theirs}\n` } })).status()).toBe(201)
+  await page.goto(`/?note=${encodeURIComponent(adminNote)}`)
+  const typeAfter = async () => {
+    const l = page.locator('.cm-line', { hasText: line })
+    await l.click({ position: { x: 2, y: 8 } })
+    await toLineEnd(l)
+    await page.keyboard.type(` #${start}`)
+  }
+  await typeAfter()
+  await expect(option(page, `#${theirs}`)).toBeVisible()
+  await page.keyboard.press('Escape')
+  // Signing out, and the member in the same tab.
+  await page.getByRole('button', { name: 'Cerrar sesión' }).click()
+  await page.getByLabel('Nombre de usuario').fill(MEMBER.username)
+  await page.getByLabel('Contraseña').fill(MEMBER.password)
+  await page.getByRole('button', { name: 'Entrar' }).last().click()
+  // Opened from the tree: the page isn't loaded again, so only signing out can have forgotten what it kept.
+  const name = memberNote.slice(memberNote.lastIndexOf('/') + 1, -3)
+  await page.getByRole('treegrid').first().getByRole('row', { name, exact: true }).click()
+  await expect(page.locator('.cm-line', { hasText: line })).toBeVisible()
+  await typeAfter()
+  await expect(option(page, `#${mine}`)).toBeVisible()
+  await expect(option(page, `#${theirs}`)).toHaveCount(0)
+  await page.context().close()
 })

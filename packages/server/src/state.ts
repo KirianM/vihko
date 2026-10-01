@@ -160,6 +160,16 @@ const MIGRATIONS: string[] = [
    create index notices_user on notices(user_id, created_at);`,
   // The language of each person's UI (profiles.ts): null = their browser's.
   `alter table profiles add column language text;`,
+  // Spaces (0.1.0, D-056): what each person pins in the sidebar from «Shared
+  // with me» (spaceService.ts). Folders by their path from the notes root, as
+  // a key's folders are: rewritten when vihko moves a folder (folderRefs.ts).
+  // Never anything of a note's content, nor links between notes.
+  `create table pins (
+     user_id    text not null references users(id) on delete cascade,
+     path       text not null,
+     created_at text not null,
+     primary key (user_id, path)
+   );`,
 ]
 
 export const STATE_VERSION = MIGRATIONS.length

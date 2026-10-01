@@ -29,6 +29,8 @@ export type Actor =
  *   vihko (D-031.4).
  * - `alias_added`: the safety alias of a rename (D-018), because some link
  *   couldn't be rewritten.
+ * - `links_kept`: links kept on the note they led to when `by` gave another
+ *   note (`to`) their name, by creating it or adding an alias (D-056.28).
  * - `restored`: a version of the note (`id`, from `at`) brought back from the
  *   history. `trash_restored`: a note brought back from the trash.
  * - `reverted`: what version `id` (from `at`) changed, undone on the note as
@@ -45,6 +47,7 @@ export type Reason =
   | { code: 'folder_moved'; from: string; to: string; by: Actor }
   | { code: 'links_after_external_move'; moves: { from: string; to: string }[]; by: Actor }
   | { code: 'alias_added'; alias: string; from: string; to: string; by: Actor }
+  | { code: 'links_kept'; to: string; by: Actor }
   | { code: 'restored'; id: string; at: string }
   | { code: 'trash_restored'; id: string }
   | { code: 'reverted'; id: string; at: string }

@@ -12,8 +12,10 @@ import { useEffect, useRef } from 'react'
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
 import * as Y from 'yjs'
 import type { User } from '../api.ts'
+import { spaceOf } from '@vihko/core/spaces'
 import { useT } from '../i18n.tsx'
 import { takeModK } from '../keys.ts'
+import { usePathLabels, useSpaces } from '../spaces.tsx'
 import type { Session } from './collab.ts'
 import { commentMarks, commentUi, setCommentReach, type CommentReach } from './commentMarks.ts'
 import { imageHost, images } from './images.ts'
@@ -67,6 +69,10 @@ interface Props {
 
 export function Editor({ path, session, user, links, onNavigate, onView, onComments, commentReach, externalImages, onImageFiles, onImageUrl, onCreateLink, onPickAmbiguous, readOnly = false }: Props) {
   const t = useT()
+  const pathLabels = usePathLabels()
+  const spaces = useSpaces()
+  const space = spaceOf(path)
+  const othersPersonal = space?.kind === 'personal' && space.owner !== spaces.me.normalize('NFC')
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   const nav = useRef(onNavigate)
@@ -100,19 +106,24 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
         pickAmbiguous.of((link, anchor) => pick.current?.(link, anchor)),
         notePath.of(path),
         EditorState.readOnly.of(readOnly),
-        readOnly ? [] : createLinkUi.of({
+        // Never from a link in a note of someone else's personal space (D-056.21): there a link that
+        // looks broken may lead to one of the owner's notes this person can't read.
+        readOnly || othersPersonal ? [] : createLinkUi.of({
           label: t('editor.linkCreate'),
-          where: (note) => {
-            const folder = note.path.includes('/') ? note.path.slice(0, note.path.lastIndexOf('/')).split('/').join(' / ') : t('palette.root')
-            return t('palette.createIn', { name: note.title, folder })
-          },
+          where: (note) => t('palette.createIn', { name: note.title, folder: pathLabels.where(note.path, true) }),
           create: (note, anchor) => createLink.current?.(note, anchor),
         }),
-        linkAutocomplete(path, { tagCount: (n) => t(n === 1 ? 'editor.tagCountOne' : 'editor.tagCount', { n }) }),
+        linkAutocomplete(path, {
+          tagCount: (n) => t(n === 1 ? 'editor.tagCountOne' : 'editor.tagCount', { n }),
+          where: (p) => {
+            const space = pathLabels.spaceTag(p)
+            const folders = pathLabels.folders(p)
+            return [space, folders].filter(Boolean).join(' · ')
+          },
+        }),
         labels.of({
           ambiguous: (n) => t('editor.linkAmbiguous', { n }),
           missing: t('editor.linkMissing'),
-          noAccess: t('editor.linkNoAccess'),
           frontmatter: (n) => t(n === 1 ? 'editor.frontmatterOne' : 'editor.frontmatter', { n }),
         }),
         // tasks brings lang-markdown's keymap (Enter continues a task as a task).

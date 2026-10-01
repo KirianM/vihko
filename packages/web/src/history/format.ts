@@ -10,7 +10,7 @@ import type { ChangeKind, DiffOp, HistoryAuthor, Reason } from './api.ts'
 export type HistoryText =
   | 'history.today' | 'history.yesterday' | 'history.agent' | 'history.agentPlain' | 'history.external' | 'history.system' | 'history.by'
   | 'history.reason.linksUpdated' | 'history.reason.renamed' | 'history.reason.moved' | 'history.reason.folderMoved'
-  | 'history.reason.externalMoveOne' | 'history.reason.externalMoveMany' | 'history.reason.alias'
+  | 'history.reason.externalMoveOne' | 'history.reason.externalMoveMany' | 'history.reason.alias' | 'history.reason.linksKept' | 'history.reason.linksKeptPlain'
   | 'history.reason.historyEnabled' | 'history.reason.historyResumed' | 'history.reason.recovered'
   | 'history.change.created' | 'history.change.modified' | 'history.change.deleted' | 'history.change.movedPlain'
   | 'history.change.renamed' | 'history.change.moved' | 'history.change.restored' | 'history.change.restoredFrom' | 'history.change.trashRestored'
@@ -147,6 +147,8 @@ export function reasonText(t: T, r: Reason | null): string | null {
     }
     case 'alias_added':
       return t('history.reason.alias', { alias: r.alias ?? '', from: noteName(r.from ?? '') }) + by
+    case 'links_kept':
+      return (r.to ? t('history.reason.linksKept', { name: noteName(r.to) }) : t('history.reason.linksKeptPlain')) + by
     case 'history_enabled': return t('history.reason.historyEnabled')
     case 'history_resumed': return t('history.reason.historyResumed')
     case 'recovered': return t('history.reason.recovered')

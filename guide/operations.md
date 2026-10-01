@@ -29,7 +29,7 @@ which doesn't run as root, might not be able to write there afterwards.
 A command that fails prints `error: …` or `error (<code>): …` and exits with
 status 1; a command it doesn't understand, or arguments a command doesn't
 take, print the usage and exit with status 2. `vihko version` prints the
-version alone, for scripts. [What 1.x keeps stable](compatibility.md#the-command-line)
+version alone, for scripts. [What 0.x tries to keep](compatibility.md#the-command-line)
 says which of this stays.
 
 ### Create a user
@@ -42,11 +42,16 @@ read -rs -p 'Password: ' pw && echo && printf '%s\n' "$pw" | docker compose exec
 user created: alex (admin)
 ```
 
-Usernames have 2 to 64 letters, digits, `.`, `_` or `-`, and can't be one of
+The user gets their folder, `people/<name>/`. If that folder already exists
+with something in it, the user isn't created (`error: people/<name> already
+exists with something in it…`): move it away first.
+
+Usernames have 2 to 64 letters, digits, `.`, `_` or `-`, don't start with a
+dot, and can't be one of
 the few names JavaScript objects already have (`__proto__`, `constructor`,
 `prototype`, `toString`…); the same goes for group names. Passwords have at
 least 10 characters. Usually you invite people from the UI instead, and they choose
-their own password: see [Users and permissions](users-and-permissions.md).
+their own password: see [Spaces, people and sharing](users-and-permissions.md).
 
 ### Reset a lost password
 
@@ -96,14 +101,14 @@ no version at all.
 2. See what would change, with vihko running:
 
    ```sh
-   docker compose exec vihko vihko history purge Projects/plan.md --dry-run
+   docker compose exec vihko vihko history purge people/alex/plan.md --dry-run
    ```
 
 3. Stop vihko, purge, start it:
 
    ```sh
    docker compose stop
-   docker compose run --rm vihko vihko history purge Projects/plan.md
+   docker compose run --rm vihko vihko history purge people/alex/plan.md
    docker compose start
    ```
 
@@ -137,7 +142,7 @@ docker compose logs --tail 50 vihko   # the last 50 lines
 A normal start, after the first one:
 
 ```text
-[vihko] vihko 1.0.1
+[vihko] vihko 0.1.0
 [vihko] vihko.yaml loaded
 [vihko] index ready: 0 added, 3 changed, 0 removed, 1247 unchanged
 [vihko] saved editor states: 41 of 42 match their file
@@ -150,7 +155,7 @@ The lines to know:
 | Line | What it means |
 |---|---|
 | `vihko <version>` | The first line of every start. |
-| `no vihko.yaml: nothing configured` | There's no [`vihko.yaml`](configuration.md): no daily notes or templates, and every admin manages the whole notes folder. |
+| `no vihko.yaml: nothing configured` | There's no [`vihko.yaml`](configuration.md): no daily notes or templates, and nothing is shared: each person has only their own space. |
 | `vihko.yaml loaded` | `vihko.yaml` was read and applies. Printed again whenever it changes. |
 | `vihko.yaml loaded without unknown_key at <key>, …` | It applies, except what the line lists: `unknown_key at <key>` is a key vihko doesn't know (a typo, or a setting of a newer vihko), which is ignored; `section_rejected at permissions` means the permissions section was rejected. The admins see each one, with its line, in the workspace alerts. See [When something is wrong](configuration.md#when-something-is-wrong). |
 | `index ready: …` | The first scan of the notes folder is done: notes added, changed, removed and unchanged since the index last saw them. |
@@ -169,6 +174,7 @@ The lines to know:
 | `vihko.yaml rewritten to the current format: …` | An upgrade changed the file's format; the line says where the copy is. See [Upgrading](upgrading.md#what-happens-at-start). |
 | `vihko.yaml can't be used (…)` | A mistake in `vihko.yaml`: vihko keeps the last valid version. The admins see the details in the workspace alerts. See [Configuration](configuration.md). |
 | `moved outside vihko: a.md → b.md (…)` | A note was renamed or moved by another program; vihko followed it. |
+| `links in N note(s) still not updated after moving a to b: given up` | After a move from vihko, links in notes of other spaces couldn't be rewritten, even after the next rescan. Whoever made the move gets a notice. |
 | `external change integrated into …` | A note open in an editor was changed by another program; the editors show the change. |
 | `<note>: the file changed after the note was closed, with vihko running; merged into its saved document` | Another program changed the note after its last editor closed it. When it's opened again, vihko merges that change into its saved editor state, so a browser that still had the note open offline merges its typing too. Normal when you also edit with other tools. |
 | `<note>: the saved document doesn't match the file; new generation` | The note's file changed while vihko was stopped (or the state volume was restored from a backup): it's loaded from its file. A browser that had it open offline keeps its unsent typing aside and asks what to do with it. |
@@ -372,11 +378,9 @@ sudo chown -R 1000:1000 state
 docker compose up -d
 ```
 
-1.0.0-rc.1 said it differently: a warning that the state folder "can be read
-by other users of this system", then `SqliteError: unable to open database
-file` (`SQLITE_CANTOPEN`). The fix is the same. That error can still show
-when the folder is right but a file in it isn't (one copied in as root
-without `-p`): `sudo chown -R` on the state folder fixes both.
+`SqliteError: unable to open database file` (`SQLITE_CANTOPEN`) can show when
+the folder is right but a file in it isn't (one copied in as root without
+`-p`): `sudo chown -R` on the state folder fixes it too.
 
 ### Saving a note fails, `EACCES` in the log
 
@@ -459,6 +463,16 @@ docker compose start
 The log shows every note as added. Nothing else is affected. (Use `sudo` if
 the files aren't yours.)
 
+### Notes copied into the folder don't show up
+
+Every note vihko shows lives in a space: `people/<username>/` or
+`spaces/<name>-<id>/`. Files put anywhere else, at the root of the notes
+folder say, are seen by nobody, and the admins get an alert («outside the
+spaces») listing them; Preferences → Spaces lists them too. Move them into
+someone's folder or a shared space's folder. A folder in `people/` named after
+no user, or one in `spaces/` without the id at the end of its name, isn't a
+space either.
+
 ### Changes made elsewhere don't show up
 
 Wait for the next rescan (`VIHKO_RESCAN_SECONDS`, 60 by default): changes
@@ -478,5 +492,4 @@ image), request bodies too, but some things aren't capped yet:
 - how many images a person uploads in total over time.
 
 If someone abuses that, disable their account (Preferences → Users and
-groups): their connections close at once. Caps for these are planned after
-1.0.
+groups): their connections close at once. Caps for these are planned.

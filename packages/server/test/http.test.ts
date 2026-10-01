@@ -7,19 +7,24 @@ import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { Auth, AuthError, Indexer, MAX_API_BODY, MAX_AUTH_BODY, MAX_PASSWORD, NoteService, Profiles, Workspace, SESSION_COOKIE, STATE_VERSION, createApp, ftsQuery, hashPassword, needsRehash, openIndex, openState, verifyPassword, type Runtime } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
-import { yamlKey } from './_permissions.ts'
+import { SHARED, inShared, sharedSpace } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
-async function setup(opts: { webDir?: string; config?: string } = {}) {
+/**
+ * A copy of the test vault in the shared space (D-056: every note is in a
+ * space), `members` its grants (subject → level) for people the test creates
+ * afterwards; none by default.
+ */
+async function setup(opts: { webDir?: string; members?: Record<string, string> } = {}) {
   const dir = tempDir('vihko-http-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
-  cpSync(VAULT, notesDir, { recursive: true })
-  if (opts.config !== undefined) writeFileSync(join(notesDir, 'vihko.yaml'), opts.config)
+  cpSync(VAULT, join(notesDir, SHARED), { recursive: true })
+  if (opts.members !== undefined) writeFileSync(join(notesDir, 'vihko.yaml'), sharedSpace(opts.members))
   const index = openIndex(join(dir, 'index.db'))
   const state = openState(join(dir, 'state.db'))
   const auth = new Auth(state)
@@ -106,11 +111,11 @@ test('passwords: one longer than MAX_PASSWORD is refused before any hashing', as
 })
 
 test('request bodies: over the limit is 413, and nothing changes', async () => {
-  const { auth, req } = await setup()
   const admin = m.aUser({ role: 'admin' })
+  const { auth, req } = await setup({ members: { [admin.username]: 'manage' } })
   await auth.createUser(admin.username, admin.password, admin.role)
   await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
-  const path = m.aNotePath()
+  const path = m.aNotePath(inShared(''))
   const text = m.aParagraph()
   const created = await req('POST', '/api/note', { path, text })
   assert.equal(created.status, 201)
@@ -155,7 +160,7 @@ test('everything requires a session except health; login, session and logout', a
   assert.deepEqual((await req('GET', '/api/health')).body, { ok: true })
   const admin = m.aUser({ role: 'admin' })
   await auth.createUser(admin.username, admin.password, admin.role)
-  for (const p of ['/api/tree', '/api/note?path=Plan.md', '/api/search?q=plan', '/api/alerts', '/api/auth/me']) {
+  for (const p of ['/api/tree', `/api/note?path=${encodeURIComponent(inShared('Plan.md'))}`, '/api/search?q=plan', '/api/alerts', '/api/auth/me']) {
     assert.equal((await req('GET', p)).status, 401, p)
   }
   for (const bad of [{ username: admin.username, password: m.aPassword() }, { username: m.aUsername(), password: admin.password }]) {
@@ -187,45 +192,46 @@ test('a username signs in in any case, in any script', async () => {
 })
 
 test('notes over HTTP: read, create, write with If-Match, move and delete', async () => {
-  const { auth, req } = await setup()
   const admin = m.aUser({ role: 'admin' })
+  const { auth, req } = await setup({ members: { [admin.username]: 'manage' } })
+  const [planPath, planQ] = [inShared('Plan.md'), `?path=${encodeURIComponent(inShared('Plan.md'))}`]
   await auth.createUser(admin.username, admin.password, admin.role)
   await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
 
   const tree = await req('GET', '/api/tree')
-  assert.ok(tree.body.notes.some((n: { path: string }) => n.path === 'Plan.md'))
+  assert.ok(tree.body.notes.some((n: { path: string }) => n.path === planPath))
 
-  const plan = await req('GET', '/api/note?path=Plan.md')
+  const plan = await req('GET', `/api/note${planQ}`)
   assert.equal(plan.status, 200)
   assert.equal(plan.headers.get('etag'), `"${plan.body.etag}"`)
 
-  const noMatch = await req('PUT', '/api/note?path=Plan.md', { text: m.aSentence() })
+  const noMatch = await req('PUT', `/api/note${planQ}`, { text: m.aSentence() })
   assert.deepEqual([noMatch.status, noMatch.body.error], [428, 'precondition_required'], "without If-Match, nothing is overwritten")
-  const stale = await req('PUT', '/api/note?path=Plan.md', { text: m.aSentence() }, { 'if-match': '"sha256:old"' })
+  const stale = await req('PUT', `/api/note${planQ}`, { text: m.aSentence() }, { 'if-match': '"sha256:old"' })
   assert.deepEqual([stale.status, stale.body.error], [412, 'precondition_failed'])
   assert.equal(stale.body.etag, plan.body.etag, 'the 412 returns the current ETag')
-  const put = await req('PUT', '/api/note?path=Plan.md', { text: `# ${m.aHeading()}\n\n${m.aSentence()}\n` }, { 'if-match': `"${plan.body.etag}"` })
+  const put = await req('PUT', `/api/note${planQ}`, { text: `# ${m.aHeading()}\n\n${m.aSentence()}\n` }, { 'if-match': `"${plan.body.etag}"` })
   assert.equal(put.status, 200)
 
-  const fresh = m.aNotePath()
+  const fresh = m.aNotePath(inShared(''))
   assert.equal((await req('POST', '/api/note', { path: fresh, text: `# ${m.aHeading()}\n` })).status, 201)
   assert.deepEqual(errorOf(await req('POST', '/api/note', { path: fresh, text: `# ${m.aHeading()}\n` })), [409, 'exists'])
   assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(`../${m.aNotePath()}`)}`)), [400, 'invalid_path'])
-  assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(m.aNotePath())}`)), [404, 'not_found'])
+  assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(m.aNotePath(inShared('')))}`)), [404, 'not_found'])
   // A name with a control character (a tab, the case under test) is refused with its own code; NUL can't name a file at all.
-  const tabbed = m.aNotePath().replace(/\.md$/, `\t${m.aWord()}.md`)
+  const tabbed = m.aNotePath(inShared('')).replace(/\.md$/, `\t${m.aWord()}.md`)
   assert.deepEqual(errorOf(await req('POST', '/api/note', { path: tabbed, text: `# ${m.aHeading()}\n` })), [400, 'control_characters'])
   assert.deepEqual(errorOf(await req('POST', '/api/note/move', { from: fresh, to: tabbed })), [400, 'control_characters'])
-  assert.deepEqual(errorOf(await req('POST', '/api/folder', { path: `${m.aFolder()}\t${m.aWord()}` })), [400, 'control_characters'])
-  assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(`${m.aFolder()}/\u0000.md`)}`)), [400, 'invalid_path'])
+  assert.deepEqual(errorOf(await req('POST', '/api/folder', { path: inShared(`${m.aFolder()}\t${m.aWord()}`) })), [400, 'control_characters'])
+  assert.deepEqual(errorOf(await req('GET', `/api/note?path=${encodeURIComponent(inShared(`${m.aFolder()}/\u0000.md`))}`)), [400, 'invalid_path'])
   const notJson = await req('POST', '/api/note', '{no es json', {}, true)
   assert.deepEqual(errorOf(notJson), [400, 'invalid'], "a body that isn't JSON isn't an internal error")
 
   // A note of the vault that others link to, renamed.
-  const renamed = m.aNotePath('hogar')
-  const dry = await req('POST', '/api/note/move', { from: 'hogar/Proxy.md', to: renamed, dryRun: true })
+  const renamed = m.aNotePath(inShared('hogar'))
+  const dry = await req('POST', '/api/note/move', { from: inShared('hogar/Proxy.md'), to: renamed, dryRun: true })
   assert.ok(dry.body.relinked.length > 0)
-  assert.equal((await req('POST', '/api/note/move', { from: 'hogar/Proxy.md', to: renamed })).status, 200)
+  assert.equal((await req('POST', '/api/note/move', { from: inShared('hogar/Proxy.md'), to: renamed })).status, 200)
 
   const del = await req('DELETE', `/api/note?path=${encodeURIComponent(fresh)}`)
   assert.equal(del.status, 200)
@@ -235,24 +241,24 @@ test('notes over HTTP: read, create, write with If-Match, move and delete', asyn
 })
 
 test('links, backlinks with context, search and alerts', async () => {
-  // A member who manages everything (D-038): reading notes is the folders' permissions, never the role.
+  // A member who manages the space (D-038): reading notes is the folders' permissions, never the role.
   const member = m.aUser({ role: 'member' })
-  const { auth, req } = await setup({ config: `permissions:\n  "": { grants: { ${yamlKey(member.username)}: manage } }\n` })
+  const { auth, req } = await setup({ members: { [member.username]: 'manage' } })
   await auth.createUser(member.username, member.password, member.role)
   await req('POST', '/api/auth/login', { username: member.username, password: member.password })
 
-  const links = await req('GET', '/api/note/links?path=diario/2026-09-24.md')
+  const links = await req('GET', `/api/note/links?path=${encodeURIComponent(inShared('diario/2026-09-24.md'))}`)
   const tareas = links.body.outgoing.find((l: { raw: string }) => l.raw === '[[Tareas]]')
   assert.equal(tareas.status, 'ambiguous')
-  assert.deepEqual(tareas.candidates, ['proyectos/blog/Tareas.md', 'proyectos/vihko/Tareas.md'])
+  assert.deepEqual(tareas.candidates, [inShared('proyectos/blog/Tareas.md'), inShared('proyectos/vihko/Tareas.md')])
 
-  const back = await req('GET', '/api/note/links?path=hogar/Proxy.md')
-  assert.ok(back.body.backlinks.some((b: { path: string; context: string }) => b.path === 'hogar/enlaces.md' && b.context.includes('[[Proxy#Red]]')))
+  const back = await req('GET', `/api/note/links?path=${encodeURIComponent(inShared('hogar/Proxy.md'))}`)
+  assert.ok(back.body.backlinks.some((b: { path: string; context: string }) => b.path === inShared('hogar/enlaces.md') && b.context.includes('[[Proxy#Red]]')))
 
   const alias = await req('GET', '/api/search?q=hipervisor')
-  assert.equal(alias.body.results[0]?.path, 'hogar/Proxy.md', 'aliases are searched too')
+  assert.equal(alias.body.results[0]?.path, inShared('hogar/Proxy.md'), 'aliases are searched too')
   const s = await req('GET', '/api/search?q=cafe')
-  assert.ok(s.body.results.some((r: { path: string }) => r.path.normalize('NFC') === 'recetas/Café.md'))
+  assert.ok(s.body.results.some((r: { path: string }) => r.path.normalize('NFC') === inShared('recetas/Café.md')))
   assert.ok(s.body.results[0].snippet.includes('\u0002'), 'highlighted with markers, not HTML')
   assert.deepEqual((await req('GET', '/api/search?q=' + encodeURIComponent('" OR * NEAR('))).body.results, [], "the user's FTS5 syntax breaks nothing")
 
@@ -260,13 +266,13 @@ test('links, backlinks with context, search and alerts', async () => {
 })
 
 test('editor autocomplete data: aliases in the tree, tags with counts and a note\'s headings', async () => {
-  const { auth, req } = await setup()
   const admin = m.aUser({ role: 'admin' })
+  const { auth, req } = await setup({ members: { [admin.username]: 'manage' } })
   await auth.createUser(admin.username, admin.password, admin.role)
   await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
 
   const tree = await req('GET', '/api/tree')
-  const gw = tree.body.notes.find((n: { path: string }) => n.path === 'hogar/Proxy.md')
+  const gw = tree.body.notes.find((n: { path: string }) => n.path === inShared('hogar/Proxy.md'))
   assert.deepEqual(gw.aliases, ['gw', 'Hipervisor'])
 
   const tags = (await req('GET', '/api/tags')).body.tags as { tag: string; count: number }[]
@@ -276,50 +282,51 @@ test('editor autocomplete data: aliases in the tree, tags with counts and a note
   assert.ok(!tags.some((t) => t.tag === 'Hogar'), 'tags are case-insensitive')
   assert.deepEqual(tags.map((t) => t.count), tags.map((t) => t.count).sort((a, b) => b - a), 'most used first')
 
-  const headings = await req('GET', '/api/note/headings?path=hogar/Proxy.md')
+  const headings = await req('GET', `/api/note/headings?path=${encodeURIComponent(inShared('hogar/Proxy.md'))}`)
   assert.ok(headings.body.headings.some((h: { text: string }) => h.text === 'Red'))
-  assert.deepEqual(errorOf(await req('GET', `/api/note/headings?path=${encodeURIComponent(m.aNotePath())}`)), [404, 'not_found'])
+  assert.deepEqual(errorOf(await req('GET', `/api/note/headings?path=${encodeURIComponent(m.aNotePath(inShared('')))}`)), [404, 'not_found'])
 })
 
 test('comments inside a note stay out of backlink contexts and search', async () => {
-  const { auth, req, notesDir, runtime } = await setup()
   const admin = m.aUser({ role: 'admin' })
+  const { auth, req, notesDir, runtime } = await setup({ members: { [admin.username]: 'manage' } })
   await auth.createUser(admin.username, admin.password, admin.role)
   await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
   // A note linking to one of the vault's, with a comment (vihko's format) after the link's sentence.
-  const discussed = m.aNotePath('hogar')
+  const discussed = m.aNotePath(inShared('hogar'))
   const line = `${m.aSentence(3).slice(0, -1)} [[Proxy]] ${m.aWord()}.`
   const commented = m.aUniqueWord()
   writeFileSync(join(notesDir, discussed), `${line}<!-- @${m.aUsername()} 2026-09-24T08:12Z · ${m.aWord()} ${commented}? -->\n`)
   runtime.rescan({})
-  const back = await req('GET', '/api/note/links?path=hogar/Proxy.md')
+  const back = await req('GET', `/api/note/links?path=${encodeURIComponent(inShared('hogar/Proxy.md'))}`)
   const b = back.body.backlinks.find((x: { path: string }) => x.path === discussed)
   assert.equal(b.context, line)
   assert.deepEqual((await req('GET', `/api/search?q=${encodeURIComponent(commented)}`)).body.results, [])
 })
 
 test('workspace alerts: codes with their data and actions based on role', async () => {
-  const { auth, notesDir, req } = await setup()
   const people = { admin: m.aUser({ role: 'admin' }), member: m.aUser({ role: 'member' }) }
+  // The admin manages the space; the member has nothing in it.
+  const { auth, notesDir, req } = await setup({ members: { [people.admin.username]: 'manage' } })
   for (const u of Object.values(people)) await auth.createUser(u.username, u.password, u.role)
   const as = (who: keyof typeof people) => req('POST', '/api/auth/login', { username: people[who].username, password: people[who].password })
   const alerts = async () => (await req('GET', '/api/alerts')).body.alerts as { code: string; [k: string]: unknown }[]
 
   await as('admin')
-  const conflict = 'proyectos/vihko/Plan.sync-conflict-20260924-120000-ABCDEFG.md'
+  const conflict = inShared('proyectos/vihko/Plan.sync-conflict-20260924-120000-ABCDEFG.md')
   assert.deepEqual(await alerts(), [
-    { code: 'uid_conflict', uid: '01J8X4M2K9QZ', paths: ['uid/copia.md', 'uid/original.md'], actions: [] },
-    { code: 'sync_conflict', path: conflict, note: 'proyectos/vihko/Plan.md', actions: [] },
+    { code: 'uid_conflict', uid: '01J8X4M2K9QZ', paths: [inShared('uid/copia.md'), inShared('uid/original.md')], actions: [] },
+    { code: 'sync_conflict', path: conflict, note: inShared('proyectos/vihko/Plan.md'), actions: [] },
   ])
   const copy = await req('GET', `/api/conflict?path=${encodeURIComponent(conflict)}`)
   assert.equal(copy.status, 200)
   assert.match(copy.body.text, /\S/)
-  for (const p of ['Plan.md', '../fuera.md', `proyectos/vihko/${m.aTitle()}.sync-conflict-20260924-120000-ABCDEFG.md`]) {
+  for (const p of [inShared('Plan.md'), '../fuera.md', inShared(`proyectos/vihko/${m.aTitle()}.sync-conflict-20260924-120000-ABCDEFG.md`)]) {
     assert.deepEqual(errorOf(await req('GET', `/api/conflict?path=${encodeURIComponent(p)}`)), [404, 'not_found'], `only detected copies: ${p}`)
   }
 
   // Mass deletion (e.g. an unmounted network folder): the scan stops and raises an alert.
-  for (const d of ['proyectos', 'hogar', 'recetas', 'frontmatter', 'diario', 'uid', 'privado']) rmSync(join(notesDir, d), { recursive: true })
+  for (const d of ['proyectos', 'hogar', 'recetas', 'frontmatter', 'diario', 'uid', 'privado']) rmSync(join(notesDir, SHARED, d), { recursive: true })
   const aborted = (await req('POST', '/api/admin/rescan', {})).body
   assert.equal(aborted.aborted, 'mass_delete')
   const [scan] = await alerts()
@@ -336,7 +343,7 @@ test('workspace alerts: codes with their data and actions based on role', async 
   const stale = (await req('POST', '/api/admin/rescan', { confirmRemoval: (scan!.removing as number) - 1 })).body
   assert.equal(stale.aborted, 'mass_delete')
   const done = (await req('POST', '/api/admin/rescan', { confirmRemoval: scan!.removing })).body
-  assert.deepEqual([done.aborted, done.removed.length], [null, scan!.removing])
+  assert.deepEqual([done.aborted, done.removed], [null, scan!.removing], 'how many, never which')
   assert.deepEqual(await alerts(), [], 'once confirmed, the alert disappears (and its conflicts along with the notes)')
 
   rmSync(notesDir, { recursive: true })
@@ -398,15 +405,15 @@ test('headers: no cache keeps what the API answers, the UI and files keep their 
   mkdirSync(join(webDir, 'assets'))
   writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
   writeFileSync(join(webDir, 'assets', 'app-abc123.js'), 'console.log(1)')
-  const { auth, notesDir, req, raw } = await setup({ webDir })
   const admin = m.aUser({ role: 'admin' })
+  const { auth, notesDir, req, raw } = await setup({ webDir, members: { [admin.username]: 'manage' } })
   await auth.createUser(admin.username, admin.password, admin.role)
   const unauthorized = await raw('/api/tree')
   await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
-  const path = m.aNotePath()
+  const path = m.aNotePath(inShared(''))
   const created = await req('POST', '/api/note', { path, text: m.aParagraph() })
   assert.equal(created.status, 201)
-  const image = `${m.aUniqueWord()}.png`
+  const image = inShared(`${m.aUniqueWord()}.png`)
   writeFileSync(join(notesDir, image), Buffer.from('89504e470d0a1a0a', 'hex'))
   const answers = {
     unauthorized,
@@ -427,11 +434,11 @@ test('headers: no cache keeps what the API answers, the UI and files keep their 
 })
 
 test('CSRF: a write from another origin is rejected', async () => {
-  const { auth, req } = await setup()
   const admin = m.aUser({ role: 'admin' })
+  const { auth, req } = await setup({ members: { [admin.username]: 'manage' } })
   await auth.createUser(admin.username, admin.password, admin.role)
   await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
-  const path = m.aNotePath()
+  const path = m.aNotePath(inShared(''))
   const r = await req('POST', '/api/note', { path, text: m.aSentence() }, { origin: 'https://malicious.example' })
   assert.equal(r.status, 403)
   // An opaque origin (a sandboxed frame, a file) or one that isn't a URL is another origin too, not an error.
@@ -461,7 +468,7 @@ test('state.db: migrations, a copy before migrating, and rejecting future versio
   const old = join(dir, 'old.db')
   copyFileSync(file, old)
   const r = new Database(old)
-  r.exec('drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups; drop table oauth_tokens; drop table oauth_codes; drop table oauth_clients; drop table api_keys; drop table settings; drop table profiles; drop table sessions; drop table users')
+  r.exec('drop table pins; drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups; drop table oauth_tokens; drop table oauth_codes; drop table oauth_clients; drop table api_keys; drop table settings; drop table profiles; drop table sessions; drop table users')
   r.pragma('user_version = 0')
   r.close()
   openState(old).close()

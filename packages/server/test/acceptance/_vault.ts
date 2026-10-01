@@ -18,6 +18,13 @@ const COMMENTER = mother(import.meta.url).aUsername()
 export interface VaultOptions {
   notes?: number
   seed?: number
+  /**
+   * The space (`spaces/<readable>-<id>`, from the notes root) the vault goes
+   * into: every note is in a space (D-056). The paths returned are real paths
+   * (with it); links inside the vault stay relative to it, but for the exact
+   * root form (`[[/…]]`), which names it.
+   */
+  space?: string
 }
 
 export interface Vault {
@@ -128,9 +135,12 @@ interface Spec {
 
 // --- Generator ---------------------------------------------------------------
 
-export function generateVault(dir: string, opts: VaultOptions = {}): Vault {
+export function generateVault(notesDir: string, opts: VaultOptions = {}): Vault {
   const total = opts.notes ?? 1000
   const r = rng(opts.seed ?? 1)
+  const space = opts.space ?? ''
+  const real = (p: string) => (space ? `${space}/${p}` : p)
+  const dir = space ? join(notesDir, space) : notesDir
   mkdirSync(dir, { recursive: true })
   cpSync(EDGE_VAULT, join(dir, 'edge'), { recursive: true })
 
@@ -187,7 +197,7 @@ export function generateVault(dir: string, opts: VaultOptions = {}): Vault {
   // 3. Text of each note.
   const hubLinkForms = (from: string) => [
     '[[Arquitectura]]', '[[Arquitectura|la arquitectura]]', '[[arquitectura]]', `[[Arquitectura#${r.pick(HUB_HEADINGS)}]]`,
-    '[[Arquitectura#Sección que no existe]]', '[[conceptos/Arquitectura]]', '[[/conceptos/Arquitectura]]', '[[arch]]',
+    '[[Arquitectura#Sección que no existe]]', '[[conceptos/Arquitectura]]', `[[/${real('conceptos/Arquitectura')}]]`, '[[arch]]',
     '[[Diseño general|el diseño]]', `[la arquitectura](${encodeDest(relative(from, HUB))})`,
     `[componentes](${encodeDest(relative(from, HUB))}#Componentes)`, '![[Arquitectura]]',
   ]
@@ -256,7 +266,7 @@ export function generateVault(dir: string, opts: VaultOptions = {}): Vault {
     // Search markers.
     if (i % 20 === 10) {
       const word = `marcador${i.toString(36)}zq`
-      markers.push({ word, path: s.nfd ? s.path.normalize('NFD') : s.path }) // as the index knows it: the name on disk
+      markers.push({ word, path: real(s.nfd ? s.path.normalize('NFD') : s.path) }) // as the index knows it: the name on disk
       lines.push(`Palabra rara: ${word}.`, '')
     }
     let text = lines.join('\n')
@@ -290,12 +300,12 @@ export function generateVault(dir: string, opts: VaultOptions = {}): Vault {
   }
   return {
     dir,
-    notes: specs.map((s) => (s.nfd ? s.path.normalize('NFD') : s.path)).sort(),
-    hub: HUB,
-    trap: 'proyectos/cénit/Diseño.md',
-    hubTarget: HUB_TARGET,
+    notes: specs.map((s) => real(s.nfd ? s.path.normalize('NFD') : s.path)).sort(),
+    hub: real(HUB),
+    trap: real('proyectos/cénit/Diseño.md'),
+    hubTarget: real(HUB_TARGET),
     markers,
-    editable: editable.filter((p) => !specs.find((s) => s.path === p)?.nfd && p !== HUB),
+    editable: editable.filter((p) => !specs.find((s) => s.path === p)?.nfd && p !== HUB).map(real),
   }
 }
 

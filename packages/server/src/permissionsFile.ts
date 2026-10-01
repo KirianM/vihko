@@ -12,7 +12,7 @@
 //   valid in force) is never edited by vihko: it's fixed by hand first.
 // - The workspace is reread at once, so the change applies before the answer.
 import { join } from 'node:path'
-import { WORKSPACE_FILE, contentHash, moveRules, removeRules, rewriteSubject, setRule, type RuleValue } from '@vihko/core'
+import { WORKSPACE_FILE, contentHash, moveRules, removeRules, rewriteSubject, rulesOf, setRule, type RuleValue } from '@vihko/core'
 import type { Actor } from './actor.ts'
 import { readText, replaceText } from './fsutil.ts'
 import type { NoteHistory } from './notes.ts'
@@ -33,6 +33,13 @@ export interface PermissionsFileOptions {
   history?: Pick<NoteHistory, 'prepare'>
   /** After each change (the workspace already reread): open editors are checked again (hub.ts). */
   onChange?: () => void
+  /**
+   * After `setRule` changed a folder's rule (someone shared it, or changed
+   * its members): the file's text before, and who did it. Whoever it now
+   * reaches is told (spaceService.ts `notifyShared`). Never for a move, a
+   * deletion or a renamed subject: nobody is added to anything by those.
+   */
+  onRuleSet?: (folder: string, before: string, actor: Actor) => void
 }
 
 export class PermissionsFile {
@@ -97,15 +104,36 @@ export class PermissionsFile {
     return p
   }
 
-  /** The admins' names, for the implicit section written with the first change. */
-  private admins(): string[] {
-    return this.opts.engine.directory.users().filter((u) => u.role === 'admin').map((u) => u.username)
+  /**
+   * Sets one folder's rule (all null: removes it). A shared space's root
+   * takes its `name` too (the space's members are its grants):
+   * `setRule('spaces/home-7k2q9x', { name: 'Home', grants: { ana: 'manage' }, ai: null })`.
+   */
+  async setRule(folder: string, value: RuleValue, opts: { actor: Actor; ifMatch?: string }) {
+    let before = ''
+    const r = await this.update((t) => {
+      before = t
+      return setRule(t, folder, value)
+    }, opts)
+    if (r.changed) {
+      try {
+        this.opts.onRuleSet?.(folder, before, opts.actor)
+      } catch {
+        // Telling people is never why a change fails.
+      }
+    }
+    return r
   }
 
-  /** Sets one folder's rule (both null: removes it, so the folder inherits). */
-  setRule(folder: string, value: RuleValue, opts: { actor: Actor; ifMatch?: string }) {
-    const implicit = this.opts.engine.section.kind === 'implicit' ? this.admins() : undefined
-    return this.update((t) => setRule(t, folder, value, { implicitAdmins: implicit }), opts)
+  /**
+   * Removes the rules of a folder and those under it if it has any: a folder
+   * about to be created from vihko, so that it never takes an audience
+   * forgotten at its path (spec §1.2). Nothing is written when there's none.
+   */
+  async clearRules(folder: string, opts: { actor: Actor }): Promise<void> {
+    const f = folder.normalize('NFC')
+    const has = rulesOf(this.opts.engine.section).some((r) => r.folder === f || r.folder.startsWith(f + '/'))
+    if (has) await this.removeRules(f, opts)
   }
 
   /** Moves the rules of a folder and those under it (see core `moveRules`). */
@@ -120,8 +148,8 @@ export class PermissionsFile {
 
   /**
    * Removes a user's or group's grants everywhere (`@name` for a group): a
-   * user deleted (D-038.8). Their folders stay closed: a rule left without
-   * grants never inherits. Piece U calls it.
+   * user deleted (D-038.8). Their personal space is nobody's from then on
+   * (D-056.8), whatever is written for it. users.ts calls it.
    */
   removeSubjectGrants(subject: string, opts: { actor: Actor }) {
     return this.update((t) => rewriteSubject(t, subject, null), opts)

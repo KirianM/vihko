@@ -227,6 +227,12 @@ A moving tag only goes forward: a fix for an older line (`v1.1.5` once
 `v1.2.0` is out, tagged on a branch of its own) gets `1.1.5` and `1.1`, not
 `1` or `latest`, and isn't marked as the latest Release.
 
+While vihko is at 0.x nothing is frozen: a minor version (0.1 → 0.2) may
+change the surface in `guide/compatibility.md`, with its *Upgrade notes*,
+and a patch version only fixes. The rules below about freezing apply from
+1.0 on; in 0.x, the inventory is kept true the same way, and an incompatible
+change only stops a patch release.
+
 A release that freezes a contract (the first stable version of a new major)
 needs two checks first, while its release candidates are out: an inventory of
 the contract surface, taken from the code, against `guide/compatibility.md`
@@ -317,11 +323,13 @@ failure prints what didn't hold and the container's log.
 
 ## Deprecations
 
-The 1.x contract is listed in
+From 1.0 on, the contract is listed in
 [guide/upgrading.md](guide/upgrading.md#what-a-version-number-promises): the
 HTTP API, the MCP tools, `vihko.yaml`, what vihko writes into notes and the
-Docker interface. When something there has to change within a major, the old
-form is deprecated, not removed: it keeps working until the next major, the
+Docker interface. (In 0.x a minor version may change it outright, with its
+*Upgrade notes*; deprecating first is still preferred where it's cheap.) When
+something there has to change within a major, the old form is deprecated, not
+removed: it keeps working until the next major, the
 changelog says so (under "Deprecated", and in "Upgrade notes" what to use
 instead), and whoever still uses it is told:
 
@@ -362,15 +370,19 @@ npm run screenshots
 ```
 
 It builds the UI, starts a fresh vihko on a copy of the demo workspace in
-`scripts/screenshots/vault` (plain Markdown; the note shown is
-`handbook/Welcome.md`), with two people and a comment thread, and takes the
+`scripts/screenshots/vault` (plain Markdown in the spaces layout: the note
+shown is `handbook/Welcome.md` in the shared space «Team», the admin has notes
+of their own, and the member shares a folder with them), with two people and a
+comment thread, and takes the
 pictures with Chromium from the Playwright image of the installed
 `@playwright/test` (Docker required, as for the browser tests): the desktop in
 light and dark (1440×900 at 2×) and the phone (390×844 at 3×). The split
 `desktop.png` and the side-by-side `mobile.png` are composed in that same
 browser. vihko listens on port 4630 (`SCREENSHOTS_PORT`) and the browser on
 the next one; everything else lives in a temporary folder, removed at the end.
-To change what the pictures show, change the demo notes, not the pictures.
+`SCREENSHOTS_OUT=<folder>` writes the pictures there instead, to look at them
+before they replace the committed ones. To change what the pictures show,
+change the demo notes, not the pictures.
 
 ## Conventions
 

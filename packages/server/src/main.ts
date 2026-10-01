@@ -14,6 +14,8 @@ import { Profiles } from './profiles.ts'
 import { Workspace } from './workspace.ts'
 import { Watcher } from './watcher.ts'
 import { ExternalMoves } from './externalMoves.ts'
+import { RelinkRetries } from './relinkRetries.ts'
+import { Notices } from './notices.ts'
 import { CollabHub } from './hub.ts'
 import { History } from './history/index.ts'
 import { lockState, type StateLock } from './lock.ts'
@@ -30,6 +32,7 @@ import { WORKSPACE_FILE, type WorkspaceMigration } from '@vihko/core'
 import { ConfigMigrations } from './configMigrations.ts'
 import { AccessPolicy } from './access.ts'
 import { PermissionsEngine, groupSource, stateDirectory } from './permissions.ts'
+import { diskSpaceFolders } from './spaceFolders.ts'
 import { PermissionHolds } from './permissionHolds.ts'
 import { Users } from './users.ts'
 import { TwoFactor } from './twoFactor.ts'
@@ -165,7 +168,13 @@ export async function start(config: Config, opts: StartOptions = {}) {
 async function run(config: Config, lock: StateLock, opts: StartOptions) {
   const log = (msg: string) => console.log(`[vihko] ${msg}`)
   const { state, index } = openStores(config, log)
-  const auth = new Auth(state)
+  // Each new user gets their personal folder (people/<name>, D-056).
+  const auth = new Auth(state, { notesDir: config.notesDir })
+  // The product's two folders, and the personal folder of each user there is, before the first scan (spec §7.1).
+  if (auth.personalFolders) {
+    auth.personalFolders.ensureLayout()
+    for (const u of state.prepare('select username from users where deleted_at is null').all() as { username: string }[]) auth.personalFolders.ensure(u.username)
+  }
   const keys = new ApiKeys(state)
   const integrations = new Integrations(state, { locked: config.integrationsLocked })
   // vihko.yaml in the current format before it's read (D-042.6): only here, never while it runs.
@@ -179,7 +188,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   // deletion or a group's rename (http/app.ts fills those hooks in).
   const users = new Users(auth, { hooks: { onSessionsEnded: (id) => hub.checkSessions(id) } })
   // Who reads what (D-038): vihko.yaml's rules over state.db's users and groups.
-  const permissions = new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(state, groupSource(users)) })
+  const permissions = new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(state, groupSource(users)), folders: diskSpaceFolders(config.notesDir) })
   // Before the first scan: a note moved while the server was stopped is detected too.
   const holds = new PermissionHolds({ stateDir: config.stateDir, engine: permissions, log })
   const policy = new AccessPolicy({ index, permissions, holds })
@@ -234,13 +243,17 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   await history.start()
   indexer.onApplied = (applied) => history.recorder.observeIndexed(applied)
 
+  // Notices to one person (notices.ts): the API shows them; a move's links given up adds one.
+  const notices = new Notices(state)
+  // After each rescan, the link rewrites a move couldn't make are tried again (notes, below).
+  let afterRescan = () => {}
   const watcher = new Watcher({
     notesDir: config.notesDir,
     indexer,
     db: index,
     rescanMs: config.rescanSeconds * 1000,
     // The rescan also rereads vihko.yaml: its events can be lost like any other (NFS).
-    onReport: (kind, r) => { if (kind === 'rescan') { runtime.lastScan = r; reloadWorkspace() } },
+    onReport: (kind, r) => { if (kind === 'rescan') { runtime.lastScan = r; reloadWorkspace(); afterRescan() } },
     onError: (err) => log(`watcher: ${err instanceof Error ? err.message : String(err)}`),
     onChange: (paths) => {
       // Files that aren't notes reach the history here (notes, through the indexer).
@@ -254,7 +267,14 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   const notes = new NoteService({
     notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes,
     attachments: () => workspace.config.attachments, history: history.recorder,
+    retries: new RelinkRetries({ stateDir: config.stateDir, log }),
+    // Whoever made the move is told, without names or counts (D-056.21); the log has the rest.
+    onRelinkGaveUp: (entry, failed) => {
+      log(`links in ${failed.length} note(s) still not updated after moving ${entry.reason.from} to ${entry.reason.to}: given up`)
+      notices.relinkGaveUp(entry.reason.by)
+    },
   })
+  afterRescan = () => { notes.retryRelinks().catch((err) => log(`retrying link rewrites: ${err instanceof Error ? err.message : String(err)}`)) }
   // Saved editor states of notes that no longer exist (nor wait in the trash) go.
   const trashed = new Set(notes.trash().map((e) => e.path))
   hub.dropStaleStates((path) => trashed.has(path))
@@ -270,6 +290,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   const unreadable = twoFactor.unreadable().length
   if (unreadable) log(`${unreadable} second factor(s) can't be read ${config.secretBox ? 'with this VIHKO_SECRET_KEY' : 'without VIHKO_SECRET_KEY'}: those people sign in with a recovery code, or run vihko user reset-2fa <name>`)
   const app = createApp({
+    notices,
     auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users, twoFactor,
     policy, holds, onPermissionsChanged: () => hub.recheckAccess(), configMigrations,
     // The MCP server, at /mcp (off until the admin turns it on).

@@ -2,14 +2,14 @@
 // the source of truth, changes and deletions made outside vihko.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { ADMIN, MEMBER, NOTES, specMother } from './env.ts'
+import { ADMIN, MEMBER, NOTES, inVault, specMother } from './env.ts'
 import { editorText, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 /** Words of a sentence, without its full stop. */
 const words = () => m.aSentence().slice(0, -1)
 // The notes it edits and links to (Proxy, Red, enlaces) are testdata/vault's: an integration over it.
-const NOTE = 'hogar/Proxy.md'
+const NOTE = inVault('hogar/Proxy.md')
 const FILE = `${NOTES}/${NOTE}`
 const disk = () => (existsSync(FILE) ? readFileSync(FILE, 'utf8') : '')
 
@@ -87,7 +87,7 @@ test('live preview: marks hidden outside the cursor and a resolved wikilink', as
 })
 
 test('link statuses and navigation by alias', async () => {
-  await k.goto('/?note=hogar/enlaces.md')
+  await k.goto(`/?note=${encodeURIComponent(inVault('hogar/enlaces.md'))}`)
   await expect(k.locator('.cm-wikilink-missing').first()).toBeVisible()
   await k.locator('.cm-wikilink-resolved a', { hasText: 'gw' }).click()
   await expect(k.locator('.crumbs b')).toHaveText('Proxy')
@@ -116,7 +116,7 @@ test('discarding the copy of a note deleted externally: once recreated, it reope
   // A name with a word nothing else has: a search finds only this note.
   const unique = m.aUniqueWord()
   const title = `${m.aTitle()} ${unique}`
-  const folder = m.aFolder()
+  const folder = inVault(m.aFolder())
   const note = `${folder}/${title}.md`
   const file = `${NOTES}/${note}`
   const [first, second, third] = [m.aSentence(), m.aSentence(), m.aSentence()]

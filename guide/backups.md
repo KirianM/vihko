@@ -8,7 +8,7 @@ consistent, and how to restore it.
 
 | What | Where | Why |
 |---|---|---|
-| **The notes folder** | `./notes` (`/data/notes`) | Your notes and their images: the source of truth. Includes `vihko.yaml`, the workspace configuration and its permissions. |
+| **The notes folder** | `./notes` (`/data/notes`) | Everyone's notes and their images, in `people/` and `spaces/`: the source of truth. Includes `vihko.yaml`, the workspace configuration, with the shared spaces' names and who shares what. Back it up whole: a space's folder alone doesn't carry its members. |
 | **`state.db`** | `./state` (`/data/state`) | People, groups, passwords, sessions, invitations, API keys, OAuth clients, second factors and settings. It can't be rebuilt from the notes. |
 | **The history** | `state/history.git/` and `state/history/` | Every version of every note, when vihko manages the history (the default). It doesn't travel with the notes folder: copying the notes doesn't copy their history. |
 | **The trash** | `state/trash/` | Deleted notes and folders, which people can still restore. |
@@ -53,8 +53,9 @@ docker compose start
 
 `sudo` because the files belong to the container's user, which may not be
 yours. `umask 077` makes the archive readable by its owner only: it holds
-every note, their whole history and `state.db`, with nothing of vihko's
-permissions around them. Keep the copies somewhere else than the server:
+every note of every person, their whole history and `state.db`, with nothing
+of vihko's rules around them. Whoever can read a backup reads everyone's
+spaces. Keep the copies somewhere else than the server:
 another disk, another machine, or a backup service, just as private.
 
 For a nightly backup, put those three lines in a script and run it from
@@ -152,7 +153,7 @@ docker run -d --name vihko-restore-test -p 127.0.0.1:8099:8080 \
 
 - `image`: the same image and tag as your `compose.yaml` uses, which
   `docker compose config --images vihko` prints (such as
-  `ghcr.io/kirianm/vihko:1`). A newer version works too; an older one
+  `ghcr.io/kirianm/vihko:0.1`). A newer version works too; an older one
   refuses a `state.db` that a newer one migrated.
 - `--user`: the owner of the restored state folder, which is the user vihko
   ran as, `VIHKO_UID:VIHKO_GID` in your `.env`.

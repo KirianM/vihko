@@ -1,14 +1,17 @@
-// The M4 scenario (m4-multiusuario.md §7), shared by the permission tests
-// and the leak sweep: an admin, a member and another member, a group of the
-// two members (until piece U brings groups, a stand-in `groupsOf`), and a
-// vault (FILES) whose folders, notes, tags and words are the mother's too,
-// the same for every setup of a test file. Rules: the root is the admin's;
-// `<DIR.people>/{user}` → `manage`; the shared folder (`DIR.shared`) → the
-// group edits it, and the admin; the member's diary with `ai: false`. The
-// API with keys, the MCP server and the history, in process.
+// The multi-person scenario (M4's, m4-multiusuario.md §7, in spaces since
+// D-056), shared by the permission tests and the leak sweep: an admin, a
+// member and another member, a group of the two members (a stand-in
+// `groupsOf`), and a vault (FILES) whose folders, notes, tags and words are
+// the mother's too, the same for every setup of a test file. Each person has
+// their own space (`people/<username>`, DIR.people); a shared space
+// (`DIR.shared`) the group edits and the admin manages; a shared space only
+// the admin's (`DIR.admin`); the member's diary with `ai: false`. A person
+// folder named like nobody and a note at the root, outside every space: no
+// one sees them. The API with keys, the MCP server and the history, in
+// process.
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, PermissionHolds, PermissionsEngine, Profiles, Workspace, createServer, mountMcp, openIndex, openState, stateDirectory, toolData, AccessPolicy, type Runtime } from '@vihko/server'
+import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, PermissionHolds, PermissionsEngine, Profiles, Workspace, createServer, diskSpaceFolders, mountMcp, openIndex, openState, stateDirectory, toolData, AccessPolicy, type Runtime } from '@vihko/server'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { tempDir } from './_tmp.ts'
 import { yamlKey } from './_permissions.ts'
@@ -24,8 +27,8 @@ export const GROUP = m.aGroupName()
 /** A name nobody has: `<DIR.people>/<NOBODY>` is the folder of no user. */
 export const NOBODY = m.aUsername()
 
-/** The folders of the scenario: the shared one, the one of everyone's own, the admin's. */
-export const DIR = { shared: m.aFolder(), people: m.aFolder(), admin: m.aFolder() }
+/** The spaces of the scenario: the shared one, the folder of everyone's own, the admin's. */
+export const DIR = { shared: `spaces/${m.aSpaceFolder()}`, people: 'people', admin: `spaces/${m.aSpaceFolder()}` }
 /** The member's diary and recipes folders, inside their own. */
 const DIARY_DIR = m.aFolder()
 const RECIPES_DIR = m.aFolder()
@@ -59,17 +62,18 @@ export const PATH = {
   rootPlan: `${NAME.plan}.md`,
 }
 
+/** Links to the notes of FILES that others link to from another space: their path from the notes root, without `.md` (D-056.4). */
+export const LINK = { list: `[[${PATH.list.slice(0, -3)}]]`, cake: `[[${PATH.cake.slice(0, -3)}]]` }
+
 /** A 1×1 PNG. */
 export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
 
 export const RULES = `# Who reads what
 permissions:
-  "":
-    grants: { ${yamlKey(ADMIN.username)}: manage }
   ${yamlKey(DIR.shared)}:
-    grants: { ${yamlKey(`@${GROUP}`)}: edit, ${yamlKey(ADMIN.username)}: edit }
-  ${yamlKey(`${DIR.people}/{user}`)}:
-    grants: { "{user}": manage }
+    grants: { ${yamlKey(`@${GROUP}`)}: edit, ${yamlKey(ADMIN.username)}: manage }
+  ${yamlKey(DIR.admin)}:
+    grants: { ${yamlKey(ADMIN.username)}: manage }
   ${yamlKey(PATH.diaryDir)}:
     ai: false
 `
@@ -110,7 +114,7 @@ export async function setup(opts: M4Setup = {}) {
   const workspace = new Workspace({ notesDir })
   const indexer = new Indexer({ notesDir, db: index })
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
-  const permissions = new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(state, groups) })
+  const permissions = new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(state, groups), folders: diskSpaceFolders(notesDir) })
   const holds = new PermissionHolds({ stateDir, engine: permissions })
   indexer.onMoves = (m) => holds.consider(m)
   runtime.rescan({})
@@ -206,18 +210,24 @@ export async function setup(opts: M4Setup = {}) {
   }
 }
 
-/** The vault of the scenario: a shared folder, each person's own, the member's diary and recipes, and notes that link across. */
+/**
+ * The vault of the scenario: a shared folder, each person's own, the member's
+ * diary and recipes, and notes that link across spaces (by their path from
+ * the notes root, D-056.4). The list's links to the cake and the plan are by
+ * name: broken for everyone, since a name never reaches another space (a test
+ * that needs a link into a personal space writes `LINK.cake` in the list).
+ */
 export const FILES: Record<string, string | Uint8Array> = {
   // An image destination with a space is no image: written as %20.
   [PATH.list]: `---\ntags: [${TAG.home}]\nuid: ${UID.list}\n---\n# ${m.aHeading()}\n\n${m.aSentence()} [[${NAME.cake}]] [[2026-09-27]]. [[${NAME.plan}]]\n\n![](${NAME.photo.replaceAll(' ', '%20')}.png)\n`,
   [PATH.photo]: PNG,
-  [PATH.diary]: `---\ntags: [${TAG.home}, ${TAG.intimate}]\n---\n# ${m.aHeading()} ${MEMBER.username}\n\n${m.aSentence()} ${WORD.diary}. [[${NAME.list}]]\n`,
-  [PATH.cake]: `---\nuid: ${UID.cake}\n---\n# ${m.aHeading()} ${MEMBER.username}\n\n${m.aSentence()} ${WORD.cake}. [[${NAME.list}]]\n`,
+  [PATH.diary]: `---\ntags: [${TAG.home}, ${TAG.intimate}]\n---\n# ${m.aHeading()} ${MEMBER.username}\n\n${m.aSentence()} ${WORD.diary}. ${LINK.list}\n`,
+  [PATH.cake]: `---\nuid: ${UID.cake}\n---\n# ${m.aHeading()} ${MEMBER.username}\n\n${m.aSentence()} ${WORD.cake}. ${LINK.list}\n`,
   [PATH.memberPhoto]: PNG,
   [PATH.otherNotes]: `# ${m.aHeading()} ${OTHER.username}\n\n${m.aSentence()} ${WORD.other}.\n`,
-  [PATH.adminPlan]: `# ${m.aHeading()} ${ADMIN.username}\n\n${m.aSentence()} ${WORD.admin}. [[${NAME.list}]]\n`,
+  [PATH.adminPlan]: `# ${m.aHeading()} ${ADMIN.username}\n\n${m.aSentence()} ${WORD.admin}. ${LINK.list}\n`,
   [PATH.adminPlanCased]: `# ${m.aHeading()} ${ADMIN.username}\n\n${m.aSentence()} ${WORD.admin}.\n`,
   [PATH.nobodyNote]: `# ${m.aHeading()}\n\n${m.aSentence()} ${WORD.nobody}.\n`,
-  [PATH.settings]: `# ${m.aHeading()}\n\n${m.aSentence()} ${WORD.settings}. [[${NAME.list}]]\n`,
+  [PATH.settings]: `# ${m.aHeading()}\n\n${m.aSentence()} ${WORD.settings}. ${LINK.list}\n`,
   [PATH.rootPlan]: `# ${m.aHeading()}\n\n${m.aSentence()} ${WORD.settings} ${WORD.root}.\n`,
 }

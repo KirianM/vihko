@@ -6,13 +6,13 @@
 // marks, to copy; and a phone.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, inVault, specMother } from './env.ts'
 import { editorText, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 /** Words of a sentence, without its full stop. */
 const words = (n: number) => m.aSentence(n).slice(0, -1)
-const DIR = m.aFolder()
+const DIR = inVault(m.aFolder())
 const NOTE = m.aNotePath(DIR)
 const SHOTS = `${E2E_DIR}/shots`
 /**

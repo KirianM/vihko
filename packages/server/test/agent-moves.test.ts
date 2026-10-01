@@ -72,7 +72,8 @@ test('MCP: move with dry_run gives the audience; widening needs confirm_audience
       const plan = PLAN
       const dry = await c.call('move', { ...plan, dry_run: true })
       assert.equal(dry.error, false, dry.raw)
-      assert.deepEqual(dry.data.audience, { users: { gain: GAINERS, lose: [] }, groups: { gain: [GROUP], lose: [] }, keys: { gain: 0, lose: 0 } })
+      const { users, groups, keys } = dry.data.audience
+      assert.deepEqual({ users, groups, keys }, { users: { gain: GAINERS, lose: [] }, groups: { gain: [GROUP], lose: [] }, keys: { gain: 0, lose: 0 } })
 
       const refused = await c.call('move', plan)
       assert.equal(refused.error, true)

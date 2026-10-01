@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { Indexer, openIndex } from '@vihko/server'
 import { api, closeAll, connect, login } from '../_collab.ts'
+import { inShared } from '../_permissions.ts'
 import { NOTES, PASSWORD, USER, cleanup, memory, metric, percentile, startServer, timed, workspace, type Server } from './_harness.ts'
 
 // Budgets for a usable system on modest hardware, not tuned to pass.
@@ -47,9 +48,9 @@ test(`startup, search and opening notes over ${NOTES} generated notes`, { timeou
       assert.equal(r[0]?.path, m.path, `"${m.word}" finds ${m.path} first`)
     }
     const paths = async (q: string) => (await search(q)).map((r) => r.path.normalize('NFC'))
-    assert.ok((await paths('cafe')).includes('recetas/Café.md'), 'without accents: cafe → Café')
+    assert.ok((await paths('cafe')).includes(inShared('recetas/Café.md')), 'without accents: cafe → Café')
     assert.ok((await paths('pinguino')).length > 0, 'without diaeresis: pinguino → pingüino')
-    assert.ok((await paths('hipervisor')).includes('edge/hogar/Proxy.md'), 'aliases are searchable')
+    assert.ok((await paths('hipervisor')).includes(inShared('edge/hogar/Proxy.md')), 'aliases are searchable')
     assert.ok((await paths('arquitectura')).includes(ws.vault.hub), 'by title')
     assert.deepEqual(await search('zzzz-nothing'), [])
 

@@ -8,6 +8,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { closeAll, connect, login, makeDirs, sleep, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -21,7 +22,7 @@ const FLUSH_WINDOW = 2500
 
 /** A note of the test's own in the vault copy: a uid, a heading and paragraphs of generated text. */
 function aNote(notes: string) {
-  const path = m.aNotePath(m.aFolder())
+  const path = m.aNotePath(inShared(m.aFolder()))
   const file = join(notes, path)
   const text = `---\nuid: ${m.faker.string.ulid()}\n---\n# ${m.aHeading()}\n\n${m.aParagraph()}\n\n${m.aParagraph()}\n`
   mkdirSync(dirname(file), { recursive: true })

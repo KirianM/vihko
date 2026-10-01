@@ -36,6 +36,9 @@
 .perm-add { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
 .select.perm-add-who { flex: 1 1 180px; min-width: 0; height: var(--control-md); font-size: 14px; }
 .perm-cascade { margin: 0; padding: 10px var(--space-3); background: var(--side); border-radius: var(--radius-md); font-size: 13px; line-height: 1.45; color: var(--ink-2); }
+.perm-move { display: flex; flex-direction: column; gap: var(--space-2); }
+.perm-move .hint { margin: 0; }
+.perm-move-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .perm-agents { padding: var(--space-3) var(--space-4); }
 .perm-notice { margin-top: 0; margin-bottom: 0; font-size: 13px; color: var(--ok); }
 

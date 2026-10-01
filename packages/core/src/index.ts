@@ -9,9 +9,9 @@ export {
 } from './markdown.ts'
 export { markdownParser, vihkoSyntax, withoutClosingHashes } from './syntax.ts'
 export { caseFold } from './casefold.ts'
-export { LinkIndex, joinPath, normKey, pathKeys, shortestTarget, type LinkIndexOptions, type NoteKeys, type Resolution } from './resolve.ts'
+export { LinkIndex, isRootTarget, joinPath, linkSpace, normKey, noteName, pathKeys, shortestTarget, wikiLink, type LinkIndexOptions, type NoteKeys, type Resolution } from './resolve.ts'
 export { classifyPath, conflictOriginal, hasControlCharacter, isIgnoredDir, trimSlashes, trimTrailingSlashes, type PathKind } from './paths.ts'
-export type { AccountChange, Alert, AlertAction, AlertCode, ConfigMigrationRef, ErrorCode } from './codes.ts'
+export type { AccountChange, SpaceChange, Alert, AlertAction, AlertCode, ConfigMigrationRef, ErrorCode } from './codes.ts'
 export { newUid } from './uid.ts'
 export { IMAGE_EXTENSIONS, imageMarkdown, isExternalUrl, isImageRef, markdownDest, resolveImageRef } from './images.ts'
 export { addDays, canonicalTimeZone, civilNow, compareDates, formatDate, isValidDate, isoWeek, isoWeekStart, type CivilDate, type CivilDateTime } from './dates.ts'
@@ -23,10 +23,17 @@ export {
   type ConfigError, type ConfigErrorCode, type ParseResult, type StrictSection, type WorkspaceConfig,
 } from './workspace.ts'
 export {
-  CLOSED_PERMISSIONS, IMPLICIT_PERMISSIONS, LEVELS, PermissionsFileError, RuleSet, USER_SEGMENT,
-  atLeast, folderOf, grantsAt, isSubject, levelIn, levelInReach, maxLevel, moveRules, parentFolder, parsePermissions, reachingGrants, removeRules, rewriteSubject, rulesInFile, selfAndAncestors, setRule, subjectKey,
-  type Governing, type Level, type ManagerAbove, type PermissionRule, type Permissions, type Reaching, type RuleMatch, type RuleValue,
+  CLOSED_PERMISSIONS, LEVELS, NO_PERMISSIONS, PermissionsFileError,
+  atLeast, folderOf, isSubject, maxLevel, moveRules, parentFolder, parsePermissions, removeRules, rewriteSubject, rulesInFile, rulesOf, selfAndAncestors, setRule, subjectKey,
+  type Level, type PermissionRule, type Permissions, type RuleValue,
+  SpaceRules, spaceKeyProblem, type Grantee, type ReachingGrant, type SpaceKeyProblem,
 } from './permissions.ts'
+export {
+  PEOPLE, READABLE_MAX, SETTINGS_FOLDER, SPACES, SPACE_ID, SPACE_ID_LENGTH, SPACE_NAME_MAX,
+  displayPath, isReserved, isSpaceRoot, isValidUsername, nameKey, newSpaceFolder, newSpaceId, parseSpaceFolder, parseSpacePath,
+  personalRoot, placement, readablePart, settingsFolder, sharedRoot, spaceNameProblem, spaceOf, spaceRootOf,
+  type DisplayPath, type DisplaySpace, type PersonalSpace, type SharedSpace, type Space, type SpaceKind, type SpacePath,
+} from './spaces.ts'
 export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'
 export { DEFAULT_HISTORY_MAX_FILE_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode, type McpConfig } from './workspace.ts'
 export { WORKSPACE_MIGRATIONS, formatVersion, migrateWorkspaceText, type MigrationOutcome, type WorkspaceMigration } from './workspaceMigrations.ts'

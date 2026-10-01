@@ -11,7 +11,7 @@ import * as Y from 'yjs'
 import { api, canEdit, type CommentOp, type CommentOriginal, type Level, type NoteLinks, type OutgoingLink, type User } from '../api.ts'
 import { errorText, useT } from '../i18n.tsx'
 import { useTheme } from '../theme.ts'
-import { Icon } from '../ui.tsx'
+import { usePathLabels } from '../spaces.tsx'
 import { baseHue, userColor } from '../userColor.ts'
 import type { Session } from './collab.ts'
 import { anchorChanged, commentContext, commentKey, displayDate, formatComment, parseThreads, commentPosition, removedThread, replyTo, resolveThread, type Change, type Thread } from './comments.ts'
@@ -440,6 +440,7 @@ function LinksTab({ links, onNavigate, onPickAmbiguous, onOpenCandidate }: {
   onOpenCandidate: (link: AmbiguousLink, target: string) => void
 }) {
   const t = useT()
+  const labels = usePathLabels()
   if (!links) return <div className="panel-scroll"><p className="panel-empty">{t('common.loading')}</p></div>
   const outgoing = listedOutgoing(links)
   return (
@@ -452,7 +453,7 @@ function LinksTab({ links, onNavigate, onPickAmbiguous, onOpenCandidate }: {
             {l.status === 'resolved' && l.dstPath ? (
               <Button className="link-btn" onPress={() => onNavigate(l.dstPath!)}>
                 <span className="link-name">{linkLabel(l)}</span>
-                <span className="link-path">{l.dstPath}</span>
+                <span className="link-path">{labels.label(l.dstPath)}</span>
               </Button>
             ) : l.status === 'ambiguous' ? (
               // Opens the picker: open one of the candidates, or pin the link to it.
@@ -460,12 +461,6 @@ function LinksTab({ links, onNavigate, onPickAmbiguous, onOpenCandidate }: {
                 <span className="link-name">{linkLabel(l)}</span>
                 <span className="link-badge">{t('editor.linkAmbiguous', { n: l.candidates?.length ?? 0 })}</span>
               </Button>
-            ) : l.status === 'no_access' ? (
-              // Exists, not the person's to read (D-024): no path, no title, nothing to create.
-              <div className="link-btn link-static">
-                <span className="link-name">{linkLabel(l)}</span>
-                <span className="link-badge">{Icon.lock}{t('editor.linkNoAccess')}</span>
-              </div>
             ) : (
               <div className="link-btn link-static">
                 <span className="link-name">{linkLabel(l)}</span>
@@ -475,7 +470,7 @@ function LinksTab({ links, onNavigate, onPickAmbiguous, onOpenCandidate }: {
             {l.status === 'ambiguous' && (
               <ul className="link-candidates">
                 {(l.candidates ?? []).map((c) => (
-                  <li key={c}><Button className="link-btn link-candidate" onPress={() => onOpenCandidate(ambiguous(l), c)}>{c}</Button></li>
+                  <li key={c}><Button className="link-btn link-candidate" onPress={() => onOpenCandidate(ambiguous(l), c)}>{labels.label(c)}</Button></li>
                 ))}
               </ul>
             )}

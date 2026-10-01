@@ -20,9 +20,14 @@ The plan is in `ROADMAP.md`.
    webhooks) lives separately in `state.db`, which never holds note content or
    relations between notes.
 
-3. **Blank canvas.** The system imposes no folder structure or taxonomy.
-   Integration conventions go in configuration, never hardcoded. No hardcoded
-   paths or folder names.
+3. **Blank canvas, inside the spaces.** The notes folder has two fixed
+   top-level folders, `people/` (each person's own space,
+   `people/<username>/`) and `spaces/` (shared spaces,
+   `spaces/<readable>-<id>/`). Those two names are the product's and the only
+   ones hardcoded: links across spaces are written with them. Inside a space
+   the system imposes no folder structure or taxonomy. Integration
+   conventions go in configuration, never hardcoded. No other hardcoded paths
+   or folder names.
 
 4. **Closed by default.** API, MCP and webhooks are optional and off by
    default. Without them nothing gets in or out except through the user (no
@@ -61,12 +66,13 @@ The plan is in `ROADMAP.md`.
   (`packages/web/src/theme/tokens.json`), never hardcoded.
 - Every UI change is checked in a real browser (Playwright, `packages/web/e2e`),
   with two sessions when collaboration is involved.
-- `guide/compatibility.md` is the 1.x contract (API, MCP tools, `vihko.yaml`,
-  environment variables, the Docker image, the command line, what vihko writes
-  into notes). A change to any of it updates that page in the same pull
-  request, and nothing on it changes incompatibly before 2.0. New fields are
-  camelCase over HTTP and snake_case over MCP; errors are codes, the same for
-  both.
+- `guide/compatibility.md` lists the 0.x surface (paths and spaces, API, MCP
+  tools, `vihko.yaml`, environment variables, the Docker image, the command
+  line, what vihko writes into the notes folder). A change to any of it
+  updates that page in the same pull request. In 0.x it may change
+  incompatibly, but only in a minor version and with its *Upgrade notes* in
+  `CHANGELOG.md`; a patch version only fixes. New fields are camelCase over
+  HTTP and snake_case over MCP; errors are codes, the same for both.
 - Minimal solutions before full stacks. Every dependency must justify itself,
   more so when a third party has to deploy it: SQLite before Postgres, a timer
   before a daemon, a file before a broker. Always the latest stable version.

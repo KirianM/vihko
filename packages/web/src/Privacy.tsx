@@ -56,7 +56,9 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
   const reach = (k: KeyInfo) => [
     ...(k.client ? [t('privacy.keyOauth')] : []),
     t(k.canWrite ? 'privacy.keyWrites' : 'privacy.keyReads'),
-    k.folders.length ? t('privacy.keyFolders', { folders: k.folders.map((f) => `${f}/`).join(', ') }) : t('privacy.keyAll'),
+    'foldersHidden' in k && k.foldersHidden
+      ? (k.folders.length ? t('privacy.keyFoldersHidden', { folders: k.folders.map((f) => `${f}/`).join(', ') }) : t('privacy.keyOnlyHidden'))
+      : k.folders.length ? t('privacy.keyFolders', { folders: k.folders.map((f) => `${f}/`).join(', ') }) : t('privacy.keyAll'),
     k.lastUsedAt ? t('privacy.keyUsed', { date: dates.dateTime(k.lastUsedAt), via: via(k) }) : t('privacy.keyUnused'),
   ].join(' · ')
 
@@ -112,7 +114,7 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
           <ul>
             <li>{t('privacy.peopleFolders')}</li>
             <li>{t('privacy.peopleManagers')}</li>
-            <li>{withCode(t('privacy.peoplePersonal'), { rule: '{user}' })}</li>
+            <li>{t('privacy.peoplePersonal')}</li>
             <li>{t('privacy.peopleAdmin')}</li>
           </ul>
         </section>

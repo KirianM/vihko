@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { newNote } from '../src/newNote.ts'
+import { newNote, scopePathFilters } from '../src/newNote.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -19,11 +19,13 @@ test('a «/» separates folders, from the folder it is created from; the title i
   assert.deepEqual(newNote(`${a}/${b}/${title}`, from), { path: `${from}/${a}/${b}/${title}.md`, folder: `${from}/${a}/${b}`, title })
 })
 
-test('a leading «/» starts from the root', () => {
+test('a leading «/» starts from the root of the space it is created in', () => {
   const a = m.aFolder()
   const title = m.aTitle()
-  assert.deepEqual(newNote(`/${a}/${title}`, m.aFolderPath()), { path: `${a}/${title}.md`, folder: a, title })
-  assert.deepEqual(newNote(` /${title}`, m.aFolderPath()), { path: `${title}.md`, folder: '', title })
+  const root = `spaces/${m.aSpaceFolder()}`
+  const from = `${root}/${m.aFolderPath()}`
+  assert.deepEqual(newNote(`/${a}/${title}`, from, root), { path: `${root}/${a}/${title}.md`, folder: `${root}/${a}`, title })
+  assert.deepEqual(newNote(` /${title}`, from, root), { path: `${root}/${title}.md`, folder: root, title })
 })
 
 // The literals are the cases: what a typed name is cleaned of.
@@ -32,6 +34,18 @@ test('each part is cleaned: spaces, control characters, «\\», leading dots, «
   assert.deepEqual(newNote('x\\y/Na\u0007me', ''), { path: 'x-y/Name.md', folder: 'x-y', title: 'Name' })
   // NFC: a name typed decomposed is the same name.
   assert.deepEqual(newNote('Cafe\u0301', ''), { path: 'Café.md', folder: '', title: 'Café' })
+})
+
+test('a path filter typed inside a space searches in the current space; one from the notes root stays as typed', () => {
+  const root = `spaces/${m.aSpaceFolder()}`
+  const [a, b] = [m.aFolder().replace(/\s/g, '-'), `${m.aWord()} ${m.aWord()}`]
+  const word = m.aWord()
+  assert.equal(scopePathFilters(`${word} path:${a}/`, root), `${word} path:${root}/${a}/`)
+  assert.equal(scopePathFilters(`-path:"${b}/" ${word}`, root), `-path:"${root}/${b}/" ${word}`)
+  assert.equal(scopePathFilters(`path:/${a}`, root), `path:${root}/${a}`)
+  const other = `people/${m.aUsername()}/${a}`
+  assert.equal(scopePathFilters(`path:${other}`, root), `path:${other}`)
+  assert.equal(scopePathFilters(`tag:${word}`, root), `tag:${word}`)
 })
 
 test('without a name there is nothing to create', () => {

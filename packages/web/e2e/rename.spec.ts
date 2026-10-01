@@ -2,20 +2,23 @@
 // creates its own notes at the start so it never touches other specs' notes.
 import { expect, test, type Page } from '@playwright/test'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, SPACE, SPACE_NAME, inVault, specMother } from './env.ts'
 import { editorText, literally, png, sendFiles, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 /** A sentence no other text of the spec contains (it carries a unique word). */
 const line = () => `${m.aSentence(m.anInt(2, 5)).slice(0, -1)} ${m.aUniqueWord()}.`
-/** A path as the tree, the breadcrumbs and the previews show it: `a/b/c.md` → `a / b / c`. */
-const label = (path: string) => path.replace(/\.md$/i, '').split('/').join(' / ')
+/** A path of the vault's space as the breadcrumbs and the previews show it: `spaces/x-id/a/b.md` → `<its name> / a / b` (D-056). */
+const label = (path: string) => [SPACE_NAME, ...inner(path).replace(/\.md$/i, '').split('/')].join(' / ')
+/** A path inside the vault's space, as the move dialogs' «Carpeta» takes it. */
+const inner = (path: string) => path.slice(SPACE.length + 1)
 /** A generated name as a Markdown link destination (they have only letters and spaces: vihko writes a space as %20). */
 const dest = (path: string) => path.replace(/ /g, '%20')
 /** The path in the page's URL (?note=…): a space as `+` or `%20`. */
 const inUrl = (path: string) => new RegExp(`note=${literally(encodeURIComponent(path)).replace(/%20/g, '(?:\\+|%20)')}`)
 
-const DIR = m.aFolder()
+const DIR_NAME = m.aFolder()
+const DIR = inVault(DIR_NAME)
 const NAME = m.aTitle()
 const NEW_NAME = m.aTitle()
 const ARCHIVE = m.aFolder()
@@ -63,7 +66,7 @@ async function openRename(page: Page) {
 
 test('rename with preview: links are rewritten on disk and both editors follow the note', async () => {
   await expect(k.locator('.presence .avatar')).toHaveCount(2)
-  await k.getByRole('row', { name: DIR, exact: true }).click()
+  await k.getByRole('row', { name: DIR_NAME, exact: true }).click()
   await k.keyboard.press('ArrowRight')
   await expect(k.getByRole('row', { name: NAME, exact: true })).toBeVisible()
   const dialog = await openRename(k)
@@ -118,7 +121,7 @@ test('rename with preview: links are rewritten on disk and both editors follow t
 test('a name that already exists is explained and cannot be confirmed', async () => {
   const dialog = await openRename(k)
   await dialog.getByLabel('Nuevo nombre').fill(LINKS_NAME)
-  await expect(dialog.getByRole('alert')).toHaveText('Ya existe una nota con ese nombre.')
+  await expect(dialog.getByRole('alert')).toHaveText('Ese nombre no está disponible aquí.')
   await expect(dialog.getByRole('button', { name: 'Renombrar' })).toBeDisabled()
   await dialog.getByRole('button', { name: 'Cancelar' }).click()
   await expect(k.getByRole('dialog')).toHaveCount(0)
@@ -126,7 +129,7 @@ test('a name that already exists is explained and cannot be confirmed', async ()
 
 test('move to another folder: the button says "Mover" and only what would stop resolving changes', async () => {
   const dialog = await openRename(k)
-  await dialog.getByLabel('Carpeta').fill(`${DIR}/${ARCHIVE}`)
+  await dialog.getByLabel('Carpeta').fill(`${DIR_NAME}/${ARCHIVE}`)
   await expect(dialog.locator('.preview-change')).toHaveText(`[${LINK_TEXT}](${dest(NEW_NAME)}.md) → [${LINK_TEXT}](${dest(`${ARCHIVE}/${NEW_NAME}`)}.md)`)
   await expect(dialog.locator('.preview-kept', { hasText: `[[${NEW_NAME}]] sigue funcionando: no se toca` })).toBeVisible()
   await dialog.getByRole('button', { name: 'Mover y actualizar 1 enlace' }).click()
@@ -275,7 +278,7 @@ test('moving a note with images: its pasted image goes with it, a shared one sta
   await expect.poll(stayed, { timeout: 15_000 }).toBe(1)
 
   const dialog = await openRename(k)
-  await dialog.getByLabel('Carpeta').fill(to)
+  await dialog.getByLabel('Carpeta').fill(inner(to))
   await expect(dialog.locator('.preview-image').first()).toHaveText(`${label(`${from}/${pasted}`)}va con la nota a ${label(`${to}/${pasted}`)}`)
   await expect(dialog.locator('.preview-image.preview-kept')).toHaveText(`${label(`${from}/${shared}`)}se queda: la usan otras notas`)
   await expect(dialog.locator('.preview-change')).toHaveText(`![](${dest(shared)}) → ![](${dest(`../${fromName}/${shared}`)})`)
@@ -327,7 +330,7 @@ test('the preview lists ambiguous links the move would resolve, by note, and the
 
   const fill = async (page: Page) => {
     const dialog = await openRename(page)
-    await dialog.getByLabel('Carpeta').fill(dir)
+    await dialog.getByLabel('Carpeta').fill(inner(dir))
     await expect(dialog.locator('.shifts')).toBeVisible()
     return dialog
   }

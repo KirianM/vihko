@@ -3,11 +3,11 @@
 // of looking empty. At the end the folder goes back to having no vihko.yaml.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES, inVault, specMother } from './env.ts'
 import { signIn, writeWorkspace } from './helpers.ts'
 
 const m = specMother(import.meta.url)
-const DIR = m.aFolder()
+const DIR = inVault(m.aFolder())
 const NOTE = m.aNotePath(DIR)
 const TEXT = m.aSentence()
 const excluded = async (page: Page) => {

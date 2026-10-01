@@ -8,6 +8,7 @@ import type { HistoryStatus, PurgeReport } from './api.ts'
 import { PurgeDialog, purgedText } from './Purge.tsx'
 import { changeText } from './format.ts'
 import { Authors, Counts, useDates, type VersionsStore } from './ui.tsx'
+import { usePathLabels } from '../spaces.tsx'
 
 /** Why there is no history to show, or why new versions aren't being saved (managed mode keeps listing). */
 export function HistoryNotice({ status }: { status: HistoryStatus }) {
@@ -33,6 +34,7 @@ export function HistoryTab({ store, status, current, onOpen, path, canPurge = fa
   onPurged?: (report: PurgeReport) => void
 }) {
   const t = useT()
+  const { label: pathLabel } = usePathLabels()
   const dates = useDates()
   const [purging, setPurging] = useState(false)
   const [purged, setPurged] = useState<string | null>(null)
@@ -91,7 +93,7 @@ export function HistoryTab({ store, status, current, onOpen, path, canPurge = fa
             </div>
           )}
           {purging && path && (
-            <PurgeDialog path={path} onCancel={() => setPurging(false)} onDone={(r) => { setPurging(false); setPurged(purgedText(t, r)); onPurged?.(r) }} />
+            <PurgeDialog path={path} onCancel={() => setPurging(false)} onDone={(r) => { setPurging(false); setPurged(purgedText(t, r, pathLabel)); onPurged?.(r) }} />
           )}
         </>
       )}

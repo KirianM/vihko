@@ -152,7 +152,9 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
     const byTag = results.search![7]!.data.results.map((r: { path: string }) => r.path)
     assert.deepEqual(byTag, [PATH.visible])
     // Folders: nothing outside, no folder that only holds hidden notes.
-    assert.deepEqual(results.list_folder![0]!.data.entries, [{ kind: 'folder', path: DIR.key }])
+    // At the top, only folders on the way to its folder (which ones is how the root lists spaces, piece S).
+    const top = results.list_folder![0]!.data.entries as { kind: string; path: string }[]
+    assert.ok(top.length > 0 && top.every((e) => e.kind === 'folder' && (e.path === DIR.key || DIR.key.startsWith(e.path + '/'))), JSON.stringify(top))
     const everything = results.list_folder![1]!.data.entries.map((e: { path: string }) => e.path)
     assert.ok(everything.includes(PATH.visible) && !everything.some((p: string) => p === PATH.secret || p.includes(SUB.onlyHidden)), everything.join())
     // Links in the note: to a hidden note, `no_access` without where; an ambiguous one keeps what it sees.

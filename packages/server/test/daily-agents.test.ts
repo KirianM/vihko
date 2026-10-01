@@ -9,14 +9,15 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setup } from './_agents.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
 const TODAY = '2026-09-26' // the setup's clock
 /** The key's folder; outside it, another one. Names the key must never see are unique words. */
-const INSIDE = m.aFolder()
-const OUTSIDE = m.aUniqueWord()
+const INSIDE = inShared(m.aFolder())
+const OUTSIDE = inShared(m.aUniqueWord())
 const DIARY = m.aUniqueWord()
 const EMPTY = m.aUniqueWord()
 /** Series: the person's own (in the key's folder, hidden from agents), one outside, one outside with no note. */

@@ -62,7 +62,13 @@ export type ErrorCode =
   | 'two_factor_disabled' // the admin turned the second factor off: it can't be set up
   | 'two_factor_required' // the admin requires a second factor: one's own can't be turned off
   | 'two_factor_off' // no second factor in force to change
-  | 'hold_owner_only' // notes held after leaving a personal folder: only whoever manages that folder releases them (D-046.4)
+  | 'outside_space' // creating or moving something at the root of the notes folder, in `people/` or `spaces/`, or anywhere in no space (D-056)
+  | 'space_root' // a space's root can't be made, renamed, moved (or a personal one deleted) as a folder (D-056)
+  | 'held_inside' // a folder that holds notes held after a move made outside vihko can't be deleted until they're released (spec §2.7)
+  | 'personal_folder_exists' // a new user whose personal folder (people/<name>) already exists with something in it, made outside vihko
+  | 'leave_via_group' // leaving a space or a folder one reaches through a group (`group`): the admin takes them out of the group
+  | 'space_has_managers' // the admin assigns a manager only to a shared space that has none
+  | 'space_needs_manager' // a deleted person's space made a shared space needs at least one member who manages it
 
 /**
  * Space-level alerts: what vihko has detected in the notes folder that needs
@@ -144,9 +150,10 @@ export type Alert =
    * Someone purged a path (a note, or a folder with everything in it) or one
    * version of a note from the history while vihko ran (D-038.9): which,
    * who (`by`, their name) and when (`at`, ISO). Never anything of the
-   * content. Only admins see it, until they dismiss it.
+   * content. Only admins see it, until they dismiss it; `path` is null for
+   * an admin who can't read where it was (a space that isn't theirs, D-056.24).
    */
-  | { code: 'history_purged'; id: string; path: string; version: string | null; by: string; at: string; actions: 'dismiss'[] }
+  | { code: 'history_purged'; id: string; path: string | null; version: string | null; by: string; at: string; actions: 'dismiss'[] }
   /** `history.mode: unmanaged`, but the notes folder isn't inside a git repository: there is no history to show. */
   | { code: 'history_no_repository'; actions: never[] }
   /**
@@ -171,23 +178,40 @@ export type Alert =
    */
   | { code: 'permissions_rejected'; fallback: 'last_good' | 'closed'; actions: never[] }
   /**
-   * Notes moved outside vihko out of `folder`, which has permissions of its
-   * own, into a folder where others apply: nobody reads them until someone
-   * decides. `move_permissions` moves the folder's rules to `to` (where the
-   * notes went); `release` accepts what they get where they are. `notes`:
-   * how many. For the admin and whoever manages `folder`. With `personal`,
-   * they came from a personal folder (D-046.4): only whoever manages it
-   * decides; anyone else gets that folder as `folder`, no `to` and no
-   * actions.
+   * Notes moved outside vihko out of `folder` to where someone who didn't
+   * read them would: nobody reads them until they go back or someone
+   * releases them (`release`: they get what they get where they are).
+   * `notes`: how many. Only for whoever could have made that move from vihko
+   * (`edit` where they were and where they are, spec §2.7).
    */
-  | { code: 'permissions_held'; id: string; folder: string; to: string | null; notes: number; personal: boolean; actions: ('move_permissions' | 'release')[] }
+  | { code: 'permissions_held'; id: string; folder: string; notes: number; actions: 'release'[] }
   /**
-   * New images go to one folder for everyone (`attachments.mode: folder`),
-   * with more than one person: the image of a private note lands where
-   * others may read it (an image has its folder's permissions). `per-note`
-   * or `next-to-note` keep each image with its note. Only admins see it.
+   * Grants in vihko.yaml for folders that don't exist (moved or deleted
+   * outside vihko, or not seen yet on a network disk): kept, and applied again
+   * if they come back. For whoever manages the space they're in, never the
+   * admin as such, who doesn't see the names of folders inside spaces
+   * (spec §1.2).
    */
-  | { code: 'attachments_shared_folder'; folder: string; actions: never[] }
+  | { code: 'missing_folder'; folders: string[]; actions: never[] }
+  /**
+   * What is in the notes folder outside every space (`paths`: top-level
+   * names, and folders in `spaces/` that aren't a space): nobody sees it in
+   * vihko (D-056.4). `into`: the admin's own space, where they can move it
+   * on the disk (D-056.28). Only admins see it.
+   */
+  | { code: 'outside_spaces'; paths: string[]; into: string; actions: never[] }
+  /**
+   * Spaces of deleted people nobody has decided about yet (`people`: their
+   * usernames, D-056.28): closed, nobody sees them until the admin
+   * transfers, converts or deletes each one. Only admins see it.
+   */
+  | { code: 'closed_spaces'; people: string[]; actions: never[] }
+  /** Folders in `people/` named like no user, active, disabled or deleted (`names`): nobody sees them. Only admins see it. */
+  | { code: 'person_folder_without_user'; names: string[]; actions: never[] }
+  /** A shared space nobody has access to (`path`, `name`): the admin assigns a manager (spec §2.4). Only admins see it. */
+  | { code: 'space_without_members'; path: string; name: string; actions: never[] }
+  /** A shared space with members but nobody who manages it (`path`, `name`): the admin assigns one (D-056.8). Only admins see it. */
+  | { code: 'space_without_managers'; path: string; name: string; actions: never[] }
   /**
    * Addressed to one person (M4.1): the vihko admin `by` (their name) gave
    * them a password reset link, took their second factor away or changed
@@ -204,12 +228,48 @@ export type Alert =
    */
   | { code: 'history_purged_authored'; id: string; path: string | null; version: boolean; by: string; at: string; actions: 'dismiss'[] }
   /**
+   * Addressed to one person (D-056.21): a move they made (or an agent of
+   * theirs) left links in other notes that couldn't be updated, even tried
+   * again after the next rescan. No path, name or count. Until dismissed.
+   */
+  | { code: 'links_not_updated'; id: string; at: string; actions: 'dismiss'[] }
+  /**
    * Second factors stored encrypted with a VIHKO_SECRET_KEY that isn't the
    * one in force (or with none set): their codes can't be checked, so those
    * people (`users`, names) sign in with a recovery code, or the admin takes
    * theirs away (`vihko user reset-2fa`). Only admins see it.
    */
   | { code: 'two_factor_unreadable'; users: string[]; actions: never[] }
+  /**
+   * Addressed to one person (D-056.8, spec §2.4 and §2.6): what someone did
+   * to a space that concerns them, until they dismiss it. `by` (a name) did
+   * `change` at `at` (ISO):
+   * - `manager_assigned`: the admin made `user` a manager of `space` (told to
+   *   `user`, and to every other admin);
+   * - `admin_joined`: the admin `by` added themselves to `space` (told to its
+   *   managers);
+   * - `personal_transferred`: the admin gave the deleted `user`'s personal
+   *   space to `to`, where it is now `space` (told to `to`, and to every other
+   *   admin);
+   * - `personal_converted`: the admin made the deleted `user`'s personal space
+   *   the shared space `space` (told to its members, and to every other admin);
+   * - `personal_deleted`: the admin deleted the deleted `user`'s personal
+   *   space (told to every other admin).
+   * `space`: its path and name while the person can still see it, else null.
+   */
+  | { code: 'space_changed'; id: string; change: SpaceChange; by: string; user: string | null; to: string | null; space: { path: string; name: string | null } | null; at: string; actions: 'dismiss'[] }
+
+  /**
+   * Addressed to one person (D-056.22): `by` (a name) added them to a shared
+   * space (`kind: 'space'`, `name` its name) or shared a folder with them
+   * (`kind: 'folder'`, `name` the folder's; `owner` the personal space's
+   * owner, or `space` the shared space's name) at `at`. Its path and names
+   * only while they can still see it; all null otherwise.
+   */
+  | { code: 'shared_with_you'; id: string; kind: 'space' | 'folder'; by: string; path: string | null; name: string | null; owner: string | null; space: string | null; at: string; actions: 'dismiss'[] }
+
+/** What was done to a space that someone is told about (`space_changed`). */
+export type SpaceChange = 'manager_assigned' | 'admin_joined' | 'personal_transferred' | 'personal_converted' | 'personal_deleted'
 
 /** One of vihko.yaml's format migrations, as the log and the admin see it (server configMigrations.ts). */
 export interface ConfigMigrationRef {

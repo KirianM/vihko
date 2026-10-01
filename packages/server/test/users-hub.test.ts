@@ -7,21 +7,21 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { api, closeAll, connect, login, makeDirs, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
-import { yamlKey } from './_permissions.ts'
+import { everyone, inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 // A note of the test vault (testdata/vault), which makeDirs copies.
-const NOTE = 'hogar/Proxy.md'
+const NOTE = inShared('hogar/Proxy.md')
 
 /**
- * The notes folder, with its admin managing everything and a member (created
+ * The notes folder, with its admin managing the shared space and a member (created
  * by the test) editing it (a member sees nothing until granted, D-038).
  */
 function dirs() {
   const d = makeDirs()
   const member = m.aUser()
-  writeFileSync(join(d.notes, 'vihko.yaml'), `permissions:\n  "": { grants: { ${yamlKey(d.admin.username)}: manage, ${yamlKey(member.username)}: edit } }\n`)
+  writeFileSync(join(d.notes, 'vihko.yaml'), everyone(d.admin.username, member.username))
   return { ...d, member }
 }
 

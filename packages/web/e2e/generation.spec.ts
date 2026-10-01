@@ -9,11 +9,11 @@
 // the tab's copy merges as usual: no copy, nothing twice (D-032.4).
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, inVault, specMother } from './env.ts'
 import { editorText, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
-const DIR = m.aFolder()
+const DIR = inVault(m.aFolder())
 /** The lines: the note's first, one sent, one typed offline, one from another editor, one by the member, one typed later. Each a word nothing else has, so it is counted exactly. */
 const [FIRST, SENT, UNSENT, EXTERNAL, BY_MEMBER, LATER] = Array.from({ length: 6 }, () => m.aUniqueWord()) as [string, string, string, string, string, string]
 const state = (note: string) => `${E2E_DIR}/state/collab/${encodeURIComponent(note)}.ystate`

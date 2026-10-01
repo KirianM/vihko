@@ -20,7 +20,7 @@ const warnings = (text: string, strict?: readonly StrictSection[]) => {
 }
 
 test('vihko.yaml: empty or just comments is valid and turns nothing on', () => {
-  for (const text of ['', '# nothing yet\n', '---\n']) assert.deepEqual(parseWorkspaceConfig(text), { ok: true, config: EMPTY_WORKSPACE, warnings: [], sections: { permissions: { kind: 'implicit' } } })
+  for (const text of ['', '# nothing yet\n', '---\n']) assert.deepEqual(parseWorkspaceConfig(text), { ok: true, config: EMPTY_WORKSPACE, warnings: [], sections: { permissions: { kind: 'none' } } })
 })
 
 test('vihko.yaml: series, templates and attachments', () => {
@@ -42,13 +42,23 @@ attachments:
   folder: Adjuntos
 `)
   assert.ok(r.ok)
-  assert.equal(r.config.templates, 'Plantillas')
+  assert.deepEqual(r.config.templates, ['Plantillas'])
   assert.deepEqual(r.config.attachments, { folder: 'Adjuntos' })
   assert.deepEqual(r.config.daily, [
     { id: 'diario', label: 'Mi diario', folder: 'Diario/{user}', name: '{YYYY}-{MM}-{DD}', template: 'Plantillas/Diario.md', period: 'day' },
     { id: 'equipo', label: null, folder: 'Equipo', name: '{YYYY}-{MM}-{DD} reunión', template: null, period: 'day' },
     { id: 'semanas', label: null, folder: 'Semanas', name: '{GGGG}-W{WW}', template: null, period: 'week' },
   ])
+})
+
+test('vihko.yaml: templates is one folder or a list of them, each with {user} if wanted, each once', () => {
+  const own = `people/{user}/${m.aFolder()}`
+  const shared = `spaces/${m.aSpaceFolder()}/${m.aFolder()}`
+  const r = parseWorkspaceConfig(`templates:\n  - ${JSON.stringify(own)}\n  - ${JSON.stringify(shared)}\n  - ${JSON.stringify(own)}\n`)
+  assert.ok(r.ok)
+  assert.deepEqual(r.config.templates, [own, shared])
+  assert.deepEqual(errors(`templates:\n  - ${JSON.stringify(own)}\n  - "../x"\n`), [['invalid_path', 'templates.1', 3]])
+  assert.deepEqual(errors('templates: [3]\n'), [['invalid_type', 'templates.0', 1]])
 })
 
 test('vihko.yaml: links.aliases turns alias resolution off; on by default', () => {
@@ -133,7 +143,7 @@ test('vihko.yaml: unknown keys are reported and ignored; the rest applies', () =
   const r = parseWorkspaceConfig('templtes: Plantillas\ntemplates: P\nattachments:\n  fodler: x\n  folder: A\ndaily:\n  d:\n    folder: D\n    fromat: x\n')
   assert.ok(r.ok)
   assert.deepEqual(brief(r.warnings), [['unknown_key', 'templtes', 1], ['unknown_key', 'attachments.fodler', 4], ['unknown_key', 'daily.d.fromat', 9]])
-  assert.equal(r.config.templates, 'P')
+  assert.deepEqual(r.config.templates, ['P'])
   assert.deepEqual(r.config.attachments, { folder: 'A' })
   assert.deepEqual(r.config.daily.map((s) => s.folder), ['D'])
 })
@@ -144,7 +154,7 @@ test('vihko.yaml: version is optional; a newer one warns and applies what is und
   assert.ok(r.ok)
   assert.deepEqual(brief(r.warnings), [['newer_version', 'version', 1], ['unknown_key', 'newer_feature', 3]])
   assert.equal(r.warnings[0]!.detail, '2')
-  assert.equal(r.config.templates, 'P')
+  assert.deepEqual(r.config.templates, ['P'])
   for (const bad of ['0', '-1', '1.5', 'dos', '"1"']) assert.deepEqual(errors(`version: ${bad}\n`), [['invalid_version', 'version', 1]], bad)
 })
 
@@ -155,19 +165,25 @@ test('vihko.yaml: a wrong value in a known key still makes the file unusable', (
   assert.deepEqual(brief(r.warnings), [['unknown_key', 'unknown', 1]])
 })
 
-test('vihko.yaml: permissions is a strict section: rejected, nobody reads; missing, the implicit one', () => {
-  const r = parseWorkspaceConfig(`templates: P\npermissions:\n  Privado: {grants: {${USER}: edit}}\n`)
+test('vihko.yaml: permissions is a strict section: rejected, nothing is shared; missing, none', () => {
+  // A folder of someone's personal space (D-056): keys are real paths inside a space.
+  const folder = `people/${m.aUsername()}/${m.aFolder()}`
+  const r = parseWorkspaceConfig(`templates: P\npermissions:\n  ${JSON.stringify(folder)}: {grants: {${USER}: edit}}\n`)
   assert.ok(r.ok)
   assert.deepEqual(r.warnings, [])
-  assert.deepEqual(r.sections.permissions, { kind: 'rules', rules: [{ folder: 'Privado', grants: { [USER]: 'edit' }, ai: null }] })
-  const bad = parseWorkspaceConfig(`templates: P\npermissions:\n  Privado: {${USER}: edit}\n`)
+  assert.deepEqual(r.sections.permissions, { kind: 'rules', rules: [{ folder, grants: { [USER]: 'edit' }, ai: null }] })
+  const bad = parseWorkspaceConfig(`templates: P\npermissions:\n  ${JSON.stringify(folder)}: {${USER}: edit}\n`)
   assert.ok(bad.ok, 'never blocks the rest')
-  assert.equal(bad.config.templates, 'P')
+  assert.deepEqual(bad.config.templates, ['P'])
   assert.deepEqual(bad.sections.permissions, { kind: 'closed' })
-  assert.deepEqual(brief(bad.warnings), [['section_rejected', 'permissions', 2], ['unknown_key', `permissions.Privado.${USER}`, 3]])
+  assert.deepEqual(brief(bad.warnings), [['section_rejected', 'permissions', 2], ['unknown_key', `permissions.${folder}.${USER}`, 3]])
+  // A folder in no space rejects it too.
+  const outside = parseWorkspaceConfig(`templates: P\npermissions:\n  ${JSON.stringify(m.aFolder())}: {grants: {${USER}: edit}}\n`)
+  assert.ok(outside.ok)
+  assert.deepEqual(outside.sections.permissions, { kind: 'closed' })
   const none = parseWorkspaceConfig('templates: P\n')
   assert.ok(none.ok)
-  assert.deepEqual(none.sections.permissions, { kind: 'implicit' })
+  assert.deepEqual(none.sections.permissions, { kind: 'none' })
 })
 
 // A stand-in for a security section (M4's permissions): strict, failing closed.
@@ -195,7 +211,7 @@ test('vihko.yaml: a strict section with any doubt is rejected alone and fails cl
   // A typo inside the strict section is not ignored like elsewhere: the whole section goes.
   const typo = parseWorkspaceConfig('templates: P\nsharing:\n  shared: [Público]\n  sahred: [Privado]\n', [FAKE])
   assert.ok(typo.ok, 'the rest of the file still applies')
-  assert.equal(typo.config.templates, 'P')
+  assert.deepEqual(typo.config.templates, ['P'])
   assert.deepEqual(typo.sections, { sharing: { shared: [] } }, 'the most restrictive setting, not the half that parsed')
   assert.deepEqual(brief(typo.warnings), [['section_rejected', 'sharing', 2], ['unknown_key', 'sharing.sahred', 4]])
 

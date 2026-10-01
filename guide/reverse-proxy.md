@@ -166,7 +166,7 @@ What goes wrong without them:
   proxy. The sign-in limits then count everyone as one client: someone
   guessing passwords makes everyone else wait to sign in. vihko warns in the
   log at start when `VIHKO_PUBLIC_URL` is set and this isn't. The limits
-  themselves are described in [Users and permissions](users-and-permissions.md).
+  themselves are described in [Spaces, people and sharing](users-and-permissions.md).
 - **Without `VIHKO_PUBLIC_URL`**, everything works in the browser, but remote
   MCP clients can't sign in with OAuth (every OAuth address answers 404), and
   `vihko user reset-link` prints the link without the address in front.

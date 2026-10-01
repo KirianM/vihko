@@ -14,7 +14,11 @@
 //   newcomer with the same name, D-038.8). Their keys are revoked for good
 //   and their secrets wiped (each keeps its name, for the history, as a
 //   revoked key does); sessions, links, profile, memberships, second
-//   factor and notices go.
+//   factor, notices and pins go. Their personal space (`people/<name>`)
+//   stays on the disk, closed: nobody sees it, the admin included, nor what
+//   they shared from it (D-056.8); the admin may then transfer it, make it a
+//   shared space or delete it (spaceService.ts).
+// - A new user gets their personal folder (auth.ts, personalFolders.ts).
 // - The last active admin can't be demoted, disabled or deleted.
 // - Groups are permission subjects (`@name` in vihko.yaml): the admin
 //   creates, renames and fills them. Everyone signed in sees the names of
@@ -31,6 +35,9 @@ import { AuthError, MIN_PASSWORD, hashPassword, validName, type Auth, type Role,
 
 /** How long a one-time link works. */
 export const LINK_DAYS = 7
+
+/** Group names vihko keeps for itself: subjects of grants to everyone, should they come (`@everyone`, D-056.28). */
+export const RESERVED_GROUPS: readonly string[] = ['everyone', 'all', 'public', 'anyone']
 
 /** `invited`: never chose a password (a link may be pending). */
 export type UserStatus = 'active' | 'invited' | 'disabled'
@@ -100,6 +107,14 @@ export class UsersError extends Error {
 export interface UserHooks {
   /** Before a user is deleted: their grants in vihko.yaml go. If it throws, the user isn't deleted. */
   onUserDeleted?(username: string, by: Actor): void | Promise<void>
+  /**
+   * After a user is deleted: their personal space is closed (D-056.8), so
+   * whoever has one of its notes open elsewhere (a folder it shared) loses it
+   * now (the hub checks every editor's access again).
+   */
+  onUserRemoved?(userId: string): void
+  /** After someone joined or left a group: what they reach through it changed (the hub checks every editor's access again). */
+  onMembersChanged?(): void
   /** Before a group is renamed: its grants follow it. If it throws, the group keeps its name. */
   onGroupRenamed?(from: string, to: string, by: Actor): void | Promise<void>
   /** Before a group is deleted: its grants go. If it throws, the group stays. */
@@ -261,13 +276,14 @@ export class Users {
     this.db.transaction(() => {
       const now = this.now().toISOString()
       this.db.prepare("update users set deleted_at = ?, password_hash = '', disabled = 1 where id = ?").run(now, id)
-      for (const t of ['sessions', 'user_links', 'profiles', 'group_members', 'oauth_codes', 'two_factor', 'recovery_codes', 'notices']) this.db.prepare(`delete from ${t} where user_id = ?`).run(id)
+      for (const t of ['sessions', 'user_links', 'profiles', 'group_members', 'oauth_codes', 'two_factor', 'recovery_codes', 'notices', 'pins']) this.db.prepare(`delete from ${t} where user_id = ?`).run(id)
       this.db.prepare('delete from oauth_tokens where key_id in (select id from api_keys where user_id = ?)').run(id)
       // Revoked for good, with nothing left that could prove to be them; the name stays for the history.
       this.db.prepare(`update api_keys set revoked_at = coalesce(revoked_at, ?), secret_hash = ?, previous_secret_hash = null, previous_until = null
         where user_id = ?`).run(now, sha256(randomBytes(32).toString('hex')), id)
     })()
     this.hooks.onSessionsEnded?.(id)
+    this.hooks.onUserRemoved?.(id)
   }
 
   /** Ends every session of a user's (the admin's «Close sessions»). How many there were. */
@@ -326,12 +342,14 @@ export class Users {
     this.group(groupId)
     this.must(userId)
     this.db.prepare('insert or ignore into group_members (group_id, user_id) values (?, ?)').run(groupId, userId)
+    this.hooks.onMembersChanged?.()
     return this.group(groupId)
   }
 
   removeMember(groupId: string, userId: string): GroupInfo {
     this.group(groupId)
     this.db.prepare('delete from group_members where group_id = ? and user_id = ?').run(groupId, userId)
+    this.hooks.onMembersChanged?.()
     return this.group(groupId)
   }
 
@@ -353,12 +371,17 @@ export class Users {
     return g
   }
 
-  /** A valid group name nobody else has (`except`: the group being renamed). */
+  /**
+   * A valid group name nobody else has (`except`: the group being renamed),
+   * and none of RESERVED_GROUPS: grants to everyone may come one day, and
+   * `@everyone` (or `@all`…) must not mean a group by then (D-056.28).
+   */
   private groupName(name: unknown, except?: string): string {
     const n = typeof name === 'string' ? name.normalize('NFC').trim() : ''
     if (!validName(n)) throw new UsersError('invalid_group_name', 'invalid group name (2-64 letters, digits, ".", "_" or "-", and not a name JavaScript objects have)')
     // As the permissions compare them (auth.ts `createUser`): not only ASCII's case.
     const key = subjectKey(n)
+    if (RESERVED_GROUPS.some((r) => subjectKey(r) === key)) throw new UsersError('invalid_group_name', `${n} is reserved: choose another name`)
     const groups = this.db.prepare('select id, name from user_groups').all() as { id: string; name: string }[]
     if (groups.some((g) => g.id !== except && subjectKey(g.name) === key)) throw new UsersError('group_exists', `group ${n} already exists`)
     return n

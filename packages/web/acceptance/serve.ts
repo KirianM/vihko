@@ -1,5 +1,5 @@
 // Server for the browser part of the M1 acceptance suite: the generated
-// 1,000-note vault (packages/server/test/acceptance/_vault.ts), two users and
+// 1,000-note vault (packages/server/test/acceptance/_vault.ts) in a shared space, two users and
 // the compiled UI. Started by Playwright, or by hand when the browser runs in
 // the Playwright Docker image: node packages/web/acceptance/serve.ts
 import { execFileSync, spawn } from 'node:child_process'
@@ -7,7 +7,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { generateVault } from '../../server/test/acceptance/_vault.ts'
 import { seedLine, testSeed } from '../../../test/seed.ts'
-import { ACC_DIR, ACC_PORT, NOTES, PERMISSIONS, USERS } from './env.ts'
+import { ACC_DIR, ACC_PORT, NOTES, PERMISSIONS, SPACE, USERS } from './env.ts'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const cli = root + 'packages/server/src/cli.ts'
@@ -19,7 +19,8 @@ mkdirSync(ACC_DIR, { recursive: true })
 const seed = testSeed()
 writeFileSync(ACC_DIR + '/seed', `${seed}\n`)
 console.log(seedLine(seed, 'node packages/web/acceptance/serve.ts'))
-const vault = generateVault(NOTES, { notes: Number(process.env.ACCEPTANCE_NOTES ?? 1000), seed: Number(process.env.ACCEPTANCE_SEED ?? 1) })
+// In a shared space both people belong to: its paths are real paths.
+const vault = generateVault(NOTES, { notes: Number(process.env.ACCEPTANCE_NOTES ?? 1000), seed: Number(process.env.ACCEPTANCE_SEED ?? 1), space: SPACE })
 // What the specs need to know about the vault.
 writeFileSync(ACC_DIR + '/vault.json', JSON.stringify(vault))
 writeFileSync(NOTES + '/vihko.yaml', PERMISSIONS)

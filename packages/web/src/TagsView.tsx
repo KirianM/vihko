@@ -6,6 +6,7 @@ import { Button, Collection, ListBox, ListBoxItem, Tree, TreeItem, TreeItemConte
 import { api, type SearchResult, type TagCount } from './api.ts'
 import { errorText, useT } from './i18n.tsx'
 import { Icon } from './ui.tsx'
+import { usePathLabels } from './spaces.tsx'
 
 /** `total` is null for a parent nobody writes on its own (`hogar` when only `hogar/red` exists). */
 interface TagNode { id: string; name: string; tag: string; total: number | null; children: TagNode[] }
@@ -29,7 +30,6 @@ export function buildTagTree(tags: TagCount[]): TagNode[] {
   return root
 }
 
-const folderOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/i, '')
 
 export function TagsView({ selected, onSelect, openPath, onOpen, refresh }: {
@@ -42,6 +42,7 @@ export function TagsView({ selected, onSelect, openPath, onOpen, refresh }: {
   refresh: unknown
 }) {
   const t = useT()
+  const labels = usePathLabels()
   const [tags, setTags] = useState<TagCount[] | null>(null)
   const [notes, setNotes] = useState<{ tag: string; results: SearchResult[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -90,7 +91,7 @@ export function TagsView({ selected, onSelect, openPath, onOpen, refresh }: {
               {(r) => (
                 <ListBoxItem id={r.path} textValue={r.title || baseName(r.path)} className="tree-item tag-note">
                   <span className="tag-note-title">{r.title || baseName(r.path)}</span>
-                  {folderOf(r.path) && <span className="tag-note-path">{folderOf(r.path).split('/').join(' / ')}</span>}
+                  <span className="tag-note-path">{labels.where(r.path, true)}</span>
                 </ListBoxItem>
               )}
             </ListBox>

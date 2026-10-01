@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ADMIN, FILES, MEMBER, NAME, OTHER, PATH, RULES, UID, WORD, home, setup } from './_m4.ts'
+import { ADMIN, FILES, LINK, MEMBER, OTHER, PATH, RULES, UID, WORD, home, setup } from './_m4.ts'
 import { yamlKey } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -71,7 +71,7 @@ test('with comment, a person adds comments, replies and resolves their own threa
     assert.equal(file(), withBoth)
     r = await h.admin('POST', '/api/note/comment', { path: CAKE, op: 'resolve', thread: admins })
     assert.equal(r.status, 200)
-    assert.ok(!file().includes(right) && file().includes(`${SENTENCE} [[${NAME.list}]]`))
+    assert.ok(!file().includes(right) && file().includes(`${SENTENCE} ${LINK.list}`))
     // With edit, anyone's.
     r = await h.member('POST', '/api/note/comment', { path: CAKE, op: 'resolve', thread: members })
     assert.equal(r.status, 200)

@@ -5,13 +5,15 @@
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { markdownDest } from '../../core/src/images.ts'
-import { ADMIN, E2E_DIR, NOTES, freshFolder, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES, freshFolder, inVault, specMother } from './env.ts'
 import { png, sendFiles, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 /** The folder of the note with the pasted image, and the one that holds more than notes. */
-const DIR = freshFolder(m.aFolder)
-const FULL = freshFolder(m.aFolder)
+const DIR_NAME = freshFolder(m.aFolder)
+const FULL_NAME = freshFolder(m.aFolder)
+const DIR = inVault(DIR_NAME)
+const FULL = inVault(FULL_NAME)
 const TITLE = m.aTitle()
 const NOTE = `${DIR}/${TITLE}.md`
 const INSIDE = `${FULL}/${m.aTitle()}.md`
@@ -60,12 +62,13 @@ test('a pasted image goes to the trash with its note; the folder can then be del
   await k.getByRole('alertdialog').getByRole('button', { name: 'Mover a la papelera' }).click()
   const toast = k.locator('.toast', { hasText: `«${TITLE}» está en la papelera.` })
   await expect(toast).toBeVisible()
-  expect(read(NOTE)).toBeNull()
+  // Gone: polled, as the open editor lets go of it just after the answer.
+  await expect.poll(() => read(NOTE), { timeout: 5_000 }).toBeNull()
   expect(images()).toEqual([])
 
   // Nothing is left in its folder: it goes at once.
-  await deleteFolder(k, DIR)
-  await expect(row(k, DIR)).toHaveCount(0)
+  await deleteFolder(k, DIR_NAME)
+  await expect(row(k, DIR_NAME)).toHaveCount(0)
   expect(existsSync(`${NOTES}/${DIR}`)).toBe(false)
 
   await toast.getByRole('button', { name: 'Restaurar' }).click()
@@ -85,7 +88,7 @@ test('a folder with files besides its notes lists them, and sends them to the tr
   await expect.poll(async () => (await (await k.request.get('/api/tree')).json() as { folders: string[] }).folders.includes(FULL), { timeout: 15_000 }).toBe(true)
   await k.reload()
 
-  await deleteFolder(k, FULL)
+  await deleteFolder(k, FULL_NAME)
   const dialog = k.getByRole('alertdialog')
   await expect(dialog.getByText('Contiene 1 nota y 2 archivos. Van a la papelera con ella y se pueden restaurar desde allí:')).toBeVisible()
   await expect(dialog.getByRole('list', { name: 'Sus notas' })).toHaveText(INSIDE.slice(FULL.length + 1))
@@ -94,12 +97,12 @@ test('a folder with files besides its notes lists them, and sends them to the tr
   expect(read(INSIDE)).not.toBeNull()
 
   await dialog.getByRole('button', { name: 'Mandar a la papelera y eliminar' }).click()
-  await expect(row(k, FULL)).toHaveCount(0)
+  await expect(row(k, FULL_NAME)).toHaveCount(0)
   expect(existsSync(`${NOTES}/${FULL}`)).toBe(false)
-  const toast = k.locator('.toast', { hasText: `La carpeta «${FULL}» se ha eliminado; lo que contenía está en la papelera.` })
+  const toast = k.locator('.toast', { hasText: `La carpeta «${FULL_NAME}» se ha eliminado; lo que contenía está en la papelera.` })
   await toast.getByRole('button', { name: 'Restaurar' }).click()
   await expect(toast).toHaveCount(0)
-  await expect(row(k, FULL)).toBeVisible()
+  await expect(row(k, FULL_NAME)).toBeVisible()
   expect(read(INSIDE)).toContain('# ')
   expect(readFileSync(`${NOTES}/${FULL}/${PDF}`)).toEqual(PDF_BYTES)
   expect(existsSync(`${NOTES}/${FULL}/${KEEP}`)).toBe(true)
@@ -109,7 +112,7 @@ test('what vihko never touches keeps the folder, and the dialog says why without
   // Another program's hidden folder: its name is the case under test.
   mkdirSync(`${NOTES}/${FULL}/.obsidian`, { recursive: true })
   writeFileSync(`${NOTES}/${FULL}/.obsidian/app.json`, '{}')
-  await deleteFolder(k, FULL)
+  await deleteFolder(k, FULL_NAME)
   const dialog = k.getByRole('alertdialog')
   await expect(dialog.getByText('vihko nunca toca las carpetas ocultas ni los enlaces', { exact: false })).toBeVisible()
   await expect(dialog.getByRole('list', { name: 'Lo que vihko no toca' })).toHaveText('.obsidian/')

@@ -1,5 +1,5 @@
 // Shared setup for the history tests that run in-process: a copy of the test
-// vault, the recorder with short timings, the note service and the API, two
+// vault in the shared space (_permissions.ts SHARED), the recorder with short timings, the note service and the API, two
 // users signed in: an admin and a member (new ones for every folder, _people.ts). The collaboration hub isn't here (history-hub.test.ts runs
 // a real server for what the editor does).
 import { chmodSync, cpSync, mkdirSync, writeFileSync } from 'node:fs'
@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Auth, History, Indexer, NoteService, Profiles, Workspace, createApp, openIndex, openState, type Runtime } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
-import { withEveryone } from './_permissions.ts'
+import { SHARED, withEveryone } from './_permissions.ts'
 import { byNames, create, newPeople, type ByNames, type Person } from './_people.ts'
 
 export const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
@@ -42,7 +42,7 @@ export async function setup(opts: HistorySetup = {}) {
   const people = fresh ? newPeople() : peopleOf.get(dir)!
   const names = { admin: people.admin.username, member: people.member.username }
   if (fresh) {
-    cpSync(VAULT, notesDir, { recursive: true })
+    cpSync(VAULT, join(notesDir, SHARED), { recursive: true })
     for (const [p, content] of Object.entries(byNames(opts.files ?? {}, names))) {
       mkdirSync(join(notesDir, p, '..'), { recursive: true })
       writeFileSync(join(notesDir, p), content)

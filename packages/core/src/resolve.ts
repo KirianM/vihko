@@ -2,8 +2,24 @@
 // suffixes of its path without the extension, plus its aliases, normalized.
 // It's the model for the indexer's `link_keys` table and also serves the editor.
 // Browser-safe entry point (@vihko/core/resolve): no Node modules here.
+//
+// With spaces (D-056, spec §4.2), what a link means depends only on the file
+// and the space it is in, never on who reads it:
+// 1. an empty target (`[[#Heading]]`) is the note itself;
+// 2. a relative Markdown link, or `[[/path]]`, is an exact path (it may
+//    cross spaces);
+// 3. a wikilink whose first segment is `people` or `spaces` (and has more
+//    after it) is an exact path from the notes root (it may cross spaces);
+// 4. any other wikilink (a name or a path suffix) resolves only among the
+//    notes of the source's space, by proximity (D-019), then by their
+//    aliases, also of that space and without proximity (an alias several
+//    notes share is ambiguous). A name never reaches another space, and an
+//    alias never beats a name or a path.
+// Notes in no space (the layout before spaces) form one group of their own,
+// so there everything resolves as it always did.
 import { caseFold } from './casefold.ts'
 import type { LinkRef } from './markdown.ts'
+import { PEOPLE, SPACES, spaceRootOf } from './spaces.ts'
 
 export interface NoteKeys {
   /** Path relative to the notes root, with `/`, including the `.md` extension. */
@@ -45,6 +61,27 @@ export function pathKeys(path: string): string[] {
   return parts.map((_, i) => parts.slice(i).join('/'))
 }
 
+/**
+ * The group a note's names resolve in (rule 4): the root of its space
+ * (`people/ana`, `spaces/home-7k2q9x`), or `''` for a note in no space.
+ */
+export function linkSpace(path: string): string {
+  return spaceRootOf(path) ?? ''
+}
+
+const ROOT_SEGMENTS = new Set([normKey(PEOPLE), normKey(SPACES)])
+
+/**
+ * Whether a wikilink target is written from the notes root (rule 3): its
+ * first segment is `people` or `spaces` (in any case, as links are compared)
+ * and something follows it. `[[people]]` alone is a note's name.
+ */
+export function isRootTarget(target: string): boolean {
+  const t = target.replace(/^\/+/, '')
+  const slash = t.indexOf('/')
+  return slash > 0 && ROOT_SEGMENTS.has(normKey(t.slice(0, slash)))
+}
+
 export interface LinkIndexOptions {
   /** Whether aliases resolve links (vihko.yaml `links.aliases`, on by default). They're kept either way. */
   aliases?: boolean
@@ -54,6 +91,8 @@ export class LinkIndex {
   private byPath = new Map<string, Set<string>>()
   private byAlias = new Map<string, Set<string>>()
   private notes = new Map<string, NoteKeys>()
+  /** Each note's space (linkSpace), worked out once. */
+  private spaces = new Map<string, string>()
   /** Whether aliases resolve links, as a last resort after names and paths. */
   aliases: boolean
 
@@ -80,6 +119,7 @@ export class LinkIndex {
   set(note: NoteKeys): Set<string> {
     const affected = this.delete(note.path)
     this.notes.set(note.path, note)
+    this.spaces.set(note.path, linkSpace(note.path))
     for (const k of pathKeys(note.path)) add(this.byPath, k, note.path, affected)
     for (const a of note.aliases ?? []) add(this.byAlias, normKey(a), note.path, affected)
     return affected
@@ -90,6 +130,7 @@ export class LinkIndex {
     const old = this.notes.get(path)
     if (!old) return affected
     this.notes.delete(path)
+    this.spaces.delete(path)
     for (const k of pathKeys(path)) remove(this.byPath, k, path, affected)
     for (const a of old.aliases ?? []) remove(this.byAlias, normKey(a), path, affected)
     return affected
@@ -106,24 +147,39 @@ export class LinkIndex {
     if (link.target === '') return this.withAnchor(source, link.anchor, 'self')
     const key = LinkIndex.keyOf(source, link)!
 
-    if (link.kind === 'markdown' || link.target.startsWith('/')) {
-      // Relative path (Markdown) or absolute from the root (`[[/folder/Note]]`):
-      // exact full-path match, no heuristics.
+    if (link.kind === 'markdown' || link.target.startsWith('/') || isRootTarget(link.target)) {
+      // Relative path (Markdown), absolute from the root (`[[/folder/Note]]`)
+      // or from the notes root to a space (`[[spaces/home-7k2q9x/Note]]`):
+      // exact full-path match, no heuristics, in any space.
       const hits = [...(this.byPath.get(key) ?? [])].filter((p) => normKey(stripMd(p)) === key)
       return hits.length === 1 ? this.withAnchor(hits[0]!, link.anchor, 'path') : { status: 'missing' }
     }
 
-    const byPath = this.pick(source, this.byPath.get(key))
+    // A name or a path suffix: only among the notes of the source's space.
+    const space = linkSpace(source)
+    const byPath = this.pick(source, this.inSpace(this.byPath.get(key), space))
     if (byPath) return byPath.status === 'resolved' ? this.withAnchor(byPath.path, link.anchor, 'path') : byPath
-    const byAlias = this.aliases ? this.pick(source, this.byAlias.get(key)) : null
-    if (byAlias) return byAlias.status === 'resolved' ? this.withAnchor(byAlias.path, link.anchor, 'alias') : byAlias
+    // Then aliases, without proximity: one note's alias leads to it; one shared by several notes is
+    // ambiguous, however near one of them is. So a note that takes an alias never captures a link
+    // another note's alias resolves (whoever writes it may not even see that note, D-056.20); the
+    // link shows its candidates, and a name or a path (which beat aliases) fixes it.
+    const byAlias = this.aliases ? this.inSpace(this.byAlias.get(key), space) : []
+    if (byAlias.length === 1) return this.withAnchor(byAlias[0]!, link.anchor, 'alias')
+    if (byAlias.length > 1) return { status: 'ambiguous', candidates: byAlias.sort() }
     return { status: 'missing' }
   }
 
+  /** The paths of `set` in the space whose root is `space` (linkSpace). */
+  private inSpace(set: Set<string> | undefined, space: string): string[] {
+    if (!set) return []
+    const out: string[] = []
+    for (const p of set) if ((this.spaces.get(p) ?? linkSpace(p)) === space) out.push(p)
+    return out
+  }
+
   /** Tie-break: the deepest common ancestor wins; then the shallowest one below it. */
-  private pick(source: string, set: Set<string> | undefined): { status: 'resolved'; path: string } | { status: 'ambiguous'; candidates: string[] } | null {
-    if (!set || set.size === 0) return null
-    const candidates = [...set]
+  private pick(source: string, candidates: string[]): { status: 'resolved'; path: string } | { status: 'ambiguous'; candidates: string[] } | null {
+    if (candidates.length === 0) return null
     if (candidates.length === 1) return { status: 'resolved', path: candidates[0]! }
     const src = segments(dirOf(source))
     const score = (p: string) => {
@@ -151,17 +207,57 @@ export class LinkIndex {
 
 /**
  * The shortest wikilink target that, written in `source`, resolves to `path`:
- * the name, then progressively longer path suffixes and, as a last resort,
- * the absolute path `/folder/Note` (D-019). Without the `.md` extension.
+ * the name, then progressively longer path suffixes, which ends at the path
+ * from the notes root (`spaces/home-7k2q9x/Note`, the only form that reaches
+ * another space, never with a leading `/`: Obsidian doesn't read that). The
+ * absolute `/folder/Note` (D-019) only as a last resort, for a note in no
+ * space. Without the `.md` extension.
+ *
+ * `opts.whole`: whether `index` holds every note under a folder (all of
+ * them by default: the server's index does). A reader who sees only part of
+ * a space (a folder shared from someone's) has an index without the notes
+ * they can't see, which a name might reach: a shorter form is only safe when
+ * `source` and `path` share a folder the index holds whole (then the
+ * nearest note wins, and every note that near is in it). Otherwise the path
+ * from the root, which means the same for everyone.
  */
-export function shortestTarget(index: LinkIndex, source: string, path: string): string {
+export function shortestTarget(index: LinkIndex, source: string, path: string, opts: { whole?: (folder: string) => boolean } = {}): string {
   const parts = stripMd(path).split('/')
-  for (let i = parts.length - 1; i >= 0; i--) {
+  const partial = opts.whole !== undefined && linkSpace(path) === linkSpace(source) && linkSpace(path) !== '' && !opts.whole(commonFolder(source, path))
+  for (let i = partial ? 0 : parts.length - 1; i >= 0; i--) {
     const target = parts.slice(i).join('/')
     const r = index.resolve(source, { kind: 'wiki', target, anchor: null })
     if (r.status === 'resolved' && r.path === path) return target
   }
   return '/' + parts.join('/')
+}
+
+/** The deepest folder two paths share (`''` for the root). */
+function commonFolder(a: string, b: string): string {
+  const x = segments(dirOf(a))
+  const y = segments(dirOf(b))
+  let n = 0
+  while (n < x.length && n < y.length && x[n] === y[n]) n++
+  return x.slice(0, n).join('/')
+}
+
+/**
+ * How vihko writes a wikilink to `path` in `source` (D-056): the shortest
+ * target (`shortestTarget`, with its `opts`) and, when that target is
+ * written from the notes root (another space, or a reader who sees only
+ * part of this one), the visible text: the note's name, so that Obsidian
+ * and other editors show `shopping list`, not
+ * `spaces/home-7k2q9x/shopping list`. Null inside a space, where the name
+ * is already what shows.
+ */
+export function wikiLink(index: LinkIndex, source: string, path: string, opts: { whole?: (folder: string) => boolean } = {}): { target: string; display: string | null } {
+  const target = shortestTarget(index, source, path, opts)
+  return { target, display: isRootTarget(target) ? noteName(path) : null }
+}
+
+/** A note's name: the last segment of its path, without `.md`. */
+export function noteName(path: string): string {
+  return stripMd(path.slice(path.lastIndexOf('/') + 1))
 }
 
 function add(map: Map<string, Set<string>>, key: string, path: string, affected: Set<string>) {

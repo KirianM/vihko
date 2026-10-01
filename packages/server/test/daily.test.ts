@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readFrontmatter } from '@vihko/core'
 import { CONFIG, DAILY, setup } from './_app.ts'
+import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -98,7 +99,7 @@ test('daily note: the day changes at the person\'s midnight', async () => {
 })
 
 test('daily note: two at once create one note and both open it', async () => {
-  const shared = m.aFolder()
+  const shared = inShared(m.aFolder())
   const { notesDir, admin } = await setup({ config: CONFIG.replace(JSON.stringify(`${DAILY.own.folder}/{user}`), JSON.stringify(shared)) })
   writeFileSync(templateFile(notesDir), TEMPLATE)
   const results = await Promise.all(Array.from({ length: 6 }, () => admin('POST', '/api/daily')))

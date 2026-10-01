@@ -20,7 +20,7 @@ function zones(current: string): string[] {
   return [...new Set([current, browserTimeZone(), 'UTC', ...all])].sort((a, b) => a.localeCompare(b))
 }
 
-export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgents, onPrivacy, onAccount, onUsers }: {
+export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgents, onPrivacy, onAccount, onUsers, onSpaces }: {
   profile: Profile
   workspace: WorkspaceInfo | null
   onClose: () => void
@@ -31,6 +31,8 @@ export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgen
   /** Open one's account (password, sessions), or «Users and groups» (the vihko admin; null for anyone else). */
   onAccount: () => void
   onUsers: (() => void) | null
+  /** The admin's directory of shared spaces (D-056); null for anyone else. */
+  onSpaces: (() => void) | null
 }) {
   const t = useT()
   useBackClose(useMobile(), onClose)
@@ -94,6 +96,7 @@ export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgen
               <div className="prefs-links">
                 <Button className="btn btn-quiet prefs-link" onPress={onAccount}>{t('prefs.account')}{Icon.chevron}</Button>
                 {onUsers && <Button className="btn btn-quiet prefs-link" onPress={onUsers}>{t('prefs.users')}{Icon.chevron}</Button>}
+                {onSpaces && <Button className="btn btn-quiet prefs-link" onPress={onSpaces}>{t('prefs.spaces')}{Icon.chevron}</Button>}
                 <Button className="btn btn-quiet prefs-link" onPress={onAgents}>{t('prefs.agents')}{Icon.chevron}</Button>
                 <Button className="btn btn-quiet prefs-link" onPress={onPrivacy}>{t('prefs.privacy')}{Icon.chevron}</Button>
               </div>

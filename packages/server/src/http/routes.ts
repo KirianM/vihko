@@ -38,6 +38,8 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'GET /api/history/diff': 'read',
   'GET /api/history/changes': 'read',
   'GET /api/history/resolved': 'read',
+  'GET /api/spaces': 'read',
+  'GET /api/spaces/members': 'read',
 
   'POST /api/note': 'write',
   'PUT /api/note': 'write',
@@ -115,6 +117,17 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'GET /api/permissions/folders': 'session',
   'GET /api/permissions/access': 'session',
   'POST /api/permissions/holds/:id': 'session',
+  'POST /api/spaces': 'session',
+  'POST /api/spaces/from-folder': 'session',
+  'POST /api/spaces/rename': 'session',
+  'DELETE /api/spaces': 'session',
+  'POST /api/spaces/leave': 'session',
+  'POST /api/spaces/pin': 'session',
+  'GET /api/admin/spaces': 'session',
+  'POST /api/admin/spaces/managers': 'session',
+  'POST /api/admin/spaces/join': 'session',
+  'GET /api/admin/users/:id/space': 'session',
+  'POST /api/admin/users/:id/space': 'session',
 }
 
 /**
@@ -247,6 +260,25 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'GET /api/permissions/folders': 'filtered',
   'GET /api/permissions/access': 'none',
   'POST /api/permissions/holds/:id': 'permissions',
+
+  // Spaces (D-056): what the person reaches; creating one (anyone, or admins with the setting); pinning
+  // what is shared with them; renaming, deleting and leaving, `manage` at a space's root or a grant of
+  // one's own where one leaves; and the admin's, who names spaces (no secret) but never a folder inside one.
+  'GET /api/spaces': 'filtered',
+  // Who has access to a folder one reads (D-056.27): names and levels, nothing of folders one doesn't read.
+  'GET /api/spaces/members': 'read',
+  'POST /api/spaces': 'none',
+  // A folder becoming a space of its own: `manage` in it and the right to create spaces.
+  'POST /api/spaces/from-folder': 'manage',
+  'POST /api/spaces/pin': 'filtered',
+  'POST /api/spaces/rename': 'manage',
+  'DELETE /api/spaces': 'manage',
+  'POST /api/spaces/leave': 'read',
+  'GET /api/admin/spaces': 'admin',
+  'POST /api/admin/spaces/managers': 'admin',
+  'POST /api/admin/spaces/join': 'admin',
+  'GET /api/admin/users/:id/space': 'admin',
+  'POST /api/admin/users/:id/space': 'admin',
 }
 
 /**

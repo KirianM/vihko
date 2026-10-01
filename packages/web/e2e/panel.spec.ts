@@ -2,7 +2,7 @@
 // with two people at once.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, SPACE_NAME, inVault, specMother } from './env.ts'
 import { editorText, literally, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
@@ -15,7 +15,7 @@ function distinct(): string {
     if (!taken.some((o) => fold(o).includes(fold(t)) || fold(t).includes(fold(o)))) return taken.push(t), t
   }
 }
-const DIR = m.aFolder()
+const DIR = inVault(m.aFolder())
 const TITLE = distinct()
 const NOTE = `${DIR}/${TITLE}.md`
 const FILE = `${NOTES}/${NOTE}`
@@ -77,17 +77,18 @@ test.beforeAll(async ({ browser }) => {
 })
 
 test('links: outgoing with their status, ambiguous with candidates, and navigation', async () => {
-  await k.goto('/?note=diario/2026-09-24.md')
+  await k.goto(`/?note=${encodeURIComponent(inVault('diario/2026-09-24.md'))}`)
   await k.getByRole('tab', { name: /Enlaces/ }).click()
   const panel = k.getByRole('complementary', { name: 'Comentarios y contexto' })
   await expect(panel.getByText('ambiguo · 2')).toBeVisible()
-  await expect(panel.getByRole('button', { name: /Plan\s*Plan\.md/ })).toBeVisible()
-  await panel.getByRole('button', { name: 'proyectos/blog/Tareas.md' }).click()
-  await expect(k.locator('.crumbs')).toHaveText('proyectos / blog / Tareas')
+  await expect(panel.getByRole('button', { name: new RegExp(`Plan\\s*${literally(SPACE_NAME)} / Plan$`, 'u') })).toBeVisible()
+  // Where each one leads, as the person sees it (D-056): the space, then the folders.
+  await panel.getByRole('button', { name: `${SPACE_NAME} / proyectos / blog / Tareas` }).click()
+  await expect(k.locator('.crumbs')).toHaveText(`${SPACE_NAME} / proyectos / blog / Tareas`)
 })
 
 test('links: backlinks with context', async () => {
-  await k.goto('/?note=proyectos/vihko/Plan.md')
+  await k.goto(`/?note=${encodeURIComponent(inVault('proyectos/vihko/Plan.md'))}`)
   await k.getByRole('tab', { name: /Enlaces/ }).click()
   const backlink = k.locator('.backlink', { hasText: 'Notas de vihko' }).first()
   await expect(backlink).toContainText('resuelve a proyectos/vihko/Plan.md')

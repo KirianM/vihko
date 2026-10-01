@@ -13,6 +13,7 @@ import { Button, Dialog, GridList, GridListItem, Heading, Popover } from 'react-
 import { api } from '../api.ts'
 import { errorText, useT } from '../i18n.tsx'
 import { linkName } from '../ui.tsx'
+import { usePathLabels } from '../spaces.tsx'
 import './picker.css'
 
 /** An ambiguous link somewhere in the note: its text, where it is (a hint), and where it may lead. */
@@ -41,6 +42,7 @@ export function AmbiguousPicker({ source, state, titles, onClose, onOpen, onPinn
   onPinned: (target: string, raw: string) => void
 }) {
   const t = useT()
+  const labels = usePathLabels()
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const { link } = state
@@ -69,9 +71,9 @@ export function AmbiguousPicker({ source, state, titles, onClose, onOpen, onPinn
             <GridListItem id={item.id} className="picker-item" textValue={titleOf(item.id)}>
               <span className="picker-text">
                 <span className="picker-title">{titleOf(item.id)}</span>
-                <span className="picker-path">{item.id}</span>
+                <span className="picker-path">{labels.label(item.id)}</span>
               </span>
-              <Button className="btn btn-sm picker-pin" aria-label={t('picker.pinLabel', { path: item.id })} isDisabled={busy !== null}
+              <Button className="btn btn-sm picker-pin" aria-label={t('picker.pinLabel', { path: labels.label(item.id) })} isDisabled={busy !== null}
                 onPress={() => void pin(item.id)}>
                 {busy === item.id ? t('picker.pinning') : t('picker.pin')}
               </Button>

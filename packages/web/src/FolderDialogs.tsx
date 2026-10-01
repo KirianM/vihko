@@ -2,19 +2,19 @@
 // rewritten across the notes, as for a note) and delete (at once when empty;
 // otherwise, what it holds to the trash with it).
 import { useEffect, useState, type FormEvent } from 'react'
-import { Button, Dialog, Heading, Input, Label, Text, TextField } from 'react-aria-components'
+import { Button, Dialog, Heading, Input, Label, TextField } from 'react-aria-components'
 import { ApiError, api, type FolderContents, type FolderMoveReport, type MoveJob, type TrashEntry } from './api.ts'
 import { AudienceWarning, audienceChanges } from './Audience.tsx'
+import { DestinationFields, joinPlace, splitPlace, usePlaces } from './Destination.tsx'
 import { ShiftPreview } from './Shifts.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { parentOf } from './FolderTree.tsx'
+import { usePathLabels } from './spaces.tsx'
 import './actions.css'
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
-/** "hogar/enlaces.md" → "hogar / enlaces", like the header breadcrumbs. */
-const label = (path: string) => path.replace(/\.md$/i, '').split('/').join(' / ')
 
-/** The server's codes worded for a folder: `exists` and `invalid_path` otherwise speak of notes. */
+/** The server's codes worded for a folder: `exists` (never whether something hidden is there, D-056.20) and `invalid_path` otherwise speak of notes. */
 function folderError(t: ReturnType<typeof useT>, err: unknown): string {
   const code = err instanceof Error && 'code' in err ? String(err.code) : ''
   if (code === 'exists') return t('folder.exists')
@@ -32,11 +32,16 @@ export function folderPath(name: string, parent: string): string | null {
 
 export function NewFolderDialog({ parent, onClose, onCreated }: { parent: string; onClose: () => void; onCreated: (path: string) => void }) {
   const t = useT()
+  const places = usePlaces()
   const [name, setName] = useState('')
-  const [where, setWhere] = useState(parent)
+  const [dest, setDest] = useState<{ root: string; inner: string } | null>(null)
+  const { root, inner } = dest ?? splitPlace(places, parent)
+  const where = joinPlace(root, inner)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const path = folderPath(name, where)
+  // At a space's root, `people` and `spaces` are what links from the notes root start with (spec §4.2).
+  const shadows = inner.trim() === '' && /^(people|spaces)$/i.test(name.trim())
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (!path || busy) return
@@ -58,11 +63,9 @@ export function NewFolderDialog({ parent, onClose, onCreated }: { parent: string
             <Label>{t('folder.name')}</Label>
             <Input />
           </TextField>
-          <TextField className="field" value={where} onChange={setWhere}>
-            <Label>{t('folder.parent')}</Label>
-            <Input />
-            <Text slot="description" className="hint">{t('folder.parentHint')}</Text>
-          </TextField>
+          <DestinationFields root={root} inner={inner} hint={t('folder.parentHint')}
+            onRoot={(r) => setDest({ root: r, inner: '' })} onInner={(i) => setDest({ root, inner: i })} />
+          {shadows && <p className="hint" role="note">{t('folder.shadowsLinks', { name: name.trim() })}</p>}
           {error && <p className="error-text" role="alert">{error}</p>}
         </div>
         <div className="dialog-actions">
@@ -90,8 +93,13 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
   onStarted: (job: MoveJob) => void
 }) {
   const t = useT()
+  const labels = usePathLabels()
+  const places = usePlaces()
   const [name, setName] = useState(baseName(path))
-  const [parent, setParent] = useState(initialParent ?? parentOf(path))
+  const [dest, setDest] = useState<{ root: string; inner: string } | null>(null)
+  // Where it goes: a place (a space, or a folder shared with them) and the folder inside it.
+  const { root, inner } = dest ?? splitPlace(places, initialParent ?? parentOf(path))
+  const parent = joinPlace(root, inner)
   const [preview, setPreview] = useState<Preview>({ kind: 'idle' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -146,11 +154,8 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
             <Label>{t('folder.name')}</Label>
             <Input />
           </TextField>
-          <TextField className="field" value={parent} onChange={setParent}>
-            <Label>{t('folder.parent')}</Label>
-            <Input />
-            <Text slot="description" className="hint">{t('folder.parentHintMove')}</Text>
-          </TextField>
+          <DestinationFields root={root} inner={inner} hint={t('folder.parentHintMove')}
+            onRoot={(r) => setDest({ root: r, inner: '' })} onInner={(i) => setDest({ root, inner: i })} />
         </div>
         <div className="preview" aria-live="polite">
           <div className="preview-head">{t(report?.shifted.length ? 'rename.previewPlain' : 'rename.preview')}</div>
@@ -158,13 +163,13 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
             {preview.kind === 'idle' && <span className="preview-note">{t('folder.previewUnchanged')}</span>}
             {preview.kind === 'loading' && <span className="preview-note">{t('rename.previewLoading')}</span>}
             {preview.kind === 'error' && <span className="error-text" role="alert">{preview.message}</span>}
-            {report && <AudienceWarning audience={report.audience} confirmed={confirmed} onConfirm={setConfirmed} />}
+            {report && <AudienceWarning audience={report.audience} confirmed={confirmed} onConfirm={setConfirmed} cross={report.crossSpaceLinks} copied={report.images?.copied.length ?? 0} />}
             {report && <span className="preview-note">{t('folder.previewContents', { notes, files })}</span>}
             {report && report.relinked.length === 0 && report.shifted.length === 0 && <span className="preview-note">{t('folder.previewNone')}</span>}
             {report && <ShiftPreview groups={report.shifted} />}
             {report?.relinked.flatMap((r) => r.changes.map((c, i) => (
               <div className="preview-row" key={`${r.path}#${i}`}>
-                <span className="preview-src">{label(r.path)}</span>
+                <span className="preview-src">{labels.label(r.path)}</span>
                 <span className="preview-change">
                   <del>{c.before}</del> → <ins>{c.after}</ins>
                 </span>
@@ -180,6 +185,88 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
       </form>
     </Dialog>
   )
+}
+
+/**
+ * «Move to a new space» (D-056.28): sharing only adds, so what some of a
+ * space's members mustn't see goes to a space of its own. The folder becomes
+ * a shared space named as it is (the name can change), whoever moves it its
+ * only manager besides what the folder itself was shared with; the preview
+ * says who stops seeing it, and the move waits for that to be confirmed.
+ */
+export function MoveToNewSpaceDialog({ path, onClose, onMoved }: { path: string; onClose: () => void; onMoved: (root: string) => void }) {
+  const t = useT()
+  const [name, setName] = useState(baseName(path))
+  const [preview, setPreview] = useState<Preview>({ kind: 'idle' })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [confirmed, setConfirmed] = useState(false)
+  const chosen = name.trim()
+  useEffect(() => {
+    setError(null)
+    setConfirmed(false)
+    if (!chosen) return setPreview({ kind: 'idle' })
+    setPreview({ kind: 'loading' })
+    let live = true
+    const timer = setTimeout(() => {
+      api.spaceFromFolder(path, chosen, true)
+        .then((r) => { if (live) setPreview({ kind: 'ready', report: r.report }) })
+        .catch((e) => { if (live) setPreview({ kind: 'error', message: spaceMoveError(t, e) }) })
+    }, 250)
+    return () => { live = false; clearTimeout(timer) }
+  }, [path, chosen, t])
+  const report = preview.kind === 'ready' ? preview.report : null
+  const notes = report ? t(report.notes.length === 1 ? 'folder.notesOne' : 'folder.notesMany', { n: report.notes.length }) : ''
+  const files = report ? t(report.files === 1 ? 'folder.filesOne' : 'folder.filesMany', { n: report.files }) : ''
+  const blocked = audienceChanges(report?.audience) && !confirmed
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!report || busy || blocked || !chosen) return
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await api.spaceFromFolder(path, chosen)
+      onMoved(r.space!.path)
+    } catch (err) {
+      setError(spaceMoveError(t, err))
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog className="dialog">
+      <form onSubmit={submit}>
+        <div className="dialog-fields">
+          <Heading slot="title" className="dialog-title">{t('folder.toNewSpaceTitle', { name: baseName(path) })}</Heading>
+          <p className="dialog-text">{t('folder.toNewSpaceIntro')}</p>
+          <TextField className="field" value={name} onChange={setName} maxLength={64} autoFocus isRequired>
+            <Label>{t('spaces.name')}</Label>
+            <Input autoComplete="off" />
+          </TextField>
+        </div>
+        <div className="preview" aria-live="polite">
+          <div className="preview-head">{t('rename.preview')}</div>
+          <div className="preview-body">
+            {preview.kind === 'loading' && <span className="preview-note">{t('rename.previewLoading')}</span>}
+            {preview.kind === 'error' && <span className="error-text" role="alert">{preview.message}</span>}
+            {report && <AudienceWarning audience={report.audience} confirmed={confirmed} onConfirm={setConfirmed} cross={report.crossSpaceLinks} copied={report.images?.copied.length ?? 0} />}
+            {report && <span className="preview-note">{t('folder.previewContents', { notes, files })}</span>}
+            {report && <ShiftPreview groups={report.shifted} />}
+          </div>
+        </div>
+        {error && <p className="error-text dialog-error" role="alert">{error}</p>}
+        <div className="dialog-actions">
+          <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={!report || busy || blocked || !chosen}>{t('folder.toNewSpaceSubmit')}</Button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
+/** A new space's name the server refuses says so; the rest, as for a folder. */
+function spaceMoveError(t: ReturnType<typeof useT>, err: unknown): string {
+  if (err instanceof ApiError && err.code === 'invalid' && typeof err.data?.problem === 'string') return t('spaces.nameInvalid')
+  return folderError(t, err)
 }
 
 /** The contents a `not_empty` answer carries, if it has them. */
@@ -202,7 +289,7 @@ export function DeleteFolderDialog({ path, onClose, onDeleted }: { path: string;
   const [error, setError] = useState<string | null>(null)
   /** What it holds, once the server said it isn't empty: confirming again sends it to the trash. */
   const [contents, setContents] = useState<FolderContents | null>(null)
-  const blocked = contents !== null && (contents.kept.total > 0 || contents.locked > 0)
+  const blocked = contents !== null && contents.kept.total > 0
   const confirm = async () => {
     setBusy(true)
     setError(null)
@@ -235,7 +322,7 @@ export function DeleteFolderDialog({ path, onClose, onDeleted }: { path: string;
 /** What a folder holds, as the delete dialog shows it before sending it to the trash (paths relative to the folder). */
 function FolderContentsList({ contents: c }: { contents: FolderContents }) {
   const t = useT()
-  const blocked = c.kept.total > 0 || c.locked > 0
+  const blocked = c.kept.total > 0
   const counts = [
     c.notes.total > 0 ? t(c.notes.total === 1 ? 'folder.notesOne' : 'folder.notesMany', { n: c.notes.total }) : null,
     c.files.total > 0 ? t(c.files.total === 1 ? 'folder.filesOne' : 'folder.filesMany', { n: c.files.total }) : null,
@@ -254,7 +341,6 @@ function FolderContentsList({ contents: c }: { contents: FolderContents }) {
       {c.files.total > 0 && list(c.files, t('folder.deleteFilesList'))}
       {c.kept.total > 0 && <p className="dialog-text" role="alert">{t('folder.deleteKept')}</p>}
       {c.kept.total > 0 && list(c.kept, t('folder.deleteKeptList'))}
-      {c.locked > 0 && <p className="dialog-text" role="alert">{t(c.locked === 1 ? 'folder.deleteLockedOne' : 'folder.deleteLockedMany', { n: c.locked })}</p>}
     </>
   )
 }

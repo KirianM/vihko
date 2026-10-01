@@ -6,11 +6,11 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { AUTHOR, userGit } from '../../server/test/_userGit.ts'
-import { ADMIN, NOTES, specMother } from './env.ts'
+import { ADMIN, NOTES, inVault, specMother } from './env.ts'
 import { signIn, writeWorkspace } from './helpers.ts'
 
 const m = specMother(import.meta.url)
-const DIR = m.aFolder()
+const DIR = inVault(m.aFolder())
 const TEXT = m.aSentence()
 const NOTE = m.aNotePath(DIR)
 const status = async (page: Page) => (await (await page.request.get('/api/history/status')).json()) as { mode: string; available: boolean }

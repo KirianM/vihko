@@ -152,4 +152,6 @@ export interface PurgeReport {
   movedFrom: string[]
   /** In a dry run: the purge takes out something the admin can't read, and asks for the confirmation at the moment (D-040 3.6). */
   confirmRequired?: boolean
+  /** In the admin's dry run of a path they can't read: what it would take out isn't said, not even whether there is anything (D-056.28). */
+  hidden?: boolean
 }

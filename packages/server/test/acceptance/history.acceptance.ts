@@ -11,7 +11,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { api, closeAll, connect, login, typeLine } from '../_collab.ts'
-import { NOTES, PASSWORD, USER, cleanup, metric, percentile, startServer, timed, waitFor, workspace, type Server } from './_harness.ts'
+import { NOTES, PASSWORD, USER, cleanup, config, metric, percentile, startServer, timed, waitFor, workspace, type Server } from './_harness.ts'
 
 const q = encodeURIComponent
 const who = (v: { authors: { kind: string; name: string }[] }) => v.authors.map((a) => (a.kind === 'user' ? a.name : a.kind)).join(',')
@@ -45,11 +45,11 @@ test(`history over ${NOTES} notes: startup, write latency, and every change seen
       return lat
     }
     const on = await edits(notes.slice(0, 30), 'EDIT-HISTORY-ON')
-    writeFileSync(join(ws.notesDir, 'vihko.yaml'), 'history:\n  mode: off\n')
+    writeFileSync(join(ws.notesDir, 'vihko.yaml'), config('history:\n  mode: off\n'))
     await waitFor(async () => (await api(srv!, cookie, 'GET', '/api/history/status')).body.mode === 'off', 'history off', 20_000)
     const off = await edits(notes.slice(30), 'EDIT-HISTORY-OFF')
     metric('write with history p50', percentile(on, 50), 'ms', { p95: Math.round(percentile(on, 95) * 10) / 10, offP50: Math.round(percentile(off, 50) * 10) / 10, offP95: Math.round(percentile(off, 95) * 10) / 10 })
-    writeFileSync(join(ws.notesDir, 'vihko.yaml'), 'history:\n  mode: managed\n')
+    writeFileSync(join(ws.notesDir, 'vihko.yaml'), config('history:\n  mode: managed\n'))
     await waitFor(async () => (await api(srv!, cookie, 'GET', '/api/history/status')).body.mode === 'managed', 'history on', 20_000)
     // Resuming records what changed while it was off, as nobody's.
     await waitFor(async () => (await changes())[0]?.reason?.code === 'history_resumed', 'resumed', 20_000)

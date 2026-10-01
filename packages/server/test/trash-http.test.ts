@@ -1,6 +1,6 @@
 // Through the API: a note deleted with its images is one version and one
 // trash entry; a folder that holds more than notes says what blocks it
-// (capped, relative to it, never what the person can't edit) and can go to
+// (capped, relative to it: whoever manages it sees all of it) and can go to
 // the trash whole; an agent's deletion takes only the images it may write.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -8,6 +8,7 @@ import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { FOLDER_LIST_CAP } from '@vihko/server'
 import { PNG, setup } from './_agents.ts'
+import { inShared, sharedSpace } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -15,7 +16,8 @@ const token = () => m.aUniqueWord()
 const q = (path: string, extra = '') => `?path=${encodeURIComponent(path)}${extra}`
 
 test('a note and the images only it uses are deleted in one version, and restored together', async () => {
-  const [DIR, NOTE, OWN, SHARED, OTHER] = [token(), token(), token(), token(), token()]
+  const [NOTE, OWN, SHARED, OTHER] = [token(), token(), token(), token()]
+  const DIR = inShared(token())
   const note = `${DIR}/${NOTE}.md`
   const h = await setup({ files: {
     [note]: `# ${m.aHeading()}\n\n![](${OWN}.png) ![](${SHARED}.png)\n`,
@@ -43,7 +45,8 @@ test('a note and the images only it uses are deleted in one version, and restore
 })
 
 test('deleting a folder with files in it says what they are; with trash=true they go to the trash with its notes', async () => {
-  const [DIR, SUB, NOTE] = [token(), token(), token()]
+  const [SUB, NOTE] = [token(), token()]
+  const DIR = inShared(token())
   const images = Array.from({ length: FOLDER_LIST_CAP + 3 }, () => `${SUB}/${token()}.png`)
   const h = await setup({ files: {
     [`${DIR}/${NOTE}.md`]: `# ${m.aHeading()}\n`,
@@ -60,7 +63,7 @@ test('deleting a folder with files in it says what they are; with trash=true the
     assert.equal(c.files.total, images.length)
     assert.deepEqual(c.files.paths, [...images].sort().slice(0, FOLDER_LIST_CAP), 'capped, relative to the folder')
     assert.deepEqual(c.kept, { total: 1, paths: ['.git/'] })
-    assert.equal(c.locked, 0)
+    assert.ok(!('locked' in c), 'whoever deletes a folder manages it and sees all of it: nothing is only counted')
 
     // While vihko can't take everything, nothing moves.
     const refused = await h.admin('DELETE', `/api/folder${q(DIR, '&trash=true')}`)
@@ -84,29 +87,33 @@ test('deleting a folder with files in it says what they are; with trash=true the
   } finally { await h.close() }
 })
 
-test('what the person can\'t edit in the folder is only counted, and keeps it from going', async () => {
-  const [DIR, NOTE, THEIRS, IMG] = [token(), token(), token(), token()]
+test('whoever deletes a folder is told all of it, whatever a subfolder shares with others (grants only add)', async () => {
+  const [NOTE, SUB, THEIRS, IMG] = [token(), token(), token(), token()]
+  const DIR = inShared(token())
   const h = await setup({
-    config: (n) => `permissions:\n  "":\n    grants: { ${JSON.stringify(n.admin)}: manage, ${JSON.stringify(n.member)}: edit }\n  ${DIR}/{user}:\n    grants: { "{user}": manage }\n`,
-    files: (n) => ({ [`${DIR}/${NOTE}.md`]: m.aSentence(), [`${DIR}/${IMG}.png`]: PNG, [`${DIR}/${n.member}/${THEIRS}.md`]: m.aSentence() }),
+    // The member manages a subfolder of the folder: it gives the admin, who manages the space, nothing less.
+    config: (n) => `${sharedSpace({ [n.admin]: 'manage', [n.member]: 'edit' })}  ${JSON.stringify(`${DIR}/${SUB}`)}:\n    grants: { ${JSON.stringify(n.member)}: manage }\n`,
+    files: { [`${DIR}/${NOTE}.md`]: m.aSentence(), [`${DIR}/${IMG}.png`]: PNG, [`${DIR}/${SUB}/${THEIRS}.md`]: m.aSentence() },
   })
   try {
-    const r = await h.admin('DELETE', `/api/folder${q(DIR, '&trash=true')}`)
+    const r = await h.admin('DELETE', `/api/folder${q(DIR)}`)
     assert.equal(r.status, 409)
-    assert.deepEqual(r.body.contents.notes, { total: 1, paths: [`${NOTE}.md`] })
+    assert.deepEqual(r.body.contents.notes, { total: 2, paths: [`${NOTE}.md`, `${SUB}/${THEIRS}.md`].sort() })
     assert.deepEqual(r.body.contents.files, { total: 1, paths: [`${IMG}.png`] })
-    assert.equal(r.body.contents.locked, 1)
-    assert.ok(!r.text.includes(THEIRS) && !r.text.includes(h.users.member.username), 'never named')
-    assert.ok(existsSync(join(h.notesDir, DIR, `${NOTE}.md`)))
+    assert.ok(!('locked' in r.body.contents))
+    const done = await h.admin('DELETE', `/api/folder${q(DIR, '&trash=true')}`)
+    assert.equal(done.status, 200, done.text)
+    assert.ok(!existsSync(join(h.notesDir, DIR)))
   } finally { await h.close() }
 })
 
 test('an agent deleting a note takes only the images it may write: not those in a folder closed to agents', async () => {
-  const [DIR, NOTE, OPEN, CLOSED, HIDDEN] = [token(), token(), token(), token(), token()]
+  const [NOTE, OPEN, CLOSED, HIDDEN] = [token(), token(), token(), token()]
+  const DIR = inShared(token())
   const note = `${DIR}/${NOTE}.md`
   const assets = `${DIR}/${NOTE}.assets`
   const h = await setup({
-    config: (n) => `attachments:\n  mode: per-note\npermissions:\n  "":\n    grants: { ${JSON.stringify(n.admin)}: manage, ${JSON.stringify(n.member)}: edit }\n  ${JSON.stringify(`${assets}/${CLOSED}`)}:\n    ai: false\n`,
+    config: (n) => `attachments:\n  mode: per-note\n${sharedSpace({ [n.admin]: 'manage', [n.member]: 'edit' })}  ${JSON.stringify(`${assets}/${CLOSED}`)}:\n    ai: false\n`,
     files: { [note]: `![](${NOTE}.assets/${OPEN}.png) ![](${NOTE}.assets/${CLOSED}/${HIDDEN}.png)\n`, [`${assets}/${OPEN}.png`]: PNG, [`${assets}/${CLOSED}/${HIDDEN}.png`]: PNG },
   })
   try {

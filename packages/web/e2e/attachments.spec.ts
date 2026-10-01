@@ -4,11 +4,14 @@
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { markdownDest } from '../../core/src/images.ts'
-import { ADMIN, E2E_DIR, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES, SPACE_NAME, inVault, specMother } from './env.ts'
 import { literally, png, sendFiles, signIn, writeWorkspace } from './helpers.ts'
 
 const m = specMother(import.meta.url)
-const DIR = m.aFolder()
+const FOLDER = m.aFolder()
+const DIR = inVault(FOLDER)
+/** The folder as the UI shows it: the space's name, then the folder. */
+const SHOWN = `${SPACE_NAME} / ${FOLDER}`
 const TITLE = m.aTitle()
 const NOTE = `${DIR}/${TITLE}.md`
 const OTHER = m.aNotePath(DIR)
@@ -56,11 +59,11 @@ test('a pasted image goes to the note\'s own folder; renaming the note takes the
   await k.getByRole('menuitem', { name: 'Renombrar o mover…' }).click()
   const dialog = k.getByRole('dialog')
   await dialog.getByLabel('Nuevo nombre').fill(RENAMED)
-  await expect(dialog.locator('.preview-image')).toHaveText(`${DIR} / ${TITLE}.assets /carpeta de la nota (1 archivo): va con ella como ${DIR} / ${RENAMED}.assets /`)
+  await expect(dialog.locator('.preview-image')).toHaveText(`${SHOWN} / ${TITLE}.assets /carpeta de la nota (1 archivo): va con ella como ${SHOWN} / ${RENAMED}.assets /`)
   await expect(dialog.locator('.preview-change', { hasText: `![](${ASSETS}/${name}) → ![](${RENAMED_ASSETS}/${name})` })).toHaveCount(2)
   await k.screenshot({ path: `${E2E_DIR}/shots/move-assets-folder.png` })
   await dialog.getByRole('button', { name: 'Renombrar y actualizar 2 enlaces' }).click()
-  await expect(k.locator('.crumbs')).toHaveText(`${DIR} / ${RENAMED}`)
+  await expect(k.locator('.crumbs')).toHaveText(`${SHOWN} / ${RENAMED}`)
 
   expect(existsSync(`${NOTES}/${DIR}/${TITLE}.assets`)).toBe(false)
   expect(readFileSync(`${NOTES}/${DIR}/${RENAMED}.assets/${name}`)).toEqual(BLUE)

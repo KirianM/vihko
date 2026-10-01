@@ -10,14 +10,17 @@ import { Prec, type EditorState } from '@codemirror/state'
 import { keymap, type EditorView } from '@codemirror/view'
 import { withoutClosingHashes } from '@vihko/core/syntax'
 import { api } from '../api.ts'
+import { onSessionEnd } from '../session.ts'
 import {
-  NoteCatalog, completionContext, completionEnd, fold, folderOf, matchScore, rankHeadings, rankTags,
+  NoteCatalog, completionContext, completionEnd, fold, matchScore, rankHeadings, rankTags,
   type HeadingEntry, type TagEntry,
 } from './suggest.ts'
 
 export interface AutocompleteText {
   /** Detail of a tag suggestion: how many notes use it. */
   tagCount: (n: number) => string
+  /** Where a note is, as the person sees it: its space when it isn't their own, and its folders (spaces.tsx). */
+  where: (path: string) => string
 }
 
 const TTL_MS = 10_000
@@ -27,13 +30,19 @@ class Cached<T> {
   private value: T | null = null
   private at = 0
   private pending: Promise<T> | null = null
+  /** Bumped by `clear`: a load that was already on its way is never kept. */
+  private generation = 0
   private readonly load: () => Promise<T>
   constructor(load: () => Promise<T>) { this.load = load }
   get(): Promise<T> {
     if (Date.now() - this.at > TTL_MS && !this.pending) {
+      const generation = this.generation
       const p = this.load().then(
-        (v) => { this.value = v; this.at = Date.now(); this.pending = null; return v },
-        (e: unknown) => { this.pending = null; throw e },
+        (v) => {
+          if (generation !== this.generation) return v
+          this.value = v; this.at = Date.now(); this.pending = null; return v
+        },
+        (e: unknown) => { if (generation === this.generation) this.pending = null; throw e },
       )
       this.pending = p
       if (this.value !== null) p.catch(() => {})
@@ -41,10 +50,12 @@ class Cached<T> {
     return this.value !== null ? Promise.resolve(this.value) : this.pending!
   }
   forget() { this.at = 0 }
+  /** Nothing kept: the next `get` waits for the server (another person may be signed in by then). */
+  clear() { this.value = null; this.at = 0; this.pending = null; this.generation++ }
 }
 
 const notes = new Cached(() => Promise.all([api.tree(), api.workspace().catch(() => null)])
-  .then(([r, w]) => new NoteCatalog(r.notes, { aliases: w?.links.aliases ?? true })))
+  .then(([r, w]) => new NoteCatalog(r.notes, { aliases: w?.links.aliases ?? true, pathOnly: r.pathOnly })))
 const tags = new Cached<TagEntry[]>(() => api.tags())
 const headings = new Map<string, Cached<HeadingEntry[]>>()
 const headingsOf = (path: string) => {
@@ -59,6 +70,18 @@ export function forgetSuggestions() {
   tags.forget()
   headings.clear()
 }
+
+/**
+ * The session ended (signing out, or it expired): what was loaded for that
+ * person goes, so whoever signs in next in this tab never gets it, not even
+ * while their own loads (D-056.28).
+ */
+function clearSuggestions() {
+  notes.clear()
+  tags.clear()
+  headings.clear()
+}
+onSessionEnd(clearSuggestions)
 
 // Where nothing is suggested: code, the frontmatter, HTML (vihko's comments) and URLs.
 const QUIET = new Set(['InlineCode', 'CodeText', 'FencedCode', 'CodeBlock', 'Frontmatter', 'Comment', 'CommentBlock', 'HTMLBlock', 'HTMLTag', 'URL', 'Autolink'])
@@ -87,7 +110,14 @@ function ownHeadings(state: EditorState): HeadingEntry[] {
   return out
 }
 
-const folderLabel = (path: string) => folderOf(path).split('/').filter(Boolean).join(' / ')
+/** Whether a position is inside a Markdown table. */
+function inTable(state: EditorState, pos: number): boolean {
+  for (let n: { name: string; parent: unknown } | null = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent as typeof n) {
+    if (n.name === 'Table') return true
+  }
+  // A row being typed may not parse as a table yet: a line that starts with `|`.
+  return /^\s*\|/.test(state.doc.lineAt(pos).text)
+}
 
 /**
  * Inserts `text` over `from`–`to` inside a `[[…]]`: if the old rest of that
@@ -142,14 +172,20 @@ export function linkAutocomplete(note: string, text: AutocompleteText) {
 
     if (c.kind === 'note') {
       const options = catalog.rank(c.query, note).map((m): Completion => {
-        const folder = folderLabel(m.path)
+        const folder = text.where(m.path)
         const title = catalog.displays(m.path)[0] ?? ''
         return {
           label: m.label,
           detail: m.alias ? `→ ${title}${folder ? ` · ${folder}` : ''}` : folder,
           type: 'note',
-          apply: (view, completion, f, to) =>
-            insertInLink(view, completion, f, to, catalog.linkTarget(note, m.path), /^[^[\]|#\n]*/, m.alias ? `|${m.alias}` : ''),
+          apply: (view, completion, f, to) => {
+            // To another space, from the notes root with the note's name to show (D-056.17): `[[spaces/x-id/note|note]]`.
+            const form = catalog.linkForm(note, m.path)
+            const shown = m.alias ?? form.display
+            // Inside a table a bare `|` would end the cell: Obsidian's `\|` (core reads it back).
+            const bar = inTable(view.state, f) ? '\\|' : '|'
+            insertInLink(view, completion, f, to, form.target, /^[^[\]|#\n]*/, shown ? `${bar}${shown}` : '')
+          },
         }
       })
       return options.length ? { from, options, filter: false } : null
