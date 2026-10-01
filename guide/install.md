@@ -66,10 +66,10 @@ This is the whole `compose.yaml`:
 # Minimal example. Adjust the volume paths to your system.
 services:
   vihko:
-    # :1 gets every 1.x release (fixes and features) and never an
-    # incompatible version: that is a new major, which you choose by changing
-    # the tag.
-    image: ghcr.io/kirianm/vihko:1
+    # :0.1 gets every 0.1.x release (fixes only). In 0.x a new minor version
+    # (0.2) may change things: you move to it by changing the tag, after
+    # reading its upgrade notes.
+    image: ghcr.io/kirianm/vihko:0.1
     restart: unless-stopped
     # Hardening: nothing is written outside the two volumes, no Linux
     # capabilities, and no way to gain privileges. vihko needs none of them.
@@ -111,11 +111,11 @@ services:
 
 | Tag | What you get |
 |---|---|
-| `1` | The latest 1.x release. Recommended: fixes and new features, never an incompatible change (save the exceptions in [Upgrading](upgrading.md#what-a-version-number-promises)). |
-| `1.2` | The latest 1.2.x release: fixes only. |
-| `1.2.3` | Exactly that release. It never changes. |
-| `latest` | The latest release, **whatever its major version**. It can jump from 1.x to 2.0 on a `docker compose pull`. Avoid it. |
-| `1.1.0-rc.1` | A release candidate, only under its exact tag. |
+| `0.1` | The latest 0.1.x release: fixes only. Recommended while vihko is at 0.x. |
+| `0.1.0` | Exactly that release. It never changes. |
+| `0` | The latest 0.x release. In 0.x a new minor version may change things ([Upgrading](upgrading.md#what-a-version-number-promises)): avoid it. |
+| `latest` | The latest release, whatever its version. Avoid it. |
+| `0.2.0-rc.1` | A release candidate, only under its exact tag. |
 
 [Upgrading](upgrading.md) explains what a major version means and how to move
 between versions.
@@ -157,8 +157,30 @@ included. For a proxy elsewhere on your network, keep the default line. See
 ### The notes volume
 
 `./notes:/data/notes` is your notes: a folder of Markdown files, the source of
-truth. It can be an empty folder or one you already have, even one shared with
-other editors or sync tools. vihko imposes no structure on it.
+truth. Start with an empty folder. vihko makes two folders in it, and
+everything it shows lives in them:
+
+```text
+notes/
+  vihko.yaml          the workspace configuration (optional)
+  people/
+    alex/             alex's own space, «My notes» for alex
+    noa/
+  spaces/
+    home-7k2q9x/      a shared space, named «Home» in the UI
+```
+
+- `people/<username>/` is made for each person when their account is
+  created, the first admin included, also when one person uses vihko alone.
+- `spaces/<name>-<id>/` is made when someone creates a shared space.
+- Inside them, any folders and any names: vihko imposes nothing else.
+- **What you put anywhere else** (at the root, next to `people/` and
+  `spaces/`) isn't seen by anyone in vihko, and the admins get an alert that
+  lists it. To use notes you already have, an Obsidian vault say, copy them
+  into your own folder, `people/<you>/`, or into a shared space's folder. See
+  [Notes and Markdown](notes.md#with-obsidian-and-other-editors).
+
+The folder can be shared with other editors or sync tools while vihko runs.
 
 It can live on local disk or on a network filesystem (NFS, SMB). On a network
 filesystem, vihko sees changes made from other machines through a periodic
@@ -202,9 +224,12 @@ A Docker named volume works too (`- vihko-state:/data/state`, with a
 `volumes:` section); a folder next to `compose.yaml` is simply easier to back
 up.
 
-**It's private.** Everything in it, the history of personal folders included,
-is readable by whoever can open the folder on the host: vihko's permissions
-only apply to people who go through vihko. vihko closes the folder to other
+**It's private.** Everything in it, the history of everyone's space included,
+is readable by whoever can open the folder on the host, and so is the notes
+folder: vihko's rules (nobody, the admin included, reads someone else's
+space) only apply to people who go through vihko. Whoever runs the server can
+read every note. One installation is for one group that trusts them; see
+[One group per installation](users-and-permissions.md#one-group-per-installation). vihko closes the folder to other
 users of the host when it starts (mode `700`, owner only). If it can't,
 because the folder belongs to another user, the log says so. The notes folder
 is yours to protect the same way, if others have accounts on the host.
@@ -300,7 +325,7 @@ docker compose logs vihko
 ```
 
 ```text
-[vihko] vihko 1.0.1
+[vihko] vihko 0.1.0
 [vihko] no vihko.yaml: nothing configured
 [vihko] index ready: 0 added, 0 changed, 0 removed, 0 unchanged
 [vihko] listening on http://0.0.0.0:8080
@@ -316,8 +341,9 @@ reach it on the host port you published.)
 
 1. Open `http://<your-server>:8080`.
 2. vihko shows «Create the administrator». Paste the token from the log.
-3. Choose a username (2 to 64 letters, digits, `.`, `_` or `-`) and a password
-   of at least 10 characters. You're signed in.
+3. Choose a username (2 to 64 letters, digits, `.`, `_` or `-`, not starting
+   with a dot) and a password of at least 10 characters. You're signed in, in
+   «My notes», your own space (`people/<your username>/`), still empty.
 
 The token works once. While there are no users, vihko prints a new one every
 time it starts; once the admin exists, it prints none. A script can do the
@@ -367,7 +393,7 @@ give it a sensible value.)
 |---|---|---|
 | `VIHKO_PUBLIC_URL` | unset | The `https://` address vihko is reached at from outside, behind a reverse proxy: the origin only, such as `https://notes.example.com`. It makes OAuth available for remote MCP clients (while the MCP server is on), and invitation and password-reset links use it. See [Reverse proxy](reverse-proxy.md) and [Agents](agents.md). |
 | `VIHKO_TRUSTED_PROXIES` | unset | Addresses or CIDR ranges of your reverse proxies, separated by commas or spaces (`172.16.0.0/12, 10.0.0.50`). Only from them does vihko believe `X-Forwarded-For`, to tell clients apart for the sign-in limits. Unset, every request counts as coming from the connection's address. A proxy on another machine is its one address: a range such as `10.0.0.50/8` trusts the whole `10.0.0.0/8`. See [Reverse proxy](reverse-proxy.md#tell-vihko-about-the-proxy). |
-| `VIHKO_INTEGRATIONS` | unset | `off` keeps every integration off, whatever an admin turns on in the UI: the API with keys, the MCP server, and any a later 1.x release adds. The only other accepted value is unset. |
+| `VIHKO_INTEGRATIONS` | unset | `off` keeps every integration off, whatever an admin turns on in the UI: the API with keys, the MCP server, and any a later release adds. The only other accepted value is unset. |
 | `VIHKO_EXTERNAL_IMAGES` | `allow` | `block` stops browsers loading images that notes link from other sites (which tells those sites who reads the note, and when); a box with the site's domain is shown instead. |
 | `VIHKO_MAX_IMAGE_MB` | `20` | The largest image vihko stores from an upload, a paste or a URL, in megabytes. An agent's `attach_image` takes about 3 MB at most whatever it says: that is what fits in an MCP request (see [Agents](agents.md#images)). |
 | `VIHKO_SECRET_KEY` | unset | A key of 32 characters or more that encrypts the second-factor secrets stored in `state.db`, so that a copy of `state.db` alone can't produce anyone's codes. See [The second-factor key](#the-second-factor-key). |
@@ -475,7 +501,7 @@ in:
 - **The port is published on your whole network**, over plain HTTP. On the
   Internet, always use HTTPS: see [Reverse proxy](reverse-proxy.md).
 
-Webhooks are planned, not part of 1.0.
+Webhooks are planned, not part of 0.1.
 
 ## Running without Docker
 
@@ -490,6 +516,7 @@ VIHKO_NOTES_DIR=/path/to/notes VIHKO_STATE_DIR=/path/to/state packages/server/sr
 
 There are no system packages or service files. Everything in this guide about
 the two folders, the environment variables and the command line applies the
-same way. Running from source isn't part of the 1.x promise: the Node.js
+same way. Running from source isn't covered by
+[what 0.x tries to keep](compatibility.md#what-isnt-covered): the Node.js
 version, the npm scripts and the repository's layout can change in any
-release (see [What isn't covered](compatibility.md#what-isnt-covered)).
+release.
