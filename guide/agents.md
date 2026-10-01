@@ -82,7 +82,7 @@ Whatever the settings, a key never sees:
 - a note with `ai: false` in its frontmatter (also `no`, `off`, `"false"` or
   `0`), or a note whose frontmatter can't be read;
 - anything in a folder closed to agents (`ai: false` on the folder, set in its
-  permissions: see [Users and permissions](users-and-permissions.md));
+  permissions: see [Spaces, people and sharing](users-and-permissions.md));
 - an image or other file that such a note uses;
 - anything outside the key's folders, or that its person can't read.
 
@@ -577,7 +577,7 @@ trash. See [History](history.md).
   can be reverted.
 - **Use strong passwords and a second factor** when vihko has a public address:
   anyone on the internet can reach its sign-in page. See
-  [Users and permissions](users-and-permissions.md).
+  [Spaces, people and sharing](users-and-permissions.md).
 
 ## Not there yet
 

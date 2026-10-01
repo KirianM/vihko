@@ -344,7 +344,7 @@ lists every command.
 ### Next steps
 
 - Find your way around the app: [First steps in the app](first-steps.md).
-- Invite people: [Users and permissions](users-and-permissions.md).
+- Invite people: [Spaces, people and sharing](users-and-permissions.md).
 - Configure the workspace (daily notes, templates, where images go):
   [Configuration](configuration.md).
 - Set up [backups](backups.md) now, before you have notes to lose.
@@ -448,7 +448,7 @@ encrypted (AES-256-GCM).
   `vihko user reset-2fa <name>`) so they set it up again. Putting the old key
   back makes them work again.
 
-More on second factors for people: [Users and permissions](users-and-permissions.md).
+More on second factors for people: [Spaces, people and sharing](users-and-permissions.md).
 
 ## Closed by default
 

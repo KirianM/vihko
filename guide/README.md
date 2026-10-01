@@ -9,7 +9,7 @@ vihko: the guides in a release describe that release.
   the first start and every environment variable.
 - [Configuration](configuration.md): `vihko.yaml`, the workspace settings
   that live with your notes (daily notes, templates, images, links, history).
-- [Users and permissions](users-and-permissions.md): inviting people, groups,
+- [Spaces, people and sharing](users-and-permissions.md): inviting people, groups,
   per-folder permissions, sign-in limits and two-step verification.
 - [Reverse proxy](reverse-proxy.md): HTTPS and a public address with Caddy or
   nginx.

@@ -337,7 +337,7 @@ permissions:
     ai: false                      # closed to agents, with everything under it
 ```
 
-Who reads and writes what, folder by folder. [Users and permissions](users-and-permissions.md)
+Who reads and writes what, folder by folder. [Spaces, people and sharing](users-and-permissions.md)
 explains the model in plain words and how to use it from the UI; this is the
 exact reference of what the file accepts.
 
@@ -376,7 +376,7 @@ appear twice in one rule. Groups are created in the UI (Preferences → Users
 and groups), not in this file.
 
 **Levels**, from less to more: `read`, `comment`, `edit`, `manage`. What each
-allows is in [Users and permissions](users-and-permissions.md#the-four-levels).
+allows is in [Spaces, people and sharing](users-and-permissions.md#members).
 
 **How a folder's access is worked out:**
 
@@ -462,7 +462,7 @@ the notes that left, it holds them hidden from everyone and alerts the admin
 and the folder's managers: move the permissions with them, or release them so
 the folder they're in now applies. Notes that came out of a personal folder
 are its owner's to decide; the admin only learns that they're held. See
-[Users and permissions](users-and-permissions.md#folders-moved-outside-vihko).
+[Spaces, people and sharing](users-and-permissions.md#folders-moved-outside-vihko).
 
 ## When something is wrong
 

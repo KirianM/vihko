@@ -1,52 +1,182 @@
-# Users and permissions
+# Spaces, people and sharing
 
-vihko is made for a small group: a family, a team, a few friends. Everyone
-signs in with their own account, and folder permissions decide who reads and
-writes what. This page is for the admin who sets that up, and for anyone who
-wants to know who can see their notes.
+vihko is made for one group: a family, a team, a few friends who know each
+other and trust whoever runs the server. Everyone signs in with their own
+account and has a space of their own. What belongs to several people goes in
+a shared space, and a folder of your own can be shared with someone in
+particular. This page is for everyone who wants to know who sees their notes,
+and for the admin who adds people.
 
-Everything here happens in the UI, under **Preferences** (in the sidebar):
-«Account» for your own account (language, password, second factor and
-sessions), «Users and groups» for the admin. The exact
-rules behind the permissions, as written in `vihko.yaml`, are in
+Everything here happens in the UI. Your own account (language, password,
+second factor, sessions) is in **Preferences** → «Account»; people and groups,
+for the admin, in «Users and groups»; the shared spaces of the installation,
+for the admin, in «Spaces». How it's written in `vihko.yaml` is in
 [Configuration](configuration.md#permissions).
+
+## Three kinds of place
+
+| | What it is | Whose | In the notes folder |
+|---|---|---|---|
+| **My notes** | Your own space | Yours: only you see it, except what you share | `people/<your username>/` |
+| **A shared space**, such as «Home» | A place for what belongs to several people | Its members': everyone in it sees everything in it | `spaces/<name>-<id>/`, such as `spaces/home-7k2q9x/` |
+| **Shared with me** | Folders other people share with you from their own space, or a folder of a shared space you're not a member of | Still theirs, or still the space's | Where they are: `people/ana/trips/` |
+
+The sidebar shows them in that order: «My notes», then each shared space you
+belong to, by name, then «Shared with me». A folder in «Shared with me» can be
+pinned (its menu → «Pin to the sidebar»), and then it gets a section of its
+own, next to your spaces. It shows with its real name and whose it is
+(«trips · ana’s»); you can't rename or move it, since it isn't yours.
+
+**A new person** sees «My notes», empty, and can start writing at once.
+Nothing else shows until someone adds them to a space or shares a folder with
+them.
+
+### One group per installation
+
+The vihko admin manages people, groups and settings, but **doesn't read other
+people's notes**: being an admin gives access to nothing. The admin sees the
+names of the shared spaces, who manages each and how many members it has,
+never what's inside, and never the folders people share from their own space.
+
+That is a rule of vihko's interface. Your notes are plain files on the
+server's disk, and **whoever can open the server's disk can read them**,
+everyone's: the person who runs the server, a backup, anyone with access to
+the machine. So one installation is for one group that trusts whoever runs
+it. Groups that don't know each other should each have their own
+installation; vihko doesn't keep several isolated groups apart in one.
 
 ## Roles
 
-There are two roles.
-
 | | Member | Admin |
 |---|---|---|
-| Reads and writes notes | What the folder permissions grant them | The same: what the permissions grant them |
-| Shares a folder | Where they have `manage` | Any folder |
-| Manages users, groups, the second-factor policy and other settings | | ✓ |
-| Sees system alerts (configuration, history, sign-in attempts) | | ✓ |
+| Has their own space, «My notes» | ✓ | ✓ |
+| Reads and writes what is shared with them | ✓ | ✓, the same |
+| Creates shared spaces | ✓ (unless the admin reserves it to admins) | ✓ |
+| Shares a folder | Where they manage it | Where they manage it, the same |
+| Manages users, groups and settings; sees system alerts | | ✓ |
+| Sees the directory of shared spaces (names and managers, never content) | | ✓ |
 
-**The admin manages, but doesn't read by right.** Being an admin grants no
-access to notes: an admin reads only what the permissions give them, like
-anyone else. In practice:
+## Shared spaces
 
-- While `vihko.yaml` has no permissions, every admin manages the root, so a
-  one-person installation just works. The first change in a permissions
-  dialog writes that rule into the file, with the admins of that moment;
-  an admin added later gets only what they're granted.
-- Whoever manages the root reads everything **except other people's personal
-  folders** (see [Personal folders](#personal-folders-with-user)).
-- An admin can change any folder's permissions, including a personal
-  folder's, and so give themselves access. That's a grant like any other,
-  visible to everyone who looks at that folder's permissions. It isn't hidden.
-- In «Users and groups» → «Folder permissions», an admin sees every folder's
-  name, to manage its permissions, never its notes.
+### Create one
 
-Everyone signed in sees the names of users and groups (to share with them),
-never their status, role or second factor.
+In the sidebar, **New space**. Give it a name and, if you like, its first
+members, each with a level. You manage it: you can add more people later. Its
+name can change whenever you like («Rename…» in its menu): only the name
+people see changes, never its folder, so links to its notes keep working.
 
-The admin's settings, in Preferences → Users and groups → Settings, are the
-[second-factor policy](#the-policy) and «Members can download images from the
-local network»: off by default, members can only save copies of images from
-public internet addresses, so nobody can use vihko to reach other machines on
-your network. Admins always can. Whether members may create agent keys (off by
-default) is set in «Agents and API» (see [Agents](agents.md)).
+The admin can reserve creating spaces to admins: Preferences → Spaces → «Who
+can create spaces». Then the «New space» button only shows for admins.
+
+Two spaces may have the same name. Names of shared spaces aren't secret: the
+admin's directory lists them all.
+
+### Members
+
+Open the space's menu in the sidebar → **Members…**. Everyone in the space
+sees who the other members are and at what level. Whoever manages it adds
+people or groups («Add…», with a level) and changes or removes them.
+
+| | `read` | `comment` | `edit` | `manage` |
+|---|---|---|---|---|
+| Open notes, follow their links, see their images and comments | ✓ | ✓ | ✓ | ✓ |
+| Add comments, and resolve their own threads | | ✓ | ✓ | ✓ |
+| Create, edit, move and delete notes; upload images; resolve any comment; create subfolders | | | ✓ | ✓ |
+| See a note's history and «Recent changes», restore and revert versions | | | ✓ | ✓ |
+| Share a folder further, close it to agents, rename, move or delete folders, purge from the history | | | | ✓ |
+| At the space's root: change its members, rename the space, delete it | | | | ✓ |
+
+- With `read` or `comment`, the editor is read-only and its header says «Read
+  only» or «Comments only».
+- With `comment`, you can resolve a thread you started only while nobody else
+  has replied to it.
+- Moving a note takes `edit` where it is and where it goes. Moving a folder
+  takes `manage` on it and `edit` where it goes.
+- Sharing a note to `read` doesn't share its past: the history takes `edit`.
+
+### Sharing only adds
+
+Everyone who has access to a folder sees **everything inside it**, also what
+is added later. You can add people to a subfolder (a space's `recipes/` shared
+with a neighbour who isn't a member, say), but never take someone away from a
+subfolder they reach from above: the dialog shows those rows as «Through
+<folder>», without a way to remove them there.
+
+So what someone shouldn't see goes somewhere else: another folder of your own
+space, or another shared space. This is on purpose. Where you can create a
+note, you see everything around it, and nothing hidden there can get in your
+way or tell you it exists.
+
+A person's level is the highest any grant gives them, by name or through any
+of their groups.
+
+### Leave a space
+
+The space's menu → **Leave**. Nothing is deleted: the space and its notes stay
+for the others, and someone who manages it has to add you again to come back.
+
+- If you're in the space through a group, you can't leave it yourself: the
+  dialog says which group, and the admin takes you out of the group.
+- The last person who manages a space can leave too. The space goes on with
+  its members, and the admins get an alert to assign it a new manager.
+
+### Delete a space
+
+The space's menu → **Delete space…** (it takes `manage`). Its notes go to the
+trash, and only the people who managed it can restore them. Its members stop
+seeing it at once.
+
+## Sharing a folder of your own
+
+In «My notes», open a folder's menu → **Share…**, add people or groups and
+pick a level. They see that folder, and everything in it, under «Shared with
+me», with your name. The rest of your space stays yours alone. Your space as a
+whole can't be shared: for something that belongs to several people, make a
+shared space.
+
+- The folder stays in your space and stays yours. Only you rename, move or
+  delete it. Someone you gave `manage` can share it further and order what's
+  inside it.
+- Whoever can edit in it creates notes there; they're kept in your space, and
+  the UI says so.
+- Whoever receives it can pin it to the sidebar, see who else has access
+  («Who has access…»), or stop seeing it («Leave», then «Stop seeing it»).
+  Stopping seeing it deletes nothing: to see it again, you have to share it
+  again.
+
+**The share dialog.** «Share…» opens it on any folder you manage, in your
+space or in a shared space. It lists who has access and why: «Here» for what
+this folder adds, «Through <folder>» for what comes from above, and «It’s
+their space» for the owner of a personal space. The tab «Who has access» lists
+every person who reaches the folder, at what level and why. The card
+«Closed to agents» is there too (see
+[Closing things to agents](#closing-things-to-agents)).
+
+A folder with grants of its own shows a «Shared» mark in the tree.
+
+If someone changed `vihko.yaml` by hand while you had the dialog open, saving
+doesn't overwrite it: the dialog reloads with the grants as they are now, and
+you review your change and save again.
+
+People who are added to a space, or get a folder shared with them, see a
+notice: «ana added you to Home», «ana shared “trips” with you».
+
+## Moving things between spaces
+
+Moving a note or a folder to another space changes who can see it, and whose
+it is. The move dialog says so before anything happens, and asks you to tick a
+box:
+
+- who gains and who loses access (people and groups by name, keys counted);
+- whose it becomes: «It stops being yours: it will belong to the members of
+  Home», or «It will be kept in ana’s space»;
+- links that will now be written with a path from the notes root, and what
+  people who can't read the other side will see (a path, not the note);
+- images the note shares with other notes, which are copied to the new space
+  so its new readers see them.
+
+An agent that tries a move that would show a note to more people is refused
+unless it confirms, and it's told to ask you first.
 
 ## Adding people
 
@@ -55,34 +185,34 @@ send it yourself over a channel you trust.
 
 1. Go to Preferences → Users and groups → **New user**.
 2. Type a username and choose a role. The username is 2 to 64 letters,
-   digits, `.`, `_` or `-`, and can't be changed later. Names are unique
-   ignoring case (`Noa` and `noa` are the same person). A new admin, like
-   making someone admin, asks you to confirm at the moment (see
+   digits, `.`, `_` or `-`, doesn't start with a dot, and can't be changed
+   later: it's also the name of their folder, `people/<username>/`. Names are
+   unique ignoring case (`Noa` and `noa` are the same person). A new admin,
+   like making someone admin, asks you to confirm at the moment (see
    [Confirming at the moment](#confirming-at-the-moment)), and the other
    admins get a notice.
 3. Press «Create and get the link», copy the link and send it.
 
 The person opens the link, chooses their password (at least 10 characters) and
-is signed in. If the second factor is required, they set it up right there.
+is signed in, with their own empty «My notes». If the second factor is
+required, they set it up right there.
 
 - The link works **once**, for **7 days**. It's only shown when made: if it
   gets lost, make another one («New invitation link»); the previous one stops
   working.
 - The link uses `VIHKO_PUBLIC_URL` when it's set, and otherwise the address
-  your browser used to reach vihko. Make sure that address works for the
-  person you send it to.
+  your browser used to reach vihko.
 - Until they use it, the account shows as «Invitation pending».
 - Nobody, the admin included, ever knows anyone's password.
-
-A new person can see nothing until a folder is shared with them. They see «You
-have no access to any folder yet» instead of the folder tree.
+- If a folder with that name already exists in `people/` with something in it
+  (put there from outside vihko), the user isn't created
+  (`personal_folder_exists`): move that folder away first, or choose another
+  name. An empty one is simply theirs.
 
 ### From the command line
 
 The same without the UI, inside the container (`docker compose exec vihko …`
-while it runs). This is the only way to give someone a password yourself:
-it's for whoever runs the server, and neither the UI nor vihko's HTTP API
-does it (they only make links).
+while it runs). This is the only way to give someone a password yourself.
 
 ```sh
 # Create a user; the password is read from standard input
@@ -98,22 +228,18 @@ docker compose exec vihko vihko user reset-2fa noa
 
 A password typed on the command line stays in your shell's history; to avoid
 that, read it from a file (`… user create noa < password.txt`) and delete the
-file afterwards. The password must be at least 10 characters.
+file afterwards.
 
 `reset-link` and `reset-2fa` together are the way back for an admin who lost
 both password and phone. `reset-link` prints the full link when
 `VIHKO_PUBLIC_URL` is set, and otherwise a path to put after vihko's address.
-Any earlier link for that person stops working. A second factor they have is
-still asked for after the reset.
 
 ## Language, passwords and sessions
 
 - **Language:** Preferences → Account → Language, or `>language` in the
   search (⌘K / Ctrl+K). vihko speaks English and Spanish; «Automatic», the
   default, uses your browser's language. Your choice is saved in your
-  account, so it follows you to every browser you sign in from, and each
-  browser remembers it for its sign-in screen. Until you sign in, a browser
-  you've never used shows its own language.
+  account.
 - **Changing your password:** Preferences → Account → Password. It asks for the
   current one, signs out your other sessions, and ends any reset link made for
   you.
@@ -124,194 +250,42 @@ still asked for after the reset.
   working until the link is used; using it signs out all their sessions.
 
 When an admin makes a reset link, resets someone's second factor or changes
-their role, vihko asks the admin to confirm at the moment (see
-[Confirming at the moment](#confirming-at-the-moment)). The person sees a notice
-the next time they sign in («Lead made a link to reset your password»), and so
-do the other admins. An admin can do these things, but not unnoticed.
+their role, vihko asks the admin to confirm at the moment. The person sees a
+notice the next time they sign in («Lead made a link to reset your password»),
+and so do the other admins. An admin can do these things, but not unnoticed.
 
 ## Groups
 
-A group lets you share with several people at once. Only admins create groups
-and decide who's in them, in Preferences → Users and groups → Groups.
+A group lets you share with several people at once: add `@family` to a space
+and everyone in the group is a member. Only admins create groups and decide
+who's in them, in Preferences → Users and groups → Groups.
 
-- A group name follows the same rules as a username. In permissions it's
-  written with `@` in front: `@family`, `@staff`.
-- **Renaming** a group renames it in every folder's permissions (vihko
-  rewrites `vihko.yaml`).
+- A group name follows the same rules as a username. In grants it's written
+  with `@` in front: `@family`, `@staff`.
+- **Renaming** a group renames it in every grant (vihko rewrites
+  `vihko.yaml`).
 - **Deleting** a group removes its grants everywhere: its members lose what
   they had only through it. The people aren't deleted.
+- **Taking someone out of a group** takes away at once what they had through
+  it; a note they had open closes.
 
-## Sharing a folder
+## What the admin can do with spaces
 
-Permissions belong to folders, never to single notes: a note has the
-permissions of the folder it's in, and so does an image or any other file.
+Preferences → **Spaces** (admins only) lists every shared space: its name, who
+manages it, and how many members it has. Never what's inside.
 
-To share a folder, open its menu in the folder tree → **Permissions…**. You can
-do it if you have `manage` on it, or if you're an admin.
+- **Assign a manager** to a space that has none (its last manager left, or
+  nobody was ever given access). The person and the other admins are told.
+- **Join** a space, as one more member, at a level the admin chooses (`read`
+  by default). It's confirmed at the moment, the space's managers are told,
+  and the admin shows up in its member list. That is the only way for an
+  admin to see what's inside a space that isn't theirs.
+- **Who can create spaces**: everyone (the default) or admins only.
+- The page also shows what is in the notes folder outside every space, and
+  the spaces of deleted people (below).
 
-1. Press «Change permissions». The dialog starts from what the folder inherits.
-2. Add people or groups with «Add…», and pick a level for each.
-3. Press «Save».
-
-The dialog also has:
-
-- **Inherited from …**: what the folder gets from above when it has no
-  permissions of its own. «Restore inheritance» drops its own permissions.
-- **Who has access**: every person who reaches the folder, at what level and
-  why («Directly», «Through @family», «manages /projects»).
-- **Closed to agents**: see [Closing folders to agents](#closing-folders-to-agents).
-
-A folder with permissions of its own, or closed to agents, shows a lock in
-the tree.
-
-If someone changed `vihko.yaml` by hand while you had the dialog open, saving
-doesn't overwrite it: the dialog reloads with the permissions as they are now,
-and you review your change and save again.
-
-### The four levels
-
-| | `read` | `comment` | `edit` | `manage` |
-|---|---|---|---|---|
-| Open notes, follow their links, see their images and comments | ✓ | ✓ | ✓ | ✓ |
-| Add comments, and resolve their own threads | | ✓ | ✓ | ✓ |
-| Create, edit, move and delete notes; upload images; resolve any comment; create subfolders | | | ✓ | ✓ |
-| See a note's history and «Recent changes», restore and revert versions | | | ✓ | ✓ |
-| Change the folder's permissions (up to `manage`), close it to agents, rename, move or delete the folder, purge its notes from the history | | | | ✓ |
-
-- With `read` or `comment`, the editor is read-only and its header says «Read
-  only» or «Comments only».
-- With `comment`, you can resolve a thread you started only while nobody else
-  has replied to it; with replies from others, it takes `edit`.
-- Moving a note takes `edit` where it is and where it goes. Moving a folder
-  takes `manage` on it and `edit` where it goes.
-- Sharing a note to `read` doesn't share its past: the history takes `edit`.
-
-### How permissions pass down
-
-- **Subfolders inherit** the permissions of the nearest folder above that has
-  some.
-- **A folder's own permissions replace what it would inherit.** They never add
-  to it: to keep someone from above, include them.
-- **Whoever manages a folder manages everything under it**, even a subfolder
-  whose own permissions don't name them. You can't close a subfolder to the
-  person who manages the folder above; use a personal folder for that.
-- **A person's level** is the highest they get, by name or through any of their
-  groups.
-
-The exact rules, with the edge cases, are in
-[Configuration](configuration.md#permissions).
-
-## Personal folders with `{user}`
-
-A `{user}` rule gives each person a folder of their own, also to people who
-join later. Write it in `vihko.yaml` by hand (the dialog shows it but doesn't
-create it):
-
-```yaml
-permissions:
-  "":
-    grants: { lead: manage }
-  people/{user}:
-    grants: { "{user}": manage }
-```
-
-Now `people/noa/` is Noa's, `people/sam/` is Sam's, and so on. A personal
-folder is different from any other:
-
-- **Nobody from above gets in.** Whoever manages the root, or `people/`, doesn't
-  manage or read a personal folder, admins included. Only its own grants count.
-- **Its owner shares it.** With `manage` there, they can share it or any
-  subfolder with others, and those grants show in the folder's permissions.
-- **A folder named after nobody is closed.** `people/archive/`, when there is
-  no user `archive`, gives no access to anyone.
-- **It stays personal when a folder above it moves.** Moving `people/` moves
-  its `{user}` rule along. A move that would leave someone's personal folder
-  where no `{user}` rule reaches it (with `people/{user}/journal`, moving
-  `people/noa` to `archive/noa`) is refused, unless you manage that personal
-  folder yourself: only its owner takes it out, seeing who gains access.
-
-**The first time**, the folder doesn't exist yet, and nobody sees a folder
-that doesn't exist: until it does, a new person's tree says «You have no
-access to any folder yet» (unless something else is shared with them). Either
-of these creates it:
-
-- **Someone who can edit the folder above**, such as the admin who manages
-  the root: in the tree, `people`'s menu → «New folder inside…» → `noa`. It
-  disappears from the admin's own tree at once, since they can't read it, and
-  shows up in Noa's.
-- **The owner, by creating a note in it.** The `{user}` rule gives Noa
-  `manage` in `people/noa/` before it exists, so anything that creates a note
-  there creates the folder too: typing `people/noa/Plan` in «Search or
-  create…» (⌘K) and choosing «Create», a daily note of a series in
-  `people/{user}/…` («Today's note»), or an agent's key. Noa has to know the
-  path: nothing in the UI shows it before it exists, and «New note» only
-  appears once she can edit some folder she sees.
-
-A daily-note series with `{user}` in its folder (see
-[Configuration](configuration.md#daily-daily-notes)) fits well inside it:
-`people/{user}/journal`.
-
-To give someone else's personal folder to another person (after deleting
-someone, say), an admin writes a rule for that exact folder in `vihko.yaml`
-or in its permissions dialog: a rule for the folder itself wins over the
-`{user}` rule, but the folder stays personal (nobody from above gets in).
-
-## Closing folders to agents
-
-Agents (API keys and MCP clients, see [Agents](agents.md)) act for a person
-and never see more than that person. On top of that, you can close things to
-every agent of every person:
-
-- **A folder:** in its permissions dialog, turn on «Closed to agents» (it takes
-  `manage`). It holds for everything under it, new notes included, and can
-  only be undone where it was set. In `vihko.yaml` it's `ai: false` on the
-  folder's rule.
-- **A note:** `ai: false` in its frontmatter.
-
-Neither can be reopened from below: `ai: true` on a subfolder is ignored. A
-closed note or folder doesn't exist for agents: searches and lists never show
-it, and an agent that names one gets told it isn't available to agents. Keys
-limited to some folders are set up where the key is made; see
-[Agents](agents.md).
-
-## Moving things changes who sees them
-
-A note has the permissions of its folder, so moving it can open it to more
-people, or close it to some. When a move changes who can see something, the
-move dialog says so («2 people and 1 key lose access; @family gains it») and
-asks you to tick a box to confirm. The count only names users and groups
-(which everyone can see) and a number of keys.
-
-An agent that tries a move that would open a note to more people gets refused
-unless it confirms, and it's told to ask you first.
-
-### Folders moved outside vihko
-
-If a folder with permissions of its own is renamed or moved outside vihko (a
-shell, a file manager), its rules in `vihko.yaml` stay behind, and its notes
-would take the permissions of wherever they landed. vihko fails closed where it
-can tell:
-
-- Notes it recognises as having left that folder are **held**: hidden from
-  everyone until someone decides. The admin, and whoever manages the folder
-  the rules were for, get an alert with two choices: «Move their permissions»
-  (the rules follow the notes) or «Release them» (the permissions of the
-  folder they're in apply).
-- Notes that came out of a **personal folder** (or a folder inside one) are
-  decided only by whoever manages that personal folder: its owner, who gets
-  the alert with both choices. The admin gets an alert too, so they know
-  something needs attention, but it only says how many notes are held and
-  which personal folder they came from: no names, no content, and no choices.
-  If the owner's account has been deleted, nobody can release them from vihko:
-  they stay held until someone with access to the server's disk moves them
-  back (or wherever they should be).
-- Rules for a folder that no longer exists are kept, with an alert, and apply
-  again if the folder comes back.
-
-vihko can only hold notes it recognises (by their `uid`, or unchanged content).
-A note it can't match takes the permissions of its new folder a few seconds
-after the move, when the watcher or the rescan sees it. Moving folders from
-vihko has none of this: their rules move with them.
+Both changes ask the admin to confirm at the moment (their app's code, or
+their password).
 
 ## Disabling and deleting people
 
@@ -320,36 +294,82 @@ Both are in the user's «Actions» menu.
 **Disable** (reversible):
 
 - Their sessions end at once, and a note they have open closes. They can't
-  sign in: the sign-in page says «Wrong username or password», as for anyone.
+  sign in.
 - Their agent keys and the apps they authorized stop working while they're
   disabled.
-- Their permissions, keys and groups are kept. Enabling them again makes
-  everything work again (they sign in again). Enabling an admin asks you to
-  confirm at the moment, as making someone admin does.
+- Their space, what they shared, their keys and their groups are kept: others
+  keep seeing what they shared. Enabling them again makes everything work
+  again.
 
 **Delete** (only someone already disabled; it can't be undone):
 
 - The account goes: sessions, links, profile, group memberships, second factor
-  and notices.
-- Their keys are revoked for good (they stay listed as revoked, so the history
-  can still name them).
-- Their grants are removed from `vihko.yaml`. A folder whose only grant was
-  theirs stays closed: it doesn't start inheriting from above.
-- **Their personal folder stays closed**: nobody sees it until an admin gives
-  it to someone on purpose.
-- **Their notes stay**, and the history still says what they wrote, under
+  and notices. Their keys are revoked for good (they stay listed as revoked).
+- Their grants are removed from `vihko.yaml`.
+- **Their space closes**: nobody sees it, the admin neither, and the folders
+  they shared stop being seen by whoever received them. The delete dialog
+  says how many shared folders and how many people that is.
+- Their notes stay on disk, and the history still says what they wrote, under
   their name.
-- **Their username is reserved**: it can't be given to anyone else, so a
-  newcomer never inherits their personal folder.
+- **Their username is reserved**: nobody else can take it, so a newcomer
+  never inherits their folder.
+
+Afterwards, the closed space shows in Preferences → Spaces, under «Spaces of
+deleted people». The admin decides what becomes of it, without reading
+anything in it, and confirms at the moment:
+
+- **Transfer…** to someone: it goes whole into their space, as a folder named
+  after the deleted person (`people/noa/sam/`). What was shared stays shared.
+  A broken link by name in its notes may start leading to a note of whoever
+  receives it, if one has that name; the dialog says so.
+- **Make it a shared space…**, with the members the admin chooses (at least
+  one who manages it). Its members will see everything the person had, also
+  what they never shared; the dialog says so.
+- **Delete…**: its files are deleted from the disk, with no trash, since
+  nobody could see it. The history keeps what it had, with nobody to read it;
+  the admin can purge it by path ([History](history.md#purging)).
+
+Links to notes in it, from anywhere, are rewritten to the new place. The
+person who receives it, and the other admins, are told.
 
 The last active admin can't be disabled, deleted or lose the admin role.
 
 ## Changing roles
 
 «Make admin» and «Remove the admin role», in the user's «Actions». A new admin
-manages users, groups, settings and any folder's permissions, and still reads
-only what they're granted. Someone who stops being an admin keeps what the
-permissions grant them.
+manages users, groups, settings and the directory of spaces, and still reads
+only their own space and what is shared with them.
+
+## Closing things to agents
+
+Agents (API keys and MCP clients, see [Agents](agents.md)) act for a person
+and never see more than that person. On top of that, you can close things to
+every agent of every person:
+
+- **All of My notes:** its menu → **Agents…** → «Closed to agents».
+- **A folder** you manage, in your space or in a shared space: in its share
+  dialog, turn on «Closed to agents». It holds for everything under it, new
+  notes included, and can only be undone where it was set. In `vihko.yaml`
+  it's `ai: false` on the folder.
+- **A note:** `ai: false` in its frontmatter.
+
+Nothing can be reopened from below: `ai: true` on a subfolder is ignored. A
+closed note or folder doesn't exist for agents: searches and lists never show
+it, and an agent that names one is told it isn't available to agents.
+
+## Folders moved outside vihko
+
+If you move a note or a folder with another program (a shell, a file manager)
+to where people who didn't read it would, vihko holds the notes it recognises
+(by their `uid`, or unchanged content): hidden from everyone until someone
+decides. Whoever could have made that move from vihko (`edit` where they were
+and where they are) gets an alert with «Release them»; the notes go back to
+normal by themselves if they're moved back. A folder with held notes inside
+can't be deleted until they're released.
+
+Grants in `vihko.yaml` for a folder that no longer exists are kept, and apply
+again if the folder comes back; whoever manages its space gets an alert. Moves
+made from vihko take their grants with them.
 
 ## Two-step verification
 
@@ -429,6 +449,8 @@ app's code, or your password if you have no second factor.
 - an admin making a reset link for someone, resetting someone's second factor,
   changing someone's role, creating a new admin, or enabling a disabled one;
 - an admin changing the second-factor policy;
+- an admin assigning a manager to a space, joining a space, or deciding what
+  becomes of a deleted person's space;
 - an admin purging from the history something they can't read.
 
 A session left open on someone's computer isn't enough to do any of these.
@@ -472,7 +494,14 @@ when they sign in and in the alerts until they dismiss them:
   their role (the other admins get one too);
 - to every other admin: an admin created a new admin («Lead made Noa an
   admin», as for a role change);
+- someone added them to a shared space, or shared a folder with them;
+- the admin made them a manager of a space, joined a space they manage, or
+  gave them (or its members) a deleted person's space; the other admins are
+  told too;
+- a move of theirs left links in notes of other spaces that couldn't be
+  updated, even after vihko tried again;
 - someone purged from the history a note or a version they wrote in (see
   [History](history.md#purging)).
 
-Notices never include note content.
+Notices never include note content, and name a space or a folder only while
+the person can still see it.

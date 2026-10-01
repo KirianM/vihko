@@ -140,7 +140,7 @@ People get access by folder, never by note. With `manage` on a folder (or as
 an admin), open its menu in the tree → **Permissions…**, press «Change
 permissions», add people or groups and pick a level: read, comment, edit or
 manage. How levels, groups and personal folders work, and how an admin adds
-people: [Users and permissions](users-and-permissions.md).
+people: [Spaces, people and sharing](users-and-permissions.md).
 
 ## Preferences
 
