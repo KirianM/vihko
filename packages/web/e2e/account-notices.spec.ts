@@ -64,7 +64,8 @@ async function password(browser: Browser, user: { username: string; password: st
   await page.getByLabel('Nombre de usuario').fill(user.username)
   await page.getByLabel('Contraseña').fill(user.password)
   await page.getByRole('button', { name: 'Entrar' }).last().click()
-  await expect(page.getByRole('treegrid').first()).toBeVisible()
+  // Signed in: the shell, at Home (D-056.35; on a phone the tree is behind the menu).
+  await expect(page.locator('.shell')).toBeVisible()
   return page
 }
 

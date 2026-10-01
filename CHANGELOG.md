@@ -34,6 +34,26 @@ its entries are kept at the end of this file.
 - **Note addresses** of a shared space are `?note=Home/…`. One saved with an
   rc.1 or rc.2 folder (`?note=home-7k2q9x/…`) opens the note in the space it
   became, for whoever is in it.
+- **`state.db` migrates** (a new version: what vihko opens when each person
+  comes in). «Open today's note when vihko opens» carries over as «On
+  opening: today's note». `openDailyOnStart` of `/api/profile` is deprecated:
+  use `onOpen`.
+
+### Added
+
+- **Home**: where vihko opens, and where the sidebar's logo always leads.
+  Your recent notes, what others changed lately in the notes you read (and
+  who, where you may see the history), what was shared with you in the last
+  30 days, and quick actions (new note, today's note, search, new space). All
+  of it from the index, the history and your notices; nothing is stored for
+  it, and nothing in it is anything you can't read. On a phone, vihko opens
+  at Home too, with the folders behind the menu button.
+- **«On opening»** in Preferences: Home (the default), the last note you had
+  open on that device, a note you pick by its name, or today's note if it
+  already exists (never created on coming in; offered when you have a daily
+  series). It replaces «Open today's note when vihko opens».
+- **«Back»** on the pages (Account, Agents and API, Privacy, Users and
+  groups, Spaces, Alerts, Recent changes): to the note or Home you came from.
 
 ### Changed
 

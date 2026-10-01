@@ -323,7 +323,7 @@ test('required: an invited member sets it up before getting in; the admin sees w
   await expect(phone.getByRole('heading', { level: 1 })).toHaveText('Guarda tus códigos de recuperación')
   await expect(phone.getByRole('list', { name: 'Códigos de recuperación' }).getByRole('listitem')).toHaveCount(10)
   await phone.getByRole('button', { name: 'Continuar' }).tap()
-  await expect(phone.getByRole('treegrid').first()).toBeVisible()
+  await expect(phone.getByRole('heading', { name: 'Inicio', level: 1 })).toBeVisible()
   await ctx.close()
 
   // The admin: who has it, who will set it up at sign-in (the admin too), and a reset.

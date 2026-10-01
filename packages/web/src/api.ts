@@ -227,7 +227,17 @@ export interface WorkspaceInfo {
   links: { aliases: boolean }
 }
 /** The person's own settings (state.db). `language`: the UI's, null = automatic (the browser's). */
-export interface Profile { timezone: string | null; dailySeries: string | null; openDailyOnStart: boolean; language: Language | null }
+/** What vihko opens when the person comes in (D-056.35): Home, this device's last note, a note they chose, or today's note if it exists. */
+export type OnOpen = 'home' | 'last' | 'note' | 'daily'
+export interface Profile { timezone: string | null; dailySeries: string | null; onOpen: OnOpen; onOpenNote: string | null; openDailyOnStart: boolean; language: Language | null }
+
+/** «Home» (GET /api/home, D-056.35): only what the person reads now. */
+export interface HomeNote { path: string; title: string; at: string }
+export interface HomeView {
+  recent: HomeNote[]
+  changed: (HomeNote & { by: { kind: 'user' | 'agent' | 'external'; name: string | null; onBehalfOf?: string } | null })[]
+  shared: { kind: 'space' | 'folder'; path: string; name: string; owner: string | null; by: string; at: string }[]
+}
 
 /**
  * The integration switches (D-035.1): the API with keys and the MCP server,
@@ -479,6 +489,7 @@ export const api = {
     request<{ plan: PersonalSpacePlan }>('POST', `/api/admin/users/${encodeURIComponent(userId)}/space`, input).then((r) => r.plan),
   workspace: () => request<WorkspaceInfo>('GET', '/api/workspace'),
   profile: () => request<Profile>('GET', '/api/profile'),
+  home: () => request<HomeView>('GET', '/api/home'),
   updateProfile: (patch: Partial<Profile>) => request<Profile>('PUT', '/api/profile', patch),
   /** Where today's note is and whether it exists; creates nothing. */
   today: () => request<{ series: string; path: string; exists: boolean }>('GET', '/api/daily'),

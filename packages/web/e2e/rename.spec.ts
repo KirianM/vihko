@@ -155,7 +155,7 @@ test('trash: confirmation names the note, whoever had it open is told, and it re
 
   await expect(k.getByRole('status').filter({ hasText: `«${NEW_NAME}» está en la papelera.` })).toBeVisible()
   await expect(k.locator('.cm-content')).toHaveCount(0)
-  await expect(k.getByText('Elige una nota en el árbol.')).toBeVisible()
+  await expect(k.getByRole('heading', { name: 'Inicio', level: 1 })).toBeVisible()
   await expect(k).not.toHaveURL(/note=/)
   await expect(k.getByRole('row', { name: NEW_NAME, exact: true })).toHaveCount(0)
   await expect(a.getByRole('alert')).toHaveText(`${ADMIN.username} ha movido «${NEW_NAME}» a la papelera mientras la tenías abierta.`)

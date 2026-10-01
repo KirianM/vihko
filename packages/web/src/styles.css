@@ -90,6 +90,9 @@ html { -webkit-tap-highlight-color: transparent; }
 .gate-card .small { font-size: 12px; }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); }
 .brand svg { color: var(--accent); }
+.brand-link { text-decoration: none; border-radius: var(--radius-md); }
+.brand-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.back-btn { gap: var(--space-1); }
 .brand span { font-family: var(--font-serif); font-size: 26px; font-weight: 600; }
 
 /* --- Main structure ---------------------------------------------- */

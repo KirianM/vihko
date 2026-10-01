@@ -170,6 +170,13 @@ const MIGRATIONS: string[] = [
      created_at text not null,
      primary key (user_id, path)
    );`,
+  // «On opening» (D-056.35, profiles.ts): what vihko opens when the person
+  // comes in: `home`, `last` (that device's last note), `note` (`on_open_note`,
+  // a path) or `daily` (today's note, only if it exists). Null: home. The
+  // switch it replaces («open today's note», `open_daily`) carries over.
+  `alter table profiles add column on_open text;
+   alter table profiles add column on_open_note text;
+   update profiles set on_open = 'daily' where open_daily = 1;`,
 ]
 
 export const STATE_VERSION = MIGRATIONS.length

@@ -77,8 +77,13 @@ test.beforeAll(async ({ browser }) => {
 })
 test.afterAll(async () => { await page.context().close() })
 
-test('no sidebar; with nothing open the folder drawer is the first screen', async () => {
+test('no sidebar; with nothing open Home is the first screen (D-056.35), and the folder drawer is behind the menu', async () => {
   await signIn(page)
+  await expect(page.getByRole('heading', { name: 'Inicio', level: 1 })).toBeVisible()
+  await expect(drawer(page)).toHaveCount(0)
+  await noHorizontalScroll(page)
+  await page.screenshot({ path: `${SHOTS}/mobile-home-light.png`, animations: 'disabled' })
+  await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
   await expect(drawer(page)).toBeVisible()
   await expect(page.locator('nav.sidebar')).toHaveCount(0)
   await expect(vault(page)).toBeVisible()

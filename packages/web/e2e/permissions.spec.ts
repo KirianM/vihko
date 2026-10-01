@@ -322,6 +322,8 @@ test('on a phone and in dark mode: the dialog, the marks and the warning fit', a
   await page.getByLabel('Nombre de usuario').fill(MEMBER.username)
   await page.getByLabel('Contraseña').fill(MEMBER.password)
   await page.getByRole('button', { name: 'Entrar' }).last().tap()
+  // Home first (D-056.35): the tree is behind the menu.
+  await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
   await expect(mine(page)).toBeVisible()
   await expect(row(mine(page), KITCHEN).getByRole('img', { name: 'Compartida' })).toBeVisible()
   await shot(page, 'permissions-tree-mobile-dark')

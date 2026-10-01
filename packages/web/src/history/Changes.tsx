@@ -10,7 +10,7 @@ import { Button } from 'react-aria-components'
 import { ApiError, type TreeNote } from '../api.ts'
 import { errorText, useT } from '../i18n.tsx'
 import { SearchButton } from '../Palette.tsx'
-import { MenuButton, ThemeToggle } from '../ui.tsx'
+import { BackButton, MenuButton, ThemeToggle } from '../ui.tsx'
 import { historyApi, type Change, type ChangeFile, type HistoryAuthor, type HistoryStatus, type PurgeReport } from './api.ts'
 import { changeKindText, filterOptions, isNote, uidOf } from './format.ts'
 import { noteHref, usePathLabels } from '../spaces.tsx'
@@ -163,6 +163,7 @@ export function ChangesPage({ status, notes, admin, onOpenVersion, onUnauthorize
     <>
       <header className="main-head">
         <MenuButton />
+        <BackButton />
         <span className="spacer" />
         <SearchButton />
         <ThemeToggle />

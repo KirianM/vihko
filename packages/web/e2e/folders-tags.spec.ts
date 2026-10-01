@@ -262,6 +262,8 @@ test('phone: tabs in the drawer, the tags view, and a long press opens a row\'s 
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, storageState: await k.context().storageState() })
   const phone = await ctx.newPage()
   await phone.goto('/')
+  // Home first (D-056.35); the drawer behind the menu.
+  await phone.getByRole('button', { name: 'Abrir carpetas' }).tap()
   await expect(phone.getByRole('dialog', { name: 'Carpetas' })).toBeVisible()
   const drawer = phone.getByRole('dialog', { name: 'Carpetas' })
   await drawer.getByRole('row', { name: DIR, exact: true }).click()

@@ -8,6 +8,11 @@ The UI is in English or Spanish, following your browser's language.
 
 ## The screen
 
+- **Home**, where vihko opens (you can change that in Preferences, «On
+  opening»): your recent notes, what others changed lately in the notes you
+  read, what someone shared with you in the last 30 days, and buttons for a
+  new note, today's note, search and a new space. The logo at the top of the
+  sidebar always takes you there. Home only ever shows what you can read.
 - **The sidebar**, on the left: the «Search or create…» box, «New note»
   (the `+`) and, when daily notes are set up, «Today's note»; then «Folders»
   and «Tags». «Folders» has one section per space:
@@ -25,6 +30,15 @@ The UI is in English or Spanish, following your browser's language.
   «Saving…» and then «Saved to disk».
 - **The side panel**, on the right («Show the side panel» in the note's
   header): the note's «Comments», «Links», «Outline» and «History».
+- **The pages** (Preferences → Account, Agents and API, Privacy…, and the
+  alerts and «Recent changes»): «Back», at the top, returns to the note or
+  Home you were on.
+
+In the editor, the frontmatter (the block between `---` lines at the top of a
+note) shows folded. Select all (Ctrl/Cmd+A) selects the text below it, and
+nothing you delete, type or paste in the text reaches it: a note never loses
+its `uid`, tags or `ai: false` by accident. To change it, open the folded
+block and edit it there.
 
 ## Create a note
 
@@ -175,8 +189,14 @@ groups and spaces work, and how an admin adds people:
 Your name, at the bottom of the sidebar, opens **Preferences**:
 
 - **Timezone**: what day «today» is for you.
-- **Daily note series**, and «Open today's note when vihko opens», when
-  `vihko.yaml` declares daily notes ([Configuration](configuration.md#daily-daily-notes)).
+- **Daily note series**, when `vihko.yaml` declares daily notes
+  ([Configuration](configuration.md#daily-daily-notes)).
+- **On opening**: what vihko shows when you come in without asking for
+  anything else. **Home** (the default), **the last note** you had open on
+  that device, **a specific note** you pick by its name, or **today's note**
+  if it already exists (coming in never creates it; offered when you have a
+  daily series). A note you can no longer read, or one that isn't there,
+  gives way to Home.
 - **Account**: the language, your password, the browsers you're signed in
   from, and two-step verification.
 - **Users and groups** and **Spaces** (admins): people, groups, the
@@ -196,7 +216,7 @@ change it, go to Preferences → Account → Language, or type `>language` in th
 
 vihko works in the phone's browser, with the same features:
 
-- The folder tree opens from the menu button in the note's header; «New note»
+- vihko opens at Home here too; the folder tree opens from the menu button in the header; «New note»
   and «Today's note» are there too.
 - The search button in the header opens the same box as ⌘K.
 - Under the note, a bar inserts a link (`[[`), a tag (`#`), a list item or a

@@ -22,7 +22,9 @@ import { commentOp } from '../commenting.ts'
 import { FetchImageError, SERVED_TYPES, fetchImage, type FetchImageOptions } from '../attachments.ts'
 import { ImageSlots } from '../imageSlots.ts'
 import { DailyNotes } from '../daily.ts'
-import { ProfileError, type Profile, type Profiles } from '../profiles.ts'
+import { ProfileError, isNotePath, type Profile, type Profiles } from '../profiles.ts'
+import { historyFor } from '../agentHistory.ts'
+import { homeView } from '../home.ts'
 import type { Workspace } from '../workspace.ts'
 import { MoveJobs } from './jobs.ts'
 import type { ExternalMoves } from '../externalMoves.ts'
@@ -613,14 +615,30 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     })
   })
 
-  app.get('/api/profile', (c) => c.json(profiles.get(c.get('user').id)))
+  /** A profile as its person may see it: the note «On opening» names only while they can read it (otherwise, home). */
+  const shownProfile = (p: Profile, access: Access): Profile =>
+    p.onOpen === 'note' && (p.onOpenNote === null || !access.canRead(p.onOpenNote)) ? { ...p, onOpen: 'home', onOpenNote: null } : p
+
+  app.get('/api/profile', (c) => c.json(shownProfile(profiles.get(c.get('user').id), c.get('access'))))
 
   app.put('/api/profile', async (c) => {
     const body = await c.req.json<Record<string, unknown>>()
     if (typeof body !== 'object' || body === null) return fail(c, 400, 'invalid', 'expected an object')
     const patch: Partial<Profile> = {}
-    for (const k of ['timezone', 'dailySeries', 'openDailyOnStart', 'language'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
-    return c.json(profiles.update(c.get('user').id, patch))
+    for (const k of ['timezone', 'dailySeries', 'openDailyOnStart', 'onOpen', 'onOpenNote', 'language'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
+    // «On opening» a note: one the person reads now (D-056.35); any other is as missing.
+    if (isNotePath(patch.onOpenNote) && !c.get('access').canRead(patch.onOpenNote.normalize('NFC'))) return fail(c, 404, 'not_found', 'no such note')
+    return c.json(shownProfile(profiles.update(c.get('user').id, patch), c.get('access')))
+  })
+
+  // «Home» (D-056.35, home.ts): the person's recent notes, what others changed
+  // in what they read, what was shared with them lately. A person's only.
+  app.get('/api/home', async (c) => {
+    const access = c.get('access')
+    if (access.isAgent) return fail(c, 404, 'not_found', 'does not exist')
+    const status = deps.history?.status()
+    const reader = deps.history && status && status.mode !== 'off' && status.available ? historyFor(access, deps.history.reader()) : null
+    return c.json(await homeView(access, { index, history: reader, notices, nameOf: (id) => auth.username(id) ?? id, keyName: (id) => keys.nameOf(id), now }))
   })
 
   // Today's note (D-030): GET says where it is and whether it exists, POST
