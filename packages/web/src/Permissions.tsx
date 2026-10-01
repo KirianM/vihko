@@ -14,7 +14,7 @@ import { Button, Dialog, Heading, Tab, TabList, TabPanel, Tabs } from 'react-ari
 import { ApiError, LEVELS, api, atLeast, type EffectiveAccess, type FolderPermissions, type GrantSource, type Grants, type Level, type User } from './api.ts'
 import { Toggle } from './Agents.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
-import { usePathLabels } from './spaces.tsx'
+import { usePathLabels, useSpaces, useSpacesValue } from './spaces.tsx'
 import { Icon } from './ui.tsx'
 import './actions.css'
 import './agents.css'
@@ -330,7 +330,9 @@ function treeRows<T extends { folder: string }>(items: T[]): { folder: string; d
 /** Which folders a person or a key reaches, as a tree, with the level in each. */
 export function AccessTree({ access }: { access: EffectiveAccess }) {
   const t = useT()
-  const labels = usePathLabels()
+  // Someone else's access (the admin looking): every personal space by its owner's name, never «My notes».
+  const ctx = useSpaces()
+  const labels = usePathLabels(useSpacesValue(access.user.username === ctx.me ? ctx.me : '', ctx.info))
   const rows = treeRows(access.folders.filter((f) => f.folder.split('/').length >= 2))
   if (rows.length === 0) return <p className="perm-nobody">{Icon.lock}<span>{t('perm.seesNothing')}</span></p>
   return (

@@ -50,7 +50,7 @@ function ChangeCard({ change, onOpen }: { change: Change; onOpen: (file: ChangeF
               {f.from && <span className="c-from">{pathLabel(f.from)} → </span>}
               {isNote(f.path)
                 ? <a href={`?note=${encodeURIComponent(f.path)}&version=${encodeURIComponent(change.id)}`} onClick={(e) => { e.preventDefault(); onOpen(f, change) }}>{pathLabel(f.path)}</a>
-                : <span className="c-file-path">{f.path}</span>}
+                : <span className="c-file-path">{pathLabel(f.path)}</span>}
             </span>
             <Counts added={f.added} removed={f.removed} />
           </li>
