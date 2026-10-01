@@ -31,8 +31,8 @@ folder, and vihko never pushes it anywhere.
 - Not the paths listed in `history.exclude`. Those files are still indexed,
   shown and edited; only their changes aren't saved. The note's History tab
   says so.
-- `vihko.yaml` too, so permission changes have a version with their author,
-  but its history isn't shown to anyone in vihko.
+- `vihko.yaml` too, so changes to who shares what have a version with their
+  author, but its history isn't shown to anyone in vihko.
 
 These settings are in [`vihko.yaml`](configuration.md#history).
 
@@ -247,9 +247,11 @@ seconds.
 
 Afterwards:
 
-- The admins get a notice with the path and who purged it, and so does every
-  person who wrote in what went (agents and whoever purged aside). Never the
-  content; the path only while they can still read it.
+- The admins get a notice with who purged it, and so does every person who
+  wrote in what went (agents and whoever purged aside). Never the content.
+  The path only to those who can still read where it was (and to the admin
+  who purged it); an admin who doesn't read that space is told a path of a
+  space they don't read was purged.
 - **The note itself doesn't change.** If it still holds what you wanted gone,
   edit it too: its current text enters the history again with its next
   version.
@@ -263,8 +265,8 @@ can dry-run:
 
 ```sh
 docker compose stop vihko
-docker compose run --rm vihko vihko history purge projects/secrets.md --dry-run
-docker compose run --rm vihko vihko history purge projects/secrets.md
+docker compose run --rm vihko vihko history purge people/alex/secrets.md --dry-run
+docker compose run --rm vihko vihko history purge people/alex/secrets.md
 docker compose start vihko
 ```
 

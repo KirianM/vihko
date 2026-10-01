@@ -229,8 +229,8 @@ is readable by whoever can open the folder on the host, and so is the notes
 folder: vihko's rules (nobody, the admin included, reads someone else's
 space) only apply to people who go through vihko. Whoever runs the server can
 read every note. One installation is for one group that trusts them; see
-[One group per installation](users-and-permissions.md#one-group-per-installation). vihko closes the folder to other
-users of the host when it starts (mode `700`, owner only). If it can't,
+[One group per installation](users-and-permissions.md#one-group-per-installation).
+vihko closes the folder to other users of the host when it starts (mode `700`, owner only). If it can't,
 because the folder belongs to another user, the log says so. The notes folder
 is yours to protect the same way, if others have accounts on the host.
 
