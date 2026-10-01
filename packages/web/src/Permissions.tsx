@@ -8,14 +8,18 @@
 //
 // Changes are a draft saved at once with vihko.yaml's ETag: if the file
 // changed meanwhile (412), the dialog loads it again and says so; if vihko
-// can't write it as it is (409 `config_invalid`), it's fixed by hand.
+// can't write it as it is (409 `config_invalid`), it's fixed by hand. A
+// draft is never lost unawares: closing the dialog with changes not saved
+// (its button, Escape, a press outside) asks first. Whoever manages it can't
+// take themselves out with the × of their own row, which would lock them
+// out: their row offers «Leave» instead, as the space's menu does.
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Dialog, Heading, Tab, TabList, TabPanel, Tabs } from 'react-aria-components'
 import { ApiError, LEVELS, api, atLeast, type EffectiveAccess, type FolderPermissions, type GrantSource, type Grants, type Level, type MembersView, type User } from './api.ts'
 import { Toggle } from './Agents.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { usePathLabels, useSpaces, useSpacesValue } from './spaces.tsx'
-import { Icon } from './ui.tsx'
+import { Icon, useDismissGuard } from './ui.tsx'
 import './actions.css'
 import './agents.css'
 import './permissions.css'
@@ -73,9 +77,11 @@ type Draft = { grants: Grants; ai: boolean }
  * Who a folder is shared with. `onAccessLost`: the person gave away their
  * own `manage` and can't see this any more.
  */
-export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost, onUnauthorized, onMoveTo }: {
+export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost, onUnauthorized, onMoveTo, onLeave }: {
   folder: string
   me: User
+  /** «Leave», on one's own row: the dialog that leaves the space (`shared`) or stops seeing the folder (`received`). */
+  onLeave?: (kind: 'shared' | 'received', name: string) => void
   /**
    * «Move to a new space» or «to My notes», where this folder can't
    * be closed to those who see the one above it: the dialog that does it.
@@ -100,6 +106,8 @@ export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  /** Closing (or leaving) with changes not saved: asked first, and what to do once answered. */
+  const [unsaved, setUnsaved] = useState<'close' | 'leave' | null>(null)
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -160,7 +168,21 @@ export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost
   }, [addFrom]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const setGrants = (g: Grants) => setDraft((d) => (d ? { ...d, grants: g } : d))
-  const save = async () => {
+  // One's own row: the × would take away their own access (or their `manage`) with nothing else giving it.
+  // They can leave instead, where leaving is theirs to do: their grant is written here, not reached from above.
+  const ownRow = (s: string) => key(s) === meKey && !keepsManage
+  const canLeave = !!view && !!onLeave && (isSpaceRoot || (view.owner !== null && key(view.owner) !== meKey)) && !above.has(meKey)
+  const leaveKind: 'shared' | 'received' = isSpaceRoot ? 'shared' : 'received'
+  const leaveName = () => (isSpaceRoot ? spaceName : baseName(folder))
+  /** Closes, or asks first when there are changes not saved. */
+  const requestClose = () => (dirty ? setUnsaved('close') : onClose())
+  const requestLeave = () => (dirty ? setUnsaved('leave') : onLeave!(leaveKind, leaveName()))
+  useDismissGuard(() => {
+    if (!dirty) return false
+    setUnsaved('close')
+    return true
+  })
+  const save = async (then?: 'close') => {
     if (!view || !draft || busy) return
     setBusy(true)
     setError(null)
@@ -172,6 +194,7 @@ export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost
       const r = await api.setPermissions(folder, change, view.etag)
       onChanged()
       if (!('access' in r)) return onAccessLost()
+      if (then === 'close') return onClose()
       show(r)
       setNotice(t('perm.saved'))
     } catch (err) {
@@ -179,6 +202,7 @@ export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost
         // vihko.yaml changed meanwhile (another person, an editor): what it says now, and nothing was saved.
         await load()
         setNotice(null)
+        setUnsaved(null)
         setError(t('perm.stale'))
       } else fail(err)
     }
@@ -243,7 +267,11 @@ export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost
                         <Subject subject={s} me={me.username} />
                         {!readOnly ? (<>
                           <LevelSelect value={grants[s]!} label={rowLabel(s)} from={above.get(key(s)) ?? null} onChange={(l) => setGrants({ ...grants, [s]: l })} />
-                          <Button className="btn btn-icon btn-quiet perm-remove" aria-label={t('perm.remove', { who: s })} onPress={() => { const next = { ...grants }; delete next[s]; setGrants(next) }}>{Icon.close}</Button>
+                          {!ownRow(s) ? (
+                            <Button className="btn btn-icon btn-quiet perm-remove" aria-label={t('perm.remove', { who: s })} onPress={() => { const next = { ...grants }; delete next[s]; setGrants(next) }}>{Icon.close}</Button>
+                          ) : canLeave ? (
+                            <Button className="btn btn-quiet perm-leave" onPress={requestLeave}>{t('spaces.leave')}</Button>
+                          ) : <span className="perm-remove" aria-hidden="true" />}
                         </>) : (
                           <span className="perm-row-level"><span className="perm-level-text">{t(LEVEL_LABEL[grants[s]!])}</span></span>
                         )}
@@ -290,11 +318,23 @@ export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost
           </Tabs>
         )}
       </div>
-      {notice && <p className="perm-notice dialog-error" role="status">{notice}</p>}
-      <div className="dialog-actions">
-        <Button className="btn" onPress={onClose}>{t(dirty ? 'common.cancel' : 'perm.close')}</Button>
-        {view && !readOnly && <Button className="btn btn-primary" isDisabled={!dirty || busy} onPress={() => void save()}>{t('perm.save')}</Button>}
-      </div>
+      {notice && !unsaved && <p className="perm-notice dialog-error" role="status">{notice}</p>}
+      {unsaved ? (
+        // Changes not saved: said before they're lost, with the three ways out.
+        <div className="perm-unsaved" role="alertdialog" aria-labelledby="perm-unsaved-text">
+          <p id="perm-unsaved-text" className="key-once">{Icon.alert}<span>{t('perm.unsaved')}</span></p>
+          <div className="dialog-actions">
+            <Button className="btn" autoFocus onPress={() => setUnsaved(null)}>{t('perm.keepEditing')}</Button>
+            <Button className="btn btn-danger" onPress={() => { const then = unsaved; setUnsaved(null); if (then === 'leave') onLeave!(leaveKind, leaveName()); else onClose() }}>{t('perm.discard')}</Button>
+            {unsaved === 'close' && <Button className="btn btn-primary" isDisabled={busy} onPress={() => void save('close')}>{t('perm.saveAndClose')}</Button>}
+          </div>
+        </div>
+      ) : (
+        <div className="dialog-actions">
+          <Button className="btn" onPress={requestClose}>{t(dirty ? 'common.cancel' : 'perm.close')}</Button>
+          {view && !readOnly && <Button className="btn btn-primary" isDisabled={!dirty || busy} onPress={() => void save()}>{t('perm.save')}</Button>}
+        </div>
+      )}
     </Dialog>
   )
 }

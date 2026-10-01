@@ -81,9 +81,11 @@ Family». On the server it's the folder `spaces/Family/`.
    name → **Members…**.
 2. To add: choose the person or group in «Add…», a level, and press **Add**.
    To change a level, pick another one in that person's row; to take
-   someone out, press the `×` on their row.
-3. Press **Save**. Nothing changes until you do: **Close** leaves things as
-   they were.
+   someone out, press the `×` on their row. Your own row has **Leave**
+   instead of a `×`, so you can't lock yourself out by mistake.
+3. Press **Save**. Nothing changes until you do. If you close the dialog
+   (its button, Escape or a click outside) with changes not saved, it asks
+   first: **Keep editing**, **Discard changes** or **Save and close**.
 
 **Which level to give** (the full table is under [Members](#members)):
 
@@ -256,7 +258,8 @@ What the members get:
 - **Images** pasted into any note of Family go to «Family / Photos». Images
   of their own notes don't change.
 - **Their agents** get «About this space» when they connect, for what they
-  do in Family.
+  do in Family. If that note doesn't exist (say it was renamed), saving the
+  settings says so, and the space's managers get an alert until it's back.
 
 The settings are saved in a hidden file of the space
 (`spaces/Family/.vihko/settings.yaml` on the server); members never see it,
@@ -271,7 +274,7 @@ themselves. Nothing replaces anything, except for images:
 
 | Setting | What a person gets |
 |---|---|
-| Daily note series | All of them: the installation's, those of the spaces where they can edit, and their own. They choose one in Preferences |
+| Daily note series | All of them: their own, those of the spaces where they can edit, and the installation's, in that order. They choose one in Preferences; until they do, «Today's note» opens the first, and the first one it opens stays their choice |
 | Templates folders | All of them: the installation's, their spaces', and their own |
 | Where a new image goes | The setting of **the note's space**, if it has one; otherwise the installation's. Never someone else's |
 | Guide for agents | All of them, one after another: the installation's, then each space's, then their own |
@@ -306,7 +309,8 @@ them and comment, without making a shared space.
 1. In the sidebar, open the menu of the folder «Trips» (its `⋯` button, or
    right-click it) → **Share…**. The dialog is «Share “Trips”».
 2. Choose `noa` in «Add…», `Comment` as the level, and press **Add**.
-3. Press **Save**.
+3. Press **Save**. «Add» only puts Noa in the list: closing without saving
+   asks first, as in a space's members.
 
 The folder now shows a «Shared» mark in Sam's tree. It stays in Sam's space
 and stays his: only he renames, moves or deletes it. To change Noa's level
@@ -326,8 +330,9 @@ To keep it at hand:
 1. Unfold «Shared with me», open the menu of «Trips» (`⋯`) → **Pin to the
    sidebar**.
 2. «Trips sam’s» now has a section of its own in the sidebar, next to your
-   spaces, with its notes. **Unpin from the sidebar**, in the same menu,
-   puts it back.
+   spaces, with its notes, and leaves «Shared with me» (which goes away when
+   everything in it is pinned). **Unpin from the sidebar**, in the same
+   menu, puts it back there.
 
 The same menu has **Who has access…** (everyone who sees it, and at what
 level) and **Leave**, which stops you seeing it («Stop seeing it»). Nothing
@@ -373,7 +378,9 @@ doesn't overwrite it: the dialog reloads with the grants as they are now, and
 you review your change and save again.
 
 People who are added to a space, or get a folder shared with them, see a
-notice: «ana added you to Home», «ana shared “trips” with you».
+notice: «ana added you to Home», «ana shared “trips” with you». If the space
+or the folder is renamed or moved from vihko, the notice names it as it is
+now.
 
 ## Moving things between spaces
 

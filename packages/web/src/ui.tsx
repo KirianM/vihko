@@ -1,5 +1,5 @@
 // Small shared pieces: brand mark, icons and the theme button.
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useEffect, useRef } from 'react'
 import { Button } from 'react-aria-components'
 import { useT } from './i18n.tsx'
 import { usePathLabels, useSpaces } from './spaces.tsx'
@@ -72,6 +72,10 @@ export const Icon = {
   folderPlus: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M12 10v6M9 13h6" /></svg>,
   eyeOff: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-2.9 3.9M6.6 6.6C3.9 8.4 2 12 2 12s3.5 7 10 7a9.6 9.6 0 0 0 5.4-1.6" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /><path d="m3 3 18 18" /></svg>,
   lock: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>,
+  /** Home, the start page: never a space's mark (spaces have `people`). */
+  home: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5" /><path d="M5.5 9.5V20h13V9.5" /><path d="M10 20v-5.5h4V20" /></svg>,
+  settings: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg>,
+  person: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>,
   people: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8" /></svg>,
   sun: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>,
   // The formatting bar (editor/FormatBar.tsx), in the same line style as list and comment.
@@ -140,6 +144,26 @@ export function Crumbs({ path }: { path: string | null }) {
 
 /** Opens the permissions of a note's folder from the header, where the person may (Shell). */
 export const FolderPermissionsContext = createContext<{ can: (folder: string) => boolean; open: (folder: string) => void } | null>(null)
+
+/**
+ * A dialog of the shell's modal that may not close yet (unsaved changes) when
+ * someone presses Escape or outside it: the guard it set returns true when it
+ * took the close (to ask first), false to let it close. Null outside the shell.
+ */
+export const DismissGuardContext = createContext<{ current: (() => boolean) | null } | null>(null)
+
+/** Sets this dialog's guard (see DismissGuardContext) while it's open. */
+export function useDismissGuard(guard: () => boolean) {
+  const slot = useContext(DismissGuardContext)
+  const latest = useRef(guard)
+  latest.current = guard
+  useEffect(() => {
+    if (!slot) return
+    const g = () => latest.current()
+    slot.current = g
+    return () => { if (slot.current === g) slot.current = null }
+  }, [slot])
+}
 
 /** Opens the folder drawer on a phone (there's no sidebar there). */
 export const OpenNavContext = createContext<(() => void) | null>(null)

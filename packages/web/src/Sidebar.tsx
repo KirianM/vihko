@@ -1,8 +1,9 @@
 // The sidebar's spaces: «My notes» (the person's own
 // space, without its `people/<me>` prefix), one section per shared space,
 // the folders shared with them they pinned, «+ New space» where they may,
-// and «Shared with me», folded: every folder others share with them, each
-// with its owner or its space. Each section is the tree of that space or
+// and «Shared with me», folded: the other folders others share with them
+// (a pinned one is listed once, in its own section), each with its owner or
+// its space. Each section is the tree of that space or
 // folder, with a menu of what the person may do there.
 import { useState, type ReactNode } from 'react'
 import { Button, Menu, MenuItem, MenuTrigger, Popover, type Key } from 'react-aria-components'
@@ -62,15 +63,19 @@ export function sectionActions(s: Section): SectionAction[] {
   return out
 }
 
-/** The sections of the sidebar, in order: «My notes», the shared spaces by name, then the pinned folders. */
+/**
+ * The sections of the sidebar, in order: «My notes», the shared spaces by
+ * name, then the pinned folders (`top`); and the folders shared with the
+ * person they haven't pinned, for «Shared with me» (`received`).
+ */
 export function sectionsOf(info: SpacesInfo, t: ReturnType<typeof useT>): { top: Section[]; received: Section[] } {
   const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
   const top: Section[] = []
   if (info.personal) top.push({ root: info.personal.path, kind: 'mine', name: t('spaces.mine'), detail: null, level: 'manage' })
   for (const s of [...info.spaces].sort((a, b) => collator.compare(a.name, b.name))) top.push({ root: s.path, kind: 'shared', name: s.name, detail: null, level: s.level })
-  const received = [...info.shared].sort((a, b) => collator.compare(baseName(a.path), baseName(b.path))).map((s) => receivedSection(s, t))
-  for (const r of received) if (r.pinned) top.push(r)
-  return { top, received }
+  const all = [...info.shared].sort((a, b) => collator.compare(baseName(a.path), baseName(b.path))).map((s) => receivedSection(s, t))
+  for (const r of all) if (r.pinned) top.push(r)
+  return { top, received: all.filter((r) => !r.pinned) }
 }
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
@@ -97,6 +102,8 @@ function SpaceSection({ section, open, onToggle, onAction, children }: {
       <div className="space-head">
         <Button className="space-toggle" aria-expanded={open} onPress={onToggle}>
           <span className="space-chevron" aria-hidden="true">{Icon.chevron}</span>
+          {/* What kind of place it is, at a glance: one's own, a shared space, a folder shared with them. */}
+          <span className="space-kind" aria-hidden="true">{section.kind === 'mine' ? Icon.person : section.kind === 'shared' ? Icon.people : Icon.folder}</span>
           <span className="space-name" id={headId}>{section.name}</span>
           {section.detail && <span className="space-detail">{section.detail}</span>}
         </Button>
@@ -107,8 +114,9 @@ function SpaceSection({ section, open, onToggle, onAction, children }: {
               <Menu className="menu" onAction={(k: Key) => onAction(k as SectionAction)}>
                 {actions.map((a) => (
                   <MenuItem key={a} id={a} className={a === 'delete' || a === 'leave' ? 'menu-item menu-item-danger' : 'menu-item'}>
-                    {a === 'newNote' ? Icon.plus : a === 'newFolder' ? Icon.folderPlus : a === 'rename' ? Icon.rename : a === 'delete' ? Icon.trash : a === 'members' || a === 'share' || a === 'access' ? Icon.people : a === 'agents' ? Icon.eyeOff : null}
-                    {t(ACTION_LABEL[a])}
+                    {a === 'newNote' ? Icon.plus : a === 'newFolder' ? Icon.folderPlus : a === 'rename' ? Icon.rename : a === 'delete' ? Icon.trash : a === 'members' || a === 'share' || a === 'access' ? Icon.people : a === 'agents' ? Icon.eyeOff : a === 'settings' ? Icon.settings : null}
+                    {/* One's own settings go by the name Preferences gives them. */}
+                    {t(a === 'settings' && section.kind === 'mine' ? 'settings.mineMenu' : ACTION_LABEL[a])}
                   </MenuItem>
                 ))}
               </Menu>

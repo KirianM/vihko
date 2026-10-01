@@ -1,6 +1,6 @@
 // Main structure: folder tree and the note open in the editor.
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, type Key } from 'react-aria-components'
+import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, Tooltip, TooltipTrigger, type Key } from 'react-aria-components'
 import { seriesNeighbors } from '@vihko/core/series'
 import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type SpaceEntry, type SpacesInfo, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
 import { SpacesContext, notePathOf, rootOf, usePathLabels, useSpacesValue } from './spaces.tsx'
@@ -23,7 +23,7 @@ import { useChooseLanguage } from './language.ts'
 import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
-import { BackContext, Brand, Crumbs, FolderPermissionsContext, GoHomeContext, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
+import { BackContext, Brand, Crumbs, DismissGuardContext, FolderPermissionsContext, GoHomeContext, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
 import { TrashToast, type Trashed } from './TrashToast.tsx'
 import { managesFolder, noteFolder } from './levels.ts'
 import { PinOfferToast, type PinOffer } from './PinOffer.tsx'
@@ -32,7 +32,7 @@ import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
 import { shiftedNotice } from './Shifts.tsx'
 import { OpenPaletteContext, Palette, SearchButton, type PaletteMode } from './Palette.tsx'
 import { rememberNote } from './recent.ts'
-import { WINDOWS, modKTaken } from './keys.ts'
+import { MAC, WINDOWS, keys, modKTaken } from './keys.ts'
 import { useBackClose, useMobile, useVisualViewport } from './mobile.ts'
 import { PreferencesDialog, browserTimeZone } from './Preferences.tsx'
 import { ancestors, buildTree, type FolderInfoOf, type Node, type TreeAction } from './FolderTree.tsx'
@@ -94,6 +94,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [sideTab, setSideTab] = useState<'folders' | 'tags'>('folders')
   const [tag, setTag] = useState<string | null>(null)
   const [treeDialog, setTreeDialog] = useState<TreeDialog | null>(null)
+  /** A tree dialog with unsaved changes asks before Escape or a press outside closes it (ui.tsx useDismissGuard). */
+  const dismissGuard = useRef<(() => boolean) | null>(null)
   /** Where «New note here» creates the note; null = the open note's folder. */
   const [createIn, setCreateIn] = useState<string | null>(null)
   /** Your last folder move, if some link could not be rewritten. */
@@ -581,8 +583,19 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <div className="sidebar-head">
             <Brand />
             <span className="spacer" />
-            {dailyOn && <Button className="btn btn-icon" aria-label={t('shell.today')} onPress={() => void openToday()}>{Icon.calendar}</Button>}
-            {editsSomewhere && <Button className="btn btn-icon" aria-label={t('shell.newNote')} onPress={() => setPalette('create')}>{Icon.plus}</Button>}
+            {/* Icons only: each says what it is on hover and focus, with its shortcut, under the name it has everywhere else. */}
+            {dailyOn && (
+              <TooltipTrigger delay={400} closeDelay={0}>
+                <Button className="btn btn-icon" aria-label={t('shell.today')} aria-keyshortcuts={MAC ? 'Meta+Alt+D' : 'Control+Alt+D'} onPress={() => void openToday()}>{Icon.calendar}</Button>
+                <Tooltip className="tip" placement="bottom" offset={6}>{t('format.withKeys', { label: t('shell.today'), keys: keys('Mod-Alt-d') })}</Tooltip>
+              </TooltipTrigger>
+            )}
+            {editsSomewhere && (
+              <TooltipTrigger delay={400} closeDelay={0}>
+                <Button className="btn btn-icon" aria-label={t('shell.newNote')} onPress={() => setPalette('create')}>{Icon.plus}</Button>
+                <Tooltip className="tip" placement="bottom" offset={6}>{t('shell.newNote')}</Tooltip>
+              </TooltipTrigger>
+            )}
           </div>
           <Button className="btn sidebar-search" onPress={() => setPalette('search')}>
             {Icon.search}<span>{t('shell.search')}</span><kbd>⌘K</kbd>
@@ -732,7 +745,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           />
         )}
       </main>
-      <ModalOverlay className="modal-overlay" isOpen={treeDialog !== null} onOpenChange={(o) => { if (!o) closeTreeDialog() }} isDismissable>
+      <DismissGuardContext.Provider value={dismissGuard}>
+      <ModalOverlay className="modal-overlay" isOpen={treeDialog !== null} onOpenChange={(o) => { if (!o && !dismissGuard.current?.()) closeTreeDialog() }} isDismissable>
         <Modal className="modal">
           {treeDialog?.kind === 'newFolder' && (
             <NewFolderDialog parent={treeDialog.parent} onClose={closeTreeDialog} onCreated={(p) => {
@@ -765,6 +779,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           {treeDialog?.kind === 'permissions' && (
             <PermissionsDialog folder={treeDialog.path} me={user} canOpen={canManageFolder} onClose={closeTreeDialog}
               onMoveTo={(target) => setTreeDialog(target === 'mine' ? { kind: 'moveFolder', path: treeDialog.path, parent: mine } : { kind: 'toNewSpace', path: treeDialog.path })}
+              onLeave={(kind, name) => setTreeDialog({ kind: 'leaveSpace', section: { root: treeDialog.path, kind, name, detail: null, level: 'manage' } })}
               onChanged={() => void loadTree()} onAccessLost={closeTreeDialog} onUnauthorized={onUnauthorized} />
           )}
           {treeDialog?.kind === 'moveNote' && (
@@ -810,6 +825,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           )}
         </Modal>
       </ModalOverlay>
+      </DismissGuardContext.Provider>
       {palette && (
         <Palette
           key={palette}

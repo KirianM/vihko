@@ -117,23 +117,25 @@ export class NoteSettingsStore {
   }
 
   /**
-   * Daily-note series: vihko.yaml's (`installation`), then those of each of
-   * `spaces`, then the person's own (`own`), one per path (see the header).
-   * Who is offered which is the caller's to judge.
+   * Daily-note series, one per path (see the header): when two give the same
+   * note, vihko.yaml's (`installation`) is kept over a space's (`spaces`), and
+   * a space's over the person's own (`own`). Listed the other way round: the
+   * person's own first, then their spaces', then the installation's, so the
+   * first is the one closest to them (the default of «Today's note» until
+   * they choose). Who is offered which is the caller's to judge.
    */
   series(installation: readonly Series[], spaces: readonly string[], own: string, username: string): Series[] {
-    const out: Series[] = []
     const seen = new Set<string>()
-    const add = (s: Series) => {
+    const keep = (list: readonly Series[]) => list.filter((s) => {
       const key = seriesPattern(s).replaceAll('{user}', username).normalize('NFC').toLowerCase()
-      if (seen.has(key)) return
+      if (seen.has(key)) return false
       seen.add(key)
-      out.push(s)
-    }
-    for (const s of installation) add(s)
-    for (const root of spaces) for (const s of this.read(root).resolved.daily) add(s)
-    for (const s of this.read(own).resolved.daily) add(s)
-    return out
+      return true
+    })
+    const fromInstallation = keep(installation)
+    const fromSpaces = keep(spaces.flatMap((root) => this.read(root).resolved.daily))
+    const fromOwn = keep(this.read(own).resolved.daily)
+    return [...fromOwn, ...fromSpaces, ...fromInstallation]
   }
 
   /** Templates folders of `spaces` and the person's own space (`own`), in that order. */

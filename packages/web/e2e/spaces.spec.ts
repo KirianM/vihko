@@ -12,7 +12,7 @@
 // the phone's drawer.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, readFileSync } from 'node:fs'
-import { ADMIN, MEMBER, NOTES, personal, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, personal, specMother } from './env.ts'
 import { literally, newUser, noteInUrl, signIn, spaceTree } from './helpers.ts'
 import { readablePart } from '@vihko/core/spaces'
 
@@ -97,11 +97,21 @@ test('two people: the member shares a folder of her own space to comment; the ot
 
   // The other is told, and finds it in «Shared with me», with its owner.
   await o.reload()
-  await expect(o.getByRole('status').filter({ hasText: `${MEMBER.username} ha compartido contigo «${SHARED}» · de ${MEMBER.username}` })).toBeVisible()
+  // Whose it is goes without saying when its owner shared it: named once.
+  const told = o.getByRole('status').filter({ hasText: `${MEMBER.username} ha compartido contigo «${SHARED}»` })
+  await expect(told).toBeVisible()
+  await expect(told).not.toContainText('· de')
   await o.getByRole('button', { name: 'Compartido conmigo' }).click()
   const title = `${SHARED} · de ${MEMBER.username}`
   await sectionMenu(o, title, 'Fijar en la barra')
-  // Pinned: a section of its own at the top, open.
+  // Pinned: a section of its own at the top, open, and listed only there (not in «Shared with me» as well).
+  await expect(o.getByRole('button', { name: `Acciones de «${title}»`, exact: true })).toHaveCount(1)
+  await expect(o.getByRole('button', { name: 'Compartido conmigo' })).toHaveCount(0)
+  for (const theme of ['light', 'dark'] as const) {
+    await o.emulateMedia({ colorScheme: theme })
+    await o.locator('nav.sidebar').screenshot({ path: `${E2E_DIR}/shots/pinned-once-${theme}.png` })
+  }
+  await o.emulateMedia({ colorScheme: null })
   const pinned = spaceTree(o, title).first()
   await expect(pinned.getByRole('row', { name: baseName(SHARED_NOTE), exact: true })).toBeVisible()
   // Received: not renamed, moved or deleted from here; no «Renombrar» in its menu.
@@ -191,6 +201,54 @@ test('three people: the admin creates a space for a group; the three edit a note
   await expect(o.getByText('Esta nota no existe o no tienes acceso.')).toBeVisible(SLOW)
   await o.reload()
   await expect(spaceTree(o, CASA)).toHaveCount(0)
+})
+
+test('members of a space: changes not saved are never lost unawares, and the manager\'s own row offers «Leave», not a ×', async () => {
+  const name = m.aSpaceName()
+  const space = (await call(a, 'post', '/api/spaces', { name, members: { [OTHER.username]: 'edit' } }, 201) as { space: { path: string } }).space.path
+  await a.goto('/')
+  await sectionMenu(a, name, 'Miembros…')
+  const dialog = a.getByRole('dialog', { name: `Miembros de ${name}` })
+  const row = (who: string) => dialog.getByRole('listitem').filter({ hasText: who })
+  // One's own row: no × that would lock them out, but «Leave»; the others' rows keep theirs.
+  await expect(row(MEMBER.username).getByRole('button', { name: `Quitar a ${MEMBER.username}` })).toHaveCount(0)
+  await expect(row(MEMBER.username).getByRole('button', { name: 'Salir' })).toBeVisible()
+  await expect(row(OTHER.username).getByRole('button', { name: `Quitar a ${OTHER.username}` })).toBeVisible()
+
+  // A change, then Escape: asked first, and «Keep editing» keeps it.
+  await dialog.getByRole('combobox', { name: `Nivel de ${OTHER.username}` }).selectOption('read')
+  await a.keyboard.press('Escape')
+  const prompt = dialog.getByRole('alertdialog')
+  await expect(prompt).toContainText('Hay cambios sin guardar: si sigues, se perderán.')
+  for (const theme of ['light', 'dark'] as const) {
+    await a.emulateMedia({ colorScheme: theme })
+    await dialog.screenshot({ path: `${E2E_DIR}/shots/members-unsaved-${theme}.png` })
+  }
+  await a.emulateMedia({ colorScheme: null })
+  await prompt.getByRole('button', { name: 'Seguir editando' }).click()
+  await expect(prompt).toHaveCount(0)
+  await expect(dialog.getByRole('combobox', { name: `Nivel de ${OTHER.username}` })).toHaveValue('read')
+  // Its own button asks too; «Discard changes» closes with nothing saved.
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+  await prompt.getByRole('button', { name: 'Descartar los cambios' }).click()
+  await expect(dialog).toHaveCount(0)
+  const level = async () => ((await call(a, 'get', `/api/permissions?folder=${q(space)}`)) as { own: { grants: Record<string, string> } }).own.grants[OTHER.username]
+  expect(await level()).toBe('edit')
+  // Again, with a press outside: «Save and close» saves it.
+  await sectionMenu(a, name, 'Miembros…')
+  await dialog.getByRole('combobox', { name: `Nivel de ${OTHER.username}` }).selectOption('read')
+  await a.mouse.click(5, 5)
+  await prompt.getByRole('button', { name: 'Guardar y cerrar' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(await level()).toBe('read')
+
+  // «Leave» on one's own row opens the usual dialog.
+  await sectionMenu(a, name, 'Miembros…')
+  await row(MEMBER.username).getByRole('button', { name: 'Salir' }).click()
+  const leave = a.getByRole('alertdialog', { name: `¿Salir de «${name}»?` })
+  await expect(leave).toBeVisible()
+  await leave.getByRole('button', { name: 'Cancelar' }).click()
+  await call(a, 'delete', `/api/spaces?path=${q(space)}&trash=true`)
 })
 
 test('the member moves a note of her own into the space: it stops being hers, the dialog says in words which links will be broken, and nothing is rewritten across spaces', async () => {
@@ -385,7 +443,8 @@ test('the last manager leaves the space; the admin is told and assigns another f
   await expect(k.locator('.alert-card', { hasText: `Nadie gestiona ${CASA}` })).toBeVisible(SLOW)
 
   await k.goto('/?view=spaces')
-  const row = k.getByRole('row', { name: new RegExp(`^${literally(CASA)}`) })
+  // The directory's row, not a folder of the tree whose name starts the same (and not another space's that does).
+  const row = k.locator('main').getByRole('row', { name: new RegExp(`^${literally(CASA)} `) })
   await expect(row).toContainText('Sin gestores')
   const inside = (await call(a, 'get', '/api/tree') as { notes: { path: string; title: string }[] }).notes.filter((n) => n.path.startsWith(`${casa}/`))
   expect(inside.length).toBeGreaterThan(0)

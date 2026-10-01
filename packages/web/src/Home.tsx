@@ -67,12 +67,13 @@ export function HomePage({ user, refresh, onOpen, onReveal, onNewNote, onToday, 
       </header>
       <div className="home-page">
         <div className="home-top">
-          <h1>{t('home.title')}</h1>
+          {/* The house: Home is vihko's start page, never a space (even one called «Home»: spaces have their people mark). */}
+          <h1 className="home-title">{Icon.home}<span>{t('home.title')}</span></h1>
           <p className="home-hello">{t('home.hello', { user: user.username })}</p>
         </div>
         <div className="home-actions" role="group" aria-label={t('home.actions')}>
           {onNewNote && <Button className="btn btn-primary" onPress={onNewNote}>{Icon.plus}{t('home.newNote')}</Button>}
-          {onToday && <Button className="btn" onPress={onToday}>{Icon.calendar}{t('home.today')}</Button>}
+          {onToday && <Button className="btn" onPress={onToday}>{Icon.calendar}{t('shell.today')}</Button>}
           <Button className="btn" onPress={onSearch}>{Icon.search}{t('home.search')}</Button>
           {onNewSpace && <Button className="btn" onPress={onNewSpace}>{Icon.people}{t('home.newSpace')}</Button>}
         </div>

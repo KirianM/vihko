@@ -12,15 +12,21 @@ The UI is in English or Spanish, following your browser's language.
   [Home and «On opening»](#home-and-on-opening)): your recent notes, what others changed lately in the notes you
   read, what someone shared with you in the last 30 days, and buttons for a
   new note, today's note, search and a new space. The logo at the top of the
-  sidebar always takes you there. Home only ever shows what you can read.
+  sidebar always takes you there. Home only ever shows what you can read. Its
+  heading has a house: a shared space called «Home» is something else (in
+  the sidebar, every space has the mark of its kind).
 - **The sidebar**, on the left: the «Search or create…» box, «New note»
   (the `+`) and, when daily notes are set up, «Today's note»; then «Folders»
-  and «Tags». «Folders» has one section per space:
-  - **My notes**: your own space. Only you see it, except what you share.
-  - **Each shared space** you belong to, by its name, such as «Home».
+  and «Tags». «Folders» has one section per space, each with the mark of its
+  kind:
+  - **My notes** (a person): your own space. Only you see it, except what
+    you share.
+  - **Each shared space** you belong to (two people), by its name, such as
+    «Home».
   - **New space**, to create one.
   - **Shared with me**: folders other people share with you, with whose they
-    are. Pin one and it gets a section of its own, next to your spaces.
+    are. Pin one and it gets a section of its own (a folder), next to your
+    spaces, instead of being listed here.
 
   At the bottom: «Recent changes», the workspace alerts when there are any,
   your name (it opens «Preferences») and «Sign out». [Spaces, people and
@@ -240,13 +246,13 @@ different things:
 | | What it's for |
 |---|---|
 | **Your note settings** | **Making** things of your own: a daily note series, a templates folder, where your new images go, a guide for agents |
-| **Daily note series** | **Choosing** which series «Today's note» opens, among all you have: the installation's (set by the admin), those of the shared spaces you're in (set by their managers) and your own. It only shows once you have one |
+| **Daily note series** | **Choosing** which series «Today's note» opens, among all you have: your own, those of the shared spaces you're in (set by their managers) and the installation's (set by the admin). It only shows once you have one |
 
 So to start a journal you go to «Your note settings» first, and then, if you
 have more than one series, you pick it in «Daily note series».
 
 «Your note settings» is also in the menu of «My notes» in the sidebar (its
-`⋯` button, or right-click it) → **Settings…**. Every path you type there is
+`⋯` button, or right-click it) → **Your note settings…**. Every path you type there is
 inside «My notes»: `Journal` means «My notes / Journal».
 
 ### A daily journal
@@ -297,9 +303,9 @@ each starting with the same headings.
 
 4. Press **Save**.
 
-The calendar button, at the top of the sidebar next to `+` («Today's note»),
-now shows. Press it (or **Daily note** on Home, or Ctrl+Alt+D, ⌘⌥D on a
-Mac): vihko creates today's note, «My notes / Journal / 2026 / 2026-10-01»,
+The calendar button, at the top of the sidebar next to `+`, now shows («Today's
+note», its tooltip says, with the shortcut). Press it (or **Today's note** on
+Home, `>today's note` in the ⌘K box, or Ctrl+Alt+D, ⌘⌥D on a Mac): vihko creates today's note, «My notes / Journal / 2026 / 2026-10-01»,
 from the template, and opens it. Pressed again the same day, it opens that
 note; it never overwrites one. The arrows in the note's header go to the
 previous and next notes of the series that exist.
@@ -310,9 +316,11 @@ rules are in [Configuration](configuration.md#daily-daily-notes).
 
 **If you have more than one series** (yours, and one of a space you're in,
 say): Preferences → **Daily note series** → pick the one «Today's note»
-should open → **Save**. Until you pick one, it opens the first in that list,
-and the list can change when a space you're in adds a series: pick yours
-once and it stays.
+should open → **Save**. Until you pick one, it opens the first in that list:
+your own series come first, then your spaces', then the installation's. The
+first time you open «Today's note», the series it opened becomes your choice,
+so a series a space adds later never takes its place: you change it only in
+Preferences.
 
 ### A templates folder
 
@@ -374,8 +382,10 @@ vihko's own instructions, the installation's guide and the guides of the
 shared spaces its key reaches. Editing the note is enough: the next time it
 connects, it gets the new text. It only gets it if it can read the note: if
 the key is limited to some folders, or the note is closed to agents
-(`ai: false`), it gets the rest without it. vihko doesn't tell you if the
-note doesn't exist yet: make it first.
+(`ai: false`), it gets the rest without it. If the note doesn't exist (a
+typo, or you haven't made it yet), saving says so and keeps the dialog open,
+and an alert («Your guide for agents doesn't exist») stays until the note is
+there.
 
 ### What's on the disk
 
@@ -393,7 +403,7 @@ which also explains how the installation's, the space's and yours add up.
 
 **Home** is the page vihko opens by default: your recent notes, what others
 changed lately in the notes you read, what was shared with you in the last
-30 days, and the buttons **Write a note**, **Daily note** (when you have a
+30 days, and the buttons **Write a note**, **Today's note** (when you have a
 daily series), **Open search** and **Create a space**. It only ever shows
 what you can read. The vihko logo, at the top of the sidebar, always takes
 you there.
@@ -402,7 +412,7 @@ To open something else when you come in:
 
 1. Your name → Preferences → **On opening**.
 2. Choose:
-   - **Home**, the default;
+   - **Home, vihko's start page**, the default;
    - **The last note (on this device)**: the note you had open last in this
      browser. Your phone and your computer each remember their own;
    - **A specific note**: type part of its name in **Note** and pick it from

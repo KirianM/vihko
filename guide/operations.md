@@ -382,13 +382,14 @@ than a year:
    the next run would remove now, in counts and size only («The trash loses
    4 entries now (12 MB)», or «Nothing in the trash is that old right now»).
 5. Type your current code (or your password, if you have no two-step
-   verification) and press **Save and remove**. Nothing is removed yet: the
+   verification) and press **Save and remove** (just **Save** when the
+   dialog said nothing is that old yet). Nothing is removed yet: the
    settings are saved, and the section shows when the next run is («Next:
    …», in your own time).
 
 To remove it at once instead of waiting for Sunday, press **Run now** in the
 same section: «Apply retention now?» shows the same counts; confirm with
-your code and **Remove now**. Afterwards the section says what the run did:
+your code and **Remove now** (**Run now**, when there's nothing to remove). Afterwards the section says what the run did:
 «Last run: …, removing 4 trash entries and 120 history versions». Every
 admin gets an alert with the same counts.
 

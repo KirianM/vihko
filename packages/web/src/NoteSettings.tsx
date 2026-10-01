@@ -10,8 +10,14 @@ import { ApiError, api, type NoteSettingsForm, type SettingsProblem, type Settin
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { Icon } from './ui.tsx'
 import './actions.css'
+import './agents.css'
 
 type Attachments = 'install' | 'next-to-note' | 'folder' | 'per-note'
+
+/** A note's path as people write it here: without `.md`. */
+const bare = (p: string) => p.replace(/\.md$/i, '')
+/** The settings as the form shows them: the guide's note as it was written. */
+const formOf = (s: NoteSettingsForm): NoteSettingsForm => ({ ...s, agents: s.agents === null ? null : bare(s.agents) })
 
 /** A new series' id: unique among those of the form (the file keeps it). */
 function newId(taken: readonly string[]): string {
@@ -39,11 +45,13 @@ export function NoteSettingsDialog({ space, name, onClose, onSaved }: {
   const [problems, setProblems] = useState<SettingsProblem[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** Saved, but the guide for agents names a note that doesn't exist: said, and the dialog stays until closed. */
+  const [savedMissing, setSavedMissing] = useState<string | null>(null)
 
   useEffect(() => {
     api.settings(space ?? undefined).then((v) => {
       setView(v)
-      setForm(v.settings)
+      setForm(formOf(v.settings))
       setTemplates(v.settings.templates.join('\n'))
       const a = v.settings.attachments
       setAttachments(a === null ? 'install' : a.mode)
@@ -71,8 +79,12 @@ export function NoteSettingsDialog({ space, name, onClose, onSaved }: {
       daily: form.daily.map((s) => ({ ...s, label: s.label?.trim() || null, folder: s.folder.trim(), name: s.name.trim() || '{YYYY}-{MM}-{DD}', template: s.template?.trim() || null })),
     }
     try {
-      await api.saveSettings(space, next, view.etag)
-      onSaved()
+      const saved = await api.saveSettings(space, next, view.etag)
+      if (!saved.guideMissing || !next.agents) return onSaved()
+      setView(saved)
+      setForm(formOf(saved.settings))
+      setSavedMissing(bare(next.agents))
+      setBusy(false)
     } catch (err) {
       if (err instanceof ApiError && Array.isArray(err.data?.errors)) setProblems(err.data.errors as SettingsProblem[])
       else setError(errorText(t, err))
@@ -137,9 +149,14 @@ export function NoteSettingsDialog({ space, name, onClose, onSaved }: {
             )}
             <label className="field">
               <span>{t('settings.agents')}</span>
-              <input value={form.agents ?? ''} onChange={(e) => setForm({ ...form, agents: e.target.value })} />
+              <input value={form.agents ?? ''} onChange={(e) => { setSavedMissing(null); setForm({ ...form, agents: e.target.value }) }} />
               <span className="hint">{t(name ? 'settings.agentsSpaceHint' : 'settings.agentsHint')}</span>
             </label>
+            {/* The note named as the guide isn't there: agents would get nothing from it. */}
+            {!savedMissing && view?.guideMissing && view.settings.agents !== null && bare((form.agents ?? '').trim()) === bare(view.settings.agents) && (
+              <p className="key-once" role="note">{Icon.alert}<span>{t('settings.guideMissing', { note: bare(view.settings.agents) })}</span></p>
+            )}
+            {savedMissing && <p className="key-once" role="status">{Icon.alert}<span>{t('settings.savedGuideMissing', { note: savedMissing })}</span></p>}
           </>)}
         </div>
         {problems.length > 0 && (
@@ -150,7 +167,7 @@ export function NoteSettingsDialog({ space, name, onClose, onSaved }: {
         )}
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}
         <div className="dialog-actions">
-          <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
+          {savedMissing ? <Button className="btn" onPress={onSaved} autoFocus>{t('perm.close')}</Button> : <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>}
           <Button type="submit" className="btn btn-primary" isDisabled={busy || !form || view?.canEdit === false}>{t('prefs.save')}</Button>
         </div>
       </form>

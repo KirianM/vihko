@@ -72,6 +72,41 @@ test('a series of one\'s own with the pattern of vihko.yaml\'s is one series: no
   }
 })
 
+test('«Today\'s note» with no choice: one\'s own series first, then a space\'s, then the installation\'s; the one it opens stays', async () => {
+  const installation = m.anId()
+  const h = await setup({ config: `daily:\n  ${installation}:\n    folder: ${JSON.stringify(`people/{user}/${m.aFolder()}`)}\n` })
+  try {
+    h.clock.now = today()
+    const space = (await h.member('POST', '/api/spaces', { name: m.aSpaceName(), members: { [h.names.other]: 'edit' } })).body.space.path as string
+    // The member opens today's note while the installation's is the only series: that one becomes their choice.
+    const first = await h.member('POST', '/api/daily', {})
+    assert.equal(first.body.series, installation, first.text)
+    assert.equal((await h.member('GET', '/api/profile')).body.dailySeries, installation)
+    // The space gets a series: listed before the installation's, but the member's choice stays.
+    const spaceSeries = m.anId()
+    assert.equal((await put(h, 'member', (s) => { s.daily.push({ id: spaceSeries, label: null, folder: m.aFolder(), name: '{YYYY}-{MM}-{DD}', template: null }) }, space)).status, 200)
+    const listed = (await h.member('GET', '/api/workspace')).body.daily.map((s: any) => s.id) as string[]
+    assert.equal(listed.length, 2)
+    assert.ok(listed[0]!.endsWith(`-${spaceSeries}`) && listed[0]!.startsWith('sp-'), listed.join())
+    assert.equal(listed[1], installation)
+    assert.equal((await h.member('GET', '/api/daily')).body.series, installation)
+    assert.equal((await h.member('POST', '/api/daily', {})).body.series, installation)
+    // Someone who never chose: the space's before the installation's, and their own before both.
+    assert.equal((await h.other('GET', '/api/daily')).body.series, listed[0])
+    const own = m.anId()
+    assert.equal((await put(h, 'other', (s) => { s.daily.push({ id: own, label: null, folder: m.aFolder(), name: '{YYYY}-{MM}-{DD}', template: null }) })).status, 200)
+    assert.equal((await h.other('GET', '/api/daily')).body.series, `me-${own}`)
+    assert.equal((await h.other('GET', '/api/profile')).body.dailySeries, null, 'looking chooses nothing')
+    assert.equal((await h.other('POST', '/api/daily', {})).body.series, `me-${own}`)
+    assert.equal((await h.other('GET', '/api/profile')).body.dailySeries, `me-${own}`)
+    // Asking for a series by its id opens it without changing the choice.
+    assert.equal((await h.other('POST', '/api/daily', { series: installation })).body.series, installation)
+    assert.equal((await h.other('GET', '/api/profile')).body.dailySeries, `me-${own}`)
+  } finally {
+    h.close()
+  }
+})
+
 test('a shared space\'s settings: its managers change them, its members read them and get their series, templates, images folder and guide; nobody else', async () => {
   const h = await setup()
   try {
@@ -119,6 +154,35 @@ test('a shared space\'s settings: its managers change them, its members read the
       await theirs.close()
       await elsewhere.close()
     }
+  } finally {
+    h.close()
+  }
+})
+
+test('a guide for agents that names no note: said when saved and read, and an alert to whom the settings belong, until the note exists', async () => {
+  const h = await setup()
+  try {
+    const guides = (who: Name) => h.as(who)('GET', '/api/alerts').then((r) => (r.body.alerts as any[]).filter((a) => a.code === 'settings_guide_missing'))
+    // One's own: the person is told; nobody else.
+    const mine = m.aTitle()
+    const saved = await put(h, 'member', (s) => { s.agents = mine })
+    assert.deepEqual([saved.status, saved.body.guideMissing], [200, true], saved.text)
+    assert.equal((await h.member('GET', '/api/settings')).body.guideMissing, true)
+    assert.deepEqual(await guides('member'), [{ code: 'settings_guide_missing', space: null, note: `${h.home('member')}/${mine}.md`, actions: [] }])
+    for (const who of ['admin', 'other'] as Name[]) assert.deepEqual(await guides(who), [], who)
+    h.write(`${h.home('member')}/${mine}.md`, `# ${mine}\n\n${m.aSentence()}\n`)
+    assert.equal((await h.member('GET', '/api/settings')).body.guideMissing, false)
+    assert.deepEqual(await guides('member'), [])
+    // A shared space's: its managers are told, not its other members.
+    const name = m.aSpaceName()
+    const space = (await h.member('POST', '/api/spaces', { name, members: { [h.names.other]: 'edit' } })).body.space.path as string
+    const theirs = m.aTitle()
+    assert.equal((await put(h, 'member', (s) => { s.agents = theirs }, space)).body.guideMissing, true)
+    assert.deepEqual(await guides('member'), [{ code: 'settings_guide_missing', space: { path: space, name }, note: `${space}/${theirs}.md`, actions: [] }])
+    assert.deepEqual(await guides('other'), [])
+    // No guide: nothing to say.
+    assert.equal((await put(h, 'member', (s) => { s.agents = null }, space)).body.guideMissing, false)
+    assert.deepEqual(await guides('member'), [])
   } finally {
     h.close()
   }

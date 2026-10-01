@@ -280,7 +280,7 @@ can't call, they can change in any release.
 |---|---|---|---|
 | `POST /api/spaces` | Anyone, or only admins with the setting `spacesCreation: admins` (`403 forbidden` otherwise) | `name`, `members`? (`{ "<user>" or "@<group>": level }`) | `201`: `space` (as in `GET /api/spaces`), at `spaces/<name>`. The creator manages it. `409 space_name_taken` with `name` (as the other space writes it) when a space has that name in any case; `400 invalid` with `problem` for a name that can't be a space's folder (`empty`, `too_long`, `control_characters`, `spaces_around`, `invalid_characters`, `invalid_name`) |
 | `POST /api/spaces/from-folder` | `manage` in the folder and `edit` in its parent, and who may create spaces | `path` (a folder inside a space), `name`? (the folder's own by default), `dryRun`? | A dry run: `report` (the folder move's, with `audience`). Otherwise `201`: `space` (as in `GET /api/spaces`), `report`. The folder becomes a shared space of its own, `spaces/<name>`: what it holds goes to the new space's root, with the folder's own grants and its mover managing it. `400 space_root` for a space's root; `409 space_name_taken` (in a dry run too) and `400 invalid` as for `POST /api/spaces` |
-| `POST /api/spaces/rename` | `manage` at the space's root | `path`, `name` | `space`, at its new path. Its folder becomes `spaces/<name>` with everything in it, its rules, and the keys, pins and trash entries that named it; links don't change. Another case of its own name renames it too. `409 space_name_taken` and `400 invalid` as for `POST /api/spaces` |
+| `POST /api/spaces/rename` | `manage` at the space's root | `path`, `name` | `space`, at its new path. Its folder becomes `spaces/<name>` with everything in it, its rules, and the keys, pins, notices and trash entries that named it; links don't change. Another case of its own name renames it too. `409 space_name_taken` and `400 invalid` as for `POST /api/spaces` |
 | `DELETE /api/spaces` | `manage` at the space's root | `path`, `trash`? (query) | `path`. With `trash=true`, what it holds goes to the trash, which its managers keep seeing; otherwise only an empty space goes (`409 not_empty`) |
 | `POST /api/spaces/leave` | A grant of one's own there | `path` | `path`. One's own grants there and below go; nothing is deleted. `409 leave_via_group` with `group` when it comes through a group; `400 invalid` for one's own space, or a grant from a folder above |
 | `POST /api/spaces/pin` | What is shared with one | `path`, `pinned` | `path`, `pinned` |
@@ -308,7 +308,7 @@ can't call, they can change in any release.
 | `GET /api/move-jobs/:id` | Whoever started the move | — | `done` and `total` count only the notes the person reads |
 | `GET/PUT /api/admin/settings` | The vihko admin | `spacesCreation`? (`everyone` or `admins`), `trashRetentionDays`?, `historyRetentionDays`? (a whole number of days, 1 to 36500, or null: off), `confirm`? | The settings, with `spacesCreation`, `trashRetentionDays` and `historyRetentionDays` (null by default). Turning a retention period on or shortening it needs `confirm` (`400 confirmation_required` without it); a longer one, or null, doesn't |
 | `GET /api/workspace` | Anyone | — | `daily`: the series the person can write today's note in, from `vihko.yaml`, their shared spaces' settings and their own (0.1.0-rc.3); `templates`: the templates folders the person can read, from the same three, `{user}` made theirs |
-| `GET /api/settings` | One's own; a shared space's members | `space`? (a shared space's root; one's own space when left out) | Since 0.1.0-rc.3: `space` (the root), `etag`, `settings` (`version`, `daily` (`id`, `label`, `folder`, `name`, `template`), `templates`, `attachments` (`mode`, and `folder` or `suffix`; null: as `vihko.yaml` says), `agents`; paths relative to the space), `errors` (what is wrong in the file: `code`, `at`, `line`, `detail`), `canEdit` (oneself, or a manager). `404 not_found` for a space the person isn't in, or anything that isn't a space's root |
+| `GET /api/settings` | One's own; a shared space's members | `space`? (a shared space's root; one's own space when left out) | Since 0.1.0-rc.3: `space` (the root), `etag`, `settings` (`version`, `daily` (`id`, `label`, `folder`, `name`, `template`), `templates`, `attachments` (`mode`, and `folder` or `suffix`; null: as `vihko.yaml` says), `agents`; paths relative to the space), `errors` (what is wrong in the file: `code`, `at`, `line`, `detail`), `guideMissing` (since 0.1.0-rc.4: `agents` names a note that doesn't exist), `canEdit` (oneself, or a manager). `404 not_found` for a space the person isn't in, or anything that isn't a space's root |
 | `PUT /api/settings` | One's own; a shared space's managers | `space`?, `settings` (as `GET` gives them), `ifMatch` | As `GET`. `400 invalid` with `errors` (nothing written), `428 precondition_required` without `ifMatch`, `412 precondition_failed` when the file changed, `403 forbidden` for a member who doesn't manage the space |
 | `GET /api/admin/retention` | The vihko admin | — | `lastRun` (`at`, `trash: { entries, bytes }`, `history: { versions, bytes }` or null, `failed`) or null; `nextRun` (null while both periods are off); `history`: whether the history is the managed one, the only one retention thins |
 | `POST /api/admin/retention/run` | The vihko admin | `confirm` | A run now with the settings in force (`400 confirmation_required` without `confirm`): `at`, `trash`, `history`, `failed`, as `lastRun` |
@@ -337,6 +337,7 @@ codes 0.1.0 added for spaces:
 | `space_changed` | The people concerned, and the other admins | `change` (`manager_assigned`, `admin_joined`, `personal_transferred`, `personal_converted`, `personal_deleted`), `by`, `user`, `to`, `space` |
 | `links_not_updated` | Whoever made the move | Links in other notes a move of theirs couldn't update, even retried. No path, name or count |
 | `settings_invalid` | The person, for their own settings; a shared space's managers, for the space's. Never the admin as such | `space` (null for one's own; otherwise `path` and `name`), `errors` (`code`, `at`, `line`, `detail`): what is wrong in a settings file (0.1.0-rc.3) |
+| `settings_guide_missing` | As `settings_invalid` | `space` (as there), `note`: the settings name a guide for agents (`agents`) that isn't a note, so agents get nothing from it (0.1.0-rc.4) |
 | `retention_ran` | Every admin | `trashEntries`, `versions`, `failed`: what a retention run (weekly, or «Run now») removed (or that it failed part way). Counts only |
 
 `history_purged` names the path only to an admin who can read where it was,
@@ -542,7 +543,12 @@ explains it.
 - **How it adds up** with `vihko.yaml`, for each person: daily-note series
   are `vihko.yaml`'s, then those of each shared space they're in, then their
   own, and two that give the same note are one (the first is kept); only
-  those where they can write today's note are offered. Templates folders are
+  those where they can write today's note are offered, listed the other way
+  round (their own first, `vihko.yaml`'s last: `GET /api/workspace`'s
+  `daily`). With no `dailySeries` in the profile, today's note is the first
+  listed, and the first `POST /api/daily` (or `daily_note` that opens or
+  creates it) without a `series` writes that series' id as the profile's
+  `dailySeries`. Templates folders are
   the union of the three, those they can read. New images of a note follow
   its space's `attachments`, otherwise `vihko.yaml`'s. The guides for agents
   come in order: `mcp.instructions`, each shared space the key reaches, the
