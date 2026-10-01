@@ -135,7 +135,7 @@ test('creating a shared space: anyone by default, only admins with the setting; 
   }
 })
 
-test('«Move to a new space» (D-056.28): a folder becomes a shared space of its own, its mover managing it, its links kept, with the move\'s audience in the preview', async () => {
+test('«Move to a new space» (D-056.28): a folder becomes a shared space of its own, its mover managing it, with the move\'s audience and the links it leaves broken (D-056.30) in the preview', async () => {
   const h = await setup()
   try {
     // A shared space of the member's and the other's, with a folder the other mustn't see any more.
@@ -155,6 +155,8 @@ test('«Move to a new space» (D-056.28): a folder becomes a shared space of its
     assert.deepEqual(dry.body.report.audience.users.lose.map((u: any) => u.username), [h.names.other])
     assert.deepEqual(dry.body.report.audience.owner.after, { kind: 'shared', path: dry.body.report.to, name: folderName })
     assert.ok(existsSync(join(h.notesDir, inside)), 'a dry run moves nothing')
+    // The link from the space it leaves will be broken: links never cross spaces.
+    assert.deepEqual(dry.body.report.brokenLinks, [{ path: linking, to: dry.body.report.to + inside.slice(folder.length) }])
     // Only whoever may move it: the other edits the space but doesn't manage the folder.
     assert.deepEqual((await h.other('POST', url, { path: folder })).body.error, 'forbidden')
     // A space's own root doesn't become another.
@@ -169,10 +171,10 @@ test('«Move to a new space» (D-056.28): a folder becomes a shared space of its
     const rules = rulesInFile(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8'))
     assert.deepEqual(rules.get(root), { name: folderName, grants: { [h.names.admin]: 'read', [h.names.member]: 'manage' }, ai: null })
     assert.equal(rules.get(folder), undefined)
-    // The other no longer reads it; the member manages it; the link from the space it left follows it.
+    // The other no longer reads it; the member manages it; the link from the space it left stays as written, broken.
     assert.equal((await h.other('GET', `/api/note?path=${encodeURIComponent(moved(inside))}`)).status, 404)
     assert.equal((await h.member('GET', '/api/spaces')).body.spaces.find((s: any) => s.path === root)?.level, 'manage')
-    assert.ok(readFileSync(join(h.notesDir, linking), 'utf8').includes(`[[${moved(inside).slice(0, -3)}|`))
+    assert.equal(readFileSync(join(h.notesDir, linking), 'utf8'), `[[${inside.slice(casa.path.length + 1, -3)}]]\n`)
     // With the setting `spacesCreation: admins`, a member can't.
     const other = `${h.home('member')}/${m.aFolder()}`
     h.write(`${other}/${m.aTitle()}.md`, `# ${m.aHeading()}\n`)
@@ -532,7 +534,7 @@ test('a closed space converted into a shared space: its members see all of it, w
   }
 })
 
-test('a closed space transferred or converted: links into it from other spaces follow it, and its own links by name still lead where they did (D-018, D-056.4)', async () => {
+test('a closed space transferred or converted: links into it from other spaces are left as they are (D-056.30), and its own links by name still lead where they did', async () => {
   for (const action of ['transfer', 'convert'] as const) {
     const h = await setup()
     try {
@@ -552,9 +554,9 @@ test('a closed space transferred or converted: links into it from other spaces f
       const dest = r.body.plan.to as string
       const moved = (p: string) => dest + p.slice(h.home('member').length)
       const out = async (path: string) => ((await h.admin('GET', `/api/note/links?path=${encodeURIComponent(path)}`)).body.outgoing as { status: string; dstPath: string | null }[])
-      // From another space: rewritten to the new path (as the system), and it leads to the same note.
-      assert.deepEqual((await out(mine)).map((l) => [l.status, l.dstPath]), [['resolved', moved(b)]], action)
-      assert.ok(readFileSync(join(h.notesDir, theirs), 'utf8').includes(`[[${moved(b).slice(0, -3)}`), `${action}: also in notes whoever did it can't read`)
+      // From another space: never rewritten, and broken, as it always was (a link never leaves its space, D-056.30).
+      assert.deepEqual((await out(mine)).map((l) => [l.status, l.dstPath]), [['missing', null]], action)
+      for (const p of [mine, theirs]) assert.ok(readFileSync(join(h.notesDir, p), 'utf8').includes(across), `${action}: ${p} as it was`)
       // Inside it, by name: the same note.
       assert.deepEqual((await out(moved(a))).map((l) => [l.status, l.dstPath]), [['resolved', moved(b)]], action)
     } finally {

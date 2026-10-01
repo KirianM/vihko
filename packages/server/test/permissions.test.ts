@@ -76,12 +76,14 @@ test('§7.1: each person sees their space and the shared one; the admin doesn\'t
     assert.equal(out['[[2026-09-27]]'].status, 'missing')
     // A name never reaches another space: not even the admin's own notes are candidates (D-056.4).
     assert.deepEqual([out[link(NAME.plan)].status, out[link(NAME.plan)].candidates], ['missing', null])
-    assert.deepEqual(paths(kLinks.backlinks), sorted([PATH.settings, PATH.adminPlan]))
+    // Links from other spaces never lead here (D-056.30): the admin's notes link the list by path, and it has no backlinks.
+    assert.deepEqual(paths(kLinks.backlinks), [])
     const lLinks = (await h.member('GET', h.url('/api/note/links', { path: PATH.list }))).body
     const lout = Object.fromEntries(lLinks.outgoing.map((l: { raw: string }) => [l.raw, l]))
-    assert.deepEqual([lout[LINK.cake].status, lout[LINK.cake].dstPath], ['resolved', PATH.cake])
+    // The member reads the cake, but a link never leaves its space: from the shared list, broken for them too.
+    assert.deepEqual([lout[LINK.cake].status, lout[LINK.cake].dstPath], ['missing', null])
     assert.deepEqual([lout[link(NAME.plan)].status, lout[link(NAME.plan)].candidates], ['missing', null])
-    assert.deepEqual(paths(lLinks.backlinks), sorted([PATH.diary, PATH.cake]))
+    assert.deepEqual(paths(lLinks.backlinks), [])
 
     // Search, tags and their counts: only what each one reads.
     assert.deepEqual((await h.admin('GET', h.url('/api/search', { q: WORD.diary }))).body.results, [])
@@ -190,8 +192,10 @@ test('§7.3: moving a note says who loses or gains access before moving it', asy
     assert.deepEqual(r.body.audience.owner.after, { kind: 'personal', owner: A })
     assert.equal(r.body.audience.owner.before.kind, 'shared')
     assert.equal(r.body.audience.owner.before.path, DIR.shared)
-    // The report names no note they can't see (links in the member's notes are rewritten all the same, as the system).
-    assert.equal(r.body.hidden, true)
+    // The report names no note they can't see; the member's links to the list come from another space, so they never
+    // led to it and the move has nothing of theirs to rewrite or report (D-056.30).
+    assert.equal(r.body.hidden, false)
+    assert.deepEqual(r.body.brokenLinks, [])
     assert.ok(!r.text.includes(`${HOME.member}/`), r.text)
     // Keys are counted, never named.
     await h.enable()
@@ -243,20 +247,20 @@ test('§7.6 (P\'s part): deleting a person removes their grants; their folder is
   } finally { await h.close() }
 })
 
-test('§7.8: renaming a note linked from notes the renamer can\'t see: the report doesn\'t name them, the links are rewritten', async () => {
+test('§7.8 (D-056.30): renaming a note that other spaces link by path: those links never led to it, so nothing of theirs is rewritten or named', async () => {
   const h = await setup({ files: FILES })
   try {
+    const before = [PATH.cake, PATH.settings, PATH.adminPlan].map((p) => readFileSync(join(h.notesDir, p), 'utf8'))
     const title = m.aTitle()
     const to = `${DIR.shared}/${title}.md`
     const preview = await h.admin('POST', '/api/note/move', { from: PATH.list, to, dryRun: true })
     assert.equal(preview.status, 200)
-    assert.equal(preview.body.hidden, true)
-    assert.deepEqual(paths(preview.body.relinked), sorted([PATH.settings, PATH.adminPlan]))
+    assert.deepEqual([preview.body.hidden, preview.body.relinked], [false, []])
     assert.ok(!mentions(preview.text, M), preview.text)
     const done = await h.admin('POST', '/api/note/move', { from: PATH.list, to })
     assert.equal(done.status, 200)
     assert.ok(!mentions(done.text, M), done.text)
-    assert.ok(readFileSync(join(h.notesDir, PATH.cake), 'utf8').includes(`[[${to.slice(0, -3)}`), 'rewritten as the system (D-018)')
+    assert.deepEqual([PATH.cake, PATH.settings, PATH.adminPlan].map((p) => readFileSync(join(h.notesDir, p), 'utf8')), before, 'nothing rewritten across spaces')
   } finally { await h.close() }
 })
 

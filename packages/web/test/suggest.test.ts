@@ -135,13 +135,18 @@ test('a broken wikilink creates its note where the link will find it', () => {
   assert.equal(wikiLinkNote('a/b.md', '[[#Sección]]'), null)
 })
 
-test('a broken link into a space, by its path from the notes root, creates the note there, never under the current folder (D-056.4)', () => {
-  const source = `people/${m.aUsername()}/${m.aFolder()}/${m.aTitle()}.md`
+test('D-056.30: a broken link creates its note only in the note’s own space; into another space, nothing to create', () => {
+  const owner = `people/${m.aUsername()}`
+  const source = `${owner}/${m.aFolder()}/${m.aTitle()}.md`
   const space = `spaces/${m.aSpaceFolder()}`
   const [folder, title] = [m.aFolder(), m.aTitle()]
-  assert.deepEqual(wikiLinkNote(source, `[[${space}/${folder}/${title}|${title}]]`), { path: `${space}/${folder}/${title}.md`, title, raw: `[[${space}/${folder}/${title}|${title}]]` })
-  const person = `people/${m.aUsername()}`
-  assert.equal(wikiLinkNote(source, `[[${person}/${title}]]`)?.path, `${person}/${title}.md`)
+  // Into a shared space or someone else's: such a link never resolves, so creating there would leave it broken.
+  assert.equal(wikiLinkNote(source, `[[${space}/${folder}/${title}|${title}]]`), null)
+  assert.equal(wikiLinkNote(source, `[[people/${m.aUsername()}/${title}]]`), null)
+  assert.equal(markdownLinkNote(source, `[x](../../${space}/${title}.md)`, `../../${space}/${encodeURI(title)}.md`), null)
+  // By its path from the root inside its own space: there, never under the current folder.
+  const raw = `[[${owner}/${folder}/${title}|${title}]]`
+  assert.deepEqual(wikiLinkNote(source, raw), { path: `${owner}/${folder}/${title}.md`, title, raw })
   // `[[people]]` alone is a note's name, next to the source.
   assert.equal(wikiLinkNote(source, '[[people]]')?.path, `${source.slice(0, source.lastIndexOf('/'))}/people.md`)
 })
@@ -161,7 +166,7 @@ test('suggestions fold case like links and tags: «Straße» and «STRASSE»', (
   assert.deepEqual(rankTags([{ tag: 'strasse', count: 1 }], 'Straß').map((t) => t.tag), ['strasse'])
 })
 
-test('links to other spaces: the path from the notes root with the name shown; within a folder shared whole, the name', () => {
+test('D-056.30: suggestions are only of the note’s own space; in a folder seen in part, the path from the root with the name shown', () => {
   const mine = `people/${m.aUsername()}`
   const theirs = `people/${m.aUsername()}`
   const home = `spaces/${m.aSpaceFolder()}`
@@ -176,8 +181,10 @@ test('links to other spaces: the path from the notes root with the name shown; w
   ]
   // What someone sees of another person's space: two folders they were given, the rest of it only as the way there.
   const cat = new NoteCatalog(notes, { pathOnly: ['people', theirs, 'spaces'] })
-  assert.deepEqual(cat.linkForm(`${mine}/${own}.md`, `${home}/${list}.md`), { target: `${home}/${list}`, display: list })
+  // Typing any of their names from one's own space offers none of another space.
+  for (const t of [list, a, b, c]) assert.deepEqual(cat.rank(t, `${mine}/${own}.md`).map((x) => x.path), [], t)
+  assert.deepEqual(cat.rank(a, notes[3]!.path).map((x) => x.path), [`${shared}/${a}.md`])
+  // Within a folder shared whole, the name; between folders of someone's space seen only in part, the path with the name shown.
   assert.deepEqual(cat.linkForm(`${shared}/${a}.md`, notes[3]!.path), { target: b, display: null })
   assert.deepEqual(cat.linkForm(`${shared}/${a}.md`, `${other}/${c}.md`), { target: `${other}/${c}`, display: c })
-  assert.equal(cat.linkTarget(`${home}/${list}.md`, `${mine}/${own}.md`), `${mine}/${own}`)
 })

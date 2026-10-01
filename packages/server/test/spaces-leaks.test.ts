@@ -471,18 +471,26 @@ test('where a route used to give away what is in a space someone can\'t read (D-
     assert.ok((await h.member('POST', '/api/history/purge', { path: PATH.cake, dryRun: true })).body.versions.length > 0)
 
     // A rename whose links are rewritten in notes the mover can't read: its progress counts only the notes they read.
-    const target = `${DIR.shared}/${m.aTitle()}.md`
-    const readable = `${DIR.shared}/${m.aTitle()}.md`
-    const hidden = [`${home(ADMIN.username)}/${m.aTitle()}.md`, `${DIR.admin}/${m.aTitle()}.md`]
+    // Links never cross spaces (D-056.30), so those notes are in the same space: the admin shares one folder of theirs
+    // with the member to edit, and links its note from that folder and from two the member doesn't see.
+    const adminHome = home(ADMIN.username)
+    const sharedDir = `${adminHome}/${m.aFolder()}`
+    const target = `${sharedDir}/${m.aTitle()}.md`
+    const readable = `${sharedDir}/${m.aTitle()}.md`
+    const hidden = [`${adminHome}/${m.aTitle()}.md`, `${adminHome}/${m.aFolder()}/${m.aTitle()}.md`]
     const asLink = `[[${target.slice(0, -3)}]]`
     for (const [p, text] of [[target, `# ${m.aHeading()}\n`], [readable, `${asLink}\n`], ...hidden.map((p) => [p, `${asLink}\n`])] as [string, string][]) {
       assert.equal((await h.admin('POST', '/api/note', { path: p, text })).status, 201, p)
     }
+    const perm = (await h.admin('GET', h.url('/api/permissions', { folder: sharedDir }))).body
+    assert.equal((await h.admin('PUT', '/api/permissions', { folder: sharedDir, grants: { [MEMBER.username]: 'edit' }, ifMatch: perm.etag })).status, 200)
+    await h.settle()
     const totals: number[] = []
     const mover = h.services.scoped(h.policy.for({ kind: 'user', user: h.users.member }))
-    const report = await mover.move(target, `${DIR.shared}/${m.aTitle()}.md`, { onMoved: (n) => totals.push(n), onProgress: (_done, total) => totals.push(total) })
+    const report = await mover.move(target, `${sharedDir}/${m.aTitle()}.md`, { onMoved: (n) => totals.push(n), onProgress: (_done, total) => totals.push(total) })
     assert.equal(report.hidden, true)
     assert.deepEqual([...new Set(totals)], [1], 'one note they read; the others are never counted')
+    assert.ok(!JSON.stringify(report).includes(hidden[0]!) && !JSON.stringify(report).includes(hidden[1]!))
 
     // The history cursor of a note that came from someone's personal space: opaque, never the path it had there.
     const before = `${memberHome}/${m.aTitle()}.md`
