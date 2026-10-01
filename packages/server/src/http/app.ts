@@ -897,7 +897,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.post('/api/admin/rescan', adminOnly, async (c) => {
     const body = await c.req.json<{ force?: boolean; confirmRemoval?: number }>().catch(() => ({}) as { force?: boolean; confirmRemoval?: number })
     const confirmRemoval = Number.isInteger(body.confirmRemoval) ? body.confirmRemoval : undefined
-    return c.json(deps.runtime.rescan({ force: body.force === true, confirmRemoval }))
+    const r = deps.runtime.rescan({ force: body.force === true, confirmRemoval })
+    // Numbers, never paths: what changed may be in anyone's space, which the admin doesn't read (D-038.1, D-056.8).
+    return c.json({ added: r.added.length, changed: r.changed.length, removed: r.removed.length, moved: r.moved.length, unchanged: r.unchanged, aborted: r.aborted, massDelete: r.massDelete })
   })
 
   // The alert of a rewrite of vihko.yaml at start, dismissed (for every admin).

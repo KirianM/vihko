@@ -5,7 +5,7 @@
 // Implementing one: pages are always bounded (never walk the whole history to
 // answer one page), cursors are opaque strings, and `canRead` is asked for
 // every file a change lists (the permission filter, D-014, D-016).
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import type { Author } from '../actor.ts'
 
 /**
@@ -114,27 +114,32 @@ export function matchesAuthor(authors: readonly AuthorRef[], filter: string | nu
 }
 
 /**
- * Cursors: opaque to clients, JSON inside, signed with a key of this process.
- * A cursor carries where a walk goes on (a commit, a path): only the server
- * makes one, so a client can't point a page at another note's history. A
- * restart makes them stale (`invalid`): the list is loaded again.
+ * Cursors: opaque to clients, JSON inside, encrypted and authenticated
+ * (AES-256-GCM) with a key of this process. A cursor carries where a walk
+ * goes on (a commit, a path, maybe a path the note had in a place the client
+ * can't read): only the server makes one and only the server reads it, so a
+ * client can't point a page at another note's history, nor learn where the
+ * note was (D-056.28). A restart makes them stale (`invalid`): the list is
+ * loaded again.
  */
 const CURSOR_KEY = randomBytes(32)
-const sign = (payload: string) => createHmac('sha256', CURSOR_KEY).update(payload).digest().subarray(0, 18).toString('base64url')
 
 export function encodeCursor(value: unknown): string {
-  const payload = Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
-  return `${payload}.${sign(payload)}`
+  const iv = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', CURSOR_KEY, iv)
+  const sealed = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()])
+  return Buffer.concat([iv, sealed, cipher.getAuthTag()]).toString('base64url')
 }
 
 export function decodeCursor<T>(cursor: string | null | undefined, check: (v: unknown) => v is T): T | null {
   if (!cursor) return null
   try {
-    const [payload, sig, ...rest] = cursor.split('.')
-    const want = Buffer.from(sign(payload ?? ''))
-    const got = Buffer.from(sig ?? '')
-    if (rest.length === 0 && got.length === want.length && timingSafeEqual(got, want)) {
-      const v = JSON.parse(Buffer.from(payload!, 'base64url').toString('utf8')) as unknown
+    const raw = Buffer.from(cursor, 'base64url')
+    if (raw.length > 28 && raw.toString('base64url') === cursor) {
+      const decipher = createDecipheriv('aes-256-gcm', CURSOR_KEY, raw.subarray(0, 12))
+      decipher.setAuthTag(raw.subarray(raw.length - 16))
+      const plain = Buffer.concat([decipher.update(raw.subarray(12, raw.length - 16)), decipher.final()])
+      const v = JSON.parse(plain.toString('utf8')) as unknown
       if (check(v)) return v
     }
   } catch { /* falls through */ }

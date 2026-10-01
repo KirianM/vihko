@@ -262,7 +262,8 @@ export interface KeyInfo {
   previousUntil: string | null
 }
 /** In the admin's list of everyone's keys, each one with its user. */
-export interface KeyWithUser extends KeyInfo { user: { id: string; username: string } }
+/** Someone's key as the admin lists them: its folders only those the admin reads too, `foldersHidden` when it has others. */
+export interface KeyWithUser extends KeyInfo { user: { id: string; username: string }; foldersHidden: boolean }
 /** What a key is created or changed with; `expiresAt: null` takes the expiry away. */
 export interface KeyInput { name?: string; canWrite?: boolean; folders?: string[]; expiresAt?: string | null }
 /** An OAuth client asking for access (the consent page): its name, where it goes back to, and whether this person may authorize it. */

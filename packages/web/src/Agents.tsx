@@ -393,6 +393,8 @@ function KeyCard({ k, owner, actions }: { k: KeyInfo; owner?: string; actions: R
   const dates = useDates()
   const row = (label: MessageKey, value: ReactNode) => <div className="key-row"><dt>{t(label)}</dt><dd>{value}</dd></div>
   const expiry = !k.expiresAt ? t('keys.expiresNever') : t(k.status === 'expired' ? 'keys.expired' : 'keys.expires', { date: dates.dateTime(k.expiresAt) })
+  // Someone else's key may reach folders of their spaces the admin doesn't read: never named (D-056).
+  const hiddenFolders = 'foldersHidden' in k && k.foldersHidden === true
   return (
     <li className={`key-card key-card-${k.status}`}>
       <div className="key-head">
@@ -404,7 +406,12 @@ function KeyCard({ k, owner, actions }: { k: KeyInfo; owner?: string; actions: R
       </div>
       <dl className="key-meta">
         {row('keys.permissions', t(k.canWrite ? 'keys.readWrite' : 'keys.readOnly'))}
-        {row('keys.folders', k.folders.length === 0 ? t('keys.foldersAllShort') : <span className="key-folders">{k.folders.map((f) => <FolderName key={f} path={f} />)}</span>)}
+        {row('keys.folders', k.folders.length === 0 && !hiddenFolders ? t('keys.foldersAllShort') : (
+          <span className="key-folders">
+            {k.folders.map((f) => <FolderName key={f} path={f} />)}
+            {hiddenFolders && <span>{t(k.folders.length ? 'keys.foldersHiddenMore' : 'keys.foldersHidden')}</span>}
+          </span>
+        ))}
         {row('keys.expiry', expiry)}
         {row('keys.lastUsed', k.lastUsedAt ? t('keys.lastUsedAt', { date: dates.dateTime(k.lastUsedAt), via: viaLabel(t, k.lastVia) }) : t('keys.neverUsed'))}
         {k.revokedAt && row('keys.revokedAt', dates.dateTime(k.revokedAt))}

@@ -370,6 +370,9 @@ export class SpaceService {
    * admin's explicit choice:
    * - `transfer` to someone (`to`, a user id): it goes into theirs, as
    *   `people/<to>/<deleted>`, with its grants (what was shared stays so);
+   *   if that name is taken there, under the first free `<deleted>-<n>`,
+   *   found only when it moves: the admin doesn't read the recipient's
+   *   space, so the dry run never looks into it (D-056.28);
    * - `convert` into a shared space named `name` with `members`: the whole
    *   space becomes theirs, what was shared as subfolders with their grants;
    * - `delete`: its files go from the disk (no trash: nobody could see it)
@@ -393,7 +396,6 @@ export class SpaceService {
       recipient = typeof input.to === 'string' ? this.opts.users.get(input.to) : null
       if (!recipient) throw new NoteError('not_found', 'no such user')
       to = `${personalRoot(recipient.username)}/${gone.username}`
-      if (this.exists(to)) throw new NoteError('exists', `already exists: ${to}`)
     } else if (action === 'convert') {
       name = this.spaceName(input.name)
       members = this.members(input.members ?? {})
@@ -421,7 +423,7 @@ export class SpaceService {
       return plan(null)
     }
 
-    const dest = action === 'transfer' ? to! : this.newSharedFolder(name, { claim: false })
+    const dest = action === 'transfer' ? this.freeFolder(to!) : this.newSharedFolder(name, { claim: false })
     // Its rules first at the new path too, then the folder, then the old rules go (as a folder move does, scoped.ts).
     await this.opts.file.update((t) => {
       let out = t
@@ -492,6 +494,15 @@ export class SpaceService {
   }
 
   // --- Helpers -------------------------------------------------------------------------
+
+  /** `path`, or the first `<path>-<n>` nothing on the disk takes. */
+  private freeFolder(path: string): string {
+    for (let n = 1; n < 1000; n++) {
+      const candidate = n === 1 ? path : `${path}-${n}`
+      if (!this.exists(candidate)) return candidate
+    }
+    throw new NoteError('exists', 'no free name for the folder')
+  }
 
   /** The person asking (never an agent: spaces are managed by people, spec §2.5). */
   private person(access: Access) {

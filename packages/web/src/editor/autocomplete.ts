@@ -10,6 +10,7 @@ import { Prec, type EditorState } from '@codemirror/state'
 import { keymap, type EditorView } from '@codemirror/view'
 import { withoutClosingHashes } from '@vihko/core/syntax'
 import { api } from '../api.ts'
+import { onSessionEnd } from '../session.ts'
 import {
   NoteCatalog, completionContext, completionEnd, fold, matchScore, rankHeadings, rankTags,
   type HeadingEntry, type TagEntry,
@@ -29,13 +30,19 @@ class Cached<T> {
   private value: T | null = null
   private at = 0
   private pending: Promise<T> | null = null
+  /** Bumped by `clear`: a load that was already on its way is never kept. */
+  private generation = 0
   private readonly load: () => Promise<T>
   constructor(load: () => Promise<T>) { this.load = load }
   get(): Promise<T> {
     if (Date.now() - this.at > TTL_MS && !this.pending) {
+      const generation = this.generation
       const p = this.load().then(
-        (v) => { this.value = v; this.at = Date.now(); this.pending = null; return v },
-        (e: unknown) => { this.pending = null; throw e },
+        (v) => {
+          if (generation !== this.generation) return v
+          this.value = v; this.at = Date.now(); this.pending = null; return v
+        },
+        (e: unknown) => { if (generation === this.generation) this.pending = null; throw e },
       )
       this.pending = p
       if (this.value !== null) p.catch(() => {})
@@ -43,6 +50,8 @@ class Cached<T> {
     return this.value !== null ? Promise.resolve(this.value) : this.pending!
   }
   forget() { this.at = 0 }
+  /** Nothing kept: the next `get` waits for the server (another person may be signed in by then). */
+  clear() { this.value = null; this.at = 0; this.pending = null; this.generation++ }
 }
 
 const notes = new Cached(() => Promise.all([api.tree(), api.workspace().catch(() => null)])
@@ -61,6 +70,18 @@ export function forgetSuggestions() {
   tags.forget()
   headings.clear()
 }
+
+/**
+ * The session ended (signing out, or it expired): what was loaded for that
+ * person goes, so whoever signs in next in this tab never gets it, not even
+ * while their own loads (D-056.28).
+ */
+function clearSuggestions() {
+  notes.clear()
+  tags.clear()
+  headings.clear()
+}
+onSessionEnd(clearSuggestions)
 
 // Where nothing is suggested: code, the frontmatter, HTML (vihko's comments) and URLs.
 const QUIET = new Set(['InlineCode', 'CodeText', 'FencedCode', 'CodeBlock', 'Frontmatter', 'Comment', 'CommentBlock', 'HTMLBlock', 'HTMLTag', 'URL', 'Autolink'])

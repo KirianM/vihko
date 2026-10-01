@@ -377,6 +377,34 @@ test('a closed space transferred: into the recipient\'s, with what was shared st
   }
 })
 
+test('the transfer\'s preview never looks into the recipient\'s space (D-056.28): the same plan whatever is there; a name taken there is found only when it moves, and a free one taken', async () => {
+  const h = await setup()
+  try {
+    await h.enable()
+    const { note } = await deletedMember(h)
+    const plan = async (to: Name) => {
+      const r = await h.admin('POST', `/api/admin/users/${h.created.member.id}/space`, { action: 'transfer', to: h.created[to].id, dryRun: true })
+      assert.equal(r.status, 200, r.text)
+      return r.body.plan
+    }
+    // The other person has, at the top of their space, something with the deleted person's name; the admin doesn't.
+    const taken = `${h.home('other')}/${h.names.member}`
+    h.write(`${taken}/${m.aTitle()}.md`, m.aParagraph())
+    const toOther = await plan('other')
+    const toAdmin = await plan('admin')
+    assert.deepEqual({ ...toOther, to: null }, { ...toAdmin, to: null })
+    assert.equal(toOther.to, taken)
+    // Moving it, the name is taken: it goes under the first free one, and nothing of theirs is touched.
+    const r = await h.admin('POST', `/api/admin/users/${h.created.member.id}/space`, { action: 'transfer', to: h.created.other.id, confirm: h.created.admin.password })
+    assert.equal(r.status, 200, r.text)
+    assert.equal(r.body.plan.to, `${taken}-2`)
+    assert.ok(existsSync(join(h.notesDir, `${taken}-2`, note.slice(h.home('member').length + 1))))
+    assert.equal(readdirSync(join(h.notesDir, taken)).length, 1)
+  } finally {
+    h.close()
+  }
+})
+
 test('a closed space converted into a shared space: its members see all of it, what was shared stays shared', async () => {
   const h = await setup()
   try {

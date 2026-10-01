@@ -235,6 +235,11 @@ export interface ShiftGroup {
 export interface MoveHooks {
   onMoved?: (toRewrite: number) => void
   onProgress?: (done: number, total: number) => void
+  /**
+   * Which of the notes to rewrite the hooks count (all by default): whoever
+   * follows a move learns how many of those, never of the rest (D-018).
+   */
+  counts?: (path: string) => boolean
 }
 
 /** Options of a folder move. `canRead`: whether whoever moves it may read a file (the images copied to another space, D-056); all by default. */
@@ -741,14 +746,14 @@ export class NoteService {
         : await this.moveNow(from, to, opts)
       hot?.carrySaved?.([{ from, to }])
       const { report, others, before, after, map, place } = moved
-      opts.onMoved?.(others.length)
+      opts.onMoved?.(counted(others, opts.counts))
 
       // The rest of the notes, as the system. The plan is recalculated over the
       // current text: links to the note, and references to images in its folder of images.
       const reason: RelinkRetry['reason'] = { code: 'note_moved', from, to, by: opts.actor }
       const system: Actor = { kind: 'system', reason }
       await this.history.operation(system, null, () =>
-        this.rewriteAll(others.map((src) => ({ path: src, change: (t: string) => movedNotePlan(t, src, src, before, after, map, place).splices })), system, report.failed, opts.onProgress))
+        this.rewriteAll(others.map((src) => ({ path: src, change: (t: string) => movedNotePlan(t, src, src, before, after, map, place).splices })), system, report.failed, opts.onProgress, opts.counts))
 
       // Safety net: if something couldn't be rewritten, the old name stays as an alias.
       // Not when aliases don't resolve links (vihko.yaml): it would save nothing. Nor
@@ -815,16 +820,17 @@ export class NoteService {
    * most of its time waiting for stable reads and, on a network filesystem,
    * for the server). Failures are collected, sorted by path.
    */
-  private async rewriteAll(items: { path: string; change: (text: string) => Change }[], system: Actor, failed: MoveReport['failed'], onProgress?: MoveHooks['onProgress']) {
+  private async rewriteAll(items: { path: string; change: (text: string) => Change }[], system: Actor, failed: MoveReport['failed'], onProgress?: MoveHooks['onProgress'], counts?: MoveHooks['counts']) {
     let done = 0
-    onProgress?.(0, items.length)
+    const total = counted(items.map((i) => i.path), counts)
+    onProgress?.(0, total)
     await inPool(items, async ({ path, change }) => {
       try {
         await this.edit(path, change, { actor: system })
       } catch (err) {
         failed.push({ path, ...failure(err) })
       }
-      onProgress?.(++done, items.length)
+      if (!counts || counts(path)) onProgress?.(++done, total)
     })
     failed.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   }
@@ -1030,9 +1036,9 @@ export class NoteService {
       const plan = this.planMoved(moves)
       const report: MovedRelinkReport = { moves: plan.moves, relinked: plan.relinked, shifted: plan.shifted, failed: [], dryRun: !!opts.dryRun }
       if (opts.dryRun) return report
-      opts.onMoved?.(plan.items.length)
+      opts.onMoved?.(counted(plan.items.map((i) => i.path), opts.counts))
       const system: Actor = { kind: 'system', reason: { code: 'links_after_external_move', moves: plan.moves, by: opts.actor } }
-      await this.history.operation(system, null, () => this.rewriteAll(plan.items, system, report.failed, opts.onProgress))
+      await this.history.operation(system, null, () => this.rewriteAll(plan.items, system, report.failed, opts.onProgress, opts.counts))
       return report
     }
     return opts.dryRun ? run() : this.oneMoveAtATime(run)
@@ -1331,14 +1337,14 @@ export class NoteService {
     // The copies of what stays behind in the space it leaves, now that their folders are there.
     report.images = this.makeFolderCopies(copies.planned, opts.actor)
     copies.settle(report.images.copied)
-    opts.onMoved?.(own.length + others.length)
+    opts.onMoved?.(counted([...own.map(([, t]) => t), ...others], opts.counts))
 
     // 2. The moved notes' own links and image references, then the rest of the
     // notes, as the system, recalculated over the current text.
     await this.history.operation(system, null, () => this.rewriteAll([
       ...own.map(([f, t]) => ({ path: t, change: (x: string) => movedNotePlan(x, f, t, before, after, map, copies.placeFor(f, t, place)).splices })),
       ...others.map((src) => ({ path: src, change: (x: string) => movedNotePlan(x, src, src, before, after, map, place).splices })),
-    ], system, report.failed, opts.onProgress))
+    ], system, report.failed, opts.onProgress, opts.counts))
     // No alias stands in for a folder's notes: what failed is tried again after the next rescan.
     this.opts.retries?.record({ reason, moves: report.notes, sources: report.failed.map((f) => f.path) })
     return report
@@ -1989,6 +1995,9 @@ function nameGuard(mayName: ((path: string) => boolean) | undefined, dryRun: boo
     get refused() { return hit && !dryRun },
   }
 }
+
+/** How many of `paths` a move's hooks count (MoveHooks `counts`). */
+const counted = (paths: readonly string[], counts?: (path: string) => boolean) => (counts ? paths.filter(counts).length : paths.length)
 
 /** What a new name takes (NoteService `linksTaken`). */
 interface LinksTaken {

@@ -873,7 +873,7 @@ export class ScopedNotes {
       // Images it takes to another space are only those the principal can read (D-056).
       // A move that would have to rewrite, in a note its person reads, a link to a note they can't
       // is refused as a taken name; the dry run leaves that rewrite out instead (D-056.20, .28).
-      report = await this.guardAsync(f, () => this.spelled(t, () => this.deps.notes.move(f, t, { ...moveOpts, actor: this.access.actor, canRead: (p) => this.access.canRead(p), mayName: this.mayName })))
+      report = await this.guardAsync(f, () => this.spelled(t, () => this.deps.notes.move(f, t, { ...moveOpts, actor: this.access.actor, canRead: (p) => this.access.canRead(p), mayName: this.mayName, counts: this.counts })))
     } catch (err) {
       if (copied) await file!.removeRules(assets!.to, { actor: this.access.actor }).catch(() => {})
       throw err
@@ -904,6 +904,9 @@ export class ScopedNotes {
    * it (`agent_denied`, D-035), so that alone doesn't refuse a move.
    */
   private readonly mayName = (path: string) => this.access.userCanRead(path)
+
+  /** Which rewritten notes a move's progress counts: only those the principal reads (D-018, D-056.21: never how many it can't). */
+  private readonly counts = (path: string) => this.access.canRead(path)
 
   /**
    * A move's report (a note's, a folder's, or the links after moves made
@@ -1191,7 +1194,7 @@ export class ScopedNotes {
     const afterCopy = copied ? file!.read().text : null
     let report: FolderMoveReport
     try {
-      report = await this.spelled(t, () => this.deps.notes.moveFolder(f, t, { actor, ...opts, canRead, mayName: this.mayName }))
+      report = await this.spelled(t, () => this.deps.notes.moveFolder(f, t, { actor, ...opts, canRead, mayName: this.mayName, counts: this.counts }))
     } catch (err) {
       // It didn't move: the copies go, unless someone changed the file meanwhile.
       if (copied) await file!.update((x) => (x === afterCopy ? before ?? '' : x), { actor }).catch(() => {})
@@ -1268,13 +1271,16 @@ export class ScopedNotes {
     const entry = this.trash().find((e) => e.id === id)
     if (!entry) throw new NoteError('not_found', `not in the trash: ${id}`)
     const canWrite = (p: string) => this.access.canWrite(p)
+    // What stays in the trash is named only where the principal reads it (D-056.15): the
+    // rest of an entry may be files of folders it can't see.
+    const shown = (r: TrashRestoreReport): TrashRestoreReport => ({ ...r, left: r.left.filter((p) => this.access.canRead(p)) })
     if (entry.kind === 'files') {
       if (to !== undefined && to !== entry.path) throw new RequestError(400, 'invalid', 'files alone go back where they were: no `to`')
-      return this.deps.notes.restore(id, this.access.actor, undefined, { canWrite })
+      return shown(await this.deps.notes.restore(id, this.access.actor, undefined, { canWrite }))
     }
     const dest = to === undefined || to === entry.path ? this.writable(entry.path) : this.creatable(to)
     await this.clearForgotten(folderOf(dest))
-    return this.guardAsync(dest, () => this.spelled(dest, () => this.deps.notes.restore(id, this.access.actor, dest, { canWrite, mayName: this.mayName })))
+    return shown(await this.guardAsync(dest, () => this.spelled(dest, () => this.deps.notes.restore(id, this.access.actor, dest, { canWrite, mayName: this.mayName }))))
   }
 
   /** A sync tool's conflict copy the indexer found, in a folder the person can read. */
@@ -1317,7 +1323,7 @@ export class ScopedNotes {
     const group = ext?.get(id)
     const moves = group?.moves.filter((m) => this.access.canWrite(m.to) && this.access.canWrite(m.from)) ?? []
     if (!ext || !group || moves.length === 0) throw new NoteError('not_found', 'no such external move')
-    const report = await this.deps.notes.relinkMoved(moves, { actor: this.access.actor, ...opts })
+    const report = await this.deps.notes.relinkMoved(moves, { actor: this.access.actor, ...opts, counts: this.counts })
     // Done once every rewrite went through, for every move it had; with failures, or moves left, it stays.
     if (!opts.dryRun && report.failed.length === 0 && moves.length === group.moves.length) ext.drop(group.id)
     const back = new Map(report.moves.map((m) => [m.to, m.from]))

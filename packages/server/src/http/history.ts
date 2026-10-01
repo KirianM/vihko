@@ -265,6 +265,11 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     const run = (dryRun: boolean) => history.purge({ path, version: body.version as string | undefined, dryRun, exact: !admin, by: user.id })
     // Whether it takes out anything the person can't read: only the admin gets that far with it.
     const blind = (p: PurgeReport) => !readablePath(access, p.path) || p.commits.some((v) => v.files.some((f) => !readablePath(access, f.path)))
+    // The admin's preview of a path they can't read says nothing of it: not whether it ever existed, nor
+    // when anything there was written (D-038.1, D-056.8). Only the purge itself, confirmed, does anything.
+    if (body.dryRun === true && admin && !manages && !readablePath(access, path)) {
+      return c.json({ path, version: body.version ?? null, dryRun: true, hidden: true, versions: [], filesRemoved: 0, onDisk: 0, sharedWith: [], movedFrom: [], confirmRequired: !!deps.confirm })
+    }
     let r: PurgeReport
     if (body.dryRun === true) r = await run(true)
     else {

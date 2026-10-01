@@ -8,6 +8,7 @@ import { Invite, Login, Setup } from './Gate.tsx'
 import { Shell } from './Shell.tsx'
 import { Consent } from './Consent.tsx'
 import { useAccountLanguage } from './language.ts'
+import { endSession } from './session.ts'
 
 /** The OAuth authorization page: the server checked the request and serves the UI there. */
 const consent = location.pathname === '/oauth/authorize'
@@ -27,6 +28,8 @@ export function App() {
   const [state, setState] = useState<State>(inviteToken ? { kind: 'invite', token: inviteToken } : { kind: 'loading' })
   // Signed in (the application or the OAuth consent page): the account's language.
   useAccountLanguage(state.kind === 'app')
+  // Signed out (or the session expired): nothing loaded for that person stays for the next one.
+  useEffect(() => { if (state.kind === 'login') endSession() }, [state.kind])
 
   async function boot() {
     setState({ kind: 'loading' })

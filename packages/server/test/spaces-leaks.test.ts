@@ -8,8 +8,8 @@
 // aimed at what they can't see are spaces-writes.test.ts's.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { MessageType } from '@hocuspocus/server'
 import * as server from '@vihko/server'
 import { HUB_MESSAGES, ROUTE_NEEDS, TOOL_NEEDS, type Principal } from '@vihko/server'
@@ -428,3 +428,98 @@ test('with read or comment in a folder, nothing is written there through any rou
     assert.deepEqual({ text: text(), files: listing(), yaml: readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8') }, before, 'nothing was written')
   } finally { await h.close() }
 })
+
+test('where a route used to give away what is in a space someone can\'t read (D-056.28): the admin\'s rescan, keys and purge preview, a move\'s progress, the history cursor, a restore\'s leftovers', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    await h.enable()
+    const memberHome = home(MEMBER.username)
+    /** What would give the member's own space away: any path under it. */
+    const hidesMember = (text: string) => !text.includes(`${memberHome}/`)
+
+    // The admin's rescan after a change made outside vihko in the member's space: how many, never which.
+    const outside = `${memberHome}/${m.aFolder()}/${m.aTitle()}.md`
+    mkdirSync(join(h.notesDir, dirname(outside)), { recursive: true })
+    writeFileSync(join(h.notesDir, outside), `# ${m.aHeading()}\n`)
+    const scan = await h.admin('POST', '/api/admin/rescan', {})
+    assert.equal(scan.status, 200, scan.text)
+    assert.ok(scan.body.added >= 1, scan.text)
+    assert.ok(hidesMember(scan.text), scan.text)
+
+    // Everyone's keys, for the admin: a key of the member's limited to a folder of their space doesn't name it.
+    const keyFolder = dirname(outside)
+    const memberKey = await h.newKey('member', { name: m.aKeyName(), folders: [keyFolder] })
+    const all = await h.admin('GET', '/api/keys?all=1')
+    const listed = all.body.keys.find((k: { id: string }) => k.id === memberKey.key.id)
+    assert.deepEqual([listed.folders, listed.foldersHidden], [[], true])
+    assert.ok(hidesMember(all.text), all.text)
+    // The member's own list still says where it reaches.
+    assert.deepEqual((await h.member('GET', '/api/keys')).body.keys.find((k: { id: string }) => k.id === memberKey.key.id).folders, [keyFolder])
+
+    // The admin's purge preview of a path in the member's space: the same whether it exists or not, and nothing about when it was written.
+    const preview = async (path: string) => {
+      const r = await h.admin('POST', '/api/history/purge', { path, dryRun: true })
+      assert.equal(r.status, 200, r.text)
+      return { ...r.body, path: null }
+    }
+    const real = await preview(PATH.cake)
+    assert.deepEqual(real, await preview(`${memberHome}/${m.aTitle()}.md`))
+    assert.deepEqual(real, await preview(memberHome))
+    assert.deepEqual([real.hidden, real.versions, real.onDisk, real.confirmRequired], [true, [], 0, true])
+    // The member, who manages their own space, gets the real preview of their note.
+    assert.ok((await h.member('POST', '/api/history/purge', { path: PATH.cake, dryRun: true })).body.versions.length > 0)
+
+    // A rename whose links are rewritten in notes the mover can't read: its progress counts only the notes they read.
+    const target = `${DIR.shared}/${m.aTitle()}.md`
+    const readable = `${DIR.shared}/${m.aTitle()}.md`
+    const hidden = [`${home(ADMIN.username)}/${m.aTitle()}.md`, `${DIR.admin}/${m.aTitle()}.md`]
+    const asLink = `[[${target.slice(0, -3)}]]`
+    for (const [p, text] of [[target, `# ${m.aHeading()}\n`], [readable, `${asLink}\n`], ...hidden.map((p) => [p, `${asLink}\n`])] as [string, string][]) {
+      assert.equal((await h.admin('POST', '/api/note', { path: p, text })).status, 201, p)
+    }
+    const totals: number[] = []
+    const mover = h.services.scoped(h.policy.for({ kind: 'user', user: h.users.member }))
+    const report = await mover.move(target, `${DIR.shared}/${m.aTitle()}.md`, { onMoved: (n) => totals.push(n), onProgress: (_done, total) => totals.push(total) })
+    assert.equal(report.hidden, true)
+    assert.deepEqual([...new Set(totals)], [1], 'one note they read; the others are never counted')
+
+    // The history cursor of a note that came from someone's personal space: opaque, never the path it had there.
+    const before = `${memberHome}/${m.aTitle()}.md`
+    assert.equal((await h.member('POST', '/api/note', { path: before, text: `# ${m.aHeading()}\n` })).status, 201)
+    await h.settle()
+    const cur = (await h.member('GET', h.url('/api/note', { path: before }))).body
+    assert.equal((await h.member('PUT', h.url('/api/note', { path: before }), { text: cur.text + `${m.aSentence()}\n` }, { 'if-match': `"${cur.etag}"` })).status, 200)
+    await h.settle()
+    const after = `${DIR.shared}/${m.aTitle()}.md`
+    assert.equal((await h.member('POST', '/api/note/move', { from: before, to: after })).status, 200)
+    await h.settle()
+    let cursor: string | null = ''
+    for (let pages = 0; cursor !== null && pages < 10; pages++) {
+      const r = await h.other('GET', h.url('/api/history/versions', { path: after, limit: '1', ...(cursor ? { cursor } : {}) }))
+      assert.equal(r.status, 200, r.text)
+      assert.ok(hidesMember(r.text), r.text)
+      cursor = r.body.next
+      if (cursor) assert.ok(hidesMember(Buffer.from(cursor, 'base64url').toString('latin1')) && hidesMember(cursor), 'the cursor says nothing')
+    }
+
+    // A folder of the member's deleted with files only a subfolder of it shares: restoring them names only what the restorer reads.
+    const project = `${memberHome}/${m.aFolder()}`
+    const sub = `${project}/${m.aFolder()}`
+    const secret = `${project}/${m.aUniqueWord()}.pdf`
+    mkdirSync(join(h.notesDir, sub), { recursive: true })
+    writeFileSync(join(h.notesDir, secret), PNG)
+    writeFileSync(join(h.notesDir, `${sub}/${m.aUniqueWord()}.png`), PNG)
+    h.runtime.rescan({})
+    const perms = (await h.member('GET', h.url('/api/permissions', { folder: sub }))).body
+    assert.equal((await h.member('PUT', '/api/permissions', { folder: sub, grants: { [OTHER.username]: 'edit' }, ifMatch: perms.etag })).status, 200)
+    // Deleted as the note service does it (the rules stay: deleting from the UI takes them away too).
+    await h.notes.trashFolder(project, { kind: 'user', id: h.users.member.id })
+    const entry = ((await h.other('GET', '/api/trash')).body.entries as { id: string; kind?: string }[]).find((e) => e.kind === 'files')
+    assert.ok(entry, 'the other person sees what was deleted where they edit')
+    const restored = await h.other('POST', `/api/trash/${entry.id}/restore`, {})
+    assert.equal(restored.status, 200, restored.text)
+    assert.deepEqual(restored.body.left, [])
+    assert.ok(!restored.text.includes(secret.slice(project.length)), restored.text)
+  } finally { await h.close() }
+})
+
