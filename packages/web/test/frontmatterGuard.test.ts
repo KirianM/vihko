@@ -13,7 +13,7 @@ function aNote() {
   return { fm, body, text: fm + body }
 }
 
-const stateOf = (text: string, selection?: EditorSelection) => EditorState.create({ doc: text, selection, extensions: [frontmatterGuard] })
+const stateOf = (text: string, selection?: EditorSelection | { anchor: number; head?: number }) => EditorState.create({ doc: text, selection, extensions: [frontmatterGuard] })
 
 test('frontmatter: found as core finds it, with where the body starts', () => {
   const n = aNote()
