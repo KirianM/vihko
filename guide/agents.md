@@ -298,11 +298,13 @@ Conventions the tools share:
   for everyone: `people/noa/projects/plan.md` for a note in Noa's space,
   `spaces/home-7k2q9x/recipes/Bread.md` for one in the shared space «Home».
   Nothing can be created outside a space (`outside_space`).
-- Links follow the [same rules as in the UI](notes.md#links): by name inside
-  a space, with the path from the notes root to another space
-  (`[[spaces/home-7k2q9x/Bread|Bread]]`). A name never reaches another space.
+- Links follow the [same rules as in the UI](notes.md#links): by name or
+  relative path, and only inside the note's own space. A link never leads to
+  another space, whatever its form: one written to it is broken.
 - Moving a note to another space changes who can see it and whose it is: a
   move that shows it to more people needs `confirm_audience`, as below.
+  Nothing is rewritten across spaces; the move's `broken_links` lists the
+  links it leaves broken.
 - Every read returns the note's ETag (`sha256:…`). Operations that replace text
   (`find_replace`, `replace_section`, `set_frontmatter`) need it as `if_match`,
   so the agent plans changes on the text it read. Appends don't. If the note
@@ -389,8 +391,9 @@ keeps their notes:
 - the shared spaces they belong to, each with its path, id, name and their
   level, and the folders others share with them, with whose they are (20 at
   most; `list_folder` with `""` lists them all);
-- how to write links inside a space and to another space, and that moving a
-  note to another space changes who sees it and whose it is.
+- how to write links, which never lead to another space, and that moving a
+  note to another space changes who sees it and whose it is and leaves broken
+  the links between it and the space it leaves.
 
 You can add your own guide for agents: a note that says how your notes are
 organised and what goes where. Name it in `vihko.yaml`, inside a space:

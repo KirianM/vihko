@@ -67,15 +67,14 @@ history), brings both back.
 
 ## Link notes
 
-Type `[[` and the start of a note's name: the list suggests notes by title,
-file name and alias, with the space of those that are elsewhere; Enter or Tab
+Type `[[` and the start of a note's name: the list suggests the notes of the
+same space by title, file name and alias; Enter or Tab
 inserts the link. After the name, `#` suggests the note's headings, and `|`
 the text to show instead.
 
-- Inside a space, a link is the note's name: `[[Plan]]`. To another space, it
-  is the note's path from the notes root, with its name to show:
-  `[[spaces/home-7k2q9x/Plan|Plan]]`. The suggestions write the right one. A
-  name alone never reaches another space.
+- A link is the note's name: `[[Plan]]`. Links stay inside their space
+  («My notes», or a shared space): a link to a note of another space is
+  broken, even for someone who reads both.
 - Click a link to open its note. A link to a note that doesn't exist yet is
   marked «missing»: click it and choose «create» to make that note. A link to
   a note you can't read looks just the same, on purpose.
@@ -128,7 +127,8 @@ the same for everything in it. The details: [Renames and moves](notes.md#renames
 
 The dialog's «Space» lets you move a note to another space. That changes who
 sees it and whose it is («It stops being yours: it will belong to the members
-of Home»): the dialog says so, and asks you to confirm.
+of Home»): the dialog says so, lists the links that will be broken (links
+never cross spaces), and asks you to confirm.
 
 ## Images
 

@@ -23,7 +23,7 @@ vihko (0.1): the guides in a release describe that release.
   creating notes and folders, links, tags, search and the ⌘K box, moving,
   images, comments, history, sharing, preferences and the phone.
 - [Notes and Markdown](notes.md): what vihko reads and writes in your files
-  (frontmatter, links inside and across spaces, tags, comments, images), the
+  (frontmatter, links, which stay inside their space, tags, comments, images), the
   trash, and editing with other tools at the same time.
 - [History](history.md): the versions of every note, restoring them, and
   purging what should never have been kept.
