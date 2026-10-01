@@ -25,6 +25,8 @@
 // - `shared_with_you`: someone added them to a shared space or shared a
 //   folder with them (D-056.22). The path is kept; it and every name are
 //   shown only while they can still see it.
+// - `retention_ran`: to every admin, what the nightly retention removed:
+//   how many trash entries and history versions, never a path.
 //
 // Only ids are kept (who did it, to whom): names are looked up when shown,
 // so a rename shows the new one and a deleted user their tombstone's. Never
@@ -57,6 +59,7 @@ export function readablePath(access: Access, path: string): boolean {
 export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => string, spaceName: (root: string) => string | null = () => null): Alert {
   const d = n.data
   if (d.code === 'links_not_updated') return { code: d.code, id: n.id, at: n.at, actions: ['dismiss'] }
+  if (d.code === 'retention_ran') return { code: d.code, id: n.id, at: n.at, trashEntries: d.trashEntries, versions: d.versions, failed: d.failed, actions: ['dismiss'] }
   const base = { id: n.id, at: n.at, by: nameOf(d.by), actions: ['dismiss' as const] }
   switch (d.code) {
     case 'account_changed': return { code: d.code, ...base, change: d.change, role: d.role }
@@ -96,6 +99,8 @@ export type NoticeData =
   | { code: 'space_changed'; change: SpaceChange; by: string; user: string | null; to: string | null; space: string | null }
   /** `by` added them to the shared space at `path` (`space`), or shared the folder at `path` with them (`folder`). */
   | { code: 'shared_with_you'; kind: 'space' | 'folder'; by: string; path: string }
+  /** To every admin: the nightly retention removed that many trash entries and history versions (or failed). Counts only. */
+  | { code: 'retention_ran'; trashEntries: number; versions: number; failed: boolean }
 
 export type NoticeCode = NoticeData['code']
 
@@ -109,7 +114,7 @@ export interface Notice {
 /** The most notices a person keeps: older ones go first. */
 const MAX_PER_USER = 100
 
-const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you']
+const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you', 'retention_ran']
 
 export class Notices {
   private db: Db
@@ -201,6 +206,12 @@ export class Notices {
       told.add(a.id)
       this.add(a.id, { code: 'space_changed', by, ...data })
     }
+  }
+
+  /** The nightly retention removed something (or failed): every admin is told, with counts only. */
+  retentionRan(data: Omit<Extract<NoticeData, { code: 'retention_ran' }>, 'code'>) {
+    const admins = this.db.prepare(`select id from users where role = 'admin' and deleted_at is null`).all() as { id: string }[]
+    for (const a of admins) this.add(a.id, { code: 'retention_ran', ...data })
   }
 
   /** `by` purged `path` (or a version of it): whoever else wrote in what went is told. */

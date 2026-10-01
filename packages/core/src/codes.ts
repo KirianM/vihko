@@ -234,6 +234,13 @@ export type Alert =
    */
   | { code: 'links_not_updated'; id: string; at: string; actions: 'dismiss'[] }
   /**
+   * Addressed to every admin: the nightly retention run at `at`
+   * removed `trashEntries` trash entries and `versions` history versions
+   * (counts only, never a path), or `failed` (the log says why; what it did
+   * before failing is counted). Until each dismisses theirs.
+   */
+  | { code: 'retention_ran'; id: string; at: string; trashEntries: number; versions: number; failed: boolean; actions: 'dismiss'[] }
+  /**
    * Second factors stored encrypted with a VIHKO_SECRET_KEY that isn't the
    * one in force (or with none set): their codes can't be checked, so those
    * people (`users`, names) sign in with a recovery code, or the admin takes

@@ -3,9 +3,12 @@
 // the mode in force: the managed repository, or the user's own git
 // (unmanaged). The two are never mixed: switching modes keeps the managed
 // repository as it is, and nothing is ever written to the user's.
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { pathMatcher, type Alert, type HistoryConfig, type HistoryMode } from '@vihko/core'
 import type { Author } from '../actor.ts'
-import { Recorder, type RecorderOptions } from './recorder.ts'
+import { Recorder, repositoryDir, type RecorderOptions } from './recorder.ts'
+import { retainRunning, retentionPreview, type RetentionReport, type RetentionRequest } from './retention.ts'
 import { ManagedReader } from './managed.ts'
 import { UnmanagedReader } from './unmanaged.ts'
 import { HistoryError, type HistoryReader } from './reader.ts'
@@ -137,6 +140,26 @@ export class History {
       this.opts.log?.(`history: ${report.version ? `a version of ${report.path}` : report.path} purged from the UI`)
     }
     return report
+  }
+
+  /**
+   * Automatic retention (history/retention.ts), in the managed history only,
+   * one at a time with the purges: what it would take out (`dryRun`), or
+   * takes out. Null in any other mode, or with no history yet.
+   */
+  async retain(req: RetentionRequest, opts: { dryRun?: boolean; afterMove?: () => void; compactPending?: boolean } = {}): Promise<RetentionReport | null> {
+    if (this.mode !== 'managed' || !existsSync(join(repositoryDir(this.opts.stateDir), 'HEAD'))) return null
+    const o = { stateDir: this.opts.stateDir, git: this.opts.git, afterMove: opts.afterMove, compactPending: opts.compactPending }
+    if (opts.dryRun) return retentionPreview(o, req)
+    const run = () => retainRunning(o, req, this.recorder)
+    const done = this.purges.then(run, run)
+    this.purges = done.catch(() => {})
+    return done
+  }
+
+  /** Whether people (or agents) are writing now: what is open, typed or waiting for git. */
+  busy(): boolean {
+    return this.mode === 'managed' && this.recorder.busy
   }
 
   /**
