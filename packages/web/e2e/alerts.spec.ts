@@ -230,8 +230,9 @@ test('permissions and spaces: rejected, notes held after a move outside vihko, g
   // No system folder named (D-056.29): where they go is told without people/ nor spaces/.
   await expect(out).not.toContainText(`${personal(ADMIN)}/`)
   for (const p of outside) await expect(out).toContainText(p)
-  await expect(card(k, 'Carpetas personales sin persona')).toContainText(stray)
-  await expect(card(k, 'Carpetas personales sin persona')).not.toContainText(`people/${stray}`)
+  // Where things are on the server's disk, labelled as such: the only place people/ shows.
+  await expect(card(k, 'Carpetas personales sin persona')).toContainText(`en el disco: people/${stray}`)
+  for (const p of outside) await expect(out).toContainText(`en el disco: ${p}`)
   await expect(card(k, `${lonely} no tiene miembros`)).toBeVisible()
   await expect(card(k, `Nadie gestiona ${headless}`)).toBeVisible()
   await k.setViewportSize({ width: 1440, height: 900 })

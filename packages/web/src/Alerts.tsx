@@ -248,7 +248,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
       {list.map((e, j) => (
         <li key={j}>
           {(e.line !== null || e.at) && (
-            <span className="mono">{[e.line !== null ? t('alerts.configLine', { line: e.line }) : null, e.at].filter(Boolean).join(' · ')}</span>
+            <span className="mono">{t('alerts.inConfig', { at: [e.line !== null ? t('alerts.configLine', { line: e.line }) : null, e.at].filter(Boolean).join(' · ') })}</span>
           )}
           {' '}{t(`config.${e.code}`, { detail: e.detail ?? '' })}
         </li>
@@ -524,7 +524,8 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           title: t('alerts.outsideSpacesTitle'),
           // Where it can go: the admin's own space, by its exact path (D-056.28).
           body: t('alerts.outsideSpacesBody'),
-          extra: <ul className="alert-paths">{a.paths.map((p) => <li key={p}><span className="mono">{p}</span></li>)}</ul>,
+          // Where each one is on the server's disk (the only place it is): labelled as such.
+          extra: <ul className="alert-paths">{a.paths.map((p) => <li key={p}><span className="mono">{t('alerts.onDisk', { path: p })}</span></li>)}</ul>,
           actions: null,
         })
       case 'closed_spaces':
@@ -542,7 +543,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           tone: 'warn',
           title: t('alerts.personFolderTitle'),
           body: t('alerts.personFolderBody'),
-          extra: <ul className="alert-paths">{a.names.map((n) => <li key={n}><span className="mono">{n}</span></li>)}</ul>,
+          extra: <ul className="alert-paths">{a.names.map((n) => <li key={n}><span className="mono">{t('alerts.onDisk', { path: `people/${n}` })}</span></li>)}</ul>,
           actions: null,
         })
       case 'space_without_members':

@@ -448,9 +448,9 @@ export function SpacesPage({ user: me, onUnauthorized, onChanged }: { user: User
           <section className="settings-section" aria-labelledby="spaces-outside">
             <h2 id="spaces-outside">{t('spacesAdmin.outside')}</h2>
             {outside && <p className="hint">{t('alerts.outsideSpacesBody')}</p>}
-            {outside && <ul className="alert-paths">{outside.paths.map((p) => <li key={p}><span className="mono">{p}</span></li>)}</ul>}
+            {outside && <ul className="alert-paths">{outside.paths.map((p) => <li key={p}><span className="mono">{t('alerts.onDisk', { path: p })}</span></li>)}</ul>}
             {strays && <p className="hint">{t('alerts.personFolderBody')}</p>}
-            {strays && <ul className="alert-paths">{strays.names.map((n) => <li key={n}><span className="mono">{n}</span></li>)}</ul>}
+            {strays && <ul className="alert-paths">{strays.names.map((n) => <li key={n}><span className="mono">{t('alerts.onDisk', { path: `people/${n}` })}</span></li>)}</ul>}
           </section>
         )}
 
