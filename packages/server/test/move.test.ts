@@ -119,9 +119,9 @@ test('the preview details every link that changes and those that keep working un
   const r = await notes.move('hogar/Proxy.md', `hogar/${name}.md`, { actor: me, dryRun: true })
   const enlaces = r.relinked.find((x) => x.path === 'hogar/enlaces.md')!
   assert.deepEqual(enlaces.changes, [
-    { before: '[[Proxy#Red]]', after: `[[${name}#Red]]` },
-    { before: '[[Proxy#No existe]]', after: `[[${name}#No existe]]` },
-    { before: '[Proxy en Markdown](Proxy.md)', after: `[Proxy en Markdown](${name.replaceAll(' ', '%20')}.md)` },
+    { before: '[[Proxy#Red]]', after: `[[${name}#Red]]`, kind: 'link', to: `hogar/${name}.md` },
+    { before: '[[Proxy#No existe]]', after: `[[${name}#No existe]]`, kind: 'link', to: `hogar/${name}.md` },
+    { before: '[Proxy en Markdown](Proxy.md)', after: `[Proxy en Markdown](${name.replaceAll(' ', '%20')}.md)`, kind: 'link', to: `hogar/${name}.md` },
   ])
   assert.equal(enlaces.links, enlaces.changes.length)
   assert.deepEqual(r.kept.filter((k) => k.path === 'hogar/enlaces.md'), [{ path: 'hogar/enlaces.md', raw: '[[gw]]', via: 'alias' }])

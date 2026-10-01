@@ -179,7 +179,7 @@ export function linkAutocomplete(note: string, text: AutocompleteText) {
           detail: m.alias ? `→ ${title}${folder ? ` · ${folder}` : ''}` : folder,
           type: 'note',
           apply: (view, completion, f, to) => {
-            // To another space, from the notes root with the note's name to show (D-056.17): `[[spaces/x-id/note|note]]`.
+            // Only notes of this note's space are offered (D-056.30); one reached only by its path from the root shows its name.
             const form = catalog.linkForm(note, m.path)
             const shown = m.alias ?? form.display
             // Inside a table a bare `|` would end the cell: Obsidian's `\|` (core reads it back).

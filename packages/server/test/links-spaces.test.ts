@@ -5,12 +5,14 @@
 // - A link to what someone can't read is, for them and for their agents,
 //   exactly a link to a note that doesn't exist (D-056.15): writing links or
 //   naming paths never tells anyone what exists.
-// - A name never resolves out of its space; a path from the notes root does.
-// - Moving a note or a folder to another space keeps every link on its note
-//   (paths from the root with the name shown, as Obsidian reads them), and
-//   copies the images it would leave behind, only those whoever moves it can read.
-// - A rewrite that fails: the old name as an alias only where it helps (the
-//   same space); the rest is tried again after the next rescan.
+// - A link never leads to another space, by name or by path (D-056.30).
+// - Moving a note or a folder to another space rewrites nothing across
+//   spaces: its links stay as written and resolve in its new space, the
+//   links it leaves broken are listed (in what moved and in what stayed,
+//   only those whoever moves it reads), and the images it would leave
+//   behind are copied, only those whoever moves it can read.
+// - A rewrite that fails inside a space: the old name as an alias for a
+//   note; a folder's notes are tried again after the next rescan.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -186,61 +188,72 @@ test('a folder shared from someone’s space: a name there that leads to what th
   assert.deepEqual(await backlinks('member'), [linkerPath, `${s.space.member}/${secret}.md`].sort())
 })
 
-test('names stay in their space; a path from the notes root reaches another space for whoever can read it', async () => {
+test('D-056.30: links stay in their space: a name or a path into another space is broken, even for whoever reads both, and no backlink crosses spaces', async () => {
   const list = m.aTitle()
   const mine = m.aTitle()
+  const inside = m.aTitle()
   const h = await setup((s) => ({
     [`${s.home}/${list}.md`]: `# ${list}\n`,
-    [`${s.space.member}/${mine}.md`]: `[[${list}]] [[${s.home}/${list}|${list}]]\n`,
+    [`${s.home}/${inside}.md`]: `[[${list}]] [[${s.home}/${list}|${list}]] [${m.aWord()}](${encodeURI(list)}.md)\n`,
+    [`${s.space.member}/${mine}.md`]: `[[${list}]] [[${s.home}/${list}|${list}]] [[/${s.home}/${list}]] [${m.aWord()}](../../${s.home}/${encodeURI(list)}.md)\n`,
     [`${s.space.other}/${mine}.md`]: `[[${s.home}/${list}|${list}]]\n`,
   }))
   const { s } = h
-  const member = byRaw((await h.as('member')('GET', q('/api/note/links', { path: `${s.space.member}/${mine}.md` }))).body.outgoing)
-  assert.equal(member[`[[${list}]]`].status, 'missing', 'a name never reaches another space')
-  assert.deepEqual([member[`[[${s.home}/${list}|${list}]]`].status, member[`[[${s.home}/${list}|${list}]]`].dstPath], ['resolved', `${s.home}/${list}.md`])
-  // Someone out of the space: broken, as if it didn't exist.
+  // The member reads both spaces: from their own, every form of link to the list is broken, exactly like one to nothing.
+  const member = (await h.as('member')('GET', q('/api/note/links', { path: `${s.space.member}/${mine}.md` }))).body.outgoing
+  assert.deepEqual(member.map((l: any) => [l.status, l.dstPath]), Array.from({ length: 4 }, () => ['missing', null]))
+  // Inside the list's own space, the same forms reach it.
+  const home = (await h.as('member')('GET', q('/api/note/links', { path: `${s.home}/${inside}.md` }))).body.outgoing
+  assert.deepEqual(home.map((l: any) => [l.status, l.dstPath]), Array.from({ length: 3 }, () => ['resolved', `${s.home}/${list}.md`]))
+  // Someone out of the space: broken too.
   const other = byRaw((await h.as('other')('GET', q('/api/note/links', { path: `${s.space.other}/${mine}.md` }))).body.outgoing)
   assert.equal(other[`[[${s.home}/${list}|${list}]]`].status, 'missing')
-  // Backlinks of the list, across spaces: only from notes each one reads.
-  const back = (await h.as('admin')('GET', q('/api/note/links', { path: `${s.home}/${list}.md` }))).body.backlinks.map((b: any) => b.path)
-  assert.deepEqual(back, [], 'the admin reads neither the member’s nor the other’s notes')
+  // Backlinks of the list: only from its own space.
   const backMember = (await h.as('member')('GET', q('/api/note/links', { path: `${s.home}/${list}.md` }))).body.backlinks.map((b: any) => b.path)
-  assert.deepEqual(backMember, [`${s.space.member}/${mine}.md`])
+  assert.deepEqual([...new Set(backMember)], [`${s.home}/${inside}.md`])
+  // An agent of the member: the same.
+  const ag = h.agent('member')
+  assert.equal(ag.resolveLink(`${s.space.member}/${mine}.md`, `[[${s.home}/${list}|${list}]]`).status, 'missing')
+  assert.equal(ag.resolveLink(`${s.home}/${inside}.md`, `[[${list}]]`).status, 'resolved')
 })
 
-test('moving a note to a shared space: its names become paths from the root, links to it follow it from every space, and the report names nothing hidden', async () => {
-  const note = m.aTitle()
-  const plan = m.aTitle()
-  const diary = m.aTitle()
-  const adminNote = m.aTitle()
+test('D-056.30: moving a note to another space rewrites nothing across spaces; the report lists the links it leaves broken, both ways, and names nothing hidden', async () => {
+  const [note, plan, diary, secret, waiting] = [m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle()]
+  const [sub, secretDir] = [m.aFolder(), m.aFolder()]
   const h = await setup((s) => ({
-    [`${s.space.member}/${note}.md`]: `# ${note}\n[[${plan}]] ![[${plan}]]\n`,
-    [`${s.space.member}/${plan}.md`]: `# ${plan}\n`,
-    [`${s.space.member}/${m.aFolder()}/${diary}.md`]: `[[${note}]]\n`,
-    [`${s.space.admin}/${adminNote}.md`]: `[[${s.space.member}/${note}|${note}]]\n`,
+    // In the folder the member shares with `other`: the note, what it links, and a note that links it.
+    [`${s.trips}/${note}.md`]: `# ${note}\n[[${plan}]] ![[${plan}]]\n`,
+    [`${s.trips}/${plan}.md`]: `# ${plan}\n`,
+    [`${s.trips}/${sub}/${diary}.md`]: `[[${note}]]\n`,
+    // A note of the member's `other` can't read, linking it too; and one of `other`'s own whose link waits for it.
+    [`${s.space.member}/${secretDir}/${secret}.md`]: `[[${note}]]\n`,
+    [`${s.space.other}/${waiting}.md`]: `[[${note}]]\n`,
   }))
   const { s } = h
-  const from = `${s.space.member}/${note}.md`
-  const to = `${s.home}/${note}.md`
-  const diaryPath = (await h.as('member')('GET', '/api/tree')).body.notes.map((n: any) => n.path).find((p: string) => p.endsWith(`/${diary}.md`))
-  const preview = await h.as('member')('POST', '/api/note/move', { from, to, dryRun: true })
+  const from = `${s.trips}/${note}.md`
+  const to = `${s.space.other}/${note}.md`
+  const diaryPath = `${s.trips}/${sub}/${diary}.md`
+  const secretPath = `${s.space.member}/${secretDir}/${secret}.md`
+  const before = [diaryPath, secretPath, `${s.space.other}/${waiting}.md`].map((p) => h.read(p))
+  const preview = await h.as('other')('POST', '/api/note/move', { from, to, dryRun: true })
   assert.equal(preview.status, 200, preview.text)
-  assert.equal(preview.body.hidden, true, 'links in notes the member cannot see are rewritten too: said, never which')
-  assert.ok(!preview.text.includes(s.space.admin), 'nothing of the admin’s space in the member’s report')
-  // What the move writes as paths from the root, where the member sees it: the diary's link to it, its own two to the plan.
-  assert.deepEqual(preview.body.crossSpaceLinks, { path: noMd(to), incoming: 1, outgoing: 2 })
-  const moved = await h.as('member')('POST', '/api/note/move', { from, to })
+  assert.deepEqual(preview.body.relinked, [], 'nothing is rewritten across spaces')
+  // Broken: its own links to the plan, left behind (once for both), and the diary's link to it. The member's note too, but never named.
+  assert.deepEqual(preview.body.brokenLinks, [{ path: diaryPath, to }, { path: to, to: `${s.trips}/${plan}.md` }].sort((a, b) => (a.path < b.path ? -1 : 1)))
+  assert.equal(preview.body.hidden, true, 'links in notes they cannot see change too: said, never which')
+  assert.ok(!preview.text.includes(secretDir) && !preview.text.includes(secret), preview.text)
+  const moved = await h.as('other')('POST', '/api/note/move', { from, to })
   assert.equal(moved.status, 200, moved.text)
-  const planRoot = `${s.space.member}/${plan}`
-  assert.equal(h.body(to), `# ${note}\n[[${planRoot}|${plan}]] ![[${planRoot}]]\n`)
-  assert.equal(h.body(diaryPath), `[[${noMd(to)}|${note}]]\n`)
-  assert.equal(h.body(`${s.space.admin}/${adminNote}.md`), `[[${noMd(to)}|${note}]]\n`)
-  for (const p of [to, diaryPath, `${s.space.admin}/${adminNote}.md`]) assert.ok(!h.read(p).includes('[[/'), `no leading slash in ${p}`)
-  // Everything still leads where it led.
-  const outgoing = (await h.as('member')('GET', q('/api/note/links', { path: to }))).body.outgoing
-  assert.deepEqual(outgoing.map((l: any) => l.dstPath), [`${planRoot}.md`, `${planRoot}.md`])
-  const back = (await h.as('admin')('GET', q('/api/note/links', { path: to }))).body.backlinks.map((b: any) => b.path)
-  assert.deepEqual(back, [`${s.space.admin}/${adminNote}.md`])
+  // The texts as they were: the moved note's own links and every link to it.
+  assert.equal(h.body(to), `# ${note}\n[[${plan}]] ![[${plan}]]\n`)
+  assert.deepEqual([diaryPath, secretPath, `${s.space.other}/${waiting}.md`].map((p) => h.read(p)), before)
+  // Its links to the plan are broken in its new space; `other`'s waiting link now leads to it; the diary's and the member's, nowhere.
+  const outgoing = (await h.as('other')('GET', q('/api/note/links', { path: to }))).body.outgoing
+  assert.deepEqual(outgoing.map((l: any) => l.status), ['missing', 'missing'])
+  const back = (await h.as('other')('GET', q('/api/note/links', { path: to }))).body.backlinks.map((b: any) => b.path)
+  assert.deepEqual(back, [`${s.space.other}/${waiting}.md`])
+  const left = (await h.as('member')('GET', q('/api/note/links', { path: secretPath }))).body.outgoing
+  assert.deepEqual(left.map((l: any) => l.status), ['missing'])
 })
 
 test('the images a note would leave behind in the space it leaves are copied, only those whoever moves it can read', async () => {
@@ -295,12 +308,17 @@ test('a folder taken to another space: links kept, and the images its notes use 
   const preview = await h.as('member')('POST', '/api/folder/move', { from, to, dryRun: true })
   assert.equal(preview.status, 200, preview.text)
   assert.deepEqual(preview.body.images.copied, [{ from: `${s.space.member}/${assets}/${img}`, to: `${to}/${img}` }])
-  assert.deepEqual(preview.body.crossSpaceLinks, { path: to, incoming: 1, outgoing: 1 })
+  // Links go nowhere across spaces: the note's to what stays, and what stays to the note, both listed.
+  assert.deepEqual(preview.body.brokenLinks, [
+    { path: `${s.space.member}/${outside}.md`, to: `${to}/${note}.md` },
+    { path: `${to}/${note}.md`, to: `${s.space.member}/${outside}.md` },
+  ])
   const r = await h.as('member')('POST', '/api/folder/move', { from, to })
   assert.equal(r.status, 200, r.text)
   assert.deepEqual(r.body.images, { copied: [{ from: `${s.space.member}/${assets}/${img}`, to: `${to}/${img}` }], failed: [] })
-  assert.equal(h.body(`${to}/${note}.md`), `![](${img}) [[${s.space.member}/${outside}|${outside}]]\n`)
-  assert.equal(h.body(`${s.space.member}/${outside}.md`), `[[${to}/${note}|${note}]]\n`)
+  // The image reference follows the copy; the links stay as written.
+  assert.equal(h.body(`${to}/${note}.md`), `![](${img}) [[${outside}]]\n`)
+  assert.equal(h.body(`${s.space.member}/${outside}.md`), `[[${note}]]\n`)
   assert.ok(h.has(`${s.space.member}/${assets}/${img}`) && h.has(`${to}/${img}`))
 })
 
@@ -346,46 +364,48 @@ test('D-056.21: the images copied to another space go where the attachments sett
   }
 })
 
-test('a failed rewrite: the alias only where it helps (the same space); links from other spaces are retried after the next rescan', { skip: process.getuid?.() === 0 }, async () => {
-  const [note, renamed, other, otherRenamed] = [m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle()]
-  const [locked, lockedLater] = [m.aFolder(), m.aFolder()]
-  const [inside, outside, later] = [m.aTitle(), m.aTitle(), m.aTitle()]
+test('a failed rewrite: the old name as an alias for a note; a folder’s notes (no alias stands in for them) are retried after the next rescan', { skip: process.getuid?.() === 0 }, async () => {
+  const [note, renamed] = [m.aTitle(), m.aTitle()]
+  const [locked, lockedLater, project, projectRenamed, laterProject, laterRenamed] = [m.aFolder(), m.aFolder(), m.aFolder(), m.aFolder(), m.aFolder(), m.aFolder()]
+  const [inside, outside, later, insideProject, insideLater] = [m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle()]
   const gaveUp: RelinkRetry[] = []
   const h = await setup((s) => ({
     [`${s.space.member}/${note}.md`]: `# ${note}\n`,
     [`${s.space.member}/${locked}/${inside}.md`]: `[[${note}]]\n`,
-    [`${s.home}/${locked}/${outside}.md`]: `[[${s.space.member}/${note}|${note}]]\n`,
-    [`${s.space.member}/${other}.md`]: `# ${other}\n`,
-    [`${s.home}/${lockedLater}/${later}.md`]: `[[${s.space.member}/${other}|${other}]]\n`,
+    [`${s.space.member}/${project}/${insideProject}.md`]: `# ${insideProject}\n`,
+    [`${s.space.member}/${locked}/${outside}.md`]: `[[${s.space.member}/${project}/${insideProject}]]\n`,
+    [`${s.space.member}/${laterProject}/${insideLater}.md`]: `# ${insideLater}\n`,
+    [`${s.space.member}/${lockedLater}/${later}.md`]: `[[${s.space.member}/${laterProject}/${insideLater}]]\n`,
   }), { onGaveUp: (e) => gaveUp.push(e) })
   const { s } = h
   const actor = { kind: 'user' as const, id: h.users.member.id }
   const lock = (dirs: string[], mode: number) => { for (const d of dirs) chmodSync(join(h.notesDir, d), mode) }
-  const lockedDirs = [`${s.space.member}/${locked}`, `${s.home}/${locked}`]
+  const lockedDirs = [`${s.space.member}/${locked}`]
   lock(lockedDirs, 0o555)
   try {
     const r = await h.notes.move(`${s.space.member}/${note}.md`, `${s.space.member}/${renamed}.md`, { actor })
-    assert.deepEqual(r.failed.map((f) => f.path).sort(), [`${s.space.member}/${locked}/${inside}.md`, `${s.home}/${locked}/${outside}.md`].sort())
-    assert.equal(r.aliasAdded, note, 'the link by name in its own space still resolves through the alias')
+    assert.deepEqual(r.failed.map((f) => f.path), [`${s.space.member}/${locked}/${inside}.md`])
+    assert.equal(r.aliasAdded, note, 'the link by name still resolves through the alias')
     assert.deepEqual(readFrontmatter(h.read(`${s.space.member}/${renamed}.md`)).data.aliases, [note])
-    // Still locked when retried: given up, and said (only what no alias stands in for).
+    // A folder: no alias stands in for its notes. Still locked when retried: given up, and said.
+    const f = await h.notes.moveFolder(`${s.space.member}/${project}`, `${s.space.member}/${projectRenamed}`, { actor })
+    assert.deepEqual(f.failed.map((x) => x.path), [`${s.space.member}/${locked}/${outside}.md`])
     await h.notes.retryRelinks()
-    assert.deepEqual(gaveUp.map((e) => e.sources), [[`${s.home}/${locked}/${outside}.md`]])
+    assert.deepEqual(gaveUp.map((e) => e.sources), [[`${s.space.member}/${locked}/${outside}.md`]], 'only what no alias stands in for')
   } finally {
     lock(lockedDirs, 0o755)
   }
   // Locked only at the move: the next rescan's retry fixes it.
-  lock([`${s.home}/${lockedLater}`], 0o555)
+  lock([`${s.space.member}/${lockedLater}`], 0o555)
   try {
-    const r = await h.notes.move(`${s.space.member}/${other}.md`, `${s.space.member}/${otherRenamed}.md`, { actor })
-    assert.deepEqual(r.failed.map((f) => f.path), [`${s.home}/${lockedLater}/${later}.md`])
-    assert.equal(r.aliasAdded, null, 'an alias would not reach a link from another space')
+    const r = await h.notes.moveFolder(`${s.space.member}/${laterProject}`, `${s.space.member}/${laterRenamed}`, { actor })
+    assert.deepEqual(r.failed.map((f) => f.path), [`${s.space.member}/${lockedLater}/${later}.md`])
   } finally {
-    lock([`${s.home}/${lockedLater}`], 0o755)
+    lock([`${s.space.member}/${lockedLater}`], 0o755)
   }
   h.runtime.rescan({})
   await h.notes.retryRelinks()
-  assert.equal(h.body(`${s.home}/${lockedLater}/${later}.md`), `[[${s.space.member}/${otherRenamed}|${otherRenamed}]]\n`)
+  assert.equal(h.body(`${s.space.member}/${lockedLater}/${later}.md`), `[[${insideLater}]]\n`)
   assert.equal(gaveUp.length, 1, 'nothing more given up')
   await h.notes.retryRelinks()
   assert.equal(gaveUp.length, 1, 'each failure is retried once')
@@ -435,17 +455,22 @@ test('D-056.20/.28: a rename or move that would rewrite, in a note the actor rea
   }
   // Rename: `draft` would take the name the plan's link finds in the budget.
   same(await move(p.draft, p.renameTo, false), await move(p.draft, p.taken, false), p.renameTo, p.taken)
-  // Move: `notes` links the budget by name; out of the member's space the link would have to name it.
-  same(await move(p.notes, p.moveTo, false), await move(p.notes, p.takenMine, false), p.moveTo, p.takenMine)
   // The preview answers with its plan, the rewrite that would name the budget left out.
-  for (const [from, to] of [[p.draft, p.renameTo], [p.notes, p.moveTo]] as const) {
-    const preview = await move(from, to, true)
-    assert.equal(preview.status, 200, preview.text)
-    assert.equal(preview.body.dryRun, true)
-    assert.ok(!preview.text.includes(`${finance}/${budget}`), preview.text)
-  }
+  const preview = await move(p.draft, p.renameTo, true)
+  assert.equal(preview.status, 200, preview.text)
+  assert.equal(preview.body.dryRun, true)
+  assert.ok(!preview.text.includes(`${finance}/${budget}`), preview.text)
   assert.deepEqual([p.plan, p.draft, p.notes].map((x) => h.read(x)), before, 'nothing written')
-  assert.ok(!h.has(p.renameTo) && !h.has(p.moveTo))
+  assert.ok(!h.has(p.renameTo))
+  // Out of the member's space: nothing is rewritten across spaces (D-056.30), so nothing names the budget and nothing
+  // refuses. The link stays as written and is broken there; neither the preview nor the report says a thing of it.
+  const out = await move(p.notes, p.moveTo, true)
+  assert.equal(out.status, 200, out.text)
+  assert.ok(!out.text.includes(`${finance}/${budget}`), out.text)
+  assert.deepEqual(out.body.brokenLinks, [])
+  const moved = await move(p.notes, p.moveTo, false)
+  assert.equal(moved.status, 200, moved.text)
+  assert.equal(h.body(p.moveTo), before[2])
   // The member reads the budget: the same rename goes through, and the plan's link keeps its note.
   const own = await h.as('member')('POST', '/api/note/move', { from: p.draft, to: p.renameTo })
   assert.equal(own.status, 200, own.text)
@@ -468,14 +493,15 @@ test('D-056.20: an agent gets the same answer as for a taken name', async () => 
   const real = await refusal(p.draft, p.taken, false)
   assert.equal(hidden.code, 'exists')
   assert.deepEqual({ ...hidden, message: hidden.message.replace(p.renameTo, p.taken) }, real)
-  const moved = await refusal(p.notes, p.moveTo, false)
-  const movedReal = await refusal(p.notes, p.takenMine, false)
-  assert.deepEqual({ ...moved, message: moved.message.replace(p.moveTo, p.takenMine) }, movedReal)
   // Its preview doesn't check either.
   const preview = await agent.move(p.draft, p.renameTo, { dryRun: true })
   assert.equal(preview.dryRun, true)
   assert.ok(!JSON.stringify(preview).includes(p.budget))
-  assert.ok(!h.has(p.renameTo) && !h.has(p.moveTo))
+  assert.ok(!h.has(p.renameTo))
+  // Out of the space, nothing to refuse: no link is rewritten across spaces, and none names the budget.
+  const moved = await agent.move(p.notes, p.moveTo, { confirmAudience: true })
+  assert.ok(!JSON.stringify(moved).includes(p.budget))
+  assert.ok(h.has(p.moveTo))
 })
 
 /**
@@ -562,22 +588,26 @@ test('D-056.28: an alias added by an edit is a name taken like a new note’s: r
   assert.equal(h.read(mine), before)
 })
 
-test('creating from a broken link into another space, by its path from the root: there if the person may create there, otherwise a taken name’s answer whether or not anything is there', async () => {
+test('D-056.30: creating from a broken link only in the link’s own space; into any other, a taken name’s answer, even where the person may create and whether or not anything is there', async () => {
   const { h, s, p } = await residual()
   const source = `${s.space.other}/${m.aTitle()}.md`
   h.write(source, `# ${m.aTitle()}\n`)
   h.runtime.rescan({})
   const create = (path: string) => h.as('other')('POST', '/api/note', { path, text: '', fromLink: source })
-  // Into the shared trip (they edit it), and into the member's space, where they can't create: by name of what is hidden and of nothing.
-  assert.equal((await create(`${s.trips}/${m.aTitle()}.md`)).status, 201)
+  // Into the shared trip (they edit it, but it is in the member's space), by name of what is hidden and of nothing.
+  const trip = `${s.trips}/${m.aTitle()}.md`
+  const elsewhere = await create(trip)
   const hidden = await create(p.budget)
   const nothing = await create(`${s.space.member}/${m.aFolder()}/${m.aTitle()}.md`)
   const real = await create(p.taken)
-  assert.deepEqual([hidden.status, hidden.body.error], [409, 'exists'], hidden.text)
+  for (const r of [elsewhere, hidden, nothing]) assert.deepEqual([r.status, r.body.error], [409, 'exists'], r.text)
   assert.equal(hidden.text.replaceAll(p.budget, p.taken), real.text)
-  assert.deepEqual([nothing.status, nothing.body.error], [409, 'exists'], nothing.text)
+  assert.equal(elsewhere.text.replaceAll(trip, p.taken), real.text)
+  assert.ok(!h.has(trip))
   // Read-only there (the recipes): the same answer.
   assert.deepEqual((await create(`${s.recipes}/${m.aTitle()}.md`)).body.error, 'exists')
+  // In their own space, as ever.
+  assert.equal((await create(`${s.space.other}/${m.aFolder()}/${m.aTitle()}.md`)).status, 201)
 })
 
 test('D-056.21: never creating from a link in a note of someone else’s personal space; from one’s own, as ever', async () => {

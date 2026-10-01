@@ -187,8 +187,10 @@ box:
 - who gains and who loses access (people and groups by name, keys counted);
 - whose it becomes: «It stops being yours: it will belong to the members of
   Home», or «It will be kept in ana’s space»;
-- links that will now be written with a path from the notes root, and what
-  people who can't read the other side will see (a path, not the note);
+- the links that will be broken, in plain words («In My notes / Home, the
+  link to Trip will be broken (it now lives in Family)»): links never cross
+  spaces, so nothing is rewritten between the two, and the note's own links
+  now resolve in its new space;
 - images the note shares with other notes, which are copied to the new space
   so its new readers see them.
 
@@ -522,8 +524,8 @@ when they sign in and in the alerts until they dismiss them:
 - the admin made them a manager of a space, joined a space they manage, or
   gave them (or its members) a deleted person's space; the other admins are
   told too;
-- a move of theirs left links in notes of other spaces that couldn't be
-  updated, even after vihko tried again;
+- a move of theirs left links that couldn't be updated, even after vihko
+  tried again;
 - someone purged from the history a note or a version they wrote in (see
   [History](history.md#purging)).
 

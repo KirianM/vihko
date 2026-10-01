@@ -28,11 +28,12 @@ anything you can't see getting in your way or telling you it exists.
 - [x] Folders shared from one's own space, in «Shared with me» with their
       owner; pinning them to the sidebar; who has access, shown read-only to
       every member.
-- [x] Links resolve within their space: a name never reaches another space;
-      links across spaces are written from the notes root with the note's
-      name as text; a link to what you can't read looks broken; a rename,
-      move or new note that would retarget a link to a hidden note isn't
-      available; images a note shares are copied when it changes space.
+- [x] Links stay within their space: a link (by name or by path) never
+      leads to another space, and vihko never writes one; a link to what you
+      can't read looks broken; a rename, move or new note that would retarget
+      a link to a hidden note isn't available; moving to another space
+      rewrites nothing across spaces, says in plain words which links will
+      be broken, and copies the images a note shares.
 - [x] Moving between spaces says who gains and loses access, and whose it
       becomes, before anything moves; agents confirm it explicitly.
 - [x] The admin: a directory of shared spaces (names, managers, member
@@ -73,6 +74,13 @@ message; and an installation built from the documentation alone works.
       what their notes do (their own daily-note series, templates and guide
       for agents) as a file in their space, in the reserved
       `people/<username>/.vihko/`.
+- [ ] A link picker when adding a link (`[[`, the toolbar button, Ctrl+K)
+      with «This space» (a normal link) and «Other spaces», which inserts a
+      Markdown link to the note's vihko address by its uid (`…/?n=<uid>`):
+      it survives renames and moves and shows no paths, and vihko writes the
+      uid into the linked note the first time it's needed. The editor
+      recognises its own addresses: the note's title and space when the
+      reader can read it, a plain link otherwise.
 
 ## 0.3 · Videos
 

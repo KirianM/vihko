@@ -6,6 +6,7 @@ import { Button, Dialog, Heading, Input, Label, TextField } from 'react-aria-com
 import { ApiError, api, type FolderContents, type FolderMoveReport, type MoveJob, type TrashEntry } from './api.ts'
 import { AudienceWarning, audienceChanges } from './Audience.tsx'
 import { DestinationFields, joinPlace, splitPlace, usePlaces } from './Destination.tsx'
+import { RelinkRows } from './MovePreview.tsx'
 import { ShiftPreview } from './Shifts.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { parentOf } from './FolderTree.tsx'
@@ -36,6 +37,8 @@ export function NewFolderDialog({ parent, onClose, onCreated }: { parent: string
   const [name, setName] = useState('')
   const [dest, setDest] = useState<{ root: string; inner: string } | null>(null)
   const { root, inner } = dest ?? splitPlace(places, parent)
+  /** The folder typed names several that differ only in case: not until one is chosen. */
+  const [ambiguous, setAmbiguous] = useState(false)
   const where = joinPlace(root, inner)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -44,7 +47,7 @@ export function NewFolderDialog({ parent, onClose, onCreated }: { parent: string
   const shadows = inner.trim() === '' && /^(people|spaces)$/i.test(name.trim())
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!path || busy) return
+    if (!path || busy || ambiguous) return
     setBusy(true)
     setError(null)
     try {
@@ -64,13 +67,13 @@ export function NewFolderDialog({ parent, onClose, onCreated }: { parent: string
             <Input />
           </TextField>
           <DestinationFields root={root} inner={inner} hint={t('folder.parentHint')}
-            onRoot={(r) => setDest({ root: r, inner: '' })} onInner={(i) => setDest({ root, inner: i })} />
+            onRoot={(r) => setDest({ root: r, inner: '' })} onInner={(i) => setDest({ root, inner: i })} onAmbiguous={setAmbiguous} />
           {shadows && <p className="hint" role="note">{t('folder.shadowsLinks', { name: name.trim() })}</p>}
           {error && <p className="error-text" role="alert">{error}</p>}
         </div>
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className="btn btn-primary" isDisabled={!path || busy}>{t('folder.create')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={!path || busy || ambiguous}>{t('folder.create')}</Button>
         </div>
       </form>
     </Dialog>
@@ -93,12 +96,13 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
   onStarted: (job: MoveJob) => void
 }) {
   const t = useT()
-  const labels = usePathLabels()
   const places = usePlaces()
   const [name, setName] = useState(baseName(path))
   const [dest, setDest] = useState<{ root: string; inner: string } | null>(null)
   // Where it goes: a place (a space, or a folder shared with them) and the folder inside it.
   const { root, inner } = dest ?? splitPlace(places, initialParent ?? parentOf(path))
+  /** The folder typed names several that differ only in case: not until one is chosen. */
+  const [ambiguous, setAmbiguous] = useState(false)
   const parent = joinPlace(root, inner)
   const [preview, setPreview] = useState<Preview>({ kind: 'idle' })
   const [busy, setBusy] = useState(false)
@@ -128,7 +132,7 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
   const submitKey: MessageKey = `folder.submit${verb}${n === 0 ? '' : n === 1 ? 'One' : 'Many'}`
   const notes = report ? t(report.notes.length === 1 ? 'folder.notesOne' : 'folder.notesMany', { n: report.notes.length }) : ''
   const files = report ? t(report.files === 1 ? 'folder.filesOne' : 'folder.filesMany', { n: report.files }) : ''
-  const blocked = audienceChanges(report?.audience) && !confirmed
+  const blocked = (audienceChanges(report?.audience) && !confirmed) || ambiguous
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -155,7 +159,7 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
             <Input />
           </TextField>
           <DestinationFields root={root} inner={inner} hint={t('folder.parentHintMove')}
-            onRoot={(r) => setDest({ root: r, inner: '' })} onInner={(i) => setDest({ root, inner: i })} />
+            onRoot={(r) => setDest({ root: r, inner: '' })} onInner={(i) => setDest({ root, inner: i })} onAmbiguous={setAmbiguous} />
         </div>
         <div className="preview" aria-live="polite">
           <div className="preview-head">{t(report?.shifted.length ? 'rename.previewPlain' : 'rename.preview')}</div>
@@ -163,18 +167,11 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
             {preview.kind === 'idle' && <span className="preview-note">{t('folder.previewUnchanged')}</span>}
             {preview.kind === 'loading' && <span className="preview-note">{t('rename.previewLoading')}</span>}
             {preview.kind === 'error' && <span className="error-text" role="alert">{preview.message}</span>}
-            {report && <AudienceWarning audience={report.audience} confirmed={confirmed} onConfirm={setConfirmed} cross={report.crossSpaceLinks} copied={report.images?.copied.length ?? 0} />}
+            {report && <AudienceWarning audience={report.audience} confirmed={confirmed} onConfirm={setConfirmed} broken={report.brokenLinks} dest={report.to} copied={report.images?.copied.length ?? 0} />}
             {report && <span className="preview-note">{t('folder.previewContents', { notes, files })}</span>}
             {report && report.relinked.length === 0 && report.shifted.length === 0 && <span className="preview-note">{t('folder.previewNone')}</span>}
-            {report && <ShiftPreview groups={report.shifted} />}
-            {report?.relinked.flatMap((r) => r.changes.map((c, i) => (
-              <div className="preview-row" key={`${r.path}#${i}`}>
-                <span className="preview-src">{labels.label(r.path)}</span>
-                <span className="preview-change">
-                  <del>{c.before}</del> → <ins>{c.after}</ins>
-                </span>
-              </div>
-            )))}
+            {report && <ShiftPreview groups={report.shifted} withoutBreaks={report.brokenLinks !== undefined} />}
+            {report && <RelinkRows relinked={report.relinked} />}
           </div>
         </div>
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}
@@ -248,9 +245,10 @@ export function MoveToNewSpaceDialog({ path, onClose, onMoved }: { path: string;
           <div className="preview-body">
             {preview.kind === 'loading' && <span className="preview-note">{t('rename.previewLoading')}</span>}
             {preview.kind === 'error' && <span className="error-text" role="alert">{preview.message}</span>}
-            {report && <AudienceWarning audience={report.audience} confirmed={confirmed} onConfirm={setConfirmed} cross={report.crossSpaceLinks} copied={report.images?.copied.length ?? 0} />}
+            {report && <AudienceWarning audience={report.audience} confirmed={confirmed} onConfirm={setConfirmed} broken={report.brokenLinks} dest={report.to} copied={report.images?.copied.length ?? 0} />}
             {report && <span className="preview-note">{t('folder.previewContents', { notes, files })}</span>}
-            {report && <ShiftPreview groups={report.shifted} />}
+            {report && <ShiftPreview groups={report.shifted} withoutBreaks={report.brokenLinks !== undefined} />}
+            {report && <RelinkRows relinked={report.relinked} />}
           </div>
         </div>
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}

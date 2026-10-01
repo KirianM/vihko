@@ -9,7 +9,7 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { PEOPLE, SPACES, anchorChanged, classifyPath, contentHash, extract, folderOf, isRootTarget, isSpaceRoot, linkSpace, parentFolder, parseSpacePath, parseThreads, placement, rulesOf, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
+import { PEOPLE, SPACES, anchorChanged, classifyPath, contentHash, extract, folderOf, isSpaceRoot, parentFolder, parseSpacePath, parseThreads, placement, rulesOf, sameSpace, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
 import { lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
@@ -166,40 +166,38 @@ export interface EditPreview {
  * it can't see, never which or how many (D-018); `nowHidden`, that the note
  * moved is hidden from it at its new path (then without its ETag).
  */
-export type ScopedMoveReport = MoveReport & { hidden?: boolean; nowHidden?: NowHidden; audience?: AudienceChange; crossSpaceLinks?: CrossSpaceLinks }
+export type ScopedMoveReport = MoveReport & { hidden?: boolean; nowHidden?: NowHidden; audience?: AudienceChange; brokenLinks?: BrokenLink[] }
 
 /** A folder move's report as the person gets it (`moveFolder`). */
-export type ScopedFolderMove = FolderMoveReport & { hidden: boolean; audience?: AudienceChange; crossSpaceLinks?: CrossSpaceLinks }
+export type ScopedFolderMove = FolderMoveReport & { hidden: boolean; audience?: AudienceChange; brokenLinks?: BrokenLink[] }
 
 /**
- * When a move takes a note or a folder to another space (D-056): the links
- * it writes as paths from the notes root, in the notes the principal sees
- * (the rest is only `hidden`, as ever, D-018). `incoming`: in other spaces'
- * notes, to what moved: their readers will see `path` (or a broken link, if
- * they can't read it there). `outgoing`: in what moved, to notes of the
- * space it leaves: its new readers see those paths, not the notes.
+ * When a move takes a note or a folder to another space: a link it will
+ * leave broken, because a link never leads to another space and vihko
+ * rewrites nothing across spaces (D-056.30). From the principal's masked
+ * report (the rest is only `hidden`, as ever, D-018): in what moved, to
+ * notes of the space it leaves; in notes left there, to what moved.
+ * `path`: the note holding the link, where it is after the move; `to`: the
+ * note it led to, where that one is after the move.
  */
-export interface CrossSpaceLinks {
-  /** Where it goes, as links from other spaces will name it: from the notes root, a note without `.md`. */
+export interface BrokenLink {
   path: string
-  incoming: number
-  outgoing: number
+  to: string
 }
 
-/** The cross-space links of a move's (masked) report; undefined when it stays in its space. */
-function crossSpaceLinks(relinked: MoveReport['relinked'], moved: (path: string) => boolean, from: string, to: string): CrossSpaceLinks | undefined {
-  const space = linkSpace(to)
-  if (linkSpace(from) === space) return undefined
-  let incoming = 0
-  let outgoing = 0
-  for (const r of relinked) {
-    if (moved(r.path)) {
-      for (const c of r.changes) if (extract(c.after).links.some((l) => l.kind !== 'markdown' && isRootTarget(l.target))) outgoing++
-    } else if (linkSpace(r.path) !== space) {
-      incoming += r.changes.length
+/** The links a move to another space leaves broken (BrokenLink), each pair once and sorted; undefined when it stays in its space. `place`: where a note is after the move. */
+function brokenLinks(shifted: MoveReport['shifted'], place: (path: string) => string, from: string, to: string): BrokenLink[] | undefined {
+  if (sameSpace(from, to)) return undefined
+  const found = new Map<string, BrokenLink>()
+  for (const g of shifted) {
+    for (const c of g.changes) {
+      if (c.code !== 'breaks' || c.before.status !== 'resolved') continue
+      const target = place(c.before.path)
+      if (!sameSpace(g.path, target)) found.set(`${g.path}\u0000${target}`, { path: g.path, to: target })
     }
   }
-  return { path: to.replace(/\.md$/i, ''), incoming, outgoing }
+  const order = (a: BrokenLink, b: BrokenLink) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : 0)
+  return [...found.values()].sort(order)
 }
 
 /** What `maskReport` filters: the parts of the reports of note moves, folder moves and link updates after external moves. */
@@ -715,9 +713,11 @@ export class ScopedNotes {
    * note of someone else's personal space (D-056.21): there a link that looks
    * broken may lead to one of the owner's notes the person can't read, and
    * creating would take the owner's link. Refused whether or not that is so
-   * (`forbidden`), so the answer tells nothing. From a link into a place the
-   * person can't create in (another space, by its path from the root), the
-   * answer is a taken name's (D-056.28): it says nothing of what is there.
+   * (`forbidden`), so the answer tells nothing. Only in the link's own space
+   * (D-056.30: a link never leads to another space, so a note there would
+   * leave it broken); elsewhere, or in a place the person can't create in,
+   * the answer is a taken name's (D-056.28): it says nothing of what is
+   * there.
    */
   async create(path: string, opts: { text?: string; template?: string; freshUid?: boolean; fromLink?: string }): Promise<{ path: string; uid: string | null } & Written> {
     if (opts.fromLink !== undefined) {
@@ -726,6 +726,8 @@ export class ScopedNotes {
       if (space?.kind === 'personal' && space.owner !== this.access.user.username.normalize('NFC')) {
         throw new AccessError('a note is not created from a link in someone else\'s personal space')
       }
+      const p = NoteService.checkPath(path)
+      if (!sameSpace(source, p)) throw new NoteError('exists', `that name isn't available here: ${p}`)
     }
     const p = opts.fromLink === undefined ? this.creatable(path) : this.creatableFromLink(path)
     const actor = this.access.actor
@@ -902,8 +904,8 @@ export class ScopedNotes {
     }
     const masked: ScopedMoveReport = this.maskReport(report)
     if (report.dryRun && audience) masked.audience = audience
-    const cross = crossSpaceLinks(masked.relinked, (p) => p === t, f, t)
-    if (cross) masked.crossSpaceLinks = cross
+    const broken = brokenLinks(masked.shifted, (p) => (p === f ? t : p), f, t)
+    if (broken) masked.brokenLinks = broken
     if (!this.access.isAgent) return masked
     if (report.dryRun || report.etag === null) return masked
     // Its folders only take it where it can see it, but whatever the reason: hidden now, no ETag (the move rewrote its text).
@@ -1205,9 +1207,9 @@ export class ScopedNotes {
     const mask = (r: FolderMoveReport) => {
       const { filePaths, ...rest } = r
       const masked = this.maskReport(rest, back)
-      const cross = crossSpaceLinks(masked.relinked, (p) => p === t || p.startsWith(t + '/'), f, t)
+      const broken = brokenLinks(masked.shifted, (p) => (p === f || p.startsWith(f + '/') ? t + p.slice(f.length) : p), f, t)
       // Only the files in folders the person can read count.
-      return { ...masked, files: (filePaths ?? []).filter((p) => this.access.canRead(p)).length, ...(cross ? { crossSpaceLinks: cross } : {}) }
+      return { ...masked, files: (filePaths ?? []).filter((p) => this.access.canRead(p)).length, ...(broken ? { brokenLinks: broken } : {}) }
     }
     if (opts.dryRun) {
       const r = mask(await this.spelled(t, () => this.deps.notes.moveFolder(f, t, { actor, dryRun: true, canRead, mayName: this.mayName })))

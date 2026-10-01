@@ -236,6 +236,8 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: theirs, version: memberVersion, dryRun: true }, expect: who === 'admin' ? undefined : 404 },
         { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: `${folder}/nada.md`, dryRun: true }, expect: who === 'admin' ? undefined : 404 },
         { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: folder, dryRun: true }, expect: who === 'admin' ? undefined : who === 'agent' ? 404 : 400 },
+        // What each may purge: only what they read (and, but for the admin, manage).
+        { route: 'GET /api/history/purgeable', method: 'GET', path: '/api/history/purgeable', expect: who === 'agent' ? 404 : 200 },
         { route: 'DELETE /api/history/purges/:id', method: 'DELETE', path: '/api/history/purges/nope', expect: adminOnly(who) },
         // Commenting (D-038.5): on what they can't see, and a thread that isn't there.
         { route: 'POST /api/note/comment', method: 'POST', path: '/api/note/comment', body: { path: theirs, op: 'add', at: 0, context: '', text: m.aComment() }, expect: 404 },
@@ -431,7 +433,10 @@ test('with read or comment in a folder, nothing is written there through any rou
 })
 
 test('where a route used to give away what is in a space someone can\'t read (D-056.28): the admin\'s rescan, keys and purge preview, a move\'s progress, the history cursor, a restore\'s leftovers', async () => {
-  const h = await setup({ files: FILES })
+  // A folder of the admin's own space shared with the member to edit: links never leave a space (D-056.30), so the notes
+  // the member can't read and whose links a move rewrites are the rest of that space.
+  const lent = `${home(ADMIN.username)}/${m.aFolder()}`
+  const h = await setup({ files: { ...FILES, [`${lent}/${m.aTitle()}.md`]: `# ${m.aHeading()}\n` }, config: RULES + `  ${yamlKey(lent)}:\n    grants: { ${yamlKey(MEMBER.username)}: edit }\n` })
   try {
     await h.enable()
     const memberHome = home(MEMBER.username)
@@ -471,18 +476,21 @@ test('where a route used to give away what is in a space someone can\'t read (D-
     assert.ok((await h.member('POST', '/api/history/purge', { path: PATH.cake, dryRun: true })).body.versions.length > 0)
 
     // A rename whose links are rewritten in notes the mover can't read: its progress counts only the notes they read.
-    const target = `${DIR.shared}/${m.aTitle()}.md`
-    const readable = `${DIR.shared}/${m.aTitle()}.md`
-    const hidden = [`${home(ADMIN.username)}/${m.aTitle()}.md`, `${DIR.admin}/${m.aTitle()}.md`]
+    // Links never cross spaces (D-056.30), so those notes are in the same space: a folder the admin lends the member
+    // to edit, linked from it and from two notes of the admin's the member doesn't see.
+    const target = `${lent}/${m.aTitle()}.md`
+    const readable = `${lent}/${m.aTitle()}.md`
+    const hidden = [`${home(ADMIN.username)}/${m.aTitle()}.md`, `${home(ADMIN.username)}/${m.aFolder()}/${m.aTitle()}.md`]
     const asLink = `[[${target.slice(0, -3)}]]`
     for (const [p, text] of [[target, `# ${m.aHeading()}\n`], [readable, `${asLink}\n`], ...hidden.map((p) => [p, `${asLink}\n`])] as [string, string][]) {
       assert.equal((await h.admin('POST', '/api/note', { path: p, text })).status, 201, p)
     }
     const totals: number[] = []
     const mover = h.services.scoped(h.policy.for({ kind: 'user', user: h.users.member }))
-    const report = await mover.move(target, `${DIR.shared}/${m.aTitle()}.md`, { onMoved: (n) => totals.push(n), onProgress: (_done, total) => totals.push(total) })
+    const report = await mover.move(target, `${lent}/${m.aTitle()}.md`, { onMoved: (n) => totals.push(n), onProgress: (_done, total) => totals.push(total) })
     assert.equal(report.hidden, true)
     assert.deepEqual([...new Set(totals)], [1], 'one note they read; the others are never counted')
+    assert.ok(!JSON.stringify(report).includes(hidden[0]!) && !JSON.stringify(report).includes(hidden[1]!))
 
     // The history cursor of a note that came from someone's personal space: opaque, never the path it had there.
     const before = `${memberHome}/${m.aTitle()}.md`

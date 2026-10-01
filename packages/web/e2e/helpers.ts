@@ -1,6 +1,7 @@
 import { expect, request, type APIRequestContext, type Browser, type Page } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 import { crc32, deflateSync } from 'node:zlib'
+import { addressOf, pathOfAddress } from '@vihko/core/spaces'
 import { ADMIN, BASE_URL, NOTES, PERMISSIONS, permissionsSection, SPACE, SPACE_GRANTS, type Grants, type Rule } from './env.ts'
 
 /** Writes vihko.yaml with `text` and `permissions` (by default the ones every spec runs under, env.ts); with nothing, only those. */
@@ -85,6 +86,16 @@ export async function newUser(admin: Page, user: { username: string; password: s
 
 /** `text` for a regular expression that matches it literally (generated names have dots; valid with the `u` flag too). */
 export const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
+
+/**
+ * A pattern for `note=<the note's address>` in the browser's URL (D-056.29:
+ * `home-7k2q9x/…` or `~ana/…`, never `people/` nor `spaces/`), however the
+ * query encodes it (`+` or `%20`, `~` or `%7E`).
+ */
+/** The path of the note open in `page`, read from its address (`?note=`). */
+export const openPath = (page: Page) => { const v = new URL(page.url()).searchParams.get('note'); return v === null ? null : pathOfAddress(v)?.path ?? null }
+
+export const noteInUrl = (path: string) => `note=${literally(encodeURIComponent(addressOf(path) ?? path)).replace(/%20/g, '(?:\\+|%20)').replace(/~/g, '(?:~|%7E)')}`
 
 /**
  * A pattern for `text` as a whole word, from `^` when `start`: `\b` only

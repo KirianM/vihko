@@ -1,8 +1,7 @@
 // Link rewrites a vihko move couldn't make, to try again (spec §4.4). When a
-// rewrite fails, the old name stays as an alias (D-018's safety net), but an
-// alias only reaches notes of the note's own space (names never cross
-// spaces, D-056): links from other spaces, written from the notes root, are
-// left behind. Those are tried again after the next rescan, as the system,
+// rewrite fails, the old name stays as an alias (D-018's safety net), but no
+// alias stands in for a folder's notes, nor for links aliases don't resolve
+// (vihko.yaml). Those are tried again after the next rescan, as the system,
 // by the same rule as the move; what still fails then is given up (the move
 // says so to whoever made it, `onGiveUp`).
 //

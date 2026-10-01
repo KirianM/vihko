@@ -410,10 +410,13 @@ note's images
 (`images`, with `copied` for images copied to another space) and, in a dry
 run, who gains or loses access (`audience`, with `owner`: whose it is before
 and after, when it changes space). `hidden` is `true` when notes the key
-can't see were rewritten too. A move to another space adds
-`crossSpaceLinks`: how many links it writes with the path from the notes
-root, in other spaces' notes (`incoming`) and in the note itself
-(`outgoing`).
+can't see were rewritten too. Each change in `relinked` has its text
+`before` and `after`, its `kind` (`link` or `image`) and `to`, the note or
+image it keeps leading to. Links never lead to another space, so a move to
+another space rewrites nothing across spaces and adds `brokenLinks`: the
+links it leaves broken (`path`, the note holding the link; `to`, the note it
+led to; both where they are after the move), in the note itself and in the
+notes of the space it leaves that the key sees.
 
 Who can see a note depends on its space and folder. A move that would show the note to
 anyone who can't see it now fails with `409 audience_widens` and that

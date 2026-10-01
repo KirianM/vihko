@@ -4,7 +4,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { ADMIN, E2E_DIR, NOTES, SPACE, SPACE_NAME, inVault, specMother } from './env.ts'
-import { editorText, signIn } from './helpers.ts'
+import { editorText, openPath, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const DIR = inVault(m.aFolder())
@@ -169,8 +169,10 @@ test('renamed on disk: the alert says where it went and how many links point to 
 
   await card.getByRole('button', { name: 'Actualizar enlaces' }).click()
   const dialog = k.getByRole('dialog', { name: 'Actualizar enlaces' })
-  await expect(dialog.locator('.preview-row')).toHaveCount(2)
-  await expect(dialog).toContainText(`[[${name}#${section}|${text}]] → [[${renamedName}#${section}|${text}]]`)
+  // In words: the note holding them, how many and to which note; never their Markdown.
+  await expect(dialog.locator('.preview-line')).toHaveCount(1)
+  await expect(dialog.locator('.preview-line')).toContainText(`2 enlaces a ${renamedName} se actualizan para que sigan funcionando`)
+  await expect(dialog).not.toContainText('[[')
   await k.screenshot({ path: `${SHOTS}/movida-fuera-vista-previa.png`, animations: 'disabled' })
   await dialog.getByRole('button', { name: 'Actualizar 2 enlaces' }).click()
   await expect(k.getByRole('status').filter({ hasText: 'Enlaces actualizados: 2.' })).toBeVisible()
@@ -203,7 +205,7 @@ test('the open note renamed on disk: the editor follows it (URL, tree), keeps wh
   renameSync(`${NOTES}/${note}`, `${NOTES}/${renamed}`)
 
   await expect(k.locator('.crumbs b')).toHaveText(renamedName, { timeout: 15_000 })
-  expect(new URL(k.url()).searchParams.get('note')).toBe(renamed)
+  expect(openPath(k)).toBe(renamed)
   await expect(k.getByRole('row', { name: renamedName, exact: true })).toBeVisible()
   await expect(k.getByRole('row', { name, exact: true })).toHaveCount(0)
   await expect(k.locator('.cm-content')).toContainText(sent)

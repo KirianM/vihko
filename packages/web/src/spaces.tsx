@@ -5,9 +5,10 @@
 // trips / Rome» in a folder someone shares. Never `people/<me>` nor a
 // space's folder id.
 import { createContext, useContext, useMemo } from 'react'
-import { displayPath, parseSpacePath, spaceRootOf, type DisplayPath } from '@vihko/core/spaces'
+import { addressOf, displayPath, parseSpacePath, pathOfAddress, personalRoot, spaceRootOf, type DisplayPath } from '@vihko/core/spaces'
+import type { RootNames } from './typedPath.ts'
 import type { SpacesInfo } from './api.ts'
-import { useT } from './i18n.tsx'
+import { inEveryLanguage, useT } from './i18n.tsx'
 
 export interface Spaces {
   /** The person's username. */
@@ -81,6 +82,50 @@ export function usePathLabels(given?: Spaces) {
     }
     return { label, space, where, folders, spaceTag, spaceLabel }
   }, [t, s])
+}
+
+/**
+ * How a person may type each space they reach (typedPath.ts): their own as
+ * «My notes» in any language, or `~<username>`; a shared space by its name or
+ * its folder (as the address shows it); a space a folder is shared from by
+ * its owner (`ana`, `~ana`) or its space's name. `more`: other roots the
+ * person may name (the admin: every space and person, for purging by name).
+ */
+export function rootNamesOf(s: Spaces, more: RootNames[] = []): RootNames[] {
+  const out: RootNames[] = []
+  const personal = s.info?.personal?.path ?? (s.me ? personalRoot(s.me) : null)
+  if (personal) out.push({ root: personal, names: [...inEveryLanguage('spaces.mine'), `~${s.me}`] })
+  const folderOf = (root: string) => root.slice(root.indexOf('/') + 1)
+  for (const sp of s.info?.spaces ?? []) out.push({ root: sp.path, names: [sp.name, folderOf(sp.path)] })
+  for (const sh of s.info?.shared ?? []) {
+    if (sh.owner) out.push({ root: personalRoot(sh.owner), names: [sh.owner, `~${sh.owner}`] })
+    else if (sh.space) out.push({ root: sh.space.path, names: [sh.space.name, folderOf(sh.space.path)] })
+  }
+  return [...out, ...more]
+}
+
+/** The roots of every person and shared space by the names the admin may type (purging what they can't read, by its name). */
+export function everyRoot(spaces: readonly { path: string; name: string }[], usernames: readonly string[]): RootNames[] {
+  return [
+    ...spaces.map((sp) => ({ root: sp.path, names: [sp.name, sp.path.slice(sp.path.indexOf('/') + 1)] })),
+    ...usernames.map((u) => ({ root: personalRoot(u), names: [u, `~${u}`] })),
+  ]
+}
+
+/**
+ * A note's link in the browser (D-056.29): `?note=<address>` (core
+ * `addressOf`: `home-7k2q9x/list.md`, `~ana/trips/Rome.md`), and the
+ * version shown over it. Never `people/` nor `spaces/`.
+ */
+export function noteHref(path: string, version?: string): string {
+  const note = `?note=${encodeURIComponent(addressOf(path) ?? path)}`
+  return version === undefined ? note : `${note}&version=${encodeURIComponent(version)}`
+}
+
+/** The real path of `?note=` in a URL's query (an address, or a path from before D-056.29), or null. */
+export function notePathOf(search: string): string | null {
+  const v = new URLSearchParams(search).get('note')
+  return v === null ? null : pathOfAddress(v)?.path ?? null
 }
 
 /** A folder path relative to its space's root (`''` at the root), and the root; null outside every space. */

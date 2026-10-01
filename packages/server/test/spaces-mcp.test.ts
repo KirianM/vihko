@@ -36,7 +36,7 @@ test('instructions: the person\'s own space, the spaces they belong to and what 
       assert.match(text, new RegExp(`The person you act for is ${literally(h.names.member)}\\. Their personal space is "${literally(h.home('member'))}/"`))
       assert.ok(text.includes(`"${home.path}" (id ${home.id}, named ${JSON.stringify(home.name)}, manage)`), text)
       assert.ok(text.includes(`"${trips}" (comment, from ${h.names.admin})`), text)
-      assert.match(text, /A name never reaches another space/)
+      assert.match(text, /a link never leads to another space/)
       assert.match(text, /Moving a note to another space changes who can see it and whose it is/)
       assert.match(text, /can't read don't exist for you: naming one answers `not_found`/)
       assert.ok(!text.includes(hidden.path) && !text.includes(hidden.name), 'nothing the person doesn\'t reach')

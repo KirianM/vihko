@@ -8,10 +8,11 @@ import { Button, Dialog, Heading, Modal, ModalOverlay } from 'react-aria-compone
 import { ApiError, api, type Alert, type MoveJob, type MovedRelinkReport } from './api.ts'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { Icon, MenuButton, ThemeToggle, noteName as fileName } from './ui.tsx'
-import { usePathLabels } from './spaces.tsx'
+import { noteHref, usePathLabels } from './spaces.tsx'
 import { SearchButton } from './Palette.tsx'
 import type { ConfigError, ConfigMigrationRef } from '@vihko/core/codes'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
+import { RelinkRows } from './MovePreview.tsx'
 import { ShiftPreview } from './Shifts.tsx'
 import { useDates } from './history/ui.tsx'
 import { historyApi } from './history/api.ts'
@@ -153,12 +154,7 @@ function RelinkDialog({ alert, onClose, onDone, onStarted }: {
             {!report && !error && <span className="preview-note">{t('rename.previewLoading')}</span>}
             {report && n === 0 && report.shifted.length === 0 && <span className="preview-note">{t('relink.none')}</span>}
             {report && <ShiftPreview groups={report.shifted} />}
-            {report?.relinked.flatMap((r) => r.changes.map((c, i) => (
-              <div className="preview-row" key={`${r.path}#${i}`}>
-                <span className="preview-src">{label(r.path)}</span>
-                <span className="preview-change"><del>{c.before}</del> → <ins>{c.after}</ins></span>
-              </div>
-            )))}
+            {report && <RelinkRows relinked={report.relinked} />}
           </div>
         </div>
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}
@@ -241,7 +237,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
   }
 
   const noteLink = (path: string) => (
-    <a className="mono" href={`?note=${encodeURIComponent(path)}`} onClick={(e) => { e.preventDefault(); onOpen(path) }}>{label(path)}</a>
+    <a className="mono" href={noteHref(path)} onClick={(e) => { e.preventDefault(); onOpen(path) }}>{label(path)}</a>
   )
   const mono = (path: string) => <span className="mono">{label(path)}</span>
   const adminOnly = <span className="alert-hint">{t('alerts.adminOnly')}</span>
@@ -252,7 +248,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
       {list.map((e, j) => (
         <li key={j}>
           {(e.line !== null || e.at) && (
-            <span className="mono">{[e.line !== null ? t('alerts.configLine', { line: e.line }) : null, e.at].filter(Boolean).join(' · ')}</span>
+            <span className="mono">{t('alerts.inConfig', { at: [e.line !== null ? t('alerts.configLine', { line: e.line }) : null, e.at].filter(Boolean).join(' · ') })}</span>
           )}
           {' '}{t(`config.${e.code}`, { detail: e.detail ?? '' })}
         </li>
@@ -527,8 +523,9 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           tone: 'warn',
           title: t('alerts.outsideSpacesTitle'),
           // Where it can go: the admin's own space, by its exact path (D-056.28).
-          body: rich(t('alerts.outsideSpacesBody'), { into: <span className="mono">{a.into}/</span> }),
-          extra: <ul className="alert-paths">{a.paths.map((p) => <li key={p}><span className="mono">{p}</span></li>)}</ul>,
+          body: t('alerts.outsideSpacesBody'),
+          // Where each one is on the server's disk (the only place it is): labelled as such.
+          extra: <ul className="alert-paths">{a.paths.map((p) => <li key={p}><span className="mono">{t('alerts.onDisk', { path: p })}</span></li>)}</ul>,
           actions: null,
         })
       case 'closed_spaces':
@@ -546,7 +543,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           tone: 'warn',
           title: t('alerts.personFolderTitle'),
           body: t('alerts.personFolderBody'),
-          extra: <ul className="alert-paths">{a.names.map((n) => <li key={n}><span className="mono">people/{n}</span></li>)}</ul>,
+          extra: <ul className="alert-paths">{a.names.map((n) => <li key={n}><span className="mono">{t('alerts.onDisk', { path: `people/${n}` })}</span></li>)}</ul>,
           actions: null,
         })
       case 'space_without_members':

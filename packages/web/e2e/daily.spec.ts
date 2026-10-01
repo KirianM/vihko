@@ -6,7 +6,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { ADMIN, E2E_DIR, MEMBER, NOTES, inVault, personal, specMother } from './env.ts'
-import { editorText, literally, signIn, writeWorkspace } from './helpers.ts'
+import { editorText, literally, noteInUrl, signIn, writeWorkspace } from './helpers.ts'
 
 type Person = { username: string; password: string }
 
@@ -119,7 +119,7 @@ test('«Today» creates the note from the template in the series folder, then on
   await todayButton(k).click()
   await expect(k.locator('.crumbs b')).toHaveText(today)
   // The page writes the path with URLSearchParams: a space as `+`.
-  await expect(k).toHaveURL(new RegExp(`\\?note=${literally(encodeURIComponent(path)).replace(/%20/g, '(?:\\+|%20)')}$`))
+  await expect(k).toHaveURL(new RegExp(`\\?${noteInUrl(path)}$`))
   await expect.poll(() => editorText(k)).toContain(`${BY} ${ADMIN.username}. ${UNKNOWN}`)
   const onDisk = readFileSync(`${NOTES}/${path}`, 'utf8')
   expect(onDisk).toMatch(new RegExp(`^---\\ntags: \\[${literally(TEMPLATE_TAG)}\\]\\nuid: \\w+\\n---\\n# ${ddmmyyyy(today).replace(/\//g, '\\/')}\\n`))
@@ -230,7 +230,7 @@ test('vihko.yaml: an unknown key is ignored with a warning; an invalid file keep
   }).toPass({ timeout: 20_000 })
   const warnings = k.locator('.alert-card', { hasText: 'salvo algunas partes' })
   await expect(warnings).toContainText('Lo que aparece aquí no se aplica')
-  await expect(warnings.getByRole('listitem')).toHaveText('línea 2 · templtes Clave desconocida (¿una errata, o de una versión más nueva de vihko?): se ignora.')
+  await expect(warnings.getByRole('listitem')).toHaveText('en vihko.yaml: línea 2 · templtes Clave desconocida (¿una errata, o de una versión más nueva de vihko?): se ignora.')
   await k.screenshot({ path: `${SHOTS}/config-warnings-light.png` })
   await todayButton(k).click()
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
@@ -243,7 +243,7 @@ test('vihko.yaml: an unknown key is ignored with a warning; an invalid file keep
   }).toPass({ timeout: 20_000 })
   const card = k.locator('.alert-card', { hasText: 'no se puede usar' })
   await expect(card).toContainText('vihko sigue con la última versión válida')
-  await expect(card.getByRole('listitem')).toHaveText(`línea 10 · daily.${TEAM.id}.folder Ruta no válida: relativa a la carpeta de notas, sin «..» ni carpetas ocultas.`)
+  await expect(card.getByRole('listitem')).toHaveText(`en vihko.yaml: línea 10 · daily.${TEAM.id}.folder Ruta no válida: relativa a la carpeta de notas, sin «..» ni carpetas ocultas.`)
   await k.screenshot({ path: `${SHOTS}/daily-alert-light.png` })
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()
   await k.screenshot({ path: `${SHOTS}/daily-alert-dark.png` })

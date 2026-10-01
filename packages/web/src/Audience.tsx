@@ -1,11 +1,13 @@
 // «Move with a warning» (D-038, spec §3.3): when moving a note or a folder
 // changes who can see it, the move's preview says who gains and who loses
 // access (people and groups by name, agent keys counted), whose it becomes
-// when it changes space (D-056), which links will name it by its path and
-// which images are copied, and the move waits for an explicit confirmation.
+// when it changes space (D-056), which links it leaves broken (a link never
+// leads to another space, D-056.30) and which images are copied, and the
+// move waits for an explicit confirmation.
 // Access comes from the folder, so a move takes on the new folder's.
 import { useId } from 'react'
-import type { AudienceChange, CrossSpaceLinks, SpaceOwner } from './api.ts'
+import type { AudienceChange, BrokenLink, SpaceOwner } from './api.ts'
+import { BrokenRows } from './MovePreview.tsx'
 import { useLang, useT } from './i18n.tsx'
 import { useSpaces } from './spaces.tsx'
 import { Icon } from './ui.tsx'
@@ -29,14 +31,16 @@ function ownerText(t: ReturnType<typeof useT>, me: string, owner: { before: Spac
 
 /**
  * The warning, with the confirmation the move needs (`confirmed`). Nothing
- * when neither access nor whose it is changes. `cross`: the links it writes
- * across spaces; `copied`: how many images are copied to the new space.
+ * when neither access nor whose it is changes. `broken`: the links it leaves
+ * broken by going to another space, `dest` where it goes; `copied`: how many
+ * images are copied to the new space.
  */
-export function AudienceWarning({ audience, confirmed, onConfirm, cross, copied = 0 }: {
+export function AudienceWarning({ audience, confirmed, onConfirm, broken, dest, copied = 0 }: {
   audience: AudienceChange | undefined
   confirmed: boolean
   onConfirm: (v: boolean) => void
-  cross?: CrossSpaceLinks
+  broken?: BrokenLink[]
+  dest: string
   copied?: number
 }) {
   const t = useT()
@@ -65,9 +69,8 @@ export function AudienceWarning({ audience, confirmed, onConfirm, cross, copied 
       {owner && <p className="audience-row audience-owner">{owner}</p>}
       {lose && <p className="audience-row"><span className="audience-tag audience-lose">{t('audience.loseTag')}</span>{who(audience.users.lose, audience.groups.lose, audience.keys.lose)}</p>}
       {gain && <p className="audience-row"><span className="audience-tag audience-gain">{t('audience.gainTag')}</span>{who(audience.users.gain, audience.groups.gain, audience.keys.gain)}</p>}
-      {cross && cross.incoming > 0 && <p className="audience-row">{t(cross.incoming === 1 ? 'audience.crossInOne' : 'audience.crossIn', { n: cross.incoming, path: cross.path })}</p>}
-      {cross && cross.outgoing > 0 && <p className="audience-row">{t(cross.outgoing === 1 ? 'audience.crossOutOne' : 'audience.crossOut', { n: cross.outgoing })}</p>}
       {copied > 0 && <p className="audience-row">{t(copied === 1 ? 'audience.copiedOne' : 'audience.copied', { n: copied })}</p>}
+      {broken && <BrokenRows broken={broken} dest={dest} />}
       <label className="check audience-confirm">
         <input type="checkbox" checked={confirmed} onChange={(e) => onConfirm(e.target.checked)} />
         <span className="check-text">{t('audience.confirm')}</span>

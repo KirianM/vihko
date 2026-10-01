@@ -5,7 +5,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { ADMIN, NOTES, SPACE_NAME, freshFolder, inVault, specMother } from './env.ts'
-import { signIn } from './helpers.ts'
+import { openPath, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const DIR = inVault(freshFolder(() => m.aFolder()))
@@ -64,7 +64,7 @@ test('an http(s) link opens in a new tab, which gets no hold on the app; the app
   expect(tab.url()).toBe(OPENED)
   expect(await tab.evaluate(() => window.opener)).toBeNull()
   await expect(k.locator('.crumbs b')).toHaveText(TITLE)
-  expect(new URL(k.url()).searchParams.get('note')).toBe(NOTE)
+  expect(openPath(k)).toBe(NOTE)
   await k.context().close()
 })
 

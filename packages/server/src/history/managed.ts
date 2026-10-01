@@ -4,7 +4,7 @@
 // being written never makes the history page wait, and git itself is safe
 // with one writer and readers at once.
 import type { Author } from '../actor.ts'
-import { GitError, LOG_FORMAT, Serial, parseLog, readObjects, resolveRef, type Git, type LogCommit, type RawFile } from './git.ts'
+import { GitError, LOG_FORMAT, Serial, parseLog, readObjects, readTree, resolveRef, type Git, type LogCommit, type RawFile } from './git.ts'
 import { HISTORY_REF, isTextPath } from './recorder.ts'
 import { movedFrom, parseMessage, type ParsedMessage } from './trailers.ts'
 import { wordStats } from './diff.ts'
@@ -43,6 +43,7 @@ export class ManagedReader implements HistoryReader {
   private reads = new Serial()
   private stats = new Map<string, { added: number; removed: number }>()
   private authorsSeen: { head: string | null; list: Map<string, AuthorRef> } = { head: null, list: new Map() }
+  private pathsSeen: { head: string; list: { path: string; deleted: boolean }[] } | null = null
   /**
    * A note's versions as a walk from the history's head found them, by id:
    * `${head}\0${path}`. The same head and path always walk the same way, so
@@ -199,6 +200,25 @@ export class ManagedReader implements HistoryReader {
         files: f.files.map((file) => ({ path: file.path, change: file.change, ...(file.from !== undefined ? { from: file.from } : {}), ...counts[k++]! })),
       }))
       return { changes, next }
+    })
+  }
+
+  /**
+   * Every file path the history holds a version of, with whether the
+   * history's last version of it deletes it (`deleted`): what can be purged
+   * (D-038.9). Remembered for the history's head.
+   */
+  paths() {
+    return this.run(async (): Promise<{ path: string; deleted: boolean }[]> => {
+      const head = await resolveRef(this.git, HISTORY_REF)
+      if (head === null) return []
+      if (this.pathsSeen?.head !== head) {
+        const { stdout } = await this.git.run(['log', '-z', '--format=', '--name-only', '--no-renames', head], { timeoutMs: 120_000 })
+        const all = new Set(stdout.toString('utf8').split('\0').map((p) => p.replace(/^\n+/, '')).filter(Boolean))
+        const now = await readTree(this.git, head)
+        this.pathsSeen = { head, list: [...all].sort().map((path) => ({ path, deleted: !now.has(path) })) }
+      }
+      return this.pathsSeen.list
     })
   }
 

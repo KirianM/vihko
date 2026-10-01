@@ -129,9 +129,14 @@ export const historyApi = {
   /** Purges a note (or, the admin, any path) or one of its versions from the history; `dryRun`: only what it would take out. */
   purge: (path: string, opts: { version?: string | null; dryRun?: boolean; confirm?: string } = {}) =>
     request<PurgeReport>('POST', '/api/history/purge', { path, ...(opts.version ? { version: opts.version } : {}), dryRun: opts.dryRun === true, ...(opts.confirm ? { confirm: opts.confirm } : {}) }),
+  /** What the person may purge and reads (managed history): files with versions; `deleted`, the last one deletes it. */
+  purgeable: () => request<{ paths: PurgeableEntry[] }>('GET', '/api/history/purgeable'),
   /** The admin's notice of a purge, dismissed. */
   dismissPurge: (id: string) => request<{ ok: true }>('DELETE', `/api/history/purges/${encodeURIComponent(id)}`),
 }
+
+/** A file the history holds versions of, that the person may purge: `deleted`, its last version deletes it. */
+export interface PurgeableEntry { path: string; deleted: boolean }
 
 /**
  * What a purge takes out (`dryRun`) or took out (D-038.9): the versions whose

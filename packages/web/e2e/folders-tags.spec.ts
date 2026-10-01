@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { markdownDest } from '../../core/src/images.ts'
 import { ADMIN, E2E_DIR, SPACE_NAME, VAULT, inVault, specMother } from './env.ts'
-import { literally, signIn } from './helpers.ts'
+import { literally, openPath, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const fold = (s: string) => s.toLowerCase()
@@ -105,8 +105,9 @@ test('drag a linked note into a folder: the move dialog previews the link, which
   const dialog = k.getByRole('dialog')
   await expect(dialog.getByRole('heading')).toHaveText(`Renombrar o mover «${MOVABLE}»`)
   await expect(dialog.getByLabel('Carpeta')).toHaveValue(`${DIR}/${ARCHIVE}`)
-  await expect(dialog.locator('.preview-change')).toHaveText(`[${LABEL}](${markdownDest(`${MOVABLE}.md`)}) → [${LABEL}](${markdownDest(`${ARCHIVE}/${MOVABLE}.md`)})`)
-  await expect(dialog.locator('.preview-kept')).toContainText(`[[${MOVABLE}]] sigue funcionando`)
+  await expect(dialog.locator('.preview-line:not(.preview-kept)')).toContainText(`el enlace a ${MOVABLE} se actualiza para que siga funcionando`)
+  await expect(dialog.locator('.preview-kept')).toContainText(`el enlace a ${MOVABLE} sigue funcionando: no se toca`)
+  await expect(dialog.locator('.preview')).not.toContainText(`](`)
   await shot(k, 'folders-drop-dialog-light')
   await dialog.getByRole('button', { name: 'Mover y actualizar 1 enlace' }).click()
   await expect(dialog).toHaveCount(0)
@@ -138,7 +139,7 @@ test('rename a folder from its context menu: every note goes along and links els
   await expect(dialog.getByRole('heading')).toHaveText(`Renombrar o mover la carpeta «${ARCHIVE}»`)
   await dialog.getByLabel('Nombre').fill(ARCHIVE2)
   await expect(dialog.getByText('Van con ella 1 nota y 0 archivos.')).toBeVisible()
-  await expect(dialog.locator('.preview-change')).toHaveText(`[${LABEL}](${markdownDest(`${ARCHIVE}/${MOVABLE}.md`)}) → [${LABEL}](${markdownDest(`${ARCHIVE2}/${MOVABLE}.md`)})`)
+  await expect(dialog.locator('.preview-line')).toContainText(`el enlace a ${MOVABLE} se actualiza para que siga funcionando`)
   await dialog.getByRole('button', { name: 'Renombrar y actualizar 1 enlace' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(row(k, ARCHIVE2)).toBeVisible()
@@ -159,7 +160,7 @@ test('moving the folder of the open note keeps it open at its new path', async (
   await expect(dialog.getByText('Van con ella 3 notas y 0 archivos.')).toBeVisible()
   await dialog.getByRole('button', { name: /^Renombrar/ }).click()
   await expect(dialog).toHaveCount(0)
-  await expect.poll(() => new URL(k.url()).searchParams.get('note')).toBe(inVault(`${DIR2}/${ARCHIVE2}/${MOVABLE}.md`))
+  await expect.poll(() => openPath(k)).toBe(inVault(`${DIR2}/${ARCHIVE2}/${MOVABLE}.md`))
   await expect(k.locator('.crumbs')).toHaveText(`${SPACE_NAME} / ${DIR2} / ${ARCHIVE2} / ${MOVABLE}`)
   await expect(k.locator('.cm-content')).toContainText(MOVABLE_TEXT)
   expect(existsSync(`${VAULT}/${DIR}`)).toBe(false)
@@ -306,7 +307,7 @@ test('a folder move that would resolve an ambiguous link lists it in the preview
   const shifts = dialog.locator('.shifts')
   await expect(shifts.locator('strong')).toHaveText('Un enlace no se reescribe pero cambiará adónde lleva')
   await expect(shifts.locator('.shifts-src')).toHaveText(`${SPACE_NAME} / ${DIR} / ${USES}1 enlace`)
-  await expect(shifts.locator('.shifts-row')).toHaveText(`[[${SCREEN}]] era ambiguo; llevará a ${SPACE_NAME} / ${DIR} / ${TOPIC} / ${SCREEN}`)
+  await expect(shifts.locator('.shifts-row')).toHaveText(`El enlace «${SCREEN}» era ambiguo; llevará a ${SPACE_NAME} / ${DIR} / ${TOPIC} / ${SCREEN}`)
   await shot(k, 'folder-shifts-light')
   await dialog.getByRole('button', { name: 'Mover' }).click()
   await expect(dialog).toHaveCount(0)

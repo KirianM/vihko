@@ -4,7 +4,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { ADMIN, E2E_DIR, NOTES, SPACE_NAME, inVault, specMother } from './env.ts'
-import { dismissNotices } from './helpers.ts'
+import { dismissNotices, openPath } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const FOLDER = m.aFolder()
@@ -18,7 +18,7 @@ const FIRST = m.aSentence()
 /** Two notes with one uid, for an alert. */
 const TWINS = [`${m.aTitle()}.md`, `${m.aTitle()}.md`]
 const UID = m.aUniqueWord()
-const noteParam = (page: Page) => new URL(page.url()).searchParams.get('note')
+const noteParam = openPath
 
 /**
  * The caret at the very end of a line of the editor (which must have the

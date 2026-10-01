@@ -139,6 +139,17 @@ test('a manager purges a note\'s whole history (that file alone); the admin purg
     await writing
     assert.equal(k.status, 200, JSON.stringify(k.body))
     for (const mark of [WORD.other, more, older, posix.basename(PATH.otherNotes), posix.basename(OLD)]) assert.ok(!JSON.stringify(k.body).includes(mark), mark)
+    // Not even how much, nor whether anything had history there: a path with none answers the same, and so does a
+    // version that never wrote the path (no «not one of its versions» to tell it apart).
+    assert.deepEqual([k.body.hidden, k.body.versions, k.body.filesRemoved], [true, [], 0])
+    const same = (r: { status: number; body: Record<string, unknown> }) => ({ status: r.status, body: { ...r.body, path: null, version: null } })
+    const [nonePath, notTherePath] = [`${home(OTHER.username)}/${m.aTitle()}.md`, `${home(OTHER.username)}/${m.aTitle()}.md`]
+    const none = await h.admin('POST', '/api/history/purge', { path: nonePath, confirm: ADMIN.password })
+    assert.deepEqual(same(none), same(k))
+    const someVersion = ((await versionsOf(PATH.list, h.member)) as { id: string }[])[0]!.id
+    const notThere = await h.admin('POST', '/api/history/purge', { path: notTherePath, version: someVersion, confirm: ADMIN.password })
+    assert.deepEqual(same(notThere), same(k))
+    assert.equal((await versionsOf(PATH.list, h.member)).length > 0, true, 'a version that never wrote the path is left alone')
     assert.deepEqual(await versionsOf(PATH.otherNotes, h.other), [])
     assert.deepEqual(await versionsOf(OLD, h.other), [])
     assert.ok(!(await objects(h.stateDir)).includes(older))
@@ -147,7 +158,8 @@ test('a manager purges a note\'s whole history (that file alone); the admin purg
     assert.equal(list[0]!.authors[0]!.name, MEMBER.username, 'the write made during the purge has its version')
     // Both where the admin can't read: who, never where (D-056.24), but for his own purge, whose path he wrote (D-056.26).
     const alerts = ((await h.admin('GET', '/api/alerts')).body.alerts as { code: string; path: string | null; by: string }[]).filter((a) => a.code === 'history_purged')
-    assert.deepEqual(alerts.map((a) => [a.path, a.by]), [[null, MEMBER.username], [home(OTHER.username), ADMIN.username]])
+    // His own notice too, alike for the paths that had nothing (and the version that wasn't theirs).
+    assert.deepEqual(alerts.map((a) => [a.path, a.by]), [[null, MEMBER.username], [home(OTHER.username), ADMIN.username], [nonePath, ADMIN.username], [notTherePath, ADMIN.username]])
   } finally { await h.close() }
 })
 
@@ -160,5 +172,42 @@ test('the notices of purges outlive a restart, and a broken file of them is no n
     assert.deepEqual(new PurgeNotices(h.stateDir).all().map((x) => x.path), ['a.md'])
     writeFileSync(join(h.stateDir, 'history', 'purges.json'), '{ no')
     assert.deepEqual(new PurgeNotices(h.stateDir).all(), [])
+  } finally { await h.close() }
+})
+
+test('what each person may purge, to choose from: notes in folders they manage (deleted ones marked), or for the admin any file they read; never what they can\'t read, never for a key', async () => {
+  const h = await setup({ files: FILES, config: SHARED })
+  try {
+    await put(h.member, DIARY, (t) => t + `${m.aSentence()}\n`)
+    await put(h.member, PATH.list, (t) => t + `${m.aSentence()}\n`)
+    await h.settle()
+    assert.equal((await h.member('DELETE', `/api/note?path=${encodeURIComponent(PATH.diary)}`)).status, 200)
+    await h.settle()
+    type Entry = { path: string; deleted: boolean }
+    const listOf = async (as: As) => {
+      const r = await as('GET', '/api/history/purgeable')
+      assert.equal(r.status, 200, JSON.stringify(r.body))
+      return r.body.paths as Entry[]
+    }
+    const member = await listOf(h.member)
+    assert.deepEqual(member.find((e) => e.path === DIARY), { path: DIARY, deleted: true }, 'a deleted note is there to purge, marked')
+    assert.ok(member.some((e) => e.path === PATH.list) === false, 'a note she edits without managing it is not hers to purge')
+    assert.ok(member.every((e) => e.path.endsWith('.md')), 'a manager purges notes')
+    for (const p of [PATH.otherNotes, PATH.adminPlan, PATH.settings]) assert.ok(!member.some((e) => e.path === p), p)
+
+    const admin = await listOf(h.admin)
+    assert.deepEqual(admin.find((e) => e.path === PATH.list), { path: PATH.list, deleted: false })
+    assert.ok(admin.some((e) => e.path === PATH.photo), 'the admin purges any file, an image too')
+    // Nothing of what the admin can't read: the member's own space, the other's.
+    assert.ok(admin.some((e) => e.path === RECIPE), 'shared with him to comment: he reads it')
+    for (const p of [DIARY, PATH.memberPhoto, PATH.otherNotes]) assert.ok(!JSON.stringify(admin).includes(posix.basename(p)), p)
+
+    const other = await listOf(h.other)
+    assert.ok(other.some((e) => e.path === PATH.otherNotes))
+    assert.ok(!JSON.stringify(other).includes(posix.basename(DIARY)) && !other.some((e) => e.path === RECIPE))
+
+    await h.enable()
+    const { token } = await h.newKey('admin', { name: m.aKeyName() })
+    assert.equal((await h.withKey(token)('GET', '/api/history/purgeable')).status, 404, 'a key never: a session route')
   } finally { await h.close() }
 })

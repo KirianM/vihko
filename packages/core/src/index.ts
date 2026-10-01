@@ -9,7 +9,7 @@ export {
 } from './markdown.ts'
 export { markdownParser, vihkoSyntax, withoutClosingHashes } from './syntax.ts'
 export { caseFold } from './casefold.ts'
-export { LinkIndex, isRootTarget, joinPath, linkSpace, normKey, noteName, pathKeys, shortestTarget, wikiLink, type LinkIndexOptions, type NoteKeys, type Resolution } from './resolve.ts'
+export { LinkIndex, isRootTarget, joinPath, linkSpace, normKey, noteName, pathKeys, sameSpace, shortestTarget, wikiLink, type LinkIndexOptions, type NoteKeys, type Resolution } from './resolve.ts'
 export { classifyPath, conflictOriginal, hasControlCharacter, isIgnoredDir, trimSlashes, trimTrailingSlashes, type PathKind } from './paths.ts'
 export type { AccountChange, SpaceChange, Alert, AlertAction, AlertCode, ConfigMigrationRef, ErrorCode } from './codes.ts'
 export { newUid } from './uid.ts'
@@ -29,9 +29,9 @@ export {
   SpaceRules, spaceKeyProblem, type Grantee, type ReachingGrant, type SpaceKeyProblem,
 } from './permissions.ts'
 export {
-  PEOPLE, READABLE_MAX, SETTINGS_FOLDER, SPACES, SPACE_ID, SPACE_ID_LENGTH, SPACE_NAME_MAX,
-  displayPath, isReserved, isSpaceRoot, isValidUsername, nameKey, newSpaceFolder, newSpaceId, parseSpaceFolder, parseSpacePath,
-  personalRoot, placement, readablePart, settingsFolder, sharedRoot, spaceNameProblem, spaceOf, spaceRootOf,
+  PEOPLE, PERSONAL_ADDRESS, READABLE_MAX, SETTINGS_FOLDER, SPACES, SPACE_ID, SPACE_ID_LENGTH, SPACE_NAME_MAX,
+  addressOf, displayPath, isReserved, isSpaceRoot, isValidUsername, nameKey, newSpaceFolder, newSpaceId, parseSpaceFolder, parseSpacePath,
+  pathOfAddress, personalRoot, placement, readablePart, settingsFolder, sharedRoot, spaceNameProblem, spaceOf, spaceRootOf,
   type DisplayPath, type DisplaySpace, type PersonalSpace, type SharedSpace, type Space, type SpaceKind, type SpacePath,
 } from './spaces.ts'
 export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'

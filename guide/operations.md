@@ -174,7 +174,7 @@ The lines to know:
 | `vihko.yaml rewritten to the current format: …` | An upgrade changed the file's format; the line says where the copy is. See [Upgrading](upgrading.md#what-happens-at-start). |
 | `vihko.yaml can't be used (…)` | A mistake in `vihko.yaml`: vihko keeps the last valid version. The admins see the details in the workspace alerts. See [Configuration](configuration.md). |
 | `moved outside vihko: a.md → b.md (…)` | A note was renamed or moved by another program; vihko followed it. |
-| `links in N note(s) still not updated after moving a to b: given up` | After a move from vihko, links in notes of other spaces couldn't be rewritten, even after the next rescan. Whoever made the move gets a notice. |
+| `links in N note(s) still not updated after moving a to b: given up` | After a move from vihko, some links couldn't be rewritten, even after the next rescan. Whoever made the move gets a notice. |
 | `external change integrated into …` | A note open in an editor was changed by another program; the editors show the change. |
 | `<note>: the file changed after the note was closed, with vihko running; merged into its saved document` | Another program changed the note after its last editor closed it. When it's opened again, vihko merges that change into its saved editor state, so a browser that still had the note open offline merges its typing too. Normal when you also edit with other tools. |
 | `<note>: the saved document doesn't match the file; new generation` | The note's file changed while vihko was stopped (or the state volume was restored from a backup): it's loaded from its file. A browser that had it open offline keeps its unsent typing aside and asks what to do with it. |

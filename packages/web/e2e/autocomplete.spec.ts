@@ -7,7 +7,7 @@ import { expect, test, type Browser, type Locator, type Page } from '@playwright
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { markdownDest } from '../../core/src/images.ts'
 import { ADMIN, E2E_DIR, MEMBER, NOTES, SPACE_NAME, inVault, personal, specMother } from './env.ts'
-import { literally, signIn, writeWorkspace } from './helpers.ts'
+import { literally, openPath, signIn, writeWorkspace } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 /** As the suggestions compare: case- and accent-insensitive (editor/suggest.ts). */
@@ -53,7 +53,7 @@ const tagPair = (): string[] => {
 }
 const [TAG_A, TAG_B] = tagPair() as [string, string]
 const disk = (path = SOURCE) => (existsSync(`${NOTES}/${path}`) ? readFileSync(`${NOTES}/${path}`, 'utf8') : '')
-const noteParam = (page: Page) => new URL(page.url()).searchParams.get('note')
+const noteParam = openPath
 
 /**
  * The caret at the very end of a line of the editor (which must have the
@@ -171,28 +171,28 @@ test('an alias finds the note and becomes the visible text', async () => {
   await expect.poll(() => disk()).toContain(` [[${DEST}|${ALIAS}]]\n`)
 })
 
-test('a note of another space: suggested, and written from the notes root with its name to show; in a table, with `\\|`', async () => {
-  // A note of the admin's own space, linked from the vault's space (D-056.17).
-  // It stays until the end: the links to it must keep resolving (they'd be broken ones the next tests count).
+test('D-056.30: a note of another space is never suggested; one of this space with the same start is, and its link resolves', async () => {
+  // The same title in the admin's own space and, with one more word, in the vault's space (where the source is).
   const title = accented()
-  const path = `${OWN}/${title}.md`
+  const elsewhere = `${OWN}/${title}.md`
+  const here = `${DIR}/${title} ${m.aUniqueWord()}.md`
+  const hereTitle = here.slice(here.lastIndexOf('/') + 1, -3)
   mkdirSync(`${NOTES}/${OWN}`, { recursive: true })
-  writeFileSync(`${NOTES}/${path}`, `# ${title}\n`)
-  await expect.poll(async () => ((await (await k.request.get('/api/tree')).json()).notes as { path: string }[]).some((n) => n.path === path)).toBe(true)
-  // The suggestions' catalog is kept a few seconds: a fresh page knows the new note.
+  writeFileSync(`${NOTES}/${elsewhere}`, `# ${title}\n`)
+  writeFileSync(`${NOTES}/${here}`, `# ${hereTitle}\n`)
+  const tree = async () => ((await (await k.request.get('/api/tree')).json()).notes as { path: string }[]).map((n) => n.path)
+  await expect.poll(async () => { const t = await tree(); return t.includes(elsewhere) && t.includes(here) }).toBe(true)
+  // The suggestions' catalog is kept a few seconds: a fresh page knows the new notes.
   await k.goto(`/?note=${encodeURIComponent(SOURCE)}`)
   await expect(k.locator('.cm-content')).toBeVisible()
-  const target = path.replace(/\.md$/, '')
   await typeAtEnd(k, ` [[${fold(title)}`)
-  await accept(k, starts(title))
-  await expect.poll(() => disk()).toContain(` [[${target}|${title}]]\n`)
-  // In a table, a bare `|` would end the cell.
-  await k.keyboard.press('Enter')
-  await k.keyboard.type(`\n| ${m.aWord()} | ${m.aWord()} |\n| - | - |\n| [[${fold(title)}`)
-  await accept(k, starts(title))
-  await expect.poll(() => disk()).toContain(`| [[${target}\\|${title}]]`)
+  await expect(option(k, starts(hereTitle))).toHaveCount(1)
+  await expect(list(k).getByRole('option')).toHaveCount(1)
+  await accept(k, starts(hereTitle))
+  await expect.poll(() => disk()).toContain(` [[${hereTitle}]]`)
+  expect(disk()).not.toContain(OWN)
   await k.locator('.cm-h1').first().click()
-  await expect(k.locator('.cm-wikilink-resolved', { hasText: title }).first()).toBeVisible()
+  await expect(k.locator('.cm-wikilink-resolved', { hasText: hereTitle }).first()).toBeVisible()
 })
 
 test('# suggests tags in use with their counts; never inside code or for a heading', async () => {

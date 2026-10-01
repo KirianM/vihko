@@ -6,7 +6,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { ADMIN, E2E_DIR, MEMBER, NOTES, SPACE_NAME, inVault, specMother } from './env.ts'
-import { editorText, png, signIn } from './helpers.ts'
+import { editorText, noteInUrl, png, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const NAME = m.aFolder()
@@ -269,7 +269,7 @@ test('«Recent changes»: by day, with authors and files, filtered by author; a 
   // A version of the note from before its rename opens where the note is now.
   const typed = cards.filter({ has: k.getByRole('link', { name: `${SPACE_NAME} / ${NAME} / ${TITLE}`, exact: true }) }).last()
   await typed.getByRole('link', { name: `${SPACE_NAME} / ${NAME} / ${TITLE}`, exact: true }).click()
-  await expect(k).toHaveURL(new RegExp(`note=${q(RENAMED).replace(/%20/g, '(%20|\\+)')}.*version=`))
+  await expect(k).toHaveURL(new RegExp(`${noteInUrl(RENAMED)}.*version=`))
   await expect(k.locator('.crumbs b')).toHaveText(RENAMED_TITLE)
   await expect(k.locator('.v-text')).toBeVisible()
 })

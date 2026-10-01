@@ -71,9 +71,9 @@ test('a shared image and one in another folder stay; the moved note links them f
     { path: `${ASSETS}/${LOGO}.png`, reason: 'elsewhere' },
   ])
   assert.deepEqual(dry.relinked, [{ path: `${ARCHIVE}/2026/${PLAN}.md`, links: 3, changes: [
-    { before: `![](${SHARED}.png)`, after: `![](../../${PROJ}/${SHARED}.png)` },
-    { before: `![[${IMG}/${SUB}.png]]`, after: `![[/${PROJ}/${IMG}/${SUB}.png]]` },
-    { before: `![](../${ASSETS}/${LOGO}.png)`, after: `![](../../${ASSETS}/${LOGO}.png)` },
+    { before: `![](${SHARED}.png)`, after: `![](../../${PROJ}/${SHARED}.png)`, kind: 'image', to: `${PROJ}/${SHARED}.png` },
+    { before: `![[${IMG}/${SUB}.png]]`, after: `![[/${PROJ}/${IMG}/${SUB}.png]]`, kind: 'image', to: `${PROJ}/${IMG}/${SUB}.png` },
+    { before: `![](../${ASSETS}/${LOGO}.png)`, after: `![](../../${ASSETS}/${LOGO}.png)`, kind: 'image', to: `${ASSETS}/${LOGO}.png` },
   ] }])
   await notes.move(`${PROJ}/${PLAN}.md`, `${ARCHIVE}/2026/${PLAN}.md`, { actor: me })
   assert.ok(has(`${PROJ}/${SHARED}.png`) && has(`${PROJ}/${IMG}/${SUB}.png`) && has(`${ASSETS}/${LOGO}.png`))
@@ -97,8 +97,8 @@ test('a taken name at the destination gets a suffix; nothing is overwritten', as
   assert.ok(has(`${ARCHIVE}/${CHART}-2.png`) && !has(`${PROJ}/${CHART}.png`))
   assert.ok(read(`${ARCHIVE}/${PLAN}.md`).endsWith(`![](${CHART}-2.png) and again ![${CHART}](${CHART}-2.png "title")\n`))
   assert.deepEqual(r.relinked[0]!.changes, [
-    { before: `![](${CHART}.png)`, after: `![](${CHART}-2.png)` },
-    { before: `![${CHART}](${CHART}.png "title")`, after: `![${CHART}](${CHART}-2.png "title")` },
+    { before: `![](${CHART}.png)`, after: `![](${CHART}-2.png)`, kind: 'image', to: `${ARCHIVE}/${CHART}-2.png` },
+    { before: `![${CHART}](${CHART}.png "title")`, after: `![${CHART}](${CHART}-2.png "title")`, kind: 'image', to: `${ARCHIVE}/${CHART}-2.png` },
   ])
 })
 
@@ -160,5 +160,5 @@ test('an image that cannot go with the note stays, and the note links it where i
   assert.deepEqual(r.images.failed.map((f) => [f.path, f.to, f.outcome, f.error]), [[`${PROJ}/${PLAN}.png`, null, 'stayed', 'exists']])
   assert.ok(has(`${PROJ}/${PLAN}.png`))
   assert.ok(read(`${ARCHIVE}/${PLAN}.md`).endsWith(`![](../${PROJ}/${PLAN}.png)\n`))
-  assert.deepEqual(r.relinked[0]!.changes, [{ before: `![](${PLAN}.png)`, after: `![](../${PROJ}/${PLAN}.png)` }])
+  assert.deepEqual(r.relinked[0]!.changes, [{ before: `![](${PLAN}.png)`, after: `![](../${PROJ}/${PLAN}.png)`, kind: 'image', to: `${PROJ}/${PLAN}.png` }])
 })

@@ -3,7 +3,7 @@
 // and the shortest link that reaches a note from the current one (D-019).
 // Plain data in and out, so it can be tested on its own.
 import { caseFold } from '@vihko/core/casefold'
-import { LinkIndex, wikiLink } from '@vihko/core/resolve'
+import { LinkIndex, sameSpace, wikiLink } from '@vihko/core/resolve'
 
 /** A note as the tree lists it. */
 export interface NoteEntry { path: string; title: string; aliases?: readonly string[] }
@@ -118,13 +118,17 @@ export class NoteCatalog {
 
   get size() { return this.prepared.length }
 
-  /** Notes that match `query`, best first; notes in the current note's folder win ties. The current note is left out. */
+  /**
+   * Notes that match `query`, best first; notes in the current note's folder
+   * win ties. Only notes of the current note's space (D-056.30: a link never
+   * leads to another space); the current note is left out.
+   */
   rank(query: string, source: string, limit = 50): NoteMatch[] {
     const q = fold(query)
     const here = folderOf(source)
     const out: (NoteMatch & { near: number; sort: string })[] = []
     for (const p of this.prepared) {
-      if (p.note.path === source) continue
+      if (p.note.path === source || !sameSpace(source, p.note.path)) continue
       const label = p.note.title || baseName(p.note.path)
       let best = Math.max(matchScore(p.title, q), matchScore(p.name, q) - 1)
       if (q.includes('/')) best = Math.max(best, matchScore(p.path, q) - 2)
@@ -146,10 +150,10 @@ export class NoteCatalog {
   }
 
   /**
-   * How a link to `path` is written in `source` (core `wikiLink`, D-056): the
-   * shortest target and, when it is a path from the notes root (another
-   * space, or a folder shared from someone's space), the note's name as
-   * visible text (`[[spaces/home-7k2q9x/list|list]]`).
+   * How a link to `path`, a note of the same space, is written in `source`
+   * (core `wikiLink`): the shortest target and, when it has to be the path
+   * from the notes root (a folder shared from someone's space, seen only in
+   * part), the note's name as visible text.
    */
   linkForm(source: string, path: string): { target: string; display: string | null } {
     return wikiLink(this.index, source, path, { whole: (folder) => !this.pathOnly.has(folder) })

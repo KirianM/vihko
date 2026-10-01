@@ -67,15 +67,15 @@ test('renaming a note renames its folder; links from it and from other notes are
   // The moved note first, then the others in the order of their paths.
   const others: [string, unknown][] = [
     [`${ELSEWHERE}/${FAR}.md`, [
-      { before: `![x](../${PROJ}/${PLAN}.assets/${CHART}.png)`, after: `![x](../${PROJ}/${ROADMAP}.assets/${CHART}.png)` },
-      { before: `![[/${PROJ}/${PLAN}.assets/${PHOTO}.png]]`, after: `![[/${PROJ}/${ROADMAP}.assets/${PHOTO}.png]]` },
+      { before: `![x](../${PROJ}/${PLAN}.assets/${CHART}.png)`, after: `![x](../${PROJ}/${ROADMAP}.assets/${CHART}.png)`, kind: 'image', to: `${PROJ}/${ROADMAP}.assets/${CHART}.png` },
+      { before: `![[/${PROJ}/${PLAN}.assets/${PHOTO}.png]]`, after: `![[/${PROJ}/${ROADMAP}.assets/${PHOTO}.png]]`, kind: 'image', to: `${PROJ}/${ROADMAP}.assets/${PHOTO}.png` },
     ]],
-    [`${PROJ}/${OTHER}.md`, [{ before: `![](${PLAN}.assets/${CHART}.png)`, after: `![](${ROADMAP}.assets/${CHART}.png)` }]],
+    [`${PROJ}/${OTHER}.md`, [{ before: `![](${PLAN}.assets/${CHART}.png)`, after: `![](${ROADMAP}.assets/${CHART}.png)`, kind: 'image', to: `${PROJ}/${ROADMAP}.assets/${CHART}.png` }]],
   ]
   assert.deepEqual(dry.relinked.map((r) => [r.path, r.changes]), [
     [`${PROJ}/${ROADMAP}.md`, [
-      { before: `![${CHART}](${PLAN}.assets/${CHART}.png)`, after: `![${CHART}](${ROADMAP}.assets/${CHART}.png)` },
-      { before: `![[${PLAN}.assets/${PHOTO}.png]]`, after: `![[${ROADMAP}.assets/${PHOTO}.png]]` },
+      { before: `![${CHART}](${PLAN}.assets/${CHART}.png)`, after: `![${CHART}](${ROADMAP}.assets/${CHART}.png)`, kind: 'image', to: `${PROJ}/${ROADMAP}.assets/${CHART}.png` },
+      { before: `![[${PLAN}.assets/${PHOTO}.png]]`, after: `![[${ROADMAP}.assets/${PHOTO}.png]]`, kind: 'image', to: `${PROJ}/${ROADMAP}.assets/${PHOTO}.png` },
     ]],
     ...others.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
   ])

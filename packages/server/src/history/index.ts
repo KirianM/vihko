@@ -139,6 +139,17 @@ export class History {
     return report
   }
 
+  /**
+   * The files the managed history holds versions of (`deleted`: its last
+   * version deletes it), for choosing what to purge; none in any other mode
+   * (only the managed history is purged). Whoever may see which is the
+   * caller's to judge.
+   */
+  async purgeable(): Promise<{ path: string; deleted: boolean }[]> {
+    if (this.mode !== 'managed') return []
+    return this.managed.paths()
+  }
+
   /** Who made the purge a `history_purged` alert tells of (its `id`): their user id, or null. */
   purgedBy(noticeId: string): string | null {
     return this.notices.all().find((n) => n.id === noticeId)?.by ?? null

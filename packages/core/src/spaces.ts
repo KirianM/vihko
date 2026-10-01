@@ -247,6 +247,41 @@ export function isReserved(path: string): boolean {
   return s.inner.split('/')[0]!.toLowerCase() === SETTINGS_FOLDER
 }
 
+/** What starts a personal space's address in the browser: `~ana/…` (D-056.29). */
+export const PERSONAL_ADDRESS = '~'
+
+/**
+ * A path's address in the browser (`?note=`, D-056.29): the same for
+ * everyone who can open it, and without the product's folders, which are
+ * nobody's to see. A shared space by its folder (`home-7k2q9x/list.md`, the
+ * id inside it), a personal one by `~` and its owner (`~ana/trips/Rome.md`).
+ * Null for a path in no space (nobody sees those in vihko).
+ */
+export function addressOf(path: string): string | null {
+  const s = parseSpacePath(path)
+  if (!s) return null
+  const head = s.space.kind === 'shared' ? s.space.folder : `${PERSONAL_ADDRESS}${s.space.owner}`
+  return s.inner === '' ? head : `${head}/${s.inner}`
+}
+
+/**
+ * The real path an address names (addressOf), or null. A path from the
+ * notes root (`people/…`, `spaces/…`, the addresses before D-056.29) is
+ * taken as it is, with `legacy` set so the caller writes the new address.
+ */
+export function pathOfAddress(address: string): { path: string; legacy: boolean } | null {
+  const a = address.normalize('NFC').replace(/^\/+/, '')
+  if (a === '') return null
+  const slash = a.indexOf('/')
+  const head = slash === -1 ? a : a.slice(0, slash)
+  const rest = slash === -1 ? '' : a.slice(slash)
+  if (head === PEOPLE || head === SPACES) return parseSpacePath(a) ? { path: a, legacy: true } : null
+  const root = head.startsWith(PERSONAL_ADDRESS)
+    ? (isValidUsername(head.slice(PERSONAL_ADDRESS.length)) ? personalRoot(head.slice(PERSONAL_ADDRESS.length)) : null)
+    : (parseSpaceFolder(head) ? sharedRoot(head) : null)
+  return root === null ? null : { path: root + rest, legacy: false }
+}
+
 /**
  * Whose a space is, as one person sees it in the UI:
  * - `mine`: their own personal space («My notes»);

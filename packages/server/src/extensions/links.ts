@@ -38,7 +38,8 @@ export function linksExtension(opts: { aliases?: boolean } = {}): LinksExtension
     name: 'links',
     // 2: keys with full Unicode case folding. 3: the alias setting links were resolved with.
     // 4: spaces (D-056): each key with the space its note is in, names resolved within it.
-    version: 4,
+    // 5: no link leads to another space, paths included (D-056.30): every link resolved again.
+    version: 5,
     // Anchors are checked against the headings, and the index is loaded from them.
     requires: ['headings'],
     get index() { return index },

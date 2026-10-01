@@ -17,6 +17,7 @@
 //   GET  /api/history/changes?cursor=&limit=&author=
 //   GET  /api/history/resolved?path=
 //   POST /api/history/purge { path, version?, dryRun?, confirm? }   (`manage`, or the admin by name)
+//   GET  /api/history/purgeable                         (what the person may purge and reads: `manage`, or the admin)
 //   DELETE /api/history/purges/:id                      (the admin: a purge's notice, dismissed)
 import type { Context, Hono } from 'hono'
 import { WORKSPACE_FILE, folderOf } from '@vihko/core'
@@ -267,8 +268,24 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     const blind = (p: PurgeReport) => !readablePath(access, p.path) || p.commits.some((v) => v.files.some((f) => !readablePath(access, f.path)))
     // The admin's preview of a path they can't read says nothing of it: not whether it ever existed, nor
     // when anything there was written (D-038.1, D-056.8). Only the purge itself, confirmed, does anything.
-    if (body.dryRun === true && admin && !manages && !readablePath(access, path)) {
-      return c.json({ path, version: body.version ?? null, dryRun: true, hidden: true, versions: [], filesRemoved: 0, onDisk: 0, sharedWith: [], movedFrom: [], confirmRequired: !!deps.confirm })
+    const unseen = { path, version: body.version ?? null, hidden: true, versions: [], filesRemoved: 0, onDisk: 0, sharedWith: [], movedFrom: [] }
+    if (admin && !manages && !readablePath(access, path)) {
+      if (body.dryRun === true) return c.json({ ...unseen, dryRun: true, confirmRequired: !!deps.confirm })
+      // The purge itself answers the same whether anything there had history or not: always confirmed
+      // first, and then nothing of what went (how many versions, when), nor whether the version named
+      // was one of that path's. The admin's own notice of it, alike either way.
+      if (deps.confirm) {
+        const refused = await deps.confirm(c, body.confirm)
+        if (refused) return refused
+      }
+      try {
+        const r = await run(false)
+        deps.notices?.purged(r.commits.flatMap((v) => v.people), user.id, r.path, r.version !== null)
+      } catch (err) {
+        if (!(err instanceof PurgeError && err.code === 'not_a_version')) throw err
+        history.notices.add({ path, version: (body.version as string | undefined) ?? null, by: user.id, at: new Date().toISOString() })
+      }
+      return c.json({ ...unseen, dryRun: false })
     }
     let r: PurgeReport
     if (body.dryRun === true) r = await run(true)
@@ -296,6 +313,25 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
       // The real purge will ask for the confirmation at the moment (the admin, something they can't read).
       ...(r.dryRun ? { confirmRequired: admin && !!deps.confirm && blind(r) } : {}),
     })
+  })
+
+  // What this person may purge, to choose from instead of typing a path: the
+  // files the managed history holds versions of (`deleted`: its last version
+  // deletes it) that they could purge and can read now. Whoever manages a
+  // folder, the notes in it; the admin, any file they read (a path they can't
+  // read is still purged by its name, never listed). Nothing for an agent,
+  // and nothing in any other mode.
+  app.get('/api/history/purgeable', async (c) => {
+    const access = c.get('access')
+    if (access.isAgent) throw new AccessError('purging is for people')
+    const admin = c.get('user').role === 'admin'
+    const may = (p: string) => {
+      if (!readablePath(access, p)) return false
+      if (admin) return true
+      try { NoteService.checkPath(p) } catch { return false }
+      return access.canManage(folderOf(p))
+    }
+    return c.json({ paths: (await history.purgeable()).filter((f) => may(f.path)) })
   })
 
   // The admin's notice of a purge, dismissed.

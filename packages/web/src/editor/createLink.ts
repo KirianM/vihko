@@ -3,7 +3,7 @@
 // note goes. The editor only shows the badge; creating is the note view's job.
 import { Facet } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
-import { isRootTarget, joinPath } from '@vihko/core/resolve'
+import { isRootTarget, joinPath, sameSpace } from '@vihko/core/resolve'
 import { resolveImageRef } from '@vihko/core/images'
 
 /** A broken link the person asked to create: where the note goes and its title. */
@@ -43,9 +43,10 @@ const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) :
  * Where the note of a missing wikilink is created so that the link resolves to
  * it: the link's name in the note's folder. A target with folders
  * (`[[project/Plan]]`) keeps them below that folder, and one from the root
- * (`[[/project/Plan]]`, or one into a space, `[[spaces/home-7k2q9x/Plan]]`
- * or `[[people/ana/Plan]]`, D-056.4) is created there. Null if no valid
- * name is left.
+ * (`[[/project/Plan]]`, `[[people/ana/Plan]]`) is created there. Only in the
+ * note's own space (D-056.30: a link never leads to another space, so a note
+ * anywhere else would leave it broken): null for a target elsewhere, or if no
+ * valid name is left.
  */
 export function wikiLinkNote(source: string, raw: string): NewLinkedNote | null {
   const embed = raw.startsWith('!')
@@ -58,13 +59,13 @@ export function wikiLinkNote(source: string, raw: string): NewLinkedNote | null 
   if (parts.some((p) => p === '' || p === '..' || cleanSegment(p) !== p.normalize('NFC'))) return null
   const rel = parts.join('/') + '.md'
   const path = fromRoot ? rel : joinPath(dirOf(source), rel)
-  return { path, title: parts[parts.length - 1]!, raw }
+  return sameSpace(source, path) ? { path, title: parts[parts.length - 1]!, raw } : null
 }
 
-/** The same for `[text](dest.md)`: relative to the note, only for `.md` destinations inside the folder. */
+/** The same for `[text](dest.md)`: relative to the note, only for `.md` destinations in the note's own space. */
 export function markdownLinkNote(source: string, raw: string, dest: string): NewLinkedNote | null {
   const path = resolveImageRef(source, dest)
-  if (!path || !/\.md$/i.test(path)) return null
+  if (!path || !/\.md$/i.test(path) || !sameSpace(source, path)) return null
   const name = path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/i, '')
   if (path.split('/').some((p) => p.startsWith('.') || cleanSegment(p) !== p)) return null
   return { path, title: name, raw }

@@ -7,9 +7,9 @@ import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Mod
 import { api, type MoveJob, type MoveReport } from '../api.ts'
 import { AudienceWarning, audienceChanges } from '../Audience.tsx'
 import { DestinationFields, joinPlace, splitPlace, usePlaces } from '../Destination.tsx'
+import { ImageRows, KeptRows, RelinkRows } from '../MovePreview.tsx'
 import { ShiftPreview } from '../Shifts.tsx'
 import { errorText, useT, type MessageKey } from '../i18n.tsx'
-import { usePathLabels } from '../spaces.tsx'
 import { Icon, noteName } from '../ui.tsx'
 import '../actions.css'
 
@@ -46,12 +46,12 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
   onStarted: (job: MoveJob) => void
 }) {
   const t = useT()
-  const labels = usePathLabels()
-  const label = labels.label
   const places = usePlaces()
   const [name, setName] = useState(noteName(path))
   const start = initialFolder ?? folderOf(path)
   const [dest, setDest] = useState<{ root: string; inner: string } | null>(null)
+  /** The folder typed names several that differ only in case: not until one is chosen. */
+  const [ambiguous, setAmbiguous] = useState(false)
   // Where it goes: a place (a space, or a folder shared with them) and the folder inside it.
   const { root, inner } = dest ?? splitPlace(places, start)
   const folder = joinPlace(root, inner)
@@ -89,7 +89,7 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
   const submitKey: MessageKey = `rename.${action}${count}${m ? 'Images' : ''}`
   const images = t(m === 1 ? 'rename.imagesOne' : 'rename.imagesMany', { n: m })
   const nothing = !!report && report.relinked.length === 0 && report.shifted.length === 0 && report.kept.length === 0 && report.images.moved.length === 0 && report.images.stayed.length === 0 && !report.images.folder && report.images.failed.length === 0
-  const blocked = audienceChanges(report?.audience) && !confirmed
+  const blocked = (audienceChanges(report?.audience) && !confirmed) || ambiguous
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -116,7 +116,7 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
             <Input />
           </TextField>
           <DestinationFields root={root} inner={inner} hint={t('rename.folderHint')}
-            onRoot={(r) => setDest({ root: r, inner: '' })} onInner={(i) => setDest({ root, inner: i })} />
+            onRoot={(r) => setDest({ root: r, inner: '' })} onInner={(i) => setDest({ root, inner: i })} onAmbiguous={setAmbiguous} />
         </div>
         <div className="preview" aria-live="polite">
           <div className="preview-head">{t(report?.shifted.length ? 'rename.previewPlain' : 'rename.preview')}</div>
@@ -124,53 +124,12 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
             {preview.kind === 'idle' && <span className="preview-note">{t('rename.previewUnchanged')}</span>}
             {preview.kind === 'loading' && <span className="preview-note">{t('rename.previewLoading')}</span>}
             {preview.kind === 'error' && <span className="error-text" role="alert">{preview.message}</span>}
-            {report && <AudienceWarning audience={report.audience} confirmed={confirmed} onConfirm={setConfirmed} cross={report.crossSpaceLinks} copied={report.images.copied?.length ?? 0} />}
+            {report && <AudienceWarning audience={report.audience} confirmed={confirmed} onConfirm={setConfirmed} broken={report.brokenLinks} dest={report.to} copied={report.images.copied?.length ?? 0} />}
             {nothing && <span className="preview-note">{t('rename.previewNone')}</span>}
-            {report && <ShiftPreview groups={report.shifted} />}
-            {report?.relinked.flatMap((r) => r.changes.map((c, i) => (
-              <div className="preview-row" key={`${r.path}#${i}`}>
-                <span className="preview-src">{label(r.path)}</span>
-                <span className="preview-change">
-                  <del>{c.before}</del> → <ins>{c.after}</ins>
-                </span>
-              </div>
-            )))}
-            {report?.images.copied?.map((img) => (
-              <div className="preview-row preview-image" key={`c:${img.from}`}>
-                <span className="preview-src">{label(img.from)}</span>
-                <span>{t('rename.imageCopied')} <code>{label(img.to)}</code></span>
-              </div>
-            ))}
-            {report?.images.moved.map((img) => (
-              <div className="preview-row preview-image" key={`m:${img.from}`}>
-                <span className="preview-src">{label(img.from)}</span>
-                <span>{t('rename.imageMoves')} <code>{label(img.to)}</code></span>
-              </div>
-            ))}
-            {report?.images.folder && (
-              <div className="preview-row preview-image">
-                <span className="preview-src">{label(report.images.folder.from)} /</span>
-                <span>{t(report.images.folder.files === 1 ? 'rename.folderMovesOne' : 'rename.folderMoves', { n: report.images.folder.files })} <code>{label(report.images.folder.to)} /</code></span>
-              </div>
-            )}
-            {report?.images.failed.map((f) => (
-              <div className="preview-row preview-image preview-kept" key={`f:${f.path}`}>
-                <span className="preview-src">{label(f.path)}</span>
-                <span>{t(f.error === 'not_empty' ? 'rename.folderHasNotes' : 'rename.imageTaken')}</span>
-              </div>
-            ))}
-            {report?.images.stayed.map((img) => (
-              <div className="preview-row preview-image preview-kept" key={`s:${img.path}`}>
-                <span className="preview-src">{label(img.path)}</span>
-                <span>{t(img.reason === 'shared' ? 'rename.imageShared' : 'rename.imageElsewhere')}</span>
-              </div>
-            ))}
-            {report?.kept.map((k, i) => (
-              <div className="preview-row preview-kept" key={`k:${k.path}#${i}`}>
-                <span className="preview-src">{label(k.path)}</span>
-                <span><code>{k.raw}</code> {t(k.via === 'alias' ? 'rename.keptAlias' : 'rename.keptPath')}</span>
-              </div>
-            ))}
+            {report && <ShiftPreview groups={report.shifted} withoutBreaks={report.brokenLinks !== undefined} />}
+            {report && <RelinkRows relinked={report.relinked} />}
+            {report && <ImageRows images={report.images} />}
+            {report && <KeptRows kept={report.kept} to={report.to} />}
           </div>
         </div>
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}

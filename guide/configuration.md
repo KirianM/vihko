@@ -116,7 +116,8 @@ Paths to notes and folders must be **inside a space**: `people/<user>/…` or
 folder, a templates folder or `mcp.instructions` anywhere else is ignored, and
 the admins get a warning (`outside_spaces`). A shared space's folder, with its
 id, shows in the address bar when you open one of its notes
-(`?note=spaces%2Fhome-7k2q9x%2F…`), and on the disk.
+(`?note=home-7k2q9x%2F…`; a person's space shows as `~<username>`), and on
+the disk.
 
 ### `version`
 
@@ -150,7 +151,8 @@ A folder, or a list of folders. `{user}` is the person creating the note, so
 folders, subfolders included, is offered under «From a template» when you
 create a note from the search box (Ctrl+K, or ⌘K on a Mac), grouped by space.
 Templates are plain notes, and you only see the ones you can read; a template
-from another space works the same, since only its text is copied.
+from another space works the same, since only its text is copied (its links
+by name then resolve in the new note's space).
 
 When vihko creates a note from a template, it copies the template's text and
 fills in these variables, in the timezone of the person creating it. Nothing

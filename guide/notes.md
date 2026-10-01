@@ -116,19 +116,20 @@ vihko reads both kinds of Markdown links. The editor writes wikilinks.
 | `[[Plan\|the plan]]` | The same, showing «the plan» |
 | `[[Plan#Budget]]` | The heading «Budget» in `Plan` |
 | `[[launch/Plan]]` | A note of the same space whose path ends in `launch/Plan` |
-| `[[spaces/home-7k2q9x/Plan\|Plan]]` | A note in another space: its path from the root of the notes folder |
-| `[[/spaces/home-7k2q9x/launch/Plan]]` | Exactly `spaces/home-7k2q9x/launch/Plan.md`, from the root |
 | `[text](../launch/Plan.md)` | A standard Markdown link, relative to the note |
 | `![[Plan]]` | Also a link to `Plan` (vihko doesn't show one note inside another) |
 
-What a link means depends only on the file and the space it's in, never on
-who reads it:
+**Links stay inside their space.** A link only ever leads to a note of the
+same space as the note it's in («My notes», or a shared space): never to
+another space, whatever its form. What a link means depends only on the file
+and the space it's in, never on who reads it:
 
-1. **A wikilink that starts with `people/` or `spaces/`** is a path from the
-   root of the notes folder. It can reach any space.
-2. **A Markdown link, or `[[/path]]`**, is an exact path (relative to the
-   note, or from the root). It can reach any space.
-3. **Any other `[[name]]`** is looked for **only among the notes of its own
+1. **A Markdown link, or a path from the root of the notes folder**
+   (`[[/…]]`, or a wikilink that starts with `people/` or `spaces/`), is an
+   exact path. It leads to the note only when that note is in the same space;
+   one that leaves the space (`../` above the space, or the folder of another
+   space) is broken.
+2. **Any other `[[name]]`** is looked for **only among the notes of its own
    space**, ignoring case (and Unicode forms), never as a partial match:
    - **nearest wins**: with several candidates, the one that shares the
      deepest folder with the linking note wins; then the one fewer levels
@@ -139,13 +140,14 @@ who reads it:
    - **aliases** from the frontmatter of the notes of that space, as a last
      resort. An alias that several notes share is ambiguous.
 
-A name never reaches another space: `[[Shopping list]]` in «My notes» never
-leads to the shopping list of «Home». To link there, write its path from the
-root; the `[[` suggestions do it for you, and show each note's space.
+`[[Shopping list]]` in «My notes» never leads to the shopping list of
+«Home», even for someone who reads both: a link to another space is broken,
+exactly like a link to a note that doesn't exist. The `[[` suggestions only
+offer notes of the same space, and «create» on a broken link only creates
+the note in that space.
 
 A folder named `people` or `spaces` at the root of a space hides behind rule
-1: link its notes by name, relatively, or with a leading `/`. vihko warns when
-you create one.
+1: link its notes by name or relatively. vihko warns when you create one.
 
 A link is shown as resolved, ambiguous, pointing to a missing heading, or
 **broken**. A link to a note you can't read looks exactly like a link to a
@@ -168,12 +170,13 @@ every other note**, so none of them changes its destination:
   the note, with what would break it (spaces, brackets, parentheses, `%`,
   `#`, `?`…) percent-encoded, and keeps its `#heading`, its `<…>` form and
   its title.
-- **Across spaces**, a wikilink is written with the path from the notes root,
-  without a leading `/` (a form Obsidian understands too), and with the
-  note's name as the text shown: `[[spaces/home-7k2q9x/Shopping list|Shopping
-  list]]`. When the note is renamed from vihko, that text follows the new
-  name, as long as it's still the note's name. A note that moves to another
-  space has its links by name to its old space rewritten the same way.
+- **Never across spaces**: a link never leads to another space, so vihko
+  never writes one. When a note or a folder moves to another space, its own
+  links stay as they are and now resolve in its new space, and the links
+  left behind that led to it are broken. Nothing is rewritten in either
+  space for that; the dialog lists, in plain words, which links will be
+  broken («In My notes / Home, the link to Trip will be broken (it now lives
+  in Family)») and asks you to confirm.
 - It does it in every note, including ones you can't read or edit, as vihko
   itself on your behalf: those notes' history says «Links updated when “Plan”
   was renamed to “Launch plan”», with your name, and whoever can edit them can
@@ -183,10 +186,10 @@ every other note**, so none of them changes its destination:
   with the same name now takes over), that link is rewritten too, with the
   shortest form that keeps its destination.
 - If a rewrite fails (the file changed meanwhile), vihko adds the old name to
-  the note's `aliases`, so links from its own space keep working, and tells
-  you which notes to check. With `links.aliases: false` it only tells you.
-  Links in other spaces are tried again after the next rescan; if they still
-  can't be updated, you get a notice, without names.
+  the note's `aliases`, so the links to it keep working, and tells you which
+  notes to check. What no alias stands in for (the notes of a folder that
+  moved, or any link with `links.aliases: false`) is tried again after the
+  next rescan; if it still can't be updated, you get a notice, without names.
 - A name that would make an existing link lead to a note you can't read (or
   make it ambiguous): if that link is in a note you read, the name isn't
   available, and renaming says «That name isn’t available here», as for a
@@ -356,12 +359,12 @@ Edit, add, move or delete files with any tool while vihko runs:
 
 ### With Obsidian and other editors
 
-- **With the whole notes folder open**, links inside a space and links that
-  start with `people/` or `spaces/` work as in vihko. One difference: a name
-  that doesn't exist in its own space but does in another, Obsidian finds
-  there, while vihko shows it broken.
-- **With only your own space open** (`people/<you>/`), everything inside it
-  works; links to other spaces are broken there.
+- **With only your own space open** (`people/<you>/`, or a shared space's
+  folder), everything inside it works as in vihko, and nothing leads out of
+  it, as in vihko.
+- **With the whole notes folder open**, links inside a space work as in
+  vihko. One difference: a name or a path that vihko shows broken because it
+  is in another space, Obsidian finds there.
 - **Files added outside a space** (at the root of the notes folder) aren't
   seen by anyone in vihko, and the admins get an alert. To bring an existing
   vault in, copy it into your own folder (`people/<you>/`), or into a shared

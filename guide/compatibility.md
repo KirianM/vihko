@@ -89,6 +89,15 @@ note. Every path vihko serves is inside a space:
   seen by nobody, and the admins get `person_folder_without_user`.
 - A shared space's name is not unique (the id tells spaces apart), and it is
   not secret: the admin's directory lists every shared space by name.
+- The UI never shows `people/` nor `spaces/`. A note's address in the
+  browser is `?note=<address>`, the same for everyone who can open it: a
+  shared space by its folder (`?note=home-7k2q9x/plan.md`), a person's space
+  by `~` and the username (`?note=~ana/trips/Rome.md`). An address with the
+  path from the notes root (as vihko wrote it before 0.1.0-rc.2) still opens
+  the note and is replaced by the new form. Other query parameters (`view`,
+  `version`) may be added; addresses of another form may be added too.
+- A link never leads to another space (see [What vihko writes into your
+  notes folder](#what-vihko-writes-into-your-notes-folder)).
 
 ## The HTTP API
 
@@ -137,7 +146,7 @@ write (write).
 | `POST /api/note` | write | `path`, and `text` or `template` | `201`: `path`, `uid`, `etag` |
 | `PUT /api/note` | write | `path` (query), `text`, `If-Match` or `If-None-Match: *` | `200` or `201`: `etag` |
 | `POST /api/note/edit` | write | `path`, `ops`, `ifMatch`?, `dryRun`? | `etag`; with `dryRun`: `dryRun`, `etag`, `changes` (`at`, `removed`, `inserted`) |
-| `POST /api/note/move` | write | `from`, `to`, `dryRun`?, `confirmAudience`?, `If-Match`? | `from`, `to`, `dryRun`, `etag`, `relinked`, `shifted`, `kept`, `failed`, `aliasAdded`, `images` (`moved`, `copied`, `stayed`, `folder`, `failed`), `hidden`, `crossSpaceLinks` (`path`, `incoming`, `outgoing`) when it changes space, and `audience` in a dry run |
+| `POST /api/note/move` | write | `from`, `to`, `dryRun`?, `confirmAudience`?, `If-Match`? | `from`, `to`, `dryRun`, `etag`, `relinked`, `shifted`, `kept`, `failed`, `aliasAdded`, `images` (`moved`, `copied`, `stayed`, `folder`, `failed`), `hidden`, `brokenLinks` (`path`, `to`) when it changes space, and `audience` in a dry run; each `relinked` change has `before`, `after`, `kind` (`link` or `image`) and `to` |
 | `DELETE /api/note` | write | `path` (query), `If-Match`? | The trash entry: `id`, `path`, `deletedAt`, `actor`, `etag`, and `files` when images went with it |
 | `POST /api/daily` | write | `series`? | `200` or `201`: `series`, `path`, `created` |
 | `POST /api/attachments` | write | `note` (query), the image's bytes as the body | `201`: `path`, `src`, `markdown` |
@@ -164,10 +173,11 @@ Details that go with them:
   (`gain`, `lose`: names), `keys` (`gain`, `lose`: counts) and `owner`
   (`before`, `after`: `{ kind: "personal", owner }`, `{ kind: "shared", path,
   name }`, or null), which is null when the note stays in its space.
-  `crossSpaceLinks` counts the links the move writes with a path from the
-  notes root: `incoming`, in notes of other spaces the key sees, and
-  `outgoing`, in the moved note, to notes of the space it leaves; `path` is
-  the note's new path without `.md`. `images.copied` lists the images the note
+  Nothing is rewritten across spaces (a link never leads to another space):
+  `brokenLinks` lists the links the move leaves broken, in the moved note to
+  notes of the space it leaves and in notes the key sees there to the moved
+  note, each once: `path`, the note holding the link, and `to`, the note it
+  led to, both where they are after the move. `images.copied` lists the images the note
   uses that would stay behind in the space it leaves, copied to the new one
   (`from`, `to`).
 - **The history**: an author has `kind` (`user`, `agent`, `system`, `git` or
@@ -277,6 +287,7 @@ can't call, they can change in any release.
 | `POST /api/trash/:id/restore` | Where the entry was | `to`? | `path`, `etag`, `files`, `left`: what stayed in the trash, only where the person reads |
 | `GET /api/keys` | Anyone | `all=1` (the vihko admin: everyone's) | `keys`; with `all=1`, each with `user`, and `foldersHidden` when someone else's key reaches folders the admin doesn't read (those aren't listed in `folders`) |
 | `POST /api/history/purge` | Whoever manages the note's folder; the vihko admin, any path | `path`, `version`?, `dryRun`?, `confirm` | `path`, `version`, `dryRun`, `versions`, `filesRemoved`, `onDisk`, `sharedWith`, `movedFrom`, `confirmRequired`. The admin's dry run of a path they can't read answers `hidden: true` with nothing of it (no versions, nothing on the disk), whether it exists or not |
+| `GET /api/history/purgeable` | Anyone signed in (never a key) | — | `paths`: `{ path, deleted }` for each file the managed history holds versions of that the person may purge and reads now (whoever manages a folder, its notes; the vihko admin, any file they read); `deleted` when its last version deletes it. Empty in any other history mode. A path the person can't read is never listed |
 | `POST /api/admin/rescan` | The vihko admin | `force`?, `confirmRemoval`? | Counts only: `added`, `changed`, `removed`, `moved`, `unchanged`, `aborted`, `massDelete` |
 | `GET /api/move-jobs/:id` | Whoever started the move | — | `done` and `total` count only the notes the person reads |
 | `GET/PUT /api/admin/settings` | The vihko admin | `spacesCreation`? (`everyone` or `admins`) | The settings, with `spacesCreation` |
@@ -399,8 +410,9 @@ the path form, with an example in the person's own space; the person's own
 space (or that the key doesn't reach it); the shared spaces they belong to
 and the folders shared with them, each with its path (20 at most, then how
 many more, which `list_folder("")` lists); how to write links inside a space
-and across spaces; that moving a note to another space changes who sees it
-and whose it is; what to do with notes it can't see; and, for a key that
+and that a link never leads to another space; that moving a note to another
+space changes who sees it and whose it is, and leaves broken the links
+between it and the space it leaves; what to do with notes it can't see; and, for a key that
 writes, how to use ETags, `confirm_audience` and `ai: false`. Then the
 workspace's own guide, when `mcp.instructions` names a note the key can read.
 Their wording isn't covered.
@@ -546,7 +558,7 @@ else into a note unless someone asks it to (an edit, a comment, a
 | Frontmatter changes | Only that key's value, in place; a new key at the end of the block; a note without frontmatter gets a block at the top. The rest stays byte for byte |
 | Comments | `<!-- @author YYYY-MM-DDTHH:MMZ · text -->`; a reply starts its text with `↳ `; comments one after another are a thread; resolving a thread deletes it |
 | Links kept when a name is taken | When someone creates, restores or renames a note (or gives it an alias) that would make a link in a note they can't read lead elsewhere, vihko rewrites that link as after a move, so it keeps leading to its note |
-| Links rewritten after a move | The link keeps its destination. A wikilink inside its space gets a name or path that reaches the note without ambiguity, keeping its `#heading` and `\|text`. A wikilink to another space is written from the notes root, without a leading `/`, with the note's name as its visible text: `[[spaces/home-7k2q9x/shopping list\|shopping list]]`. That text follows the note when it's renamed from vihko, if it's still the note's name. A Markdown link gets a path relative to the note, percent-encoded as image links are |
+| Links rewritten after a move | Only inside a space: the link keeps its destination. A wikilink gets a name or path that reaches the note without ambiguity, keeping its `#heading` and `\|text` (with the note's name as text when only the path from the notes root reaches it, for someone who sees only part of the space). A Markdown link gets a path relative to the note, percent-encoded as image links are. vihko never writes a link to another space: when a note or a folder changes space, nothing is rewritten across spaces |
 | Links in tables | Inside a table row, the `\|` of a wikilink vihko writes is `\|` escaped as `\\|`, as Obsidian does, and stays so |
 | Image links | `![alt](path)`, relative to the note, with spaces, brackets, parentheses, `%`, `#`, `?`, `<`, `>` and `\` percent-encoded |
 | Where new images go | As `attachments` says, inside the note's space. A new image never takes a name already in use; the form of its name isn't covered |
@@ -557,12 +569,14 @@ What vihko reads in your notes stays too: the frontmatter keys `uid`,
 `#tags`, both kinds of links (`[[a\|b]]` in a table included), and the files it
 ignores (names starting with `.` or ending in `~`, and symbolic links).
 
-How a link resolves is the same for everyone who reads it: a wikilink whose
-first segment is `people` or `spaces` is a path from the notes root; a
-Markdown link, or `[[/path]]`, is an exact path; any other wikilink is
-searched only among the notes of its own space, by name and path, then by
-aliases of that space. An alias that several notes of the space share is
-ambiguous. A name never reaches another space.
+How a link resolves is the same for everyone who reads it, and a link never
+leads to another space, in any form: a wikilink whose first segment is
+`people` or `spaces` is a path from the notes root; a Markdown link, or
+`[[/path]]`, is an exact path; each leads to a note only when that note is
+in the link's own space. Any other wikilink is searched only among the notes
+of its own space, by name and path, then by aliases of that space. An alias
+that several notes of the space share is ambiguous. A link to another space
+is broken, as a link to a note that doesn't exist.
 
 ## OAuth
 
