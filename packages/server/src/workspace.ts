@@ -6,7 +6,7 @@
 // alert until the file is fixed. Parts of a usable file that were left out
 // (unknown keys, a rejected strict section) raise another.
 //
-// Permissions always fail closed (D-038, D-056): a section rejected (or a
+// Permissions always fail closed: a section rejected (or a
 // file that can't be used) when vihko starts shares nothing until it's
 // fixed (each person keeps their own space); once a valid one was in force,
 // it stays while the file is wrong. No file, or a file without the section:

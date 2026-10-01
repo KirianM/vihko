@@ -1,4 +1,4 @@
-// Moves made outside vihko (D-031.4): a note that disappears from one path
+// Moves made outside vihko: a note that disappears from one path
 // and appears at another, in the same scan or watcher batch (or a few
 // seconds apart, for tools that write the copy and remove the original in
 // two steps), is the same note if both carry the same `uid` or, without a
@@ -7,8 +7,8 @@
 // - Several notes that could be the one (the same `uid` or the same content
 //   on more than one path, removed or added): no guess, no move.
 // - A rename that also changes the text of a note without `uid`: its hash
-//   changes, so it is seen as a removal and an addition (documented cost of
-//   D-015; the `uid` is what makes it traceable).
+//   changes, so it is seen as a removal and an addition (a known cost of
+//   assigning the `uid` only when needed: it is what makes a note traceable).
 // - An empty note (only whitespace) never matches by content: every empty
 //   note looks the same.
 

@@ -1,5 +1,4 @@
-// Each person's own folder, `people/<username>` (D-056.1–.4, spec §1.1 and
-// §7.1): made when the user is created, so that «My notes» and the external
+// Each person's own folder, `people/<username>`: made when the user is created, so that «My notes» and the external
 // editors find it from the first day, for the first admin and for a
 // single-person install alike. And the two folders of the product, `people/`
 // and `spaces/`, made when vihko starts if they are missing.

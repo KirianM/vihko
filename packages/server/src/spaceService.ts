@@ -1,5 +1,4 @@
-// Spaces as people and the admin use them (D-056, spec §2.4, §2.6, §3.2,
-// §5.1–§5.2, §6.1): what a person reaches, creating and renaming shared
+// Spaces as people and the admin use them: what a person reaches, creating and renaming shared
 // spaces, leaving one, pinning what others share, and the admin's directory,
 // managers, joining, and what becomes of a deleted person's space.
 //
@@ -9,13 +8,13 @@
 //   rules to the engine.
 // - Asking about a path the person can't see answers `not_found`, whether it
 //   exists or not; one they see but can't change this way, `forbidden`.
-// - A shared space's folder is its name, `spaces/<name>` (D-056.33): renaming
-//   one renames its folder (links don't change: they never leave a space,
-//   D-056.30). Names are unique in the installation, without regard to case
+// - A shared space's folder is its name, `spaces/<name>`: renaming
+//   one renames its folder (links don't change: they never leave a space).
+//   Names are unique in the installation, without regard to case
 //   (core nameKey), and no secret: saying one is taken tells nothing of what
 //   the space holds or who is in it.
 // - Agents only read what a person reaches (`view`); everything else is for
-//   people (spec §2.5).
+//   people.
 import { lstatSync, mkdirSync, readdirSync, rmdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -59,11 +58,11 @@ export interface SpacesResponse {
   personal: { path: string } | null
   spaces: SpaceEntry[]
   shared: SharedView[]
-  /** Whether they may create a shared space (the setting `spacesCreation`, D-056.5); never an agent. */
+  /** Whether they may create a shared space (the setting `spacesCreation`); never an agent. */
   canCreate: boolean
 }
 
-/** GET /api/spaces/members: who has access to a folder, as one who reads it may know (D-056.27). */
+/** GET /api/spaces/members: who has access to a folder, as one who reads it may know. */
 export interface MembersView {
   path: string
   /** The shared space it is in (its root and name); null in a personal space. */
@@ -78,7 +77,7 @@ export interface MembersView {
   }[]
 }
 
-/** A deleted person's personal space still on the disk: closed, nobody sees it (D-056.8). */
+/** A deleted person's personal space still on the disk: closed, nobody sees it. */
 export interface ClosedSpace {
   userId: string
   username: string
@@ -100,7 +99,7 @@ export interface PersonalSpacePlan {
 
 export type PersonalAction = 'transfer' | 'convert' | 'delete'
 
-/** What a person's space holds shared, for the confirmation of deleting them (spec §2.6): counts only. */
+/** What a person's space holds shared, for the confirmation of deleting them: counts only. */
 export interface PersonalSummary {
   path: string
   exists: boolean
@@ -173,10 +172,10 @@ export class SpaceService {
 
   /**
    * A new shared space named `name`: its folder `spaces/<name>`, and its rule
-   * with its members, the creator managing it (D-056.5). With the setting
+   * with its members, the creator managing it. With the setting
    * `spacesCreation: admins`, only an admin may. `members`: more people or
    * groups, with their level. A name another space has, in any case, is
-   * `space_name_taken` (D-056.33).
+   * `space_name_taken`.
    */
   async create(access: Access, input: { name: unknown; members?: unknown }): Promise<SpaceEntry> {
     const user = this.person(access)
@@ -205,7 +204,7 @@ export class SpaceService {
   }
 
   /**
-   * «Move to a new space» (D-056.28): a folder of a space becomes a shared
+   * «Move to a new space»: a folder of a space becomes a shared
    * space of its own, named `name` (its own name by default), whoever moves
    * it managing it, with the folder's own grants; what it holds goes to the
    * new space's root, as a folder move goes (links kept, the audience of the
@@ -230,7 +229,7 @@ export class SpaceService {
 
   /**
    * Renames a shared space (`manage` at its root): its folder becomes
-   * `spaces/<name>` (D-056.33), with everything in it, its rules, and what
+   * `spaces/<name>`, with everything in it, its rules, and what
    * keys, pins and the trash keep by its path (a folder move from vihko,
    * scoped.ts). Links don't change: they never leave a space. A name another
    * space has is `space_name_taken`; the same name in another case renames
@@ -262,7 +261,7 @@ export class SpaceService {
   }
 
   /**
-   * Leaves a space or stops seeing a folder received (spec §2.6): the
+   * Leaves a space or stops seeing a folder received: the
    * person's own grants there and under it go; nothing is deleted. One who
    * reaches it through a group can't (`leave_via_group`: the admin takes them
    * out of it); one who reaches it from a folder above leaves that one.
@@ -298,7 +297,7 @@ export class SpaceService {
 
   /**
    * Who has access to a folder the principal reads, and at what level
-   * (D-056.27): the members of a shared space at its root, who a folder
+   * (members see who else is, as they see their edits): the members of a shared space at its root, who a folder
    * shared with them reaches. Names and levels, each with why (a grant to
    * them or to a group of theirs, or their own space); where a grant is
    * written only when the principal reads that folder too (`from` null
@@ -327,7 +326,7 @@ export class SpaceService {
     }
   }
 
-  /** Pins (or unpins) in the sidebar a folder others share with the person («Shared with me», D-056.6). */
+  /** Pins (or unpins) in the sidebar a folder others share with the person («Shared with me»). */
   pin(access: Access, path: unknown, pinned: unknown): { path: string; pinned: boolean } {
     const user = this.person(access)
     if (typeof pinned !== 'boolean') throw new SpaceError(400, 'invalid', 'pinned must be true or false')
@@ -354,8 +353,8 @@ export class SpaceService {
   }
 
   /**
-   * The admin makes someone a manager of a shared space that has none (spec
-   * §2.4, D-056.8): told to them and to every other admin. Only while it
+   * The admin makes someone a manager of a shared space that has none:
+   * told to them and to every other admin. Only while it
    * has no manager (`space_has_managers`).
    */
   async assignManager(access: Access, path: unknown, userId: unknown): Promise<SharedSpaceInfo> {
@@ -376,9 +375,9 @@ export class SpaceService {
   }
 
   /**
-   * The admin adds themselves to a shared space (spec §2.4): a member row
+   * The admin adds themselves to a shared space: a member row
    * like any other, at `level` (`read` by default), which its managers and
-   * the other admins are told of (D-056.22).
+   * the other admins are told of, so it's never done unnoticed.
    */
   async join(access: Access, path: unknown, level: unknown): Promise<SharedSpaceInfo> {
     const { admin, root, level: l } = this.checkJoin(access, path, level)
@@ -408,13 +407,13 @@ export class SpaceService {
   }
 
   /**
-   * What becomes of a deleted person's closed space (spec §2.6), the
+   * What becomes of a deleted person's closed space, the
    * admin's explicit choice:
    * - `transfer` to someone (`to`, a user id): it goes into theirs, as
    *   `people/<to>/<deleted>`, with its grants (what was shared stays so);
    *   if that name is taken there, under the first free `<deleted>-<n>`,
    *   found only when it moves: the admin doesn't read the recipient's
-   *   space, so the dry run never looks into it (D-056.28);
+   *   space, so the dry run never looks into it;
    * - `convert` into a shared space named `name` with `members`: the whole
    *   space becomes theirs, what was shared as subfolders with their grants;
    * - `delete`: its files go from the disk (no trash: nobody could see it)
@@ -422,7 +421,7 @@ export class SpaceService {
    * Links into it are rewritten as a folder move rewrites them, and keys,
    * pins and the trash follow (folderRefs.ts). `dryRun`: what it would do.
    *
-   * `live`: the person isn't deleted yet (D-056.28: deleting them offers to
+   * `live`: the person isn't deleted yet (deleting them offers to
    * settle their space at once, `deleteAndSettle`): only the dry run, of a
    * transfer to someone else or a conversion.
    */
@@ -446,13 +445,13 @@ export class SpaceService {
     } else if (action === 'convert') {
       name = this.spaceName(input.name)
       members = this.members(input.members ?? {})
-      // Someone has to manage it (D-056.22): its members, and later who else joins, are theirs to decide.
+      // Someone has to manage it: its members, and later who else joins, are theirs to decide.
       if (!Object.values(members).includes('manage')) throw new SpaceError(400, 'space_needs_manager', 'a shared space needs at least one member who manages it')
     }
     const counts = this.contentCounts(from)
     const shared = this.sharedCounts(from, gone.username)
     const plan = (dest: string | null): PersonalSpacePlan => ({ action, from, to: dest, ...counts, sharedFolders: shared.folders, people: shared.people })
-    // A conversion's name must be free, in the dry run too (D-056.33).
+    // A conversion's name must be free, in the dry run too.
     if (action === 'convert') to = this.newSharedFolder(name, { claim: false })
     if (dryRun) return plan(to)
 
@@ -464,7 +463,7 @@ export class SpaceService {
         return out
       }, { actor: access.actor })
       this.deleteTree(from)
-      // Its older trash entries too: nobody could ever see or restore them (D-056.22).
+      // Its older trash entries too: nobody could ever see or restore them.
       this.opts.refs.dropTrash(from)
       this.opts.state.prepare("delete from pins where path = ? or path like ? escape '\\'").run(from, likePrefix(from))
       this.opts.notices.spaceChanged([], admin.id, { change: 'personal_deleted', user: gone.id, to: null, space: null })
@@ -480,7 +479,7 @@ export class SpaceService {
       for (const [folder, v] of rules) {
         if (folder !== from && !folder.startsWith(from + '/')) continue
         const at = dest + folder.slice(from.length)
-        // A personal root never takes grants (spec §1.2): none are carried over from one written by hand.
+        // A personal root never takes grants: none are carried over from one written by hand.
         const value: RuleValue = folder === from ? { grants: null, ai: v.ai } : { ...v, name: null }
         if (folder === from && action === 'convert') continue
         out = setRule(out, at, value)
@@ -505,7 +504,7 @@ export class SpaceService {
       return out
     }, { actor: access.actor }).catch((err) => this.opts.log?.(`the old rules of ${from} stay in vihko.yaml after it moved to ${dest}: ${err instanceof Error ? err.message : String(err)}`))
     this.opts.refs.moved(from, dest)
-    // A person's settings (their `.vihko/`, D-056.16) aren't a shared space's: they don't come along (D-056.28).
+    // A person's settings (their `.vihko/`) aren't a shared space's: they don't come along.
     if (action === 'convert') {
       for (const entry of readdirSync(join(this.opts.notesDir, dest))) {
         if (isReserved(`${dest}/${entry}`)) rmSync(join(this.opts.notesDir, dest, entry), { recursive: true, force: true })
@@ -522,7 +521,7 @@ export class SpaceService {
 
   /**
    * Deletes a person (disabled first, as `Users.remove` asks) and settles
-   * their space at once, transferring or converting it (D-056.28): what
+   * their space at once, transferring or converting it: what
    * `input` asks is checked before anything happens; then the person goes,
    * and their space with them. If settling fails after that, the space is
    * closed as with any deletion, and the admin's alert says so.
@@ -537,7 +536,7 @@ export class SpaceService {
 
   /**
    * After a folder's rule changed (`before`: vihko.yaml's text then): whoever
-   * sees the folder now and didn't before is told (D-056.22), that `actor`
+   * sees the folder now and didn't before is told that `actor`
    * added them to the shared space (its root) or shared the folder with them.
    * Never the one who did it, and only for a person's change. What they're told is only what they can see (notices.ts).
    */
@@ -572,7 +571,7 @@ export class SpaceService {
     throw new NoteError('exists', 'no free name for the folder')
   }
 
-  /** The person asking (never an agent: spaces are managed by people, spec §2.5). */
+  /** The person asking (never an agent: spaces are managed by people). */
   private person(access: Access) {
     if (access.isAgent) throw new AccessError('agents don\'t manage spaces')
     return access.user
@@ -640,7 +639,7 @@ export class SpaceService {
   }
 
   /**
-   * A new shared space's root, `spaces/<name>` (D-056.33): `space_name_taken`
+   * A new shared space's root, `spaces/<name>`: `space_name_taken`
    * if something in `spaces/` has that name in any case (core nameKey). With
    * `claim` (the default) its folder is made at once, never over one that
    * exists (`space_name_taken` too).
@@ -664,7 +663,7 @@ export class SpaceService {
    * Unless no entry of `spaces/` (but hidden ones, and `self`, the space
    * being renamed) has `name` in any case: `space_name_taken`, with the
    * name as that one writes it. Names of shared spaces are visible to
-   * everyone in the installation (D-056.33): saying one exists reveals
+   * everyone in the installation: saying one exists reveals
    * nothing else.
    */
   private checkFree(name: string, self: string | null = null): void {

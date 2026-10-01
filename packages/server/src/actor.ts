@@ -1,6 +1,6 @@
 // Who makes a change and why. Every write carries its actor; the history
-// records it with each version (D-016, D-033). Reasons are codes with their
-// data, never text: the UI words them (D-025).
+// records it with each version. Reasons are codes with their
+// data, never text: the UI words them in the reader's language.
 
 /**
  * How an agent reached vihko: the HTTP API with a key, the MCP server with a
@@ -26,11 +26,11 @@ export type Actor =
  * - `note_moved`, `folder_moved`: links rewritten because `by` moved or
  *   renamed a note or a folder.
  * - `links_after_external_move`: «Update links» after notes were moved outside
- *   vihko (D-031.4).
- * - `alias_added`: the safety alias of a rename (D-018), because some link
+ *   vihko.
+ * - `alias_added`: the safety alias of a rename, because some link
  *   couldn't be rewritten.
  * - `links_kept`: links kept on the note they led to when `by` gave another
- *   note (`to`) their name, by creating it or adding an alias (D-056.28).
+ *   note (`to`) their name, by creating it or adding an alias.
  * - `restored`: a version of the note (`id`, from `at`) brought back from the
  *   history. `trash_restored`: a note brought back from the trash.
  * - `reverted`: what version `id` (from `at`) changed, undone on the note as
@@ -39,7 +39,7 @@ export type Actor =
  *   history started, or changed while it was off.
  * - `space_renamed`: a shared space of 0.1.0-rc.1 or rc.2 (`from`, its
  *   `<readable>-<id>` folder) renamed to its name (`to`) when vihko started
- *   (D-056.33, legacySpaces.ts).
+ *   (legacySpaces.ts).
  * - `recovered`: text vihko wrote back from its own copy (the collaboration
  *   hub) whose typists it doesn't know.
  * - `follow_external_move`, `keep_copy`, `crash_recovery`: the hub's own

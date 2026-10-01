@@ -1,4 +1,4 @@
-// The second factor (D-036): TOTP (RFC 6238: HMAC-SHA-1, 6 digits, steps of
+// The second factor: TOTP (RFC 6238: HMAC-SHA-1, 6 digits, steps of
 // 30 s, one step either side accepted) with node:crypto, and 10 single-use
 // recovery codes.
 //
@@ -19,10 +19,10 @@
 //   which is backed up and never served. With VIHKO_SECRET_KEY (secretKey.ts)
 //   it's kept encrypted, and one encrypted with another key (or with none
 //   set) can't be read: that person's TOTP codes fail, their recovery codes
-//   still work, and `unreadable` tells the admin (D-040 3.4b).
+//   still work, and `unreadable` tells the admin.
 // - The admin's policy (adminSettings.ts): required, optional (the default)
 //   or disabled. Disabled, nobody new sets one up; whoever has one is still
-//   asked for it (D-040 3.4a).
+//   asked for it.
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import { hashLike, sameText, slowHash } from './auth.ts'
 import type { Db } from './db.ts'
@@ -148,7 +148,7 @@ export interface SetupData {
 /** A code checked: `used` is a TOTP code already accepted once (or an earlier one). */
 export type CodeResult = { ok: true; recovery: boolean; recoveryCodesLeft: number } | { ok: false; reason: 'invalid' | 'used' }
 
-/** How recovery codes were kept before D-046.4: a sha256 with the user's id (hex). */
+/** How recovery codes were kept before they had a slow hash: a sha256 with the user's id (hex). */
 const legacyRecoveryHash = (userId: string, code: string) => createHash('sha256').update(`${userId}\n${code}`).digest('hex')
 const LEGACY_RECOVERY = /^[0-9a-f]{64}$/
 
@@ -343,7 +343,7 @@ export class TwoFactor {
 
 /**
  * Ten new recovery codes, as they're shown (with a dash in the middle), and
- * their slow hashes with one salt for all of them (D-046.4).
+ * their slow hashes with one salt for all of them.
  */
 async function recoveryBatch(): Promise<{ codes: string[]; hashes: string[] }> {
   const codes = new Set<string>()

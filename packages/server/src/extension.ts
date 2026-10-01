@@ -25,7 +25,7 @@
 //   are rebuilt from the files (its own, its requirements', the registry).
 //   The guard keeps honest code honest; it is not a sandbox.
 //
-// The index stays derived and disposable (D-011): every extension's rows must
+// The index stays derived and disposable: every extension's rows must
 // come from the files alone, so deleting index.db and rescanning rebuilds
 // exactly the same thing.
 //
@@ -42,7 +42,7 @@ export interface NoteSnapshot {
   readonly text: string
   /** Content hash of `text`. */
   readonly hash: string
-  /** The shared parse (the same parser as the editor, D-021). */
+  /** The shared parse (the same parser as the editor, so both read a note alike). */
   readonly parsed: Readonly<Extracted>
   readonly uid: string | null
   readonly title: string

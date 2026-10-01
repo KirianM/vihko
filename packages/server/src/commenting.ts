@@ -1,6 +1,6 @@
-// Commenting without editing (D-038.5): someone with `comment` in a folder adds
-// comments (D-023) to its notes, replies, and resolves their own threads as
-// long as nobody else has replied (D-040 3.7: resolving takes the replies
+// Commenting without editing: someone with `comment` in a folder adds
+// comments to its notes, replies, and resolves their own threads as
+// long as nobody else has replied (resolving takes the replies
 // out of the note too); with `edit` they resolve anyone's. Their editor is read-only (the hub drops
 // whatever it sends), so a comment reaches the note here, as one exact
 // operation the server builds itself (never a text the client sends): a

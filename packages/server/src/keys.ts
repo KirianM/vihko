@@ -1,4 +1,4 @@
-// Agent keys (D-035.2, D-035.3): credentials a user delegates to an agent.
+// Agent keys: credentials a user delegates to an agent.
 // `vihko_<id>_<secret>`: the id finds the key and the secret (256 bits,
 // base64url) proves it. Only the secret's sha256 and its last 4 characters are
 // stored, compared in constant time; the key itself is shown once, when it is
@@ -203,7 +203,7 @@ export class ApiKeys {
   }
 
   /**
-   * Whether `update` with this input would let the key do more (D-046.2):
+   * Whether `update` with this input would let the key do more (and so needs confirming):
    * write, reach more folders (or every one), or work longer. Its owner
    * confirms that at the moment, as creating it; narrowing or renaming it,
    * not. Throws as `update` would (no such key, revoked or expired, input

@@ -1,5 +1,5 @@
 // What state.db and the trash keep by a folder's path, rewritten when vihko
-// moves that folder (spec §1.3, §3.5): the folders of agent keys and of
+// moves that folder: the folders of agent keys and of
 // OAuth codes not yet exchanged, what people pinned in the sidebar, and the
 // original paths of trash entries. Before 0.1.0 none of them followed: a key
 // limited to a folder that moved stopped reaching it.

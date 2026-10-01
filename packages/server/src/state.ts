@@ -28,7 +28,7 @@ const MIGRATIONS: string[] = [
    );
    create index sessions_user on sessions(user_id);`,
   // Each person's profile: the timezone that decides what "today" is for them
-  // and their daily-note preferences (D-030). No row = nothing chosen yet.
+  // and their daily-note preferences. No row = nothing chosen yet.
   `create table profiles (
      user_id      text primary key references users(id) on delete cascade,
      timezone     text,
@@ -36,7 +36,7 @@ const MIGRATIONS: string[] = [
      open_daily   integer not null default 0
    );`,
   // Installation settings set from the UI by the vihko admin (the integration
-  // switches, D-035.1): no row = the default. And agent keys (D-035.2): only
+  // switches): no row = the default. And agent keys: only
   // the sha256 of the secret and its last 4 characters; `folders` is a JSON
   // list (empty = every folder the user sees).
   `create table settings (
@@ -130,11 +130,11 @@ const MIGRATIONS: string[] = [
      used_at    text
    );
    create index user_links_user on user_links(user_id);`,
-  // The second factor (D-036, twoFactor.ts): a user's TOTP secret (base32;
+  // The second factor (twoFactor.ts): a user's TOTP secret (base32;
   // it has to be kept as it is to compute the codes) and the last step
   // whose code was accepted, so that none works twice. Recovery codes, only
-  // as a hash (a sha256 then; a slow hash with a salt per batch since
-  // D-046.4, in the same column), each one used once.
+  // as a hash (a sha256 then; now a slow hash with a salt per batch, in
+  // the same column), each one used once.
   `create table two_factor (
      user_id    text primary key references users(id) on delete cascade,
      secret     text not null,
@@ -160,7 +160,7 @@ const MIGRATIONS: string[] = [
    create index notices_user on notices(user_id, created_at);`,
   // The language of each person's UI (profiles.ts): null = their browser's.
   `alter table profiles add column language text;`,
-  // Spaces (0.1.0, D-056): what each person pins in the sidebar from «Shared
+  // Spaces (0.1.0): what each person pins in the sidebar from «Shared
   // with me» (spaceService.ts). Folders by their path from the notes root, as
   // a key's folders are: rewritten when vihko moves a folder (folderRefs.ts).
   // Never anything of a note's content, nor links between notes.
@@ -170,7 +170,7 @@ const MIGRATIONS: string[] = [
      created_at text not null,
      primary key (user_id, path)
    );`,
-  // «On opening» (D-056.35, profiles.ts): what vihko opens when the person
+  // «On opening» (profiles.ts): what vihko opens when the person
   // comes in: `home`, `last` (that device's last note), `note` (`on_open_note`,
   // a path) or `daily` (today's note, only if it exists). Null: home. The
   // switch it replaces («open today's note», `open_daily`) carries over.

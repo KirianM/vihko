@@ -1,5 +1,5 @@
-// Link rewrites a vihko move couldn't make, to try again (spec §4.4). When a
-// rewrite fails, the old name stays as an alias (D-018's safety net), but no
+// Link rewrites a vihko move couldn't make, to try again. When a
+// rewrite fails, the old name stays as an alias (the rename's safety net), but no
 // alias stands in for a folder's notes, nor for links aliases don't resolve
 // (vihko.yaml). Those are tried again after the next rescan, as the system,
 // by the same rule as the move; what still fails then is given up (the move

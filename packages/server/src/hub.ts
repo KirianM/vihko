@@ -3,7 +3,7 @@
 // someone has the note open.
 //
 // Who may open a note, and what they may do in it, is the access filter's
-// (access.ts, D-038): connecting needs `read` (a note one can't read doesn't
+// (access.ts): connecting needs `read` (a note one can't read doesn't
 // exist, as over HTTP); with `read` or `comment` the connection is read-only
 // (the server drops every change it sends; with `comment`, a comment comes
 // over HTTP as one exact operation the server builds, commenting.ts, and
@@ -14,7 +14,7 @@
 // now, or not at all. Every message the hub sends is classified in
 // `HUB_MESSAGES` (hubMessages.ts), for the leak tests.
 //
-// Presence is signed by the server (D-040 3.3, as Outline does): what a
+// Presence is signed by the server, so nobody can pose as someone else: what a
 // connection announces in the awareness is its session's person, with the
 // id and name the server knows, whatever the client says (`signPresence`).
 import { Hocuspocus, type Connection, type Document } from '@hocuspocus/server'
@@ -89,7 +89,7 @@ interface Hot {
 }
 
 /**
- * An agent writing to an open note, as its editors see it (m3 §6). While it
+ * An agent writing to an open note, as its editors see it. While it
  * writes, and `agentPresenceMs` after its last write, the document's
  * awareness holds, under the agent's own Yjs client id:
  *
@@ -142,7 +142,7 @@ export const TRASHED_MESSAGE = 'vihko:trashed'
  */
 export const STALE_MESSAGE = 'vihko:stale-generation'
 /**
- * To an editor whose access to the note changed while it was open (D-038):
+ * To an editor whose access to the note changed while it was open:
  * `access` is what they have now (`none`, `read`, `comment` or `edit`); the
  * connection is closed right after, and they reopen it with that, if any.
  */
@@ -159,7 +159,7 @@ export const SESSION_ENDED_MESSAGE = 'vihko:session-ended'
 export const SESSION_ENDED_CODE = 4401
 
 /**
- * Every message of the collaboration protocol, and who it reaches (m4 §2):
+ * Every message of the collaboration protocol, and who it reaches:
  * a new one without its line here fails the leak tests.
  * - `inbound`, by hocuspocus message type: what a connection (someone who
  *   could read the note when they opened it) may send. `edit`: applied only
@@ -236,7 +236,7 @@ export interface HubHistory {
   /**
    * Someone typed in the note since its last flush. `before`: the text right
    * before their change, given when `startsVersion` said it might close the
-   * open version (D-034 3.4).
+   * open version.
    */
   typing(path: string, actor: Actor, before?: string): void
   /** Whether this person starting to type now would close the version open on the note (someone else's). */
@@ -456,7 +456,7 @@ export class CollabHub implements HotDocuments {
   private expected = new Map<string, Set<string>>()
   /**
    * Saved states (`.ystate`) this run trusts, by note, with the hash of the
-   * text each one holds (D-032.4): the ones it wrote, and the ones that still
+   * text each one holds: the ones it wrote, and the ones that still
    * matched their file after the first scan (`trustSavedStates`). Either way,
    * at that moment the file held nothing that the state lacks and an editor's
    * copy may hold, and from then on vihko is running: a backup of the state
@@ -578,7 +578,7 @@ export class CollabHub implements HotDocuments {
     this.checkTimer = setInterval(() => {
       for (const path of this.hot.keys()) this.checkExternal(path).catch((e) => this.log(`check of ${path}: ${e}`))
     }, this.opts.checkMs ?? 1000)
-    // Groups and users change outside what vihko writes (piece U): looked at again now and then.
+    // Groups and users change outside what vihko writes: looked at again now and then.
     if (this.opts.policy) this.accessTimer = setInterval(() => this.recheckAccess(), this.opts.accessCheckMs ?? 5000)
   }
 
@@ -618,7 +618,7 @@ export class CollabHub implements HotDocuments {
     })
   }
 
-  // --- Access (D-038) ------------------------------------------------------------
+  // --- Access ---------------------------------------------------------------------
 
   /**
    * What a person may do in a note now: `none`, `read`, `comment` or `edit`
@@ -665,7 +665,7 @@ export class CollabHub implements HotDocuments {
   }
 
   /**
-   * Presence as a connection may announce it (D-040 3.3): only for Yjs
+   * Presence as a connection may announce it: only for Yjs
    * clients that are its own (a client id another connection holds, or an
    * agent's presence, is dropped), and only as the person of its session:
    * `user` gets their id and name from the server and a person's hue (the
@@ -812,7 +812,7 @@ export class CollabHub implements HotDocuments {
     return result
   }
 
-  // --- Agents in open notes (m3 §6) ---------------------------------------------
+  // --- Agents in open notes ------------------------------------------------------
 
   /**
    * An agent is about to write to an open note: its presence is published (or
@@ -985,12 +985,12 @@ export class CollabHub implements HotDocuments {
     this.trusted.delete(path)
   }
 
-  // --- Moves made outside vihko (D-031.4) ---------------------------------------
+  // --- Moves made outside vihko --------------------------------------------------
 
   /**
    * Moves the indexer detected outside vihko. A note open in an editor (or
    * whose copy waits in its recovery log) follows its file instead of being
-   * taken as deleted (D-022). A closed one's saved state goes with it.
+   * taken as deleted. A closed one's saved state goes with it.
    */
   followMoves(moves: readonly { from: string; to: string }[]) {
     for (const { from, to } of moves) {
@@ -1010,7 +1010,7 @@ export class CollabHub implements HotDocuments {
    * the way; the old path is never written again. Only when the hub can tell
    * it's the same note: `to` has the note's `uid` or, without one, exactly the
    * text last written. Otherwise the note stays as deleted outside vihko, with
-   * its copy (D-022). Resolves to whether it followed.
+   * its copy, so nothing typed is lost. Resolves to whether it followed.
    */
   async followMove(from: string, to: string): Promise<boolean> {
     // Only in the recovery log (its editors left, or the server restarted): loaded to follow it.
@@ -1056,7 +1056,7 @@ export class CollabHub implements HotDocuments {
         try {
           await writeAt()
         } catch (err) {
-          this.announceOrphan(from, h) // it can't be written there: the copy is kept (D-022)
+          this.announceOrphan(from, h) // it can't be written there: the copy is kept
           throw err
         }
         h.discarded = true
@@ -1117,10 +1117,10 @@ export class CollabHub implements HotDocuments {
       // `beforeSync`). A saved document carries its generation on while every
       // copy of it can merge without repeating text:
       // - it continues as it was left: the file is still the text it matched,
-      //   or was deleted and the document is kept as its copy (D-022);
+      //   or was deleted and the document is kept as its copy;
       // - or it's a trusted state (`trusted`) and the file changed after it was
       //   saved, with vihko running. The change is merged below as another
-      //   tool's, and an editor's unsent typing merges with it (D-032.4). Only
+      //   tool's, and an editor's unsent typing merges with it. Only
       //   while the file is still the same note (the same `uid`, or none in
       //   either): another note put at that path isn't what those copies hold.
       // Otherwise the diff from the saved text to the file may add again text
@@ -1180,9 +1180,9 @@ export class CollabHub implements HotDocuments {
   }
 
   /**
-   * Who types (D-033): a change from an editor's connection carries its
+   * Who types: a change from an editor's connection carries its
    * session's user, and the history hears of it once applied. Someone who
-   * starts writing where others were (D-034 3.4) closes their version with
+   * starts writing where others were closes their version with
    * the text from right before their change: it's read before the change
    * is applied, only for them (`startsVersion`).
    */
@@ -1513,7 +1513,7 @@ export class CollabHub implements HotDocuments {
    * removed (left by a version that didn't carry them along with a rename, or
    * by a note deleted outside vihko). Only a cache: nothing typed is in them.
    * Kept: those of an open note, of a note with a recovery log (a copy
-   * pending a decision, D-022: it goes when that's decided), of a note with
+   * pending a decision: it goes when that's decided), of a note with
    * no file on disk that `keep` names (in the trash), and any file that
    * isn't one of the hub's.
    */

@@ -107,7 +107,7 @@ export interface NoteServiceOptions {
   history?: NoteHistory
   /**
    * Link rewrites a move couldn't make and no alias can stand in for (other
-   * spaces' links, D-056), tried again by `retryRelinks` after the next rescan.
+   * spaces' links), tried again by `retryRelinks` after the next rescan.
    */
   retries?: RelinkRetries
   /** A retry that failed again: given up, for whoever made the move to be told. */
@@ -126,7 +126,7 @@ export interface MoveReport {
    */
   relinked: { path: string; links: number; changes: RelinkChange[] }[]
   /**
-   * Links the move doesn't rewrite but whose resolution it changes (D-019): an
+   * Links the move doesn't rewrite but whose resolution it changes: an
    * ambiguous or broken link that will lead to a note, one that will be broken
    * or ambiguous, by source note (the moved note under its new path), with a
    * count. Reported in the preview so whoever moves decides; the report after
@@ -143,7 +143,7 @@ export interface MoveReport {
   /** The old name was added as an alias because some rewrite failed: the links left behind still resolve. */
   aliasAdded: string | null
   /**
-   * The moved note's images (D-028), when it changes folder; empty otherwise.
+   * The moved note's images, when it changes folder; empty otherwise.
    * `moved`: images in its folder that only it uses go with it (a taken name
    * gets a suffix, nothing is overwritten). `stayed`: shared with other notes
    * (`shared`) or in another folder (`elsewhere`); the note's links to them
@@ -159,12 +159,12 @@ export interface MoveReport {
    * other, are rewritten. It stays where it is (and is in `failed`, with the
    * links rewritten to reach it there) if the destination's name is taken or
    * it holds notes.
-   * `copied`: when the note goes to another space (D-056), the images it
+   * `copied`: when the note goes to another space, the images it
    * uses that would stay behind in the space it leaves (shared with other
    * notes, or in another folder of that space), where its new readers
    * wouldn't see them, are copied where a new image of it would go there
    * (next to it, its folder of images, or its new space's attachments
-   * folder, D-056.21; a taken name gets a suffix) and the note links the
+   * folder; a taken name gets a suffix) and the note links the
    * copies. Only images whoever moves it can read;
    * the rest stay (`stayed`).
    */
@@ -209,9 +209,9 @@ export interface FolderMoveReport {
   /** Notes that couldn't be rewritten: an error code for the UI and a hint for developers. */
   failed: MoveReport['failed']
   /**
-   * When the folder goes to another space (D-056): the images its notes use
+   * When the folder goes to another space: the images its notes use
    * that stay behind in the space it leaves (outside the folder), copied
-   * where a new image of each note that uses them would go (D-056.21: one
+   * where a new image of each note that uses them would go (one
    * copy per such folder, a taken name gets a suffix), which then links the
    * copy; only images whoever moves it can
    * read. `failed`: a copy that couldn't be made (the note keeps linking the
@@ -249,27 +249,27 @@ export interface MoveHooks {
   onProgress?: (done: number, total: number) => void
   /**
    * Which of the notes to rewrite the hooks count (all by default): whoever
-   * follows a move learns how many of those, never of the rest (D-018).
+   * follows a move learns how many of those, never of the rest.
    */
   counts?: (path: string) => boolean
 }
 
-/** Options of a folder move. `canRead`: whether whoever moves it may read a file (the images copied to another space, D-056); all by default. */
+/** Options of a folder move. `canRead`: whether whoever moves it may read a file (the images copied to another space); all by default. */
 export interface FolderMoveOptions {
   actor: Actor
   dryRun?: boolean
   canRead?: (path: string) => boolean
-  /** Whether a rewritten link may name this note: one whoever moves it can't read makes the move `exists` (D-056.20). All by default. */
+  /** Whether a rewritten link may name this note: one whoever moves it can't read makes the move `exists`. All by default. */
   mayName?: (path: string) => boolean
 }
 
-/** Options of a note move. `canRead`: whether whoever moves it may read a file (the images copied to another space, D-056); all by default. */
+/** Options of a note move. `canRead`: whether whoever moves it may read a file (the images copied to another space); all by default. */
 export interface MoveOptions {
   ifMatch?: string
   actor: Actor
   dryRun?: boolean
   canRead?: (path: string) => boolean
-  /** Whether a rewritten link may name this note: one whoever moves it can't read makes the move `exists` (D-056.20). All by default. */
+  /** Whether a rewritten link may name this note: one whoever moves it can't read makes the move `exists`, as a taken name. All by default. */
   mayName?: (path: string) => boolean
 }
 
@@ -299,13 +299,13 @@ export interface TrashEntry {
   kind?: 'files'
   /**
    * Files in the entry, by where they were: a note's images that no other note
-   * used (D-028, what moving the note would take along), or a folder's files.
+   * used (what moving the note would take along), or a folder's files.
    * `stored`: its name in the entry's folder in the trash.
    */
   files?: { path: string; stored: string }[]
   /**
-   * Who managed its shared space when the space was deleted (user ids,
-   * spec §3.5): once the space is gone, they still see and restore it.
+   * Who managed its shared space when the space was deleted (user ids):
+   * once the space is gone, they still see and restore it.
    */
   managers?: string[]
 }
@@ -343,7 +343,7 @@ export interface FolderContents {
 /**
  * A name taken by something spelled otherwise on a case-insensitive disk
  * (`path`: the disk's spelling), told only where the person sees the whole
- * folder (spec §3.4 row 6).
+ * folder.
  */
 export class ExistsAs extends NoteError {
   readonly path: string
@@ -483,8 +483,8 @@ export class NoteService {
   }
 
   /**
-   * The indexed links a note at `path` with `aliases` would take (D-056.20,
-   * .23, refined by .28): those that lead now to a note `mayName` refuses, or
+   * The indexed links a note at `path` with `aliases` would take: those
+   * that lead now to a note `mayName` refuses, or
    * are ambiguous among notes of which it refuses one, and would lead
    * elsewhere, or be ambiguous among others, once it is there. `keys`: the
    * names the change brings (all of a new note's; only the new aliases of an
@@ -521,7 +521,7 @@ export class NoteService {
     return { refuse: false, keep: [...keep].sort(), before: keep.size ? now.clone() : now, after: then, mayName }
   }
 
-  /** `linksTaken` for an edit of the note at `path` from `was` to `next`: only the aliases it adds count (D-056.28). */
+  /** `linksTaken` for an edit of the note at `path` from `was` to `next`: only the aliases it adds count. */
   private aliasesTaken(path: string, was: string, next: string, mayName: (path: string) => boolean): LinksTaken | null {
     if (!this.opts.indexer.linkAliases) return null
     const had = new Set(this.opts.indexer.aliasesIn(was).map(normKey))
@@ -561,7 +561,7 @@ export class NoteService {
    * A name in use answers `exists` without anything of the note there. With
    * `mayName`, a name (or an alias in the text) that would change where an
    * existing link leads, or make it ambiguous, when it leads to a note
-   * `mayName` refuses (D-056.20, .23, .28): if that link is in a note whoever
+   * `mayName` refuses (so that no name tells what exists): if that link is in a note whoever
    * creates reads, `exists` too (keeping it would show them where it leads,
    * and the answer mustn't tell it apart from a taken name); if it isn't,
    * the note is created and the system rewrites that link so it keeps
@@ -603,7 +603,7 @@ export class NoteService {
    * this same write; if it had one, it's kept even if the new text omits it.
    */
   async edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor; mayName?: (path: string) => boolean }): Promise<{ etag: string }> {
-    // An alias the edit adds is a name the note takes, as when creating one (D-056.28).
+    // An alias the edit adds is a name the note takes, as when creating one.
     const mayName = opts.mayName
     if (mayName) {
       let taken: LinksTaken | null = null
@@ -709,7 +709,7 @@ export class NoteService {
 
   /**
    * What goes to the trash with a note: what a move of the note would take
-   * along (D-028), the images next to it that no other note uses and, in
+   * along, the images next to it that no other note uses and, in
    * `per-note` mode, the files in its own folder of images that no other note
    * uses. Never a file in the shared attachments folder of vihko.yaml, nor
    * one `canWrite` refuses.
@@ -826,7 +826,7 @@ export class NoteService {
       // Safety net: if something couldn't be rewritten, the old name stays as an alias.
       // Not when aliases don't resolve links (vihko.yaml): it would save nothing. Nor
       // when the note changed space: nothing is rewritten across spaces, the links
-      // left behind are broken on purpose (D-056.30), and an alias only reaches the
+      // left behind are broken on purpose (links never leave their space), and an alias only reaches the
       // notes of its own space.
       const oldName = posix.basename(from).replace(/\.md$/i, '')
       const newName = posix.basename(to).replace(/\.md$/i, '')
@@ -1060,7 +1060,7 @@ export class NoteService {
   // --- Link fixes ---------------------------------------------------------
 
   /**
-   * Fixes where one ambiguous link leads (D-031.2), only on an explicit
+   * Fixes where one ambiguous link leads, only on an explicit
    * request: the occurrence of `link.raw` in the note nearest to `link.at`
    * (the first one without it) is rewritten to the shortest form that, from
    * this note, leads to `target` alone, keeping its anchor and visible text.
@@ -1076,7 +1076,7 @@ export class NoteService {
       if (!occurrence) throw new NoteError('edit_mismatch', `no link ${link.raw} in ${path}`)
       const now = index.resolve(path, occurrence)
       if (now.status === 'resolved' && now.path === target) return []
-      // Ambiguous for whoever asks only if they see every candidate: otherwise, for them, it is broken (D-056.15).
+      // Ambiguous for whoever asks only if they see every candidate: otherwise, for them, it is broken.
       if (now.status !== 'ambiguous' || !now.candidates.includes(target) || (opts.sees && !now.candidates.every(opts.sees))) {
         throw new NoteError('edit_mismatch', `${link.raw} in ${path} is not ambiguous with ${target} among its candidates`)
       }
@@ -1089,7 +1089,7 @@ export class NoteService {
   }
 
   /**
-   * Updates the links after notes moved outside vihko (D-031.4): the rewrites
+   * Updates the links after notes moved outside vihko: the rewrites
    * a vihko move of those notes would have made, planned over the files as
    * they are now, without moving any file. Only the moves still in place
    * count (the note at `to`, and no note back at `from`). The moved notes'
@@ -1421,8 +1421,8 @@ export class NoteService {
   }
 
   /**
-   * Where the images a note copies when it goes to another space go
-   * (D-056.21): where a new image of that note would go (vihko.yaml
+   * Where the images a note copies when it goes to another space go:
+   * where a new image of that note would go (vihko.yaml
    * `attachments`, attachments.ts `attachmentPath`): next to it, in its own
    * folder of images, or in the fixed folder of the space it goes to.
    */
@@ -1431,7 +1431,7 @@ export class NoteService {
   }
 
   /**
-   * For a folder going to another space (D-056): the images its notes use
+   * For a folder going to another space: the images its notes use
    * that would stay behind in the space it leaves (outside the folder, and
    * readable by whoever moves it), each to be copied next to the notes that
    * use it (`planned`, one per image and destination folder, keyed by both;
@@ -1451,7 +1451,7 @@ export class NoteService {
         const dir = this.copiesDir(t)
         for (const img of this.imagesOf(text, f)) {
           if (img.path.startsWith(from + '/') || linkSpace(img.path) !== origin || !canRead(img.path) || planned.has(key(img.path, dir))) continue
-          // Where a new image of the note would go (D-056.21): a folder that may already be there,
+          // Where a new image of the note would go: a folder that may already be there,
           // or one in the destination, where only the copies planned here can take a name.
           const free = firstName(img.path, dir, (dest) => !taken.has(dest) && !existsSync(join(this.opts.notesDir, dest)))
           if (free === undefined) continue
@@ -1504,8 +1504,8 @@ export class NoteService {
     const plan: ReturnType<NoteService['planImages']> = { moved: [], copied: [], stayed: [], unplaceable: [] }
     const toDir = posix.dirname(to)
     if (posix.dirname(from) === toDir) return plan
-    // Changing space (D-056): what would stay behind in the space it leaves is copied, where the
-    // destination puts a new image of the note (its space's `attachments`, D-056.21).
+    // Changing space: what would stay behind in the space it leaves is copied, where the
+    // destination puts a new image of the note (its space's `attachments`).
     const origin = linkSpace(from)
     const crossing = origin !== linkSpace(to)
     const copiesDir = crossing ? this.copiesDir(to) : toDir
@@ -1681,11 +1681,11 @@ export class NoteService {
   }
 
   /**
-   * Stores an image for the note `notePath` (D-028) and returns where it went:
+   * Stores an image for the note `notePath` and returns where it went:
    * `path` from the notes root and `src`, relative to the note, to link it.
    * Never overwrites: a taken name gets a suffix. The note itself isn't
    * touched; the editor inserts the link. Writing next to a note needs the same
-   * access as writing the note: per-folder permissions (D-014) apply here.
+   * access as writing the note: per-folder permissions apply here.
    */
   async attach(notePath: string, bytes: Uint8Array, actor: Actor, now = new Date()): Promise<{ path: string; src: string }> {
     this.read(notePath) // the note must exist (404 otherwise)
@@ -1738,13 +1738,13 @@ export class NoteService {
    * Restores from the trash to its original path (or to `to`), with its
    * files. Never overwrites: a note whose name is taken isn't restored
    * (`exists`); a file whose name is taken comes back with a suffix, and the
-   * note links it there (as when moving a note, D-028); an identical file
+   * note links it there (as when moving a note); an identical file
    * already there counts as restored. The files go back next to the note,
    * wherever it goes (in `per-note` mode, into its folder of images). Files
    * `canWrite` refuses stay in the trash, as an entry of files alone. Files
    * alone come back where they were (`to` doesn't apply). With `mayName`, a
    * note that would take a link to a note it refuses isn't restored either,
-   * as a taken name (`create`, D-056.20).
+   * as a taken name (`create`).
    */
   async restore(id: string, actor: Actor, to?: string, opts: { canWrite?: (path: string) => boolean; mayName?: (path: string) => boolean } = {}): Promise<TrashRestoreReport> {
     const entry = this.trashEntry(id)
@@ -1886,7 +1886,7 @@ export class NoteService {
   }
 
   /**
-   * Brings back a version of a note from the history (D-016): its text is
+   * Brings back a version of a note from the history: its text is
    * written like any edit (an open note changes live for its editors), and
    * the images it linked that no longer exist come back from the same commit
    * (`file`), never over an existing file, and only where `canWrite` allows.
@@ -1985,7 +1985,7 @@ const likePrefix = (dir: string) => dir.replace(/[\\%_]/g, (c) => '\\' + c) + '/
 
 /**
  * A move's destination can't be taken: its name is in use, or the move would
- * have to rewrite a link to a note whoever moves it can't read (D-056.20).
+ * have to rewrite a link to a note whoever moves it can't read.
  * Both answer alike, so that neither tells what exists.
  */
 const nameTaken = (to: string) => new NoteError('exists', `that name isn't available here: ${to}`)
@@ -2046,7 +2046,7 @@ function movedNotePlan(text: string, from: string, to: string, before: LinkIndex
 }
 
 /**
- * D-056.20 as D-056.28 refines it, for a move: a rewrite in a note whoever
+ * The name guard, for a move, so that no move tells what exists: a rewrite in a note whoever
  * moves it reads (`mayName` accepts it) that would name a note they can't
  * read refuses the move as a taken name (`refused`); the rewrites in notes
  * they don't read are the system's, as any other, and refuse nothing. A dry

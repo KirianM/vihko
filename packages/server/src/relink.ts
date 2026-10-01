@@ -39,7 +39,7 @@ export type LinkState =
   | { status: 'missing' }
 
 /**
- * How a move changes a link it doesn't rewrite (D-019: an ambiguous link is
+ * How a move changes a link it doesn't rewrite (an ambiguous link is
  * never resolved silently). Stable codes, the UI words them:
  * - `resolves`: it was ambiguous or broken and will lead to a note.
  * - `ambiguous`: it will be ambiguous (it was broken, or led to a note it can't keep).
@@ -190,7 +190,7 @@ function imageDest(img: ImageLink, src: string, path: string): string {
 }
 
 /**
- * Link resolution as it was before notes moved outside vihko (D-031.4): a
+ * Link resolution as it was before notes moved outside vihko: a
  * copy of `now` with each moved note back at its old path, its aliases and
  * headings as they are now.
  */
@@ -218,8 +218,8 @@ export function applyReplacements(text: string, reps: Replacement[]): string {
  * that resolves there (`wikiLink`), keeping its anchor (`#…`) and visible
  * text (`|…`; one equal to the new target goes). Null if no form of it
  * reaches `want`, and always when `want` is in another space than `src`: a
- * link never crosses spaces, and vihko never writes one that would
- * (D-056.30). A wikilink that gets no text and has to be written from the
+ * link never crosses spaces, and vihko never writes one that would.
+ * A wikilink that gets no text and has to be written from the
  * notes root (a reader who sees only part of the space) gets the note's
  * name as its text. `opts.inTable`: the link is in a table row, where a new
  * `|` is written `\|`.

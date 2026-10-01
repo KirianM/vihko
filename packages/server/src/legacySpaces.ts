@@ -1,5 +1,5 @@
 // The shared spaces of 0.1.0-rc.1 and rc.2, renamed to their names when vihko
-// starts (D-056.33). Those versions made a shared space's folder
+// starts. Those versions made a shared space's folder
 // `spaces/<readable>-<id>/` and kept its name in vihko.yaml (`name`, at its
 // root); now the folder is the name. Each start, before vihko listens:
 //
@@ -8,7 +8,7 @@
 //   path too (without `name`), then the folder with everything in it (the
 //   index, the history and open notes follow, notes.ts), then its old rules
 //   go, and keys, pins and the trash follow (folderRefs.ts). Links don't
-//   change: they never leave a space (D-056.30).
+//   change: they never leave a space.
 // - A name that can't be a folder's (a `/` in it, say) gives way to the
 //   folder's readable part (`casa` of `casa-7k2q9x`).
 // - A name another space or folder in `spaces/` has, in any case (core
@@ -97,7 +97,7 @@ export async function renameLegacySpaces(deps: LegacySpacesDeps): Promise<Legacy
       names.delete(nameKey(folder.folder))
       names.set(nameKey(wanted!), to)
       report.renamed.push({ from, to })
-      log(`the shared space ${from} is now ${to} (its name, D-056.33)`)
+      log(`the shared space ${from} is now ${to} (its name)`)
     } catch (err) {
       report.left.push({ path: from, wanted: wanted ?? folder.folder })
       log(`the shared space ${from} couldn't be renamed to ${to}: ${err instanceof Error ? err.message : String(err)} (the next start tries again)`)

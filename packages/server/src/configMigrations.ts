@@ -1,4 +1,4 @@
-// vihko.yaml rewritten to the current format when vihko starts (D-042.6; the
+// vihko.yaml rewritten to the current format when vihko starts (the
 // migrations themselves are core's workspaceMigrations.ts). Only at start,
 // before the configuration is read: nothing of vihko is writing the file
 // then. While vihko runs, a file changed by hand is never rewritten under

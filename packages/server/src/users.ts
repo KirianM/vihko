@@ -1,4 +1,4 @@
-// Users and groups (M4, D-038.3 and .8), which the vihko admin manages.
+// Users and groups, which the vihko admin manages.
 //
 // - A new user has no password: the admin copies a one-time link for them
 //   (`/invite/<token>`) and the person chooses it there. The same kind of
@@ -11,12 +11,12 @@
 // - Deleting (only someone already disabled) leaves a tombstone: the id and
 //   the name, so the history still says who wrote and the name is never
 //   given to someone else (a `{user}` folder of theirs must not open to a
-//   newcomer with the same name, D-038.8). Their keys are revoked for good
+//   newcomer with the same name). Their keys are revoked for good
 //   and their secrets wiped (each keeps its name, for the history, as a
 //   revoked key does); sessions, links, profile, memberships, second
 //   factor, notices and pins go. Their personal space (`people/<name>`)
 //   stays on the disk, closed: nobody sees it, the admin included, nor what
-//   they shared from it (D-056.8); the admin may then transfer it, make it a
+//   they shared from it; the admin may then transfer it, make it a
 //   shared space or delete it (spaceService.ts).
 // - A new user gets their personal folder (auth.ts, personalFolders.ts).
 // - The last active admin can't be demoted, disabled or deleted.
@@ -36,7 +36,7 @@ import { AuthError, MIN_PASSWORD, hashPassword, validName, type Auth, type Role,
 /** How long a one-time link works. */
 export const LINK_DAYS = 7
 
-/** Group names vihko keeps for itself: subjects of grants to everyone, should they come (`@everyone`, D-056.28). */
+/** Group names vihko keeps for itself: subjects of grants to everyone, should they come (`@everyone`). */
 export const RESERVED_GROUPS: readonly string[] = ['everyone', 'all', 'public', 'anyone']
 
 /** `invited`: never chose a password (a link may be pending). */
@@ -57,7 +57,7 @@ export interface UserInfo {
   groups: string[]
   /** A link that still works (never its token): what for, and until when. */
   link: { kind: LinkKind; expiresAt: string } | null
-  /** Whether they set up a second factor (D-036), and since when (never the secret or the recovery codes). */
+  /** Whether they set up a second factor, and since when (never the secret or the recovery codes). */
   twoFactor: { enabled: boolean; enabledAt: string | null }
 }
 
@@ -102,13 +102,13 @@ export class UsersError extends Error {
 
 /**
  * What follows a change of users or groups elsewhere. The grants ones are
- * filled by the permissions writer (piece P); until then they do nothing.
+ * filled by the permissions writer; until then they do nothing.
  */
 export interface UserHooks {
   /** Before a user is deleted: their grants in vihko.yaml go. If it throws, the user isn't deleted. */
   onUserDeleted?(username: string, by: Actor): void | Promise<void>
   /**
-   * After a user is deleted: their personal space is closed (D-056.8), so
+   * After a user is deleted: their personal space is closed, so
    * whoever has one of its notes open elsewhere (a folder it shared) loses it
    * now (the hub checks every editor's access again).
    */
@@ -374,7 +374,7 @@ export class Users {
   /**
    * A valid group name nobody else has (`except`: the group being renamed),
    * and none of RESERVED_GROUPS: grants to everyone may come one day, and
-   * `@everyone` (or `@all`…) must not mean a group by then (D-056.28).
+   * `@everyone` (or `@all`…) must not mean a group by then.
    */
   private groupName(name: unknown, except?: string): string {
     const n = typeof name === 'string' ? name.normalize('NFC').trim() : ''

@@ -65,7 +65,7 @@ export interface Config {
   history: { quietMs: number; maxOpenMs: number; sweepMs: number; git: string }
   /**
    * VIHKO_INTEGRATIONS=off: the API with keys and the MCP server stay off,
-   * whatever the switches in the UI say (D-035.1).
+   * whatever the switches in the UI say.
    */
   integrationsLocked: boolean
   /**
@@ -173,16 +173,16 @@ export async function start(config: Config, opts: StartOptions = {}) {
 async function run(config: Config, lock: StateLock, opts: StartOptions) {
   const log = (msg: string) => console.log(`[vihko] ${msg}`)
   const { state, index } = openStores(config, log)
-  // Each new user gets their personal folder (people/<name>, D-056).
+  // Each new user gets their personal folder (people/<name>).
   const auth = new Auth(state, { notesDir: config.notesDir })
-  // The product's two folders, and the personal folder of each user there is, before the first scan (spec §7.1).
+  // The product's two folders, and the personal folder of each user there is, before the first scan.
   if (auth.personalFolders) {
     auth.personalFolders.ensureLayout()
     for (const u of state.prepare('select username from users where deleted_at is null').all() as { username: string }[]) auth.personalFolders.ensure(u.username)
   }
   const keys = new ApiKeys(state)
   const integrations = new Integrations(state, { locked: config.integrationsLocked })
-  // vihko.yaml in the current format before it's read (D-042.6): only here, never while it runs.
+  // vihko.yaml in the current format before it's read: only here, never while it runs.
   const configMigrations = new ConfigMigrations({ notesDir: config.notesDir, stateDir: config.stateDir, migrations: opts.workspaceMigrations, log })
   await configMigrations.run()
   // A file left without permissions applies once it stays so: then everything that depends on it hears.
@@ -192,7 +192,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   // too (the hub exists further down). Their grants in vihko.yaml follow a
   // deletion or a group's rename (http/app.ts fills those hooks in).
   const users = new Users(auth, { hooks: { onSessionsEnded: (id) => hub.checkSessions(id) } })
-  // Who reads what (D-038): vihko.yaml's rules over state.db's users and groups.
+  // Who reads what: vihko.yaml's rules over state.db's users and groups.
   const permissions = new PermissionsEngine({ source: () => workspace.permissions, directory: stateDirectory(state, groupSource(users)), folders: diskSpaceFolders(config.notesDir) })
   // Before the first scan: a note moved while the server was stopped is detected too.
   const holds = new PermissionHolds({ stateDir: config.stateDir, engine: permissions, log })
@@ -278,7 +278,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
     notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes,
     attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments, history: history.recorder,
     retries: new RelinkRetries({ stateDir: config.stateDir, log }),
-    // Whoever made the move is told, without names or counts (D-056.21); the log has the rest.
+    // Whoever made the move is told, without names or counts; the log has the rest.
     onRelinkGaveUp: (entry, failed) => {
       log(`links in ${failed.length} note(s) still not updated after moving ${entry.reason.from} to ${entry.reason.to}: given up`)
       notices.relinkGaveUp(entry.reason.by)
@@ -310,7 +310,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log, icons: markIcons(webDir) }) },
   })
   liveTree = services.live
-  // Shared spaces of 0.1.0-rc.1 and rc.2 take their names as folders (D-056.33), before anyone can ask for them.
+  // Shared spaces of 0.1.0-rc.1 and rc.2 take their names as folders, before anyone can ask for them.
   await renameLegacySpaces({ notesDir: config.notesDir, file: services.permissionsFile, notes, refs: new FolderRefs({ state, stateDir: config.stateDir }), indexer, log })
     .catch((err) => log(`renaming the shared spaces of earlier versions: ${err instanceof Error ? err.message : String(err)}`))
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server

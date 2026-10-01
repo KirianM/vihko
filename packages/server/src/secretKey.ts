@@ -1,4 +1,4 @@
-// VIHKO_SECRET_KEY (D-040 3.4b): an optional key of the server's
+// VIHKO_SECRET_KEY: an optional key of the server's
 // administrator, kept outside state.db, that encrypts the TOTP secrets in it.
 // A copy of state.db (a backup) is then not enough to compute anyone's codes.
 //

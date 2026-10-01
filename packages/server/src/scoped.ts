@@ -1,10 +1,10 @@
 // What a principal can do with the notes, through the access filter
 // (access.ts): the operations the HTTP API offers (and the MCP server),
 // each one reading and writing through the note service as that principal.
-// A person sees what the folders' permissions give them (D-038); an agent
+// A person sees what the folders' permissions give them; an agent
 // only what its user sees and its key allows. Nothing a principal can't see
 // leaks through a list, a count, a link, a preview or an error: it doesn't
-// exist (`not_found`, and a link to it is broken, D-056.15), or, when an
+// exist (`not_found`, and a link to it is broken), or, when an
 // agent names a note its person can read but that is hidden from the agent,
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
@@ -75,7 +75,7 @@ export interface ScopedDeps {
  * What a folder holds, as `not_empty` tells whoever tried to delete it
  * (scoped `contentsView`): paths relative to the folder, each list capped at
  * FOLDER_LIST_CAP; `kept` blocks it (vihko never touches those). Whoever
- * deletes a folder manages it and sees everything in it (D-056.7): nothing
+ * deletes a folder manages it and sees everything in it (grants only add): nothing
  * in it is hidden from them.
  */
 export interface FolderContentsView {
@@ -87,8 +87,8 @@ export interface FolderContentsView {
 /**
  * Where something can be created (a note, or a folder, `folder` true): in a
  * space, never at the root of the notes folder, in `people/` or `spaces/`
- * (`outside_space`), and never as a space's root (`space_root`). Decided by
- * the path alone, before the permissions and the disk (spec §3.1, §3.2).
+ * (`outside_space`), and never as a space's root (`space_root`). Judged by
+ * the path alone, before the permissions and the disk.
  */
 export function assertPlacement(path: string, folder = false) {
   if (folder && (isSpaceRoot(path) || path === PEOPLE || path === SPACES)) throw new RequestError(400, 'space_root', `a space's root is not a folder to create: ${path}`)
@@ -111,7 +111,7 @@ export class RequestError extends Error {
 
 /**
  * An outgoing link as the API gives it. One that leads to a note the person
- * can't read is `missing`, as a broken one (D-056.15). For an agent,
+ * can't read is `missing`, as a broken one. For an agent,
  * `no_access`: it leads to a note its person reads but that is hidden from
  * it (or every candidate of an ambiguous one is), without saying which; an
  * ambiguous one keeps the candidates it can see, with `othersNoAccess` if
@@ -145,7 +145,7 @@ export interface OutgoingLink {
  * frontmatter that can't be read) in what it wrote, or, in principle, a path
  * out of its key's folders. The write stands; from then on the note is like
  * any other hidden one (`agent_denied` when named, absent from every list),
- * and only a person can make it visible again (D-035).
+ * and only a person can make it visible again.
  */
 export interface NowHidden { reason: DenyReason; message: string }
 
@@ -168,7 +168,7 @@ export interface EditPreview {
 
 /**
  * A move report as an agent gets it: `hidden` says there are links in notes
- * it can't see, never which or how many (D-018); `nowHidden`, that the note
+ * it can't see, never which or how many; `nowHidden`, that the note
  * moved is hidden from it at its new path (then without its ETag).
  */
 export type ScopedMoveReport = MoveReport & { hidden?: boolean; nowHidden?: NowHidden; audience?: AudienceChange; brokenLinks?: BrokenLink[] }
@@ -179,8 +179,8 @@ export type ScopedFolderMove = FolderMoveReport & { hidden: boolean; audience?: 
 /**
  * When a move takes a note or a folder to another space: a link it will
  * leave broken, because a link never leads to another space and vihko
- * rewrites nothing across spaces (D-056.30). From the principal's masked
- * report (the rest is only `hidden`, as ever, D-018): in what moved, to
+ * rewrites nothing across spaces. From the principal's masked
+ * report (the rest is only `hidden`, as ever): in what moved, to
  * notes of the space it leaves; in notes left there, to what moved.
  * `path`: the note holding the link, where it is after the move; `to`: the
  * note it led to, where that one is after the move.
@@ -293,8 +293,8 @@ export interface ResolvedLink {
 }
 
 /**
- * An agent's move would open the note to someone who can't see it now
- * (D-040 3.2): it goes through only when asked again with the audience
+ * An agent's move would open the note to someone who can't see it now:
+ * it goes through only when asked again with the audience
  * confirmed (`confirmAudience`, which the agent asks the person for first).
  * The change carries users' and groups' names (everyone sees them) and how
  * many keys, never whose.
@@ -322,7 +322,7 @@ class DryRun extends Error {
 }
 
 /**
- * Substitutions need the ETag of the text they were planned on (D-017):
+ * Substitutions need the ETag of the text they were planned on:
  * they replace text (or a frontmatter value) the agent must have seen.
  * Appends don't.
  */
@@ -404,7 +404,7 @@ export class ScopedNotes {
   private masked(err: unknown, path: string): unknown {
     // A name taken under another spelling: told only once its spelling was found visible (`seenSpelling`).
     if (!(err instanceof NoteError) || err instanceof ExistsAs || this.readable(path)) return err
-    // Nothing there, under any spelling: a name refused because it would take a link to what it can't read (D-056.20), as a taken name.
+    // Nothing there, under any spelling: a name refused because it would take a link to what it can't read, as a taken name.
     if (err.code === 'exists' && !this.onDisk(path)) return err
     // A note there that it can't read (not indexed yet): an agent named it, so it's told, and nothing else; a person, that it doesn't exist.
     if (err.code === 'exists') return this.access.hiddenError(path)
@@ -428,7 +428,7 @@ export class ScopedNotes {
   /**
    * A new note's path the principal may write: in a space (`outside_space`,
    * `space_root`, by the path alone), then the permissions, and only then the
-   * disk (spec §3.1).
+   * disk.
    */
   private creatable(path: string): string {
     const p = NoteService.checkPath(path)
@@ -441,7 +441,7 @@ export class ScopedNotes {
    * Runs a write that names `path` new: a name taken under another spelling
    * on a case-insensitive disk is `exists` with the disk's spelling
    * (`ExistsAs`), which the principal may be told: it writes there, so it
-   * sees everything in that folder (spec §3.4 row 6).
+   * sees everything in that folder.
    */
   private async spelled<T>(path: string, fn: () => Promise<T>): Promise<T> {
     try {
@@ -482,7 +482,7 @@ export class ScopedNotes {
    * Before creating what makes folders from vihko under `folder` (a note or
    * a folder at a path whose folders don't exist yet): the grants forgotten
    * at the topmost folder about to be made, and under it, go, so that a new
-   * folder never takes an audience left there (spec §1.2). A space's root
+   * folder never takes an audience left there. A space's root
    * keeps its own (they are its members).
    */
   private async clearForgotten(folder: string) {
@@ -507,7 +507,7 @@ export class ScopedNotes {
    * The note, with what the index knows of it and whether its text hides it
    * from agents (`hiddenFromAgents`, access.ts: null for any note an agent
    * reads, since it can't read the others). For a person, their `level`
-   * where it is (D-038.5): the editor is read-only below `edit`. `meta`: its
+   * where it is: the editor is read-only below `edit`. `meta`: its
    * title, uid and why its frontmatter can't be read (`fmError`), or null
    * while the index doesn't have it.
    */
@@ -527,7 +527,7 @@ export class ScopedNotes {
   }
 
   /**
-   * The path of the note with this `uid` (D-015), if the principal may read
+   * The path of the note with this `uid`, if the principal may read
    * it: `agent_denied` if it's hidden from it (without its path), `not_found`
    * if there's none.
    */
@@ -543,7 +543,7 @@ export class ScopedNotes {
     return this.deps.index.prepare('select level, text from headings where path = ? order by ord').all(r.path) as { level: number; text: string }[]
   }
 
-  /** A note's comment threads as the index first saw them (D-031.6). */
+  /** A note's comment threads as the index first saw them (to tell when the text they comment on changed). */
   comments(path: string) {
     const { path: p, text } = this.visible(path)
     const originals = new Map((this.deps.index.prepare('select thread, original from comment_anchors where src_path = ? and orphaned = 0').all(p) as { thread: string; original: string }[])
@@ -557,7 +557,7 @@ export class ScopedNotes {
   /**
    * A note's outgoing links and backlinks (with their context), and the
    * titles of an ambiguous link's candidates. A link to a note the person
-   * can't read is broken for them (`maskedLink`, D-056.15). Backlinks from
+   * can't read is broken for them (`maskedLink`). Backlinks from
    * notes the principal can't see aren't there at all.
    *
    * A link from a note to itself (`[[#Heading]]`, or its own name) is not a
@@ -602,11 +602,11 @@ export class ScopedNotes {
    * A link as the principal sees it (see `links`). One that leads to a note
    * the person can't read (or is ambiguous among notes of which they can't
    * read one) is broken for them, exactly as a link to a note that doesn't
-   * exist (D-056.15): writing a link never tells anyone what exists. For an
+   * exist: writing a link never tells anyone what exists. For an
    * agent the same goes for what its person can't read; a note its person
    * reads but that is hidden from the agent (`ai: false`, out of the key's
    * folders) is `no_access`, with the reason when every note it may lead to
-   * is hidden for the same one (D-035), and an ambiguous link keeps the
+   * is hidden for the same one, and an ambiguous link keeps the
    * candidates it sees, with `othersNoAccess`.
    */
   private maskedLink(l: OutgoingLink): OutgoingLink {
@@ -750,18 +750,18 @@ export class ScopedNotes {
   // --- Writing ----------------------------------------------------------------
 
   /**
-   * A new note, with the given text or from a template note (D-030). Never
+   * A new note, with the given text or from a template note. Never
    * overwrites. The template must be one the principal can read. If what an
    * agent created is hidden from it (`ai: false` in its text), `nowHidden`.
    *
    * `fromLink`: the note whose broken link it is created from. Never from a
-   * note of someone else's personal space (D-056.21): there a link that looks
+   * note of someone else's personal space: there a link that looks
    * broken may lead to one of the owner's notes the person can't read, and
    * creating would take the owner's link. Refused whether or not that is so
    * (`forbidden`), so the answer tells nothing. Only in the link's own space
-   * (D-056.30: a link never leads to another space, so a note there would
+   * (a link never leads to another space, so a note there would
    * leave it broken); elsewhere, or in a place the person can't create in,
-   * the answer is a taken name's (D-056.28): it says nothing of what is
+   * the answer is a taken name's: it says nothing of what is
    * there.
    */
   async create(path: string, opts: { text?: string; template?: string; freshUid?: boolean; fromLink?: string }): Promise<{ path: string; uid: string | null } & Written> {
@@ -825,7 +825,7 @@ export class ScopedNotes {
   /**
    * Applies `fn` to the current text as the principal; an agent never edits
    * a note it can't see. An alias the edit adds is a name the note takes, as
-   * when creating one (D-056.28, `mayName`).
+   * when creating one (`mayName`).
    */
   private edit(path: string, fn: (text: string) => string | ReturnType<typeof planEdits>, opts: { ifMatch?: string }) {
     const p = this.writable(path)
@@ -837,7 +837,7 @@ export class ScopedNotes {
 
   /**
    * Edits by operation (edits.ts), atomic on the current text, even with the
-   * note open. An agent must give `ifMatch` for substitutions (D-017).
+   * note open. An agent must give `ifMatch` for substitutions, so it only replaces text it has seen.
    * `dryRun`: what it would change, without writing. An edit that hides the
    * note from the agent that makes it (`set_frontmatter ai false`) stands,
    * with `nowHidden`.
@@ -875,7 +875,7 @@ export class ScopedNotes {
    * note is: a new thread, a reply, or resolving a thread they started and
    * nobody else replied to (with `edit`, anyone's). One exact operation through the note service, as the
    * person: on the open document if someone is editing the note, on the
-   * file otherwise. Only people: an agent comments by editing (D-038.5).
+   * file otherwise. Only people: an agent comments by editing.
    */
   async comment(path: string, op: CommentOp): Promise<{ etag: string }> {
     const p = NoteService.checkPath(path)
@@ -903,13 +903,13 @@ export class ScopedNotes {
   }
 
   /**
-   * Moves or renames a note (links kept, D-018): only a note it can write
+   * Moves or renames a note (links kept): only a note it can write
    * (`edit` in its folder) to a path it can write. The report never names a
    * note it can't see (`hidden`: there are some, never which or how many);
    * the rewrites still reach them, as the system. A dry run says whose
-   * access changes (`audience`, D-038), for the UI to confirm, and for an
+   * access changes (`audience`), for the UI to confirm, and for an
    * agent too. An agent's move that opens the note to anyone who can't see
-   * it now needs `confirmAudience` (D-040 3.2: the person agreed), or it is
+   * it now needs `confirmAudience` (its person must agree), or it is
    * refused with the change (`AudienceWidens`); one that only narrows it
    * doesn't.
    */
@@ -917,7 +917,7 @@ export class ScopedNotes {
     const f = this.writable(from)
     this.visible(f)
     const t = this.creatable(to)
-    // Its folder of images (per-note mode) goes with it, with its rules (spec §3.8): its audience counts too.
+    // Its folder of images (per-note mode) goes with it, with its rules: its audience counts too.
     const suffix = this.deps.attachments(f).perNote
     const assets = suffix !== undefined ? { from: noteAttachmentsDir(f, suffix), to: noteAttachmentsDir(t, suffix) } : null
     const engine = this.deps.permissions
@@ -933,9 +933,9 @@ export class ScopedNotes {
     const copied = !opts.dryRun && assetRules && file ? (await file.moveRules(assets.from, assets.to, { actor: this.access.actor, keepFrom: true })).changed : false
     let report: MoveReport
     try {
-      // Images it takes to another space are only those the principal can read (D-056).
+      // Images it takes to another space are only those the principal can read.
       // A move that would have to rewrite, in a note its person reads, a link to a note they can't
-      // is refused as a taken name; the dry run leaves that rewrite out instead (D-056.20, .28).
+      // is refused as a taken name; the dry run leaves that rewrite out instead.
       report = await this.guardAsync(f, () => this.spelled(t, () => this.deps.notes.move(f, t, { ...moveOpts, actor: this.access.actor, canRead: (p) => this.access.canRead(p), mayName: this.mayName, counts: this.counts })))
     } catch (err) {
       if (copied) await file!.removeRules(assets!.to, { actor: this.access.actor }).catch(() => {})
@@ -961,19 +961,19 @@ export class ScopedNotes {
   /**
    * Whether a move may rewrite, in a note the person reads, a link so that
    * it names this note, or a new name may take such a link that leads to it
-   * (D-056.20, .23, .28): only one the person (an agent's person) can read;
+   * (so that no name tells what exists): only one the person (an agent's person) can read;
    * also whether the person reads the note holding the link. What only the agent
    * can't see (`ai: false`, outside its key) it may already learn by naming
-   * it (`agent_denied`, D-035), so that alone doesn't refuse a move.
+   * it (`agent_denied`), so that alone doesn't refuse a move.
    */
   private readonly mayName = (path: string) => this.access.userCanRead(path)
 
-  /** Which rewritten notes a move's progress counts: only those the principal reads (D-018, D-056.21: never how many it can't). */
+  /** Which rewritten notes a move's progress counts: only those the principal reads (never how many it can't). */
   private readonly counts = (path: string) => this.access.canRead(path)
 
   /**
    * A move's report (a note's, a folder's, or the links after moves made
-   * outside vihko) with only what the principal can see (D-018): `hidden`
+   * outside vihko) with only what the principal can see: `hidden`
    * says something was left out, never what or how much. `back` gives a
    * path's name before the move (a folder move's notes are listed at their
    * new paths, and whether they're seen is judged where they were).
@@ -983,7 +983,7 @@ export class ScopedNotes {
     const moved = new Set([report.from, report.to].filter((p): p is string => typeof p === 'string'))
     const sees = (p: string) => moved.has(p) || this.access.canRead(back(p))
     const keep = <X>(list: X[], path: (x: X) => string) => list.filter((x) => (sees(path(x)) ? true : ((hidden = true), false)))
-    // Where a link leads, as the principal would see it: to what they can't read, nowhere (D-056.15).
+    // Where a link leads, as the principal would see it: to what they can't read, nowhere.
     const shown = (s: LinkState): LinkState =>
       s.status === 'resolved' ? (sees(s.path) ? s : { status: 'missing' }) : s.status === 'ambiguous' ? (s.candidates.every(sees) ? s : { status: 'missing' }) : s
     const shifted = keep(report.shifted, (g) => g.path).flatMap((g) => {
@@ -1012,7 +1012,7 @@ export class ScopedNotes {
         moved: images.moved.filter((m) => inReach(m.from)),
         copied: images.copied.filter((m) => inReach(m.from)),
         stayed: images.stayed.filter((x) => inReach(x.path)),
-        // Masked like the rest (spec §3.4 row 13): a note's folder of images is named only where the person reaches it.
+        // Masked like the rest: a note's folder of images is named only where the person reaches it.
         folder: images.folder && inReach(`${images.folder.from}/_`) ? images.folder : null,
         failed: images.failed.filter((x) => inReach(x.path)),
       }
@@ -1031,10 +1031,10 @@ export class ScopedNotes {
   }
 
   /**
-   * Stores an image for a note it can write (D-028), where it may write:
+   * Stores an image for a note it can write, where it may write:
    * the image's folder (next to the note, its folder of images, or the
    * attachments folder of vihko.yaml) is checked too, for people as for
-   * agents (spec §3.8: an image never lands where whoever writes it has no
+   * agents (an image never lands where whoever writes it has no
    * `edit`, nor out of an agent's key's folders).
    */
   async attach(note: string, bytes: Uint8Array) {
@@ -1062,7 +1062,7 @@ export class ScopedNotes {
     return revertWritten(r, () => this.written(p, r.etag, opts.ifMatch !== undefined))
   }
 
-  // --- The daily note (D-030) --------------------------------------------------
+  // --- The daily note ---------------------------------------------------------
 
   /**
    * Where the user's note for today is and whether it exists. Asking for
@@ -1070,7 +1070,7 @@ export class ScopedNotes {
    * person can't read, `not_found` without its path (vihko.yaml made it, not
    * them). For an agent, if it exists but is hidden from it (`ai: false`, a
    * frontmatter that can't be read, outside the key's folders, or its user
-   * can't see it), `agent_denied` with the reason (D-035, D-037), never its
+   * can't see it), `agent_denied` with the reason, never its
    * path or anything of it; if it doesn't exist and falls where the agent
    * can't reach, `not_found`, without its path either.
    */
@@ -1102,14 +1102,14 @@ export class ScopedNotes {
     })
   }
 
-  // --- Folders (D-038.5, D-056) --------------------------------------------------
+  // --- Folders --------------------------------------------------------------------
   // Creating one needs `edit` where it goes, in a space. Renaming, moving or
   // deleting one needs `manage` in it and `edit` in the folder it leaves
   // (the root of a folder someone shares with you stays theirs to order,
-  // D-056.6), and `edit` in its new parent. A space's root is never created,
+  // not yours to rename or move), and `edit` in its new parent. A space's root is never created,
   // renamed or moved as a folder (`space_root`); a shared space's root is
   // deleted as the space, by whoever manages it (its trash keeps who did,
-  // spec §3.5). Always the permissions first, then the disk (spec §3.1): a
+  // so they can restore it). Always the permissions first, then the disk: a
   // folder the person can't see doesn't exist for them, whether it does or
   // not; one they see but can't change this way is `forbidden`, and one that
   // doesn't exist where they see everything is `not_found`. Its rules in
@@ -1132,7 +1132,7 @@ export class ScopedNotes {
    * An existing folder the person may rename, move or delete (`manage` in it,
    * `edit` where it is): the permissions decide first, `not_found` where they
    * don't see it; where they see it but may not, `forbidden`, unless it
-   * doesn't exist (`not_found` either way, spec §3.4 row 11).
+   * doesn't exist (`not_found` either way).
    */
   private assertFolderToChange(folder: string) {
     if (folder === PEOPLE || folder === SPACES || isSpaceRoot(folder)) throw new RequestError(400, 'space_root', `a space's root is not a folder to rename, move or delete: ${folder}`)
@@ -1144,7 +1144,7 @@ export class ScopedNotes {
       : `no permission to manage ${folder}`)
   }
 
-  /** A new, empty folder: `edit` where it goes, in a space. Grants forgotten at its path go first (spec §1.2). */
+  /** A new, empty folder: `edit` where it goes, in a space. Grants forgotten at its path go first. */
   async createFolder(path: string): Promise<{ path: string }> {
     const p = NoteService.checkFolder(path)
     assertPlacement(p, true)
@@ -1164,9 +1164,9 @@ export class ScopedNotes {
    * for the system's clutter), it just goes; otherwise `not_empty` with what
    * it holds (`FolderContentsView`), unless `trash`: then its notes and files
    * go to the trash first (notes.ts `trashFolder`). What vihko never touches
-   * stops it, and so do notes held in it (`held_inside`, spec §3.4 row 5).
+   * stops it, and so do notes held in it (`held_inside`).
    * A shared space's root deletes the space: `manage` there, and its
-   * managers are kept with each trash entry (spec §3.5).
+   * managers are kept with each trash entry, so they can still restore it.
    */
   async deleteFolder(path: string, opts: { trash?: boolean } = {}): Promise<{ path: string; trashed: TrashEntry[] }> {
     const p = NoteService.checkFolder(path)
@@ -1225,14 +1225,14 @@ export class ScopedNotes {
    * (`audience`).
    *
    * `newSpace`: `to` is the root of a shared space that doesn't exist yet
-   * (`spaces/<its name>`), and the folder becomes it (D-056.28, «Move to a
+   * (`spaces/<its name>`), and the folder becomes it («Move to a
    * new space»): what it holds goes to its root, with the folder's own
    * grants and whoever moves it managing it; who may create spaces, and
    * whether the name is free, is the caller's to judge (spaceService.ts
    * `fromFolder`).
    *
-   * `renameSpace`: `from` is a shared space's root and `to` its new one
-   * (D-056.33): only who manages it may; whether the name is free is the
+   * `renameSpace`: `from` is a shared space's root and `to` its new one:
+   * only who manages it may; whether the name is free is the
    * caller's to judge (spaceService.ts `rename`). Its rules go along, but
    * the name 0.1.0-rc.1 or rc.2 wrote at its root (`name`), which the
    * folder is now.
@@ -1249,7 +1249,7 @@ export class ScopedNotes {
       this.assertFolder(parentFolder(t)!, 'edit')
     }
     const actor = this.access.actor
-    // Images it takes to another space are only those the person can read (D-056).
+    // Images it takes to another space are only those the person can read.
     const canRead = (p: string) => this.access.canRead(p)
     const back = (p: string) => (p === t || p.startsWith(t + '/') ? f + p.slice(t.length) : p)
     const engine = this.deps.permissions
@@ -1335,7 +1335,7 @@ export class ScopedNotes {
   // --- Other requests about notes -----------------------------------------------
 
   /**
-   * Fixes where one ambiguous link leads (D-031.2), in a note it can write,
+   * Fixes where one ambiguous link leads, in a note it can write,
    * to a candidate it can see: one it can't is not a candidate for it, and a
    * link with a candidate it can't see isn't ambiguous for it but broken
    * (`maskedLink`): the same refusal as for a link that isn't ambiguous.
@@ -1355,8 +1355,8 @@ export class ScopedNotes {
   }
 
   /**
-   * The trash: what was deleted where the person would have `edit` now
-   * (D-038): a note where they could edit it, files alone where they could
+   * The trash: what was deleted where the person would have `edit` now:
+   * a note where they could edit it, files alone where they could
    * edit any of them; of an entry's files, only those.
    */
   trash(): (TrashEntry & { space: string | null })[] {
@@ -1373,7 +1373,7 @@ export class ScopedNotes {
   /**
    * Whether a trash entry is this person's though they can't write where it
    * was: its shared space was deleted (it doesn't exist any more) and they
-   * managed it then (spec §3.5). They restore it somewhere they may write.
+   * managed it then. They restore it somewhere they may write.
    */
   private orphanedFor(e: TrashEntry): boolean {
     if (!e.managers || this.access.isAgent || !e.managers.includes(this.access.user.id)) return false
@@ -1391,7 +1391,7 @@ export class ScopedNotes {
     const entry = this.trash().find((e) => e.id === id)
     if (!entry) throw new NoteError('not_found', `not in the trash: ${id}`)
     const canWrite = (p: string) => this.access.canWrite(p)
-    // What stays in the trash is named only where the principal reads it (D-056.15): the
+    // What stays in the trash is named only where the principal reads it: the
     // rest of an entry may be files of folders it can't see.
     const shown = (r: TrashRestoreReport): TrashRestoreReport => ({ ...r, left: r.left.filter((p) => this.access.canRead(p)) })
     if (entry.kind === 'files') {
@@ -1424,7 +1424,7 @@ export class ScopedNotes {
   }
 
   /**
-   * Notes moved outside vihko whose links are left behind (D-031.4), as the
+   * Notes moved outside vihko whose links are left behind, as the
    * person sees them: only moves they can see at both ends, and only the
    * links in notes they can read.
    */
@@ -1433,10 +1433,10 @@ export class ScopedNotes {
   }
 
   /**
-   * Updates the links after notes moved outside vihko (D-031.4), as a vihko
+   * Updates the links after notes moved outside vihko, as a vihko
    * move would, for the moves the person may make: `edit` where each note
    * was and is. The rewrites reach notes they can't see, as the system
-   * (D-018); the report doesn't name them.
+   * so the links still lead where they did; the report doesn't name them.
    */
   async relinkExternal(id: string, opts: { dryRun?: boolean } & MoveHooks = {}) {
     const ext = this.deps.externalMoves
@@ -1485,7 +1485,7 @@ function parseLink(link: string): Pick<LinkRef, 'kind' | 'target' | 'anchor'> | 
 }
 
 /** A link to a note hidden from the principal: its own text and why (if one reason), nothing of where it leads. */
-/** A link as a broken one looks: where it leads is nobody's business (D-056.15). */
+/** A link as a broken one looks: where it leads is nobody's business. */
 function brokenLink(l: OutgoingLink): OutgoingLink {
   return { raw: l.raw, kind: l.kind, target: l.target, anchor: l.anchor, status: 'missing', dstPath: null, anchorOk: null, candidates: null, posFrom: l.posFrom }
 }

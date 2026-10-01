@@ -1,4 +1,4 @@
-// Templates (D-030): a plain note whose text is copied into a new one, with
+// Templates: a plain note whose text is copied into a new one, with
 // the fixed variables filled in (`renderTemplate`). Through the normal create
 // of the note service: never overwriting, born with its own `uid`.
 import { posix } from 'node:path'
