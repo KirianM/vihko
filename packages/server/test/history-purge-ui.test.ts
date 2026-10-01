@@ -139,6 +139,17 @@ test('a manager purges a note\'s whole history (that file alone); the admin purg
     await writing
     assert.equal(k.status, 200, JSON.stringify(k.body))
     for (const mark of [WORD.other, more, older, posix.basename(PATH.otherNotes), posix.basename(OLD)]) assert.ok(!JSON.stringify(k.body).includes(mark), mark)
+    // Not even how much, nor whether anything had history there: a path with none answers the same, and so does a
+    // version that never wrote the path (no «not one of its versions» to tell it apart).
+    assert.deepEqual([k.body.hidden, k.body.versions, k.body.filesRemoved], [true, [], 0])
+    const same = (r: { status: number; body: Record<string, unknown> }) => ({ status: r.status, body: { ...r.body, path: null, version: null } })
+    const [nonePath, notTherePath] = [`${home(OTHER.username)}/${m.aTitle()}.md`, `${home(OTHER.username)}/${m.aTitle()}.md`]
+    const none = await h.admin('POST', '/api/history/purge', { path: nonePath, confirm: ADMIN.password })
+    assert.deepEqual(same(none), same(k))
+    const someVersion = ((await versionsOf(PATH.list, h.member)) as { id: string }[])[0]!.id
+    const notThere = await h.admin('POST', '/api/history/purge', { path: notTherePath, version: someVersion, confirm: ADMIN.password })
+    assert.deepEqual(same(notThere), same(k))
+    assert.equal((await versionsOf(PATH.list, h.member)).length > 0, true, 'a version that never wrote the path is left alone')
     assert.deepEqual(await versionsOf(PATH.otherNotes, h.other), [])
     assert.deepEqual(await versionsOf(OLD, h.other), [])
     assert.ok(!(await objects(h.stateDir)).includes(older))
@@ -147,7 +158,8 @@ test('a manager purges a note\'s whole history (that file alone); the admin purg
     assert.equal(list[0]!.authors[0]!.name, MEMBER.username, 'the write made during the purge has its version')
     // Both where the admin can't read: who, never where (D-056.24), but for his own purge, whose path he wrote (D-056.26).
     const alerts = ((await h.admin('GET', '/api/alerts')).body.alerts as { code: string; path: string | null; by: string }[]).filter((a) => a.code === 'history_purged')
-    assert.deepEqual(alerts.map((a) => [a.path, a.by]), [[null, MEMBER.username], [home(OTHER.username), ADMIN.username]])
+    // His own notice too, alike for the paths that had nothing (and the version that wasn't theirs).
+    assert.deepEqual(alerts.map((a) => [a.path, a.by]), [[null, MEMBER.username], [home(OTHER.username), ADMIN.username], [nonePath, ADMIN.username], [notTherePath, ADMIN.username]])
   } finally { await h.close() }
 })
 

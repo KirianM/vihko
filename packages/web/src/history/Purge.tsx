@@ -112,8 +112,10 @@ export function PurgeDialog({ path, version, onCancel, onDone }: {
   )
 }
 
-/** The purge's notice, once done: what went (and, when nothing had history there, that nothing did). */
+/** The purge's notice, once done: what went (and, when nothing had history there, that nothing did; of a path they can't read, neither). */
 export function purgedText(t: ReturnType<typeof useT>, r: PurgeReport, pathLabel: (path: string) => string): string {
+  // A path they can't read: the same words whether anything there had history or not.
+  if (r.hidden) return t('purge.doneHidden', { name: pathLabel(r.path) })
   if (r.versions.length === 0) return t('purge.doneNothing', { name: pathLabel(r.path) })
   return t(r.version ? 'purge.doneVersion' : 'purge.done', { n: r.versions.length, name: pathLabel(r.path) })
 }
@@ -255,7 +257,7 @@ export function AdminPurge({ onPurged }: { onPurged: (report: PurgeReport) => vo
           onDone={(r) => {
             setAsking(null)
             // Nothing had history there: said in the form, which stays open to try another.
-            if (r.versions.length === 0) return setMessage(purgedText(t, r, pathLabel))
+            if (r.versions.length === 0 && !r.hidden) return setMessage(purgedText(t, r, pathLabel))
             close()
             onPurged(r)
           }} />

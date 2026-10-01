@@ -268,8 +268,24 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
     const blind = (p: PurgeReport) => !readablePath(access, p.path) || p.commits.some((v) => v.files.some((f) => !readablePath(access, f.path)))
     // The admin's preview of a path they can't read says nothing of it: not whether it ever existed, nor
     // when anything there was written (D-038.1, D-056.8). Only the purge itself, confirmed, does anything.
-    if (body.dryRun === true && admin && !manages && !readablePath(access, path)) {
-      return c.json({ path, version: body.version ?? null, dryRun: true, hidden: true, versions: [], filesRemoved: 0, onDisk: 0, sharedWith: [], movedFrom: [], confirmRequired: !!deps.confirm })
+    const unseen = { path, version: body.version ?? null, hidden: true, versions: [], filesRemoved: 0, onDisk: 0, sharedWith: [], movedFrom: [] }
+    if (admin && !manages && !readablePath(access, path)) {
+      if (body.dryRun === true) return c.json({ ...unseen, dryRun: true, confirmRequired: !!deps.confirm })
+      // The purge itself answers the same whether anything there had history or not: always confirmed
+      // first, and then nothing of what went (how many versions, when), nor whether the version named
+      // was one of that path's. The admin's own notice of it, alike either way.
+      if (deps.confirm) {
+        const refused = await deps.confirm(c, body.confirm)
+        if (refused) return refused
+      }
+      try {
+        const r = await run(false)
+        deps.notices?.purged(r.commits.flatMap((v) => v.people), user.id, r.path, r.version !== null)
+      } catch (err) {
+        if (!(err instanceof PurgeError && err.code === 'not_a_version')) throw err
+        history.notices.add({ path, version: (body.version as string | undefined) ?? null, by: user.id, at: new Date().toISOString() })
+      }
+      return c.json({ ...unseen, dryRun: false })
     }
     let r: PurgeReport
     if (body.dryRun === true) r = await run(true)
