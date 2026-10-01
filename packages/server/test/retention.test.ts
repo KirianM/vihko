@@ -237,6 +237,23 @@ test('an emptied note loses its history even where it is newer than the history\
   } finally { await h.close() }
 })
 
+test('with the history off, retention empties the trash and leaves the history alone', async () => {
+  const NOTE = inShared(m.aNotePath(m.aFolder()))
+  const h = await setup({ config: 'history:\n  mode: off\n', files: { [NOTE]: `# ${m.aHeading()}\n` } })
+  try {
+    await h.notes.delete(NOTE, { actor: { kind: 'user', id: h.ids.admin } })
+    const { r, settings } = retention(h, () => Date.now() + 10 * DAY)
+    settings.set({ trashRetentionDays: 5, historyRetentionDays: 1 })
+    assert.equal((await r.preview({ trashRetentionDays: 5, historyRetentionDays: 1 })).history, null)
+    const run = await r.run()
+    assert.equal(run.trash.entries, 1)
+    assert.equal(run.history, null)
+    assert.equal(run.failed, false)
+    assert.deepEqual(JSON.parse(readFileSync(join(h.stateDir, 'retention.json'), 'utf8')).emptied, [])
+    assert.equal((await h.admin('GET', '/api/admin/retention')).body.history, false)
+  } finally { await h.close() }
+})
+
 test('a run cut short leaves nothing half done: a trash entry set aside is removed by the next run', async () => {
   const h = await setup()
   try {

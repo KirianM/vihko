@@ -178,7 +178,7 @@ export class Retention {
       // The trash first: its emptied notes' history goes in the same run.
       if (s.trashRetentionDays !== null) {
         const expired = this.opts.trash().filter((e) => expiredAt(e, now, s.trashRetentionDays!))
-        if (expired.length && s.historyRetentionDays !== null && this.opts.history) {
+        if (expired.length && s.historyRetentionDays !== null && this.opts.history?.status().mode === 'managed') {
           this.state.emptied.push(...expired.flatMap(filesOf))
           this.save()
         }
@@ -227,7 +227,11 @@ export class Retention {
         this.save()
       },
     })
-    if (r === null) return null
+    if (r === null) {
+      // No managed history (any more): nothing of theirs to take out.
+      if (this.state.emptied.length) { this.state.emptied = []; this.save() }
+      return null
+    }
     // Compacted (or nothing in the history for them): nothing is left to finish.
     if (r.rewritten === 0) this.state.emptied = this.state.emptied.slice(drop.length)
     this.state.compactPending = false
