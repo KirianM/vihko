@@ -1,7 +1,7 @@
 import { expect, request, type APIRequestContext, type Browser, type Page } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 import { crc32, deflateSync } from 'node:zlib'
-import { addressOf } from '@vihko/core/spaces'
+import { addressOf, pathOfAddress } from '@vihko/core/spaces'
 import { ADMIN, BASE_URL, NOTES, PERMISSIONS, permissionsSection, SPACE, SPACE_GRANTS, type Grants, type Rule } from './env.ts'
 
 /** Writes vihko.yaml with `text` and `permissions` (by default the ones every spec runs under, env.ts); with nothing, only those. */
@@ -92,6 +92,9 @@ export const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, 
  * `home-7k2q9x/…` or `~ana/…`, never `people/` nor `spaces/`), however the
  * query encodes it (`+` or `%20`, `~` or `%7E`).
  */
+/** The path of the note open in `page`, read from its address (`?note=`). */
+export const openPath = (page: Page) => { const v = new URL(page.url()).searchParams.get('note'); return v === null ? null : pathOfAddress(v)?.path ?? null }
+
 export const noteInUrl = (path: string) => `note=${literally(encodeURIComponent(addressOf(path) ?? path)).replace(/%20/g, '(?:\\+|%20)').replace(/~/g, '(?:~|%7E)')}`
 
 /**

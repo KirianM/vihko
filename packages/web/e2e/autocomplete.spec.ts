@@ -7,7 +7,7 @@ import { expect, test, type Browser, type Locator, type Page } from '@playwright
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { markdownDest } from '../../core/src/images.ts'
 import { ADMIN, E2E_DIR, MEMBER, NOTES, SPACE_NAME, inVault, personal, specMother } from './env.ts'
-import { literally, signIn, writeWorkspace } from './helpers.ts'
+import { literally, openPath, signIn, writeWorkspace } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 /** As the suggestions compare: case- and accent-insensitive (editor/suggest.ts). */
@@ -53,7 +53,7 @@ const tagPair = (): string[] => {
 }
 const [TAG_A, TAG_B] = tagPair() as [string, string]
 const disk = (path = SOURCE) => (existsSync(`${NOTES}/${path}`) ? readFileSync(`${NOTES}/${path}`, 'utf8') : '')
-const noteParam = (page: Page) => new URL(page.url()).searchParams.get('note')
+const noteParam = openPath
 
 /**
  * The caret at the very end of a line of the editor (which must have the

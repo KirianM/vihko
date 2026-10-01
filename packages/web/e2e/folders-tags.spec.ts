@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { markdownDest } from '../../core/src/images.ts'
 import { ADMIN, E2E_DIR, SPACE_NAME, VAULT, inVault, specMother } from './env.ts'
-import { literally, signIn } from './helpers.ts'
+import { literally, openPath, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const fold = (s: string) => s.toLowerCase()
@@ -160,7 +160,7 @@ test('moving the folder of the open note keeps it open at its new path', async (
   await expect(dialog.getByText('Van con ella 3 notas y 0 archivos.')).toBeVisible()
   await dialog.getByRole('button', { name: /^Renombrar/ }).click()
   await expect(dialog).toHaveCount(0)
-  await expect.poll(() => new URL(k.url()).searchParams.get('note')).toBe(inVault(`${DIR2}/${ARCHIVE2}/${MOVABLE}.md`))
+  await expect.poll(() => openPath(k)).toBe(inVault(`${DIR2}/${ARCHIVE2}/${MOVABLE}.md`))
   await expect(k.locator('.crumbs')).toHaveText(`${SPACE_NAME} / ${DIR2} / ${ARCHIVE2} / ${MOVABLE}`)
   await expect(k.locator('.cm-content')).toContainText(MOVABLE_TEXT)
   expect(existsSync(`${VAULT}/${DIR}`)).toBe(false)
