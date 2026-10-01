@@ -1,20 +1,130 @@
 # Changelog
 
 Every release of vihko, newest first. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
-[semantic versioning](https://semver.org/) with the promise explained in
-[guide/upgrading.md](guide/upgrading.md): a new major version is the only kind
-that asks you to do something by hand or breaks an integration. Read a
-version's **Upgrade notes** before installing it.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). While vihko is at
+0.x, a minor version (0.1 → 0.2) may change what scripts, agents and your
+setup rely on, and a patch version only fixes things, as
+[guide/upgrading.md](guide/upgrading.md) explains. Read a version's
+**Upgrade notes** before installing it.
 
-## [1.0.1] - 2026-09-29
+The line released earlier as 1.0.x was withdrawn; its history is in git, and
+its entries are kept at the end of this file.
+
+## [0.1.0] - unreleased
+
+The first release of the relaunch: vihko around **spaces**. Each person has a
+space of their own, shared spaces hold what belongs to several people, and
+anyone can share a folder of theirs with someone in particular. Your notes
+are still plain Markdown files, now in two fixed folders: `people/` and
+`spaces/`. What you can't see never gets in your way or tells you it exists.
+
+Everything else of the withdrawn 1.0.1 is here: the collaborative editor,
+history, agents over the API and MCP, groups, a second factor, and the same
+Docker image and volumes.
+
+### Added
+
+- **Your own space**, «My notes»: `people/<username>/`, made with each
+  account (the first admin's too, and on a single-person install). Only you
+  see it, except what you share.
+- **Shared spaces**: `spaces/<readable>-<id>/`, created by anyone (or only by
+  admins, a setting), with members at four levels (read, comment, edit,
+  manage). Rename, leave and delete them; every member sees who the others
+  are.
+- **Folders shared one by one** from your space, under «Shared with me» with
+  their owner; pin them to the sidebar; stop seeing them.
+- **Moving between spaces** says who gains and loses access, and whose the
+  note becomes, before anything moves; images it shares with other notes are
+  copied to the new space.
+- **Links across spaces**, written from the notes root with the note's name
+  as text (`[[spaces/home-7k2q9x/Plan|Plan]]`), kept in step when the note is
+  renamed; the `[[` suggestions write them.
+- **The admin's «Spaces» page**: every shared space's name, managers and
+  member count, never its content; assign a manager to a space without one;
+  join a space, visibly; decide what becomes of a deleted person's space
+  (transfer it, make it a shared space, or delete it).
+- **Notices**: when someone adds you to a space or shares a folder with you;
+  when the admin changes a space that concerns you; when a move of yours
+  left links in other spaces that couldn't be updated.
+- **Alerts** for the admins: what is in the notes folder outside every space
+  (`outside_spaces`), folders in `people/` named after nobody, and shared
+  spaces without members or managers.
+- **HTTP API**: `GET /api/spaces` and `GET /api/spaces/members` for keys; the
+  move report's `crossSpaceLinks`, `images.copied` and `audience.owner`; the
+  error codes `outside_space`, `space_root`, `held_inside`,
+  `leave_via_group`, `space_has_managers`, `space_needs_manager` and
+  `personal_folder_exists`.
+- **MCP**: `list_folder("")` lists the spaces the person reaches, each with
+  its `space`; the server's instructions name the person's space, the shared
+  spaces and the folders shared with them, and how to link across spaces.
+- **`vihko.yaml`**: `name` at a shared space's root; `templates` takes a list
+  of folders, each with `{user}`.
+- `guide/compatibility.md` for 0.x: the whole surface, taken from the code.
+- From the 1.0.1 work not published before: the dark theme's bold and
+  headings stand out; Ctrl+E (inline code), Ctrl+Shift+S (strikethrough),
+  Ctrl+K over a selection makes it a link; the admins see an alert when
+  `state.db` migrates at start; a `vihko.yaml` rewrite raises its `version`.
+
+### Changed
+
+- **Sharing only adds.** Everyone who can read a folder sees everything in
+  it; a subfolder can add people, never take them away. A folder's own
+  grants no longer replace the inherited ones, and whoever manages a folder
+  no longer manages it «from above».
+- **A link by name resolves only within its own space**, and an alias that
+  several notes share is ambiguous. A link to a note you can't read looks
+  broken, exactly like one to a note that doesn't exist (no more lock); for
+  agents, `agent_denied` keeps only the reasons `ai_false` and
+  `outside_key_folders`.
+- **A name that would make someone else's link lead to a note you can't
+  read** isn't available for a new note, a rename or a move: `exists`, as for
+  a taken name.
+- **Permissions are checked before the disk**: a request about something you
+  can't read answers `not_found`, whether it exists or not.
+- `GET/PUT /api/permissions` (the UI's) answer `inherited`, `owner`, `space`
+  and `ai`; «Permissions…» is now «Share…».
+- `attachments.folder` is relative to each note's space.
+- A series, templates folder or agents' guide outside a space is ignored,
+  with a warning.
+- The admin's purge notice names the path only to an admin who can read it.
+- `GET /api/trash` (the UI's) gives each entry's `space`; a deleted shared
+  space's notes stay restorable by its managers.
+- Usernames can't start with a dot.
+- `compose.yaml` pulls `ghcr.io/kirianm/vihko:0.1`.
+
+### Removed
+
+- The implicit rule (every admin managing the root), `{user}` rules and
+  subjects, and the `""` key in `permissions`.
+- Folder permissions that replace what a folder inherits, and managers from
+  above.
+- The `user_no_access` reason of `agent_denied`, and the «no access» lock on
+  links.
+- «Move their permissions» for notes held after a move made outside vihko:
+  only «Release» remains.
+- The admin's list of every folder's permissions.
+- The `attachments_shared_folder` alert.
+
+### Upgrade notes
+
+- **No upgrade path from 1.0.x.** Start with an empty notes folder (and an
+  empty state folder), then copy your notes into your own space,
+  `people/<you>/`, or into a shared space's folder. A 1.0.x notes folder
+  under 0.1.0 shows nothing: its notes are outside every space and its
+  `permissions` section is rejected.
+- In `compose.yaml`, use `ghcr.io/kirianm/vihko:0.1` (or take the new file).
+
+<details>
+<summary>Earlier: the withdrawn 1.0.x line</summary>
+
+### 1.0.1 - 2026-09-29
 
 **Use 1.0.1 instead of 1.0.0.** It corrects 1.0.0, published the same day,
 once: taking the inventory of what 1.x promises (`guide/compatibility.md`,
 new) showed a few things 1.0.0 got wrong, and connecting claude.ai to a real
 installation showed it couldn't. The release candidates below have the detail.
 
-### Added
+#### Added
 
 - `guide/compatibility.md`: everything 1.x keeps stable, taken from the code
   (the HTTP API route by route, the MCP tools, `vihko.yaml`, environment
@@ -26,7 +136,7 @@ installation showed it couldn't. The release candidates below have the detail.
 - Before publishing, a release starts the previous stable version with data
   and starts the new one on top (`npm run upgrade-smoke`).
 
-### Changed
+#### Changed
 
 - **HTTP API: the fields that came in `snake_case` are `camelCase`**
   (`meta.fmError`; a link's `dstPath`, `anchorOk`, `posFrom`,
@@ -36,7 +146,7 @@ installation showed it couldn't. The release candidates below have the detail.
 - MCP answers invalid arguments with `invalid` and a writing tool called with a
   read-only key with `forbidden`, in vihko's `{ error, message }` JSON.
 
-### Fixed
+#### Fixed
 
 - **claude.ai can connect.** `/mcp` refused its requests (`Origin:
   https://claude.ai`) with `403` before the `401` that tells a client how to
@@ -51,7 +161,7 @@ installation showed it couldn't. The release candidates below have the detail.
 - On Windows, AltGr+D opened today's note instead of typing a character.
 - The image's description no longer mentions webhooks.
 
-### Upgrade notes
+#### Upgrade notes
 
 - `:1` moves to 1.0.1; `docker compose pull && docker compose up -d`.
 - Scripts that read `fm_error`, `dst_path`, `anchor_ok`, `pos_from` or
@@ -59,9 +169,9 @@ installation showed it couldn't. The release candidates below have the detail.
 - Scripts that relied on `409 edit_mismatch` for a malformed edit get
   `400 invalid`, with at most 50 operations per call.
 
-## [1.0.1-rc.3] - 2026-09-29
+### 1.0.1-rc.3 - 2026-09-29
 
-### Fixed
+#### Fixed
 
 - **claude.ai still got `403` at `/mcp`.** Its first request already carries
   an `Authorization: Bearer` header, empty or with a token that no longer
@@ -70,17 +180,17 @@ installation showed it couldn't. The release candidates below have the detail.
   gets the `401` that tells a client how to sign in, whatever the `Origin`;
   the `Origin` only counts once the credential is valid.
 
-### Upgrade notes
+#### Upgrade notes
 
 - Test it with `ghcr.io/kirianm/vihko:1.0.1-rc.3`.
 
-## [1.0.1-rc.2] - 2026-09-29
+### 1.0.1-rc.2 - 2026-09-29
 
 The second candidate of 1.0.1: connecting claude.ai to a real installation
 turned up two faults, and the page of what 1.x keeps stable now promises
 effects rather than details, so what's planned for 1.x fits in it.
 
-### Fixed
+#### Fixed
 
 - **claude.ai couldn't connect to `/mcp`.** Its connector sends
   `Origin: https://claude.ai`, and `/mcp` refused any other site's origin
@@ -94,7 +204,7 @@ effects rather than details, so what's planned for 1.x fits in it.
 - The guides and the Agents page said claude.ai needs «OAuth apps can
   register themselves»; it doesn't, only apps such as `mcp-remote` do.
 
-### Changed
+#### Changed
 
 - `guide/compatibility.md` promises what matters and not the details that
   would tie 1.x down: a security fix may change something; lists of values may
@@ -107,14 +217,14 @@ effects rather than details, so what's planned for 1.x fits in it.
 - The trash never empties on its own by default; a later release may add an
   optional retention.
 
-### Upgrade notes
+#### Upgrade notes
 
 - Test it with `ghcr.io/kirianm/vihko:1.0.1-rc.2`.
 - To connect claude.ai, add the connector with your public address followed by
   `/mcp` and keep Claude's published identity; «OAuth apps can register
   themselves» can stay off.
 
-## [1.0.1-rc.1] - 2026-09-29
+### 1.0.1-rc.1 - 2026-09-29
 
 A correction of 1.0.0, published the same day. Taking the inventory of what
 1.x promises (`guide/compatibility.md`, new) showed a few things 1.0.0 got
@@ -122,7 +232,7 @@ wrong; 1.0.1 changes them outright, **once**, instead of keeping both forms
 until 2.0. It's the only exception to the promise, and it's written down in
 that page.
 
-### Added
+#### Added
 
 - `guide/compatibility.md`: everything 1.x keeps stable, taken from the code
   (the HTTP API route by route, the MCP tools, `vihko.yaml`, environment
@@ -134,7 +244,7 @@ that page.
   it with users, a key, notes, an image and a comment, and starts the new
   version on the same data (`npm run upgrade-smoke`).
 
-### Changed
+#### Changed
 
 - **HTTP API: the fields that came in `snake_case` are `camelCase`**, like all
   the others: `meta.fm_error` is `meta.fmError`; a link's `dst_path`,
@@ -150,7 +260,7 @@ that page.
 - Limits (image size, operations per call…) may go down within 1.x, announced
   here in the Upgrade notes.
 
-### Fixed
+#### Fixed
 
 - **Moving or renaming a note to a name with parentheses, `#`, `?` or
   brackets (`a (1).md`) left the Markdown links to it broken.** Rewritten
@@ -167,7 +277,7 @@ that page.
   and `external` and several response fields documented; which environment
   variables are checked.
 
-### Upgrade notes
+#### Upgrade notes
 
 - Test it with `ghcr.io/kirianm/vihko:1.0.1-rc.1`; `:1` moves to 1.0.1 when
   it's released.
@@ -178,7 +288,7 @@ that page.
 - `vihko user create` with arguments other than a name and `--admin`, or
   `vihko serve` with any argument, prints the usage and exits with 2.
 
-## [1.0.0] - 2026-09-29
+### 1.0.0 - 2026-09-29
 
 **Superseded by 1.0.1 the same day: use 1.0.1.**
 
@@ -186,8 +296,6 @@ The first stable release: a self-hosted notes system over plain Markdown
 files, with its own web UI, several users and live collaboration. Your notes
 stay a folder of `.md` files; the index, the history and the application state
 live apart and never replace them.
-
-![vihko on a computer, half in the light theme and half in the dark one](https://raw.githubusercontent.com/KirianM/vihko/v1.0.0/.github/assets/screenshots/desktop.png)
 
 What 1.0 brings, from the release candidates below:
 
@@ -208,23 +316,23 @@ What 1.0 brings, from the release candidates below:
   `compose.yaml`, automatic migrations with a backup, and guides for
   installing, backing up, upgrading and running it behind a reverse proxy.
 
-### Changed
+#### Changed
 
 - `compose.yaml` pulls `ghcr.io/kirianm/vihko:1`: every 1.x release, never an
   incompatible version.
 - The README shows the product, on a computer and on a phone.
 
-### Upgrade notes
+#### Upgrade notes
 
 - From a release candidate: change the image line of your `compose.yaml` to
   `ghcr.io/kirianm/vihko:1` (or take the new file); nothing else changes since
   1.0.0-rc.4.
 
-## [1.0.0-rc.4] - 2026-09-29
+### 1.0.0-rc.4 - 2026-09-29
 
 The fourth release candidate: what the third one's installation turned up.
 
-### Added
+#### Added
 
 - **A formatting toolbar**, for anyone who doesn't write Markdown: above the
   note on a computer, over the keyboard on a phone (one row that scrolls).
@@ -237,7 +345,7 @@ The fourth release candidate: what the third one's installation turned up.
   syntax»), Ctrl+Alt+K link (⌘B, ⌘I and ⌥⌘K on a Mac).
 - «New folder» in the command palette (`>`), inside the open note's folder.
 
-### Changed
+#### Changed
 
 - **Members can no longer create keys by default**, and **OAuth apps can no
   longer register themselves by default**: the vihko admin turns each on in
@@ -248,13 +356,13 @@ The fourth release candidate: what the third one's installation turned up.
 - On a phone, the save status in the bottom bar is an icon while all is well,
   and keeps its text when something needs your attention.
 
-### Fixed
+#### Fixed
 
 - Recent changes stopped loading after any purge from the history, until
   vihko restarted.
 - Strikethrough and inline code show as such in the editor.
 
-### Upgrade notes
+#### Upgrade notes
 
 - Take the image line of the new `compose.yaml`
   (`ghcr.io/kirianm/vihko:1.0.0-rc.4`).
@@ -263,9 +371,9 @@ The fourth release candidate: what the third one's installation turned up.
   registered keep working; turn the switches on in Agents and API if members
   should create keys or claude.ai or mcp-remote should connect anew.
 
-## [1.0.0-rc.3] - 2026-09-29
+### 1.0.0-rc.3 - 2026-09-29
 
-### Added
+#### Added
 
 - **Agents can store images through MCP**: the `attach_image` tool (keys
   that can write) takes an image in base64 and the note it's for, stores it
@@ -273,25 +381,25 @@ The fourth release candidate: what the third one's installation turned up.
   never where agents are kept out) and answers with the link to write into
   the note. Images up to about 3 MB fit in one call.
 
-### Fixed
+#### Fixed
 
 - The API's answer to an image upload carries `markdown`, the link ready to
   write into the note. Writing `src` as it was broke the link when the name
   had a space: the note didn't use the image, a key couldn't read it, and
   deleting the note left it behind.
 
-### Upgrade notes
+#### Upgrade notes
 
 - Take the image line of the new `compose.yaml`
   (`ghcr.io/kirianm/vihko:1.0.0-rc.3`); nothing else changes.
 - Scripts that upload images through the API should write the answer's
   `markdown` into the note instead of building the link from `src`.
 
-## [1.0.0-rc.2] - 2026-09-29
+### 1.0.0-rc.2 - 2026-09-29
 
 The second release candidate: what the first one's installations turned up.
 
-### Fixed
+#### Fixed
 
 - **An undo made in another editor is no longer overwritten.** With a note
   open in vihko, undoing a change in another editor (saving back the text it
@@ -308,7 +416,7 @@ The second release candidate: what the first one's installations turned up.
 - Name fields no longer start with a capital letter on phones.
 - «1 workspace alert», singular.
 
-### Added
+#### Added
 
 - **A language preference**, in Preferences → Account and in ⌘K: English,
   Spanish or the browser's, saved in your account.
@@ -322,7 +430,7 @@ The second release candidate: what the first one's installations turned up.
 - The guide [First steps in the app](guide/first-steps.md), and fuller guides
   for a reverse proxy on another machine and for file ownership.
 
-### Changed
+#### Changed
 
 - **The example `compose.yaml` runs vihko as the owner of your notes**:
   `user: "${VIHKO_UID:-1000}:${VIHKO_GID:-1000}"`, with the ids in `.env`
@@ -338,7 +446,7 @@ The second release candidate: what the first one's installations turned up.
 - The workspace alerts' address is `?view=alerts` (`?view=avisos` still
   opens it).
 
-### Upgrade notes
+#### Upgrade notes
 
 - **Take the new `compose.yaml`** (`image: ghcr.io/kirianm/vihko:1.0.0-rc.2`
   and the `user:` line). Without a `.env`, vihko runs as 1000:1000 as before.
@@ -353,14 +461,14 @@ The second release candidate: what the first one's installations turned up.
 - `VIHKO_TRUSTED_PROXIES` must be your proxy's own address, not a range around
   it (for example `10.0.0.50`, not `10.0.0.50/8`).
 
-## [1.0.0-rc.1] - 2026-09-28
+### 1.0.0-rc.1 - 2026-09-28
 
 The first release candidate of vihko 1.0: a self-hosted notes system over a
 folder of plain Markdown files, for one person or a small group. Install it
 with the [installation guide](guide/install.md); a release candidate is only
 published under its exact image tag, `ghcr.io/kirianm/vihko:1.0.0-rc.1`.
 
-### Added
+#### Added
 
 - **Your notes stay files.** A folder of `.md` files you can open and change
   with any other editor or sync tool at the same time; vihko picks the changes
@@ -386,18 +494,10 @@ published under its exact image tag, `ghcr.io/kirianm/vihko:1.0.0-rc.1`.
   when someone asks it to (saving an image from its address, a remote MCP
   client's metadata).
 
-### Upgrade notes
+#### Upgrade notes
 
 - First release: there is nothing to upgrade from. Installations made from
   development builds before this candidate (under the project's earlier
   working name) aren't migrated: start them again from empty state.
 
-[1.0.1]: https://github.com/KirianM/vihko/releases/tag/v1.0.1
-[1.0.1-rc.3]: https://github.com/KirianM/vihko/releases/tag/v1.0.1-rc.3
-[1.0.1-rc.2]: https://github.com/KirianM/vihko/releases/tag/v1.0.1-rc.2
-[1.0.1-rc.1]: https://github.com/KirianM/vihko/releases/tag/v1.0.1-rc.1
-[1.0.0]: https://github.com/KirianM/vihko/releases/tag/v1.0.0
-[1.0.0-rc.4]: https://github.com/KirianM/vihko/releases/tag/v1.0.0-rc.4
-[1.0.0-rc.3]: https://github.com/KirianM/vihko/releases/tag/v1.0.0-rc.3
-[1.0.0-rc.2]: https://github.com/KirianM/vihko/releases/tag/v1.0.0-rc.2
-[1.0.0-rc.1]: https://github.com/KirianM/vihko/releases/tag/v1.0.0-rc.1
+</details>
