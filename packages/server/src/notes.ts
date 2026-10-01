@@ -70,9 +70,11 @@ export interface HotDocuments {
   edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }>
   /**
    * The note is deleted: flush what is pending, close its sessions and never
-   * flush it again. With `trash`, its editors are told the trash entry.
+   * flush it again. `run`, the deletion itself, runs with the note flushed and
+   * locked (if it throws, the note stays open). With `trash`, its editors are
+   * told the trash entry once `run` is done.
    */
-  discard(path: string, opts?: { ifMatch?: string; trash?: { id: string; actor: Actor } }): Promise<void>
+  discard(path: string, opts?: { ifMatch?: string; trash?: { id: string; actor: Actor }; run?: () => Promise<void> }): Promise<void>
   /**
    * The note is moved while open: `run` does the move on disk with the note
    * flushed and locked, and returns the text left at the destination.
@@ -350,6 +352,23 @@ export class ExistsAs extends NoteError {
   }
 }
 
+/**
+ * A note that isn't at `path` because vihko moved it a moment ago (`movedTo`,
+ * NoteService.movedTo): `not_found`, saying where it went, to whoever reads
+ * it there. An editor that followed one move missed the next while it
+ * reopened the note (moved there and back).
+ */
+export class MovedAway extends NoteError {
+  readonly movedTo: string
+  constructor(path: string, to: string) {
+    super('not_found', `${path} was moved to ${to}`)
+    this.movedTo = to
+  }
+}
+
+/** How long a move from vihko is remembered for MovedAway. */
+export const RECENT_MOVE_MS = 120_000
+
 /** A folder that can't be deleted as asked because of what it holds (`contents`, as the caller may show it). */
 export class FolderNotEmpty extends NoteError {
   readonly contents: unknown
@@ -374,6 +393,35 @@ export class NoteService {
   }
 
   /** The state volume: the trash is its `trash/` (folderRefs.ts rewrites its entries' paths when a folder moves). */
+  /** Notes vihko moved lately: where each went, and when (MovedAway). */
+  private recentMoves = new Map<string, { to: string; at: number }>()
+
+  private remember(pairs: readonly { from: string; to: string }[]) {
+    const now = Date.now()
+    for (const [p, m] of this.recentMoves) if (now - m.at > RECENT_MOVE_MS) this.recentMoves.delete(p)
+    for (const { from, to } of pairs) {
+      this.recentMoves.set(from, { to, at: now })
+      // Back where it was: that path holds the note again.
+      this.recentMoves.delete(to)
+    }
+  }
+
+  /**
+   * Where the note that was at `path` a moment ago is now, if vihko moved it
+   * (following one move after another, within RECENT_MOVE_MS) and it's
+   * there; null otherwise. Whether the asker reads it is the caller's.
+   */
+  movedTo(path: string): string | null {
+    const now = Date.now()
+    let at = path
+    for (let hops = 0; hops < 20; hops++) {
+      const m = this.recentMoves.get(at)
+      if (!m || now - m.at > RECENT_MOVE_MS || m.to === path) break
+      at = m.to
+    }
+    return at !== path && this.isFile(at) ? at : null
+  }
+
   get stateDir(): string {
     return this.opts.stateDir
   }
@@ -601,10 +649,20 @@ export class NoteService {
    * one deleting may take (an agent, within its key's folders).
    */
   async delete(path: string, opts: { ifMatch?: string; actor: Actor; canWrite?: (path: string) => boolean; managers?: string[] }): Promise<TrashEntry> {
-    const file = this.file(path)
     const id = newUid()
-    // Open in the editor: flush what is pending and close it, telling its editors the trash entry.
-    if (this.opts.hot?.has(path)) await this.opts.hot.discard(path, { ifMatch: opts.ifMatch, trash: { id, actor: opts.actor } })
+    // Open in the editor: flushed and closed, and its editors told the trash entry once it's all in the trash.
+    if (this.opts.hot?.has(path)) {
+      let entry: TrashEntry | null = null
+      await this.opts.hot.discard(path, { ifMatch: opts.ifMatch, trash: { id, actor: opts.actor }, run: async () => { entry = await this.trashNow(path, id, opts) } })
+      // Closed meanwhile (the hub had nothing open by then): deleted all the same.
+      return entry ?? this.trashNow(path, id, opts)
+    }
+    return this.trashNow(path, id, opts)
+  }
+
+  /** The deletion of `delete`, with the trash entry's `id`. */
+  private async trashNow(path: string, id: string, opts: { ifMatch?: string; actor: Actor; canWrite?: (path: string) => boolean; managers?: string[] }): Promise<TrashEntry> {
+    const file = this.file(path)
     const current = await readStable(file)
     if (current === null) throw new NoteError('not_found', `does not exist: ${path}`)
     const hash = contentHash(current)
@@ -753,6 +811,7 @@ export class NoteService {
         })
         : await this.moveNow(from, to, opts)
       hot?.carrySaved?.([{ from, to }])
+      this.remember([{ from, to }])
       const { report, others, before, after, map, place } = moved
       opts.onMoved?.(counted(others, opts.counts))
 
@@ -1343,6 +1402,7 @@ export class NoteService {
     )
     await locked()
     hot?.carrySaved?.(report.notes)
+    this.remember(report.notes)
     // The copies of what stays behind in the space it leaves, now that their folders are there.
     report.images = this.makeFolderCopies(copies.planned, opts.actor)
     copies.settle(report.images.copied)

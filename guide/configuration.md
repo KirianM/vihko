@@ -153,6 +153,11 @@ Templates are plain notes, and you only see the ones you can read; a template
 from another space works the same, since only its text is copied (its links
 by name then resolve in the new note's space).
 
+The notes in a templates folder are skeletons, not notes anyone wrote: they're
+left out of search (unless you ask for the folder with `path:`), of the tags
+and their counts, and of Home. They stay in the tree, and you open and edit
+them as any note.
+
 When vihko creates a note from a template, it copies the template's text and
 fills in these variables, in the timezone of the person creating it. Nothing
 else runs: a template can't execute code, loop or read other notes.

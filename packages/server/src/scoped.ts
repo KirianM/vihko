@@ -9,7 +9,7 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { PEOPLE, SPACES, anchorChanged, classifyPath, contentHash, extract, folderOf, isSpaceRoot, parentFolder, parseSpacePath, parseThreads, placement, rulesOf, sameSpace, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
+import { PEOPLE, SPACES, anchorChanged, classifyPath, contentHash, extract, folderOf, isSpaceRoot, parentFolder, parseSearchQuery, parseSpacePath, parseThreads, placement, rulesOf, sameSpace, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
 import { lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
@@ -21,7 +21,7 @@ import type { DailyNotes } from './daily.ts'
 import { MAX_EDIT_OPS, planEdits, type EditOp } from './edits.ts'
 import { CommentError, commentSplices, type CommentOp } from './commenting.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START, search, type SearchResult } from './http/search.ts'
-import { ExistsAs, FolderNotEmpty, NoteError, NoteService, type FolderContents, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type TrashEntry, type TrashRestoreReport } from './notes.ts'
+import { ExistsAs, FolderNotEmpty, MovedAway, NoteError, NoteService, type FolderContents, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type TrashEntry, type TrashRestoreReport } from './notes.ts'
 import { audienceChange, ruleMove, type AudienceChange } from './audience.ts'
 import type { ExternalMoves, PendingExternalMove } from './externalMoves.ts'
 import type { Orphans } from './http/app.ts'
@@ -40,6 +40,11 @@ export { HIGHLIGHT_END, HIGHLIGHT_START }
 
 export interface ScopedDeps {
   notes: NoteService
+  /**
+   * The templates folders for a person (vihko.yaml's `templates`, `{user}` theirs): their notes are
+   * left out of search, tags and Home (they are skeletons, `{{title}}` and all), never out of the tree or of opening them.
+   */
+  templateFolders?: (username: string) => string[]
   /** The rules of vihko.yaml, for what moves with a folder and the audience of a move. */
   permissions?: PermissionsEngine
   /** vihko.yaml's permissions, rewritten when a folder moves or is deleted from vihko. */
@@ -507,7 +512,15 @@ export class ScopedNotes {
    * while the index doesn't have it.
    */
   read(path: string): NoteRead & { meta: NoteMeta | null; hiddenFromAgents: 'ai' | 'frontmatter' | null; level?: Level } {
-    const r = this.visible(path)
+    let r: NoteRead
+    try {
+      r = this.visible(path)
+    } catch (err) {
+      // Moved by vihko a moment ago (an editor that missed a second move while it reopened it): where to, if they read it there.
+      const to = err instanceof NoteError && err.code === 'not_found' && typeof path === 'string' ? this.deps.notes.movedTo(path) : null
+      if (to !== null && this.access.canRead(to) && this.readable(to)) throw new MovedAway(path, to)
+      throw err
+    }
     const meta = (this.deps.index.prepare('select title, uid, fm_error as fmError from notes where path = ?').get(r.path) as NoteMeta | undefined) ?? null
     const level = this.access.isAgent ? undefined : this.access.level(folderOf(r.path)) ?? 'read'
     return { ...r, meta, hiddenFromAgents: this.access.agentHiding(r.text), ...(level ? { level } : {}) }
@@ -676,8 +689,9 @@ export class ScopedNotes {
   tags(): { tag: string; count: number; total: number }[] {
     const { index } = this.deps
     const w = this.access.notesWhere('n')
-    const join = `join notes n on n.path = t.path where ${w.sql}`
-    const params = w.params
+    const t = this.notInTemplates('n')
+    const join = `join notes n on n.path = t.path where ${w.sql} and ${t.sql}`
+    const params = [...w.params, ...t.params]
     const rows = index.prepare(`select t.tag, count(distinct t.path) as count from tags t ${join} group by t.tag order by count desc, t.tag`).all(...params) as { tag: string; count: number }[]
     const under = new Map<string, Set<string>>()
     for (const r of index.prepare(`select distinct t.path, t.tag from tags t ${join}`).all(...params) as { path: string; tag: string }[]) {
@@ -694,7 +708,29 @@ export class ScopedNotes {
 
   /** Full text plus `tag:` and `path:` filters, over what the principal can read. */
   search(q: string): SearchResult[] {
-    return search(this.deps.index, q, this.access.notesWhere('n'))
+    const w = this.access.notesWhere('n')
+    // A templates folder named with `path:` is searched: that is asking for templates.
+    const asked = parseSearchQuery(q).filters.filter((f) => f.kind === 'path' && !f.negate).map((f) => f.value.normalize('NFC').toLowerCase())
+    const t = this.notInTemplates('n', (folder) => asked.some((p) => p === folder.toLowerCase() || p.startsWith(folder.toLowerCase() + '/')))
+    return search(this.deps.index, q, { sql: `${w.sql} and ${t.sql}`, params: [...w.params, ...t.params] })
+  }
+
+  /** The templates folders of this person (ScopedDeps `templateFolders`). */
+  templateFolders(): string[] {
+    return this.deps.templateFolders?.(this.access.user.username) ?? []
+  }
+
+  /** Whether a path is in one of this person's templates folders. */
+  inTemplates(path: string): boolean {
+    return this.templateFolders().some((f) => path === f || path.startsWith(f + '/'))
+  }
+
+  /** SQL condition on `alias.path`: not in a templates folder of this person (but those `keep` says). */
+  private notInTemplates(alias: string, keep: (folder: string) => boolean = () => false): { sql: string; params: unknown[] } {
+    const folders = this.templateFolders().filter((f) => !keep(f))
+    if (!folders.length) return { sql: '1', params: [] }
+    const esc = (s: string) => s.replace(/[\\%_]/g, (c) => '\\' + c)
+    return { sql: folders.map(() => `${alias}.path not like ? escape '\\'`).join(' and '), params: folders.map((f) => `${esc(f)}/%`) }
   }
 
   /** Whether the principal may be served a file that isn't a note (an image): `not_found` otherwise. */

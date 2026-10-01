@@ -78,6 +78,25 @@ its entries are kept at the end of this file.
   with `problem: invalid_characters`), nor be one of those names
   (`invalid_name`).
 
+### Fixed
+
+- «End» on a long line with a comment at its end could leave the cursor
+  inside the comment's hidden syntax, and what was typed vanished into the
+  comment: the keyboard never leaves the cursor inside a comment now.
+- A phone no longer bounces a short note (or the page) past its ends.
+- Templates no longer show in search (unless asked for by their folder with
+  `path:`), in the tags and in Home.
+- Reading a template's frontmatter (`date: {{date}}`) no longer writes a
+  warning to vihko's log.
+- Trashing a note open in the editor right after pasting an image into it
+  could tell its editors before the image was in the trash: they are told
+  once the whole entry is there.
+- An open note whose folder was moved and moved back (through the API, by
+  someone else) could end shown as missing, and a reload opened its old
+  path: a `not_found` for a note vihko moved in the last two minutes says
+  where it went (`movedTo`), to whoever reads it there, and the editor
+  follows it.
+
 ## [0.1.0-rc.2] - 2026-10-01
 
 What the first real install of rc.1 brought up: links now stay inside their

@@ -51,6 +51,8 @@ export interface HomeDeps {
   nameOf: (userId: string) => string
   keyName: (keyId: string) => string | null
   now: () => Date
+  /** Notes left out (a templates folder's: skeletons, not notes anyone wrote). */
+  excluded?: (path: string) => boolean
 }
 
 /** Whether a history author is the person, or an agent acting for them. */
@@ -61,7 +63,7 @@ export async function homeView(access: Access, deps: HomeDeps): Promise<HomeView
   const me = access.user
   const title = deps.index.prepare('select title from notes where path = ?')
   const titleOf = (path: string) => (title.get(path) as { title: string } | undefined)?.title ?? null
-  const readable = (path: string) => /\.md$/i.test(path) && access.canRead(path) && titleOf(path) !== null
+  const readable = (path: string) => /\.md$/i.test(path) && access.canRead(path) && !deps.excluded?.(path) && titleOf(path) !== null
   const recent: HomeNote[] = []
   const changed: HomeView['changed'] = []
   const seenRecent = new Set<string>()
@@ -100,7 +102,7 @@ export async function homeView(access: Access, deps: HomeDeps): Promise<HomeView
   const own = personalRoot(me.username)
   const rows = deps.index.prepare('select path, title, mtime_ms from notes order by mtime_ms desc limit ?').all(INDEX_PAGE) as { path: string; title: string; mtime_ms: number }[]
   for (const r of rows) {
-    if (!access.canRead(r.path)) continue
+    if (!access.canRead(r.path) || deps.excluded?.(r.path)) continue
     const inOwn = parseSpacePath(r.path)?.space.root === own
     const at = new Date(r.mtime_ms).toISOString()
     if (!historyRead && inOwn && recent.length < HOME_LIST && !seenRecent.has(r.path)) {

@@ -301,6 +301,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setNoAccess(null)
     // Check that it exists before opening co-editing: the hub rejects notes that don't exist.
     api.note(openPath).then(() => { setReady(openPath); rememberNote(openPath) }).catch((err) => {
+      // Moved again a moment ago, while its editor reopened it at the last place it heard of: follow it.
+      if (err instanceof ApiError && err.code === 'not_found' && typeof err.data?.movedTo === 'string') return setOpenPathState(err.data.movedTo)
       if (versionRef.current && err instanceof ApiError && err.code === 'not_found') setMissing(openPath)
       // Neither missing nor someone else's is told apart (D-024, D-038).
       else if (err instanceof ApiError && (err.code === 'not_found' || err.code === 'forbidden')) setNoAccess(openPath)

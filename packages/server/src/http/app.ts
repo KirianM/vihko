@@ -15,7 +15,7 @@ import { WORKSPACE_FILE, classifyPath, conflictOriginal, imageMarkdown, parseSpa
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
-import { ExistsAs, FolderNotEmpty, NoteError, type MoveHooks, type NoteService } from '../notes.ts'
+import { ExistsAs, FolderNotEmpty, MovedAway, NoteError, type MoveHooks, type NoteService } from '../notes.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import type { EditOp } from '../edits.ts'
 import { commentOp } from '../commenting.ts'
@@ -305,6 +305,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const refs = new FolderRefs({ state: auth.state, stateDir: notes.stateDir })
   const scopedDeps: ScopedDeps = {
     notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links,
+    templateFolders: (username) => workspace.config.templates.map((t) => t.replaceAll('{user}', username).normalize('NFC')),
     permissions, permissionsFile, keys: () => keys.listAll(), orphans: deps.orphans, externalMoves: deps.externalMoves, holds: deps.holds,
     onFolderMoved: (from, to) => { refs.moved(from, to) },
   }
@@ -330,7 +331,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.onError((err, c) => {
     if (err instanceof NoteError) {
       if (err.etag) c.header('ETag', `"${err.etag}"`)
-      return fail(c, noteErrorStatus(err), err.code, err.message, { etag: err.etag, ...(err instanceof FolderNotEmpty ? { contents: err.contents } : {}), ...(err instanceof ExistsAs ? { path: err.path } : {}) })
+      return fail(c, noteErrorStatus(err), err.code, err.message, { etag: err.etag, ...(err instanceof FolderNotEmpty ? { contents: err.contents } : {}), ...(err instanceof ExistsAs ? { path: err.path } : {}), ...(err instanceof MovedAway ? { movedTo: err.movedTo } : {}) })
     }
     if (err instanceof RequestError) return fail(c, err.status, err.code, err.message)
     if (err instanceof AccessError) return fail(c, 403, 'forbidden', err.message)
@@ -676,7 +677,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (access.isAgent) return fail(c, 404, 'not_found', 'does not exist')
     const status = deps.history?.status()
     const reader = deps.history && status && status.mode !== 'off' && status.available ? historyFor(access, deps.history.reader()) : null
-    return c.json(await homeView(access, { index, history: reader, notices, nameOf: (id) => auth.username(id) ?? id, keyName: (id) => keys.nameOf(id), now }))
+    return c.json(await homeView(access, { index, history: reader, notices, nameOf: (id) => auth.username(id) ?? id, keyName: (id) => keys.nameOf(id), now, excluded: (p) => scoped(c).inTemplates(p) }))
   })
 
   // Today's note (D-030): GET says where it is and whether it exists, POST

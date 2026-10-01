@@ -131,7 +131,7 @@ The [API guide](api.md) explains how to use it.
 | A note's ETag | `sha256:<hex>` of its text, in the body and in the `ETag` header (quoted) |
 | Cursors | `next`, passed back as `cursor`: opaque (encrypted), valid until vihko restarts |
 | Conditional writes | `If-Match` (quoted or bare), `ifMatch` in the body where a route takes it, `If-None-Match: *` on `PUT /api/note` |
-| Errors | `{ "error": <code>, "message": <hint> }`, with `etag` on `precondition_failed`, `reason` on `agent_denied`, `audience` on `audience_widens`, `path` on an `exists` that names the disk's spelling, `contents` on `not_empty`, `group` on `leave_via_group`, `retryAfter` on `too_many_attempts`; `Retry-After` on `429` |
+| Errors | `{ "error": <code>, "message": <hint> }`, with `etag` on `precondition_failed`, `reason` on `agent_denied`, `audience` on `audience_widens`, `path` on an `exists` that names the disk's spelling, `movedTo` on a `not_found` for a note vihko moved from there in the last two minutes (only to whoever reads it where it went), `contents` on `not_empty`, `group` on `leave_via_group`, `retryAfter` on `too_many_attempts`; `Retry-After` on `429` |
 | What the key's person can't read | `404 not_found`, the same whether it exists or not |
 | What the person reads but is hidden from agents | `403 agent_denied` with `reason`: `ai_false` (the note or a folder above it is closed to agents) or `outside_key_folders` |
 | A write that hides the note from the key | Succeeds, and adds `nowHidden: true`, `reason` and `message` |
