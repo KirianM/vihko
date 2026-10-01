@@ -185,7 +185,8 @@ Your name, at the bottom of the sidebar, opens **Preferences**:
 - **Privacy**: what agents can see of your notes.
 
 The sun or moon button, in the note's header, switches between the light and
-dark theme (so does `>` in the ⌘K box).
+dark theme (so does `>` in the ⌘K box). The theme is kept on each device, not
+in your account: your phone can stay dark while your computer is light.
 
 vihko speaks English and Spanish. It starts in your browser's language; to
 change it, go to Preferences → Account → Language, or type `>language` in the

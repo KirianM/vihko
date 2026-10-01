@@ -68,10 +68,11 @@ message; and an installation built from the documentation alone works.
       computer), editing or reading; remembered while browsing.
 - [ ] «Show the Markdown»: on the line being edited, always, or as little as
       possible (experimental, on the same editor; no WYSIWYG editor).
-- [ ] Per-person settings in two layers: what the UI does (language, theme,
-      opening mode, Markdown) in the account; what their notes do (their own
-      daily-note series, templates and guide for agents) as a file in their
-      space, in the reserved `people/<username>/.vihko/`.
+- [ ] Per-person settings in two layers: what the UI does (language,
+      opening mode, Markdown) in the account, and the theme on each device;
+      what their notes do (their own daily-note series, templates and guide
+      for agents) as a file in their space, in the reserved
+      `people/<username>/.vihko/`.
 
 ## 0.3 · Videos
 
@@ -111,7 +112,10 @@ message; and an installation built from the documentation alone works.
 - OIDC, passkeys.
 - Suggestion mode for agents.
 - Quotes with a text selector in the UI.
-- Request access to a note (with the event log).
+- Asking for access (with the event log): to join a shared space you know
+  of (its name isn't secret), or for a higher level in a folder someone
+  already shares with you; never from a link that looks broken, which may
+  lead to what you can't see.
 
 ## Why this order
 
