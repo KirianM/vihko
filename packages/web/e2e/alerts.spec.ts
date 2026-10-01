@@ -227,10 +227,11 @@ test('permissions and spaces: rejected, notes held after a move outside vihko, g
   await expect(card(k, 'Una nota retenida').getByRole('button')).toHaveCount(0)
   await expect(card(k, 'Permisos de carpetas que no existen')).toContainText(label(missing))
   const out = card(k, 'Hay cosas fuera de los espacios')
-  // Where they can go: the admin's own space, by its exact path (D-056.28).
-  await expect(out).toContainText(`a tu espacio, ${personal(ADMIN)}/,`)
+  // No system folder named (D-056.29): where they go is told without people/ nor spaces/.
+  await expect(out).not.toContainText(`${personal(ADMIN)}/`)
   for (const p of outside) await expect(out).toContainText(p)
-  await expect(card(k, 'Carpetas personales sin persona')).toContainText(`people/${stray}`)
+  await expect(card(k, 'Carpetas personales sin persona')).toContainText(stray)
+  await expect(card(k, 'Carpetas personales sin persona')).not.toContainText(`people/${stray}`)
   await expect(card(k, `${lonely} no tiene miembros`)).toBeVisible()
   await expect(card(k, `Nadie gestiona ${headless}`)).toBeVisible()
   await k.setViewportSize({ width: 1440, height: 900 })

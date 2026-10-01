@@ -523,7 +523,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           tone: 'warn',
           title: t('alerts.outsideSpacesTitle'),
           // Where it can go: the admin's own space, by its exact path (D-056.28).
-          body: rich(t('alerts.outsideSpacesBody'), { into: <span className="mono">{a.into}/</span> }),
+          body: t('alerts.outsideSpacesBody'),
           extra: <ul className="alert-paths">{a.paths.map((p) => <li key={p}><span className="mono">{p}</span></li>)}</ul>,
           actions: null,
         })
@@ -542,7 +542,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           tone: 'warn',
           title: t('alerts.personFolderTitle'),
           body: t('alerts.personFolderBody'),
-          extra: <ul className="alert-paths">{a.names.map((n) => <li key={n}><span className="mono">people/{n}</span></li>)}</ul>,
+          extra: <ul className="alert-paths">{a.names.map((n) => <li key={n}><span className="mono">{n}</span></li>)}</ul>,
           actions: null,
         })
       case 'space_without_members':
