@@ -21,6 +21,7 @@ import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
 import { Brand, Crumbs, FolderPermissionsContext, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
 import { TrashToast, type Trashed } from './TrashToast.tsx'
+import { managesFolder, noteFolder } from './levels.ts'
 import { PinOfferToast, type PinOffer } from './PinOffer.tsx'
 import { MoveToast, moveNotice } from './MoveToast.tsx'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
@@ -644,7 +645,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <TrashToast
             key={trashed.id}
             trashed={trashed}
-            canPurge={historyStatus?.mode === 'managed' && (admin || locks?.get(trashed.path.slice(0, trashed.path.lastIndexOf('/')))?.level === 'manage')}
+            canPurge={historyStatus?.mode === 'managed' && (admin || managesFolder((f) => locks?.get(f)?.level, noteFolder(trashed.path)))}
             onRestored={(path) => {
               if (trashed.folder) setExpanded((e) => new Set([...e, ...ancestors(path), path]))
               else setOpenPath(path)

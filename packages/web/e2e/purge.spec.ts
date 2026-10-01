@@ -8,7 +8,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { ADMIN, E2E_DIR, NOTES, freshFolder, personal, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, freshFolder, personal, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
@@ -138,6 +138,30 @@ test('a note just deleted: purged from the notice that offers to restore it', as
   await expect(toast).toContainText(`Historial de ${shown(TRASHED)} purgado`)
   await admin.screenshot({ path: `${SHOTS}/purge-trash-light.png`, animations: 'disabled' })
   await expect(toast.getByRole('button', { name: 'Restaurar' })).toBeVisible()
+})
+
+test('a member purges, from the trash notice, a note two folders down in their own space: `manage` comes from the space above', async ({ browser }) => {
+  const member = await signIn(browser, MEMBER)
+  try {
+    const note = `${personal(MEMBER)}/${m.aFolder()}/${m.aFolder()}/${m.aTitle()}.md`
+    expect((await member.request.post('/api/note', { data: { path: note, text: `# ${m.aHeading()}\n\n${m.aSentence()}\n` } })).status()).toBe(201)
+    const theirVersions = async () => ((await (await member.request.get(`/api/history/versions?path=${encodeURIComponent(note)}`)).json()).versions ?? []).length as number
+    await expect.poll(theirVersions, { timeout: 30_000 }).toBeGreaterThan(0)
+    await member.goto(`/?note=${encodeURIComponent(note)}`)
+    await expect(member.locator('.cm-content')).toBeVisible()
+    await member.getByRole('button', { name: 'Más acciones' }).click()
+    await member.getByRole('menuitem', { name: 'Mover a la papelera' }).click()
+    await member.getByRole('alertdialog').getByRole('button', { name: 'Mover a la papelera' }).click()
+    const toast = member.locator('.toast')
+    await expect(toast).toContainText(`«${title(note)}» está en la papelera.`)
+    await toast.getByRole('button', { name: 'Purgar del historial…' }).click()
+    const dialog = member.getByRole('alertdialog')
+    await dialog.getByRole('button', { name: 'Purgar el historial' }).click()
+    await expect(dialog).toHaveCount(0, { timeout: 30_000 })
+    await expect.poll(theirVersions, { timeout: 30_000 }).toBe(0)
+  } finally {
+    await member.context().close()
+  }
 })
 
 test('moving a note to a folder typed in other capitals: into the folder that is there, not a new one', async () => {
