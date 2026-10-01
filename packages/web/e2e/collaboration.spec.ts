@@ -5,13 +5,15 @@
 // purging a version of a note, with the admin's notice.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, MEMBER, NOTES, permissionsSection, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, permissionsSection, personal, specMother } from './env.ts'
 import { editorText, literally, signIn, usePermissions, writeWorkspace } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 /** A sentence no other line or comment contains (it carries a unique word): found by its text. */
 const line = () => `${m.aSentence(m.anInt(2, 5)).slice(0, -1)} ${m.aUniqueWord()}.`
-const DIR = m.aFolder()
+/** A folder of the member's own space, which she shares with the admin (D-056: only there can he be below edit). */
+const NAME = m.aFolder()
+const DIR = `${personal(MEMBER)}/${NAME}`
 const TITLE = m.aTitle()
 const NOTE = `${DIR}/${TITLE}.md`
 const SECRET_TITLE = m.aTitle()
@@ -30,13 +32,9 @@ const disk = (p = NOTE) => readFileSync(`${NOTES}/${p}`, 'utf8')
 const q = encodeURIComponent
 const SLOW = { timeout: 20_000 }
 
-/**
- * vihko.yaml: both edit the root, and DIR is the member's, shared with
- * the admin at `level`. The admin doesn't manage the root here: whoever does
- * keeps managing everything under it (D-040 3.5).
- */
+/** vihko.yaml: DIR, a folder of the member's own space, shared with the admin at `level`. */
 function rules(level: 'read' | 'comment') {
-  writeWorkspace('', permissionsSection({ [ADMIN.username]: 'edit' }, { [DIR]: { [MEMBER.username]: 'manage', [ADMIN.username]: level } }))
+  writeWorkspace('', permissionsSection({}, { [DIR]: { [ADMIN.username]: level } }))
 }
 
 const level = async (p: Page, path = NOTE) => ((await (await p.request.get(`/api/note?path=${q(path)}`)).json()) as { level?: string }).level
@@ -182,13 +180,14 @@ test('whoever manages the folder purges a version from the UI; the admin gets th
   await expect(a.locator('.v-band')).toBeVisible()
   await a.locator('.v-band').getByRole('button', { name: 'Purgar esta versión…' }).click()
   const dialog = a.getByRole('alertdialog')
-  await expect(dialog.getByRole('heading')).toHaveText(`¿Purgar esta versión de ${DIR} / ${SECRET_TITLE}?`)
+  await expect(dialog.getByRole('heading')).toHaveText(`¿Purgar esta versión de Mis notas / ${NAME} / ${SECRET_TITLE}?`)
   await expect(dialog).toContainText('Versiones afectadas (1)')
   await expect(dialog).toContainText('No se puede deshacer.')
   await expect(dialog).not.toContainText(SECRET)
   await a.screenshot({ path: `${SHOTS}/purge-version-light.png`, animations: 'disabled' })
   await dialog.getByRole('button', { name: 'Purgar la versión' }).click()
-  await expect(dialog).toHaveCount(0)
+  // Rewriting the whole history takes a while on a server whose history every spec has written.
+  await expect(dialog).toHaveCount(0, { timeout: 30_000 })
   await expect(a.locator('.v-band')).toHaveCount(0)
   await expect(rows).toHaveCount(before + 1)
   for (const v of await versions()) {
@@ -200,7 +199,8 @@ test('whoever manages the folder purges a version from the UI; the admin gets th
   await k.goto('/?view=alerts')
   const card = k.locator('.alert-card', { hasText: `${MEMBER.username} purgó una versión del historial` })
   await expect(card).toBeVisible()
-  await expect(card).toContainText(SECRET_NOTE)
+  // Where it is, as the admin sees it: the member's space, by her name.
+  await expect(card).toContainText(`${MEMBER.username} / ${NAME} / ${SECRET_TITLE}`)
   await expect(k.locator('.alerts-page')).not.toContainText(SECRET)
   await k.screenshot({ path: `${SHOTS}/purge-alert-light.png`, animations: 'disabled' })
   await card.getByRole('button', { name: 'Entendido' }).click()

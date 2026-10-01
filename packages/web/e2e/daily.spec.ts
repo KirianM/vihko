@@ -5,7 +5,7 @@
 // keeps working; two timezones, two dates.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, inVault, personal, specMother } from './env.ts'
 import { editorText, literally, signIn, writeWorkspace } from './helpers.ts'
 
 type Person = { username: string; password: string }
@@ -15,10 +15,14 @@ const m = specMother(import.meta.url)
 /** A series id (vihko's: ASCII letters, digits, `_` and `-`). */
 const seriesId = () => m.anId()
 /** The templates folder, the template, and two series: each person's own, and a team one. */
-const TEMPLATES = m.aFolder()
+const TEMPLATES = inVault(m.aFolder())
 const TEMPLATE = m.aTitle()
+/** Each person's series is in their own space (`people/{user}/…`); the team's, in the vault's shared space. */
 const OWN = { id: seriesId(), label: m.aHeading(), folder: m.aFolder() }
-const TEAM = { id: seriesId(), label: m.aHeading(), folder: m.aFolder() }
+const TEAM_NAME = m.aFolder()
+const TEAM = { id: seriesId(), label: m.aHeading(), folder: inVault(TEAM_NAME) }
+/** Where a person's own series keeps its notes. */
+const ownFolder = (user: Person) => `${personal(user)}/${OWN.folder}`
 const TEMPLATE_TAG = m.aTag()
 /** A placeholder the template language doesn't know ({{letters}}): left as it is. */
 const UNKNOWN = `{{${m.faker.string.alpha({ length: 10 })}}}`
@@ -31,7 +35,7 @@ templates: ${q(TEMPLATES)}
 daily:
   ${OWN.id}:
     label: ${q(OWN.label)}
-    folder: ${q(`${OWN.folder}/{user}`)}
+    folder: ${q(`people/{user}/${OWN.folder}`)}
     template: ${q(`${TEMPLATES}/${TEMPLATE}`)}
   ${TEAM.id}:
     label: ${q(TEAM.label)}
@@ -45,10 +49,10 @@ test.describe.configure({ mode: 'serial' })
 
 test.beforeAll(() => {
   mkdirSync(`${NOTES}/${TEMPLATES}`, { recursive: true })
-  mkdirSync(`${NOTES}/${OWN.folder}/${ADMIN.username}`, { recursive: true })
+  mkdirSync(`${NOTES}/${ownFolder(ADMIN)}`, { recursive: true })
   writeFileSync(`${NOTES}/${TEMPLATES}/${TEMPLATE}.md`, `---\ntags: [${TEMPLATE_TAG}]\n---\n# {{date:DD/MM/YYYY}}\n\n${BY} {{user}}. ${UNKNOWN}\n`)
   // An older note of the series, for previous/next.
-  writeFileSync(`${NOTES}/${OWN.folder}/${ADMIN.username}/2020-01-01.md`, `# ${m.aHeading()}\n`)
+  writeFileSync(`${NOTES}/${ownFolder(ADMIN)}/2020-01-01.md`, `# ${m.aHeading()}\n`)
   writeWorkspace(CONFIG)
 })
 
@@ -56,7 +60,7 @@ test.beforeAll(() => {
 // Notes that were open in an editor go through vihko's trash, so none is left as a pending copy.
 test.afterAll(async ({ browser }) => {
   writeWorkspace()
-  const dirs = [TEMPLATES, OWN.folder, TEAM.folder]
+  const dirs = [TEMPLATES, ownFolder(ADMIN), ownFolder(MEMBER), TEAM.folder]
   for (const user of [ADMIN, MEMBER]) {
     const page = await signIn(browser, user)
     await page.request.put('/api/profile', { data: { dailySeries: null, openDailyOnStart: false } })
@@ -102,7 +106,7 @@ test('first sign-in: the profile takes the browser\'s timezone', async ({ browse
   await page.getByLabel('Nombre de usuario').fill(MEMBER.username)
   await page.getByLabel('Contraseña').fill(MEMBER.password)
   await page.getByRole('button', { name: 'Entrar' }).last().click()
-  await expect(page.getByRole('treegrid')).toBeVisible()
+  await expect(page.getByRole('treegrid').first()).toBeVisible()
   await expect.poll(async () => (await (await page.request.get('/api/profile')).json()).timezone).toBe(canonical(zone))
   await ctx.close()
 })
@@ -110,7 +114,7 @@ test('first sign-in: the profile takes the browser\'s timezone', async ({ browse
 test('«Today» creates the note from the template in the series folder, then only opens it', async ({ browser }) => {
   k = await signInAt(browser, ADMIN, EAST)
   const today = dateIn(EAST)
-  const path = `${OWN.folder}/${ADMIN.username}/${today}.md`
+  const path = `${ownFolder(ADMIN)}/${today}.md`
   await expect(todayButton(k)).toBeVisible()
   await todayButton(k).click()
   await expect(k.locator('.crumbs b')).toHaveText(today)
@@ -128,7 +132,7 @@ test('«Today» creates the note from the template in the series folder, then on
   const again = m.aUniqueWord()
   await k.keyboard.type(`\n${again}`)
   await expect.poll(() => readFileSync(`${NOTES}/${path}`, 'utf8')).toContain(again)
-  await k.goto('/?note=Plan.md')
+  await k.goto(`/?note=${encodeURIComponent(inVault('Plan.md'))}`)
   await expect(k.locator('.crumbs b')).toHaveText('Plan')
   await expect(todayButton(k)).toBeVisible() // vihko.yaml read: the shortcut is live
   await k.keyboard.press('Control+Alt+d')
@@ -150,20 +154,20 @@ test('previous and next in the header: the nearest notes of the series that exis
   await next.click()
   await expect(k.locator('.crumbs b')).toHaveText(today)
   // A note outside every series has no such buttons.
-  await k.goto('/?note=Plan.md')
+  await k.goto(`/?note=${encodeURIComponent(inVault('Plan.md'))}`)
   await expect(k.locator('.crumbs b')).toHaveText('Plan')
   await expect(prev).toHaveCount(0)
 })
 
 test('palette: «today\'s note» command and a new note from a template', async () => {
-  await k.goto('/?note=Plan.md')
+  await k.goto(`/?note=${encodeURIComponent(inVault('Plan.md'))}`)
   await expect(todayButton(k)).toBeVisible()
   await k.keyboard.press('Control+k')
   await k.getByRole('dialog').getByRole('textbox').fill('>hoy')
   await k.getByRole('option', { name: 'nota de hoy' }).click()
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
 
-  await k.goto('/?note=Plan.md')
+  await k.goto(`/?note=${encodeURIComponent(inVault('Plan.md'))}`)
   await k.locator('nav.sidebar').getByRole('button', { name: 'Nueva nota' }).click()
   const title = m.aTitle()
   await k.getByRole('dialog').getByRole('textbox').fill(title)
@@ -173,8 +177,8 @@ test('palette: «today\'s note» command and a new note from a template', async 
   await option.click()
   await expect(k.locator('.crumbs b')).toHaveText(title)
   await expect.poll(() => editorText(k)).toContain(`${BY} ${ADMIN.username}.`)
-  expect(readFileSync(`${NOTES}/${title}.md`, 'utf8')).toContain(`# ${ddmmyyyy(dateIn(EAST))}`)
-  expect((await k.request.delete(`/api/note?path=${encodeURIComponent(`${title}.md`)}`)).ok()).toBe(true)
+  expect(readFileSync(`${NOTES}/${inVault(title)}.md`, 'utf8')).toContain(`# ${ddmmyyyy(dateIn(EAST))}`)
+  expect((await k.request.delete(`/api/note?path=${encodeURIComponent(`${inVault(title)}.md`)}`)).ok()).toBe(true)
 })
 
 test('another timezone near midnight gets another date', async ({ browser }) => {
@@ -183,8 +187,8 @@ test('another timezone near midnight gets another date', async ({ browser }) => 
   const theirs = dateIn(WEST)
   expect(theirs).not.toBe(dateIn(EAST))
   await expect(member.locator('.crumbs b')).toHaveText(theirs)
-  expect(existsSync(`${NOTES}/${OWN.folder}/${MEMBER.username}/${theirs}.md`)).toBe(true)
-  expect(existsSync(`${NOTES}/${OWN.folder}/${MEMBER.username}/${dateIn(EAST)}.md`)).toBe(false)
+  expect(existsSync(`${NOTES}/${ownFolder(MEMBER)}/${theirs}.md`)).toBe(true)
+  expect(existsSync(`${NOTES}/${ownFolder(MEMBER)}/${dateIn(EAST)}.md`)).toBe(false)
   await member.context().close()
 })
 
@@ -201,18 +205,18 @@ test('preferences: series and «open on start», which never creates a note', as
 
   // The team series has no note today yet: opening vihko doesn't create it.
   await k.goto('/')
-  await expect(k.getByRole('treegrid')).toBeVisible()
+  await expect(k.getByRole('treegrid').first()).toBeVisible()
   await expect(k.getByText('Elige una nota en el árbol.')).toBeVisible()
   expect(existsSync(`${NOTES}/${TEAM.folder}/${dateIn(EAST)}.md`)).toBe(false)
   // «Today» does, in the chosen series, without a template: empty but for the uid.
   await todayButton(k).click()
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
-  await expect(k.locator('.crumbs-path')).toContainText(TEAM.folder)
+  await expect(k.locator('.crumbs-path')).toContainText(TEAM_NAME)
   expect(readFileSync(`${NOTES}/${TEAM.folder}/${dateIn(EAST)}.md`, 'utf8')).toMatch(/^---\nuid: \w+\n---\n$/)
   // Now it exists, so opening vihko opens it; a note in the URL wins.
   await k.goto('/')
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
-  await k.goto('/?note=Plan.md')
+  await k.goto(`/?note=${encodeURIComponent(inVault('Plan.md'))}`)
   await expect(k.locator('.crumbs b')).toHaveText('Plan')
   void browser
 })
@@ -258,7 +262,7 @@ test('vihko.yaml: an unknown key is ignored with a warning; an invalid file keep
 })
 
 test('screenshots: note header with previous/next, light and dark', async () => {
-  await k.goto(`/?note=${encodeURIComponent(`${OWN.folder}/${ADMIN.username}/${dateIn(EAST)}.md`)}`)
+  await k.goto(`/?note=${encodeURIComponent(`${ownFolder(ADMIN)}/${dateIn(EAST)}.md`)}`)
   await expect(k.locator('.cm-content')).toBeVisible()
   await k.screenshot({ path: `${SHOTS}/daily-note-light.png` })
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()

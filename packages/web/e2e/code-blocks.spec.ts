@@ -3,11 +3,11 @@
 // fences are back, to edit them. Also in a quote, and unclosed at the end.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, NOTES, freshFolder, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES, freshFolder, inVault, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
-const DIR = freshFolder(() => m.aFolder())
+const DIR = inVault(freshFolder(() => m.aFolder()))
 const NOTE = `${DIR}/${m.aTitle()}.md`
 const SHOTS = `${E2E_DIR}/shots`
 /** Each block's one line of code: words nothing else in the note has. */

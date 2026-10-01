@@ -3,15 +3,16 @@
 // Also the web app manifest and its icons (installable, no service worker).
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES, SPACE_NAME, inVault, specMother } from './env.ts'
+import { dismissNotices } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const FOLDER = m.aFolder()
-const DIR = `${NOTES}/${FOLDER}`
+const DIR = `${NOTES}/${inVault(FOLDER)}`
 /** A long name (at least 36 characters): the header must show it whole, not a couple of letters. */
 let LONG = m.aTitle()
 while (LONG.length < 36) LONG += ` ${m.aWord()}`
-const NOTE = `${FOLDER}/${LONG}.md`
+const NOTE = inVault(`${FOLDER}/${LONG}.md`)
 const FILE = `${NOTES}/${NOTE}`
 const FIRST = m.aSentence()
 /** Two notes with one uid, for an alert. */
@@ -48,6 +49,8 @@ test.beforeAll(() => {
 test.afterAll(() => { for (const f of TWINS) rmSync(`${DIR}/${f}`, { force: true }) })
 
 const drawer = (page: Page) => page.getByRole('dialog', { name: 'Carpetas' })
+/** The drawer's tree of the vault's space (one per space, D-056). */
+const vault = (page: Page) => drawer(page).getByRole('treegrid', { name: SPACE_NAME, exact: true })
 const noHorizontalScroll = (page: Page) =>
   expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
 
@@ -67,6 +70,10 @@ let page: Page
 test.beforeAll(async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: 'es-ES' })
   page = await ctx.newPage()
+  // Other specs may have shared something with the admin: a notice at sign-in would close the drawer first.
+  expect((await ctx.request.post('/api/auth/login', { data: { username: ADMIN.username, password: ADMIN.password } })).status()).toBe(200)
+  await dismissNotices(ctx.request)
+  await ctx.clearCookies()
 })
 test.afterAll(async () => { await page.context().close() })
 
@@ -74,24 +81,24 @@ test('no sidebar; with nothing open the folder drawer is the first screen', asyn
   await signIn(page)
   await expect(drawer(page)).toBeVisible()
   await expect(page.locator('nav.sidebar')).toHaveCount(0)
-  await expect(drawer(page).getByRole('treegrid', { name: 'Carpetas' })).toBeVisible()
+  await expect(vault(page)).toBeVisible()
   await expect(drawer(page).getByRole('button', { name: 'Nueva nota' })).toBeVisible()
   await expect(drawer(page).getByRole('button', { name: 'Cerrar sesión' })).toBeVisible()
   // Touch targets: tree rows and buttons at least 44px tall.
-  const row = await drawer(page).getByRole('row').first().boundingBox()
+  const row = await vault(page).getByRole('row').first().boundingBox()
   expect(row!.height).toBeGreaterThanOrEqual(44)
   await noHorizontalScroll(page)
   await page.screenshot({ path: `${SHOTS}/mobile-drawer-light.png`, animations: 'disabled' })
 })
 
 test('open a note from the tree: the drawer closes and the header shows the full name', async () => {
-  await drawer(page).getByRole('row', { name: FOLDER, exact: true }).tap()
-  await drawer(page).getByRole('row', { name: LONG, exact: true }).tap()
+  await vault(page).getByRole('row', { name: FOLDER, exact: true }).tap()
+  await vault(page).getByRole('row', { name: LONG, exact: true }).tap()
   await expect(drawer(page)).toHaveCount(0)
   await expect(page.locator('.cm-content')).toBeVisible()
   await expect.poll(() => noteParam(page)).toBe(NOTE)
   const crumbs = page.locator('.main-head .crumbs')
-  await expect(crumbs.locator('.crumbs-path')).toHaveText(`${FOLDER} / `)
+  await expect(crumbs.locator('.crumbs-path')).toHaveText(`${SPACE_NAME} / ${FOLDER} / `)
   await expect(crumbs.locator('b')).toHaveText(LONG)
   await page.screenshot({ path: `${SHOTS}/mobile-open-light.png`, animations: 'disabled' })
   // Not clipped to a couple of letters: the name gets all the width the header buttons leave it.
@@ -146,7 +153,7 @@ test('the drawer: back and Escape close it; the note it was opened over stays', 
   await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
   await expect(drawer(page)).toBeVisible()
   // It shows where the open note is.
-  await expect(drawer(page).getByRole('row', { name: LONG, exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(vault(page).getByRole('row', { name: LONG, exact: true })).toHaveAttribute('aria-selected', 'true')
   await page.goBack()
   await expect(drawer(page)).toHaveCount(0)
   await expect.poll(() => noteParam(page)).toBe(NOTE)
@@ -174,12 +181,12 @@ test('alerts from the drawer', async () => {
   await expect(async () => {
     await page.reload()
     await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
-    await expect(drawer(page).getByRole('link', { name: /avisos del espacio/ })).toBeVisible({ timeout: 1000 })
+    await expect(drawer(page).getByRole('link', { name: /avisos?$/ })).toBeVisible({ timeout: 1000 })
   }).toPass({ timeout: 20_000 })
-  await drawer(page).getByRole('link', { name: /avisos del espacio/ }).tap()
+  await drawer(page).getByRole('link', { name: /avisos?$/ }).tap()
   await expect(drawer(page)).toHaveCount(0)
   await expect(page).toHaveURL(/\?view=alerts$/)
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Avisos del espacio')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Avisos')
   await expect(page.locator('.alert-card', { hasText: UID })).toBeVisible()
   await noHorizontalScroll(page)
   // From the alerts page, the drawer is still reachable.
@@ -216,7 +223,7 @@ test('sign out from the drawer', async () => {
 test('tablet (768px): sidebar and header fit, the note name is not clipped', async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 768, height: 1024 }, hasTouch: true, locale: 'es-ES' })
   const t = await ctx.newPage()
-  await t.goto(`/?note=${encodeURIComponent('proyectos/vihko/Plan.md')}`)
+  await t.goto(`/?note=${encodeURIComponent(inVault('proyectos/vihko/Plan.md'))}`)
   await t.getByLabel('Nombre de usuario').fill(ADMIN.username)
   await t.getByLabel('Contraseña').fill(ADMIN.password)
   await t.getByRole('button', { name: 'Entrar' }).last().click()

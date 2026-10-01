@@ -7,7 +7,7 @@
 // the page on a phone, in dark mode.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
-import { ADMIN, BASE_URL, E2E_DIR, LOCKED_URL, MEMBER, specMother } from './env.ts'
+import { ADMIN, BASE_URL, E2E_DIR, LOCKED_URL, MEMBER, SPACE_NAME, inVault, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
@@ -20,8 +20,8 @@ const PHONE_KEY = m.aKeyName()
 const REFUSED_KEY = m.aKeyName()
 // The admin's key is for `proyectos` of the test vault (which holds `proyectos/vihko`), the phone's for `hogar`.
 /** A note the key writes in its folder, and one outside it. */
-const INSIDE = m.aNotePath('proyectos')
-const OUTSIDE = m.aNotePath('hogar')
+const INSIDE = m.aNotePath(inVault('proyectos'))
+const OUTSIDE = m.aNotePath(inVault('hogar'))
 const TOKEN = /^vihko_[0-9A-HJKMNP-TV-Z]{26}_[A-Za-z0-9_-]{43}$/
 
 test.describe.configure({ mode: 'serial' })
@@ -154,7 +154,7 @@ test('a read-only key for one folder: shown once, with its MCP configurations', 
   await shown.getByRole('button', { name: 'Ya la he guardado' }).click()
   const k = card(page, KEY)
   await expect(k).toContainText('Solo lectura')
-  await expect(k).toContainText('proyectos/')
+  await expect(k).toContainText(`${SPACE_NAME} / proyectos /`)
   await expect(k).toContainText('No caduca')
   await expect(k).toContainText('Nunca')
   await expect(k).toContainText(`vihko_…${token.slice(-4)}`)
@@ -173,7 +173,7 @@ test('the key works over HTTP: read-only in its folder; edited, it writes there 
   expect(tree.status()).toBe(200)
   const { notes } = await tree.json() as { notes: { path: string }[] }
   expect(notes.length).toBeGreaterThan(0)
-  expect(notes.every((n) => n.path.startsWith('proyectos/'))).toBe(true)
+  expect(notes.every((n) => n.path.startsWith(inVault('proyectos/')))).toBe(true)
   const write = await request.post(`${BASE_URL}/api/note`, { headers: bearer(token), data: { path: INSIDE, text: `${m.aSentence()}\n` } })
   expect(write.status()).toBe(403)
 

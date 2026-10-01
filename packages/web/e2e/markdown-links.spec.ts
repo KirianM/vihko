@@ -4,11 +4,11 @@
 // to edit it.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { ADMIN, NOTES, freshFolder, specMother } from './env.ts'
+import { ADMIN, NOTES, SPACE_NAME, freshFolder, inVault, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
-const DIR = freshFolder(() => m.aFolder())
+const DIR = inVault(freshFolder(() => m.aFolder()))
 const TITLE = m.aTitle()
 const NOTE = `${DIR}/${TITLE}.md`
 /** The links' texts: words nothing else on the page has. */
@@ -48,7 +48,7 @@ test('a Markdown link to a note opens it on click', async ({ browser }) => {
   const k = await signIn(browser, ADMIN, NOTE)
   await openNote(k)
   await link(k, TO_NOTE).click()
-  await expect(k.locator('.crumbs')).toHaveText('hogar / Red')
+  await expect(k.locator('.crumbs')).toHaveText(`${SPACE_NAME} / hogar / Red`)
   await k.context().close()
 })
 
@@ -74,7 +74,7 @@ test('a Markdown link in a table is followed the same way', async ({ browser }) 
   const inTable = k.locator('.cm-table .cm-link', { hasText: IN_TABLE })
   await expect(inTable).toHaveClass(/cm-link-resolved/)
   await inTable.click()
-  await expect(k.locator('.crumbs')).toHaveText('hogar / Red')
+  await expect(k.locator('.crumbs')).toHaveText(`${SPACE_NAME} / hogar / Red`)
   await k.context().close()
 })
 

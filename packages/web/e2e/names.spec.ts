@@ -2,11 +2,11 @@
 // and a note another program named that way still opens and saves.
 import { expect, test } from '@playwright/test'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { ADMIN, NOTES, specMother } from './env.ts'
+import { ADMIN, NOTES, inVault, specMother } from './env.ts'
 import { editorText, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
-const DIR = m.aFolder()
+const DIR = inVault(m.aFolder())
 const NOTE = `${DIR}/${m.aTitle()}.md`
 /** Named by another program, with a tab in its name (the case under test). */
 const TABBED = `${DIR}/${m.aTitle()}\t${m.aWord()}.md`

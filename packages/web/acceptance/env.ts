@@ -12,5 +12,8 @@ const people = mother('web acceptance: the people of the server')
 export const ADMIN = people.aUser({ role: 'admin' })
 export const MEMBER = people.aUser({ role: 'member' })
 export const USERS: NewUser[] = [ADMIN, MEMBER]
-/** Both users see everything (D-038: a member reads only what is granted). */
-export const PERMISSIONS = `permissions:\n  "":\n    grants: { ${JSON.stringify(ADMIN.username)}: manage, ${JSON.stringify(MEMBER.username)}: edit }\n`
+/** The shared space the generated vault is in (D-056: every note is in a space): its name and root. */
+export const SPACE_NAME = people.aSpaceName()
+export const SPACE = `spaces/${people.aSpaceFolder(SPACE_NAME)}`
+/** Both users see all of it: the admin manages the space, the member edits it (a member reads only what is shared with them). */
+export const PERMISSIONS = `permissions:\n  ${JSON.stringify(SPACE)}:\n    name: ${JSON.stringify(SPACE_NAME)}\n    grants: { ${JSON.stringify(ADMIN.username)}: manage, ${JSON.stringify(MEMBER.username)}: edit }\n`

@@ -8,11 +8,11 @@
 // desktop (at 1× and 2×) and on a phone, with a close-up of the mixed paragraph.
 import { expect, test, type Browser, type BrowserContextOptions, type Locator, type Page } from '@playwright/test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, NOTES, freshFolder, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES, freshFolder, inVault, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
-const DIR = freshFolder(() => m.aFolder())
+const DIR = inVault(freshFolder(() => m.aFolder()))
 const NOTE = `${DIR}/${m.aTitle()}.md`
 const SHOTS = `${E2E_DIR}/shots`
 /** The words of each inline style: nothing else in the note has them. */

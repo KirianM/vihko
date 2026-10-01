@@ -4,7 +4,7 @@
 // in a code block that stays code, and the phone layout.
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, MEMBER, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, inVault, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
@@ -24,7 +24,7 @@ const [QTY1, QTY2] = [m.anInt(1, 9), m.anInt(10, 99)]
 const TYPED = m.aWord()
 /** A table-like text in a code block. */
 const [NOT1, NOT2] = [m.aUniqueWord(), m.aUniqueWord()]
-const DIR = m.aFolder()
+const DIR = inVault(m.aFolder())
 const NOTE = m.aNotePath(DIR)
 const FILE = `${NOTES}/${NOTE}`
 const SHOTS = `${E2E_DIR}/shots`

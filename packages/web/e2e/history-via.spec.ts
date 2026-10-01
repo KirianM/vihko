@@ -6,12 +6,12 @@
 import { expect, test, type Page } from '@playwright/test'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { mkdirSync } from 'node:fs'
-import { ADMIN, BASE_URL, E2E_DIR, specMother } from './env.ts'
+import { ADMIN, BASE_URL, E2E_DIR, inVault, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const m = specMother(import.meta.url)
-const FOLDER = m.aFolder()
+const FOLDER = inVault(m.aFolder())
 const BY_API = m.aNotePath(FOLDER)
 const BY_MCP = m.aNotePath(FOLDER)
 /** The key's name. */

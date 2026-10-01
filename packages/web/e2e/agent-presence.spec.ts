@@ -12,13 +12,13 @@ import { HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import { mkdirSync } from 'node:fs'
 import WebSocket from 'ws'
 import { openLineage, type Lineage } from '../src/editor/lineage.ts'
-import { ADMIN, BASE_URL, E2E_DIR, MEMBER, specMother } from './env.ts'
+import { ADMIN, BASE_URL, E2E_DIR, MEMBER, inVault, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const m = specMother(import.meta.url)
 /** The spec's folder (the keys' only one), and its note. */
-const FOLDER = m.aFolder()
+const FOLDER = inVault(m.aFolder())
 const NOTE = m.aNotePath(FOLDER)
 const TITLE = NOTE.slice(FOLDER.length + 1, -'.md'.length)
 /** The keys' name: what the presence shows. */

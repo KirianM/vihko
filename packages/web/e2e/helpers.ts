@@ -1,4 +1,4 @@
-import { expect, request, type Browser, type Page } from '@playwright/test'
+import { expect, request, type APIRequestContext, type Browser, type Page } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 import { crc32, deflateSync } from 'node:zlib'
 import { ADMIN, BASE_URL, NOTES, PERMISSIONS, permissionsSection, SPACE, SPACE_GRANTS, type Grants, type Rule } from './env.ts'
@@ -46,6 +46,18 @@ export async function signIn(browser: Browser, user: { username: string; passwor
   // «My notes» is always there: the first of the sidebar's trees (one per space, D-056).
   else await expect(page.getByRole('treegrid').first()).toBeVisible()
   return page
+}
+
+/**
+ * Dismisses the notices addressed to whoever `page` is signed in as (what
+ * others shared with them, D-056.22; what the admin did to their account):
+ * other specs on the same server leave some, and a notice that comes in with
+ * the session closes a phone's drawer and shows a toast.
+ */
+export async function dismissNotices(api: APIRequestContext) {
+  const { alerts } = await (await api.get('/api/alerts')).json() as { alerts: { id?: string; code: string; actions: string[] }[] }
+  const personal = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you']
+  for (const a of alerts) if (a.id && personal.includes(a.code)) await api.delete(`/api/account/notices/${encodeURIComponent(a.id)}`)
 }
 
 /** The sidebar's tree of a space or a shared folder, by the name the sidebar gives it («Mis notas», the space's name). */

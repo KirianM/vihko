@@ -3,11 +3,15 @@
 // an alert whose «Update links» rewrites the links left behind.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { ADMIN, E2E_DIR, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, NOTES, SPACE, SPACE_NAME, inVault, specMother } from './env.ts'
 import { editorText, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
-const DIR = m.aFolder()
+const DIR = inVault(m.aFolder())
+/** A path of the vault's space as vihko shows it (D-056): `<its name> / a / b`. */
+const label = (path: string) => [SPACE_NAME, ...path.slice(SPACE.length + 1).replace(/\.md$/i, '').split('/')].join(' / ')
+const TAREAS_BLOG = label(inVault('proyectos/blog/Tareas.md'))
+const TAREAS_VIHKO = label(inVault('proyectos/vihko/Tareas.md'))
 const SHOTS = `${E2E_DIR}/shots`
 const disk = (path: string) => readFileSync(`${NOTES}/${path}`, 'utf8')
 
@@ -40,9 +44,9 @@ test('the picker lists the candidates by title and path; «Pin» rewrites that l
   const rows = p.getByRole('row')
   await expect(rows).toHaveCount(2)
   await expect(rows.nth(0)).toContainText('Tareas de blog')
-  await expect(rows.nth(0)).toContainText('proyectos/blog/Tareas.md')
+  await expect(rows.nth(0)).toContainText(TAREAS_BLOG)
   await expect(rows.nth(1)).toContainText('Tareas de vihko')
-  await p.getByRole('button', { name: 'Fijar el enlace a proyectos/blog/Tareas.md' }).click()
+  await p.getByRole('button', { name: `Fijar el enlace a ${TAREAS_BLOG}` }).click()
   await expect(p).toHaveCount(0)
   await expect(k.getByRole('status').filter({ hasText: 'Fijado' })).toContainText('[[blog/Tareas]]')
   await expect.poll(() => disk(note)).toContain(`${BEFORE} [[blog/Tareas]] ${AFTER}`)
@@ -60,7 +64,7 @@ test('opening a candidate goes there and offers «Pin this destination», which 
   const k = await signIn(browser, ADMIN, note)
   await k.locator('.cm-wikilink-ambiguous a', { hasText: label }).click()
   await picker(k).getByRole('row', { name: /Tareas de vihko/ }).click()
-  await expect(k.locator('.crumbs')).toHaveText('proyectos / vihko / Tareas')
+  await expect(k.locator('.crumbs')).toHaveText(TAREAS_VIHKO)
   const offer = k.locator('.pin-offer')
   await expect(offer).toContainText(`Has llegado desde «Tareas», un enlace ambiguo de «${title}».`)
   await offer.getByRole('button', { name: 'Fijar este destino' }).click()
@@ -83,7 +87,7 @@ test('from the panel, with the keyboard: the picker opens on the link, arrows an
   await expect(p.getByRole('row').first()).toBeFocused()
   await k.keyboard.press('ArrowDown')
   await k.keyboard.press('Enter')
-  await expect(k.locator('.crumbs')).toHaveText('proyectos / vihko / Tareas')
+  await expect(k.locator('.crumbs')).toHaveText(TAREAS_VIHKO)
   await expect(k.locator('.pin-offer')).toBeVisible()
   expect(disk(note), 'opening writes nothing').toContain(`${BEFORE} [[Tareas]] ${AFTER}`)
   // Escape closes the picker without doing anything.
@@ -134,13 +138,13 @@ test('screenshots of the picker: light, dark and a phone', async ({ browser }) =
 
 test('renamed on disk: the alert says where it went and how many links point to the old path; «Update links» fixes them', async ({ browser }) => {
   // A note linked by name and by a heading, with a text of its own.
-  const [name, renamedName, section, label, w1, w2] = [m.aTitle(), m.aTitle(), m.aHeading(), m.aUniqueWord(), m.aWord(), m.aWord()]
+  const [name, renamedName, section, text, w1, w2] = [m.aTitle(), m.aTitle(), m.aHeading(), m.aUniqueWord(), m.aWord(), m.aWord()]
   const dest = `${DIR}/${name}.md`
   const origin = m.aNotePath(DIR)
   writeFileSync(`${NOTES}/${dest}`, `# ${name}\n\n## ${section}\n\n${m.aSentence()}\n`)
-  writeFileSync(`${NOTES}/${origin}`, `# ${m.aHeading()}\n\n- [[${name}]] ${w1}\n- [[${name}#${section}|${label}]] ${w2}\n`)
+  writeFileSync(`${NOTES}/${origin}`, `# ${m.aHeading()}\n\n- [[${name}]] ${w1}\n- [[${name}#${section}|${text}]] ${w2}\n`)
   const k = await signIn(browser, ADMIN, origin)
-  await expect(k.locator('.cm-wikilink-resolved a', { hasText: label })).toBeVisible()
+  await expect(k.locator('.cm-wikilink-resolved a', { hasText: text })).toBeVisible()
   // Another tool renames it.
   renameSync(`${NOTES}/${dest}`, `${NOTES}/${DIR}/${renamedName}.md`)
   await k.goto('/?view=alerts')
@@ -149,7 +153,7 @@ test('renamed on disk: the alert says where it went and how many links point to 
     await k.reload()
     await expect(card).toBeVisible({ timeout: 1000 })
   }).toPass({ timeout: 20_000 })
-  await expect(card.getByRole('heading')).toHaveText(`${dest} se movió fuera de vihko a ${DIR}/${renamedName}.md`)
+  await expect(card.getByRole('heading')).toHaveText(`${label(dest)} se movió fuera de vihko a ${label(`${DIR}/${renamedName}.md`)}`)
   await expect(card).toContainText('2 enlaces siguen apuntando a la ruta antigua')
   expect(disk(origin), 'nothing rewritten on its own').toContain(`[[${name}]] ${w1}`)
 
@@ -166,15 +170,15 @@ test('renamed on disk: the alert says where it went and how many links point to 
   await card.getByRole('button', { name: 'Actualizar enlaces' }).click()
   const dialog = k.getByRole('dialog', { name: 'Actualizar enlaces' })
   await expect(dialog.locator('.preview-row')).toHaveCount(2)
-  await expect(dialog).toContainText(`[[${name}#${section}|${label}]] → [[${renamedName}#${section}|${label}]]`)
+  await expect(dialog).toContainText(`[[${name}#${section}|${text}]] → [[${renamedName}#${section}|${text}]]`)
   await k.screenshot({ path: `${SHOTS}/movida-fuera-vista-previa.png`, animations: 'disabled' })
   await dialog.getByRole('button', { name: 'Actualizar 2 enlaces' }).click()
   await expect(k.getByRole('status').filter({ hasText: 'Enlaces actualizados: 2.' })).toBeVisible()
   await expect(card).toHaveCount(0)
-  expect(disk(origin)).toContain(`- [[${renamedName}]] ${w1}\n- [[${renamedName}#${section}|${label}]] ${w2}`)
+  expect(disk(origin)).toContain(`- [[${renamedName}]] ${w1}\n- [[${renamedName}#${section}|${text}]] ${w2}`)
   // The links resolve again: open it and follow one.
   await k.goto(`/?note=${encodeURIComponent(origin)}`)
-  await k.locator('.cm-wikilink-resolved a', { hasText: label }).click()
+  await k.locator('.cm-wikilink-resolved a', { hasText: text }).click()
   await expect(k.locator('.crumbs b')).toHaveText(renamedName)
   await k.context().close()
 })
@@ -205,7 +209,7 @@ test('the open note renamed on disk: the editor follows it (URL, tree), keeps wh
   await expect(k.locator('.cm-content')).toContainText(sent)
   await expect(k.getByRole('alert').filter({ hasText: 'se ha borrado fuera' })).toHaveCount(0)
   const toast = k.getByRole('status').filter({ hasText: 'se ha movido fuera de vihko' })
-  await expect(toast).toHaveText(`«${name}» se ha movido fuera de vihko a ${renamed}: la nota lo ha seguido y lo que escribías está a salvo. 1 enlace sigue apuntando a la ruta antigua.`)
+  await expect(toast).toHaveText(`«${name}» se ha movido fuera de vihko a ${label(renamed)}: la nota lo ha seguido y lo que escribías está a salvo. 1 enlace sigue apuntando a la ruta antigua.`)
   await k.screenshot({ path: `${SHOTS}/movida-fuera-abierta.png`, animations: 'disabled' })
 
   // Editing goes on at the new path; everything is there once, and the old path stays gone.
@@ -220,7 +224,7 @@ test('the open note renamed on disk: the editor follows it (URL, tree), keeps wh
 
   // «See alerts»: the alert offers to update the link left behind.
   await k.getByRole('button', { name: 'Ver avisos' }).click()
-  const card = k.locator('.alert-card', { hasText: `${note} se movió fuera de vihko` })
+  const card = k.locator('.alert-card', { hasText: `${label(note)} se movió fuera de vihko` })
   await expect(card).toBeVisible()
   await card.getByRole('button', { name: 'Actualizar enlaces' }).click()
   await k.getByRole('dialog', { name: 'Actualizar enlaces' }).getByRole('button', { name: 'Actualizar 1 enlace' }).click()
@@ -240,7 +244,7 @@ test("the other tool fixing the links itself makes the alert go away", async ({ 
   await expect.poll(async () => (await k.request.get(`/api/note/links?path=${encodeURIComponent(origin)}`)).ok(), { timeout: 20_000 }).toBe(true)
   renameSync(`${NOTES}/${dest}`, `${NOTES}/${DIR}/${renamedName}.md`)
   await k.goto('/?view=alerts')
-  const card = k.locator('.alert-card', { hasText: `${dest} se movió` })
+  const card = k.locator('.alert-card', { hasText: `${label(dest)} se movió` })
   await expect(async () => { await k.reload(); await expect(card).toBeVisible({ timeout: 1000 }) }).toPass({ timeout: 20_000 })
   writeFileSync(`${NOTES}/${origin}`, `# ${heading}\n\n[[${renamedName}]]\n`)
   await expect(async () => { await k.reload(); await expect(card).toHaveCount(0, { timeout: 1000 }) }).toPass({ timeout: 20_000 })

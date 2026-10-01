@@ -5,7 +5,7 @@
 // can't have the server download an image.
 import { expect, test, type Browser } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
-import { ADMIN, BASE_URL, E2E_DIR, MEMBER, specMother } from './env.ts'
+import { ADMIN, BASE_URL, E2E_DIR, MEMBER, inVault, specMother } from './env.ts'
 import { signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
@@ -68,7 +68,7 @@ test('with them, the keys that can read and how; a key can’t download images',
   const hers = await (await member.request.post('/api/keys', { data: { confirm: MEMBER.password, name: KEY.members, canWrite: true } })).json() as { token: string }
   expect((await request.get(`${BASE_URL}/api/tree`, { headers: { Authorization: `Bearer ${mine.token}` } })).status()).toBe(200)
   // Downloading an image by URL is only for a person who asks: a key doesn't even find the route.
-  const fetchByKey = await request.post(`${BASE_URL}/api/attachments/fetch`, { headers: { Authorization: `Bearer ${hers.token}` }, data: { note: 'Plan.md', url: 'http://127.0.0.1:9/x.png' } })
+  const fetchByKey = await request.post(`${BASE_URL}/api/attachments/fetch`, { headers: { Authorization: `Bearer ${hers.token}` }, data: { note: inVault('Plan.md'), url: 'http://127.0.0.1:9/x.png' } })
   expect(fetchByKey.status()).toBe(404)
 
   // From «Agents and API», the link in its introduction.

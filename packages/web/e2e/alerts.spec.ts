@@ -3,14 +3,15 @@
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { ADMIN, E2E_DIR, MEMBER, NOTES, freshFolder, specMother } from './env.ts'
-import { literally, signIn, usePermissions } from './helpers.ts'
+import { ADMIN, E2E_DIR, MEMBER, NOTES, SPACE, SPACE_NAME, freshFolder, inVault, personal, specMother } from './env.ts'
+import { literally, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
-/** A path as the UI shows it: `a/b.md` → `a / b`. */
-const label = (path: string) => path.replace(/\.md$/i, '').split('/').join(' / ')
+/** A path of the vault's space as the UI shows it: `spaces/x-id/a/b.md` → `<its name> / a / b`. */
+const label = (path: string) => [SPACE_NAME, ...path.slice(SPACE.length + 1).replace(/\.md$/i, '').split('/')].join(' / ')
 
-const FOLDER = freshFolder(() => m.aFolder())
+const NAME = freshFolder(() => m.aFolder())
+const FOLDER = inVault(NAME)
 const DIR = `${NOTES}/${FOLDER}`
 const SHOTS = `${E2E_DIR}/shots`
 
@@ -38,17 +39,17 @@ test('duplicate uid: appears after the rescan and both notes open', async ({ bro
   const k = await signIn(browser, ADMIN)
   await k.locator('.sidebar-alerts').click()
   await expect(k).toHaveURL(/\?view=alerts$/)
-  await expect(k.getByRole('heading', { level: 1 })).toHaveText('Avisos del espacio')
+  await expect(k.getByRole('heading', { level: 1 })).toHaveText('Avisos')
   await waitForCard(k, uid)
   const both = card(k, uid)
   await expect(both.getByRole('heading')).toHaveText('Mismo identificador en 2 notas')
   await expect(both.getByRole('button')).toHaveCount(0) // fixed in the frontmatter, not with a button
-  await both.getByRole('link', { name: `${FOLDER}/${copy}.md` }).click()
+  await both.getByRole('link', { name: label(`${FOLDER}/${copy}.md`) }).click()
   await expect(k.locator('.crumbs b')).toHaveText(copy)
   await expect(k).toHaveURL(new RegExp(`\\?note=${literally(encodeURIComponent(`${FOLDER}/${copy}.md`)).replace(/%20/g, '(?:\\+|%20)')}$`))
   await expect(k.locator('.cm-content')).toBeVisible()
   await k.goto('/?view=alerts')
-  await card(k, uid).getByRole('link', { name: `${FOLDER}/${original}.md` }).click()
+  await card(k, uid).getByRole('link', { name: label(`${FOLDER}/${original}.md`) }).click()
   await expect(k.locator('.crumbs b')).toHaveText(original)
   rmSync(`${DIR}/${copy}.md`)
   await k.context().close()
@@ -84,7 +85,7 @@ test('sync conflict: viewing the copy and opening the note; a member sees it too
   await a.goto('/?view=alerts')
   const sync = card(a, 'Conflicto de sincronización')
   await expect(sync).toContainText('Plan.sync-conflict-20260924-120000-ABCDEFG.md')
-  await expect(sync).toContainText('proyectos / vihko / Plan')
+  await expect(sync).toContainText(`${SPACE_NAME} / proyectos / vihko / Plan`)
   await sync.getByRole('button', { name: 'Ver la copia' }).click()
   await expect(sync.locator('pre')).toContainText(/\S/)
   await sync.getByRole('button', { name: 'Ocultar la copia' }).click()
@@ -101,9 +102,9 @@ const removing = m.anInt(2, 900)
 const SCAN = { code: 'scan_aborted_mass_delete', removing, total: removing + m.anInt(1, 900) }
 const FIXTURE = [
   { ...SCAN, actions: ['rescan', 'confirm_removal'] },
-  { code: 'orphaned_note', path: 'hogar/Proxy.md', actions: ['keep_copy', 'discard_copy'] },
-  { code: 'uid_conflict', uid: '01J8X4M2K9QZ', paths: ['uid/copia.md', 'uid/original.md'], actions: [] },
-  { code: 'sync_conflict', path: 'proyectos/vihko/Plan.sync-conflict-20260924-120000-ABCDEFG.md', note: 'proyectos/vihko/Plan.md', actions: [] },
+  { code: 'orphaned_note', path: inVault('hogar/Proxy.md'), actions: ['keep_copy', 'discard_copy'] },
+  { code: 'uid_conflict', uid: '01J8X4M2K9QZ', paths: [inVault('uid/copia.md'), inVault('uid/original.md')], actions: [] },
+  { code: 'sync_conflict', path: inVault('proyectos/vihko/Plan.sync-conflict-20260924-120000-ABCDEFG.md'), note: inVault('proyectos/vihko/Plan.md'), actions: [] },
 ]
 const mockAlerts = (page: Page, alerts: unknown[]) =>
   page.route('**/api/alerts', (route) => route.fulfill({ json: { alerts } }))
@@ -191,16 +192,24 @@ test('agents without a managed history: which door is open and what it means', a
   await k.context().close()
 })
 
-test('permissions: rejected, notes held after a move outside vihko, and images all in one folder', async ({ browser }) => {
+test('permissions and spaces: rejected, notes held after a move outside vihko, grants of missing folders, what is outside the spaces, spaces without members or managers', async ({ browser }) => {
   const k = await signIn(browser, ADMIN)
   const parent = m.aFolder()
-  const held = { id: m.aSecret(8), folder: `${parent}/${m.aFolder()}`, to: `${parent}/${m.aFolder()}`, notes: m.anInt(2, 40) }
+  const held = { id: m.aSecret(8), folder: inVault(`${parent}/${m.aFolder()}`), notes: m.anInt(2, 40) }
+  const missing = inVault(`${parent}/${m.aFolder()}`)
+  const outside = [m.aFolder(), `spaces/${m.aFolder()}`]
+  const stray = m.aUsername()
+  const [lonely, headless] = [m.aSpaceName(), m.aSpaceName()]
   await mockAlerts(k, [
     { code: 'permissions_rejected', fallback: 'closed', actions: [] },
-    { code: 'permissions_held', ...held, personal: false, actions: ['move_permissions', 'release'] },
-    // One note, without a destination: nothing to move the permissions to (the owner of the personal folder it came from sees it so).
-    { code: 'permissions_held', id: m.aSecret(8), folder: `${m.aFolder()}/${m.aUsername()}`, to: null, notes: 1, personal: true, actions: ['release'] },
-    { code: 'attachments_shared_folder', folder: m.aFolder(), actions: [] },
+    { code: 'permissions_held', ...held, actions: ['release'] },
+    // One note, whose decision is someone else's: no button.
+    { code: 'permissions_held', id: m.aSecret(8), folder: inVault(m.aFolder()), notes: 1, actions: [] },
+    { code: 'missing_folder', folders: [missing], actions: [] },
+    { code: 'outside_spaces', paths: outside, actions: [] },
+    { code: 'person_folder_without_user', names: [stray], actions: [] },
+    { code: 'space_without_members', path: `spaces/${m.aSpaceFolder(lonely)}`, name: lonely, actions: [] },
+    { code: 'space_without_managers', path: `spaces/${m.aSpaceFolder(headless)}`, name: headless, actions: [] },
   ])
   const sent: { url: string; body: unknown }[] = []
   await k.route('**/api/permissions/holds/*', (route) => { sent.push({ url: route.request().url(), body: route.request().postDataJSON() }); return route.fulfill({ json: { ok: true } }) })
@@ -209,17 +218,19 @@ test('permissions: rejected, notes held after a move outside vihko, and images a
   await expect(rejected.getByRole('heading')).toHaveText('Los permisos de vihko.yaml no se pueden usar')
   await expect(rejected).toContainText('nadie puede leer ninguna nota')
   const many = card(k, `${held.notes} notas retenidas`)
-  await expect(many).toContainText(held.folder)
-  await expect(many).toContainText(held.to)
-  await many.getByRole('button', { name: 'Mover sus permisos' }).click()
+  // The folder as the admin sees it: the space's name, never its folder's id.
+  await expect(many).toContainText(label(held.folder))
+  await expect(many).not.toContainText(SPACE)
+  await many.getByRole('button', { name: 'Soltarlas' }).click()
   await expect.poll(() => sent.length).toBe(1)
-  expect(sent[0]).toEqual({ url: expect.stringMatching(new RegExp(`/api/permissions/holds/${held.id}$`)), body: { action: 'move_permissions' } })
-  const one = card(k, 'Una nota retenida')
-  await expect(one.getByRole('button', { name: 'Mover sus permisos' })).toHaveCount(0)
-  await one.getByRole('button', { name: 'Soltarlas' }).click()
-  await expect.poll(() => sent.length).toBe(2)
-  expect(sent[1]!.body).toEqual({ action: 'release' })
-  await expect(card(k, 'Las imágenes nuevas van todas a')).toContainText('per-note')
+  expect(sent[0]).toEqual({ url: expect.stringMatching(new RegExp(`/api/permissions/holds/${held.id}$`)), body: { action: 'release' } })
+  await expect(card(k, 'Una nota retenida').getByRole('button')).toHaveCount(0)
+  await expect(card(k, 'Permisos de carpetas que no existen')).toContainText(label(missing))
+  const out = card(k, 'Hay cosas fuera de los espacios')
+  for (const p of outside) await expect(out).toContainText(p)
+  await expect(card(k, 'Carpetas personales sin persona')).toContainText(`people/${stray}`)
+  await expect(card(k, `${lonely} no tiene miembros`)).toBeVisible()
+  await expect(card(k, `Nadie gestiona ${headless}`)).toBeVisible()
   await k.setViewportSize({ width: 1440, height: 900 })
   await k.screenshot({ path: `${SHOTS}/avisos-permisos.png`, fullPage: true, animations: 'disabled' })
   await k.setViewportSize({ width: 390, height: 844 })
@@ -227,69 +238,78 @@ test('permissions: rejected, notes held after a move outside vihko, and images a
   await k.context().close()
 })
 
-test('notes held after leaving a personal folder: its owner releases them; the admin is told they exist, and nothing more', async ({ browser }) => {
+test('notes addressed to one person: links a move left, what the admin did to a space, what was shared with them, a purge they can\'t read', async ({ browser }) => {
+  const a = await signIn(browser, MEMBER)
+  const [by, user, space, name, owner] = [m.aUsername(), m.aUsername(), m.aSpaceName(), m.aFolder(), m.aUsername()]
+  const at = '2026-03-14T09:30:00Z'
+  const ids = Array.from({ length: 7 }, () => m.aSecret(8))
+  await mockAlerts(a, [
+    { code: 'links_not_updated', id: ids[0], at, actions: ['dismiss'] },
+    { code: 'space_changed', id: ids[1], change: 'manager_assigned', by, user, to: null, space: { path: `spaces/${m.aSpaceFolder(space)}`, name: space }, at, actions: ['dismiss'] },
+    { code: 'space_changed', id: ids[2], change: 'personal_deleted', by, user, to: null, space: null, at, actions: ['dismiss'] },
+    { code: 'shared_with_you', id: ids[3], kind: 'space', by, path: `spaces/${m.aSpaceFolder(space)}`, name: space, owner: null, space: null, at, actions: ['dismiss'] },
+    { code: 'shared_with_you', id: ids[4], kind: 'folder', by, path: `people/${owner}/${name}`, name, owner, space: null, at, actions: ['dismiss'] },
+    // No longer shared with them: nothing of it is named.
+    { code: 'shared_with_you', id: ids[5], kind: 'folder', by, path: null, name: null, owner: null, space: null, at, actions: ['dismiss'] },
+    // Purged where the admin who reads the alert can't read (D-056.24): no path.
+    { code: 'history_purged', id: ids[6], path: null, version: null, by, at, actions: ['dismiss'] },
+  ])
+  const sent: string[] = []
+  await a.route('**/api/account/notices/*', (route) => { sent.push(new URL(route.request().url()).pathname); return route.fulfill({ json: { ok: true } }) })
+  await a.goto('/?view=alerts')
+  await expect(card(a, 'Algunos enlaces no se pudieron actualizar tras un movimiento tuyo')).toBeVisible()
+  await expect(card(a, `${by} ha hecho que ${user} gestione ${space}`)).toBeVisible()
+  await expect(card(a, `${by} ha borrado el espacio de ${user}`)).toBeVisible()
+  await expect(card(a, `${by} te ha añadido a ${space}`)).toBeVisible()
+  await expect(card(a, `${by} ha compartido contigo «${name}» · de ${owner}`)).toBeVisible()
+  await expect(card(a, `${by} compartió algo contigo que ya no ves`)).toBeVisible()
+  const purged = card(a, `${by} purgó una ruta del historial`)
+  await expect(purged).toContainText('una ruta de un espacio que no lees')
+  await a.setViewportSize({ width: 1440, height: 1200 })
+  await a.screenshot({ path: `${SHOTS}/avisos-personales.png`, fullPage: true, animations: 'disabled' })
+  await card(a, `${by} te ha añadido a ${space}`).getByRole('button', { name: 'Entendido' }).click()
+  await expect.poll(() => sent).toEqual([`/api/account/notices/${ids[3]}`])
+  await a.context().close()
+})
+
+test('a note moved outside vihko out of the member\'s own space into a shared one is held: she releases it; the admin, who never read it, isn\'t told', async ({ browser }) => {
   test.setTimeout(120_000)
-  // A `{user}` rule inside the spec's folder: the member's personal folder, with a note (and its uid) that another program moves out.
-  const people = `${FOLDER}/${m.aFolder()}`
-  const mine = `${people}/${MEMBER.username}`
+  // A note (with its uid) of the member's own space that another program moves into the vault's space, where the admin reads too.
   const title = m.aTitle()
   const word = m.aUniqueWord()
-  const from = `${mine}/${m.aFolder()}/${title}.md`
+  const origin = `${personal(MEMBER)}/${m.aFolder()}`
+  const from = `${origin}/${title}.md`
   const landed = `${FOLDER}/${m.aFolder()}/${title}.md`
   const owner = await signIn(browser, MEMBER)
   const admin = await signIn(browser, ADMIN)
-  /** Whether vihko has read vihko.yaml with the `{user}` rule (the root's grants stay the same: usePermissions can't tell). */
-  const personalRule = async () => {
-    const r = await admin.request.get(`/api/permissions?folder=${encodeURIComponent(mine)}`)
-    return r.ok() && (await r.json()).userRule !== null
-  }
-  await usePermissions({ rules: { [`${people}/{user}`]: { '{user}': 'manage' } } })
+  const note = (path: string) => `/api/note?path=${encodeURIComponent(path)}`
   try {
-    await expect.poll(personalRule, { timeout: 15_000 }).toBe(true)
     mkdirSync(dirname(`${NOTES}/${from}`), { recursive: true })
     writeFileSync(`${NOTES}/${from}`, `---\nuid: ${m.faker.string.ulid()}\n---\n# ${title}\n\n${m.aSentence()} ${word}.\n`)
-    const note = (path: string) => `/api/note?path=${encodeURIComponent(path)}`
     // Indexed (the tree lists it): only a note vihko knew can be recognised where it lands.
     const indexed = async () => ((await (await owner.request.get('/api/tree')).json()).notes as { path: string }[]).some((n) => n.path === from)
     await expect.poll(indexed, { timeout: 20_000 }).toBe(true)
     mkdirSync(dirname(`${NOTES}/${landed}`), { recursive: true })
     renameSync(`${NOTES}/${from}`, `${NOTES}/${landed}`)
 
-    // The admin: one held note from that personal folder, whose it is to decide, and no button.
-    await admin.goto('/?view=alerts')
-    await waitForCard(admin, mine)
-    const told = card(admin, mine)
-    await expect(told.getByRole('heading')).toHaveText('Una nota retenida tras moverse fuera de vihko')
-    await expect(told).toContainText('Salieron de una carpeta personal')
-    await expect(told).toContainText('solo ella puede soltarlas')
-    await expect(told.getByRole('button')).toHaveCount(0)
-    await expect(told).not.toContainText(word)
-    await expect(told).not.toContainText(`${title}.md`)
-    await admin.setViewportSize({ width: 1440, height: 900 })
-    await admin.screenshot({ path: `${SHOTS}/avisos-retenida-personal.png`, fullPage: true, animations: 'disabled' })
-    // Nor through the API.
-    const held = ((await (await admin.request.get('/api/alerts')).json()).alerts as { code: string; id: string; folder: string }[])
-      .find((a) => a.code === 'permissions_held' && a.folder === mine)!
-    const refused = await admin.request.post(`/api/permissions/holds/${held.id}`, { data: { action: 'release' } })
-    expect([refused.status(), (await refused.json()).error]).toEqual([403, 'hold_owner_only'])
-    expect((await admin.request.get(note(landed))).status()).toBe(404)
-
-    // The owner: the same alert, with «Release them».
+    // The member could have made that move from vihko (she edits both): her alert, with «Release them».
     await owner.goto('/?view=alerts')
-    await waitForCard(owner, mine)
-    const theirs = card(owner, mine)
-    await expect(theirs).not.toContainText('Salieron de una carpeta personal')
-    await expect(theirs.getByRole('button', { name: 'Mover sus permisos' })).toHaveCount(0)
+    await waitForCard(owner, 'Una nota retenida')
+    const theirs = card(owner, 'Una nota retenida')
+    await expect(theirs).toContainText(`Mis notas / ${origin.slice(personal(MEMBER).length + 1)}`)
+    await owner.setViewportSize({ width: 1440, height: 900 })
+    await owner.screenshot({ path: `${SHOTS}/avisos-retenida.png`, fullPage: true, animations: 'disabled' })
+    // Held: nobody reads it, the admin neither, and the admin has no alert about it.
+    expect((await admin.request.get(note(landed))).status()).toBe(404)
+    const adminHolds = ((await (await admin.request.get('/api/alerts')).json()).alerts as { code: string }[]).filter((x) => x.code === 'permissions_held')
+    expect(adminHolds).toEqual([])
     await theirs.getByRole('button', { name: 'Soltarlas' }).click()
     await expect(theirs).toHaveCount(0)
-    // Released: the folder it's in applies (the member edits there), and the admin's alert is gone.
+    // Released: the space it's in applies, for both.
     await owner.goto(`/?note=${encodeURIComponent(landed)}`)
     await expect(owner.locator('.cm-content')).toContainText(word)
-    await admin.goto('/?view=alerts')
-    await expect(card(admin, mine)).toHaveCount(0)
+    await expect.poll(async () => (await admin.request.get(note(landed))).status()).toBe(200)
   } finally {
-    await usePermissions()
-    await expect.poll(personalRule, { timeout: 15_000 }).toBe(false)
     await owner.context().close()
     await admin.context().close()
   }
@@ -379,12 +399,12 @@ test('the sidebar counts one alert in the singular and more in the plural', asyn
   const one = { code: 'history_no_repository', actions: [] }
   await mockAlerts(k, [one])
   await k.reload()
-  await expect(k.locator('.sidebar-alerts')).toHaveText('1 aviso del espacio')
+  await expect(k.locator('.sidebar-alerts')).toHaveText('1 aviso')
   const n = m.anInt(2, 9)
   await k.unrouteAll()
   await mockAlerts(k, Array.from({ length: n }, () => one))
   await k.reload()
-  await expect(k.locator('.sidebar-alerts')).toHaveText(`${n} avisos del espacio`)
+  await expect(k.locator('.sidebar-alerts')).toHaveText(`${n} avisos`)
   await k.context().close()
 })
 
@@ -392,7 +412,7 @@ test('the alerts page has an English address, and its earlier one still opens it
   const k = await signIn(browser, ADMIN)
   await mockAlerts(k, [])
   await k.goto('/?view=avisos')
-  await expect(k.getByRole('heading', { level: 1 })).toHaveText('Avisos del espacio')
+  await expect(k.getByRole('heading', { level: 1 })).toHaveText('Avisos')
   await expect(k).toHaveURL(/\?view=alerts$/)
   await k.context().close()
 })

@@ -4,7 +4,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { markdownDest } from '../../core/src/images.ts'
-import { ADMIN, E2E_DIR, NOTES, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, SPACE_NAME, VAULT, inVault, specMother } from './env.ts'
 import { literally, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
@@ -39,7 +39,7 @@ const TOPIC = distinct(m.aFolder)
 const OTHER = distinct(m.aFolder)
 const SCREEN = distinct(m.aTitle)
 const USES = distinct(m.aTitle)
-const read = (p: string) => (existsSync(`${NOTES}/${p}`) ? readFileSync(`${NOTES}/${p}`, 'utf8') : null)
+const read = (p: string) => (existsSync(`${VAULT}/${p}`) ? readFileSync(`${VAULT}/${p}`, 'utf8') : null)
 const shot = (page: Page, name: string) => page.screenshot({ path: `${E2E_DIR}/shots/${name}.png`, animations: 'disabled' })
 const row = (page: Page, name: string) => page.getByRole('row', { name, exact: true })
 
@@ -60,13 +60,13 @@ test.describe.configure({ mode: 'serial' })
 let k: Page
 
 test.beforeAll(async ({ browser }) => {
-  mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
-  writeFileSync(`${NOTES}/${DIR}/${MOVABLE}.md`, `---\ntags: [${TAG}]\n---\n# ${MOVABLE}\n\n${MOVABLE_TEXT}\n`)
-  writeFileSync(`${NOTES}/${DIR}/${LINKS}.md`, `# ${LINKS}\n\n- [[${MOVABLE}]] ${m.aWord()}.\n- [${LABEL}](${markdownDest(`${MOVABLE}.md`)}) ${m.aWord()}.\n\n#${TAG}/${SUB}\n`)
-  writeFileSync(`${NOTES}/${OUTSIDE}.md`, `# ${OUTSIDE}\n\n- [[${DIR}/${LINKS}]] ${m.aWord()}.\n`)
+  mkdirSync(`${VAULT}/${DIR}`, { recursive: true })
+  writeFileSync(`${VAULT}/${DIR}/${MOVABLE}.md`, `---\ntags: [${TAG}]\n---\n# ${MOVABLE}\n\n${MOVABLE_TEXT}\n`)
+  writeFileSync(`${VAULT}/${DIR}/${LINKS}.md`, `# ${LINKS}\n\n- [[${MOVABLE}]] ${m.aWord()}.\n- [${LABEL}](${markdownDest(`${MOVABLE}.md`)}) ${m.aWord()}.\n\n#${TAG}/${SUB}\n`)
+  writeFileSync(`${VAULT}/${OUTSIDE}.md`, `# ${OUTSIDE}\n\n- [[${DIR}/${LINKS}]] ${m.aWord()}.\n`)
   k = await signIn(browser, ADMIN)
   // Until the index sees the links (watcher or rescan), the preview does not know them.
-  await expect.poll(async () => (await (await k.request.get(`/api/note/links?path=${encodeURIComponent(`${DIR}/${MOVABLE}.md`)}`)).json()).backlinks.length, { timeout: 15_000 }).toBe(2)
+  await expect.poll(async () => (await (await k.request.get(`/api/note/links?path=${encodeURIComponent(inVault(`${DIR}/${MOVABLE}.md`))}`)).json()).backlinks.length, { timeout: 15_000 }).toBe(2)
   await k.reload()
   await expect(row(k, DIR)).toBeVisible()
 })
@@ -74,10 +74,10 @@ test.beforeAll(async ({ browser }) => {
 test.afterAll(async () => {
   // Through the API (never rm): a note may still be open in an editor.
   const tree = await (await k.request.get('/api/tree')).json() as { notes: { path: string }[]; folders: string[] }
-  for (const n of tree.notes.filter((x) => x.path.startsWith(`${DIR}/`) || x.path.startsWith(`${DIR2}/`) || x.path === `${OUTSIDE}.md`)) {
+  for (const n of tree.notes.filter((x) => x.path.startsWith(inVault(`${DIR}/`)) || x.path.startsWith(inVault(`${DIR2}/`)) || x.path === inVault(`${OUTSIDE}.md`))) {
     await k.request.delete(`/api/note?path=${encodeURIComponent(n.path)}`)
   }
-  for (const f of tree.folders.filter((x) => x.startsWith(`${DIR}/`) || x === DIR).sort().reverse()) {
+  for (const f of tree.folders.filter((x) => x.startsWith(inVault(`${DIR}/`)) || x === inVault(DIR)).sort().reverse()) {
     await k.request.delete(`/api/folder?path=${encodeURIComponent(f)}`)
   }
 })
@@ -88,12 +88,12 @@ test('create a folder: an empty folder shows in the tree and survives a reload',
   await row(k, DIR).click({ button: 'right' })
   await k.getByRole('menuitem', { name: 'Nueva carpeta dentro…' }).click()
   const dialog = k.getByRole('dialog')
-  await expect(dialog.getByLabel('Dentro de')).toHaveValue(DIR)
+  await expect(dialog.getByLabel('Carpeta')).toHaveValue(DIR)
   await dialog.getByLabel('Nombre').fill(ARCHIVE)
   await dialog.getByRole('button', { name: 'Crear carpeta' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(row(k, ARCHIVE)).toBeVisible()
-  expect(existsSync(`${NOTES}/${DIR}/${ARCHIVE}`)).toBe(true)
+  expect(existsSync(`${VAULT}/${DIR}/${ARCHIVE}`)).toBe(true)
   await k.reload()
   await row(k, DIR).click()
   await expect(row(k, ARCHIVE)).toBeVisible()
@@ -143,7 +143,7 @@ test('rename a folder from its context menu: every note goes along and links els
   await expect(dialog).toHaveCount(0)
   await expect(row(k, ARCHIVE2)).toBeVisible()
   await expect(row(k, MOVABLE)).toBeVisible()
-  expect(existsSync(`${NOTES}/${DIR}/${ARCHIVE}`)).toBe(false)
+  expect(existsSync(`${VAULT}/${DIR}/${ARCHIVE}`)).toBe(false)
   expect(read(`${DIR}/${ARCHIVE2}/${MOVABLE}.md`)).toContain(`# ${MOVABLE}`)
   expect(read(`${DIR}/${LINKS}.md`)).toContain(`- [${LABEL}](${markdownDest(`${ARCHIVE2}/${MOVABLE}.md`)}) `)
 })
@@ -159,16 +159,16 @@ test('moving the folder of the open note keeps it open at its new path', async (
   await expect(dialog.getByText('Van con ella 3 notas y 0 archivos.')).toBeVisible()
   await dialog.getByRole('button', { name: /^Renombrar/ }).click()
   await expect(dialog).toHaveCount(0)
-  await expect.poll(() => new URL(k.url()).searchParams.get('note')).toBe(`${DIR2}/${ARCHIVE2}/${MOVABLE}.md`)
-  await expect(k.locator('.crumbs')).toHaveText(`${DIR2} / ${ARCHIVE2} / ${MOVABLE}`)
+  await expect.poll(() => new URL(k.url()).searchParams.get('note')).toBe(inVault(`${DIR2}/${ARCHIVE2}/${MOVABLE}.md`))
+  await expect(k.locator('.crumbs')).toHaveText(`${SPACE_NAME} / ${DIR2} / ${ARCHIVE2} / ${MOVABLE}`)
   await expect(k.locator('.cm-content')).toContainText(MOVABLE_TEXT)
-  expect(existsSync(`${NOTES}/${DIR}`)).toBe(false)
+  expect(existsSync(`${VAULT}/${DIR}`)).toBe(false)
   // Put it back for the rest of the tests.
-  const r = await k.request.post('/api/folder/move', { data: { from: DIR2, to: DIR } })
+  const r = await k.request.post('/api/folder/move', { data: { from: inVault(DIR2), to: inVault(DIR) } })
   expect(r.status()).toBe(200)
   // To its path now: a reload could still carry the old one, if it came before the page followed the move.
-  await k.goto(`/?note=${encodeURIComponent(`${DIR}/${ARCHIVE2}/${MOVABLE}.md`)}`)
-  await expect(k.locator('.crumbs')).toHaveText(`${DIR} / ${ARCHIVE2} / ${MOVABLE}`)
+  await k.goto(`/?note=${encodeURIComponent(inVault(`${DIR}/${ARCHIVE2}/${MOVABLE}.md`))}`)
+  await expect(k.locator('.crumbs')).toHaveText(`${SPACE_NAME} / ${DIR} / ${ARCHIVE2} / ${MOVABLE}`)
 })
 
 test('delete: a folder with notes shows them before anything goes; an empty one goes', async () => {
@@ -182,16 +182,19 @@ test('delete: a folder with notes shows them before anything goes; an empty one 
   await dialog.getByRole('button', { name: 'Cancelar' }).click()
   expect(read(`${DIR}/${ARCHIVE2}/${MOVABLE}.md`)).toContain(`# ${MOVABLE}`)
 
-  await k.getByRole('button', { name: 'Nueva carpeta' }).click()
+  // From the space's menu: a new folder at its root, then typed into DIR.
+  await k.getByRole('button', { name: `Acciones de «${SPACE_NAME}»` }).click()
+  await k.getByRole('menuitem', { name: 'Nueva carpeta dentro…' }).click()
+  await expect(k.getByRole('dialog').getByLabel('Carpeta')).toHaveValue('')
   await k.getByRole('dialog').getByLabel('Nombre').fill(EMPTY)
-  await k.getByRole('dialog').getByLabel('Dentro de').fill(DIR)
+  await k.getByRole('dialog').getByLabel('Carpeta').fill(DIR)
   await k.getByRole('dialog').getByRole('button', { name: 'Crear carpeta' }).click()
   await expect(row(k, EMPTY)).toBeVisible()
   await row(k, EMPTY).click({ button: 'right' })
   await k.getByRole('menuitem', { name: 'Eliminar carpeta' }).click()
   await k.getByRole('alertdialog').getByRole('button', { name: 'Eliminar' }).click()
   await expect(row(k, EMPTY)).toHaveCount(0)
-  expect(existsSync(`${NOTES}/${DIR}/${EMPTY}`)).toBe(false)
+  expect(existsSync(`${VAULT}/${DIR}/${EMPTY}`)).toBe(false)
 })
 
 test('the context-menu key opens the focused row\'s menu', async () => {
@@ -216,7 +219,7 @@ test('tags view: counts, nested tags as a tree, and the notes of a tag', async (
   await tag.click()
   const list = k.getByRole('listbox', { name: `Notas con #${TAG}` })
   await expect(list.getByRole('option')).toHaveCount(2)
-  await expect(list.getByRole('option', { name: new RegExp(literally(MOVABLE), 'u') })).toContainText(`${DIR} / ${ARCHIVE2}`)
+  await expect(list.getByRole('option', { name: new RegExp(literally(MOVABLE), 'u') })).toContainText(`${SPACE_NAME} / ${DIR} / ${ARCHIVE2}`)
   await list.getByRole('option', { name: new RegExp(literally(MOVABLE), 'u') }).click()
   await expect(k.locator('.crumbs b')).toHaveText(MOVABLE)
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).first().click()
@@ -243,13 +246,13 @@ test('⌘K: tag: and path: filters, combinable with text and negation; a filter 
   await input.fill(`tag:${TAG} -tag:${TAG}/${SUB}`)
   await expect(titles()).toHaveCount(1)
   await expect(titles().first()).toContainText(MOVABLE)
-  await input.fill(`path:"${DIR}/${ARCHIVE2}/"`)
+  await input.fill(`path:"${inVault(DIR)}/${ARCHIVE2}/"`)
   await expect(titles()).toHaveCount(1)
-  await input.fill(`${WORD} path:"${DIR}/"`)
+  await input.fill(`${WORD} path:"${inVault(DIR)}/"`)
   await expect(titles()).toHaveCount(1)
   await expect(titles().first()).toContainText(MOVABLE)
   await expect(k.locator('.palette-list mark').first()).toHaveText(WORD)
-  await input.fill(`${WORD} path:hogar`) // a folder of the vault (testdata/vault)
+  await input.fill(`${WORD} path:${inVault('hogar')}`) // a folder of the vault (testdata/vault)
   await expect(k.locator('.palette-empty')).toHaveText('Ninguna nota coincide.')
   await k.keyboard.press('Escape')
 })
@@ -285,13 +288,13 @@ test('phone: tabs in the drawer, the tags view, and a long press opens a row\'s 
 
 test('a folder move that would resolve an ambiguous link lists it in the preview and in the notice', async () => {
   // Two notes with the same name, in two folders: a link to it by name is ambiguous.
-  mkdirSync(`${NOTES}/${DIR}/${TOPIC}`, { recursive: true })
-  mkdirSync(`${NOTES}/${DIR}/${OTHER}`, { recursive: true })
-  writeFileSync(`${NOTES}/${DIR}/${TOPIC}/${SCREEN}.md`, `# ${m.aHeading()}\n`)
-  writeFileSync(`${NOTES}/${DIR}/${OTHER}/${SCREEN}.md`, `# ${m.aHeading()}\n`)
+  mkdirSync(`${VAULT}/${DIR}/${TOPIC}`, { recursive: true })
+  mkdirSync(`${VAULT}/${DIR}/${OTHER}`, { recursive: true })
+  writeFileSync(`${VAULT}/${DIR}/${TOPIC}/${SCREEN}.md`, `# ${m.aHeading()}\n`)
+  writeFileSync(`${VAULT}/${DIR}/${OTHER}/${SCREEN}.md`, `# ${m.aHeading()}\n`)
   const uses = `# ${USES}\n\n- [[${SCREEN}]] ${m.aWord()}.\n`
-  writeFileSync(`${NOTES}/${DIR}/${USES}.md`, uses)
-  const shifted = async () => (await (await k.request.post('/api/folder/move', { data: { from: `${DIR}/${OTHER}`, to: `${DIR}/${TOPIC}/${OTHER}`, dryRun: true } })).json()).shifted.length
+  writeFileSync(`${VAULT}/${DIR}/${USES}.md`, uses)
+  const shifted = async () => (await (await k.request.post('/api/folder/move', { data: { from: inVault(`${DIR}/${OTHER}`), to: inVault(`${DIR}/${TOPIC}/${OTHER}`), dryRun: true } })).json()).shifted.length
   await expect.poll(shifted, { timeout: 15_000 }).toBe(1)
   await k.reload()
   await expect(row(k, DIR)).toBeVisible()
@@ -299,17 +302,17 @@ test('a folder move that would resolve an ambiguous link lists it in the preview
   await row(k, OTHER).click({ button: 'right' })
   await k.getByRole('menuitem', { name: 'Renombrar o mover…' }).click()
   const dialog = k.getByRole('dialog')
-  await dialog.getByLabel('Dentro de').fill(`${DIR}/${TOPIC}`)
+  await dialog.getByLabel('Carpeta').fill(`${DIR}/${TOPIC}`)
   const shifts = dialog.locator('.shifts')
   await expect(shifts.locator('strong')).toHaveText('Un enlace no se reescribe pero cambiará adónde lleva')
-  await expect(shifts.locator('.shifts-src')).toHaveText(`${DIR} / ${USES}1 enlace`)
-  await expect(shifts.locator('.shifts-row')).toHaveText(`[[${SCREEN}]] era ambiguo; llevará a ${DIR} / ${TOPIC} / ${SCREEN}`)
+  await expect(shifts.locator('.shifts-src')).toHaveText(`${SPACE_NAME} / ${DIR} / ${USES}1 enlace`)
+  await expect(shifts.locator('.shifts-row')).toHaveText(`[[${SCREEN}]] era ambiguo; llevará a ${SPACE_NAME} / ${DIR} / ${TOPIC} / ${SCREEN}`)
   await shot(k, 'folder-shifts-light')
   await dialog.getByRole('button', { name: 'Mover' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(k.getByRole('alert').filter({ hasText: 'lleva ahora a otra parte' })).toHaveText(
     `«${OTHER}» ya está en su sitio. Un enlace que no se ha reescrito lleva ahora a otra parte, en: ${USES}.`)
   expect(read(`${DIR}/${USES}.md`)).toBe(uses)
-  expect(existsSync(`${NOTES}/${DIR}/${TOPIC}/${OTHER}/${SCREEN}.md`)).toBe(true)
+  expect(existsSync(`${VAULT}/${DIR}/${TOPIC}/${OTHER}/${SCREEN}.md`)).toBe(true)
   await k.getByRole('button', { name: 'Cerrar aviso' }).click()
 })

@@ -7,7 +7,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { createHmac } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
-import { ADMIN, E2E_DIR, freshFolder, specMother } from './env.ts'
+import { ADMIN, E2E_DIR, SPACE_NAME, freshFolder, inVault, personal, specMother } from './env.ts'
 import { literally, newUser, signIn, usePermissions } from './helpers.ts'
 
 const m = specMother(import.meta.url)
@@ -16,11 +16,15 @@ const SHOTS = `${E2E_DIR}/shots`
 const PERSON = m.aUser({ role: 'member' })
 const OTHER_ADMIN = m.aUser({ role: 'admin' })
 /** A folder of this spec, and a note in it the member writes in. */
-const SHARED_DIR = freshFolder(() => m.aFolder())
+const SHARED_NAME = freshFolder(() => m.aFolder())
+const SHARED_DIR = inVault(SHARED_NAME)
 const SHARED = m.aNotePath(SHARED_DIR)
-// A personal folder: the only kind the admin, managing the root, can't read (D-040 3.5).
-const PEOPLE = freshFolder(() => m.aFolder())
-const PRIVATE = m.aNotePath(`${PEOPLE}/${PERSON.username}`)
+// A folder of the member's own space: the admin, who manages the vault's space, can't read it (D-056).
+const PRIVATE_NAME = m.aFolder()
+const PRIVATE_DIR = `${personal(PERSON)}/${PRIVATE_NAME}`
+const PRIVATE = m.aNotePath(PRIVATE_DIR)
+/** A note's name: its file's, without `.md`. */
+const title = (path: string) => path.slice(path.lastIndexOf('/') + 1, -3)
 /** A word in each note: a notice must never carry what the notes said. */
 const SHARED_WORD = m.aUniqueWord()
 const PRIVATE_WORD = m.aUniqueWord()
@@ -31,8 +35,8 @@ let admin: Page
 
 test.beforeAll(async ({ browser }) => {
   mkdirSync(SHOTS, { recursive: true })
-  // The member edits everywhere and has a folder of her own that nobody else reads, the admin included.
-  await usePermissions({ grants: { [PERSON.username]: 'edit', [OTHER_ADMIN.username]: 'read' }, rules: { [`${PEOPLE}/{user}`]: { '{user}': 'manage' } } })
+  // The member edits the vault's space, and has her own space that nobody else reads, the admin included.
+  await usePermissions({ grants: { [PERSON.username]: 'edit', [OTHER_ADMIN.username]: 'read' } })
   admin = await signIn(browser, ADMIN)
   for (const u of [PERSON, OTHER_ADMIN]) await newUser(admin, u)
 })
@@ -41,7 +45,7 @@ test.afterAll(async ({ browser }) => {
   const person = await password(browser, PERSON)
   for (const path of [SHARED, PRIVATE]) await person.request.delete(`/api/note?path=${encodeURIComponent(path)}`)
   // Each folder, by whoever manages it: the member hers, the admin the other one.
-  await person.request.delete(`/api/folder?path=${encodeURIComponent(`${PEOPLE}/${PERSON.username}`)}`)
+  await person.request.delete(`/api/folder?path=${encodeURIComponent(PRIVATE_DIR)}`)
   await admin.request.delete(`/api/folder?path=${encodeURIComponent(SHARED_DIR)}`)
   await person.context().close()
   await usePermissions()
@@ -60,7 +64,7 @@ async function password(browser: Browser, user: { username: string; password: st
   await page.getByLabel('Nombre de usuario').fill(user.username)
   await page.getByLabel('Contraseña').fill(user.password)
   await page.getByRole('button', { name: 'Entrar' }).last().click()
-  await expect(page.getByRole('treegrid')).toBeVisible()
+  await expect(page.getByRole('treegrid').first()).toBeVisible()
   return page
 }
 
@@ -138,7 +142,7 @@ test('the admin resets a member\'s second factor with his own password; she is t
   await otherAdmin.reload()
   await expect(his).toBeVisible()
   await admin.goto('/?view=alerts')
-  await expect(admin.getByRole('heading', { level: 1 })).toHaveText('Avisos del espacio')
+  await expect(admin.getByRole('heading', { level: 1 })).toHaveText('Avisos')
   await expect(admin.getByRole('region', { name: /restableció/ })).toHaveCount(0)
   await person.context().close()
   await otherAdmin.context().close()
@@ -180,7 +184,8 @@ test('a purge tells whoever wrote in it, without the content; what the admin can
       await expect(dialog.getByLabel('Tu contraseña')).toHaveCount(0)
     }
     await go.click()
-    await expect(dialog).toHaveCount(0)
+    // Rewriting the whole history takes a while on a server whose history every spec has written.
+    await expect(dialog).toHaveCount(0, { timeout: 30_000 })
     await expect(admin.locator('.changes-page .alerts-done')).toContainText('purgado')
     // The list comes back without what went, once the history has rewritten it (never an error meanwhile).
     await expect(admin.locator('.changes-page')).not.toContainText('Cargando…', { timeout: 30_000 })
@@ -196,8 +201,8 @@ test('a purge tells whoever wrote in it, without the content; what the admin can
   await phone.screenshot({ path: `${SHOTS}/notices-toast-mobile.png`, animations: 'disabled' })
   await phone.locator('.toast').getByRole('button', { name: 'Ver avisos' }).tap()
   await expect(phone).toHaveURL(/\?view=alerts$/)
-  await expect(phone.getByRole('region', { name: `${ADMIN.username} purgó del historial ${SHARED}, donde escribiste` })).toBeVisible()
-  await expect(phone.getByRole('region', { name: `${ADMIN.username} purgó del historial ${PRIVATE}, donde escribiste` })).toBeVisible()
+  await expect(phone.getByRole('region', { name: `${ADMIN.username} purgó del historial ${SPACE_NAME} / ${SHARED_NAME} / ${title(SHARED)}, donde escribiste` })).toBeVisible()
+  await expect(phone.getByRole('region', { name: `${ADMIN.username} purgó del historial Mis notas / ${PRIVATE_NAME} / ${title(PRIVATE)}, donde escribiste` })).toBeVisible()
   await expect(phone.locator('.alerts-page')).not.toContainText(SHARED_WORD)
   await expect(phone.locator('.alerts-page')).not.toContainText(PRIVATE_WORD)
   expect(await phone.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
