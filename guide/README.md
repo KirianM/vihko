@@ -12,8 +12,9 @@ vihko (0.1): the guides in a release describe that release.
   that live with your notes (shared spaces and sharing, daily notes,
   templates, images, links, history).
 - [Spaces, people and sharing](users-and-permissions.md): your own space,
-  shared spaces, folders shared with you, inviting people, groups, what the
-  admin can and can't see, sign-in limits and two-step verification.
+  shared spaces and their settings, folders shared with you, inviting
+  people, groups, what the admin can and can't see, sign-in limits and
+  two-step verification, with step-by-step examples.
 - [Reverse proxy](reverse-proxy.md): HTTPS and a public address with Caddy or
   nginx.
 
@@ -21,7 +22,8 @@ vihko (0.1): the guides in a release describe that release.
 
 - [First steps in the app](first-steps.md): the sidebar and its spaces,
   creating notes and folders, links, tags, search and the ⌘K box, moving,
-  images, comments, history, sharing, preferences and the phone.
+  images, comments, history, sharing, preferences, setting up your own
+  daily notes, templates and guide for agents, Home, and the phone.
 - [Notes and Markdown](notes.md): what vihko reads and writes in your files
   (frontmatter, links, which stay inside their space, tags, comments, images), the
   trash, and editing with other tools at the same time.
@@ -41,4 +43,5 @@ vihko (0.1): the guides in a release describe that release.
 - [Backups](backups.md): what to back up, a consistent copy, restoring, and
   testing the restore.
 - [Operations](operations.md): the command line, the log, the health check,
-  notes on NFS, and common problems.
+  notes on NFS, retention of the trash and the history, and common
+  problems.

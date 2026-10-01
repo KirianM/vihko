@@ -8,8 +8,8 @@ The UI is in English or Spanish, following your browser's language.
 
 ## The screen
 
-- **Home**, where vihko opens (you can change that in Preferences, «On
-  opening»): your recent notes, what others changed lately in the notes you
+- **Home**, where vihko opens (you can change that: see
+  [Home and «On opening»](#home-and-on-opening)): your recent notes, what others changed lately in the notes you
   read, what someone shared with you in the last 30 days, and buttons for a
   new note, today's note, search and a new space. The logo at the top of the
   sidebar always takes you there. Home only ever shows what you can read.
@@ -55,8 +55,9 @@ block and edit it there.
   folder, and `/projects/Plan` counts from the root of the current space;
   missing folders are created, and the list says where the note will go. The
   note's heading is only its name (`# Plan`).
-- **From a template:** when `vihko.yaml` names a templates folder, New note
-  also lists «From a template» (see [Configuration](configuration.md#templates)).
+- **From a template:** when you have a templates folder (your own, a
+  space's or the installation's), New note also lists «From a template»:
+  see [A templates folder](#a-templates-folder).
 
 A note starts with its name as a `# Heading`. Write Markdown as usual: the
 editor shows headings, lists, tasks and links formatted while you type.
@@ -188,24 +189,28 @@ what someone shouldn't see in another folder or another space. How levels,
 groups and spaces work, and how an admin adds people:
 [Spaces, people and sharing](users-and-permissions.md).
 
+Step by step:
+[make a space and invite people](users-and-permissions.md#step-by-step-make-a-space-and-invite-people),
+[share a folder of yours](users-and-permissions.md#step-by-step-share-a-folder-of-yours),
+[pin what's shared with you](users-and-permissions.md#step-by-step-what-others-share-with-you)
+and [turn a folder into a space of its own](users-and-permissions.md#step-by-step-move-a-folder-to-a-new-space).
+
 ## Preferences
 
 Your name, at the bottom of the sidebar, opens **Preferences**:
 
 - **Timezone**: what day «today» is for you.
-- **Daily note series**, when there are daily notes for you
-  ([Configuration](configuration.md#daily-daily-notes)).
-- **Your note settings**: daily notes, templates folders, where new images
-  go and a guide for agents, for your own space and for you alone. Paths are
-  inside «My notes». They add to the installation's; a series the
-  installation already has isn't offered twice
-  ([Settings of a person or a space](configuration.md#settings-of-a-person-or-a-space)).
+- **Daily notes and templates**, a box with two things that are easy to
+  mix up:
+  - **Daily note series** chooses which of the series you already have
+    «Today's note» opens. It only shows when you have at least one.
+  - **Your note settings** is where you make your own: daily note series,
+    templates folders, where your new images go and a guide for agents.
+
+  [Set up your own notes](#set-up-your-own-notes) goes through both, step
+  by step.
 - **On opening**: what vihko shows when you come in without asking for
-  anything else. **Home** (the default), **the last note** you had open on
-  that device, **a specific note** you pick by its name, or **today's note**
-  if it already exists (coming in never creates it; offered when you have a
-  daily series). A note you can no longer read, or one that isn't there,
-  gives way to Home.
+  anything else. See [Home and «On opening»](#home-and-on-opening).
 - **Account**: the language, your password, the browsers you're signed in
   from, and two-step verification.
 - **Users and groups** and **Spaces** (admins): people, groups, the
@@ -220,6 +225,197 @@ in your account: your phone can stay dark while your computer is light.
 vihko speaks English and Spanish. It starts in your browser's language; to
 change it, go to Preferences → Account → Language, or type `>language` in the
 ⌘K box. The choice is saved in your account and follows you to every browser.
+
+## Set up your own notes
+
+Unless the admin set some up for everyone, vihko starts with no daily notes
+and no templates. You can add your own without asking anyone: they live in
+your space and apply only to you.
+
+### «Daily note series» or «Your note settings»?
+
+Both are in Preferences, in the box «Daily notes and templates», and they do
+different things:
+
+| | What it's for |
+|---|---|
+| **Your note settings** | **Making** things of your own: a daily note series, a templates folder, where your new images go, a guide for agents |
+| **Daily note series** | **Choosing** which series «Today's note» opens, among all you have: the installation's (set by the admin), those of the shared spaces you're in (set by their managers) and your own. It only shows once you have one |
+
+So to start a journal you go to «Your note settings» first, and then, if you
+have more than one series, you pick it in «Daily note series».
+
+«Your note settings» is also in the menu of «My notes» in the sidebar (its
+`⋯` button, or right-click it) → **Settings…**. Every path you type there is
+inside «My notes»: `Journal` means «My notes / Journal».
+
+### A daily journal
+
+Say you want one note per day in «My notes / Journal», a folder per year,
+each starting with the same headings.
+
+**First, the template** (skip it if your notes can start empty):
+
+1. In the sidebar, open the menu of «My notes» → **New folder inside…**,
+   type `Templates` and press **Create folder**.
+2. Open the menu of the new «Templates» folder → **New note here**, type
+   `Daily` and press Enter.
+3. The note opens with its name, «Daily», as its heading. Replace the word
+   with `{{title}}` (it stays a heading), and write below it what every day
+   should start with. In Markdown:
+
+   ```markdown
+   # {{title}}
+
+   ## Plans
+
+   - [ ]
+
+   ## Notes
+   ```
+
+   `{{title}}` becomes the new note's name, here the date. Other variables
+   (`{{date}}`, `{{user}}`, `{{date:FORMAT}}`) are in
+   [Configuration](configuration.md#templates). The template is a note like
+   any other: you can change it whenever you like, and only the notes made
+   after that use the new text. The folded «frontmatter · 1 key» at its top
+   is the note's `uid`; each note made from it gets a new one.
+
+**Then, the series:**
+
+1. Press your name, at the bottom of the sidebar: Preferences opens. Press
+   **Your note settings**.
+2. Under «Daily notes», press **Add a series**.
+3. Fill in:
+
+   | Field | Write | Means |
+   |---|---|---|
+   | Name | `Journal` | What vihko calls it in Preferences |
+   | Folder | `Journal/{YYYY}` | «My notes / Journal», a folder per year |
+   | Note name | `{YYYY}-{MM}-{DD}` (already there) | One note per day, named by its date |
+   | Template (optional) | `Templates/Daily` | The note you just wrote |
+
+4. Press **Save**.
+
+The calendar button, at the top of the sidebar next to `+` («Today's note»),
+now shows. Press it (or **Daily note** on Home, or Ctrl+Alt+D, ⌘⌥D on a
+Mac): vihko creates today's note, «My notes / Journal / 2026 / 2026-10-01»,
+from the template, and opens it. Pressed again the same day, it opens that
+note; it never overwrites one. The arrows in the note's header go to the
+previous and next notes of the series that exist.
+
+For a note per week, write `{GGGG}-W{WW}` as the note name and leave the
+year out of the folder (`Journal`); for one per month, `{YYYY}-{MM}`. The
+rules are in [Configuration](configuration.md#daily-daily-notes).
+
+**If you have more than one series** (yours, and one of a space you're in,
+say): Preferences → **Daily note series** → pick the one «Today's note»
+should open → **Save**. Until you pick one, it opens the first in that list,
+and the list can change when a space you're in adds a series: pick yours
+once and it stays.
+
+### A templates folder
+
+The «Templates» folder above holds the template of your journal. To have its
+notes offered whenever you make a new note:
+
+1. Your name → **Your note settings**.
+2. In **Templates folders**, write `Templates` (one folder per line, inside
+   «My notes»).
+3. Press **Save**.
+
+Now **New note** (the `+`), with a name typed, also lists «From a template»:
+«Create “Trip to Porto” from the template Daily». Every note in that folder,
+subfolders included, is offered. The notes of a templates folder stay out of
+search, of the tags and of Home, since they're skeletons, not notes anyone
+wrote; you still open and edit them from the tree.
+
+### Where your new images go
+
+By default, an image you paste goes next to its note, named after it and the
+time. To keep the images of «My notes» in one folder instead:
+
+1. Your name → **Your note settings**.
+2. **New images** → **All in one folder**, and **Folder of images**:
+   `Images`.
+3. Press **Save**.
+
+An image you paste into a note of «My notes» now goes to «My notes /
+Images», named after the note and the time (`Porto-2026-10-01-0812.png` for
+a note called «Porto»), wherever the note is. **A folder for each note**
+puts each note's images in a folder of its own next to it
+(`Porto.assets/`). **As the installation says** goes back to the admin's
+choice. Images already in your notes stay where they are. This only applies
+to «My notes»: a shared space has its own setting.
+
+### A guide for agents
+
+If you use an assistant through vihko's MCP server (see [Agents](agents.md)),
+a guide tells it how your notes are organised, so it puts things where you
+would.
+
+1. Make the note: in «My notes», **New note**, name it `For agents`, and
+   write what an assistant should know. For example:
+
+   ```markdown
+   # For agents
+
+   - My journal is in Journal, one note per day named by its date
+     (2026-10-01), inside a folder per year.
+   - Recipes go in Recipes, one note each, with the tag #recipe.
+   - Write in English. Never change the notes in Archive.
+   ```
+
+2. Your name → **Your note settings** → **Guide for agents (a note)**:
+   `For agents` → **Save**.
+
+An agent acting for you gets the note's text when it connects, after
+vihko's own instructions, the installation's guide and the guides of the
+shared spaces its key reaches. Editing the note is enough: the next time it
+connects, it gets the new text. It only gets it if it can read the note: if
+the key is limited to some folders, or the note is closed to agents
+(`ai: false`), it gets the rest without it. vihko doesn't tell you if the
+note doesn't exist yet: make it first.
+
+### What's on the disk
+
+Your settings are saved in a hidden file of your space, which the admin
+finds on the server at `people/<your username>/.vihko/settings.yaml`. You
+never see it in vihko and don't need to: the form writes it. Its format is
+in [Settings of a person or a space](configuration.md#settings-of-a-person-or-a-space).
+
+A shared space has the same settings, for all its members, set by its
+managers: see
+[A shared space's notes](users-and-permissions.md#a-shared-spaces-notes),
+which also explains how the installation's, the space's and yours add up.
+
+## Home and «On opening»
+
+**Home** is the page vihko opens by default: your recent notes, what others
+changed lately in the notes you read, what was shared with you in the last
+30 days, and the buttons **Write a note**, **Daily note** (when you have a
+daily series), **Open search** and **Create a space**. It only ever shows
+what you can read. The vihko logo, at the top of the sidebar, always takes
+you there.
+
+To open something else when you come in:
+
+1. Your name → Preferences → **On opening**.
+2. Choose:
+   - **Home**, the default;
+   - **The last note (on this device)**: the note you had open last in this
+     browser. Your phone and your computer each remember their own;
+   - **A specific note**: type part of its name in **Note** and pick it from
+     the list (its name and where it is). It shows above the box once
+     chosen;
+   - **Today's note, if it already exists** (only when you have a daily
+     series): coming in never creates it, so on a day you haven't written
+     yet you get Home.
+3. Press **Save**.
+
+«On opening» only applies when you come in without asking for anything
+else: a link to a note opens that note. If the note you chose is deleted, or
+you can no longer read it, vihko opens Home.
 
 ## On a phone
 

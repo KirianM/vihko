@@ -412,7 +412,9 @@ note. See [Configuration](configuration.md).
 A shared space and a person can each add a guide of their own without
 `vihko.yaml`: a note of the space, named under «Guide for agents» in the
 space's «Settings…» (its managers) or in Preferences › «Your note settings»
-(see [Settings of a person or a space](configuration.md#settings-of-a-person-or-a-space)).
+(see [Settings of a person or a space](configuration.md#settings-of-a-person-or-a-space);
+step by step, with an example of what to write:
+[A guide for agents](first-steps.md#a-guide-for-agents)).
 An agent gets, in this order: the server's instructions, the guide in
 `vihko.yaml`, the guide of each shared space its key reaches, and its
 person's own guide. Each is there only if the key can read that note.
