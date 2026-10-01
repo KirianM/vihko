@@ -10,10 +10,11 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
-## [0.1.0-rc.3] - Unreleased
+## [0.1.0-rc.3] - 2026-10-01
 
 ### Upgrade notes
 
+- Test it with `ghcr.io/kirianm/vihko:0.1.0-rc.3` (the new `compose.yaml` names it).
 - **A shared space's folder is its name**: `spaces/Home/`, not
   `spaces/home-7k2q9x/`. When it starts, vihko renames each shared space made
   by rc.1 or rc.2 to the name it had (or, if that name can't be a folder's,
