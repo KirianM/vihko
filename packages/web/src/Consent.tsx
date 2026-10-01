@@ -1,4 +1,4 @@
-// The OAuth consent page (m3 §7), at /oauth/authorize: a remote client
+// The OAuth consent page, at /oauth/authorize: a remote client
 // (claude.ai, mcp-remote…) sent the person here to ask for access to their
 // notes through MCP. They sign in if needed (App.tsx), see who asks and where
 // it will go back to, and choose as for a new key: read-only and
