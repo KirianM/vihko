@@ -27,7 +27,7 @@ export interface LinkRef {
 }
 
 /**
- * A reference to an image file (D-028): `![alt](dest)`, `![[image.png]]`, and
+ * A reference to an image file: `![alt](dest)`, `![[image.png]]`, and
  * links to an image file (`[text](image.png)`, `[[image.png]]`). They are not
  * links between notes; the index keeps them apart to know who uses each image.
  */

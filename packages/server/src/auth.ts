@@ -1,5 +1,5 @@
 // Local users, passwords and sessions. No external provider required.
-// Passwords with argon2id, bundled with Node (D-031.8); older scrypt hashes
+// Passwords with argon2id, bundled with Node (no dependency); older scrypt hashes
 // still verify and are replaced on the next successful login. Only the hash
 // of session tokens is stored.
 import * as crypto from 'node:crypto'
@@ -192,7 +192,7 @@ function rowToUser(r: { id: string; username: string; role: Role; disabled: numb
 export interface AuthOptions {
   /**
    * The notes folder: each new user gets their personal folder,
-   * `people/<username>` (personalFolders.ts, D-056). Without it (tests of
+   * `people/<username>` (personalFolders.ts). Without it (tests of
    * other things), none is made.
    */
   notesDir?: string
@@ -273,7 +273,7 @@ export class Auth {
    */
   newUsername(username: string): string {
     const name = username.normalize('NFC').trim()
-    // Not starting with a dot either: `people/.ana` would be hidden, `people/..` outside (D-056, core isValidUsername).
+    // Not starting with a dot either: `people/.ana` would be hidden, `people/..` outside (core isValidUsername).
     if (!isValidUsername(name)) throw new AuthError('invalid_username', 'invalid username (2-64 letters, digits, ".", "_" or "-", not starting with ".", and not a name JavaScript objects have)')
     // Taken as the permissions compare names (any case, in any script): SQLite's
     // nocase only folds ASCII, and «ángela» would inherit «Ángela»'s grants.

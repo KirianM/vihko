@@ -61,7 +61,7 @@ async function main(argv: string[]) {
     const state = openState(join(config.stateDir, 'state.db'))
     try {
       if (process.stdin.isTTY) process.stderr.write('password (read from stdin; end with Ctrl-D): ')
-      // With their personal folder (people/<name>, D-056), and the product's two folders if this is the first thing that runs.
+      // With their personal folder (people/<name>), and the product's two folders if this is the first thing that runs.
       const auth = new Auth(state, { notesDir: config.notesDir })
       auth.personalFolders?.ensureLayout()
       const user = await auth.createUser(args.name, await readStdin(), args.admin ? 'admin' : 'member')

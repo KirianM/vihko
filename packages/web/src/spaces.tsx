@@ -1,9 +1,9 @@
-// Spaces as the UI shows them (D-056, spec §5): what the person reaches
+// Spaces as the UI shows them: what the person reaches
 // (GET /api/spaces) and how every real path is shown to them. One function
 // for the whole interface (`displayPath` of core): «My notes / diary / day»
 // for their own, «<space> / recipes / Bread» in a shared space, «ana /
 // trips / Rome» in a folder someone shares. Never `people/<me>` nor a
-// space's folder (a shared space's folder is its name, D-056.33).
+// space's folder (a shared space's folder is its name).
 import { createContext, useContext, useMemo } from 'react'
 import { addressOf, displayPath, parseSpacePath, pathOfAddress, personalRoot, spaceRootOf, type DisplayPath } from '@vihko/core/spaces'
 import type { RootNames } from './typedPath.ts'
@@ -44,7 +44,7 @@ export const rootOf = (path: string) => spaceRootOf(path)
 export const isMine = (s: Spaces, folder: string) => s.info?.personal?.path === folder
 
 /**
- * How a path is labelled for this person (spec §5.6):
+ * How a path is labelled for this person:
  * - `label(path)`: «My notes / diary / day» (the space, its folders, the name);
  * - `space(path)`: the space alone («My notes», «Home», «ana»);
  * - `where(path)`: the space and the folders, for a folder or where a note is;
@@ -112,7 +112,7 @@ export function everyRoot(spaces: readonly { path: string; name: string }[], use
 }
 
 /**
- * A note's link in the browser (D-056.29): `?note=<address>` (core
+ * A note's link in the browser (never `people/` nor `spaces/`): `?note=<address>` (core
  * `addressOf`: `Home/list.md`, `~ana/trips/Rome.md`), and the
  * version shown over it. Never `people/` nor `spaces/`.
  */
@@ -121,7 +121,7 @@ export function noteHref(path: string, version?: string): string {
   return version === undefined ? note : `${note}&version=${encodeURIComponent(version)}`
 }
 
-/** The real path of `?note=` in a URL's query (an address, or a path from before D-056.29), or null. */
+/** The real path of `?note=` in a URL's query (an address, or a real path, as older links had), or null. */
 export function notePathOf(search: string): string | null {
   const v = new URLSearchParams(search).get('note')
   return v === null ? null : pathOfAddress(v)?.path ?? null

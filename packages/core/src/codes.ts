@@ -37,7 +37,7 @@ export type ErrorCode =
   | 'integrations_locked' // VIHKO_INTEGRATIONS=off: the API and MCP switches can't be turned on
   | 'not_revertible' // a version that creates or deletes the note has no change of its text to revert
   | 'agent_denied' // an agent named a note that exists but isn't for agents (`ai: false`, or outside its key's folders)
-  | 'audience_widens' // an agent's move would open the note to people, groups or keys who can't see it now: it needs the audience confirmed (D-040 3.2)
+  | 'audience_widens' // an agent's move would open the note to people, groups or keys who can't see it now: it needs the audience confirmed, so an agent never widens access unasked
   | 'invalid_client' // an OAuth authorization request from a client this vihko doesn't know
   | 'invalid_redirect_uri' // an OAuth authorization request whose redirect URI the client didn't register
   | 'too_many_attempts' // too many failed sign-ins (or first-boot tokens): wait `retryAfter` seconds (also Retry-After)
@@ -49,7 +49,7 @@ export type ErrorCode =
   | 'user_disabled' // a disabled user gets no link: enable them first
   | 'group_exists'
   | 'invalid_group_name'
-  | 'private_address' // «Save a copy»: a member may only download from public addresses (D-038.6)
+  | 'private_address' // «Save a copy»: a member may only download from public addresses, so it can't probe the local network
   | 'history_unmanaged' // purging: the history is the notes folder's own git repository, which vihko never rewrites
   | 'history_no_repository' // purging: there is no managed history yet
   | 'invalid_version' // purging: not a version id
@@ -62,14 +62,14 @@ export type ErrorCode =
   | 'two_factor_disabled' // the admin turned the second factor off: it can't be set up
   | 'two_factor_required' // the admin requires a second factor: one's own can't be turned off
   | 'two_factor_off' // no second factor in force to change
-  | 'outside_space' // creating or moving something at the root of the notes folder, in `people/` or `spaces/`, or anywhere in no space (D-056)
-  | 'space_root' // a space's root can't be made, renamed, moved (or a personal one deleted) as a folder (D-056)
-  | 'held_inside' // a folder that holds notes held after a move made outside vihko can't be deleted until they're released (spec §2.7)
+  | 'outside_space' // creating or moving something at the root of the notes folder, in `people/` or `spaces/`, or anywhere in no space
+  | 'space_root' // a space's root can't be made, renamed, moved (or a personal one deleted) as a folder
+  | 'held_inside' // a folder that holds notes held after a move made outside vihko can't be deleted until they're released
   | 'personal_folder_exists' // a new user whose personal folder (people/<name>) already exists with something in it, made outside vihko
   | 'leave_via_group' // leaving a space or a folder one reaches through a group (`group`): the admin takes them out of the group
   | 'space_has_managers' // the admin assigns a manager only to a shared space that has none
   | 'space_needs_manager' // a deleted person's space made a shared space needs at least one member who manages it
-  | 'space_name_taken' // a new shared space's name (or a new name for one) that a space in the installation already has, in any case (`name`: as that one writes it, D-056.33)
+  | 'space_name_taken' // a new shared space's name (or a new name for one) that a space in the installation already has, in any case (`name`: as that one writes it)
 
 /**
  * Space-level alerts: what vihko has detected in the notes folder that needs
@@ -101,12 +101,12 @@ export type Alert =
   | { code: 'config_invalid'; file: string; errors: ConfigError[]; fallback: 'last_good' | 'none'; actions: never[] }
   /**
    * The workspace configuration applies, but without some parts: unknown keys,
-   * a newer `version`, a rejected strict section (D-031.9).
+   * a newer `version`, a rejected strict section.
    */
   | { code: 'config_warnings'; file: string; warnings: ConfigError[]; actions: never[] }
   /**
    * vihko rewrote the workspace configuration file to the current format when
-   * it started (D-042.6), at `at` (ISO): which `migrations` (their id and a
+   * it started, at `at` (ISO): which `migrations` (their id and a
    * one-line description, in English), and where the file as it was is kept
    * (`backup`, a path in the state volume). Only admins see it, until one of
    * them dismisses it.
@@ -149,10 +149,10 @@ export type Alert =
   | { code: 'history_versions_merged'; versions: number; since: string; actions: never[] }
   /**
    * Someone purged a path (a note, or a folder with everything in it) or one
-   * version of a note from the history while vihko ran (D-038.9): which,
+   * version of a note from the history while vihko ran: which,
    * who (`by`, their name) and when (`at`, ISO). Never anything of the
    * content. Only admins see it, until they dismiss it; `path` is null for
-   * an admin who can't read where it was (a space that isn't theirs, D-056.24).
+   * an admin who can't read where it was (a space that isn't theirs).
    */
   | { code: 'history_purged'; id: string; path: string | null; version: string | null; by: string; at: string; actions: 'dismiss'[] }
   /** `history.mode: unmanaged`, but the notes folder isn't inside a git repository: there is no history to show. */
@@ -160,7 +160,7 @@ export type Alert =
   /**
    * The API or the MCP server is on (`api`, `mcp`) while vihko.yaml keeps
    * the history unmanaged or off (`mode`): what an agent writes gets no
-   * version of its own to undo it by (D-034 3.8).
+   * version of its own to undo it by.
    */
   | { code: 'integrations_unversioned'; mode: 'unmanaged' | 'off'; api: boolean; mcp: boolean; actions: never[] }
   /**
@@ -183,40 +183,39 @@ export type Alert =
    * read them would: nobody reads them until they go back or someone
    * releases them (`release`: they get what they get where they are).
    * `notes`: how many. Only for whoever could have made that move from vihko
-   * (`edit` where they were and where they are, spec §2.7).
+   * (`edit` where they were and where they are).
    */
   | { code: 'permissions_held'; id: string; folder: string; notes: number; actions: 'release'[] }
   /**
    * Grants in vihko.yaml for folders that don't exist (moved or deleted
    * outside vihko, or not seen yet on a network disk): kept, and applied again
    * if they come back. For whoever manages the space they're in, never the
-   * admin as such, who doesn't see the names of folders inside spaces
-   * (spec §1.2).
+   * admin as such, who doesn't see the names of folders inside spaces.
    */
   | { code: 'missing_folder'; folders: string[]; actions: never[] }
   /**
    * What is in the notes folder outside every space (`paths`: top-level
    * names, and folders in `spaces/` that aren't a space): nobody sees it in
-   * vihko (D-056.4). `into`: the admin's own space, where they can move it
-   * on the disk (D-056.28). Only admins see it.
+   * vihko. `into`: the admin's own space, where they can move it
+   * on the disk. Only admins see it.
    */
   | { code: 'outside_spaces'; paths: string[]; into: string; actions: never[] }
   /**
    * Spaces of deleted people nobody has decided about yet (`people`: their
-   * usernames, D-056.28): closed, nobody sees them until the admin
+   * usernames): closed, nobody sees them until the admin
    * transfers, converts or deletes each one. Only admins see it.
    */
   | { code: 'closed_spaces'; people: string[]; actions: never[] }
   /** Folders in `people/` named like no user, active, disabled or deleted (`names`): nobody sees them. Only admins see it. */
   | { code: 'person_folder_without_user'; names: string[]; actions: never[] }
-  /** A shared space nobody has access to (`path`, `name`): the admin assigns a manager (spec §2.4). Only admins see it. */
+  /** A shared space nobody has access to (`path`, `name`): the admin assigns a manager. Only admins see it. */
   | { code: 'space_without_members'; path: string; name: string; actions: never[] }
-  /** A shared space with members but nobody who manages it (`path`, `name`): the admin assigns one (D-056.8). Only admins see it. */
+  /** A shared space with members but nobody who manages it (`path`, `name`): the admin assigns one. Only admins see it. */
   | { code: 'space_without_managers'; path: string; name: string; actions: never[] }
   /**
    * A shared space of 0.1.0-rc.1 or rc.2 (`path`, its folder `name`, such
    * as `casa-7k2q9x`) that vihko couldn't rename to the name it had then
-   * (`wanted`, D-056.33) when it started: another space or folder has that
+   * (`wanted`) when it started: another space or folder has that
    * name, or the disk refused. Each start tries again; its managers can
    * rename it. Only admins see it.
    */
@@ -244,7 +243,7 @@ export type Alert =
    */
   | { code: 'history_purged_authored'; id: string; path: string | null; version: boolean; by: string; at: string; actions: 'dismiss'[] }
   /**
-   * Addressed to one person (D-056.21): a move they made (or an agent of
+   * Addressed to one person: a move they made (or an agent of
    * theirs) left links in other notes that couldn't be updated, even tried
    * again after the next rescan. No path, name or count. Until dismissed.
    */
@@ -264,7 +263,7 @@ export type Alert =
    */
   | { code: 'two_factor_unreadable'; users: string[]; actions: never[] }
   /**
-   * Addressed to one person (D-056.8, spec §2.4 and §2.6): what someone did
+   * Addressed to one person: what someone did
    * to a space that concerns them, until they dismiss it. `by` (a name) did
    * `change` at `at` (ISO):
    * - `manager_assigned`: the admin made `user` a manager of `space` (told to
@@ -283,7 +282,7 @@ export type Alert =
   | { code: 'space_changed'; id: string; change: SpaceChange; by: string; user: string | null; to: string | null; space: { path: string; name: string | null } | null; at: string; actions: 'dismiss'[] }
 
   /**
-   * Addressed to one person (D-056.22): `by` (a name) added them to a shared
+   * Addressed to one person: `by` (a name) added them to a shared
    * space (`kind: 'space'`, `name` its name) or shared a folder with them
    * (`kind: 'folder'`, `name` the folder's; `owner` the personal space's
    * owner, or `space` the shared space's name) at `at`. Its path and names

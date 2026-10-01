@@ -1,4 +1,4 @@
-// The `permissions` section of vihko.yaml (D-038, D-056): how it's read
+// The `permissions` section of vihko.yaml: how it's read
 // (strict: any doubt rejects it whole) and how vihko edits it, leaving the
 // rest of the file as it was. Levels are space-rules.test.ts's.
 import { test } from 'node:test'
@@ -67,7 +67,7 @@ test('permissions: any doubt rejects the whole section (nothing is shared), with
   assert.deepEqual(rejected(`permissions:\n  ${HOME}: {grants: {"bad name!": read}}\n`), [['section_rejected', 'permissions', 1], ['invalid_value', `permissions.${HOME}.grants.bad name!`, 2]])
   // 1.0's per-user subject is no subject now.
   assert.deepEqual(rejected(`permissions:\n  ${HOME}: {grants: {"{user}": read}}\n`), [['section_rejected', 'permissions', 1], ['invalid_value', `permissions.${HOME}.grants.{user}`, 2]])
-  // Keys in no space (spec §1.2): the root, the fixed folders, anything else; a `{user}` segment; grants at a personal root.
+  // Keys in no space: the root, the fixed folders, anything else; a `{user}` segment; grants at a personal root.
   for (const key of ['', 'people', 'spaces', m.aFolder(), `${m.aFolder()}/${m.aFolder()}`, 'people/{user}', `${HOME}/{user}`, `spaces/.${m.aWord()}`, `spaces/~${m.aWord()}`, '../fuera']) {
     assert.deepEqual(rejected(`permissions:\n  ${JSON.stringify(key)}: {grants: {${MEMBER}: read}}\n`)[0], ['section_rejected', 'permissions', 1], key)
   }
@@ -130,7 +130,7 @@ test('permissions file: moving a folder moves its rules and those under it, and 
   const A = (p: string) => `${HOME}/${p}`
   const text = `permissions:\n  ${HOME}: {grants: {${ADMIN}: manage}}\n  ${A(b)}: {grants: {${MEMBER}: edit}}\n  ${A(`${b}/${c}`)}: {ai: false}\n  ${A(b + bc)}: {grants: {}}\n  ${A(`${x}/${y}/${z}`)}: {grants: {${OTHER}: read}}\n`
   const moved = moveRules(text, A(b), A(`${x}/${y}`))
-  // The rule forgotten under the destination goes: the folder brings its own (spec §1.2).
+  // The rule forgotten under the destination goes: the folder brings its own.
   assert.deepEqual(rulesOf(moved).map((r) => r.folder).sort(), [HOME, A(b + bc), A(`${x}/${y}`), A(`${x}/${y}/${c}`)].sort())
   assert.deepEqual(rulesOf(moved).find((r) => r.folder === A(`${x}/${y}`)), { folder: A(`${x}/${y}`), grants: { [MEMBER]: 'edit' }, ai: null })
   const both = moveRules(text, A(b), A(`${x}/${y}`), { keepFrom: true })

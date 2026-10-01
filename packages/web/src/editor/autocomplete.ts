@@ -1,7 +1,7 @@
 // Editor autocomplete: `[[` suggests notes (by title, file name and aliases),
 // `[[note#` its headings, `[[note|` its title and aliases as the visible text,
 // and `#` the tags already in use. The inserted link is the shortest one that
-// resolves to the chosen note from this one (D-019). Data comes from the index
+// resolves to the chosen note from this one. Data comes from the index
 // (tree, tags, headings), cached for a few seconds and refreshed in the
 // background, so typing never waits on the network after the first time.
 import { acceptCompletion, autocompletion, pickedCompletion, type Completion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
@@ -74,7 +74,7 @@ export function forgetSuggestions() {
 /**
  * The session ended (signing out, or it expired): what was loaded for that
  * person goes, so whoever signs in next in this tab never gets it, not even
- * while their own loads (D-056.28).
+ * while their own loads.
  */
 function clearSuggestions() {
   notes.clear()
@@ -179,7 +179,7 @@ export function linkAutocomplete(note: string, text: AutocompleteText) {
           detail: m.alias ? `→ ${title}${folder ? ` · ${folder}` : ''}` : folder,
           type: 'note',
           apply: (view, completion, f, to) => {
-            // Only notes of this note's space are offered (D-056.30); one reached only by its path from the root shows its name.
+            // Only notes of this note's space are offered (a link never leads to another space); one reached only by its path from the root shows its name.
             const form = catalog.linkForm(note, m.path)
             const shown = m.alias ?? form.display
             // Inside a table a bare `|` would end the cell: Obsidian's `\|` (core reads it back).

@@ -1,6 +1,6 @@
 // What the release workflow checks and works out for a tag (scripts/release.ts):
 // the tag against package.json, the CHANGELOG.md section that becomes the
-// GitHub Release's text, and the image tags (D-042: a stable version moves
+// GitHub Release's text, and the image tags (a stable version moves
 // X.Y, X and latest forward, a pre-release gets only its exact tag).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

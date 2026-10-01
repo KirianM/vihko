@@ -1,5 +1,5 @@
 // Full Unicode case folding (CaseFolding.txt, statuses C and F), for the
-// case-insensitive comparisons of D-019: link keys, aliases, anchors and tags.
+// case-insensitive comparisons: link keys, aliases, anchors and tags.
 // `toLowerCase()` alone isn't folding: «Straße» and «STRASSE» differ, a final
 // «ς» isn't «σ», «ﬁ» isn't «fi». Folding is locale-independent (no Turkic
 // rules): «I» folds to «i», «ı» stays «ı», «İ» becomes «i̇».

@@ -1,4 +1,4 @@
-// The permissions most tests run under (D-056): every note is in a space, and
+// The permissions most tests run under: every note is in a space, and
 // the tests that aren't about permissions keep theirs in one shared space
 // (SHARED), where the admin manages and the member edits: everyone sees
 // everything in it, as before M4. The setups copy the test vault into it
@@ -9,7 +9,7 @@ import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
-/** The shared space's name, which is its folder (D-056.33). */
+/** The shared space's name, which is its folder. */
 export const SHARED_NAME = m.aSpaceName()
 /** The shared space most tests keep their notes in: `spaces/<name>`. */
 export const SHARED = `spaces/${m.aSpaceFolder(SHARED_NAME)}`

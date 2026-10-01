@@ -1,4 +1,4 @@
-// Purging from the UI while vihko runs (D-038.9), in process: whoever manages
+// Purging from the UI while vihko runs, in process: whoever manages
 // the folder, a note or one of its versions and nothing else; the admin, any
 // path by its name; the history paused and resumed, writes made meanwhile
 // kept; the admin's notice, without the content.
@@ -80,7 +80,7 @@ test('whoever manages a folder purges a version of a note in it from the UI: gon
     assert.equal((await versionsOf(PATH.list)).length, list + 1)
 
     // The admin is told who and what, never the content; nobody else. Where the
-    // admin can't read (the member's diary), not even the path (D-056.24).
+    // admin can't read (the member's diary), not even the path.
     const alerts = async (as: As) => ((await as('GET', '/api/alerts')).body.alerts as { code: string; id: string; path: string | null; version: string | null; by: string }[]).filter((a) => a.code === 'history_purged')
     const notices = await alerts(h.admin)
     assert.equal(notices.length, 1)
@@ -132,7 +132,7 @@ test('a manager purges a note\'s whole history (that file alone); the admin purg
 
     // The admin, the other's folder by its name: he can't read it, and the answer says nothing of it but how much.
     const preview = await h.admin('POST', '/api/history/purge', { path: home(OTHER.username), dryRun: true })
-    assert.equal(preview.body.confirmRequired, true, 'what he can\'t read is confirmed at the moment (D-040 3.6)')
+    assert.equal(preview.body.confirmRequired, true, 'what he can\'t read is confirmed at the moment')
     assert.equal((await h.admin('POST', '/api/history/purge', { path: home(OTHER.username) })).body.error, 'confirmation_required')
     const writing = put(h.member, PATH.list, (t) => t + `${m.aSentence()}\n`)
     const k = await h.admin('POST', '/api/history/purge', { path: home(OTHER.username), confirm: ADMIN.password })
@@ -156,7 +156,7 @@ test('a manager purges a note\'s whole history (that file alone); the admin purg
     await h.settle()
     const list = (await versionsOf(PATH.list, h.member)) as { authors: { name: string }[] }[]
     assert.equal(list[0]!.authors[0]!.name, MEMBER.username, 'the write made during the purge has its version')
-    // Both where the admin can't read: who, never where (D-056.24), but for his own purge, whose path he wrote (D-056.26).
+    // Both where the admin can't read: who, never where, but for his own purge, whose path he wrote.
     const alerts = ((await h.admin('GET', '/api/alerts')).body.alerts as { code: string; path: string | null; by: string }[]).filter((a) => a.code === 'history_purged')
     // His own notice too, alike for the paths that had nothing (and the version that wasn't theirs).
     assert.deepEqual(alerts.map((a) => [a.path, a.by]), [[null, MEMBER.username], [home(OTHER.username), ADMIN.username], [nonePath, ADMIN.username], [notTherePath, ADMIN.username]])

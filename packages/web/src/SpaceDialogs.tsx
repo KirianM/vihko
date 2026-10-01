@@ -1,4 +1,4 @@
-// Dialogs of the spaces (D-056, spec §5.2): a new shared space (its name and,
+// Dialogs of the spaces: a new shared space (its name and,
 // if wanted, its first members; whoever creates it manages it), renaming one,
 // leaving a space or a folder shared with one, and deleting a space (what it
 // holds goes to the trash, which its managers can restore).

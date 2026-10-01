@@ -50,7 +50,7 @@ if (!INSIDE) {
   const { rootIgnoresCase } = await import('@vihko/server')
   // The member's private folder in their space, and the same name in capitals:
   // on this disk, the same folder. The admin is granted the other spelling (a
-  // grant for a folder that doesn't exist is kept, spec §1.2): that grant must
+  // grant for a folder that doesn't exist is kept): that grant must
   // never reach the folder the disk has.
   const DIARY = m.aFolder()
   const ALIAS = DIARY.toUpperCase()
@@ -137,7 +137,7 @@ if (!INSIDE) {
     } finally { await h.close() }
   })
 
-  test('where someone sees the whole folder, a name taken under another spelling is `exists`, with the disk\'s spelling (spec §3.4 row 6)', async () => {
+  test('where someone sees the whole folder, a name taken under another spelling is `exists`, with the disk\'s spelling', async () => {
     const h = await setup({ config, files: (n) => ({ [paths(n.member).day]: `# ${m.aHeading()}\n` }) })
     try {
       const P = paths(h.users.member.username)

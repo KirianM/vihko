@@ -1,4 +1,4 @@
-// The history (D-016, D-032): its mode (vihko.yaml `history.mode`), the
+// The history: its mode (vihko.yaml `history.mode`), the
 // recorder that keeps the managed repository, and the reader the API uses for
 // the mode in force: the managed repository, or the user's own git
 // (unmanaged). The two are never mixed: switching modes keeps the managed
@@ -38,7 +38,7 @@ export class History {
   /** `history.exclude` as last compiled, and what it was compiled from. */
   private exclude: { key: string; match: (path: string) => boolean } = { key: '', match: () => false }
   private excludeKey: string
-  /** Purges made while running, for the admin (D-038.9). */
+  /** Purges made while running, for the admin. */
   readonly notices: PurgeNotices
   /** One purge at a time. */
   private purges: Promise<unknown> = Promise.resolve()
@@ -123,7 +123,7 @@ export class History {
 
   /**
    * Purges a path (a file or a folder; with `exact`, that file alone) or one
-   * version of a file from the managed history, while vihko runs (D-038.9):
+   * version of a file from the managed history, while vihko runs:
    * history/purge.ts `purgeRunning`, one at a time. Whoever may ask is the
    * caller's to judge. `by`: the user, for the admin's notice.
    */

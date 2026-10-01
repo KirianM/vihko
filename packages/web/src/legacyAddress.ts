@@ -1,6 +1,6 @@
 // Addresses of shared spaces of 0.1.0-rc.1 and rc.2 (`?note=casa-7k2q9x/…`,
 // from a bookmark or a link someone sent), followed to the space vihko
-// renamed that folder to when it started (D-056.33). Only among the spaces
+// renamed that folder to when it started (spaces lost their ids). Only among the spaces
 // the person reaches: nothing else is guessed or revealed.
 import { legacySpaceFolder, parseSpacePath, readablePart } from '@vihko/core/spaces'
 import type { SpacesInfo } from './api.ts'

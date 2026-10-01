@@ -1,10 +1,10 @@
-// The OAuth consent page (m3 §7), at /oauth/authorize: a remote client
+// The OAuth consent page, at /oauth/authorize: a remote client
 // (claude.ai, mcp-remote…) sent the person here to ask for access to their
 // notes through MCP. They sign in if needed (App.tsx), see who asks and where
-// it will go back to, and choose as for a new key (D-035.3): read-only and
+// it will go back to, and choose as for a new key: read-only and
 // every folder unless they say otherwise. Approving asks for the current code
 // of their second factor (or their password without one), even with a
-// session (D-036). It makes an authorization, a
+// session: a session left open is not enough to let an app in. It makes an authorization, a
 // key of theirs named after the client, which «Agents and API» lists and can
 // revoke. The server checked the request before this page loaded; it checks
 // it again with the answer.
@@ -63,7 +63,7 @@ export function Consent({ user, onSignOut }: { user: User; onSignOut: () => void
   const [busy, setBusy] = useState(false)
   const [leaving, setLeaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Saying yes is confirmed at the moment (D-036), even with a session: the current code, or the password.
+  // Saying yes is confirmed at the moment, even with a session: the current code, or the password.
   const confirmWith = useConfirmWith()
   const [confirm, setConfirm] = useState('')
 

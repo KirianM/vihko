@@ -1,4 +1,4 @@
-// vihko.yaml: read at start, reloaded on change, errors as alerts (D-011, D-014).
+// vihko.yaml: read at start, reloaded on change, errors as alerts.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { chmodSync, rmSync, writeFileSync } from 'node:fs'

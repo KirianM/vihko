@@ -1,4 +1,4 @@
-// Link fixes (D-031): an ambiguous link opens a picker of its candidates
+// Link fixes: an ambiguous link opens a picker of its candidates
 // (open one, or pin the link to it), and a note renamed outside vihko raises
 // an alert whose «Update links» rewrites the links left behind.
 import { expect, test, type Page } from '@playwright/test'
@@ -8,7 +8,7 @@ import { editorText, openPath, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const DIR = inVault(m.aFolder())
-/** A path of the vault's space as vihko shows it (D-056): `<its name> / a / b`. */
+/** A path of the vault's space as vihko shows it: `<its name> / a / b`. */
 const label = (path: string) => [SPACE_NAME, ...path.slice(SPACE.length + 1).replace(/\.md$/i, '').split('/')].join(' / ')
 const TAREAS_BLOG = label(inVault('proyectos/blog/Tareas.md'))
 const TAREAS_VIHKO = label(inVault('proyectos/vihko/Tareas.md'))

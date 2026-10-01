@@ -1,4 +1,4 @@
-// «Home» (D-056.35): what a person finds when they come in. Everything comes
+// «Home»: what a person finds when they come in. Everything comes
 // from what vihko already keeps (the index, the history and their notices):
 // nothing is stored for it, in the notes folder or anywhere else. And nothing
 // of it is anything they can't read now: each note is asked of their access
@@ -9,7 +9,7 @@
 // - `changed`: what others changed lately in notes they read. Where they may
 //   see the history (`edit`), from it, with who did it; where they only read
 //   (or without a history), from the index, by when the file last changed,
-//   without a name (that is the history's to say, D-038). Never their own
+//   without a name (that is the history's to say). Never their own
 //   space's notes by the index alone: those are theirs.
 // - `shared`: what someone added them to or shared with them in the last
 //   days (their `shared_with_you` notices, while they can see it), newest

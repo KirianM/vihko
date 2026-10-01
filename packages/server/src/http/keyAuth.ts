@@ -2,7 +2,7 @@
 // the HTTP API (via `api`) and the MCP server (via `mcp`). The session cookie
 // never authenticates either: a request with a key is judged by the key alone.
 // Off (the switch in state.db, or VIHKO_INTEGRATIONS=off), there is nothing
-// there: 404, as for a route that doesn't exist (D-035.1).
+// there: 404, as for a route that doesn't exist.
 import type { AgentPrincipal } from '../access.ts'
 import type { ApiKeys } from '../keys.ts'
 import type { Integrations } from '../integrations.ts'

@@ -49,7 +49,7 @@ test.beforeAll(() => {
 test.afterAll(() => { for (const f of TWINS) rmSync(`${DIR}/${f}`, { force: true }) })
 
 const drawer = (page: Page) => page.getByRole('dialog', { name: 'Carpetas' })
-/** The drawer's tree of the vault's space (one per space, D-056). */
+/** The drawer's tree of the vault's space (one per space). */
 const vault = (page: Page) => drawer(page).getByRole('treegrid', { name: SPACE_NAME, exact: true })
 const noHorizontalScroll = (page: Page) =>
   expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
@@ -77,7 +77,7 @@ test.beforeAll(async ({ browser }) => {
 })
 test.afterAll(async () => { await page.context().close() })
 
-test('no sidebar; with nothing open Home is the first screen (D-056.35), and the folder drawer is behind the menu', async () => {
+test('no sidebar; with nothing open Home is the first screen, and the folder drawer is behind the menu', async () => {
   await signIn(page)
   await expect(page.getByRole('heading', { name: 'Inicio', level: 1 })).toBeVisible()
   await expect(drawer(page)).toHaveCount(0)

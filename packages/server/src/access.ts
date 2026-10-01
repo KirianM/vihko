@@ -1,4 +1,4 @@
-// The single point of access (D-014, D-035, D-038): who is asking (a
+// The single point of access: who is asking (a
 // principal) and what they may read and write. Everything a request or an
 // agent reaches is asked here, as a path (`canRead`, `canComment`,
 // `canWrite`, `canManage`) or, for lists read from the index, as a condition
@@ -8,24 +8,24 @@
 // - A user has, in each folder, the level the rules of vihko.yaml give them
 //   (permissions.ts): read < comment < edit < manage. An image or any other
 //   file has the permission of the folder it's in. Being an admin grants
-//   nothing here (D-038.1): the admin reads only what is granted.
-// - An agent (a key, D-035) sees what its user sees, limited to the key's
+//   nothing here: the admin manages, but reads only what is granted.
+// - An agent (a key) sees what its user sees, limited to the key's
 //   folders (none = all), and never a note with `ai: false`, in a folder
 //   closed to agents (`ai: false` in vihko.yaml) or whose frontmatter can't
-//   be read (the most restricted, D-014), nor an image such a note uses. It
+//   be read (treated as the most restricted), nor an image such a note uses. It
 //   writes only with a key that may and where its user has `edit`.
 //
 // What a principal can't read doesn't exist for it: callers answer
-// `not_found`, never `forbidden`, and name nothing it can't see (D-030,
-// D-056.15). A person who can see a note (or a folder) but not do something
+// `not_found`, never `forbidden`, and name nothing it can't see.
+// A person who can see a note (or a folder) but not do something
 // in it gets `forbidden`. An agent that names a note its user reads but that
 // is hidden from the agent gets an explicit denial, `agent_denied` with the
 // reason (`ai_false`, `outside_key_folders`), so that it doesn't take it for
 // a broken link and delete, redirect or duplicate it; that is no leak, its
-// user sees the note (D-035). The denial carries nothing of the note. Lists
+// user sees the note. The denial carries nothing of the note. Lists
 // still never show it: the agent only learns it exists if it already has its
 // name. A note its user can't read is, for the agent as for the user, one
-// that doesn't exist (`not_found`, exists or not, D-056.15): nobody learns
+// that doesn't exist (`not_found`, exists or not): nobody learns
 // what exists by naming paths or writing links.
 import { WORKSPACE_FILE, atLeast, classifyPath, folderOf, readFrontmatter, type Level } from '@vihko/core'
 import type { Actor, Via } from './actor.ts'
@@ -71,7 +71,7 @@ export class AccessError extends Error {
  * Why a note an agent named, which its user reads, isn't for it: `ai: false`
  * (in the note, a frontmatter that can't be read, or its folder in
  * vihko.yaml), or out of its key's folders. (A note its user can't read
- * doesn't exist for it: `not_found`, D-056.15.)
+ * doesn't exist for it: `not_found`.)
  */
 export type DenyReason = 'ai_false' | 'outside_key_folders'
 
@@ -247,7 +247,7 @@ export class Access {
   /**
    * Whether `path` is a note held after a move made outside vihko in a folder
    * where this principal writes (permissionHolds.ts): its name is taken there,
-   * and that is all that is said of it (spec §3.4 row 7, the one residue).
+   * and that is all that is said of it (the one thing it gives away).
    */
   heldWhereWritable(path: string): boolean {
     const p = path.normalize('NFC')
@@ -315,7 +315,7 @@ export class Access {
   }
 
   /**
-   * Whether it may comment on a note (D-038.5): `comment` or more. An agent
+   * Whether it may comment on a note: `comment` or more. An agent
    * comments only where it may write (commenting with `comment` alone isn't
    * for agents in M4).
    */
@@ -343,7 +343,8 @@ export class Access {
   }
 
   /**
-   * Whether it may see a note's history (D-034 3.5): `edit` in its folder.
+   * Whether it may see a note's history: `edit` in its folder (sharing a
+   * note to read doesn't share its past).
    * For an agent, also within its key's folders and out of folders closed to
    * agents (each version's text is judged by the history filter).
    */
@@ -394,7 +395,7 @@ export class Access {
   /**
    * Whether the user the request acts for (an agent's, or the person) may
    * read `path`, whatever the key or the note's text say: what isn't so
-   * doesn't exist for either of them (D-056.15).
+   * doesn't exist for either of them.
    */
   userCanRead(path: string): boolean {
     return this.userCan(path, 'read')

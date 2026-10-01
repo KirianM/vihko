@@ -1,5 +1,5 @@
-// Comparing a thread's commented text with the one it had (D-031.6), and the
-// threads that left a note and go back into it (D-032.5). The parsing itself is
+// Comparing a thread's commented text with the one it had, and the
+// threads that left a note and go back into it. The parsing itself is
 // tested with the editor (packages/web/test/comments.test.ts).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

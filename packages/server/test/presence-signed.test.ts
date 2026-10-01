@@ -1,4 +1,4 @@
-// Presence signed by the server (D-040 3.3), on a real server with a
+// Presence signed by the server, on a real server with a
 // tampered client: whatever a connection announces in the awareness is the
 // person of its session, with the id and name the server knows and a
 // person's hue; it can't speak for another connection's client, nor pass

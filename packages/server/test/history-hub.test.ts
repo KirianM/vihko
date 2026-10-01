@@ -55,7 +55,7 @@ test('someone who starts writing where another was closes their version first, w
     const ca = await connect(srv, a, NOTE)
     typeLine(ck, ADMIN_TYPED_1)
     await waitFor(() => ca.text().includes(ADMIN_TYPED_1), 'the admin\'s typing reaches the member')
-    // The member's first change closes the admin's version as it was right before it (D-034 3.4).
+    // The member's first change closes the admin's version as it was right before it: a new writer starts a new version.
     typeLine(ca, MEMBER_TYPED_1)
     await waitFor(() => ck.text().includes(MEMBER_TYPED_1), 'the member\'s typing reaches the admin')
     // The admin was already writing: they go on in the member's version, without closing it.

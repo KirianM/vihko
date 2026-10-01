@@ -1,4 +1,4 @@
-// OAuth with a real client over the network (m3 §7): mcp-remote (the stdio
+// OAuth with a real client over the network: mcp-remote (the stdio
 // bridge Claude Desktop and others use) against the real server, started as
 // in production with VIHKO_PUBLIC_URL, behind a local HTTPS reverse proxy
 // whose certificate the test makes. mcp-remote finds the metadata from the
@@ -93,7 +93,7 @@ test('mcp-remote: discovery, registration, consent, tokens and the tools of a re
     const setCookie = String(login.headers['set-cookie'])
     assert.match(setCookie, /Secure/i, 'behind HTTPS the session cookie is Secure')
     const cookie = setCookie.split(';')[0]!
-    // mcp-remote registers itself: the admin lets clients (off on a new vihko, D-049).
+    // mcp-remote registers itself: the admin lets clients (off on a new vihko).
     assert.equal((await browser('PUT', '/api/admin/integrations', { mcp: true, oauthRegistration: true }, { cookie })).status, 200)
 
     /** mcp-remote as Claude Desktop runs it, with its own home and no browser to open. */

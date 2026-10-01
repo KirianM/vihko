@@ -1,4 +1,4 @@
-// Permissions as they apply now (D-014, D-038, D-056): the rules of
+// Permissions as they apply now: the rules of
 // vihko.yaml (core/permissions.ts SpaceRules) resolved against the users and
 // groups of state.db and the spaces on the disk. Access (access.ts) asks here
 // what level a user has in a folder; the permissions API (http/permissions.ts)
@@ -9,11 +9,11 @@
 //   owner manages whatever is written and nobody else reaches unless a
 //   folder in it is shared; or `spaces/<name>/`, whose members are
 //   whoever its root's grants name. Anything outside the spaces is nobody's.
-// - Grants only add (D-056.7): a person's level in a folder is the highest
+// - Grants only add (so nothing unseen takes up names): a person's level in a folder is the highest
 //   the grants of it and of each folder above it in its space give them, by
 //   name or through a group.
-// - The space of a deleted person is nobody's, not even the admin's
-//   (D-056.8). Being an admin changes nothing here (D-038.1).
+// - The space of a deleted person is nobody's, not even the admin's.
+//   Being an admin changes nothing here: the admin manages, but doesn't read.
 // - The section in force comes from the workspace (workspace.ts): the
 //   file's, the last valid one while running, or none (no section, or
 //   rejected when vihko started): then nothing is shared.
@@ -56,7 +56,7 @@ export function groupSource(users: { groupsOf(userId: string): string[]; groups(
 /**
  * The directory over state.db's users, and the groups `groups` gives (none by
  * default). A deleted user is unknown: their name in a grant reaches nobody,
- * and their personal space is nobody's (D-056.8).
+ * and their personal space is nobody's.
  */
 export function stateDirectory(state: Db, groups: Partial<GroupSource> = {}): Directory {
   return {
@@ -79,7 +79,7 @@ export interface SpaceFolders {
 }
 
 /**
- * Which model levels come from. Only `spaces` (D-056) since 0.1.0: the
+ * Which model levels come from. Only `spaces` since 0.1.0: the
  * option stays so that callers written against the transition keep
  * compiling; it changes nothing.
  */
@@ -117,11 +117,11 @@ export interface UserAccess {
   via: GrantSource[]
 }
 
-/** A shared space as its members see it (GET /api/spaces): `{path, name}`, the name its folder's (D-056.33). */
+/** A shared space as its members see it (GET /api/spaces): `{path, name}`, the name its folder's. */
 export interface SpaceEntry {
   /** Its root, `spaces/<name>`. */
   path: string
-  /** Its name: its folder's (D-056.33). */
+  /** Its name: its folder's. */
   name: string
   /** The person's level at its root. */
   level: Level
@@ -155,7 +155,7 @@ export interface SpacesView {
   shared: SharedEntry[]
 }
 
-/** A shared space for the admin's directory (spec §2.4, §5.7): no folder inside it is named. */
+/** A shared space for the admin's directory: no folder inside it is named. */
 export interface SharedSpaceInfo {
   path: string
   name: string
@@ -233,7 +233,7 @@ export class PermissionsEngine {
     return new Viewer(this, user)
   }
 
-  /** A shared space's name: its folder's (D-056.33). Null for a path that isn't a shared space's root. */
+  /** A shared space's name: its folder's. Null for a path that isn't a shared space's root. */
   spaceName(root: string): string | null {
     const s = parseSpacePath(root)
     if (!s || s.space.kind !== 'shared' || s.inner !== '') return null
@@ -316,7 +316,7 @@ export class PermissionsEngine {
     return out.sort((a, b) => a.path.localeCompare(b.path))
   }
 
-  /** Every shared space on the disk, for the admin (spec §2.4): its name, managers and how many members; nothing inside it. */
+  /** Every shared space on the disk, for the admin: its name, managers and how many members; nothing inside it. */
   sharedSpaces(): SharedSpaceInfo[] {
     const rules = this.spaceRules()
     const out: SharedSpaceInfo[] = []

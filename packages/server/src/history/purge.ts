@@ -1,8 +1,8 @@
 // `vihko history purge`: rewrites the managed history without a path (a file,
 // or a folder with everything in it), or without the content a path has in
-// one version. For a secret pasted by mistake (D-034.6). With vihko stopped:
+// one version. For a secret pasted by mistake. With vihko stopped:
 // it takes the state volume's lock, as the server does. The server runs the
-// same purge from the UI (D-038.9, `purgeRunning`), with its recorder paused.
+// same purge from the UI (`purgeRunning`), with its recorder paused.
 //
 // - Only the managed history (`<state>/history.git`, vihko's own). The user's
 //   repository (unmanaged mode) is never rewritten, and the notes folder is
@@ -63,7 +63,7 @@ export interface PurgeOptions {
   version?: string
   /** Says what would change, and changes nothing. It doesn't need vihko stopped. */
   dryRun?: boolean
-  /** `path` is one file: nothing under it goes (a note purged by whoever manages its folder, D-038.9). */
+  /** `path` is one file: nothing under it goes (a note purged by whoever manages its folder). */
   exact?: boolean
   /** vihko.yaml's `history.mode`: the purge refuses to run in unmanaged mode. */
   mode: HistoryMode
@@ -160,7 +160,7 @@ export interface RunningRecorder {
 }
 
 /**
- * The same purge from the running server (D-038.9: from the UI), which holds
+ * The same purge from the running server (from the UI), which holds
  * the state volume's lock: the recorder is paused while the repository is
  * rewritten, and forgets what was purged in memory instead of in the
  * journal's file (recorder.ts `purging`). Notes are written meanwhile, and

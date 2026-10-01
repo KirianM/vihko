@@ -1,4 +1,4 @@
-// The MCP server's tools (m3 §5). Every one acts as the key's principal
+// The MCP server's tools. Every one acts as the key's principal
 // through the single filter: the scoped operations (scoped.ts) and the
 // history as the key may see it (agentHistory.ts), never the note service or
 // the index directly. What the key can't see doesn't exist: `not_found`,
@@ -10,7 +10,7 @@
 // and a link to one is `no_access`: so that it isn't taken for a broken link.
 //
 // Conventions for agents: paths are relative to the notes root, with `.md`;
-// every read gives the ETag a substitution needs as `if_match` (D-017);
+// every read gives the ETag a substitution needs as `if_match`, so it never overwrites what it didn't read;
 // lists are paged, with a bound; the text of notes comes as data, between
 // markers, never as instructions. Parameters and results are snake_case
 // (`dry_run`, `if_match`); parameters also take camelCase, and a few common
@@ -54,7 +54,7 @@ export interface ToolContext {
   maxWaitSeconds?: number
   pollMs?: number
   /**
-   * Under the spaces model (D-056): what the person reaches, within the key
+   * Under the spaces model: what the person reaches, within the key
    * (spaceService.ts `view`). `list_folder("")` lists these roots, and paths
    * are described from the person's own space.
    */
@@ -329,9 +329,9 @@ function bySource(backlinks: readonly Backlink[]) {
 
 /**
  * Every tool, and what it needs of its user's permissions where the note is
- * (D-038; as `ROUTE_NEEDS` for the HTTP API): `filtered` lists only what
- * the key may see; `read` and `edit`, that level; `history`, `edit` (D-034
- * 3.5). A tool without its line here fails the leak tests.
+ * (as `ROUTE_NEEDS` for the HTTP API): `filtered` lists only what
+ * the key may see; `read` and `edit`, that level; `history`, `edit`
+ * (sharing a note to read doesn't give away its past). A tool without its line here fails the leak tests.
  */
 export const TOOL_NEEDS = {
   search: 'filtered',
@@ -353,7 +353,7 @@ export const TOOL_NEEDS = {
 /** The server's tools for this key: the ones that write only if it may write. */
 export function registerTools(server: McpServer, ctx: ToolContext) {
   const { access, scoped, texts } = ctx
-  // Under the spaces model, the example is in the person's own space (spec §6.2).
+  // Under the spaces model, the example is in the person's own space.
   const path = ctx.spaces ? z.string().min(1).describe(`Path of the note from the notes root, with its .md extension, e.g. ${JSON.stringify(`people/${access.user.username}/projects/plan.md`)}.`) : notePath
   const keyId = access.principal.kind === 'agent' ? access.principal.key.id : `user:${access.user.id}`
   const run = <A>(fn: (args: A, signal: AbortSignal) => Promise<CallToolResult> | CallToolResult) =>
@@ -477,7 +477,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     if (f) NoteService.checkFolder(f)
     const tree = scoped.tree()
     if (f === '' && ctx.spaces) {
-      // The roots the person reaches (spec §6.2), then, recursive, what the key sees under them.
+      // The roots the person reaches, then, recursive, what the key sees under them.
       const v = ctx.spaces()
       const roots = [
         ...(v.personal ? [{ kind: 'folder' as const, path: v.personal.path, space: { kind: 'personal' as const } }] : []),
@@ -634,7 +634,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     access.assertRead(note)
     // Hidden by its text now (not yet by the index): denied too. A note deleted since keeps its history.
     try { scoped.read(note) } catch (err) { if (err instanceof AgentDenied) throw err }
-    // A note's history is for whoever can edit it (D-034 3.5): its user must have `edit` there.
+    // A note's history is for whoever can edit it: its user must have `edit` there.
     if (!access.canHistory(note)) throw new AccessError('the history of a note is only for whoever can edit it')
     const r = reader()
     if (version) {
@@ -702,7 +702,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     return reply({ series: o.series, path: r.path, created: o.created, etag: r.etag }, noteText(`The text of ${r.path}`, r.text))
   }))
 
-  /** Once it is hidden from agents, nothing an agent can do brings it back (D-035). */
+  /** Once it is hidden from agents, nothing an agent can do brings it back: only a person can. */
   const HIDING = 'If what you write hides the note from agents (`ai: false` in its frontmatter), the write still goes through and answers `now_hidden: true` with the `reason`: '
     + 'from then on the note is not available to you or any agent, and no agent can undo that; only a person can, from vihko\'s interface.'
 
@@ -819,7 +819,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     return reply({ path: e.path, trashed: true, at: e.deletedAt, ...(e.files?.length ? { images: e.files.map((f) => f.path) } : {}) })
   }))
 
-  // Images (D-048): stored as `POST /api/attachments` stores them, through the
+  // Images: stored as `POST /api/attachments` stores them, through the
   // same scoped operation, so the same rules hold. The note isn't touched:
   // the agent writes the link with edit_note, which is where it belongs.
   server.registerTool('attach_image', {

@@ -1,7 +1,7 @@
 // Folder tree: notes and folders (empty ones too), a context menu on every
 // row (right click, long press on a phone, the ⋯ button or the context-menu
 // key) and, with a pointer, drag and drop of notes and folders onto folders.
-// Each row offers only what the person may do there (D-038.5), folders with
+// Each row offers only what the person may do there, folders with
 // permissions of their own or closed to agents carry a lock, and a folder
 // shown only as the way to something shared is muted, with no actions.
 import { useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
@@ -63,7 +63,7 @@ export const parentOf = (path: string) => (path.includes('/') ? path.slice(0, pa
 export type TreeAction = 'newNote' | 'newFolder' | 'moveFolder' | 'toNewSpace' | 'toMine' | 'deleteFolder' | 'permissions' | 'moveNote' | 'trashNote'
 
 /**
- * Where a folder of this tree's space may move out to (D-056.28): a new
+ * Where a folder of this tree's space may move out to: a new
  * space of its own (`newSpace`, if the person may create spaces) and, from
  * a shared space, their own (`mine`).
  */

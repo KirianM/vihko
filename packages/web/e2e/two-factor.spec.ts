@@ -1,4 +1,4 @@
-// The second factor (D-036) in a real browser: a member sets it up from
+// The second factor in a real browser: a member sets it up from
 // «Account» with a code this test computes from the secret on the page,
 // signs in with a code and with a recovery code, confirms a new key with the
 // current code, and makes new recovery codes and changes the app with a
@@ -28,7 +28,7 @@ let keeper: Page
 
 test.beforeAll(async ({ browser }) => {
   mkdirSync(SHOTS, { recursive: true })
-  // A member sees nothing until something is granted (D-038): the two of them read everything.
+  // A member sees nothing until something is granted: the two of them read everything.
   await usePermissions({ grants: { [PERSON.username]: 'read', [INVITED.username]: 'read' } })
   keeper = await signIn(browser, ADMIN)
   // The member makes a key of her own: the admin lets members (off by default).
@@ -292,7 +292,7 @@ test('new recovery codes and another app ask for a code of the second factor, ne
 test('required: an invited member sets it up before getting in; the admin sees who has it and resets it', async ({ browser }) => {
   const admin = await signIn(browser, ADMIN)
   await openSettings(admin, 'Usuarios y grupos', 'users')
-  // A new policy is confirmed at the moment (D-040 3.4a): the admin's password, without a second factor.
+  // A new policy is confirmed at the moment: the admin's password, without a second factor.
   await admin.getByRole('radio', { name: /Obligatoria/ }).click()
   const policy = admin.getByRole('alertdialog')
   await expect(policy.getByRole('heading')).toHaveText('¿Cambiar la verificación en dos pasos a «Obligatoria»?')

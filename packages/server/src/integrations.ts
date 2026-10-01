@@ -1,6 +1,6 @@
-// The integration switches (D-035.1): the HTTP API with keys, the MCP server,
+// The integration switches: the HTTP API with keys, the MCP server,
 // whether members may create their own keys and whether OAuth clients may
-// register themselves, all off by default (D-049: closed by default). They
+// register themselves, all off by default (closed unless someone opens them). They
 // live in state.db and only the vihko admin changes them, from the UI; they
 // apply at once. The server's administrator can lock them
 // all off with VIHKO_INTEGRATIONS=off, whatever state.db says.

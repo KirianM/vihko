@@ -6,20 +6,20 @@ import { POLICIES, type TwoFactorPolicy } from './twoFactor.ts'
 export interface AdminSettingsView {
   /**
    * Members may «Save a copy» of an image from an address on the local
-   * network (D-038.6). Off by default: members only download from public
+   * network. Off by default: members only download from public
    * addresses, so the server can't be used to probe the network it's in.
    * The vihko admin always may.
    */
   membersLocalDownloads: boolean
   /**
-   * The second factor (D-036): `required` (whoever hasn't set it up does so
+   * The second factor: `required` (whoever hasn't set it up does so
    * at their next sign-in, before anything else), `optional` (the default:
    * each person chooses) or `disabled` (nobody new sets one up; whoever has
-   * one is still asked for it, D-040 3.4a).
+   * one is still asked for it).
    */
   twoFactor: TwoFactorPolicy
   /**
-   * Who may create shared spaces (D-056.5): `everyone` (the default; whoever
+   * Who may create shared spaces: `everyone` (the default; whoever
    * creates one is its first manager) or `admins` only.
    */
   spacesCreation: SpacesCreation

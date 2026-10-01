@@ -14,8 +14,8 @@
 // linked from other sites aside); images are downloaded by URL only when a
 // person asks (a key can't); external images as the server's administrator
 // says (VIHKO_EXTERNAL_IMAGES), with no referrer. And one's account: what the
-// admin can do to it is confirmed at the moment and told (D-040 3.1), the
-// second factor's policy (3.4a), how its secret is kept (VIHKO_SECRET_KEY,
+// admin can do to it is confirmed at the moment and told, never done quietly, the
+// second factor's policy, how its secret is kept (VIHKO_SECRET_KEY,
 // 3.4b) and a purge's notice to whoever wrote (3.6).
 import { useEffect, useState, type ReactNode } from 'react'
 import { ApiError, api, type Integrations, type KeyInfo, type KeyWithUser, type ServerConfig, type User } from './api.ts'

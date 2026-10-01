@@ -1,4 +1,4 @@
-// Links a move leaves as they are but whose resolution changes (D-019: an
+// Links a move leaves as they are but whose resolution changes (an
 // ambiguous link is never resolved silently): in the rename and folder-move
 // previews, by source note, so whoever moves decides whether to go ahead.
 // In words: each link by the name it shows, never its Markdown.

@@ -1,4 +1,4 @@
-// VIHKO_SECRET_KEY (M4.1, D-040 3.4b): the TOTP secrets in state.db stored
+// VIHKO_SECRET_KEY: the TOTP secrets in state.db stored
 // encrypted with a key outside it. Every transition: none → key (the
 // plaintext ones are encrypted at startup), key → the same key, key → none
 // or another key (vihko starts, the admin is told, those codes can't be

@@ -1,4 +1,4 @@
-// Users and groups (M4, D-038.3 and .8): one-time links, disabling and
+// Users and groups: one-time links, disabling and
 // deleting, the last admin, groups, one's own account and sessions, and
 // state.db's migration. The hub's connections of a disabled user are in
 // users-hub.test.ts (a real server).
@@ -201,7 +201,7 @@ test('disabling cuts sessions, keys and OAuth at once and keeps them for later; 
   const s = await setup()
   try {
     await s.enableApi()
-    // The member's own key and authorization: the admin lets members (off on a new vihko, D-049).
+    // The member's own key and authorization: the admin lets members (off on a new vihko).
     assert.equal((await s.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).status, 200)
     const member = s.users.member
     const keyName = m.aKeyName()
@@ -281,7 +281,7 @@ test('groups: created, renamed and deleted by the admin (the grants hooks first)
     assert.deepEqual([(await s.admin('POST', '/api/admin/groups', { name: swapCase(name) })).body.error], ['group_exists'])
     // Invalid by their form: empty, one character, a subject's `@`, a space, a slash.
     for (const bad of ['', 'x', `@${name}`, 'con espacio', 'a/b']) assert.deepEqual((await s.admin('POST', '/api/admin/groups', { name: bad })).body.error, 'invalid_group_name', bad)
-    // Reserved for grants to everyone, should they come (D-056.28): the names are the case under test, in any case.
+    // Reserved for grants to everyone, should they come: the names are the case under test, in any case.
     for (const reserved of ['everyone', 'All', 'PUBLIC', 'anyone']) {
       assert.deepEqual((await s.admin('POST', '/api/admin/groups', { name: reserved })).body.error, 'invalid_group_name', reserved)
       assert.deepEqual((await s.admin('PATCH', `/api/admin/groups/${g.id}`, { name: reserved })).body.error, 'invalid_group_name', reserved)

@@ -32,7 +32,7 @@ export type Level = 'read' | 'comment' | 'edit' | 'manage'
 export type Grants = Record<string, Level>
 
 /**
- * The shared space the fixed vault (testdata/vault) is in (D-056): its name,
+ * The shared space the fixed vault (testdata/vault) is in (every note is in a space): its name,
  * and its root, `spaces/<name>`. Both people of the servers belong
  * to it; each also has their own space, `people/<username>`.
  */
@@ -94,7 +94,7 @@ export const PERMISSIONS = permissionsSection()
 
 /**
  * The values of a spec: `const m = specMother(import.meta.url)`. The specs
- * share one server, where a deleted user's name stays reserved (D-038.8): a
+ * share one server, where a deleted user's name stays reserved (so nobody inherits their space): a
  * test retried in a new worker draws from another lane, so it never repeats
  * what the failed attempt created. The same seed gives the same values; a
  * run with a fixed seed again needs a fresh server (serve.ts starts clean).

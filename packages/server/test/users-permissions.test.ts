@@ -1,4 +1,4 @@
-// Users and groups meet the permissions (D-038.8, D-056.8): deleting someone
+// Users and groups meet the permissions: deleting someone
 // takes their grants out of vihko.yaml and closes their personal space to
 // everyone, what they shared from it included; renaming or deleting a group
 // moves or removes its grants. The vihko.yaml writer keeps everything else as
@@ -53,7 +53,7 @@ test('deleting a user takes their grants out and closes their space, what they s
     assert.equal((await s.admin('POST', `/api/admin/groups/${group.body.group.id}/members`, { userId: s.users.member.id })).status, 200)
     assert.equal((await s.member('GET', s.url('/api/note', { path: LIST }))).status, 200)
     assert.equal((await s.member('GET', s.url('/api/note', { path: diary }))).status, 200)
-    assert.equal((await s.admin('GET', s.url('/api/note', { path: diary }))).status, 404, 'the admin manages, never reads (D-038.1)')
+    assert.equal((await s.admin('GET', s.url('/api/note', { path: diary }))).status, 404, 'the admin manages, never reads')
     assert.equal((await s.admin('GET', s.url('/api/note', { path: rome }))).status, 200, 'what the member shares with them')
 
     // Renamed: the grant follows, and the rest of the file stays as it was.
@@ -70,7 +70,7 @@ test('deleting a user takes their grants out and closes their space, what they s
     const edit = await s.member('PUT', s.url('/api/note', { path: LIST }), { text: note() }, { 'if-none-match': 'x' })
     assert.notEqual(edit.status, 200, 'without the group, only read')
 
-    // The member deleted: their grants go; their space is nobody's, not even what they shared (D-056.8).
+    // The member deleted: their grants go; their space is nobody's, not even what they shared.
     assert.equal((await s.admin('POST', `/api/admin/users/${s.users.member.id}/disable`)).status, 200)
     assert.equal((await s.admin('GET', s.url('/api/note', { path: rome }))).status, 200, 'disabled: what they shared stays shared')
     assert.equal((await s.admin('DELETE', `/api/admin/users/${s.users.member.id}`)).status, 200)

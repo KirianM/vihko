@@ -1,4 +1,4 @@
-// Notes moved outside vihko (D-031.4): the alert, which follows the files,
+// Notes moved outside vihko: the alert, which follows the files,
 // and «Update links», which runs the same rewrites as a vihko move. Nothing
 // is rewritten on its own.
 import { test } from 'node:test'
@@ -21,7 +21,7 @@ async function app(opts: { moveWaitMs?: number } = {}) {
   const dir = tempDir('vihko-xmove-app-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
-  // The vault in the shared space, which the admin manages (D-056).
+  // The vault in the shared space, which the admin manages.
   cpSync(VAULT, join(notesDir, SHARED), { recursive: true })
   const admin = m.aUser({ role: 'admin' })
   writeFileSync(join(notesDir, 'vihko.yaml'), sharedSpace({ [admin.username]: 'manage' }))

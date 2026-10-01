@@ -3,9 +3,8 @@
 // It's the model for the indexer's `link_keys` table and also serves the editor.
 // Browser-safe entry point (@vihko/core/resolve): no Node modules here.
 //
-// With spaces (D-056, spec §4.2), what a link means depends only on the file
-// and the space it is in, never on who reads it, and a link never leaves its
-// note's space (D-056.30):
+// With spaces, what a link means depends only on the file and the space it
+// is in, never on who reads it, and a link never leaves its note's space:
 // 1. an empty target (`[[#Heading]]`) is the note itself;
 // 2. a relative Markdown link, or `[[/path]]`, is an exact path, which
 //    leads to a note only when that note is in the source's space;
@@ -13,11 +12,12 @@
 //    after it) is an exact path from the notes root, also only within the
 //    source's space: `[[spaces/…]]` into another space is broken;
 // 4. any other wikilink (a name or a path suffix) resolves only among the
-//    notes of the source's space, by proximity (D-019), then by their
+//    notes of the source's space, by proximity, then by their
 //    aliases, also of that space and without proximity (an alias several
 //    notes share is ambiguous). An alias never beats a name or a path.
 // A link that would reach another space is broken: exactly what a link to a
-// note that doesn't exist looks like (D-056.15). Notes in no space (the
+// note that doesn't exist looks like, so links can't probe what exists
+// elsewhere. Notes in no space (the
 // layout before spaces) form one group of their own, so there everything
 // resolves as it always did.
 import { caseFold } from './casefold.ts'
@@ -37,7 +37,7 @@ export type Resolution =
   | { status: 'ambiguous'; candidates: string[] }
   | { status: 'missing' }
 
-/** Key normalization: NFC, full Unicode case folding (D-019), no extra whitespace. */
+/** Key normalization: NFC, full Unicode case folding, no extra whitespace. */
 export const normKey = (s: string) => caseFold(s).trim().replace(/\s+/g, ' ')
 
 const stripMd = (p: string) => (/\.md$/i.test(p) ? p.slice(0, -3) : p)
@@ -165,7 +165,7 @@ export class LinkIndex {
     if (byPath) return byPath.status === 'resolved' ? this.withAnchor(byPath.path, link.anchor, 'path') : byPath
     // Then aliases, without proximity: one note's alias leads to it; one shared by several notes is
     // ambiguous, however near one of them is. So a note that takes an alias never captures a link
-    // another note's alias resolves (whoever writes it may not even see that note, D-056.20); the
+    // another note's alias resolves (whoever writes it may not even see that note); the
     // link shows its candidates, and a name or a path (which beat aliases) fixes it.
     const byAlias = this.aliases ? this.inSpace(this.byAlias.get(key), space) : []
     if (byAlias.length === 1) return this.withAnchor(byAlias[0]!, link.anchor, 'alias')
@@ -213,9 +213,9 @@ export class LinkIndex {
  * The shortest wikilink target that, written in `source`, resolves to `path`:
  * the name, then progressively longer path suffixes, which ends at the path
  * from the notes root (never with a leading `/`: Obsidian doesn't read
- * that). The absolute `/folder/Note` (D-019) only as a last resort, for a
+ * that). The absolute `/folder/Note` only as a last resort, for a
  * note in no space. Without the `.md` extension. A note of another space
- * has no such target (D-056.30): what this returns then resolves nowhere,
+ * has no such target (links never cross spaces): what this returns then resolves nowhere,
  * and callers check (`sameSpace`).
  *
  * `opts.whole`: whether `index` holds every note under a folder (all of
@@ -246,14 +246,14 @@ function commonFolder(a: string, b: string): string {
   return x.slice(0, n).join('/')
 }
 
-/** Whether a link in `source` may lead to `path` at all: both in the same space (D-056.30). */
+/** Whether a link in `source` may lead to `path` at all: both in the same space. */
 export function sameSpace(source: string, path: string): boolean {
   return linkSpace(source) === linkSpace(path)
 }
 
 /**
  * How vihko writes a wikilink to `path` in `source`, a note of the same
- * space (D-056.30: never across spaces): the shortest target
+ * space (never across spaces): the shortest target
  * (`shortestTarget`, with its `opts`) and, when that target had to be the
  * path from the notes root (a reader who sees only part of the space, a
  * folder shared from someone's), the visible text: the note's name, so that

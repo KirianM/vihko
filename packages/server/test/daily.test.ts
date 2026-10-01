@@ -1,4 +1,4 @@
-// Templates and the daily note (D-030).
+// Templates and the daily note.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'

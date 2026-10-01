@@ -1,4 +1,4 @@
-// Today's note for an agent (D-030, D-037): asking for it names it, so when
+// Today's note for an agent: asking for it names it, so when
 // it exists but is hidden from the agent (`ai: false`, or outside the key's
 // folders) the answer is `agent_denied` with the reason, as for any note the
 // agent names, over HTTP and over MCP, read-only or not; never its path or

@@ -1,5 +1,5 @@
-// The multi-person scenario (M4's, m4-multiusuario.md §7, in spaces since
-// D-056), shared by the permission tests and the leak sweep: an admin, a
+// The multi-person scenario, laid out in spaces, shared by the permission
+// tests and the leak sweep: an admin, a
 // member and another member, a group of the two members (a stand-in
 // `groupsOf`), and a vault (FILES) whose folders, notes, tags and words are
 // the mother's too, the same for every setup of a test file. Each person has
@@ -62,7 +62,7 @@ export const PATH = {
   rootPlan: `${NAME.plan}.md`,
 }
 
-/** Links to the notes of FILES that others link to from another space: their path from the notes root, without `.md` (D-056.4). */
+/** Links to the notes of FILES that others link to from another space: their path from the notes root, without `.md`. */
 export const LINK = { list: `[[${PATH.list.slice(0, -3)}]]`, cake: `[[${PATH.cake.slice(0, -3)}]]` }
 
 /** A 1×1 PNG. */
@@ -167,7 +167,7 @@ export async function setup(opts: M4Setup = {}) {
     if (r.status !== 201) throw new Error(`key: ${r.status} ${r.text}`)
     return r.body as { key: { id: string }; token: string }
   }
-  /** The admin turns on what the scenario uses: the API, the MCP server, and members' keys (all off on a new vihko, D-049). */
+  /** The admin turns on what the scenario uses: the API, the MCP server, and members' keys (all off on a new vihko). */
   const enable = async () => {
     for (const s of [{ api: true }, { mcp: true }, { membersCanCreateKeys: true }]) {
       const r = await as('admin')('PUT', '/api/admin/integrations', s)
@@ -213,7 +213,7 @@ export async function setup(opts: M4Setup = {}) {
 /**
  * The vault of the scenario: a shared folder, each person's own, the member's
  * diary and recipes, and notes that link across spaces (by their path from
- * the notes root, D-056.4). The list's links to the cake and the plan are by
+ * the notes root). The list's links to the cake and the plan are by
  * name: broken for everyone, since a name never reaches another space (a test
  * that needs a link into a personal space writes `LINK.cake` in the list).
  */

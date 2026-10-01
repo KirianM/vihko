@@ -1,4 +1,4 @@
-// Per-note attachments (vihko.yaml `attachments.mode: per-note`, D-031.5): a
+// Per-note attachments (vihko.yaml `attachments.mode: per-note`): a
 // pasted image lands in the note's own folder, and renaming the note renames
 // that folder, with the preview saying so and every link into it rewritten.
 import { expect, test, type Page } from '@playwright/test'

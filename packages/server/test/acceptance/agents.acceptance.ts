@@ -1,4 +1,4 @@
-// M3 «done when» (m3 §9, points 1 to 6) against the real server over
+// The agents' acceptance scenario against the real server over
 // the generated vault: an agent writes a plan over MCP, a person edits it in
 // the editor, the agent sees the change and folds it in while the note is
 // open (the editor gets it live, with the agent's presence), the history

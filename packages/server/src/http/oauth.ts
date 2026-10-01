@@ -14,7 +14,7 @@
 //   GET  /api/oauth/authorize?<the request's query>    who is asking (fetching a client's metadata document
 //                                                      if its client_id is one's URL), and whether this person may authorize
 //   POST /api/oauth/authorize { query, approve, canWrite?, folders?, confirm? } → { redirect }; approving
-//                                                      needs `confirm`: the current TOTP code, or the password without one (D-036)
+//                                                      needs `confirm`: the current TOTP code, or the password without one
 import type { Context, Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { User } from '../auth.ts'
@@ -33,7 +33,7 @@ export interface OAuthRoutesDeps {
   clientAddress: (c: Context) => string
   /**
    * Confirms that the person is there now (the current TOTP code, or the
-   * password without one, D-036), even with a session: null if so, the response otherwise.
+   * password without one), even with a session: null if so, the response otherwise.
    */
   confirm: (c: Context<Env>, confirm: unknown) => Promise<Response | null>
 }
@@ -160,10 +160,10 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
     if (!b.approve) return c.json({ redirect: oauth.deny(check.req) })
     if (!mayAuthorize(c)) return c.json({ error: 'forbidden', message: 'members may not authorize clients here' }, 403)
     if (b.canWrite !== undefined && typeof b.canWrite !== 'boolean') return c.json({ error: 'invalid', message: 'canWrite must be true or false' }, 400)
-    // Saying yes is confirmed at the moment (D-036); saying no never needs it.
+    // Saying yes is confirmed at the moment: a session left open isn't enough; saying no never needs it.
     const unconfirmed = await deps.confirm(c, b.confirm)
     if (unconfirmed) return unconfirmed
-    // Read-only and every folder unless the person chose otherwise (D-035.3).
+    // Read-only and every folder unless the person chose otherwise.
     const folders = b.folders ?? []
     return c.json({ redirect: oauth.approve(check.req, c.get('user').id, { canWrite: b.canWrite === true, folders: folders as string[] }) })
   })

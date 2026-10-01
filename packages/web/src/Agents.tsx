@@ -1,7 +1,7 @@
-// Settings → «Agents and API» (D-035): the vihko admin's switches for the API
+// Settings → «Agents and API»: the vihko admin's switches for the API
 // with keys and the MCP server (locked when the server's administrator sets
 // VIHKO_INTEGRATIONS=off) and whether members may create keys (off by
-// default, D-049); everyone's own
+// default: closed until someone opens it); everyone's own
 // keys, created read-only and for every folder unless they say otherwise, the
 // key shown once with ready-made MCP configurations, and rotated (a new
 // secret, the old one still valid for 10 minutes); and, for the admin,
@@ -64,7 +64,7 @@ export function allFolders(notes: { path: string }[], folders: string[]): string
   })
 }
 
-/** A key's folder as the person sees it (D-056): its space and the folders inside. */
+/** A key's folder as the person sees it: its space and the folders inside. */
 function FolderName({ path }: { path: string }) {
   const labels = usePathLabels()
   return <span className="mono">{labels.label(path)} /</span>
@@ -82,7 +82,7 @@ export function FolderPicker({ all, chosen, onChange }: { all: string[] | null; 
   // Typed as the folders are shown («My notes / diary», `/` with or without spaces), in any case (typedPath.ts).
   const q = normKey(typedSegments(filter).join('/'))
   const asTyped = (f: string) => normKey(typedSegments(labels.label(f)).join('/'))
-  // From each space's root down (D-056): `people` and `spaces` themselves are nobody's.
+  // From each space's root down: `people` and `spaces` themselves are nobody's.
   const inSpaces = all.filter((f) => f.split('/').length >= 2)
   const shown = q ? inSpaces.filter((f) => asTyped(f).includes(q)) : inSpaces
   const toggle = (f: string, on: boolean) => onChange(on ? [...chosen.filter((c) => !c.startsWith(f + '/')), f] : chosen.filter((c) => c !== f))
@@ -129,7 +129,7 @@ function KeyDialog({ edit, onClose, onCreated, onSaved }: {
   const [all, setAll] = useState<string[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // A new key, or a change that lets one do more, is confirmed at the moment (D-036, D-046.2): the current code, or the password.
+  // A new key, or a change that lets one do more, is confirmed at the moment, as it gives access as a session does: the current code, or the password.
   const confirmWith = useConfirmWith()
   const [confirm, setConfirm] = useState('')
 
@@ -143,7 +143,7 @@ function KeyDialog({ edit, onClose, onCreated, onSaved }: {
 
   const noneChosen = some && folders.length === 0
   const input = () => ({ name: name.trim(), canWrite, folders: some ? folders : [], ...(preset === 'keep' ? {} : { expiresAt: expiryFrom(preset) }) })
-  // A change that lets the key do more is confirmed as a new key is (D-046.2); narrowing or renaming it, not.
+  // A change that lets the key do more is confirmed as a new key is; narrowing or renaming it, not.
   const asks = !edit || keyWidens(edit, input())
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -397,7 +397,7 @@ function KeyCard({ k, owner, actions }: { k: KeyInfo; owner?: string; actions: R
   const dates = useDates()
   const row = (label: MessageKey, value: ReactNode) => <div className="key-row"><dt>{t(label)}</dt><dd>{value}</dd></div>
   const expiry = !k.expiresAt ? t('keys.expiresNever') : t(k.status === 'expired' ? 'keys.expired' : 'keys.expires', { date: dates.dateTime(k.expiresAt) })
-  // Someone else's key may reach folders of their spaces the admin doesn't read: never named (D-056).
+  // Someone else's key may reach folders of their spaces the admin doesn't read: never named.
   const hiddenFolders = 'foldersHidden' in k && k.foldersHidden === true
   return (
     <li className={`key-card key-card-${k.status}`}>

@@ -26,7 +26,7 @@ test('spaces: a path in a personal space', () => {
   assert.ok(!isSpaceRoot(path))
 })
 
-test('spaces: a path in a shared space, whose folder is its name (D-056.33)', () => {
+test('spaces: a path in a shared space, whose folder is its name', () => {
   const name = m.aSpaceName()
   const inner = m.aNotePath(m.aFolder())
   assert.deepEqual(parseSpacePath(`${sharedRoot(name)}/${inner}`), { space: { kind: 'shared', root: `spaces/${name}`, folder: name, name }, inner })
@@ -108,7 +108,7 @@ test('spaces: the folders of 0.1.0-rc.1 and rc.2', () => {
   assert.ok(legacySpaceFolder(legacy), legacy)
 })
 
-test('spaces: the reserved settings folder, at the root of every space (D-056.16, .28)', () => {
+test('spaces: the reserved settings folder, at the root of every space', () => {
   const owner = m.aUsername()
   const space = `spaces/${m.aSpaceFolder()}`
   assert.equal(settingsFolder(owner), `people/${owner}/.vihko`)
@@ -141,7 +141,7 @@ test('spaces: how each person sees a path', () => {
   assert.equal(displayPath(m.aNotePath(), me), null)
 })
 
-test('spaces: a note’s address in the browser never shows the product’s folders, and reads back (D-056.29, .33)', () => {
+test('spaces: a note’s address in the browser never shows the product’s folders, and reads back', () => {
   const owner = m.aUsername()
   const name = m.aSpaceName()
   const inner = m.aNotePath(m.aFolderPath(2))
@@ -153,7 +153,7 @@ test('spaces: a note’s address in the browser never shows the product’s fold
     const address = addressOf(path)!
     assert.ok(!address.startsWith(`${PEOPLE}/`) && !address.startsWith(`${SPACES}/`), address)
     assert.deepEqual(pathOfAddress(address), { path, legacy: false })
-    // The address before D-056.29, the real path, is still read, and said to be old.
+    // The old form of the address, the real path, is still read, and said to be old.
     assert.deepEqual(pathOfAddress(path), { path, legacy: true })
   }
   assert.equal(addressOf(personalRoot(owner)), `${PERSONAL_ADDRESS}${owner}`)

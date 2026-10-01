@@ -171,7 +171,7 @@ test('an alias finds the note and becomes the visible text', async () => {
   await expect.poll(() => disk()).toContain(` [[${DEST}|${ALIAS}]]\n`)
 })
 
-test('D-056.30: a note of another space is never suggested; one of this space with the same start is, and its link resolves', async () => {
+test('a note of another space is never suggested; one of this space with the same start is, and its link resolves', async () => {
   // The same title in the admin's own space and, with one more word, in the vault's space (where the source is).
   const title = accented()
   const elsewhere = `${OWN}/${title}.md`
@@ -371,7 +371,7 @@ test('phone: the editor bar\'s [[ opens the suggestions and a tap inserts the li
   await ctx.close()
 })
 
-test('signing out forgets the suggestions: whoever signs in next in the same tab never gets what was loaded for the one before (D-056.28)', async ({ browser }) => {
+test('signing out forgets the suggestions: whoever signs in next in the same tab never gets what was loaded for the one before', async ({ browser }) => {
   const start = m.aUniqueWord()
   const [theirs, mine] = [`${start}-${m.aTag()}`, `${start}-${m.aTag()}`]
   const line = m.aSentence()

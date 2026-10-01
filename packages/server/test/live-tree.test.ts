@@ -1,4 +1,4 @@
-// The tree, live (D-056.36, liveTree.ts): GET /api/events tells a person to
+// The tree, live (liveTree.ts): GET /api/events tells a person to
 // read their tree again when a change concerns what they see, and only then;
 // an event never says what changed.
 import { test } from 'node:test'

@@ -1,4 +1,4 @@
-// The tree and the sidebar, live (D-056.36): when someone creates, renames,
+// The tree and the sidebar, live: when someone creates, renames,
 // moves or deletes notes or folders, or a folder is shared or a space's
 // members change, each person whose view that changes is told to read their
 // tree again, over a server-sent event stream (GET /api/events). An event

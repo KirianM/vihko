@@ -1,4 +1,4 @@
-// The second factor over HTTP (D-036, twoFactor.ts).
+// The second factor over HTTP (twoFactor.ts).
 //
 // Signing in is two steps when it applies: the password (POST
 // /api/auth/login, or a one-time link) gives a short-lived pending sign-in
@@ -18,22 +18,22 @@
 //   GET  /api/account/2fa                   the policy, whether it's set up, recovery codes left, and what confirms (`code` or `password`)
 //   POST /api/account/2fa/setup {password}  a new secret (and its QR code) to set it up
 //   POST /api/account/2fa/setup {code}      the same, to replace the authenticator: a code of the one in force
-//                                           (the app's, or a recovery code), never the password (D-046.3)
+//                                           (the app's, or a recovery code), never the password
 //   POST /api/account/2fa/enable {code}     verifies a code from it: now it's theirs → { recoveryCodes } (shown once)
-//   POST /api/account/2fa/recovery {confirm}  new recovery codes; `confirm`: the app's code or a recovery code (D-046.3)
+//   POST /api/account/2fa/recovery {confirm}  new recovery codes; `confirm`: the app's code or a recovery code
 //   POST /api/account/2fa/disable {code}    only while the policy isn't `required`; a code or a recovery code
 //   POST /api/admin/users/:id/2fa/reset {confirm}  the vihko admin takes someone's second factor away
 //
-// The policy `disabled` means nobody new sets one up (D-040 3.4a): whoever
+// The policy `disabled` means nobody new sets one up: whoever
 // already has one is still asked for it, and may replace or turn it off.
 //
-// Confirming at the moment (D-036, `confirmIdentity`): approving an OAuth
+// Confirming at the moment (`confirmIdentity`): approving an OAuth
 // client and creating (or rotating) an agent key ask for the current TOTP
 // code, or the password if the person has no second factor, even with a
 // session: one left open and forgotten is not enough to hand access to a
 // program. The admin's changes to someone else's account (a reset link, their
-// second factor's reset, their role) and a new policy ask the same (D-040
-// 3.1, 3.4a), and the person and every other admin are told (notices.ts).
+// second factor's reset, their role) and a new policy ask the same,
+// so an admin never does it unseen, and the person and every other admin are told (notices.ts).
 // Keys themselves never ask for a second factor.
 import { createHash, randomBytes } from 'node:crypto'
 import type { Context, Hono } from 'hono'
@@ -125,7 +125,7 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
   const deviceOf = (c: Context, username: string) => limiter.deviceFor(getCookie(c, deps.deviceCookie), username)
   /**
    * Whether this user signs in (and confirms) with a code: they set one up.
-   * The policy `disabled` only stops new ones (D-040 3.4a).
+   * The policy `disabled` only stops new ones.
    */
   const inForce = (userId: string) => twoFactor.enabled(userId)
   /** Where vihko is reached, for the authenticator app's label. */
@@ -280,8 +280,8 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
       // Setting it up asks for the password: a session left open must not be
       // able to lock its owner out. Replacing the authenticator asks for a
       // code of the second factor in force (the app's, or a recovery code,
-      // spent), never the password, which a session left open may know too
-      // (D-046.3). Without phone or codes, the admin's reset is the way back.
+      // spent), never the password, which a session left open may know too.
+      // Without phone or codes, the admin's reset is the way back.
       app.post('/api/account/2fa/setup', async (c) => {
         const off = offered(c)
         if (off) return off
@@ -301,7 +301,7 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
       })
 
       // New recovery codes: a code of the second factor (the app's, or a
-      // recovery code, spent), never the password (D-046.3).
+      // recovery code, spent), never the password.
       app.post('/api/account/2fa/recovery', async (c) => {
         const u = me(c)
         if (!inForce(u.id)) return fail(c, 409, 'two_factor_off', 'no second factor in force')
@@ -322,7 +322,7 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
       })
 
       // Confirmed at the moment, and told to the person and the other admins
-      // (D-040 3.1). Someone without one: nothing to take away, nothing asked.
+      // (an admin never does it unseen). Someone without one: nothing to take away, nothing asked.
       app.post('/api/admin/users/:id/2fa/reset', async (c) => {
         if (c.get('access').isAgent || me(c).role !== 'admin') return fail(c, 403, 'forbidden', 'admins only')
         const id = c.req.param('id') ?? ''

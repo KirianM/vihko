@@ -1,4 +1,4 @@
-// Agents in an open note (M3 §6, D-012). When an agent writes to a note that
+// Agents in an open note. When an agent writes to a note that
 // is open, its connection to the hub publishes in the Yjs awareness
 // `{ agent: { name, onBehalfOf, via } }`, and its text arrives as Yjs items
 // of that connection's clientID. Here:

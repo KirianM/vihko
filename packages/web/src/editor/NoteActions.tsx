@@ -15,7 +15,7 @@ import '../actions.css'
 
 const folderOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 
-/** The server's `exists` for a move: the generic «not available here» (D-056.20), never whether something hidden is there. */
+/** The server's `exists` for a move: the generic «not available here», never whether something hidden is there. */
 export function moveError(t: ReturnType<typeof useT>, err: unknown): string {
   const code = err instanceof Error && 'code' in err ? String(err.code) : ''
   if (code === 'exists') return t('move.notAvailable')
@@ -58,7 +58,7 @@ export function RenameDialog({ path, initialFolder, onClose, onMoved, onStarted 
   const [preview, setPreview] = useState<Preview>({ kind: 'idle' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  /** Moving it changes who sees it: confirmed for this destination (D-038). */
+  /** Moving it changes who sees it: confirmed for this destination. */
   const [confirmed, setConfirmed] = useState(false)
   const to = targetPath(name, folder)
   const changed = to !== null && to !== path

@@ -116,7 +116,7 @@ async function checkedMove(srv: Server, cookie: string, ws: Workspace, from: str
   }
   if (after.size !== before.size) problems.push(`${before.size} links before, ${after.size} after`)
   if (nowResolved.length) metric(`  ambiguous links now resolved to ${to}`, nowResolved.length, 'links', { e: nowResolved.slice(0, 3) })
-  // D-019: none of them was resolved silently. The report lists each one, by source note.
+  // None of them was resolved silently (an ambiguous link never is). The report lists each one, by source note.
   const announced = report.shifted.flatMap((g) => g.changes.filter((c) => c.code === 'resolves' && c.after.path === to).map((c) => `${g.path === to ? from : g.path} ${c.raw}`)).sort()
   assert.deepEqual(announced, nowResolved.map((l) => l.slice(0, l.indexOf(' → '))).sort(), 'every ambiguous link the move resolved was announced')
   if (ambiguousChanged) metric(`  ambiguous links with other candidates after moving ${from}`, ambiguousChanged, 'links')

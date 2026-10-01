@@ -1,4 +1,4 @@
-// vihko.yaml under the spaces model (spec §1.6; piece S): templates as a list
+// vihko.yaml under the spaces model: templates as a list
 // with `{user}`, series only where the person can write, paths outside
 // `people/` and `spaces/` ignored and told to the admin, a fixed attachments
 // folder per space; what state.db and the trash keep by path following a

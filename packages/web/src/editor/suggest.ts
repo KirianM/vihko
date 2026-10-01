@@ -1,6 +1,6 @@
 // Editor suggestions without CodeMirror: which completion the text before the
 // cursor asks for, how notes, headings and tags rank against what was typed,
-// and the shortest link that reaches a note from the current one (D-019).
+// and the shortest link that reaches a note from the current one.
 // Plain data in and out, so it can be tested on its own.
 import { caseFold } from '@vihko/core/casefold'
 import { LinkIndex, sameSpace, wikiLink } from '@vihko/core/resolve'
@@ -120,7 +120,7 @@ export class NoteCatalog {
 
   /**
    * Notes that match `query`, best first; notes in the current note's folder
-   * win ties. Only notes of the current note's space (D-056.30: a link never
+   * win ties. Only notes of the current note's space (a link never
    * leads to another space); the current note is left out.
    */
   rank(query: string, source: string, limit = 50): NoteMatch[] {

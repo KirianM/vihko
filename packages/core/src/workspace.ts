@@ -1,8 +1,8 @@
 // vihko.yaml: the workspace configuration, at the root of the notes folder so
-// it travels (and is versioned) with the notes (D-011, D-014). vihko only
+// it travels (and is versioned) with the notes. vihko only
 // writes its `permissions` section, from the permissions UI (permissions.ts),
 // keeping the rest of the file as it was. Parsing is tolerant where it can be
-// and strict where it must (D-031.9):
+// and strict where it must:
 // - An unknown key (a typo, or a newer vihko's setting) is reported and
 //   ignored; the rest applies. So is a `version` newer than this vihko's.
 // - A wrong value in a known key makes the file unusable: vihko keeps the last
@@ -36,15 +36,15 @@ export interface WorkspaceConfig {
   templates: string[]
   /** Daily-note series, in the order declared (the first is the default). */
   daily: Series[]
-  /** Where new images go (D-028, D-031.5). */
+  /** Where new images go. */
   attachments: AttachmentsConfig
   /**
    * How links resolve. `aliases`: whether a note's frontmatter aliases
-   * resolve `[[links]]` (D-019, D-031.1). Off, `[[alias]]` is broken, as in
+   * resolve `[[links]]`. Off, `[[alias]]` is broken, as in
    * Obsidian, and the editor inserts `[[Note|alias]]`.
    */
   links: { aliases: boolean }
-  /** Note history (D-016, D-032): how it's kept and the largest file it takes. */
+  /** Note history: how it's kept and the largest file it takes. */
   history: HistoryConfig
   /** The MCP server (M3): what it tells the agents that connect. */
   mcp: McpConfig
@@ -145,7 +145,7 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = {
  *   deleted outside vihko): kept, and applied again if it comes back.
  *   Reported by the server.
  * - `outside_spaces`: a path (a series' folder, a templates folder, the
- *   agents' guide) outside `people/` and `spaces/` (D-056.4), where nobody
+ *   agents' guide) outside `people/` and `spaces/`, where nobody
  *   reads or writes: ignored. Reported by the server under the spaces model.
  * Inside a strict section, any other code (an unknown key included) is a
  * warning that comes with `section_rejected`.
@@ -201,7 +201,7 @@ export interface StrictSection<T = unknown> {
 }
 
 /**
- * Per-folder permissions (D-014, D-038, D-056, permissions.ts). Missing or
+ * Per-folder permissions (permissions.ts). Missing or
  * rejected, nothing is shared: each person has only their own space.
  */
 export const PERMISSIONS_SECTION: StrictSection<Permissions> = {

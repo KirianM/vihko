@@ -119,7 +119,7 @@ export interface AppDeps {
   webDir?: string
   /**
    * External images already in notes (`![](https://…)`): loaded by the
-   * browser (`allow`, the default) or blocked for the whole installation (D-028).
+   * browser (`allow`, the default) or blocked for the whole installation.
    */
   externalImages?: ExternalImages
   /** The clock (tests). */
@@ -129,12 +129,12 @@ export interface AppDeps {
    * answers with a job instead of the report (1 s by default).
    */
   moveWaitMs?: number
-  /** Notes moved outside vihko, pending a link update (D-031.4). */
+  /** Notes moved outside vihko, pending a link update. */
   externalMoves?: ExternalMoves
   /** Note history (M2). Without it, the history API doesn't exist. */
   history?: History
   /**
-   * The groups users belong to (piece U, state.db). None until it exists:
+   * The groups users belong to (state.db). None until it exists:
    * a grant to a group then reaches nobody (and is reported as unknown).
    */
   groups?: Partial<GroupSource>
@@ -206,7 +206,7 @@ export interface Services {
   keys: ApiKeys
   integrations: Integrations
   policy: AccessPolicy
-  /** vihko.yaml's permissions, as vihko writes them (piece U: `removeSubjectGrants` when a user is deleted). */
+  /** vihko.yaml's permissions, as vihko writes them (`removeSubjectGrants` when a user is deleted). */
   permissionsFile: PermissionsFile
   scoped(access: Access): ScopedNotes
   history?: History
@@ -216,7 +216,7 @@ export interface Services {
   users: Users
   /** Images being received, by the API and the MCP server alike (imageSlots.ts). */
   imageSlots: ImageSlots
-  /** Spaces (D-056): what each person reaches, for the MCP server's instructions and `list_folder("")` too. */
+  /** Spaces: what each person reaches, for the MCP server's instructions and `list_folder("")` too. */
   /** The tree, live (liveTree.ts): main.ts tells it when vihko.yaml was changed by hand. */
   live: LiveTree
   /** Each space's note settings: the MCP server adds their guides for agents. */
@@ -277,7 +277,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const { auth, notes, index, profiles, workspace } = deps
   const externalImages = deps.externalImages ?? 'allow'
   const now = deps.now ?? (() => new Date())
-  // Under the spaces model, a person's series are those where they can write today's note (spec §1.6).
+  // Under the spaces model, a person's series are those where they can write today's note.
   const offered = (user: User, s: Series) => permissions.viewer(user).can(seriesPath(s, profiles.now(user.id, now()), user.username), 'edit')
   // Each space's note settings (noteSettings.ts): series, templates, images and agents' guides of a space or a person.
   const noteSettings = deps.noteSettings ?? new NoteSettingsStore({ notesDir: deps.notesDir })
@@ -338,9 +338,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   users.hooks.onUserDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(name, { actor: by }) }
   users.hooks.onGroupRenamed ??= async (from, to, by) => { await permissionsFile.renameSubject(`@${from}`, `@${to}`, { actor: by }) }
   users.hooks.onGroupDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(`@${name}`, { actor: by }) }
-  // Deleting someone closes their space for everyone (D-056.8): open editors are checked again at once.
+  // Deleting someone closes their space for everyone: open editors are checked again at once.
   users.hooks.onUserRemoved ??= () => { permissionsChanged() }
-  // So does taking someone out of a group (spec §8.4): they stop seeing what it gave them at once.
+  // So does taking someone out of a group: they stop seeing what it gave them at once.
   users.hooks.onMembersChanged ??= () => { permissionsChanged() }
   const spaces = new SpaceService({
     notesDir: deps.notesDir, state: auth.state, engine: permissions, file: permissionsFile, users, notices, settings: adminSettings, refs, notes, indexer: deps.indexer, now,
@@ -569,7 +569,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Notes and folders: a folder with no notes (just created, or emptied) still shows.
   app.get('/api/tree', (c) => c.json(scoped(c).tree()))
 
-  // Tags in use, most used first (D-019: case-insensitive, nested with `/`).
+  // Tags in use, most used first (case-insensitive, nested with `/`).
   // `count`: the notes that carry the tag (inline or in the frontmatter);
   // `total`: those that carry it or any tag nested under it (the tags view).
   app.get('/api/tags', (c) => c.json({ tags: scoped(c).tags() }))
@@ -577,7 +577,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // A note's headings, in order (link anchors: `[[Note#Heading]]`).
   app.get('/api/note/headings', (c) => c.json({ headings: scoped(c).headings(c.req.query('path') ?? '') }))
 
-  // A note's comment threads as the index first saw them (D-031.6): the text
+  // A note's comment threads as the index first saw them: the text
   // each one was anchored to, and whether the note's text there has changed
   // since. Only threads the index knows (the note as last saved); the editor
   // compares the same originals with what is being typed.
@@ -632,20 +632,20 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   // A new note, with the given text or from a template note (its variables
-  // filled in with the person's date and name, D-030). Never overwrites.
+  // filled in with the person's date and name). Never overwrites.
   app.post('/api/note', async (c) => {
     const { path, text, template, freshUid, fromLink } = await c.req.json<{ path: string; text?: string; template?: string; freshUid?: boolean; fromLink?: string }>()
     if (template !== undefined && typeof template !== 'string') return fail(c, 400, 'invalid', 'template must be a note path')
     if (text !== undefined && typeof text !== 'string') return fail(c, 400, 'invalid', 'text must be text')
-    // `fromLink`: the note whose broken link this creates (never one of someone else's personal space, D-056.21).
+    // `fromLink`: the note whose broken link this creates (never one of someone else's personal space: a link there that looks broken may lead to a note this person can't read).
     if (fromLink !== undefined && typeof fromLink !== 'string') return fail(c, 400, 'invalid', 'fromLink must be a note path')
     return c.json(written(c, await scoped(c).create(path, { text, template, freshUid, fromLink })), 201)
   })
 
   // The workspace settings the UI needs from vihko.yaml (reloaded when it changes).
-  // Paths the person can't read aren't named (D-038): a series' template, the templates folders
-  // (each with `{user}` made the person's, spec §1.6). Under the spaces model, only the series
-  // where the person can write today's note are offered (spec §1.6, §3.4 row 12).
+  // Paths the person can't read aren't named: a series' template, the templates folders
+  // (each with `{user}` made the person's). Under the spaces model, only the series
+  // where the person can write today's note are offered.
   app.get('/api/workspace', (c) => {
     const w = workspace.config
     const access = c.get('access')
@@ -710,7 +710,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (typeof body !== 'object' || body === null) return fail(c, 400, 'invalid', 'expected an object')
     const patch: Partial<Profile> = {}
     for (const k of ['timezone', 'dailySeries', 'openDailyOnStart', 'onOpen', 'onOpenNote', 'language'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
-    // «On opening» a note: one the person reads now (D-056.35); any other is as missing.
+    // «On opening» a note: one the person reads now; any other is as missing.
     if (isNotePath(patch.onOpenNote) && !c.get('access').canRead(patch.onOpenNote.normalize('NFC'))) return fail(c, 404, 'not_found', 'no such note')
     return c.json(shownProfile(profiles.update(c.get('user').id, patch), c.get('access')))
   })
@@ -737,7 +737,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     })
   })
 
-  // «Home» (D-056.35, home.ts): the person's recent notes, what others changed
+  // «Home» (home.ts): the person's recent notes, what others changed
   // in what they read, what was shared with them lately. A person's only.
   app.get('/api/home', async (c) => {
     const access = c.get('access')
@@ -748,7 +748,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return c.json(await homeView(access, { index, history: reader, notices, nameOf: (id) => auth.username(id) ?? id, keyName: (id) => keys.nameOf(id), now, excluded: scoped(c).inTemplatesTest() }))
   })
 
-  // Today's note (D-030): GET says where it is and whether it exists, POST
+  // Today's note: GET says where it is and whether it exists, POST
   // opens or creates it. `series` picks one other than the person's own.
   app.get('/api/daily', (c) => c.json(scoped(c).dailyToday(c.req.query('series'))))
 
@@ -774,7 +774,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   // Edits by operation: atomic on the current text, even with the note open.
   // `ifMatch` (or If-Match): only over that text; an agent must give it for
-  // substitutions (D-017). `dryRun`: what it would change, without writing.
+  // substitutions, so it never overwrites what it didn't read. `dryRun`: what it would change, without writing.
   // An edit that hides the note from the agent making it answers `nowHidden`.
   app.post('/api/note/edit', async (c) => {
     const { path, ops, ifMatch, dryRun } = await c.req.json<{ path: string; ops: EditOp[]; ifMatch?: string; dryRun?: boolean }>()
@@ -789,7 +789,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   // An agent's move is always answered with its report (no jobs for keys).
   // One that opens the note to anyone who can't see it now needs
-  // `confirmAudience: true` (D-040 3.2), or it's 409 `audience_widens` with
+  // `confirmAudience: true` (the person agreed), or it's 409 `audience_widens` with
   // the change; `dryRun` says it beforehand.
   app.post('/api/note/move', async (c) => {
     const { from, to, dryRun, background, confirmAudience } = await c.req.json<{ from: string; to: string; dryRun?: boolean; background?: boolean; confirmAudience?: boolean }>()
@@ -802,7 +802,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   app.get('/api/note/links', (c) => c.json(scoped(c).links(c.req.query('path') ?? '')))
 
-  // Fixes where one ambiguous link leads (D-031.2): that occurrence (`raw`,
+  // Fixes where one ambiguous link leads: that occurrence (`raw`,
   // nearest to `at`) is rewritten to the shortest form that reaches `target`,
   // in a note the person can write, to a candidate they can see.
   app.post('/api/note/link/pin', async (c) => {
@@ -813,7 +813,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return c.json(r)
   })
 
-  // Updates the links after notes moved outside vihko (D-031.4), as a move
+  // Updates the links after notes moved outside vihko, as a move
   // would, for the moves the person may make; with `dryRun`, only what it
   // would do. With `background`, as a move job. The report names only what
   // they can see.
@@ -851,7 +851,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // a Markdown destination (a space, say) escaped: a script appends it as is.
   const withMarkdown = (r: { path: string; src: string }) => ({ ...r, markdown: imageMarkdown(r.src) })
 
-  // Images (D-028). Upload and paste are the same: the raw bytes of the file
+  // Images. Upload and paste are the same: the raw bytes of the file
   // in the body. It is stored next to the note and the editor links it.
   app.post('/api/attachments', imageSlot,
     bodyLimit({ maxSize: notes.maxImageBytes, onError: (c) => fail(c, 413, 'too_large', `the limit is ${notes.maxImageBytes} bytes`) }),
@@ -864,7 +864,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // request from a user: the server never fetches URLs written in notes.
   // Nothing is downloaded for a note that doesn't exist or they can't write.
   // Members only from public addresses, unless the admin lets them reach the
-  // local network (D-038.6); the vihko admin, from anywhere.
+  // local network (so a member can't probe it); the vihko admin, from anywhere.
   app.post('/api/attachments/fetch', imageSlot, async (c) => {
     const { note, url } = await c.req.json<{ note: string; url: string }>()
     const publicOnly = c.get('user').role !== 'admin' && !adminSettings.view().membersLocalDownloads
@@ -914,7 +914,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   // The trash: each person sees what was deleted where they'd have `edit`
-  // now, and restores with `edit` where it goes (D-038).
+  // now, and restores with `edit` where it goes.
   app.get('/api/trash', (c) => c.json({ entries: scoped(c).trash() }))
   app.post('/api/trash/:id/restore', async (c) => {
     const { to } = await c.req.json<{ to?: string }>().catch(() => ({ to: undefined }))
@@ -925,7 +925,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // only offered to those who can perform them; the endpoint enforces it again.
   // A note's alert goes to whoever can read the note, with only what they can
   // see; the system's (the scan, git, sign-ins, vihko.yaml and its
-  // permissions), to the admin, without paths of notes they can't read (D-038).
+  // permissions), to the admin, without paths of notes they can't read: the admin manages, but doesn't read.
   const nameOf = (id: string) => auth.username(id) ?? id
   app.get('/api/alerts', (c) => {
     const access = c.get('access')
@@ -953,13 +953,13 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const ws = workspace.status
     if (admin) {
       if (ws.errors.length) alerts.push({ code: 'config_invalid', file: WORKSPACE_FILE, errors: ws.errors, fallback: ws.fallback, actions: [] })
-      // vihko rewrote the file at start, or couldn't (D-042.6).
+      // vihko rewrote the file at start, or couldn't.
       for (const a of deps.configMigrations?.alerts() ?? []) alerts.push(a)
       // state.db migrated by this version, and where its copy is.
       for (const a of stateMigrationAlerts(auth.state)) alerts.push(a)
       // What the file leaves out, the grants that name nobody, and paths of the
       // configuration outside the spaces. A key inside a space the admin doesn't
-      // read is never named to them (D-056, spec §2.4).
+      // read is never named to them.
       const warnings = [...ws.warnings, ...permissions.unknownSubjects(), ...outsideSpaces(workspace.config)].map((w) => redactPermissionsWarning(w, access))
       if (warnings.length) alerts.push({ code: 'config_warnings', file: WORKSPACE_FILE, warnings, actions: [] })
       if (workspace.permissionsFallback) alerts.push({ code: 'permissions_rejected', fallback: workspace.permissionsFallback, actions: [] })
@@ -968,7 +968,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       }
       for (const a of spaceAlerts({ notesDir: deps.notesDir, engine: permissions, state: auth.state, username: c.get('user').username })) alerts.push(a)
     }
-    // Grants for folders that don't exist: to whoever manages the space they're in (spec §1.2), never the admin as such.
+    // Grants for folders that don't exist: to whoever manages the space they're in, never the admin as such.
     if (!access.isAgent) {
       const folders = rulesWithoutFolder(permissions, index).filter((f) => { const root = spaceRootOf(f); return root !== null && access.canManage(root) })
       if (folders.length) alerts.push({ code: 'missing_folder', folders, actions: [] })
@@ -985,12 +985,12 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
         const paths = a.paths.filter((p) => access.canRead(p))
         if (paths.length) alerts.push({ ...a, paths })
       } else if (a.code === 'history_purged') {
-        // What was purged, named only to an admin who can read where it was (D-056.24), or who purged it (they wrote it, D-056.26).
+        // What was purged, named only to an admin who can read where it was, or who purged it (they wrote it).
         const named = a.path !== null && (access.level(a.path) !== null || deps.history?.purgedBy(a.id) === c.get('user').id)
         if (admin) alerts.push(named ? a : { ...a, path: null })
       } else if (admin) alerts.push(a)
     }
-    // Agents writing with no version of their own to undo them by (D-034 3.8).
+    // Agents writing with no version of their own to undo them by.
     const mode = workspace.config.history.mode
     const api = integrations.apiEnabled()
     const mcp = integrations.mcpEnabled()
@@ -1036,7 +1036,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const body = await c.req.json<{ force?: boolean; confirmRemoval?: number }>().catch(() => ({}) as { force?: boolean; confirmRemoval?: number })
     const confirmRemoval = Number.isInteger(body.confirmRemoval) ? body.confirmRemoval : undefined
     const r = deps.runtime.rescan({ force: body.force === true, confirmRemoval })
-    // Numbers, never paths: what changed may be in anyone's space, which the admin doesn't read (D-038.1, D-056.8).
+    // Numbers, never paths: what changed may be in anyone's space, which the admin doesn't read.
     return c.json({ added: r.added.length, changed: r.changed.length, removed: r.removed.length, moved: r.moved.length, unchanged: r.unchanged, aborted: r.aborted, massDelete: r.massDelete })
   })
 
@@ -1059,7 +1059,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, keyName: (id) => keys.nameOf(id), notices, confirm: tf.confirmIdentity })
 
-  // Creating a key, and approving an OAuth client, confirm who is there (D-036).
+  // Creating a key, and approving an OAuth client, confirm who is there: a session left open isn't enough.
   keyRoutes(app, { keys, integrations, publicUrl: oauth.publicUrl, confirm: tf.confirmIdentity })
 
   permissionRoutes(app, { engine: permissions, file: permissionsFile, index, keys, policy, holds: deps.holds })
@@ -1097,7 +1097,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 }
 
 /**
- * Paths of vihko.yaml outside `people/` and `spaces/` (D-056.4, spec §1.6),
+ * Paths of vihko.yaml outside `people/` and `spaces/`,
  * where nobody reads or writes: a series' folder, a templates folder, the
  * agents' guide. Ignored, and told to the admin (`outside_spaces`). `{user}`
  * stands for any person.

@@ -1,14 +1,14 @@
-// Settings → «Users and groups» (the vihko admin, D-038.3 and .8): everyone
+// Settings → «Users and groups» (the vihko admin): everyone
 // in a table with filters, and what can be done to each (a link to join or
 // to reset the password, copied once; role; close sessions; disable, enable
 // and delete), each confirmation saying what it does. Groups, which the
 // admin creates and fills. And the admin's settings: members downloading
-// images from the local network (D-038.6) and the second factor's policy
-// (D-036: required, optional or disabled), whose state each person's row
+// images from the local network (off by default: a member could probe it) and the second factor's policy
+// (required, optional or disabled), whose state each person's row
 // shows and the admin can reset; and retention (Retention.tsx). What lets the admin into someone else's
 // account (a reset link, their second factor's reset, a new role), a new
 // admin and a new policy ask for the confirmation at the moment, the admin's
-// own code or password (D-040 3.1, 3.4a, D-046.1); the person and the other
+// own code or password, so it is never done quietly; the person and the other
 // admins are told.
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, Text, TextField } from 'react-aria-components'
@@ -57,7 +57,7 @@ const linkUrl = (l: NewLink) => l.url ?? `${location.origin}${l.path}`
 
 /**
  * A new user: a name and a role; then the link to send them. A new admin is
- * confirmed at the moment, as making someone admin is (D-046.1).
+ * confirmed at the moment, as making someone admin is.
  */
 function NewUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (user: UserInfo, link: NewLink) => void }) {
   const t = useT()
@@ -300,7 +300,7 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState<Open | null>(null)
-  /** Before deleting someone: whether they have a space, and what it shares with others, as counts (spec §2.6). */
+  /** Before deleting someone: whether they have a space, and what it shares with others, as counts. */
   const [summary, setSummary] = useState<{ id: string; exists: boolean; sharedFolders: number; people: number } | null>(null)
   useEffect(() => {
     if (open?.kind !== 'confirm' || open.action !== 'delete') return
@@ -356,7 +356,7 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
     return items
   }
   const onAction = (u: UserInfo, id: string) => {
-    // A member straight away; an admin, confirmed at the moment (D-046.1).
+    // A member straight away; an admin, confirmed at the moment.
     if (id === 'enable' && u.role !== 'admin') return void run(() => api.enableUser(u.id))
     if (id === 'enable') return setOpen({ kind: 'confirm', action: 'enableAdmin', user: u })
     if (id === 'access') return setOpen({ kind: 'access', user: u })
@@ -365,7 +365,7 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
 
   const confirmFor = (action: Action, u: UserInfo): { title: string; items: string[]; confirm: string; danger?: boolean; identity?: string; go: (secret: string) => Promise<void> } => {
     const user = u.username
-    /** Into someone else's account: confirmed at the moment, and told (D-040 3.1). */
+    /** Into someone else's account: confirmed at the moment, and told. */
     const told = t('users.told', { user })
     const identity = t('users.confirmIdentityHint')
     switch (action) {
@@ -430,7 +430,7 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
   if (open?.kind === 'new') dialog = <NewUserDialog onClose={close} onCreated={(user, link) => { setOpen({ kind: 'link', user, link, created: true }); void load() }} />
   else if (open?.kind === 'link') dialog = <LinkDialog user={open.user} link={open.link} created={open.created} onClose={close} />
   else if (open?.kind === 'confirm' && open.action === 'delete') {
-    // Deleting someone offers to settle their space right there (D-056.28).
+    // Deleting someone offers to settle their space right there.
     const c = confirmFor('delete', open.user)
     dialog = <DeletePersonDialog key={`delete-${open.user.id}`} user={open.user} summary={summary?.id === open.user.id ? summary : null}
       users={users ?? []} groups={(groups ?? []).map((g) => g.name)} consequences={c.items} onClose={close} onDone={done} />
@@ -559,7 +559,7 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
                 <legend>{t('users.tfPolicy')}</legend>
                 {POLICIES.map((p) => (
                   <label key={p.id} className="check">
-                    {/* A new policy is confirmed at the moment (D-040 3.4a): the radio shows what is in force until then. */}
+                    {/* A new policy is confirmed at the moment: the radio shows what is in force until then. */}
                     <input type="radio" name="twoFactor" checked={settings.twoFactor === p.id} disabled={busy}
                       onChange={() => setOpen({ kind: 'policy', policy: p.id })} />
                     <span className="check-text">{t(p.label)}<span className="hint">{t(p.hint)}</span></span>

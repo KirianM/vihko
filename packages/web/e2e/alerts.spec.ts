@@ -227,7 +227,7 @@ test('permissions and spaces: rejected, notes held after a move outside vihko, g
   await expect(card(k, 'Una nota retenida').getByRole('button')).toHaveCount(0)
   await expect(card(k, 'Permisos de carpetas que no existen')).toContainText(label(missing))
   const out = card(k, 'Hay cosas fuera de los espacios')
-  // No system folder named (D-056.29): where they go is told without people/ nor spaces/.
+  // No system folder named: where they go is told without people/ nor spaces/.
   await expect(out).not.toContainText(`${personal(ADMIN)}/`)
   for (const p of outside) await expect(out).toContainText(p)
   // Where things are on the server's disk, labelled as such: the only place people/ shows.
@@ -255,7 +255,7 @@ test('notes addressed to one person: links a move left, what the admin did to a 
     { code: 'shared_with_you', id: ids[4], kind: 'folder', by, path: `people/${owner}/${name}`, name, owner, space: null, at, actions: ['dismiss'] },
     // No longer shared with them: nothing of it is named.
     { code: 'shared_with_you', id: ids[5], kind: 'folder', by, path: null, name: null, owner: null, space: null, at, actions: ['dismiss'] },
-    // Purged where the admin who reads the alert can't read (D-056.24): no path.
+    // Purged where the admin who reads the alert can't read: no path.
     { code: 'history_purged', id: ids[6], path: null, version: null, by, at, actions: ['dismiss'] },
   ])
   const sent: string[] = []

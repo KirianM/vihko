@@ -1,4 +1,4 @@
-// The second factor (D-036) in the UI: setting it up (the QR code, the secret
+// The second factor in the UI: setting it up (the QR code, the secret
 // as text and the app's link; nothing is theirs until a code from it is
 // verified, as Trilium does), the recovery codes (shown once, to copy or
 // download), the second step of a sign-in, and the confirmation that
@@ -253,7 +253,7 @@ export function useConfirmWith(): 'code' | 'password' | null {
   return how
 }
 
-/** The confirmation at the moment (D-036): the current code, or the password without a second factor. */
+/** The confirmation at the moment (a session left open is not enough): the current code, or the password without a second factor. */
 export function ConfirmField({ how, value, onChange, hint }: { how: 'code' | 'password' | null; value: string; onChange: (v: string) => void; hint: string }) {
   const t = useT()
   if (how === null) return null

@@ -15,7 +15,7 @@ const m = mother(import.meta.url)
 const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 
 /**
- * A copy of the test vault in the shared space (D-056: every note is in a
+ * A copy of the test vault in the shared space (every note is in a
  * space), `members` its grants (subject → level) for people the test creates
  * afterwards; none by default.
  */
@@ -241,7 +241,7 @@ test('notes over HTTP: read, create, write with If-Match, move and delete', asyn
 })
 
 test('links, backlinks with context, search and alerts', async () => {
-  // A member who manages the space (D-038): reading notes is the folders' permissions, never the role.
+  // A member who manages the space: reading notes is the folders' permissions, never the role.
   const member = m.aUser({ role: 'member' })
   const { auth, req } = await setup({ members: { [member.username]: 'manage' } })
   await auth.createUser(member.username, member.password, member.role)
@@ -333,7 +333,7 @@ test('workspace alerts: codes with their data and actions based on role', async 
   assert.deepEqual(scan, { code: 'scan_aborted_mass_delete', ...aborted.massDelete, actions: ['rescan', 'confirm_removal'] })
   assert.ok((scan!.removing as number) > 10 && (scan!.total as number) > (scan!.removing as number))
 
-  // A system alert is the admin's (D-038): a member (who reads nothing here) sees nothing, and the server denies them too.
+  // A system alert is the admin's: a member (who reads nothing here) sees nothing, and the server denies them too.
   await as('member')
   assert.deepEqual(await alerts(), [])
   assert.deepEqual(errorOf(await req('POST', '/api/admin/rescan', { confirmRemoval: scan!.removing })), [403, 'forbidden'])

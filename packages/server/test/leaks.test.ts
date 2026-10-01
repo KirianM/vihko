@@ -1,4 +1,4 @@
-// Leak tests (m3 §3, D-014): a key limited to one folder, with a note
+// Leak tests: a key limited to one folder, with a note
 // `ai: false` inside it, another with a frontmatter that can't be read, a
 // folder holding only a hidden note, and notes outside that link to the
 // visible one and mention the hidden ones. Every route a key may call
@@ -77,9 +77,9 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
         { method: 'GET', path: q('/api/history/diff', { path: PATH.visible, id: visibleIds[0]!, against: 'current' }), expect: 200 },
       ],
       'GET /api/history/changes': [{ method: 'GET', path: q('/api/history/changes', { limit: '50' }), expect: 200 }],
-      // What its user reaches, space by space, within its folders (D-056).
+      // What its user reaches, space by space, within its folders.
       'GET /api/spaces': [{ method: 'GET', path: '/api/spaces', expect: 200 }],
-      // Who has access (D-056.27): to its folder; outside it, or what it can't see, as missing.
+      // Who has access: to its folder; outside it, or what it can't see, as missing.
       'GET /api/spaces/members': [[DIR.key, 200], [DIR.outside, 404], [`${DIR.key}/${SUB.onlyHidden}`, 200], [`${DIR.key}/${m.aFolder()}`, 404]]
         .map(([p, s]) => ({ method: 'GET', path: q('/api/spaces/members', { path: p as string }), expect: s as number })),
       'GET /api/history/resolved': [{ method: 'GET', path: q('/api/history/resolved', { path: PATH.visible }), expect: 200 }, { method: 'GET', path: q('/api/history/resolved', { path: PATH.secret }), ...expect(AI) }],

@@ -1,4 +1,4 @@
-// Templates (D-030): a new note from a template note, never overwriting.
+// Templates: a new note from a template note, never overwriting.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'

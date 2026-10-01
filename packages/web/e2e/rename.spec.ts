@@ -8,7 +8,7 @@ import { editorText, literally, noteInUrl, png, sendFiles, signIn } from './help
 const m = specMother(import.meta.url)
 /** A sentence no other text of the spec contains (it carries a unique word). */
 const line = () => `${m.aSentence(m.anInt(2, 5)).slice(0, -1)} ${m.aUniqueWord()}.`
-/** A path of the vault's space as the breadcrumbs and the previews show it: `spaces/x-id/a/b.md` → `<its name> / a / b` (D-056). */
+/** A path of the vault's space as the breadcrumbs and the previews show it: `spaces/x-id/a/b.md` → `<its name> / a / b`. */
 const label = (path: string) => [SPACE_NAME, ...inner(path).replace(/\.md$/i, '').split('/')].join(' / ')
 /** A path inside the vault's space, as the move dialogs' «Carpeta» takes it. */
 const inner = (path: string) => path.slice(SPACE.length + 1)
@@ -74,7 +74,7 @@ test('rename with preview: links are rewritten on disk and both editors follow t
   await expect(dialog.getByText('Escribe otro nombre u otra carpeta')).toBeVisible()
   await dialog.getByLabel('Nuevo nombre').fill(NEW_NAME)
 
-  // In words (D-056.29): where, and to which note; never the Markdown of the links.
+  // In words: where, and to which note; never the Markdown of the links.
   const rows = dialog.locator('.preview-line')
   await expect(rows).toHaveText([
     `En ${label(LINKS)}, 3 enlaces a ${NEW_NAME} se actualizan para que sigan funcionando.`,
@@ -306,7 +306,7 @@ test('moving a note with images: its pasted image goes with it, a shared one sta
   await expect.poll(widths).toEqual([240])
 })
 
-// D-019: ambiguous links a move would resolve are listed in the preview, by source note.
+// Ambiguous links a move would resolve are listed in the preview, by source note: vihko never picks a target silently.
 test('the preview lists ambiguous links the move would resolve, by note, and the notice says it after', async ({ browser }) => {
   // Two notes with one name, in two folders: [[name]] is ambiguous until one of them moves up.
   const [dirName, one, two, name, usesName, alsoName] = [m.aFolder(), m.aFolder(), m.aFolder(), m.aTitle(), m.aTitle(), m.aTitle()]

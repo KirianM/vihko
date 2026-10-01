@@ -1,8 +1,8 @@
-// «Agents and API» (D-035): the admin turns the integrations on, creates a
+// «Agents and API»: the admin turns the integrations on, creates a
 // read-only key limited to a folder (shown once, with its MCP
 // configurations), uses it over HTTP, edits it (letting it write is
 // confirmed, a shorter expiry isn't), revokes it; a member can't create keys
-// until the admin lets members (off by default, D-049), nor once it's off
+// until the admin lets members (off by default: closed unless asked for), nor once it's off
 // again; the server's lock (VIHKO_INTEGRATIONS=off); and
 // the page on a phone, in dark mode.
 import { expect, test, type Browser, type Page } from '@playwright/test'
@@ -101,7 +101,7 @@ test('a read-only key for one folder: shown once, with its MCP configurations', 
   // A folder inside a chosen one is chosen with it.
   await expect(dialog.getByRole('checkbox', { name: 'vihko', exact: true })).toBeChecked()
   await expect(dialog.getByRole('checkbox', { name: 'vihko', exact: true })).toBeDisabled()
-  // Without a second factor, a new key is confirmed with the password (D-036), even with a session.
+  // Without a second factor, a new key is confirmed with the password, even with a session: a forgotten open session mustn't be enough to hand out access.
   await expect(dialog.getByRole('button', { name: 'Crear la clave' })).toBeDisabled()
   await expect(dialog.getByText('Una clave da acceso a tus notas: confirma que eres tú, aunque ya hayas entrado.')).toBeVisible()
   await dialog.getByLabel('Tu contraseña').fill(m.aPassword())
@@ -192,7 +192,7 @@ test('the key works over HTTP: read-only in its folder; edited, it writes there 
   await dialog.getByRole('button', { name: 'Guardar cambios' }).click()
   await expect(dialog).toBeHidden()
   await expect(card(page, KEY)).toContainText('Caduca el')
-  // It may write now, still only in its folder: that lets it do more, and is confirmed as a new key is (D-046.2).
+  // It may write now, still only in its folder: that lets it do more, and is confirmed as a new key is.
   await card(page, KEY).getByRole('button', { name: 'Editar' }).click()
   await dialog.getByRole('checkbox', { name: /Puede escribir/ }).check()
   const secret = dialog.getByLabel('Tu contraseña')

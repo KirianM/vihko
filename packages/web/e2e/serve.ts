@@ -20,7 +20,7 @@ mkdirSync(E2E_DIR, { recursive: true })
 const seed = testSeed()
 writeFileSync(E2E_DIR + '/seed', `${seed}\n`)
 console.log(seedLine(seed, 'node packages/web/e2e/serve.ts'))
-// The vault goes into a shared space both people belong to (D-056: nothing is seen outside a space).
+// The vault goes into a shared space both people belong to (nothing is seen outside a space).
 cpSync(root + 'testdata/vault', `${env.VIHKO_NOTES_DIR}/${SPACE}`, { recursive: true })
 const locked = { ...process.env, VIHKO_NOTES_DIR: E2E_DIR + '/locked/notes', VIHKO_STATE_DIR: E2E_DIR + '/locked/state' }
 mkdirSync(`${locked.VIHKO_NOTES_DIR}/${SPACE}`, { recursive: true })

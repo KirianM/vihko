@@ -1,8 +1,9 @@
-// «On opening» (D-056.35): what vihko opens when the person comes in with
+// «On opening»: what vihko opens when the person comes in with
 // nothing else asked for (no `?note=`, no `?view=`). Their preference
 // (Profile `onOpen`), made to take more options: Home, this device's last
 // note, a note they chose, or today's note. A note only when it exists and
-// they read it now; today's is never created on coming in (D-030). Anything
+// they read it now; today's is never created on coming in (no empty
+// notes). Anything
 // else: Home.
 import { api, type Profile } from './api.ts'
 import { recentNotes } from './recent.ts'

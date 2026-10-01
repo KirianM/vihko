@@ -1,29 +1,29 @@
-// Notices addressed to one person (M4.1, D-040): what someone else did to
+// Notices addressed to one person: what someone else did to
 // their account, or to something they wrote, that they see when they sign in
 // and in «Alerts» until they dismiss it. The workspace's alerts are about the
 // notes folder and computed on each request; these are kept in state.db.
 //
 // - `account_changed`: the vihko admin gave them a reset link, took their
-//   second factor away or changed their role (D-040 3.1). The admin still
+//   second factor away or changed their role. The admin still
 //   may, but never unnoticed.
 // - `user_account_changed`: the same, for every other admin: who did it to
-//   whom, and when. Also a new admin (D-046.1), told as a role change to
+//   whom, and when. Also a new admin, told as a role change to
 //   admin is.
 // - `history_purged_authored`: someone purged from the history a note (or a
-//   version of it) they wrote in (D-040 3.6). The path is kept, and shown
+//   version of it) they wrote in. The path is kept, and shown
 //   only while they can still read it (the caller judges, on each request).
 // - `links_not_updated`: a move they made (or an agent of theirs) left links
 //   in other notes that vihko couldn't update, even when it tried again after
-//   the next rescan (D-056.21). No path, name or count: those notes may be
+//   the next rescan. No path, name or count: those notes may be
 //   ones they can't read.
 // - `space_changed`: the admin did something to a space that concerns them
-//   (D-056.8, spec §2.4 and §2.6): made them a manager, joined a space they
+//   (so it's never done behind their back): made them a manager, joined a space they
 //   manage, gave them a deleted person's space or made it a shared space they
 //   belong to; and, to every other admin, the same (and a deleted person's
 //   space deleted). The space's path is kept; its name is looked up when
 //   shown, and a personal space's path only while they can read it.
 // - `shared_with_you`: someone added them to a shared space or shared a
-//   folder with them (D-056.22). The path is kept; it and every name are
+//   folder with them. The path is kept; it and every name are
 //   shown only while they can still see it.
 // - `retention_ran`: to every admin, what the retention removed:
 //   how many trash entries and history versions, never a path.
@@ -54,7 +54,7 @@ export function readablePath(access: Access, path: string): boolean {
  * A notice as the alert its person sees: names as they are now, a purge's
  * path only while they can read it, a space's name as it is now (`spaceName`)
  * and a personal space's path only while they can see it (a shared space's
- * name and path are no secret, spec §3.4 row 9).
+ * name and path are no secret).
  */
 export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => string, spaceName: (root: string) => string | null = () => null): Alert {
   const d = n.data
@@ -170,7 +170,7 @@ export class Notices {
 
   /**
    * Only every other admin is told (not the one who did it, nor the person):
-   * a new admin (D-046.1) is told as a role change to admin is, and the
+   * a new admin is told as a role change to admin is, and the
    * person, just invited, has no account yet to be told about.
    */
   toOtherAdmins(userId: string, by: string, change: AccountChange, role: Role | null = null) {

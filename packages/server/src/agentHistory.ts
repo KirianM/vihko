@@ -1,4 +1,4 @@
-// The history as a principal may see it (D-014, D-034 3.5, D-035, D-038):
+// The history as a principal may see it:
 // the same reader, through the access filter, for people and agents alike.
 //
 // - A note's history (versions, their texts and diffs, «Recent changes») is
@@ -92,7 +92,7 @@ class PrincipalHistory implements HistoryReader {
 
   /**
    * Everyone who appears in the history: more than a principal may know.
-   * A person gets the people (every name is visible to everyone, D-038),
+   * A person gets the people (every name is visible to everyone, to share),
    * vihko and outside changes, and their own agents; an agent, nobody (the
    * API lists the authors of what it shows).
    */

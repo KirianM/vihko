@@ -1,7 +1,7 @@
-// Who gains or loses access when something moves (D-038 «mover con aviso»,
-// spec §3.3): the preview of a note or folder move says it, and the UI asks
+// Who gains or loses access when something moves: the preview of a note or
+// folder move says it, and the UI asks
 // before moving. Users and groups are named (everyone may see their names,
-// D-038); keys are only counted (they're their owners' own). Moving to
+// to share with them); keys are only counted (they're their owners' own). Moving to
 // another space also changes whose it is (`owner`): out of one's own space
 // it stops being theirs; into a folder someone shares, it goes into their
 // space.

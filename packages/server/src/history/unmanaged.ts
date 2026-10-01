@@ -1,4 +1,4 @@
-// Unmanaged mode (D-016, D-032.2): the history is the git repository the user
+// Unmanaged mode: the history is the git repository the user
 // keeps in the notes folder, or above it when the folder is part of a larger
 // repository (paths are translated between its top and the notes folder, and
 // nothing outside the notes folder shows). A version is one of their commits

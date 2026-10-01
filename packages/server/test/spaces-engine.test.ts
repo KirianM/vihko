@@ -1,4 +1,4 @@
-// The permissions engine under the spaces model (D-056): levels, what each
+// The permissions engine under the spaces model: levels, what each
 // person reaches (spacesFor, sharedWith), the admin's directory of shared
 // spaces, and who has access to a folder, over a directory of users and
 // groups and what exists on the disk.
@@ -13,7 +13,7 @@ import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
-/** The scenario of spec §2.3, with roles: an admin, two members, a group of both, and a deleted person. */
+/** The scenario, with roles: an admin, two members, a group of both, and a deleted person. */
 function scenario() {
   const admin: DirectoryUser = { id: m.anId(), username: m.aUsername(), role: 'admin' }
   const member: DirectoryUser = { id: m.anId(), username: m.aUsername(), role: 'member' }

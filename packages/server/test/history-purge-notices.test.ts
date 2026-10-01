@@ -1,4 +1,4 @@
-// Purging and the people who wrote (M4.1, D-040 3.6): whoever else wrote in
+// Purging and the people who wrote: whoever else wrote in
 // what goes is told, without the content (people, never agents, and never
 // the one who purged); the path only while they can still read it. The admin
 // purging what they can't read confirms at the moment.

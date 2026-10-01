@@ -1,5 +1,5 @@
 // What an agent key (or an OAuth authorization, which is one) may do, and
-// whether a change lets it do more (D-046.2). Letting it do more is confirmed
+// whether a change lets it do more. Letting it do more is confirmed
 // at the moment, as creating it is; narrowing or renaming it isn't. Shared by
 // the server, which decides, and the UI, which asks for the confirmation
 // before sending the change.

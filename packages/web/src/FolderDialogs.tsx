@@ -15,7 +15,7 @@ import './actions.css'
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
-/** The server's codes worded for a folder: `exists` (never whether something hidden is there, D-056.20) and `invalid_path` otherwise speak of notes. */
+/** The server's codes worded for a folder: `exists` (never whether something hidden is there) and `invalid_path` otherwise speak of notes. */
 function folderError(t: ReturnType<typeof useT>, err: unknown): string {
   const code = err instanceof Error && 'code' in err ? String(err.code) : ''
   if (code === 'exists') return t('folder.exists')
@@ -43,7 +43,7 @@ export function NewFolderDialog({ parent, onClose, onCreated }: { parent: string
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const path = folderPath(name, where)
-  // At a space's root, `people` and `spaces` are what links from the notes root start with (spec §4.2).
+  // At a space's root, `people` and `spaces` are what links from the notes root start with.
   const shadows = inner.trim() === '' && /^(people|spaces)$/i.test(name.trim())
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -185,7 +185,7 @@ export function FolderMoveDialog({ path, initialParent, onClose, onMoved, onStar
 }
 
 /**
- * «Move to a new space» (D-056.28): sharing only adds, so what some of a
+ * «Move to a new space»: sharing only adds, so what some of a
  * space's members mustn't see goes to a space of its own. The folder becomes
  * a shared space named as it is (the name can change), whoever moves it its
  * only manager besides what the folder itself was shared with; the preview

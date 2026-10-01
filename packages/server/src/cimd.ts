@@ -1,4 +1,4 @@
-// OAuth Client ID Metadata Documents (CIMD, D-037): a client names itself
+// OAuth Client ID Metadata Documents (CIMD): a client names itself
 // with an https URL as its `client_id`, and that URL serves its description
 // (name, redirect URIs). The MCP authorization spec of 2026-07-28 recommends
 // it over dynamic registration, which it deprecates, following

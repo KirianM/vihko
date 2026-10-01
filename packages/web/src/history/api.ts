@@ -1,6 +1,6 @@
-// History API client (D-016, D-033): a note's versions, one version with its
+// History API client: a note's versions, one version with its
 // diff, restoring it, and «Recent changes». Authors come with their current
-// name; reasons as codes with their data, which the UI words (D-025).
+// name; reasons as codes with their data, which the UI words (translated).
 import { request } from '../api.ts'
 
 export type HistoryMode = 'managed' | 'unmanaged' | 'off'
@@ -139,7 +139,7 @@ export const historyApi = {
 export interface PurgeableEntry { path: string; deleted: boolean }
 
 /**
- * What a purge takes out (`dryRun`) or took out (D-038.9): the versions whose
+ * What a purge takes out (`dryRun`) or took out: the versions whose
  * change goes (when, how many files; a version left with nothing goes whole,
  * `dropped`), and never anything of the content. `onDisk`: files still in the
  * folder, which enter the history again with their next version.
@@ -155,8 +155,8 @@ export interface PurgeReport {
   onDisk: number
   sharedWith: string[]
   movedFrom: string[]
-  /** In a dry run: the purge takes out something the admin can't read, and asks for the confirmation at the moment (D-040 3.6). */
+  /** In a dry run: the purge takes out something the admin can't read, and asks for the confirmation at the moment. */
   confirmRequired?: boolean
-  /** In the admin's dry run of a path they can't read: what it would take out isn't said, not even whether there is anything (D-056.28). */
+  /** In the admin's dry run of a path they can't read: what it would take out isn't said, not even whether there is anything. */
   hidden?: boolean
 }

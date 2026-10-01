@@ -1,5 +1,5 @@
 // Unmanaged mode: the history is the user's own git repository, read and never
-// written (docs: M2 specification, §7).
+// written.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'

@@ -1,4 +1,4 @@
-// Which /api routes a key may call (D-035, m3 §4). It isn't a separate API:
+// Which /api routes a key may call. It isn't a separate API:
 // the same routes the UI uses, accepted with `Authorization: Bearer` only if
 // listed here as `read` or `write`. Every route is classified; one that isn't
 // fails closed (a key gets 404, as for a route that doesn't exist), and a test
@@ -139,7 +139,7 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
 }
 
 /**
- * What each route needs of the folders' permissions (D-038), for a person
+ * What each route needs of the folders' permissions, for a person
  * (a key's agent needs the same of its user, and its key's own limits). The
  * leak tests walk every route with two people and an agent over the same
  * tree; a route without its line here fails them.
@@ -151,7 +151,7 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
  *   changes»…): only what the person may see, counts included.
  * - `read`, `comment`, `edit`, `manage`: that level where the note or folder
  *   named is; below it, 403 if they see it, 404 if not.
- * - `history`: `edit` where the note is (D-034 3.5).
+ * - `history`: `edit` where the note is (sharing a note to read doesn't give away its past).
  * - `permissions`: the admin, or `manage` in the folder (http/permissions.ts).
  */
 export type RouteNeeds = 'none' | 'admin' | 'filtered' | 'read' | 'comment' | 'edit' | 'manage' | 'history' | 'permissions'
@@ -167,9 +167,9 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'GET /api/workspace': 'none',
   'GET /api/profile': 'none',
   'PUT /api/profile': 'none',
-  // «Home» (D-056.35): only what the person reads now, note by note.
+  // «Home»: only what the person reads now, note by note.
   'GET /api/home': 'filtered',
-  // The tree, live (D-056.36): «read your tree again», only to whom a change concerns.
+  // The tree, live: «read your tree again», only to whom a change concerns.
   'GET /api/events': 'filtered',
   // Note settings: one's own, or a shared space's (read by its members, changed by its managers).
   'GET /api/settings': 'filtered',
@@ -216,7 +216,7 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'GET /api/admin/retention': 'admin',
   'POST /api/admin/retention/preview': 'admin',
   'POST /api/admin/retention/run': 'admin',
-  // The second factor (D-036): the sign-in's second step, one's own, and the admin's reset.
+  // The second factor: the sign-in's second step, one's own, and the admin's reset.
   'POST /api/auth/login/code': 'none',
   'POST /api/auth/2fa/setup': 'none',
   'POST /api/auth/2fa/enable': 'none',
@@ -270,7 +270,7 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'GET /api/history/resolved': 'history',
   'POST /api/history/restore': 'history',
   'POST /api/history/revert': 'history',
-  // Or the vihko admin, any path by its name, without reading it (D-038.9).
+  // Or the vihko admin, any path by its name, without reading it.
   'GET /api/history/purgeable': 'filtered',
   'POST /api/history/purge': 'manage',
   'DELETE /api/history/purges/:id': 'admin',
@@ -281,11 +281,11 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'GET /api/permissions/access': 'none',
   'POST /api/permissions/holds/:id': 'permissions',
 
-  // Spaces (D-056): what the person reaches; creating one (anyone, or admins with the setting); pinning
+  // Spaces: what the person reaches; creating one (anyone, or admins with the setting); pinning
   // what is shared with them; renaming, deleting and leaving, `manage` at a space's root or a grant of
   // one's own where one leaves; and the admin's, who names spaces (no secret) but never a folder inside one.
   'GET /api/spaces': 'filtered',
-  // Who has access to a folder one reads (D-056.27): names and levels, nothing of folders one doesn't read.
+  // Who has access to a folder one reads: names and levels, nothing of folders one doesn't read.
   'GET /api/spaces/members': 'read',
   'POST /api/spaces': 'none',
   // A folder becoming a space of its own: `manage` in it and the right to create spaces.

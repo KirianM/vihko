@@ -1,4 +1,4 @@
-// vihko.yaml, the person's timezone, templates and the daily note (D-030):
+// vihko.yaml, the person's timezone, templates and the daily note:
 // «Today» creates the note from its template in its series folder and then
 // only opens it; previous/next in the header; an unknown key in vihko.yaml is
 // ignored with a warning, an invalid file is an alert and the last good one
@@ -281,7 +281,7 @@ test('phone: «Today» from the drawer, previous/next in the header', async ({ b
   await page.getByLabel('Nombre de usuario').fill(ADMIN.username)
   await page.getByLabel('Contraseña').fill(ADMIN.password)
   await page.getByRole('button', { name: 'Entrar' }).last().click()
-  // A phone opens at Home too (D-056.35): the drawer is behind the menu.
+  // A phone opens at Home too: the drawer is behind the menu.
   await expect(page.getByRole('heading', { name: 'Inicio', level: 1 })).toBeVisible()
   await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
   const drawer = page.getByRole('dialog', { name: 'Carpetas' })

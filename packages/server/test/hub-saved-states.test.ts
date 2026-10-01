@@ -1,7 +1,7 @@
 // What the hub keeps of a closed note under its path (its saved editor state,
 // `.ystate`, and a recovery log, `.ylog`) follows the note when it's renamed
 // or moved, goes when it's deleted, and a state whose note no longer exists
-// is removed on startup; a copy pending a decision (D-022) is never touched.
+// is removed on startup; a copy pending a decision is never touched.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'

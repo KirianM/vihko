@@ -1,4 +1,4 @@
-// vihko.yaml's format migrations (D-042.6). When a version of vihko changes
+// vihko.yaml's format migrations. When a version of vihko changes
 // how something is written in vihko.yaml, the server rewrites the file itself
 // when it starts (server configMigrations.ts), keeping a copy of it as it was.
 // Migrations don't go by the file's `version:`: each one looks at the content

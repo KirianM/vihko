@@ -1,11 +1,11 @@
-// Links under the spaces model (D-056, spec §4), through the HTTP API and the
+// Links under the spaces model, through the HTTP API and the
 // operations agents use, over the new layout: a member's personal space
 // with a folder shared with someone else, a shared space, and the other
 // person's own space.
 // - A link to what someone can't read is, for them and for their agents,
-//   exactly a link to a note that doesn't exist (D-056.15): writing links or
+//   exactly a link to a note that doesn't exist: writing links or
 //   naming paths never tells anyone what exists.
-// - A link never leads to another space, by name or by path (D-056.30).
+// - A link never leads to another space, by name or by path.
 // - Moving a note or a folder to another space rewrites nothing across
 //   spaces: its links stay as written and resolve in its new space, the
 //   links it leaves broken are listed (in what moved and in what stayed,
@@ -188,7 +188,7 @@ test('a folder shared from someone’s space: a name there that leads to what th
   assert.deepEqual(await backlinks('member'), [linkerPath, `${s.space.member}/${secret}.md`].sort())
 })
 
-test('D-056.30: links stay in their space: a name or a path into another space is broken, even for whoever reads both, and no backlink crosses spaces', async () => {
+test('links stay in their space: a name or a path into another space is broken, even for whoever reads both, and no backlink crosses spaces', async () => {
   const list = m.aTitle()
   const mine = m.aTitle()
   const inside = m.aTitle()
@@ -217,7 +217,7 @@ test('D-056.30: links stay in their space: a name or a path into another space i
   assert.equal(ag.resolveLink(`${s.home}/${inside}.md`, `[[${list}]]`).status, 'resolved')
 })
 
-test('D-056.30: moving a note to another space rewrites nothing across spaces; the report lists the links it leaves broken, both ways, and names nothing hidden', async () => {
+test('moving a note to another space rewrites nothing across spaces; the report lists the links it leaves broken, both ways, and names nothing hidden', async () => {
   const [note, plan, diary, secret, waiting] = [m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle()]
   const [sub, secretDir] = [m.aFolder(), m.aFolder()]
   const h = await setup((s) => ({
@@ -322,7 +322,7 @@ test('a folder taken to another space: links kept, and the images its notes use 
   assert.ok(h.has(`${s.space.member}/${assets}/${img}`) && h.has(`${to}/${img}`))
 })
 
-test('D-056.21: the images copied to another space go where the attachments settings put a new image there: its space\'s folder, or the note\'s own folder of images', async () => {
+test('the images copied to another space go where the attachments settings put a new image there: its space\'s folder, or the note\'s own folder of images', async () => {
   /** Where a note's first image reference leads, from the notes root. */
   const imageOf = (h: Awaited<ReturnType<typeof setup>>, note: string) => {
     const ref = /!\[[^\]]*\]\(<?([^)>]+)>?\)/.exec(h.body(note))![1]!
@@ -417,7 +417,7 @@ test('a failed rewrite: the old name as an alias for a note; a folder’s notes 
 })
 
 /**
- * The residual leak of D-056.20, as D-056.28 leaves it: `member` shares a
+ * The guard on renames that would rewrite a link to a hidden note: `member` shares a
  * folder (the trip) with `other`; a note of the member's outside it (the
  * budget) is what a link by name in the trip leads to. A rename or a move by
  * `other` that would have to rewrite that link (in a note they read, so
@@ -443,7 +443,7 @@ async function residual() {
   return { h, s, p, budget, finance }
 }
 
-test('D-056.20/.28: a rename or move that would rewrite, in a note the actor reads, a link to a note they can’t read answers as a taken name; the preview doesn’t check and names nothing hidden', async () => {
+test('a rename or move that would rewrite, in a note the actor reads, a link to a note they can’t read answers as a taken name; the preview doesn’t check and names nothing hidden', async () => {
   const { h, p, budget, finance } = await residual()
   const before = [p.plan, p.draft, p.notes].map((x) => h.read(x))
   const move = (from: string, to: string, dryRun: boolean) => h.as('other')('POST', '/api/note/move', { from, to, dryRun })
@@ -462,7 +462,7 @@ test('D-056.20/.28: a rename or move that would rewrite, in a note the actor rea
   assert.ok(!preview.text.includes(`${finance}/${budget}`), preview.text)
   assert.deepEqual([p.plan, p.draft, p.notes].map((x) => h.read(x)), before, 'nothing written')
   assert.ok(!h.has(p.renameTo))
-  // Out of the member's space: nothing is rewritten across spaces (D-056.30), so nothing names the budget and nothing
+  // Out of the member's space: nothing is rewritten across spaces, so nothing names the budget and nothing
   // refuses. The link stays as written and is broken there; neither the preview nor the report says a thing of it.
   const out = await move(p.notes, p.moveTo, true)
   assert.equal(out.status, 200, out.text)
@@ -477,7 +477,7 @@ test('D-056.20/.28: a rename or move that would rewrite, in a note the actor rea
   assert.equal(h.body(p.plan), `[[${finance}/${budget}]]\n`)
 })
 
-test('D-056.20: an agent gets the same answer as for a taken name', async () => {
+test('an agent gets the same answer as for a taken name', async () => {
   const { h, p } = await residual()
   const agent = h.agent('other')
   const refusal = async (from: string, to: string, dryRun: boolean) => {
@@ -505,7 +505,7 @@ test('D-056.20: an agent gets the same answer as for a taken name', async () => 
 })
 
 /**
- * D-056.28: the link at stake is in a note of the member's that `other`
+ * The link at stake is in a note of the member's that `other`
  * can't read (the memo), so no rewrite of it would show them anything:
  * what `other` does goes through, and the system keeps the memo's link on
  * the member's note, without telling them.
@@ -530,7 +530,7 @@ async function unseen() {
   return { h, s, p, finance, budget, alias, leads }
 }
 
-test('D-056.28: a rename whose link at stake is in a note the actor can’t read goes through, and the system keeps that link on its note', async () => {
+test('a rename whose link at stake is in a note the actor can’t read goes through, and the system keeps that link on its note', async () => {
   const { h, p, finance, budget, leads } = await unseen()
   const memoBefore = h.read(p.memo)
   // The preview is a plan like any other: nothing hidden in it.
@@ -547,7 +547,7 @@ test('D-056.28: a rename whose link at stake is in a note the actor can’t read
   assert.deepEqual(await leads(p.memo), [['resolved', p.budget]])
 })
 
-test('D-056.28: creating a note, by any route, whose name would take a link in a note its person can’t read: created, and the link kept on its note', async () => {
+test('creating a note, by any route, whose name would take a link in a note its person can’t read: created, and the link kept on its note', async () => {
   const { h, p, finance, budget, leads } = await unseen()
   const plain = await h.as('other')('POST', '/api/note', { path: p.takesName, text: '' })
   assert.equal(plain.status, 201, plain.text)
@@ -564,7 +564,7 @@ test('D-056.28: creating a note, by any route, whose name would take a link in a
   assert.deepEqual(await leads(p.memo), [['resolved', p.budget]])
 })
 
-test('D-056.28: an alias added by an edit is a name taken like a new note’s: refused where the actor reads the link, kept by the system where they don’t', async () => {
+test('an alias added by an edit is a name taken like a new note’s: refused where the actor reads the link, kept by the system where they don’t', async () => {
   const { h, p, alias, leads } = await unseen()
   const etag = async (path: string) => (await h.as('other')('GET', q('/api/note', { path }))).body.etag
   const withAlias = `---\naliases: [${JSON.stringify(alias)}]\n---\n${m.aSentence()}\n`
@@ -588,7 +588,7 @@ test('D-056.28: an alias added by an edit is a name taken like a new note’s: r
   assert.equal(h.read(mine), before)
 })
 
-test('D-056.30: creating from a broken link only in the link’s own space; into any other, a taken name’s answer, even where the person may create and whether or not anything is there', async () => {
+test('creating from a broken link only in the link’s own space; into any other, a taken name’s answer, even where the person may create and whether or not anything is there', async () => {
   const { h, s, p } = await residual()
   const source = `${s.space.other}/${m.aTitle()}.md`
   h.write(source, `# ${m.aTitle()}\n`)
@@ -610,7 +610,7 @@ test('D-056.30: creating from a broken link only in the link’s own space; into
   assert.equal((await create(`${s.space.other}/${m.aFolder()}/${m.aTitle()}.md`)).status, 201)
 })
 
-test('D-056.21: never creating from a link in a note of someone else’s personal space; from one’s own, as ever', async () => {
+test('never creating from a link in a note of someone else’s personal space; from one’s own, as ever', async () => {
   const { h, s, p, budget } = await residual()
   const absent = m.aTitle()
   h.write(p.draft, `[[${absent}]]\n`)
@@ -633,7 +633,7 @@ test('D-056.21: never creating from a link in a note of someone else’s persona
   assert.equal((await create('other', `${s.space.other}/${budget}.md`, mine)).status, 201)
 })
 
-test('D-056.20: creating a note whose name would take a link to what its person can’t read answers as a taken name, by every route', async () => {
+test('creating a note whose name would take a link to what its person can’t read answers as a taken name, by every route', async () => {
   const { h, s, p } = await residual()
   const series = m.anId()
   writeFileSync(join(h.notesDir, 'vihko.yaml'), `${s.rules}daily:\n  ${series}:\n    folder: ${JSON.stringify(s.trips)}\n`)
@@ -681,7 +681,7 @@ test('D-056.20: creating a note whose name would take a link to what its person 
   assert.equal((await h.as('member')('POST', '/api/daily', { series })).status, 201)
 })
 
-test('D-056.20: restoring from the trash where the note would take a link to what its person can’t read answers as a taken name', async () => {
+test('restoring from the trash where the note would take a link to what its person can’t read answers as a taken name', async () => {
   const { h, p } = await residual()
   // The member had a note with the budget's name in the trip, which the plan's link found; they delete it.
   assert.equal((await h.as('member')('POST', '/api/note', { path: p.renameTo, text: '' })).status, 201)
@@ -698,7 +698,7 @@ test('D-056.20: restoring from the trash where the note would take a link to wha
   assert.equal((await restore(elsewhere)).status, 200)
 })
 
-test('D-056.20: an alias written in any note never captures a link: names beat aliases, and a shared alias is ambiguous', async () => {
+test('an alias written in any note never captures a link: names beat aliases, and a shared alias is ambiguous', async () => {
   const [alias, draft] = [m.aTitle(), m.aTitle()]
   const { h, s, p, budget } = await residual()
   // The member's budget takes an alias the plan links by; nothing else has it.
@@ -714,7 +714,7 @@ test('D-056.20: an alias written in any note never captures a link: names beat a
   const put = await h.as('other')('PUT', q('/api/note', { path: mine }), { text: `---\naliases: [${JSON.stringify(budget)}]\n---\n# ${draft}\n` }, { 'if-match': await etag() })
   assert.equal(put.status, 200, put.text)
   assert.deepEqual([(await byMember())[`[[${budget}]]`].status, (await byMember())[`[[${budget}]]`].dstPath], ['resolved', p.budget], 'a name beats an alias')
-  // The budget's alias too: the plan's link by alias would change, and the plan is a note they read (D-056.28): a taken name.
+  // The budget's alias too: the plan's link by alias would change, and the plan is a note they read: a taken name.
   const refused = await h.as('other')('PUT', q('/api/note', { path: mine }), { text: `---\naliases: [${JSON.stringify(budget)}, ${JSON.stringify(alias)}]\n---\n# ${draft}\n` }, { 'if-match': await etag() })
   assert.deepEqual([refused.status, refused.body?.error], [409, 'exists'], refused.text)
   // The member, who reads the budget, writes it: the link by alias isn't taken but ambiguous between the two, which its owner sees and can fix.

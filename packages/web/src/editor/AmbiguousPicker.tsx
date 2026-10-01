@@ -1,8 +1,8 @@
-// An ambiguous link (D-019: never resolved silently) opens this picker, from
+// An ambiguous link (never resolved silently) opens this picker, from
 // the editor or from the panel's links: its candidates, by title and path.
 // Opening one goes there (and the note view offers «Pin this destination»);
 // «Pin» rewrites that link, right here, so it leads to that note alone
-// (D-031.2). Nothing is written unless someone asks.
+// Nothing is written unless someone asks.
 //
 // A GridList rather than a ListBox: each row has a second action (Pin), and
 // a ListBox option can't hold a button. The keyboard moves between rows with

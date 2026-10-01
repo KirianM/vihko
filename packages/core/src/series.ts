@@ -1,4 +1,4 @@
-// Daily-note series (D-030): a folder and a name pattern declared in
+// Daily-note series: a folder and a name pattern declared in
 // vihko.yaml. Daily, weekly, monthly or yearly are just different patterns.
 // A note belongs to a series by its path alone, computed from the pattern:
 // no index, no marker in the file.

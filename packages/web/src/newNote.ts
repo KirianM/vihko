@@ -28,7 +28,7 @@ function cleanName(name: string): string {
  * The note `input` names, created from `folder` ('' = the root): its last
  * part is the note, the ones before it folders (`projects/Launch plan` is
  * `Launch plan.md` in `projects`, inside `folder`); a leading `/` starts from
- * `root`, the root of the space `folder` is in (D-056: nothing is created at
+ * `root`, the root of the space `folder` is in (nothing is created at
  * the notes root). Empty parts are left out (`a//b`, and `..`, which is
  * nothing once its dots go). null when there is no name (nothing typed, or a
  * trailing `/`).

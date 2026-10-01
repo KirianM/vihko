@@ -1,6 +1,6 @@
 // Link fixes against a running server: pinning an ambiguous link in a note
-// open in the editor (written to the live document, D-031.2), and a
-// note renamed on disk reaching the alerts through the watcher (D-031.4).
+// open in the editor (written to the live document), and a
+// note renamed on disk reaching the alerts through the watcher.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, renameSync } from 'node:fs'

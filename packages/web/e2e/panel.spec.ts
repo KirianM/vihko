@@ -82,7 +82,7 @@ test('links: outgoing with their status, ambiguous with candidates, and navigati
   const panel = k.getByRole('complementary', { name: 'Comentarios y contexto' })
   await expect(panel.getByText('ambiguo · 2')).toBeVisible()
   await expect(panel.getByRole('button', { name: new RegExp(`Plan\\s*${literally(SPACE_NAME)} / Plan$`, 'u') })).toBeVisible()
-  // Where each one leads, as the person sees it (D-056): the space, then the folders.
+  // Where each one leads, as the person sees it: the space, then the folders.
   await panel.getByRole('button', { name: `${SPACE_NAME} / proyectos / blog / Tareas` }).click()
   await expect(k.locator('.crumbs')).toHaveText(`${SPACE_NAME} / proyectos / blog / Tareas`)
 })
@@ -224,7 +224,7 @@ test('wide screen with the panel closed: the notice shows, and a click on the co
   await a.locator('.cm-h1').click()
 })
 
-// D-031.6: the index remembers the commented text as it first saw it.
+// The index remembers the commented text as it first saw it, to tell when it has changed.
 const originals = async (p: Page) => {
   const r = await p.request.get(`/api/note/comments?path=${encodeURIComponent(NOTE)}`)
   return ((await r.json()) as { threads: { original: string; changed: boolean }[] }).threads.map((t) => [t.original, t.changed])

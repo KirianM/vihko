@@ -91,7 +91,7 @@ export const folderOf = (path: string) => (path.includes('/') ? path.slice(0, pa
 /** Only notes have versions to open; images and other files are listed. */
 export const isNote = (path: string) => /\.md$/i.test(path)
 
-/** The frontmatter `uid` of a note's text: its identity, which survives moves (D-005). */
+/** The frontmatter `uid` of a note's text: its identity, which survives moves. */
 export function uidOf(text: string | null): string | null {
   if (!text) return null
   const fm = /^---\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(text)

@@ -1,10 +1,10 @@
-// Settings → «Spaces» (the vihko admin, D-056, spec §2.4, §2.6, §5.7): the
+// Settings → «Spaces» (the vihko admin): the
 // directory of shared spaces (their names, who manages them and how many
 // members: never what's inside), a manager for one that has none, the admin
 // joining one (a member row like any other, told to its managers), who may
 // create spaces, and what becomes of a deleted person's space (transfer it,
 // make it a shared space, or delete it). Every change is confirmed at the
-// moment with the admin's own code or password (D-040 3.1).
+// moment with the admin's own code or password, so nothing is done to someone else's space quietly.
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, Text, TextField } from 'react-aria-components'
 import { ApiError, LEVELS, api, type AdminSettings, type Alert, type ClosedSpace, type Grants, type Level, type PersonalSpacePlan, type SpaceInfo, type User, type UserInfo } from './api.ts'
@@ -254,7 +254,7 @@ function SettleDialog({ closed, action, users, groups, onClose, onDone }: {
 }
 
 /**
- * Deleting a person (D-056.28): what deleting does, and what becomes of
+ * Deleting a person: what deleting does, and what becomes of
  * their space, right there: decided later in «Spaces» (it stays closed, and
  * the admin is reminded), transferred to someone, or made a shared space,
  * with the same dry run as in «Spaces». Settling it is confirmed with the

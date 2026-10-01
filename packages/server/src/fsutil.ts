@@ -111,7 +111,7 @@ export function spelledAsOnDisk(root: string, rel: string): boolean {
  * `recetas` is): the path up to and including the first such part, spelled
  * as the disk has it. Null when every part that exists is spelled as given
  * (spelledAsOnDisk). For an honest `exists` where the person sees the whole
- * folder (spec §3.4 row 6).
+ * folder.
  */
 export function diskSpelling(root: string, rel: string): string | null {
   if (spelledAsOnDisk(root, rel)) return null

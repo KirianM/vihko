@@ -116,7 +116,7 @@ function useAgentHiding(path: string, c: CollabState): 'ai' | 'frontmatter' | nu
 }
 
 /**
- * What the person may do in the note (D-038.5), from the server: asked on
+ * What the person may do in the note, from the server: asked on
  * opening, and again when the hub says it changed while open (then the
  * session is opened again: collab.ts). Null until known, and `none` when
  * they can't read it any more.
@@ -369,7 +369,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
     if (c.trashed) onTrashed({ id: c.trashed.id, path, by: c.trashed.by === user.username ? null : c.trashed.by })
   }, [c.trashed]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // History: the note's versions, kept fresh while the tab or a version is on screen. Only with `edit` (D-034 3.5).
+  // History: the note's versions, kept fresh while the tab or a version is on screen. Only with `edit`: sharing a note to read doesn't give its past.
   const historyOn = history !== null && history.mode !== 'off' && editable
   const versions = useVersions(historyOn || version !== null ? path : null, version !== null || (historyOn && panel.open && panel.tab === 'history'))
   // Whatever is written into the note, by anyone, may open or extend a version.

@@ -1,4 +1,4 @@
-// vihko.yaml rewritten to the current format when vihko starts (D-042.6):
+// vihko.yaml rewritten to the current format when vihko starts:
 // the runner over a notes folder and a state volume, and a whole server
 // started over an old file. The migrations are the tests' own: vihko has none
 // yet.
@@ -30,7 +30,7 @@ const renameSeries: WorkspaceMigration = {
 }
 
 const SERIES = m.anId()
-/** The series' folder: in each person's own space (a series outside the spaces is offered to nobody, spec §1.6). */
+/** The series' folder: in each person's own space (a series outside the spaces is offered to nobody). */
 const FOLDER = `people/{user}/${m.aFolder()}`
 /** An old file written by hand: comments where the README puts them, and a key vihko doesn't know. */
 const OLD = `# Workspace settings

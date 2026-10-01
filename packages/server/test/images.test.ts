@@ -1,4 +1,4 @@
-// Images in notes (D-028): storage next to the note, limits, serving files
+// Images in notes: storage next to the note, limits, serving files
 // from the notes folder and downloading a copy from a URL.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -30,7 +30,7 @@ async function setup(opts: { maxImageBytes?: number; webDir?: string; externalIm
   const dir = tempDir('vihko-images-')
   const notesDir = join(dir, 'notes')
   const user = m.aUser({ role: opts.role ?? 'admin' })
-  // The vault in the user's own space (D-056), which they manage whatever their role: no grants needed.
+  // The vault in the user's own space, which they manage whatever their role: no grants needed.
   const home = `people/${user.username}`
   cpSync(VAULT, join(notesDir, home), { recursive: true })
   /** A path of the vault, as the notes folder has it. */

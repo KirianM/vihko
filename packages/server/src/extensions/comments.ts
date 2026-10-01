@@ -1,11 +1,11 @@
-// The commented text as it was (D-031.6): for each comment thread, the text
+// The commented text as it was: for each comment thread, the text
 // it was anchored to when the indexer first saw the thread, so the panel can
 // mark «the text has changed» when someone rewrites the sentence.
 //
 // This is the one piece of index.db that is a memory and not a pure function
 // of the files: rebuilding the index (deleting index.db, or a new version of
 // this extension) forgets it, and the text at that moment becomes the new
-// baseline. That loss is accepted (D-031.6): nothing of the note lives here,
+// baseline. That loss is accepted: nothing of the note lives here,
 // the note file is never touched, and all that is lost is a hint. For the
 // same reason it is left out of `dumpIndex`, which compares rebuilds.
 //

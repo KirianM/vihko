@@ -20,17 +20,17 @@ const WHEN = new Date(Date.UTC(2026, 8, 24, 8, 12))
 const SENTENCE = m.aSentence()
 const ROOT = m.aComment()
 const REPLY = m.aComment()
-const D023 = `${SENTENCE}<!-- @${AUTHOR} 2026-09-24T08:12Z · ${ROOT} -->
+const THREAD = `${SENTENCE}<!-- @${AUTHOR} 2026-09-24T08:12Z · ${ROOT} -->
 <!-- @${AGENT} 2026-09-24T08:15Z · ↳ ${REPLY} -->
 `
 
 test('reads the example: a thread with a reply, anchored to the sentence', () => {
-  const threads = parseThreads(D023)
+  const threads = parseThreads(THREAD)
   assert.equal(threads.length, 1)
   const [root, reply] = threads[0]!.comments
   assert.deepEqual([root!.author, root!.date, root!.text, root!.reply], [AUTHOR, '2026-09-24T08:12Z', ROOT, false])
   assert.deepEqual([reply!.author, reply!.text, reply!.reply], [AGENT, REPLY, true])
-  assert.equal(anchor(D023), SENTENCE)
+  assert.equal(anchor(THREAD), SENTENCE)
 })
 
 test('the anchor starts at the sentence, without list or heading marks', () => {
@@ -93,7 +93,7 @@ test('commenting with no selection: at the end of the cursor\'s sentence or line
 })
 
 test('commenting inside a thread adds it after the thread', () => {
-  const doc = D023.trimEnd()
+  const doc = THREAD.trimEnd()
   const inside = doc.indexOf(ROOT)
   assert.equal(commentPosition(doc, inside, inside), doc.length)
 })
@@ -111,7 +111,7 @@ test('replying: on its own line after a thread that closes a paragraph; attached
 })
 
 test('resolving deletes the whole thread and nothing else', () => {
-  const doc = `---\nuid: X\n---\n${D023}\nFin.`
+  const doc = `---\nuid: X\n---\n${THREAD}\nFin.`
   const out = apply(doc, resolveThread(doc, parseThreads(doc)[0]!))
   assert.equal(out, `---\nuid: X\n---\n${SENTENCE}\n\nFin.`)
   const own = `a\n<!-- @${REPLIER} 2026-09-24T08:12Z · suelta -->\nb`

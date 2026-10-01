@@ -1,8 +1,8 @@
-// People's hues (D-012, presence): one per person, generated from their id,
+// People's hues, for presence in a note: one per person, generated from their id,
 // never in the band reserved for agents (the accent), and separated from
 // the hues of whoever else is in the note. The web paints them per theme
-// (web/src/userColor.ts); the hub checks the hue a connection announces
-// (D-040 3.3). No DOM: shared by both.
+// (web/src/userColor.ts); the hub checks the hue a connection announces,
+// so no client passes itself off as someone else. No DOM: shared by both.
 
 /** Band reserved for agents (accent hue #1E4A86 ≈ 258°). */
 const RESERVED_FROM = 230

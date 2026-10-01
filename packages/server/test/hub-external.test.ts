@@ -1,4 +1,4 @@
-// Changes another program saves to an open note, on a real server (D-012):
+// Changes another program saves to an open note, on a real server:
 // they're merged into the live document, which is only a cache of the file.
 // A program that undoes its own change (a revert) gets its revert, in the
 // editors and on disk; a program that saves a buffer it loaded before vihko

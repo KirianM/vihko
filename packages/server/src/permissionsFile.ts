@@ -1,4 +1,4 @@
-// vihko.yaml's `permissions`, written by vihko (D-014, D-038.4): from the
+// vihko.yaml's `permissions`, written by vihko: from the
 // permissions UI, when a folder moves or is deleted from vihko, and when a
 // user or group is deleted or renamed. Only the entries asked for change
 // (core/permissions.ts); the rest of the file stays as it was.
@@ -106,7 +106,7 @@ export class PermissionsFile {
 
   /**
    * Sets one folder's rule (all null: removes it). A shared space's root
-   * takes its members (its grants), never a name (the folder is it, D-056.33):
+   * takes its members (its grants), never a name (the folder is it):
    * `setRule('spaces/Home', { grants: { ana: 'manage' }, ai: null })`.
    */
   async setRule(folder: string, value: RuleValue, opts: { actor: Actor; ifMatch?: string }) {
@@ -128,7 +128,7 @@ export class PermissionsFile {
   /**
    * Removes the rules of a folder and those under it if it has any: a folder
    * about to be created from vihko, so that it never takes an audience
-   * forgotten at its path (spec §1.2). Nothing is written when there's none.
+   * forgotten at its path. Nothing is written when there's none.
    */
   async clearRules(folder: string, opts: { actor: Actor }): Promise<void> {
     const f = folder.normalize('NFC')
@@ -148,8 +148,8 @@ export class PermissionsFile {
 
   /**
    * Removes a user's or group's grants everywhere (`@name` for a group): a
-   * user deleted (D-038.8). Their personal space is nobody's from then on
-   * (D-056.8), whatever is written for it. users.ts calls it.
+   * user deleted. Their personal space is nobody's from then on,
+   * whatever is written for it. users.ts calls it.
    */
   removeSubjectGrants(subject: string, opts: { actor: Actor }) {
     return this.update((t) => rewriteSubject(t, subject, null), opts)

@@ -1,4 +1,4 @@
-// Leak tests for the MCP server (m3 §3 and §5), over the same scenario as the
+// Leak tests for the MCP server, over the same scenario as the
 // HTTP API's (leaks.test.ts): a key limited to one folder that can write,
 // with hidden notes inside and notes outside that mention them. Every tool
 // the key gets is called, several ways each, and no result or error (nor the
@@ -152,7 +152,7 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
     const byTag = results.search![7]!.data.results.map((r: { path: string }) => r.path)
     assert.deepEqual(byTag, [PATH.visible])
     // Folders: nothing outside, no folder that only holds hidden notes.
-    // At the top, only folders on the way to its folder (which ones is how the root lists spaces, piece S).
+    // At the top, only folders on the way to its folder (which ones is how the root lists spaces).
     const top = results.list_folder![0]!.data.entries as { kind: string; path: string }[]
     assert.ok(top.length > 0 && top.every((e) => e.kind === 'folder' && (e.path === DIR.key || DIR.key.startsWith(e.path + '/'))), JSON.stringify(top))
     const everything = results.list_folder![1]!.data.entries.map((e: { path: string }) => e.path)

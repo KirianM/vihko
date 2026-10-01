@@ -1,8 +1,8 @@
 // Settings → «Account»: the UI's language (saved in the account), one's own
 // password (the current one is asked for, and
-// every other session ends), the second factor (D-036: set it up, change the
+// every other session ends), the second factor (set it up, change the
 // app, new recovery codes, turn it off while the admin doesn't require it;
-// with the policy `disabled`, only whoever already has one sees it, D-040 3.4a)
+// with the policy `disabled`, only whoever already has one sees it)
 // and sessions (which browser, when it was last used; close one, or all the
 // others); at the end, vihko's version. Reached from the preferences, like the
 // other settings pages.
@@ -89,7 +89,8 @@ type TwoFactorDialog = 'setup' | 'recovery' | 'disable'
 /**
  * Setting it up: the password first, then the QR code and a first code, then
  * the recovery codes. Changing the app: the same, but a code of the one in
- * force (the app's, or a recovery code) instead of the password (D-046.3).
+ * force (the app's, or a recovery code) instead of the password: a stolen session or
+ * password alone must not replace it.
  */
 function SetupDialog({ replacing, onClose, onDone }: { replacing: boolean; onClose: () => void; onDone: () => void }) {
   const t = useT()

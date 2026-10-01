@@ -1,5 +1,5 @@
 // Notes moved outside vihko (a shell, another editor) to where more people
-// would read them: fail closed (m4 §1, D-014, spec §2.7). Who reads a note
+// would read them: fail closed. Who reads a note
 // depends on where it is; a note moved by hand into a folder shared with
 // someone who couldn't read it before would be opened to them by nobody's
 // decision. When the indexer pairs such a move (M1's detection: the same
@@ -48,7 +48,7 @@ export interface HoldAccess {
   decides: boolean
 }
 
-/** Spec §2.7: whoever has `edit` where the notes were and where each of them is now. Nobody else is told. */
+/** Who is told of a hold: whoever has `edit` where the notes were and where each of them is now. Nobody else is told. */
 export function holdAccess(h: Hold, who: HoldViewer): HoldAccess {
   const edits = (folder: string) => atLeast(who.level(folder), 'edit')
   return { decides: edits(h.folder) && h.notes.every((n) => edits(folderOf(n))) }
@@ -152,7 +152,7 @@ export class PermissionHolds implements Holds {
     if (this.list.length !== before) { this.reindex(); this.save() }
   }
 
-  /** Whether any note held now is inside `folder` (spec §3.4 row 5: `held_inside`). */
+  /** Whether any note held now is inside `folder` (`held_inside`: it can't be deleted until they're released). */
   heldInside(folder: string): boolean {
     const f = folder.normalize('NFC')
     return [...this.held_].some((p) => p.startsWith(f + '/') && this.held(p))

@@ -1,4 +1,4 @@
-// Inserting images (D-028): files (picked, pasted or dropped) are uploaded and
+// Inserting images: files (picked, pasted or dropped) are uploaded and
 // stored next to the note; an image URL is either copied by the server or
 // linked to its origin. The link goes into the note through the shared Y.Text,
 // at the place that was chosen even if someone else writes meanwhile.

@@ -1,7 +1,7 @@
-// Images stored in the notes folder (D-028): which types are accepted, where a
+// Images stored in the notes folder: which types are accepted, where a
 // new one goes and what it is called, and downloading one from a URL when a
-// user explicitly asks for a copy (members only from public addresses,
-// D-038.6).
+// user explicitly asks for a copy (members only from public addresses, so
+// the server can't be used to probe the local network).
 import { lookup as dnsLookup } from 'node:dns/promises'
 import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { request as httpsRequest } from 'node:https'
@@ -71,7 +71,7 @@ const pad = (n: number) => String(n).padStart(2, '0')
  *   after the time: the folder already says whose it is, and the names stay
  *   right when the folder is renamed with its note
  *   (`projects/plan.assets/2026-09-25-1012.png`).
- * The fixed folder is relative to the root of the note's space (spec §1.6):
+ * The fixed folder is relative to the root of the note's space:
  * with `adjuntos`, an image of a note in `spaces/Home` goes to
  * `spaces/Home/adjuntos/`, so that no folder mixes the audiences of
  * two spaces. A note in no space (the 1.0 layout) uses it from the notes root.
@@ -115,7 +115,7 @@ export interface FetchImageOptions {
   timeoutMs?: number
   maxRedirects?: number
   /**
-   * Only public addresses (D-038.6, for members): every address the host
+   * Only public addresses (for members): every address the host
    * resolves to must be public (cimd.ts `isPublicAddress`), and the
    * connection goes to the one that was checked; each redirect is checked
    * again, the same way. Otherwise `private_address`.
@@ -134,7 +134,7 @@ export interface FetchImageOptions {
  * Private and LAN addresses are allowed for the vihko admin (and for members
  * if the admin allows it): a chart from a service on the network may be worth
  * a copy. Otherwise `publicOnly`. It only runs on an explicit user action,
- * never for URLs found in notes (D-028).
+ * never for URLs found in notes (agents can write those too).
  */
 export async function fetchImage(url: string, opts: FetchImageOptions): Promise<{ bytes: Uint8Array; mime: string }> {
   const signal = AbortSignal.timeout(opts.timeoutMs ?? 15_000)

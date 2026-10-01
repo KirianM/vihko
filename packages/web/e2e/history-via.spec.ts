@@ -1,4 +1,4 @@
-// How an agent came in shows in the history (D-037): a key's version says
+// How an agent came in shows in the history: a key's version says
 // «Claude Code · en nombre de <the admin> · por la API» or «… · por MCP», in the
 // note's History tab and in «Cambios recientes». The edits are real: one
 // over the HTTP API with the key, one through the MCP server with the SDK's

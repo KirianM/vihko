@@ -1,4 +1,4 @@
-// Pinning an ambiguous link (D-031.2): one occurrence is rewritten to the
+// Pinning an ambiguous link: one occurrence is rewritten to the
 // shortest form that leads to the chosen candidate, alias and anchor kept,
 // and only when asked.
 import { test } from 'node:test'

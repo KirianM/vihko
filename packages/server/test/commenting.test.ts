@@ -1,4 +1,4 @@
-// Commenting with `comment` (D-038.5), in process: the server writes the
+// Commenting with `comment`, in process: the server writes the
 // comment, a reply or a resolved thread of one's own, and nothing else; with
 // `edit`, anyone's thread; with `read`, nothing.
 import { test } from 'node:test'
@@ -42,7 +42,7 @@ test('with comment, a person adds comments, replies and resolves their own threa
     assert.equal((await h.other('GET', q(CAKE))).body.level, 'read')
     assert.equal((await h.member('GET', q(CAKE))).body.level, 'manage')
 
-    // The admin can't edit or see the history (D-034 3.5), but comments.
+    // The admin can't edit or see the history (both need `edit`), but comments.
     const cur = await h.admin('GET', q(CAKE))
     assert.equal((await h.admin('PUT', q(CAKE), { text: m.aSentence() }, { 'if-match': `"${cur.body.etag}"` })).status, 403)
     assert.equal((await h.admin('GET', `/api/history/versions?path=${encodeURIComponent(CAKE)}`)).status, 403)
@@ -97,7 +97,7 @@ test('with comment, a person adds comments, replies and resolves their own threa
   } finally { await h.close() }
 })
 
-test('with comment, one\'s own thread with replies from other people isn\'t theirs to resolve (D-040 3.7); with only their own, it is', async () => {
+test('with comment, one\'s own thread with replies from other people isn\'t theirs to resolve; with only their own, it is', async () => {
   const h = await setup({ files: FILES, config: SHARED })
   try {
     const file = () => readFileSync(join(h.notesDir, CAKE), 'utf8')

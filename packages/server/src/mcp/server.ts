@@ -1,4 +1,4 @@
-// The MCP server (m3 §5, D-021): Streamable HTTP without sessions at
+// The MCP server: Streamable HTTP without sessions at
 // `POST /mcp`, with the official TypeScript SDK. Off (the switch in state.db
 // or VIHKO_INTEGRATIONS=off), `/mcp` doesn't exist: 404, as for any route
 // that doesn't. On, it takes an agent key (`Authorization: Bearer vihko_…`)
@@ -61,8 +61,8 @@ export function markIcons(webDir: string | undefined): McpIcon[] | undefined {
 export const INSTRUCTIONS_SPACES = 20
 
 /**
- * Where the person an agent acts for keeps their notes and what they share
- * (spec §6.2, D-056.14): their personal space, and the shared spaces and
+ * Where the person an agent acts for keeps their notes and what they share:
+ * their personal space, and the shared spaces and
  * folders they reach within the key, each with its path (and a space's
  * name, its folder's, which people write: given as data, quoted).
  */
@@ -102,7 +102,7 @@ function instructions(access: Access, spaces?: SpacesResponse): string {
     `- Paths are relative to the notes root, with the .md extension (${JSON.stringify(example)}).`,
     ...(spaces ? spacesGuide(access, spaces) : []),
     spaces
-      // D-056.15: what the person can't read doesn't exist for their agents either.
+      // What the person can't read doesn't exist for their agents either: a link can't probe for it.
       ? '- Notes the person you act for can\'t read don\'t exist for you: naming one answers `not_found`, and a link to one is broken, as a link to a note that doesn\'t exist is. '
         + 'Some notes they can read are not available to agents (marked `ai: false`, in a folder closed to agents, or outside the folders of this key): searches and listings don\'t show them, a link to one has status `no_access`, and naming one yourself (reading, writing, its history) answers `agent_denied` with the reason. That is not a broken link or a missing note: '
         + LEAVE_IT.replace(/^do/, 'Do')
@@ -136,7 +136,7 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
     const access = ctx.authInfo?.extra?.access as Access | undefined
     // Never without a key: `/mcp` below only calls the handler once it has judged one.
     if (!access) throw new Error('an MCP request without a principal')
-    // Under the spaces model, where the person keeps their notes and what they share (spec §6.2).
+    // Under the spaces model, where the person keeps their notes and what they share.
     const spaces = services.spaces.view(access)
     const guide = [workspaceGuide(access), ...settingsGuides(access, spaces)].filter((g): g is string => g !== null).join('\n\n---\n\n') || null
     const own = instructions(access, spaces)

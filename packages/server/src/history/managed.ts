@@ -257,7 +257,7 @@ export class ManagedReader implements HistoryReader {
   /**
    * Every file path the history holds a version of, with whether the
    * history's last version of it deletes it (`deleted`): what can be purged
-   * (D-038.9). Remembered for the history's head.
+   * from the UI. Remembered for the history's head.
    */
   paths() {
     return this.run(async (): Promise<{ path: string; deleted: boolean }[]> => {

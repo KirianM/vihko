@@ -1,4 +1,4 @@
-// The daily note (D-030): the note of a series for "today" in the person's
+// The daily note: the note of a series for "today" in the person's
 // timezone, so the UI and, later, the agents acting on their behalf (M3) get
 // the same note. Created from the series template through the normal create:
 // never overwriting.
@@ -17,7 +17,7 @@ export interface DailyOptions {
   now?: () => Date
   /**
    * Whether a series is offered to a person (under the spaces model: where
-   * they can write today's note, spec §1.6). One that isn't is neither their
+   * they can write today's note). One that isn't is neither their
    * default nor there when asked for by id (`not_found`, whatever is on the
    * disk). Every series by default.
    */

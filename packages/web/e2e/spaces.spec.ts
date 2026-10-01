@@ -1,4 +1,4 @@
-// Spaces (D-056, spec §8.4), with two and three people in their own
+// Spaces, with two and three people in their own
 // sessions: a folder of one's own space shared with someone, who pins it,
 // comments and can't change it; a shared space created from the sidebar for
 // a group, edited by three at once, which one can't leave through the group
@@ -109,7 +109,7 @@ test('two people: the member shares a folder of her own space to comment; the ot
   await expect(o.getByRole('menuitem', { name: 'Quitar de la barra' })).toBeVisible()
   await expect(o.getByRole('menuitem', { name: /Renombrar/ })).toHaveCount(0)
   await expect(o.getByRole('menuitem', { name: 'Compartir…' })).toHaveCount(0)
-  // Who has access, read-only (D-056.27): the owner and them, nothing to change.
+  // Who has access, read-only: the owner and them, nothing to change.
   await o.getByRole('menuitem', { name: 'Quién tiene acceso…' }).click()
   const access = o.getByRole('dialog', { name: `Quién tiene acceso a «${SHARED}»` })
   await expect(access.getByRole('listitem')).toHaveText([
@@ -169,7 +169,7 @@ test('three people: the admin creates a space for a group; the three edit a note
   await expect.poll(() => disk(shared), SLOW).toContain(typed.o)
   await expect(o.locator('.crumbs')).toContainText(`${CASA} / ${baseName(shared)}`)
 
-  // A member who doesn't manage it sees who's in and at what level, through the group, and can't change it (D-056.27).
+  // A member who doesn't manage it sees who's in and at what level, through the group, and can't change it (they already see the others' edits and presence).
   await sectionMenu(o, CASA, 'Miembros…')
   const membersOf = o.getByRole('dialog', { name: `Miembros de ${CASA}` })
   await expect(membersOf.getByRole('listitem')).toHaveCount(3)
@@ -193,7 +193,7 @@ test('three people: the admin creates a space for a group; the three edit a note
   await expect(spaceTree(o, CASA)).toHaveCount(0)
 })
 
-test('the member moves a note of her own into the space: it stops being hers, the dialog says in words which links will be broken, and nothing is rewritten across spaces (D-056.30)', async () => {
+test('the member moves a note of her own into the space: it stops being hers, the dialog says in words which links will be broken, and nothing is rewritten across spaces', async () => {
   const dir = `${personal(MEMBER)}/${m.aFolder()}`
   const moved = `${dir}/${m.aTitle()}.md`
   const target = `${dir}/${m.aTitle()}.md`
@@ -203,7 +203,7 @@ test('the member moves a note of her own into the space: it stops being hers, th
   await note(a, diary, `# ${baseName(diary)}\n\n[[${baseName(moved)}]]\n`)
   await a.goto(`/?note=${q(moved)}`)
   await expect(a.locator('.cm-content')).toBeVisible()
-  // The address names her space without its system folder (D-056.29), and the old one was replaced.
+  // The address names her space without its system folder, and the old one was replaced.
   await expect(a).toHaveURL(new RegExp(noteInUrl(moved)))
   expect(a.url()).not.toContain('people')
   await a.getByRole('button', { name: 'Más acciones' }).click()
@@ -240,7 +240,7 @@ test('the member moves a note of her own into the space: it stops being hers, th
   await expect.poll(async () => (await linkStatus(a, to, `[[${baseName(target)}]]`))?.status).toBe('missing')
 })
 
-test('a link to what someone can\'t read is broken for them, whether it exists or not; nothing offers to create it in someone else\'s space; and no link reaches another space (D-056.30)', async () => {
+test('a link to what someone can\'t read is broken for them, whether it exists or not; nothing offers to create it in someone else\'s space; and no link reaches another space', async () => {
   // The admin's own folder, shared with the other: a note linking to a note of the admin's they can't read, and to nothing.
   const dir = `${personal(ADMIN)}/${m.aFolder()}`
   const privateNote = `${personal(ADMIN)}/${m.aFolder()}/${m.aTitle()}.md`
@@ -298,7 +298,7 @@ test('a rename that would take someone\'s link, in a note the renamer reads, to 
   await o.getByRole('menuitem', { name: 'Renombrar o mover…' }).click()
   const dialog = o.getByRole('dialog')
   await dialog.getByLabel('Nuevo nombre').fill(name)
-  // The preview tells nothing (D-056.28): the refusal comes when renaming, as for a taken name.
+  // The preview tells nothing: the refusal comes when renaming, as for a taken name.
   const rename = dialog.getByRole('button', { name: /^Renombrar/ })
   await expect(rename).toBeEnabled(SLOW)
   await expect(dialog.getByRole('alert')).toHaveCount(0)
@@ -311,7 +311,7 @@ test('a rename that would take someone\'s link, in a note the renamer reads, to 
   expect(disk(linking)).toContain(`[[${name}]]`)
 })
 
-test('a subfolder can\'t be closed, so it moves out: «Move to a new space» makes it a space of its own, which the others stop seeing (D-056.28)', async () => {
+test('a subfolder can\'t be closed, so it moves out: «Move to a new space» makes it a space of its own, which the others stop seeing', async () => {
   const name = m.aFolder()
   const dir = `${casa}/${name}`
   const inside = `${dir}/${m.aTitle()}.md`
@@ -359,7 +359,7 @@ test('a subfolder can\'t be closed, so it moves out: «Move to a new space» mak
   await move.getByRole('button', { name: 'Cancelar' }).click()
 })
 
-test('sharing a folder of one\'s own space to edit says that whoever edits may work out names of notes linked from it (D-056.28)', async () => {
+test('sharing a folder of one\'s own space to edit says that whoever edits may work out names of notes linked from it', async () => {
   const dir = `${personal(MEMBER)}/${m.aFolder()}`
   await folder(a, dir)
   await a.goto('/')
@@ -413,7 +413,7 @@ test('the admin deletes two people: one\'s space closes, the admin is reminded, 
   await l.context().close()
   for (const u of [GONE, LEFT]) await call(k, 'post', `/api/admin/users/${await userId(k, u.username)}/disable`)
   await call(k, 'delete', `/api/admin/users/${await userId(k, GONE.username)}`)
-  // Undecided, the admin is reminded (D-056.28), and goes from there to «Spaces».
+  // Undecided, the admin is reminded, and goes from there to «Spaces».
   await k.goto('/?view=alerts')
   const reminder = k.locator('.alert-card', { hasText: GONE.username }).filter({ hasText: 'nadie los ve, tampoco tú' })
   await expect(reminder).toBeVisible(SLOW)
@@ -474,7 +474,7 @@ test('someone new sees «My notes» empty and creates their first note there', a
   await f.context().close()
 })
 
-test('a space\'s folder is its name (D-056.33): renaming it moves the open note\'s address, a taken name is refused by name, and an rc.1 or rc.2 address finds it', async () => {
+test('a space\'s folder is its name: renaming it moves the open note\'s address, a taken name is refused by name, and an rc.1 or rc.2 address finds it', async () => {
   const before = m.aSpaceName()
   const after = m.aSpaceName()
   const created = await call(a, 'post', '/api/spaces', { name: before }, 201) as { space: { path: string } }

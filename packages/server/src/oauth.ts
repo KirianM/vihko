@@ -1,4 +1,4 @@
-// OAuth 2.1 for the MCP server (m3 §7, D-035), so that remote clients such as
+// OAuth 2.1 for the MCP server, so that remote clients such as
 // claude.ai can connect without anyone pasting a key. vihko is its own
 // authorization server, as small as the flow allows:
 //

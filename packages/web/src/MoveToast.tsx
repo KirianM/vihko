@@ -1,7 +1,7 @@
 // Notice after a rename or move that could not do everything: which notes'
 // links were left behind (and whether the old name was kept as an alias for
 // them), which images could not go with the note, and which links that were
-// not rewritten now lead elsewhere (D-019).
+// not rewritten now lead elsewhere (nothing is retargeted silently).
 import { Button } from 'react-aria-components'
 import type { MoveReport } from './api.ts'
 import { useT } from './i18n.tsx'

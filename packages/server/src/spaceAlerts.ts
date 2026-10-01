@@ -1,4 +1,4 @@
-// The admin's alerts about the spaces (D-056, spec §1.1, §2.4, §5.7): what
+// The admin's alerts about the spaces: what
 // in the notes folder is in no space, folders in `people/` named like no
 // user, shared spaces without members or without managers, and those of
 // 0.1.0-rc.1 or rc.2 not renamed to their names yet. None of them names
@@ -45,7 +45,7 @@ export function spaceAlerts(deps: SpaceAlertsDeps): Alert[] {
   const closed: string[] = []
   for (const e of entries(join(deps.notesDir, PEOPLE))) {
     if (!e.dir) { outside.push(`${PEOPLE}/${e.name}`); continue }
-    // A deleted user's folder is their closed space (D-056.8): not a stray, but undecided while it is there (D-056.28).
+    // A deleted user's folder is their closed space: not a stray, but undecided while it is there.
     if (isValidUsername(e.name) && !users.has(e.name) && deleted.has(e.name)) closed.push(e.name)
     else if (!isValidUsername(e.name) || !users.has(e.name)) strays.push(e.name)
   }
@@ -66,7 +66,7 @@ export function spaceAlerts(deps: SpaceAlertsDeps): Alert[] {
 /**
  * A warning about vihko.yaml as the admin may be told it: one about a
  * `permissions` key whose space the admin doesn't read names neither the key
- * nor its detail (a user or group name stays: those aren't secret, D-038).
+ * nor its detail (a user or group name stays: those aren't secret, so people can share).
  */
 export function redactPermissionsWarning(w: ConfigError, access: { level(folder: string): unknown }): ConfigError {
   if (!w.at?.startsWith('permissions.')) return w

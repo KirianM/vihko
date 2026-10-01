@@ -53,7 +53,7 @@ function Snippet({ text, start, end }: { text: string; start: string; end: strin
 const noteIcon = <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6" /></svg>
 const commandIcon = <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
 
-/** A note among the results: its title, its folders in its space and, when it isn't one's own, its space (spec §5.5). */
+/** A note among the results: its title, its folders in its space and, when it isn't one's own, its space. */
 function NoteOption({ path, title, snippet }: { path: string; title: string; snippet?: ReactNode }) {
   const labels = usePathLabels()
   const folders = labels.folders(path)
@@ -94,7 +94,7 @@ interface Props {
 }
 
 export function Palette({ mode, folder: current, openPath, notes, templates, onToday, onNewFolder, onLanguage, onClose, onMode, onOpen, onCreated }: Props) {
-  // Where a new note goes: the current folder, or another place picked with «in …» (spec §5.5).
+  // Where a new note goes: the current folder, or another place picked with «in …».
   const places = usePlaces()
   const [folder, setFolder] = useState(current)
   const t = useT()
@@ -133,7 +133,7 @@ export function Palette({ mode, folder: current, openPath, notes, templates, onT
   // Create shows up once the results for what was typed have arrived: this way a
   // quick ↵ opens the matching note instead of creating another with the same name.
   // A query with a filter (`tag:x`) is a search, never the name of a new note.
-  // A leading «/» is the root of the space it's created in, never the notes root (D-056).
+  // A leading «/» is the root of the space it's created in, never the notes root.
   const typedNote = commandMode || (mode === 'search' && (found?.q !== text || hasSearchFilter(query))) ? null : newNote(query, folder, rootOf(folder) ?? folder)
   // Its folders as they are on disk, typed in any case (typedPath.ts); several in case: one to choose.
   const knownFolders = useMemo(() => {
@@ -173,7 +173,7 @@ export function Palette({ mode, folder: current, openPath, notes, templates, onT
 
   const labels = usePathLabels()
   const where = note ? labels.where(note.folder) : ''
-  // Templates by the space they're in, one's own first (spec §3.7).
+  // Templates by the space they're in, one's own first.
   const templateGroups = (() => {
     const groups = new Map<string, string[]>()
     for (const tpl of templates) {

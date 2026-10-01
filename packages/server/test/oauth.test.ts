@@ -1,4 +1,4 @@
-// OAuth 2.1 for the MCP server (m3 §7): only with VIHKO_PUBLIC_URL and the
+// OAuth 2.1 for the MCP server: only with VIHKO_PUBLIC_URL and the
 // MCP server on; metadata (RFC 8414, RFC 9728), dynamic registration (RFC
 // 7591, off until the admin turns it on), authorization code with PKCE S256,
 // consent as a key (read-only and every folder unless chosen otherwise),
@@ -55,7 +55,7 @@ const json = (h: H, method: string, path: string, body: unknown) =>
 const form = (h: H, path: string, fields: Record<string, string>, headers: Record<string, string> = {}) =>
   raw(h, 'POST', path, { body: new URLSearchParams(fields).toString(), headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers } })
 
-/** The admin lets clients register themselves (off on a new vihko, D-049), as the UI's switch does. */
+/** The admin lets clients register themselves (off on a new vihko), as the UI's switch does. */
 async function openRegistration(h: H) {
   const r = await h.admin('PUT', '/api/admin/integrations', { oauthRegistration: true })
   assert.deepEqual([r.status, r.body.oauthRegistration], [200, true])
@@ -168,7 +168,7 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
   const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
   try {
     await h.enableMcp()
-    // A new vihko doesn't let clients register themselves (D-049), even with the MCP server on and a
+    // A new vihko doesn't let clients register themselves, even with the MCP server on and a
     // public URL: the address doesn't exist and the metadata doesn't offer it. A client named by its
     // metadata document's URL still may (cimd.test.ts).
     assert.equal((await json(h, 'POST', '/oauth/register', { client_name: CLIENT, redirect_uris: [REDIRECT], token_endpoint_auth_method: 'none' })).status, 404)
@@ -266,7 +266,7 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     assert.equal(keys.length, 1)
     assert.equal(keys[0].id, key.id)
     assert.deepEqual([keys[0].name, keys[0].canWrite, keys[0].folders], [renamed, true, [FOLDER.own]])
-    // Edited in «Agents and API»: narrowing it is free; letting it reach more is confirmed, as a new key (D-046.2).
+    // Edited in «Agents and API»: narrowing it is free; letting it reach more is confirmed, as a new key.
     assert.equal((await h.admin('PATCH', `/api/keys/${key.id}`, { canWrite: false })).status, 200)
     const wider = await h.admin('PATCH', `/api/keys/${key.id}`, { folders: [] })
     assert.deepEqual([wider.status, wider.body.error], [400, 'confirmation_required'])
@@ -538,7 +538,7 @@ test('who may authorize: a member only while members may create keys; an agent n
     const client = await register(h)
     const { challenge } = pkce()
     const q = authorizeQuery(client.client_id, challenge)
-    // A new vihko doesn't let members create keys (D-049), so neither authorize: they can only deny.
+    // A new vihko doesn't let members create keys, so neither authorize: they can only deny.
     assert.equal((await h.member('GET', `/api/oauth/authorize?${q}`)).body.canAuthorize, false)
     assert.deepEqual([(await consent(h, q, {}, 'member')).status, (await consent(h, q, {}, 'member')).body.error], [403, 'forbidden'])
     assert.equal((await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).status, 200)

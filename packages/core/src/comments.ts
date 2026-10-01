@@ -1,4 +1,5 @@
-// Comments inside the note (D-023): HTML comments with author, date and text.
+// Comments inside the note, so they travel with it to any editor or backup:
+// HTML comments with author, date and text.
 //
 //   We'll use Postgres for the index.<!-- @noa 2026-09-24T08:12Z · no, use SQLite -->
 //   <!-- @claude 2026-09-24T08:15Z · ↳ agreed, changing it -->
@@ -11,7 +12,7 @@
 //   or positions stored separately.
 // - Date: UTC, ISO 8601 to the minute (`2026-09-24T08:12Z`). Dates with an
 //   offset or without a zone (written by hand or by other tools) are still read.
-// - Resolving deletes the thread. With history (D-032.5), the threads that
+// - Resolving deletes the thread. With history, the threads that
 //   left a note are found by comparing its versions, and reopening puts one
 //   back as it was, right after the text it commented.
 //
@@ -170,7 +171,7 @@ export function parseThreads(doc: string): Thread[] {
 }
 
 /**
- * The commented text as it is compared (D-031.6): Unicode NFC, whitespace
+ * The commented text as it is compared, to tell when it changed: Unicode NFC, whitespace
  * runs as one space, trimmed. Reflowing a paragraph or retyping an accent
  * the other way is not a change.
  */
@@ -248,7 +249,7 @@ export function resolveThread(doc: string, thread: Thread): Change {
 }
 
 /**
- * A comment's identity (D-032.5): author, date and text. A thread is known by
+ * A comment's identity, to follow a thread across versions: author, date and text. A thread is known by
  * its first comment's, whatever replies come and go.
  */
 export const commentKey = (c: Pick<Comment, 'author' | 'date' | 'text'>) => `${c.author}|${c.date}|${c.text}`

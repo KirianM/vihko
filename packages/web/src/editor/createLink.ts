@@ -44,7 +44,7 @@ const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) :
  * it: the link's name in the note's folder. A target with folders
  * (`[[project/Plan]]`) keeps them below that folder, and one from the root
  * (`[[/project/Plan]]`, `[[people/ana/Plan]]`) is created there. Only in the
- * note's own space (D-056.30: a link never leads to another space, so a note
+ * note's own space (a link never leads to another space, so a note
  * anywhere else would leave it broken): null for a target elsewhere, or if no
  * valid name is left.
  */

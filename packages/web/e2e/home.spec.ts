@@ -1,4 +1,4 @@
-// «Home» and «On opening» (D-056.35), for a new member: Home lists their
+// «Home» and «On opening», for a new member: Home lists their
 // recent notes, what others changed where they read and what was shared with
 // them lately; the logo always leads there; the settings pages have «Back» to
 // where they were; and «On opening» opens Home, the last note, a chosen one or

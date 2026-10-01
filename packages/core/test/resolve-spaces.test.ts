@@ -1,5 +1,5 @@
-// Link resolution with spaces (D-056, spec §4.2): a link never leaves its
-// note's space (D-056.30). A name resolves only in its note's space; a path
+// Link resolution with spaces: a link never leaves its
+// note's space. A name resolves only in its note's space; a path
 // from the notes root (`people/…`, `spaces/…`), a relative Markdown link or
 // `[[/path]]` are exact, and lead to a note only in that same space: into
 // another space they're broken, as a link to nothing. What vihko writes to
@@ -47,7 +47,7 @@ test('a name resolves only among the notes of its own space', () => {
   assert.equal(at(l.index.resolve(l.notes.sharedSource, wiki(`${l.folder}/${l.name}`))), 'missing')
 })
 
-test('D-056.30: no path leads to another space: from the notes root, [[/path]] or relative Markdown, they are broken there and exact within the space', () => {
+test('no path leads to another space: from the notes root, [[/path]] or relative Markdown, they are broken there and exact within the space', () => {
   const l = layout()
   const root = l.notes.sharedName.slice(0, -3)
   // Into another space, in any form and any case: broken, exactly like a link to nothing.
@@ -142,7 +142,7 @@ test('notes in no space (the layout before spaces) resolve among themselves, as 
 test('what vihko writes: the name inside a space; to another space, nothing that resolves', () => {
   const l = layout()
   assert.deepEqual(wikiLink(l.index, l.notes.mineSource, l.notes.mineName), { target: l.name, display: null })
-  // Another space has no form that reaches it (D-056.30): whatever comes back leads nowhere, and callers check sameSpace.
+  // Another space has no form that reaches it: whatever comes back leads nowhere, and callers check sameSpace.
   for (const [source, path] of [[l.notes.mineSource, l.notes.sharedName], [l.notes.sharedSource, l.notes.theirsNote]] as const) {
     assert.equal(at(l.index.resolve(source, wiki(shortestTarget(l.index, source, path)))), 'missing')
   }

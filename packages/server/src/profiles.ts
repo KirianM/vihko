@@ -1,14 +1,14 @@
 // Each person's profile in state.db: their timezone, which decides what day
 // "today" is for them (for the UI and, later, for agents acting on their
-// behalf), their daily-note series (D-030), what vihko opens when they come
-// in (D-056.35) and the language of their UI. Preferences, never note
+// behalf), their daily-note series, what vihko opens when they come
+// in and the language of their UI. Preferences, never note
 // content.
 import { canonicalTimeZone, civilNow, isLanguage, type CivilDateTime, type Language } from '@vihko/core'
 import type { Db } from './db.ts'
 
 /**
- * What vihko opens when the person comes in with nothing else asked for
- * (D-056.35): `home` (the default), `last` (the last note they had open on
+ * What vihko opens when the person comes in with nothing else asked for:
+ * `home` (the default), `last` (the last note they had open on
  * that device: the UI keeps it), `note` (one they chose, `onOpenNote`) or
  * `daily` (today's note of their series, only if it exists: never created
  * on coming in). Made to take more.
@@ -31,7 +31,7 @@ export interface Profile {
   language: Language | null
 }
 
-/** Timezone used while a person has none: UTC, never the server's (D-030). */
+/** Timezone used while a person has none: UTC, never the server's (which says nothing of where the person is). */
 export const FALLBACK_TIMEZONE = 'UTC'
 
 const SERIES_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/

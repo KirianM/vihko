@@ -1,4 +1,4 @@
-// D-019: an ambiguous link is never resolved silently. A move doesn't rewrite
+// An ambiguous link is never resolved silently. A move doesn't rewrite
 // links that weren't resolved, but the preview (and the report after the move)
 // lists the ones whose resolution it changes, by source note.
 import { test } from 'node:test'

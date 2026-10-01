@@ -1,4 +1,4 @@
-// Comment threads resolved from a note, from its history (D-032.5): through the
+// Comment threads resolved from a note, from its history: through the
 // API over the managed history, and the walk itself over a reader made up here
 // (the 30-day window, what is still open, and how much it reads).
 import { test } from 'node:test'

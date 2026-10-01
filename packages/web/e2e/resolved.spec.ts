@@ -1,4 +1,4 @@
-// Resolved comment threads from the history (D-032.5), with two people at
+// Resolved comment threads from the history, with two people at
 // once: resolving without asking (managed history), «Resolved» with who did
 // it, reopening through the editor (the other one sees it come back live), a
 // thread whose text is gone, and the history off as before.

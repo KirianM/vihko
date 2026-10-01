@@ -39,7 +39,7 @@
 // What lets the admin into someone else's account, or changes what they may
 // do (a reset link, a new role, a new admin; the second factor's reset is in
 // http/twoFactor.ts), and a new policy for the second factor, ask for the
-// confirmation at the moment (D-036, D-040 3.1 and 3.4a: the current code, or
+// confirmation at the moment (the current code, or
 // the password without a second factor): a session left open is not enough.
 // The person is told the next time they come in, and every other admin too
 // (notices.ts).
@@ -192,7 +192,7 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   app.get('/api/admin/users', admin, (c) => c.json({ users: users.list() }))
 
   // Only ever with a link: the person chooses their password, and the admin
-  // never knows it (D-038.3, D-046.1). Whoever operates the server has the CLI.
+  // never knows it. Whoever operates the server has the CLI.
   // A new admin is confirmed at the moment, as making someone admin is: the
   // name is checked first, so a code isn't spent on one that's taken.
   app.post('/api/admin/users', admin, async (c) => {
@@ -240,7 +240,7 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   app.post('/api/admin/users/:id/disable', admin, (c) => c.json({ user: users.disable(param(c, 'id')) }))
 
   // Bringing a disabled admin back is as good as making one: confirmed at the
-  // moment, so a session left open can't revive an admin account (D-046.1).
+  // moment, so a session left open can't revive an admin account.
   // A member, or someone not disabled, asks nothing.
   app.post('/api/admin/users/:id/enable', admin, async (c) => {
     const id = param(c, 'id')

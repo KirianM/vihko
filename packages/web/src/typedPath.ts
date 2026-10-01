@@ -1,4 +1,4 @@
-// Paths people type (D-056.29, rc.2): in a field that takes a note or a folder
+// Paths people type: in a field that takes a note or a folder
 // (purging, where something is moved, a new note's folders), a person types
 // the path as they see it, «My notes / diary / day» or «Home/recipes/Bread»,
 // in any case, and it is found as a link is: case doesn't matter, and the

@@ -1,4 +1,4 @@
-// Where something is moved to (spec §5.4): a picker of the places the person
+// Where something is moved to: a picker of the places the person
 // can write in (their own space, the shared spaces where they edit, the
 // folders shared with them to edit) and, inside the one picked, the folder,
 // typed (a new one is made) or picked from those that exist.

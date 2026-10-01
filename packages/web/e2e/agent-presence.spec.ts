@@ -1,4 +1,4 @@
-// An agent in an open note (M3 §6): a key's edit over the API reaches the
+// An agent in an open note: a key's edit over the API reaches the
 // editors live; the agent shows as presence («<key name> · en nombre de
 // <the admin>», diamond, never colour alone) and what it just wrote is marked for
 // a few seconds, in two sessions at once. Nothing a person types is marked.
@@ -6,7 +6,7 @@
 // The hub publishes `{ agent: { name, onBehalfOf, via } }` in the awareness
 // for a key that writes, and writes with that presence's clientID. A
 // person's connection that announces itself as an agent is not shown as one:
-// the hub signs presence (D-040 3.3).
+// the hub signs presence, so no one can pose as someone else.
 import { expect, test, type Page } from '@playwright/test'
 import { HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import { mkdirSync } from 'node:fs'
@@ -166,7 +166,7 @@ test('the agent shows as presence and what it writes is marked for a few seconds
   await expect(pill(member)).toHaveCount(0, { timeout: 30_000 })
 })
 
-test('a person\'s connection that announces itself as an agent is not shown as one, nor is its text marked (D-040 3.3)', async () => {
+test('a person\'s connection that announces itself as an agent is not shown as one, nor is its text marked', async () => {
   const fake = await agentClient(admin, AGENT)
   fake.text.insert(fake.text.length, `${BY_FAKE}\n`)
   await expect(lineOf(member, BY_FAKE)).toBeVisible()

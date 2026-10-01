@@ -1267,7 +1267,7 @@ const es = {
   'groups.delete1': 'Se quitan los permisos de @{name} en las carpetas: sus miembros pierden lo que tenían solo por el grupo.',
   'groups.delete2': 'Sus miembros no se borran.',
   'groups.deleteConfirm': 'Borrar el grupo',
-  // Permissions (M4, D-038)
+  // Permissions
   'level.read': 'Leer',
   'level.comment': 'Comentar',
   'level.edit': 'Editar',
@@ -2748,7 +2748,7 @@ const en: Record<keyof typeof es, string> = {
   'groups.delete1': 'The permissions of @{name} on folders are removed: its members lose what they had only through the group.',
   'groups.delete2': 'Its members aren’t deleted.',
   'groups.deleteConfirm': 'Delete the group',
-  // Permissions (M4, D-038)
+  // Permissions
   'level.read': 'Read',
   'level.comment': 'Comment',
   'level.edit': 'Edit',

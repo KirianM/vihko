@@ -1,4 +1,4 @@
-// Commenting on an open note (D-038.5), on a real server: the comment of
+// Commenting on an open note, on a real server: the comment of
 // someone with `comment` (whose editor is read-only) reaches the document the
 // others are editing, merged with their typing, and the file; one refused
 // touches nothing. Their typing never goes in.

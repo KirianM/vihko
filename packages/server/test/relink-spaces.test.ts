@@ -1,4 +1,4 @@
-// Links when a note changes space or is renamed (D-056.30, spec §4.4): a
+// Links when a note changes space or is renamed: a
 // link never leads to another space, so a move rewrites nothing across
 // spaces. The moved note's links stay as written and resolve in its new
 // space (or are broken there); links left behind that led to it are broken;
