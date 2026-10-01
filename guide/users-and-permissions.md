@@ -58,6 +58,54 @@ installation; vihko doesn't keep several isolated groups apart in one.
 
 ## Shared spaces
 
+### Step by step: make a space and invite people
+
+Say Noa wants a place for the household, which Sam can write in and Ana,
+who lives elsewhere, can only read.
+
+1. In the sidebar, press **New space** (or **Create a space** on Home).
+2. **Name**: `Family`. Everyone in the installation can see a space's name,
+   never what's in it.
+3. Under **Members (optional)**, choose `sam` in «Add…», `Edit` as the
+   level, and press **Add**. Do the same for `ana` with `Read`. You can also
+   leave it empty and add people later.
+4. Press **Create space**.
+
+«Family» shows in the sidebar, under «My notes», and you manage it. Sam and
+Ana see it at once in their sidebar, and a notice: «noa added you to
+Family». On the server it's the folder `spaces/Family/`.
+
+**Adding someone later, or changing their level:**
+
+1. Open the space's menu: its `⋯` button in the sidebar, or right-click its
+   name → **Members…**.
+2. To add: choose the person or group in «Add…», a level, and press **Add**.
+   To change a level, pick another one in that person's row; to take
+   someone out, press the `×` on their row.
+3. Press **Save**. Nothing changes until you do: **Close** leaves things as
+   they were.
+
+**Which level to give** (the full table is under [Members](#members)):
+
+| Level | For someone who… |
+|---|---|
+| Read | only reads: a relative who looks up the recipes |
+| Comment | reads and leaves comments, without changing the text |
+| Edit | writes: creates, changes, moves and deletes notes |
+| Manage | also runs the space: its members, its name, its settings, deleting it |
+
+A space can have several managers. Members who don't manage it see its menu
+with «Members…» (to see who's in) and «Leave».
+
+**Renaming it:** the space's menu → **Rename…**, type the new name, press
+**Rename**. Its folder on the server is renamed too, and links between its
+notes keep working.
+
+**Leaving it:** the space's menu → **Leave** → **Leave the space**. Nothing
+is deleted; to come back, someone who manages it adds you again. If you're
+in it through a group, the dialog says so: ask the admin to take you out of
+the group. See [Leave a space](#leave-a-space).
+
 ### Create one
 
 In the sidebar, **New space**. Give it a name and, if you like, its first
@@ -129,6 +177,31 @@ keep it to yourself. Making the new space takes being allowed to create spaces
 A person's level is the highest any grant gives them, by name or through any
 of their groups.
 
+### Step by step: move a folder to a new space
+
+Say «Family» has a folder «Gifts», and this year's presents are for Sam, who
+is a member. Nobody can be kept out of a folder of Family, so the folder
+moves out:
+
+1. Open the menu of the folder «Gifts» → **Move to a new space…** (you need
+   to manage the folder, and to be allowed to create spaces).
+2. **Name**: the new space's name, «Gifts» unless you change it.
+3. Read what the dialog says: «It will belong to the members of Gifts», and
+   under «Lose it», who stops seeing it (here Sam, and everyone else in
+   Family). It also says how many notes and files go with it and whether any
+   link changes.
+4. Tick **I understand who can see it changes** and press **Move to the new
+   space**.
+
+«Gifts» is now a shared space of its own, in the sidebar, which you manage.
+Only the people the folder itself had been shared with come along; the
+members of Family don't. Its notes keep their links. Add the people who
+should see it with its menu → **Members…**, as in
+[make a space and invite people](#step-by-step-make-a-space-and-invite-people).
+
+To keep a folder of a shared space to yourself instead, its menu has **Move
+to My notes…**, with the same confirmation.
+
 ### Leave a space
 
 The space's menu → **Leave**. Nothing is deleted: the space and its notes stay
@@ -145,7 +218,122 @@ The space's menu → **Delete space…** (it takes `manage`). Its notes go to th
 trash, and only the people who managed it can restore them. Its members stop
 seeing it at once.
 
+### A shared space's notes
+
+Whoever manages a space can give it daily notes, templates, a place for its
+images and a guide for agents, for all its members. It's the same form as a
+person's own [note settings](first-steps.md#set-up-your-own-notes), and
+every path in it is inside the space.
+
+Say «Family» wants a shopping list per week that everyone writes in, a
+templates folder of its own, its photos in one folder, and a guide that
+tells assistants where things go.
+
+1. Make what the settings will point to: in «Family», a folder `Templates`
+   with a note `Shopping` in it (`# {{title}}` and the usual headings), and a
+   note `About this space` with what an assistant should know («Recipes go
+   in Recipes, one note each»).
+2. Open the space's menu → **Settings…** (only its managers have it). The
+   dialog is «Settings of “Family”».
+3. Under «Daily notes», **Add a series**: Name `Shopping`, Folder
+   `Shopping`, Note name `{GGGG}-W{WW}` (one per week), Template
+   `Templates/Shopping`.
+4. **Templates folders**: `Templates`.
+5. **New images** → **All in one folder**, **Folder of images**: `Photos`.
+6. **Guide for agents (a note)**: `About this space`.
+7. Press **Save**.
+
+What the members get:
+
+- **«Shopping»** among their daily note series, if they can edit in Family
+  (with `read` or `comment` they can't write the note, so it isn't offered).
+  It's **one note per week for everyone**, «Family / Shopping /
+  2026-W40»: whoever opens it first that week creates it, and the others
+  open the same one. Each member chooses in Preferences → «Daily note
+  series» whether «Today's note» opens it or their own journal.
+- **The templates of «Family / Templates»** under «From a template» when
+  they make a note, anywhere.
+- **Images** pasted into any note of Family go to «Family / Photos». Images
+  of their own notes don't change.
+- **Their agents** get «About this space» when they connect, for what they
+  do in Family.
+
+The settings are saved in a hidden file of the space
+(`spaces/Family/.vihko/settings.yaml` on the server); members never see it,
+and someone who isn't a member never reads it.
+
+#### How the installation's, the space's and yours add up
+
+There are three places for these settings: `vihko.yaml`, which only the
+admin edits on the server, for the whole installation; each shared space's
+«Settings…», for its members; and each person's «Your note settings», for
+themselves. Nothing replaces anything, except for images:
+
+| Setting | What a person gets |
+|---|---|
+| Daily note series | All of them: the installation's, those of the spaces where they can edit, and their own. They choose one in Preferences |
+| Templates folders | All of them: the installation's, their spaces', and their own |
+| Where a new image goes | The setting of **the note's space**, if it has one; otherwise the installation's. Never someone else's |
+| Guide for agents | All of them, one after another: the installation's, then each space's, then their own |
+
+An example. The admin's `vihko.yaml` has a templates folder for everyone,
+`people/{user}/Templates`. «Family» has the settings above. Noa, a member
+of Family, has a «Journal» series of her own and her guide «For agents».
+Then Noa:
+
+- has two daily series, «Shopping» and «Journal», and picks «Journal» in
+  Preferences: «Today's note» opens her journal, and she opens the week's
+  shopping list from the tree, in «Family / Shopping»;
+- sees templates from «My notes / Templates» (the installation's setting)
+  and from «Family / Templates»;
+- pastes a photo into a Family note and it goes to «Family / Photos»; one
+  pasted into her journal goes next to the note (the installation's
+  default, since her own settings don't say otherwise);
+- connects an assistant, which reads vihko's instructions, then «About this
+  space», then her «For agents».
+
+If two series would give the same note, it's offered once. The details,
+and the format of the files, are in
+[Settings of a person or a space](configuration.md#settings-of-a-person-or-a-space).
+
 ## Sharing a folder of your own
+
+### Step by step: share a folder of yours
+
+Say Sam keeps his trip plans in «My notes / Trips» and wants Noa to read
+them and comment, without making a shared space.
+
+1. In the sidebar, open the menu of the folder «Trips» (its `⋯` button, or
+   right-click it) → **Share…**. The dialog is «Share “Trips”».
+2. Choose `noa` in «Add…», `Comment` as the level, and press **Add**.
+3. Press **Save**.
+
+The folder now shows a «Shared» mark in Sam's tree. It stays in Sam's space
+and stays his: only he renames, moves or deletes it. To change Noa's level
+or stop sharing, open **Share…** again, change the level or press the `×`
+on her row, and **Save**.
+
+### Step by step: what others share with you
+
+Noa gets a notice, «sam shared “Trips” with you», and the folder shows:
+
+- on **Home**, under «Shared with you lately»;
+- in the sidebar, under **Shared with me** (folded, with a count): «Trips
+  sam’s».
+
+To keep it at hand:
+
+1. Unfold «Shared with me», open the menu of «Trips» (`⋯`) → **Pin to the
+   sidebar**.
+2. «Trips sam’s» now has a section of its own in the sidebar, next to your
+   spaces, with its notes. **Unpin from the sidebar**, in the same menu,
+   puts it back.
+
+The same menu has **Who has access…** (everyone who sees it, and at what
+level) and **Leave**, which stops you seeing it («Stop seeing it»). Nothing
+is deleted; to see it again, Sam has to share it again.
+
+### How it works
 
 In «My notes», open a folder's menu → **Share…**, add people or groups and
 pick a level. They see that folder, and everything in it, under «Shared with

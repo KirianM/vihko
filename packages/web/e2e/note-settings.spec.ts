@@ -54,7 +54,11 @@ test('one\'s own settings, from Preferences: a series and a templates folder in 
   await k.goto('/')
   await expect(k.locator('nav.sidebar').getByRole('button', { name: 'Nota de hoy' })).toHaveCount(0)
   await k.getByRole('button', { name: 'Preferencias' }).click()
-  await k.getByRole('dialog', { name: 'Preferencias' }).getByRole('button', { name: 'Ajustes de tus notas' }).click()
+  // Choosing one's series and defining one's own sit together, each with its line; with no series yet, it says where to make one.
+  const group = k.getByRole('dialog', { name: 'Preferencias' }).getByRole('group', { name: 'Notas del día y plantillas' })
+  await expect(group).toContainText('Aún no tienes ninguna serie de notas del día')
+  await expect(group.getByRole('button', { name: 'Ajustes de tus notas' })).toHaveAccessibleDescription(/^Define las tuyas: series de notas del día/)
+  await group.getByRole('button', { name: 'Ajustes de tus notas' }).click()
   const dialog = k.getByRole('dialog', { name: 'Ajustes de tus notas' })
   await dialog.getByRole('button', { name: 'Añadir una serie' }).click()
   const series = dialog.getByRole('group', { name: 'Serie 1' })
@@ -87,9 +91,16 @@ test('one\'s own settings, from Preferences: a series and a templates folder in 
   await expect(k.getByRole('option', { name: `Crear «${title}» con la plantilla ${TEMPLATE}` })).toBeVisible()
   await k.keyboard.press('Escape')
 
-  // Opened again, the form has what was saved.
+  // Preferences now offer the series to choose, next to where it was made (both themes, for a look).
   await k.getByRole('button', { name: 'Preferencias' }).click()
-  await k.getByRole('dialog', { name: 'Preferencias' }).getByRole('button', { name: 'Ajustes de tus notas' }).click()
+  await expect(group.getByLabel('Serie de la nota del día')).toContainText(LABEL)
+  for (const theme of ['light', 'dark'] as const) {
+    await k.emulateMedia({ colorScheme: theme })
+    await k.screenshot({ path: `${SHOTS}/preferences-${theme}.png` })
+  }
+  await k.emulateMedia({ colorScheme: null })
+  // Opened again, the form has what was saved.
+  await group.getByRole('button', { name: 'Ajustes de tus notas' }).click()
   await expect(k.getByRole('dialog', { name: 'Ajustes de tus notas' }).getByRole('group', { name: 'Serie 1' }).getByLabel('Nombre', { exact: true })).toHaveValue(LABEL)
   await k.getByRole('dialog', { name: 'Ajustes de tus notas' }).getByRole('button', { name: 'Cancelar' }).click()
 })

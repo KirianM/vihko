@@ -367,6 +367,43 @@ admin doesn't read everyone's spaces) and asks for your current code, or your
 password without two-step verification. A longer period, or off, is saved at
 once.
 
+### Turning it on, step by step
+
+Say you want deleted notes gone after a month, and history versions older
+than a year:
+
+1. Your name, at the bottom of the sidebar → Preferences → **Users and
+   groups**, and scroll down to **Retention**.
+2. Turn on **Empty the trash after…**. It offers 30 days; change **Days in
+   the trash** if you like.
+3. Turn on **Delete history versions older than…**. It offers 12 months;
+   change the number, or the unit (days or months).
+4. Press **Save**. A dialog, «Remove more from the next run on?», says what
+   the next run would remove now, in counts and size only («The trash loses
+   4 entries now (12 MB)», or «Nothing in the trash is that old right now»).
+5. Type your current code (or your password, if you have no two-step
+   verification) and press **Save and remove**. Nothing is removed yet: the
+   settings are saved, and the section shows when the next run is («Next:
+   …», in your own time).
+
+To remove it at once instead of waiting for Sunday, press **Run now** in the
+same section: «Apply retention now?» shows the same counts; confirm with
+your code and **Remove now**. Afterwards the section says what the run did:
+«Last run: …, removing 4 trash entries and 120 history versions». Every
+admin gets an alert with the same counts.
+
+What is always kept, whatever you set:
+
+- the current version of every note;
+- the whole history of a note that is still in the trash (it goes when its
+  trash entry is emptied);
+- everything, if both switches are off: that's the default.
+
+To turn it off, or make a period longer, change it and press **Save**: that
+removes nothing, so it's saved at once, without a code.
+
+### When it runs
+
 They apply once a week, on Sundays at 03:00 in the server's time zone (the
 container's `TZ`, UTC unless you set it). If someone is writing then, the run
 waits, ten minutes at a time, for up to three hours. **Run now**, in the same

@@ -1,9 +1,12 @@
 // The person's own preferences (state.db): their timezone, which decides what
 // day "today" is, the daily note (which series «Today» opens) and what vihko
 // opens when they come in («On opening», D-056.35). Reached from the user row
-// of the sidebar, and the way to the other settings pages (one's account,
-// «Agents and API», privacy and, for the vihko admin, «Users and groups»).
-import { useEffect, useState, type FormEvent } from 'react'
+// of the sidebar, and the way to the other settings pages (one's own note
+// settings, one's account, «Agents and API», privacy and, for the vihko
+// admin, «Users and groups»). Choosing one's daily series and defining one's
+// own note settings sit together under one heading, each with a line saying
+// which is which.
+import { useEffect, useId, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Modal, ModalOverlay } from 'react-aria-components'
 import { api, type OnOpen, type Profile, type TreeNote, type WorkspaceInfo } from './api.ts'
 import { errorText, useT } from './i18n.tsx'
@@ -92,6 +95,8 @@ export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgen
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const browser = browserTimeZone()
+  const groupTitle = useId()
+  const ownHint = useId()
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -125,17 +130,25 @@ export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgen
               {timezone !== browser && (
                 <Button className="btn btn-quiet prefs-browser" onPress={() => setTimezone(browser)}>{t('prefs.useBrowser', { tz: browser })}</Button>
               )}
-              {series.length > 0 ? (<>
-                <label className="field">
-                  <span>{t('prefs.series')}</span>
-                  <select className="select" value={dailySeries} onChange={(e) => setDailySeries(e.target.value)}>
-                    {series.map((s) => <option key={s.id} value={s.id}>{s.label ?? s.id}</option>)}
-                  </select>
-                  <span className="hint">{t('prefs.seriesHint')}</span>
-                </label>
-              </>) : (
-                <p className="dialog-text">{t('prefs.seriesOff')}</p>
-              )}
+              {/* Choosing among the series one has, and defining one's own, side by side: two different things that read as one otherwise. */}
+              <div className="prefs-group" role="group" aria-labelledby={groupTitle}>
+                <p id={groupTitle} className="prefs-group-title">{t('prefs.notesGroup')}</p>
+                {series.length > 0 ? (
+                  <label className="field">
+                    <span>{t('prefs.series')}</span>
+                    <select className="select" value={dailySeries} onChange={(e) => setDailySeries(e.target.value)}>
+                      {series.map((s) => <option key={s.id} value={s.id}>{s.label ?? s.id}</option>)}
+                    </select>
+                    <span className="hint">{t('prefs.seriesHint')}</span>
+                  </label>
+                ) : (
+                  <p className="hint">{t('prefs.seriesOff')}</p>
+                )}
+                <div className="prefs-own">
+                  <Button className="btn btn-quiet prefs-link" aria-describedby={ownHint} onPress={onNoteSettings}>{t('prefs.noteSettings')}{Icon.chevron}</Button>
+                  <span id={ownHint} className="hint">{t('prefs.noteSettingsHint')}</span>
+                </div>
+              </div>
               <fieldset className="prefs-open">
                 <legend>{t('prefs.onOpen')}</legend>
                 <span className="hint">{t('prefs.onOpenHint')}</span>
@@ -151,7 +164,6 @@ export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgen
                 {onOpen === 'note' && <NotePicker value={onOpenNote} onChange={setOnOpenNote} />}
               </fieldset>
               <div className="prefs-links">
-                <Button className="btn btn-quiet prefs-link" onPress={onNoteSettings}>{t('prefs.noteSettings')}{Icon.chevron}</Button>
                 <Button className="btn btn-quiet prefs-link" onPress={onAccount}>{t('prefs.account')}{Icon.chevron}</Button>
                 {onUsers && <Button className="btn btn-quiet prefs-link" onPress={onUsers}>{t('prefs.users')}{Icon.chevron}</Button>}
                 {onSpaces && <Button className="btn btn-quiet prefs-link" onPress={onSpaces}>{t('prefs.spaces')}{Icon.chevron}</Button>}

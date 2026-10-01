@@ -204,7 +204,8 @@ Each entry is a **series**: a folder and a name pattern that give one note per
 day, week, month or year. The first series is the default. Each person picks
 theirs in Preferences («Daily note series»), with the option to open today's
 note when vihko opens (it only opens a note that exists; it never creates
-one).
+one). A person can also make series of their own without this file: see
+[A daily journal](first-steps.md#a-daily-journal).
 
 «Today» (in the sidebar, the search box's commands, or Ctrl+Alt+D, ⌘⌥D on a
 Mac) opens the note for today in that person's timezone. If it doesn't exist,
@@ -516,11 +517,14 @@ could have made that move releases them. See
 `vihko.yaml` is for the whole installation, and only an admin with access to
 the disk edits it. A person can add their own daily notes, templates and
 guide for agents, and a shared space its own, without touching it: each
-space has a settings file, in the same format for both.
+space has a settings file, in the same format for both. This is the
+reference; step by step, from the UI:
+[your own](first-steps.md#set-up-your-own-notes) and
+[a shared space's](users-and-permissions.md#a-shared-spaces-notes).
 
 | Whose | File | Edited from |
 |---|---|---|
-| A person's own | `people/<username>/.vihko/settings.yaml` | Preferences › «Your note settings» |
+| A person's own | `people/<username>/.vihko/settings.yaml` | Preferences › «Your note settings» (or «My notes» › «Settings…» in the sidebar) |
 | A shared space's | `spaces/<name>/.vihko/settings.yaml` | The space's «Settings…» in the sidebar (its managers) |
 
 ```yaml
@@ -568,6 +572,9 @@ agents: For agents              # a note of this space: its guide for agents
 | Templates folders | `vihko.yaml`'s, those of their spaces, and their own: those they can read |
 | Where new images go | For a note of a space, that space's setting if it has one; otherwise `vihko.yaml`'s |
 | Guide for agents | `vihko.yaml`'s, then that of each shared space the agent's key reaches, then the person's own, in that order. Each is a note the agent must be able to read |
+
+An example with all three, in plain words: [How the installation's, the
+space's and yours add up](users-and-permissions.md#how-the-installations-the-spaces-and-yours-add-up).
 
 A space's series get an id of their own (`me-<id>` for one's own space,
 `sp-<code>-<id>` for a shared one's), so they never take the id of one in

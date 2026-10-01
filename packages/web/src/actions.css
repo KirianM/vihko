@@ -125,6 +125,11 @@
   .toast { bottom: var(--space-4); flex-wrap: wrap; }
   .toast-text { flex: 1 1 200px; }
 }
+/* Daily notes and one's own note settings (Preferences.tsx): choosing a series and defining one's own, together in one box. */
+.prefs-group { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.prefs-group-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--ink); }
+.prefs-own { display: flex; flex-direction: column; gap: 2px; }
+.prefs-group .hint { margin: 0; font-size: 12px; color: var(--muted); }
 /* «On opening» (Preferences.tsx, D-056.35): the choices, and the note picked by its name. */
 .prefs-open { border: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .prefs-open legend { padding: 0; margin-bottom: var(--space-1); font-size: 13px; color: var(--ink-2); }
