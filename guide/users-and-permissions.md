@@ -81,9 +81,11 @@ Family». On the server it's the folder `spaces/Family/`.
    name → **Members…**.
 2. To add: choose the person or group in «Add…», a level, and press **Add**.
    To change a level, pick another one in that person's row; to take
-   someone out, press the `×` on their row.
-3. Press **Save**. Nothing changes until you do: **Close** leaves things as
-   they were.
+   someone out, press the `×` on their row. Your own row has **Leave**
+   instead of a `×`, so you can't lock yourself out by mistake.
+3. Press **Save**. Nothing changes until you do. If you close the dialog
+   (its button, Escape or a click outside) with changes not saved, it asks
+   first: **Keep editing**, **Discard changes** or **Save and close**.
 
 **Which level to give** (the full table is under [Members](#members)):
 
@@ -307,7 +309,8 @@ them and comment, without making a shared space.
 1. In the sidebar, open the menu of the folder «Trips» (its `⋯` button, or
    right-click it) → **Share…**. The dialog is «Share “Trips”».
 2. Choose `noa` in «Add…», `Comment` as the level, and press **Add**.
-3. Press **Save**.
+3. Press **Save**. «Add» only puts Noa in the list: closing without saving
+   asks first, as in a space's members.
 
 The folder now shows a «Shared» mark in Sam's tree. It stays in Sam's space
 and stays his: only he renames, moves or deletes it. To change Noa's level

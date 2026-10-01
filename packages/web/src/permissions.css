@@ -28,6 +28,13 @@
 .perm-you { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .select.perm-level { height: var(--control-md); font-size: 14px; flex-shrink: 0; }
 .perm-remove { flex-shrink: 0; }
+/* Where one's own row has no ×: the same room, so the levels stay in a column. */
+span.perm-remove { width: var(--control-md); }
+@media (pointer: coarse) { span.perm-remove { width: var(--touch); } }
+.perm-leave { flex-shrink: 0; color: var(--danger); }
+/* Changes not saved, before they're lost: the warning over its buttons. */
+.perm-unsaved { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-3) var(--space-6) 22px; }
+.perm-unsaved .dialog-actions { padding: 0; }
 .perm-row-level { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; flex-shrink: 0; max-width: 60%; }
 .perm-level-text { font-size: 14px; line-height: 20px; color: var(--ink-2); }
 .perm-row-from { font-size: 12px; line-height: 16px; color: var(--muted); overflow-wrap: anywhere; }

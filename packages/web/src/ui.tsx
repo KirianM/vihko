@@ -1,5 +1,5 @@
 // Small shared pieces: brand mark, icons and the theme button.
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useEffect, useRef } from 'react'
 import { Button } from 'react-aria-components'
 import { useT } from './i18n.tsx'
 import { usePathLabels, useSpaces } from './spaces.tsx'
@@ -140,6 +140,26 @@ export function Crumbs({ path }: { path: string | null }) {
 
 /** Opens the permissions of a note's folder from the header, where the person may (Shell). */
 export const FolderPermissionsContext = createContext<{ can: (folder: string) => boolean; open: (folder: string) => void } | null>(null)
+
+/**
+ * A dialog of the shell's modal that may not close yet (unsaved changes) when
+ * someone presses Escape or outside it: the guard it set returns true when it
+ * took the close (to ask first), false to let it close. Null outside the shell.
+ */
+export const DismissGuardContext = createContext<{ current: (() => boolean) | null } | null>(null)
+
+/** Sets this dialog's guard (see DismissGuardContext) while it's open. */
+export function useDismissGuard(guard: () => boolean) {
+  const slot = useContext(DismissGuardContext)
+  const latest = useRef(guard)
+  latest.current = guard
+  useEffect(() => {
+    if (!slot) return
+    const g = () => latest.current()
+    slot.current = g
+    return () => { if (slot.current === g) slot.current = null }
+  }, [slot])
+}
 
 /** Opens the folder drawer on a phone (there's no sidebar there). */
 export const OpenNavContext = createContext<(() => void) | null>(null)

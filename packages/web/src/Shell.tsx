@@ -23,7 +23,7 @@ import { useChooseLanguage } from './language.ts'
 import { useTheme } from './theme.ts'
 import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
-import { BackContext, Brand, Crumbs, FolderPermissionsContext, GoHomeContext, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
+import { BackContext, Brand, Crumbs, DismissGuardContext, FolderPermissionsContext, GoHomeContext, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
 import { TrashToast, type Trashed } from './TrashToast.tsx'
 import { managesFolder, noteFolder } from './levels.ts'
 import { PinOfferToast, type PinOffer } from './PinOffer.tsx'
@@ -94,6 +94,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [sideTab, setSideTab] = useState<'folders' | 'tags'>('folders')
   const [tag, setTag] = useState<string | null>(null)
   const [treeDialog, setTreeDialog] = useState<TreeDialog | null>(null)
+  /** A tree dialog with unsaved changes asks before Escape or a press outside closes it (ui.tsx useDismissGuard). */
+  const dismissGuard = useRef<(() => boolean) | null>(null)
   /** Where «New note here» creates the note; null = the open note's folder. */
   const [createIn, setCreateIn] = useState<string | null>(null)
   /** Your last folder move, if some link could not be rewritten. */
@@ -743,7 +745,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           />
         )}
       </main>
-      <ModalOverlay className="modal-overlay" isOpen={treeDialog !== null} onOpenChange={(o) => { if (!o) closeTreeDialog() }} isDismissable>
+      <DismissGuardContext.Provider value={dismissGuard}>
+      <ModalOverlay className="modal-overlay" isOpen={treeDialog !== null} onOpenChange={(o) => { if (!o && !dismissGuard.current?.()) closeTreeDialog() }} isDismissable>
         <Modal className="modal">
           {treeDialog?.kind === 'newFolder' && (
             <NewFolderDialog parent={treeDialog.parent} onClose={closeTreeDialog} onCreated={(p) => {
@@ -776,6 +779,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           {treeDialog?.kind === 'permissions' && (
             <PermissionsDialog folder={treeDialog.path} me={user} canOpen={canManageFolder} onClose={closeTreeDialog}
               onMoveTo={(target) => setTreeDialog(target === 'mine' ? { kind: 'moveFolder', path: treeDialog.path, parent: mine } : { kind: 'toNewSpace', path: treeDialog.path })}
+              onLeave={(kind, name) => setTreeDialog({ kind: 'leaveSpace', section: { root: treeDialog.path, kind, name, detail: null, level: 'manage' } })}
               onChanged={() => void loadTree()} onAccessLost={closeTreeDialog} onUnauthorized={onUnauthorized} />
           )}
           {treeDialog?.kind === 'moveNote' && (
@@ -821,6 +825,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           )}
         </Modal>
       </ModalOverlay>
+      </DismissGuardContext.Provider>
       {palette && (
         <Palette
           key={palette}
