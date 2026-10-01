@@ -761,3 +761,27 @@ test('whoever is added to a shared space or receives a folder is told, only whil
     h.close()
   }
 })
+
+test('the notice of a space or a folder shared follows it when it\'s renamed or moved from vihko', async () => {
+  const h = await setup()
+  try {
+    const noticesOf = async (who: Name) => (await h.as(who)('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'shared_with_you')
+    const brief = (a: any) => ({ kind: a.kind, path: a.path, name: a.name, owner: a.owner })
+    const s = await newSpace(h, 'member', { [h.names.other]: 'edit' })
+    // The space renamed: «added you to» names it as it is now, not something no longer seen.
+    const name = m.aSpaceName()
+    const renamed = await h.member('POST', '/api/spaces/rename', { path: s.path, name })
+    assert.equal(renamed.status, 200, renamed.text)
+    assert.deepEqual((await noticesOf('other')).map(brief), [{ kind: 'space', path: `spaces/${name}`, name, owner: null }])
+    // A folder of one's own shared, then renamed: the notice names it by its new name.
+    const actor = { kind: 'user' as const, id: h.created.member.id }
+    const [before, after] = [m.aFolder(), m.aFolder()]
+    mkdirSync(join(h.notesDir, h.home('member'), before))
+    await h.services.permissionsFile.setRule(`${h.home('member')}/${before}`, { grants: { [h.names.other]: 'read' }, ai: null }, { actor })
+    const moved = await h.member('POST', '/api/folder/move', { from: `${h.home('member')}/${before}`, to: `${h.home('member')}/${after}` })
+    assert.equal(moved.status, 200, moved.text)
+    assert.deepEqual((await noticesOf('other')).map(brief).at(-1), { kind: 'folder', path: `${h.home('member')}/${after}`, name: after, owner: h.names.member })
+  } finally {
+    h.close()
+  }
+})

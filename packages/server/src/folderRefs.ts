@@ -1,8 +1,11 @@
 // What state.db and the trash keep by a folder's path, rewritten when vihko
 // moves that folder: the folders of agent keys and of
-// OAuth codes not yet exchanged, what people pinned in the sidebar, and the
-// original paths of trash entries. Before 0.1.0 none of them followed: a key
-// limited to a folder that moved stopped reaching it.
+// OAuth codes not yet exchanged, what people pinned in the sidebar, the
+// paths notices name (a space someone was added to, a folder shared with
+// them, a note purged), and the original paths of trash entries. Before 0.1.0
+// none of them followed: a key limited to a folder that moved stopped
+// reaching it, and «ana added you to Home» became «shared something you no
+// longer see» once Home was renamed.
 //
 // Only moves made from vihko (a folder moved or renamed, a deleted person's
 // space transferred or converted). A folder moved outside vihko is a new
@@ -25,6 +28,7 @@ export function movedPath(path: string, from: string, to: string): string | null
 export interface RefsReport {
   keys: number
   pins: number
+  notices: number
   trash: number
 }
 
@@ -41,8 +45,9 @@ export class FolderRefs {
   moved(from: string, to: string): RefsReport {
     const keys = this.rewriteFolders(from, to)
     const pins = this.rewritePins(from, to)
+    const notices = this.rewriteNotices(from, to)
     const trash = this.rewriteTrash(from, to)
-    return { keys, pins, trash }
+    return { keys, pins, notices, trash }
   }
 
   /**
@@ -102,6 +107,30 @@ export class FolderRefs {
         if (m === null) continue
         this.state.prepare('delete from pins where user_id = ? and path = ?').run(r.user_id, r.path)
         this.state.prepare('insert or ignore into pins (user_id, path, created_at) values (?, ?, ?)').run(r.user_id, m, r.created_at)
+        n++
+      }
+    })()
+    return n
+  }
+
+  /** Notices' paths (their JSON `data`: `path`, or a space's `space`). How many changed. */
+  private rewriteNotices(from: string, to: string): number {
+    let n = 0
+    this.state.transaction(() => {
+      const rows = this.state.prepare('select id, data from notices').all() as { id: string; data: string }[]
+      for (const r of rows) {
+        let data: Record<string, unknown>
+        try { data = JSON.parse(r.data) as Record<string, unknown> } catch { continue }
+        if (typeof data !== 'object' || data === null) continue
+        let changed = false
+        for (const k of ['path', 'space'] as const) {
+          const m = typeof data[k] === 'string' ? movedPath(data[k], from, to) : null
+          if (m === null) continue
+          data[k] = m
+          changed = true
+        }
+        if (!changed) continue
+        this.state.prepare('update notices set data = ? where id = ?').run(JSON.stringify(data), r.id)
         n++
       }
     })()

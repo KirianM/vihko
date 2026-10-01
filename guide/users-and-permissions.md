@@ -374,7 +374,9 @@ doesn't overwrite it: the dialog reloads with the grants as they are now, and
 you review your change and save again.
 
 People who are added to a space, or get a folder shared with them, see a
-notice: «ana added you to Home», «ana shared “trips” with you».
+notice: «ana added you to Home», «ana shared “trips” with you». If the space
+or the folder is renamed or moved from vihko, the notice names it as it is
+now.
 
 ## Moving things between spaces
 
