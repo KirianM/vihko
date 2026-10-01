@@ -343,7 +343,7 @@ test('workspace alerts: codes with their data and actions based on role', async 
   const stale = (await req('POST', '/api/admin/rescan', { confirmRemoval: (scan!.removing as number) - 1 })).body
   assert.equal(stale.aborted, 'mass_delete')
   const done = (await req('POST', '/api/admin/rescan', { confirmRemoval: scan!.removing })).body
-  assert.deepEqual([done.aborted, done.removed.length], [null, scan!.removing])
+  assert.deepEqual([done.aborted, done.removed], [null, scan!.removing], 'how many, never which')
   assert.deepEqual(await alerts(), [], 'once confirmed, the alert disappears (and its conflicts along with the notes)')
 
   rmSync(notesDir, { recursive: true })

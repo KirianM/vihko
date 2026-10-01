@@ -206,7 +206,7 @@ test('permissions and spaces: rejected, notes held after a move outside vihko, g
     // One note, whose decision is someone else's: no button.
     { code: 'permissions_held', id: m.aSecret(8), folder: inVault(m.aFolder()), notes: 1, actions: [] },
     { code: 'missing_folder', folders: [missing], actions: [] },
-    { code: 'outside_spaces', paths: outside, actions: [] },
+    { code: 'outside_spaces', paths: outside, into: personal(ADMIN), actions: [] },
     { code: 'person_folder_without_user', names: [stray], actions: [] },
     { code: 'space_without_members', path: `spaces/${m.aSpaceFolder(lonely)}`, name: lonely, actions: [] },
     { code: 'space_without_managers', path: `spaces/${m.aSpaceFolder(headless)}`, name: headless, actions: [] },
@@ -227,6 +227,8 @@ test('permissions and spaces: rejected, notes held after a move outside vihko, g
   await expect(card(k, 'Una nota retenida').getByRole('button')).toHaveCount(0)
   await expect(card(k, 'Permisos de carpetas que no existen')).toContainText(label(missing))
   const out = card(k, 'Hay cosas fuera de los espacios')
+  // Where they can go: the admin's own space, by its exact path (D-056.28).
+  await expect(out).toContainText(`a tu espacio, ${personal(ADMIN)}/,`)
   for (const p of outside) await expect(out).toContainText(p)
   await expect(card(k, 'Carpetas personales sin persona')).toContainText(`people/${stray}`)
   await expect(card(k, `${lonely} no tiene miembros`)).toBeVisible()
