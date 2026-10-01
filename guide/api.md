@@ -4,13 +4,12 @@ vihko's HTTP API lets a script or another program read and write notes with a
 key. It's the same API the web UI uses: a key reaches the routes listed in this
 guide, and nothing else.
 
-The API is part of vihko's compatibility promise, like `vihko.yaml` and the MCP
-tools: a change that breaks a client that follows this guide only comes with a
-new major version, and anything removed stays available, marked deprecated,
-until then, unless keeping it would leave installations open to an attack.
-The paths have no version prefix. Fields, and new values of a field, may be
-added to responses at any time: ignore those you don't know. [What 1.x keeps stable](compatibility.md#the-http-api)
-lists every route with the fields that stay.
+vihko is at 0.x: a new minor version (0.1 → 0.2) may change the API, and says
+so in the changelog's *Upgrade notes*; a patch version only fixes things. The
+paths have no version prefix. Fields, and new values of a field, may be added
+to responses at any time: ignore those you don't know.
+[What 0.x tries to keep](compatibility.md#the-http-api) lists every route
+with its fields.
 
 For AI assistants, the MCP server is usually a better fit: see
 [Agents and integrations](agents.md).
@@ -49,19 +48,22 @@ A request with a key is judged by the key alone, never by a session cookie.
 | `404 not_found` | The API is off, or the route isn't open to keys |
 
 The key acts for its person, within its folders, and never sees notes or
-folders closed to agents (`ai: false`). A note the key can't see answers
-`404 not_found`, as if it didn't exist, except when you name one that exists
-but is hidden from agents: then `403 agent_denied` with a `reason`
-(`ai_false`, `outside_key_folders` or `user_no_access`). Lists and searches
-never include such notes.
+folders closed to agents (`ai: false`). A note its person can't read answers
+`404 not_found`, the same whether it exists or not. A note its person reads
+but that is hidden from the key answers `403 agent_denied` with a `reason`
+(`ai_false` or `outside_key_folders`), so a script leaves it alone. Lists and
+searches never include either.
 
 ## Requests and answers
 
 - The base path is `/api`. Everything is JSON (`Content-Type:
   application/json`), except file uploads and downloads.
-- Notes are named by their path from the notes root, with the `.md` extension:
-  `projects/plan.md`. In a query string, URL-encode it: with `curl`, use `-G`
-  and `--data-urlencode "path=projects/my plan.md"`.
+- Notes are named by their path from the notes root, with the `.md`
+  extension, the same for everyone: `people/noa/plan.md` in Noa's own space,
+  `spaces/home-7k2q9x/projects/plan.md` in the shared space «Home». Every note
+  is inside a space: `GET /api/spaces` says which ones the key reaches. In a
+  query string, URL-encode the path: with `curl`, use `-G` and
+  `--data-urlencode "path=spaces/home-7k2q9x/projects/my plan.md"`.
 - Dates are ISO 8601 in UTC.
 - When vihko writes a note, it may add a `uid` to its frontmatter: the note's
   identity, which stays when the note moves. Leave it as it is.
@@ -86,7 +88,9 @@ The codes you can meet with a key:
 | `invalid` | 400 | A body or parameter that isn't valid (also a body that isn't JSON). For edits by operation: an unknown `op`, a field it needs missing or of the wrong type, no operations or more than 50, or `set_frontmatter` on `uid` |
 | `invalid_path` | 400 | Not a valid note or folder path (absolute, `..`, hidden segments, not `.md`) |
 | `control_characters` | 400 | A path with a control character (a tab, a line break) |
-| `exists` | 409 | Creating a note that already exists |
+| `outside_space` | 400 | Creating or moving a note where no space is: the notes root, `people/` or `spaces/` themselves, or anywhere outside them |
+| `space_root` | 400 | A space's root named as a folder to create, move or delete |
+| `exists` | 409 | Creating or moving a note to a name that is taken, or that isn't available there because it would change where someone else's link leads (see [Known limits](compatibility.md#known-limits)) |
 | `edit_mismatch` | 409 | An edit operation doesn't fit the text: `find` not found the expected number of times (or empty), a heading that isn't there, a frontmatter that can't be written |
 | `not_configured` | 409 | The daily note, with no series in `vihko.yaml` |
 | `audience_widens` | 409 | A move would show the note to people who can't see it now; `audience` says who. Repeat with `confirmAudience: true` only if its person agrees |
@@ -138,14 +142,16 @@ their editor live.
 | Search results | 50 with words, 500 with filters alone |
 | History pages | 50 versions or changes at most |
 
-These are 1.0.1's. Limits can change within 1.x, and new ones can appear,
-rate limits among them (`429` with `Retry-After`): see
-[What 1.x keeps stable](compatibility.md#how-to-read-this-page).
+These are 0.1.0's. Limits can change, and new ones can appear, rate limits
+among them (`429` with `Retry-After`), announced in the changelog: see
+[What 0.x tries to keep](compatibility.md#reading-the-surface).
 
 ## Endpoints
 
 | Method | Path | Key | What it does |
 |---|---|---|---|
+| `GET` | `/api/spaces` | read | The spaces the key's person reaches |
+| `GET` | `/api/spaces/members` | read | Who has access to a folder the person reads |
 | `GET` | `/api/tree` | read | Every note and folder the key can see |
 | `GET` | `/api/note` | read | A note's text and ETag |
 | `GET` | `/api/note/links` | read | A note's outgoing links and backlinks |
@@ -176,7 +182,40 @@ rate limits among them (`429` with `Retry-After`): see
 "read" routes work with any key; "write" routes need a key that may write,
 and `edit` for its person where the note is. Everything else in `/api` is for
 the web UI only and answers `404` to a key: folders (creating, moving and
-deleting them), the trash, comments, alerts, users, keys and settings.
+deleting them), creating, renaming, leaving and deleting spaces, sharing, the
+trash, comments, alerts, users, keys and settings.
+
+### Spaces
+
+`GET /api/spaces` says where the key's person keeps their notes, within the
+key's folders:
+
+```json
+{
+  "personal": { "path": "people/noa" },
+  "spaces": [
+    { "path": "spaces/home-7k2q9x", "id": "7k2q9x", "name": "Home", "level": "edit", "managers": ["sam"], "aiClosed": false }
+  ],
+  "shared": [
+    { "path": "people/sam/trips", "level": "comment", "owner": "sam", "pinned": false }
+  ],
+  "canCreate": false
+}
+```
+
+- `personal` is the person's own space, or `null` when the key doesn't reach
+  it.
+- `spaces` are the shared spaces they belong to: `name` is what people see
+  (it can change), `path` and `id` never change.
+- `shared` are folders shared with them without being members: from someone's
+  own space (`owner`), or from a shared space (`space`, with its `path`, `id`
+  and `name`).
+
+`GET /api/spaces/members?path=<folder>` lists who has access to a folder the
+key's person reads: `members`, each with `username`, `level` and `via` (the
+grants that give it: `subject`, `level`, and `from`, the folder where it's
+written, `null` when the person doesn't read that folder). A folder the person
+doesn't read is `404`.
 
 ### List notes and folders
 
@@ -189,10 +228,10 @@ curl -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/tree"
 ```json
 {
   "notes": [
-    { "path": "projects/plan.md", "title": "Plan", "uid": "01JB2R…", "aliases": [] }
+    { "path": "spaces/home-7k2q9x/projects/plan.md", "title": "Plan", "uid": "01JB2R…", "aliases": [] }
   ],
-  "folders": ["projects"],
-  "pathOnly": []
+  "folders": ["people", "people/noa", "spaces", "spaces/home-7k2q9x", "spaces/home-7k2q9x/projects"],
+  "pathOnly": ["people", "spaces"]
 }
 ```
 
@@ -206,12 +245,12 @@ see.
 
 ```sh
 curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/note" \
-  --data-urlencode "path=projects/plan.md"
+  --data-urlencode "path=spaces/home-7k2q9x/projects/plan.md"
 ```
 
 ```json
 {
-  "path": "projects/plan.md",
+  "path": "spaces/home-7k2q9x/projects/plan.md",
   "text": "# Plan\n\n- Draft the budget\n- Book the room\n",
   "etag": "sha256:7e24…",
   "meta": { "title": "Plan", "uid": null, "fmError": null },
@@ -234,8 +273,11 @@ To see what's around a note:
   the note it leads to, and `anchorOk` (`1` if the heading is there, `0` if
   not, `null` without one); `ambiguous` with the `candidates` the key can see
   (and `othersNoAccess: true` when there are others); `missing`; or
-  `no_access`, with a `reason` for a key. A link to the note itself adds
-  `self: true`.
+  `no_access`, with a `reason`, for a note the key's person reads but the key
+  can't. A link to a note the person can't read is `missing`, exactly like a
+  link to a note that doesn't exist. A link to the note itself adds
+  `self: true`. How links resolve is in [Notes and Markdown](notes.md#links):
+  by name inside the note's space, with a path from the root to another.
 - `GET /api/note/headings?path=` gives `headings`, each with its `level` and
   `text`.
 - `GET /api/note/comments?path=` gives the note's comment `threads`, each with
@@ -250,19 +292,19 @@ as a prefix. Filters narrow it:
 
 | Filter | Keeps |
 |---|---|
-| `path:projects/2026` | Notes in that folder and below, or that one note (quote a path with spaces: `path:"my notes"`) |
+| `path:spaces/home-7k2q9x/projects` | Notes in that folder and below, or that one note (quote a path with spaces: `path:"my notes"`) |
 | `tag:work` | Notes with that tag, or a tag nested under it (`work/meetings`) |
 | `-path:…`, `-tag:…` | Excludes instead |
 
 ```sh
 curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/search" \
-  --data-urlencode "q=budget path:projects -tag:done"
+  --data-urlencode "q=budget path:spaces/home-7k2q9x/projects -tag:done"
 ```
 
 ```json
 {
   "results": [
-    { "path": "projects/plan.md", "title": "Plan", "snippet": "- Draft the \u0002budget\u0003" }
+    { "path": "spaces/home-7k2q9x/projects/plan.md", "title": "Plan", "snippet": "- Draft the \u0002budget\u0003" }
   ],
   "highlight": { "start": "\u0002", "end": "\u0003" }
 }
@@ -283,11 +325,11 @@ in). It never overwrites: `409 exists` if the note is there.
 ```sh
 curl -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: application/json" \
   "$VIHKO/api/note" \
-  -d '{"path": "projects/meeting.md", "text": "# Meeting\n\n"}'
+  -d '{"path": "spaces/home-7k2q9x/projects/meeting.md", "text": "# Meeting\n\n"}'
 ```
 
 `201` with the new note's `path`, `uid` and `etag`. Folders on the way are
-created.
+created. The path must be inside a space (`400 outside_space` otherwise).
 
 ### Replace a note's text
 
@@ -296,7 +338,7 @@ created.
 ```sh
 curl -X PUT -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: application/json" \
   -H 'If-Match: "sha256:7e24…"' \
-  "$VIHKO/api/note?path=projects/plan.md" \
+  "$VIHKO/api/note?path=spaces/home-7k2q9x/projects/plan.md" \
   -d '{"text": "# Plan\n\n- Draft the budget\n- Book the room\n"}'
 ```
 
@@ -333,7 +375,7 @@ answers `409 edit_mismatch`.
 ```sh
 curl -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: application/json" \
   "$VIHKO/api/note/edit" \
-  -d '{"path": "projects/plan.md", "ops": [{"op": "append_under_heading", "heading": "Plan", "text": "- Send the invites"}]}'
+  -d '{"path": "spaces/home-7k2q9x/projects/plan.md", "ops": [{"op": "append_under_heading", "heading": "Plan", "text": "- Send the invites"}]}'
 ```
 
 ```json
@@ -357,7 +399,7 @@ relative links. It never overwrites.
 ```sh
 curl -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: application/json" \
   "$VIHKO/api/note/move" \
-  -d '{"from": "projects/meeting.md", "to": "archive/2026/meeting.md", "dryRun": true}'
+  -d '{"from": "spaces/home-7k2q9x/projects/meeting.md", "to": "spaces/home-7k2q9x/archive/meeting.md", "dryRun": true}'
 ```
 
 The report says which notes' links were (or would be) rewritten (`relinked`),
@@ -365,10 +407,15 @@ links whose destination changes anyway (`shifted`), links that keep working
 (`kept`), what failed (`failed`), the old name when vihko added it as an alias
 because a link couldn't be rewritten (`aliasAdded`), what happened to the
 note's images
-(`images`) and, in a dry run, who gains or loses access (`audience`). `hidden`
-is `true` when notes the key can't see were rewritten too.
+(`images`, with `copied` for images copied to another space) and, in a dry
+run, who gains or loses access (`audience`, with `owner`: whose it is before
+and after, when it changes space). `hidden` is `true` when notes the key
+can't see were rewritten too. A move to another space adds
+`crossSpaceLinks`: how many links it writes with the path from the notes
+root, in other spaces' notes (`incoming`) and in the note itself
+(`outgoing`).
 
-Who can see a note depends on its folder. A move that would show the note to
+Who can see a note depends on its space and folder. A move that would show the note to
 anyone who can't see it now fails with `409 audience_widens` and that
 `audience`. Only with its person's agreement, repeat it with
 `"confirmAudience": true`.
@@ -381,7 +428,7 @@ hasn't changed.
 
 ```sh
 curl -X DELETE -H "Authorization: Bearer $VIHKO_KEY" \
-  "$VIHKO/api/note?path=projects/meeting.md"
+  "$VIHKO/api/note?path=spaces/home-7k2q9x/projects/meeting.md"
 ```
 
 The answer is the trash entry: its `id`, `path`, `deletedAt`, who deleted it
@@ -404,7 +451,7 @@ curl -X POST -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: application
 ```
 
 ```json
-{ "series": "journal", "path": "Journal/2026-09-28.md", "created": true }
+{ "series": "journal", "path": "people/noa/journal/2026-09-28.md", "created": true }
 ```
 
 ### Images and attachments
@@ -413,7 +460,7 @@ Upload an image with its bytes as the body, naming the note it's for:
 
 ```sh
 curl -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: image/png" \
-  "$VIHKO/api/attachments?note=projects/plan.md" --data-binary @diagram.png
+  "$VIHKO/api/attachments?note=spaces/home-7k2q9x/projects/plan.md" --data-binary @diagram.png
 ```
 
 `201` with the stored file's `path`, its `src` (the path relative to the
@@ -421,7 +468,7 @@ note) and `markdown`, the link ready to write into the note, with what would
 break a Markdown link escaped:
 
 ```json
-{ "path": "projects/my plan-2026-09-28-1201.png", "src": "my plan-2026-09-28-1201.png", "markdown": "![](my%20plan-2026-09-28-1201.png)" }
+{ "path": "spaces/home-7k2q9x/projects/my plan-2026-09-28-1201.png", "src": "my plan-2026-09-28-1201.png", "markdown": "![](my%20plan-2026-09-28-1201.png)" }
 ```
 
 vihko stores it where `vihko.yaml` says (next to the note by default), but
@@ -466,7 +513,7 @@ been quiet for a while. Until then, `versions` lists who is writing under
 
 ```sh
 curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/history/versions" \
-  --data-urlencode "path=projects/plan.md" --data-urlencode "limit=5"
+  --data-urlencode "path=spaces/home-7k2q9x/projects/plan.md" --data-urlencode "limit=5"
 ```
 
 Restoring and reverting write like any edit: they appear in the history under
@@ -500,16 +547,18 @@ curl -H "Content-Type: application/json" "$VIHKO/api/setup" \
 { "user": { "id": "…", "username": "alex", "role": "admin", "disabled": false } }
 ```
 
-It creates the account and signs nobody in: sign in afterwards, in the
-browser. The token works once; once there's a user, it's gone for good.
+It creates the account and their folder, `people/<username>/`, and signs
+nobody in: sign in afterwards, in the browser. The token works once; once
+there's a user, it's gone for good.
 
 | Code | Status | When |
 |---|---|---|
 | `invalid_token` | 400 | Not the token of this start (each start while there are no users prints a new one) |
-| `invalid_username` | 400 | The username isn't 2 to 64 letters, digits, `.`, `_` or `-` |
+| `invalid_username` | 400 | The username isn't 2 to 64 letters, digits, `.`, `_` or `-`, or starts with a dot |
 | `weak_password` | 400 | The password has fewer than 10 characters (or more than 1024) |
 | `invalid` | 400 | The body isn't JSON |
 | `already_setup` | 409 | There is a user already |
+| `personal_folder_exists` | 409 | `people/<username>` already exists in the notes folder with something in it: move it away, or choose another name |
 | `too_many_attempts` | 429 | Too many wrong tokens from this address; `Retry-After` says when to try again |
 
 ## A complete example
@@ -520,7 +569,7 @@ Read a note, change it, and write it back only if nobody changed it in between
 ```sh
 #!/bin/sh
 set -eu
-note="projects/plan.md"
+note="spaces/home-7k2q9x/projects/plan.md"
 
 etag=$(curl -sf -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/note" \
   --data-urlencode "path=$note" | jq -r .etag)
