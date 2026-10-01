@@ -6,6 +6,7 @@ import { EditorState, Facet, StateEffect, StateField, type Range } from '@codemi
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 import { isImageRef } from '@vihko/core/images'
+import { addressOf } from '@vihko/core/spaces'
 import { markdownLinkNote, missingBadge, onCreateButton, wikiLinkNote } from './createLink.ts'
 
 // --- Link state (resolved by the server's index) ----------
@@ -143,7 +144,7 @@ class WikiWidget extends WidgetType {
     wrap.className = `cm-wikilink cm-wikilink-${status}`
     const a = document.createElement('a')
     a.textContent = this.label
-    a.href = this.info?.path ? `?note=${encodeURIComponent(this.info.path)}` : '#'
+    a.href = this.info?.path ? `?note=${encodeURIComponent(addressOf(this.info.path) ?? this.info.path)}` : '#'
     if (this.info?.status === 'ambiguous') a.title = (this.info.candidates ?? []).join('\n')
     // Followed on mousedown (`linkAction`): otherwise the editor first moves the
     // cursor to the link, reveals its text for editing, and the click never

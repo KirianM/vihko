@@ -3,7 +3,8 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, type Key } from 'react-aria-components'
 import { seriesNeighbors } from '@vihko/core/series'
 import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type SpaceEntry, type SpacesInfo, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
-import { SpacesContext, rootOf, usePathLabels, useSpacesValue } from './spaces.tsx'
+import { SpacesContext, notePathOf, rootOf, usePathLabels, useSpacesValue } from './spaces.tsx'
+import { addressOf } from '@vihko/core/spaces'
 import { SpaceSections, type Section, type SectionAction } from './Sidebar.tsx'
 import { DeleteSpaceDialog, LeaveSpaceDialog, NewSpaceDialog, RenameSpaceDialog, spaceError } from './SpaceDialogs.tsx'
 import { SpacesPage } from './SpacesAdmin.tsx'
@@ -94,7 +95,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [alerts, setAlerts] = useState(0)
   /** Notices addressed to this person when they came in (M4.1): said at once, kept in «Alerts» until dismissed there. */
   const [arrived, setArrived] = useState<PersonalNotice[] | null>(null)
-  const [openPath, setOpenPathState] = useState<string | null>(() => new URLSearchParams(location.search).get('note'))
+  // `?note=` is the note's address (D-056.29); one from before it is read too, and written back as an address below.
+  const [openPath, setOpenPathState] = useState<string | null>(() => notePathOf(location.search))
   const [view, setView] = useState<View | null>(() => {
     const v = new URLSearchParams(location.search).get('view')
     return VIEWS.find((x) => x === v) ?? (v !== null && Object.hasOwn(VIEW_ALIASES, v) ? VIEW_ALIASES[v]! : null)
@@ -235,7 +237,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
 
   useEffect(() => {
     const url = new URL(location.href)
-    for (const [k, v] of [['note', openPath], ['version', openPath && version], ['view', view]] as const) v ? url.searchParams.set(k, v) : url.searchParams.delete(k)
+    for (const [k, v] of [['note', openPath && (addressOf(openPath) ?? openPath)], ['version', openPath && version], ['view', view]] as const) v ? url.searchParams.set(k, v) : url.searchParams.delete(k)
     history.replaceState(null, '', url)
   }, [openPath, version, view])
   // A version is a screen over its note: the back button goes back to the note.

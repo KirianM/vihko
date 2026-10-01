@@ -8,10 +8,11 @@ import { Button, Dialog, Heading, Modal, ModalOverlay } from 'react-aria-compone
 import { ApiError, api, type Alert, type MoveJob, type MovedRelinkReport } from './api.ts'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { Icon, MenuButton, ThemeToggle, noteName as fileName } from './ui.tsx'
-import { usePathLabels } from './spaces.tsx'
+import { noteHref, usePathLabels } from './spaces.tsx'
 import { SearchButton } from './Palette.tsx'
 import type { ConfigError, ConfigMigrationRef } from '@vihko/core/codes'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
+import { RelinkRows } from './MovePreview.tsx'
 import { ShiftPreview } from './Shifts.tsx'
 import { useDates } from './history/ui.tsx'
 import { historyApi } from './history/api.ts'
@@ -153,12 +154,7 @@ function RelinkDialog({ alert, onClose, onDone, onStarted }: {
             {!report && !error && <span className="preview-note">{t('rename.previewLoading')}</span>}
             {report && n === 0 && report.shifted.length === 0 && <span className="preview-note">{t('relink.none')}</span>}
             {report && <ShiftPreview groups={report.shifted} />}
-            {report?.relinked.flatMap((r) => r.changes.map((c, i) => (
-              <div className="preview-row" key={`${r.path}#${i}`}>
-                <span className="preview-src">{label(r.path)}</span>
-                <span className="preview-change"><del>{c.before}</del> → <ins>{c.after}</ins></span>
-              </div>
-            )))}
+            {report && <RelinkRows relinked={report.relinked} />}
           </div>
         </div>
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}
@@ -241,7 +237,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
   }
 
   const noteLink = (path: string) => (
-    <a className="mono" href={`?note=${encodeURIComponent(path)}`} onClick={(e) => { e.preventDefault(); onOpen(path) }}>{label(path)}</a>
+    <a className="mono" href={noteHref(path)} onClick={(e) => { e.preventDefault(); onOpen(path) }}>{label(path)}</a>
   )
   const mono = (path: string) => <span className="mono">{label(path)}</span>
   const adminOnly = <span className="alert-hint">{t('alerts.adminOnly')}</span>

@@ -5,7 +5,7 @@
 // trips / Rome» in a folder someone shares. Never `people/<me>` nor a
 // space's folder id.
 import { createContext, useContext, useMemo } from 'react'
-import { displayPath, parseSpacePath, spaceRootOf, type DisplayPath } from '@vihko/core/spaces'
+import { addressOf, displayPath, parseSpacePath, pathOfAddress, spaceRootOf, type DisplayPath } from '@vihko/core/spaces'
 import type { SpacesInfo } from './api.ts'
 import { useT } from './i18n.tsx'
 
@@ -81,6 +81,22 @@ export function usePathLabels(given?: Spaces) {
     }
     return { label, space, where, folders, spaceTag, spaceLabel }
   }, [t, s])
+}
+
+/**
+ * A note's link in the browser (D-056.29): `?note=<address>` (core
+ * `addressOf`: `home-7k2q9x/list.md`, `~ana/trips/Rome.md`), and the
+ * version shown over it. Never `people/` nor `spaces/`.
+ */
+export function noteHref(path: string, version?: string): string {
+  const note = `?note=${encodeURIComponent(addressOf(path) ?? path)}`
+  return version === undefined ? note : `${note}&version=${encodeURIComponent(version)}`
+}
+
+/** The real path of `?note=` in a URL's query (an address, or a path from before D-056.29), or null. */
+export function notePathOf(search: string): string | null {
+  const v = new URLSearchParams(search).get('note')
+  return v === null ? null : pathOfAddress(v)?.path ?? null
 }
 
 /** A folder path relative to its space's root (`''` at the root), and the root; null outside every space. */

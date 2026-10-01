@@ -11,7 +11,7 @@ import { SearchButton } from '../Palette.tsx'
 import { MenuButton, ThemeToggle } from '../ui.tsx'
 import { historyApi, type Change, type ChangeFile, type HistoryAuthor, type HistoryStatus } from './api.ts'
 import { changeKindText, filterOptions, isNote, uidOf } from './format.ts'
-import { usePathLabels } from '../spaces.tsx'
+import { noteHref, usePathLabels } from '../spaces.tsx'
 import { HistoryNotice } from './HistoryTab.tsx'
 import { AdminPurge, purgedText } from './Purge.tsx'
 import { Authors, Counts, HistoryIcon, useDates } from './ui.tsx'
@@ -49,7 +49,7 @@ function ChangeCard({ change, onOpen }: { change: Change; onOpen: (file: ChangeF
             <span className="c-name">
               {f.from && <span className="c-from">{pathLabel(f.from)} → </span>}
               {isNote(f.path)
-                ? <a href={`?note=${encodeURIComponent(f.path)}&version=${encodeURIComponent(change.id)}`} onClick={(e) => { e.preventDefault(); onOpen(f, change) }}>{pathLabel(f.path)}</a>
+                ? <a href={noteHref(f.path, change.id)} onClick={(e) => { e.preventDefault(); onOpen(f, change) }}>{pathLabel(f.path)}</a>
                 : <span className="c-file-path">{pathLabel(f.path)}</span>}
             </span>
             <Counts added={f.added} removed={f.removed} />

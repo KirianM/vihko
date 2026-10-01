@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  PEOPLE, SETTINGS_FOLDER, SPACES, SPACE_ID, SPACE_NAME_MAX, displayPath, isReserved, isSpaceRoot, isValidUsername, nameKey, newSpaceFolder, newSpaceId,
-  parseSpaceFolder, parseSpacePath, personalRoot, placement, readablePart, settingsFolder, sharedRoot, spaceNameProblem, spaceOf, spaceRootOf,
+  PEOPLE, PERSONAL_ADDRESS, SETTINGS_FOLDER, SPACES, SPACE_ID, SPACE_NAME_MAX, addressOf, displayPath, isReserved, isSpaceRoot, isValidUsername, nameKey, newSpaceFolder, newSpaceId,
+  parseSpaceFolder, parseSpacePath, pathOfAddress, personalRoot, placement, readablePart, settingsFolder, sharedRoot, spaceNameProblem, spaceOf, spaceRootOf,
 } from '@vihko/core'
 import { mother } from '../../../test/mother.ts'
 
@@ -160,4 +160,28 @@ test('spaces: how each person sees a path', () => {
   assert.deepEqual(displayPath(root, me, () => name), { space: { kind: 'shared', root, id, name }, folders: [], name: '' })
   assert.equal(displayPath(`people/${me}/${folder}/${title}.png`, me)!.name, `${title}.png`)
   assert.equal(displayPath(m.aNotePath(), me), null)
+})
+
+test('spaces: a note’s address in the browser never shows the product’s folders, and reads back (D-056.29)', () => {
+  const owner = m.aUsername()
+  const folder = m.aSpaceFolder()
+  const inner = m.aNotePath(m.aFolderPath(2))
+  const mine = `${personalRoot(owner)}/${inner}`
+  const shared = `${sharedRoot(folder)}/${inner}`
+  assert.equal(addressOf(mine), `${PERSONAL_ADDRESS}${owner}/${inner}`)
+  assert.equal(addressOf(shared), `${folder}/${inner}`)
+  for (const path of [mine, shared]) {
+    const address = addressOf(path)!
+    assert.ok(!address.startsWith(`${PEOPLE}/`) && !address.startsWith(`${SPACES}/`), address)
+    assert.deepEqual(pathOfAddress(address), { path, legacy: false })
+    // The address before D-056.29, the real path, is still read, and said to be old.
+    assert.deepEqual(pathOfAddress(path), { path, legacy: true })
+  }
+  assert.equal(addressOf(personalRoot(owner)), `${PERSONAL_ADDRESS}${owner}`)
+  // In no space, no address; and what names no space reads as nothing.
+  assert.equal(addressOf(inner), null)
+  // A first folder with no space id after a hyphen (a word has none) names no shared space.
+  for (const address of ['', `${m.aWord()}/${m.aNotePath()}`, `${PEOPLE}/`, `${SPACES}/${m.aWord()}/${inner}`, `${PERSONAL_ADDRESS}/${inner}`, `${PERSONAL_ADDRESS}..`]) {
+    assert.equal(pathOfAddress(address), null, address)
+  }
 })
