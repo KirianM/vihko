@@ -418,6 +418,8 @@ test('a closed space converted into a shared space: its members see all of it, w
   const h = await setup()
   try {
     const { shared, note, own } = await deletedMember(h)
+    // The person's own settings folder (D-056.16): theirs, not the shared space's (D-056.28).
+    h.write(`${h.home('member')}/.vihko/${m.aTitle()}.md`, m.aParagraph())
     const name = m.aSpaceName()
     // Someone has to manage it (D-056.22): a dry run says so too.
     for (const members of [{}, { [h.names.admin]: 'edit', [`@${h.group}`]: 'read' }]) {
@@ -430,6 +432,7 @@ test('a closed space converted into a shared space: its members see all of it, w
     assert.equal(r.status, 200, r.text)
     const dest = r.body.plan.to as string
     assert.match(dest, /^spaces\/[^/]+-[a-z0-9]{6}$/)
+    assert.ok(!existsSync(join(h.notesDir, dest, '.vihko')), 'their settings don\'t come along')
     const admin = (await h.admin('GET', '/api/spaces')).body.spaces
     assert.deepEqual(admin.map((s: any) => [s.path, s.name, s.level]), [[dest, name, 'manage']])
     assert.equal((await h.admin('GET', `/api/note?path=${encodeURIComponent(dest + own.slice(h.home('member').length))}`)).status, 200, 'all of it, also what was never shared')

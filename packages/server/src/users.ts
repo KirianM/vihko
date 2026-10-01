@@ -36,6 +36,9 @@ import { AuthError, MIN_PASSWORD, hashPassword, validName, type Auth, type Role,
 /** How long a one-time link works. */
 export const LINK_DAYS = 7
 
+/** Group names vihko keeps for itself: subjects of grants to everyone, should they come (`@everyone`, D-056.28). */
+export const RESERVED_GROUPS: readonly string[] = ['everyone', 'all', 'public', 'anyone']
+
 /** `invited`: never chose a password (a link may be pending). */
 export type UserStatus = 'active' | 'invited' | 'disabled'
 
@@ -368,12 +371,17 @@ export class Users {
     return g
   }
 
-  /** A valid group name nobody else has (`except`: the group being renamed). */
+  /**
+   * A valid group name nobody else has (`except`: the group being renamed),
+   * and none of RESERVED_GROUPS: grants to everyone may come one day, and
+   * `@everyone` (or `@all`…) must not mean a group by then (D-056.28).
+   */
   private groupName(name: unknown, except?: string): string {
     const n = typeof name === 'string' ? name.normalize('NFC').trim() : ''
     if (!validName(n)) throw new UsersError('invalid_group_name', 'invalid group name (2-64 letters, digits, ".", "_" or "-", and not a name JavaScript objects have)')
     // As the permissions compare them (auth.ts `createUser`): not only ASCII's case.
     const key = subjectKey(n)
+    if (RESERVED_GROUPS.some((r) => subjectKey(r) === key)) throw new UsersError('invalid_group_name', `${n} is reserved: choose another name`)
     const groups = this.db.prepare('select id, name from user_groups').all() as { id: string; name: string }[]
     if (groups.some((g) => g.id !== except && subjectKey(g.name) === key)) throw new UsersError('group_exists', `group ${n} already exists`)
     return n

@@ -3,7 +3,7 @@
 // (fsutil.ts), lazy `uid` and deletion to trash.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, resolve } from 'node:path'
-import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, folderOf, isIgnoredDir, linkSpace, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, spaceRootOf, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
+import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, folderOf, isIgnoredDir, isReserved, linkSpace, newUid, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, spaceRootOf, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
 import { commitText, createFile, followable, isPlainFile, linkNew, readStable, readText } from './fsutil.ts'
 import { attachmentPath, noteAttachmentsDir, sniffImage, suffixedName } from './attachments.ts'
 import { applyReplacements, beforeMoves, inTableRow, keptLinks, planImageRelinks, planLinks, planRelinks, rewriteLink, type Replacement, type Shift } from './relink.ts'
@@ -373,7 +373,7 @@ export class NoteService {
   static checkPath(path: string): string {
     if (typeof path !== 'string' || path === '') throw new NoteError('invalid_path', `invalid note path: ${String(path)}`)
     const norm = posix.normalize(path)
-    if (path !== norm || path.startsWith('/') || path.includes('\0') || norm.split('/').includes('..') || classifyPath(norm) !== 'note') {
+    if (path !== norm || path.startsWith('/') || path.includes('\0') || norm.split('/').includes('..') || classifyPath(norm) !== 'note' || isReserved(norm)) {
       throw new NoteError('invalid_path', `invalid note path: ${path}`)
     }
     return norm
@@ -1100,7 +1100,7 @@ export class NoteService {
   static checkFolder(path: string): string {
     if (typeof path !== 'string' || path === '') throw new NoteError('invalid_path', `invalid folder path: ${String(path)}`)
     const norm = posix.normalize(path)
-    if (path !== norm || path.startsWith('/') || path.endsWith('/') || path.includes('\0') || norm.split('/').includes('..') || classifyPath(norm) !== 'other') {
+    if (path !== norm || path.startsWith('/') || path.endsWith('/') || path.includes('\0') || norm.split('/').includes('..') || classifyPath(norm) !== 'other' || isReserved(norm)) {
       throw new NoteError('invalid_path', `invalid folder path: ${path}`)
     }
     return norm

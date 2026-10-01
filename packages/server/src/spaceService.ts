@@ -18,7 +18,7 @@
 import { lstatSync, mkdirSync, readdirSync, rmdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  LEVELS, SPACES, SpaceRules, isSpaceRoot, maxLevel, newSpaceFolder, parseSpaceFolder, parseSpacePath, personalRoot, rulesInFile, setRule, sharedRoot, spaceNameProblem, subjectKey,
+  LEVELS, SPACES, SpaceRules, isReserved, isSpaceRoot, maxLevel, newSpaceFolder, parseSpaceFolder, parseSpacePath, personalRoot, rulesInFile, setRule, sharedRoot, spaceNameProblem, subjectKey,
   type Level, type PermissionRule, type RuleValue,
 } from '@vihko/core'
 import type { Access } from './access.ts'
@@ -456,6 +456,12 @@ export class SpaceService {
       return out
     }, { actor: access.actor }).catch((err) => this.opts.log?.(`the old rules of ${from} stay in vihko.yaml after it moved to ${dest}: ${err instanceof Error ? err.message : String(err)}`))
     this.opts.refs.moved(from, dest)
+    // A person's settings (their `.vihko/`, D-056.16) aren't a shared space's: they don't come along (D-056.28).
+    if (action === 'convert') {
+      for (const entry of readdirSync(join(this.opts.notesDir, dest))) {
+        if (isReserved(`${dest}/${entry}`)) rmSync(join(this.opts.notesDir, dest, entry), { recursive: true, force: true })
+      }
+    }
     if (action === 'transfer') {
       this.opts.notices.spaceChanged([recipient!.id], admin.id, { change: 'personal_transferred', user: gone.id, to: recipient!.id, space: dest })
     } else {

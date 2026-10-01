@@ -125,14 +125,21 @@ test('spaces: a folder name as readable part and id', () => {
   for (const bad of ['casa', 'casa-', '-7k2q9x', 'casa-7K2Q9X', 'casa-7k2q9', ' casa-7k2q9x', '.casa-7k2q9x']) assert.equal(parseSpaceFolder(bad), null, bad)
 })
 
-test('spaces: the reserved settings folder', () => {
+test('spaces: the reserved settings folder, at the root of every space (D-056.16, .28)', () => {
   const owner = m.aUsername()
+  const space = `spaces/${m.aSpaceFolder()}`
   assert.equal(settingsFolder(owner), `people/${owner}/.vihko`)
   assert.ok(isReserved(settingsFolder(owner)))
   assert.ok(isReserved(`${settingsFolder(owner)}/${m.aNotePath()}`))
+  assert.ok(isReserved(`${space}/.vihko`))
+  assert.ok(isReserved(`${space}/.vihko/${m.aNotePath()}`))
+  // In any case: a case-insensitive disk makes them one folder.
+  assert.ok(isReserved(`${space}/.VIHKO`))
   assert.ok(!isReserved(`people/${owner}/${m.aNotePath()}`))
   assert.ok(!isReserved(`people/${owner}/.vihkox`))
-  assert.ok(!isReserved(`spaces/${m.aSpaceFolder()}/.vihko`))
+  // Only at a space's root: deeper, it is a hidden folder like any other.
+  assert.ok(!isReserved(`${space}/${m.aFolder()}/.vihko`))
+  assert.ok(!isReserved('.vihko'))
 })
 
 test('spaces: how each person sees a path', () => {

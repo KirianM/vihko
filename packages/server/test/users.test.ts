@@ -281,6 +281,11 @@ test('groups: created, renamed and deleted by the admin (the grants hooks first)
     assert.deepEqual([(await s.admin('POST', '/api/admin/groups', { name: swapCase(name) })).body.error], ['group_exists'])
     // Invalid by their form: empty, one character, a subject's `@`, a space, a slash.
     for (const bad of ['', 'x', `@${name}`, 'con espacio', 'a/b']) assert.deepEqual((await s.admin('POST', '/api/admin/groups', { name: bad })).body.error, 'invalid_group_name', bad)
+    // Reserved for grants to everyone, should they come (D-056.28): the names are the case under test, in any case.
+    for (const reserved of ['everyone', 'All', 'PUBLIC', 'anyone']) {
+      assert.deepEqual((await s.admin('POST', '/api/admin/groups', { name: reserved })).body.error, 'invalid_group_name', reserved)
+      assert.deepEqual((await s.admin('PATCH', `/api/admin/groups/${g.id}`, { name: reserved })).body.error, 'invalid_group_name', reserved)
+    }
     await s.admin('POST', `/api/admin/groups/${g.id}/members`, { userId: s.users.member.id })
     const both = await s.admin('POST', `/api/admin/groups/${g.id}/members`, { userId: s.users.admin.id })
     assert.deepEqual(both.body.group.members.map((u: any) => u.username), [s.users.member.username, s.users.admin.username].sort(nocase))

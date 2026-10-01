@@ -235,14 +235,16 @@ export function placement(folder: string): 'inside' | 'outside' {
 }
 
 /**
- * Whether a path is reserved by vihko: a person's `.vihko` folder and what's
- * in it. Hidden, so never indexed nor served; this says it to whoever asks
- * by name.
+ * Whether a path is reserved by vihko: the `.vihko` folder at the root of a
+ * space (a person's or a shared one, in any case) and what's in it, for its
+ * settings, never notes (D-056.16, .28). Hidden too, so never indexed,
+ * served nor kept in the history; this says it whatever the rule for
+ * hidden names becomes.
  */
 export function isReserved(path: string): boolean {
   const s = parseSpacePath(path)
-  if (!s || s.space.kind !== 'personal') return false
-  return s.inner === SETTINGS_FOLDER || s.inner.startsWith(SETTINGS_FOLDER + '/')
+  if (!s) return false
+  return s.inner.split('/')[0]!.toLowerCase() === SETTINGS_FOLDER
 }
 
 /**
