@@ -10,7 +10,7 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
-## [0.1.0-rc.2] - Unreleased
+## [0.1.0-rc.2] - 2026-10-01
 
 What the first real install of rc.1 brought up: links now stay inside their
 space, the interface never shows the folders `people/` and `spaces/`, paths
@@ -19,6 +19,7 @@ look the same in every browser.
 
 ### Upgrade notes
 
+- Test it with `ghcr.io/kirianm/vihko:0.1.0-rc.2` (the new `compose.yaml` names it).
 - **Links no longer cross spaces.** A link, by name or by path (`[[spaces/…]]`,
   `[[people/…]]`, `[[/…]]`, a relative Markdown link), only leads to a note of
   its own space. Links rc.1 wrote into another space
@@ -204,7 +205,7 @@ Docker image and volumes.
   [Notes you already have](guide/install.md#notes-you-already-have)). A 1.0.x notes folder
   under 0.1.0 shows nothing: its notes are outside every space and its
   `permissions` section is rejected.
-- Test it with `ghcr.io/kirianm/vihko:0.1.0-rc.1` (the new `compose.yaml` names it); `:0.1`
+- rc.1: test it with `ghcr.io/kirianm/vihko:0.1.0-rc.1`; `:0.1`
   exists from 0.1.0 on.
 
 <details>
