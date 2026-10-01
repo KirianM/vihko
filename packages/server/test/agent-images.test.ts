@@ -1,6 +1,6 @@
 // What an agent reads of the files that aren't notes (images): only one a
 // note it can read uses, and never one a note hidden from agents uses
-// (`ai: false` in the note or in its folder, D-035): writing a note that
+// (`ai: false` in the note or in its folder): writing a note that
 // links to such an image doesn't open it. Its user, as always, by the
 // folder's permission. The M4 scenario (_m4.ts), with a member's key.
 import { test } from 'node:test'

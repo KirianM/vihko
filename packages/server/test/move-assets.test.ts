@@ -1,4 +1,4 @@
-// Per-note attachments (vihko.yaml `attachments.mode: per-note`, D-031.5):
+// Per-note attachments (vihko.yaml `attachments.mode: per-note`):
 // a note's own folder of images (`plan.md` → `plan.assets/`) goes with it
 // whole, renamed to match, and every link into it keeps working.
 import { test } from 'node:test'

@@ -1,4 +1,4 @@
-// Images over MCP (D-048): `attach_image` stores one as `POST /api/attachments`
+// Images over MCP: `attach_image` stores one as `POST /api/attachments`
 // does, through the same scoped operation, so the same rules hold (the key's
 // folders, `ai: false`, a note it can write, the size limit, the type told by
 // the bytes, the images received at once), and answers the link to write.

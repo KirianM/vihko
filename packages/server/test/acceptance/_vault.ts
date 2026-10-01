@@ -20,7 +20,7 @@ export interface VaultOptions {
   seed?: number
   /**
    * The space (`spaces/<readable>-<id>`, from the notes root) the vault goes
-   * into: every note is in a space (D-056). The paths returned are real paths
+   * into: every note is in a space. The paths returned are real paths
    * (with it); links inside the vault stay relative to it, but for the exact
    * root form (`[[/…]]`), which names it.
    */

@@ -1,5 +1,5 @@
-// The leak battery (M4's, m4-multiusuario.md §2, in spaces since D-056; spec
-// §8.2): every HTTP route, MCP tool and hub message is classified (a new one
+// The leak battery: every HTTP route, MCP tool and hub message is
+// classified (a new one
 // without its line fails here), and two people and an agent walk every route
 // and tool over the same tree: no response or error carries a path, a title,
 // a fragment, a tag, a count or a candidate of what they can't see, unless
@@ -108,7 +108,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
       member: { kind: 'user', user: h.users.member },
       other: { kind: 'user', user: h.users.other },
       agent: agentPrincipal,
-      // The admin reads their own space and the spaces they're in, never anyone else's (D-038.1, D-056).
+      // The admin reads their own space and the spaces they're in, never anyone else's.
       admin: { kind: 'user', user: h.users.admin },
     }
     // What each one can't see, by the access engine: those notes' marks.
@@ -186,9 +186,9 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'POST /api/admin/users', method: 'POST', path: '/api/admin/users', body: { username: m.aUsername(), password: m.aPassword() }, expect: adminOnly(who) },
 
         { route: 'GET /api/tree', method: 'GET', path: '/api/tree', expect: 200 },
-        // «Home» (D-056.35): recent, changed by others, shared lately; a person's only.
+        // «Home»: recent, changed by others, shared lately; a person's only.
         { route: 'GET /api/home', method: 'GET', path: '/api/home', expect: who === 'agent' ? 404 : 200 },
-        // The tree, live (D-056.36): a stream that never ends for a person (live-tree.test.ts covers it); an agent has none.
+        // The tree, live: a stream that never ends for a person (live-tree.test.ts covers it); an agent has none.
         ...(who === 'agent' ? [{ route: 'GET /api/events', method: 'GET', path: '/api/events', expect: 404 }] : []),
         // Note settings: one's own; a space's, what they don't read as missing.
         { route: 'GET /api/settings', method: 'GET', path: '/api/settings', expect: who === 'agent' ? 404 : 200 },
@@ -239,7 +239,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         ...[shared, theirs].map((p) => ({ route: 'GET /api/history/resolved', method: 'GET', path: q('/api/history/resolved', { path: p }) })),
         { route: 'POST /api/history/restore', method: 'POST', path: '/api/history/restore', body: { path: theirs, id: memberVersion } },
         { route: 'POST /api/history/revert', method: 'POST', path: '/api/history/revert', body: { path: theirs, id: memberVersion, dryRun: true } },
-        // Purging (D-038.9): what they can't see, by name, as a note, a version or a folder (the admin may, without reading it).
+        // Purging: what they can't see, by name, as a note, a version or a folder (the admin may, without reading it).
         { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: theirs, dryRun: true }, expect: who === 'admin' ? undefined : 404 },
         { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: theirs, version: memberVersion, dryRun: true }, expect: who === 'admin' ? undefined : 404 },
         { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: `${folder}/nada.md`, dryRun: true }, expect: who === 'admin' ? undefined : 404 },
@@ -247,7 +247,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         // What each may purge: only what they read (and, but for the admin, manage).
         { route: 'GET /api/history/purgeable', method: 'GET', path: '/api/history/purgeable', expect: who === 'agent' ? 404 : 200 },
         { route: 'DELETE /api/history/purges/:id', method: 'DELETE', path: '/api/history/purges/nope', expect: adminOnly(who) },
-        // Commenting (D-038.5): on what they can't see, and a thread that isn't there.
+        // Commenting: on what they can't see, and a thread that isn't there.
         { route: 'POST /api/note/comment', method: 'POST', path: '/api/note/comment', body: { path: theirs, op: 'add', at: 0, context: '', text: m.aComment() }, expect: 404 },
         { route: 'POST /api/note/comment', method: 'POST', path: '/api/note/comment', body: { path: theirs, op: 'resolve', thread: 'x|y|z|0' }, expect: 404 },
         { route: 'POST /api/note/comment', method: 'POST', path: '/api/note/comment', body: { path: shared, op: 'resolve', thread: 'x|y|z|0' }, expect: who === 'agent' ? 404 : 412 },
@@ -258,7 +258,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'GET /api/permissions/access', method: 'GET', path: '/api/permissions/access' },
         { route: 'GET /api/permissions/access', method: 'GET', path: q('/api/permissions/access', { user: h.users.admin.id }) },
         { route: 'POST /api/permissions/holds/:id', method: 'POST', path: '/api/permissions/holds/nope', body: { action: 'release' } },
-        // Users and groups (piece U): names only, one's own account, and the admin's.
+        // Users and groups: names only, one's own account, and the admin's.
         { route: 'GET /api/invite/:token', method: 'GET', path: '/api/invite/nope' },
         { route: 'POST /api/invite/:token', method: 'POST', path: '/api/invite/nope', body: { password: m.aPassword() } },
         { route: 'GET /api/directory', method: 'GET', path: '/api/directory' },
@@ -291,11 +291,11 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
           route: `${method} ${path.replace(/\/nope(?=\/members\/)/, '/:id').replace(/members\/nope$/, 'members/:userId').replace(/\/nope/, '/:id')}`,
           method, path, body: method === 'GET' || method === 'DELETE' ? undefined : {}, expect: adminOnly(who),
         })),
-        // Spaces (D-056): what the person reaches, and the spaces routes naming what they can't see.
+        // Spaces: what the person reaches, and the spaces routes naming what they can't see.
         { route: 'GET /api/spaces', method: 'GET', path: '/api/spaces', expect: 200 },
         { route: 'POST /api/spaces', method: 'POST', path: '/api/spaces', body: { name: 7 } },
         ...[folder, `${folder}/${m.aFolder()}`].map((p) => ({ route: 'POST /api/spaces/from-folder', method: 'POST', path: '/api/spaces/from-folder', body: { path: p, dryRun: true } })),
-        // Who has access to a folder (D-056.27): what they can't read is as missing.
+        // Who has access to a folder: what they can't read is as missing.
         ...[folder, DIR.shared].map((f) => ({ route: 'GET /api/spaces/members', method: 'GET', path: q('/api/spaces/members', { path: f }) })),
         { route: 'GET /api/spaces/members', method: 'GET', path: q('/api/spaces/members', { path: folder }), expect: 404 },
         { route: 'POST /api/spaces/rename', method: 'POST', path: '/api/spaces/rename', body: { path: folder, name: m.aSpaceName() } },
@@ -332,7 +332,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         if (typeof call.expect === 'number') assert.equal(r.status, call.expect, where)
         // Whatever it can't see doesn't exist for a person: never `forbidden` about it.
         if (who !== 'agent' && r.status === 403 && asked.includes(hidden[who])) assert.fail(`${where}: forbidden about something it can't see`)
-        // An agent that names a note its user can't see gets `not_found`, as for one that doesn't exist (D-056.15); a denial only for what its user sees.
+        // An agent that names a note its user can't see gets `not_found`, as for one that doesn't exist; a denial only for what its user sees.
         if (who === 'agent' && r.body?.error === 'agent_denied') assert.equal(r.body.reason, 'ai_false', where)
       }
     }
@@ -442,8 +442,8 @@ test('with read or comment in a folder, nothing is written there through any rou
   } finally { await h.close() }
 })
 
-test('where a route used to give away what is in a space someone can\'t read (D-056.28): the admin\'s rescan, keys and purge preview, a move\'s progress, the history cursor, a restore\'s leftovers', async () => {
-  // A folder of the admin's own space shared with the member to edit: links never leave a space (D-056.30), so the notes
+test('where a route used to give away what is in a space someone can\'t read: the admin\'s rescan, keys and purge preview, a move\'s progress, the history cursor, a restore\'s leftovers', async () => {
+  // A folder of the admin's own space shared with the member to edit: links never leave a space, so the notes
   // the member can't read and whose links a move rewrites are the rest of that space.
   const lent = `${home(ADMIN.username)}/${m.aFolder()}`
   const h = await setup({ files: { ...FILES, [`${lent}/${m.aTitle()}.md`]: `# ${m.aHeading()}\n` }, config: RULES + `  ${yamlKey(lent)}:\n    grants: { ${yamlKey(MEMBER.username)}: edit }\n` })
@@ -486,7 +486,7 @@ test('where a route used to give away what is in a space someone can\'t read (D-
     assert.ok((await h.member('POST', '/api/history/purge', { path: PATH.cake, dryRun: true })).body.versions.length > 0)
 
     // A rename whose links are rewritten in notes the mover can't read: its progress counts only the notes they read.
-    // Links never cross spaces (D-056.30), so those notes are in the same space: a folder the admin lends the member
+    // Links never cross spaces, so those notes are in the same space: a folder the admin lends the member
     // to edit, linked from it and from two notes of the admin's the member doesn't see.
     const target = `${lent}/${m.aTitle()}.md`
     const readable = `${lent}/${m.aTitle()}.md`

@@ -1,4 +1,4 @@
-// Agents under the spaces model (D-056.14, spec §6.2; piece S): the MCP
+// Agents under the spaces model: the MCP
 // server's instructions tell the agent the person's own space and the spaces
 // and folders they reach (each with its path, and a space's name),
 // within the key; `list_folder("")` lists those roots with what kind of space
@@ -52,7 +52,7 @@ test('instructions: the person\'s own space, the spaces they belong to and what 
   }
 })
 
-test('instructions: a workspace guide with `{user}` in its path is each person\'s own (D-056.28)', async () => {
+test('instructions: a workspace guide with `{user}` in its path is each person\'s own', async () => {
   const h = await setup()
   try {
     await h.enable()

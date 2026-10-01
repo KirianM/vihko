@@ -592,7 +592,7 @@ test('a copy from another generation is refused: no duplication, and what was no
 // A saved state the hub trusts (written during this run, or matching its file
 // on startup) carries its generation on although the file changed after the
 // note was closed, while vihko was running: the change is merged into it as
-// another editor's, and what a tab typed offline merges as usual (D-032.4).
+// another editor's, and what a tab typed offline merges as usual.
 test('changed outside while vihko runs and the note is closed: what a tab typed offline merges, without a copy or duplicates', async () => {
   const { notes, env } = makeDirs()
   let srv = await startServer(env)

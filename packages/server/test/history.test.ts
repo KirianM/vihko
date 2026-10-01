@@ -341,7 +341,7 @@ test('history.exclude keeps files out of the history without hiding them; a move
     const now = (await h.changes()).changes[0]
     assert.equal(who(now), 'external')
     assert.deepEqual(now.files.map((f: any) => [f.path, f.change]).sort(), [
-      // (vihko.yaml changed too: its versions aren't listed to anyone, D-038.)
+      // (vihko.yaml changed too: its versions aren't listed to anyone, since it holds the permissions.)
       [PDF, 'created'], [BOOK, 'created'], [DRAFT, 'modified'],
       ...inFolder.map((p) => [`${library}/${p.slice(SHARED.length + 1)}`, 'created']),
     ].sort())
@@ -656,7 +656,7 @@ test('vihko.yaml turns the history off and on: nothing recorded meanwhile is att
     const { changes } = await h.changes()
     assert.deepEqual(changes[0].reason, { code: 'history_resumed' })
     assert.equal(who(changes[0]), 'system')
-    // vihko.yaml is in that version too, but it isn't listed to anyone (it holds the permissions, D-038).
+    // vihko.yaml is in that version too, but it isn't listed to anyone (it holds the permissions).
     assert.deepEqual(changes[0].files.map((f: any) => f.path).sort(), [NOTE])
     assert.equal(changes.length, 2)
   } finally { await h.close() }

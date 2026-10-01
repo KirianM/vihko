@@ -1,4 +1,4 @@
-// The MCP server with real clients over the network (m3 §5), against the real
+// The MCP server with real clients over the network, against the real
 // server started as in production: the SDK's own client (both protocol eras),
 // MCP Inspector in CLI mode, and mcp-remote (the stdio bridge Claude Desktop
 // and others use for remote servers). Each one lists the tools a key gets,

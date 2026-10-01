@@ -1,4 +1,4 @@
-// Each person's profile: timezone, daily-note preferences (D-030) and the UI's language.
+// Each person's profile: timezone, daily-note preferences and the UI's language.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import Database from 'better-sqlite3'
@@ -55,7 +55,7 @@ test('profiles: the language of the UI, one of its translations or automatic (nu
   assert.equal((await admin('GET', '/api/profile')).body.language, null)
 })
 
-test('profiles: «On opening» (D-056.35): home by default, the last note, today\'s, or a note the person reads', async () => {
+test('profiles: «On opening»: home by default, the last note, today\'s, or a note the person reads', async () => {
   const { admin, member, users, dir } = await setup({ config: CONFIG })
   assert.equal((await admin('GET', '/api/profile')).body.onOpen, 'home')
   for (const onOpen of ['last', 'daily', 'home'] as const) {

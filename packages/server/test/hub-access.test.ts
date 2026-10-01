@@ -1,4 +1,4 @@
-// The collaboration hub under the folders' permissions (D-038), on a real
+// The collaboration hub under the folders' permissions, on a real
 // server: opening a note needs `read`; with `read` or `comment` whatever the
 // editor sends is dropped; when access changes with the note open, the
 // editor is told and closed; a move doesn't name where the note went to
@@ -16,7 +16,7 @@ import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
-// A shared space the member manages and the admin only reads (the admin role gives nothing, D-038.1).
+// A shared space the member manages and the admin only reads (being admin gives no access to notes).
 const rules = (admin: string, member: string, shared: string) => `permissions:
   ${yamlKey(shared)}:
     grants: { ${yamlKey(member)}: manage, ${yamlKey(admin)}: read }

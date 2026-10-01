@@ -1,4 +1,4 @@
-// The second factor (D-036): TOTP against RFC 6238's vectors, its window
+// The second factor: TOTP against RFC 6238's vectors, its window
 // and replay, recovery codes, the QR code, the two-step sign-in and its
 // limits, the admin's policy (also after an invitation or a reset), the
 // admin's reset and the CLI's, and confirming at the moment before creating
@@ -132,7 +132,7 @@ const hashParts = (h: string) => {
   return { salted: parts.slice(0, -1).join('$'), salt: parts.at(-2)!, hash: parts.at(-1)! }
 }
 
-test('recovery codes: a slow hash, with one salt for each batch and a new salt for the next (D-046.4)', async () => {
+test('recovery codes: a slow hash, with one salt for each batch and a new salt for the next', async () => {
   const { tf, state, code, name } = await store()
   const s = tf.beginSetup('u1', name)
   const codes = (await tf.finishSetup('u1', code(s)))!
@@ -150,7 +150,7 @@ test('recovery codes: a slow hash, with one salt for each batch and a new salt f
   assert.equal((await tf.verify('u1', codes[0], { recovery: true })).ok, false)
 })
 
-test('recovery codes kept as a sha256 (before D-046.4) still work, each once, until new ones replace them', async () => {
+test('recovery codes kept as a plain sha256 (before the slow hash) still work, each once, until new ones replace them', async () => {
   const { tf, state, code, name } = await store()
   const s = tf.beginSetup('u1', name)
   await tf.finishSetup('u1', code(s))
@@ -262,7 +262,7 @@ test('two steps: the password gives a pending sign-in, and a TOTP code or a reco
     assert.equal((await send(h.app, 'POST', '/api/auth/login/code', { pending: third.body.pending, code: totp(secret, h.clock.now.getTime()) })).body.error, 'login_expired')
     assert.equal((await send(h.app, 'POST', '/api/auth/login/code', { pending: 'nonsense', code: '123456' })).status, 401)
 
-    // New recovery codes: a code of the second factor, the app's or a recovery code; never the password (D-046.3).
+    // New recovery codes: a code of the second factor, the app's or a recovery code; never the password.
     nextStep(h)
     const asked = await h.admin('POST', '/api/account/2fa/recovery', {})
     assert.deepEqual([asked.status, asked.body.error, asked.body.with], [400, 'confirmation_required', 'code'])
@@ -276,11 +276,11 @@ test('two steps: the password gives a pending sign-in, and a TOTP code or a reco
   } finally { await h.close() }
 })
 
-test('with a second factor in force, changing the app takes a code of it (the app\'s or a recovery code), never the password (D-046.3)', async () => {
+test('with a second factor in force, changing the app takes a code of it (the app\'s or a recovery code), never the password', async () => {
   const h = await setup()
   try {
     const { secret } = await enable(h, 'member')
-    // A new key is how the second factor is asked for here: the admin lets members create them (off on a new vihko, D-049).
+    // A new key is how the second factor is asked for here: the admin lets members create them (off on a new vihko).
     assert.equal((await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).status, 200)
     const password = h.users.member.password
     const asked = await h.member('POST', '/api/account/2fa/setup', { password })
@@ -370,7 +370,7 @@ test('the policy: a change is confirmed; required makes whoever has none set it 
     assert.equal((await signIn(h, 'member')).body.user.username, member)
     assert.equal((await memberSession('POST', '/api/account/2fa/disable', { code: '123456' })).body.error, 'two_factor_off')
 
-    // Disabled (D-040 3.4a): nobody new sets one up, and whoever has one is still asked for it.
+    // Disabled: nobody new sets one up, and whoever has one is still asked for it.
     const { secret, recoveryCodes } = await enable(h, 'admin')
     const since = h.clock.now.toISOString()
     nextStep(h)

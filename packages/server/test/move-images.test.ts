@@ -1,4 +1,4 @@
-// Moving a note with images (D-028): the images only it uses, in its folder,
+// Moving a note with images: the images only it uses, in its folder,
 // go with it; the rest stay and its links to them are rewritten.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

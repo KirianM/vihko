@@ -127,7 +127,7 @@ test('VIHKO_INTEGRATIONS=off: keys get 404 whatever state.db says, and the switc
   } finally { await h.close() }
 })
 
-test('changing a key: letting it do more is confirmed at the moment, as a new key is; narrowing or renaming it is not (D-046.2)', async () => {
+test('changing a key: letting it do more is confirmed at the moment, as a new key is; narrowing or renaming it is not', async () => {
   const h = await setup({ files: FILES })
   try {
     const password = h.users.admin.password
@@ -178,7 +178,7 @@ test('keys over the UI: created once with their token, listed without it, change
     const changed = await h.admin('PATCH', `/api/keys/${key.id}`, { name: renamed, canWrite: false, folders: [], confirm: h.users.admin.password })
     assert.deepEqual([changed.body.key.name, changed.body.key.canWrite, changed.body.key.folders], [renamed, false, []])
 
-    // A new vihko doesn't let members create keys (D-049) until the admin turns it on.
+    // A new vihko doesn't let members create keys until the admin turns it on.
     assert.equal((await h.member('GET', '/api/integrations')).body.canCreateKeys, false)
     const refused = await h.member('POST', '/api/keys', { confirm: h.users.member.password, name: m.aKeyName() })
     assert.deepEqual([refused.status, refused.body.error], [403, 'forbidden'])
@@ -216,7 +216,7 @@ test('rotating a key over the UI: its owner only, a new token once, both working
   const h = await setup({ files: FILES })
   try {
     await h.enableApi()
-    // The member has a key too: the admin lets members (off on a new vihko, D-049).
+    // The member has a key too: the admin lets members (off on a new vihko).
     await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })
     const name = m.aKeyName()
     const { key, token } = await h.newKey({ name, canWrite: true })

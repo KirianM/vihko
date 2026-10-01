@@ -1,4 +1,4 @@
-// OAuth Client ID Metadata Documents (cimd.ts, D-037): which addresses are
+// OAuth Client ID Metadata Documents (cimd.ts): which addresses are
 // public, which client_ids vihko would fetch, and the fetch itself against a
 // local HTTPS server with a throwaway certificate (for `cimd.test`), which the
 // fetcher may only reach through its testing options: loopback allowed, any
@@ -240,7 +240,7 @@ test('OAuth with a client named by its metadata document: advertised, fetched on
     const meta = await h.app.request('/.well-known/oauth-authorization-server')
     const advertised = await meta.json() as Record<string, unknown>
     assert.equal(advertised.client_id_metadata_document_supported, true)
-    // Registration is off, as on a new vihko (D-049): a client named by its document needs none.
+    // Registration is off, as on a new vihko: a client named by its document needs none.
     assert.equal(advertised.registration_endpoint, undefined)
     assert.ok((advertised.token_endpoint_auth_methods_supported as string[]).includes('none'), 'Claude uses CIMD only with `none` listed')
 

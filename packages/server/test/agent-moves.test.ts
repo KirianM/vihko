@@ -1,4 +1,4 @@
-// An agent's move that opens a note to more people (D-040 3.2): the dry run
+// An agent's move that opens a note to more people: the dry run
 // says who gains and loses access, to agents too, and a move that widens it
 // goes through only with the audience confirmed; one that narrows it needs
 // nothing. Over the API with a key and over MCP, on the M4 scenario.
@@ -51,7 +51,7 @@ test('API: an agent\'s move that widens access needs confirmAudience; the dry ru
     // Nor a move within the same audience.
     assert.equal((await agent('POST', '/api/note/move', { from: PATH.settings, to: m.aNotePath(DIR.admin) })).status, 200)
 
-    // A person moves as before: the UI asks them (D-038), the API doesn't.
+    // A person moves as before: the UI asks them, the API doesn't.
     assert.equal((await h.admin('POST', '/api/note/move', plan)).status, 200)
   } finally { await h.close() }
 })

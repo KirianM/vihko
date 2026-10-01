@@ -1,4 +1,4 @@
-// The M3 «done when» (m3 §9, points 1 to 6), against a running server
+// The agents' acceptance scenario, against a running server
 // (a process, or the Docker image): an agent with a key that writes in
 // `proyectos/` creates `proyectos/plan.md` over MCP (both in the shared
 // space the vault is in, _permissions.ts SHARED); a person opens it in the

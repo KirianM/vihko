@@ -1,4 +1,4 @@
-// Moves made outside vihko (D-031.4): a note leaving one path and entering
+// Moves made outside vihko: a note leaving one path and entering
 // another in the same batch (or a few seconds apart) with the same `uid`, or
 // the same content without one, is the same note. Never a guess.
 import { test } from 'node:test'

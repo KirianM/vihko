@@ -1,5 +1,5 @@
-// Per-folder permissions for people (M4, D-038): the scenario of the spec
-// (§7) through the HTTP API, the permissions API, folders with their rules,
+// Per-folder permissions for people: the multi-person scenario (_m4.ts)
+// through the HTTP API, the permissions API, folders with their rules,
 // the trash, the history at `edit`, and what fails closed.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -43,10 +43,10 @@ const rule = (folder: string, grants: [string, string][]) => `  ${folderKey(fold
 /** A note's text with a word to find it by. */
 const noteText = (word = m.aUniqueWord()) => `# ${m.aHeading()}\n\n${m.aSentence()} ${word}.\n`
 
-/** FILES with the shared list linking the member's cake by its path (D-056.4): a link into a personal space. */
+/** FILES with the shared list linking the member's cake by its path: a link into a personal space. */
 const LINKED = { ...FILES, [PATH.list]: (FILES[PATH.list] as string).replace(link(NAME.cake), LINK.cake) }
 
-test('§7.1: each person sees their space and the shared one; the admin doesn\'t read what isn\'t granted, nor anything outside the spaces', async () => {
+test('each person sees their space and the shared one; the admin doesn\'t read what isn\'t granted, nor anything outside the spaces', async () => {
   const h = await setup({ files: LINKED })
   try {
     const member = (await h.member('GET', '/api/tree')).body
@@ -68,15 +68,15 @@ test('§7.1: each person sees their space and the shared one; the admin doesn\'t
       assert.equal(missing.text.replaceAll(JSON.stringify(absent).slice(1, -1), JSON.stringify(path).slice(1, -1)), r.text, 'no access and no note answer alike')
     }
 
-    // A link to a note one can't read is broken for them, as one to a note that doesn't exist: no path, no title, no candidates (D-056.15).
+    // A link to a note one can't read is broken for them, as one to a note that doesn't exist: no path, no title, no candidates.
     const kLinks = (await h.admin('GET', h.url('/api/note/links', { path: PATH.list }))).body
     const out = Object.fromEntries(kLinks.outgoing.map((l: { raw: string }) => [l.raw, l]))
     const cake = out[LINK.cake]
     assert.deepEqual(cake, { raw: cake.raw, kind: 'wiki', target: LINK.cake.slice(2, -2), anchor: null, status: 'missing', dstPath: null, anchorOk: null, candidates: null, posFrom: cake.posFrom })
     assert.equal(out['[[2026-09-27]]'].status, 'missing')
-    // A name never reaches another space: not even the admin's own notes are candidates (D-056.4).
+    // A name never reaches another space: not even the admin's own notes are candidates.
     assert.deepEqual([out[link(NAME.plan)].status, out[link(NAME.plan)].candidates], ['missing', null])
-    // Links from other spaces never lead here (D-056.30): the admin's notes link the list by path, and it has no backlinks.
+    // Links from other spaces never lead here: the admin's notes link the list by path, and it has no backlinks.
     assert.deepEqual(paths(kLinks.backlinks), [])
     const lLinks = (await h.member('GET', h.url('/api/note/links', { path: PATH.list }))).body
     const lout = Object.fromEntries(lLinks.outgoing.map((l: { raw: string }) => [l.raw, l]))
@@ -98,7 +98,7 @@ test('§7.1: each person sees their space and the shared one; the admin doesn\'t
   } finally { await h.close() }
 })
 
-test('§7.2: the member shares a folder of theirs with the admin to comment; the admin reads, can\'t edit or see its history', async () => {
+test('the member shares a folder of theirs with the admin to comment; the admin reads, can\'t edit or see its history', async () => {
   const h = await setup({ files: FILES })
   try {
     const folder = RECIPES
@@ -106,7 +106,7 @@ test('§7.2: the member shares a folder of theirs with the admin to comment; the
     assert.deepEqual([before.own, before.inherited, before.owner, before.space], [{ grants: null }, [], M, null])
     assert.equal(before.canEdit, true)
     assert.deepEqual(before.access.map((a: { username: string; level: string; via: { owner?: true }[] }) => [a.username, a.level, a.via[0]!.owner]), [[M, 'manage', true]])
-    // Someone who can't see it: it doesn't exist. The other member can't; nor the admin, whose role gives nothing here (D-038.1, D-056).
+    // Someone who can't see it: it doesn't exist. The other member can't; nor the admin, whose role gives no access to notes.
     assert.equal((await h.other('GET', h.url('/api/permissions', { folder }))).status, 404)
     assert.equal((await h.admin('GET', h.url('/api/permissions', { folder }))).status, 404)
 
@@ -155,7 +155,7 @@ test('a personal space: its owner manages it whatever is written; closed to agen
     assert.deepEqual([closed.body.own, closed.body.ai], [{ grants: null }, { closed: true, from: folder }])
     assert.equal((await h.admin('GET', note)).status, 404, 'the admin gains nothing')
     assert.equal((await h.member('GET', note)).status, 200)
-    // Shared whole: refused (that's a shared space, spec §1.2); a folder in it, fine.
+    // Shared whole: refused (that's a shared space); a folder in it, fine.
     const whole = await h.member('PUT', '/api/permissions', { folder, grants: { [O]: 'read' }, ifMatch: closed.body.etag })
     assert.deepEqual([whole.status, whole.body.error], [400, 'invalid'])
     assert.equal((await h.other('GET', note)).status, 404)
@@ -178,7 +178,7 @@ test('a personal space: its owner manages it whatever is written; closed to agen
   } finally { await h.close() }
 })
 
-test('§7.3: moving a note says who loses or gains access before moving it', async () => {
+test('moving a note says who loses or gains access before moving it', async () => {
   const h = await setup({ files: FILES })
   try {
     const to = `${HOME.admin}/${basename(PATH.list)}`
@@ -193,7 +193,7 @@ test('§7.3: moving a note says who loses or gains access before moving it', asy
     assert.equal(r.body.audience.owner.before.kind, 'shared')
     assert.equal(r.body.audience.owner.before.path, DIR.shared)
     // The report names no note they can't see; the member's links to the list come from another space, so they never
-    // led to it and the move has nothing of theirs to rewrite or report (D-056.30).
+    // led to it and the move has nothing of theirs to rewrite or report.
     assert.equal(r.body.hidden, false)
     assert.deepEqual(r.body.brokenLinks, [])
     assert.ok(!r.text.includes(`${HOME.member}/`), r.text)
@@ -205,7 +205,7 @@ test('§7.3: moving a note says who loses or gains access before moving it', asy
   } finally { await h.close() }
 })
 
-test('§7.4: the member\'s key doesn\'t see their diary; the admin\'s sees nothing of the member\'s, not even that it exists (D-056.15)', async () => {
+test('the member\'s key doesn\'t see their diary; the admin\'s sees nothing of the member\'s, not even that it exists', async () => {
   const h = await setup({ files: LINKED })
   try {
     await h.enable()
@@ -216,7 +216,7 @@ test('§7.4: the member\'s key doesn\'t see their diary; the admin\'s sees nothi
     assert.ok(!lt.folders.includes(PATH.diaryDir), 'a folder closed to agents doesn\'t show')
     const diary = await memberKey('GET', h.url('/api/note', { path: PATH.diary }))
     assert.deepEqual([diary.status, diary.body.error, diary.body.reason], [403, 'agent_denied', 'ai_false'])
-    // What its person can't read doesn't exist for it either (D-056.15).
+    // What its person can't read doesn't exist for it either.
     const theirs = await adminKey('GET', h.url('/api/note', { path: PATH.cake }))
     assert.deepEqual([theirs.status, theirs.body.error, theirs.body.reason], [404, 'not_found', undefined])
     assert.deepEqual((await adminKey('GET', h.url('/api/search', { q: WORD.cake }))).body.results, [])
@@ -229,7 +229,7 @@ test('§7.4: the member\'s key doesn\'t see their diary; the admin\'s sees nothi
   } finally { await h.close() }
 })
 
-test('§7.6 (P\'s part): deleting a person removes their grants; their folder is nobody\'s, never the root\'s', async () => {
+test('deleting a person removes their grants; their folder is nobody\'s, never the root\'s', async () => {
   const shared = `${DIR.shared}/${m.aFolder()}`
   const h = await setup({ files: FILES, config: RULES + rule(shared, [[O, 'edit'], [M, 'read']]) })
   try {
@@ -247,7 +247,7 @@ test('§7.6 (P\'s part): deleting a person removes their grants; their folder is
   } finally { await h.close() }
 })
 
-test('§7.8 (D-056.30): renaming a note that other spaces link by path: those links never led to it, so nothing of theirs is rewritten or named', async () => {
+test('renaming a note that other spaces link by path: those links never led to it, so nothing of theirs is rewritten or named', async () => {
   const h = await setup({ files: FILES })
   try {
     const before = [PATH.cake, PATH.settings, PATH.adminPlan].map((p) => readFileSync(join(h.notesDir, p), 'utf8'))
@@ -288,7 +288,7 @@ test('the permissions API: who sees and changes what, what reaches a folder from
     assert.equal(shared.status, 200, shared.text)
     assert.deepEqual(shared.body.inherited, [{ from: DIR.shared, grants: { [`@${GROUP}`]: 'edit', [A]: 'manage' } }])
     assert.equal((await h.member('GET', h.url('/api/permissions', { folder: sub }))).body.canEdit, true, 'the member manages it now')
-    // Changing the space's members keeps the name rc.1 or rc.2 wrote (for the start that renames its folder to it, D-056.33); the space's name is its folder's.
+    // Changing the space's members keeps the name rc.1 or rc.2 wrote (for the start that renames its folder to it); the space's name is its folder's.
     const again = await h.admin('PUT', '/api/permissions', { folder: DIR.shared, grants: { [`@${GROUP}`]: 'comment', [A]: 'manage' }, ifMatch: shared.body.etag })
     assert.equal(again.status, 200, again.text)
     assert.equal(again.body.space.name, DIR.shared.slice('spaces/'.length))
@@ -313,7 +313,7 @@ test('the permissions API: who sees and changes what, what reaches a folder from
     const keyAccess = (await h.member('GET', h.url('/api/permissions/access', { key: key.key.id }))).body
     assert.deepEqual(keyAccess.folders.map((f: { folder: string }) => f.folder), sorted([HOME.member, PATH.diaryDir, RECIPES, DIR.shared]))
     assert.equal((await h.other('GET', h.url('/api/permissions/access', { key: key.key.id }))).status, 404)
-    // Folders: each person, those they see; the admin too (D-056: the admin doesn't see the names of folders in others' spaces).
+    // Folders: each person, those they see; the admin too (the admin doesn't see the names of folders in others' spaces).
     const all = (await h.admin('GET', '/api/permissions/folders')).body.folders.map((f: { path: string }) => f.path)
     assert.ok(!all.includes(PATH.diaryDir) && !all.includes(HOME.nobody) && !all.includes(HOME.member), all.join(', '))
     const lf = (await h.member('GET', '/api/permissions/folders')).body.folders as { path: string; ownGrants: boolean; aiClosed: boolean }[]
@@ -323,7 +323,7 @@ test('the permissions API: who sees and changes what, what reaches a folder from
   } finally { await h.close() }
 })
 
-test('sharing only adds (D-056.7): nobody is taken out of a subfolder they reach from above, and a lower grant there changes nothing', async () => {
+test('sharing only adds: nobody is taken out of a subfolder they reach from above, and a lower grant there changes nothing', async () => {
   const trips = `${DIR.shared}/${m.aFolder()}`
   const folder = `${trips}/${m.aFolder()}`
   const gift = m.aNotePath(folder)

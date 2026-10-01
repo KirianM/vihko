@@ -1,5 +1,5 @@
 // Deleting a note takes to the trash the images next to it that only it uses
-// (D-028: what moving it would take along), in the same entry, and restoring
+// (what moving it would take along), in the same entry, and restoring
 // it brings them back, never over another file. A folder with files that
 // aren't notes can go to the trash whole, notes and files, in one step.
 import { test } from 'node:test'

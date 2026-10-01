@@ -1,4 +1,4 @@
-// The admin's alerts about the spaces (D-056, spec §1.1, §2.4, §5.7): what
+// The admin's alerts about the spaces: what
 // is outside every space, person folders of nobody, shared spaces without
 // members or managers; and vihko.yaml's warnings, which never name a folder
 // inside a space the admin doesn't read.
@@ -29,7 +29,7 @@ test('the admin is told what is outside the spaces, person folders of nobody, an
     const outside = admin.find((a) => a.code === 'outside_spaces')!
     assert.ok(outside.paths!.includes(stray) && outside.paths!.includes(PATH.rootPlan) && outside.paths!.includes(`spaces/${noId}`), JSON.stringify(outside))
     assert.ok(!outside.paths!.includes('vihko.yaml'))
-    // Where it can go: the admin's own space, by its exact path (D-056.28).
+    // Where it can go: the admin's own space, by its exact path.
     assert.equal(outside.into, home(ADMIN.username))
     assert.deepEqual(admin.find((a) => a.code === 'person_folder_without_user')?.names, [NOBODY])
     assert.deepEqual(admin.filter((a) => a.code === 'space_without_members').map((a) => a.path), [empty])
@@ -41,7 +41,7 @@ test('the admin is told what is outside the spaces, person folders of nobody, an
     for (const who of [h.member, h.other]) {
       assert.deepEqual((await alertsOf(who)).filter((a) => ['outside_spaces', 'person_folder_without_user', 'space_without_members', 'space_without_managers'].includes(a.code)), [])
     }
-    // A deleted person's folder is their closed space: not a stray, but the admin is reminded while it waits for a decision (D-056.28).
+    // A deleted person's folder is their closed space: not a stray, but the admin is reminded while it waits for a decision.
     assert.equal((await h.admin('POST', `/api/admin/users/${h.users.other.id}/disable`)).status, 200)
     assert.equal((await h.admin('DELETE', `/api/admin/users/${h.users.other.id}`)).status, 200)
     const after = await alertsOf(h.admin)

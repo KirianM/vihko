@@ -1,4 +1,4 @@
-// An agent writing to an open note, as its editors see it (m3 §6): its
+// An agent writing to an open note, as its editors see it: its
 // presence in the document's awareness, under the Yjs client id its text is
 // made by, published before the text and gone a few seconds after it stops.
 // On a real server, with a key over the HTTP API (the MCP server writes

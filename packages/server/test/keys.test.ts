@@ -188,7 +188,7 @@ test('the admin sees everyone\'s keys with their user; names stay for the histor
   assert.equal(keys.nameOf(m.faker.string.ulid()), null)
 })
 
-test('integration switches: all off by default (D-049); VIHKO_INTEGRATIONS=off locks the API and MCP off', async () => {
+test('integration switches: all off by default; VIHKO_INTEGRATIONS=off locks the API and MCP off', async () => {
   const { state } = await setup()
   const open = new Integrations(state)
   assert.deepEqual(open.view(), { api: false, mcp: false, membersCanCreateKeys: false, oauthRegistration: false, locked: false })

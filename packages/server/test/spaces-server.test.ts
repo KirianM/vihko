@@ -1,5 +1,5 @@
-// Spaces and people on the server (D-056, spec §2.4, §2.6, §3.2, §6.1, §7.1;
-// piece S): each person's folder made with them, what `GET /api/spaces`
+// Spaces and people on the server: each person's folder made with them,
+// what `GET /api/spaces`
 // gives each one, creating, renaming, deleting and leaving shared spaces,
 // pins, the admin's directory, managers and joining, a deleted person's
 // closed space (transferred, converted or deleted), and answers that never
@@ -96,11 +96,11 @@ test('GET /api/spaces: one\'s own space, the shared spaces one belongs to, and w
     const member = (await h.member('GET', '/api/spaces')).body
     assert.deepEqual(member.spaces.map((s: any) => [s.path, s.level, s.managers]), [[home.path, 'manage', [h.names.member]]])
     assert.deepEqual(member.shared, [])
-    // The admin: their own and the one they made; nothing of the members' (D-038.1).
+    // The admin: their own and the one they made; nothing of the members'.
     const admin = await h.admin('GET', '/api/spaces')
     assert.deepEqual(admin.body.spaces.map((s: any) => s.path), [lonely.path])
     assert.ok(!admin.text.includes(home.path) && !admin.text.includes(home.name))
-    // The folder is the name (D-056.33).
+    // The folder is the name.
     assert.equal(home.path, `spaces/${home.name}`)
   } finally {
     h.close()
@@ -134,7 +134,7 @@ test('creating a shared space: anyone by default, only admins with the setting; 
   }
 })
 
-test('«Move to a new space» (D-056.28): a folder becomes a shared space of its own, its mover managing it, with the move\'s audience and the links it leaves broken (D-056.30) in the preview', async () => {
+test('«Move to a new space»: a folder becomes a shared space of its own, its mover managing it, with the move\'s audience and the links it leaves broken in the preview', async () => {
   const h = await setup()
   try {
     // A shared space of the member's and the other's, with a folder the other mustn't see any more.
@@ -184,7 +184,7 @@ test('«Move to a new space» (D-056.28): a folder becomes a shared space of its
   }
 })
 
-test('names of shared spaces are unique in the installation, in any case, and must be a folder\'s (D-056.33)', async () => {
+test('names of shared spaces are unique in the installation, in any case, and must be a folder\'s', async () => {
   const h = await setup()
   try {
     const s = await newSpace(h, 'member')
@@ -217,7 +217,7 @@ test('names of shared spaces are unique in the installation, in any case, and mu
   }
 })
 
-test('renaming a space renames its folder (D-056.33), with its notes, rules, keys, pins and trash; only its managers may, and others learn nothing', async () => {
+test('renaming a space renames its folder, with its notes, rules, keys, pins and trash; only its managers may, and others learn nothing', async () => {
   const h = await setup()
   try {
     await h.enable()
@@ -291,7 +291,7 @@ test('deleting a space: its managers, its content to the trash and its rules out
     assert.ok(!existsSync(join(h.notesDir, s.path)))
     assert.ok(!readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8').includes(s.path))
     assert.deepEqual((await h.other('GET', '/api/spaces')).body.spaces, [])
-    // In the trash: its manager then sees it and restores it where they may write; its other members don't see it (spec §3.5).
+    // In the trash: its manager then sees it and restores it where they may write; its other members don't see it.
     const entries = async (who: Name) => (await h.as(who)('GET', '/api/trash')).body.entries as { id: string; path: string; space: string | null }[]
     const entry = (await entries('member')).find((e) => e.path === note)
     assert.ok(entry, 'its manager sees it')
@@ -374,7 +374,7 @@ test('the admin\'s directory names spaces, their managers and how many members, 
     assert.ok(!r.text.includes(inner))
     assert.deepEqual(r.body.closed, [])
     for (const route of ['/api/admin/spaces', `/api/admin/users/${h.created.other.id}/space`]) assert.equal((await h.member('GET', route)).status, 403, route)
-    // Reading into the member's space: nothing, as for anyone else (D-038.1).
+    // Reading into the member's space: nothing, as for anyone else.
     const note = `${h.home('member')}/${m.aTitle()}.md`
     h.write(note, m.aParagraph())
     assert.equal((await h.admin('GET', `/api/note?path=${encodeURIComponent(note)}`)).status, 404)
@@ -411,7 +411,7 @@ test('the admin assigns a manager only to a space without one, confirmed, and th
   }
 })
 
-test('the admin joins a space as a member, visibly: its managers and the other admins are told (D-056.22)', async () => {
+test('the admin joins a space as a member, visibly: its managers and the other admins are told', async () => {
   const h = await setup()
   try {
     const second = m.aUser({ role: 'admin' })
@@ -504,7 +504,7 @@ test('a closed space transferred: into the recipient\'s, with what was shared st
   }
 })
 
-test('deleting a person can settle their space at once (D-056.28): what is asked is checked, and confirmed, before anyone is deleted', async () => {
+test('deleting a person can settle their space at once: what is asked is checked, and confirmed, before anyone is deleted', async () => {
   const h = await setup()
   try {
     const shared = `${h.home('member')}/${m.aFolder()}`
@@ -540,7 +540,7 @@ test('deleting a person can settle their space at once (D-056.28): what is asked
   }
 })
 
-test('the transfer\'s preview never looks into the recipient\'s space (D-056.28): the same plan whatever is there; a name taken there is found only when it moves, and a free one taken', async () => {
+test('the transfer\'s preview never looks into the recipient\'s space: the same plan whatever is there; a name taken there is found only when it moves, and a free one taken', async () => {
   const h = await setup()
   try {
     await h.enable()
@@ -572,10 +572,10 @@ test('a closed space converted into a shared space: its members see all of it, w
   const h = await setup()
   try {
     const { shared, note, own } = await deletedMember(h)
-    // The person's own settings folder (D-056.16): theirs, not the shared space's (D-056.28).
+    // The person's own settings folder: theirs, not the shared space's.
     h.write(`${h.home('member')}/.vihko/${m.aTitle()}.md`, m.aParagraph())
     const name = m.aSpaceName()
-    // Someone has to manage it (D-056.22): a dry run says so too.
+    // Someone has to manage it: a dry run says so too.
     for (const members of [{}, { [h.names.admin]: 'edit', [`@${h.group}`]: 'read' }]) {
       for (const dryRun of [true, false]) {
         const bad = await h.admin('POST', `/api/admin/users/${h.created.member.id}/space`, { action: 'convert', name, members, dryRun, confirm: h.created.admin.password })
@@ -602,7 +602,7 @@ test('a closed space converted into a shared space: its members see all of it, w
   }
 })
 
-test('a closed space transferred or converted: links into it from other spaces are left as they are (D-056.30), and its own links by name still lead where they did', async () => {
+test('a closed space transferred or converted: links into it from other spaces are left as they are, and its own links by name still lead where they did', async () => {
   for (const action of ['transfer', 'convert'] as const) {
     const h = await setup()
     try {
@@ -622,7 +622,7 @@ test('a closed space transferred or converted: links into it from other spaces a
       const dest = r.body.plan.to as string
       const moved = (p: string) => dest + p.slice(h.home('member').length)
       const out = async (path: string) => ((await h.admin('GET', `/api/note/links?path=${encodeURIComponent(path)}`)).body.outgoing as { status: string; dstPath: string | null }[])
-      // From another space: never rewritten, and broken, as it always was (a link never leaves its space, D-056.30).
+      // From another space: never rewritten, and broken, as it always was (a link never leaves its space).
       assert.deepEqual((await out(mine)).map((l) => [l.status, l.dstPath]), [['missing', null]], action)
       for (const p of [mine, theirs]) assert.ok(readFileSync(join(h.notesDir, p), 'utf8').includes(across), `${action}: ${p} as it was`)
       // Inside it, by name: the same note.
@@ -680,7 +680,7 @@ test('the spaces routes are for people: a key reads GET /api/spaces within its f
   }
 })
 
-test('GET /api/spaces/members: whoever reads a space or a folder shared with them sees who has access; for anyone else it is as missing (D-056.27)', async () => {
+test('GET /api/spaces/members: whoever reads a space or a folder shared with them sees who has access; for anyone else it is as missing', async () => {
   const h = await setup()
   try {
     await h.enable()

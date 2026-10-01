@@ -1,4 +1,4 @@
-// «The text has changed» (D-031.6): the index remembers, per comment thread,
+// «The text has changed»: the index remembers, per comment thread,
 // the text it was anchored to when first seen, and the API says which threads'
 // text differs now. A rebuild forgets it: the text then becomes the baseline.
 import { test } from 'node:test'

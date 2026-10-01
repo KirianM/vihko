@@ -1,5 +1,5 @@
-// A note open in an editor that another tool renames on disk (D-031.4): the
-// hub follows the file instead of taking the note as deleted (D-022). The
+// A note open in an editor that another tool renames on disk: the
+// hub follows the file instead of taking the note as deleted. The
 // editors reopen it at the new path, what was typed meanwhile ends up there
 // once, and the old path is never written again. When the hub can't tell
 // it's the same note (no uid, and the text changed), it stays as deleted.

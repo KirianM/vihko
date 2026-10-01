@@ -1,4 +1,4 @@
-// The MCP server (m3 §5): its door (/mcp, off by default, keys only), the
+// The MCP server: its door (/mcp, off by default, keys only), the
 // tools each key gets, and what each tool does, with the SDK's client over
 // the app in process. The leaks are in mcp-leaks.test.ts; real clients over
 // the network in mcp-clients.test.ts.
@@ -278,7 +278,7 @@ test('reading: search, get_note, list_folder, related and resolve_link', async (
     const missing = await c.call('get_note', { path: m.aNotePath(P) })
     assert.deepEqual([missing.error, missing.data.error], [true, 'not_found'])
 
-    // At the top, the spaces the person reaches (spec §6.2): their own and the shared one; in it, both folders.
+    // At the top, the spaces the person reaches: their own and the shared one; in it, both folders.
     const root = await c.call('list_folder', {})
     const roots = root.data.entries as { kind: string; path: string; space: { kind: string } }[]
     assert.deepEqual(roots.map((e) => [e.kind, e.space.kind]), [['folder', 'personal'], ['folder', 'shared']], root.raw)

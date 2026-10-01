@@ -1,5 +1,5 @@
-// A vihko on the spaces layout (D-056) for the tests of spaces and people
-// (piece S): an empty notes folder with `people/` and `spaces/`, an admin, a
+// A vihko on the spaces layout for the tests of spaces and people: an
+// empty notes folder with `people/` and `spaces/`, an admin, a
 // member and another member (each with their personal folder, made when
 // they're created), a group of the two members, and the API with keys and
 // the MCP server, all in process, under the spaces model. Everything the

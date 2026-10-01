@@ -132,7 +132,7 @@ test('startup: a new state volume raises no alert', async () => {
   }
 })
 
-test('state.db: «Open today\'s note on start» of version 10 carries over as «On opening: today\'s note» (D-056.35)', () => {
+test('state.db: «Open today\'s note on start» of version 10 carries over as «On opening: today\'s note»', () => {
   const dir = tempDir('vihko-state-onopen-')
   const file = join(dir, 'state.db')
   openState(file).close()

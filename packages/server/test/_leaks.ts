@@ -1,4 +1,4 @@
-// The leak scenario (m3 §3, D-014), shared by the HTTP API's leak tests and
+// The leak scenario, shared by the HTTP API's leak tests and
 // the MCP server's: a key limited to one folder (DIR.key), with a note
 // `ai: false` inside it, another with a frontmatter that can't be read, a
 // folder holding only a hidden note, and notes outside (DIR.outside) that

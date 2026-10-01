@@ -1,10 +1,10 @@
-// Writes aimed at what the writer can't see (spec §3.1, §3.4, §8.2.3): the
+// Writes aimed at what the writer can't see: the
 // permissions are asked before the disk, so creating, moving, renaming or
 // restoring onto a hidden place answers exactly as onto one that doesn't
 // exist (never 409 for something hidden), and nothing on the disk changes.
 // Where the writer can write, they see everything (grants only add), so an
-// `exists` there is honest. Also each row of the leak table (§3.4) that is
-// about writes, and the per-note images case that opened access in 1.0 (§8.3).
+// `exists` there is honest. Also every way a write could give something
+// away, and the per-note images case that opened access in 1.0.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
@@ -98,7 +98,7 @@ test('writes onto what the writer can’t see answer as onto what doesn’t exis
     assert.deepEqual(snapshot(h.notesDir), before)
     assert.equal(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8'), yaml)
 
-    // Where the member writes, they see everything: `exists` is honest (row 1, 2, 10).
+    // Where the member writes, they see everything: `exists` is honest.
     const shared = `${LOOSE_DIR}/${m.aTitle()}.md`
     assert.equal((await h.other('POST', '/api/note', { path: shared, text: `# ${m.aHeading()}\n` })).status, 201)
     assert.deepEqual([(await h.member('POST', '/api/note', { path: shared, text: '' })).status, (await h.member('POST', '/api/note/move', { from: mine, to: PATH.list })).status], [409, 409])
@@ -111,7 +111,7 @@ test('writes onto what the writer can’t see answer as onto what doesn’t exis
   } finally { await h.close() }
 })
 
-test('nothing is created outside a space, nor a space as a folder, before the disk is looked at (rows 5, 8)', async () => {
+test('nothing is created outside a space, nor a space as a folder, before the disk is looked at', async () => {
   const h = await setup({ files: FILES, config: CONFIG })
   try {
     for (const path of [`${m.aTitle()}.md`, `people/${m.aTitle()}.md`, `spaces/${m.aTitle()}.md`, `${m.aFolder()}/${m.aTitle()}.md`, PATH.rootPlan]) {
@@ -132,13 +132,13 @@ test('nothing is created outside a space, nor a space as a folder, before the di
   } finally { await h.close() }
 })
 
-test('deleting and renaming folders: the manager is told all it holds; a received folder stays its owner’s to order (rows 5, 11)', async () => {
+test('deleting and renaming folders: the manager is told all it holds; a received folder stays its owner’s to order', async () => {
   const received = `${DIR.admin}/${m.aFolder()}`
   const config = CONFIG + `  ${yamlKey(received)}:\n    grants: { ${yamlKey(MEMBER.username)}: manage }\n`
   const inReceived = m.aNotePath(received)
   const h = await setup({ files: { ...FILES, [inReceived]: `# ${m.aHeading()}\n` }, config })
   try {
-    // The member manages the folder the admin shares, but it's in the admin's space: not theirs to rename, move or delete (D-056.6).
+    // The member manages the folder the admin shares, but it's in the admin's space: not theirs to rename, move or delete.
     assert.deepEqual([(await h.member('DELETE', h.url('/api/folder', { path: received }))).body.error], ['forbidden'])
     assert.deepEqual([(await h.member('POST', '/api/folder/move', { from: received, to: `${MINE_DIR}/${m.aFolder()}` })).body.error], ['forbidden'])
     // Inside it, theirs to order: a subfolder is created, renamed and deleted.
@@ -147,16 +147,16 @@ test('deleting and renaming folders: the manager is told all it holds; a receive
     assert.equal((await h.member('POST', '/api/folder', { path: sub })).status, 201)
     assert.equal((await h.member('POST', '/api/folder/move', { from: sub, to: renamed })).status, 200)
     assert.equal((await h.member('DELETE', h.url('/api/folder', { path: renamed }))).status, 200)
-    // Where they only edit: a folder that isn't there is not_found, one that is, forbidden (row 11: the same as before only for what they see).
+    // Where they only edit: a folder that isn't there is not_found, one that is, forbidden (the same as before, only for what they see).
     assert.deepEqual([(await h.member('DELETE', h.url('/api/folder', { path: `${LOOSE_DIR}/${m.aFolder()}` }))).status], [404])
     assert.deepEqual([(await h.member('DELETE', h.url('/api/folder', { path: LOOSE_DIR }))).status], [403])
-    // Not empty: what it holds, with nothing hidden or counted apart (row 5: no `locked`).
+    // Not empty: what it holds, with nothing hidden or counted apart (no `locked`).
     const full = await h.admin('DELETE', h.url('/api/folder', { path: received }))
     assert.deepEqual([full.status, full.body.error, full.body.contents.notes.total, 'locked' in full.body.contents], [409, 'not_empty', 1, false])
   } finally { await h.close() }
 })
 
-test('deleting a shared space: its notes go to the trash, which its managers keep once the space is gone (spec §3.5)', async () => {
+test('deleting a shared space: its notes go to the trash, which its managers keep once the space is gone', async () => {
   const h = await setup({ files: FILES, config: CONFIG })
   try {
     const r = await h.admin('DELETE', h.url('/api/folder', { path: DIR.shared, trash: 'true' }))
@@ -181,7 +181,7 @@ test('deleting a shared space: its notes go to the trash, which its managers kee
   } finally { await h.close() }
 })
 
-test('grants written for a folder that doesn’t exist: kept (their managers are told), gone when vihko creates it, in force when it appears from outside (row 4, spec §1.2)', async () => {
+test('grants written for a folder that doesn’t exist: kept (their managers are told), gone when vihko creates it, in force when it appears from outside', async () => {
   const [ghost, ghost2, outside] = [`${DIR.admin}/${m.aFolder()}`, `${DIR.admin}/${m.aFolder()}`, `${DIR.admin}/${m.aFolder()}`]
   const grant = (f: string) => `  ${yamlKey(f)}:\n    grants: { ${yamlKey(MEMBER.username)}: read }\n`
   const h = await setup({ files: FILES, config: CONFIG + grant(ghost) + grant(ghost2) + grant(outside) })
@@ -206,7 +206,7 @@ test('grants written for a folder that doesn’t exist: kept (their managers are
   } finally { await h.close() }
 })
 
-test('a note moved outside vihko to where more people would read it is held: nobody reads it; its name is the only thing it takes (rows 5, 7, spec §2.7)', async () => {
+test('a note moved outside vihko to where more people would read it is held: nobody reads it; its name is the only thing it takes', async () => {
   const h = await setup({ files: FILES, config: CONFIG })
   try {
     // Someone with the disk moves the admin's note into the shared space, which the group reads.
@@ -218,7 +218,7 @@ test('a note moved outside vihko to where more people would read it is held: nob
     assert.ok(h.holds.held(moved))
     assert.equal((await h.member('GET', h.url('/api/note', { path: moved }))).status, 404)
     assert.equal((await h.admin('GET', h.url('/api/note', { path: moved }))).status, 404, 'nobody reads it, not even who read it before')
-    // The one residue (row 7): its name is taken, and says so, nothing more.
+    // The one residue: its name is taken, and says so, nothing more.
     const taken = await h.member('POST', '/api/note', { path: moved, text: m.aSentence() })
     assert.deepEqual([taken.status, taken.body.error], [409, 'exists'])
     // Only whoever could have made the move from vihko is told, and releases it.
@@ -227,7 +227,7 @@ test('a note moved outside vihko to where more people would read it is held: nob
     const [alert] = await held(h.admin)
     assert.deepEqual([alert!.folder, alert!.notes], [DIR.admin, 1])
     assert.equal((await h.member('POST', `/api/permissions/holds/${alert!.id}`, { action: 'release' })).status, 404)
-    // A folder holding it isn't deleted meanwhile (row 5: without saying what or how many).
+    // A folder holding it isn't deleted meanwhile (without saying what or how many).
     const del = await h.admin('DELETE', h.url('/api/folder', { path: dir, trash: 'true' }))
     assert.deepEqual([del.status, del.body.error], [409, 'held_inside'])
     assert.ok(!del.text.includes(moved.slice(dir.length + 1)))
@@ -236,7 +236,7 @@ test('a note moved outside vihko to where more people would read it is held: nob
   } finally { await h.close() }
 })
 
-test('a daily series where the person can’t read: not_found, whether today’s note exists or not (row 12)', async () => {
+test('a daily series where the person can’t read: not_found, whether today’s note exists or not', async () => {
   const series = m.anId()
   const folder = `${DIR.admin}/${m.aFolder()}`
   const h = await setup({ files: FILES, config: `daily:\n  ${series}:\n    folder: ${JSON.stringify(folder)}\n` + CONFIG })
@@ -250,7 +250,7 @@ test('a daily series where the person can’t read: not_found, whether today’s
   } finally { await h.close() }
 })
 
-test('per-note images: the folder of images moves with its note and its grants, counts in the audience, and no image lands where the writer can’t write (spec §3.8, §8.3)', async () => {
+test('per-note images: the folder of images moves with its note and its grants, counts in the audience, and no image lands where the writer can’t write', async () => {
   // The group is the member alone here: the other is outside the shared space, and reads only the images a grant gives them.
   const folder = `${DIR.shared}/${m.aFolder()}`
   const note = m.aNotePath(folder)
@@ -280,8 +280,8 @@ test('per-note images: the folder of images moves with its note and its grants, 
   } finally { await h.close() }
 })
 
-test('images go only where the writer may write: an attachments folder they can’t write refuses the upload, and nothing lands there (spec §3.8)', async () => {
-  // The attachments folder is each space's own (spec §1.6): for a note of the
+test('images go only where the writer may write: an attachments folder they can’t write refuses the upload, and nothing lands there', async () => {
+  // The attachments folder is each space's own: for a note of the
   // folder the other member shares with the member, it's in the other's space,
   // outside what they share.
   const dropbox = m.aFolder()

@@ -1,6 +1,6 @@
 // The shared spaces of 0.1.0-rc.1 and rc.2 (`spaces/<readable>-<id>/`, their
-// name in vihko.yaml) renamed to their names when vihko starts (D-056.33,
-// legacySpaces.ts): as a folder renamed from vihko, keys, pins and the trash
+// name in vihko.yaml) renamed to their names when vihko starts
+// (legacySpaces.ts): as a folder renamed from vihko, keys, pins and the trash
 // following; left as they are, with an alert for the admins, when the name
 // is taken; and never a folder vihko didn't name that way.
 import { test } from 'node:test'

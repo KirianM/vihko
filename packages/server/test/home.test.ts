@@ -1,4 +1,4 @@
-// «Home» (D-056.35, home.ts): each person's recent notes, what others changed
+// «Home» (home.ts): each person's recent notes, what others changed
 // in what they read, what was shared with them lately; from the history, the
 // index and their notices; never anything they can't read.
 import { test } from 'node:test'

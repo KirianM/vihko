@@ -1,4 +1,4 @@
-// The admin and someone else's account (M4.1, D-040 3.1): a reset link, the
+// The admin and someone else's account: a reset link, the
 // second factor's reset and a new role ask for the confirmation at the moment
 // (the current code, or the password without a second factor), and the
 // person and every other admin are told, each until they dismiss it. An
@@ -91,7 +91,7 @@ test('a reset link, a second factor\'s reset and a new role are confirmed, and t
   } finally { await h.close() }
 })
 
-test('a new admin is confirmed at the moment, as making someone admin is (D-046.1); a new member is not', async () => {
+test('a new admin is confirmed at the moment, as making someone admin is; a new member is not', async () => {
   const h = await setup()
   try {
     const password = h.users.admin.password
@@ -134,7 +134,7 @@ test('a new admin is confirmed at the moment, as making someone admin is (D-046.
   } finally { await h.close() }
 })
 
-test('enabling a disabled admin is confirmed at the moment, as making one is (D-046.1); a member is not', async () => {
+test('enabling a disabled admin is confirmed at the moment, as making one is; a member is not', async () => {
   const h = await setup()
   try {
     const password = h.users.admin.password
