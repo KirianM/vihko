@@ -39,6 +39,7 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'GET /api/history/changes': 'read',
   'GET /api/history/resolved': 'read',
   'GET /api/spaces': 'read',
+  'GET /api/spaces/members': 'read',
 
   'POST /api/note': 'write',
   'PUT /api/note': 'write',
@@ -263,6 +264,8 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   // what is shared with them; renaming, deleting and leaving, `manage` at a space's root or a grant of
   // one's own where one leaves; and the admin's, who names spaces (no secret) but never a folder inside one.
   'GET /api/spaces': 'filtered',
+  // Who has access to a folder one reads (D-056.27): names and levels, nothing of folders one doesn't read.
+  'GET /api/spaces/members': 'read',
   'POST /api/spaces': 'none',
   'POST /api/spaces/pin': 'filtered',
   'POST /api/spaces/rename': 'manage',

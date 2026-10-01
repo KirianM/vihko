@@ -282,6 +282,9 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         // Spaces (D-056): what the person reaches, and the spaces routes naming what they can't see.
         { route: 'GET /api/spaces', method: 'GET', path: '/api/spaces', expect: 200 },
         { route: 'POST /api/spaces', method: 'POST', path: '/api/spaces', body: { name: 7 } },
+        // Who has access to a folder (D-056.27): what they can't read is as missing.
+        ...[folder, DIR.shared].map((f) => ({ route: 'GET /api/spaces/members', method: 'GET', path: q('/api/spaces/members', { path: f }) })),
+        { route: 'GET /api/spaces/members', method: 'GET', path: q('/api/spaces/members', { path: folder }), expect: 404 },
         { route: 'POST /api/spaces/rename', method: 'POST', path: '/api/spaces/rename', body: { path: folder, name: m.aSpaceName() } },
         { route: 'DELETE /api/spaces', method: 'DELETE', path: q('/api/spaces', { path: folder }) },
         { route: 'POST /api/spaces/leave', method: 'POST', path: '/api/spaces/leave', body: { path: folder } },

@@ -486,6 +486,54 @@ test('the spaces routes are for people: a key reads GET /api/spaces within its f
   }
 })
 
+test('GET /api/spaces/members: whoever reads a space or a folder shared with them sees who has access; for anyone else it is as missing (D-056.27)', async () => {
+  const h = await setup()
+  try {
+    await h.enable()
+    const s = await newSpace(h, 'member', { [h.names.other]: 'comment' })
+    const members = (who: Name, path: string) => h.as(who)('GET', `/api/spaces/members?path=${encodeURIComponent(path)}`)
+    const brief = (r: { body: any }) => Object.fromEntries(r.body.members.map((u: any) => [u.username, [u.level, u.via.map((v: any) => v.from)]]))
+    // A member who only comments sees the members of the space, with where each grant is written.
+    const seen = await members('other', s.path)
+    assert.equal(seen.status, 200, seen.text)
+    assert.deepEqual([seen.body.space, seen.body.owner], [{ path: s.path, name: s.name }, null])
+    assert.deepEqual(brief(seen), { [h.names.member]: ['manage', [s.path]], [h.names.other]: ['comment', [s.path]] })
+    // The admin isn't a member: the same answer as for a space that doesn't exist.
+    const missing = `spaces/${m.aSpaceFolder()}`
+    assert.deepEqual(errorOf(await members('admin', s.path)), errorOf(await members('admin', missing)))
+    assert.equal((await members('admin', s.path)).status, 404)
+
+    // A folder of the member's own space, inside one shared with the admin, shared with the other.
+    const outer = `${h.home('member')}/${m.aFolder()}`
+    const inner = `${outer}/${m.aFolder()}`
+    for (const f of [outer, inner]) assert.equal((await h.member('POST', '/api/folder', { path: f })).status, 201)
+    await h.rule(outer, { grants: { [h.names.admin]: 'read' } })
+    await h.rule(inner, { grants: { [h.names.other]: 'read' } })
+    const received = await members('other', inner)
+    assert.equal(received.status, 200, received.text)
+    assert.equal(received.body.owner, h.names.member)
+    // Who reaches it and why, but never the name of a folder above it the other doesn't read.
+    assert.deepEqual(brief(received), { [h.names.member]: ['manage', [null]], [h.names.admin]: ['read', [null]], [h.names.other]: ['read', [inner]] })
+    assert.ok(!received.text.includes(`"${outer}"`), received.text)
+    // Above it, or anywhere else in that space, as missing.
+    assert.deepEqual(errorOf(await members('other', outer)), errorOf(await members('other', `${h.home('member')}/${m.aFolder()}`)))
+    assert.deepEqual(errorOf(await members('other', h.home('member'))), errorOf(await members('other', `${h.home('member')}/${m.aFolder()}`)))
+    // A note isn't a folder.
+    assert.equal((await members('member', `${s.path}/${m.aTitle()}.md`)).status, 404)
+
+    // A key: within its folders, as its person; outside them, as missing.
+    const key = await h.newKey('other', { name: m.aKeyName(), canWrite: false, folders: [s.path] })
+    const viaKey = await h.withKey(key.token)('GET', `/api/spaces/members?path=${encodeURIComponent(s.path)}`)
+    assert.equal(viaKey.status, 200, viaKey.text)
+    assert.deepEqual(brief(viaKey), brief(seen))
+    const out = await h.withKey(key.token)('GET', `/api/spaces/members?path=${encodeURIComponent(inner)}`)
+    assert.deepEqual(errorOf(out), errorOf(await h.withKey(key.token)('GET', `/api/spaces/members?path=${encodeURIComponent(missing)}`)))
+    assert.equal(out.status, 404)
+  } finally {
+    h.close()
+  }
+})
+
 test('whoever is added to a shared space or receives a folder is told, only while they can see it, never the one who did it', async () => {
   const h = await setup()
   try {

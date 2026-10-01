@@ -61,6 +61,21 @@ export interface SpacesResponse {
   canCreate: boolean
 }
 
+/** GET /api/spaces/members: who has access to a folder, as one who reads it may know (D-056.27). */
+export interface MembersView {
+  path: string
+  /** The shared space it is in (its root and name); null in a personal space. */
+  space: { path: string; name: string } | null
+  /** Whose personal space it is in; null in a shared space. */
+  owner: string | null
+  members: {
+    username: string
+    level: Level
+    /** Why: a grant to them (`subject` their name) or to a group of theirs, written at `from` (null: a folder the asker doesn't read); `owner`: their own space. */
+    via: { subject: string; level: Level; from: string | null; owner?: true }[]
+  }[]
+}
+
 /** A deleted person's personal space still on the disk: closed, nobody sees it (D-056.8). */
 export interface ClosedSpace {
   userId: string
@@ -237,6 +252,37 @@ export class SpaceService {
     }, { actor: access.actor })
     this.opts.state.prepare("delete from pins where user_id = ? and (path = ? or path like ? escape '\\')").run(user.id, p, likePrefix(p))
     return { path: p }
+  }
+
+  /**
+   * Who has access to a folder the principal reads, and at what level
+   * (D-056.27): the members of a shared space at its root, who a folder
+   * shared with them reaches. Names and levels, each with why (a grant to
+   * them or to a group of theirs, or their own space); where a grant is
+   * written only when the principal reads that folder too (`from` null
+   * otherwise: a folder above, in the owner's part of a personal space).
+   * Anything they don't read, or that isn't a folder, is `not_found`, the
+   * same answer either way. An agent, within its key (folders, out of what
+   * is closed to agents).
+   */
+  whoHasAccess(access: Access, path: unknown): MembersView {
+    const p = typeof path === 'string' ? path.normalize('NFC').replace(/^\/+|\/+$/g, '') : ''
+    let folder: string
+    try { folder = this.folderArg(p) } catch { throw notFound() }
+    const s = parseSpacePath(folder)
+    if (!s || access.level(folder) === null || !access.folderInScope(folder) || access.closedToAgent(folder) || !this.isFolder(folder)) throw notFound()
+    const readable = (f: string) => access.level(f) !== null && access.folderInScope(f)
+    const members = this.engine.audience(folder).map((u) => ({
+      username: u.username,
+      level: u.level,
+      via: u.via.map((v) => ({ subject: v.subject, level: v.level, from: readable(v.from) ? v.from : null, ...(v.owner ? { owner: true as const } : {}) })),
+    }))
+    return {
+      path: folder,
+      space: s.space.kind === 'shared' ? { path: s.space.root, name: this.engine.spaceName(s.space.root) ?? s.space.readable } : null,
+      owner: s.space.kind === 'personal' ? s.space.owner : null,
+      members,
+    }
   }
 
   /** Pins (or unpins) in the sidebar a folder others share with the person («Shared with me», D-056.6). */

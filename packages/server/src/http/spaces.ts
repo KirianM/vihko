@@ -3,6 +3,9 @@
 // Anyone signed in, and a key (read):
 //   GET    /api/spaces                     { personal: {path} | null, spaces: [{path, id, name, level, managers, aiClosed}],
 //                                            shared: [{path, level, owner?, space?: {path, id, name}, pinned}], canCreate }
+//   GET    /api/spaces/members?path=       { path, space: {path, name} | null, owner, members: [{username, level, via: [{subject, level, from, owner?}]}] }:
+//                                            who has access to a folder one reads (D-056.27); `from` null where one doesn't read;
+//                                            404 for anything one doesn't read, as for what doesn't exist
 // A person (session):
 //   POST   /api/spaces                     { name, members? } → 201 { space }: a new shared space, its creator managing it;
 //                                            403 with the setting `spacesCreation: admins`, for a member
@@ -41,6 +44,8 @@ export function spaceRoutes(app: Hono<Env>, deps: SpaceRoutesDeps) {
   const access = (c: Context<Env>) => c.get('access')
 
   app.get('/api/spaces', (c) => c.json(spaces.view(access(c))))
+
+  app.get('/api/spaces/members', (c) => c.json(spaces.whoHasAccess(access(c), c.req.query('path'))))
 
   app.post('/api/spaces', async (c) => {
     const b = await body(c)
