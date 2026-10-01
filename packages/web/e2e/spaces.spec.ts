@@ -443,7 +443,8 @@ test('the last manager leaves the space; the admin is told and assigns another f
   await expect(k.locator('.alert-card', { hasText: `Nadie gestiona ${CASA}` })).toBeVisible(SLOW)
 
   await k.goto('/?view=spaces')
-  const row = k.getByRole('row', { name: new RegExp(`^${literally(CASA)}`) })
+  // The directory's row, not a folder of the tree whose name starts the same (and not another space's that does).
+  const row = k.locator('main').getByRole('row', { name: new RegExp(`^${literally(CASA)} `) })
   await expect(row).toContainText('Sin gestores')
   const inside = (await call(a, 'get', '/api/tree') as { notes: { path: string; title: string }[] }).notes.filter((n) => n.path.startsWith(`${casa}/`))
   expect(inside.length).toBeGreaterThan(0)

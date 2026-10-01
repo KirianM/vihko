@@ -20,6 +20,9 @@ test.afterAll(async ({ browser }) => {
   const page = await signIn(browser, ADMIN)
   const r = await page.request.put('/api/admin/settings', { data: { trashRetentionDays: null, historyRetentionDays: null } })
   expect(r.ok()).toBe(true)
+  // The run here removed something: the admin's notice of it goes too, so no later spec gets its toast.
+  const { alerts } = await (await page.request.get('/api/alerts')).json() as { alerts: { code: string; id?: string }[] }
+  for (const a of alerts) if (a.code === 'retention_ran') expect((await page.request.delete(`/api/account/notices/${encodeURIComponent(a.id!)}`)).ok()).toBe(true)
   await page.context().close()
 })
 
