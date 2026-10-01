@@ -541,6 +541,11 @@ export class Recorder {
     return { authors: [...keys].map(parseAuthorKey).filter((a): a is Author => a !== null), since: p?.since ?? this.now() }
   }
 
+  /** Whether anything is being written now: an open version, someone typing, or commits waiting for git. */
+  get busy(): boolean {
+    return this.pending.size > 0 || this.typists.size > 0 || this.queue.length > 0
+  }
+
   /** The commit the history is at (for readers that cache by it). */
   get headId(): string | null {
     return this.head
@@ -1903,6 +1908,7 @@ function subjectOf(q: QCommit, ops: FastOp[], created: Set<string>): string {
     case 'history_enabled': return 'Start history'
     case 'history_resumed': return 'Resume history'
     case 'recovered': return `Recover ${target}`
+    case 'space_renamed': return `Rename shared space ${s('from')} to ${s('to')}`
   }
   const who = q.authors[0] === 'external' ? 'External change: ' : ''
   if (!one) return `${who}change ${ops.length} files`.replace(/^./, (c) => c.toUpperCase())

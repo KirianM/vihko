@@ -71,7 +71,7 @@ services:
     # that way). From 0.1.0 on, this line says :0.1, which gets every 0.1.x
     # release (fixes only); a new minor version (0.2) may change things and
     # you move to it by changing the tag, after reading its upgrade notes.
-    image: ghcr.io/kirianm/vihko:0.1.0-rc.2
+    image: ghcr.io/kirianm/vihko:0.1.0-rc.3
     restart: unless-stopped
     # Hardening: nothing is written outside the two volumes, no Linux
     # capabilities, and no way to gain privileges. vihko needs none of them.
@@ -169,12 +169,12 @@ notes/
     alex/             alex's own space, «My notes» for alex
     noa/
   spaces/
-    home-7k2q9x/      a shared space, named «Home» in the UI
+    Home/             a shared space, «Home» in the UI too
 ```
 
 - `people/<username>/` is made for each person when their account is
   created, the first admin included, also when one person uses vihko alone.
-- `spaces/<name>-<id>/` is made when someone creates a shared space.
+- `spaces/<name>/` is made when someone creates a shared space, named as it is.
 - Inside them, any folders and any names: vihko imposes nothing else.
 - **What you put anywhere else** (at the root, next to `people/` and
   `spaces/`) isn't seen by anyone in vihko, and the admins get an alert that
@@ -377,7 +377,7 @@ once your account exists:
 
 - **Into your own space**, `people/<your username>/` inside the notes folder:
   only you see them, and you share what you like from there.
-- **Or into a shared space's folder**, `spaces/<readable>-<id>/`: create the
+- **Or into a shared space's folder**, `spaces/<its name>/`: create the
   space in vihko first (that makes the folder), then copy into it. Every
   member sees all of it.
 

@@ -3,7 +3,7 @@
 // for the whole interface (`displayPath` of core): «My notes / diary / day»
 // for their own, «<space> / recipes / Bread» in a shared space, «ana /
 // trips / Rome» in a folder someone shares. Never `people/<me>` nor a
-// space's folder id.
+// space's folder (a shared space's folder is its name, D-056.33).
 import { createContext, useContext, useMemo } from 'react'
 import { addressOf, displayPath, parseSpacePath, pathOfAddress, personalRoot, spaceRootOf, type DisplayPath } from '@vihko/core/spaces'
 import type { RootNames } from './typedPath.ts'
@@ -31,7 +31,7 @@ export function useSpacesValue(me: string, info: SpacesInfo | null): Spaces {
     for (const s of info?.spaces ?? []) names.set(s.path, s.name)
     for (const s of info?.shared ?? []) if (s.space) names.set(s.space.path, s.space.name)
     const name = (root: string) => names.get(root) ?? null
-    return { me, info, name, show: (path: string) => displayPath(path, me, name) }
+    return { me, info, name, show: (path: string) => displayPath(path, me) }
   }, [me, info])
 }
 
@@ -86,8 +86,8 @@ export function usePathLabels(given?: Spaces) {
 
 /**
  * How a person may type each space they reach (typedPath.ts): their own as
- * «My notes» in any language, or `~<username>`; a shared space by its name or
- * its folder (as the address shows it); a space a folder is shared from by
+ * «My notes» in any language, or `~<username>`; a shared space by its name
+ * (its folder's, as the address shows it); a space a folder is shared from by
  * its owner (`ana`, `~ana`) or its space's name. `more`: other roots the
  * person may name (the admin: every space and person, for purging by name).
  */
@@ -95,11 +95,10 @@ export function rootNamesOf(s: Spaces, more: RootNames[] = []): RootNames[] {
   const out: RootNames[] = []
   const personal = s.info?.personal?.path ?? (s.me ? personalRoot(s.me) : null)
   if (personal) out.push({ root: personal, names: [...inEveryLanguage('spaces.mine'), `~${s.me}`] })
-  const folderOf = (root: string) => root.slice(root.indexOf('/') + 1)
-  for (const sp of s.info?.spaces ?? []) out.push({ root: sp.path, names: [sp.name, folderOf(sp.path)] })
+  for (const sp of s.info?.spaces ?? []) out.push({ root: sp.path, names: [sp.name] })
   for (const sh of s.info?.shared ?? []) {
     if (sh.owner) out.push({ root: personalRoot(sh.owner), names: [sh.owner, `~${sh.owner}`] })
-    else if (sh.space) out.push({ root: sh.space.path, names: [sh.space.name, folderOf(sh.space.path)] })
+    else if (sh.space) out.push({ root: sh.space.path, names: [sh.space.name] })
   }
   return [...out, ...more]
 }
@@ -107,14 +106,14 @@ export function rootNamesOf(s: Spaces, more: RootNames[] = []): RootNames[] {
 /** The roots of every person and shared space by the names the admin may type (purging what they can't read, by its name). */
 export function everyRoot(spaces: readonly { path: string; name: string }[], usernames: readonly string[]): RootNames[] {
   return [
-    ...spaces.map((sp) => ({ root: sp.path, names: [sp.name, sp.path.slice(sp.path.indexOf('/') + 1)] })),
+    ...spaces.map((sp) => ({ root: sp.path, names: [sp.name] })),
     ...usernames.map((u) => ({ root: personalRoot(u), names: [u, `~${u}`] })),
   ]
 }
 
 /**
  * A note's link in the browser (D-056.29): `?note=<address>` (core
- * `addressOf`: `home-7k2q9x/list.md`, `~ana/trips/Rome.md`), and the
+ * `addressOf`: `Home/list.md`, `~ana/trips/Rome.md`), and the
  * version shown over it. Never `people/` nor `spaces/`.
  */
 export function noteHref(path: string, version?: string): string {
@@ -133,3 +132,4 @@ export function splitSpace(path: string): { root: string; inner: string } | null
   const p = parseSpacePath(path)
   return p ? { root: p.space.root, inner: p.inner } : null
 }
+

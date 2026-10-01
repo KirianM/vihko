@@ -1,0 +1,31 @@
+/* «Home» (Home.tsx, D-056.35): the title and a greeting, the quick actions,
+   and three cards (recent, changed by others, shared lately): two columns on
+   a computer, one on a phone. Every colour and space from the tokens. */
+.home-page { flex-grow: 1; overflow: auto; padding: 40px var(--space-18) var(--space-12); display: flex; flex-direction: column; gap: var(--space-6); }
+.home-top { display: flex; flex-direction: column; gap: var(--space-1); }
+.home-page h1 { margin: 0; font-family: var(--font-serif); font-size: 34px; line-height: 40px; font-weight: 600; }
+.home-hello { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.5; }
+.home-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.home-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); max-width: 1100px; }
+.home-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-4) var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.home-card-wide { grid-column: 1 / -1; }
+.home-card h2 { margin: 0; font-size: 13px; line-height: 18px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.home-empty { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.home-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.home-list li { display: flex; align-items: center; gap: var(--space-3); border-top: 1px solid var(--line); min-height: var(--control-lg); }
+.home-list li:first-child { border-top: none; }
+.home-note { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) 0; color: var(--ink); text-decoration: none; border: none; background: none; font: inherit; text-align: left; cursor: pointer; }
+.home-note:hover .home-note-title, .home-note[data-hovered] .home-note-title { color: var(--accent); }
+.home-note:focus-visible, .home-note[data-focus-visible] { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+.home-note-title { display: flex; align-items: center; gap: var(--space-2); font-weight: 500; font-size: 15px; line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-note-title svg { flex-shrink: 0; color: var(--muted); }
+.home-note-where { font-size: 13px; line-height: 18px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-when { flex-shrink: 0; font-size: 13px; color: var(--faint); text-align: right; white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .home-page { padding: var(--space-6) var(--space-4); gap: var(--space-4); }
+  .home-page h1 { font-size: 28px; line-height: 34px; }
+  .home-grid { grid-template-columns: minmax(0, 1fr); }
+  .home-actions .btn { min-height: var(--touch); }
+  .home-list li { min-height: var(--touch); }
+}

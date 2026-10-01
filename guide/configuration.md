@@ -8,7 +8,10 @@ folder, so it travels, and is backed up, with the notes.
 Settings that belong to the installation (ports, volumes, the public address,
 the second factor's key) are environment variables instead: see
 [Install](install.md). Settings that belong to a person (language, timezone,
-which daily note is theirs) are in their account.
+which daily note is theirs) are in their account. A person, and a shared
+space, can add their own daily notes, templates and guide for agents in a
+settings file of their space: see
+[Settings of a person or a space](#settings-of-a-person-or-a-space).
 
 ## The basics
 
@@ -44,7 +47,7 @@ version: 1
 
 templates:
   - people/{user}/Templates
-  - spaces/home-7k2q9x/Templates
+  - spaces/Home/Templates
 
 daily:
   journal:
@@ -52,10 +55,10 @@ daily:
     folder: people/{user}/journal
   household:
     label: Household log
-    folder: spaces/home-7k2q9x/log
-    template: spaces/home-7k2q9x/Templates/Log
+    folder: spaces/Home/log
+    template: spaces/Home/Templates/Log
   weekly:
-    folder: spaces/home-7k2q9x/weeks
+    folder: spaces/Home/weeks
     name: "{GGGG}-W{WW}"
 
 attachments:
@@ -69,19 +72,18 @@ history:
   mode: managed
   maxFileSize: 20
   exclude:
-    - spaces/home-7k2q9x/archive/**
+    - spaces/Home/archive/**
     - "**/*.pdf"
 
 mcp:
-  instructions: spaces/home-7k2q9x/For agents
+  instructions: spaces/Home/For agents
 
 permissions:
-  spaces/home-7k2q9x:              # the shared space «Home»
-    name: Home
+  spaces/Home:                     # the shared space «Home»: its folder is its name
     grants: { noa: manage, "@family": edit }
-  spaces/home-7k2q9x/recipes:      # a neighbour who isn't in Home sees recipes too
+  spaces/Home/recipes:             # a neighbour who isn't in Home sees recipes too
     grants: { sam: read }
-  spaces/home-7k2q9x/finances:
+  spaces/Home/finances:
     ai: false
   people/noa/trips:                # a folder of Noa's, shared with Sam
     grants: { sam: comment }
@@ -112,11 +114,11 @@ hidden folder (a name that starts with `.`). A trailing `/` on a folder is
 fine.
 
 Paths to notes and folders must be **inside a space**: `people/<user>/…` or
-`spaces/<name>-<id>/…` (see [Notes and Markdown](notes.md)). A series'
+`spaces/<name>/…` (see [Notes and Markdown](notes.md)). A series'
 folder, a templates folder or `mcp.instructions` anywhere else is ignored, and
-the admins get a warning (`outside_spaces`). A shared space's folder, with its
-id, shows in the address bar when you open one of its notes
-(`?note=home-7k2q9x%2F…`; a person's space shows as `~<username>`), and on
+the admins get a warning (`outside_spaces`). A shared space's folder, its
+name, shows in the address bar when you open one of its notes
+(`?note=Home%2F…`; a person's space shows as `~<username>`), and on
 the disk.
 
 ### `version`
@@ -143,7 +145,7 @@ templates: people/{user}/Templates
 # or several:
 templates:
   - people/{user}/Templates
-  - spaces/home-7k2q9x/Templates
+  - spaces/Home/Templates
 ```
 
 A folder, or a list of folders. `{user}` is the person creating the note, so
@@ -153,6 +155,11 @@ create a note from the search box (Ctrl+K, or ⌘K on a Mac), grouped by space.
 Templates are plain notes, and you only see the ones you can read; a template
 from another space works the same, since only its text is copied (its links
 by name then resolve in the new note's space).
+
+The notes in a templates folder are skeletons, not notes anyone wrote: they're
+left out of search (unless you ask for the folder with `path:`), of the tags
+and their counts, and of Home. They stay in the tree, and you open and edit
+them as any note.
 
 When vihko creates a note from a template, it copies the template's text and
 fills in these variables, in the timezone of the person creating it. Nothing
@@ -187,9 +194,9 @@ daily:
     label: Journal                 # optional, shown in the UI
     folder: people/{user}/journal  # where its notes go: inside a space
     name: "{YYYY}-{MM}-{DD}"       # optional; this is the default
-    template: spaces/home-7k2q9x/Templates/Daily   # optional note
+    template: spaces/Home/Templates/Daily   # optional note
   weekly:
-    folder: spaces/home-7k2q9x/weeks
+    folder: spaces/Home/weeks
     name: "{GGGG}-W{WW}"
 ```
 
@@ -239,6 +246,9 @@ Together, `folder` and `name` must name exactly one note per period:
   note, «Today» creates another one.
 - If the template doesn't exist, the series' notes are created empty and an
   admin alert says so. A template the person can't read isn't used.
+- A person can add series for themselves, and a shared space's managers for
+  the space, without `vihko.yaml`: see
+  [Settings of a person or a space](#settings-of-a-person-or-a-space).
 
 ### `attachments`: where new images go
 
@@ -252,15 +262,15 @@ attachments:
 This decides where vihko puts an image you upload, paste or save from a URL.
 Images already in your notes stay where they are.
 
-| Mode | Where a new image goes | Example for `spaces/home-7k2q9x/projects/plan.md` |
+| Mode | Where a new image goes | Example for `spaces/Home/projects/plan.md` |
 |---|---|---|
-| `next-to-note` (default) | Next to the note, named after it and the time (UTC) | `spaces/home-7k2q9x/projects/plan-2026-09-28-1012.png` |
-| `folder` | All in one folder **of the note's space**, with the same kind of name | `spaces/home-7k2q9x/images/plan-2026-09-28-1012.png` |
-| `per-note` | In a folder of its own next to the note, named after the note plus `suffix` | `spaces/home-7k2q9x/projects/plan.assets/2026-09-28-1012.png` |
+| `next-to-note` (default) | Next to the note, named after it and the time (UTC) | `spaces/Home/projects/plan-2026-09-28-1012.png` |
+| `folder` | All in one folder **of the note's space**, with the same kind of name | `spaces/Home/images/plan-2026-09-28-1012.png` |
+| `per-note` | In a folder of its own next to the note, named after the note plus `suffix` | `spaces/Home/projects/plan.assets/2026-09-28-1012.png` |
 
 - `folder` is relative to the root of each note's space: with `folder:
   images`, an image of a note in «My notes» goes to `people/<you>/images/`,
-  and one of a note in «Home» to `spaces/home-7k2q9x/images/`. No folder
+  and one of a note in «Home» to `spaces/Home/images/`. No folder
   ever mixes the images of two spaces.
 - `folder` alone implies `mode: folder`. `mode: folder` without `folder` is an
   error, and so is `folder` with another mode, or `suffix` without
@@ -308,7 +318,7 @@ history:
   mode: managed        # managed (default), unmanaged or off
   maxFileSize: 20      # MB
   exclude:
-    - spaces/home-7k2q9x/archive/**
+    - spaces/Home/archive/**
     - "**/*.pdf"
     - people/noa/drafts/private.md
 ```
@@ -340,7 +350,7 @@ from the history for good.
 
 ```yaml
 mcp:
-  instructions: spaces/home-7k2q9x/For agents   # .md is added if missing
+  instructions: spaces/Home/For agents   # .md is added if missing
 ```
 
 A note whose text the MCP server gives connected agents as instructions,
@@ -359,18 +369,19 @@ mcp:
   instructions: people/{user}/For agents
 ```
 
-Someone without that note gets vihko's instructions alone.
+Someone without that note gets vihko's instructions alone. A shared space and
+a person can add a guide of their own after this one (`agents` in their
+[settings](#settings-of-a-person-or-a-space)).
 
 ### `permissions`
 
 ```yaml
 permissions:
-  spaces/home-7k2q9x:              # a shared space: its name and its members
-    name: Home
+  spaces/Home:                     # a shared space: its members
     grants: { noa: manage, "@family": edit }
-  spaces/home-7k2q9x/recipes:      # adds sam, who isn't a member of Home
+  spaces/Home/recipes:             # adds sam, who isn't a member of Home
     grants: { sam: read }
-  spaces/home-7k2q9x/finances:
+  spaces/Home/finances:
     ai: false                      # closed to agents, with everything under it
   people/noa/trips:                # a folder of Noa's, shared with Sam
     grants: { sam: comment }
@@ -393,7 +404,7 @@ manager.
 
 | Key | What it can hold |
 |---|---|
-| `spaces/<name>-<id>` (a shared space's root) | `name`, `grants`, `ai` |
+| `spaces/<name>` (a shared space's root) | `grants`, `ai` |
 | A folder below a shared space's root | `grants`, `ai` |
 | `people/<user>` (a person's space) | Only `ai: false`. A person's space is never shared whole: share a folder in it, or use a shared space |
 | A folder inside a person's space, `people/<user>/<folder>` and below | `grants`, `ai` |
@@ -407,9 +418,13 @@ key that YAML would read as something else.
 
 | Key | Value | Meaning |
 |---|---|---|
-| `name` | text | A shared space's name, as people see it: up to 64 characters, no control characters, no spaces at either end. Only at a shared space's root. Without it, the readable part of its folder |
 | `grants` | map of subject → level | Who gets what in this folder and below. Left out, or `{}`: nobody is added here |
 | `ai` | `false` | Closes the folder and everything under it to agents |
+
+A shared space's name is its folder's: there's no key for it. (0.1.0-rc.1
+and rc.2 wrote `name` at a shared space's root, with a folder like
+`spaces/home-7k2q9x`; vihko renames such a folder to that name when it
+starts and removes `name`.)
 
 **Subjects** in `grants`:
 
@@ -495,6 +510,82 @@ rules behind. Notes vihko recognises as having moved to where someone who
 didn't read them would are held, hidden from everyone, until someone who
 could have made that move releases them. See
 [Spaces, people and sharing](users-and-permissions.md#folders-moved-outside-vihko).
+
+## Settings of a person or a space
+
+`vihko.yaml` is for the whole installation, and only an admin with access to
+the disk edits it. A person can add their own daily notes, templates and
+guide for agents, and a shared space its own, without touching it: each
+space has a settings file, in the same format for both.
+
+| Whose | File | Edited from |
+|---|---|---|
+| A person's own | `people/<username>/.vihko/settings.yaml` | Preferences › «Your note settings» |
+| A shared space's | `spaces/<name>/.vihko/settings.yaml` | The space's «Settings…» in the sidebar (its managers) |
+
+```yaml
+version: 1
+
+daily:
+  journal:
+    label: Journal
+    folder: journal/{YYYY}      # inside this space
+    name: "{YYYY}-{MM}-{DD}"
+    template: Templates/Daily
+
+templates: Templates            # a folder, or a list of folders
+
+attachments:                    # where new images of this space's notes go
+  mode: folder
+  folder: images
+
+agents: For agents              # a note of this space: its guide for agents
+```
+
+- **Every path is relative to the space**: `journal/{YYYY}` in Noa's file is
+  `people/noa/journal/{YYYY}`. Nothing in the file names `people/` or
+  `spaces/`, so renaming a space changes nothing in it. A path can't leave
+  the space (`..`, a leading `/`) or enter a hidden folder, and `{user}`
+  isn't allowed in a series (the space already says whose it is).
+- The keys mean what they mean in `vihko.yaml`: [`daily`](#daily-daily-notes),
+  [`templates`](#templates), [`attachments`](#attachments-where-new-images-go),
+  and `agents`, which is the space's [`mcp.instructions`](#mcpinstructions).
+  `version` is the format's number, `1` now; a file without it is version 1.
+- **Who reads and changes it.** A person's file is theirs alone. A shared
+  space's file is changed by its managers, and read by its members only to
+  apply it; someone who isn't a member never reads it. Nobody sees the file
+  as a note: `.vihko/` is hidden, never indexed, never served and never in a
+  note's history.
+- **vihko writes it** when someone saves the form, atomically, and only the
+  keys that changed: comments and key order stay. You can also edit it by
+  hand while vihko runs; it applies at once.
+
+### How they add up
+
+| Setting | What a person gets |
+|---|---|
+| Daily-note series | `vihko.yaml`'s, those of the shared spaces they belong to, and their own: those where they can write today's note. Two series that give the same note are one (the first in that order is kept), so a personal series that repeats one of the installation's isn't offered twice |
+| Templates folders | `vihko.yaml`'s, those of their spaces, and their own: those they can read |
+| Where new images go | For a note of a space, that space's setting if it has one; otherwise `vihko.yaml`'s |
+| Guide for agents | `vihko.yaml`'s, then that of each shared space the agent's key reaches, then the person's own, in that order. Each is a note the agent must be able to read |
+
+A space's series get an id of their own (`me-<id>` for one's own space,
+`sp-<code>-<id>` for a shared one's), so they never take the id of one in
+`vihko.yaml`.
+
+### When a settings file is wrong
+
+A file edited by hand can have mistakes. vihko applies what it can:
+
+- a key it doesn't know is ignored; a key with a wrong value (a series with a
+  bad pattern, a path out of the space) is left out, and the rest applies;
+- a file that isn't valid YAML applies nothing;
+- a `version` newer than vihko's applies what vihko understands.
+
+Each mistake is an alert, with its line, **to whom the file belongs**: the
+person, for their own; the managers, for a shared space's. Never to the
+admin as such. The form refuses to save settings with a mistake and says
+which.
 
 ## When something is wrong
 

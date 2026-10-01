@@ -49,7 +49,7 @@ export function ruleMove(engine: PermissionsEngine, from: string, to: string): {
 function ownerOf(engine: PermissionsEngine, rules: SpaceRules, path: string): SpaceOwner {
   const s = parseSpacePath(path)
   if (!s) return null
-  return s.space.kind === 'personal' ? { kind: 'personal', owner: s.space.owner } : { kind: 'shared', path: s.space.root, name: engine.spaceName(s.space.root, rules) ?? s.space.readable }
+  return s.space.kind === 'personal' ? { kind: 'personal', owner: s.space.owner } : { kind: 'shared', path: s.space.root, name: s.space.name }
 }
 
 /**

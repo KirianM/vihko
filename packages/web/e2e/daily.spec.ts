@@ -192,13 +192,13 @@ test('another timezone near midnight gets another date', async ({ browser }) => 
   await member.context().close()
 })
 
-test('preferences: series and «open on start», which never creates a note', async ({ browser }) => {
+test('preferences: series and «On opening: today\'s note», which never creates a note', async ({ browser }) => {
   await k.goto('/')
   await k.getByRole('button', { name: 'Preferencias' }).click()
   const dialog = k.getByRole('dialog', { name: 'Preferencias' })
   await expect(dialog.getByLabel('Zona horaria')).toHaveValue(EAST)
   await dialog.getByLabel('Serie de la nota del día').selectOption(TEAM.id)
-  await dialog.getByLabel('Abrir la nota de hoy al entrar').check()
+  await dialog.getByRole('radio', { name: 'La nota de hoy, si ya existe' }).check()
   await k.screenshot({ path: `${SHOTS}/daily-preferences-light.png` })
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(dialog).toHaveCount(0)
@@ -206,7 +206,7 @@ test('preferences: series and «open on start», which never creates a note', as
   // The team series has no note today yet: opening vihko doesn't create it.
   await k.goto('/')
   await expect(k.getByRole('treegrid').first()).toBeVisible()
-  await expect(k.getByText('Elige una nota en el árbol.')).toBeVisible()
+  await expect(k.getByRole('heading', { name: 'Inicio', level: 1 })).toBeVisible()
   expect(existsSync(`${NOTES}/${TEAM.folder}/${dateIn(EAST)}.md`)).toBe(false)
   // «Today» does, in the chosen series, without a template: empty but for the uid.
   await todayButton(k).click()
@@ -281,6 +281,9 @@ test('phone: «Today» from the drawer, previous/next in the header', async ({ b
   await page.getByLabel('Nombre de usuario').fill(ADMIN.username)
   await page.getByLabel('Contraseña').fill(ADMIN.password)
   await page.getByRole('button', { name: 'Entrar' }).last().click()
+  // A phone opens at Home too (D-056.35): the drawer is behind the menu.
+  await expect(page.getByRole('heading', { name: 'Inicio', level: 1 })).toBeVisible()
+  await page.getByRole('button', { name: 'Abrir carpetas' }).tap()
   const drawer = page.getByRole('dialog', { name: 'Carpetas' })
   await expect(drawer.getByRole('button', { name: 'Nota de hoy' })).toBeVisible()
   await page.screenshot({ path: `${SHOTS}/daily-mobile-drawer.png`, animations: 'disabled' })

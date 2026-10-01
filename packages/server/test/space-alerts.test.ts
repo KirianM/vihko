@@ -16,11 +16,11 @@ const alertsOf = async (who: (method: string, path: string) => Promise<{ body: a
 
 test('the admin is told what is outside the spaces, person folders of nobody, and shared spaces without members or managers; nobody else is', async () => {
   const stray = m.aFolder()
-  const noId = `${m.aFolder()}_`
+  const noId = `~${m.aWord()}`
   const empty = `spaces/${m.aSpaceFolder()}`
   const headless = `spaces/${m.aSpaceFolder()}`
-  const name = m.aSpaceName()
-  const config = RULES + `  ${yamlKey(headless)}:\n    name: ${JSON.stringify(name)}\n    grants: { ${yamlKey(MEMBER.username)}: edit }\n`
+  const name = headless.slice('spaces/'.length)
+  const config = RULES + `  ${yamlKey(headless)}:\n    grants: { ${yamlKey(MEMBER.username)}: edit }\n`
   const h = await setup({ files: { ...FILES, [m.aNotePath(stray)]: `# ${m.aHeading()}\n`, [`spaces/${noId}/${m.aTitle()}.md`]: `# ${m.aHeading()}\n`, [`${headless}/${m.aTitle()}.md`]: `# ${m.aHeading()}\n` }, config })
   try {
     mkdirSync(join(h.notesDir, empty), { recursive: true })

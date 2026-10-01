@@ -72,8 +72,8 @@ const pad = (n: number) => String(n).padStart(2, '0')
  *   right when the folder is renamed with its note
  *   (`projects/plan.assets/2026-09-25-1012.png`).
  * The fixed folder is relative to the root of the note's space (spec §1.6):
- * with `adjuntos`, an image of a note in `spaces/home-7k2q9x` goes to
- * `spaces/home-7k2q9x/adjuntos/`, so that no folder mixes the audiences of
+ * with `adjuntos`, an image of a note in `spaces/Home` goes to
+ * `spaces/Home/adjuntos/`, so that no folder mixes the audiences of
  * two spaces. A note in no space (the 1.0 layout) uses it from the notes root.
  * `n` > 1 adds a suffix for a name that is taken (`…-1012-2.png`).
  */

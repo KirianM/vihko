@@ -5,7 +5,7 @@
 // admin creates and fills. And the admin's settings: members downloading
 // images from the local network (D-038.6) and the second factor's policy
 // (D-036: required, optional or disabled), whose state each person's row
-// shows and the admin can reset. What lets the admin into someone else's
+// shows and the admin can reset; and retention (Retention.tsx). What lets the admin into someone else's
 // account (a reset link, their second factor's reset, a new role), a new
 // admin and a new policy ask for the confirmation at the moment, the admin's
 // own code or password (D-040 3.1, 3.4a, D-046.1); the person and the other
@@ -19,8 +19,9 @@ import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import { AccessDialog } from './Permissions.tsx'
 import { DeletePersonDialog } from './SpacesAdmin.tsx'
+import { RetentionSection } from './Retention.tsx'
 import { SearchButton } from './Palette.tsx'
-import { Icon, MenuButton, NAME_INPUT, ThemeToggle } from './ui.tsx'
+import { BackButton, Icon, MenuButton, NAME_INPUT, ThemeToggle } from './ui.tsx'
 import './actions.css'
 import './agents.css'
 import './users.css'
@@ -456,6 +457,7 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
     <>
       <header className="main-head">
         <MenuButton />
+        <BackButton />
         <span className="spacer" />
         <SearchButton />
         <ThemeToggle />
@@ -567,6 +569,8 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
             </div>
           )}
         </section>
+
+        {settings !== null && <RetentionSection settings={settings} onSettings={setSettings} onUnauthorized={onUnauthorized} />}
 
       </div>
       <ModalOverlay className="modal-overlay" isOpen={open !== null} isDismissable={open?.kind !== 'link'} isKeyboardDismissDisabled={open?.kind === 'link'}

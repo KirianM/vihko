@@ -6,7 +6,7 @@
 // mother's; files and vihko.yaml as each test writes them.
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ApiKeys, Auth, Indexer, Integrations, NoteService, Profiles, Users, Workspace, createServer, mountMcp, openIndex, openState, toolData, type Runtime } from '@vihko/server'
+import { ApiKeys, Auth, Indexer, Integrations, NoteService, NoteSettingsStore, Profiles, Users, Workspace, createServer, mountMcp, openIndex, openState, toolData, type Runtime } from '@vihko/server'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -61,12 +61,14 @@ export async function setup(opts: SpacesSetup = {}) {
   runtime.rescan({})
   const keys = new ApiKeys(state)
   const integrations = new Integrations(state)
-  const notes = new NoteService({ notesDir, stateDir, indexer, db: index, attachments: () => workspace.config.attachments })
+  // As main.ts: a space's note settings say where its new images go.
+  const noteSettings = new NoteSettingsStore({ notesDir })
+  const notes = new NoteService({ notesDir, stateDir, indexer, db: index, attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments })
   const clock = { now: new Date('2026-09-30T10:00:00Z') }
   /** How many times open editors would have been checked again (the hub's `recheckAccess`). */
   const rechecks = { n: 0 }
   const { app, services } = createServer({
-    auth, profiles, workspace, notes, index, indexer, notesDir, runtime, keys, integrations, users, permissionsModel: 'spaces',
+    auth, profiles, workspace, notes, index, indexer, notesDir, runtime, keys, integrations, users, permissionsModel: 'spaces', noteSettings,
     now: () => clock.now, onPermissionsChanged: () => { rechecks.n++ },
     routes: (a, s) => { mountMcp(a, s, { auth, workspace, pollMs: 25 }) },
   })
@@ -135,6 +137,8 @@ export async function setup(opts: SpacesSetup = {}) {
   return {
     dir, notesDir, stateDir, state, index, app, services, auth, users, keys, indexer, notes, workspace, runtime, clock, rechecks, group, names, created,
     as, admin: as('admin'), member: as('member'), other: as('other'), withKey, enable, newKey, mcp, write, rule, login, close,
+    /** The session cookie of `who` (a request that streams, GET /api/events). */
+    cookie: (who: Name) => cookies[who],
     home: (who: Name) => `people/${names[who]}`,
   }
 }

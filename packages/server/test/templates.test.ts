@@ -35,3 +35,26 @@ test('templates: a new note from any template note, in the person\'s timezone', 
   assert.equal((await admin('POST', '/api/note', { path: other, template: 3 })).body.error, 'invalid')
   assert.ok(!existsSync(join(notesDir, other)))
 })
+
+test('templates folders are left out of search, tags and Home, not out of the tree or of opening them', async () => {
+  const { admin, notesDir, runtime } = await setup({ config: CONFIG })
+  const [word, tag] = [m.aUniqueWord(), m.aTag()]
+  const template = `${DAILY.templates}/${m.aTitle()}.md`
+  const note = inShared(`${m.aTitle()}.md`)
+  writeFileSync(join(notesDir, template), `---\ntags: [${tag}]\ndate: {{date}}\n---\n# {{title}}\n\n${word}\n`)
+  writeFileSync(join(notesDir, note), `---\ntags: [${tag}]\n---\n# ${m.aHeading()}\n\n${word}\n`)
+  runtime.rescan({})
+  const found = async (q: string) => ((await admin('GET', `/api/search?q=${encodeURIComponent(q)}`)).body.results as { path: string }[]).map((r) => r.path)
+  assert.deepEqual(await found(word), [note])
+  assert.deepEqual(await found(`tag:${tag}`), [note])
+  // Asked for by its folder: there.
+  assert.deepEqual(await found(`${word} path:"${DAILY.templates}"`), [template])
+  // Tags count only the note.
+  const tags = (await admin('GET', '/api/tags')).body.tags as { tag: string; count: number }[]
+  assert.equal(tags.find((t) => t.tag === tag)?.count, 1)
+  // Home doesn't list it.
+  assert.ok(!JSON.stringify((await admin('GET', '/api/home')).body).includes(template))
+  // The tree and opening it: as any note.
+  assert.ok(((await admin('GET', '/api/tree')).body.notes as { path: string }[]).some((n) => n.path === template))
+  assert.equal((await admin('GET', `/api/note?path=${encodeURIComponent(template)}`)).status, 200)
+})

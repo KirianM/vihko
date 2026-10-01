@@ -22,14 +22,31 @@ export function Mark({ size = 22 }: { size?: number }) {
  */
 export const NAME_INPUT = { autoCapitalize: 'none', autoCorrect: 'off', spellCheck: false } as const
 
+/** Goes to «Home» (D-056.35): the sidebar's logo is the way there, from anywhere. Null outside the shell. */
+export const GoHomeContext = createContext<(() => void) | null>(null)
+
+/** The logo and the name; in the shell, a link to «Home». */
 export function Brand({ size }: { size?: number }) {
   const t = useT()
+  const home = useContext(GoHomeContext)
+  const inside = <><Mark size={size} /><span>{t('app.name')}</span></>
+  if (!home) return <div className="brand">{inside}</div>
   return (
-    <div className="brand">
-      <Mark size={size} />
-      <span>{t('app.name')}</span>
-    </div>
+    <a className="brand brand-link" href="./" aria-label={t('home.go')} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); home() }}>
+      {inside}
+    </a>
   )
+}
+
+/** Where «Back» on a settings page goes (D-056.35): where the person was before it (Shell). Null: no button. */
+export const BackContext = createContext<(() => void) | null>(null)
+
+/** «Back», on the settings pages: to the note, Home or page the person came from. */
+export function BackButton() {
+  const t = useT()
+  const back = useContext(BackContext)
+  if (!back) return null
+  return <Button className="btn btn-quiet back-btn" onPress={back}>{Icon.prev}<span>{t('common.back')}</span></Button>
 }
 
 export const Icon = {

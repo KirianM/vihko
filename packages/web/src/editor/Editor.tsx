@@ -23,6 +23,7 @@ import { linkAutocomplete } from './autocomplete.ts'
 import { createLinkUi, type NewLinkedNote } from './createLink.ts'
 import { SHORTCUTS, formatKeymap, insertLink, modKMakesLink, runFormat, undoBoundary } from './format.ts'
 import { labels, livePreview, navigate, notePath, pickAmbiguous, setLinks, type LinkInfo, type PickAmbiguous } from './livePreview.ts'
+import { frontmatterGuard } from './frontmatterGuard.ts'
 import { announce } from './presence.ts'
 import { agentLabel, agentMarks } from './agents.ts'
 import { tables } from './tables.ts'
@@ -102,6 +103,8 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
         syntaxHighlighting(moreClasses),
         EditorView.lineWrapping,
         livePreview,
+        // Before the keymaps: select all takes the body, and nothing done in the body reaches the frontmatter (D-056.34).
+        frontmatterGuard,
         navigate.of((p) => nav.current(p)),
         pickAmbiguous.of((link, anchor) => pick.current?.(link, anchor)),
         notePath.of(path),

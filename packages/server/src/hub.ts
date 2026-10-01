@@ -33,7 +33,7 @@ import { followable, readStable, readText, replaceText } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
 import type { Via } from './actor.ts'
-import type { AccessPolicy } from './access.ts'
+import type { Access, AccessPolicy } from './access.ts'
 import { sameHost } from './http/origin.ts'
 
 export const TEXT = 'md'
@@ -620,12 +620,17 @@ export class CollabHub implements HotDocuments {
 
   // --- Access (D-038) ------------------------------------------------------------
 
-  /** What a person may do in a note now: `none`, `read`, `comment` or `edit` (`manage` writes as `edit`). */
-  private levelOf(user: User | undefined, path: string): 'none' | 'read' | 'comment' | 'edit' {
+  /**
+   * What a person may do in a note now: `none`, `read`, `comment` or `edit`
+   * (`manage` writes as `edit`). `seen`: each person's access, for many
+   * notes at the same moment (making one reads their groups and the users).
+   */
+  private levelOf(user: User | undefined, path: string, seen?: Map<string, Access>): 'none' | 'read' | 'comment' | 'edit' {
     const policy = this.opts.policy
     if (!policy) return 'edit'
     if (!user) return 'none'
-    const access = policy.for({ kind: 'user', user })
+    const access = seen?.get(user.id) ?? policy.for({ kind: 'user', user })
+    seen?.set(user.id, access)
     if (!access.canRead(path)) return 'none'
     if (access.canWrite(path)) return 'edit'
     return access.canComment(path) ? 'comment' : 'read'
@@ -641,6 +646,7 @@ export class CollabHub implements HotDocuments {
   recheckAccess() {
     if (!this.opts.policy) return
     const users = new Map<string, User | null>()
+    const accesses = new Map<string, Access>()
     for (const [path, doc] of this.hocuspocus.documents) {
       for (const conn of doc.getConnections()) {
         const ctx = conn.context as Ctx
@@ -648,7 +654,7 @@ export class CollabHub implements HotDocuments {
         // The person as they are now: disabled or deleted, nothing.
         let user = users.get(ctx.user.id)
         if (user === undefined) users.set(ctx.user.id, (user = this.currentUser(ctx.user)))
-        const level = user ? this.levelOf(user, path) : 'none'
+        const level = user ? this.levelOf(user, path, accesses) : 'none'
         if (level === ctx.level) continue
         conn.readOnly = true
         conn.sendStateless(JSON.stringify({ type: ACCESS_MESSAGE, path, access: level }))
@@ -858,15 +864,25 @@ export class CollabHub implements HotDocuments {
    * the latest text), it stops being flushed and its sessions are closed. With
    * `trash`, editors are told the trash entry so they can restore it.
    */
-  async discard(path: string, opts: { ifMatch?: string; trash?: { id: string; actor: Actor } } = {}) {
+  async discard(path: string, opts: { ifMatch?: string; trash?: { id: string; actor: Actor }; run?: () => Promise<void> } = {}) {
     await withLock(path, async () => {
       const h = this.hot.get(path)
-      if (!h) return
+      if (!h) { await opts.run?.(); return }
       await this.flushNow(path, h)
       if (opts.ifMatch !== undefined && !h.orphaned && opts.ifMatch !== h.flushedHash) {
         throw new NoteError('precondition_failed', `the note has changed: ${path}`, h.flushedHash)
       }
       h.discarded = true
+      // What deletes it runs here, with the document locked; editors hear of the trash only once it's all there
+      // (its images too): told before, someone could look at, or restore, an entry not finished yet.
+      if (opts.run) {
+        try {
+          await opts.run()
+        } catch (err) {
+          h.discarded = false
+          throw err
+        }
+      }
       if (opts.trash) {
         const msg = { type: TRASHED_MESSAGE, path, id: opts.trash.id, by: this.actorName(opts.trash.actor) }
         this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify(msg))

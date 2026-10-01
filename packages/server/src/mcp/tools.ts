@@ -481,10 +481,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       const v = ctx.spaces()
       const roots = [
         ...(v.personal ? [{ kind: 'folder' as const, path: v.personal.path, space: { kind: 'personal' as const } }] : []),
-        ...v.spaces.map((s) => ({ kind: 'folder' as const, path: s.path, space: { kind: 'shared' as const, id: s.id, name: s.name, level: s.level } })),
+        ...v.spaces.map((s) => ({ kind: 'folder' as const, path: s.path, space: { kind: 'shared' as const, name: s.name, level: s.level } })),
         ...v.shared.map((s) => ({
           kind: 'folder' as const, path: s.path,
-          space: { kind: 'received' as const, level: s.level, ...(s.owner ? { owner: s.owner } : {}), ...(s.space ? { name: s.space.name, id: s.space.id } : {}) },
+          space: { kind: 'received' as const, level: s.level, ...(s.owner ? { owner: s.owner } : {}), ...(s.space ? { name: s.space.name } : {}) },
         })),
       ]
       const inside = (p: string) => roots.some((r) => p.startsWith(r.path + '/'))

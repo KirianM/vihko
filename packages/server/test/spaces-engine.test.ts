@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdirSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseSpaceFolder, type PermissionRule, type Permissions } from '@vihko/core'
+import type { PermissionRule, Permissions } from '@vihko/core'
 import { PermissionsEngine, diskSpaceFolders, type Directory, type DirectoryUser, type SpaceFolders } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -31,7 +31,7 @@ function scenario() {
   const goneShared = `people/${gone}/${m.aFolder()}`
   const missing = `people/${admin.username}/${m.aFolder()}`
   const rules: PermissionRule[] = [
-    { folder: home, name: homeName, grants: { [`@${group}`]: 'edit', [admin.username]: 'manage' }, ai: null },
+    { folder: home, grants: { [`@${group}`]: 'edit', [admin.username]: 'manage' }, ai: null },
     { folder: recipes, grants: { [other.username]: 'read' }, ai: null },
     { folder: lonely, grants: { [admin.username]: 'manage' }, ai: false },
     { folder: trips, grants: { [member.username]: 'comment' }, ai: null },
@@ -42,8 +42,8 @@ function scenario() {
   const users = [admin, member, other]
   const groupsOf = new Map([[member.id, [group]], [other.id, [group]], [admin.id, []]])
   const directory: Directory = { users: () => users, groupsOf: (id) => groupsOf.get(id) ?? [], groups: () => [group] }
-  // With a folder that isn't a space (`_` after the last hyphen: never an id).
-  const folders: SpaceFolders = { shared: () => [homeFolder, lonelyFolder, `${m.aFolder()}_`], exists: (f) => f !== missing }
+  // With a folder that isn't a space (a hidden one).
+  const folders: SpaceFolders = { shared: () => [homeFolder, lonelyFolder, `.${m.aWord()}`], exists: (f) => f !== missing }
   let section: Permissions = { kind: 'rules', rules }
   const engine = new PermissionsEngine({ source: () => section, directory, folders, model: 'spaces' })
   return {
@@ -88,40 +88,37 @@ test('spaces engine: a rejected or missing section leaves each person their own 
 
 test('spaces engine: what each person reaches', () => {
   const s = scenario()
-  const { id } = parseSpaceFolder(s.homeFolder)!
-  const lonelyId = parseSpaceFolder(s.lonely.slice('spaces/'.length))!.id
   assert.deepEqual(s.engine.spacesFor(s.member), {
     personal: { path: `people/${s.member.username}` },
-    spaces: [{ path: s.home, id, name: s.homeName, level: 'edit', managers: [s.admin.username], aiClosed: false }],
+    spaces: [{ path: s.home, name: s.homeName, level: 'edit', managers: [s.admin.username], aiClosed: false }],
     // The topmost folder shared with them only; not a deleted person's, not one missing on the disk.
     shared: [{ path: s.trips, level: 'comment', owner: s.admin.username }],
   })
   const forAdmin = s.engine.spacesFor(s.admin)
   assert.deepEqual(forAdmin.spaces.map((e) => e.path).sort(), [s.home, s.lonely].sort())
   assert.equal(forAdmin.spaces.find((e) => e.path === s.lonely)!.aiClosed, true)
-  assert.equal(forAdmin.spaces.find((e) => e.path === s.lonely)!.id, lonelyId)
+  assert.equal(forAdmin.spaces.find((e) => e.path === s.lonely)!.name, s.lonely.slice('spaces/'.length))
   // What is shared from one's own space is not "shared with me".
   assert.deepEqual(forAdmin.shared, [])
   // A subfolder of a space they don't belong to, with the space's name; and one inside a folder of someone's.
   s.groupsOf.set(s.other.id, [])
   assert.deepEqual(s.engine.sharedWith(s.other), [
-    { path: s.recipes, level: 'read', space: { path: s.home, id, name: s.homeName } },
+    { path: s.recipes, level: 'read', space: { path: s.home, name: s.homeName } },
     { path: s.tripsInside, level: 'read', owner: s.admin.username },
   ].sort((a, b) => a.path.localeCompare(b.path)))
 })
 
 test('spaces engine: the admin’s directory names spaces, managers and how many members; nothing inside', () => {
   const s = scenario()
-  const { id } = parseSpaceFolder(s.homeFolder)!
   const dir = s.engine.sharedSpaces()
   const home = dir.find((d) => d.path === s.home)!
-  assert.deepEqual(home, { path: s.home, id, name: s.homeName, managers: [s.admin.username], members: 3, aiClosed: false })
+  assert.deepEqual(home, { path: s.home, name: s.homeName, managers: [s.admin.username], members: 3, aiClosed: false })
   assert.equal(dir.find((d) => d.path === s.lonely)!.members, 1)
-  // A folder under spaces/ without an id is no space.
+  // A hidden folder under spaces/ is no space.
   assert.equal(dir.length, 2)
   assert.equal(s.engine.spaceName(s.home), s.homeName)
   assert.equal(s.engine.spaceName(s.recipes), null)
-  assert.equal(s.engine.spaceName(s.lonely), parseSpaceFolder(s.lonely.slice('spaces/'.length))!.readable)
+  assert.equal(s.engine.spaceName(s.lonely), s.lonely.slice('spaces/'.length))
 })
 
 test('spaces engine: who has access to a folder, and why', () => {

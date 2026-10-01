@@ -20,11 +20,11 @@ async function newSpace(h: Spaces, who: Name, members?: Record<string, string>) 
   const name = m.aSpaceName()
   const r = await h.as(who)('POST', '/api/spaces', { name, ...(members ? { members } : {}) })
   assert.equal(r.status, 201, r.text)
-  return { name, path: r.body.space.path as string, id: r.body.space.id as string }
+  return { name, path: r.body.space.path as string }
 }
 
-test('state.db of 0.1.0 is version 10, with the pins', () => {
-  assert.equal(STATE_VERSION, 10)
+test('state.db of 0.1.0 is version 11, with the pins and «On opening»', () => {
+  assert.equal(STATE_VERSION, 11)
 })
 
 test('templates: one folder or a list, each with {user} made the person\'s, only those they can read', async () => {

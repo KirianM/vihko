@@ -11,18 +11,24 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
-import { WORKSPACE_FILE, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, seriesPath, spaceRootOf, type Alert, type ConfigError, type ErrorCode, type Series, type WorkspaceConfig } from '@vihko/core'
+import { NoteSettingsFileError, WORKSPACE_FILE, parseNoteSettings, writeNoteSettings, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, personalRoot, seriesPath, spaceRootOf, type Alert, type ConfigError, type ErrorCode, type Series, type WorkspaceConfig } from '@vihko/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
-import { ExistsAs, FolderNotEmpty, NoteError, type MoveHooks, type NoteService } from '../notes.ts'
+import { ExistsAs, FolderNotEmpty, MovedAway, NoteError, type MoveHooks, type NoteService } from '../notes.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START } from './search.ts'
 import type { EditOp } from '../edits.ts'
 import { commentOp } from '../commenting.ts'
 import { FetchImageError, SERVED_TYPES, fetchImage, type FetchImageOptions } from '../attachments.ts'
 import { ImageSlots } from '../imageSlots.ts'
 import { DailyNotes } from '../daily.ts'
-import { ProfileError, type Profile, type Profiles } from '../profiles.ts'
+import { ProfileError, isNotePath, type Profile, type Profiles } from '../profiles.ts'
+import { historyFor } from '../agentHistory.ts'
+import { homeView } from '../home.ts'
+import { LiveTree } from '../liveTree.ts'
+import { NoteSettingsStore } from '../noteSettings.ts'
+import { settingsFromBody } from './settingsBody.ts'
+import { streamSSE } from 'hono/streaming'
 import type { Workspace } from '../workspace.ts'
 import { MoveJobs } from './jobs.ts'
 import type { ExternalMoves } from '../externalMoves.ts'
@@ -55,6 +61,7 @@ import { followable } from '../fsutil.ts'
 import { sameHost } from './origin.ts'
 import { Users, UsersError } from '../users.ts'
 import { AdminSettings, AdminSettingsError } from '../adminSettings.ts'
+import { Retention } from '../retention.ts'
 import { inviteRoutes, userRoutes, usersErrorStatus, type UserRoutesDeps } from './users.ts'
 import { TwoFactor } from '../twoFactor.ts'
 import { twoFactorHttp } from './twoFactor.ts'
@@ -172,12 +179,20 @@ export interface AppDeps {
   users?: Users
   /** The admin's settings (state.db). By default, over the same state.db as `auth`. */
   adminSettings?: AdminSettings
+  /**
+   * The trash's and the history's retention (retention.ts). By default, one
+   * over the app's settings, notes and history, without its nightly runs
+   * (main.ts passes the one it starts).
+   */
+  retention?: Retention
   /** The second factor (state.db). By default, over the same state.db as `auth`, on the app's clock. */
   twoFactor?: TwoFactor
   /** Notices addressed to one person (state.db). By default, over the same state.db as `auth`, on the app's clock. */
   notices?: Notices
   /** vihko.yaml rewritten to the current format at start (configMigrations.ts): the admins' alerts. */
   configMigrations?: ConfigMigrations
+  /** Each space's note settings (noteSettings.ts); one of its own by default. main.ts shares its NoteService's. */
+  noteSettings?: NoteSettingsStore
   /** Only tests: how «Save a copy» resolves names and which addresses count as public. */
   imageFetchTesting?: FetchImageOptions['testing']
 }
@@ -202,6 +217,10 @@ export interface Services {
   /** Images being received, by the API and the MCP server alike (imageSlots.ts). */
   imageSlots: ImageSlots
   /** Spaces (D-056): what each person reaches, for the MCP server's instructions and `list_folder("")` too. */
+  /** The tree, live (liveTree.ts): main.ts tells it when vihko.yaml was changed by hand. */
+  live: LiveTree
+  /** Each space's note settings: the MCP server adds their guides for agents. */
+  noteSettings: NoteSettingsStore
   spaces: SpaceService
 }
 
@@ -260,7 +279,17 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const now = deps.now ?? (() => new Date())
   // Under the spaces model, a person's series are those where they can write today's note (spec §1.6).
   const offered = (user: User, s: Series) => permissions.viewer(user).can(seriesPath(s, profiles.now(user.id, now()), user.username), 'edit')
-  const daily = new DailyNotes({ workspace, profiles, notes, now, offered })
+  // Each space's note settings (noteSettings.ts): series, templates, images and agents' guides of a space or a person.
+  const noteSettings = deps.noteSettings ?? new NoteSettingsStore({ notesDir: deps.notesDir })
+  /** The shared spaces someone belongs to: whose settings add to theirs. */
+  const spacesOf = (user: { id: string; username: string }) => permissions.spacesFor(user).spaces.map((s) => s.path)
+  const seriesOf = (user: User) => noteSettings.series(workspace.config.daily, spacesOf(user), personalRoot(user.username), user.username)
+  /** Templates folders for someone: vihko.yaml's (`{user}` theirs), their spaces' and their own; not yet filtered by what they read. */
+  const templateFolders = (user: { id: string; username: string }) => [...new Set([
+    ...workspace.config.templates.map((t) => t.replaceAll('{user}', user.username).normalize('NFC')),
+    ...noteSettings.templates(spacesOf(user), personalRoot(user.username)),
+  ])]
+  const daily = new DailyNotes({ workspace, profiles, notes, now, offered, seriesOf })
   const jobs = new MoveJobs()
   const moveWaitMs = deps.moveWaitMs ?? 1000
   const keys = deps.keys ?? new ApiKeys(auth.state)
@@ -275,18 +304,32 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     }),
   })
   const permissions = policy.permissions
+  // The tree and the sidebar, live (liveTree.ts): told what changes the tree, and when who reaches what may have.
+  const live = new LiveTree({
+    policy,
+    viewOf: (user) => {
+      const rules = permissions.spaceRules()
+      // Only what they see: a rule of a folder they don't reach never weighs in.
+      const seen = rules.rules.map((r) => [r.folder, permissions.levelFor(user, r.folder, rules), r.ai] as const).filter(([, level]) => level !== null)
+      return { spaces: permissions.spacesFor(user), seen }
+    },
+  })
+  deps.indexer.onTreeChange((paths) => live.pathsChanged(paths))
+  const permissionsChanged = () => { deps.onPermissionsChanged?.(); live.viewChanged() }
   const permissionsFile = new PermissionsFile({
-    notesDir: deps.notesDir, workspace, engine: permissions, history: deps.history?.recorder, onChange: deps.onPermissionsChanged,
+    notesDir: deps.notesDir, workspace, engine: permissions, history: deps.history?.recorder, onChange: permissionsChanged,
     // Whoever a share or a new member reaches is told (spaceService.ts `notifyShared`).
     onRuleSet: (folder, before, actor) => { spaces.notifyShared(folder, before, actor) },
   })
   const twoFactor = deps.twoFactor ?? new TwoFactor(auth.state, { now })
   const notices = deps.notices ?? new Notices(auth.state, { now })
+  const retention = deps.retention ?? new Retention({ stateDir: notes.stateDir, settings: adminSettings, trash: () => notes.trash(), history: deps.history, notices, now: () => now().getTime() })
   const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
   // Keys' folders, pins and the trash follow a folder moved from vihko (folderRefs.ts).
   const refs = new FolderRefs({ state: auth.state, stateDir: notes.stateDir })
   const scopedDeps: ScopedDeps = {
-    notes, index, notesDir: deps.notesDir, daily, profiles, attachments: () => workspace.config.attachments, now, links: () => deps.indexer.links,
+    notes, index, notesDir: deps.notesDir, daily, profiles, attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments, now, links: () => deps.indexer.links,
+    templateFolders,
     permissions, permissionsFile, keys: () => keys.listAll(), orphans: deps.orphans, externalMoves: deps.externalMoves, holds: deps.holds,
     onFolderMoved: (from, to) => { refs.moved(from, to) },
   }
@@ -296,15 +339,15 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   users.hooks.onGroupRenamed ??= async (from, to, by) => { await permissionsFile.renameSubject(`@${from}`, `@${to}`, { actor: by }) }
   users.hooks.onGroupDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(`@${name}`, { actor: by }) }
   // Deleting someone closes their space for everyone (D-056.8): open editors are checked again at once.
-  users.hooks.onUserRemoved ??= () => { deps.onPermissionsChanged?.() }
+  users.hooks.onUserRemoved ??= () => { permissionsChanged() }
   // So does taking someone out of a group (spec §8.4): they stop seeing what it gave them at once.
-  users.hooks.onMembersChanged ??= () => { deps.onPermissionsChanged?.() }
+  users.hooks.onMembersChanged ??= () => { permissionsChanged() }
   const spaces = new SpaceService({
     notesDir: deps.notesDir, state: auth.state, engine: permissions, file: permissionsFile, users, notices, settings: adminSettings, refs, notes, indexer: deps.indexer, now,
     deleteFolder: (access, path, o) => new ScopedNotes(scopedDeps, access).deleteFolder(path, o),
     moveFolder: (access, from, to, o) => new ScopedNotes(scopedDeps, access).moveFolder(from, to, o),
   })
-  const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users, imageSlots: new ImageSlots(), spaces }
+  const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users, imageSlots: new ImageSlots(), spaces, live, noteSettings }
   const app = new Hono<Env>()
   /** The request's operations, as whoever is asking. */
   const scoped = (c: Context<Env>) => services.scoped(c.get('access'))
@@ -312,7 +355,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.onError((err, c) => {
     if (err instanceof NoteError) {
       if (err.etag) c.header('ETag', `"${err.etag}"`)
-      return fail(c, noteErrorStatus(err), err.code, err.message, { etag: err.etag, ...(err instanceof FolderNotEmpty ? { contents: err.contents } : {}), ...(err instanceof ExistsAs ? { path: err.path } : {}) })
+      return fail(c, noteErrorStatus(err), err.code, err.message, { etag: err.etag, ...(err instanceof FolderNotEmpty ? { contents: err.contents } : {}), ...(err instanceof ExistsAs ? { path: err.path } : {}), ...(err instanceof MovedAway ? { movedTo: err.movedTo } : {}) })
     }
     if (err instanceof RequestError) return fail(c, err.status, err.code, err.message)
     if (err instanceof AccessError) return fail(c, 403, 'forbidden', err.message)
@@ -482,6 +525,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     auth, users, settings: adminSettings, limiter, ipOf, tooMany, publicUrl: deps.publicUrl ?? null,
     deviceOf: (c, username) => limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username),
     passwordAccepted: tf.passwordAccepted, confirm: tf.confirmIdentity, notices,
+    retention, managedHistory: () => deps.history?.status().mode === 'managed',
   }
   // A one-time link (an invitation or a reset): no session yet.
   app.use('/api/invite/*', authBody)
@@ -607,20 +651,101 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const access = c.get('access')
     const user = c.get('user')
     return c.json({
-      daily: w.daily.filter((s) => offered(user, s)).map((s) => ({ ...s, template: s.template !== null && access.canRead(s.template) ? s.template : null })),
-      templates: w.templates.map((t) => t.replaceAll('{user}', user.username)).filter((t) => access.level(t) !== null),
+      daily: seriesOf(user).filter((s) => offered(user, s)).map((s) => ({ ...s, template: s.template !== null && access.canRead(s.template) ? s.template : null })),
+      templates: templateFolders(user).filter((t) => access.level(t) !== null),
       links: w.links,
     })
   })
 
-  app.get('/api/profile', (c) => c.json(profiles.get(c.get('user').id)))
+  // Note settings (noteSettings.ts): a person's own, or a shared space's
+  // (`space`: its root). One's own: read and changed by them alone. A shared
+  // space's: read by its members, changed by its managers. Anything else is
+  // `not_found`, as for what doesn't exist; a key has none of this.
+  const settingsRoot = (c: Context<Env>, space: unknown, change: boolean): string | Response => {
+    const access = c.get('access')
+    if (access.isAgent) return fail(c, 404, 'not_found', 'does not exist')
+    const own = personalRoot(c.get('user').username)
+    if (space === undefined || space === null || space === '' || space === own) return own
+    const s = typeof space === 'string' ? parseSpacePath(space.normalize('NFC')) : null
+    if (!s || s.space.kind !== 'shared' || s.inner !== '' || access.level(s.space.root) === null) return fail(c, 404, 'not_found', 'no such space')
+    if (change && !access.canManage(s.space.root)) return fail(c, 403, 'forbidden', 'only its managers change a space\'s settings')
+    return s.space.root
+  }
+  const settingsView = (r: { root: string; etag: string; settings: unknown; errors: unknown }, canEdit: boolean) => ({ space: r.root, etag: r.etag, settings: r.settings, errors: r.errors, canEdit })
+
+  app.get('/api/settings', (c) => {
+    const root = settingsRoot(c, c.req.query('space'), false)
+    if (root instanceof Response) return root
+    const own = root === personalRoot(c.get('user').username)
+    return c.json(settingsView(noteSettings.read(root), own || c.get('access').canManage(root)))
+  })
+
+  app.put('/api/settings', async (c) => {
+    const body = await c.req.json<{ space?: unknown; settings?: unknown; ifMatch?: unknown }>()
+    const root = settingsRoot(c, body.space, true)
+    if (root instanceof Response) return root
+    const next = settingsFromBody(body.settings)
+    if (next === null) return fail(c, 400, 'invalid', 'settings: version, daily, templates, attachments and agents, as GET gives them')
+    // What's wrong in them is said, with where; nothing is written.
+    const problems = parseNoteSettings(writeNoteSettings(null, next)).errors
+    if (problems.length) return fail(c, 400, 'invalid', 'the settings have problems', { errors: problems })
+    if (typeof body.ifMatch !== 'string') return fail(c, 428, 'precondition_required', 'ifMatch: the ETag of the settings the change was planned on')
+    try {
+      const r = await noteSettings.write(root, next, { ifMatch: body.ifMatch })
+      return c.json(settingsView(r, true))
+    } catch (err) {
+      if (err instanceof NoteSettingsFileError) return fail(c, 409, 'config_invalid', err.message)
+      throw err
+    }
+  })
+
+  /** A profile as its person may see it: the note «On opening» names only while they can read it (otherwise, home). */
+  const shownProfile = (p: Profile, access: Access): Profile =>
+    p.onOpen === 'note' && (p.onOpenNote === null || !access.canRead(p.onOpenNote)) ? { ...p, onOpen: 'home', onOpenNote: null } : p
+
+  app.get('/api/profile', (c) => c.json(shownProfile(profiles.get(c.get('user').id), c.get('access'))))
 
   app.put('/api/profile', async (c) => {
     const body = await c.req.json<Record<string, unknown>>()
     if (typeof body !== 'object' || body === null) return fail(c, 400, 'invalid', 'expected an object')
     const patch: Partial<Profile> = {}
-    for (const k of ['timezone', 'dailySeries', 'openDailyOnStart', 'language'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
-    return c.json(profiles.update(c.get('user').id, patch))
+    for (const k of ['timezone', 'dailySeries', 'openDailyOnStart', 'onOpen', 'onOpenNote', 'language'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
+    // «On opening» a note: one the person reads now (D-056.35); any other is as missing.
+    if (isNotePath(patch.onOpenNote) && !c.get('access').canRead(patch.onOpenNote.normalize('NFC'))) return fail(c, 404, 'not_found', 'no such note')
+    return c.json(shownProfile(profiles.update(c.get('user').id, patch), c.get('access')))
+  })
+
+  // The tree, live (liveTree.ts): a server-sent event stream that only ever
+  // says «read your tree again» (`tree`), to this person, when a change
+  // concerns what they see. A comment every 25 s keeps proxies from closing it.
+  app.get('/api/events', (c) => {
+    const access = c.get('access')
+    if (access.isAgent) return fail(c, 404, 'not_found', 'does not exist')
+    c.header('Cache-Control', 'no-store')
+    c.header('X-Accel-Buffering', 'no')
+    return streamSSE(c, async (stream) => {
+      let wake: (() => void) | null = null
+      const stop = live.subscribe(c.get('user'), () => { void stream.writeSSE({ event: 'tree', data: '{}' }).catch(() => {}) })
+      stream.onAbort(() => { stop(); wake?.() })
+      await stream.writeSSE({ event: 'ready', data: '{}' })
+      while (!stream.aborted && !stream.closed) {
+        // Unref'd: a stream left waiting never keeps the process alive.
+        await new Promise<void>((resolve) => { wake = resolve; setTimeout(resolve, 25_000).unref() })
+        if (!stream.aborted && !stream.closed) await stream.write(': keep-alive\n\n').catch(() => {})
+      }
+      stop()
+    })
+  })
+
+  // «Home» (D-056.35, home.ts): the person's recent notes, what others changed
+  // in what they read, what was shared with them lately. A person's only.
+  app.get('/api/home', async (c) => {
+    const access = c.get('access')
+    if (access.isAgent) return fail(c, 404, 'not_found', 'does not exist')
+    const status = deps.history?.status()
+    const reader = deps.history && status && status.mode !== 'off' && status.available ? historyFor(access, deps.history.reader()) : null
+    // Asked of every note Home looks at (hundreds): its folders are found once.
+    return c.json(await homeView(access, { index, history: reader, notices, nameOf: (id) => auth.username(id) ?? id, keyName: (id) => keys.nameOf(id), now, excluded: scoped(c).inTemplatesTest() }))
   })
 
   // Today's note (D-030): GET says where it is and whether it exists, POST
@@ -878,6 +1003,17 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (unreadable.length) alerts.push({ code: 'two_factor_unreadable', users: unreadable.map(nameOf).sort(), actions: [] })
     // Notices addressed to this person (notices.ts), last: what others did to their account or their writing.
     if (!access.isAgent) for (const n of notices.of(c.get('user').id)) alerts.push(noticeAlert(n, access, nameOf, (root) => permissions.spaceName(root)))
+    // Note settings written by hand with something wrong (noteSettings.ts): to whom they belong, the person or a space's managers.
+    if (!access.isAgent) {
+      const me = c.get('user')
+      const own = noteSettings.read(personalRoot(me.username))
+      if (own.errors.length) alerts.push({ code: 'settings_invalid', space: null, errors: own.errors, actions: [] })
+      for (const s of permissions.spacesFor(me).spaces) {
+        if (!access.canManage(s.path)) continue
+        const r = noteSettings.read(s.path)
+        if (r.errors.length) alerts.push({ code: 'settings_invalid', space: { path: s.path, name: s.name }, errors: r.errors, actions: [] })
+      }
+    }
     return c.json({ alerts })
   })
 

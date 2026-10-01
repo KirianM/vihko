@@ -50,6 +50,8 @@ export class ManagedReader implements HistoryReader {
    * `version` only reads the contents of one it has seen.
    */
   private known = new Map<string, Map<string, Step>>()
+  /** The commits from the head a first page of `changes` last looked at, newest first (`newest`). */
+  private recent: { head: string; commits: LogCommit[]; root: boolean } | null = null
 
   constructor(git: Git) {
     this.git = git
@@ -62,6 +64,46 @@ export class ManagedReader implements HistoryReader {
   private async log(args: string[]): Promise<LogCommit[]> {
     const { stdout } = await this.git.run(['log', '-z', '--raw', '--no-renames', '--no-abbrev', LOG_FORMAT, ...args], { timeoutMs: 30_000 })
     return parseLog(stdout)
+  }
+
+  /**
+   * The commits from the history's head `head` back, as many as a first page
+   * of `changes` may look at (one more, to say where the next page starts).
+   * Home and «Recent changes» ask for it again on every change to the tree,
+   * from every page that shows them: what was read for the previous head is
+   * kept, and only the commits since are read (a few, in one `git log`). A
+   * rewritten history (a purge, retention) has new commits from the first it
+   * changed: the walk back from the new head never meets one of the old ones
+   * that changed, and reads again from there.
+   */
+  private async newest(head: string): Promise<LogCommit[]> {
+    const known = this.recent
+    if (known?.head === head) return known.commits
+    const at = new Map(known?.commits.map((c, i) => [c.id, i]))
+    const commits: LogCommit[] = []
+    // Whether `commits` goes back to the first commit.
+    let root = false
+    let rev: string | null = head
+    while (rev !== null && commits.length <= MAX_SCAN) {
+      const page = await this.log(['-n', '100', rev])
+      let joined = false
+      for (const c of page) {
+        const i = at.get(c.id)
+        // One the previous walk had: it and everything before it, as read then.
+        if (i !== undefined) { commits.push(...known!.commits.slice(i)); joined = true; break }
+        commits.push(c)
+      }
+      if (joined) {
+        // On from where that one stopped, if it stopped short of the first commit.
+        at.clear()
+        if (known!.root) { root = true; break }
+      } else if (page.length < 100) { root = true; break }
+      rev = commits.at(-1)?.parent ?? null
+      if (rev === null) root = true
+    }
+    if (commits.length > MAX_SCAN + 1) { commits.length = MAX_SCAN + 1; root = false }
+    this.recent = { head, commits, root }
+    return commits
   }
 
   /** The note's commits from `from` back, following its moves. */
@@ -166,27 +208,36 @@ export class ManagedReader implements HistoryReader {
   changes(page: { cursor?: string | null; limit: number; author?: string | null; canRead: (path: string) => boolean }) {
     return this.run(async () => {
       const start = decodeCursor(page.cursor, isRev)
-      let rev = start?.rev ?? HISTORY_REF
-      if (!start && (await resolveRef(this.git, HISTORY_REF)) === null) return { changes: [], next: null }
       const found: { commit: LogCommit; meta: ParsedMessage; files: PairedFile[] }[] = []
       let next: string | null = null
       let scanned = 0
-      outer: for (;;) {
-        const commits = await this.log(['-n', '100', rev])
-        if (commits.length === 0) break
-        for (const c of commits) {
-          if (found.length === page.limit || scanned >= MAX_SCAN) { next = encodeCursor({ rev: c.id }); break outer }
-          scanned++
-          const meta = parseMessage(c.message)
-          if (!matchesAuthor(authorsOf(meta), page.author)) continue
-          // Where a readable file came from is only said if that path is readable too.
-          const files = pairFiles(c.files, meta).filter((f) => page.canRead(f.path))
-            .map((f) => (f.from !== undefined && !page.canRead(f.from) ? { ...f, from: undefined } : f))
-          if (files.length) found.push({ commit: c, meta, files })
+      /** Looks at one commit; true once the page is full (`next` then says where it goes on). */
+      const take = (c: LogCommit): boolean => {
+        if (found.length === page.limit || scanned >= MAX_SCAN) { next = encodeCursor({ rev: c.id }); return true }
+        scanned++
+        const meta = parseMessage(c.message)
+        if (!matchesAuthor(authorsOf(meta), page.author)) return false
+        // Where a readable file came from is only said if that path is readable too.
+        const files = pairFiles(c.files, meta).filter((f) => page.canRead(f.path))
+          .map((f) => (f.from !== undefined && !page.canRead(f.from) ? { ...f, from: undefined } : f))
+        if (files.length) found.push({ commit: c, meta, files })
+        return false
+      }
+      if (!start) {
+        // The first page, from the newest change: the commits it looks at, remembered (`newest`).
+        const head = await resolveRef(this.git, HISTORY_REF)
+        if (head === null) return { changes: [], next: null }
+        for (const c of await this.newest(head)) if (take(c)) break
+      } else {
+        let rev = start.rev
+        outer: for (;;) {
+          const commits = await this.log(['-n', '100', rev])
+          if (commits.length === 0) break
+          for (const c of commits) if (take(c)) break outer
+          const last = commits.at(-1)!
+          if (commits.length < 100 || !last.parent) break
+          rev = last.parent
         }
-        const last = commits.at(-1)!
-        if (commits.length < 100 || !last.parent) break
-        rev = last.parent
       }
       const flat = found.flatMap((f) => f.files)
       const counts = await this.countAll(flat)

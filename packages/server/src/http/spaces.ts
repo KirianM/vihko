@@ -1,23 +1,23 @@
 // Spaces (D-056, spec §6.1; spaceService.ts).
 //
 // Anyone signed in, and a key (read):
-//   GET    /api/spaces                     { personal: {path} | null, spaces: [{path, id, name, level, managers, aiClosed}],
-//                                            shared: [{path, level, owner?, space?: {path, id, name}, pinned}], canCreate }
+//   GET    /api/spaces                     { personal: {path} | null, spaces: [{path, name, level, managers, aiClosed}],
+//                                            shared: [{path, level, owner?, space?: {path, name}, pinned}], canCreate }
 //   GET    /api/spaces/members?path=       { path, space: {path, name} | null, owner, members: [{username, level, via: [{subject, level, from, owner?}]}] }:
 //                                            who has access to a folder one reads (D-056.27); `from` null where one doesn't read;
 //                                            404 for anything one doesn't read, as for what doesn't exist
 // A person (session):
-//   POST   /api/spaces                     { name, members? } → 201 { space }: a new shared space, its creator managing it;
-//                                            403 with the setting `spacesCreation: admins`, for a member
+//   POST   /api/spaces                     { name, members? } → 201 { space }: a new shared space `spaces/<name>`, its creator managing it;
+//                                            403 with the setting `spacesCreation: admins`, for a member; 409 space_name_taken { name }
 //   POST   /api/spaces/from-folder         { path, name?, dryRun? } → dry run: { report }; 201 { space, report }: a folder of a
 //                                            space becomes a shared space of its own («Move to a new space», D-056.28)
-//   POST   /api/spaces/rename              { path, name } → { space }: `manage` at its root; the folder never changes
+//   POST   /api/spaces/rename              { path, name } → { space }: `manage` at its root; its folder becomes `spaces/<name>` (D-056.33)
 //   DELETE /api/spaces?path=&trash=true    `manage` at its root: what it holds to the trash (with trash=true), its rules out
 //   POST   /api/spaces/leave               { path } → { path }: one's own grants there and under it go;
 //                                            409 leave_via_group { group } through a group
 //   POST   /api/spaces/pin                 { path, pinned } → { path, pinned }: a folder in «Shared with me»
 // The vihko admin (session; the changes confirmed at the moment, D-040 3.1):
-//   GET    /api/admin/spaces               { spaces: [{path, id, name, managers, members, aiClosed}], closed: [{userId, username, path}] }
+//   GET    /api/admin/spaces               { spaces: [{path, name, managers, members, aiClosed}], closed: [{userId, username, path}] }
 //   POST   /api/admin/spaces/managers      { path, userId, confirm } → { space }: only to a space without managers
 //                                            (409 space_has_managers)
 //   POST   /api/admin/spaces/join          { path, level?, confirm } → { space }: the admin as a member (`read` by default)

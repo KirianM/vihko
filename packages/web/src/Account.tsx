@@ -15,7 +15,7 @@ import { useChooseLanguage } from './language.ts'
 import { useDates } from './history/ui.tsx'
 import { SearchButton } from './Palette.tsx'
 import { CodeField, RecoveryCodes, SetupForm, codeError } from './TwoFactor.tsx'
-import { MenuButton, ThemeToggle } from './ui.tsx'
+import { BackButton, MenuButton, ThemeToggle } from './ui.tsx'
 import './actions.css'
 import './agents.css'
 import './users.css'
@@ -346,6 +346,7 @@ export function AccountPage({ user, onUnauthorized }: { user: User; onUnauthoriz
     <>
       <header className="main-head">
         <MenuButton />
+        <BackButton />
         <span className="spacer" />
         <SearchButton />
         <ThemeToggle />

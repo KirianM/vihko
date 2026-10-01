@@ -507,7 +507,8 @@ test('changes_since: from an ETag it was given or a version, waiting for a chang
     assert.deepEqual([quiet.data.changed, quiet.data.etag], [false, waited.data.etag])
 
     // The agent integrates it: its ETag is the one it was given.
-    const done = ` (${m.aSentence(3)})`
+    // Words no other line has: a word shared with the line could make the diff two pieces.
+    const done = ` (${m.aUniqueWord()} ${m.aUniqueWord()} ${m.aUniqueWord()})`
     const edit = await c.call('edit_note', { path: PATH.plan, operations: [{ op: 'find_replace', find: line, replace: line + done }], if_match: waited.data.etag })
     assert.equal(edit.error, false, edit.raw)
     const own = await c.call('changes_since', { path: PATH.plan, since: waited.data.etag, include_text: true })

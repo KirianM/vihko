@@ -227,7 +227,28 @@ export interface WorkspaceInfo {
   links: { aliases: boolean }
 }
 /** The person's own settings (state.db). `language`: the UI's, null = automatic (the browser's). */
-export interface Profile { timezone: string | null; dailySeries: string | null; openDailyOnStart: boolean; language: Language | null }
+/** What vihko opens when the person comes in (D-056.35): Home, this device's last note, a note they chose, or today's note if it exists. */
+export type OnOpen = 'home' | 'last' | 'note' | 'daily'
+export interface Profile { timezone: string | null; dailySeries: string | null; onOpen: OnOpen; onOpenNote: string | null; openDailyOnStart: boolean; language: Language | null }
+
+/** Note settings of a person or a shared space (GET/PUT /api/settings): paths inside the space. */
+export interface NoteSettingsForm {
+  version: number
+  daily: { id: string; label: string | null; folder: string; name: string; template: string | null }[]
+  templates: string[]
+  attachments: { mode: 'next-to-note' } | { mode: 'folder'; folder: string } | { mode: 'per-note'; suffix: string } | null
+  agents: string | null
+}
+export interface SettingsProblem { code: string; at: string | null; line: number | null; detail: string | null }
+export interface SettingsView { space: string; etag: string; settings: NoteSettingsForm; errors: SettingsProblem[]; canEdit: boolean }
+
+/** «Home» (GET /api/home, D-056.35): only what the person reads now. */
+export interface HomeNote { path: string; title: string; at: string }
+export interface HomeView {
+  recent: HomeNote[]
+  changed: (HomeNote & { by: { kind: 'user' | 'agent' | 'external'; name: string | null; onBehalfOf?: string } | null })[]
+  shared: { kind: 'space' | 'folder'; path: string; name: string; owner: string | null; by: string; at: string }[]
+}
 
 /**
  * The integration switches (D-035.1): the API with keys and the MCP server,
@@ -322,9 +343,9 @@ export interface FolderPermissions {
 }
 
 /** A shared space the person belongs to (GET /api/spaces). */
-export interface SpaceEntry { path: string; id: string; name: string; level: Level; managers: string[]; aiClosed: boolean }
+export interface SpaceEntry { path: string; name: string; level: Level; managers: string[]; aiClosed: boolean }
 /** A folder someone shares with the person outside their spaces: of someone's personal space (`owner`) or of a shared space they don't belong to (`space`). */
-export interface SharedEntry { path: string; level: Level; owner?: string; space?: { path: string; id: string; name: string }; pinned: boolean }
+export interface SharedEntry { path: string; level: Level; owner?: string; space?: { path: string; name: string }; pinned: boolean }
 /** What a person reaches, space by space (GET /api/spaces). */
 export interface SpacesInfo {
   personal: { path: string } | null
@@ -345,7 +366,7 @@ export interface MembersView {
   members: { username: string; level: Level; via: { subject: string; level: Level; from: string | null; owner?: true }[] }[]
 }
 /** A shared space in the admin's directory: its name, managers and how many members; never anything inside it. */
-export interface SpaceInfo { path: string; id: string; name: string; managers: string[]; members: number; aiClosed: boolean }
+export interface SpaceInfo { path: string; name: string; managers: string[]; members: number; aiClosed: boolean }
 /** A deleted person's personal space, closed: nobody sees it (D-056.8). */
 export interface ClosedSpace { userId: string; username: string; path: string }
 /** What becoming of a deleted person's space involves: counts only. */
@@ -371,7 +392,20 @@ export interface GroupInfo { id: string; name: string; members: { id: string; us
 /** The second factor's policy (D-036): required, optional (the default) or disabled. */
 export type TwoFactorPolicy = 'required' | 'optional' | 'disabled'
 /** The admin's settings: members downloading images from the local network (off by default), and the second factor's policy. */
-export interface AdminSettings { membersLocalDownloads: boolean; twoFactor: TwoFactorPolicy; spacesCreation: 'everyone' | 'admins' }
+export interface AdminSettings {
+  membersLocalDownloads: boolean
+  twoFactor: TwoFactorPolicy
+  spacesCreation: 'everyone' | 'admins'
+  /** Trash entries older than this many days are removed at night; null: never. */
+  trashRetentionDays: number | null
+  /** History versions older than this many days are removed at night (each note keeps its current one); null: never. */
+  historyRetentionDays: number | null
+}
+
+/** What a retention run removes, or would (counts and sizes; `history` null: no managed history to thin). */
+export interface RetentionCounts { trash: { entries: number; bytes: number }; history: { versions: number; bytes: number } | null }
+/** The retention's last run, the next one (ISO; null while both settings are off), and whether the history is vihko's own. */
+export interface RetentionStatus { lastRun: (RetentionCounts & { at: string; failed: boolean }) | null; nextRun: string | null; history: boolean }
 /**
  * After the password (signing in, or with a one-time link): the session, or
  * the second step first, with a short-lived pending sign-in: a code, or
@@ -479,6 +513,9 @@ export const api = {
     request<{ plan: PersonalSpacePlan }>('POST', `/api/admin/users/${encodeURIComponent(userId)}/space`, input).then((r) => r.plan),
   workspace: () => request<WorkspaceInfo>('GET', '/api/workspace'),
   profile: () => request<Profile>('GET', '/api/profile'),
+  home: () => request<HomeView>('GET', '/api/home'),
+  settings: (space?: string) => request<SettingsView>('GET', `/api/settings${space ? `?space=${encodeURIComponent(space)}` : ''}`),
+  saveSettings: (space: string | null, settings: NoteSettingsForm, ifMatch: string) => request<SettingsView>('PUT', '/api/settings', { ...(space ? { space } : {}), settings, ifMatch }),
   updateProfile: (patch: Partial<Profile>) => request<Profile>('PUT', '/api/profile', patch),
   /** Where today's note is and whether it exists; creates nothing. */
   today: () => request<{ series: string; path: string; exists: boolean }>('GET', '/api/daily'),
@@ -566,8 +603,13 @@ export const api = {
   access: (who: { user: string } | { key: string }) =>
     request<EffectiveAccess>('GET', `/api/permissions/access?${'user' in who ? `user=${encodeURIComponent(who.user)}` : `key=${encodeURIComponent(who.key)}`}`),
   adminSettings: () => request<AdminSettings>('GET', '/api/admin/settings'),
-  /** A new second-factor policy is confirmed with `confirm` (D-040 3.4a). */
+  /** A new second-factor policy, or a retention turned on or shortened, is confirmed with `confirm`. */
   setAdminSettings: (patch: Partial<AdminSettings> & { confirm?: string }) => request<AdminSettings>('PUT', '/api/admin/settings', patch),
+  retentionStatus: () => request<RetentionStatus>('GET', '/api/admin/retention'),
+  /** What the next run would remove with these periods (null: off). */
+  retentionPreview: (periods: { trashRetentionDays: number | null; historyRetentionDays: number | null }) => request<RetentionCounts>('POST', '/api/admin/retention/preview', periods),
+  /** A run now, with the settings in force, confirmed with the admin's code or password: what it removed. */
+  retentionRun: (confirm: string) => request<RetentionCounts & { at: string; failed: boolean }>('POST', '/api/admin/retention/run', { confirm }),
   /** Takes someone's second factor away (the vihko admin). */
   resetTwoFactor: (id: string, confirm: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/2fa/reset`, { confirm }).then((r) => r.user),
   twoFactor: () => request<TwoFactorInfo>('GET', '/api/account/2fa'),

@@ -367,8 +367,8 @@ test('a new password of one\'s own ends a reset link made for them: nobody gets 
 test('the admin\'s settings: members downloading from the local network, off by default', async () => {
   const s = await setup()
   try {
-    assert.deepEqual((await s.admin('GET', '/api/admin/settings')).body, { membersLocalDownloads: false, twoFactor: 'optional', spacesCreation: 'everyone' })
-    assert.deepEqual((await s.admin('PUT', '/api/admin/settings', { membersLocalDownloads: true })).body, { membersLocalDownloads: true, twoFactor: 'optional', spacesCreation: 'everyone' })
+    assert.deepEqual((await s.admin('GET', '/api/admin/settings')).body, { membersLocalDownloads: false, twoFactor: 'optional', spacesCreation: 'everyone', trashRetentionDays: null, historyRetentionDays: null })
+    assert.deepEqual((await s.admin('PUT', '/api/admin/settings', { membersLocalDownloads: true })).body, { membersLocalDownloads: true, twoFactor: 'optional', spacesCreation: 'everyone', trashRetentionDays: null, historyRetentionDays: null })
     assert.equal((await s.admin('PUT', '/api/admin/settings', { membersLocalDownloads: 'yes' })).status, 400)
     assert.equal((await s.admin('PUT', '/api/admin/settings', { other: true })).status, 400)
   } finally {
@@ -429,7 +429,8 @@ test('state.db: version 5 migrates keeping its users, with a copy before and a l
   assert.deepEqual(created, [], 'a new database is no news')
   const raw = new Database(file)
   raw.exec(`drop table pins; drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
-    alter table users drop column deleted_at; alter table sessions drop column user_agent; alter table profiles drop column language;`)
+    alter table users drop column deleted_at; alter table sessions drop column user_agent; alter table profiles drop column language;
+    alter table profiles drop column on_open; alter table profiles drop column on_open_note;`)
   raw.prepare("insert into users (id, username, password_hash, role, created_at) values ('01U', ?, 'x', 'admin', '2026-01-01T00:00:00Z')").run(admin)
   raw.prepare("insert into users (id, username, password_hash, role, created_at, disabled) values ('02U', ?, 'x', 'member', '2026-01-01T00:00:00Z', 1)").run(member)
   raw.pragma('user_version = 5')

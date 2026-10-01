@@ -9,7 +9,7 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { PEOPLE, SPACES, anchorChanged, classifyPath, contentHash, extract, folderOf, isSpaceRoot, parentFolder, parseSpacePath, parseThreads, placement, rulesOf, sameSpace, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
+import { PEOPLE, SPACES, anchorChanged, classifyPath, contentHash, extract, folderOf, isSpaceRoot, parentFolder, parseSearchQuery, parseSpacePath, parseThreads, placement, rulesOf, sameSpace, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
 import { lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
@@ -21,7 +21,7 @@ import type { DailyNotes } from './daily.ts'
 import { MAX_EDIT_OPS, planEdits, type EditOp } from './edits.ts'
 import { CommentError, commentSplices, type CommentOp } from './commenting.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START, search, type SearchResult } from './http/search.ts'
-import { ExistsAs, FolderNotEmpty, NoteError, NoteService, type FolderContents, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type TrashEntry, type TrashRestoreReport } from './notes.ts'
+import { ExistsAs, FolderNotEmpty, MovedAway, NoteError, NoteService, type FolderContents, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type TrashEntry, type TrashRestoreReport } from './notes.ts'
 import { audienceChange, ruleMove, type AudienceChange } from './audience.ts'
 import type { ExternalMoves, PendingExternalMove } from './externalMoves.ts'
 import type { Orphans } from './http/app.ts'
@@ -40,6 +40,11 @@ export { HIGHLIGHT_END, HIGHLIGHT_START }
 
 export interface ScopedDeps {
   notes: NoteService
+  /**
+   * The templates folders for a person (vihko.yaml's `templates`, `{user}` theirs): their notes are
+   * left out of search, tags and Home (they are skeletons, `{{title}}` and all), never out of the tree or of opening them.
+   */
+  templateFolders?: (user: { id: string; username: string }) => string[]
   /** The rules of vihko.yaml, for what moves with a folder and the audience of a move. */
   permissions?: PermissionsEngine
   /** vihko.yaml's permissions, rewritten when a folder moves or is deleted from vihko. */
@@ -58,7 +63,7 @@ export interface ScopedDeps {
   daily: DailyNotes
   profiles: Profiles
   /** Where new images go (vihko.yaml), to know whether an agent may put one there. */
-  attachments: () => AttachmentsConfig
+  attachments: (notePath?: string) => AttachmentsConfig
   now: () => Date
   /** How links resolve over every indexed note (the indexer's), for `resolveLink`. */
   links?: () => LinkIndex
@@ -507,7 +512,15 @@ export class ScopedNotes {
    * while the index doesn't have it.
    */
   read(path: string): NoteRead & { meta: NoteMeta | null; hiddenFromAgents: 'ai' | 'frontmatter' | null; level?: Level } {
-    const r = this.visible(path)
+    let r: NoteRead
+    try {
+      r = this.visible(path)
+    } catch (err) {
+      // Moved by vihko a moment ago (an editor that missed a second move while it reopened it): where to, if they read it there.
+      const to = err instanceof NoteError && err.code === 'not_found' && typeof path === 'string' ? this.deps.notes.movedTo(path) : null
+      if (to !== null && this.access.canRead(to) && this.readable(to)) throw new MovedAway(path, to)
+      throw err
+    }
     const meta = (this.deps.index.prepare('select title, uid, fm_error as fmError from notes where path = ?').get(r.path) as NoteMeta | undefined) ?? null
     const level = this.access.isAgent ? undefined : this.access.level(folderOf(r.path)) ?? 'read'
     return { ...r, meta, hiddenFromAgents: this.access.agentHiding(r.text), ...(level ? { level } : {}) }
@@ -676,8 +689,9 @@ export class ScopedNotes {
   tags(): { tag: string; count: number; total: number }[] {
     const { index } = this.deps
     const w = this.access.notesWhere('n')
-    const join = `join notes n on n.path = t.path where ${w.sql}`
-    const params = w.params
+    const t = this.notInTemplates('n')
+    const join = `join notes n on n.path = t.path where ${w.sql} and ${t.sql}`
+    const params = [...w.params, ...t.params]
     const rows = index.prepare(`select t.tag, count(distinct t.path) as count from tags t ${join} group by t.tag order by count desc, t.tag`).all(...params) as { tag: string; count: number }[]
     const under = new Map<string, Set<string>>()
     for (const r of index.prepare(`select distinct t.path, t.tag from tags t ${join}`).all(...params) as { path: string; tag: string }[]) {
@@ -694,7 +708,38 @@ export class ScopedNotes {
 
   /** Full text plus `tag:` and `path:` filters, over what the principal can read. */
   search(q: string): SearchResult[] {
-    return search(this.deps.index, q, this.access.notesWhere('n'))
+    const w = this.access.notesWhere('n')
+    // A templates folder named with `path:` is searched: that is asking for templates.
+    const asked = parseSearchQuery(q).filters.filter((f) => f.kind === 'path' && !f.negate).map((f) => f.value.normalize('NFC').toLowerCase())
+    const t = this.notInTemplates('n', (folder) => asked.some((p) => p === folder.toLowerCase() || p.startsWith(folder.toLowerCase() + '/')))
+    return search(this.deps.index, q, { sql: `${w.sql} and ${t.sql}`, params: [...w.params, ...t.params] })
+  }
+
+  /** The templates folders of this person (ScopedDeps `templateFolders`). */
+  templateFolders(): string[] {
+    return this.deps.templateFolders?.(this.access.user) ?? []
+  }
+
+  /** Whether a path is in one of this person's templates folders. */
+  inTemplates(path: string): boolean {
+    return this.inTemplatesTest()(path)
+  }
+
+  /**
+   * `inTemplates` for many paths at once: the folders are found once (each
+   * time costs the person's spaces and their settings files, from the disk).
+   */
+  inTemplatesTest(): (path: string) => boolean {
+    const folders = this.templateFolders()
+    return (path) => folders.some((f) => path === f || path.startsWith(f + '/'))
+  }
+
+  /** SQL condition on `alias.path`: not in a templates folder of this person (but those `keep` says). */
+  private notInTemplates(alias: string, keep: (folder: string) => boolean = () => false): { sql: string; params: unknown[] } {
+    const folders = this.templateFolders().filter((f) => !keep(f))
+    if (!folders.length) return { sql: '1', params: [] }
+    const esc = (s: string) => s.replace(/[\\%_]/g, (c) => '\\' + c)
+    return { sql: folders.map(() => `${alias}.path not like ? escape '\\'`).join(' and '), params: folders.map((f) => `${esc(f)}/%`) }
   }
 
   /** Whether the principal may be served a file that isn't a note (an image): `not_found` otherwise. */
@@ -873,7 +918,7 @@ export class ScopedNotes {
     this.visible(f)
     const t = this.creatable(to)
     // Its folder of images (per-note mode) goes with it, with its rules (spec §3.8): its audience counts too.
-    const suffix = this.deps.attachments().perNote
+    const suffix = this.deps.attachments(f).perNote
     const assets = suffix !== undefined ? { from: noteAttachmentsDir(f, suffix), to: noteAttachmentsDir(t, suffix) } : null
     const engine = this.deps.permissions
     const assetRules = engine && assets && assets.from !== assets.to && rulesOf(engine.section).some((r) => r.folder === assets.from || r.folder.startsWith(assets.from + '/'))
@@ -995,7 +1040,7 @@ export class ScopedNotes {
   async attach(note: string, bytes: Uint8Array) {
     const p = this.writable(note)
     this.visible(p)
-    const probe = attachmentPath(p, 'png', this.deps.now(), 1, this.deps.attachments())
+    const probe = attachmentPath(p, 'png', this.deps.now(), 1, this.deps.attachments(p))
     if (!this.access.canWrite(probe)) {
       throw new AccessError(this.access.isAgent ? `images for ${p} go outside this key's folders` : `images for ${p} go where you can't write`)
     }
@@ -1179,18 +1224,26 @@ export class ScopedNotes {
    * can see; a dry run says whose access changes, and whose it becomes
    * (`audience`).
    *
-   * `newSpace`: `to` is the root of a shared space that doesn't exist yet,
-   * named `name`, and the folder becomes it (D-056.28, «Move to a new
-   * space»): what it holds goes to its root, with the folder's own grants
-   * and whoever moves it managing it; who may create spaces is the caller's
-   * to judge (spaceService.ts `fromFolder`).
+   * `newSpace`: `to` is the root of a shared space that doesn't exist yet
+   * (`spaces/<its name>`), and the folder becomes it (D-056.28, «Move to a
+   * new space»): what it holds goes to its root, with the folder's own
+   * grants and whoever moves it managing it; who may create spaces, and
+   * whether the name is free, is the caller's to judge (spaceService.ts
+   * `fromFolder`).
+   *
+   * `renameSpace`: `from` is a shared space's root and `to` its new one
+   * (D-056.33): only who manages it may; whether the name is free is the
+   * caller's to judge (spaceService.ts `rename`). Its rules go along, but
+   * the name 0.1.0-rc.1 or rc.2 wrote at its root (`name`), which the
+   * folder is now.
    */
-  async moveFolder(from: string, to: string, opts: { dryRun?: boolean; newSpace?: { name: string } } & MoveHooks = {}): Promise<ScopedFolderMove> {
-    const { newSpace, ...hooks } = opts
+  async moveFolder(from: string, to: string, opts: { dryRun?: boolean; newSpace?: true; renameSpace?: true } & MoveHooks = {}): Promise<ScopedFolderMove> {
+    const { newSpace, renameSpace, ...hooks } = opts
     const f = NoteService.checkFolder(from)
     const t = NoteService.checkFolder(to)
-    this.assertFolderToChange(f)
-    const space = newSpace ? this.newSpaceRule(f, t, newSpace.name) : null
+    if (renameSpace) this.assertSpaceRename(f, t)
+    else this.assertFolderToChange(f)
+    const space = newSpace ? this.newSpaceRule(f, t) : renameSpace ? this.renamedSpaceRule(f, t) : null
     if (!space) {
       assertPlacement(t, true)
       this.assertFolder(parentFolder(t)!, 'edit')
@@ -1242,13 +1295,30 @@ export class ScopedNotes {
     return mask(report)
   }
 
+  /** Unless `from` is a shared space's root this person manages, and `to` another shared space's root: a space renamed (`moveFolder` with `renameSpace`). */
+  private assertSpaceRename(from: string, to: string) {
+    const s = parseSpacePath(from)
+    const target = parseSpacePath(to)
+    if (this.access.isAgent || !s || s.space.kind !== 'shared' || s.inner !== '' || !target || target.space.kind !== 'shared' || target.inner !== '') {
+      throw new RequestError(400, 'invalid', 'only a shared space\'s root is renamed to another one')
+    }
+    this.assertFolder(from, 'manage')
+  }
+
+  /** The rule of a shared space renamed (`moveFolder` with `renameSpace`) at its new root: as it was, without 0.1.0-rc.1 or rc.2's `name`. */
+  private renamedSpaceRule(from: string, to: string): PermissionRule {
+    const engine = this.deps.permissions
+    const own = engine ? rulesOf(engine.section).find((r) => r.folder === from.normalize('NFC')) : undefined
+    return { folder: to, grants: own?.grants ?? null, ai: own?.ai ?? null }
+  }
+
   /**
-   * The rule of the new shared space `root` (not there yet, named `name`) a
-   * folder becomes (`moveFolder` with `newSpace`): the folder's own grants
-   * and `ai`, with whoever moves it managing it. Only a folder inside a space
-   * (not a space's root), to a shared space's root nothing is at.
+   * The rule of the new shared space `root` (not there yet) a folder becomes
+   * (`moveFolder` with `newSpace`): the folder's own grants and `ai`, with
+   * whoever moves it managing it. Only a folder inside a space (not a
+   * space's root), to a shared space's root nothing is at.
    */
-  private newSpaceRule(folder: string, root: string, name: string): PermissionRule & { name: string } {
+  private newSpaceRule(folder: string, root: string): PermissionRule {
     const s = parseSpacePath(folder)
     if (!s || s.inner === '') throw new RequestError(400, 'space_root', 'only a folder inside a space becomes a space of its own')
     const target = parseSpacePath(root)
@@ -1259,7 +1329,7 @@ export class ScopedNotes {
     const grants: Record<string, Level> = {}
     for (const [subject, level] of Object.entries(own?.grants ?? {})) if (subjectKey(subject) !== subjectKey(me)) grants[subject] = level
     grants[me] = 'manage'
-    return { folder: root, grants, ai: own?.ai ?? null, name }
+    return { folder: root, grants, ai: own?.ai ?? null }
   }
 
   // --- Other requests about notes -----------------------------------------------

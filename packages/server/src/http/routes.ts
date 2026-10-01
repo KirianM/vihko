@@ -57,6 +57,10 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'GET /api/workspace': 'session',
   'GET /api/profile': 'session',
   'PUT /api/profile': 'session',
+  'GET /api/home': 'session',
+  'GET /api/events': 'session',
+  'GET /api/settings': 'session',
+  'PUT /api/settings': 'session',
   'POST /api/folder': 'session',
   'DELETE /api/folder': 'session',
   'POST /api/folder/move': 'session',
@@ -98,6 +102,9 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'DELETE /api/admin/groups/:id/members/:userId': 'session',
   'GET /api/admin/settings': 'session',
   'PUT /api/admin/settings': 'session',
+  'GET /api/admin/retention': 'session',
+  'POST /api/admin/retention/preview': 'session',
+  'POST /api/admin/retention/run': 'session',
   'GET /api/account/2fa': 'session',
   'POST /api/account/2fa/setup': 'session',
   'POST /api/account/2fa/enable': 'session',
@@ -160,6 +167,13 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'GET /api/workspace': 'none',
   'GET /api/profile': 'none',
   'PUT /api/profile': 'none',
+  // «Home» (D-056.35): only what the person reads now, note by note.
+  'GET /api/home': 'filtered',
+  // The tree, live (D-056.36): «read your tree again», only to whom a change concerns.
+  'GET /api/events': 'filtered',
+  // Note settings: one's own, or a shared space's (read by its members, changed by its managers).
+  'GET /api/settings': 'filtered',
+  'PUT /api/settings': 'manage',
   'GET /api/integrations': 'none',
   'PUT /api/admin/integrations': 'admin',
   'GET /api/keys': 'none',
@@ -198,6 +212,10 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'DELETE /api/admin/groups/:id/members/:userId': 'admin',
   'GET /api/admin/settings': 'admin',
   'PUT /api/admin/settings': 'admin',
+  // Retention (retention.ts): counts and dates only, never a path.
+  'GET /api/admin/retention': 'admin',
+  'POST /api/admin/retention/preview': 'admin',
+  'POST /api/admin/retention/run': 'admin',
   // The second factor (D-036): the sign-in's second step, one's own, and the admin's reset.
   'POST /api/auth/login/code': 'none',
   'POST /api/auth/2fa/setup': 'none',

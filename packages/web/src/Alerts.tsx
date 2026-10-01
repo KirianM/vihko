@@ -7,7 +7,7 @@ import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from 'r
 import { Button, Dialog, Heading, Modal, ModalOverlay } from 'react-aria-components'
 import { ApiError, api, type Alert, type MoveJob, type MovedRelinkReport } from './api.ts'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
-import { Icon, MenuButton, ThemeToggle, noteName as fileName } from './ui.tsx'
+import { BackButton, Icon, MenuButton, ThemeToggle, noteName as fileName } from './ui.tsx'
 import { noteHref, usePathLabels } from './spaces.tsx'
 import { SearchButton } from './Palette.tsx'
 import type { ConfigError, ConfigMigrationRef } from '@vihko/core/codes'
@@ -22,10 +22,10 @@ type ExternalMove = Extract<Alert, { code: 'external_move' }>
 type Translate = ReturnType<typeof useT>
 
 /** Notices addressed to one person (M4.1, D-056.21–22): theirs to dismiss, and said when they come in. */
-export type PersonalNotice = Extract<Alert, { code: 'account_changed' | 'user_account_changed' | 'history_purged_authored' | 'links_not_updated' | 'space_changed' | 'shared_with_you' }>
+export type PersonalNotice = Extract<Alert, { code: 'account_changed' | 'user_account_changed' | 'history_purged_authored' | 'links_not_updated' | 'space_changed' | 'shared_with_you' | 'retention_ran' }>
 export const isPersonalNotice = (a: Alert): a is PersonalNotice =>
   a.code === 'account_changed' || a.code === 'user_account_changed' || a.code === 'history_purged_authored'
-  || a.code === 'links_not_updated' || a.code === 'space_changed' || a.code === 'shared_with_you'
+  || a.code === 'links_not_updated' || a.code === 'space_changed' || a.code === 'shared_with_you' || a.code === 'retention_ran'
 
 type NoticeParts = { by?: string; user?: string; path?: string; to?: string; space?: string; name?: string; owner?: string }
 
@@ -33,6 +33,7 @@ type NoticeParts = { by?: string; user?: string; path?: string; to?: string; spa
 function noticeTitle(a: PersonalNotice): { key: MessageKey; parts: NoticeParts } {
   switch (a.code) {
     case 'links_not_updated': return { key: 'alerts.linksNotUpdated', parts: {} }
+    case 'retention_ran': return { key: a.failed ? 'alerts.retentionFailed' : 'alerts.retentionRan', parts: {} }
     case 'space_changed': {
       const space = a.space?.name ?? undefined
       const known = { by: a.by, ...(a.user ? { user: a.user } : {}), ...(a.to ? { to: a.to } : {}), ...(space ? { space } : {}) }
@@ -359,6 +360,15 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           extra: configList(a.warnings),
           actions: null,
         })
+      case 'settings_invalid':
+        return frame({
+          icon: icons.config,
+          tone: 'warn',
+          title: a.space ? t('alerts.spaceSettingsInvalidTitle', { name: a.space.name }) : t('alerts.settingsInvalidTitle'),
+          body: t('alerts.settingsInvalidBody'),
+          extra: configList(a.errors),
+          actions: null,
+        })
       case 'config_migrated':
         return frame({
           icon: icons.config,
@@ -450,7 +460,8 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
       case 'history_purged_authored':
       case 'links_not_updated':
       case 'space_changed':
-      case 'shared_with_you': {
+      case 'shared_with_you':
+      case 'retention_ran': {
         const when = dates.dateTime(a.at)
         const n = noticeTitle(a)
         const body = a.code === 'account_changed'
@@ -458,11 +469,12 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           : a.code === 'user_account_changed'
             ? t(a.user === a.by ? 'alerts.userChangedSelfBody' : 'alerts.userChangedBody', { when, user: a.user })
             : a.code === 'links_not_updated' ? t('alerts.linksNotUpdatedBody', { when })
+            : a.code === 'retention_ran' ? t(a.failed ? 'alerts.retentionFailedBody' : 'alerts.retentionBody', { when, entries: a.trashEntries, versions: a.versions })
             : a.code === 'space_changed' ? t('alerts.spaceChangedBody', { when })
             : a.code === 'shared_with_you' ? t(a.path === null ? 'alerts.sharedWithYouGoneBody' : a.kind === 'space' ? 'alerts.sharedWithYouBody' : 'alerts.sharedFolderBody', { when })
             : t('alerts.purgedAuthoredBody', { when })
         return frame({
-          icon: a.code === 'history_purged_authored' || a.code === 'links_not_updated' ? icons.config : a.code === 'shared_with_you' || a.code === 'space_changed' ? icons.people : icons.person,
+          icon: a.code === 'history_purged_authored' || a.code === 'links_not_updated' || a.code === 'retention_ran' ? icons.config : a.code === 'shared_with_you' || a.code === 'space_changed' ? icons.people : icons.person,
           tone: a.code === 'account_changed' || a.code === 'shared_with_you' ? 'accent' : undefined,
           title: rich(t(n.key), { by: <b>{n.parts.by}</b>, user: <b>{n.parts.user}</b>, path: n.parts.path ? mono(n.parts.path) : null, to: <b>{n.parts.to}</b>, space: <b>{n.parts.space}</b>, name: <b>{n.parts.name}</b>, owner: <b>{n.parts.owner}</b> }),
           body,
@@ -555,6 +567,14 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           body: rich(t(a.code === 'space_without_members' ? 'alerts.spaceNoMembersBody' : 'alerts.spaceNoManagersBody'), { path: <b>{a.name}</b> }),
           actions: null,
         })
+      case 'space_not_renamed':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.spaceNotRenamedTitle', { name: a.name }),
+          body: rich(t('alerts.spaceNotRenamedBody'), { name: <b>{a.name}</b>, wanted: <b>{a.wanted}</b> }),
+          actions: null,
+        })
       case 'login_attempts_blocked':
         return frame({
           icon: icons.warn,
@@ -587,6 +607,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
     <>
       <header className="main-head">
         <MenuButton />
+        <BackButton />
         <span className="spacer" />
         <SearchButton />
         <ThemeToggle />

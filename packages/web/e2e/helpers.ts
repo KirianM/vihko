@@ -1,4 +1,4 @@
-import { expect, request, type APIRequestContext, type Browser, type Page } from '@playwright/test'
+import { expect, request, test, type APIRequestContext, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 import { crc32, deflateSync } from 'node:zlib'
 import { addressOf, pathOfAddress } from '@vihko/core/spaces'
@@ -35,9 +35,32 @@ export async function usePermissions(opts: { grants?: Grants; rules?: Record<str
   }
 }
 
+/** The spec file each browser context was first seen in (`closeEarlierFiles`). */
+const openedIn = new WeakMap<BrowserContext, string>()
+
+/**
+ * Closes the browser contexts earlier spec files left open. The specs share
+ * one browser (workers: 1), and a page left open goes on reacting to what
+ * later specs change (its tree and Home load again, its editors stay
+ * connected): every later spec would run against a server busy with people
+ * it never opened. A context is counted as the file's it is first seen in
+ * here: one an earlier file opened without signing in may live on through
+ * one more file, never less than its own.
+ */
+async function closeEarlierFiles(browser: Browser) {
+  const file = test.info().file
+  for (const ctx of browser.contexts()) {
+    const from = openedIn.get(ctx)
+    if (from === undefined) openedIn.set(ctx, file)
+    else if (from !== file) await ctx.close()
+  }
+}
+
 /** Own session (isolated context) with the person already signed in and the note open. */
 export async function signIn(browser: Browser, user: { username: string; password: string }, note?: string): Promise<Page> {
+  await closeEarlierFiles(browser)
   const ctx = await browser.newContext()
+  openedIn.set(ctx, test.info().file)
   const page = await ctx.newPage()
   await page.goto(note ? `/?note=${encodeURIComponent(note)}` : '/')
   await page.getByLabel('Nombre de usuario').fill(user.username)

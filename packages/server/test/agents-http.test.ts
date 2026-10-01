@@ -378,7 +378,7 @@ test('every answer of the routes open to keys is camelCase: fields, nested ones,
     await ask('GET', h.url('/api/note/links', { path: `${DIR}/${target}.md` }))
     for (const p of ['/api/tree', '/api/tags', '/api/daily', '/api/history/status', '/api/history/changes']) await ask('GET', p)
     for (const p of ['/api/note/headings', '/api/note/comments', '/api/history/versions', '/api/history/resolved']) await ask('GET', h.url(p, { path: source }))
-    await ask('GET', h.url('/api/search', { q: `path:${DIR}` }))
+    await ask('GET', h.url('/api/search', { q: `path:"${DIR}"` }))
     // A frontmatter that can't be read hides the note from agents: its `meta` as a person gets it.
     const broken = await ask('GET', h.url('/api/note', { path: Object.keys(files).at(-1)! }), undefined, undefined, h.admin)
     assert.equal(typeof broken.body.meta.fmError, 'string', JSON.stringify(broken.body))

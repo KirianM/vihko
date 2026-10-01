@@ -186,6 +186,14 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'POST /api/admin/users', method: 'POST', path: '/api/admin/users', body: { username: m.aUsername(), password: m.aPassword() }, expect: adminOnly(who) },
 
         { route: 'GET /api/tree', method: 'GET', path: '/api/tree', expect: 200 },
+        // «Home» (D-056.35): recent, changed by others, shared lately; a person's only.
+        { route: 'GET /api/home', method: 'GET', path: '/api/home', expect: who === 'agent' ? 404 : 200 },
+        // The tree, live (D-056.36): a stream that never ends for a person (live-tree.test.ts covers it); an agent has none.
+        ...(who === 'agent' ? [{ route: 'GET /api/events', method: 'GET', path: '/api/events', expect: 404 }] : []),
+        // Note settings: one's own; a space's, what they don't read as missing.
+        { route: 'GET /api/settings', method: 'GET', path: '/api/settings', expect: who === 'agent' ? 404 : 200 },
+        { route: 'GET /api/settings', method: 'GET', path: q('/api/settings', { space: DIR.shared }) },
+        { route: 'PUT /api/settings', method: 'PUT', path: '/api/settings', body: { space: DIR.shared, settings: { version: 1, daily: [], templates: [], attachments: null, agents: null }, ifMatch: 'x' } },
         { route: 'GET /api/tags', method: 'GET', path: '/api/tags', expect: 200 },
         ...[WORD.diary, WORD.cake, WORD.other, WORD.admin, WORD.settings, WORD.nobody, NAME.list, SURPRISE_WORD, NAME.plan, `tag:${TAG.intimate}`, `tag:${TAG.home}`, `path:"${DIR.people}"`, `path:"${DIR.admin}"`, `path:"${DIR.shared}"`, COPY]
           .map((s) => ({ route: 'GET /api/search', method: 'GET', path: q('/api/search', { q: s }), expect: 200 })),
@@ -277,6 +285,8 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
           ['PATCH', '/api/admin/groups/nope'], ['DELETE', '/api/admin/groups/nope'], ['POST', '/api/admin/groups/nope/members'],
           ['DELETE', '/api/admin/groups/nope/members/nope'], ['GET', '/api/admin/settings'], ['PUT', '/api/admin/settings'],
           ['DELETE', '/api/admin/config-migrations/nope'], ['DELETE', '/api/admin/state-migrations/nope'],
+          // Retention: counts and dates of the whole installation, never a path.
+          ['GET', '/api/admin/retention'], ['POST', '/api/admin/retention/preview'], ['POST', '/api/admin/retention/run'],
         ] as const).map(([method, path]) => ({
           route: `${method} ${path.replace(/\/nope(?=\/members\/)/, '/:id').replace(/members\/nope$/, 'members/:userId').replace(/\/nope/, '/:id')}`,
           method, path, body: method === 'GET' || method === 'DELETE' ? undefined : {}, expect: adminOnly(who),

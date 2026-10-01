@@ -64,7 +64,7 @@ test('a guess for what nothing matches: the space read from its name, the rest a
   assert.equal(guessTyped(`${p.spaceName}/${title}.md`, p.roots, { note: true }), `${p.shared}/${title}.md`)
   assert.equal(guessTyped(`${p.spaceName}`, p.roots), p.shared)
   assert.equal(guessTyped(`${m.aWord()}x/${title}`, p.roots), null)
-  const twin: RootNames[] = [...p.roots, { root: `spaces/${m.aSpaceFolder(p.spaceName)}`, names: [p.spaceName] }]
+  const twin: RootNames[] = [...p.roots, { root: `spaces/${m.aLegacySpaceFolder(p.spaceName)}`, names: [p.spaceName] }]
   assert.equal(guessTyped(`${p.spaceName}/${title}`, twin), null, 'two spaces with that name: no guess')
   assert.equal(guessTyped(`My notes/../${title}`, p.roots), null)
 })

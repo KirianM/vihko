@@ -75,7 +75,7 @@ changes, the key follows. On top of that, each key has its own limits.
 |---|---|---|
 | Name | (required) | Who the key is for: "Claude Code", "Backup script". The history and the editor show it |
 | Permissions | Read only | **Read only**, or **Reads and writes**: create, edit, move and trash notes, and add images to them |
-| Folders | Every folder you see | Or only the folders you choose, with everything inside them: your own space (`people/<you>`), a shared space (`spaces/home-7k2q9x`), or any folder in them |
+| Folders | Every folder you see | Or only the folders you choose, with everything inside them: your own space (`people/<you>`), a shared space (`spaces/Home`), or any folder in them |
 | Expiry | Never expires | 7 days, 30 days, 90 days or 1 year |
 
 Whatever the settings, a key never sees:
@@ -296,7 +296,7 @@ Conventions the tools share:
 
 - Paths are relative to the notes root and include `.md`, and are the same
   for everyone: `people/noa/projects/plan.md` for a note in Noa's space,
-  `spaces/home-7k2q9x/recipes/Bread.md` for one in the shared space «Home».
+  `spaces/Home/recipes/Bread.md` for one in the shared space «Home».
   Nothing can be created outside a space (`outside_space`).
 - Links follow the [same rules as in the UI](notes.md#links): by name or
   relative path, and only inside the note's own space. A link never leads to
@@ -388,7 +388,7 @@ keeps their notes:
 
 - their own space, `people/<username>/`, where their own notes go unless they
   say otherwise (or that the key doesn't reach it);
-- the shared spaces they belong to, each with its path, id, name and their
+- the shared spaces they belong to, each with its path, name and their
   level, and the folders others share with them, with whose they are (20 at
   most; `list_folder` with `""` lists them all);
 - how to write links, which never lead to another space, and that moving a
@@ -400,7 +400,7 @@ organised and what goes where. Name it in `vihko.yaml`, inside a space:
 
 ```yaml
 mcp:
-  instructions: spaces/home-7k2q9x/For agents.md
+  instructions: spaces/Home/For agents.md
 ```
 
 vihko appends the note's text to the server's instructions, for each key that
@@ -408,6 +408,14 @@ can read the note. A key that can't read it (a folder outside its reach, or
 `ai: false`) gets the server's instructions alone. With `{user}` in the path
 (`people/{user}/For agents.md`), each person's agents get that person's own
 note. See [Configuration](configuration.md).
+
+A shared space and a person can each add a guide of their own without
+`vihko.yaml`: a note of the space, named under «Guide for agents» in the
+space's «Settings…» (its managers) or in Preferences › «Your note settings»
+(see [Settings of a person or a space](configuration.md#settings-of-a-person-or-a-space)).
+An agent gets, in this order: the server's instructions, the guide in
+`vihko.yaml`, the guide of each shared space its key reaches, and its
+person's own guide. Each is there only if the key can read that note.
 
 ### The icon
 

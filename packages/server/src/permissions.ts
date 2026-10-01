@@ -7,7 +7,7 @@
 //
 // - Every note is in a space (core/spaces.ts): `people/<user>/`, which its
 //   owner manages whatever is written and nobody else reaches unless a
-//   folder in it is shared; or `spaces/<readable>-<id>/`, whose members are
+//   folder in it is shared; or `spaces/<name>/`, whose members are
 //   whoever its root's grants name. Anything outside the spaces is nobody's.
 // - Grants only add (D-056.7): a person's level in a folder is the highest
 //   the grants of it and of each folder above it in its space give them, by
@@ -117,12 +117,11 @@ export interface UserAccess {
   via: GrantSource[]
 }
 
-/** A shared space as its members see it (GET /api/spaces, D-056.14: `{id, name, path}`). */
+/** A shared space as its members see it (GET /api/spaces): `{path, name}`, the name its folder's (D-056.33). */
 export interface SpaceEntry {
-  /** Its root, `spaces/<readable>-<id>`. */
+  /** Its root, `spaces/<name>`. */
   path: string
-  id: string
-  /** Its name (vihko.yaml's, else the folder's readable part). */
+  /** Its name: its folder's (D-056.33). */
   name: string
   /** The person's level at its root. */
   level: Level
@@ -142,8 +141,8 @@ export interface SharedEntry {
   level: Level
   /** A personal space's owner. */
   owner?: string
-  /** A shared space's root, id and name. */
-  space?: { path: string; id: string; name: string }
+  /** A shared space's root and name. */
+  space?: { path: string; name: string }
 }
 
 /** What one person reaches, space by space. */
@@ -159,7 +158,6 @@ export interface SpacesView {
 /** A shared space for the admin's directory (spec §2.4, §5.7): no folder inside it is named. */
 export interface SharedSpaceInfo {
   path: string
-  id: string
   name: string
   /** The users who manage it, sorted. */
   managers: string[]
@@ -235,11 +233,11 @@ export class PermissionsEngine {
     return new Viewer(this, user)
   }
 
-  /** A shared space's name: vihko.yaml's, else its folder's readable part. Null for a path that isn't a shared space's root. */
-  spaceName(root: string, rules: SpaceRules = this.spaceRules()): string | null {
+  /** A shared space's name: its folder's (D-056.33). Null for a path that isn't a shared space's root. */
+  spaceName(root: string): string | null {
     const s = parseSpacePath(root)
     if (!s || s.space.kind !== 'shared' || s.inner !== '') return null
-    return rules.name(s.space.root) ?? s.space.readable
+    return s.space.name
   }
 
   /** The users who manage a folder, sorted by name. */
@@ -284,7 +282,7 @@ export class PermissionsEngine {
     for (const s of this.existingShared()) {
       const level = rules.level(s.root, me, exists)
       if (!level) continue
-      spaces.push({ path: s.root, id: s.id, name: this.spaceName(s.root, rules)!, level, managers: this.managersOf(s.root, rules), aiClosed: rules.aiClosedAt(s.root) !== null })
+      spaces.push({ path: s.root, name: s.name, level, managers: this.managersOf(s.root, rules), aiClosed: rules.aiClosedAt(s.root) !== null })
     }
     spaces.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
     return { personal: { path: personalRoot(user.username) }, spaces, shared: this.sharedWith(user) }
@@ -312,7 +310,7 @@ export class PermissionsEngine {
       if (s.space.kind === 'personal') out.push({ path: f, level, owner: s.space.owner })
       else {
         if (!this.folders.exists(s.space.root)) continue
-        out.push({ path: f, level, space: { path: s.space.root, id: s.space.id, name: this.spaceName(s.space.root, rules)! } })
+        out.push({ path: f, level, space: { path: s.space.root, name: s.space.name } })
       }
     }
     return out.sort((a, b) => a.path.localeCompare(b.path))
@@ -325,7 +323,7 @@ export class PermissionsEngine {
     for (const s of this.existingShared()) {
       const readers = this.readers(s.root, rules)
       out.push({
-        path: s.root, id: s.id, name: this.spaceName(s.root, rules)!,
+        path: s.root, name: s.name,
         managers: readers.filter((r) => r.level === 'manage').map((r) => r.username).sort(),
         members: readers.length, aiClosed: rules.aiClosedAt(s.root) !== null,
       })

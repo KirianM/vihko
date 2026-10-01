@@ -9,9 +9,9 @@ import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
-/** The shared space's name (vihko.yaml's). */
+/** The shared space's name, which is its folder (D-056.33). */
 export const SHARED_NAME = m.aSpaceName()
-/** The shared space most tests keep their notes in: `spaces/<readable>-<id>`. */
+/** The shared space most tests keep their notes in: `spaces/<name>`. */
 export const SHARED = `spaces/${m.aSpaceFolder(SHARED_NAME)}`
 
 /** `path` (from the shared space's root; `''` for the root itself) as a real path. */
@@ -23,7 +23,7 @@ export const yamlKey = (subject: string) => JSON.stringify(subject)
 /** The shared space with these grants (subject → level), as a `permissions` section. */
 export function sharedSpace(grants: Record<string, string>): string {
   const g = Object.entries(grants).map(([s, l]) => `${yamlKey(s)}: ${l}`).join(', ')
-  return `permissions:\n  ${JSON.stringify(SHARED)}:\n    name: ${JSON.stringify(SHARED_NAME)}\n    grants: { ${g} }\n`
+  return `permissions:\n  ${JSON.stringify(SHARED)}:\n    grants: { ${g} }\n`
 }
 
 /** `admin` manages the shared space, `member` edits it: everyone sees everything in it. */

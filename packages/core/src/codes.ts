@@ -69,6 +69,7 @@ export type ErrorCode =
   | 'leave_via_group' // leaving a space or a folder one reaches through a group (`group`): the admin takes them out of the group
   | 'space_has_managers' // the admin assigns a manager only to a shared space that has none
   | 'space_needs_manager' // a deleted person's space made a shared space needs at least one member who manages it
+  | 'space_name_taken' // a new shared space's name (or a new name for one) that a space in the installation already has, in any case (`name`: as that one writes it, D-056.33)
 
 /**
  * Space-level alerts: what vihko has detected in the notes folder that needs
@@ -213,6 +214,21 @@ export type Alert =
   /** A shared space with members but nobody who manages it (`path`, `name`): the admin assigns one (D-056.8). Only admins see it. */
   | { code: 'space_without_managers'; path: string; name: string; actions: never[] }
   /**
+   * A shared space of 0.1.0-rc.1 or rc.2 (`path`, its folder `name`, such
+   * as `casa-7k2q9x`) that vihko couldn't rename to the name it had then
+   * (`wanted`, D-056.33) when it started: another space or folder has that
+   * name, or the disk refused. Each start tries again; its managers can
+   * rename it. Only admins see it.
+   */
+  | { code: 'space_not_renamed'; path: string; name: string; wanted: string; actions: never[] }
+  /**
+   * Note settings (`.vihko/settings.yaml`) written by hand with something
+   * wrong: what applies leaves it out (`errors`, as vihko.yaml's). The
+   * person's own (`space` null), or a shared space's (`space`), told to
+   * its managers. Never to the admin as such.
+   */
+  | { code: 'settings_invalid'; space: { path: string; name: string } | null; errors: ConfigError[]; actions: never[] }
+  /**
    * Addressed to one person (M4.1): the vihko admin `by` (their name) gave
    * them a password reset link, took their second factor away or changed
    * their role (to `role`) at `at` (ISO). Until they dismiss it.
@@ -233,6 +249,13 @@ export type Alert =
    * again after the next rescan. No path, name or count. Until dismissed.
    */
   | { code: 'links_not_updated'; id: string; at: string; actions: 'dismiss'[] }
+  /**
+   * Addressed to every admin: a retention run (weekly, or started by an admin) at `at`
+   * removed `trashEntries` trash entries and `versions` history versions
+   * (counts only, never a path), or `failed` (the log says why; what it did
+   * before failing is counted). Until each dismisses theirs.
+   */
+  | { code: 'retention_ran'; id: string; at: string; trashEntries: number; versions: number; failed: boolean; actions: 'dismiss'[] }
   /**
    * Second factors stored encrypted with a VIHKO_SECRET_KEY that isn't the
    * one in force (or with none set): their codes can't be checked, so those

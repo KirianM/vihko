@@ -21,9 +21,8 @@ writes into your notes folder.
   fields and error codes; and the meaning of a field once it exists. When one
   has to change, we say so, and we prefer adding a new name to renaming an
   old one. In particular:
-  - `people/` and `spaces/` are fixed. A shared space's folder is
-    `<readable>-<id>`: its id never changes, and its readable part isn't
-    renamed when the space is.
+  - `people/` and `spaces/` are fixed. A shared space's folder is its name
+    (since 0.1.0-rc.3): renaming the space renames its folder.
   - A username is permanent: it is the name of the person's folder and part
     of every link into it.
   - Folders whose name starts with a dot are vihko's or other tools': vihko
@@ -71,8 +70,8 @@ note. Every path vihko serves is inside a space:
 | Path | What it is |
 |---|---|
 | `people/<username>/…` | A person's own space («My notes» in the UI). `<username>` is the person's username as it was created; it never changes |
-| `spaces/<readable>-<id>/…` | A shared space, such as `spaces/home-7k2q9x/`. `<id>` is 6 lowercase letters and digits after the last hyphen: the space's identity. `<readable>` is made from the space's name when it's created and never changes; the name people see is kept in `vihko.yaml` and can change |
-| `people/<username>/.vihko/`, `spaces/<readable>-<id>/.vihko/` | Reserved for the settings of that person or space in a later version (settings, never notes). Hidden, like every name that starts with a dot, and refused as a note or folder in any case (`invalid_path`). A person's doesn't come along when their space becomes a shared one |
+| `spaces/<name>/…` | A shared space, such as `spaces/Home/`. The folder is the space's name as it was written (in NFC), and renaming the space renames it |
+| `people/<username>/.vihko/`, `spaces/<name>/.vihko/` | The settings of that person or space (since 0.1.0-rc.3, `settings.yaml`: see [Settings of a person or a space](#settings-of-a-person-or-a-space)), never notes. Hidden, like every name that starts with a dot, and refused as a note or folder in any case (`invalid_path`). A person's doesn't come along when their space becomes a shared one |
 | `vihko.yaml` | The workspace configuration, at the root. Nobody sees it in vihko |
 | Anything else | In no space: nobody sees it in vihko, and the admins get the `outside_spaces` alert |
 
@@ -81,21 +80,33 @@ note. Every path vihko serves is inside a space:
   tries gets `400 outside_space`. A space's root is never created, renamed,
   moved or deleted as a folder: `400 space_root` (a shared space is deleted as
   a space; see below).
-- A folder in `spaces/` without an id at the end is not a space. One whose
-  name happens to end in `-` and six letters or digits is taken as a space,
-  with no members until the admin assigns a manager. Only someone writing on
-  the disk can make either.
+- Any folder in `spaces/` is a shared space, but one whose name starts with
+  `.` or `~`, ends with `.`, `~` or `.md`, or is `people` or `spaces` in any
+  case: those are in no space. One made on the disk has no members until the
+  admin assigns a manager.
 - A folder in `people/` named after no user (active, disabled or deleted) is
   seen by nobody, and the admins get `person_folder_without_user`.
-- A shared space's name is not unique (the id tells spaces apart), and it is
-  not secret: the admin's directory lists every shared space by name.
+- **A shared space's name is unique in the installation**, without regard to
+  case, and it is not secret: everyone who can sign in can learn that a name
+  is taken (creating a space with it answers `space_name_taken`), and the
+  admin's directory lists every shared space by name. What a space holds and
+  who is in it stay private. A name can't hold `/` or `\`, start with `.` or
+  `~`, end with `.`, `~` or `.md`, or be `people` or `spaces`.
+- Shared spaces made by 0.1.0-rc.1 or rc.2 were `spaces/<readable>-<id>/`,
+  with their name in `vihko.yaml` (`name`). Each start renames such a folder
+  to its name (or, when the name can't be a folder's, to its readable part)
+  as a rename from vihko would, and removes `name`; when another space or
+  folder has that name, it's left as it is and the admins get
+  `space_not_renamed` until a start can.
 - The UI never shows `people/` nor `spaces/`. A note's address in the
   browser is `?note=<address>`, the same for everyone who can open it: a
-  shared space by its folder (`?note=home-7k2q9x/plan.md`), a person's space
-  by `~` and the username (`?note=~ana/trips/Rome.md`). An address with the
-  path from the notes root (as vihko wrote it before 0.1.0-rc.2) still opens
-  the note and is replaced by the new form. Other query parameters (`view`,
-  `version`) may be added; addresses of another form may be added too.
+  shared space by its name (`?note=Home/plan.md`), a person's space by `~`
+  and the username (`?note=~ana/trips/Rome.md`). An address with the path
+  from the notes root (as vihko wrote it before 0.1.0-rc.2) still opens the
+  note and is replaced by the new form, and so does one of a space renamed
+  from rc.1 or rc.2 (`?note=home-7k2q9x/plan.md`), for whoever is in it.
+  Other query parameters (`view`, `version`) may be added; addresses of
+  another form may be added too.
 - A link never leads to another space (see [What vihko writes into your
   notes folder](#what-vihko-writes-into-your-notes-folder)).
 
@@ -120,7 +131,7 @@ The [API guide](api.md) explains how to use it.
 | A note's ETag | `sha256:<hex>` of its text, in the body and in the `ETag` header (quoted) |
 | Cursors | `next`, passed back as `cursor`: opaque (encrypted), valid until vihko restarts |
 | Conditional writes | `If-Match` (quoted or bare), `ifMatch` in the body where a route takes it, `If-None-Match: *` on `PUT /api/note` |
-| Errors | `{ "error": <code>, "message": <hint> }`, with `etag` on `precondition_failed`, `reason` on `agent_denied`, `audience` on `audience_widens`, `path` on an `exists` that names the disk's spelling, `contents` on `not_empty`, `group` on `leave_via_group`, `retryAfter` on `too_many_attempts`; `Retry-After` on `429` |
+| Errors | `{ "error": <code>, "message": <hint> }`, with `etag` on `precondition_failed`, `reason` on `agent_denied`, `audience` on `audience_widens`, `path` on an `exists` that names the disk's spelling, `movedTo` on a `not_found` for a note vihko moved from there in the last two minutes (only to whoever reads it where it went), `contents` on `not_empty`, `group` on `leave_via_group`, `retryAfter` on `too_many_attempts`; `Retry-After` on `429` |
 | What the key's person can't read | `404 not_found`, the same whether it exists or not |
 | What the person reads but is hidden from agents | `403 agent_denied` with `reason`: `ai_false` (the note or a folder above it is closed to agents) or `outside_key_folders` |
 | A write that hides the note from the key | Succeeds, and adds `nowHidden: true`, `reason` and `message` |
@@ -133,7 +144,7 @@ write (write).
 | Method and path | Key | Request | Response |
 |---|---|---|---|
 | `GET /api/tree` | read | — | `notes` (`path`, `title`, `uid`, `aliases`), `folders`, `pathOnly` |
-| `GET /api/spaces` | read | — | `personal` (`path`, or null when the key doesn't reach it), `spaces` (`path`, `id`, `name`, `level`, `managers`, `aiClosed`), `shared` (`path`, `level`, `pinned`, and `owner` in a personal space or `space` with `path`, `id`, `name`), `canCreate` (always false for a key) |
+| `GET /api/spaces` | read | — | `personal` (`path`, or null when the key doesn't reach it), `spaces` (`path`, `name`, `level`, `managers`, `aiClosed`), `shared` (`path`, `level`, `pinned`, and `owner` in a personal space or `space` with `path`, `name`), `canCreate` (always false for a key). A shared space's `name` is its folder's |
 | `GET /api/spaces/members` | read | `path` (a folder) | `path`, `space` (`path`, `name`, or null in a personal space), `owner` (or null in a shared space), `members` (`username`, `level`, `via`: `subject`, `level`, `from` (null where the asker doesn't read that folder), and `owner: true` for a person's own space) |
 | `GET /api/note` | read | `path` | `path`, `text`, `etag`, `meta` (`title`, `uid`, `fmError`, or null), `hiddenFromAgents` |
 | `GET /api/note/links` | read | `path` | `outgoing` (`raw`, `kind`, `target`, `anchor`, `status`, `dstPath`, `anchorOk`, `candidates`, `posFrom`, and `othersNoAccess`, `reason`, `self` when they apply), `backlinks` (`path`, `title`, `raw`, `context`), `titles` |
@@ -187,7 +198,9 @@ Details that go with them:
   so that it keeps leading to its note when another note took its name
   (created, restored or given an alias by someone who can't read the note
   holding the link) has the reason `links_kept`, with `to` (the note that
-  took the name, or null where the reader can't read it) and `by`.
+  took the name, or null where the reader can't read it) and `by`. A space
+  of 0.1.0-rc.1 or rc.2 renamed to its name when vihko started has the
+  reason `space_renamed`, with `from` and `to` (its roots).
 - **Edits by operation**: `append` (`text`), `append_under_heading`
   (`heading`, `text`), `find_replace` (`find`, `replace`, `expectedCount`),
   `replace_section` (`heading`, `text`) and `set_frontmatter` (`key`,
@@ -265,13 +278,13 @@ can't call, they can change in any release.
 
 | Method and path | Who | Request | Response, and codes of its own |
 |---|---|---|---|
-| `POST /api/spaces` | Anyone, or only admins with the setting `spacesCreation: admins` (`403 forbidden` otherwise) | `name`, `members`? (`{ "<user>" or "@<group>": level }`) | `201`: `space` (as in `GET /api/spaces`). The creator manages it |
-| `POST /api/spaces/from-folder` | `manage` in the folder and `edit` in its parent, and who may create spaces | `path` (a folder inside a space), `name`? (the folder's own by default), `dryRun`? | A dry run: `report` (the folder move's, with `audience`). Otherwise `201`: `space` (as in `GET /api/spaces`), `report`. The folder becomes a shared space of its own: what it holds goes to the new space's root, with the folder's own grants and its mover managing it. `400 space_root` for a space's root |
-| `POST /api/spaces/rename` | `manage` at the space's root | `path`, `name` | `space`. Only the name changes, never the folder |
+| `POST /api/spaces` | Anyone, or only admins with the setting `spacesCreation: admins` (`403 forbidden` otherwise) | `name`, `members`? (`{ "<user>" or "@<group>": level }`) | `201`: `space` (as in `GET /api/spaces`), at `spaces/<name>`. The creator manages it. `409 space_name_taken` with `name` (as the other space writes it) when a space has that name in any case; `400 invalid` with `problem` for a name that can't be a space's folder (`empty`, `too_long`, `control_characters`, `spaces_around`, `invalid_characters`, `invalid_name`) |
+| `POST /api/spaces/from-folder` | `manage` in the folder and `edit` in its parent, and who may create spaces | `path` (a folder inside a space), `name`? (the folder's own by default), `dryRun`? | A dry run: `report` (the folder move's, with `audience`). Otherwise `201`: `space` (as in `GET /api/spaces`), `report`. The folder becomes a shared space of its own, `spaces/<name>`: what it holds goes to the new space's root, with the folder's own grants and its mover managing it. `400 space_root` for a space's root; `409 space_name_taken` (in a dry run too) and `400 invalid` as for `POST /api/spaces` |
+| `POST /api/spaces/rename` | `manage` at the space's root | `path`, `name` | `space`, at its new path. Its folder becomes `spaces/<name>` with everything in it, its rules, and the keys, pins and trash entries that named it; links don't change. Another case of its own name renames it too. `409 space_name_taken` and `400 invalid` as for `POST /api/spaces` |
 | `DELETE /api/spaces` | `manage` at the space's root | `path`, `trash`? (query) | `path`. With `trash=true`, what it holds goes to the trash, which its managers keep seeing; otherwise only an empty space goes (`409 not_empty`) |
 | `POST /api/spaces/leave` | A grant of one's own there | `path` | `path`. One's own grants there and below go; nothing is deleted. `409 leave_via_group` with `group` when it comes through a group; `400 invalid` for one's own space, or a grant from a folder above |
 | `POST /api/spaces/pin` | What is shared with one | `path`, `pinned` | `path`, `pinned` |
-| `GET /api/admin/spaces` | The vihko admin | — | `spaces` (`path`, `id`, `name`, `managers`, `members` (a count), `aiClosed`), `closed` (`userId`, `username`, `path`: the spaces of deleted people) |
+| `GET /api/admin/spaces` | The vihko admin | — | `spaces` (`path`, `name`, `managers`, `members` (a count), `aiClosed`), `closed` (`userId`, `username`, `path`: the spaces of deleted people) |
 | `POST /api/admin/spaces/managers` | The vihko admin, confirmed at the moment | `path`, `userId`, `confirm` | `space`. Only for a space without managers: `409 space_has_managers` otherwise |
 | `POST /api/admin/spaces/join` | The vihko admin, confirmed at the moment | `path`, `level`? (`read` by default), `confirm` | `space` |
 | `GET /api/admin/users/:id/space` | The vihko admin | — | `path`, `exists`, `sharedFolders`, `people` (counts) |
@@ -283,6 +296,9 @@ can't call, they can change in any release.
 | `POST /api/folder` | `edit` in the parent | `path` | `201`: `path`. `outside_space`, `space_root` |
 | `POST /api/folder/move` | `manage` in it and `edit` in both parents | `from`, `to`, `dryRun`?, `background`? | The folder move's report, with `images.copied` when it changes space. The root of a folder someone shares with you is only theirs to move |
 | `DELETE /api/folder` | `manage` in it | `path`, `trash`? | `path`, `trashed`. `409 held_inside` while notes held after a move made outside vihko are in it |
+| `GET /api/home` | Anyone | — | «Home» (0.1.0-rc.3): `recent` (`path`, `title`, `at`: notes the person changed lately; without a history, those of their own space changed last), `changed` (the same and `by`: what others changed lately in notes the person reads; `by` (`kind` `user`, `agent` or `external`, `name`, `onBehalfOf`) only where they may see the history, null elsewhere), `shared` (`kind` `space` or `folder`, `path`, `name`, `owner`, `by`, `at`: what was shared with them in the last 30 days, while they see it). At most 8 each; nothing the person can't read |
+| `GET /api/events` | Anyone | — | A server-sent event stream (0.1.0-rc.3): `ready` when it opens, then `tree` (data `{}`) whenever a change concerns what the person sees: a note made, renamed, moved or deleted where they read, a folder made or gone there, or what they reach (their spaces, what is shared with them, their levels) changed. It never says what changed. A comment keeps it open every 25 s |
+| `GET/PUT /api/profile` | Anyone, their own | `timezone`?, `dailySeries`?, `onOpen`? (`home`, `last`, `note` or `daily`), `onOpenNote`? (a note's path, with `note`), `language`?; `openDailyOnStart`? (deprecated: `true` is `onOpen: daily`) | `timezone`, `dailySeries`, `onOpen`, `onOpenNote`, `openDailyOnStart` (deprecated: `onOpen` is `daily`), `language`. `onOpen: note` names only a note the person reads: `404 not_found` otherwise, and one they no longer read comes back as `home` |
 | `GET /api/trash` | Anyone | — | `entries`, each with `space` (its space's root, or null) |
 | `POST /api/trash/:id/restore` | Where the entry was | `to`? | `path`, `etag`, `files`, `left`: what stayed in the trash, only where the person reads |
 | `GET /api/keys` | Anyone | `all=1` (the vihko admin: everyone's) | `keys`; with `all=1`, each with `user`, and `foldersHidden` when someone else's key reaches folders the admin doesn't read (those aren't listed in `folders`) |
@@ -290,8 +306,13 @@ can't call, they can change in any release.
 | `GET /api/history/purgeable` | Anyone signed in (never a key) | — | `paths`: `{ path, deleted }` for each file the managed history holds versions of that the person may purge and reads now (whoever manages a folder, its notes; the vihko admin, any file they read); `deleted` when its last version deletes it. Empty in any other history mode. A path the person can't read is never listed |
 | `POST /api/admin/rescan` | The vihko admin | `force`?, `confirmRemoval`? | Counts only: `added`, `changed`, `removed`, `moved`, `unchanged`, `aborted`, `massDelete` |
 | `GET /api/move-jobs/:id` | Whoever started the move | — | `done` and `total` count only the notes the person reads |
-| `GET/PUT /api/admin/settings` | The vihko admin | `spacesCreation`? (`everyone` or `admins`) | The settings, with `spacesCreation` |
-| `GET /api/workspace` | Anyone | — | `templates`: the templates folders the person can read, `{user}` made theirs |
+| `GET/PUT /api/admin/settings` | The vihko admin | `spacesCreation`? (`everyone` or `admins`), `trashRetentionDays`?, `historyRetentionDays`? (a whole number of days, 1 to 36500, or null: off), `confirm`? | The settings, with `spacesCreation`, `trashRetentionDays` and `historyRetentionDays` (null by default). Turning a retention period on or shortening it needs `confirm` (`400 confirmation_required` without it); a longer one, or null, doesn't |
+| `GET /api/workspace` | Anyone | — | `daily`: the series the person can write today's note in, from `vihko.yaml`, their shared spaces' settings and their own (0.1.0-rc.3); `templates`: the templates folders the person can read, from the same three, `{user}` made theirs |
+| `GET /api/settings` | One's own; a shared space's members | `space`? (a shared space's root; one's own space when left out) | Since 0.1.0-rc.3: `space` (the root), `etag`, `settings` (`version`, `daily` (`id`, `label`, `folder`, `name`, `template`), `templates`, `attachments` (`mode`, and `folder` or `suffix`; null: as `vihko.yaml` says), `agents`; paths relative to the space), `errors` (what is wrong in the file: `code`, `at`, `line`, `detail`), `canEdit` (oneself, or a manager). `404 not_found` for a space the person isn't in, or anything that isn't a space's root |
+| `PUT /api/settings` | One's own; a shared space's managers | `space`?, `settings` (as `GET` gives them), `ifMatch` | As `GET`. `400 invalid` with `errors` (nothing written), `428 precondition_required` without `ifMatch`, `412 precondition_failed` when the file changed, `403 forbidden` for a member who doesn't manage the space |
+| `GET /api/admin/retention` | The vihko admin | — | `lastRun` (`at`, `trash: { entries, bytes }`, `history: { versions, bytes }` or null, `failed`) or null; `nextRun` (null while both periods are off); `history`: whether the history is the managed one, the only one retention thins |
+| `POST /api/admin/retention/run` | The vihko admin | `confirm` | A run now with the settings in force (`400 confirmation_required` without `confirm`): `at`, `trash`, `history`, `failed`, as `lastRun` |
+| `POST /api/admin/retention/preview` | The vihko admin | `trashRetentionDays`?, `historyRetentionDays`? (missing: as they are) | What the next run would remove with them: `trash: { entries, bytes }`, `history: { versions, bytes }` (null when off or not managed). Counts and sizes of the whole installation, never a path |
 
 A new user (`POST /api/admin/users`, `vihko user create`) gets their folder,
 `people/<username>/`; when that folder already exists with something in it,
@@ -309,11 +330,14 @@ codes 0.1.0 added for spaces:
 | `person_folder_without_user` | Admins | `names`: folders in `people/` named after no user |
 | `space_without_members` | Admins | `path`, `name`: a shared space nobody has access to |
 | `space_without_managers` | Admins | `path`, `name`: a shared space with members but nobody who manages it |
+| `space_not_renamed` | Admins | `path`, `name` (its folder now) and `wanted` (its name in 0.1.0-rc.1 or rc.2): a space vihko couldn't rename to its name when it started, because another space or folder has it. Each start tries again |
 | `missing_folder` | Whoever manages the space | `folders`: grants in `vihko.yaml` for folders that don't exist. Never the admin as such |
 | `permissions_held` | Who could have made that move from vihko | `id`, `folder`, `notes` (a count): notes held after a move made outside vihko |
 | `shared_with_you` | The person added | `kind` (`space` or `folder`), `by`, `path`, `name`, `owner`, `space`: someone added them to a space or shared a folder with them. Names and path only while they can still see it |
 | `space_changed` | The people concerned, and the other admins | `change` (`manager_assigned`, `admin_joined`, `personal_transferred`, `personal_converted`, `personal_deleted`), `by`, `user`, `to`, `space` |
 | `links_not_updated` | Whoever made the move | Links in other notes a move of theirs couldn't update, even retried. No path, name or count |
+| `settings_invalid` | The person, for their own settings; a shared space's managers, for the space's. Never the admin as such | `space` (null for one's own; otherwise `path` and `name`), `errors` (`code`, `at`, `line`, `detail`): what is wrong in a settings file (0.1.0-rc.3) |
+| `retention_ran` | Every admin | `trashEntries`, `versions`, `failed`: what a retention run (weekly, or «Run now») removed (or that it failed part way). Counts only |
 
 `history_purged` names the path only to an admin who can read where it was,
 or who purged it; to the others, `path` is null.
@@ -378,8 +402,8 @@ reaches within the key, each `kind: "folder"` with its `path` and a `space`:
 | `space.kind` | The root | Other fields |
 |---|---|---|
 | `personal` | Their own space, `people/<username>` | — |
-| `shared` | A shared space they belong to | `id`, `name`, `level` |
-| `received` | A folder someone shares with them | `level`, and `owner` (in a personal space) or `name` and `id` (of its shared space) |
+| `shared` | A shared space they belong to | `name`, `level` |
+| `received` | A folder someone shares with them | `level`, and `owner` (in a personal space) or `name` (of its shared space) |
 
 With `recursive`, the folders and notes under those roots follow.
 
@@ -414,8 +438,10 @@ and that a link never leads to another space; that moving a note to another
 space changes who sees it and whose it is, and leaves broken the links
 between it and the space it leaves; what to do with notes it can't see; and, for a key that
 writes, how to use ETags, `confirm_audience` and `ai: false`. Then the
-workspace's own guide, when `mcp.instructions` names a note the key can read.
-Their wording isn't covered.
+workspace's own guide, when `mcp.instructions` names a note the key can read;
+then (0.1.0-rc.3) the guide of each shared space the key reaches and the
+person's own (`agents` in their settings), each when the key can read that
+note. Their wording isn't covered.
 
 ## `vihko.yaml`
 
@@ -456,12 +482,16 @@ What goes with them:
   `{{date:FORMAT}}`, with the tokens `YYYY`, `YY`, `MM`, `M`, `DD`, `D`,
   `GGGG`, `WW`, `W`, `HH`, `mm` and text in `[brackets]`.
 - **Permission keys** are real folders: a shared space's root
-  (`spaces/<readable>-<id>`) or a folder below it, or a folder inside a
-  personal space (`people/<user>/<folder>`, and below). A personal space's
-  root (`people/<user>`) takes only `ai: false`. Anything else rejects the
+  (`spaces/<name>`) or a folder below it, or a folder inside a personal
+  space (`people/<user>/<folder>`, and below). A personal space's root
+  (`people/<user>`) takes only `ai: false`. Anything else rejects the
   section: `""`, `people`, `spaces`, a path in no space, a `{user}` segment,
   grants at a personal space's root, `name` anywhere but a shared space's
   root, a key written twice.
+- **`name`** at a shared space's root is 0.1.0-rc.1 and rc.2's (the
+  space's name). Since rc.3 the folder is the name: vihko never writes it,
+  reads it only to rename such a space's folder when it starts, and then
+  removes it.
 - **Subjects**: a username, or `@group`. **Levels**: `read`, `comment`,
   `edit` and `manage`. No group can be named `everyone`, `all`, `public` or
   `anyone` (`400 invalid_group_name`): those subjects are kept for grants to
@@ -481,6 +511,46 @@ What goes with them:
   deletes a folder, or when a user or group is deleted or renamed; and a
   format rewrite at start after an upgrade, which may raise `version`.
   Comments, key order and keys it doesn't know stay.
+
+## Settings of a person or a space
+
+Since 0.1.0-rc.3, each space can have a settings file at
+`<space root>/.vihko/settings.yaml`: `people/<username>/.vihko/settings.yaml`
+for a person, `spaces/<name>/.vihko/settings.yaml` for a shared space. One
+format for both. [Configuration](configuration.md#settings-of-a-person-or-a-space)
+explains it.
+
+| Key | Type | What it does |
+|---|---|---|
+| `version` | whole number from 1 | The file's format (1 when left out). A newer one is read as far as vihko can, with `newer_version` |
+| `daily.<id>` | as in `vihko.yaml`: `label`, `folder`, `name`, `template` | The space's daily-note series. Patterns take `{YYYY}`, `{MM}`, `{DD}`, `{GGGG}` and `{WW}`, not `{user}` (`pattern_token`) |
+| `templates` | folder, or list of folders | The space's templates folders |
+| `attachments` | as in `vihko.yaml`: `mode`, `folder`, `suffix` | Where new images of the space's notes go |
+| `agents` | note | The space's guide for agents |
+
+- **Paths are relative to the space's root**, never from the notes root: no
+  leading `/`, `..`, `.` or hidden segment (`invalid_path`). Renaming a space
+  changes nothing in its file.
+- **How it's read**: a key vihko doesn't know is ignored (`unknown_key`); a
+  known key with a wrong value is left out, and the rest applies; a file
+  that isn't YAML applies nothing. Each problem has a code (the same as
+  `vihko.yaml`'s), where it is and its line, and goes to the file's owner as
+  `settings_invalid`.
+- **Who reads it**: a person's, they alone; a shared space's, its members, to
+  apply it. A key never reads or changes a settings file. Nobody gets it as a
+  note or a file.
+- **How it adds up** with `vihko.yaml`, for each person: daily-note series
+  are `vihko.yaml`'s, then those of each shared space they're in, then their
+  own, and two that give the same note are one (the first is kept); only
+  those where they can write today's note are offered. Templates folders are
+  the union of the three, those they can read. New images of a note follow
+  its space's `attachments`, otherwise `vihko.yaml`'s. The guides for agents
+  come in order: `mcp.instructions`, each shared space the key reaches, the
+  person's own.
+- **Series ids**: a space's series are offered as `me-<id>` (one's own
+  space) or `sp-<8 hex digits>-<id>` (a shared space's, from its root), so
+  they never take one of `vihko.yaml`'s. A `dailySeries` in the profile
+  names them that way. How the hex digits are made isn't covered.
 
 ## Environment variables
 
@@ -551,8 +621,9 @@ else into a note unless someone asks it to (an edit, a comment, a
 |---|---|
 | The two folders | `people/` and `spaces/`, made when vihko starts if they're missing |
 | A person's folder | `people/<username>/`, made when the user is created, and again at start if it went missing |
-| A shared space's folder | `spaces/<readable>-<id>/`, made when the space is created, or when a folder becomes a space of its own («Move to a new space»). The readable part is the name in lowercase, without accents, anything else than letters and digits made a hyphen, at most 40 characters (`space` when nothing is left) |
-| A shared space's name and members | `permissions.<root>.name` and `.grants` in `vihko.yaml` |
+| A shared space's folder | `spaces/<name>/`, the space's name as written, made when the space is created, or when a folder becomes a space of its own («Move to a new space»), and renamed with the space. A space of 0.1.0-rc.1 or rc.2 (`spaces/<readable>-<id>/`) is renamed to its name when vihko starts |
+| A shared space's members | `permissions.<root>.grants` in `vihko.yaml` |
+| Settings of a person or a space | `<space root>/.vihko/settings.yaml`, written when someone saves them in the UI: atomically, only the keys that changed, `version` added first when missing; comments and key order stay |
 | The note's identity | `uid: <id>` in the frontmatter, added only when vihko writes the note anyway: created, edited or moved from vihko. vihko writes a ULID today and reads any text or number as a `uid` |
 | An alias after a rename | The old name added to `aliases`, only when a link to the note from its own space couldn't be rewritten and `links.aliases` is on |
 | Frontmatter changes | Only that key's value, in place; a new key at the end of the block; a note without frontmatter gets a block at the top. The rest stays byte for byte |
@@ -646,7 +717,8 @@ These can change in any release:
 - **The databases**: the tables of `state.db` and `index.db`. vihko migrates
   `state.db` on its own; `index.db` is rebuilt from the notes.
 - **The files in the state volume**, their names and their layout: the
-  history repository, the trash, the editor's recovery files, the lock.
+  history repository, the trash, the editor's recovery files, the lock,
+  `retention.json`.
 - **Log lines** and every text meant for people: error `message`s, the MCP
   server's instructions, tool descriptions.
 - **Timings**: how long a version waits to be saved, how often vihko rescans,

@@ -9,7 +9,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import type { Alert } from '@vihko/core'
-import { STATE_VERSION, configFromEnv, dismissStateMigration, openState, start, stateMigrationAlerts, stateMigrations } from '@vihko/server'
+import { Profiles, STATE_VERSION, configFromEnv, dismissStateMigration, openState, start, stateMigrationAlerts, stateMigrations } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -20,7 +20,8 @@ function version5(file: string) {
   openState(file).close()
   const raw = new Database(file)
   raw.exec(`drop table pins; drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
-    alter table users drop column deleted_at; alter table sessions drop column user_agent; alter table profiles drop column language;`)
+    alter table users drop column deleted_at; alter table sessions drop column user_agent; alter table profiles drop column language;
+    alter table profiles drop column on_open; alter table profiles drop column on_open_note;`)
   raw.pragma('user_version = 5')
   raw.close()
 }
@@ -129,4 +130,21 @@ test('startup: a new state volume raises no alert', async () => {
   } finally {
     await server.stop()
   }
+})
+
+test('state.db: «Open today\'s note on start» of version 10 carries over as «On opening: today\'s note» (D-056.35)', () => {
+  const dir = tempDir('vihko-state-onopen-')
+  const file = join(dir, 'state.db')
+  openState(file).close()
+  const raw = new Database(file)
+  raw.exec('alter table profiles drop column on_open; alter table profiles drop column on_open_note;')
+  const [daily, plain] = [m.aUsername(), m.aUsername()]
+  for (const [id, name] of [['01A', daily], ['01B', plain]]) raw.prepare("insert into users (id, username, password_hash, role, created_at) values (?, ?, 'x', 'member', '2026-01-01T00:00:00Z')").run(id, name)
+  raw.prepare('insert into profiles (user_id, open_daily) values (?, ?), (?, ?)').run('01A', 1, '01B', 0)
+  raw.pragma('user_version = 10')
+  raw.close()
+  const db = openState(file)
+  const profiles = new Profiles(db)
+  assert.deepEqual([profiles.get('01A').onOpen, profiles.get('01B').onOpen], ['daily', 'home'])
+  db.close()
 })

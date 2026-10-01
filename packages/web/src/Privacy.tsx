@@ -22,7 +22,7 @@ import { ApiError, api, type Integrations, type KeyInfo, type KeyWithUser, type 
 import { errorText, useT } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import { SearchButton } from './Palette.tsx'
-import { Diamond, MenuButton, ThemeToggle } from './ui.tsx'
+import { BackButton, Diamond, MenuButton, ThemeToggle } from './ui.tsx'
 import './agents.css'
 import './privacy.css'
 
@@ -88,6 +88,7 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
     <>
       <header className="main-head">
         <MenuButton />
+        <BackButton />
         <span className="spacer" />
         <SearchButton />
         <ThemeToggle />
