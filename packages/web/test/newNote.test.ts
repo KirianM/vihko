@@ -40,9 +40,11 @@ test('a path filter typed inside a space searches in the current space; one from
   const root = `spaces/${m.aSpaceFolder()}`
   const [a, b] = [m.aFolder().replace(/\s/g, '-'), `${m.aWord()} ${m.aWord()}`]
   const word = m.aWord()
-  assert.equal(scopePathFilters(`${word} path:${a}/`, root), `${word} path:${root}/${a}/`)
+  // A space's name may have spaces (D-056.33): the scoped path is quoted then.
+  const quoted = (p: string) => (/\s/.test(p) ? `"${p}"` : p)
+  assert.equal(scopePathFilters(`${word} path:${a}/`, root), `${word} path:${quoted(`${root}/${a}/`)}`)
   assert.equal(scopePathFilters(`-path:"${b}/" ${word}`, root), `-path:"${root}/${b}/" ${word}`)
-  assert.equal(scopePathFilters(`path:/${a}`, root), `path:${root}/${a}`)
+  assert.equal(scopePathFilters(`path:/${a}`, root), `path:${quoted(`${root}/${a}`)}`)
   const other = `people/${m.aUsername()}/${a}`
   assert.equal(scopePathFilters(`path:${other}`, root), `path:${other}`)
   assert.equal(scopePathFilters(`tag:${word}`, root), `tag:${word}`)
