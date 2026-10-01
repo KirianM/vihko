@@ -134,6 +134,45 @@ test('a space\'s settings, by its manager from the space\'s menu: where its new 
   await a.context().close()
 })
 
+test('a guide for agents that names no note: said on saving, and an alert until the note exists', async () => {
+  const guide = m.aTitle()
+  await k.goto('/')
+  await k.getByRole('button', { name: 'Preferencias' }).click()
+  await k.getByRole('dialog', { name: 'Preferencias' }).getByRole('button', { name: 'Ajustes de tus notas' }).click()
+  const dialog = k.getByRole('dialog', { name: 'Ajustes de tus notas' })
+  await dialog.getByLabel('Guía para agentes (una nota)').fill(guide)
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  // Saved, and the dialog stays to say the note isn't there.
+  await expect(dialog.getByRole('status')).toHaveText(`Guardado. Aún no hay ninguna nota «${guide}»: los agentes no reciben nada de ella hasta que la crees.`)
+  expect(read(settingsFile(MINE))).toContain(`agents: ${guide}`)
+  for (const theme of ['light', 'dark'] as const) {
+    await k.emulateMedia({ colorScheme: theme })
+    await dialog.screenshot({ path: `${SHOTS}/guide-missing-${theme}.png` })
+  }
+  await k.emulateMedia({ colorScheme: null })
+  await dialog.getByRole('button', { name: 'Cerrar' }).click()
+  await expect(dialog).toHaveCount(0)
+  // Opened again, the field says so too.
+  await k.getByRole('button', { name: 'Preferencias' }).click()
+  await k.getByRole('dialog', { name: 'Preferencias' }).getByRole('button', { name: 'Ajustes de tus notas' }).click()
+  await expect(dialog.getByRole('note')).toHaveText(`Aún no hay ninguna nota «${guide}» aquí: los agentes no reciben nada de ella hasta que la crees.`)
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+  // The alert, until the note exists.
+  await k.goto('/?view=alerts')
+  await expect(k.getByText('Tu guía para agentes no existe')).toBeVisible()
+  await expect(k.locator('.mono', { hasText: guide })).toHaveText(`Mis notas / ${guide}`)
+  for (const theme of ['light', 'dark'] as const) {
+    await k.emulateMedia({ colorScheme: theme })
+    await k.screenshot({ path: `${SHOTS}/alert-guide-missing-${theme}.png` })
+  }
+  await k.emulateMedia({ colorScheme: null })
+  const path = `${MINE}/${guide}.md`
+  expect((await k.request.post('/api/note', { data: { path, text: `# ${guide}\n\n${m.aSentence()}\n` } })).ok()).toBe(true)
+  const codes = async () => ((await (await k.request.get('/api/alerts')).json()) as { alerts: { code: string }[] }).alerts.map((x) => x.code)
+  await expect.poll(codes).not.toContain('settings_guide_missing')
+  await k.request.delete(`/api/note?path=${encodeURIComponent(path)}`)
+})
+
 test('a hand edit with a mistake is an alert to whom the file belongs, and to nobody else', async ({ browser }) => {
   const a = await signIn(browser, MEMBER)
   mkdirSync(`${NOTES}/${personal(MEMBER)}/.vihko`, { recursive: true })

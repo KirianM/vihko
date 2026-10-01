@@ -401,6 +401,14 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           ),
           actions: null,
         })
+      case 'settings_guide_missing':
+        return frame({
+          icon: icons.config,
+          tone: 'warn',
+          title: a.space ? t('alerts.spaceGuideMissingTitle', { name: a.space.name }) : t('alerts.guideMissingTitle'),
+          body: rich(t(a.space ? 'alerts.spaceGuideMissingBody' : 'alerts.guideMissingBody'), { note: mono(a.note) }),
+          actions: null,
+        })
       case 'config_template_missing':
         return frame({
           icon: icons.config,

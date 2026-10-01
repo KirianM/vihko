@@ -376,8 +376,10 @@ vihko's own instructions, the installation's guide and the guides of the
 shared spaces its key reaches. Editing the note is enough: the next time it
 connects, it gets the new text. It only gets it if it can read the note: if
 the key is limited to some folders, or the note is closed to agents
-(`ai: false`), it gets the rest without it. vihko doesn't tell you if the
-note doesn't exist yet: make it first.
+(`ai: false`), it gets the rest without it. If the note doesn't exist (a
+typo, or you haven't made it yet), saving says so and keeps the dialog open,
+and an alert («Your guide for agents doesn't exist») stays until the note is
+there.
 
 ### What's on the disk
 

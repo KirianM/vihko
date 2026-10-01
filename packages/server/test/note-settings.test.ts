@@ -159,6 +159,35 @@ test('a shared space\'s settings: its managers change them, its members read the
   }
 })
 
+test('a guide for agents that names no note: said when saved and read, and an alert to whom the settings belong, until the note exists', async () => {
+  const h = await setup()
+  try {
+    const guides = (who: Name) => h.as(who)('GET', '/api/alerts').then((r) => (r.body.alerts as any[]).filter((a) => a.code === 'settings_guide_missing'))
+    // One's own: the person is told; nobody else.
+    const mine = m.aTitle()
+    const saved = await put(h, 'member', (s) => { s.agents = mine })
+    assert.deepEqual([saved.status, saved.body.guideMissing], [200, true], saved.text)
+    assert.equal((await h.member('GET', '/api/settings')).body.guideMissing, true)
+    assert.deepEqual(await guides('member'), [{ code: 'settings_guide_missing', space: null, note: `${h.home('member')}/${mine}.md`, actions: [] }])
+    for (const who of ['admin', 'other'] as Name[]) assert.deepEqual(await guides(who), [], who)
+    h.write(`${h.home('member')}/${mine}.md`, `# ${mine}\n\n${m.aSentence()}\n`)
+    assert.equal((await h.member('GET', '/api/settings')).body.guideMissing, false)
+    assert.deepEqual(await guides('member'), [])
+    // A shared space's: its managers are told, not its other members.
+    const name = m.aSpaceName()
+    const space = (await h.member('POST', '/api/spaces', { name, members: { [h.names.other]: 'edit' } })).body.space.path as string
+    const theirs = m.aTitle()
+    assert.equal((await put(h, 'member', (s) => { s.agents = theirs }, space)).body.guideMissing, true)
+    assert.deepEqual(await guides('member'), [{ code: 'settings_guide_missing', space: { path: space, name }, note: `${space}/${theirs}.md`, actions: [] }])
+    assert.deepEqual(await guides('other'), [])
+    // No guide: nothing to say.
+    assert.equal((await put(h, 'member', (s) => { s.agents = null }, space)).body.guideMissing, false)
+    assert.deepEqual(await guides('member'), [])
+  } finally {
+    h.close()
+  }
+})
+
 test('settings files are never served, and a hand edit with something wrong tells whom they belong to, not the admin', async () => {
   const h = await setup()
   try {

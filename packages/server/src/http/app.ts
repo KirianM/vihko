@@ -671,7 +671,13 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (change && !access.canManage(s.space.root)) return fail(c, 403, 'forbidden', 'only its managers change a space\'s settings')
     return s.space.root
   }
-  const settingsView = (r: { root: string; etag: string; settings: unknown; errors: unknown }, canEdit: boolean) => ({ space: r.root, etag: r.etag, settings: r.settings, errors: r.errors, canEdit })
+  /** The note a space's settings name as its guide for agents, when there's no such note (agents would get nothing from it); null otherwise. */
+  const guideMissing = (r: { resolved: { agents: string | null } }): string | null => {
+    const note = r.resolved.agents
+    return note !== null && !index.prepare('select 1 from notes where path = ?').get(note) ? note : null
+  }
+  const settingsView = (r: { root: string; etag: string; settings: unknown; errors: unknown; resolved: { agents: string | null } }, canEdit: boolean) =>
+    ({ space: r.root, etag: r.etag, settings: r.settings, errors: r.errors, guideMissing: guideMissing(r) !== null, canEdit })
 
   app.get('/api/settings', (c) => {
     const root = settingsRoot(c, c.req.query('space'), false)
@@ -1008,10 +1014,14 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       const me = c.get('user')
       const own = noteSettings.read(personalRoot(me.username))
       if (own.errors.length) alerts.push({ code: 'settings_invalid', space: null, errors: own.errors, actions: [] })
+      const ownGuide = guideMissing(own)
+      if (ownGuide !== null) alerts.push({ code: 'settings_guide_missing', space: null, note: ownGuide, actions: [] })
       for (const s of permissions.spacesFor(me).spaces) {
         if (!access.canManage(s.path)) continue
         const r = noteSettings.read(s.path)
         if (r.errors.length) alerts.push({ code: 'settings_invalid', space: { path: s.path, name: s.name }, errors: r.errors, actions: [] })
+        const guide = guideMissing(r)
+        if (guide !== null) alerts.push({ code: 'settings_guide_missing', space: { path: s.path, name: s.name }, note: guide, actions: [] })
       }
     }
     return c.json({ alerts })

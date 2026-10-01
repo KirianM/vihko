@@ -256,7 +256,8 @@ What the members get:
 - **Images** pasted into any note of Family go to «Family / Photos». Images
   of their own notes don't change.
 - **Their agents** get «About this space» when they connect, for what they
-  do in Family.
+  do in Family. If that note doesn't exist (say it was renamed), saving the
+  settings says so, and the space's managers get an alert until it's back.
 
 The settings are saved in a hidden file of the space
 (`spaces/Family/.vihko/settings.yaml` on the server); members never see it,

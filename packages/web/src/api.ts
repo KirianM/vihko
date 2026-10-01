@@ -240,7 +240,7 @@ export interface NoteSettingsForm {
   agents: string | null
 }
 export interface SettingsProblem { code: string; at: string | null; line: number | null; detail: string | null }
-export interface SettingsView { space: string; etag: string; settings: NoteSettingsForm; errors: SettingsProblem[]; canEdit: boolean }
+export interface SettingsView { space: string; etag: string; settings: NoteSettingsForm; errors: SettingsProblem[]; guideMissing: boolean; canEdit: boolean }
 
 /** «Home» (GET /api/home): only what the person reads now. */
 export interface HomeNote { path: string; title: string; at: string }
