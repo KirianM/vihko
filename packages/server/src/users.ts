@@ -165,8 +165,8 @@ export class Users {
   }
 
   /** A new user without a password, and the link to choose it. */
-  async create(username: string, role: unknown): Promise<{ user: UserInfo; link: NewLink }> {
-    const user = await this.auth.createUser(String(username ?? ''), null, checkRole(role))
+  async create(username: string, role: unknown, opts: { adopt?: boolean } = {}): Promise<{ user: UserInfo; link: NewLink }> {
+    const user = await this.auth.createUser(String(username ?? ''), null, checkRole(role), opts)
     const link = this.newLink(user.id)
     return { user: this.get(user.id)!, link }
   }

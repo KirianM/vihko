@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
@@ -415,10 +415,23 @@ test('the CLI creates a user from its arguments as documented: `--admin` before 
     assert.equal(again.status, 1, 'a user that exists: an error')
     assert.match(again.stderr, /^error \(user_exists\): /, 'its code, as every other error')
     assert.equal(s.auth.userCount(), 4, 'the two of setup and the two created: none named after an option')
+    // A person recreated after state.db was lost: their folder is there, with their notes. Never theirs by default; with --adopt, it is.
+    const back = m.aUsername()
+    const kept = `people/${back}/${m.aTitle()}.md`
+    mkdirSync(join(s.notesDir, 'people', back), { recursive: true })
+    writeFileSync(join(s.notesDir, kept), m.aParagraph())
+    const refused = cli(['user', 'create', back])
+    assert.equal(refused.status, 1)
+    assert.match(refused.stderr, /^error \(personal_folder_exists\): /)
+    const adopted = cli(['user', 'create', '--adopt', back])
+    assert.equal(adopted.status, 0, adopted.stderr)
+    assert.match(adopted.stdout, new RegExp(`^user created: ${back} \\(member\\), with the folder already at people/${back} as theirs\\n$`))
+    assert.ok(existsSync(join(s.notesDir, kept)), 'what it held stays')
   } finally {
     await s.close()
   }
 })
+
 
 test('state.db: version 5 migrates keeping its users, with a copy before and a log line that names it', () => {
   const dir = tempDir('vihko-state-m4-')

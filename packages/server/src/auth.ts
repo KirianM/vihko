@@ -237,15 +237,16 @@ export class Auth {
    * choose one with a one-time link (users.ts). A deleted user's name is
    * still taken (its tombstone keeps it).
    */
-  async createUser(username: string, password: string | null, role: Role): Promise<User> {
-    this.newUsername(username)
+  async createUser(username: string, password: string | null, role: Role, opts: { adopt?: boolean } = {}): Promise<User> {
+    this.newUsername(username, opts)
     if (password !== null) strongEnough(password)
     const hash = password === null ? '' : await hashPassword(password)
     // Checked again after hashing, and from here on without awaiting: the
     // folder and the row are made together, or neither.
-    const name = this.newUsername(username)
+    const name = this.newUsername(username, opts)
     const user: User = { id: newUid(), username: name, role, disabled: false }
-    const made = this.folder(() => this.personalFolders?.make(name) ?? false)
+    // `adopt`: their folder there with something in it becomes theirs (personalFolders.ts), never by default.
+    const made = this.folder(() => this.personalFolders?.make(name, opts) ?? false)
     try {
       this.db.prepare('insert into users (id, username, password_hash, role, created_at) values (?, ?, ?, ?, ?)')
         .run(user.id, user.username, hash, role, new Date().toISOString())
@@ -271,7 +272,7 @@ export class Auth {
    * Throws if it isn't valid or is taken (a deleted user's too): checked
    * before anything is asked of whoever creates them.
    */
-  newUsername(username: string): string {
+  newUsername(username: string, opts: { adopt?: boolean } = {}): string {
     const name = username.normalize('NFC').trim()
     // Not starting with a dot either: `people/.ana` would be hidden, `people/..` outside (core isValidUsername).
     if (!isValidUsername(name)) throw new AuthError('invalid_username', 'invalid username (2-64 letters, digits, ".", "_" or "-", not starting with ".", and not a name JavaScript objects have)')
@@ -282,8 +283,8 @@ export class Auth {
     const folded = nameKey(name)
     const names = this.db.prepare('select username from users').all() as { username: string }[]
     if (names.some((r) => subjectKey(r.username) === key || nameKey(r.username) === folded)) throw new AuthError('user_exists', `user ${name} already exists`)
-    // Their folder: none yet, or an empty one.
-    this.folder(() => this.personalFolders?.check(name))
+    // Their folder: none yet, or an empty one (or, adopting it, whatever it holds).
+    if (!opts.adopt) this.folder(() => this.personalFolders?.check(name))
     return name
   }
 

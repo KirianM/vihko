@@ -61,6 +61,26 @@ test('a folder made outside vihko with something in it keeps its name from a new
   }
 })
 
+test('the admin adopts a folder made outside vihko for a new user, only when asked: what it holds becomes theirs', async () => {
+  const name = m.aUsername()
+  // Spelled in another case on the disk: it takes the user's name.
+  const onDisk = name.toUpperCase() === name ? name.toLowerCase() : name.toUpperCase()
+  const note = `${m.aTitle()}.md`
+  const h = await setup({ files: { [`people/${onDisk}/${note}`]: m.aParagraph() } })
+  try {
+    const refused = await h.admin('POST', '/api/admin/users', { username: name, role: 'member' })
+    assert.deepEqual([refused.status, refused.body.error], [409, 'personal_folder_exists'])
+    assert.equal((await h.admin('POST', '/api/admin/users', { username: name, role: 'member', adopt: 'yes' })).status, 400)
+    assert.equal((await h.member('POST', '/api/admin/users', { username: name, role: 'member', adopt: true })).status, 403, 'only the admin')
+    const r = await h.admin('POST', '/api/admin/users', { username: name, role: 'member', adopt: true })
+    assert.equal(r.status, 201, r.text)
+    assert.ok(existsSync(join(h.notesDir, 'people', name, note)), 'renamed to their name, with what it held')
+    assert.deepEqual(readdirSync(join(h.notesDir, 'people')).filter((e) => e.toLowerCase() === name.toLowerCase()), [name])
+  } finally {
+    h.close()
+  }
+})
+
 test('a fresh single-person install: the first admin gets their space at setup, and nothing else is written', async () => {
   const dir = tempDir('vihko-first-')
   const notesDir = join(dir, 'notes')

@@ -81,6 +81,8 @@ export interface UserRoutesDeps {
   retention?: Retention
   /** Whether the history is vihko's own (managed): only that one is thinned. */
   managedHistory?: () => boolean
+  /** The server's log: what the admins do to accounts stays on record there too. */
+  log?: (msg: string) => void
 }
 
 const fail = (c: Context, status: 400 | 403 | 404, error: string, message: string) => c.json({ error, message }, status)
@@ -121,6 +123,7 @@ export function inviteRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
 /** The routes with a session (after the session middleware). */
 export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   const { auth, users, settings, notices } = deps
+  const log = deps.log ?? (() => {})
   const admin = async (c: Context<Env>, next: () => Promise<void>) => {
     if (c.get('access').isAgent || c.get('user').role !== 'admin') return fail(c, 403, 'forbidden', 'admins only')
     await next()
@@ -199,12 +202,16 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   app.post('/api/admin/users', admin, async (c) => {
     const b = await body(c)
     if (b.password !== undefined) throw new UsersError('invalid', 'a new user chooses their password with their link (the CLI sets one: vihko user create)')
+    // `adopt`: their folder in people/, made outside vihko with something in it (a state.db lost), becomes theirs. Never by default.
+    if (b.adopt !== undefined && typeof b.adopt !== 'boolean') throw new UsersError('invalid', 'adopt must be true or false')
+    const adopt = b.adopt === true
     if (b.role === 'admin') {
-      auth.newUsername(String(b.username ?? ''))
+      auth.newUsername(String(b.username ?? ''), { adopt })
       const refused = await deps.confirm(c, b.confirm)
       if (refused) return refused
     }
-    const r = await users.create(String(b.username ?? ''), b.role ?? 'member')
+    const r = await users.create(String(b.username ?? ''), b.role ?? 'member', { adopt })
+    if (adopt) log(`${c.get('user').username} created ${r.user.username}, adopting the folder already at people/${r.user.username}`)
     // The other admins are told, as when someone is made admin.
     if (r.user.role === 'admin') notices.toOtherAdmins(r.user.id, c.get('user').id, 'role_changed', 'admin')
     return c.json({ user: r.user, link: link(r.link) }, 201)

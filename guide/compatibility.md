@@ -368,7 +368,9 @@ term, the last one also a prefix), and filters, each a word of its own:
 
 A new user (`POST /api/admin/users`, `vihko user create`) gets their folder,
 `people/<username>/`; when that folder already exists with something in it,
-creating the user is refused with `409 personal_folder_exists`.
+creating the user is refused with `409 personal_folder_exists`, unless the
+admin adopts it (since 0.1.0-rc.6: `adopt: true`, or `--adopt`), which makes it
+theirs as it is. Never by default.
 
 ### Alerts and notices
 
@@ -669,7 +671,7 @@ each one does. Other `VIHKO_*` variables in the source code are for tests.
 | Command | Arguments and options | Exit status |
 |---|---|---|
 | `vihko serve`, or `vihko` alone | — | `0` when stopped (`SIGTERM`, `SIGINT`); `1` if it can't start |
-| `vihko user create <name> [--admin]` | The password on standard input (one final line break is dropped); `--admin` before or after the name. Creates `people/<name>/` too | `0` created; `1` not (the name taken or not valid, a weak password, `personal_folder_exists`) |
+| `vihko user create <name> [--admin] [--adopt]` | The password on standard input (one final line break is dropped); the options before or after the name. Creates `people/<name>/` too; with `--adopt` (since 0.1.0-rc.6), a folder already there with something in it becomes theirs as it is (renamed to their name if another case spells it) | `0` created; `1` not (the name taken or not valid, a weak password, `personal_folder_exists` without `--adopt`) |
 | `vihko user reset-link <name>` | — | `0` with the link; `1` no such user |
 | `vihko user reset-2fa <name>` | — | `0` removed, or there was none; `1` no such user |
 | `vihko history purge <path> [--version <id>] [--dry-run]` | `--version=<id>` too | `0` purged, or nothing to purge; `1` not |

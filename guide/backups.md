@@ -166,6 +166,11 @@ there's nothing to undo.
   still in the history, so you can bring any note back from there.
 - **Only the state volume**: people, keys and settings go back to the time of
   the copy; the notes don't.
+- **No state volume at all** (lost, with the notes folder intact): vihko
+  starts as new. Recreate each person with **Adopt their folder** in «Users»
+  (or `vihko user create <name> --adopt`): their `people/<name>/` becomes
+  theirs again, as it is. Without it, a folder with something in it keeps its
+  name from a new user.
 
 ### Retention and backups
 

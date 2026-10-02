@@ -133,6 +133,12 @@ small team meets after months of use.
   it is as you last saw them), a shared space you're in deleted
   (`space_deleted`) or restored (`space_restored`), or renamed («Casa is now
   called Hogar», `space_renamed`).
+- **«Adopt their folder».** Recreating someone whose `people/<name>/` is
+  still there with their notes (after `state.db` was lost, or restored from
+  an old copy) was refused with `personal_folder_exists`, and the folder had
+  to be moved aside and back by hand. The admin can now adopt it, in «Users»
+  (`adopt: true` on `POST /api/admin/users`) or with `vihko user create
+  <name> --adopt`: it becomes theirs as it is. Never by default.
 - **«Restore previous permissions».** When the `permissions` section goes
   from `vihko.yaml` (an example pasted over it, the file deleted), the file
   applies, so nothing is shared, as before; now the admins get the
