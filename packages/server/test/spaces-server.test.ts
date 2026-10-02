@@ -581,7 +581,8 @@ test('the transfer\'s preview never looks into the recipient\'s space: the same 
     // Moving it, the name is taken: it goes under the first free one, and nothing of theirs is touched.
     const r = await h.admin('POST', `/api/admin/users/${h.created.member.id}/space`, { action: 'transfer', to: h.created.other.id, confirm: h.created.admin.password })
     assert.equal(r.status, 200, r.text)
-    assert.equal(r.body.plan.to, `${taken}-2`)
+    // The admin doesn't read the recipient's space: where it went there isn't said (`-2` would say what they had).
+    assert.equal(r.body.plan.to, null)
     assert.ok(existsSync(join(h.notesDir, `${taken}-2`, note.slice(h.home('member').length + 1))))
     assert.equal(readdirSync(join(h.notesDir, taken)).length, 1)
   } finally {

@@ -517,7 +517,8 @@ export class SpaceService {
       const told = this.engine.spaceAudience(dest).map((u) => u.id)
       this.opts.notices.spaceChanged(told, admin.id, { change: 'personal_converted', user: gone.id, to: null, space: dest })
     }
-    return plan(dest)
+    // Where it went inside the recipient's own space only to an admin who reads it there: `-2` would say what they had.
+    return plan(action === 'transfer' && access.level(dest) === null ? null : dest)
   }
 
   /**

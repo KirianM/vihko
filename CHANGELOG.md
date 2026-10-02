@@ -51,6 +51,10 @@ small team meets after months of use.
 
 ### Fixed
 
+- Transferring a deleted person's space no longer tells the admin where
+  it landed in the recipient's space (`plan.to` is null for an admin who
+  doesn't read there): `-2` after the name said the recipient already had
+  something with it.
 - Home's «what others changed» looks only among the notes the person
   reads: many changes elsewhere in the installation no longer push what
   they read out of it.
