@@ -593,7 +593,7 @@ export class OAuthServer {
    * token is the credential, never a cookie, so a page elsewhere can't ride
    * on it; this keeps the check the MCP transport asks for (DNS rebinding).
    */
-  authenticate(token: string, foreignOrigin?: string): AgentPrincipal | 'origin' | null {
+  authenticate(token: string, foreignOrigin?: string): AgentPrincipal | 'origin' | 'suspended' | null {
     if (!this.available() || !OAuthServer.isAccessToken(token)) return null
     const row = this.db.prepare(`select * from oauth_tokens where token_hash = ? and kind = 'access'`).get(sha256hex(token)) as TokenRow | undefined
     if (!row || row.resource !== this.resource || Date.parse(row.expires_at) <= this.now().getTime()) return null

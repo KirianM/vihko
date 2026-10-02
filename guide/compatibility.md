@@ -244,6 +244,7 @@ These are the codes a key can meet, with their status:
 | Code | Status | When |
 |---|---|---|
 | `unauthorized` | 401 | Not a valid key |
+| `key_suspended` | 403 | A member's key (or authorised app) while the admin doesn't let members have keys; it works again once they do (since 0.1.0-rc.6) |
 | `forbidden` | 403 | A read-only key on a route that writes, or something the key's person may not do there |
 | `agent_denied` | 403 | Hidden from agents; `reason` says why |
 | `not_found` | 404 | No such note, folder, version or route, or one the key's person can't read |

@@ -455,7 +455,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (!integrations.apiEnabled()) return fail(c, 404, 'not_found', 'does not exist')
     if (!route) return fail(c, 404, 'not_found', 'does not exist')
     const r = authenticateKey({ keys, integrations }, token, 'api')
-    if (!r.ok) return fail(c, r.status, r.error, r.status === 401 ? 'invalid key' : 'does not exist')
+    if (!r.ok) return fail(c, r.status, r.error, r.status === 401 ? 'invalid key' : r.status === 403 ? 'this key is suspended while the admin doesn\'t let members have keys' : 'does not exist')
     if (route === 'write' && !r.principal.key.canWrite) return fail(c, 403, 'forbidden', 'this key is read-only')
     c.set('user', r.principal.user)
     c.set('access', policy.for(r.principal))

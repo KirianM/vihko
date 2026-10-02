@@ -84,6 +84,11 @@ small team meets after months of use.
   revoke keys and authorised apps». `POST /api/auth/password` takes
   `revokeOthers` (true by default) and answers `sessionsEnded` and
   `keysRevoked`; with `false`, the other sessions and the keys stay.
+- **Turning off «Members can create keys» suspends the keys and apps
+  members already have**: they stop working, answering `403 key_suspended`
+  by the API and MCP alike, without being deleted, and work again when it's
+  turned back on (their status is `suspended` meanwhile). The confirmation
+  says how many (`GET /api/integrations` gives the admin `memberKeys`).
 - **A key made, or an app authorised, on your account is never unnoticed:**
   you get the `account_key_added` notice, even when you did it yourself (a
   session someone else took would do it unseen otherwise).
@@ -236,6 +241,10 @@ small team meets after months of use.
   `vihko.yaml` when 0.1.0-rc.6 first starts count from the start, and so do
   the groups' members then: nobody loses a past they could see. From then on,
   whoever is given access sees the past only from that moment.
+- With «Members can create keys» off (the default of a new installation
+  since 0.1.0-rc.4), the keys and authorised apps members made while it was
+  on stop working (`403 key_suspended`) until the admin turns it on again.
+  Admins' keys aren't affected.
 - Changing your password now revokes your keys and authorised apps too,
   unless you untick the box (or send `revokeOthers: false`): a script or an
   app that used one needs a new key afterwards.

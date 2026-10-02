@@ -220,7 +220,8 @@ test('the filter in the query and the one for a path agree, note by note', async
   const h = await setup({ files: FILES, config: CONFIG })
   try {
     const { token } = await h.newKey({ name: m.aKeyName(), folders: [DIR.key] })
-    const principal = h.keys.authenticate(token, 'api')!
+    const principal = h.keys.authenticate(token, 'api')
+    assert.ok(principal && principal !== 'suspended')
     const access = h.services.policy.for(principal)
     const w = access.notesWhere('n')
     const all = (h.services.scoped(h.services.policy.for({ kind: 'user', user: h.users.admin })).tree().notes).map((n) => n.path)

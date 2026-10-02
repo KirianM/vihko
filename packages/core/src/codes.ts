@@ -10,6 +10,7 @@ export type { ConfigError, ConfigErrorCode } from './workspace.ts'
  */
 export type ErrorCode =
   | 'unauthorized' // no session, or expired
+  | 'key_suspended' // a member's key (or authorised app) while the admin doesn't let members have keys: it works again once they do
   | 'invalid_credentials'
   | 'forbidden'
   | 'not_found'

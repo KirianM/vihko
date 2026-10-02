@@ -1,7 +1,8 @@
 // Agent keys and the integration switches, for the UI (session only: a key
 // never reaches these, http/routes.ts).
 //
-//   GET    /api/integrations            the switches, the lock, whether this user may create keys, and the public URL (OAuth)
+//   GET    /api/integrations            the switches, the lock, whether this user may create keys, and the public URL (OAuth);
+//                                        for the admin, `memberKeys`: members' keys and apps, which «members can create keys» off suspends
 //   PUT    /api/admin/integrations      { api?, mcp?, membersCanCreateKeys?, oauthRegistration? }   the vihko admin only
 //   GET    /api/keys[?all=1]            this user's keys; with all=1, the admin gets everyone's
 //   POST   /api/keys                    { name, canWrite?, folders?, expiresAt?, confirm } → { key, token } (the token, once).
@@ -45,7 +46,8 @@ export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
     return b as Record<string, unknown>
   }
 
-  const view = (c: Context<Env>) => ({ ...integrations.view(), canCreateKeys: mayCreate(c), publicUrl: deps.publicUrl ?? null })
+  // The admin also gets how many members' keys and apps there are: what turning «members can create keys» off suspends.
+  const view = (c: Context<Env>) => ({ ...integrations.view(), canCreateKeys: mayCreate(c), publicUrl: deps.publicUrl ?? null, ...(isAdmin(c) ? { memberKeys: keys.memberKeys() } : {}) })
 
   app.get('/api/integrations', (c) => c.json(view(c)))
 

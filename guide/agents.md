@@ -38,8 +38,10 @@ way.
 The last two switches, and one more:
 
 - **Members can create keys** (off by default). While it's off, members can't
-  create keys or approve apps with OAuth; those they have keep working and
-  they can revoke them, but can't change or rotate them. An admin always can.
+  create keys or approve apps with OAuth, and those they have are suspended:
+  they answer `403 key_suspended`, and work again when it's turned back on
+  (turning it off says how many). Members can still revoke them, but can't
+  change or rotate them. An admin's keys always work.
 - **OAuth apps can register themselves** (off by default), right under **MCP
   server**. It only shows when vihko has a public address
   (`VIHKO_PUBLIC_URL`). Connecting `mcp-remote` or another app that registers
