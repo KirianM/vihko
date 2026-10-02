@@ -10,6 +10,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import * as Y from 'yjs'
+import { openLineage } from '../../web/src/editor/lineage.ts'
 import { CLI, api, closeAll, connect, login, makeDirs, sleep, socket, startServer, typeLine, waitFor, open, type Srv } from './_collab.ts'
 import { yamlKey } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
@@ -100,12 +101,44 @@ test('access changed with the note open: the editor is told and closed; a move n
 
     // The admin (edit now) moves it to their own space, where the member can't read: they're told it's gone, not where.
     const k2 = await connect(srv, k, list)
-    const moved: { who: string; to: unknown }[] = []
-    for (const [who, c] of [['member', again], ['admin', k2]] as const) c.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'vihko:moved') moved.push({ who, to: m.to }) })
+    // Its text too, only to whoever reads it there.
+    const moved: { who: string; to: unknown; text: boolean }[] = []
+    for (const [who, c] of [['member', again], ['admin', k2]] as const) c.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'vihko:moved') moved.push({ who, to: m.to, text: typeof m.text === 'string' }) })
     const to = m.aNotePath(`people/${admin.username}`)
     const mv = await api(srv, k, 'POST', '/api/note/move', { from: list, to })
     assert.equal(mv.status, 200, JSON.stringify(mv.body))
     await waitFor(() => moved.length === 2, 'both editors told')
-    assert.deepEqual(moved.sort((a, b) => a.who.localeCompare(b.who)), [{ who: 'admin', to }, { who: 'member', to: null }])
+    assert.deepEqual(moved.sort((a, b) => a.who.localeCompare(b.who)), [{ who: 'admin', to, text: true }, { who: 'member', to: null, text: false }])
+  } finally { closeAll(); await srv.stop() }
+})
+
+test('an editor that reconnects showing the note at a level the person no longer has is told what they have before anything is synced', async () => {
+  const { notes, env, admin, member, shared, list } = prepare()
+  const srv = await startServer({ ...env, VIHKO_HISTORY_QUIET_SECONDS: '0.4' })
+  try {
+    const l = await login(srv, member)
+    // The member lowers themself to reading (it changed while an editor of theirs was offline).
+    const perm = await api(srv, l, 'GET', `/api/permissions?folder=${encodeURIComponent(shared)}`)
+    const put = await api(srv, l, 'PUT', '/api/permissions', { folder: shared, grants: { [member.username]: 'read', [admin.username]: 'manage' }, ifMatch: perm.body.etag })
+    assert.equal(put.status, 200, JSON.stringify(put.body))
+    const typed = m.aUniqueWord()
+    for (const claim of ['edit', 'comment'] as const) {
+      // An editor that still shows it writable, with a line it typed offline.
+      const lineage = openLineage(socket(srv, l), list, () => claim)
+      open.unshift(lineage.provider)
+      lineage.text.insert(0, `${typed}\n`)
+      const got: { type: string; access?: string; path?: string }[] = []
+      lineage.provider.on('stateless', ({ payload }: { payload: string }) => got.push(JSON.parse(payload)))
+      await waitFor(() => got.some((g) => g.type === 'vihko:access'), `told (claiming ${claim})`)
+      assert.deepEqual(got, [{ type: 'vihko:access', path: list, access: 'read' }])
+      assert.equal(lineage.provider.isSynced, false, 'nothing synced')
+      assert.ok(lineage.unsent(), 'what it typed is still unsent')
+    }
+    // Claiming what they have, it opens as usual.
+    const reading = openLineage(socket(srv, l), list, () => 'read')
+    open.unshift(reading.provider)
+    await waitFor(() => reading.provider.isSynced, 'opened read-only')
+    await sleep(500)
+    assert.ok(!readFileSync(join(notes, list), 'utf8').includes(typed))
   } finally { closeAll(); await srv.stop() }
 })

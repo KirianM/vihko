@@ -37,15 +37,26 @@ export interface Lineage {
   destroy(quiet?: boolean): void
 }
 
+/**
+ * What the editor shows the note as: `edit` (writable), `comment` or `read`;
+ * null while it doesn't know yet. The hub refuses an editor that claims
+ * another level than the person has (the access changed while it was
+ * offline) before syncing anything, and says what they have (`vihko:access`).
+ */
+export type Claim = () => 'edit' | 'comment' | 'read' | null
+
 /** Opens a document on the shared socket. */
-export function openLineage(websocketProvider: HocuspocusProviderWebsocket, name: string): Lineage {
+export function openLineage(websocketProvider: HocuspocusProviderWebsocket, name: string, claim: Claim = () => null): Lineage {
   const doc = new Y.Doc()
   const provider = new HocuspocusProvider({
     websocketProvider,
     name,
     document: doc,
-    // Sent on every (re)connection, before any sync: an empty copy claims nothing.
-    token: () => JSON.stringify({ generation: generationOf(doc) }),
+    // Sent on every (re)connection, before any sync: an empty copy claims no generation.
+    token: () => {
+      const level = claim()
+      return JSON.stringify({ generation: generationOf(doc), ...(level ? { level } : {}) })
+    },
     // Each opening has its own address on the socket: what an old one still had
     // in flight when the hub refused it can't reach the next opening of the note.
     sessionAwareness: true,

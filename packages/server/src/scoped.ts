@@ -891,8 +891,9 @@ export class ScopedNotes {
     }
     if (!opts.dryRun) {
       const r = await this.edit(path, (t) => planEdits(t, ops), opts)
-      // Planned on an ETag, the text it changed was the one it had read; appends alone may land on a text it hasn't seen.
-      return this.written(NoteService.checkPath(path), r.etag, opts.ifMatch !== undefined)
+      // Planned on an ETag, the text it changed was the one it had read; appends alone may land on a text it hasn't seen,
+      // and so does a change planned on a text someone has typed in since (`rebased`).
+      return this.written(NoteService.checkPath(path), r.etag, opts.ifMatch !== undefined && !r.rebased)
     }
     try {
       await this.edit(path, (t) => {

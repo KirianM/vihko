@@ -389,7 +389,7 @@ test('renaming an open note: editors are told, nothing is lost and the old path 
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
     const b = await connect(srv, cookie, NOTE)
-    const moved: { from: string; to: string }[] = []
+    const moved: { from: string; to: string; text?: string }[] = []
     for (const c of [a, b]) c.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'vihko:moved') moved.push(m) })
     typeLine(a, MARK.unflushed) // still in the debounce: the move flushes it first
     await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
@@ -400,7 +400,8 @@ test('renaming an open note: editors are told, nothing is lost and the old path 
     assert.equal(r.status, 200)
     assert.deepEqual(r.body.relinked.map((x: { path: string }) => x.path), preview.body.relinked.map((x: { path: string }) => x.path))
     await waitFor(() => moved.length === 2, 'both editors told')
-    assert.deepEqual(moved[0], { type: 'vihko:moved', from: NOTE, to: TO })
+    // With the text the hub had when it closed the note there: what lands at the new path.
+    assert.deepEqual(moved[0], { type: 'vihko:moved', from: NOTE, to: TO, text: readFileSync(join(notes, TO), 'utf8') })
     assert.ok(!existsSync(join(notes, NOTE)))
     assert.ok(readFileSync(join(notes, TO), 'utf8').includes(`${MARK.unflushed}\n`))
     assert.ok(readFileSync(join(notes, inShared('hogar/enlaces.md')), 'utf8').includes(`[[${name}#Red]]`))

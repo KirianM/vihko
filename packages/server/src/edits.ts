@@ -1,7 +1,10 @@
-// Edits by operation: applied to the current text atomically, without
-// requiring that the rest of the note hasn't changed. This is what lets an
-// agent write to a note while someone else is editing it (the ETag changes
-// on every keystroke, so a full replacement with If-Match would never match).
+// Edits by operation: applied to the current text atomically, all or none.
+// An append needs no ETag: it lands at the end of whatever the note holds.
+// A substitution (find_replace, replace_section, set_frontmatter) is planned
+// on a text the agent read, by its ETag: while someone types in the open
+// note the ETag changes on every keystroke, so the hub applies it to the
+// text as it is now when nothing changed since where it goes (rebase.ts),
+// and refuses it (`precondition_failed`) when something did.
 import { FrontmatterError, extract, normKey, setFrontmatterKey, withoutClosingHashes, type ScalarValue } from '@vihko/core'
 import { NoteError } from './notes.ts'
 

@@ -101,6 +101,8 @@ export interface Orphans {
   orphans(): string[]
   restoreOrphan(path: string): Promise<{ etag: string }>
   discardOrphan(path: string): Promise<void>
+  /** Open notes it can't save right now (a full disk, no permission), and why. */
+  unsaved?(): { path: string; reason: 'disk_full' | 'write_denied' | 'write_failed'; volume: 'notes' | 'state' }[]
 }
 
 export interface AppDeps {
@@ -959,6 +961,13 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     }
     for (const path of deps.orphans?.orphans() ?? []) {
       if (access.canRead(path)) alerts.push({ code: 'orphaned_note', path, actions: access.canWrite(path) ? ['keep_copy', 'discard_copy'] : [] })
+    }
+    // Notes vihko can't save (a full disk, a folder it may not write to): to the admins, who can fix the
+    // volume. The note's path only to one who reads it; its space to all of them.
+    if (admin) {
+      for (const u of deps.orphans?.unsaved?.() ?? []) {
+        alerts.push({ code: 'note_not_saved', path: access.canRead(u.path) ? u.path : null, space: spaceRootOf(u.path), reason: u.reason, volume: u.volume, actions: [] })
+      }
     }
     for (const m of s.externalMoves()) {
       const mine = m.moves.some((x) => access.canWrite(x.to) && access.canWrite(x.from))
