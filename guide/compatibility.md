@@ -686,14 +686,18 @@ else into a note unless someone asks it to (an edit, a comment, a
 | Image links | `![alt](path)`, relative to the note, with spaces, brackets, parentheses, `%`, `#`, `?`, `<`, `>` and `\` percent-encoded |
 | Where new images go | As `attachments` says, inside the note's space. A new image never takes a name already in use; the form of its name isn't covered |
 | Moved images | Images only one note uses go with it when it changes folder. When it changes space, the images it shares with other notes are copied to the new space, and its links point to the copies |
+| A deleted folder | Since 0.1.0-rc.6, everything in it goes to the trash, its hidden folders (`.git/`, `.obsidian/`, `.vihko/`…) included, and restoring it puts them back; only a symbolic link in it stops it. Operating systems' clutter (`.DS_Store` and the like) is removed |
+| A saved copy of an external image | Since 0.1.0-rc.6, «Save a copy» on an image of a note stores it as an upload does and replaces that image's destination with the copy's relative path, its alt text kept |
 
 What vihko reads in your notes stays too: the frontmatter keys `uid`,
 `title`, `tags`, `aliases`, `ai` (`ai: false` hides a note from agents) and
 `template` (`template: true`, a YAML true, makes a note a template: offered
 when creating a note, left out of search unless asked for, of tags and of
 Home), every other key's simple values for searching,
-`#tags`, both kinds of links (`[[a\|b]]` in a table included), and the files it
-ignores (names starting with `.` or ending in `~`, and symbolic links).
+`#tags`, both kinds of links (`[[a\|b]]` in a table included), files named
+by an `![[…]]` or `[[…]]` with an extension (relative to the note, or by name
+in its space, since 0.1.0-rc.6), and the files it ignores (names starting
+with `.` or ending in `~`, and symbolic links).
 
 How a link resolves is the same for everyone who reads it, and a link never
 leads to another space, in any form: a wikilink whose first segment is

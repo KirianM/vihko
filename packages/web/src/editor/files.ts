@@ -15,9 +15,16 @@ export function openFile(path: string) {
   window.open(fileUrl(path), '_blank', 'noopener,noreferrer')
 }
 
-/** Whether a link's target names a file that isn't a note: it has an extension, and it isn't `.md`. */
+/**
+ * A file's extension: up to 8 letters or digits, with a letter, so that a
+ * note named `v1.2` or `Report 2026.10` is still a note's name (as the
+ * server's fileNames.ts judges it).
+ */
+const FILE_EXTENSION = /\.(?=[a-z0-9]*[a-z])[a-z0-9]{1,8}$/i
+
+/** Whether a link's target names a file that isn't a note: it has an extension (FILE_EXTENSION), and it isn't `.md`. */
 export function isFileTarget(target: string): boolean {
   const t = target.replace(/[#?].*$/, '').trim()
   const name = t.slice(t.lastIndexOf('/') + 1)
-  return /\.[^.\s]+$/.test(name) && !name.startsWith('.') && !/\.md$/i.test(name)
+  return FILE_EXTENSION.test(name) && !name.startsWith('.') && !/\.md$/i.test(name)
 }

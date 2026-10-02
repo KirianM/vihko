@@ -7,11 +7,17 @@
 import { LinkIndex, classifyPath, linkSpace, normKey, resolveImageRef, sameSpace } from '@vihko/core'
 import type { Db } from './db.ts'
 
-/** Whether a link's target names a file that isn't a note: it has an extension, and it isn't `.md`. */
+/**
+ * A file's extension: up to 8 letters or digits, with a letter, so that a
+ * note named `v1.2` or `Report 2026.10` is still a note's name.
+ */
+const FILE_EXTENSION = /\.(?=[a-z0-9]*[a-z])[a-z0-9]{1,8}$/i
+
+/** Whether a link's target names a file that isn't a note: it has an extension (FILE_EXTENSION), and it isn't `.md`. */
 export function isFileTarget(target: string): boolean {
   const t = target.replace(/#.*$/, '').trim()
   const name = t.slice(t.lastIndexOf('/') + 1)
-  return /\.[^.\s]+$/.test(name) && !name.startsWith('.') && classifyPath(t.replace(/^\/+/, '')) === 'other'
+  return FILE_EXTENSION.test(name) && !name.startsWith('.') && classifyPath(t.replace(/^\/+/, '')) === 'other'
 }
 
 /**

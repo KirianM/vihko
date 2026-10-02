@@ -81,3 +81,4 @@ export { frontmatterFields, type Field, type FieldKind } from './extensions/fiel
 export { DailyNotes, type DailyOptions, type DailyToday } from './daily.ts'
 export { VERSION } from './version.ts'
 export { LOG_LEVELS, configureLogging, scrub, shownPath, type LogLevel } from './logging.ts'
+export { fileByName, isFileTarget } from './fileNames.ts'

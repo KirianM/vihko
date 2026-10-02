@@ -5,6 +5,7 @@
 // shown in the browser, anything else that could run downloaded.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { isFileTarget } from '@vihko/server'
 import { setup } from './_spacesApp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -56,6 +57,14 @@ test('![[photo.png]] and [[invoice.pdf]] resolve by name within the note\'s spac
   } finally {
     h.close()
   }
+})
+
+test('a file\'s name has an extension with a letter in it: a note named with a number after a dot is still a note', () => {
+  // Literals: each name is the case under test.
+  for (const [target, file] of [
+    ['invoice.pdf', true], ['Pasted image 20240101.png', true], ['docs/archive.tar.gz', true], ['photo.PNG#x', true],
+    ['v1.2', false], ['Report 2026.10', false], ['Plan.md', false], ['Plan', false], ['.hidden', false], ['Meeting w. Dr. Smith', false],
+  ] as const) assert.equal(isFileTarget(target), file, target)
 })
 
 test('by name: next to the note first, then the nearest; a tie is no answer; never another space', async () => {
