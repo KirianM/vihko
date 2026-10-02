@@ -280,7 +280,7 @@ interface Props {
   /** You moved it and the links are still being rewritten in the background. */
   onMoveStarted: (job: MoveJob) => void
   onTrashed: (t: Trashed) => void
-  /** Template notes (vihko.yaml), offered when creating a note from a broken link. */
+  /** Template notes (marked `template: true`), offered when creating a note from a broken link. */
   templates: readonly string[]
   /** A note was created from here (a broken link): refresh the tree and open it. */
   onCreated: (path: string) => void

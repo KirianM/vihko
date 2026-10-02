@@ -1,6 +1,6 @@
 // Note settings of a person («Your note settings», from Preferences) or of a
 // shared space («Space settings…», for its managers): daily-note series,
-// templates folders, where new images go and the guide for agents. They add
+// where new images go and the guide for agents. They add
 // to the installation's (vihko.yaml); paths are inside the space, written as
 // the person sees them there, never from the notes root. Saved into the
 // space's hidden settings file, keeping what the file has around them.
@@ -38,7 +38,6 @@ export function NoteSettingsDialog({ space, name, onClose, onSaved }: {
   const t = useT()
   const [view, setView] = useState<SettingsView | null>(null)
   const [form, setForm] = useState<NoteSettingsForm | null>(null)
-  const [templates, setTemplates] = useState('')
   const [attachments, setAttachments] = useState<Attachments>('install')
   const [attachFolder, setAttachFolder] = useState('')
   const [attachSuffix, setAttachSuffix] = useState('.assets')
@@ -52,7 +51,6 @@ export function NoteSettingsDialog({ space, name, onClose, onSaved }: {
     api.settings(space ?? undefined).then((v) => {
       setView(v)
       setForm(formOf(v.settings))
-      setTemplates(v.settings.templates.join('\n'))
       const a = v.settings.attachments
       setAttachments(a === null ? 'install' : a.mode)
       if (a?.mode === 'folder') setAttachFolder(a.folder)
@@ -73,7 +71,6 @@ export function NoteSettingsDialog({ space, name, onClose, onSaved }: {
     setProblems([])
     const next: NoteSettingsForm = {
       ...form,
-      templates: templates.split('\n').map((l) => l.trim()).filter(Boolean),
       attachments: attachments === 'install' ? null : attachments === 'folder' ? { mode: 'folder', folder: attachFolder.trim() } : attachments === 'per-note' ? { mode: 'per-note', suffix: attachSuffix.trim() } : { mode: 'next-to-note' },
       agents: form.agents?.trim() || null,
       daily: form.daily.map((s) => ({ ...s, label: s.label?.trim() || null, folder: s.folder.trim(), name: s.name.trim() || '{YYYY}-{MM}-{DD}', template: s.template?.trim() || null })),
@@ -127,11 +124,7 @@ export function NoteSettingsDialog({ space, name, onClose, onSaved }: {
               ))}
               <Button className="btn settings-add" onPress={() => setForm((f) => (f ? { ...f, daily: [...f.daily, { id: newId(f.daily.map((x) => x.id)), label: null, folder: '', name: '{YYYY}-{MM}-{DD}', template: null }] } : f))}>{Icon.plus}{t('settings.seriesAdd')}</Button>
             </fieldset>
-            <label className="field">
-              <span>{t('settings.templates')}</span>
-              <textarea className="settings-textarea" rows={2} value={templates} onChange={(e) => setTemplates(e.target.value)} />
-              <span className="hint">{t('settings.templatesHint')}</span>
-            </label>
+            <p className="hint">{t('settings.templatesHint')}</p>
             <label className="field">
               <span>{t('settings.attachments')}</span>
               <select className="select" value={attachments} onChange={(e) => setAttachments(e.target.value as Attachments)}>

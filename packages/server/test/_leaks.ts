@@ -36,6 +36,8 @@ export const WORD = {
   visible: m.aUniqueWord(), secret: m.aUniqueWord(), broken: m.aUniqueWord(), onlyHidden: m.aUniqueWord(), revealed: m.aUniqueWord(),
   other: m.aUniqueWord(), outsideDup: m.aUniqueWord(), moving: m.aUniqueWord(), template: m.aUniqueWord(),
 }
+/** A frontmatter field only hidden notes have (key and value), to search by. */
+export const FIELD = { key: m.aUniqueWord(), value: m.aUniqueWord() }
 /** The daily series: one in the key's folder (its template outside), one outside. */
 export const SERIES = { own: m.anId(), outside: m.anId() }
 /** The notes and images of FILES, by what they are. */
@@ -71,7 +73,7 @@ const MOVING_AFTER = m.aSentence()
 
 export const FILES: Record<string, string | Uint8Array> = {
   [PATH.visible]: `---\ntitle: ${JSON.stringify(m.aHeading())}\ntags: [${TAG.shared}]\n---\n# ${m.aHeading()}\n\n${m.aSentence()} [[${NAME.secret}]], [[${NAME.other}]] [[${NAME.dup}]]. ${WORD.visible}.\n\n![](${dest(NAME.photo)}.png)\n`,
-  [PATH.secret]: `---\nai: false\ntags: [${TAG.shared}, ${TAG.hidden}]\n---\n# ${m.aHeading()} ${WORD.secret}\n\n${WORD.secret} ${m.aSentence()} [[${NAME.visible}]].\n\n![](${NAME.hiddenPhoto}.png)\n`,
+  [PATH.secret]: `---\nai: false\ntags: [${TAG.shared}, ${TAG.hidden}]\n${FIELD.key}: ${FIELD.value}\n---\n# ${m.aHeading()} ${WORD.secret}\n\n${WORD.secret} ${m.aSentence()} [[${NAME.visible}]].\n\n![](${NAME.hiddenPhoto}.png)\n`,
   // A frontmatter that can't be read (an unclosed flow sequence): the case under test.
   [PATH.broken]: `---\ntitle: [${m.aWord()}\n---\n# ${WORD.broken}\n\n${WORD.broken} ${m.aSentence()} [[${NAME.visible}]]\n`,
   [PATH.dupA]: `# ${m.aHeading()}\n`,
@@ -81,8 +83,9 @@ export const FILES: Record<string, string | Uint8Array> = {
   [PATH.revealed]: `---\nai: false\n---\n# ${m.aHeading()}\n\n${WORD.revealed} ${m.aSentence()}\n`,
   [PATH.photo]: PNG,
   [PATH.hiddenPhoto]: PNG,
-  [PATH.other]: `---\ntags: [${TAG.shared}, ${TAG.hidden}]\n---\n# ${OTHER_HEADING}\n\n${WORD.other}. ${WORD.secret} ${m.aSentence()} [[${NAME.visible}]] [[${NAME.secret}]].\n\n![](${NAME.outsideImage}.png)\n`,
-  [PATH.outsideDup]: `# ${m.aHeading()} ${WORD.outsideDup}\n`,
+  [PATH.other]: `---\ntags: [${TAG.shared}, ${TAG.hidden}]\n${FIELD.key}: ${FIELD.value}\n---\n# ${OTHER_HEADING}\n\n${WORD.other}. ${WORD.secret} ${m.aSentence()} [[${NAME.visible}]] [[${NAME.secret}]].\n\n![](${NAME.outsideImage}.png)\n`,
+  // A template outside the key's folder (`template:true` must not find it).
+  [PATH.outsideDup]: `---\ntemplate: true\n---\n# ${m.aHeading()} ${WORD.outsideDup}\n`,
   [PATH.moving]: `# ${m.aHeading()}\n\n${MOVING_BEFORE}\n`,
   [PATH.template]: `# ${m.aHeading()}\n\n${WORD.template} ${m.aSentence()}\n`,
   [PATH.outsideImage]: PNG,

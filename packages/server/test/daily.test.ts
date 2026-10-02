@@ -39,7 +39,7 @@ function zoneWhere(day: string, at: Date): string {
 }
 
 test('daily note: off until vihko.yaml declares a series', async () => {
-  for (const config of [undefined, `templates: ${JSON.stringify(DAILY.templates)}\n`]) {
+  for (const config of [undefined, `attachments:\n  folder: ${JSON.stringify(DAILY.attachments)}\n`]) {
     const { admin } = await setup({ config })
     assert.deepEqual([(await admin('POST', '/api/daily')).status, (await admin('GET', '/api/daily')).body.error], [409, 'not_configured'])
   }

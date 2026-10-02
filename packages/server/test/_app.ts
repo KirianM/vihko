@@ -15,9 +15,9 @@ const m = mother(import.meta.url)
 
 /**
  * The workspace of the daily-note tests (CONFIG), its names the mother's: a
- * templates folder, a series of one's own (in a folder per person, with a
- * template) and a shared one, and the attachments folder (relative to each
- * note's space).
+ * folder for templates (where the series' template is), a series of one's
+ * own (in a folder per person, with a template) and a shared one, and the
+ * attachments folder (relative to each note's space).
  */
 export const DAILY = {
   templates: inShared(m.aFolder()),
@@ -27,7 +27,6 @@ export const DAILY = {
 }
 
 export const CONFIG = `# Workspace settings
-templates: ${JSON.stringify(DAILY.templates)}
 daily:
   ${DAILY.own.id}:
     label: ${JSON.stringify(DAILY.own.label)}

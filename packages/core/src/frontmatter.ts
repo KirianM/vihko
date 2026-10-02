@@ -177,6 +177,46 @@ function verifyPatch(before: string, after: string, key: string, value: ScalarVa
 }
 
 /**
+ * Returns `text` without the top-level key `key`: the lines of that pair go
+ * (a comment on its own line stays), every other byte is kept. A block left
+ * with nothing in it goes too. No such key: `text` as it is. Throws
+ * FrontmatterError if the frontmatter is invalid, or if the key's lines hold
+ * something else (`a: 1, key: 2` in one line can't happen at the top level,
+ * but a pair sharing its line with another is refused rather than guessed).
+ */
+export function removeFrontmatterKey(text: string, key: string): string {
+  const block = locateFrontmatter(text)
+  if (!block) return text
+  const raw = text.slice(block.yamlStart, block.yamlEnd)
+  const parsed = parseYaml(raw)
+  if ('error' in parsed) throw new FrontmatterError(`invalid frontmatter: ${parsed.error}`)
+  const map = parsed.doc.contents
+  const pair = isMap(map) ? map.items.find((p) => isScalar(p.key) && p.key.value === key) : undefined
+  if (!pair) return text
+  const keyNode = pair.key as { range: [number, number, number] }
+  const valueNode = pair.value as { range?: [number, number, number] } | null
+  const from = raw.lastIndexOf('\n', keyNode.range[0] - 1) + 1
+  if (raw.slice(from, keyNode.range[0]).trim() !== '') throw new FrontmatterError(`the key ${key} shares its line with something else`)
+  // To the end of the line where its value ends (a comment after it goes with it).
+  const last = Math.max(valueNode?.range?.[1] ?? keyNode.range[1], keyNode.range[1])
+  const back = raw.slice(0, last)
+  const lineOfLast = back.endsWith('\n') ? last : (() => { const nl = raw.indexOf('\n', last); return nl === -1 ? raw.length : nl + 1 })()
+  const nextRaw = raw.slice(0, from) + raw.slice(lineOfLast)
+  // An empty block goes, unless the body would then read as a frontmatter of its own.
+  const dropped = text.slice(0, block.start) + text.slice(block.end)
+  const out = nextRaw.trim() === '' && !locateFrontmatter(dropped)
+    ? dropped
+    : text.slice(0, block.yamlStart) + nextRaw + text.slice(block.yamlEnd)
+  const before = readFrontmatter(text)
+  const after = readFrontmatter(out)
+  const rest = { ...before.data }
+  delete rest[key]
+  if (after.error || key in after.data || !isDeepStrictEqual(after.data, rest)) throw new FrontmatterError('removing the key altered other keys')
+  if (text.slice(before.bodyStart) !== out.slice(after.bodyStart)) throw new FrontmatterError('removing the key altered the body')
+  return out
+}
+
+/**
  * Adds `item` to the top-level list `key` without re-serializing the block:
  * in a flow list it's inserted before the `]`, in a block list a line is
  * added, a scalar is turned into a flow list, and if the key doesn't exist

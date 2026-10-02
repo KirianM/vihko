@@ -279,16 +279,11 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const now = deps.now ?? (() => new Date())
   // Under the spaces model, a person's series are those where they can write today's note.
   const offered = (user: User, s: Series) => permissions.viewer(user).can(seriesPath(s, profiles.now(user.id, now()), user.username), 'edit')
-  // Each space's note settings (noteSettings.ts): series, templates, images and agents' guides of a space or a person.
+  // Each space's note settings (noteSettings.ts): series, images and agents' guides of a space or a person.
   const noteSettings = deps.noteSettings ?? new NoteSettingsStore({ notesDir: deps.notesDir })
   /** The shared spaces someone belongs to: whose settings add to theirs. */
   const spacesOf = (user: { id: string; username: string }) => permissions.spacesFor(user).spaces.map((s) => s.path)
   const seriesOf = (user: User) => noteSettings.series(workspace.config.daily, spacesOf(user), personalRoot(user.username), user.username)
-  /** Templates folders for someone: vihko.yaml's (`{user}` theirs), their spaces' and their own; not yet filtered by what they read. */
-  const templateFolders = (user: { id: string; username: string }) => [...new Set([
-    ...workspace.config.templates.map((t) => t.replaceAll('{user}', user.username).normalize('NFC')),
-    ...noteSettings.templates(spacesOf(user), personalRoot(user.username)),
-  ])]
   const daily = new DailyNotes({ workspace, profiles, notes, now, offered, seriesOf })
   const jobs = new MoveJobs()
   const moveWaitMs = deps.moveWaitMs ?? 1000
@@ -329,7 +324,6 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const refs = new FolderRefs({ state: auth.state, stateDir: notes.stateDir })
   const scopedDeps: ScopedDeps = {
     notes, index, notesDir: deps.notesDir, daily, profiles, attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments, now, links: () => deps.indexer.links,
-    templateFolders,
     permissions, permissionsFile, keys: () => keys.listAll(), orphans: deps.orphans, externalMoves: deps.externalMoves, holds: deps.holds,
     onFolderMoved: (from, to) => { refs.moved(from, to) },
   }
@@ -610,6 +604,25 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   app.delete('/api/folder', async (c) => c.json(await scoped(c).deleteFolder(c.req.query('path') ?? '', { trash: c.req.query('trash') === 'true' })))
 
+  // Templates are notes marked `template: true` in their frontmatter. A
+  // person marks every note of a folder (its subfolders too) at once, each
+  // through the normal write: `dryRun` counts what it would do, for the UI to
+  // confirm. A key writes the mark like any frontmatter key (`set_frontmatter`).
+  app.post('/api/folder/templates', async (c) => {
+    if (c.get('access').isAgent) return fail(c, 404, 'not_found', 'does not exist')
+    const { path, dryRun } = await c.req.json<{ path?: unknown; dryRun?: unknown }>()
+    if (typeof path !== 'string') return fail(c, 400, 'invalid', 'path: the folder')
+    return c.json(await scoped(c).markFolderTemplates(path, { dryRun: dryRun === true }))
+  })
+
+  // One note made a template (`template: true`) or not one any more (the key goes); nothing else of it changes.
+  app.post('/api/note/template', async (c) => {
+    if (c.get('access').isAgent) return fail(c, 404, 'not_found', 'does not exist')
+    const { path, template } = await c.req.json<{ path?: unknown; template?: unknown }>()
+    if (typeof path !== 'string' || typeof template !== 'boolean') return fail(c, 400, 'invalid', 'path, and template: true or false')
+    return c.json(written(c, await scoped(c).markTemplate(path, template)))
+  })
+
   // With `background`, a move that takes long answers 202 with a job as soon
   // as the folder (or note) is in place; GET /api/move-jobs/:id follows it.
   app.post('/api/folder/move', async (c) => {
@@ -643,16 +656,15 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   // The workspace settings the UI needs from vihko.yaml (reloaded when it changes).
-  // Paths the person can't read aren't named: a series' template, the templates folders
-  // (each with `{user}` made the person's). Under the spaces model, only the series
-  // where the person can write today's note are offered.
+  // A series' template the person can't read isn't named. Under the spaces model, only the series
+  // where the person can write today's note are offered. (Templates to create from
+  // are marked in the tree: `template: true` in their frontmatter.)
   app.get('/api/workspace', (c) => {
     const w = workspace.config
     const access = c.get('access')
     const user = c.get('user')
     return c.json({
       daily: seriesOf(user).filter((s) => offered(user, s)).map((s) => ({ ...s, template: s.template !== null && access.canRead(s.template) ? s.template : null })),
-      templates: templateFolders(user).filter((t) => access.level(t) !== null),
       links: w.links,
     })
   })
@@ -691,7 +703,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const root = settingsRoot(c, body.space, true)
     if (root instanceof Response) return root
     const next = settingsFromBody(body.settings)
-    if (next === null) return fail(c, 400, 'invalid', 'settings: version, daily, templates, attachments and agents, as GET gives them')
+    if (next === null) return fail(c, 400, 'invalid', 'settings: version, daily, attachments and agents, as GET gives them')
     // What's wrong in them is said, with where; nothing is written.
     const problems = parseNoteSettings(writeNoteSettings(null, next)).errors
     if (problems.length) return fail(c, 400, 'invalid', 'the settings have problems', { errors: problems })
@@ -750,8 +762,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (access.isAgent) return fail(c, 404, 'not_found', 'does not exist')
     const status = deps.history?.status()
     const reader = deps.history && status && status.mode !== 'off' && status.available ? historyFor(access, deps.history.reader()) : null
-    // Asked of every note Home looks at (hundreds): its folders are found once.
-    return c.json(await homeView(access, { index, history: reader, notices, nameOf: (id) => auth.username(id) ?? id, keyName: (id) => keys.nameOf(id), now, excluded: scoped(c).inTemplatesTest() }))
+    // Templates stay out (skeletons, `{{title}}` and all), found once for every note Home looks at.
+    const templates = scoped(c).templates()
+    return c.json(await homeView(access, { index, history: reader, notices, nameOf: (id) => auth.username(id) ?? id, keyName: (id) => keys.nameOf(id), now, excluded: (p) => templates.has(p) }))
   })
 
   // Today's note: GET says where it is and whether it exists, POST
@@ -1108,8 +1121,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
 /**
  * Paths of vihko.yaml outside `people/` and `spaces/`,
- * where nobody reads or writes: a series' folder, a templates folder, the
- * agents' guide. Ignored, and told to the admin (`outside_spaces`). `{user}`
+ * where nobody reads or writes: a series' folder, the agents' guide. Ignored, and told to the admin (`outside_spaces`). `{user}`
  * stands for any person.
  */
 export function outsideSpaces(w: WorkspaceConfig): ConfigError[] {
@@ -1119,9 +1131,6 @@ export function outsideSpaces(w: WorkspaceConfig): ConfigError[] {
     const sample = seriesPath(s, { year: 2026, month: 9, day: 30 }, 'user')
     if (parseSpacePath(sample) === null) out.push({ code: 'outside_spaces', at: `daily.${s.id}.folder`, line: null, detail: s.folder })
   }
-  w.templates.forEach((t, i) => {
-    if (outside(t)) out.push({ code: 'outside_spaces', at: w.templates.length === 1 ? 'templates' : `templates.${i}`, line: null, detail: t })
-  })
   if (w.mcp.instructions !== null && outside(w.mcp.instructions)) out.push({ code: 'outside_spaces', at: 'mcp.instructions', line: null, detail: w.mcp.instructions })
   return out
 }

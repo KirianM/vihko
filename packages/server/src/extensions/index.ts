@@ -1,6 +1,7 @@
 // The extensions vihko ships. Order is only the tie-break of the topological sort.
 import type { Extension } from '../extension.ts'
 import { commentAnchors } from './comments.ts'
+import { fields } from './fields.ts'
 import { fts } from './fts.ts'
 import { headings } from './headings.ts'
 import { images } from './images.ts'
@@ -9,7 +10,7 @@ import { tags } from './tags.ts'
 
 export function builtinExtensions(opts: { linkAliases?: boolean } = {}): { all: Extension[]; links: LinksExtension } {
   const links = linksExtension({ aliases: opts.linkAliases })
-  return { all: [fts, links, images, tags, headings, commentAnchors] as Extension[], links }
+  return { all: [fts, links, images, tags, headings, commentAnchors, fields] as Extension[], links }
 }
 
 export type { LinksExtension }

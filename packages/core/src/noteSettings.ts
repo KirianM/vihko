@@ -10,11 +10,13 @@
 //       folder: journal/{YYYY}     # inside the space; `{user}` isn't needed (the space is theirs, or everyone's)
 //       name: "{YYYY}-{MM}-{DD}"
 //       template: Templates/Daily
-//   templates: Templates           # a folder, or a list, inside the space
 //   attachments:                   # where new images of the space's notes go, as vihko.yaml's
 //     mode: folder
 //     folder: images
 //   agents: For agents             # a note of the space: its guide for agents
+//
+// Templates aren't configured: a template is a note marked `template: true` in
+// its frontmatter, wherever it is. An old `templates` key is an unknown one.
 //
 // - Every path is relative to the space's root: nothing names `people/` or
 //   `spaces/`, and renaming a space changes nothing in it. None may leave the
@@ -64,23 +66,21 @@ export type SettingsAttachments =
 export interface NoteSettings {
   version: number
   daily: SettingsSeries[]
-  templates: string[]
   attachments: SettingsAttachments | null
   /** A note of the space with its guide for agents (`.md` optional when written). */
   agents: string | null
 }
 
-export const EMPTY_NOTE_SETTINGS: NoteSettings = { version: NOTE_SETTINGS_VERSION, daily: [], templates: [], attachments: null, agents: null }
+export const EMPTY_NOTE_SETTINGS: NoteSettings = { version: NOTE_SETTINGS_VERSION, daily: [], attachments: null, agents: null }
 
 /** The settings as they apply: paths from the notes root. */
 export interface ResolvedNoteSettings {
   daily: Series[]
-  templates: string[]
   attachments: AttachmentsConfig | null
   agents: string | null
 }
 
-const TOP_KEYS = ['version', 'daily', 'templates', 'attachments', 'agents']
+const TOP_KEYS = ['version', 'daily', 'attachments', 'agents']
 const SERIES_KEYS = ['label', 'folder', 'name', 'template']
 const ATTACHMENT_KEYS = ['mode', 'folder', 'suffix']
 const SERIES_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
@@ -100,7 +100,7 @@ export function spacePathProblem(p: string): boolean {
  * path) and its line. A file that isn't there is `EMPTY_NOTE_SETTINGS`.
  */
 export function parseNoteSettings(text: string | null): { settings: NoteSettings; errors: ConfigError[] } {
-  const settings: NoteSettings = { ...EMPTY_NOTE_SETTINGS, daily: [], templates: [] }
+  const settings: NoteSettings = { ...EMPTY_NOTE_SETTINGS, daily: [] }
   const errors: ConfigError[] = []
   if (text === null || text.trim() === '') return { settings, errors }
   const doc = parseYamlDocument(text)
@@ -145,17 +145,6 @@ export function parseNoteSettings(text: string | null): { settings: NoteSettings
       settings.version = root.version
       if (root.version > NOTE_SETTINGS_VERSION) fail('newer_version', ['version'], String(NOTE_SETTINGS_VERSION))
     }
-  }
-
-  if (root.templates !== undefined && root.templates !== null) {
-    const list = Array.isArray(root.templates) ? root.templates : [root.templates]
-    list.forEach((t, i) => {
-      const at = Array.isArray(root.templates) ? ['templates', String(i)] : ['templates']
-      if (typeof t !== 'string') return fail('invalid_type', at, 'string')
-      const f = trimTrailingSlashes(t.trim().normalize('NFC'))
-      if (spacePathProblem(f)) return fail('invalid_path', at)
-      if (!settings.templates.includes(f)) settings.templates.push(f)
-    })
   }
 
   if (root.agents !== undefined && root.agents !== null) {
@@ -245,7 +234,6 @@ export function resolveNoteSettings(s: NoteSettings, root: string, idPrefix: str
       const period = patternPeriod(patternTokens(`${x.folder}/${x.name}`).tokens)!
       return { id: `${idPrefix}${x.id}`, label: x.label ?? x.id, folder: at(x.folder), name: x.name, template: x.template === null ? null : at(x.template), period }
     }),
-    templates: s.templates.map(at),
     attachments: s.attachments === null ? null
       : s.attachments.mode === 'next-to-note' ? { folder: null }
       : s.attachments.mode === 'folder' ? { folder: s.attachments.folder }
@@ -314,10 +302,6 @@ export function writeNoteSettings(text: string | null, next: NoteSettings): stri
   }
   if (next.daily.length === 0 && current.daily !== undefined) doc.delete('daily')
   // The rest: each key on its own.
-  if (!same(was.templates, next.templates) || wrong.has('templates')) {
-    if (next.templates.length === 0) doc.delete('templates')
-    else doc.set('templates', next.templates.length === 1 ? next.templates[0] : doc.createNode(next.templates))
-  }
   if (!same(was.attachments, next.attachments) || wrong.has('attachments')) {
     if (next.attachments === null) doc.delete('attachments')
     else doc.set('attachments', doc.createNode(attachmentsValue(next.attachments)))

@@ -1,6 +1,6 @@
 // Note settings of a person and of a shared space: one's own, edited from
-// Preferences, give a daily-note series and a templates folder in one's own
-// space, used by «Today» and «New note»; a space's, edited by its managers
+// Preferences, give a daily-note series in one's own space, used by «Today»
+// (its template, marked as one, offered by «New note» too); a space's, edited by its managers
 // from the space's menu, decide where its new images go. A member who
 // doesn't manage the space reads them (to apply them) but can't change them,
 // and isn't offered the menu entry. A hand edit with a mistake is an alert to
@@ -12,7 +12,7 @@ import { editorText, png, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
-/** The admin's series folder and templates folder, inside their own space. */
+/** The admin's series folder and a folder with their template, inside their own space. */
 const JOURNAL = m.aFolder()
 const TEMPLATES = m.aFolder()
 const TEMPLATE = m.aTitle()
@@ -34,7 +34,7 @@ test.describe.configure({ mode: 'serial' })
 
 test.beforeAll(async ({ browser }) => {
   mkdirSync(`${NOTES}/${MINE}/${TEMPLATES}`, { recursive: true })
-  writeFileSync(`${NOTES}/${MINE}/${TEMPLATES}/${TEMPLATE}.md`, `# {{title}}\n\n${BY} {{user}}.\n`)
+  writeFileSync(`${NOTES}/${MINE}/${TEMPLATES}/${TEMPLATE}.md`, `---\ntemplate: true\n---\n# {{title}}\n\n${BY} {{user}}.\n`)
   mkdirSync(`${NOTES}/${PROBE_DIR}`, { recursive: true })
   writeFileSync(`${NOTES}/${PROBE}`, `# ${m.aHeading()}\n`)
   k = await signIn(browser, ADMIN)
@@ -50,12 +50,12 @@ test.afterAll(async () => {
   await k.context().close()
 })
 
-test('one\'s own settings, from Preferences: a series and a templates folder in one\'s space, used by «Today» and «New note»', async () => {
+test('one\'s own settings, from Preferences: a series in one\'s space, used by «Today»; its template, marked, offered by «New note»', async () => {
   await k.goto('/')
   await expect(k.locator('nav.sidebar').getByRole('button', { name: 'Nota de hoy' })).toHaveCount(0)
   await k.getByRole('button', { name: 'Preferencias' }).click()
   // Choosing one's series and defining one's own sit together, each with its line; with no series yet, it says where to make one.
-  const group = k.getByRole('dialog', { name: 'Preferencias' }).getByRole('group', { name: 'Notas del día y plantillas' })
+  const group = k.getByRole('dialog', { name: 'Preferencias' }).getByRole('group', { name: 'Notas del día', exact: true })
   await expect(group).toContainText('Aún no tienes ninguna serie de notas del día')
   await expect(group.getByRole('button', { name: 'Ajustes de tus notas' })).toHaveAccessibleDescription(/^Define las tuyas: series de notas del día/)
   await group.getByRole('button', { name: 'Ajustes de tus notas' }).click()
@@ -65,7 +65,9 @@ test('one\'s own settings, from Preferences: a series and a templates folder in 
   await series.getByLabel('Nombre', { exact: true }).fill(LABEL)
   await series.getByLabel('Carpeta', { exact: true }).fill(`${JOURNAL}/{YYYY}`)
   await series.getByLabel('Plantilla (opcional)').fill(`${TEMPLATES}/${TEMPLATE}`)
-  await dialog.getByLabel('Carpetas de plantillas').fill(TEMPLATES)
+  // Templates aren't set here: the form says how they are made.
+  await expect(dialog.getByLabel('Carpetas de plantillas')).toHaveCount(0)
+  await expect(dialog).toContainText('Las plantillas no se configuran aquí')
   await k.screenshot({ path: `${SHOTS}/note-settings.png` })
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(dialog).toHaveCount(0)
@@ -74,7 +76,7 @@ test('one\'s own settings, from Preferences: a series and a templates folder in 
   const file = read(settingsFile(MINE))!
   expect(file).toMatch(/^version: 1\n/)
   expect(file).toContain(`folder: ${JOURNAL}/{YYYY}`)
-  expect(file).toContain(`templates: ${TEMPLATES}`)
+  expect(file).not.toContain('templates:')
 
   // «Today»: the note of the personal series, from the personal template.
   const todayButton = k.locator('nav.sidebar').getByRole('button', { name: 'Nota de hoy' })
@@ -192,7 +194,7 @@ test('a hand edit with a mistake is an alert to whom the file belongs, and to no
   const a = await signIn(browser, MEMBER)
   mkdirSync(`${NOTES}/${personal(MEMBER)}/.vihko`, { recursive: true })
   // Literal: the wrong value is the case under test.
-  writeFileSync(settingsFile(personal(MEMBER)), `version: 1\ntemplates: ../${m.aFolder()}\n`)
+  writeFileSync(settingsFile(personal(MEMBER)), `version: 1\nagents: ../${m.aFolder()}\n`)
   const codes = async (page: Page) => ((await (await page.request.get('/api/alerts')).json()) as { alerts: { code: string }[] }).alerts.map((x) => x.code)
   await expect.poll(() => codes(a)).toContain('settings_invalid')
   expect(await codes(k)).not.toContain('settings_invalid')

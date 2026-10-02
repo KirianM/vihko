@@ -29,9 +29,8 @@ const UNKNOWN = `{{${m.faker.string.alpha({ length: 10 })}}}`
 /** What the template writes before the user's name. */
 const BY = m.aSentence(m.anInt(1, 3)).slice(0, -1)
 const q = JSON.stringify
-// Line 2 is `templates:`, line 10 the team's folder: the alerts below name them.
+// Line 9 is the team's folder: the alerts below name it.
 const CONFIG = `# e2e
-templates: ${q(TEMPLATES)}
 daily:
   ${OWN.id}:
     label: ${q(OWN.label)}
@@ -50,7 +49,8 @@ test.describe.configure({ mode: 'serial' })
 test.beforeAll(() => {
   mkdirSync(`${NOTES}/${TEMPLATES}`, { recursive: true })
   mkdirSync(`${NOTES}/${ownFolder(ADMIN)}`, { recursive: true })
-  writeFileSync(`${NOTES}/${TEMPLATES}/${TEMPLATE}.md`, `---\ntags: [${TEMPLATE_TAG}]\n---\n# {{date:DD/MM/YYYY}}\n\n${BY} {{user}}. ${UNKNOWN}\n`)
+  // Marked as a template: «New note» offers it; the series uses it either way.
+  writeFileSync(`${NOTES}/${TEMPLATES}/${TEMPLATE}.md`, `---\ntemplate: true\ntags: [${TEMPLATE_TAG}]\n---\n# {{date:DD/MM/YYYY}}\n\n${BY} {{user}}. ${UNKNOWN}\n`)
   // An older note of the series, for previous/next.
   writeFileSync(`${NOTES}/${ownFolder(ADMIN)}/2020-01-01.md`, `# ${m.aHeading()}\n`)
   writeWorkspace(CONFIG)
@@ -241,15 +241,15 @@ test('preferences: series and «On opening: today\'s note», which never creates
 })
 
 test('vihko.yaml: an unknown key is ignored with a warning; an invalid file keeps the last good one', async () => {
-  // A misspelt key: left out, and the rest applies.
-  writeWorkspace(CONFIG.replace('templates:', 'templtes:'))
+  // A key vihko doesn't know (one it no longer reads): left out, and the rest applies.
+  writeWorkspace(CONFIG.replace('# e2e\n', `# e2e\ntemplates: ${q(TEMPLATES)}\n`))
   await expect(async () => {
     await k.goto('/?view=alerts')
     await expect(k.locator('.alert-card', { hasText: 'salvo algunas partes' })).toBeVisible({ timeout: 1000 })
   }).toPass({ timeout: 20_000 })
   const warnings = k.locator('.alert-card', { hasText: 'salvo algunas partes' })
   await expect(warnings).toContainText('Lo que aparece aquí no se aplica')
-  await expect(warnings.getByRole('listitem')).toHaveText('en vihko.yaml: línea 2 · templtes Clave desconocida (¿una errata, o de una versión más nueva de vihko?): se ignora.')
+  await expect(warnings.getByRole('listitem')).toHaveText('en vihko.yaml: línea 2 · templates Clave desconocida (¿una errata, o de una versión más nueva de vihko?): se ignora.')
   await k.screenshot({ path: `${SHOTS}/config-warnings-light.png` })
   await todayButton(k).click()
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
@@ -262,7 +262,7 @@ test('vihko.yaml: an unknown key is ignored with a warning; an invalid file keep
   }).toPass({ timeout: 20_000 })
   const card = k.locator('.alert-card', { hasText: 'no se puede usar' })
   await expect(card).toContainText('vihko sigue con la última versión válida')
-  await expect(card.getByRole('listitem')).toHaveText(`en vihko.yaml: línea 10 · daily.${TEAM.id}.folder Ruta no válida: relativa a la carpeta de notas, sin «..» ni carpetas ocultas.`)
+  await expect(card.getByRole('listitem')).toHaveText(`en vihko.yaml: línea 9 · daily.${TEAM.id}.folder Ruta no válida: relativa a la carpeta de notas, sin «..» ni carpetas ocultas.`)
   await k.screenshot({ path: `${SHOTS}/daily-alert-light.png` })
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()
   await k.screenshot({ path: `${SHOTS}/daily-alert-dark.png` })

@@ -28,12 +28,6 @@ export const WORKSPACE_FILE = 'vihko.yaml'
 export { WORKSPACE_VERSION }
 
 export interface WorkspaceConfig {
-  /**
-   * Folders holding the templates offered when creating a note, in the order
-   * written (empty: none). vihko.yaml takes one folder or a list; each may
-   * hold `{user}`, the person creating the note (`people/{user}/Templates`).
-   */
-  templates: string[]
   /** Daily-note series, in the order declared (the first is the default). */
   daily: Series[]
   /** Where new images go. */
@@ -101,7 +95,7 @@ export interface AttachmentsConfig {
 export const DEFAULT_ATTACHMENTS_SUFFIX = '.assets'
 
 export const EMPTY_WORKSPACE: WorkspaceConfig = {
-  templates: [], daily: [], attachments: { folder: null }, links: { aliases: true },
+  daily: [], attachments: { folder: null }, links: { aliases: true },
   history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB, exclude: [] },
   mcp: { instructions: null },
 }
@@ -144,8 +138,7 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = {
  * - `missing_folder`: rules for a folder that doesn't exist (moved or
  *   deleted outside vihko): kept, and applied again if it comes back.
  *   Reported by the server.
- * - `outside_spaces`: a path (a series' folder, a templates folder, the
- *   agents' guide) outside `people/` and `spaces/`, where nobody
+ * - `outside_spaces`: a path (a series' folder, the agents' guide) outside `people/` and `spaces/`, where nobody
  *   reads or writes: ignored. Reported by the server under the spaces model.
  * Inside a strict section, any other code (an unknown key included) is a
  * warning that comes with `section_rejected`.
@@ -213,7 +206,9 @@ export const PERMISSIONS_SECTION: StrictSection<Permissions> = {
 
 export const STRICT_SECTIONS: readonly StrictSection[] = [PERMISSIONS_SECTION as StrictSection]
 
-const TOP_KEYS = ['version', 'templates', 'daily', 'attachments', 'links', 'history', 'mcp']
+// No `templates`: a template is a note marked `template: true` in its
+// frontmatter, wherever it is; an old `templates` key is an unknown one.
+const TOP_KEYS = ['version', 'daily', 'attachments', 'links', 'history', 'mcp']
 const LINKS_KEYS = ['aliases']
 const HISTORY_KEYS = ['mode', 'maxFileSize', 'exclude']
 const MCP_KEYS = ['instructions']
@@ -250,7 +245,7 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
   if (!isRecord(data)) return { ok: false, errors: [{ code: 'not_a_map', at: null, line: 1, detail: null }], warnings }
 
   const config: WorkspaceConfig = {
-    templates: [], daily: [], attachments: { folder: null }, links: { aliases: true },
+    daily: [], attachments: { folder: null }, links: { aliases: true },
     history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB, exclude: [] },
     mcp: { instructions: null },
   }
@@ -275,15 +270,6 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
     if (typeof value !== 'string') { fail('invalid_type', at, 'string'); return null }
     if (!value || value.length > 32 || value.trim() !== value || /[/\\\u0000-\u001f]/.test(value) || /\.md$/i.test(value)) { fail('invalid_path', at); return null }
     return value
-  }
-
-  if (data.templates !== undefined && data.templates !== null) {
-    // One folder alone is a list of one.
-    const list = Array.isArray(data.templates) ? data.templates : [data.templates]
-    list.forEach((t: unknown, i) => {
-      const f = folder(t, Array.isArray(data.templates) ? ['templates', String(i)] : ['templates'])
-      if (f !== null && !config.templates.includes(f)) config.templates.push(f)
-    })
   }
 
   if (data.attachments !== undefined && data.attachments !== null) {

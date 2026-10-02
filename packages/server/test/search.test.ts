@@ -25,8 +25,8 @@ test('the query parser takes filters out of the text: quotes, negation, case', (
   // Still being typed: an empty value is no filter, an unclosed quote still is one.
   assert.deepEqual(parseSearchQuery('tag:'), { text: '', filters: [] })
   assert.deepEqual(parseSearchQuery('path:"a b').filters, [{ kind: 'path', value: 'a b', negate: false }])
-  // Only a whole word is a filter: "etag:x" is text.
-  assert.deepEqual(parseSearchQuery('etag:x').filters, [])
+  // Only a whole word is a filter: "etag:x" is never `tag:` (it is a frontmatter field, `etag`).
+  assert.deepEqual(parseSearchQuery('etag:x').filters, [{ kind: 'field', key: 'etag', value: 'x', negate: false }])
 })
 
 test('tag: matches case-insensitively and includes nested tags; path: a folder or a note', async () => {

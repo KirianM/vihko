@@ -54,7 +54,10 @@ export interface User { id: string; username: string; role: 'admin' | 'member' }
  * another session): the application goes to sign in (Shell.tsx).
  */
 export const SESSION_ENDED_EVENT = 'vihko:session-ended'
-export interface TreeNote { path: string; title: string; uid: string | null; aliases: string[] }
+/** A note of the tree. `template`: it is a template (`template: true` in its frontmatter), offered when creating a note. */
+export interface TreeNote { path: string; title: string; uid: string | null; aliases: string[]; template?: true }
+/** What marking a folder's notes as templates does, or would do: marked, already marked, skipped (a frontmatter that can't be read). */
+export interface TemplatesMarked { marked: number; already: number; skipped: number }
 export interface Note {
   path: string
   text: string
@@ -219,10 +222,9 @@ export interface ServerConfig {
 }
 /** A stored image: `path` from the notes root, `src` relative to the note (to link it). */
 export interface Attachment { path: string; src: string }
-/** What the UI needs from vihko.yaml: daily-note series and the templates folders (those the person can read, `{user}` made theirs). */
+/** What the UI needs from vihko.yaml: daily-note series. */
 export interface WorkspaceInfo {
   daily: Series[]
-  templates: string[]
   /** `aliases`: whether aliases resolve links (vihko.yaml `links.aliases`). */
   links: { aliases: boolean }
 }
@@ -235,7 +237,6 @@ export interface Profile { timezone: string | null; dailySeries: string | null; 
 export interface NoteSettingsForm {
   version: number
   daily: { id: string; label: string | null; folder: string; name: string; template: string | null }[]
-  templates: string[]
   attachments: { mode: 'next-to-note' } | { mode: 'folder'; folder: string } | { mode: 'per-note'; suffix: string } | null
   agents: string | null
 }
@@ -446,6 +447,10 @@ export const api = {
   /** Notes and folders (empty ones included); `pathOnly`: folders shown only as the way to what the person sees. */
   tree: () => request<{ notes: TreeNote[]; folders: string[]; pathOnly: string[] }>('GET', '/api/tree'),
   createFolder: (path: string) => request<{ path: string }>('POST', '/api/folder', { path }),
+  /** Marks every note of a folder (subfolders too) as a template; `dryRun` only counts. */
+  markFolderTemplates: (path: string, dryRun = false) => request<TemplatesMarked>('POST', '/api/folder/templates', { path, dryRun }),
+  /** Makes a note a template, or stops it being one: only its `template: true` changes. */
+  markTemplate: (path: string, template: boolean) => request<{ etag?: string }>('POST', '/api/note/template', { path, template }),
   /**
    * An empty folder; with `trash`, its notes and files go to the trash first
    * (`trashed`, the entries). Otherwise `not_empty`, with what it holds in the

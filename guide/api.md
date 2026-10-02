@@ -235,9 +235,10 @@ curl -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/tree"
 }
 ```
 
-`uid` is `null` for a note vihko hasn't needed to give one yet. A folder in
-`pathOnly` is shown only as the way to something below it that the key can
-see.
+`uid` is `null` for a note vihko hasn't needed to give one yet. A note that
+is a template (`template: true` in its frontmatter) has `"template": true`;
+others don't have the field. A folder in `pathOnly` is shown only as the way
+to something below it that the key can see.
 
 ### Read a note
 
@@ -294,11 +295,26 @@ as a prefix. Filters narrow it:
 |---|---|
 | `path:spaces/Home/projects` | Notes in that folder and below, or that one note (quote a path with spaces: `path:"my notes"`) |
 | `tag:work` | Notes with that tag, or a tag nested under it (`work/meetings`) |
-| `-path:…`, `-tag:…` | Excludes instead |
+| `type:decision` | Notes whose frontmatter has that key with that value, for any key whose name isn't reserved (`tag`, `path`, `is`, `has`, `in`, `prop`, `before` and `after`). In a list, any item matches; a number, however it's written (`5`, `5.0`); quote a value with spaces: `status:"in progress"` |
+| `prop:tag=urgent` | The same, for any key at all, a reserved name included (here the frontmatter's `tag`, not the tag filter); quotes for a key or a value with spaces: `prop:"due date"=today` |
+| `prop:due` | With no value: notes whose frontmatter has that key, whatever its value (or none) |
+| `-path:…`, `-tag:…`, `-type:…`, `-prop:…` | Excludes instead |
+
+Keys and values ignore case, and are compared whole, as written. Only simple
+frontmatter values count: text, numbers, `true`/`false`, dates and lists of
+them; nested maps don't. A word with a colon in it is a filter, unless it's
+quoted (`"re:x"` is searched as text; `re:x` looks
+for a key `re`); times (`10:30`) and addresses (`https://…`) stay words.
+Templates (notes with `template: true`) are left out unless the query asks
+for them by their mark: `template:true`, `prop:template`. The reserved
+names are vihko's own filters, now or later: `is:`, `has:`, `in:`, `before:`
+and `after:` mean nothing yet, and match no note.
 
 ```sh
 curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/search" \
   --data-urlencode "q=budget path:spaces/Home/projects -tag:done"
+curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/search" \
+  --data-urlencode 'q=type:decision -status:done prop:owner'
 ```
 
 ```json
@@ -320,7 +336,10 @@ with that tag, `total` those with it or a tag nested under it.
 
 `POST /api/note` with `{ "path", "text" }`, or `{ "path", "template" }` to
 create it from a template note (its `{{title}}`, `{{date}}` and the like filled
-in). It never overwrites: `409 exists` if the note is there.
+in, and its frontmatter copied without `template: true` and `aliases`; see
+[Templates](notes.md#templates)). Any note the key can read works as a
+template; `GET /api/search?q=template:true` lists the marked ones. It never
+overwrites: `409 exists` if the note is there.
 
 ```sh
 curl -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: application/json" \

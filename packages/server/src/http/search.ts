@@ -1,7 +1,8 @@
 // Search: the text the user types becomes a safe FTS5 query (their text is
 // never passed as FTS5 syntax: operators, quotes or columns would give errors
 // or odd results; each word is a term, the last one a prefix), and the
-// `tag:`/`path:` filters (@vihko/core/query) become conditions on the index.
+// filters (`tag:`, `path:`, frontmatter fields and `prop:`; @vihko/core/query)
+// become conditions on the index.
 import { parseSearchQuery, type SearchFilter } from '@vihko/core'
 import type { Db } from '../db.ts'
 
@@ -24,13 +25,32 @@ const like = (s: string) => s.replace(/[\\%_]/g, (c) => '\\' + c)
 /**
  * SQL condition on `n.path` for a filter. A tag matches itself and every tag
  * nested under it (`tag:hogar` → `hogar/red`); a path, that folder
- * with its subfolders or that exact note. Both ignore case.
+ * with its subfolders or that exact note; a field, a frontmatter key with
+ * that value (any item of a list); `exists`, a key with any value or none.
+ * All ignore case. A reserved filter that means nothing yet matches no note
+ * (so `-is:x` matches every one).
  */
 function condition(f: SearchFilter): { sql: string; params: unknown[] } {
-  const c = f.kind === 'tag'
-    ? { sql: "exists (select 1 from tags t where t.path = n.path and (t.tag = ? or t.tag like ? escape '\\'))", params: [f.value, like(f.value) + '/%'] }
-    : { sql: "(n.path like ? escape '\\' or n.path like ? escape '\\')", params: [like(f.value), like(f.value) + '/%'] }
+  const c = filterSql(f)
   return f.negate ? { sql: `not ${c.sql}`, params: c.params } : c
+}
+
+function filterSql(f: SearchFilter): { sql: string; params: unknown[] } {
+  switch (f.kind) {
+    case 'tag': return { sql: "exists (select 1 from tags t where t.path = n.path and (t.tag = ? or t.tag like ? escape '\\'))", params: [f.value, like(f.value) + '/%'] }
+    case 'path': return { sql: "(n.path like ? escape '\\' or n.path like ? escape '\\')", params: [like(f.value), like(f.value) + '/%'] }
+    case 'exists': return { sql: 'exists (select 1 from fields f where f.path = n.path and f.key_fold = ?)', params: [f.key] }
+    case 'reserved': return { sql: '0', params: [] }
+    // The value as text (case folded), or, for a number, the same number however it's written.
+    case 'field': return { sql: 'exists (select 1 from fields f where f.path = n.path and f.key_fold = ? and (f.value_fold = ? or f.num = ?))', params: [f.key, f.value, asNumber(f.value)] }
+  }
+}
+
+/** A value typed as a number (`5`, `-2.5`, `1e3`), or null. */
+function asNumber(v: string): number | null {
+  if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(v)) return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
 }
 
 export interface SearchResult { path: string; title: string; snippet: string }

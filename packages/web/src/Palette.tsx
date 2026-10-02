@@ -6,7 +6,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import {
   Autocomplete, Button, Dialog, Header, Input, ListBox, ListBoxItem, ListBoxSection, Modal, ModalOverlay, TextField, type Key,
 } from 'react-aria-components'
-import { hasSearchFilter } from '@vihko/core/query'
+import { RESERVED_FILTERS, hasSearchFilter } from '@vihko/core/query'
 import { api, type SearchResult, type TreeNote } from './api.ts'
 import { commands, type CommandContext } from './commands.ts'
 import { errorText, useLanguageChoice, useT, type LangChoice } from './i18n.tsx'
@@ -79,7 +79,7 @@ interface Props {
   folder: string
   openPath: string | null
   notes: TreeNote[] | null
-  /** Template notes (from the templates folder in vihko.yaml), offered when creating. */
+  /** Template notes (marked `template: true`, those the person reads), offered when creating. */
   templates: string[]
   /** Opens today's note; null while daily notes are off. */
   onToday: (() => void) | null
@@ -290,10 +290,11 @@ export function Palette({ mode, folder: current, openPath, notes, templates, onT
               <div className="palette-filters">
                 <span className="palette-header">{t('palette.filtersHint')}</span>
                 <span className="palette-chips">
-                  {([['palette.exTag', 'palette.filterTag'], ['palette.exPath', 'palette.filterPath'], ['palette.exNot', 'palette.filterNot'], ['palette.exQuotes', 'palette.filterQuotes']] as const).map(([example, key]) => (
+                  {([['palette.exTag', 'palette.filterTag'], ['palette.exPath', 'palette.filterPath'], ['palette.exField', 'palette.filterField'], ['palette.exHas', 'palette.filterHas'], ['palette.exProp', 'palette.filterProp'], ['palette.exNot', 'palette.filterNot'], ['palette.exQuotes', 'palette.filterQuotes']] as const).map(([example, key]) => (
                     <span key={key} className="palette-chip palette-filter"><code>{t(example)}</code> {t(key)}</span>
                   ))}
                 </span>
+                <span className="palette-reserved">{t('palette.reserved')} {RESERVED_FILTERS.map((n) => <code key={n}>{n}:</code>)}</span>
               </div>
             )}
             {mode === 'search' && !commandMode && (

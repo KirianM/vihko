@@ -16,26 +16,26 @@ const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 test('workspace: read at start, reloaded on change; an invalid file keeps the last good one', async () => {
   const { notesDir, workspace, admin } = await setup({ config: CONFIG })
   assert.deepEqual(workspace.config.daily.map((s) => s.id), SERIES)
-  assert.deepEqual((await admin('GET', '/api/workspace')).body.templates, [DAILY.templates])
+  // Templates aren't configured any more: none are named here.
+  assert.ok(!('templates' in (await admin('GET', '/api/workspace')).body))
   assert.equal(workspace.reload(), false, 'unchanged file: nothing to do')
 
   const configAlerts = async () => (await admin('GET', '/api/alerts')).body.alerts.filter((a: { code: string }) => a.code === 'config_invalid' || a.code === 'config_warnings')
 
-  // An unknown key is left out with a warning; the rest applies.
-  writeFileSync(join(notesDir, 'vihko.yaml'), CONFIG.replace('templates:', 'templtes:'))
+  // An unknown key (an old `templates` folder among them) is left out with a warning; the rest applies.
+  writeFileSync(join(notesDir, 'vihko.yaml'), CONFIG.replace('# Workspace settings\n', `# Workspace settings\ntemplates: ${JSON.stringify(DAILY.templates)}\n`))
   assert.equal(workspace.reload(), true)
-  assert.deepEqual(workspace.config.templates, [], 'the misspelt setting is not applied')
+  assert.ok(!('templates' in workspace.config), 'the old setting is not applied')
   assert.deepEqual(workspace.config.daily.map((s) => s.id), SERIES, 'the rest is')
-  assert.deepEqual(await configAlerts(), [{ code: 'config_warnings', file: 'vihko.yaml', actions: [], warnings: [{ code: 'unknown_key', at: 'templtes', line: 2, detail: null }] }])
+  assert.deepEqual(await configAlerts(), [{ code: 'config_warnings', file: 'vihko.yaml', actions: [], warnings: [{ code: 'unknown_key', at: 'templates', line: 2, detail: null }] }])
 
   // A wrong value in a known key: the last good config stays in force.
   writeFileSync(join(notesDir, 'vihko.yaml'), CONFIG.replace(`folder: ${JSON.stringify(DAILY.team.folder)}`, `folder: ${JSON.stringify(`../${DAILY.team.folder}`)}`))
   assert.equal(workspace.reload(), true)
-  assert.deepEqual(workspace.config.templates, [])
   assert.deepEqual(workspace.config.daily.map((s) => s.id), SERIES, 'the last good config stays in force')
   assert.deepEqual(await configAlerts(), [
-    { code: 'config_invalid', file: 'vihko.yaml', fallback: 'last_good', actions: [], errors: [{ code: 'invalid_path', at: `daily.${DAILY.team.id}.folder`, line: 9, detail: null }] },
-    { code: 'config_warnings', file: 'vihko.yaml', actions: [], warnings: [{ code: 'unknown_key', at: 'templtes', line: 2, detail: null }] },
+    { code: 'config_invalid', file: 'vihko.yaml', fallback: 'last_good', actions: [], errors: [{ code: 'invalid_path', at: `daily.${DAILY.team.id}.folder`, line: 8, detail: null }] },
+    { code: 'config_warnings', file: 'vihko.yaml', actions: [], warnings: [{ code: 'unknown_key', at: 'templates', line: 2, detail: null }] },
   ], 'the warnings are those of the configuration in force')
 
   const other = m.anId()

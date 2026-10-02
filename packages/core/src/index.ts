@@ -1,6 +1,6 @@
 export { contentHash } from './hash.ts'
 export {
-  FrontmatterError, addToFrontmatterList, locateFrontmatter, readFrontmatter, setFrontmatterKey,
+  FrontmatterError, addToFrontmatterList, locateFrontmatter, readFrontmatter, removeFrontmatterKey, setFrontmatterKey,
   type Eol, type Frontmatter, type FrontmatterBlock, type ScalarValue,
 } from './frontmatter.ts'
 export {
@@ -15,9 +15,9 @@ export type { AccountChange, SpaceChange, Alert, AlertAction, AlertCode, ConfigM
 export { newUid } from './uid.ts'
 export { IMAGE_EXTENSIONS, imageMarkdown, isExternalUrl, isImageRef, markdownDest, resolveImageRef } from './images.ts'
 export { addDays, canonicalTimeZone, civilNow, compareDates, formatDate, isValidDate, isoWeek, isoWeekStart, type CivilDate, type CivilDateTime } from './dates.ts'
-export { DEFAULT_DATE_FORMAT, renderTemplate, type TemplateVars } from './template.ts'
+export { DEFAULT_DATE_FORMAT, TEMPLATE_KEY, isTemplate, renderTemplate, templateCopy, templateMarked, type TemplateVars } from './template.ts'
 export { SERIES_TOKENS, matchSeries, patternPeriod, patternTokens, seriesNeighbors, seriesPath, seriesPattern, type Period, type Series, type SeriesToken } from './series.ts'
-export { hasSearchFilter, parseSearchQuery, type ParsedQuery, type SearchFilter } from './query.ts'
+export { RESERVED_FILTERS, foldField, hasSearchFilter, parseSearchQuery, type ParsedQuery, type ReservedFilter, type SearchFilter } from './query.ts'
 export {
   EMPTY_WORKSPACE, PERMISSIONS_SECTION, STRICT_SECTIONS, WORKSPACE_FILE, WORKSPACE_VERSION, parseWorkspaceConfig,
   type ConfigError, type ConfigErrorCode, type ParseResult, type StrictSection, type WorkspaceConfig,

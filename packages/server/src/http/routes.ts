@@ -64,6 +64,8 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'POST /api/folder': 'session',
   'DELETE /api/folder': 'session',
   'POST /api/folder/move': 'session',
+  'POST /api/folder/templates': 'session',
+  'POST /api/note/template': 'session',
   'GET /api/move-jobs/:id': 'session',
   'POST /api/note/link/pin': 'session',
   'POST /api/note/comment': 'session',
@@ -260,6 +262,9 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'POST /api/external-moves/:id/relink': 'edit',
   'POST /api/trash/:id/restore': 'edit',
   'POST /api/folder': 'edit',
+  // Templates: the mark written into notes, as any edit.
+  'POST /api/folder/templates': 'edit',
+  'POST /api/note/template': 'edit',
 
   'DELETE /api/folder': 'manage',
   'POST /api/folder/move': 'manage',

@@ -143,18 +143,18 @@ write (write).
 
 | Method and path | Key | Request | Response |
 |---|---|---|---|
-| `GET /api/tree` | read | — | `notes` (`path`, `title`, `uid`, `aliases`), `folders`, `pathOnly` |
+| `GET /api/tree` | read | — | `notes` (`path`, `title`, `uid`, `aliases`, and `template: true` for a template, since 0.1.0-rc.5), `folders`, `pathOnly` |
 | `GET /api/spaces` | read | — | `personal` (`path`, or null when the key doesn't reach it), `spaces` (`path`, `name`, `level`, `managers`, `aiClosed`), `shared` (`path`, `level`, `pinned`, and `owner` in a personal space or `space` with `path`, `name`), `canCreate` (always false for a key). A shared space's `name` is its folder's |
 | `GET /api/spaces/members` | read | `path` (a folder) | `path`, `space` (`path`, `name`, or null in a personal space), `owner` (or null in a shared space), `members` (`username`, `level`, `via`: `subject`, `level`, `from` (null where the asker doesn't read that folder), and `owner: true` for a person's own space) |
 | `GET /api/note` | read | `path` | `path`, `text`, `etag`, `meta` (`title`, `uid`, `fmError`, or null), `hiddenFromAgents` |
 | `GET /api/note/links` | read | `path` | `outgoing` (`raw`, `kind`, `target`, `anchor`, `status`, `dstPath`, `anchorOk`, `candidates`, `posFrom`, and `othersNoAccess`, `reason`, `self` when they apply), `backlinks` (`path`, `title`, `raw`, `context`), `titles` |
 | `GET /api/note/headings` | read | `path` | `headings` (`level`, `text`) |
 | `GET /api/note/comments` | read | `path` | `threads` (`id`, `original`, `changed`) |
-| `GET /api/search` | read | `q` | `results` (`path`, `title`, `snippet`), `highlight` (`start`, `end`) |
+| `GET /api/search` | read | `q` | `results` (`path`, `title`, `snippet`), `highlight` (`start`, `end`). The query's filters are under [Search filters](#search-filters) |
 | `GET /api/tags` | read | — | `tags` (`tag`, `count`, `total`) |
 | `GET /api/daily` | read | `series`? | `series`, `path`, `exists` |
 | `GET /api/file` | read | `path` | The file's bytes, with its `Content-Type` and an opaque `ETag` |
-| `POST /api/note` | write | `path`, and `text` or `template` | `201`: `path`, `uid`, `etag` |
+| `POST /api/note` | write | `path`, and `text` or `template` (any note the key reads; its frontmatter is copied without `template: true` and `aliases`) | `201`: `path`, `uid`, `etag` |
 | `PUT /api/note` | write | `path` (query), `text`, `If-Match` or `If-None-Match: *` | `200` or `201`: `etag` |
 | `POST /api/note/edit` | write | `path`, `ops`, `ifMatch`?, `dryRun`? | `etag`; with `dryRun`: `dryRun`, `etag`, `changes` (`at`, `removed`, `inserted`) |
 | `POST /api/note/move` | write | `from`, `to`, `dryRun`?, `confirmAudience`?, `If-Match`? | `from`, `to`, `dryRun`, `etag`, `relinked`, `shifted`, `kept`, `failed`, `aliasAdded`, `images` (`moved`, `copied`, `stayed`, `folder`, `failed`), `hidden`, `brokenLinks` (`path`, `to`) when it changes space, and `audience` in a dry run; each `relinked` change has `before`, `after`, `kind` (`link` or `image`) and `to` |
@@ -294,6 +294,8 @@ can't call, they can change in any release.
 | `GET /api/permissions/folders` | Anyone | — | `folders` (`path`, `level`, `ownGrants`, `aiClosed`, `canEdit`): only what the asker sees |
 | `POST /api/permissions/holds/:id` | Who could have made that move from vihko | `action: "release"` | `ok` |
 | `POST /api/folder` | `edit` in the parent | `path` | `201`: `path`. `outside_space`, `space_root` |
+| `POST /api/folder/templates` | `edit` in it | `path` (a folder), `dryRun`? | Since 0.1.0-rc.5: `marked`, `already`, `skipped` (counts, of the notes in the folder and below: those it marks, or would mark, with `template: true`; those already marked; those whose frontmatter can't be read). Each is written as any edit of that note. `404 not_found` for a folder the person doesn't see |
+| `POST /api/note/template` | `edit` where the note is | `path`, `template` (`true` or `false`) | Since 0.1.0-rc.5: `etag`. `true` sets `template: true`, `false` removes the key; nothing else of the note changes |
 | `POST /api/folder/move` | `manage` in it and `edit` in both parents | `from`, `to`, `dryRun`?, `background`? | The folder move's report, with `images.copied` when it changes space. The root of a folder someone shares with you is only theirs to move |
 | `DELETE /api/folder` | `manage` in it | `path`, `trash`? | `path`, `trashed`. `409 held_inside` while notes held after a move made outside vihko are in it |
 | `GET /api/home` | Anyone | — | «Home» (0.1.0-rc.3): `recent` (`path`, `title`, `at`: notes the person changed lately; without a history, those of their own space changed last), `changed` (the same and `by`: what others changed lately in notes the person reads; `by` (`kind` `user`, `agent` or `external`, `name`, `onBehalfOf`) only where they may see the history, null elsewhere), `shared` (`kind` `space` or `folder`, `path`, `name`, `owner`, `by`, `at`: what was shared with them in the last 30 days, while they see it). At most 8 each; nothing the person can't read |
@@ -307,12 +309,44 @@ can't call, they can change in any release.
 | `POST /api/admin/rescan` | The vihko admin | `force`?, `confirmRemoval`? | Counts only: `added`, `changed`, `removed`, `moved`, `unchanged`, `aborted`, `massDelete` |
 | `GET /api/move-jobs/:id` | Whoever started the move | — | `done` and `total` count only the notes the person reads |
 | `GET/PUT /api/admin/settings` | The vihko admin | `spacesCreation`? (`everyone` or `admins`), `trashRetentionDays`?, `historyRetentionDays`? (a whole number of days, 1 to 36500, or null: off), `confirm`? | The settings, with `spacesCreation`, `trashRetentionDays` and `historyRetentionDays` (null by default). Turning a retention period on or shortening it needs `confirm` (`400 confirmation_required` without it); a longer one, or null, doesn't |
-| `GET /api/workspace` | Anyone | — | `daily`: the series the person can write today's note in, from `vihko.yaml`, their shared spaces' settings and their own (0.1.0-rc.3); `templates`: the templates folders the person can read, from the same three, `{user}` made theirs |
-| `GET /api/settings` | One's own; a shared space's members | `space`? (a shared space's root; one's own space when left out) | Since 0.1.0-rc.3: `space` (the root), `etag`, `settings` (`version`, `daily` (`id`, `label`, `folder`, `name`, `template`), `templates`, `attachments` (`mode`, and `folder` or `suffix`; null: as `vihko.yaml` says), `agents`; paths relative to the space), `errors` (what is wrong in the file: `code`, `at`, `line`, `detail`), `guideMissing` (since 0.1.0-rc.4: `agents` names a note that doesn't exist), `canEdit` (oneself, or a manager). `404 not_found` for a space the person isn't in, or anything that isn't a space's root |
+| `GET /api/workspace` | Anyone | — | `daily`: the series the person can write today's note in, from `vihko.yaml`, their shared spaces' settings and their own (0.1.0-rc.3); `links` (`aliases`). No `templates` since 0.1.0-rc.5: templates are marked in the notes (`GET /api/tree`) |
+| `GET /api/settings` | One's own; a shared space's members | `space`? (a shared space's root; one's own space when left out) | Since 0.1.0-rc.3: `space` (the root), `etag`, `settings` (`version`, `daily` (`id`, `label`, `folder`, `name`, `template`), `attachments` (`mode`, and `folder` or `suffix`; null: as `vihko.yaml` says), `agents`; paths relative to the space), `errors` (what is wrong in the file: `code`, `at`, `line`, `detail`), `guideMissing` (since 0.1.0-rc.4: `agents` names a note that doesn't exist), `canEdit` (oneself, or a manager). `404 not_found` for a space the person isn't in, or anything that isn't a space's root |
 | `PUT /api/settings` | One's own; a shared space's managers | `space`?, `settings` (as `GET` gives them), `ifMatch` | As `GET`. `400 invalid` with `errors` (nothing written), `428 precondition_required` without `ifMatch`, `412 precondition_failed` when the file changed, `403 forbidden` for a member who doesn't manage the space |
 | `GET /api/admin/retention` | The vihko admin | — | `lastRun` (`at`, `trash: { entries, bytes }`, `history: { versions, bytes }` or null, `failed`) or null; `nextRun` (null while both periods are off); `history`: whether the history is the managed one, the only one retention thins |
 | `POST /api/admin/retention/run` | The vihko admin | `confirm` | A run now with the settings in force (`400 confirmation_required` without `confirm`): `at`, `trash`, `history`, `failed`, as `lastRun` |
 | `POST /api/admin/retention/preview` | The vihko admin | `trashRetentionDays`?, `historyRetentionDays`? (missing: as they are) | What the next run would remove with them: `trash: { entries, bytes }`, `history: { versions, bytes }` (null when off or not managed). Counts and sizes of the whole installation, never a path |
+
+### Search filters
+
+The query of `GET /api/search` and of the MCP `search` tool: words (each a
+term, the last one also a prefix), and filters, each a word of its own:
+
+| Filter | Keeps |
+|---|---|
+| `tag:<tag>` | Notes with that tag or one nested under it |
+| `path:<folder or note>` | Notes in that folder and below, or that note |
+| `<key>:<value>` | Since 0.1.0-rc.5. Notes whose frontmatter has that top-level key with that value, for any key that starts with a letter or `_` (then letters, digits, `_`, `.`, `-`) and isn't a reserved name (below). A value that starts with `//` isn't one (an address stays a word) |
+| `prop:<key>=<value>` | Since 0.1.0-rc.5. The same, for any key at all, a reserved name included |
+| `prop:<key>` | Since 0.1.0-rc.5. With no value: notes whose frontmatter has that key, with any value or none |
+
+- **Reserved names**: `tag`, `path`, `is`, `has`, `in`, `prop`, `before` and `after` are vihko's own
+  filters, now or later, never a frontmatter field: a field with one of those
+  names is searched only as `prop:<key>=<value>` (or `prop:<key>`). `is:`,
+  `has:`, `in:`, `before:` and `after:` mean nothing yet: a filter with one
+  matches no note (and, with `-`, every note) until a version gives it a
+  meaning. Any other name is free for your frontmatter (`type:`, `status:`,
+  `created:`, `modified:`…).
+- `-` in front of any filter excludes instead; `"…"` quotes a value (or a
+  `prop:` key) with spaces. Several filters all apply. A filter starts a
+  word: a word quoted whole (`"re:budget"`) is searched as text.
+- Keys and values compare case-insensitively (full case folding, NFC), whole.
+  A list matches when any of its items does. A number matches the same number
+  however it's written (`5`, `5.0`). Only simple values are searched: text,
+  numbers, `true`/`false`, dates (as written) and lists of them; a key whose
+  value is a map isn't.
+- Templates (`template: true`) are left out unless a filter on `template`
+  that doesn't exclude asks for them (`template:true`, `prop:template`).
+- Only notes the principal reads are ever searched or counted.
 
 A new user (`POST /api/admin/users`, `vihko user create`) gets their folder,
 `people/<username>/`; when that folder already exists with something in it,
@@ -388,7 +422,7 @@ The [Agents guide](agents.md) explains how to connect.
 
 | Tool | Parameters | Result |
 |---|---|---|
-| `search` | `query` (required), `limit` (1 to 50, 20), `offset` (0) | `results` (`path`, `title`, `snippet`), `next_offset` |
+| `search` | `query` (required; the filters of [Search filters](#search-filters)), `limit` (1 to 50, 20), `offset` (0) | `results` (`path`, `title`, `snippet`), `next_offset` |
 | `get_note` | `path` or `uid`, `offset` (0), `max_chars` (1,000 to 200,000; 100,000) | `path`, `etag`, `title`, `uid`, `frontmatter`, `links` (`outgoing`: `link`, `target`, `anchor`, `status`, `path`, `candidates`, and `others_no_access`, `reason` when they apply; `incoming`: `path`, `title`, `count`; `more`), `text` (`offset`, `length`, `total`, `next_offset`); the text as a block |
 | `list_folder` | `folder` (`""`, the default, or a folder), `recursive` (false), `limit` (1 to 500, 100), `offset` (0) | `folder`, `entries` (`kind` `folder` with `path`, or `note` with `path` and `title`), `next_offset`. With `""`, the roots the person reaches (below) |
 | `related` | `path` (required), `limit` (1 to 200, 50), `offset` (0) | `path`, `links_to`, `linked_from`, `next_offset` |
@@ -417,7 +451,7 @@ HTTP: a note the person can't read is `missing`. An author in `history` has
 | Tool | Parameters | Result |
 |---|---|---|
 | `daily_note` | `series`, `create` (true) | `series`, `path`, `created`, `etag`, and the text as a block |
-| `create_note` | `path` (required), `text` or `template` | `path`, `etag`, `uid`, `created` |
+| `create_note` | `path` (required), `text` or `template` (its frontmatter copied without `template: true` and `aliases`) | `path`, `etag`, `uid`, `created` |
 | `edit_note` | `path`, `operations` (1 to 50; required), `if_match`, `dry_run` (false) | `path`, `etag`; with `dry_run`: `dry_run`, `etag`, `changes` |
 | `move` | `from`, `to` (required), `if_match`, `dry_run` (false), `confirm_audience` (false) | `from`, `to`, `dry_run`, `etag`, `relinked`, `shifted`, `kept`, `failed`, `alias_added`, `hidden`, `images`, and `audience` when it applies |
 | `delete` | `path` (required), `if_match` | `path`, `trashed`, `at`, and `images` when some went with it |
@@ -451,7 +485,6 @@ Every key vihko reads. [Configuration](configuration.md) explains each one.
 | Key | Type | What it does |
 |---|---|---|
 | `version` | whole number from 1 | The file's format (1 when left out) |
-| `templates` | folder, or list of folders | Where the templates are; each may hold `{user}` |
 | `daily` | map of series by id | Daily, weekly, monthly or yearly notes |
 | `daily.<id>.label` | text | The series' name in the UI |
 | `daily.<id>.folder` | folder pattern | Where its notes go |
@@ -471,10 +504,10 @@ Every key vihko reads. [Configuration](configuration.md) explains each one.
 
 What goes with them:
 
-- **Paths** are from the notes root. A series' folder, a templates folder or
-  `mcp.instructions` outside `people/` and `spaces/` is ignored, with an
-  `outside_spaces` warning. `{user}` in a templates folder, a series' pattern
-  or `mcp.instructions` is the person's username (with
+- **Paths** are from the notes root. A series' folder or `mcp.instructions`
+  outside `people/` and `spaces/` is ignored, with an `outside_spaces`
+  warning. `{user}` in a series' pattern or `mcp.instructions` is the
+  person's username (with
   `people/{user}/agents.md`, each person's agents get their own guide).
 - **Patterns** in `daily`: `{YYYY}`, `{MM}`, `{DD}`, `{GGGG}`, `{WW}` and
   `{user}`. «Today» only offers the series where the person can write today's
@@ -482,6 +515,9 @@ What goes with them:
 - **Template variables**: `{{title}}`, `{{user}}`, `{{date}}` and
   `{{date:FORMAT}}`, with the tokens `YYYY`, `YY`, `MM`, `M`, `DD`, `D`,
   `GGGG`, `WW`, `W`, `HH`, `mm` and text in `[brackets]`.
+- **No `templates` key** since 0.1.0-rc.5: a template is a note marked
+  `template: true`. An old `templates` is an unknown key (ignored, with a
+  warning).
 - **Permission keys** are real folders: a shared space's root
   (`spaces/<name>`) or a folder below it, or a folder inside a personal
   space (`people/<user>/<folder>`, and below). A personal space's root
@@ -525,7 +561,6 @@ explains it.
 |---|---|---|
 | `version` | whole number from 1 | The file's format (1 when left out). A newer one is read as far as vihko can, with `newer_version` |
 | `daily.<id>` | as in `vihko.yaml`: `label`, `folder`, `name`, `template` | The space's daily-note series. Patterns take `{YYYY}`, `{MM}`, `{DD}`, `{GGGG}` and `{WW}`, not `{user}` (`pattern_token`) |
-| `templates` | folder, or list of folders | The space's templates folders |
 | `attachments` | as in `vihko.yaml`: `mode`, `folder`, `suffix` | Where new images of the space's notes go |
 | `agents` | note | The space's guide for agents |
 
@@ -548,8 +583,9 @@ explains it.
   `daily`). With no `dailySeries` in the profile, today's note is the first
   listed, and the first `POST /api/daily` (or `daily_note` that opens or
   creates it) without a `series` writes that series' id as the profile's
-  `dailySeries`. Templates folders are
-  the union of the three, those they can read. New images of a note follow
+  `dailySeries`. Templates aren't a setting (since 0.1.0-rc.5; an old
+  `templates` key is an unknown one): every note marked `template: true` the
+  person reads is one. New images of a note follow
   its space's `attachments`, otherwise `vihko.yaml`'s. The guides for agents
   come in order: `mcp.instructions`, each shared space the key reaches, the
   person's own.
@@ -633,6 +669,7 @@ else into a note unless someone asks it to (an edit, a comment, a
 | The note's identity | `uid: <id>` in the frontmatter, added only when vihko writes the note anyway: created, edited or moved from vihko. vihko writes a ULID today and reads any text or number as a `uid` |
 | An alias after a rename | The old name added to `aliases`, only when a link to the note from its own space couldn't be rewritten and `links.aliases` is on |
 | Frontmatter changes | Only that key's value, in place; a new key at the end of the block; a note without frontmatter gets a block at the top. The rest stays byte for byte |
+| Templates | `template: true` in the frontmatter when someone makes a note a template, or marks a folder's notes as templates; the key removed when they stop it being one. A note created from a template gets the template's text and frontmatter without that key and without `aliases` (the rest, `ai` included, byte for byte), its variables filled in |
 | Comments | `<!-- @author YYYY-MM-DDTHH:MMZ · text -->`; a reply starts its text with `↳ `; comments one after another are a thread; resolving a thread deletes it |
 | Links kept when a name is taken | When someone creates, restores or renames a note (or gives it an alias) that would make a link in a note they can't read lead elsewhere, vihko rewrites that link as after a move, so it keeps leading to its note |
 | Links rewritten after a move | Only inside a space: the link keeps its destination. A wikilink gets a name or path that reaches the note without ambiguity, keeping its `#heading` and `\|text` (with the note's name as text when only the path from the notes root reaches it, for someone who sees only part of the space). A Markdown link gets a path relative to the note, percent-encoded as image links are. vihko never writes a link to another space: when a note or a folder changes space, nothing is rewritten across spaces |
@@ -642,7 +679,10 @@ else into a note unless someone asks it to (an edit, a comment, a
 | Moved images | Images only one note uses go with it when it changes folder. When it changes space, the images it shares with other notes are copied to the new space, and its links point to the copies |
 
 What vihko reads in your notes stays too: the frontmatter keys `uid`,
-`title`, `tags`, `aliases` and `ai` (`ai: false` hides a note from agents),
+`title`, `tags`, `aliases`, `ai` (`ai: false` hides a note from agents) and
+`template` (`template: true`, a YAML true, makes a note a template: offered
+when creating a note, left out of search unless asked for, of tags and of
+Home), every other key's simple values for searching,
 `#tags`, both kinds of links (`[[a\|b]]` in a table included), and the files it
 ignores (names starting with `.` or ending in `~`, and symbolic links).
 

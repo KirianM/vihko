@@ -401,10 +401,14 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     title: 'Search notes',
     description: 'Full-text search over the notes you can read, best matches first. The words are looked for in each note\'s title, aliases and text; not in its path or file name (unless it is the title), its frontmatter or its comments. '
       + 'To search within a folder, add a `path:` filter to the query: `budget path:projects/2026` finds "budget" in the notes under projects/2026 (quote a folder with spaces: `path:"my notes"`; a note\'s path also works). '
-      + '`tag:name` keeps the notes with that tag or one nested under it, and `-` before a filter excludes it (`-path:archive`). Filters alone, without words, list every note they match. '
+      + '`tag:name` keeps the notes with that tag or one nested under it. '
+      + 'Frontmatter fields: `key:value` keeps the notes whose frontmatter has that key with that value (`type:decision`, `status:"in progress"`; key and value in any case; in a list, any item; a number however written), for any key but the reserved names tag, path, is, has, in, prop, before and after; '
+      + '`prop:key=value` does the same for any key at all (`prop:tag=x` is the frontmatter\'s `tag`), and `prop:key` with no value keeps the notes that have the key, whatever its value. Only simple values count: text, numbers, true/false, dates and lists of them, not nested maps. '
+      + '`-` before a filter excludes it (`-path:archive`, `-status:done`, `-prop:due`). Filters alone, without words, list every note they match. '
+      + 'Templates (notes with `template: true`) are left out unless the query asks for them: `template:true`. '
       + 'Snippets mark the hits with **. Paged: pass next_offset back as offset.',
     inputSchema: input(z.object({
-      query: z.string().min(1).describe('Words to find (the last one also as a prefix), with optional path: and tag: filters, e.g. "budget path:projects/2026 -tag:done".'),
+      query: z.string().min(1).describe('Words to find (the last one also as a prefix), with optional filters: path:, tag:, key:value, prop:key=value, prop:key, - to exclude; e.g. "budget path:projects/2026 -tag:done type:decision".'),
       limit: z.number().int().min(1).max(50).default(20).describe('Results per page (at most 50).'),
       offset: z.number().int().min(0).default(0).describe('Where the page starts.'),
     }), NAME_ALIASES),
@@ -708,12 +712,14 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('create_note', {
     title: 'Create a note',
-    description: 'A new note with the given text, or from a template note (its {{date}}, {{title}}… filled in). Never overwrites: if the note exists, it fails with `exists`; if a note that is not available to you is there, with `agent_denied`: ' + LEAVE_IT
+    description: 'A new note with the given text, or from a template note: its text with {{date}}, {{title}}… filled in, and its frontmatter without the `template: true` that marks it as a template and without its `aliases`. '
+      + 'The templates are the notes with `template: true` in their frontmatter: search `template:true` to list them. '
+      + 'Never overwrites: if the note exists, it fails with `exists`; if a note that is not available to you is there, with `agent_denied`: ' + LEAVE_IT
       + ' Returns its ETag. ' + HIDING,
     inputSchema: input(z.object({
       path,
       text: z.string().optional().describe('The note\'s Markdown text (frontmatter included, if any).'),
-      template: z.string().optional().describe('A template note to create it from, instead of text.'),
+      template: z.string().optional().describe('A template note to create it from, instead of text (its path; any note you can read works, the marked ones are meant for it).'),
     }), { ...NAME_ALIASES, content: 'text' }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, run(async ({ path: p, text, template }) => {

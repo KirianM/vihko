@@ -13,7 +13,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PNG, setup } from './_agents.ts'
 import type { DenyReason } from '@vihko/server'
-import { CONFIG, DIR, FILES, HIDDEN, NAME, OTHER_HEADING, PATH, SERIES, SUB, TAG, WORD, historyToHide, leaked } from './_leaks.ts'
+import { CONFIG, DIR, FIELD, FILES, HIDDEN, NAME, OTHER_HEADING, PATH, SERIES, SUB, TAG, WORD, historyToHide, leaked } from './_leaks.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -43,7 +43,7 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
     assert.ok(secretUid, 'the hidden note has a uid (its first write gave it one)')
     /** Every tool the key has, and how it's called. */
     const scenarios: Record<string, Call[]> = {
-      search: [WORD.secret, WORD.other, WORD.broken, WORD.onlyHidden, WORD.revealed, WORD.moving, TAG.shared, `tag:${TAG.shared}`, `tag:${TAG.hidden}`, `path:"${DIR.outside}"`, `path:"${DIR.key}"`, NAME.dup, WORD.visible, NAME.visible]
+      search: [WORD.secret, WORD.other, WORD.broken, WORD.onlyHidden, WORD.revealed, WORD.moving, TAG.shared, `tag:${TAG.shared}`, `tag:${TAG.hidden}`, `path:"${DIR.outside}"`, `path:"${DIR.key}"`, NAME.dup, WORD.visible, NAME.visible, `${FIELD.key}:${FIELD.value}`, `prop:${FIELD.key}`, `-prop:${FIELD.key}`, `prop:${FIELD.key}=${FIELD.value}`, 'template:true', `prop:template`, `has:${FIELD.key}`]
         .map((q) => ({ args: { query: q }, ok: true })),
       get_note: [
         { args: { path: PATH.visible }, ok: true },

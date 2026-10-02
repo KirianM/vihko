@@ -44,15 +44,22 @@ anything you can't see getting in your way or telling you it exists.
       `list_folder("")` lists the spaces a person reaches; the server's
       instructions tell agents where the person keeps their notes. Keys'
       folders, pins and the trash follow folders moved from vihko.
-- [x] `vihko.yaml`: permissions keyed by spaces, templates as a list with
-      `{user}`, `attachments.folder` relative to each space.
+- [x] `vihko.yaml`: permissions keyed by spaces, `attachments.folder`
+      relative to each space.
 - [x] Leak tests over every route, tool and editor message, extended to
       writes (create, rename, move over hidden names), and browser tests with
       three people.
 - [x] Note settings of each person and each shared space
-      (`.vihko/settings.yaml`): daily-note series, templates, where images
-      go and a guide for agents, adding to `vihko.yaml`'s; edited from
-      vihko or by hand.
+      (`.vihko/settings.yaml`): daily-note series, where images go and a
+      guide for agents, adding to `vihko.yaml`'s; edited from vihko or by
+      hand.
+- [x] Templates are notes marked `template: true`, wherever they are, marked
+      from a note's or a folder's menu; a new note gets the template's
+      frontmatter without the mark.
+- [x] Search by any frontmatter field (`type:decision`, `prop:key=value`,
+      `prop:key`), in the search box, the API and MCP; `tag`, `path`, `is`,
+      `has`, `in`, `prop`, `before` and `after` reserved for vihko's own
+      filters.
 - [x] Home, where vihko opens (recent notes, others' changes, what was
       shared lately), and «On opening» to choose otherwise; the tree and
       the sidebar follow others' changes live; the frontmatter out of reach
@@ -112,8 +119,14 @@ message; and an installation built from the documentation alone works.
   account, at a level (`public: read | comment | edit`).
 - Events: an event log with a cursor; webhooks (HMAC with timestamp, real
   retries, SQLite outbox, stable event id, delivery log, auto-disable); a
-  loop breaker. Done when a real integration with another application works
-  using only these generic pieces.
+  loop breaker. Per person, like API keys: each person creates their own
+  webhooks and reads their own log (in Agents and API), and an event only
+  tells what that person can read under the agents' rules (nothing marked
+  `ai: false`, nothing in a folder closed to agents, only the folders the
+  webhook is limited to). The admin only turns the feature on or off (off by
+  default) and decides whether members may create their own; they never see
+  or configure anyone's targets. Done when a real integration with another
+  application works using only these generic pieces.
 - Retrieval: configurable conventions for note types (decisions,
   projects…); embeddings in a worker thread with `sqlite-vec` and hybrid
   search, never of what the agent can't see; intent tools

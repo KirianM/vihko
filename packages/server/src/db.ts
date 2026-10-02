@@ -82,7 +82,7 @@ function readVersion(db: Db): number | null {
 
 /** Deterministic dump of the whole index (rebuild tests). */
 export function dumpIndex(db: Db): string {
-  const tables = ['notes', 'link_keys', 'links', 'images', 'tags', 'headings', 'folders', 'alerts']
+  const tables = ['notes', 'link_keys', 'links', 'images', 'tags', 'headings', 'fields', 'folders', 'alerts']
   const out: string[] = []
   for (const t of tables) {
     const columns = Math.min(3, (db.prepare(`pragma table_info(${t})`).all()).length)

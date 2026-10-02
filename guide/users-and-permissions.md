@@ -222,25 +222,28 @@ seeing it at once.
 
 ### A shared space's notes
 
-Whoever manages a space can give it daily notes, templates, a place for its
-images and a guide for agents, for all its members. It's the same form as a
+Whoever manages a space can give it daily notes, a place for its images and
+a guide for agents, for all its members. Templates need no setting: a note
+marked as a template in the space is offered to all its members. It's the same form as a
 person's own [note settings](first-steps.md#set-up-your-own-notes), and
 every path in it is inside the space.
 
-Say «Family» wants a shopping list per week that everyone writes in, a
-templates folder of its own, its photos in one folder, and a guide that
-tells assistants where things go.
+Say «Family» wants a shopping list per week that everyone writes in,
+templates of its own, its photos in one folder, and a guide that tells
+assistants where things go.
 
 1. Make what the settings will point to: in «Family», a folder `Templates`
    with a note `Shopping` in it (`# {{title}}` and the usual headings), and a
    note `About this space` with what an assistant should know («Recipes go
    in Recipes, one note each»).
-2. Open the space's menu → **Settings…** (only its managers have it). The
+2. Open the menu of the folder `Templates` → **Mark notes as templates…** →
+   **Mark as templates**: its notes, «Shopping» and any you add later by the
+   same means, are now templates (see [Templates](notes.md#templates)).
+3. Open the space's menu → **Settings…** (only its managers have it). The
    dialog is «Settings of “Family”».
-3. Under «Daily notes», **Add a series**: Name `Shopping`, Folder
+4. Under «Daily notes», **Add a series**: Name `Shopping`, Folder
    `Shopping`, Note name `{GGGG}-W{WW}` (one per week), Template
    `Templates/Shopping`.
-4. **Templates folders**: `Templates`.
 5. **New images** → **All in one folder**, **Folder of images**: `Photos`.
 6. **Guide for agents (a note)**: `About this space`.
 7. Press **Save**.
@@ -253,8 +256,8 @@ What the members get:
   2026-W40»: whoever opens it first that week creates it, and the others
   open the same one. Each member chooses in Preferences → «Daily note
   series» whether «Today's note» opens it or their own journal.
-- **The templates of «Family / Templates»** under «From a template» when
-  they make a note, anywhere.
+- **The templates of «Family»** (any note marked as one there) under «From a
+  template» when they make a note, anywhere.
 - **Images** pasted into any note of Family go to «Family / Photos». Images
   of their own notes don't change.
 - **Their agents** get «About this space» when they connect, for what they
@@ -275,20 +278,19 @@ themselves. Nothing replaces anything, except for images:
 | Setting | What a person gets |
 |---|---|
 | Daily note series | All of them: their own, those of the spaces where they can edit, and the installation's, in that order. They choose one in Preferences; until they do, «Today's note» opens the first, and the first one it opens stays their choice |
-| Templates folders | All of them: the installation's, their spaces', and their own |
+| Templates | Not a setting: every note marked `template: true` they can read, in any space |
 | Where a new image goes | The setting of **the note's space**, if it has one; otherwise the installation's. Never someone else's |
 | Guide for agents | All of them, one after another: the installation's, then each space's, then their own |
 
-An example. The admin's `vihko.yaml` has a templates folder for everyone,
-`people/{user}/Templates`. «Family» has the settings above. Noa, a member
-of Family, has a «Journal» series of her own and her guide «For agents».
+An example. «Family» has the settings above. Noa, a member of Family, has a
+«Journal» series of her own, her guide «For agents» and, in «My notes /
+Templates», templates of her own.
 Then Noa:
 
 - has two daily series, «Shopping» and «Journal», and picks «Journal» in
   Preferences: «Today's note» opens her journal, and she opens the week's
   shopping list from the tree, in «Family / Shopping»;
-- sees templates from «My notes / Templates» (the installation's setting)
-  and from «Family / Templates»;
+- sees her templates and those of «Family»;
 - pastes a photo into a Family note and it goes to «Family / Photos»; one
   pasted into her journal goes next to the note (the installation's
   default, since her own settings don't say otherwise);

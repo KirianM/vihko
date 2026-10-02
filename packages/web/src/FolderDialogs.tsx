@@ -3,7 +3,7 @@
 // otherwise, what it holds to the trash with it).
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, TextField } from 'react-aria-components'
-import { ApiError, api, type FolderContents, type FolderMoveReport, type MoveJob, type TrashEntry } from './api.ts'
+import { ApiError, api, type FolderContents, type FolderMoveReport, type MoveJob, type TemplatesMarked, type TrashEntry } from './api.ts'
 import { AudienceWarning, audienceChanges } from './Audience.tsx'
 import { DestinationFields, joinPlace, splitPlace, usePlaces } from './Destination.tsx'
 import { RelinkRows } from './MovePreview.tsx'
@@ -312,6 +312,55 @@ export function DeleteFolderDialog({ path, onClose, onDeleted }: { path: string;
         {!blocked && (
           <Button className="btn btn-danger" onPress={() => void confirm()} isDisabled={busy}>{t(contents ? 'folder.deleteTrash' : 'folder.deleteConfirm')}</Button>
         )}
+      </div>
+    </Dialog>
+  )
+}
+
+/**
+ * Marks every note of a folder (its subfolders too) as a template: first how
+ * many notes it would mark (and how many already are, or can't be, because
+ * their frontmatter can't be read), then, confirmed, writes `template: true`
+ * into each one. Nothing else of them changes.
+ */
+export function MarkTemplatesDialog({ path, onClose, onDone }: { path: string; onClose: () => void; onDone: (r: TemplatesMarked) => void }) {
+  const t = useT()
+  const [preview, setPreview] = useState<TemplatesMarked | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    api.markFolderTemplates(path, true).then((r) => { if (live) setPreview(r) }, (err) => { if (live) setError(folderError(t, err)) })
+    return () => { live = false }
+  }, [path, t])
+  const confirm = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      onDone(await api.markFolderTemplates(path))
+    } catch (err) {
+      setError(folderError(t, err))
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog className="dialog dialog-narrow" role="alertdialog">
+      <div className="dialog-fields">
+        <Heading slot="title" className="dialog-title">{t('templates.markTitle', { name: baseName(path) })}</Heading>
+        <p className="dialog-text">{t('templates.markBody')}</p>
+        {preview === null && !error && <p className="dialog-text" aria-live="polite">{t('common.loading')}</p>}
+        {preview && (
+          <ul className="templates-summary" aria-label={t('templates.markSummary')}>
+            <li>{t(preview.marked === 1 ? 'templates.markOne' : 'templates.markMany', { n: preview.marked })}</li>
+            {preview.already > 0 && <li>{t(preview.already === 1 ? 'templates.alreadyOne' : 'templates.alreadyMany', { n: preview.already })}</li>}
+            {preview.skipped > 0 && <li>{t(preview.skipped === 1 ? 'templates.skippedOne' : 'templates.skippedMany', { n: preview.skipped })}</li>}
+          </ul>
+        )}
+        {error && <p className="error-text" role="alert">{error}</p>}
+      </div>
+      <div className="dialog-actions">
+        <Button className="btn" onPress={onClose} autoFocus>{t('common.cancel')}</Button>
+        <Button className="btn btn-primary" onPress={() => void confirm()} isDisabled={busy || !preview || preview.marked === 0}>{t('templates.markConfirm')}</Button>
       </div>
     </Dialog>
   )

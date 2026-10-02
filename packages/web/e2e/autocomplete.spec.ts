@@ -265,17 +265,16 @@ test('never overwrites: if the note appeared meanwhile and the link leads there,
   expect(disk(`${DIR}/${late}.md`)).toMatch(new RegExp(`(^|---\\n)# ${literally(late)}\\n\\n${literally(theirs)}\\n$`, 'u'))
 })
 
-test('with templates configured, «create» asks which one', async () => {
+test('with templates to offer, «create» asks which one', async () => {
   const template = m.aTitle()
   const line = m.aSentence()
   const fresh = m.aTitle()
   mkdirSync(`${NOTES}/${TEMPLATES}`, { recursive: true })
-  writeFileSync(`${NOTES}/${TEMPLATES}/${template}.md`, `# {{title}}\n\n${line}\n`)
-  writeWorkspace(`templates: ${JSON.stringify(TEMPLATES)}\n`)
-  await expect.poll(async () => (await (await k.request.get('/api/workspace')).json() as { templates: string[] }).templates).toEqual([TEMPLATES])
+  // A template is a note marked so: its mark doesn't go into the new note.
+  writeFileSync(`${NOTES}/${TEMPLATES}/${template}.md`, `---\ntemplate: true\n---\n# {{title}}\n\n${line}\n`)
   await expect.poll(async () => {
-    const { notes } = await (await k.request.get('/api/tree')).json() as { notes: { path: string }[] }
-    return notes.some((n) => n.path === `${TEMPLATES}/${template}.md`)
+    const { notes } = await (await k.request.get('/api/tree')).json() as { notes: { path: string; template?: true }[] }
+    return notes.some((n) => n.path === `${TEMPLATES}/${template}.md` && n.template)
   }).toBe(true)
   await k.goto(`/?note=${encodeURIComponent(SOURCE)}`)
   await typeAtEnd(k, ` [[${fresh}]]`)
@@ -297,7 +296,7 @@ test('with templates configured, «create» asks which one', async () => {
   await menu.getByRole('menuitem', { name: template }).click()
   await expect.poll(() => noteParam(k)).toBe(`${DIR}/${fresh}.md`)
   await expect.poll(() => disk(`${DIR}/${fresh}.md`)).toMatch(new RegExp(`(^|---\\n)# ${literally(fresh)}\\n\\n${literally(line)}\\n$`, 'u'))
-  writeWorkspace()
+  expect(disk(`${DIR}/${fresh}.md`)).not.toContain('template:')
 })
 
 test('with links.aliases off in vihko.yaml, [[alias]] is broken and an alias is inserted as [[Note|alias]]', async () => {

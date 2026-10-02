@@ -91,5 +91,9 @@ test('paths: a long run of slashes that doesn\'t end them', () => {
   assert.equal(trimTrailingSlashes('a//'), 'a')
   assert.equal(trimSlashes('///'), '')
   fast('search filter', () => parseSearchQuery(`path:${path} tag:${path}`))
+  // Frontmatter fields: a long key that never reaches its colon, long runs of what a key or a value takes, unclosed quotes.
+  for (const q of ['a'.repeat(N), 'a.-'.repeat(N / 3) + ' x', 'a '.repeat(N / 2), `prop:${'a'.repeat(N)}`, `prop:"${'a'.repeat(N)}`, `has:"${'a '.repeat(N / 2)}`, `k:"${' '.repeat(N)}`, '-'.repeat(N) + ':x']) {
+    fast('field filter', () => parseSearchQuery(q))
+  }
   fast('glob', () => [globProblem(path), pathMatcher([path])('a/b')])
 })

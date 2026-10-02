@@ -56,6 +56,7 @@ note. It uses these keys and leaves every other one to you:
 | `tags` | Tags, a list or a single value, counted the same as `#tags` in the text |
 | `aliases` | Other names the note answers to in `[[links]]`, as a last resort ([`links.aliases`](configuration.md#linksaliases) can turn this off) |
 | `ai` | `ai: false` hides the note from every agent. Any doubtful value (`no`, `off`, `"false"`, `0`) counts as `false` |
+| `template` | `template: true` makes the note a template. See [Templates](#templates) |
 
 ```markdown
 ---
@@ -73,9 +74,74 @@ A note whose frontmatter isn't valid YAML still opens, shows and saves, but
 vihko treats it as the most restricted: it's hidden from agents, and vihko
 never adds a `uid` to it.
 
-When vihko changes frontmatter (adding a `uid` or an alias), it edits only that
-key in the text. It never re-serialises the block: key order, comments,
-quoting, list style and keys it doesn't know stay exactly as they were.
+When vihko changes frontmatter (adding a `uid` or an alias, marking a
+template), it edits only that key in the text. It never re-serialises the
+block: key order, comments, quoting, list style and keys it doesn't know stay
+exactly as they were.
+
+### Searching by frontmatter
+
+Every other key is yours, and the search box finds notes by it: `type:decision`
+lists the notes with `type: decision` in their frontmatter, `prop:due` those
+with a `due` key, `-status:done` leaves out those with `status: done`. Only
+simple values count: text, numbers, `true`/`false`, dates and lists of them
+(a list matches when any of its items does); a nested map doesn't. Keys and
+values ignore case, a number matches however it's written (`5` and `5.0`),
+and values are compared whole, as written: vihko doesn't normalise or
+configure anything. Some names are vihko's own filters, now or later
+(`tag`, `path`, `is`, `has`, `in`, `prop`, `before` and `after`): for a key with one of those names,
+write `prop:tag=urgent`. The whole syntax is in
+[Search](first-steps.md#search-and-the-k-box).
+
+## Templates
+
+A template is a note with `template: true` in its frontmatter, wherever it
+is: no folder makes one, and nothing in `vihko.yaml` or in the settings of a
+space lists them. Mark one from its menu in the tree (**Make a template**;
+**Stop being a template** takes the mark off), or every note of a folder at
+once (**Mark notes as templates…**, in the folder's menu): vihko adds that one
+key, through the normal write, and touches nothing else.
+
+When you create a note, «From a template» offers every template you can
+read: in your own space, in the shared spaces you're in and in folders shared
+with you, grouped by space. A template from another space works the same,
+since only its text is copied (its links by name then resolve in the new
+note's space). Through the API and MCP any note you can read can be used as a
+template; the marked ones are those offered.
+
+The new note gets the template's text, frontmatter included, **without** its
+`template: true` and its `aliases` (so `type: decision`, the tags or
+`ai: false` come along, the new note isn't a template itself, and the
+template's other names don't become every new note's), and a `uid` of its
+own. These variables are filled
+in, in the timezone of the person creating it. Nothing else runs: a template
+can't execute code, loop or read other notes.
+
+| Variable | Becomes |
+|---|---|
+| `{{title}}` | The new note's name (its file name without `.md`) |
+| `{{user}}` | The username of whoever creates it |
+| `{{date}}` | Today, as `YYYY-MM-DD` |
+| `{{date:FORMAT}}` | Now, in the format you give |
+
+`FORMAT` takes these tokens; text in `[brackets]` is copied as it is.
+
+| Token | Meaning | Example |
+|---|---|---|
+| `YYYY` / `YY` | Year, four or two digits | `2026` / `26` |
+| `MM` / `M` | Month, two digits or as is | `09` / `9` |
+| `DD` / `D` | Day of the month | `05` / `5` |
+| `GGGG` | ISO week-numbering year | `2026` |
+| `WW` / `W` | ISO week | `09` / `9` |
+| `HH` / `mm` | Hour (24 h) and minute | `14` / `05` |
+
+For example, `{{date:[Week] W, YYYY}}` gives `Week 39, 2026`. Anything else in
+`{{…}}` is left as it is.
+
+Templates are skeletons, not notes anyone wrote: they're left out of search,
+of the tags and their counts, and of Home. They stay in the tree, marked, and
+you open and edit them as any note; `template:true` in the search box lists
+them.
 
 ## The `uid`
 
@@ -270,6 +336,14 @@ depends on [`attachments`](configuration.md#attachments-where-new-images-go))
 and inserts a `![](…)` link with a relative path. From a URL, you choose:
 «Save a copy» (vihko downloads it into the folder) or «Link to source»
 (the note keeps the URL; for images that change, such as a chart).
+
+With «Save a copy» it's vihko's server that downloads the image, so members
+can only do it from public internet addresses: nobody can use vihko as a
+bridge to the devices or services on the network where it runs. What counts
+is the IP the name points to, as the server sees it (a subdomain of yours that
+points to an address on your network is private). Admins always can, and can
+let members too: «Users and groups» → «Settings» → «Members can save copies
+of images from private addresses».
 
 Images from other sites (`![](https://…)`) load directly in the browser, which
 tells that site someone is looking. `VIHKO_EXTERNAL_IMAGES=block` stops that

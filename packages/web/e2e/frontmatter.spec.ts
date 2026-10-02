@@ -18,9 +18,11 @@ const SLOW = { timeout: 15_000 }
 function aNote() {
   const path = `${DIR}/${m.aTitle()}.md`
   const fm = `---\nuid: ${m.faker.string.ulid({ refDate: '2026-01-01T00:00:00Z' })}\nai: false\ntags: [${m.aTag()}]\n---\n`
-  const lines = [`# ${m.aHeading()}`, '', `${m.aSentence().slice(0, -1)} ${m.aUniqueWord()}.`, '', `${m.aSentence().slice(0, -1)} ${m.aUniqueWord()}.`]
+  // Each line of text ends in a word only it has: two sentences may start alike.
+  const words = [m.aUniqueWord(), m.aUniqueWord()] as const
+  const lines = [`# ${m.aHeading()}`, '', `${m.aSentence().slice(0, -1)} ${words[0]}.`, '', `${m.aSentence().slice(0, -1)} ${words[1]}.`]
   writeFileSync(`${NOTES}/${path}`, fm + lines.join('\n') + '\n')
-  return { path, fm, lines, disk: () => (existsSync(`${NOTES}/${path}`) ? readFileSync(`${NOTES}/${path}`, 'utf8') : '') }
+  return { path, fm, lines, words, disk: () => (existsSync(`${NOTES}/${path}`) ? readFileSync(`${NOTES}/${path}`, 'utf8') : '') }
 }
 
 async function open(p: Page, path: string) {
@@ -42,7 +44,7 @@ test.beforeAll(async ({ browser }) => {
 test('select all and delete empties the body, never the frontmatter (its uid and ai: false); undo brings the body back', async () => {
   const n = aNote()
   await open(k, n.path)
-  await k.locator('.cm-line', { hasText: n.lines[2]!.slice(0, 10) }).click()
+  await k.locator('.cm-line', { hasText: n.words[0] }).click()
   await k.keyboard.press('ControlOrMeta+a')
   await k.keyboard.press('Delete')
   await expect.poll(n.disk, SLOW).toBe(n.fm)
@@ -56,7 +58,8 @@ test('select all and delete empties the body, never the frontmatter (its uid and
   await k.keyboard.type(typed)
   await expect.poll(n.disk, SLOW).toBe(n.fm + typed)
   await k.keyboard.press('ControlOrMeta+a')
-  const pasted = `${m.aSentence()}\n`
+  const word = m.aUniqueWord()
+  const pasted = `${m.aSentence().slice(0, -1)} ${word}.\n`
   await k.evaluate((text) => {
     const data = new DataTransfer()
     data.setData('text/plain', text)
@@ -64,7 +67,7 @@ test('select all and delete empties the body, never the frontmatter (its uid and
   }, pasted)
   await expect.poll(n.disk, SLOW).toBe(n.fm + pasted)
   // Backspace at the start of the body never joins it to the frontmatter.
-  await k.locator('.cm-line', { hasText: pasted.slice(0, 10) }).click()
+  await k.locator('.cm-line', { hasText: word }).click()
   await k.keyboard.press('Home')
   await k.keyboard.press('Backspace')
   await k.keyboard.press('Backspace')
@@ -77,11 +80,11 @@ test('two sessions: one empties the body, the other sees the frontmatter stay; i
   await open(k, n.path)
   await open(a, n.path)
   await expect(a.locator('.presence .avatar')).toHaveCount(2, SLOW)
-  await a.locator('.cm-line', { hasText: n.lines[4]!.slice(0, 10) }).click()
+  await a.locator('.cm-line', { hasText: n.words[1] }).click()
   await a.keyboard.press('ControlOrMeta+a')
   await a.keyboard.press('Backspace')
   await expect.poll(n.disk, SLOW).toBe(n.fm)
-  await expect(k.locator('.cm-line', { hasText: n.lines[2]!.slice(0, 10) })).toHaveCount(0, SLOW)
+  await expect(k.locator('.cm-line', { hasText: n.words[0] })).toHaveCount(0, SLOW)
   await expect(k.locator('.cm-frontmatter-chip')).toHaveText('frontmatter · 3 claves')
   // The other opens the block from its chip and changes a key: that is how it is edited.
   await k.locator('.cm-frontmatter-chip button').click()

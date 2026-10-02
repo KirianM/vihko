@@ -11,7 +11,8 @@ import { useT } from './i18n.tsx'
 import { LockBadges } from './Permissions.tsx'
 import { Icon } from './ui.tsx'
 
-export interface Node { id: string; name: string; path: string; children: Node[] | null }
+/** A row of the tree: a folder (`children`) or a note (`children` null; `template`, it is one). */
+export interface Node { id: string; name: string; path: string; children: Node[] | null; template?: boolean }
 
 /** Converts the flat lists of notes and folders into a tree: folders first, then notes, alphabetically. */
 export function buildTree(notes: TreeNote[], folderPaths: string[] = []): Node[] {
@@ -31,7 +32,7 @@ export function buildTree(notes: TreeNote[], folderPaths: string[] = []): Node[]
   for (const n of notes) {
     const i = n.path.lastIndexOf('/')
     const parent = folder(i === -1 ? '' : n.path.slice(0, i))
-    parent.children!.push({ id: `n:${n.path}`, name: n.path.slice(i + 1).replace(/\.md$/i, ''), path: n.path, children: null })
+    parent.children!.push({ id: `n:${n.path}`, name: n.path.slice(i + 1).replace(/\.md$/i, ''), path: n.path, children: null, ...(n.template ? { template: true } : {}) })
   }
   const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
   const sort = (list: Node[]) => {
@@ -60,7 +61,7 @@ export const ancestors = (path: string) => path.split('/').slice(0, -1).map((_, 
 
 export const parentOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 
-export type TreeAction = 'newNote' | 'newFolder' | 'moveFolder' | 'toNewSpace' | 'toMine' | 'deleteFolder' | 'permissions' | 'moveNote' | 'trashNote'
+export type TreeAction = 'newNote' | 'newFolder' | 'moveFolder' | 'toNewSpace' | 'toMine' | 'deleteFolder' | 'permissions' | 'markTemplates' | 'moveNote' | 'makeTemplate' | 'stopTemplate' | 'trashNote'
 
 /**
  * Where a folder of this tree's space may move out to: a new
@@ -83,9 +84,9 @@ const noInfo: FolderInfoOf = () => undefined
 function rowActions(node: Node, info: FolderInfoOf, moves: SpaceMoves | undefined): TreeAction[] {
   if (node.children !== null) {
     const f = info(node.path)
-    if (!f) return ['newNote', 'newFolder', 'moveFolder', 'deleteFolder']
+    if (!f) return ['newNote', 'newFolder', 'markTemplates', 'moveFolder', 'deleteFolder']
     const out: TreeAction[] = []
-    if (atLeast(f.level, 'edit')) out.push('newNote', 'newFolder')
+    if (atLeast(f.level, 'edit')) out.push('newNote', 'newFolder', 'markTemplates')
     if (f.canEdit) out.push('permissions')
     if (f.level === 'manage') {
       out.push('moveFolder')
@@ -96,7 +97,7 @@ function rowActions(node: Node, info: FolderInfoOf, moves: SpaceMoves | undefine
     return out
   }
   const f = info(parentOf(node.path))
-  return !f || atLeast(f.level, 'edit') ? ['moveNote', 'trashNote'] : []
+  return !f || atLeast(f.level, 'edit') ? ['moveNote', node.template ? 'stopTemplate' : 'makeTemplate', 'trashNote'] : []
 }
 
 /** The node with this key (`n:path` or `d:path`), anywhere in the tree. */
@@ -140,6 +141,7 @@ function RowMenu({ node, actions, open, onOpenChange, onAction }: { node: Node; 
             <>
               {has('newNote') && <MenuItem id="newNote" className="menu-item">{Icon.plus}{t('folder.newNote')}</MenuItem>}
               {has('newFolder') && <MenuItem id="newFolder" className="menu-item">{Icon.folderPlus}{t('folder.newSub')}</MenuItem>}
+              {has('markTemplates') && <MenuItem id="markTemplates" className="menu-item">{Icon.template}{t('folder.markTemplates')}</MenuItem>}
               {has('permissions') && <MenuItem id="permissions" className="menu-item">{Icon.people}{t('folder.permissions')}</MenuItem>}
               {has('moveFolder') && <MenuItem id="moveFolder" className="menu-item">{Icon.rename}{t('folder.renameMenu')}</MenuItem>}
               {has('toNewSpace') && <MenuItem id="toNewSpace" className="menu-item">{Icon.people}{t('folder.toNewSpace')}</MenuItem>}
@@ -149,6 +151,8 @@ function RowMenu({ node, actions, open, onOpenChange, onAction }: { node: Node; 
           ) : (
             <>
               {has('moveNote') && <MenuItem id="moveNote" className="menu-item">{Icon.rename}{t('note.rename')}</MenuItem>}
+              {has('makeTemplate') && <MenuItem id="makeTemplate" className="menu-item">{Icon.template}{t('note.makeTemplate')}</MenuItem>}
+              {has('stopTemplate') && <MenuItem id="stopTemplate" className="menu-item">{Icon.template}{t('note.stopTemplate')}</MenuItem>}
               {has('trashNote') && <MenuItem id="trashNote" className="menu-item menu-item-danger">{Icon.trash}{t('note.trash')}</MenuItem>}
             </>
           )}
@@ -253,7 +257,7 @@ export function FolderTree({ nodes, root = '', label, selected, expanded, onExpa
         aria-label={label ?? t('shell.folders')}
         items={nodes}
         // Rows are cached per item: the open menu lives outside them.
-        dependencies={[menu, folderInfo]}
+        dependencies={[menu, folderInfo, nodes]}
         selectionMode="single"
         selectedKeys={selected ? [`n:${selected}`] : []}
         expandedKeys={expanded}
@@ -279,6 +283,7 @@ export function FolderTree({ nodes, root = '', label, selected, expanded, onExpa
                       : <span className="tree-chevron-space" />}
                     {node.children !== null && <span className="tree-icon">{Icon.folder}</span>}
                     <span className="tree-label">{node.name}</span>
+                    {node.template && <span className="tree-template" title={t('note.isTemplate')}>{Icon.template}<span className="visually-hidden">{t('note.isTemplate')}</span></span>}
                     {info?.pathOnly && <span className="visually-hidden">{t('tree.pathOnly')}</span>}
                     {info && <LockBadges own={info.own} ai={info.ai} />}
                     {actions.length > 0 && <RowMenu node={node} actions={actions} open={menu === node.id} onOpenChange={(o) => setMenu(o ? node.id : null)} onAction={(a) => { setMenu(null); onAction(a, node) }} />}

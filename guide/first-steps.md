@@ -61,9 +61,9 @@ block and edit it there.
   folder, and `/projects/Plan` counts from the root of the current space;
   missing folders are created, and the list says where the note will go. The
   note's heading is only its name (`# Plan`).
-- **From a template:** when you have a templates folder (your own, a
-  space's or the installation's), New note also lists «From a template»:
-  see [A templates folder](#a-templates-folder).
+- **From a template:** when there are templates you can read (notes marked
+  as templates, in your space or a shared one), New note also lists «From a
+  template»: see [Templates](#templates).
 
 A note starts with its name as a `# Heading`. Write Markdown as usual: the
 editor shows headings, lists, tasks and links formatted while you type.
@@ -125,10 +125,16 @@ instead):
   |---|---|
   | `tag:projects` | Notes with that tag, or one nested under it |
   | `path:recipes/` | Notes in that folder and below |
-  | `-tag:done`, `-path:archive/` | Leaves those out |
-  | `path:"my notes/"` | Quotes for values with spaces |
+  | `type:decision` | Notes whose frontmatter has `type: decision` (any key, written as it is; in a list, any item) |
+  | `prop:due` | Notes whose frontmatter has a `due` key, whatever its value |
+  | `prop:tag=urgent` | The same as `key:value`, for any key: also a name vihko keeps for its own filters (`tag`, `path`, `is`, `has`, `in`, `prop`, `before`, `after`) |
+  | `-tag:done`, `-path:archive/`, `-status:done` | Leaves those out |
+  | `path:"my notes/"`, `status:"in progress"` | Quotes for values with spaces |
+  | `"re:budget"` | A whole word quoted is text: any `word:word` unquoted is a field filter |
 
-  So `budget tag:projects -tag:done` finds «budget» in the open projects.
+  So `budget tag:projects -tag:done` finds «budget» in the open projects, and
+  `type:decision -status:done` lists the decisions not yet done. Keys and
+  values ignore case.
   Results come from every space you can read, each with its space; a `path:`
   is inside the space you're in.
 - **Create a note**: type a name that no note has and choose «Create».
@@ -184,8 +190,8 @@ The history is for whoever can edit the note.
   a shared space; add its members with a level (read, comment, edit or
   manage). Everything in it belongs to all of them. Its menu has
   «Members…», «Rename…», «Leave» and «Delete space…», and, for its
-  managers, «Settings…»: the space's own daily notes, templates, where its
-  images go and its guide for agents, for all its members.
+  managers, «Settings…»: the space's own daily notes, where its images go
+  and its guide for agents, for all its members.
 - **One folder of yours, with someone:** in «My notes», the folder's menu →
   **Share…**, add people or groups and pick a level. They find it under
   «Shared with me»; it stays yours.
@@ -206,12 +212,12 @@ and [turn a folder into a space of its own](users-and-permissions.md#step-by-ste
 Your name, at the bottom of the sidebar, opens **Preferences**:
 
 - **Timezone**: what day «today» is for you.
-- **Daily notes and templates**, a box with two things that are easy to
+- **Daily notes**, a box with two things that are easy to
   mix up:
   - **Daily note series** chooses which of the series you already have
     «Today's note» opens. It only shows when you have at least one.
   - **Your note settings** is where you make your own: daily note series,
-    templates folders, where your new images go and a guide for agents.
+    where your new images go and a guide for agents.
 
   [Set up your own notes](#set-up-your-own-notes) goes through both, step
   by step.
@@ -236,16 +242,17 @@ change it, go to Preferences → Account → Language, or type `>language` in th
 
 Unless the admin set some up for everyone, vihko starts with no daily notes
 and no templates. You can add your own without asking anyone: they live in
-your space and apply only to you.
+your space and apply only to you. A template is just a note marked as one;
+daily notes are set in «Your note settings».
 
 ### «Daily note series» or «Your note settings»?
 
-Both are in Preferences, in the box «Daily notes and templates», and they do
+Both are in Preferences, in the box «Daily notes», and they do
 different things:
 
 | | What it's for |
 |---|---|
-| **Your note settings** | **Making** things of your own: a daily note series, a templates folder, where your new images go, a guide for agents |
+| **Your note settings** | **Making** things of your own: a daily note series, where your new images go, a guide for agents |
 | **Daily note series** | **Choosing** which series «Today's note» opens, among all you have: your own, those of the shared spaces you're in (set by their managers) and the installation's (set by the admin). It only shows once you have one |
 
 So to start a journal you go to «Your note settings» first, and then, if you
@@ -282,10 +289,13 @@ each starting with the same headings.
 
    `{{title}}` becomes the new note's name, here the date. Other variables
    (`{{date}}`, `{{user}}`, `{{date:FORMAT}}`) are in
-   [Configuration](configuration.md#templates). The template is a note like
+   [Templates](notes.md#templates). The template is a note like
    any other: you can change it whenever you like, and only the notes made
    after that use the new text. The folded «frontmatter · 1 key» at its top
    is the note's `uid`; each note made from it gets a new one.
+4. In the tree, open the menu of «Daily» → **Make a template**. That writes
+   `template: true` in its frontmatter: it keeps it out of search, the tags
+   and Home, and «New note» offers it too (see [Templates](#templates)).
 
 **Then, the series:**
 
@@ -322,21 +332,32 @@ first time you open «Today's note», the series it opened becomes your choice,
 so a series a space adds later never takes its place: you change it only in
 Preferences.
 
-### A templates folder
+### Templates
 
-The «Templates» folder above holds the template of your journal. To have its
-notes offered whenever you make a new note:
+A template is any note with `template: true` in its frontmatter, wherever it
+is: no folder makes one. To make a note a template, open its menu in the tree
+→ **Make a template**; **Stop being a template**, in the same menu, takes the
+mark off. A folder of templates, made by hand or brought from another tool,
+is marked all at once:
 
-1. Your name → **Your note settings**.
-2. In **Templates folders**, write `Templates` (one folder per line, inside
-   «My notes»).
-3. Press **Save**.
+1. Open the folder's menu → **Mark notes as templates…**.
+2. The dialog says how many notes (in the folder and its subfolders) will
+   become templates, how many already are, and any it can't mark because
+   their frontmatter can't be read.
+3. Press **Mark as templates**.
 
-Now **New note** (the `+`), with a name typed, also lists «From a template»:
-«Create “Trip to Porto” from the template Daily». Every note in that folder,
-subfolders included, is offered. The notes of a templates folder stay out of
-search, of the tags and of Home, since they're skeletons, not notes anyone
-wrote; you still open and edit them from the tree.
+Each note gets `template: true` added to its frontmatter, and nothing else of
+it changes. Now **New note** (the `+`), with a name typed, also lists «From a
+template»: «Create “Trip to Porto” from the template Daily». You're offered
+every template you can read: yours and those of the shared spaces you're in,
+grouped by space; a small mark next to its name in the tree tells a template
+apart.
+
+The new note starts with the template's text, its variables filled in, and
+its frontmatter (`type: decision`, its tags…) without `template: true` and
+without its `aliases`, so it isn't a template itself. Templates stay out of search, the tags and Home,
+since they're skeletons, not notes anyone wrote; you still open and edit
+them from the tree, and `template:true` in the search box lists them.
 
 ### Where your new images go
 

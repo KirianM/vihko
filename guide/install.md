@@ -71,7 +71,7 @@ services:
     # that way). From 0.1.0 on, this line says :0.1, which gets every 0.1.x
     # release (fixes only); a new minor version (0.2) may change things and
     # you move to it by changing the tag, after reading its upgrade notes.
-    image: ghcr.io/kirianm/vihko:0.1.0-rc.4
+    image: ghcr.io/kirianm/vihko:0.1.0-rc.5
     restart: unless-stopped
     # Hardening: nothing is written outside the two volumes, no Linux
     # capabilities, and no way to gain privileges. vihko needs none of them.
@@ -406,7 +406,7 @@ admin's own space, `people/<admin>/`.
 
 - Find your way around the app: [First steps in the app](first-steps.md).
 - Invite people: [Spaces, people and sharing](users-and-permissions.md).
-- Configure the workspace (daily notes, templates, where images go):
+- Configure the workspace (daily notes, where images go):
   [Configuration](configuration.md).
 - Set up [backups](backups.md) now, before you have notes to lose.
 

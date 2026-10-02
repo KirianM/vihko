@@ -1,5 +1,5 @@
-// vihko.yaml under the spaces model: templates as a list
-// with `{user}`, series only where the person can write, paths outside
+// vihko.yaml under the spaces model: no templates folders any more,
+// series only where the person can write, paths outside
 // `people/` and `spaces/` ignored and told to the admin, a fixed attachments
 // folder per space; what state.db and the trash keep by path following a
 // folder moved from vihko; and state.db's version for 0.1.0.
@@ -27,20 +27,15 @@ test('state.db of 0.1.0 is version 11, with the pins and «On opening»', () => 
   assert.equal(STATE_VERSION, 11)
 })
 
-test('templates: one folder or a list, each with {user} made the person\'s, only those they can read', async () => {
+test('templates are no longer folders: an old templates key is ignored with a warning, and nothing names one', async () => {
   const mine = m.aFolder()
-  const shared = m.aFolder()
-  const outside = m.aFolder()
   const h = await setup()
   try {
-    const space = await newSpace(h, 'member')
-    writeFileSync(join(h.notesDir, 'vihko.yaml'), `templates: [${JSON.stringify(`people/{user}/${mine}`)}, ${JSON.stringify(`${space.path}/${shared}`)}, ${JSON.stringify(outside)}]\n`
-      + readFileText(h))
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), `templates: [${JSON.stringify(`people/{user}/${mine}`)}]\n` + readFileText(h))
     h.workspace.reload()
-    assert.deepEqual((await h.member('GET', '/api/workspace')).body.templates, [`${h.home('member')}/${mine}`, `${space.path}/${shared}`])
-    assert.deepEqual((await h.other('GET', '/api/workspace')).body.templates, [`${h.home('other')}/${mine}`])
+    assert.ok(!('templates' in (await h.member('GET', '/api/workspace')).body))
     const warnings = (await h.admin('GET', '/api/alerts')).body.alerts.find((a: any) => a.code === 'config_warnings')?.warnings ?? []
-    assert.deepEqual(warnings.filter((w: any) => w.code === 'outside_spaces').map((w: any) => [w.at, w.detail]), [['templates.2', outside]])
+    assert.deepEqual(warnings.map((w: any) => [w.code, w.at]), [['unknown_key', 'templates']])
   } finally {
     h.close()
   }

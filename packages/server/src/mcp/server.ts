@@ -153,7 +153,7 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
    * The workspace's guide for agents: the note vihko.yaml names, if this key
    * can read it (it's read as the key, like any other note). Null otherwise.
    * `{user}` in its path is the key's person (`people/{user}/agents.md`: each
-   * person's own guide), as in `templates`.
+   * person's own guide).
    */
   const workspaceGuide = (access: Access): string | null => {
     const path = opts.workspace.config.mcp.instructions?.replaceAll('{user}', access.user.username)
