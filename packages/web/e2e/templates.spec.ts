@@ -176,7 +176,9 @@ test('a note made a template leaves the ⌘K box\'s recent notes, as it leaves s
   await k.goto(`/?note=${encodeURIComponent(path.other)}`)
   await expect(k.locator('.crumbs b')).toHaveText(OTHER)
   // Remembered once it has loaded (this browser's storage).
-  await expect.poll(() => k.evaluate(() => localStorage.getItem('vihko.recent') ?? '')).toContain(JSON.stringify(path.other).slice(1, -1))
+  // Each person's under a key of their own (recent.ts): whichever it is.
+  const stored = () => k.evaluate(() => Object.keys(localStorage).filter((x) => x.startsWith('vihko.recent')).map((x) => localStorage.getItem(x)).join(''))
+  await expect.poll(stored).toContain(JSON.stringify(path.other).slice(1, -1))
   await k.goto(`/?note=${encodeURIComponent(path.plain)}`)
   await expect(k.locator('.crumbs b')).toHaveText(PLAIN)
   const recent = () => palette().getByRole('group', { name: 'Recientes' })
