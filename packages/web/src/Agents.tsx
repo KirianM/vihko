@@ -455,7 +455,7 @@ function MembersOffDialog({ n, onClose, onConfirm }: { n: number; onClose: () =>
     <Dialog className="dialog dialog-narrow" role="alertdialog">
       <div className="dialog-fields">
         <Heading slot="title" className="dialog-title">{t('agents.membersOffTitle')}</Heading>
-        <p className="dialog-text">{n > 0 ? t('agents.membersOffBody', { n }) : t('agents.membersOffBodyNone')}</p>
+        <p className="dialog-text">{n > 1 ? t('agents.membersOffBody', { n }) : n === 1 ? t('agents.membersOffBodyOne') : t('agents.membersOffBodyNone')}</p>
       </div>
       <div className="dialog-actions">
         <Button className="btn" onPress={onClose} autoFocus>{t('common.cancel')}</Button>
@@ -551,7 +551,7 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
                 )}
                 {/* Off suspends the keys and apps members have: said, with how many, first. */}
                 <Toggle label={t('agents.members')} hint={t('agents.membersHint')} value={integ.membersCanCreateKeys} disabled={saving}
-                  onChange={(v) => (v ? void change({ membersCanCreateKeys: true }) : setOpen({ kind: 'membersOff' }))} />
+                  onChange={(v) => (v ? void change({ membersCanCreateKeys: true }) : void api.integrations().then(setInteg, () => {}).then(() => setOpen({ kind: 'membersOff' })))} />
               </div>
             ) : (
               <p className="settings-state">

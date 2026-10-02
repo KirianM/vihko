@@ -610,7 +610,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           icon: icons.warn,
           tone: 'warn',
           title: t('alerts.permissionsMissingTitle'),
-          body: rich(t('alerts.permissionsMissingBody', { n: a.folders }), { file: <span className="mono">{a.file}</span> }),
+          body: rich(t('alerts.permissionsMissingBody'), { file: <span className="mono">{a.file}</span> }),
           actions: (
             <>
               {a.actions.includes('restore_permissions') && <Button className="btn btn-primary" isDisabled={busy} onPress={() => setRestoringPermissions(true)}>{t('alerts.restorePermissions')}</Button>}

@@ -386,7 +386,7 @@ export function SpacesPage({ user: me, onUnauthorized, onChanged }: { user: User
     setDone(null)
     try {
       const r = await api.restoreSpace(d.id)
-      finished(r.missing > 0 ? t('spaces.restoreMissing', { name: d.name, n: r.missing }) : t('spacesAdmin.restoreDone', { name: d.name }))
+      finished(r.missing > 1 ? t('spaces.restoreMissing', { name: d.name, n: r.missing }) : r.missing === 1 ? t('spaces.restoreMissingOne', { name: d.name }) : t('spacesAdmin.restoreDone', { name: d.name }))
     } catch (err) { fail(err) }
     setBusy(false)
   }
