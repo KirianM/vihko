@@ -117,7 +117,8 @@ test('the admin turns retention on after a preview and the password, lengthens i
   await expect(run.getByRole('button', { name: 'Borrar ahora' })).toBeEnabled()
   await expect(run.getByLabel('Tu contraseña')).toHaveCount(0)
   await run.getByRole('button', { name: 'Borrar ahora' }).click()
-  await expect(run).toBeHidden()
+  // The run rewrites the history, which every spec on this server has written: it takes a while.
+  await expect(run).toBeHidden({ timeout: 30_000 })
   await expect(section(page).getByTestId('retention-status')).toContainText('Última vez:')
 
   // Longer: saved at once, nothing to confirm.

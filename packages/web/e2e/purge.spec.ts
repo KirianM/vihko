@@ -66,7 +66,8 @@ async function purgeForm() {
 /** The confirmation: what goes; nothing to confirm with (the admin reads it); then it's purged. */
 async function confirmPurge(path: string, shot?: string) {
   const dialog = admin.getByRole('alertdialog')
-  await expect(dialog.getByRole('heading')).toHaveText(`¿Purgar el historial de ${shown(path)}?`)
+  // It comes after a preview over the whole history, which every spec on this server has written.
+  await expect(dialog.getByRole('heading')).toHaveText(`¿Purgar el historial de ${shown(path)}?`, { timeout: 30_000 })
   const go = dialog.getByRole('button', { name: 'Purgar el historial' })
   await expect(go).toBeEnabled()
   await expect(dialog.getByLabel('Tu contraseña')).toHaveCount(0)
