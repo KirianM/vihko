@@ -490,8 +490,9 @@ To open something else when you come in:
 3. Press **Save**.
 
 «On opening» only applies when you come in without asking for anything
-else: a link to a note opens that note. If the note you chose is deleted, or
-you can no longer read it, vihko opens Home.
+else: a link to a note opens that note. The note you chose stays chosen when
+it's renamed or moved in vihko, or its folder is. If it is deleted, or you
+can no longer read it, vihko opens Home.
 
 ## On a phone
 

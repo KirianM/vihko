@@ -348,6 +348,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     notes, index, notesDir: deps.notesDir, daily, profiles, attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments, now, links: () => deps.indexer.links,
     permissions, permissionsFile, keys: () => keys.listAll(), orphans: deps.orphans, externalMoves: deps.externalMoves, holds: deps.holds,
     onFolderMoved: (from, to) => { refs.moved(from, to) },
+    onNoteMoved: (from, to) => { refs.noteMoved(from, to) },
   }
   // A user deleted, a group renamed or deleted: their grants in vihko.yaml
   // follow, first (if vihko.yaml can't be written, nothing changes).

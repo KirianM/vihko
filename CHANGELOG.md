@@ -253,6 +253,9 @@ small team meets after months of use.
   them to choose again (`series_gone`): their choice now follows the new id.
   A script or an agent that kept such an id gets `not_found` with it, as
   before: `GET /api/workspace` lists the ids.
+- «On opening: a note» kept the note's old path when the note was renamed or
+  moved (or its folder, or its space was renamed), and vihko opened Home
+  instead: the choice now follows the note.
 
 ### Documentation
 

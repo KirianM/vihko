@@ -2,8 +2,10 @@
 // moves that folder: the folders of agent keys and of
 // OAuth codes not yet exchanged, what people pinned in the sidebar, the
 // paths notices name (a space someone was added to, a folder shared with
-// them, a note purged), the original paths of trash entries, and the series
-// people chose of a shared space renamed (its ids are made from its root). Before 0.1.0
+// them, a note purged), the original paths of trash entries, the series
+// people chose of a shared space renamed (its ids are made from its root),
+// and the note people open on coming in («On opening», which also follows a
+// note moved on its own: `noteMoved`). Before 0.1.0
 // none of them followed: a key limited to a folder that moved stopped
 // reaching it, and «ana added you to Home» became «shared something you no
 // longer see» once Home was renamed.
@@ -35,6 +37,8 @@ export interface RefsReport {
   trash: number
   /** People whose chosen series (`dailySeries`) was a renamed space's. */
   dailySeries: number
+  /** People whose note «On opening» (`onOpenNote`) moved. */
+  onOpen: number
 }
 
 export class FolderRefs {
@@ -53,7 +57,28 @@ export class FolderRefs {
     const notices = this.rewriteNotices(from, to)
     const trash = this.rewriteTrash(from, to)
     const dailySeries = this.rewriteDailySeries(from, to)
-    return { keys, pins, notices, trash, dailySeries }
+    const onOpen = this.rewriteOnOpen(from, to)
+    return { keys, pins, notices, trash, dailySeries, onOpen }
+  }
+
+  /** A note moved on its own from `from` to `to`: whoever opens it on coming in follows it. How many people. */
+  noteMoved(from: string, to: string): number {
+    return this.rewriteOnOpen(from, to)
+  }
+
+  /** «On opening: a note» (`profiles.on_open_note`) under `from`, or `from` itself, now under `to`. How many changed. */
+  private rewriteOnOpen(from: string, to: string): number {
+    let n = 0
+    this.state.transaction(() => {
+      const rows = this.state.prepare('select user_id, on_open_note from profiles where on_open_note is not null').all() as { user_id: string; on_open_note: string }[]
+      for (const r of rows) {
+        const m = movedPath(r.on_open_note, from, to)
+        if (m === null) continue
+        this.state.prepare('update profiles set on_open_note = ? where user_id = ?').run(m, r.user_id)
+        n++
+      }
+    })()
+    return n
   }
 
   /**

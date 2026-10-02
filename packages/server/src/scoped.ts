@@ -67,6 +67,8 @@ export interface ScopedDeps {
   links?: () => LinkIndex
   /** After a folder moved from vihko: what state.db and the trash keep by its path follows it (folderRefs.ts). */
   onFolderMoved?: (from: string, to: string) => void
+  /** After a note moved from vihko: what state.db keeps by its path follows it (folderRefs.ts `noteMoved`). */
+  onNoteMoved?: (from: string, to: string) => void
 }
 
 /**
@@ -1011,6 +1013,13 @@ export class ScopedNotes {
       const stale = report.images.folder ? assets!.from : assets!.to
       await file.removeRules(stale, { actor: this.access.actor })
         .catch((err) => this.deps.log?.(`the rules of ${shownPath(stale)} stay in vihko.yaml after moving ${shownPath(f)}: ${err instanceof Error ? err.message : String(err)}`))
+    }
+    if (!report.dryRun) {
+      try {
+        this.deps.onNoteMoved?.(f, t)
+      } catch (err) {
+        this.deps.log?.(`what opens on coming in still names ${shownPath(f)} after it moved to ${shownPath(t)}: ${err instanceof Error ? err.message : String(err)}`)
+      }
     }
     const masked: ScopedMoveReport = this.maskReport(report)
     if (report.dryRun && audience) masked.audience = audience
