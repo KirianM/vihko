@@ -974,7 +974,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     }
     for (const u of deps.indexer.uidConflicts()) {
       const paths = u.paths.filter((p) => access.canRead(p))
-      if (paths.length) alerts.push({ code: 'uid_conflict', uid: u.uid, paths, actions: [] })
+      // Only where they see two of them: one alone would say that a note they can't read has its uid.
+      if (paths.length >= 2) alerts.push({ code: 'uid_conflict', uid: u.uid, paths, actions: [] })
     }
     const noteExists = index.prepare('select 1 from notes where path = ?')
     const ws = workspace.status

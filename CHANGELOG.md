@@ -51,6 +51,11 @@ small team meets after months of use.
 
 ### Fixed
 
+- Finding a note by its `uid` (the MCP `get_note` with `uid`) looks only
+  among the notes its person reads: someone copying that `uid` into a note
+  of theirs can no longer make the lookup miss, or land on their note. The
+  `uid_conflict` alert only shows to someone who reads at least two of the
+  notes that share the `uid`.
 - A JSON body that isn't an object (`null`, a number, a list) is `400
   invalid` on every route, where some answered 500 and wrote a trace to the
   log, the first boot's and an invitation's among them, which need no

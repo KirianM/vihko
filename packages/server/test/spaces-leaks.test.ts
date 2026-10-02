@@ -568,3 +568,30 @@ test('where a route used to give away what is in a space someone can\'t read: th
   } finally { await h.close() }
 })
 
+test('a uid copied into a note someone else can\'t read neither takes over nor hides their note, nor shows as a conflict to them', async () => {
+  const h = await setup({ files: BASE })
+  try {
+    await h.enable()
+    // The other member plants notes with the uid of the member's recipe, in their own space, before and after it.
+    for (let i = 0; i < 2; i++) {
+      const planted = `${home(OTHER.username)}/${i === 0 ? '0' : 'z'}${m.aTitle()}.md`
+      assert.equal((await h.other('POST', '/api/note', { path: planted, text: `---\nuid: ${UID.cake}\n---\n# ${m.aHeading()}\n` })).status, 201)
+    }
+    const agent = await h.mcp((await h.newKey('member', { name: m.aKeyName(), canWrite: true })).token)
+    try {
+      const r = await agent.call('get_note', { uid: UID.cake })
+      assert.equal(r.error, false, r.raw)
+      assert.equal(r.data.path, PATH.cake)
+    } finally { await agent.close() }
+    // The other's agent finds their own copy, never the recipe.
+    const theirs = await h.mcp((await h.newKey('other', { name: m.aKeyName(), canWrite: true })).token)
+    try {
+      const r = await theirs.call('get_note', { uid: UID.cake })
+      assert.ok(r.data.path.startsWith(`${home(OTHER.username)}/`), r.raw)
+    } finally { await theirs.close() }
+    const conflicts = async (who: 'member' | 'other') => ((await h[who]('GET', '/api/alerts')).body.alerts as { code: string; paths?: string[] }[]).filter((a) => a.code === 'uid_conflict')
+    assert.deepEqual(await conflicts('member'), [], 'one note of theirs with it: nothing to tell')
+    assert.equal((await conflicts('other'))[0]?.paths?.length, 2, 'their two copies are a conflict they can see')
+  } finally { await h.close() }
+})
+

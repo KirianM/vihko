@@ -534,9 +534,12 @@ export class ScopedNotes {
    * if there's none.
    */
   pathOfUid(uid: string): string {
-    const r = this.deps.index.prepare('select path from notes where uid = ? order by path limit 1').get(uid) as { path: string } | undefined
-    if (!r) throw new NoteError('not_found', 'there is no note with that uid')
-    return this.visible(r.path).path
+    // Only among the notes its person reads: a note someone else wrote with the same uid, where they can't read,
+    // never takes the lookup over nor hides the right one. Several: the one indexed first.
+    const rows = this.deps.index.prepare('select path from notes where uid = ? order by rowid').all(uid) as { path: string }[]
+    const readable = rows.map((r) => r.path).filter((p) => this.access.userCanRead(p))
+    if (readable.length === 0) throw new NoteError('not_found', 'there is no note with that uid')
+    return this.visible(readable.find((p) => this.access.canRead(p)) ?? readable[0]!).path
   }
 
   /** A note's headings, in order (link anchors). */
