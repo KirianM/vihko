@@ -91,7 +91,16 @@ Whatever the settings, a key never sees:
 A key that may write only writes where its person has `edit`.
 
 When a folder vihko knows a key by is moved or renamed from vihko, the key
-follows it. A key never creates, renames, leaves or deletes spaces, shares
+follows it.
+
+**A key's folders are paths, not a list of notes.** It reaches whatever is
+in its folders now, also what lands there later: a note someone moves in,
+or a folder moved inside. So if the key's folder is one other people can
+write to (a shared space, or a folder someone shares with you with `edit`),
+anyone with `edit` there can move a note into it, and your key's agent will
+read it (and write it, if the key writes). A note moved out of the folder is
+out of the key's reach at once. Give a key a folder only you write to when
+that matters. A key never creates, renames, leaves or deletes spaces, shares
 folders or moves folders: that's for people, in the UI.
 
 ### Create a key

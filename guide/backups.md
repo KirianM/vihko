@@ -127,6 +127,36 @@ there for an instant and you can leave them out.
    Without `index.db`, the first scan indexes every note:
    `index ready: 1250 added, …`.
 
+### After restoring an older `state.db`
+
+`state.db` holds people, their passwords and second factors, sessions, agent
+keys and OAuth authorizations. A copy from before brings back **everything
+that was revoked or changed since**: keys and authorizations you revoked,
+passwords changed after a scare, people you disabled or deleted, second
+factors you took away and their old recovery codes, sessions that were
+signed out, and links that were never used. The same goes for [rolling
+back](upgrading.md#rolling-back) to a `state.db.bak-v*`. Restores often
+follow an incident, so before you open vihko to everyone again, undo those
+by hand, as the admin, with what vihko has today:
+
+1. **Sign everyone out.** In «Users and groups», each person's actions have
+   «Sign out their sessions»: do it for everyone else, and end your own
+   other sessions from «Account».
+2. **Revoke again** the agent keys and OAuth authorizations revoked since
+   the copy: «Agents» lists everyone's for the admin, each with «Revoke».
+3. **Disable or delete again** the people disabled or deleted since the
+   copy.
+4. **Passwords and second factors changed since the copy**: give those
+   people a «Password reset link», and «Reset two-step verification» (or
+   `vihko user reset-2fa <name>`) for anyone whose phone or recovery codes
+   were the reason; they set up a new one at their next sign-in.
+5. **Invitation and reset links** made before the copy work again until
+   they expire (7 days): make a new one for anyone still invited, which
+   ends the old one.
+
+If nothing happened between the copy and the restore (a disk failure, say),
+there's nothing to undo.
+
 ### Restoring only part of it
 
 - **Only the notes folder**, from an older copy: vihko notices the difference

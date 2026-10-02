@@ -119,8 +119,8 @@ services:
 | `latest` | The latest release, whatever its version. Avoid it. |
 | `0.2.0-rc.1` | A release candidate, only under its exact tag. |
 
-[Upgrading](upgrading.md) explains what a major version means and how to move
-between versions.
+[Upgrading](upgrading.md) explains what a minor and a patch version mean
+while vihko is at 0.x, and how to move between versions.
 
 ### `restart: unless-stopped`
 
@@ -497,8 +497,16 @@ encrypted (AES-256-GCM).
    `VIHKO_SECRET_KEY: second factors are stored encrypted`, and how many it
    encrypted now, if people had already set one up.
 
+- **Prefer `VIHKO_SECRET_KEY_FILE`** with a Docker secret. A key in
+  `VIHKO_SECRET_KEY` stays visible wherever the container's environment is:
+  `docker inspect`, the process's environment as the host sees it, and the
+  file you wrote it in (`compose.yaml`, `.env`). vihko takes it out of its own
+  environment once read, so nothing it runs inherits it, but that doesn't
+  reach those.
 - **Keep the key apart from your backups of the state volume**, and back it up
-  somewhere else: a backup that holds both protects nothing.
+  somewhere else: a backup that holds both protects nothing. Don't copy
+  `compose.yaml`, `.env` or the key's file next to the state volume's
+  backups.
 - A key shorter than 32 characters, both variables at once, or a file vihko
   can't read, stop it at start.
 - vihko never writes the key to disk or to its log.

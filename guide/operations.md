@@ -127,6 +127,8 @@ no version at all.
   trash.
 - If it stops halfway, the history stays as it was; running it again finishes
   the work.
+- **Backups of the state volume taken before still hold it.** Delete or
+  replace them too, or restoring one brings it back.
 
 More about the history in [History](history.md).
 

@@ -549,7 +549,7 @@ a wrong setting meant.
 |---|---|
 | A key vihko doesn't know (a typo, or a setting from a newer vihko) | Ignored; an alert lists it with its line. The rest applies |
 | A `version` newer than vihko's | What vihko understands applies; an alert says so |
-| A known key with a wrong value (a path outside the notes folder, a bad series pattern, `mode: sometimes`) | The file can't be used. vihko keeps the last valid version it read; if there is none since it started, nothing is configured (no daily notes). The permissions section is judged on its own |
+| A known key with a wrong value (a path outside the notes folder, a bad series pattern, `mode: sometimes`) | The file can't be used. vihko keeps the last valid version it read; when it starts with such a file, the last valid one, which it keeps in the state volume (`vihko.yaml.last-valid`); if it never read one, nothing is configured (no daily notes). The permissions section is judged on its own |
 | A series or `mcp.instructions` outside the spaces | Ignored, with a warning (`outside_spaces`) |
 | Not valid YAML, or can't be read | As above, and the permissions can't be read either: the last valid ones stay, or nothing is shared if vihko started that way |
 | Anything doubtful in `permissions` | The section is rejected ([see above](#the-section-is-strict)); the rest applies |

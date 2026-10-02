@@ -15,11 +15,13 @@ prefer otherwise.
 
 ## Supported versions
 
-Security fixes go to `main` and come out in a new release of the latest
-version: the image tags `1` and `latest` pick them up (see
-[Upgrading](guide/upgrading.md)). Older releases and release candidates get
-no fixes of their own: update to the latest release of your major version,
-which never needs anything done by hand.
+vihko is at 0.x. Security fixes go to `main` and come out in a patch release
+of the latest minor version (0.1.1, 0.1.2…), which the image tag `0.1` picks
+up (see [Upgrading](guide/upgrading.md)). Older minor versions, older
+releases and release candidates get no fixes of their own: update to the
+latest release of the latest minor version. A patch release never needs
+anything done by hand; moving to a new minor version may, and its
+changelog's *Upgrade notes* say what.
 
 ## Scope
 

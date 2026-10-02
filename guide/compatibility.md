@@ -546,7 +546,9 @@ What goes with them:
   space's root, give them by name or through a group. Being an admin adds
   nothing.
 - **How the file is read**: a key vihko doesn't know is ignored with a
-  warning; a wrong value in a known key keeps the last valid file; the
+  warning; a wrong value in a known key keeps the last valid file (since
+  0.1.0-rc.6 also when vihko starts with it, from a copy it keeps in the
+  state volume; the alert says `fallback: last_good`); the
   `permissions` section is strict and fails closed: rejected, no grant
   applies, and each person keeps only their own space. Without the section,
   the same: nobody shares anything.

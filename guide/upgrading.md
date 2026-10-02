@@ -219,6 +219,11 @@ To go back:
 
    The index rebuilds on its own if the versions differ.
 
+The copy brings back what was revoked or changed in `state.db` since the
+update (keys, sessions, passwords, people disabled or deleted): see [After
+restoring an older `state.db`](backups.md#after-restoring-an-older-statedb)
+for what to undo by hand.
+
 Stay on the pinned tag until a fixed release is out, then go back to the
 moving tag of your line (such as `:0.2`) and update as usual. If the update broke something, please
 [open an issue](https://github.com/KirianM/vihko/issues).

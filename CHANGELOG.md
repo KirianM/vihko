@@ -105,6 +105,22 @@ small team meets after months of use.
   has a mistake answers `409 permissions_invalid`, and the UI says to ask
   whoever runs vihko.
 
+### Documentation
+
+- Backups: what to undo by hand after restoring an older `state.db` (or
+  rolling back to a `state.db.bak-v*`), which brings back keys, sessions,
+  passwords and people revoked or changed since.
+- `SECURITY.md` describes the 0.x policy: fixes in a patch release of the
+  latest minor version, which `:0.1` picks up.
+- The reverse proxy guide and `compose.yaml` say when `172.16.0.0/12` in
+  `VIHKO_TRUSTED_PROXIES` isn't safe: the port published on every address,
+  or a Docker network shared with other containers.
+- The install guide recommends `VIHKO_SECRET_KEY_FILE`: a key in the
+  environment stays visible in `docker inspect`.
+- Purging says that backups taken before still hold what was purged.
+- The agents guide says that a key's folders are paths: whoever can edit
+  there can move notes into a key's reach.
+
 ### Upgrade notes
 
 - A folder (or a note's folder of images) moved into another space where you

@@ -36,6 +36,9 @@ services:
     #   VIHKO_PUBLIC_URL: https://notes.example.com
     #   # The reverse proxy's address as vihko sees it, so the login limits
     #   # count each client apart (X-Forwarded-For is believed only from it).
-    #   # A proxy on this machine or in this file: 172.16.0.0/12. On another
-    #   # machine: its address alone (such as 10.0.0.50), never a range.
+    #   # A proxy on this machine with the 127.0.0.1 port line, or in this file
+    #   # without publishing the port: 172.16.0.0/12. With the port published on
+    #   # every address, or a Docker network shared with other containers, and
+    #   # on another machine: the proxy's address alone (such as 10.0.0.50),
+    #   # never a range. See guide/reverse-proxy.md.
     #   VIHKO_TRUSTED_PROXIES: 172.16.0.0/12
