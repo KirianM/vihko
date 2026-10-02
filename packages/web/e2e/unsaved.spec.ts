@@ -23,6 +23,7 @@ test('the note\'s folder refuses writes: read-only for both sessions, the admin 
   const member = await signIn(browser, MEMBER, NOTE)
   const admin = await signIn(browser, ADMIN, NOTE)
   const [held, ignored, after] = [m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord()]
+  let shown = ''
   chmodSync(`${NOTES}/${DIR}`, 0o555)
   try {
     await member.locator('.cm-content').click()
@@ -34,7 +35,11 @@ test('the note\'s folder refuses writes: read-only for both sessions, the admin 
       await expect(p.locator('.cm-content')).toHaveAttribute('aria-readonly', 'true')
     }
     await member.screenshot({ path: `${SHOTS}/unsaved-note.png` })
-    expect(disk()).not.toContain(held)
+    // The editor may have turned read-only while the word was still being typed: what it shows is what must be saved.
+    shown = await member.locator('.cm-line').last().innerText()
+    expect(shown.length).toBeGreaterThan(0)
+    expect(held.startsWith(shown), `${shown} is how ${held} starts`).toBe(true)
+    expect(disk()).not.toContain(shown)
     // Typing goes nowhere.
     await admin.locator('.cm-content').click()
     await admin.keyboard.type(ignored)
@@ -51,7 +56,7 @@ test('the note\'s folder refuses writes: read-only for both sessions, the admin 
     await expect(p.getByRole('alert').filter({ hasText: 'vihko no puede guardar' })).toHaveCount(0, SLOW)
     await expect(p.locator('.status')).toHaveText('Guardado en disco', SLOW)
   }
-  expect(disk()).toContain(held)
+  expect(disk()).toContain(shown)
   expect(disk()).not.toContain(ignored)
   await member.locator('.cm-content').click()
   await member.keyboard.press('Control+End')

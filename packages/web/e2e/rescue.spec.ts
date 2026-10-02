@@ -53,7 +53,8 @@ async function memberTab(browser: Browser, note: string) {
   await page.getByLabel('Nombre de usuario').fill(MEMBER.username)
   await page.getByLabel('Contraseña').fill(MEMBER.password)
   await page.getByRole('button', { name: 'Entrar' }).last().click()
-  await expect(page.locator('.cm-content')).toBeVisible()
+  // A new tab loads the editor first (its code comes on demand): slower on a loaded machine.
+  await expect(page.locator('.cm-content')).toBeVisible(SLOW)
   await expect(page.locator('.status')).toHaveText('Guardado en disco')
   return {
     page,
