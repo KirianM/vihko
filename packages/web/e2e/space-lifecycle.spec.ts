@@ -224,9 +224,12 @@ test('a version of the note that had this name before, another one, is restored 
   await note(a, path, `---\nuid: ${m.anId()}\n---\n# ${m.aHeading()}\n\n${m.aSentence()}\n`)
   let old: string | undefined
   await expect.poll(async () => {
-    const now = ((await call(a, 'get', `/api/history/versions?path=${q(path)}`)) as { versions: { id: string }[] }).versions.map((v) => v.id)
+    // The changes first, newest first, and then the versions: until the new note's creation is a
+    // version, the path's versions are still those of the note deleted from it.
     const { changes } = await call(a, 'get', '/api/history/changes?limit=100') as { changes: { id: string; files: { path: string; change: string }[] }[] }
-    old = changes.find((c) => c.files.some((f) => f.path === path && f.change === 'created') && !now.includes(c.id))?.id
+    const created = changes.filter((c) => c.files.some((f) => f.path === path && f.change === 'created')).map((c) => c.id)
+    const now = ((await call(a, 'get', `/api/history/versions?path=${q(path)}`)) as { versions: { id: string }[] }).versions.map((v) => v.id)
+    old = created[0] !== undefined && now.includes(created[0]) ? created.find((id) => !now.includes(id)) : undefined
     return old
   }, SLOW).toBeTruthy()
 
