@@ -10,6 +10,30 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.0-rc.5] - unreleased
+
+### Added
+
+- **Search by frontmatter fields**, in the search box, `GET /api/search` and
+  the MCP `search` tool: `type:decision` keeps the notes whose frontmatter has
+  `type: decision` (any key that isn't a filter of its own; in a list, any
+  item; a number however it's written), `prop:key=value` does the same for
+  any key at all, `has:key` keeps the notes that have the key, and `-` in
+  front excludes. Keys and values ignore case; quotes for spaces. Only
+  simple values count (text, numbers, true/false, dates and lists of them),
+  never those of notes you can't read.
+- The search box's filter hints list the new filters.
+
+### Changed
+
+- A query word with a colon in it (`re:budget`) is now a frontmatter filter;
+  times (`10:30`) and addresses (`https://…`) stay words.
+
+### Upgrade notes
+
+- The index (`index.db`) adds the frontmatter fields on its own the first
+  time this version starts; nothing to do.
+
 ## [0.1.0-rc.4] - 2026-10-02
 
 What writing step-by-step guides for rc.3 turned up, and tests that only

@@ -258,7 +258,7 @@ The server offers these tools. A read-only key is offered only the reading ones
 
 | Tool | What it does |
 |---|---|
-| `search` | Full-text search over the notes the key can read, best first, with `path:` and `tag:` filters and `-` to exclude one |
+| `search` | Full-text search over the notes the key can read, best first, with filters: `path:`, `tag:`, a frontmatter field (`type:decision`, `prop:key=value`), `has:key`, and `-` to exclude one |
 | `get_note` | A note by its path or `uid`: its text, ETag, frontmatter, title, and its outgoing and incoming links. Long notes come in pieces |
 | `list_folder` | The folders and notes in a folder, optionally everything under it. With `""`, the spaces the person reaches: their own, the shared spaces they belong to (with their names), and the folders others share with them (with whose they are) |
 | `related` | How a note connects to others: its links with the titles they lead to, and the notes that link to it with the text around each link |

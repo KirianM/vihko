@@ -294,11 +294,21 @@ as a prefix. Filters narrow it:
 |---|---|
 | `path:spaces/Home/projects` | Notes in that folder and below, or that one note (quote a path with spaces: `path:"my notes"`) |
 | `tag:work` | Notes with that tag, or a tag nested under it (`work/meetings`) |
-| `-path:…`, `-tag:…` | Excludes instead |
+| `type:decision` | Notes whose frontmatter has that key with that value, for any key other than `tag`, `path`, `prop` and `has`. In a list, any item matches; a number, however it's written (`5`, `5.0`); quote a value with spaces: `status:"in progress"` |
+| `prop:tag=urgent` | The same, for any key at all (here the frontmatter's `tag`, not the tag filter); quotes for a key or a value with spaces: `prop:"due date"=today` |
+| `has:due` | Notes whose frontmatter has that key, whatever its value (or none) |
+| `-path:…`, `-tag:…`, `-type:…`, `-prop:…`, `-has:…` | Excludes instead |
+
+Keys and values ignore case, and are compared whole, as written. Only simple
+frontmatter values count: text, numbers, `true`/`false`, dates and lists of
+them; nested maps don't. A word with a colon in it is a filter (`re:x` looks
+for a key `re`); times (`10:30`) and addresses (`https://…`) stay words.
 
 ```sh
 curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/search" \
   --data-urlencode "q=budget path:spaces/Home/projects -tag:done"
+curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/search" \
+  --data-urlencode 'q=type:decision -status:done has:owner'
 ```
 
 ```json

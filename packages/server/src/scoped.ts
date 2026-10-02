@@ -710,7 +710,7 @@ export class ScopedNotes {
   search(q: string): SearchResult[] {
     const w = this.access.notesWhere('n')
     // A templates folder named with `path:` is searched: that is asking for templates.
-    const asked = parseSearchQuery(q).filters.filter((f) => f.kind === 'path' && !f.negate).map((f) => f.value.normalize('NFC').toLowerCase())
+    const asked = parseSearchQuery(q).filters.flatMap((f) => (f.kind === 'path' && !f.negate ? [f.value.normalize('NFC').toLowerCase()] : []))
     const t = this.notInTemplates('n', (folder) => asked.some((p) => p === folder.toLowerCase() || p.startsWith(folder.toLowerCase() + '/')))
     return search(this.deps.index, q, { sql: `${w.sql} and ${t.sql}`, params: [...w.params, ...t.params] })
   }

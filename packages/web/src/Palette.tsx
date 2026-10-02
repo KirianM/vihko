@@ -290,7 +290,7 @@ export function Palette({ mode, folder: current, openPath, notes, templates, onT
               <div className="palette-filters">
                 <span className="palette-header">{t('palette.filtersHint')}</span>
                 <span className="palette-chips">
-                  {([['palette.exTag', 'palette.filterTag'], ['palette.exPath', 'palette.filterPath'], ['palette.exNot', 'palette.filterNot'], ['palette.exQuotes', 'palette.filterQuotes']] as const).map(([example, key]) => (
+                  {([['palette.exTag', 'palette.filterTag'], ['palette.exPath', 'palette.filterPath'], ['palette.exField', 'palette.filterField'], ['palette.exHas', 'palette.filterHas'], ['palette.exProp', 'palette.filterProp'], ['palette.exNot', 'palette.filterNot'], ['palette.exQuotes', 'palette.filterQuotes']] as const).map(([example, key]) => (
                     <span key={key} className="palette-chip palette-filter"><code>{t(example)}</code> {t(key)}</span>
                   ))}
                 </span>

@@ -299,6 +299,6 @@ test('an index from before extensions is rebuilt once', () => {
   assert.equal(dumpIndex(db), freshState(notes, 1).dump)
   assert.equal(one<{ value: string }>(db, "select value from meta where key = 'schema_version'").value, String(SCHEMA_VERSION))
   const recorded = (db.prepare("select key from meta where key like 'ext:%' order by key").all() as { key: string }[]).map((r) => r.key)
-  assert.deepEqual(recorded, ['ext:comment_anchors', 'ext:fts', 'ext:headings', 'ext:images', 'ext:links', 'ext:tags'])
+  assert.deepEqual(recorded, ['ext:comment_anchors', 'ext:fields', 'ext:fts', 'ext:headings', 'ext:images', 'ext:links', 'ext:tags'])
   db.close()
 })

@@ -125,10 +125,15 @@ instead):
   |---|---|
   | `tag:projects` | Notes with that tag, or one nested under it |
   | `path:recipes/` | Notes in that folder and below |
-  | `-tag:done`, `-path:archive/` | Leaves those out |
-  | `path:"my notes/"` | Quotes for values with spaces |
+  | `type:decision` | Notes whose frontmatter has `type: decision` (any key, written as it is; in a list, any item) |
+  | `has:due` | Notes whose frontmatter has a `due` key, whatever its value |
+  | `prop:tag=urgent` | The same as `key:value`, for any key: also `tag` or `path`, which are filters of their own |
+  | `-tag:done`, `-path:archive/`, `-status:done` | Leaves those out |
+  | `path:"my notes/"`, `status:"in progress"` | Quotes for values with spaces |
 
-  So `budget tag:projects -tag:done` finds «budget» in the open projects.
+  So `budget tag:projects -tag:done` finds «budget» in the open projects, and
+  `type:decision -status:done` lists the decisions not yet done. Keys and
+  values ignore case.
   Results come from every space you can read, each with its space; a `path:`
   is inside the space you're in.
 - **Create a note**: type a name that no note has and choose «Create».

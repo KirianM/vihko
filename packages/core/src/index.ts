@@ -17,7 +17,7 @@ export { IMAGE_EXTENSIONS, imageMarkdown, isExternalUrl, isImageRef, markdownDes
 export { addDays, canonicalTimeZone, civilNow, compareDates, formatDate, isValidDate, isoWeek, isoWeekStart, type CivilDate, type CivilDateTime } from './dates.ts'
 export { DEFAULT_DATE_FORMAT, renderTemplate, type TemplateVars } from './template.ts'
 export { SERIES_TOKENS, matchSeries, patternPeriod, patternTokens, seriesNeighbors, seriesPath, seriesPattern, type Period, type Series, type SeriesToken } from './series.ts'
-export { hasSearchFilter, parseSearchQuery, type ParsedQuery, type SearchFilter } from './query.ts'
+export { BUILTIN_FILTERS, foldField, hasSearchFilter, parseSearchQuery, type ParsedQuery, type SearchFilter } from './query.ts'
 export {
   EMPTY_WORKSPACE, PERMISSIONS_SECTION, STRICT_SECTIONS, WORKSPACE_FILE, WORKSPACE_VERSION, parseWorkspaceConfig,
   type ConfigError, type ConfigErrorCode, type ParseResult, type StrictSection, type WorkspaceConfig,

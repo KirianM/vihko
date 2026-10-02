@@ -150,7 +150,7 @@ write (write).
 | `GET /api/note/links` | read | `path` | `outgoing` (`raw`, `kind`, `target`, `anchor`, `status`, `dstPath`, `anchorOk`, `candidates`, `posFrom`, and `othersNoAccess`, `reason`, `self` when they apply), `backlinks` (`path`, `title`, `raw`, `context`), `titles` |
 | `GET /api/note/headings` | read | `path` | `headings` (`level`, `text`) |
 | `GET /api/note/comments` | read | `path` | `threads` (`id`, `original`, `changed`) |
-| `GET /api/search` | read | `q` | `results` (`path`, `title`, `snippet`), `highlight` (`start`, `end`) |
+| `GET /api/search` | read | `q` | `results` (`path`, `title`, `snippet`), `highlight` (`start`, `end`). The query's filters are under [Search filters](#search-filters) |
 | `GET /api/tags` | read | — | `tags` (`tag`, `count`, `total`) |
 | `GET /api/daily` | read | `series`? | `series`, `path`, `exists` |
 | `GET /api/file` | read | `path` | The file's bytes, with its `Content-Type` and an opaque `ETag` |
@@ -314,6 +314,28 @@ can't call, they can change in any release.
 | `POST /api/admin/retention/run` | The vihko admin | `confirm` | A run now with the settings in force (`400 confirmation_required` without `confirm`): `at`, `trash`, `history`, `failed`, as `lastRun` |
 | `POST /api/admin/retention/preview` | The vihko admin | `trashRetentionDays`?, `historyRetentionDays`? (missing: as they are) | What the next run would remove with them: `trash: { entries, bytes }`, `history: { versions, bytes }` (null when off or not managed). Counts and sizes of the whole installation, never a path |
 
+### Search filters
+
+The query of `GET /api/search` and of the MCP `search` tool: words (each a
+term, the last one also a prefix), and filters, each a word of its own:
+
+| Filter | Keeps |
+|---|---|
+| `tag:<tag>` | Notes with that tag or one nested under it |
+| `path:<folder or note>` | Notes in that folder and below, or that note |
+| `<key>:<value>` | Since 0.1.0-rc.5. Notes whose frontmatter has that top-level key with that value, for any key that starts with a letter or `_` (then letters, digits, `_`, `.`, `-`) and isn't `tag`, `path`, `prop` or `has`. A value that starts with `//` isn't one (an address stays a word) |
+| `prop:<key>=<value>` | Since 0.1.0-rc.5. The same, for any key at all; `prop:<key>` alone is `has:<key>` |
+| `has:<key>` | Since 0.1.0-rc.5. Notes whose frontmatter has that key, with any value or none |
+
+- `-` in front of any filter excludes instead; `"…"` quotes a value (or a
+  `prop:` or `has:` key) with spaces. Several filters all apply.
+- Keys and values compare case-insensitively (full case folding, NFC), whole.
+  A list matches when any of its items does. A number matches the same number
+  however it's written (`5`, `5.0`). Only simple values are searched: text,
+  numbers, `true`/`false`, dates (as written) and lists of them; a key whose
+  value is a map isn't.
+- Only notes the principal reads are ever searched or counted.
+
 A new user (`POST /api/admin/users`, `vihko user create`) gets their folder,
 `people/<username>/`; when that folder already exists with something in it,
 creating the user is refused with `409 personal_folder_exists`.
@@ -388,7 +410,7 @@ The [Agents guide](agents.md) explains how to connect.
 
 | Tool | Parameters | Result |
 |---|---|---|
-| `search` | `query` (required), `limit` (1 to 50, 20), `offset` (0) | `results` (`path`, `title`, `snippet`), `next_offset` |
+| `search` | `query` (required; the filters of [Search filters](#search-filters)), `limit` (1 to 50, 20), `offset` (0) | `results` (`path`, `title`, `snippet`), `next_offset` |
 | `get_note` | `path` or `uid`, `offset` (0), `max_chars` (1,000 to 200,000; 100,000) | `path`, `etag`, `title`, `uid`, `frontmatter`, `links` (`outgoing`: `link`, `target`, `anchor`, `status`, `path`, `candidates`, and `others_no_access`, `reason` when they apply; `incoming`: `path`, `title`, `count`; `more`), `text` (`offset`, `length`, `total`, `next_offset`); the text as a block |
 | `list_folder` | `folder` (`""`, the default, or a folder), `recursive` (false), `limit` (1 to 500, 100), `offset` (0) | `folder`, `entries` (`kind` `folder` with `path`, or `note` with `path` and `title`), `next_offset`. With `""`, the roots the person reaches (below) |
 | `related` | `path` (required), `limit` (1 to 200, 50), `offset` (0) | `path`, `links_to`, `linked_from`, `next_offset` |
@@ -643,6 +665,7 @@ else into a note unless someone asks it to (an edit, a comment, a
 
 What vihko reads in your notes stays too: the frontmatter keys `uid`,
 `title`, `tags`, `aliases` and `ai` (`ai: false` hides a note from agents),
+every other key's simple values for searching,
 `#tags`, both kinds of links (`[[a\|b]]` in a table included), and the files it
 ignores (names starting with `.` or ending in `~`, and symbolic links).
 

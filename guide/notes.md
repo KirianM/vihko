@@ -77,6 +77,19 @@ When vihko changes frontmatter (adding a `uid` or an alias), it edits only that
 key in the text. It never re-serialises the block: key order, comments,
 quoting, list style and keys it doesn't know stay exactly as they were.
 
+### Searching by frontmatter
+
+Every other key is yours, and the search box finds notes by it: `type:decision`
+lists the notes with `type: decision` in their frontmatter, `has:due` those
+with a `due` key, `-status:done` leaves out those with `status: done`. Only
+simple values count: text, numbers, `true`/`false`, dates and lists of them
+(a list matches when any of its items does); a nested map doesn't. Keys and
+values ignore case, a number matches however it's written (`5` and `5.0`),
+and values are compared whole, as written: vihko doesn't normalise or
+configure anything. For a key that is also a filter's name (`tag`, `path`,
+`prop`, `has`), write `prop:tag=urgent`. The whole syntax is in
+[Search](first-steps.md#search-and-the-k-box).
+
 ## The `uid`
 
 The `uid` is what identifies a note for vihko: not its path, not its name. The

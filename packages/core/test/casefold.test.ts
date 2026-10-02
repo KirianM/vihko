@@ -46,5 +46,5 @@ test('links resolve across full case folding', () => {
 test('tags and the tag: filter fold alike', () => {
   const tags = extract('#Straße #ΟΔΟΣ\n').tags.map((t) => t.name)
   assert.deepEqual(tags, ['strasse', 'οδοσ'])
-  assert.deepEqual(parseSearchQuery('tag:STRASSE tag:#οδος').filters.map((f) => f.value), ['strasse', 'οδοσ'])
+  assert.deepEqual(parseSearchQuery('tag:STRASSE tag:#οδος').filters.map((f) => (f.kind === 'tag' ? f.value : null)), ['strasse', 'οδοσ'])
 })
