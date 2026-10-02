@@ -51,6 +51,10 @@ small team meets after months of use.
 
 ### Fixed
 
+- The recently opened notes the search box offers (and «When I open vihko:
+  Last note») are each person's, and are forgotten when they sign out: on a
+  shared browser, whoever signs in next no longer sees, nor opens, the notes
+  the one before was reading.
 - Transferring a deleted person's space no longer tells the admin where
   it landed in the recipient's space (`plan.to` is null for an admin who
   doesn't read there): `-2` after the name said the recipient already had
