@@ -474,7 +474,7 @@ test('the admin deletes two people: one\'s space closes, the admin is reminded, 
   await call(k, 'delete', `/api/admin/users/${await userId(k, GONE.username)}`, { confirm: ADMIN.password })
   // Undecided, the admin is reminded, and goes from there to «Spaces».
   await k.goto('/?view=alerts')
-  const reminder = k.locator('.alert-card', { hasText: GONE.username }).filter({ hasText: 'nadie los ve, tampoco tú' })
+  const reminder = k.locator('.alert-card', { hasText: GONE.username }).filter({ hasText: 'nadie ve lo suyo, tampoco tú' })
   await expect(reminder).toBeVisible(SLOW)
   await reminder.getByRole('button', { name: 'Ir a Espacios' }).click()
   await expect(k.getByRole('heading', { name: 'Espacios', level: 1 })).toBeVisible()
