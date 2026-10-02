@@ -8,7 +8,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, BASE_URL, E2E_DIR, LOCKED_URL, MEMBER, SPACE_NAME, inVault, specMother } from './env.ts'
-import { dismissNoticesOf, signIn } from './helpers.ts'
+import { dismissNotices, dismissNoticesOf, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
@@ -398,6 +398,8 @@ test('VIHKO_INTEGRATIONS=off: the switches are locked and say why', async ({ bro
   expect((await page.request.get('/api/tree', { headers: bearer(locked) })).status()).toBe(404)
   await shown.getByRole('button', { name: 'Ya la he guardado' }).click()
   await page.screenshot({ path: `${SHOTS}/agents-locked.png`, fullPage: true, animations: 'disabled' })
+  // The key is told to the admin on that server too: not left for the specs that sign in there later.
+  await dismissNotices(page.request)
   await ctx.close()
 })
 
