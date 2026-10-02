@@ -2,7 +2,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, Tooltip, TooltipTrigger, type Key } from 'react-aria-components'
 import { seriesNeighbors } from '@vihko/core/series'
-import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type SpaceEntry, type SpacesInfo, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
+import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type Level, type MoveJob, type MoveReport, type Profile, type SpaceEntry, type SpacesInfo, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
 import { SpacesContext, notePathOf, rootOf, usePathLabels, useSpacesValue } from './spaces.tsx'
 import { renamedPath } from './legacyAddress.ts'
 import { openingNote } from './onOpen.ts'
@@ -25,6 +25,8 @@ import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
 import { BackContext, Brand, Crumbs, DismissGuardContext, FolderPermissionsContext, GoHomeContext, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
 import { TrashToast, type Trashed } from './TrashToast.tsx'
+import { RescueBanner } from './RescueBanner.tsx'
+import { setRescueUser } from './editor/rescue.ts'
 import { managesFolder, noteFolder } from './levels.ts'
 import { PinOfferToast, type PinOffer } from './PinOffer.tsx'
 import { MoveToast, moveNotice } from './MoveToast.tsx'
@@ -157,6 +159,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [restored, setRestored] = useState<{ seq: number; report: RestoreReport } | null>(null)
   const restoredDone = (report: RestoreReport) => { setVersion(null); setRestored((r) => ({ seq: (r?.seq ?? 0) + 1, report })) }
   const [ready, setReady] = useState<string | null>(null)
+  /** What the person may do in the note that's ready, as the server said when it was checked: its editor starts at that. */
+  const [readyLevel, setReadyLevel] = useState<Level | null>(null)
+  /** The open note went where the person can't follow (moved where they can't open it, or gone on reconnecting). */
+  const [goneAway, setGoneAway] = useState<{ path: string; why: 'movedAway' | 'gone' } | null>(null)
+  // What the person typed that didn't reach a note is theirs only (rescue.ts).
+  setRescueUser(user.id)
   const [error, setError] = useState<string | null>(null)
   const [trashed, setTrashed] = useState<Trashed | null>(null)
   /** You opened one of an ambiguous link's candidates: pin the link there? */
@@ -305,7 +313,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setMissing(null)
     setNoAccess(null)
     // Check that it exists before opening co-editing: the hub rejects notes that don't exist.
-    api.note(openPath).then(() => { setReady(openPath); rememberNote(openPath) }).catch((err) => {
+    setGoneAway(null)
+    api.note(openPath).then((n) => { setReadyLevel(n.level ?? null); setReady(openPath); rememberNote(openPath) }).catch((err) => {
       // Moved again a moment ago, while its editor reopened it at the last place it heard of: follow it.
       if (err instanceof ApiError && err.code === 'not_found' && typeof err.data?.movedTo === 'string') return setOpenPathState(err.data.movedTo)
       if (versionRef.current && err instanceof ApiError && err.code === 'not_found') setMissing(openPath)
@@ -332,6 +341,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
 
   const tree = useMemo(() => (notes ? buildTree(notes, folders) : []), [notes, folders])
   const admin = user.role === 'admin'
+  /** The main area holds the open note (and the rescue banner goes under its header), as the render below decides. */
+  const pageShown = view === 'alerts' || view === 'agents' || view === 'privacy' || view === 'account' || view === 'changes' || ((view === 'users' || view === 'spaces') && admin)
+  const noteShown = !pageShown && !!openPath && ready === openPath && !(version && missing === openPath)
   /** The person's level and a folder's marks, for the tree's actions and locks. */
   const folderInfo = useMemo<FolderInfoOf>(() => (path) => {
     if (!locks) return undefined
@@ -613,6 +625,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         </nav>
       )}
       <main className="main">
+        {/* Over the note, under its header (NoteView); anywhere else, first. */}
+        {!noteShown && <RescueBanner user={user} onCreated={created} />}
         {view === 'alerts' ? (
           <AlertsPage
             onOpen={setOpenPath}
@@ -657,6 +671,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               onMovedOutside={movedOutside}
               onMoveStarted={moveStarted}
               onTrashed={(t) => { setOpenPath(null); setTrashed(t); void loadTree() }}
+              onGone={(why) => { const from = openPath; setOpenPath(null); setGoneAway({ path: from, why }); void loadTree() }}
+              initialLevel={readyLevel}
+              rescue={<RescueBanner user={user} onCreated={created} />}
               templates={templates}
               onCreated={created}
               onPickCandidate={(offer) => { setPinOffer(offer); setOpenPath(offer.target) }}
@@ -736,6 +753,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <PinOfferToast key={`${pinOffer.source}#${pinOffer.raw}#${pinOffer.target}`} offer={pinOffer} onDismiss={() => setPinOffer(null)} />
         )}
         {restored && <RestoreToast key={restored.seq} report={restored.report} onDismiss={() => setRestored(null)} />}
+        {goneAway && !openPath && (
+          <div className="toast toast-warn">
+            <span className="toast-icon">{Icon.alert}</span>
+            <span className="toast-text" role="alert">{t(goneAway.why === 'movedAway' ? 'note.movedAway' : 'note.goneAway', { name: baseName(goneAway.path).replace(/\.md$/i, '') })}</span>
+            <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setGoneAway(null)}>{Icon.close}</Button>
+          </div>
+        )}
         {trashed && (
           <TrashToast
             key={trashed.id}

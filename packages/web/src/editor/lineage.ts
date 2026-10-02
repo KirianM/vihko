@@ -98,15 +98,18 @@ export class NoteLink {
   private name: string
   private events: { onLineage: (l: Lineage) => void; onSetAside: (s: SetAside) => void }
 
-  constructor(websocketProvider: HocuspocusProviderWebsocket, name: string, events: NoteLink['events']) {
+  private claim: Claim
+
+  constructor(websocketProvider: HocuspocusProviderWebsocket, name: string, events: NoteLink['events'], claim: Claim = () => null) {
     this.websocketProvider = websocketProvider
     this.name = name
     this.events = events
+    this.claim = claim
     this.lineage = this.open()
   }
 
   private open(): Lineage {
-    const l = openLineage(this.websocketProvider, this.name)
+    const l = openLineage(this.websocketProvider, this.name, this.claim)
     l.provider.on('stateless', ({ payload }: { payload: string }) => {
       let msg: { type?: string }
       try { msg = JSON.parse(payload) } catch { return }
@@ -130,6 +133,15 @@ export class NoteLink {
       if (next.text.toString() !== aside) this.events.onSetAside({ text: aside })
     }
     next.provider.on('synced', check)
+  }
+
+  /**
+   * Stops following the hub to new generations: the current copy stays
+   * open as it is, for whoever holds it to finish with (and destroy).
+   */
+  hold(): Lineage {
+    this.closed = true
+    return this.lineage
   }
 
   destroy(quiet = false) {
