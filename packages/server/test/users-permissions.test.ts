@@ -71,9 +71,9 @@ test('deleting a user takes their grants out and closes their space, what they s
     assert.notEqual(edit.status, 200, 'without the group, only read')
 
     // The member deleted: their grants go; their space is nobody's, not even what they shared.
-    assert.equal((await s.admin('POST', `/api/admin/users/${s.users.member.id}/disable`)).status, 200)
+    assert.equal((await s.admin('POST', `/api/admin/users/${s.users.member.id}/disable`, { confirm: s.users.admin.password })).status, 200)
     assert.equal((await s.admin('GET', s.url('/api/note', { path: rome }))).status, 200, 'disabled: what they shared stays shared')
-    assert.equal((await s.admin('DELETE', `/api/admin/users/${s.users.member.id}`)).status, 200)
+    assert.equal((await s.admin('DELETE', `/api/admin/users/${s.users.member.id}`, { confirm: s.users.admin.password })).status, 200)
     assert.doesNotMatch(yaml(), new RegExp(`(?<![\\p{L}\\p{N}._-])"?${literally(member)}"?:`, 'u'))
     assert.deepEqual(rulesInFile(yaml()).get(SHARED)?.grants, { [s.users.admin.username]: 'manage' })
     assert.ok(yaml().includes(`  # ${BY_NAME}\n`), 'the comment stays')

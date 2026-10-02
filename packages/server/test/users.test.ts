@@ -137,7 +137,7 @@ test('links: a new one ends the previous one, they expire after 7 days, a reset 
 
     // Disabled: no new link, and a pending one stops working.
     const pending = (await s.admin('POST', `/api/admin/users/${user.id}/link`, { confirm })).body.link
-    await s.admin('POST', `/api/admin/users/${user.id}/disable`)
+    await s.admin('POST', `/api/admin/users/${user.id}/disable`, { confirm: s.users.admin.password })
     assert.equal((await anon(s.app, 'GET', `/api/invite/${pending.token}`)).status, 404)
     const none = await s.admin('POST', `/api/admin/users/${user.id}/link`)
     assert.deepEqual([none.status, none.body.error], [409, 'user_disabled'])
@@ -211,10 +211,10 @@ test('disabling cuts sessions, keys and OAuth at once and keeps them for later; 
     const cookie = await login(s.app, member.username, member.password) as string
 
     // Deleting needs a disabled user.
-    const early = await s.admin('DELETE', `/api/admin/users/${member.id}`)
+    const early = await s.admin('DELETE', `/api/admin/users/${member.id}`, { confirm: s.users.admin.password })
     assert.deepEqual([early.status, early.body.error], [409, 'not_disabled'])
 
-    const disabled = await s.admin('POST', `/api/admin/users/${member.id}/disable`)
+    const disabled = await s.admin('POST', `/api/admin/users/${member.id}/disable`, { confirm: s.users.admin.password })
     assert.equal(disabled.body.user.status, 'disabled')
     assert.equal((await s.member('GET', '/api/tree')).status, 401, 'their sessions ended')
     assert.equal((await s.app.request('/api/tree', { headers: { cookie } })).status, 401)
@@ -231,13 +231,13 @@ test('disabling cuts sessions, keys and OAuth at once and keeps them for later; 
     // Deleted: the grants hook runs first; if it fails, nothing is deleted.
     const calls: string[] = []
     s.services.users.hooks.onUserDeleted = () => { throw new Error('vihko.yaml could not be written') }
-    await s.admin('POST', `/api/admin/users/${member.id}/disable`)
-    assert.equal((await s.admin('DELETE', `/api/admin/users/${member.id}`)).status, 500)
+    await s.admin('POST', `/api/admin/users/${member.id}/disable`, { confirm: s.users.admin.password })
+    assert.equal((await s.admin('DELETE', `/api/admin/users/${member.id}`, { confirm: s.users.admin.password })).status, 500)
     assert.ok((await s.admin('GET', '/api/admin/users')).body.users.some((u: any) => u.username === member.username), 'still there')
     s.services.users.hooks.onUserDeleted = (name) => { calls.push(name) }
     const group = m.aGroupName()
     await s.admin('POST', '/api/admin/groups', { name: group }).then((g) => s.admin('POST', `/api/admin/groups/${g.body.group.id}/members`, { userId: member.id }))
-    assert.equal((await s.admin('DELETE', `/api/admin/users/${member.id}`)).status, 200)
+    assert.equal((await s.admin('DELETE', `/api/admin/users/${member.id}`, { confirm: s.users.admin.password })).status, 200)
     assert.deepEqual(calls, [member.username])
     assert.ok(!(await s.admin('GET', '/api/admin/users')).body.users.some((u: any) => u.username === member.username))
     assert.deepEqual((await s.admin('GET', '/api/directory')).body, { users: [s.users.admin.username], groups: [group] })
@@ -455,8 +455,8 @@ test('names are taken as the permissions compare them: a case in any script, a d
     assert.equal(first.status, 201)
     // SQLite's nocase folds only ASCII: «ángela» would have inherited «Ángela»'s grants and `{user}` folder.
     assert.deepEqual([(await s.admin('POST', '/api/admin/users', { username: 'ángela', role: 'member' })).body.error], ['user_exists'])
-    assert.equal((await s.admin('POST', `/api/admin/users/${first.body.user.id}/disable`)).status, 200)
-    assert.equal((await s.admin('DELETE', `/api/admin/users/${first.body.user.id}`)).status, 200)
+    assert.equal((await s.admin('POST', `/api/admin/users/${first.body.user.id}/disable`, { confirm: s.users.admin.password })).status, 200)
+    assert.equal((await s.admin('DELETE', `/api/admin/users/${first.body.user.id}`, { confirm: s.users.admin.password })).status, 200)
     assert.deepEqual([(await s.admin('POST', '/api/admin/users', { username: 'ÁNGELA', role: 'member' })).body.error], ['user_exists'], 'nor once she is deleted')
 
     assert.equal((await s.admin('POST', '/api/admin/groups', { name: 'Équipo' })).status, 201)

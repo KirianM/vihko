@@ -52,8 +52,8 @@ test.afterAll(async ({ browser }) => {
   await usePermissions()
   for (const u of (await (await admin.request.get('/api/admin/users')).json()).users as { id: string; username: string }[]) {
     if (u.username !== PERSON.username && u.username !== OTHER_ADMIN.username) continue
-    await admin.request.post(`/api/admin/users/${u.id}/disable`)
-    await admin.request.delete(`/api/admin/users/${u.id}`)
+    await admin.request.post(`/api/admin/users/${u.id}/disable`, { data: { confirm: ADMIN.password } })
+    await admin.request.delete(`/api/admin/users/${u.id}`, { data: { confirm: ADMIN.password } })
   }
   await admin.context().close()
 })

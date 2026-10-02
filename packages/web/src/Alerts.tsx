@@ -59,7 +59,9 @@ function noticeTitle(a: PersonalNotice): { key: MessageKey; parts: NoticeParts }
       parts: { by: a.by },
     }
     case 'user_account_changed': return {
-      key: a.change === 'reset_link' ? 'alerts.userResetLink' : a.change === 'two_factor_reset' ? 'alerts.userTwoFactor' : a.role === 'admin' ? 'alerts.userPromoted' : 'alerts.userDemoted',
+      key: a.change === 'reset_link' ? 'alerts.userResetLink' : a.change === 'two_factor_reset' ? 'alerts.userTwoFactor'
+        : a.change === 'invite_link' ? 'alerts.userInviteLink' : a.change === 'disabled' ? 'alerts.userDisabled' : a.change === 'deleted' ? 'alerts.userDeleted'
+        : a.role === 'admin' ? 'alerts.userPromoted' : 'alerts.userDemoted',
       parts: { by: a.by, user: a.user },
     }
     case 'history_purged_authored': return a.path === null
@@ -477,7 +479,8 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
         const body = a.code === 'account_changed'
           ? t(a.change === 'reset_link' ? 'alerts.accountResetLinkBody' : a.change === 'two_factor_reset' ? 'alerts.accountTwoFactorBody' : 'alerts.accountRoleBody', { when })
           : a.code === 'user_account_changed'
-            ? t(a.user === a.by ? 'alerts.userChangedSelfBody' : 'alerts.userChangedBody', { when, user: a.user })
+            // The person isn't told of an invitation, nor of being disabled or deleted.
+            ? t(a.user === a.by || a.change === 'invite_link' || a.change === 'disabled' || a.change === 'deleted' ? 'alerts.userChangedSelfBody' : 'alerts.userChangedBody', { when, user: a.user })
             : a.code === 'links_not_updated' ? t('alerts.linksNotUpdatedBody', { when })
             : a.code === 'retention_ran' ? t(a.failed ? 'alerts.retentionFailedBody' : 'alerts.retentionBody', { when, entries: a.trashEntries, versions: a.versions })
             : a.code === 'space_changed' ? t('alerts.spaceChangedBody', { when })

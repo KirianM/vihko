@@ -6,7 +6,7 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { api, closeAll, connect, login, makeDirs, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
+import { adminOf, api, closeAll, connect, login, makeDirs, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
 import { everyone, inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -59,7 +59,7 @@ test('disabling someone ends their open editor and their key at once', async () 
     const bystander = await connect(srv, admin, NOTE)
     const other = watch(bystander)
 
-    assert.equal((await api(srv, admin, 'POST', `/api/admin/users/${created.body.user.id}/disable`)).status, 200)
+    assert.equal((await api(srv, admin, 'POST', `/api/admin/users/${created.body.user.id}/disable`, { confirm: adminOf(srv).password })).status, 200)
     await waitFor(() => seen.heard.includes('vihko:session-ended'), 'the editor is told its session ended')
     await waitFor(() => seen.status() === 'disconnected', 'and its connection closes')
     assert.equal((await api(srv, '', 'GET', '/api/tree', undefined, key)).status, 401, 'the key stops at once')

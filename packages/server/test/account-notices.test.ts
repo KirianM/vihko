@@ -141,7 +141,7 @@ test('enabling a disabled admin is confirmed at the moment, as making one is; a 
     const second = m.aUser({ role: 'admin' })
     const id = (await h.auth.createUser(second.username, second.password, 'admin')).id
     const status = async (who: string) => (await h.admin('GET', '/api/admin/users')).body.users.find((u: any) => u.id === who).status
-    assert.equal((await h.admin('POST', `/api/admin/users/${id}/disable`)).status, 200)
+    assert.equal((await h.admin('POST', `/api/admin/users/${id}/disable`, { confirm: h.users.admin.password })).status, 200)
 
     const missing = await h.admin('POST', `/api/admin/users/${id}/enable`)
     assert.deepEqual([missing.status, missing.body.error, missing.body.with], [400, 'confirmation_required', 'password'])
@@ -153,9 +153,40 @@ test('enabling a disabled admin is confirmed at the moment, as making one is; a 
 
     // A member comes back without anything asked.
     const member = h.users.member.id
-    await h.admin('POST', `/api/admin/users/${member}/disable`)
+    await h.admin('POST', `/api/admin/users/${member}/disable`, { confirm: h.users.admin.password })
     const back = await h.admin('POST', `/api/admin/users/${member}/enable`)
     assert.deepEqual([back.status, back.body.user.status], [200, 'active'])
+  } finally { await h.close() }
+})
+
+test('disabling and deleting someone, and a new invitation for an admin, are confirmed at the moment and told to the other admins', async () => {
+  const h = await setup()
+  try {
+    const password = h.users.admin.password
+    const second = m.aUser({ role: 'admin' })
+    await h.auth.createUser(second.username, second.password, 'admin')
+    const otherAdmin = await session(h, second)
+    const id = h.users.member.id
+    const status = async () => (await h.admin('GET', '/api/admin/users')).body.users.find((u: any) => u.id === id)?.status
+    // Disabling: nothing without the confirmation.
+    const missing = await h.admin('POST', `/api/admin/users/${id}/disable`)
+    assert.deepEqual([missing.status, missing.body.error, missing.body.with], [400, 'confirmation_required', 'password'])
+    assert.equal((await h.admin('POST', `/api/admin/users/${id}/disable`, { confirm: m.aPassword() })).body.error, 'wrong_password')
+    assert.equal(await status(), 'active')
+    assert.equal((await h.admin('POST', `/api/admin/users/${id}/disable`, { confirm: password })).status, 200)
+    // Deleting: the same.
+    assert.equal((await h.admin('DELETE', `/api/admin/users/${id}`)).body.error, 'confirmation_required')
+    assert.equal(await status(), 'disabled')
+    assert.equal((await h.admin('DELETE', `/api/admin/users/${id}`, { confirm: password })).status, 200)
+    assert.equal(await status(), undefined)
+    // A new invitation for an admin who hasn't chosen a password yet: confirmed too; a member's isn't.
+    const invited = (await h.admin('POST', '/api/admin/users', { username: m.aUsername(), role: 'admin', confirm: password })).body.user
+    assert.equal((await h.admin('POST', `/api/admin/users/${invited.id}/link`)).body.error, 'confirmation_required')
+    assert.equal((await h.admin('POST', `/api/admin/users/${invited.id}/link`, { confirm: password })).body.link.kind, 'invite')
+    // The other admin is told of each; whoever did it isn't.
+    const told = (await accountNotices(otherAdmin)).filter((n) => n.code === 'user_account_changed').map((n) => [n.change, n.by])
+    for (const change of ['disabled', 'deleted', 'invite_link']) assert.ok(told.some(([c, by]) => c === change && by === h.users.admin.username), `${change}: ${JSON.stringify(told)}`)
+    assert.deepEqual((await accountNotices(h.admin)).filter((n) => ['disabled', 'deleted', 'invite_link'].includes(n.change!)), [])
   } finally { await h.close() }
 })
 
@@ -173,8 +204,8 @@ test('notices: kept per person, the latest only, never for a deleted user, oldes
     assert.equal(list.length, 100)
     assert.ok(list[0]!.at < list[99]!.at)
     assert.equal(store.of(admin).length, 0)
-    await h.admin('POST', `/api/admin/users/${member}/disable`)
-    await h.admin('DELETE', `/api/admin/users/${member}`)
+    await h.admin('POST', `/api/admin/users/${member}/disable`, { confirm: h.users.admin.password })
+    await h.admin('DELETE', `/api/admin/users/${member}`, { confirm: h.users.admin.password })
     assert.equal(store.of(member).length, 0, 'deleting someone takes their notices')
     assert.equal(store.add(member, { code: 'account_changed', change: 'reset_link', by: admin, role: null }), null)
   } finally { await h.close() }

@@ -317,7 +317,7 @@ export interface ConfigMigrationRef {
 }
 
 /** What the vihko admin did to someone's account. */
-export type AccountChange = 'reset_link' | 'two_factor_reset' | 'role_changed'
+export type AccountChange = 'reset_link' | 'two_factor_reset' | 'role_changed' | 'invite_link' | 'disabled' | 'deleted'
 
 export type AlertCode = Alert['code']
 export type AlertAction = Alert['actions'][number]

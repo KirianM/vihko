@@ -257,8 +257,8 @@ function SettleDialog({ closed, action, users, groups, onClose, onDone }: {
  * Deleting a person: what deleting does, and what becomes of
  * their space, right there: decided later in «Spaces» (it stays closed, and
  * the admin is reminded), transferred to someone, or made a shared space,
- * with the same dry run as in «Spaces». Settling it is confirmed with the
- * admin's code or password, before the person goes.
+ * with the same dry run as in «Spaces». It's confirmed with the admin's code
+ * or password, before the person goes.
  */
 export function DeletePersonDialog({ user, summary, users, groups, consequences, onClose, onDone }: {
   user: UserInfo
@@ -280,14 +280,15 @@ export function DeletePersonDialog({ user, summary, users, groups, consequences,
   const action = choice === 'later' ? null : choice
   const { plan, error: planError, ready } = useSettlePlan(user.id, action, input, true)
   const settles = action !== null
-  const canGo = !busy && (!settles || (ready && plan !== null && !!secret.trim()))
+  // Deleting someone is confirmed at the moment, whatever becomes of their space.
+  const canGo = !busy && !!secret.trim() && (!settles || (ready && plan !== null))
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (!canGo) return
     setBusy(true)
     setError(null)
     try {
-      if (action === null) await api.deleteUser(user.id)
+      if (action === null) await api.deleteUser(user.id, secret.trim())
       else await api.settleSpace(user.id, { ...settleRequest(action, input), deleteUser: true, confirm: secret.trim() })
       onDone()
     } catch (err) {
@@ -316,7 +317,7 @@ export function DeletePersonDialog({ user, summary, users, groups, consequences,
               {planError && <p className="error-text" role="alert">{planError}</p>}
             </fieldset>
           )}
-          {settles && <Identity value={secret} onChange={setSecret} hint={t('spacesAdmin.confirmHint')} />}
+          <Identity value={secret} onChange={setSecret} hint={t(settles ? 'spacesAdmin.confirmHint' : 'users.confirmIdentityHint')} />
           {error && <p className="error-text" role="alert">{error}</p>}
         </div>
         <div className="dialog-actions">

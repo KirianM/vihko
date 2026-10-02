@@ -26,6 +26,13 @@ small team meets after months of use.
   still goes with it, and so do its grants for whoever manages the
   destination, who could give them there anyway. Within a space nothing
   changes.
+- Disabling or deleting someone, and a new invitation link for an admin who
+  hasn't chosen a password yet, are confirmed at the moment (the admin's
+  current code, or their password without a second factor), as the other
+  changes to someone's account already were, and the other admins are told
+  (`user_account_changed` with `disabled`, `deleted` or `invite_link`). A
+  session left open is no longer enough to lock people out, or to make an
+  admin with a password of one's own.
 - Replacing every occurrence of a word in a long note (`find_replace`), a
   search over a note with thousands of matches, and saving a note with very
   long paragraphs no longer keep the server busy for seconds or minutes:

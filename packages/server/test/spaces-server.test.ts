@@ -466,10 +466,10 @@ async function deletedMember(h: Spaces) {
   await h.rule(shared, { grants: { [h.names.other]: 'edit' } })
   assert.deepEqual((await h.admin('GET', `/api/admin/users/${h.created.member.id}/space`)).body, { path: h.home('member'), exists: true, sharedFolders: 1, people: 1 })
   assert.equal((await h.other('POST', '/api/spaces/pin', { path: shared, pinned: true })).status, 200)
-  assert.equal((await h.admin('POST', `/api/admin/users/${h.created.member.id}/disable`)).status, 200)
+  assert.equal((await h.admin('POST', `/api/admin/users/${h.created.member.id}/disable`, { confirm: h.created.admin.password })).status, 200)
   // Disabled, what they shared is still there for the others.
   assert.equal((await h.other('GET', '/api/spaces')).body.shared.length, 1)
-  assert.equal((await h.admin('DELETE', `/api/admin/users/${h.created.member.id}`)).status, 200)
+  assert.equal((await h.admin('DELETE', `/api/admin/users/${h.created.member.id}`, { confirm: h.created.admin.password })).status, 200)
   return { shared, note, own }
 }
 
@@ -532,7 +532,7 @@ test('deleting a person can settle their space at once: what is asked is checked
     h.write(`${shared}/${m.aTitle()}.md`, m.aParagraph())
     h.write(`${h.home('member')}/${m.aTitle()}.md`, m.aParagraph())
     await h.rule(shared, { grants: { [h.names.other]: 'edit' } })
-    assert.equal((await h.admin('POST', `/api/admin/users/${h.created.member.id}/disable`)).status, 200)
+    assert.equal((await h.admin('POST', `/api/admin/users/${h.created.member.id}/disable`, { confirm: h.created.admin.password })).status, 200)
     const url = `/api/admin/users/${h.created.member.id}/space`
     const alive = async () => (await h.admin('GET', '/api/admin/users')).body.users.some((u: { id: string }) => u.id === h.created.member.id)
     // Its preview: the same counts as in «Spaces», nothing deleted.

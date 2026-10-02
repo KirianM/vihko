@@ -470,8 +470,8 @@ test('the admin deletes two people: one\'s space closes, the admin is reminded, 
   await note(l, lNote, `# ${baseName(lNote)}\n`)
   await g.context().close()
   await l.context().close()
-  for (const u of [GONE, LEFT]) await call(k, 'post', `/api/admin/users/${await userId(k, u.username)}/disable`)
-  await call(k, 'delete', `/api/admin/users/${await userId(k, GONE.username)}`)
+  for (const u of [GONE, LEFT]) await call(k, 'post', `/api/admin/users/${await userId(k, u.username)}/disable`, { confirm: ADMIN.password })
+  await call(k, 'delete', `/api/admin/users/${await userId(k, GONE.username)}`, { confirm: ADMIN.password })
   // Undecided, the admin is reminded, and goes from there to «Spaces».
   await k.goto('/?view=alerts')
   const reminder = k.locator('.alert-card', { hasText: GONE.username }).filter({ hasText: 'nadie los ve, tampoco tú' })

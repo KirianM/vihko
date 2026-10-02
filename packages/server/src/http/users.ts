@@ -209,17 +209,21 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
     return c.json({ user: r.user, link: link(r.link) }, 201)
   })
 
-  // An invitation (they never chose a password) needs nothing more; a reset
-  // lets whoever holds the link into their account: confirmed, and told.
+  // A member's invitation (they never chose a password) needs nothing more; a
+  // reset lets whoever holds the link into their account, and an admin's
+  // invitation makes an admin with a password of their own: both confirmed,
+  // and told (the other admins, for an invitation; the person too, for a reset).
   app.post('/api/admin/users/:id/link', admin, async (c) => {
     const id = param(c, 'id')
     const kind = users.nextLinkKind(id)
-    if (kind === 'reset') {
+    const invitedAdmin = kind !== 'reset' && users.get(id)?.role === 'admin'
+    if (kind === 'reset' || invitedAdmin) {
       const refused = await deps.confirm(c, (await body(c, true)).confirm)
       if (refused) return refused
     }
     const l = link(users.newLink(id))
     if (kind === 'reset') notices.accountChanged(id, c.get('user').id, 'reset_link')
+    else if (invitedAdmin) notices.toOtherAdmins(id, c.get('user').id, 'invite_link', 'admin')
     return c.json({ link: l, user: users.get(id) })
   })
 
@@ -237,7 +241,18 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
     return c.json({ user })
   })
 
-  app.post('/api/admin/users/:id/disable', admin, (c) => c.json({ user: users.disable(param(c, 'id')) }))
+  // Disabling and deleting someone are confirmed at the moment, as the other
+  // changes to someone's account are, and the other admins are told.
+  app.post('/api/admin/users/:id/disable', admin, async (c) => {
+    const id = param(c, 'id')
+    // What would refuse it, first: a code isn't spent on it.
+    users.checkDisable(id)
+    const refused = await deps.confirm(c, (await body(c, true)).confirm)
+    if (refused) return refused
+    const user = users.disable(id)
+    notices.toOtherAdmins(id, c.get('user').id, 'disabled')
+    return c.json({ user })
+  })
 
   // Bringing a disabled admin back is as good as making one: confirmed at the
   // moment, so a session left open can't revive an admin account.
@@ -254,7 +269,12 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   })
 
   app.delete('/api/admin/users/:id', admin, async (c) => {
-    await users.remove(param(c, 'id'), c.get('access').actor)
+    const id = param(c, 'id')
+    users.checkRemove(id)
+    const refused = await deps.confirm(c, (await body(c, true)).confirm)
+    if (refused) return refused
+    await users.remove(id, c.get('access').actor)
+    notices.toOtherAdmins(id, c.get('user').id, 'deleted')
     return c.json({ ok: true })
   })
 

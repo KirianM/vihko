@@ -558,8 +558,8 @@ test('deleting a user takes their second factor with them', async () => {
   const h = await setup()
   try {
     await enable(h, 'member')
-    await h.admin('POST', `/api/admin/users/${h.users.member.id}/disable`)
-    await h.admin('DELETE', `/api/admin/users/${h.users.member.id}`)
+    await h.admin('POST', `/api/admin/users/${h.users.member.id}/disable`, { confirm: h.users.admin.password })
+    await h.admin('DELETE', `/api/admin/users/${h.users.member.id}`, { confirm: h.users.admin.password })
     for (const t of ['two_factor', 'recovery_codes']) assert.equal((h.auth.state.prepare(`select count(*) n from ${t} where user_id = ?`).get(h.users.member.id) as { n: number }).n, 0, t)
   } finally { await h.close() }
 })

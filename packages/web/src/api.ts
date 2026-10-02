@@ -586,11 +586,13 @@ export const api = {
   /** A new link; a reset (they have a password) is confirmed with `confirm`. */
   userLink: (id: string, confirm?: string) => request<{ link: NewLink; user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/link`, confirm ? { confirm } : {}),
   setRole: (id: string, role: UserInfo['role'], confirm: string) => request<{ user: UserInfo }>('PUT', `/api/admin/users/${encodeURIComponent(id)}/role`, { role, confirm }).then((r) => r.user),
-  disableUser: (id: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/disable`).then((r) => r.user),
+  /** Confirmed with `confirm`: the admin's current code, or their password without a second factor. */
+  disableUser: (id: string, confirm: string) => request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/disable`, { confirm }).then((r) => r.user),
   /** A disabled admin, with `confirm`: the admin's current code, or their password without a second factor. */
   enableUser: (id: string, confirm?: string) =>
     request<{ user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/enable`, confirm === undefined ? undefined : { confirm }).then((r) => r.user),
-  deleteUser: (id: string) => request<{ ok: true }>('DELETE', `/api/admin/users/${encodeURIComponent(id)}`),
+  /** Confirmed as `disableUser` is. */
+  deleteUser: (id: string, confirm: string) => request<{ ok: true }>('DELETE', `/api/admin/users/${encodeURIComponent(id)}`, { confirm }),
   endUserSessions: (id: string) => request<{ ended: number }>('DELETE', `/api/admin/users/${encodeURIComponent(id)}/sessions`),
   groups: () => request<{ groups: GroupInfo[] }>('GET', '/api/admin/groups').then((r) => r.groups),
   createGroup: (name: string) => request<{ group: GroupInfo }>('POST', '/api/admin/groups', { name }).then((r) => r.group),

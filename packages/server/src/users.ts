@@ -387,6 +387,17 @@ export class Users {
     return n
   }
 
+  /** Throws unless `id` may be disabled now (`disable`'s checks, before it's confirmed). */
+  checkDisable(id: string) {
+    this.must(id)
+    this.keepAnAdmin(id)
+  }
+
+  /** Throws unless `id` may be deleted now (`remove`'s checks, before it's confirmed). */
+  checkRemove(id: string) {
+    if (!this.must(id).disabled) throw new UsersError('not_disabled', 'only a disabled user can be deleted: disable them first')
+  }
+
   /** Throws if `id` is the last admin who can sign in (enabled, with a password): they must stay one. */
   private keepAnAdmin(id: string) {
     const others = this.db.prepare(`select count(*) n from users where role = 'admin' and disabled = 0 and deleted_at is null

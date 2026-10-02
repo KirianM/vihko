@@ -371,17 +371,18 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
     switch (action) {
       case 'disable': return {
         title: t('users.disableTitle', { user }), danger: true, confirm: t('users.disableConfirm'),
-        items: [t('users.disable1'), t('users.disable2'), t('users.disable3')],
-        go: async () => { await api.disableUser(u.id); done() },
+        items: [t('users.disable1'), t('users.disable2'), t('users.disable3'), t('users.toldAdmins')], identity,
+        go: async (secret) => { await api.disableUser(u.id, secret); done() },
       }
       case 'delete': return {
         title: t('users.deleteTitle', { user }), danger: true, confirm: t('users.deleteConfirm'),
         items: [
           t('users.delete1'), t('users.delete2'), t('users.delete3'),
           ...(summary?.id === u.id && summary.sharedFolders > 0 ? [t('users.deleteShared', { folders: summary.sharedFolders, people: summary.people })] : []),
-          t('users.delete4'), t('users.delete5'),
+          t('users.delete4'), t('users.delete5'), t('users.toldAdmins'),
         ],
-        go: async () => { await api.deleteUser(u.id); done() },
+        identity,
+        go: async (secret) => { await api.deleteUser(u.id, secret); done() },
       }
       case 'enableAdmin': return {
         title: t('users.enableAdminTitle', { user }), confirm: t('users.enableAdminConfirm'),
@@ -410,12 +411,14 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
       }
       case 'link': {
         const reset = u.status !== 'invited'
+        // A new invitation for an admin makes an admin with a password of their own: confirmed too, and told to the other admins.
+        const confirmed = reset || u.role === 'admin'
         return {
           title: t(reset ? 'users.resetTitle' : 'users.relinkTitle', { user }), confirm: t('users.linkConfirm'),
-          items: reset ? [t('users.reset1'), t('users.reset2'), t('users.linkEnds'), told] : [t('users.relink1'), t('users.linkEnds')],
-          ...(reset ? { identity } : {}),
+          items: reset ? [t('users.reset1'), t('users.reset2'), t('users.linkEnds'), told] : [t('users.relink1'), t('users.linkEnds'), ...(confirmed ? [t('users.toldAdmins')] : [])],
+          ...(confirmed ? { identity } : {}),
           go: async (secret) => {
-            const r = await api.userLink(u.id, reset ? secret : undefined)
+            const r = await api.userLink(u.id, confirmed ? secret : undefined)
             setOpen({ kind: 'link', user: r.user, link: r.link, created: false })
             void load()
           },
