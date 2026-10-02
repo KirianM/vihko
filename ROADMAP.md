@@ -112,8 +112,14 @@ message; and an installation built from the documentation alone works.
   account, at a level (`public: read | comment | edit`).
 - Events: an event log with a cursor; webhooks (HMAC with timestamp, real
   retries, SQLite outbox, stable event id, delivery log, auto-disable); a
-  loop breaker. Done when a real integration with another application works
-  using only these generic pieces.
+  loop breaker. Per person, like API keys: each person creates their own
+  webhooks and reads their own log (in Agents and API), and an event only
+  tells what that person can read under the agents' rules (nothing marked
+  `ai: false`, nothing in a folder closed to agents, only the folders the
+  webhook is limited to). The admin only turns the feature on or off (off by
+  default) and decides whether members may create their own; they never see
+  or configure anyone's targets. Done when a real integration with another
+  application works using only these generic pieces.
 - Retrieval: configurable conventions for note types (decisions,
   projects…); embeddings in a worker thread with `sqlite-vec` and hybrid
   search, never of what the agent can't see; intent tools
