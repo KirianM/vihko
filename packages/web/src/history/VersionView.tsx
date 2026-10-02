@@ -12,7 +12,9 @@ import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode }
 import { Button, Dialog, Heading, Modal, ModalOverlay, ToggleButton, ToggleButtonGroup } from 'react-aria-components'
 import type { Doc } from 'yjs'
 import { copyText } from '../copy.ts'
+import { ApiError } from '../api.ts'
 import { errorText, useT } from '../i18n.tsx'
+import { noteName } from '../ui.tsx'
 import { historyApi, type Against, type Diff, type PurgeReport, type RestoreReport, type RevertReport, type SkippedPiece, type Version } from './api.ts'
 import { PurgeDialog } from './Purge.tsx'
 import { changeGroups, changeText } from './format.ts'
@@ -41,7 +43,7 @@ function Edit({ op, text, change, current, labels }: { op: 1 | -1; text: string;
 
 type Show = 'changes' | 'content'
 
-export function VersionView({ path, id, store, exists, session, closeLabel, onClose, onRestored, onReverted, onPurged }: {
+export function VersionView({ path, id, store, exists, session, closeLabel, onClose, onRestored, onReverted, onPurged, onOpen }: {
   path: string
   id: string
   /** The note's versions (the side panel's list, when the note is open). */
@@ -57,6 +59,8 @@ export function VersionView({ path, id, store, exists, session, closeLabel, onCl
   onReverted?: (report: RevertReport) => void
   /** This version was purged. Without it, there is no «Purge this version» (only whoever manages the folder). */
   onPurged?: (report: PurgeReport) => void
+  /** Opens a note: the one a version of another note was restored as («Restore as a new note»). */
+  onOpen?: (path: string) => void
 }) {
   const t = useT()
   const { label: pathLabel } = usePathLabels()
@@ -169,6 +173,8 @@ export function VersionView({ path, id, store, exists, session, closeLabel, onCl
   }, [show, path, contentId, contentKey, meta, content?.key])
   const plain = content?.key === contentKey ? content : null
 
+  // A version of another note that had this path before (another uid): never over the one there now, as a new note instead.
+  const [asNew, setAsNew] = useState(false)
   const restore = async () => {
     if (!restoreId) return
     setBusy(true)
@@ -177,6 +183,33 @@ export function VersionView({ path, id, store, exists, session, closeLabel, onCl
       const r = await historyApi.restore(path, restoreId)
       setConfirming(false)
       onRestored(r, path)
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'uid_mismatch') setAsNew(true)
+      else setRestoreError(errorText(t, e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  /** As a new note next to it, «<name> (restored)», the first such name that is free. */
+  const restoreAsNew = async () => {
+    if (!restoreId) return
+    setBusy(true)
+    setRestoreError(null)
+    const base = path.replace(/\.md$/i, '')
+    try {
+      for (let n = 1; n <= 20; n++) {
+        const to = `${base} (${t('version.restoredName')}${n > 1 ? ` ${n}` : ''}).md`
+        try {
+          const r = await historyApi.restore(path, restoreId, to)
+          setConfirming(false)
+          setAsNew(false)
+          onRestored(r, r.path ?? to)
+          onOpen?.(r.path ?? to)
+          return
+        } catch (e) {
+          if (!(e instanceof ApiError && e.code === 'exists')) throw e
+        }
+      }
     } catch (e) {
       setRestoreError(errorText(t, e))
     } finally {
@@ -252,17 +285,19 @@ export function VersionView({ path, id, store, exists, session, closeLabel, onCl
           {plain && (plain.text ? <div className="v-text v-plain">{plain.text}</div> : <p className="v-loading">{t('version.noText')}</p>)}
         </div>
       )}
-      <ModalOverlay className="modal-overlay" isOpen={confirming} onOpenChange={(o) => { if (!o && !busy) setConfirming(false) }} isDismissable>
+      <ModalOverlay className="modal-overlay" isOpen={confirming} onOpenChange={(o) => { if (!o && !busy) { setConfirming(false); setAsNew(false) } }} isDismissable>
         <Modal className="modal">
           <Dialog className="dialog dialog-narrow" role="alertdialog">
             <div className="dialog-fields">
-              <Heading slot="title" className="dialog-title">{t('version.restoreTitle')}</Heading>
-              <p className="dialog-text">{exists ? t('version.restoreBody') : t('version.restoreBodyMissing', { path: pathLabel(path) })}</p>
+              <Heading slot="title" className="dialog-title">{t(asNew ? 'version.asNewTitle' : 'version.restoreTitle')}</Heading>
+              <p className="dialog-text">{asNew ? t('version.asNewBody', { name: noteName(path) }) : exists ? t('version.restoreBody') : t('version.restoreBodyMissing', { path: pathLabel(path) })}</p>
               {restoreError && <p className="error-text" role="alert">{restoreError}</p>}
             </div>
             <div className="dialog-actions">
-              <Button className="btn" autoFocus onPress={() => setConfirming(false)}>{t('common.cancel')}</Button>
-              <Button className="btn btn-primary" isDisabled={busy} onPress={() => void restore()}>{restoreLabel}</Button>
+              <Button className="btn" autoFocus onPress={() => { setConfirming(false); setAsNew(false) }}>{t('common.cancel')}</Button>
+              {asNew
+                ? <Button className="btn btn-primary" isDisabled={busy} onPress={() => void restoreAsNew()}>{t('version.asNewConfirm')}</Button>
+                : <Button className="btn btn-primary" isDisabled={busy} onPress={() => void restore()}>{restoreLabel}</Button>}
             </div>
           </Dialog>
         </Modal>

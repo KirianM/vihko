@@ -156,7 +156,7 @@ write (write).
 | `GET /api/tree` | read | — | `notes` (`path`, `title`, `uid`, `aliases`, and `template: true` for a template, since 0.1.0-rc.5), `folders`, `pathOnly` |
 | `GET /api/spaces` | read | — | `personal` (`path`, or null when the key doesn't reach it), `spaces` (`path`, `name`, `level`, `managers`, `aiClosed`), `shared` (`path`, `level`, `pinned`, and `owner` in a personal space or `space` with `path`, `name`), `canCreate` (always false for a key). A shared space's `name` is its folder's. `managers` leaves out people the admin disabled (since 0.1.0-rc.6) |
 | `GET /api/spaces/members` | read | `path` (a folder) | `path`, `space` (`path`, `name`, or null in a personal space), `owner` (or null in a shared space), `members` (`username`, `level`, `via`: `subject`, `level`, `from` (null where the asker doesn't read that folder), and `owner: true` for a person's own space) |
-| `GET /api/note` | read | `path` | `path`, `text`, `etag`, `meta` (`title`, `uid`, `fmError`, or null), `hiddenFromAgents` |
+| `GET /api/note` | read | `path` | `path`, `text`, `etag`, `meta` (`title`, `uid`, `fmError`, or null), `hiddenFromAgents`; since 0.1.0-rc.6, `tooLarge: true` for a note over `notes.maxSize` (its `meta` has nothing of its text) |
 | `GET /api/note/links` | read | `path` | `outgoing` (`raw`, `kind`, `target`, `anchor`, `status`, `dstPath`, `anchorOk`, `candidates`, `posFrom`, and `othersNoAccess`, `reason`, `self` when they apply; `file`, since 0.1.0-rc.6, when a wikilink with no note of its name leads to a file of the space, `[[invoice.pdf]]`: `dstPath` is the file), `backlinks` (`path`, `title`, `raw`, `context`), `titles` |
 | `GET /api/note/headings` | read | `path` | `headings` (`level`, `text`) |
 | `GET /api/note/comments` | read | `path` | `threads` (`id`, `original`, `changed`) |
@@ -177,7 +177,7 @@ write (write).
 | `GET /api/history/diff` | read | `path`, `id`, `against`? (`previous`, `current` or a version id) | `ops` (pairs of `-1`, `0` or `1` and a piece of text), `added`, `removed` |
 | `GET /api/history/changes` | read | `limit`?, `cursor`?, `author`? | `changes` (`id`, `at`, `authors`, `reason`, `foundAtStartup`, `files`), `next`, `authors` |
 | `GET /api/history/resolved` | read | `path` | `threads` (`id`, `comments`, `anchor`, `place`, `resolvedAt`, `resolvedBy`, `version`, `reopenable`), `complete` |
-| `POST /api/history/restore` | write | `path`, `id`, `ifMatch`? | `etag`, `images` (`restored`, `missing`) |
+| `POST /api/history/restore` | write | `path`, `id`, `ifMatch`?, `to`? (since 0.1.0-rc.6) | `etag`, `images` (`restored`, `missing`); with `to`, also `path`. Over a note with another `uid` than the version's: `409 uid_mismatch`; `to` restores it as a new note there instead (`409 exists` over a note) |
 | `POST /api/history/revert` | write | `path`, `id`, `ifMatch`?, `dryRun`? | `dryRun`, `changed`, `etag`, `counts`, `reverted`, `skipped` |
 
 Details that go with them:
@@ -210,7 +210,13 @@ Details that go with them:
   holding the link) has the reason `links_kept`, with `to` (the note that
   took the name, or null where the reader can't read it) and `by`. A space
   of 0.1.0-rc.1 or rc.2 renamed to its name when vihko started has the
-  reason `space_renamed`, with `from` and `to` (its roots).
+  reason `space_renamed`, with `from` and `to` (its roots). Since
+  0.1.0-rc.6, a key's person (as everyone) sees the versions, and the
+  trash entries, only from when they could read where the note is: the
+  grant that reaches them, or their joining the group it names. A note's
+  versions are those of the note at that path now: a note that had the path
+  before with another `uid` keeps its own, which `GET /api/history/version`
+  still opens by id.
 - **Edits by operation**: `append` (`text`), `append_under_heading`
   (`heading`, `text`), `find_replace` (`find`, `replace`, `expectedCount`),
   `replace_section` (`heading`, `text`) and `set_frontmatter` (`key`,
@@ -248,6 +254,7 @@ These are the codes a key can meet, with their status:
 | Code | Status | When |
 |---|---|---|
 | `unauthorized` | 401 | Not a valid key |
+| `key_suspended` | 403 | A member's key (or authorised app) while the admin doesn't let members have keys; it works again once they do (since 0.1.0-rc.6) |
 | `forbidden` | 403 | A read-only key on a route that writes, or something the key's person may not do there |
 | `agent_denied` | 403 | Hidden from agents; `reason` says why |
 | `not_found` | 404 | No such note, folder, version or route, or one the key's person can't read |
@@ -264,8 +271,10 @@ These are the codes a key can meet, with their status:
 | `series_gone` | 409 | The daily note without `series`, when the series the person chose (`dailySeries`) no longer exists for them: they choose another (0.1.0-rc.6) |
 | `audience_widens` | 409 | A move would show the note to someone who can't see it now |
 | `not_revertible` | 409 | Reverting a version that creates or deletes the note |
+| `uid_mismatch` | 409 | Restoring, over the note at a path, a version of another note that had that path before (since 0.1.0-rc.6): restore it with `to` instead |
 | `history_off` | 409 | The history is off |
 | `too_large` | 413 | An image over the size limit |
+| `note_too_large` | 413 | A write that would make a note larger than `notes.maxSize` (5 MB by default; since 0.1.0-rc.6) |
 | `unsupported_type` | 415 | Not an image type vihko stores |
 | `busy` | 429 | Too many images received at once |
 | `precondition_required` | 428 | A write without the `If-Match` it needs |
@@ -296,19 +305,22 @@ can't call, they can change in any release.
 
 | Method and path | Who | Request | Response, and codes of its own |
 |---|---|---|---|
-| `POST /api/spaces` | Anyone, or only admins with the setting `spacesCreation: admins` (`403 forbidden` otherwise) | `name`, `members`? (`{ "<user>" or "@<group>": level }`) | `201`: `space` (as in `GET /api/spaces`), at `spaces/<name>`. The creator manages it. `409 space_name_taken` with `name` (as the other space writes it) when a space has that name in any case; `400 invalid` with `problem` for a name that can't be a space's folder (`empty`, `too_long`, `control_characters`, `spaces_around`, `invalid_characters`, `invalid_name`) |
+| `POST /api/spaces` | Anyone, or only admins with the setting `spacesCreation: admins` (`403 forbidden` otherwise) | `name`, `members`? (`{ "<user>" or "@<group>": level }`) | `201`: `space` (as in `GET /api/spaces`), at `spaces/<name>`. The creator manages it. `409 space_name_taken` with `name` (as the other space writes it) when a space has that name in any case, or, since 0.1.0-rc.6, a space that had it (deleted or renamed) left trash entries or history under it; `400 invalid` with `problem` for a name that can't be a space's folder (`empty`, `too_long`, `control_characters`, `spaces_around`, `invalid_characters`, `invalid_name`) |
 | `POST /api/spaces/from-folder` | `manage` in the folder and `edit` in its parent, and who may create spaces | `path` (a folder inside a space), `name`? (the folder's own by default), `dryRun`? | A dry run: `report` (the folder move's, with `audience`). Otherwise `201`: `space` (as in `GET /api/spaces`), `report`. The folder becomes a shared space of its own, `spaces/<name>`: what it holds goes to the new space's root, with the folder's own grants and its mover managing it. `400 space_root` for a space's root; `409 space_name_taken` (in a dry run too) and `400 invalid` as for `POST /api/spaces` |
 | `POST /api/spaces/rename` | `manage` at the space's root | `path`, `name` | `space`, at its new path. Its folder becomes `spaces/<name>` with everything in it, its rules, and the keys, pins, notices and trash entries that named it, and the `dailySeries` of whoever chose one of its series (whose ids change with the name); links don't change. Another case of its own name renames it too. `409 space_name_taken` and `400 invalid` as for `POST /api/spaces` |
-| `DELETE /api/spaces` | `manage` at the space's root | `path`, `trash`? (query) | `path`. With `trash=true`, what it holds goes to the trash, which its managers keep seeing; otherwise only an empty space goes (`409 not_empty`) |
+| `DELETE /api/spaces` | `manage` at the space's root | `path`, `trash`? (query) | `path`, and since 0.1.0-rc.6 `deleted` (what restores it whole). With `trash=true`, what it holds goes to the trash, which its managers keep seeing; otherwise only an empty space goes (`409 not_empty`) |
+| `GET /api/spaces/deleted` | Anyone signed in | — | Since 0.1.0-rc.6: `spaces` (`id`, `path`, `name`, `by`, `deletedAt`, `entries`: how many of its trash entries are left): the deleted spaces the person managed when they were deleted; for the vihko admin, every one |
+| `POST /api/spaces/restore` | Who managed it when it was deleted; the vihko admin | `id` | Since 0.1.0-rc.6: `space` (`path`, `name`), `restored`, `missing` (trash entries no longer there). Its folder and folders, its rules and its trash entries, where they were. `409 space_name_taken` while another space has its name; `404 not_found` for anyone else, as for one that doesn't exist |
 | `POST /api/spaces/leave` | A grant of one's own there | `path` | `path`. One's own grants there and below go; nothing is deleted. `409 leave_via_group` with `group` when it comes through a group; `400 invalid` for one's own space, or a grant from a folder above |
 | `POST /api/spaces/pin` | What is shared with one | `path`, `pinned` | `path`, `pinned` |
 | `GET /api/admin/spaces` | The vihko admin | — | `spaces` (`path`, `name`, `managers`, `members` (a count), `aiClosed`), `closed` (`userId`, `username`, `path`: the spaces of deleted people) |
 | `POST /api/admin/spaces/managers` | The vihko admin, confirmed at the moment | `path`, `userId`, `confirm` | `space`. Only for a space without managers (a disabled one doesn't count): `409 space_has_managers` otherwise |
-| `POST /api/admin/spaces/join` | The vihko admin, confirmed at the moment | `path`, `level`? (`read` by default), `confirm` | `space` |
-| `GET /api/admin/users/:id/space` | The vihko admin | — | `path`, `exists`, `sharedFolders`, `people` (counts) |
+| `POST /api/admin/spaces/join` | The vihko admin, confirmed at the moment | `path`, `level`? (`read` by default), `confirm` | `space`. Since 0.1.0-rc.6, only for a space without managers (a disabled one doesn't count): `409 space_has_managers` otherwise. Its members are told (`space_changed`, `admin_joined`) |
+| `PUT /api/admin/users/:id/username` | The vihko admin | `username` | Since 0.1.0-rc.6: `user`. Only someone who hasn't used their invitation yet (`409 not_invited` otherwise): their folder, the grants to them in `vihko.yaml` and their link follow the new name. `409 user_exists` and `400 invalid_username` as for a new user |
+| `GET /api/admin/users/:id/space` | The vihko admin | — | `path`, `exists`, `sharedFolders`, `people` (counts), and since 0.1.0-rc.6 `shared` (each folder they share: `path`, only where the admin reads it, else null; `people`: `username`, `level`). What a deleted person shared stays shared until the admin decides what becomes of their space |
 | `POST /api/admin/users/:id/space` | The vihko admin, confirmed at the moment | `action` (`transfer`, `convert` or `delete`), `to` (a user id, for `transfer`), `name` and `members` (for `convert`), `dryRun`?, `confirm`, `deleteUser`? | `plan` (`action`, `from`, `to`, `notes`, `files`, `sharedFolders`, `people`). `400 space_needs_manager` when a conversion names nobody who manages it. A transfer goes to `people/<recipient>/<deleted username>`, or, if that name is taken there, the first free `-<n>` after it, found only when it moves (a dry run never looks into the recipient's space); the transfer's own answer has `to: null` for an admin who doesn't read there (since 0.1.0-rc.6). With `deleteUser: true`, the person is disabled but not deleted yet: what is asked (a transfer or a conversion) is checked and confirmed, then they're deleted and their space settled |
 | `GET /api/permissions` | `manage` in the folder | `folder` | `folder`, `etag` (of `vihko.yaml`), `section` (`none`, `rules` or `closed`), `own` (`grants`), `inherited` (`from`, `grants`: every folder above it in its space with grants), `owner`, `space` (`path`, `name`), `ai` (`closed`, `from`), `canEdit`, `access` (who has access, and why) |
-| `PUT /api/permissions` | `manage` in the folder | `folder`, `grants`? (or null), `ai`? (`false` or null), `ifMatch` | As `GET`; `412` when `vihko.yaml` changed; `400 invalid` for grants at a personal space's root |
+| `PUT /api/permissions` | `manage` in the folder | `folder`, `grants`? (or null), `ai`? (`false` or null), `ifMatch` | As `GET`; `412` when `vihko.yaml` changed; `400 invalid` for grants at a personal space's root. Since 0.1.0-rc.6, inside a shared space a new or changed grant to one of its members (a person, or a group with a grant at its root) at or below their level in the whole space is `400 grant_not_higher` with `subject` and `level`; at a space's root, the grants below it of whoever is taken out go, and so do grants below that no longer raise their subject above their level in the space |
 | `GET /api/permissions/folders` | Anyone | — | `folders` (`path`, `level`, `ownGrants`, `aiClosed`, `canEdit`): only what the asker sees |
 | `POST /api/permissions/holds/:id` | Who could have made that move from vihko | `action: "release"` | `ok` |
 | `POST /api/folder` | `edit` in the parent | `path` | `201`: `path`. `outside_space`, `space_root` |
@@ -317,7 +329,8 @@ can't call, they can change in any release.
 | `POST /api/folder/move` | `manage` in it and `edit` in both parents | `from`, `to`, `dryRun`?, `background`? | The folder move's report, with `images.copied` when it changes space. The root of a folder someone shares with you is only theirs to move. Into another space, its grants (and those of the folders under it) go along only for whoever manages where it goes; otherwise only `ai: false` does, and it takes the audience of where it lands (since 0.1.0-rc.6). `409 permissions_invalid` when it has rules of its own and `vihko.yaml` can't be changed as it is |
 | `DELETE /api/folder` | `manage` in it | `path`, `trash`?, `dryRun`? | `path`, `trashed`. `409 held_inside` while notes held after a move made outside vihko are in it. `409 not_empty`'s `contents`: `notes`, `files`, `hidden` (its hidden folders, which go to the trash with it since 0.1.0-rc.6: `total`, `paths`, and `files`, how many files they hold) and `kept` (symbolic links, which stop it). With `dryRun=true` (0.1.0-rc.6) nothing is deleted: `path` and `contents`, with the same checks |
 | `GET /api/home` | Anyone | — | «Home» (0.1.0-rc.3): `recent` (`path`, `title`, `at`: notes the person changed lately; without a history, those of their own space changed last), `changed` (the same and `by`: what others changed lately in notes the person reads; `by` (`kind` `user`, `agent` or `external`, `name`, `onBehalfOf`) only where they may see the history, null elsewhere), `shared` (`kind` `space` or `folder`, `path`, `name`, `owner`, `by`, `at`: what was shared with them in the last 30 days, while they see it). At most 8 each; nothing the person can't read |
-| `GET /api/live` | Anyone | — | A server-sent event stream (0.1.0-rc.3; `GET /api/events` until 0.1.0-rc.5): `ready` when it opens, then `tree` (data `{}`) whenever a change concerns what the person sees: a note made, renamed, moved or deleted where they read, a folder made or gone there, or what they reach (their spaces, what is shared with them, their levels) changed. It never says what changed. A comment keeps it open every 25 s |
+| `GET /api/live` | Anyone | — | A server-sent event stream (0.1.0-rc.3; `GET /api/events` until 0.1.0-rc.5): `ready` when it opens, then `tree` (data `{}`) whenever a change concerns what the person sees: a note made, renamed, moved or deleted where they read, a folder made or gone there, or what they reach (their spaces, what is shared with them, their levels) changed. It never says what changed. Since 0.1.0-rc.6, also `notices` (data `{}`) when a notice arrives for them. A comment keeps it open every 25 s |
+| `POST /api/auth/password` | Anyone, their own | `current`, `password`, `revokeOthers`? (since 0.1.0-rc.6; true by default) | `ok`, and since 0.1.0-rc.6 `sessionsEnded`, `keysRevoked`: with `revokeOthers`, every other session of theirs ends and every key and authorised app of theirs is revoked; with `false`, they stay. `403 wrong_password`, `400 weak_password` |
 | `GET /api/account/2fa` | Anyone, their own | — | `policy`, `enabled`, `enabledAt`, `recoveryCodesLeft`, `confirmWith` (`code` or `password`), and since 0.1.0-rc.6 `confirmNeeded` and `confirmedUntil`: what is «confirmed at the moment» doesn't ask while a confirmation of this browser session lasts (15 minutes from it), and `confirm` is then ignored. Never for a key or an OAuth token |
 | `GET/PUT /api/profile` | Anyone, their own | `timezone`?, `dailySeries`?, `onOpen`? (`home`, `last`, `note` or `daily`), `onOpenNote`? (a note's path, with `note`), `language`?; `openDailyOnStart`? (deprecated: `true` is `onOpen: daily`) | `timezone`, `dailySeries`, `onOpen`, `onOpenNote`, `openDailyOnStart` (deprecated: `onOpen` is `daily`), `language`. `onOpen: note` names only a note the person reads: `404 not_found` otherwise, and one they no longer read comes back as `home`. `onOpenNote` follows its note when vihko moves or renames it, or its folder (since 0.1.0-rc.6) |
 | `GET /api/trash` | Anyone | — | `entries`, each with `space` (its space's root, or null) |
@@ -331,6 +344,8 @@ can't call, they can change in any release.
 | `GET /api/workspace` | Anyone | — | `daily`: the series the person can write today's note in, from `vihko.yaml`, their shared spaces' settings and their own (0.1.0-rc.3); `links` (`aliases`). No `templates` since 0.1.0-rc.5: templates are marked in the notes (`GET /api/tree`) |
 | `GET /api/settings` | One's own; a shared space's members | `space`? (a shared space's root; one's own space when left out) | Since 0.1.0-rc.3: `space` (the root), `etag`, `settings` (`version`, `daily` (`id`, `label`, `folder`, `name`, `template`), `attachments` (`mode`, and `folder` or `suffix`; null: as `vihko.yaml` says), `agents`; paths relative to the space), `errors` (what is wrong in the file: `code`, `at`, `line`, `detail`), `guideMissing` (since 0.1.0-rc.4: `agents` names a note that doesn't exist), `canEdit` (oneself, or a manager). `404 not_found` for a space the person isn't in, or anything that isn't a space's root |
 | `PUT /api/settings` | One's own; a shared space's managers | `space`?, `settings` (as `GET` gives them), `ifMatch`, `remove`? (since 0.1.0-rc.6: keys of the file vihko doesn't know to remove from it, as `errors` names them in `at`; any other is ignored) | As `GET`. `400 invalid` with `errors` (nothing written), `428 precondition_required` without `ifMatch`, `412 precondition_failed` when the file changed, `403 forbidden` for a member who doesn't manage the space, `400 invalid_path` when the settings' path goes through a symbolic link (since 0.1.0-rc.6; `GET` reads none there) |
+| `POST /api/admin/permissions/restore` | The vihko admin, confirmed at the moment | `confirm` | Since 0.1.0-rc.6, while `permissions_missing` is raised: the last `permissions` section that shared something, written back into `vihko.yaml` folder by folder (the rest of the file as it is): `ok`, `folders` (how many). `404 not_found` when there's nothing to restore |
+| `DELETE /api/admin/permissions/restore` | The vihko admin | — | Since 0.1.0-rc.6: `permissions_missing` dismissed, and the kept section forgotten. `404 not_found` without the alert |
 | `GET /api/admin/retention` | The vihko admin | — | `lastRun` (`at`, `trash: { entries, bytes }`, `history: { versions, bytes }` or null, `failed`) or null; `nextRun` (null while both periods are off); `history`: whether the history is the managed one, the only one retention thins |
 | `POST /api/admin/retention/run` | The vihko admin | `confirm` | A run now with the settings in force (`400 confirmation_required` without `confirm`): `at`, `trash`, `history`, `failed`, as `lastRun` |
 | `POST /api/admin/retention/preview` | The vihko admin | `trashRetentionDays`?, `historyRetentionDays`? (missing: as they are) | What the next run would remove with them: `trash: { entries, bytes }`, `history: { versions, bytes }` (null when off or not managed). Counts and sizes of the whole installation, never a path |
@@ -367,9 +382,12 @@ term, the last one also a prefix), and filters, each a word of its own:
   that doesn't exclude asks for them (`template:true`, `prop:template`).
 - Only notes the principal reads are ever searched or counted.
 
-A new user (`POST /api/admin/users`, `vihko user create`) gets their folder,
+A user renamed while still invited (since 0.1.0-rc.6) has their folder renamed
+with them. A new user (`POST /api/admin/users`, `vihko user create`) gets their folder,
 `people/<username>/`; when that folder already exists with something in it,
-creating the user is refused with `409 personal_folder_exists`.
+creating the user is refused with `409 personal_folder_exists`, unless the
+admin adopts it (since 0.1.0-rc.6: `adopt: true`, or `--adopt`), which makes it
+theirs as it is. Never by default.
 
 ### Alerts and notices
 
@@ -380,6 +398,8 @@ codes 0.1.0 added for spaces:
 |---|---|---|
 | `outside_spaces` | Admins | `paths`: top-level names, and folders in `spaces/` that aren't a space, that nobody sees; `into`: the admin's own space (`people/<admin>`), where they can move them on the disk. Also a `config_warnings` entry for a `vihko.yaml` path outside the spaces |
 | `unreadable_notes` | Admins | Since 0.1.0-rc.6. `paths`: notes on the disk vihko can't read (no permission, an I/O error), among those the admin reads; `elsewhere`: the roots of the spaces that hold the others. Each stays as the index had it, and the server's log names it, until it can be read. A scan or a start never stops for one |
+| `permissions_missing` | Admins | Since 0.1.0-rc.6. `file`, `folders` (how many folders the kept section has rules for), `actions` (`restore_permissions`, `dismiss`): `vihko.yaml` has no `permissions` (or there's no file), so nothing is shared, while vihko kept the last section that shared something |
+| `notes_too_large` | Admins | Since 0.1.0-rc.6. `paths` (those the admin reads), `elsewhere` (the roots of the spaces that hold the others), `limitMb`: notes over `notes.maxSize`, indexed by their name alone and never opened live |
 | `closed_spaces` | Admins | `people`: usernames of deleted people whose space nobody has decided about yet (transferred, made a shared space or deleted) |
 | `person_folder_without_user` | Admins | `names`: folders in `people/` named after no user |
 | `space_without_members` | Admins | `path`, `name`: a shared space nobody has access to |
@@ -390,6 +410,12 @@ codes 0.1.0 added for spaces:
 | `shared_with_you` | The person added | `kind` (`space` or `folder`), `by`, `path`, `name`, `owner`, `space`: someone added them to a space or shared a folder with them. Names and path only while they can still see it |
 | `space_changed` | The people concerned, and the other admins | `change` (`manager_assigned`, `admin_joined`, `personal_transferred`, `personal_converted`, `personal_deleted`), `by`, `user`, `to`, `space` |
 | `links_not_updated` | Whoever made the move | Links in other notes a move of theirs couldn't update, even retried. No path, name or count |
+| `account_key_added` | The person whose account it is | Since 0.1.0-rc.6. `kind` (`key` or `app`), `name`: a key was made, or an app authorised, on their account, even by themselves |
+| `removed_from` | The person taken out | Since 0.1.0-rc.6. `kind` (`space` or `folder`), `by`, `name` (the space's, or the folder's), `owner` (a personal space's) or `space` (the shared space's name, for a folder): as they last saw them, never where it is now |
+| `space_deleted` | The members of a shared space; whoever deleted it, if they managed it | Since 0.1.0-rc.6. `by`, `name`, `deleted` (what `restore_space` restores it by, only for whoever may; null otherwise), `actions` (`restore_space` then too, and `dismiss`) |
+| `space_restored` | The members of a restored space | Since 0.1.0-rc.6. `by`, `path` and `name` (while they're in it) |
+| `space_renamed` | The members of a renamed space | Since 0.1.0-rc.6. `by`, `from` (its name before), `name`, `path` (while they're in it) |
+| `moved_out` | A personal space's owner | Since 0.1.0-rc.6. `kind` (`note` or `folder`), `by`, `from` (where it was in their space), `to` (where it is, only while they read it), `space` (`path`, `name`: the shared space it went to) or `owner` (the person whose space it went to): someone they shared it with moved it out of their space |
 | `settings_invalid` | The person, for their own settings; a shared space's managers, for the space's. Never the admin as such | `space` (null for one's own; otherwise `path` and `name`), `file` (since 0.1.0-rc.6: the file's path from the notes root), `errors` (`code`, `at`, `line`, `detail`): what is wrong in a settings file (0.1.0-rc.3) |
 | `settings_guide_missing` | As `settings_invalid` | `space` (always null since 0.1.0-rc.6: a shared space's guide is text), `note`: a person's settings name a guide for agents (`agents`) that isn't a note, so agents get nothing from it (0.1.0-rc.4) |
 | `note_not_saved` | Every admin | `path` (null for an admin who can't read the note), `space` (its space's root), `reason` (`disk_full`, `write_denied` or `write_failed`), `volume` (`notes`: its file; `state`: its recovery log): an open note vihko can't save. It's read-only for whoever has it open until vihko can, which it keeps trying; then the alert goes (0.1.0-rc.6) |
@@ -521,6 +547,7 @@ Every key vihko reads. [Configuration](configuration.md) explains each one.
 | `history.exclude` | pattern, or list of patterns | Paths kept out of the history |
 | `mcp.instructions` | note | A note served to agents as instructions; may hold `{user}` |
 | `mcp.client_domains` | list of domains (or one) | Since 0.1.0-rc.6: the domains OAuth apps may come from, with their subdomains (a metadata document's host, or every redirect URI of an app that registers itself). Empty: any. An app from elsewhere can't register (`invalid_redirect_uri`) or be authorized (`client_not_allowed`, with `host`, on `GET/POST /api/oauth/authorize`) |
+| `notes.maxSize` | number of MB (5 by default) | Since 0.1.0-rc.6. The largest note vihko indexes and opens in the live editor: a larger one is indexed by its name alone, shows as plain text with a download, and the API and MCP refuse writes that make a note larger (`413 note_too_large`) |
 | `permissions.<folder>.name` | text | A shared space's name, only at its root |
 | `permissions.<folder>.grants` | map of subject to level | Who gets what in that folder and below |
 | `permissions.<folder>.ai` | `false` | Closes the folder and everything below it to agents |
@@ -678,7 +705,7 @@ each one does. Other `VIHKO_*` variables in the source code are for tests.
 | Command | Arguments and options | Exit status |
 |---|---|---|
 | `vihko serve`, or `vihko` alone | — | `0` when stopped (`SIGTERM`, `SIGINT`); `1` if it can't start |
-| `vihko user create <name> [--admin]` | The password on standard input (one final line break is dropped); `--admin` before or after the name. Creates `people/<name>/` too | `0` created; `1` not (the name taken or not valid, a weak password, `personal_folder_exists`) |
+| `vihko user create <name> [--admin] [--adopt]` | The password on standard input (one final line break is dropped); the options before or after the name. Creates `people/<name>/` too; with `--adopt` (since 0.1.0-rc.6), a folder already there with something in it becomes theirs as it is (renamed to their name if another case spells it) | `0` created; `1` not (the name taken or not valid, a weak password, `personal_folder_exists` without `--adopt`) |
 | `vihko user reset-link <name>` | — | `0` with the link; `1` no such user |
 | `vihko user reset-2fa <name>` | — | `0` removed, or there was none; `1` no such user |
 | `vihko history purge <path> [--version <id>] [--dry-run]` | `--version=<id>` too | `0` purged, or nothing to purge; `1` not |

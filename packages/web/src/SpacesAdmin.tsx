@@ -7,7 +7,9 @@
 // moment with the admin's own code or password, so nothing is done to someone else's space quietly.
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, Text, TextField } from 'react-aria-components'
-import { ApiError, LEVELS, api, type AdminSettings, type Alert, type ClosedSpace, type Grants, type Level, type PersonalSpacePlan, type SpaceInfo, type User, type UserInfo } from './api.ts'
+import { ApiError, LEVELS, api, type AdminSettings, type Alert, type ClosedSpace, type DeletedSpace, type Grants, type Level, type PersonalSpacePlan, type PersonalSummary, type SpaceInfo, type User, type UserInfo } from './api.ts'
+import { useDates } from './history/ui.tsx'
+import { usePathLabels } from './spaces.tsx'
 import { ConfirmField, codeError, confirmReady, useConfirmWith } from './TwoFactor.tsx'
 import { errorText, useT } from './i18n.tsx'
 import { LEVEL_LABEL } from './Permissions.tsx'
@@ -263,8 +265,8 @@ function SettleDialog({ closed, action, users, groups, onClose, onDone }: {
  */
 export function DeletePersonDialog({ user, summary, users, groups, consequences, onClose, onDone }: {
   user: UserInfo
-  /** What their space shares (GET /api/admin/users/:id/space); null while it loads. */
-  summary: { exists: boolean; sharedFolders: number; people: number } | null
+  /** What their space shares, and with whom (GET /api/admin/users/:id/space); null while it loads. */
+  summary: Pick<PersonalSummary, 'exists' | 'sharedFolders' | 'people' | 'shared'> | null
   users: UserInfo[]
   groups: string[]
   /** What deleting the account does, as the users page words it. */
@@ -273,6 +275,7 @@ export function DeletePersonDialog({ user, summary, users, groups, consequences,
   onDone: () => void
 }) {
   const t = useT()
+  const labels = usePathLabels()
   const [choice, setChoice] = useState<'later' | 'transfer' | 'convert'>('later')
   const [input, setInput] = useState<SettleInput>({ to: '', name: user.username, members: {} })
   const [secret, setSecret] = useState('')
@@ -319,6 +322,20 @@ export function DeletePersonDialog({ user, summary, users, groups, consequences,
               {planError && <p className="error-text" role="alert">{planError}</p>}
             </fieldset>
           )}
+          {/* Who has access to what they shared: it stays so until the admin decides (a folder's name only where the admin reads it). */}
+          {summary && summary.shared.length > 0 && (
+            <div className="delete-shared">
+              <p className="dialog-text">{t('users.deleteWhoHasWhat')}</p>
+              <ul className="alert-paths">
+                {summary.shared.map((s, i) => (
+                  <li key={s.path ?? `unnamed-${i}`}>
+                    <span className="mono">{s.path ? labels.label(s.path) : t('users.deleteSharedUnnamed')}</span>
+                    {': '}{s.people.map((p) => `${p.username} (${t(LEVEL_LABEL[p.level])})`).join(', ')}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <Identity value={secret} onChange={setSecret} hint={t(settles ? 'spacesAdmin.confirmHint' : 'users.confirmIdentityHint')} />
           {error && <p className="error-text" role="alert">{error}</p>}
         </div>
@@ -335,6 +352,8 @@ export function SpacesPage({ user: me, onUnauthorized, onChanged }: { user: User
   const t = useT()
   const [spaces, setSpaces] = useState<SpaceInfo[] | null>(null)
   const [closed, setClosed] = useState<ClosedSpace[]>([])
+  const [deleted, setDeleted] = useState<DeletedSpace[]>([])
+  const dates = useDates()
   const [users, setUsers] = useState<UserInfo[]>([])
   const [groups, setGroups] = useState<string[]>([])
   const [settings, setSettings] = useState<AdminSettings | null>(null)
@@ -350,6 +369,7 @@ export function SpacesPage({ user: me, onUnauthorized, onChanged }: { user: User
   }
   const load = () => Promise.all([
     api.adminSpaces().then((r) => { setSpaces(r.spaces); setClosed(r.closed) }),
+    api.deletedSpaces().then(setDeleted),
     api.users().then(setUsers),
     api.groups().then((g) => setGroups(g.map((x) => x.name))),
     api.adminSettings().then(setSettings),
@@ -359,6 +379,17 @@ export function SpacesPage({ user: me, onUnauthorized, onChanged }: { user: User
 
   const close = () => setOpen(null)
   const finished = (text: string) => { close(); setDone(text); onChanged(); void load() }
+  /** A deleted space back whole: the admin gains no access by it. */
+  const restore = async (d: DeletedSpace) => {
+    setBusy(true)
+    setError(null)
+    setDone(null)
+    try {
+      const r = await api.restoreSpace(d.id)
+      finished(r.missing > 1 ? t('spaces.restoreMissing', { name: d.name, n: r.missing }) : r.missing === 1 ? t('spaces.restoreMissingOne', { name: d.name }) : t('spacesAdmin.restoreDone', { name: d.name }))
+    } catch (err) { fail(err) }
+    setBusy(false)
+  }
   const outside = alerts.find((a): a is Extract<Alert, { code: 'outside_spaces' }> => a.code === 'outside_spaces')
   const strays = alerts.find((a): a is Extract<Alert, { code: 'person_folder_without_user' }> => a.code === 'person_folder_without_user')
   const setCreation = async (v: AdminSettings['spacesCreation']) => {
@@ -415,7 +446,8 @@ export function SpacesPage({ user: me, onUnauthorized, onChanged }: { user: User
                         <td>{s.members}</td>
                         <td className="user-actions space-admin-actions">
                           {s.managers.length === 0 && <Button className="btn" onPress={() => setOpen({ kind: 'manager', space: s })}>{t('spacesAdmin.assign')}</Button>}
-                          {!mine && <Button className="btn" onPress={() => setOpen({ kind: 'join', space: s })}>{t('spacesAdmin.join')}</Button>}
+                          {/* Only to rescue a space without managers: one with managers is theirs to add people to, the admin too. */}
+                          {!mine && s.managers.length === 0 && <Button className="btn" onPress={() => setOpen({ kind: 'join', space: s })}>{t('spacesAdmin.join')}</Button>}
                         </td>
                       </tr>
                     )
@@ -426,6 +458,26 @@ export function SpacesPage({ user: me, onUnauthorized, onChanged }: { user: User
           )}
           <p className="hint">{t('spacesAdmin.directoryHint')}</p>
         </section>
+
+        {deleted.length > 0 && (
+          <section className="settings-section" aria-labelledby="spaces-deleted">
+            <h2 id="spaces-deleted">{t('spacesAdmin.deleted')}</h2>
+            <p className="hint">{t('spacesAdmin.deletedIntro')}</p>
+            <ul className="keys">
+              {deleted.map((d) => (
+                <li key={d.id} className="group-card">
+                  <div className="key-head">
+                    <h3 className="group-name">{d.name}</h3>
+                    <span className="key-owner">{t('spacesAdmin.deletedMeta', { by: d.by, when: dates.dateTime(d.deletedAt), n: d.entries })}</span>
+                  </div>
+                  <div className="key-actions">
+                    <Button className="btn" isDisabled={busy} onPress={() => void restore(d)}>{t('spacesAdmin.restore')}</Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {closed.length > 0 && (
           <section className="settings-section" aria-labelledby="spaces-closed">

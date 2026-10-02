@@ -20,7 +20,7 @@ which doesn't run as root, might not be able to write there afterwards.
 | Command | What it does | vihko running? |
 |---|---|---|
 | `vihko serve` | Starts the server. It's what the container runs (`vihko` alone does the same). | — |
-| `vihko user create <name> [--admin]` | Creates a user, a member unless `--admin` (before or after the name). Reads the password from standard input. | Either |
+| `vihko user create <name> [--admin] [--adopt]` | Creates a user, a member unless `--admin` (the options before or after the name). Reads the password from standard input. With `--adopt`, a folder already at `people/<name>/` with something in it becomes theirs (someone recreated after `state.db` was lost); without it, that's refused. | Either |
 | `vihko user reset-link <name>` | Prints a one-time link, valid 7 days, for that person to choose a new password. | Either |
 | `vihko user reset-2fa <name>` | Removes that person's second factor (authenticator and recovery codes). | Either |
 | `vihko history purge <path> [--version <id>] [--dry-run]` | Removes a file or folder from the history, for good. | Stopped (`--dry-run`: either) |

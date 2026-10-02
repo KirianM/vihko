@@ -10,7 +10,7 @@ import { expect, test, type Browser, type Page } from '@playwright/test'
 import { createHmac } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, E2E_DIR, PUBLIC_URL, specMother } from './env.ts'
-import { literally, newUser, signIn, usePermissions } from './helpers.ts'
+import { dismissNoticesOf, literally, newUser, signIn, usePermissions } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
@@ -36,6 +36,8 @@ test.beforeAll(async ({ browser }) => {
 })
 
 test.afterAll(async () => {
+  // The keys made here are told to their owners: not left for other specs.
+  await dismissNoticesOf(ADMIN)
   const admin = keeper
   await admin.request.put('/api/admin/settings', { data: { twoFactor: 'optional', confirm: ADMIN.password } })
   await admin.request.put('/api/admin/integrations', { data: { membersCanCreateKeys: false } })

@@ -266,6 +266,8 @@ export interface HubOptions {
   stateDir: string
   indexer: Indexer
   auth: Auth
+  /** Whether a note is over vihko.yaml's `notes.maxSize` (indexer.ts `isTooLarge`): never opened live. */
+  tooLarge?: (path: string) => boolean
   debounceMs?: number
   /** How often hot notes' files are checked. */
   checkMs?: number
@@ -594,6 +596,8 @@ export class CollabHub implements HotDocuments {
         if (!this.hot.has(documentName) && readText(this.file(documentName)) === null) {
           throw new NoteError('not_found', `does not exist: ${documentName}`)
         }
+        // Over vihko.yaml's `notes.maxSize`: never opened live (the UI shows it as plain text).
+        if (!this.hot.has(documentName) && this.opts.tooLarge?.(documentName)) throw new NoteError('note_too_large', `too large to edit live: ${documentName}`)
       },
       // The session was checked on the upgrade; the token only says which
       // generation the editor's copy belongs to, and the level it shows the

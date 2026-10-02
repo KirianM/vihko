@@ -13,7 +13,7 @@ import { mkdirSync } from 'node:fs'
 import WebSocket from 'ws'
 import { openLineage, type Lineage } from '../src/editor/lineage.ts'
 import { ADMIN, BASE_URL, E2E_DIR, MEMBER, inVault, specMother } from './env.ts'
-import { signIn } from './helpers.ts'
+import { dismissNoticesOf, signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const m = specMother(import.meta.url)
@@ -80,6 +80,8 @@ test.beforeAll(async ({ browser }) => {
   await expect(member.locator('.cm-content')).toContainText(FIRST)
 })
 test.afterAll(async () => {
+  // The keys made here are told to their owners: not left for other specs.
+  await dismissNoticesOf(ADMIN, MEMBER)
   await admin.request.put('/api/admin/integrations', { data: { api: false, mcp: false } })
   await admin.context().close()
   await member.context().close()

@@ -174,6 +174,17 @@ export class History {
     return this.managed.paths()
   }
 
+  /**
+   * Every file path the managed history holds a version of, whatever the
+   * mode in force (a history switched off or to unmanaged keeps its
+   * repository, and comes back with it): what a space's name keeps
+   * reserved while its past is there (spaceService.ts). None without one.
+   */
+  async pastPaths(): Promise<string[]> {
+    if (!existsSync(join(repositoryDir(this.opts.stateDir), 'HEAD'))) return []
+    return (await this.managed.paths()).map((p) => p.path)
+  }
+
   /** Who made the purge a `history_purged` alert tells of (its `id`): their user id, or null. */
   purgedBy(noticeId: string): string | null {
     return this.notices.all().find((n) => n.id === noticeId)?.by ?? null

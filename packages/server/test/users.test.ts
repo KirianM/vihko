@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
@@ -346,6 +346,38 @@ test('one\'s own account: sessions (the current one marked), closing the others,
   }
 })
 
+test('a new password signs out the other sessions and revokes keys and apps unless asked not to; a new key is always told to its person', async () => {
+  const s = await setup()
+  try {
+    await s.enableApi()
+    assert.equal((await s.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).status, 200)
+    const { username, password } = s.users.member
+    const told = async () => (await s.member('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'account_key_added')
+    // A key made on their account: they're told, even of their own (a session taken would make one unnoticed otherwise).
+    const name = m.aKeyName()
+    const key = await s.newKey({ name }, 'member')
+    assert.deepEqual((await told()).map((a: any) => [a.kind, a.name]), [['key', name]])
+    assert.equal((await s.withKey(key.token)('GET', '/api/tree')).status, 200)
+    // Keeping the rest: other sessions and the key go on.
+    const other = await login(s.app, username, password) as string
+    const kept = m.aPassword()
+    const r = await s.member('POST', '/api/auth/password', { current: password, password: kept, revokeOthers: false })
+    assert.deepEqual([r.status, r.body.sessionsEnded, r.body.keysRevoked], [200, 0, 0])
+    assert.equal((await s.app.request('/api/tree', { headers: { cookie: other } })).status, 200)
+    assert.equal((await s.withKey(key.token)('GET', '/api/tree')).status, 200)
+    assert.equal((await s.member('POST', '/api/auth/password', { current: kept, password: m.aPassword(), revokeOthers: 'no' })).status, 400)
+    // By default: all of it goes.
+    const renewed = m.aPassword()
+    const all = await s.member('POST', '/api/auth/password', { current: kept, password: renewed })
+    assert.deepEqual([all.status, all.body.sessionsEnded, all.body.keysRevoked], [200, 1, 1])
+    assert.equal((await s.app.request('/api/tree', { headers: { cookie: other } })).status, 401)
+    assert.equal((await s.withKey(key.token)('GET', '/api/tree')).status, 401)
+    assert.equal((await s.member('GET', '/api/tree')).status, 200, 'this one stays')
+  } finally {
+    await s.close()
+  }
+})
+
 test('a new password of one\'s own ends a reset link made for them: nobody gets in with it afterwards', async () => {
   const s = await setup()
   try {
@@ -415,10 +447,23 @@ test('the CLI creates a user from its arguments as documented: `--admin` before 
     assert.equal(again.status, 1, 'a user that exists: an error')
     assert.match(again.stderr, /^error \(user_exists\): /, 'its code, as every other error')
     assert.equal(s.auth.userCount(), 4, 'the two of setup and the two created: none named after an option')
+    // A person recreated after state.db was lost: their folder is there, with their notes. Never theirs by default; with --adopt, it is.
+    const back = m.aUsername()
+    const kept = `people/${back}/${m.aTitle()}.md`
+    mkdirSync(join(s.notesDir, 'people', back), { recursive: true })
+    writeFileSync(join(s.notesDir, kept), m.aParagraph())
+    const refused = cli(['user', 'create', back])
+    assert.equal(refused.status, 1)
+    assert.match(refused.stderr, /^error \(personal_folder_exists\): /)
+    const adopted = cli(['user', 'create', '--adopt', back])
+    assert.equal(adopted.status, 0, adopted.stderr)
+    assert.match(adopted.stdout, new RegExp(`^user created: ${back} \\(member\\), with the folder already at people/${back} as theirs\\n$`))
+    assert.ok(existsSync(join(s.notesDir, kept)), 'what it held stays')
   } finally {
     await s.close()
   }
 })
+
 
 test('state.db: version 5 migrates keeping its users, with a copy before and a log line that names it', () => {
   const dir = tempDir('vihko-state-m4-')
@@ -428,7 +473,7 @@ test('state.db: version 5 migrates keeping its users, with a copy before and a l
   openState(file, { log: (msg) => created.push(msg) }).close()
   assert.deepEqual(created, [], 'a new database is no news')
   const raw = new Database(file)
-  raw.exec(`drop table pins; drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
+  raw.exec(`drop table deleted_spaces; drop table grant_starts; drop table pins; drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
     alter table users drop column deleted_at; alter table sessions drop column user_agent; alter table profiles drop column language;
     alter table profiles drop column on_open; alter table profiles drop column on_open_note;`)
   raw.prepare("insert into users (id, username, password_hash, role, created_at) values ('01U', ?, 'x', 'admin', '2026-01-01T00:00:00Z')").run(admin)

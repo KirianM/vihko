@@ -11,7 +11,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
-import { NoteSettingsFileError, WORKSPACE_FILE, noteSettingsPath, parseNoteSettings, writeNoteSettings, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, personalRoot, seriesPath, spaceRootOf, type Alert, type ConfigError, type ErrorCode, type Series, type WorkspaceConfig } from '@vihko/core'
+import { NoteSettingsFileError, WORKSPACE_FILE, noteSettingsPath, parseNoteSettings, writeNoteSettings, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, personalRoot, rulesInFile, seriesPath, setRule, spaceRootOf, type Alert, type ConfigError, type ErrorCode, type RuleValue, type Series, type WorkspaceConfig } from '@vihko/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
@@ -70,6 +70,7 @@ import { VERSION } from '../version.ts'
 import type { ConfigMigrations } from '../configMigrations.ts'
 import { dismissStateMigration, stateMigrationAlerts } from '../state.ts'
 import { FolderRefs } from '../folderRefs.ts'
+import { GrantStarts } from '../grantStarts.ts'
 import { SpaceError, SpaceService } from '../spaceService.ts'
 import { spaceRoutes } from './spaces.ts'
 import { jsonBody } from './jsonBody.ts'
@@ -205,6 +206,8 @@ export interface AppDeps {
   noteSettings?: NoteSettingsStore
   /** Only tests: how «Save a copy» resolves names and which addresses count as public. */
   imageFetchTesting?: FetchImageOptions['testing']
+  /** The server's log (main.ts): what the admins' actions leave on record. Nothing by default. */
+  log?: (msg: string) => void
 }
 
 /**
@@ -273,7 +276,7 @@ export type ApiEnv = { Variables: { user: User; token: string; access: Access } 
 type Env = ApiEnv
 
 function noteErrorStatus(e: NoteError) {
-  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, control_characters: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409, series_gone: 409 } as const)[e.code]
+  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, control_characters: 400, edit_mismatch: 409, too_large: 413, note_too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409, series_gone: 409 } as const)[e.code]
 }
 
 function fetchErrorStatus(e: FetchImageError) {
@@ -288,6 +291,11 @@ function fail(c: Context, status: ContentfulStatusCode, error: ErrorCode, messag
   return c.json({ error, message, ...extra }, status)
 }
 
+/** The rules a vihko.yaml's text writes (none if it isn't YAML). */
+function keptRules(text: string): Map<string, RuleValue> {
+  try { return rulesInFile(text) } catch { return new Map() }
+}
+
 /** The API alone (see `createServer` for the services under it). */
 export function createApp(deps: AppDeps) {
   return createServer(deps).app
@@ -296,6 +304,7 @@ export function createApp(deps: AppDeps) {
 /** The API and the services under it (keys, switches, access, scoped operations). */
 export function createServer(deps: AppDeps): { app: Hono<Env>; services: Services } {
   const { auth, notes, index, profiles, workspace } = deps
+  const log = deps.log ?? (() => {})
   const externalImages = deps.externalImages ?? 'allow'
   const now = deps.now ?? (() => new Date())
   // Under the spaces model, a person's series are those where they can write today's note.
@@ -321,6 +330,14 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     }),
   })
   const permissions = policy.permissions
+  // When each grant began (grantStarts.ts): each person sees the past only from when they could read it.
+  const grantStarts = policy.starts ?? new GrantStarts(auth.state, { now })
+  if (!policy.starts) {
+    policy.starts = grantStarts
+    // Not while vihko.yaml has lost its permissions (pasted over, deleted, caught half written):
+    // giving them back mustn't start everyone's grants anew, and so hide their past from them.
+    permissions.onRules((rules) => { if (!workspace.permissionsMissing) grantStarts.sync(rules) })
+  }
   // The tree and the sidebar, live (liveTree.ts): told what changes the tree, and when who reaches what may have.
   const live = new LiveTree({
     policy,
@@ -332,7 +349,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     },
   })
   deps.indexer.onTreeChange((paths) => live.pathsChanged(paths))
-  const permissionsChanged = () => { deps.onPermissionsChanged?.(); live.viewChanged() }
+  // The rules are compiled at once: a grant starts when it's written (grantStarts.ts), not when someone next asks.
+  const permissionsChanged = () => { permissions.spaceRules(); deps.onPermissionsChanged?.(); live.viewChanged() }
   const permissionsFile = new PermissionsFile({
     notesDir: deps.notesDir, workspace, engine: permissions, history: deps.history?.recorder, onChange: permissionsChanged,
     // Whoever a share or a new member reaches is told (spaceService.ts `notifyShared`).
@@ -340,6 +358,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
   const twoFactor = deps.twoFactor ?? new TwoFactor(auth.state, { now })
   const notices = deps.notices ?? new Notices(auth.state, { now })
+  // A notice for someone reaches their open pages at once (GET /api/live `notices`).
+  notices.onAdded = (userId) => live.noticeFor(userId)
   const retention = deps.retention ?? new Retention({ stateDir: notes.stateDir, settings: adminSettings, trash: () => notes.trash(), history: deps.history, notices, now: () => now().getTime() })
   const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata, clientDomains: () => workspace.config.mcp.clientDomains })
   // Keys' folders, pins and the trash follow a folder moved from vihko (folderRefs.ts).
@@ -349,10 +369,20 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     permissions, permissionsFile, keys: () => keys.listAll(), orphans: deps.orphans, externalMoves: deps.externalMoves, holds: deps.holds,
     onFolderMoved: (from, to) => { refs.moved(from, to) },
     onNoteMoved: (from, to) => { refs.noteMoved(from, to) },
+    onFolderMoving: (from, to) => { grantStarts.moving(from, to) },
+    onMovedOut: (m) => {
+      const owner = auth.state.prepare('select id from users where username = ? and deleted_at is null').get(m.owner) as { id: string } | undefined
+      if (owner) notices.add(owner.id, { code: 'moved_out', kind: m.kind, by: m.by, from: m.from, to: m.to })
+    },
   }
   // A user deleted, a group renamed or deleted: their grants in vihko.yaml
   // follow, first (if vihko.yaml can't be written, nothing changes).
   users.hooks.onUserDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(name, { actor: by }) }
+  // Someone invited renamed: the grants to them, and their folder's own rules, follow.
+  users.hooks.onUserRenamed ??= async (from, to, by) => {
+    await permissionsFile.renameSubject(from, to, { actor: by })
+    if (permissionsFile.read().text?.includes(personalRoot(from))) await permissionsFile.moveRules(personalRoot(from), personalRoot(to), { actor: by })
+  }
   users.hooks.onGroupRenamed ??= async (from, to, by) => { await permissionsFile.renameSubject(`@${from}`, `@${to}`, { actor: by }) }
   users.hooks.onGroupDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(`@${name}`, { actor: by }) }
   // Deleting someone closes their space for everyone: open editors are checked again at once.
@@ -373,6 +403,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     notesDir: deps.notesDir, state: auth.state, engine: permissions, file: permissionsFile, users, notices, settings: adminSettings, refs, notes, indexer: deps.indexer, now,
     deleteFolder: (access, path, o) => new ScopedNotes(scopedDeps, access).deleteFolder(path, o),
     moveFolder: (access, from, to, o) => new ScopedNotes(scopedDeps, access).moveFolder(from, to, o),
+    pastPaths: deps.history ? () => deps.history!.pastPaths() : undefined,
+    starts: grantStarts,
   })
   const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users, imageSlots: new ImageSlots(), spaces, live, noteSettings }
   const app = new Hono<Env>()
@@ -443,7 +475,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (!integrations.apiEnabled()) return fail(c, 404, 'not_found', 'does not exist')
     if (!route) return fail(c, 404, 'not_found', 'does not exist')
     const r = authenticateKey({ keys, integrations }, token, 'api')
-    if (!r.ok) return fail(c, r.status, r.error, r.status === 401 ? 'invalid key' : 'does not exist')
+    if (!r.ok) return fail(c, r.status, r.error, r.status === 401 ? 'invalid key' : r.status === 403 ? 'this key is suspended while the admin doesn\'t let members have keys' : 'does not exist')
     if (route === 'write' && !r.principal.key.canWrite) return fail(c, 403, 'forbidden', 'this key is read-only')
     c.set('user', r.principal.user)
     c.set('access', policy.for(r.principal))
@@ -523,7 +555,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // The second factor (http/twoFactor.ts): after the password, the session or the second step.
   const tf = twoFactorHttp({
     auth, users, twoFactor, settings: adminSettings, limiter, deviceCookie: DEVICE_COOKIE, ipOf, tooMany, signedIn, notices,
-    publicUrl: deps.publicUrl ?? null, now: () => now().getTime(), confirmWindowMs: deps.confirmWindowMs,
+    publicUrl: deps.publicUrl ?? null, now: () => now().getTime(), confirmWindowMs: deps.confirmWindowMs, log,
   })
 
   // The password: the session, or (with a second factor) a pending sign-in
@@ -552,7 +584,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     auth, users, settings: adminSettings, limiter, ipOf, tooMany, publicUrl: deps.publicUrl ?? null,
     deviceOf: (c, username) => limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username),
     passwordAccepted: tf.passwordAccepted, confirm: tf.confirmIdentity, notices,
-    retention, managedHistory: () => deps.history?.status().mode === 'managed',
+    retention, managedHistory: () => deps.history?.status().mode === 'managed', log, keys,
   }
   // A one-time link (an invitation or a reset): no session yet.
   app.use('/api/invite/*', authBody)
@@ -671,10 +703,11 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return job ? c.json(job) : fail(c, 404, 'not_found', 'no such move job')
   })
 
+  // `tooLarge`: over vihko.yaml's `notes.maxSize`, never opened live (the UI shows it as plain text, with a download).
   app.get('/api/note', (c) => {
     const r = scoped(c).read(c.req.query('path') ?? '')
     c.header('ETag', `"${r.etag}"`)
-    return c.json(r)
+    return c.json(deps.indexer.isTooLarge(r.path) ? { ...r, tooLarge: true } : r)
   })
 
   // A new note, with the given text or from a template note (its variables
@@ -782,7 +815,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return streamSSE(c, async (stream) => {
       let wake: (() => void) | null = null
       let ended = false
-      const stop = live.subscribe(c.get('user'), () => { void stream.writeSSE({ event: 'tree', data: '{}' }).catch(() => {}) })
+      const stop = live.subscribe(c.get('user'),
+        () => { void stream.writeSSE({ event: 'tree', data: '{}' }).catch(() => {}) },
+        // A notice arrived for them: «read your notices again», nothing of it.
+        () => { void stream.writeSSE({ event: 'notices', data: '{}' }).catch(() => {}) })
       // Its session ending (signed out, disabled, a new password) ends it at once; one that expires, at the next keep-alive.
       const open = { userId: c.get('user').id, token, end: () => { ended = true; wake?.() } }
       streams.add(open)
@@ -1015,6 +1051,13 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       const elsewhere = [...new Set(unreadableNotes.filter((p) => !access.canRead(p)).map((p) => spaceRootOf(p) ?? p.split('/')[0]!))].sort()
       alerts.push({ code: 'unreadable_notes', paths, elsewhere, actions: [] })
     }
+    // Notes over vihko.yaml's `notes.maxSize`: shown as plain text, never indexed nor edited live. The same naming.
+    const tooLarge = admin ? deps.indexer.tooLargeNotes() : []
+    if (tooLarge.length) {
+      const paths = tooLarge.filter((p) => access.canRead(p))
+      const elsewhere = [...new Set(tooLarge.filter((p) => !access.canRead(p)).map((p) => spaceRootOf(p) ?? p.split('/')[0]!))].sort()
+      alerts.push({ code: 'notes_too_large', paths, elsewhere, limitMb: workspace.config.notes.maxSize, actions: [] })
+    }
     for (const path of deps.orphans?.orphans() ?? []) {
       if (access.canRead(path)) alerts.push({ code: 'orphaned_note', path, actions: access.canWrite(path) ? ['keep_copy', 'discard_copy'] : [] })
     }
@@ -1048,6 +1091,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       const warnings = [...ws.warnings, ...permissions.unknownSubjects(), ...outsideSpaces(workspace.config)].map((w) => redactPermissionsWarning(w, access))
       if (warnings.length) alerts.push({ code: 'config_warnings', file: WORKSPACE_FILE, warnings, actions: [] })
       if (workspace.permissionsFallback) alerts.push({ code: 'permissions_rejected', fallback: workspace.permissionsFallback, actions: [] })
+      // The section gone from the file: nothing is shared, and the last one that shared something can be put back.
+      const kept = workspace.permissionsMissing ? workspace.lastPermissions() : null
+      if (kept !== null) alerts.push({ code: 'permissions_missing', file: WORKSPACE_FILE, folders: keptRules(kept).size, actions: ['restore_permissions', 'dismiss'] })
       for (const sr of workspace.config.daily) {
         if (sr.template && !noteExists.get(sr.template)) alerts.push({ code: 'config_template_missing', series: sr.id, template: sr.template, actions: [] })
       }
@@ -1087,7 +1133,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const unreadable = admin ? twoFactor.unreadable() : []
     if (unreadable.length) alerts.push({ code: 'two_factor_unreadable', users: unreadable.map(nameOf).sort(), actions: [] })
     // Notices addressed to this person (notices.ts), last: what others did to their account or their writing.
-    if (!access.isAgent) for (const n of notices.of(c.get('user').id)) alerts.push(noticeAlert(n, access, nameOf, (root) => permissions.spaceName(root)))
+    if (!access.isAgent) for (const n of notices.of(c.get('user').id)) alerts.push(noticeAlert(n, access, nameOf, (root) => permissions.spaceName(root), (id) => spaces.mayRestoreId(c.get('user'), id)))
     // Note settings written by hand with something wrong (noteSettings.ts): to whom they belong, the person or a space's managers.
     if (!access.isAgent) {
       const me = c.get('user')
@@ -1134,6 +1180,33 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return c.json({ ok: true })
   })
 
+  // The permissions gone from vihko.yaml: the last ones that shared something,
+  // written back (each folder's rule, the rest of the file as it is), as any
+  // change to them is; confirmed at the moment, as it gives access to people.
+  // Or the alert dismissed: they're forgotten.
+  app.post('/api/admin/permissions/restore', adminOnly, async (c) => {
+    const { confirm } = await jsonBody<{ confirm?: unknown }>(c).catch(() => ({ confirm: undefined }))
+    const kept = workspace.permissionsMissing ? workspace.lastPermissions() : null
+    if (kept === null) return fail(c, 404, 'not_found', 'no permissions to restore')
+    const refused = await tf.confirmIdentity(c, confirm)
+    if (refused) return refused
+    await permissionsFile.update((t) => {
+      let out = t
+      for (const [folder, value] of keptRules(kept)) out = setRule(out, folder, value)
+      return out
+    }, { actor: c.get('access').actor })
+    log(`${WORKSPACE_FILE}: the last permissions were restored by ${c.get('user').username}`)
+    return c.json({ ok: true, folders: keptRules(kept).size })
+  })
+
+  app.delete('/api/admin/permissions/restore', adminOnly, (c) => {
+    if (!workspace.permissionsMissing) return fail(c, 404, 'not_found', 'no such alert')
+    workspace.forgetLastPermissions()
+    // Kept as the file says now: the grants it no longer has are gone.
+    grantStarts.sync(permissions.spaceRules().rules)
+    return c.json({ ok: true })
+  })
+
   // The alert of a migration of state.db at start, dismissed (for every admin).
   app.delete('/api/admin/state-migrations/:id', adminOnly, (c) => {
     if (!dismissStateMigration(auth.state, c.req.param('id') ?? '')) return fail(c, 404, 'not_found', 'no such alert')
@@ -1148,7 +1221,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, keyName: (id) => keys.nameOf(id), notices, confirm: tf.confirmIdentity })
 
   // Creating a key, and approving an OAuth client, confirm who is there: a session left open isn't enough.
-  keyRoutes(app, { keys, integrations, publicUrl: oauth.publicUrl, confirm: tf.confirmIdentity })
+  keyRoutes(app, {
+    keys, integrations, publicUrl: oauth.publicUrl, confirm: tf.confirmIdentity,
+    onKeyAdded: (userId, name) => { notices.add(userId, { code: 'account_key_added', kind: 'key', name }) },
+  })
 
   permissionRoutes(app, { engine: permissions, file: permissionsFile, index, keys, policy, holds: deps.holds })
 
@@ -1156,7 +1232,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   spaceRoutes(app, { spaces, confirm: tf.confirmIdentity })
 
   // OAuth for the MCP server: its addresses for clients, and the consent page's (session).
-  oauthRoutes(app, { oauth, integrations, ui: deps.webDir !== undefined, clientAddress: ipOf, confirm: tf.confirmIdentity })
+  oauthRoutes(app, {
+    oauth, integrations, ui: deps.webDir !== undefined, clientAddress: ipOf, confirm: tf.confirmIdentity,
+    onAppAuthorized: (userId, name) => { notices.add(userId, { code: 'account_key_added', kind: 'app', name }) },
+  })
 
   app.all('/api/*', (c) => fail(c, 404, 'not_found', 'does not exist'))
 

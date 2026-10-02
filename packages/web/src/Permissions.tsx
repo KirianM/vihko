@@ -128,6 +128,12 @@ export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost
     for (const i of view?.inherited ?? []) for (const [s, l] of Object.entries(i.grants)) m.set(key(s), higher(m.get(key(s)) ?? null, l))
     // In someone's space, its owner manages all of it.
     if (view?.owner) m.set(key(view.owner), 'manage')
+    // And each person's own level from above, through their groups too: a member of the space is only ever raised here.
+    for (const a of view?.access ?? []) {
+      let l: Level | null = null
+      for (const v of a.via) if (v.from !== view!.folder || v.owner) l = higher(l, v.level)
+      if (l) m.set(key(a.username), higher(m.get(key(a.username)) ?? null, l))
+    }
     return m
   }, [view])
 
@@ -143,6 +149,7 @@ export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost
   const mine = (g: Grants | null) => Object.entries(g ?? {}).find(([s]) => key(s) === meKey)?.[1] ?? null
   const keepsManage = !!view?.access.find((a) => a.id === me.id)?.via.some((v) => v.level === 'manage' && !(v.from === view.folder && key(v.subject) === meKey))
   const losesManage = !!view && mine(view.own.grants) === 'manage' && !atLeast(mine(grants), 'manage') && !keepsManage
+  const removesMembers = isSpaceRoot && !!view && Object.keys(view.own.grants ?? {}).some((s) => !Object.keys(grants).some((g) => key(g) === key(s)))
   const candidates = useMemo(() => {
     if (!directory || !view) return { users: [], groups: [] }
     const taken = new Set(Object.keys(grants).map(key))
@@ -291,6 +298,9 @@ export function PermissionsDialog({ folder, me, onClose, onChanged, onAccessLost
                   </div>
                 )}
                 {losesManage && <p className="key-once" role="note">{Icon.alert}<span>{t('perm.losesManage')}</span></p>}
+                {/* Taken out of the space: what was shared with them below goes too, as leaving does. */}
+                {removesMembers && <p className="key-once" role="note">{Icon.alert}<span>{t('perm.removeBelow')}</span></p>}
+                {inner && inShared && !readOnly && <p className="hint">{t('perm.raiseOnly')}</p>}
                 {probes && <p className="key-once" role="note">{Icon.alert}<span>{t('perm.editProbes')}</span></p>}
                 <p className="perm-cascade">{t('perm.onlyAdds')}</p>
                 {inner && (toNewSpace || toMine) && (

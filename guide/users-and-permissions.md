@@ -161,6 +161,17 @@ with a neighbour who isn't a member, say), but never take someone away from a
 subfolder they reach from above: the dialog shows those rows as «Through
 <folder>», without a way to remove them there.
 
+A member of a shared space can only be raised in a subfolder: the share
+dialog offers them only the levels above the one they have in the whole
+space (someone who reads Home may edit `recipes/`). When their level in the
+space goes up, a grant below that no longer raises them goes by itself, and
+taking someone out of the space takes their grants below it too, as leaving
+does.
+
+Sharing a folder doesn't share its past: whoever you share it with (or add to
+a space, or to a group) sees its history and its trash from that moment on,
+not what was written or deleted there before.
+
 So what someone shouldn't see goes somewhere else: another folder of your own
 space, or another shared space. This is on purpose. Where you can create a
 note, you see everything around it, and nothing hidden there can get in your
@@ -217,8 +228,15 @@ for the others, and someone who manages it has to add you again to come back.
 ### Delete a space
 
 The space's menu → **Delete space…** (it takes `manage`). Its notes go to the
-trash, and only the people who managed it can restore them. Its members stop
-seeing it at once.
+trash, and its members stop seeing it at once; they get a notice. **Undo**,
+right after, brings it back whole; later, so does **Restore space** in the
+notice its managers get (and, for the admin, in «Spaces»): its folders, its
+notes and its members with their levels, as they were. Only under its own
+name: while another space has it, it can't come back.
+
+A deleted or renamed space's name stays taken while its trash or its history
+holds anything, so that a new space with that name never inherits them. It's
+free again once the retention or a purge empties that past.
 
 ### A shared space's notes
 
@@ -410,8 +428,10 @@ send it yourself over a channel you trust.
 
 1. Go to Preferences → Users and groups → **New user**.
 2. Type a username and choose a role. The username is 2 to 64 letters,
-   digits, `.`, `_` or `-`, doesn't start with a dot, and can't be changed
-   later: it's also the name of their folder, `people/<username>/`. Names are
+   digits, `.`, `_` or `-`, doesn't start with a dot, and can only be changed
+   while their invitation is unused (the user's «Actions» → **Rename…**: their
+   folder and what's shared with them follow): it's also the name of their
+   folder, `people/<username>/`. Names are
    unique ignoring case (`Noa` and `noa` are the same person). A new admin,
    like making someone admin, asks you to confirm at the moment (see
    [Confirming at the moment](#confirming-at-the-moment)), and the other
@@ -432,7 +452,9 @@ required, they set it up right there.
 - If a folder with that name already exists in `people/` with something in it
   (put there from outside vihko), the user isn't created
   (`personal_folder_exists`): move that folder away first, or choose another
-  name. An empty one is simply theirs.
+  name. An empty one is simply theirs. If it is theirs (their account was
+  lost with `state.db`, say), **Adopt their folder** creates them with it, as
+  it is; `vihko user create <name> --adopt` does the same.
 
 ### From the command line
 
@@ -466,8 +488,12 @@ both password and phone. `reset-link` prints the full link when
   default, uses your browser's language. Your choice is saved in your
   account.
 - **Changing your password:** Preferences → Account → Password. It asks for the
-  current one, signs out your other sessions, and ends any reset link made for
-  you.
+  current one and ends any reset link made for you. Unless you untick «Also
+  sign out other sessions and revoke keys and authorised apps», it signs out
+  your other sessions and revokes your agent keys and the apps you authorised:
+  whatever got in with the old password is out.
+- **Keys and apps:** every key made, or app authorised, on your account
+  leaves you a notice, even when you did it yourself.
 - **Sessions:** Account lists the browsers you're signed in from. A session
   unused for 30 days expires. You can sign out any of them, or all the others.
 - **A forgotten password:** the admin makes a reset link (the user's
@@ -501,10 +527,14 @@ manages it, and how many members it has. Never what's inside.
 
 - **Assign a manager** to a space that has none (its last manager left, or
   nobody was ever given access). The person and the other admins are told.
-- **Join** a space, as one more member, at a level the admin chooses (`read`
-  by default). It's confirmed at the moment, the space's managers and the
-  other admins are told, and the admin shows up in its member list. That is the only way for an
-  admin to see what's inside a space that isn't theirs.
+- **Join** a space without managers (all of them disabled, or none left), to
+  rescue it, as one more member at a level the admin chooses (`read` by
+  default). It's confirmed at the moment, its members and the other admins are
+  told, and the admin shows up in its member list. A space with managers is
+  theirs: only they add people, the admin included, so the admin never sees
+  inside a space they weren't invited to.
+- **Restore a deleted space** whole (the admin sees every one, under «Deleted
+  spaces»), without gaining access to it.
 - **Who can create spaces**: everyone (the default) or admins only.
 - The page also shows what is in the notes folder outside every space, and
   the spaces of deleted people (below).
@@ -531,13 +561,14 @@ Both are in the user's «Actions» menu.
 - The account goes: sessions, links, profile, group memberships, second factor
   and notices. Their keys are revoked for good (they stay listed as revoked).
 - Their grants are removed from `vihko.yaml`.
-- **Their space closes**: nobody sees it, the admin neither, and the folders
-  they shared stop being seen by whoever received them. The delete dialog
-  says how many shared folders and how many people that is, and asks what
+- **Their space closes**: nobody sees it, the admin neither, but the folders
+  they shared stay shared, as they were, until the admin decides what becomes
+  of it. The delete dialog lists who has access to what, and asks what
   becomes of the space: **decide later** (the default), **transfer it** to
   someone, or **make it a shared space**, with the same choices and counts as
   below. Transferring or converting it right there is confirmed at the moment
-  with the admin's code or password, before the person is deleted.
+  with the admin's code or password, before the person is deleted. Deleting
+  the space later tells whoever still had a folder of it.
 - Their notes stay on disk, and the history still says what they wrote, under
   their name.
 - **Their username is reserved**: nobody else can take it, so a newcomer

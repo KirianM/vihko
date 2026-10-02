@@ -80,8 +80,26 @@ export async function signIn(browser: Browser, user: { username: string; passwor
  */
 export async function dismissNotices(api: APIRequestContext) {
   const { alerts } = await (await api.get('/api/alerts')).json() as { alerts: { id?: string; code: string; actions: string[] }[] }
-  const personal = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you']
+  const personal = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you',
+    'moved_out', 'removed_from', 'space_deleted', 'space_restored', 'space_renamed', 'account_key_added']
   for (const a of alerts) if (a.id && personal.includes(a.code)) await api.delete(`/api/account/notices/${encodeURIComponent(a.id)}`)
+}
+
+/**
+ * `dismissNotices` for each of `users`, in a session of its own: for a spec
+ * that leaves them notices (every key made on an account is told to its
+ * owner), so later specs don't open on a toast about them.
+ */
+export async function dismissNoticesOf(...users: { username: string; password: string }[]) {
+  for (const u of users) {
+    const api = await request.newContext({ baseURL: BASE_URL })
+    try {
+      const login = await api.post('/api/auth/login', { data: { username: u.username, password: u.password } })
+      if (login.ok()) await dismissNotices(api)
+    } finally {
+      await api.dispose()
+    }
+  }
 }
 
 /** The sidebar's tree of a space or a shared folder, by the name the sidebar gives it («Mis notas», the space's name). */

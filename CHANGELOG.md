@@ -45,6 +45,47 @@ small team meets after months of use.
 - The authorization page shows the app's domain in large type, for one that
   registered itself too (where it goes back to), and warns when the name an
   app gives doesn't fit its domain.
+- **A maximum note size**, `notes.maxSize` in `vihko.yaml` (5 MB by
+  default). A larger note is listed by its name but nothing of its text is
+  indexed, and it opens as plain text with a download, never in the live
+  editor; the admins get the `notes_too_large` alert, and `GET /api/note`
+  says `tooLarge: true`. The API and MCP refuse a write that would make a
+  note larger (`413 note_too_large`). A huge note slowed every browser that
+  opened it, and the server, for everyone.
+- **A deleted shared space comes back whole.** Right after deleting one,
+  «Undo»; later, «Restore space» in the notice its managers get, and in the
+  admin's «Spaces»: its folders (empty ones too), its notes and files from
+  the trash, its members with their levels (and when each was given access),
+  as it was. Only under its own name: while another space has it, `409
+  space_name_taken`. Who managed it when it was deleted may restore it, and
+  so may the admin, who gains no access by it. `DELETE /api/spaces` answers
+  `deleted`; `GET /api/spaces/deleted` and `POST /api/spaces/restore` are
+  new. Before, the dialog promised a restore there was no way to make but
+  note by note.
+- **Notices of what is taken away**, besides those of what is given: taken
+  out of a shared space or a folder (`removed_from`, with its name and whose
+  it is as you last saw them), a shared space you're in deleted
+  (`space_deleted`) or restored (`space_restored`), or renamed («Casa is now
+  called Hogar», `space_renamed`).
+- **Renaming someone invited.** A person who hasn't used their invitation
+  yet can be renamed by the admin in «Users» (`PUT
+  /api/admin/users/:id/username`): their folder, the grants to them and their
+  link follow. Someone who signed in can't be renamed yet (`409
+  not_invited`).
+- **«Adopt their folder».** Recreating someone whose `people/<name>/` is
+  still there with their notes (after `state.db` was lost, or restored from
+  an old copy) was refused with `personal_folder_exists`, and the folder had
+  to be moved aside and back by hand. The admin can now adopt it, in «Users»
+  (`adopt: true` on `POST /api/admin/users`) or with `vihko user create
+  <name> --adopt`: it becomes theirs as it is. Never by default.
+- **«Restore previous permissions».** When the `permissions` section goes
+  from `vihko.yaml` (an example pasted over it, the file deleted), the file
+  applies, so nothing is shared, as before; now the admins get the
+  `permissions_missing` alert, and its button writes back the last section
+  that shared something, which vihko keeps in the state volume
+  (`vihko.yaml.last-permissions`), under what the file says now. Confirmed
+  at the moment. Dismissing the alert forgets it. An empty section written on
+  purpose (`permissions: {}`) raises nothing.
 
 ### Changed
 
@@ -130,6 +171,29 @@ small team meets after months of use.
 - **The live tree's event stream is `GET /api/live`**, no longer
   `GET /api/events`, which answers `404`: that name is kept for a log of
   events to come.
+- **Deleting someone no longer takes away at once what they shared.** Their
+  space closes, but the folders they shared from it stay shared, as they
+  were, until the admin decides what becomes of it (transfer it, make it a
+  shared space or delete it). The delete dialog lists who has access to what
+  (`GET /api/admin/users/:id/space` adds `shared`: each shared folder with
+  its people and levels, its path only where the admin reads it); deleting
+  the space later tells those people (`removed_from`).
+- **The admin never joins a shared space without being invited.** Only its
+  managers add people, the admin included: `POST /api/admin/spaces/join` is
+  `409 space_has_managers` for a space with any, and «Spaces» offers
+  «Join» only for one without. Its exception is a rescue: a space whose
+  managers are all disabled (or gone), which the admin may join, its
+  members being told.
+- **Taking someone out of a shared space takes their grants below it too**,
+  as leaving it does: they no longer keep a subfolder shared with them on
+  its own. The dialog says so.
+- **A grant inside a shared space to one of its members only raises them.**
+  The share dialog offers only the levels above theirs in the space, and
+  `PUT /api/permissions` refuses one at or below it with `400
+  grant_not_higher` (`subject`, `level`: theirs in the space). When a
+  member's level in the space goes up, their grants below that no longer
+  raise them go by themselves. Sharing a subfolder with someone who isn't in
+  the space is as before.
 
 ### Security
 
@@ -171,6 +235,52 @@ small team meets after months of use.
   longer stops vihko from starting, nor every later rescan: it's left as the
   index had it, the server's log names it, and the admins get the new
   `unreadable_notes` alert until it can be read.
+- **A deleted or renamed space's name stays taken while its trash or its
+  history holds anything.** A new space with that name inherited both: its
+  members could read and restore what the old space's members deleted, and
+  read its versions. Creating a space, renaming one, «Move to a new space» and
+  converting a deleted person's space answer `409 space_name_taken` for it,
+  as for a space that exists, until the retention or a purge empties that
+  past. A space can still change the case of its own name.
+- **Sharing a folder no longer shares its past.** Each person sees a note's
+  history, and the trash, only from when they could read it: a folder
+  shared with someone (or a space they're added to, or a group they join)
+  shows them the versions made, and the notes deleted, since then. vihko
+  keeps in `state.db` when each grant began; a grant written by hand in
+  `vihko.yaml` counts from when vihko first reads it. The same in «History»,
+  «Recent changes», versions, diffs, restore and revert, through the UI, the
+  API and the MCP `history` tool.
+- **A note with the same path as an earlier one has a history of its own**
+  when their `uid` differs: a note deleted and another made later with its
+  name no longer share their versions. Restoring a version of the earlier
+  note over the one there now is `409 uid_mismatch`, and the UI offers
+  «Restore as a new note» instead (`POST /api/history/restore` with `to`).
+- What was deleted in a folder before it moved to another space stays in the
+  trash where it was, with who could see it there, as its history does.
+- **Taking something out of a person's own space is never done behind their
+  back.** Whoever manages a folder shared from someone's space (or edits a
+  note there) may still move it to another space, and the owner gets the new
+  `moved_out` notice: what moved, who moved it, and where it went (the space,
+  and the path while they read there).
+- **A new password can shut out whatever got in with the old one.** «Change
+  password» has a box, ticked by default: «Also sign out other sessions and
+  revoke keys and authorised apps». `POST /api/auth/password` takes
+  `revokeOthers` (true by default) and answers `sessionsEnded` and
+  `keysRevoked`; with `false`, the other sessions and the keys stay.
+- **What an admin does to someone's account reaches the other admins at
+  once.** A notice now arrives on its person's open pages as it's made (the
+  live stream, `GET /api/live`, has a new `notices` event), so the other
+  admins see an admin taking someone's second factor away, or making them a
+  reset link, while it happens, not the next time they look; the server's
+  log keeps both on record.
+- **Turning off «Members can create keys» suspends the keys and apps
+  members already have**: they stop working, answering `403 key_suspended`
+  by the API and MCP alike, without being deleted, and work again when it's
+  turned back on (their status is `suspended` meanwhile). The confirmation
+  says how many (`GET /api/integrations` gives the admin `memberKeys`).
+- **A key made, or an app authorised, on your account is never unnoticed:**
+  you get the `account_key_added` notice, even when you did it yourself (a
+  session someone else took would do it unseen otherwise).
 
 ### Fixed
 
@@ -334,6 +444,22 @@ small team meets after months of use.
 - **A reverse proxy told not to buffer `/api/events`** (as the reverse proxy
   guide said) should say `/api/live` now; otherwise the tree may update only
   when the page is reloaded. The UI uses the new address by itself.
+- `state.db` goes to version 12 (a copy of version 11 is kept as
+  `state.db.bak-v11`): when each grant began, since when each person is in a
+  group, and the shared spaces deleted to the trash. The grants in
+  `vihko.yaml` when 0.1.0-rc.6 first starts count from the start, and so do
+  the groups' members then: nobody loses a past they could see. From then on,
+  whoever is given access sees the past only from that moment.
+- Notes larger than 5 MB (or `notes.maxSize`) stop being searchable and open
+  as plain text: raise `notes.maxSize` in `vihko.yaml` if you have such notes
+  and want them as before.
+- With «Members can create keys» off (the default of a new installation
+  since 0.1.0-rc.4), the keys and authorised apps members made while it was
+  on stop working (`403 key_suspended`) until the admin turns it on again.
+  Admins' keys aren't affected.
+- Changing your password now revokes your keys and authorised apps too,
+  unless you untick the box (or send `revokeOthers: false`): a script or an
+  app that used one needs a new key afterwards.
 
 ## [0.1.0-rc.5] - 2026-10-02
 

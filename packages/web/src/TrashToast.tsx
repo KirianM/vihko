@@ -18,7 +18,16 @@ import './actions.css'
  * `folder`, a folder deleted with what it held: `path` is the folder, and
  * these are its entries in the trash (`id` is the first).
  */
-export interface Trashed { id: string; path: string; by: string | null; folder?: string[] }
+export interface Trashed {
+  id: string
+  path: string
+  by: string | null
+  folder?: string[]
+  /** Whether this person may restore it (false: someone else's, where they can't, such as a space deleted with it); unknown until checked. */
+  restorable?: boolean
+  /** Its shared space was deleted with it. */
+  spaceGone?: boolean
+}
 
 export function TrashToast({ trashed, canPurge = false, onRestored, onDismiss }: {
   trashed: Trashed
@@ -57,11 +66,12 @@ export function TrashToast({ trashed, canPurge = false, onRestored, onDismiss }:
     <div className="toast">
       <span className="toast-icon">{Icon.trash}</span>
       <span className="toast-text" role={trashed.by ? 'alert' : 'status'}>
-        {trashed.folder ? t('trash.folderDone', { name }) : trashed.by ? t('trash.doneBy', { user: trashed.by, name }) : t('trash.done', { name })}
+        {trashed.folder ? t('trash.folderDone', { name }) : trashed.by && trashed.spaceGone ? t('trash.spaceDeletedBy', { user: trashed.by, name }) : trashed.by ? t('trash.doneBy', { user: trashed.by, name }) : t('trash.done', { name })}
         {purged && <span>{purged}</span>}
         {error && <span className="error-text">{error}</span>}
       </span>
-      <Button className="btn" onPress={() => void restore()} isDisabled={busy}>{t('trash.restore')}</Button>
+      {/* Never a «Restore» that would fail: only where this person may. */}
+      {trashed.restorable !== false && <Button className="btn" onPress={() => void restore()} isDisabled={busy}>{t('trash.restore')}</Button>}
       {canPurge && !trashed.folder && !purged && <Button className="btn btn-quiet purge-open" onPress={() => setPurging(true)} isDisabled={busy}>{t('purge.fromTrash')}</Button>}
       <Button className="btn btn-icon btn-quiet" aria-label={t('trash.dismiss')} onPress={onDismiss}>{Icon.close}</Button>
       {purging && <PurgeDialog path={trashed.path} onCancel={() => setPurging(false)} onDone={(r) => { setPurging(false); setPurged(purgedText(t, r, pathLabel)) }} />}

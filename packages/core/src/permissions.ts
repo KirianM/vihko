@@ -276,14 +276,17 @@ export class SpaceRules {
   /**
    * The level `who` has in a folder (a space's root or anything under it);
    * null: none. `userExists` says whether a personal space's owner exists
-   * (active or disabled): a deleted person's space is nobody's.
+   * (active or disabled), or `'closed'` for a deleted person whose space
+   * nobody has decided about yet: it's nobody's, but what they shared stays
+   * shared meanwhile. A folder of nobody's (no such user) is nobody's.
    */
-  level(folder: string, who: Grantee, userExists: (username: string) => boolean): Level | null {
+  level(folder: string, who: Grantee, userExists: (username: string) => boolean | 'closed'): Level | null {
     const s = parseSpacePath(folder)
     if (!s) return null
     if (s.space.kind === 'personal') {
-      if (!userExists(s.space.owner)) return null
-      if (who.username.normalize('NFC') === s.space.owner) return 'manage'
+      const owner = userExists(s.space.owner)
+      if (!owner) return null
+      if (owner === true && who.username.normalize('NFC') === s.space.owner) return 'manage'
     }
     const me = subjectKey(who.username)
     const groups = new Set(who.groups.map((g) => subjectKey('@' + g)))

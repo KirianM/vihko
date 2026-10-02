@@ -158,6 +158,25 @@ test('live tree: an agent has no event stream; nobody signed in, neither', async
   }
 })
 
+test('a notice reaches its person\'s open pages at once: «read your notices again», nothing of it, and only theirs', async () => {
+  const h = await setup()
+  const streams: { close(): void }[] = []
+  try {
+    const [member, other] = [await listen(h, 'member'), await listen(h, 'other')]
+    streams.push(member, other)
+    const notices = (s: typeof member) => s.events.filter((e) => e.event === 'notices')
+    // The admin makes a reset link for the member: they're told at once.
+    assert.equal((await h.admin('POST', `/api/admin/users/${h.created.member.id}/link`, { confirm: h.created.admin.password })).status, 200)
+    for (let t = 0; t < 3000 && notices(member).length === 0; t += 25) await sleep(25)
+    assert.deepEqual(notices(member).map((e) => e.data), ['{}'])
+    await sleep(QUIET)
+    assert.deepEqual(notices(other), [], 'nobody else')
+  } finally {
+    for (const s of streams) s.close()
+    h.close()
+  }
+})
+
 test('live tree: a stream ends with its session, signed out or disabled, and the others stay', async () => {
   const h = await setup()
   try {

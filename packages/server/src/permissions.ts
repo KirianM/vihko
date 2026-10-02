@@ -12,7 +12,9 @@
 // - Grants only add (so nothing unseen takes up names): a person's level in a folder is the highest
 //   the grants of it and of each folder above it in its space give them, by
 //   name or through a group.
-// - The space of a deleted person is nobody's, not even the admin's.
+// - The space of a deleted person is nobody's, not even the admin's; what
+//   they shared from it stays shared until the admin decides what becomes
+//   of it (transferred, made a shared space, or deleted).
 //   Being an admin changes nothing here: the admin manages, but doesn't read.
 // - The section in force comes from the workspace (workspace.ts): the
 //   file's, the last valid one while running, or none (no section, or
@@ -38,6 +40,8 @@ export interface DirectoryUser {
 /** Who exists, for the grants: users (active or disabled; a deleted one is not here) and groups. */
 export interface Directory {
   users(): DirectoryUser[]
+  /** The usernames of deleted people (none by default): their spaces are closed, what they shared stays shared until the admin decides. */
+  deleted?(): string[]
   /** The groups a user belongs to, by name (without `@`). */
   groupsOf(userId: string): string[]
   /** Every group's name (without `@`). */
@@ -58,12 +62,14 @@ export function groupSource(users: { groupsOf(userId: string): string[]; groups(
 /**
  * The directory over state.db's users, and the groups `groups` gives (none by
  * default). A deleted user is unknown: their name in a grant reaches nobody,
- * and their personal space is nobody's.
+ * and their personal space is nobody's (`deleted`: but what they shared
+ * from it stays shared until the admin decides).
  */
 export function stateDirectory(state: Db, groups: Partial<GroupSource> = {}): Directory {
   return {
     users: () => (state.prepare('select id, username, role, disabled from users where deleted_at is null order by username').all() as (Omit<DirectoryUser, 'disabled'> & { disabled: number })[])
       .map((u) => ({ ...u, disabled: u.disabled !== 0 })),
+    deleted: () => (state.prepare('select username from users where deleted_at is not null').all() as { username: string }[]).map((u) => u.username),
     groupsOf: groups.groupsOf ?? (() => []),
     groups: groups.groups ?? (() => []),
   }
@@ -200,8 +206,19 @@ export class PermissionsEngine {
    */
   spaceRules(): SpaceRules {
     const p = this.opts.source()
-    if (this.compiled?.from !== p) this.compiled = { from: p, set: new SpaceRules(rulesOf(p)) }
+    if (this.compiled?.from !== p) {
+      this.compiled = { from: p, set: new SpaceRules(rulesOf(p)) }
+      for (const fn of this.listeners) fn(this.compiled.set.rules)
+    }
     return this.compiled.set
+  }
+
+  private listeners: ((rules: readonly PermissionRule[]) => void)[] = []
+
+  /** Called with the rules each time those in force change (and once now): when each grant began is kept by them (grantStarts.ts). */
+  onRules(fn: (rules: readonly PermissionRule[]) => void): void {
+    this.listeners.push(fn)
+    fn(this.spaceRules().rules)
   }
 
   /** What exists on the disk (the default: the spaces the rules name, and every folder). */
@@ -217,10 +234,19 @@ export class PermissionsEngine {
     return this.folders.exists(folder)
   }
 
-  /** Whether a username is a user's (active or disabled; a deleted one isn't), as a folder spells it. */
-  ownerCheck(users: readonly DirectoryUser[] = this.opts.directory.users()): (username: string) => boolean {
+  /**
+   * Whether a username is a user's (active or disabled), as a folder spells
+   * it; `'closed'` for a deleted person's (their space is nobody's, but what
+   * they shared stays shared until the admin decides about it); false for
+   * nobody's.
+   */
+  ownerCheck(users: readonly DirectoryUser[] = this.opts.directory.users()): (username: string) => boolean | 'closed' {
     const names = new Set(users.map((u) => u.username.normalize('NFC')))
-    return (name) => names.has(name.normalize('NFC'))
+    const closed = new Set((this.opts.directory.deleted?.() ?? []).map((n) => n.normalize('NFC')))
+    return (name) => {
+      const n = name.normalize('NFC')
+      return names.has(n) ? true : closed.has(n) ? 'closed' : false
+    }
   }
 
   /** Someone as the grants name them: their username and groups. */
@@ -300,8 +326,9 @@ export class PermissionsEngine {
   /**
    * What others share with a person outside their own space and the shared
    * spaces they belong to: each folder with grants where they have a level
-   * and none in its parent (the topmost only), and that exists. A folder of
-   * a deleted person's space is nobody's: never here.
+   * and none in its parent (the topmost only), and that exists. A folder a
+   * deleted person shared stays here (with them as its owner) until the
+   * admin decides what becomes of their space.
    */
   sharedWith(user: ViewerUser): SharedEntry[] {
     const exists = this.ownerCheck()
@@ -347,7 +374,7 @@ export class PermissionsEngine {
     const f = folder.normalize('NFC')
     const s = parseSpacePath(f)
     if (!s) return []
-    if (s.space.kind === 'personal' && !exists(s.space.owner)) return []
+    if (s.space.kind === 'personal' && exists(s.space.owner) === false) return []
     const reaching = this.spaceRules().reaching(f)
     const out: UserAccess[] = []
     for (const u of users) {
@@ -393,7 +420,7 @@ export class Viewer {
   readonly user: ViewerUser
   private rules: SpaceRules
   private who: Grantee
-  private owners: (name: string) => boolean
+  private owners: (name: string) => boolean | 'closed'
   private levels = new Map<string, Level | null>()
 
   constructor(engine: PermissionsEngine, user: ViewerUser) {

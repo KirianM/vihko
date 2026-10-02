@@ -11,7 +11,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { ADMIN, E2E_DIR, MEMBER, NOTES, PERMISSIONS, SPACE_NAME, inVault, personal, specMother } from './env.ts'
-import { dismissNotices, literally, newUser, signIn, spaceTree, usePermissions } from './helpers.ts'
+import { dismissNotices, dismissNoticesOf, literally, newUser, signIn, spaceTree, usePermissions } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
@@ -110,6 +110,8 @@ test.beforeAll(async ({ browser }) => {
 })
 
 test.afterAll(async ({ browser }) => {
+  // The keys made here are told to their owners: not left for other specs.
+  await dismissNoticesOf(ADMIN, MEMBER)
   test.setTimeout(90_000)
   await usePermissions()
   if (keyId) await k.request.delete(`/api/keys/${keyId}`)

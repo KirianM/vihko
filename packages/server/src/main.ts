@@ -209,7 +209,9 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   await configMigrations.run()
   // A file left without permissions applies once it stays so: then everything that depends on it hears.
   const workspace = new Workspace({ notesDir: config.notesDir, stateDir: config.stateDir, log, onSettle: () => reloadWorkspace() })
-  const indexer = new Indexer({ notesDir: config.notesDir, db: index, linkAliases: workspace.config.links.aliases })
+  // A note over vihko.yaml's `notes.maxSize` is indexed by its name alone, and no write makes one larger.
+  const maxNoteBytes = () => Math.floor(workspace.config.notes.maxSize * 1024 * 1024)
+  const indexer = new Indexer({ notesDir: config.notesDir, db: index, linkAliases: workspace.config.links.aliases, maxNoteBytes })
   // Users and groups. Ending someone's sessions ends their live connections
   // too (the hub exists further down). Their grants in vihko.yaml follow a
   // deletion or a group's rename (http/app.ts fills those hooks in).
@@ -241,6 +243,8 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   /** Rereads vihko.yaml and applies what the index, the history and open editors depend on. */
   const reloadWorkspace = () => {
     if (!workspace.reload()) return
+    // Compiled at once: a grant written by hand starts when vihko sees it (grantStarts.ts).
+    permissions.spaceRules()
     indexer.setLinkAliases(workspace.config.links.aliases)
     history.configure().catch((e) => log(`history: ${e instanceof Error ? e.message : String(e)}`))
     follow?.recheckAccess()
@@ -261,7 +265,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   log(`index ready: ${first.added.length} added, ${first.changed.length} changed, ${first.removed.length} removed, ${first.unchanged} unchanged`)
 
   await history.open()
-  const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log, history: history.recorder, agentName: (id) => keys.nameOf(id), policy })
+  const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log, history: history.recorder, agentName: (id) => keys.nameOf(id), policy, tooLarge: (p) => indexer.isTooLarge(p) })
   // Checked against the index as the first scan left it. One that stopped may
   // have left the index behind the files: then no saved state is trusted.
   if (!first.aborted) hub.trustSavedStates()
@@ -297,7 +301,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   // Each space's note settings (noteSettings.ts): where a space's new images go, among the rest.
   const noteSettings = new NoteSettingsStore({ notesDir: config.notesDir })
   const notes = new NoteService({
-    notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes,
+    notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes, maxNoteBytes,
     attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments, history: history.recorder,
     retries: new RelinkRetries({ stateDir: config.stateDir, log }),
     // Whoever made the move is told, without names or counts; the log has the rest.
@@ -325,7 +329,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   const retention = new Retention({ stateDir: config.stateDir, settings: new AdminSettings(state), trash: () => notes.trash(), history, notices, log })
   retention.start()
   const { app, services } = createServer({
-    notices, retention,
+    notices, retention, log,
     auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages ?? externalImagesDefault(state), externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users, twoFactor,
     policy, holds, onPermissionsChanged: () => hub.recheckAccess(), configMigrations, noteSettings,
     // The MCP server, at /mcp (off until the admin turns it on).
@@ -333,7 +337,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   })
   liveTree = services.live
   // Shared spaces of 0.1.0-rc.1 and rc.2 take their names as folders, before anyone can ask for them.
-  await renameLegacySpaces({ notesDir: config.notesDir, file: services.permissionsFile, notes, refs: new FolderRefs({ state, stateDir: config.stateDir }), indexer, log })
+  await renameLegacySpaces({ notesDir: config.notesDir, file: services.permissionsFile, notes, refs: new FolderRefs({ state, stateDir: config.stateDir }), indexer, starts: policy.starts ?? undefined, log })
     .catch((err) => log(`renaming the shared spaces of earlier versions: ${err instanceof Error ? err.message : String(err)}`))
   // Keys vihko retired from its settings files: what they asked for is done, and they go, with a notice to whom each file belongs.
   await migrateRetiredKeys({ notesDir: config.notesDir, index, state, notes, file: services.permissionsFile, notices, managersOf: (root) => permissions.managersOf(root), log })

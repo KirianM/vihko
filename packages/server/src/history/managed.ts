@@ -8,6 +8,7 @@ import { GitError, LOG_FORMAT, Serial, parseLog, readObjects, readTree, resolveR
 import { HISTORY_REF, isTextPath } from './recorder.ts'
 import { keepsLineage, movedFrom, moveInto, parseMessage, type ParsedMessage } from './trailers.ts'
 import { wordStats } from './diff.ts'
+import { readFrontmatter } from '@vihko/core'
 import { HistoryError, decodeCursor, encodeCursor, matchesAuthor, type AuthorRef, type ChangeKind, type HistoryReader, type RawChange, type RawVersion, type VersionText } from './reader.ts'
 
 interface Step {
@@ -138,13 +139,31 @@ export class ManagedReader implements HistoryReader {
     return commits
   }
 
-  /** The note's commits from `from` back, following its moves. */
-  private async *walk(from: Resume, batch: number): AsyncGenerator<{ step: Step; resume: Resume }> {
+  /** A note's `uid` in a blob (null: none, or no frontmatter to read it from). */
+  private async uidOf(oid: string | null): Promise<string | null> {
+    if (oid === null || /^0+$/.test(oid)) return null
+    const [bytes] = await readObjects(this.git, [oid])
+    if (!bytes) return null
+    const fm = readFrontmatter(bytes.toString('utf8'))
+    const v = fm.error ? null : fm.data.uid
+    return typeof v === 'string' || typeof v === 'number' ? String(v) : null
+  }
+
+  /**
+   * The note's commits from `from` back, following its moves. With `lives`,
+   * only the note it is now: where it was created at that path (not moved
+   * there, nor brought back from the trash with its `uid`), what that path
+   * held before with another `uid` is another note's, and the walk stops
+   * there. Without it (a version asked for by its id), it goes on.
+   */
+  private async *walk(from: Resume, batch: number, opts: { lives?: boolean } = {}): AsyncGenerator<{ step: Step; resume: Resume }> {
     let rev = from.rev
     let cur = from.path
     // Each version is judged at the note's path now while the moves back to it only renamed its folder
     // within its space, or its space (`keepsLineage`); from a move that didn't, at its own path.
     let judge: string | null = from.judge === undefined ? from.path : from.judge
+    // The uid of the note whose creation the walk just passed: what the path held before must have it.
+    let created: { uid: string | null } | null = null
     for (;;) {
       const commits = await this.log(['-n', String(batch), rev, '--', cur])
       if (commits.length === 0) return
@@ -152,11 +171,17 @@ export class ManagedReader implements HistoryReader {
       for (const c of commits) {
         const file = c.files.find((f) => f.path === cur)
         if (!file) continue
+        if (created) {
+          const before = await this.uidOf(file.status === 'D' ? file.oldOid : file.newOid)
+          if (before !== created.uid) return
+          created = null
+        }
         const meta = parseMessage(c.message)
         const src = file.status === 'A' ? movedFrom(cur, meta.moves) : null
         const into = src ? moveInto(cur, meta.moves) : null
         const kept = judge !== null && into !== null && into.folder && keepsLineage(into)
         yield { step: { commit: c, file, path: cur, src, meta, judge: judge ?? cur, srcJudge: src === null ? null : kept ? judge : src }, resume: { rev: c.id, path: cur, judge } }
+        if (opts.lives && file.status === 'A' && !src) created = { uid: await this.uidOf(file.newOid) }
         if (src && c.parent) {
           if (!kept) judge = null
           rev = c.parent
@@ -190,7 +215,8 @@ export class ManagedReader implements HistoryReader {
       if (!start && head === null) return { versions: [], next: null }
       const steps: Step[] = []
       let next: string | null = null
-      for await (const { step, resume } of this.walk(start ?? { rev: head!, path }, page.limit + 1)) {
+      // Only the note that is (or was last) at this path: another one that had it before, with another uid, has a history of its own.
+      for await (const { step, resume } of this.walk(start ?? { rev: head!, path }, page.limit + 1, { lives: true })) {
         if (steps.length === page.limit) { next = encodeCursor({ ...resume, origin: path }); break }
         steps.push(step)
       }
@@ -245,7 +271,7 @@ export class ManagedReader implements HistoryReader {
     })
   }
 
-  changes(page: { cursor?: string | null; limit: number; author?: string | null; canRead: (path: string) => boolean }) {
+  changes(page: { cursor?: string | null; limit: number; author?: string | null; canRead: (path: string, at: string) => boolean }) {
     return this.run(async () => {
       const start = decodeCursor(page.cursor, isRev)
       const found: { commit: LogCommit; meta: ParsedMessage; files: PairedFile[] }[] = []
@@ -261,8 +287,9 @@ export class ManagedReader implements HistoryReader {
         const folders = meta.moves.filter((m) => !c.files.some((f) => f.path === m.to))
         if (matchesAuthor(authorsOf(meta), page.author)) {
           // Where a readable file came from is only said if that path is readable too (a folder this commit moved, where it went).
-          const files = pairFiles(c.files, meta).filter((f) => page.canRead(judgedThrough(f.path, later)))
-            .map((f) => (f.from !== undefined && !page.canRead(judgedThrough(f.from, [...later, ...folders])) ? { ...f, from: undefined } : f))
+          const at = iso(c.authorTime)
+          const files = pairFiles(c.files, meta).filter((f) => page.canRead(judgedThrough(f.path, later), at))
+            .map((f) => (f.from !== undefined && !page.canRead(judgedThrough(f.from, [...later, ...folders]), at) ? { ...f, from: undefined } : f))
           if (files.length) found.push({ commit: c, meta, files })
         }
         later.push(...folders)

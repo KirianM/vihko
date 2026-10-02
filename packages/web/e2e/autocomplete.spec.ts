@@ -98,7 +98,7 @@ test.afterAll(async () => {
     if (n.path.startsWith(`${DIR}/`) || n.path.startsWith(`${TEMPLATES}/`)) await k.request.delete(`/api/note?path=${encodeURIComponent(n.path)}`)
   }
   await k.context().close()
-  for (const d of [DIR, TEMPLATES, OWN]) rmSync(`${NOTES}/${d}`, { recursive: true, force: true })
+  for (const d of [DIR, TEMPLATES, OWN]) rmSync(`${NOTES}/${d}`, { recursive: true, force: true, maxRetries: 10 })
 })
 
 const list = (page: Page) => page.locator('.vihko-complete')

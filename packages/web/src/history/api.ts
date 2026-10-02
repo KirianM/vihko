@@ -123,7 +123,8 @@ export const historyApi = {
     request<Diff>('GET', `/api/history/diff?${query({ path, id, against })}`),
   version: (path: string, id: string) =>
     request<{ path: string; id: string; at: string; text: string | null }>('GET', `/api/history/version?${query({ path, id })}`),
-  restore: (path: string, id: string) => request<RestoreReport>('POST', '/api/history/restore', { path, id }),
+  /** Over the note at `path`; `uid_mismatch` for a version of another note that had this path: then with `to`, as a new note there. */
+  restore: (path: string, id: string, to?: string) => request<RestoreReport & { path?: string }>('POST', '/api/history/restore', { path, id, ...(to ? { to } : {}) }),
   revert: (path: string, id: string, opts: { dryRun?: boolean } = {}) =>
     request<RevertReport>('POST', '/api/history/revert', { path, id, dryRun: opts.dryRun === true }),
   changes: (opts: { cursor?: string | null; author?: string | null } = {}) =>

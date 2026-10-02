@@ -5,12 +5,14 @@
 //
 // - A folder for the new name that already exists with something in it was
 //   made outside vihko: creating the user is refused (`personal_folder_exists`)
-//   rather than handing them whatever is there. An empty one is theirs.
+//   rather than handing them whatever is there, unless the admin chooses to
+//   adopt it (`adopt`: someone recreated after state.db was lost). An empty
+//   one is theirs.
 // - Names are compared as users are (full case folding, core `nameKey`): on a
 //   case-insensitive volume `people/Ana` is the folder of `ana` too, and an
 //   empty one spelled otherwise is replaced by one spelled as the username
 //   (paths are read as the disk spells them, fsutil.ts `followable`).
-import { lstatSync, mkdirSync, readdirSync, rmdirSync } from 'node:fs'
+import { lstatSync, mkdirSync, readdirSync, renameSync, rmdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { PEOPLE, SPACES, nameKey, personalRoot } from '@vihko/core'
 
@@ -66,20 +68,60 @@ export class PersonalFolders {
    * Throws PersonalFolderExists unless `username` may get its folder: none
    * there yet, or only empty ones. Changes nothing.
    */
-  check(username: string): void {
+  check(username: string, except?: string): void {
     for (const e of this.matching(username)) {
+      if (e.normalize('NFC') === except?.normalize('NFC')) continue
       if (!this.emptyFolder(e)) throw new PersonalFolderExists(`${personalRoot(e)} already exists with something in it: move it out of the way, or choose another name`)
     }
   }
 
   /**
+   * Someone renamed (only while invited, users.ts): their folder takes the
+   * new name, with whatever it holds; an empty one the new name finds there
+   * goes first. Through another name, for a volume without case.
+   */
+  rename(from: string, to: string): void {
+    const f = from.normalize('NFC')
+    const t = to.normalize('NFC')
+    for (const e of this.matching(t)) if (e.normalize('NFC') !== f && this.emptyFolder(e)) rmdirSync(join(this.notesDir, PEOPLE, e))
+    const src = join(this.notesDir, personalRoot(f))
+    try {
+      lstatSync(src)
+    } catch {
+      this.ensure(t)
+      return
+    }
+    const aside = join(this.notesDir, PEOPLE, `.renaming-${process.pid}-${Date.now()}`)
+    renameSync(src, aside)
+    renameSync(aside, join(this.notesDir, personalRoot(t)))
+  }
+
+  /**
    * Makes `username`'s folder (checked first, as `check`). An empty one
    * spelled otherwise goes first. Whether it made it (false: it was there,
-   * empty, as spelled).
+   * empty, as spelled). With `adopt`, a folder there with something in it
+   * becomes theirs as it is (the admin's explicit choice, for someone
+   * recreated after state.db was lost): spelled otherwise, it's renamed to
+   * their name; more than one such folder is still refused.
    */
-  make(username: string): boolean {
-    this.check(username)
+  make(username: string, opts: { adopt?: boolean } = {}): boolean {
     const name = username.normalize('NFC')
+    if (opts.adopt) {
+      const full = this.matching(name).filter((e) => !this.emptyFolder(e))
+      if (full.length > 1) throw new PersonalFolderExists(`more than one folder in ${PEOPLE}/ has the name ${name} in some case: keep only one`)
+      if (full.length === 1) {
+        const [e] = full as [string]
+        for (const other of this.matching(name)) if (other !== e) rmdirSync(join(this.notesDir, PEOPLE, other))
+        if (e !== name) {
+          // Through another name: on a volume without case, renaming to another case of itself may do nothing.
+          const aside = join(this.notesDir, PEOPLE, `.adopting-${process.pid}-${Date.now()}`)
+          renameSync(join(this.notesDir, PEOPLE, e), aside)
+          renameSync(aside, join(this.notesDir, personalRoot(name)))
+        }
+        return false
+      }
+    }
+    this.check(username)
     for (const e of this.matching(name)) if (e !== name) rmdirSync(join(this.notesDir, PEOPLE, e))
     this.ensureLayout()
     try {

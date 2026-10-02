@@ -18,7 +18,7 @@
 import { lstatSync, mkdirSync, readdirSync, rmdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  LEVELS, SPACES, SpaceRules, isReserved, isSpaceRoot, maxLevel, nameKey, parseSpacePath, personalRoot, removeRules, rulesInFile, setRule, sharedRoot, spaceNameProblem, subjectKey,
+  LEVELS, SPACES, SpaceRules, isReserved, isSpaceRoot, maxLevel, nameKey, newUid, parseSpacePath, personalRoot, removeRules, rulesInFile, setRule, sharedRoot, spaceNameProblem, subjectKey,
   type Level, type PermissionRule, type RuleValue,
 } from '@vihko/core'
 import type { Access } from './access.ts'
@@ -27,6 +27,8 @@ import type { Actor } from './actor.ts'
 import type { AdminSettings } from './adminSettings.ts'
 import type { Db } from './db.ts'
 import type { FolderRefs } from './folderRefs.ts'
+import type { GrantStarts } from './grantStarts.ts'
+import { tidyBelow } from './spaceGrants.ts'
 import { followable } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService } from './notes.ts'
@@ -37,10 +39,10 @@ import type { PermissionsFile } from './permissionsFile.ts'
 import type { Users } from './users.ts'
 import { shownPath } from './logging.ts'
 
-/** A request about spaces that can't be made as it is: `invalid` and `space_needs_manager` (400), `leave_via_group`, `space_has_managers` and `space_name_taken` (409). */
+/** A request about spaces that can't be made as it is: `invalid`, `space_needs_manager` and `grant_not_higher` (400), `leave_via_group`, `space_has_managers` and `space_name_taken` (409). */
 export class SpaceError extends Error {
   readonly status: 400 | 409
-  readonly code: 'invalid' | 'leave_via_group' | 'space_has_managers' | 'space_needs_manager' | 'space_name_taken'
+  readonly code: 'invalid' | 'leave_via_group' | 'space_has_managers' | 'space_needs_manager' | 'space_name_taken' | 'grant_not_higher'
   readonly extra: Record<string, unknown>
   constructor(status: SpaceError['status'], code: SpaceError['code'], message: string, extra: Record<string, unknown> = {}) {
     super(message)
@@ -78,6 +80,36 @@ export interface MembersView {
   }[]
 }
 
+/** A shared space deleted, as whoever may restore it whole sees it. */
+export interface DeletedSpaceInfo {
+  id: string
+  /** Its root then, `spaces/<name>`. */
+  path: string
+  name: string
+  /** Who deleted it (their name). */
+  by: string
+  deletedAt: string
+  /** How many of its trash entries are still there. */
+  entries: number
+}
+
+/** What it takes to restore a deleted space (`deleted_spaces`). */
+interface DeletedSpaceRecord {
+  root: string
+  /** Its rules, each folder relative to its root (`''` for the root). */
+  rules: { folder: string; value: RuleValue }[]
+  /** Its folders, relative to its root (`/a`, `/a/b`), empty ones included. */
+  folders: string[]
+  /** The trash entries that hold what it had. */
+  entries: string[]
+  /** Who managed it (user ids). */
+  managers: string[]
+  /** When its grants began (grantStarts.ts). */
+  starts: { folder: string; subject: string; since: string | null }[]
+}
+
+interface DeletedSpaceRow { id: string; root: string; entries: string; managers: string; by_user: string; deleted_at: string }
+
 /** A deleted person's personal space still on the disk: closed, nobody sees it. */
 export interface ClosedSpace {
   userId: string
@@ -100,12 +132,14 @@ export interface PersonalSpacePlan {
 
 export type PersonalAction = 'transfer' | 'convert' | 'delete'
 
-/** What a person's space holds shared, for the confirmation of deleting them: counts only. */
+/** What a person's space holds shared, for the confirmation of deleting them. */
 export interface PersonalSummary {
   path: string
   exists: boolean
   sharedFolders: number
   people: number
+  /** Each folder they share and who has access to it (but them): `path` only where the admin reads it. */
+  shared: { path: string | null; people: { username: string; level: Level }[] }[]
 }
 
 export interface SpaceServiceOptions {
@@ -120,13 +154,21 @@ export interface SpaceServiceOptions {
   notes: NoteService
   indexer: Indexer
   /** Deletes a folder as a principal (scoped.ts `deleteFolder`): a shared space goes this way. */
-  deleteFolder: (access: Access, path: string, opts: { trash: boolean }) => Promise<unknown>
+  deleteFolder: (access: Access, path: string, opts: { trash: boolean }) => Promise<{ trashed: { id: string }[] }>
   /**
    * Moves a folder as a principal (scoped.ts `moveFolder`): into a new shared
    * space's root (`newSpace`), or a shared space's root to its new name
    * (`renameSpace`).
    */
   moveFolder: (access: Access, from: string, to: string, opts: { dryRun: boolean; newSpace?: true; renameSpace?: true }) => Promise<ScopedFolderMove>
+  /**
+   * Every path the history holds a version of (history/index.ts
+   * `pastPaths`): a shared space's name stays taken while its past is there.
+   * None without a history.
+   */
+  pastPaths?: () => Promise<string[]>
+  /** When grants began (grantStarts.ts): a deleted person's space moved keeps its grants' starts. */
+  starts?: Pick<GrantStarts, 'moving' | 'under' | 'restore'>
   log?: (msg: string) => void
   now?: () => Date
 }
@@ -186,7 +228,7 @@ export class SpaceService {
     // The creator manages it, whatever `members` says of them.
     for (const k of Object.keys(members)) if (subjectKey(k) === subjectKey(user.username)) delete members[k]
     const grants: Record<string, Level> = { [user.username]: 'manage', ...members }
-    const root = this.newSharedFolder(name)
+    const root = await this.newSharedFolder(name)
     let before = ''
     try {
       await this.opts.file.update((t) => {
@@ -221,7 +263,7 @@ export class SpaceService {
     if (isSpaceRoot(folder)) throw new RequestError(400, 'space_root', 'only a folder inside a space becomes a space of its own')
     const name = this.spaceName(input.name ?? folder.slice(folder.lastIndexOf('/') + 1))
     const dryRun = input.dryRun === true
-    const root = this.newSharedFolder(name, { claim: false })
+    const root = await this.newSharedFolder(name, { claim: false })
     const report = await this.opts.moveFolder(access, folder, root, { dryRun, newSpace: true })
     if (dryRun) return { space: null, report }
     this.opts.indexer.indexFolders([root])
@@ -237,28 +279,147 @@ export class SpaceService {
    * it too.
    */
   async rename(access: Access, path: unknown, name: unknown): Promise<SpaceEntry> {
-    this.person(access)
+    const user = this.person(access)
     const root = this.sharedRootFor(access, path, 'manage')
     const n = this.spaceName(name)
     const to = sharedRoot(n)
     if (to === root) return this.entry(access, root)
-    this.checkFree(n, root)
+    await this.checkFree(n, root)
+    const from = this.engine.spaceName(root) ?? ''
     await this.opts.moveFolder(access, root, to, { dryRun: false, renameSpace: true })
     this.opts.indexer.indexFolders([root, to])
+    // Its members are told: «Casa is now called Hogar» (a change of case isn't news).
+    if (nameKey(from) !== nameKey(n)) {
+      for (const u of this.engine.spaceAudience(to)) if (u.id !== user.id) this.opts.notices.add(u.id, { code: 'space_renamed', by: user.id, from, path: to })
+    }
     return this.entry(access, to)
   }
 
   /**
    * Deletes a shared space (`manage` at its root): what it holds to the trash
    * (with `trash`; otherwise only an empty one), and its rules out of
-   * vihko.yaml (scoped.ts `deleteFolder`). Pins under it go.
+   * vihko.yaml (scoped.ts `deleteFolder`). Pins under it go. What it takes to
+   * restore it whole is kept (`deleted_spaces`: its rules, folders, the trash
+   * entries that hold what it had, who managed it), and its members are told
+   * (`space_deleted`): `deleted` is its id, for `restoreSpace`.
    */
-  async remove(access: Access, path: unknown, opts: { trash: boolean }): Promise<{ path: string }> {
-    this.person(access)
+  async remove(access: Access, path: unknown, opts: { trash: boolean }): Promise<{ path: string; deleted: string }> {
+    const user = this.person(access)
     const root = this.sharedRootFor(access, path, 'manage')
-    await this.opts.deleteFolder(access, root, { trash: opts.trash })
+    const name = this.engine.spaceName(root) ?? ''
+    // What it was, before it goes.
+    const text = this.opts.file.read().text ?? ''
+    let rules: { folder: string; value: RuleValue }[] = []
+    try {
+      rules = [...rulesInFile(text)].filter(([f]) => f === root || f.startsWith(root + '/')).map(([f, value]) => ({ folder: f.slice(root.length), value: { ...value, name: null } }))
+    } catch { /* not YAML: what is in force */ }
+    if (rules.length === 0) rules = this.engine.spaceRules().rules.filter((r) => r.folder === root || r.folder.startsWith(root + '/')).map((r) => ({ folder: r.folder.slice(root.length), value: { grants: r.grants, ai: r.ai } }))
+    const members = this.engine.spaceAudience(root)
+    const managers = members.filter((u) => u.level === 'manage' && !u.disabled).map((u) => u.id)
+    const folders = this.foldersUnder(root)
+    const starts = this.opts.starts?.under(root) ?? []
+    const r = await this.opts.deleteFolder(access, root, { trash: opts.trash })
     this.opts.state.prepare("delete from pins where path = ? or path like ? escape '\\'").run(root, likePrefix(root))
-    return { path: root }
+    const id = newUid()
+    const record: DeletedSpaceRecord = { root, rules, folders, entries: r.trashed.map((e) => e.id), managers, starts }
+    this.opts.state.prepare('insert into deleted_spaces (id, root, rules, folders, entries, managers, by_user, deleted_at) values (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, root, JSON.stringify({ rules: record.rules, starts: record.starts }), JSON.stringify(folders), JSON.stringify(record.entries), JSON.stringify(managers), user.id, this.now())
+    // Its members are told; whoever deleted it too if they managed it: the notice is where they restore it from later.
+    for (const u of members) if (u.id !== user.id || managers.includes(u.id)) this.opts.notices.add(u.id, { code: 'space_deleted', by: user.id, name, deleted: id })
+    return { path: root, deleted: id }
+  }
+
+  /**
+   * The shared spaces deleted that this person may restore whole: those they
+   * managed when they were deleted; for the admin, every one. Its name, who
+   * deleted it and when, how many of its trash entries are left (some may
+   * have been restored one by one, or removed by the retention).
+   */
+  deletedSpaces(access: Access): DeletedSpaceInfo[] {
+    const user = this.person(access)
+    const rows = this.opts.state.prepare('select id, root, entries, managers, by_user, deleted_at from deleted_spaces order by deleted_at desc, id').all() as DeletedSpaceRow[]
+    const inTrash = new Set(this.opts.notes.trash().map((e) => e.id))
+    return rows.filter((r) => this.mayRestore(user, r)).map((r) => ({
+      id: r.id, path: r.root, name: this.engine.spaceName(r.root) ?? '', by: this.opts.users.get(r.by_user)?.username ?? this.nameOf(r.by_user), deletedAt: r.deleted_at,
+      entries: (JSON.parse(r.entries) as string[]).filter((e) => inTrash.has(e)).length,
+    }))
+  }
+
+  /** Whether a person may restore a deleted space whole: they managed it then, or they're the admin. */
+  mayRestoreId(user: Access['user'], id: string): boolean {
+    const r = this.opts.state.prepare('select id, root, entries, managers, by_user, deleted_at from deleted_spaces where id = ?').get(id) as DeletedSpaceRow | undefined
+    return r !== undefined && this.mayRestore(user, r)
+  }
+
+  private mayRestore(user: Access['user'], r: DeletedSpaceRow): boolean {
+    return user.role === 'admin' || (JSON.parse(r.managers) as string[]).includes(user.id)
+  }
+
+  /**
+   * Restores a deleted shared space whole (who managed it, or the admin):
+   * its folder and empty folders, its rules (members, levels, `ai: false`,
+   * and when each grant began), and every one of its trash entries still
+   * there, back where it was. Under its own name only: another space with
+   * it now is `space_name_taken` (its own past doesn't take it). Its members
+   * are told. Whoever restores it gains nothing by it: the admin restores a
+   * space they weren't in without reading it.
+   */
+  async restoreSpace(access: Access, id: unknown): Promise<{ space: { path: string; name: string }; restored: number; missing: number }> {
+    const user = this.person(access)
+    const row = typeof id === 'string' ? this.opts.state.prepare('select * from deleted_spaces where id = ?').get(id) as (DeletedSpaceRow & { rules: string; folders: string }) | undefined : undefined
+    if (!row || !this.mayRestore(user, row)) throw new NoteError('not_found', 'no such deleted space')
+    const root = row.root
+    const name = this.engine.spaceName(root) ?? ''
+    // Only the disk takes its name now: its own trash and history are its own.
+    let entries: string[] = []
+    try { entries = readdirSync(join(this.opts.notesDir, SPACES)) } catch { /* none yet */ }
+    const clash = entries.map((e) => e.normalize('NFC')).find((e) => !e.startsWith('.') && nameKey(e) === nameKey(name))
+    if (clash !== undefined) throw taken(clash)
+    const saved = JSON.parse(row.rules) as { rules: { folder: string; value: RuleValue }[]; starts: { folder: string; subject: string; since: string | null }[] }
+    mkdirSync(join(this.opts.notesDir, root), { recursive: true })
+    for (const f of JSON.parse(row.folders) as string[]) mkdirSync(join(this.opts.notesDir, root + f), { recursive: true })
+    // When its grants began, first: its members keep their past.
+    this.opts.starts?.restore(saved.starts)
+    await this.opts.file.update((t) => {
+      let out = removeRules(t, root)
+      for (const r of saved.rules) out = setRule(out, root + r.folder, r.value)
+      return out
+    }, { actor: access.actor })
+    let restored = 0
+    let missing = 0
+    for (const e of JSON.parse(row.entries) as string[]) {
+      try {
+        await this.opts.notes.restore(e, access.actor)
+        restored++
+      } catch (err) {
+        if (err instanceof NoteError && (err.code === 'not_found' || err.code === 'exists')) { missing++; continue }
+        throw err
+      }
+    }
+    this.opts.state.prepare('delete from deleted_spaces where id = ?').run(row.id)
+    this.opts.indexer.indexFolders([root, ...(JSON.parse(row.folders) as string[]).map((f) => root + f)])
+    for (const u of this.engine.spaceAudience(root)) if (u.id !== user.id) this.opts.notices.add(u.id, { code: 'space_restored', by: user.id, path: root })
+    return { space: { path: root, name }, restored, missing }
+  }
+
+  /** Every folder under `folder` (relative to it, starting with `/`), empty ones included; none hidden, none through a symbolic link. */
+  private foldersUnder(folder: string): string[] {
+    const out: string[] = []
+    const visit = (rel: string) => {
+      let list: import('node:fs').Dirent[]
+      try { list = readdirSync(join(this.opts.notesDir, folder + rel), { withFileTypes: true }) } catch { return }
+      for (const e of list) {
+        if (!e.isDirectory() || e.name.startsWith('.')) continue
+        out.push(`${rel}/${e.name}`)
+        visit(`${rel}/${e.name}`)
+      }
+    }
+    visit('')
+    return out
+  }
+
+  private nameOf(id: string): string {
+    return (this.opts.state.prepare('select username from users where id = ?').get(id) as { username: string } | undefined)?.username ?? ''
   }
 
   /**
@@ -379,13 +540,16 @@ export class SpaceService {
   /**
    * The admin adds themselves to a shared space: a member row
    * like any other, at `level` (`read` by default), which its managers and
-   * the other admins are told of, so it's never done unnoticed.
+   * the other admins are told of, so it's never done unnoticed. Only to
+   * rescue a space without managers (disabled ones don't count): one that has
+   * any is theirs to add people to, the admin too (`space_has_managers`).
    */
   async join(access: Access, path: unknown, level: unknown): Promise<SharedSpaceInfo> {
     const { admin, root, level: l } = this.checkJoin(access, path, level)
-    const managers = this.engine.spaceAudience(root).filter((u) => u.level === 'manage' && !u.disabled && u.id !== admin.id).map((u) => u.id)
+    // With no manager to tell (that's when the admin may), its members are told.
+    const members = this.engine.spaceAudience(root).filter((u) => !u.disabled && u.id !== admin.id).map((u) => u.id)
     await this.grant(root, admin.username, l, access.actor)
-    this.opts.notices.spaceChanged(managers, admin.id, { change: 'admin_joined', user: admin.id, to: null, space: root })
+    this.opts.notices.spaceChanged(members, admin.id, { change: 'admin_joined', user: admin.id, to: null, space: root })
     return this.info(root)
   }
 
@@ -395,17 +559,31 @@ export class SpaceService {
     const root = this.existingShared(path)
     const l = level === undefined || level === null ? 'read' : level
     if (typeof l !== 'string' || !(LEVELS as readonly string[]).includes(l)) throw new SpaceError(400, 'invalid', `level must be one of ${LEVELS.join(', ')}`)
+    if (this.engine.managersOf(root).length > 0) throw new SpaceError(409, 'space_has_managers', 'this space has managers: only they add people, the admin included')
     return { admin, root, level: l as Level }
   }
 
-  /** What a person's space holds shared (the confirmation of deleting them): counts, nothing named. */
+  /**
+   * What a person's space holds shared (the confirmation of deleting them):
+   * counts, and who has access to what (each folder they share, with its
+   * people and levels), which stays shared until the admin decides what
+   * becomes of their space. A folder's path only where the admin reads it.
+   */
   summary(access: Access, userId: string): PersonalSummary {
     this.admin(access)
     const u = this.opts.users.get(userId)
     if (!u) throw new NoteError('not_found', 'no such user')
     const root = personalRoot(u.username)
     const { folders, people } = this.sharedCounts(root, u.username)
-    return { path: root, exists: this.isFolder(root), sharedFolders: folders, people }
+    const shared = this.engine.spaceRules().rules
+      .filter((r) => r.folder.normalize('NFC').startsWith(root + '/') && r.grants && Object.keys(r.grants).length > 0 && this.isFolder(r.folder))
+      .map((r) => r.folder.normalize('NFC')).sort()
+      .map((f) => ({
+        path: access.level(f) !== null ? f : null,
+        people: this.engine.spaceAudience(f).filter((p) => p.id !== u.id).map((p) => ({ username: p.username, level: p.level })).sort((a, b) => a.username.localeCompare(b.username)),
+      }))
+      .filter((s) => s.people.length > 0)
+    return { path: root, exists: this.isFolder(root), sharedFolders: folders, people, shared }
   }
 
   /**
@@ -454,10 +632,13 @@ export class SpaceService {
     const shared = this.sharedCounts(from, gone.username)
     const plan = (dest: string | null): PersonalSpacePlan => ({ action, from, to: dest, ...counts, sharedFolders: shared.folders, people: shared.people })
     // A conversion's name must be free, in the dry run too.
-    if (action === 'convert') to = this.newSharedFolder(name, { claim: false })
+    if (action === 'convert') to = await this.newSharedFolder(name, { claim: false })
     if (dryRun) return plan(to)
 
     if (action === 'delete') {
+      // Who still had what they shared, until now: told once it's gone.
+      const losing = this.engine.spaceRules().rules.map((r) => r.folder.normalize('NFC')).filter((f) => f.startsWith(from + '/'))
+        .flatMap((f) => this.engine.spaceAudience(f).map((u) => ({ id: u.id, folder: f })))
       // Its rules first: if vihko.yaml can't be written, nothing is deleted.
       await this.opts.file.update((t) => {
         let out = t
@@ -469,10 +650,18 @@ export class SpaceService {
       this.opts.refs.dropTrash(from)
       this.opts.state.prepare("delete from pins where path = ? or path like ? escape '\\'").run(from, likePrefix(from))
       this.opts.notices.spaceChanged([], admin.id, { change: 'personal_deleted', user: gone.id, to: null, space: null })
+      // Each once, for the topmost folder they had.
+      const told = new Set<string>()
+      for (const l of losing.sort((a, b) => a.folder.length - b.folder.length)) {
+        if (told.has(l.id) || l.id === admin.id) continue
+        told.add(l.id)
+        this.opts.notices.add(l.id, { code: 'removed_from', kind: 'folder', by: admin.id, name: l.folder.slice(l.folder.lastIndexOf('/') + 1), owner: gone.username, space: null })
+      }
       return plan(null)
     }
 
-    const dest = action === 'transfer' ? this.freeFolder(to!) : this.newSharedFolder(name, { claim: false })
+    const dest = action === 'transfer' ? this.freeFolder(to!) : await this.newSharedFolder(name, { claim: false })
+    this.opts.starts?.moving(from, dest)
     // Its rules first at the new path too, then the folder, then the old rules go (as a folder move does, scoped.ts).
     await this.opts.file.update((t) => {
       // Rules left at a new space's path by one that went outside vihko aren't this one's.
@@ -505,7 +694,8 @@ export class SpaceService {
       for (const folder of rulesInFile(t).keys()) if (folder === from || folder.startsWith(from + '/')) out = setRule(out, folder, { grants: null, ai: null })
       return out
     }, { actor: access.actor }).catch((err) => this.opts.log?.(`the old rules of ${shownPath(from)} stay in vihko.yaml after it moved to ${shownPath(dest)}: ${err instanceof Error ? err.message : String(err)}`))
-    this.opts.refs.moved(from, dest)
+    // Its trash goes along, whatever space it lands in: what was shared stays so, with what was deleted there.
+    this.opts.refs.moved(from, dest, { trash: 'always' })
     // A person's settings (their `.vihko/`) aren't a shared space's: they don't come along.
     if (action === 'convert') {
       for (const entry of readdirSync(join(this.opts.notesDir, dest))) {
@@ -540,7 +730,8 @@ export class SpaceService {
   /**
    * After a folder's rule changed (`before`: vihko.yaml's text then): whoever
    * sees the folder now and didn't before is told that `actor`
-   * added them to the shared space (its root) or shared the folder with them.
+   * added them to the shared space (its root) or shared the folder with them;
+   * whoever saw it and doesn't now, that `actor` took them out of it.
    * Never the one who did it, and only for a person's change. What they're told is only what they can see (notices.ts).
    */
   notifyShared(folder: string, before: string, actor: Actor): void {
@@ -558,7 +749,16 @@ export class SpaceService {
     for (const u of users) {
       if (u.id === actor.id) continue
       const who = { username: u.username, groups: dir.groupsOf(u.id) }
-      if (then.level(f, who, exists) !== null || now.level(f, who, exists) === null) continue
+      const [was, is] = [then.level(f, who, exists), now.level(f, who, exists)]
+      // Taken out of it (or stopped being shared with): told too, as they were when added.
+      if (was !== null && is === null) {
+        const name = kind === 'space' ? (s.space.kind === 'shared' ? s.space.name : '') : f.slice(f.lastIndexOf('/') + 1)
+        this.opts.notices.add(u.id, {
+          code: 'removed_from', kind, by: actor.id, name,
+          owner: s.space.kind === 'personal' ? s.space.owner : null, space: s.space.kind === 'shared' && kind === 'folder' ? s.space.name : null,
+        })
+      }
+      if (was !== null || is === null) continue
       this.opts.notices.add(u.id, { code: 'shared_with_you', kind, by: actor.id, path: f })
     }
   }
@@ -643,14 +843,15 @@ export class SpaceService {
 
   /**
    * A new shared space's root, `spaces/<name>`: `space_name_taken`
-   * if something in `spaces/` has that name in any case (core nameKey). With
-   * `claim` (the default) its folder is made at once, never over one that
-   * exists (`space_name_taken` too).
+   * if something in `spaces/` has that name in any case (core nameKey), or
+   * a space that had it left its past behind (`checkFree`). With `claim`
+   * (the default) its folder is made at once, never over one that exists
+   * (`space_name_taken` too).
    */
-  private newSharedFolder(name: string, opts: { claim?: boolean } = {}): string {
+  private async newSharedFolder(name: string, opts: { claim?: boolean } = {}): Promise<string> {
     const dir = join(this.opts.notesDir, SPACES)
     mkdirSync(dir, { recursive: true })
-    this.checkFree(name)
+    await this.checkFree(name)
     const root = sharedRoot(name)
     if (opts.claim === false) return root
     try {
@@ -668,8 +869,13 @@ export class SpaceService {
    * name as that one writes it. Names of shared spaces are visible to
    * everyone in the installation: saying one exists reveals
    * nothing else.
+   *
+   * A name a space had (deleted, or renamed) stays taken while its trash or
+   * its history holds anything under it: both are judged by path, and a new
+   * space by that name would inherit them. It's free again once the
+   * retention or a purge empties that past.
    */
-  private checkFree(name: string, self: string | null = null): void {
+  private async checkFree(name: string, self: string | null = null): Promise<void> {
     const key = nameKey(name)
     let entries: string[] = []
     try { entries = readdirSync(join(this.opts.notesDir, SPACES)) } catch { /* none yet */ }
@@ -678,6 +884,32 @@ export class SpaceService {
       if (e.startsWith('.') || sharedRoot(e) === self) continue
       if (nameKey(e) === key) throw taken(e)
     }
+    const held = await this.heldName(key, self)
+    if (held !== null) throw taken(held)
+  }
+
+  /**
+   * The name (as its past spells it) of a space no longer there whose trash
+   * entries or history are under `spaces/<a name with this key>`, but for
+   * `self`'s (the space being renamed: its own past); null if none.
+   */
+  private async heldName(key: string, self: string | null): Promise<string | null> {
+    const of = (path: string): string | null => {
+      const p = path.normalize('NFC')
+      if (!p.startsWith(SPACES + '/')) return null
+      const folder = p.slice(SPACES.length + 1).split('/')[0]!
+      if (!folder || folder.startsWith('.') || sharedRoot(folder) === self || nameKey(folder) !== key) return null
+      return folder
+    }
+    for (const e of this.opts.notes.trash()) {
+      const found = of(e.kind === 'files' ? `${e.path}/_` : e.path)
+      if (found !== null) return found
+    }
+    for (const p of (await this.opts.pastPaths?.()) ?? []) {
+      const found = of(p)
+      if (found !== null) return found
+    }
+    return null
   }
 
   /** Adds (or raises) one person's grant at a shared space's root, keeping its name, members and `ai`. */
@@ -691,7 +923,8 @@ export class SpaceService {
         else grants[k] = l
       }
       grants[username] = maxLevel(had, level)!
-      return setRule(t, root, { ...current, grants })
+      // Their grants below that no longer raise them above the space go (spaceGrants.ts).
+      return tidyBelow(setRule(t, root, { ...current, grants }), root, new Set(), this.engine)
     }, { actor })
   }
 

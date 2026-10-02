@@ -8,7 +8,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, BASE_URL, E2E_DIR, LOCKED_URL, MEMBER, SPACE_NAME, inVault, specMother } from './env.ts'
-import { signIn } from './helpers.ts'
+import { dismissNoticesOf, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
@@ -55,7 +55,11 @@ async function resetSwitches(browser: Browser) {
   expect(r.status()).toBe(200)
   await page.context().close()
 }
-test.afterAll(async ({ browser }) => resetSwitches(browser))
+test.afterAll(async ({ browser }) => {
+  await resetSwitches(browser)
+  // The keys made here are told to their owners: not left for other specs.
+  await dismissNoticesOf(ADMIN, MEMBER)
+})
 
 let token = ''
 
@@ -329,13 +333,22 @@ test('members: no keys until the admin allows it; their own keys while allowed; 
   await expect(card(member, MEMBER_KEY)).toContainText('Lee y escribe')
   await expect(card(member, MEMBER_KEY)).toContainText('Caduca el')
 
+  // Off again suspends the keys members have: the admin is told how many first, and may still back out.
   await flip(admin, 'Los miembros pueden crear claves')
+  const off = admin.getByRole('alertdialog', { name: '¿Que los miembros dejen de tener claves?' })
+  await expect(off).toContainText('Una clave o aplicación de un miembro queda suspendida')
+  await off.screenshot({ path: `${SHOTS}/agents-members-off.png`, animations: 'disabled' })
+  await off.getByRole('button', { name: 'Cancelar' }).click()
+  await expect(members).toBeChecked()
+  await flip(admin, 'Los miembros pueden crear claves')
+  await off.getByRole('button', { name: 'Apagarlo' }).click()
   await expect(members).not.toBeChecked()
 
   await member.reload()
   await expect(member.getByText('El administrador no permite que los miembros creen claves', { exact: false })).toBeVisible()
   await expect(member.getByRole('button', { name: 'Nueva clave' })).toHaveCount(0)
-  // Her key still works and she may revoke it, but not change it.
+  // Her key is suspended, not gone: she may revoke it, but not change it.
+  await expect(card(member, MEMBER_KEY)).toContainText('Suspendida')
   await expect(card(member, MEMBER_KEY).getByRole('button', { name: 'Editar' })).toHaveCount(0)
   await expect(card(member, MEMBER_KEY).getByRole('button', { name: 'Revocar' })).toBeVisible()
   const refused = await member.request.post('/api/keys', { data: { confirm: MEMBER.password, name: REFUSED_KEY } })
@@ -345,6 +358,7 @@ test('members: no keys until the admin allows it; their own keys while allowed; 
   await admin.reload()
   const theirs = admin.locator('section', { has: admin.getByRole('heading', { name: 'Claves de los demás' }) })
   await expect(card(admin, MEMBER_KEY)).toContainText(`de ${MEMBER.username}`)
+  await expect(card(admin, MEMBER_KEY)).toContainText('Suspendida')
   await theirs.getByRole('button', { name: 'Revocar' }).click()
   const ask = admin.getByRole('alertdialog', { name: `¿Revocar «${MEMBER_KEY}»?` })
   await expect(ask).toContainText(`Es una clave de ${MEMBER.username}.`)

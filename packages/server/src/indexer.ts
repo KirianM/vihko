@@ -36,6 +36,13 @@ export interface IndexerOptions {
   now?: () => number
   /** Moves made outside vihko, as a scan or a watcher batch detects them. */
   onMoves?: (moves: DetectedMove[]) => void
+  /**
+   * The largest note indexed (vihko.yaml `notes.maxSize`), in bytes; none by
+   * default. A larger one is kept in the index by its path and name alone:
+   * nothing of its text is read (no title from it, no links, tags or words),
+   * and it's reported (`tooLargeNotes`).
+   */
+  maxNoteBytes?: () => number
 }
 
 /** Names of the frontmatter keys vihko understands (configurable). */
@@ -83,7 +90,11 @@ export interface AppliedChanges {
 }
 
 interface Row { path: string; uid: string | null; hash: string; mtime_ms: number; size: number }
-interface Upsert { path: string; text: string; hash: string; stat: Stats }
+/** `large`: a note over the size limit, indexed by its path and name alone (its `text` is empty, never its own). */
+interface Upsert { path: string; text: string; hash: string; stat: Stats; large?: true }
+
+/** How the hash of a note indexed without its text (over the size limit) starts: never a content hash. */
+const LARGE = 'large:'
 
 export class Indexer {
   private keys: FrontmatterKeys
@@ -387,7 +398,8 @@ export class Indexer {
   private applied(upserts: Upsert[], report: ScanReport) {
     if (!this.onApplied || (upserts.length === 0 && report.removed.length === 0 && report.moved.length === 0)) return
     this.onApplied({
-      upserts: upserts.map((u) => ({ path: u.path, text: u.text, mtimeMs: u.stat.mtimeMs })),
+      // A note over the size limit wasn't read: what its text is now isn't known here.
+      upserts: upserts.filter((u) => !u.large).map((u) => ({ path: u.path, text: u.text, mtimeMs: u.stat.mtimeMs })),
       removed: report.removed,
       moved: report.moved.map((m) => ({ from: m.from, to: m.to })),
     })
@@ -410,8 +422,18 @@ export class Indexer {
     } catch {
       return // disappeared between listing and stat; the next scan will catch it
     }
-    if (row && row.mtime_ms === stat.mtimeMs && row.size === stat.size) {
+    const large = stat.size > (this.opts.maxNoteBytes?.() ?? Infinity)
+    if (large) this.tooLarge.add(rel)
+    else this.tooLarge.delete(rel)
+    if (row && row.mtime_ms === stat.mtimeMs && row.size === stat.size && (row.hash.startsWith(LARGE) === large)) {
       report.unchanged++
+      return
+    }
+    if (large) {
+      // Kept by its path and name: its text isn't read, nor anything taken from it.
+      this.unreadable.delete(rel)
+      upserts.push({ path: rel, text: '', hash: `${LARGE}${stat.size}:${stat.mtimeMs}`, stat, large: true })
+      ;(row ? report.changed : report.added).push(rel)
       return
     }
     let text: string
@@ -437,6 +459,25 @@ export class Indexer {
 
   /** Notes on the disk that couldn't be read when last looked at (permissions, I/O errors), by path. */
   private unreadable = new Map<string, string>()
+
+  /** Notes over the size limit when last looked at (`maxNoteBytes`). */
+  private tooLarge = new Set<string>()
+
+  /** The notes over the size limit (paths from the notes root, sorted): indexed by name alone. */
+  tooLargeNotes(): string[] {
+    return [...this.tooLarge].sort()
+  }
+
+  /** Whether a note is over the size limit now (by its size on the disk; a note that isn't there, no). */
+  isTooLarge(path: string): boolean {
+    const max = this.opts.maxNoteBytes?.()
+    if (max === undefined) return false
+    try {
+      return statSync(join(this.opts.notesDir, path)).size > max
+    } catch {
+      return false
+    }
+  }
 
   private cantRead(rel: string, err: unknown) {
     const code = (err as NodeJS.ErrnoException | null)?.code ?? String(err)
@@ -469,6 +510,7 @@ export class Indexer {
         delNote.run(path)
         this.host.remove(path)
         gone.add(path)
+        this.tooLarge.delete(path)
       }
       for (const t of touch) touchStmt.run(t.stat.mtimeMs, t.stat.size, t.path)
       for (const u of upserts) {
@@ -505,6 +547,12 @@ export class Indexer {
     db.transaction(() => {
       for (const r of rows) {
         let text: string
+        // Over the size limit: indexed by its name alone, its text never read.
+        if (r.hash.startsWith(LARGE)) {
+          this.host.index(this.snapshot(r.path, '', r.hash), only)
+          indexed.add(r.path)
+          continue
+        }
         try {
           text = readFileSync(join(this.opts.notesDir, r.path), 'utf8')
         } catch {

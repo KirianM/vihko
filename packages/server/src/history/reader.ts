@@ -79,9 +79,9 @@ export interface HistoryReader {
    * A page of changes, newest first: only files `canRead` allows, and no
    * change left without any; `author` keeps those with a matching author
    * (`authorFilter`). `canRead` is asked with where the file is judged (see
-   * RawVersion `judgedPath`).
+   * RawVersion `judgedPath`) and when the change was made (ISO).
    */
-  changes(page: { cursor?: string | null; limit: number; author?: string | null; canRead: (path: string) => boolean }): Promise<{ changes: RawChange[]; next: string | null }>
+  changes(page: { cursor?: string | null; limit: number; author?: string | null; canRead: (path: string, at: string) => boolean }): Promise<{ changes: RawChange[]; next: string | null }>
   /** Everyone who appears in the history (for the author filter). */
   authors(): Promise<AuthorRef[]>
 }

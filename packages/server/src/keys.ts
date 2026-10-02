@@ -46,8 +46,12 @@ export interface KeyInfo {
   last4: string
   /** Rotated a moment ago: until when the secret it replaced still works; null otherwise. */
   previousUntil: string | null
-  /** `active`, or why it no longer works. */
-  status: 'active' | 'expired' | 'revoked'
+  /**
+   * `active`, or why it doesn't work: `expired`, `revoked`, or `suspended` (a
+   * member's key while the admin doesn't let members have keys: it works
+   * again if they do).
+   */
+  status: 'active' | 'expired' | 'revoked' | 'suspended'
   /**
    * An OAuth authorization (oauth.ts): the client it was given to and where
    * that client goes back to. Null for a key made in «Agents and API».
@@ -95,10 +99,15 @@ interface Row {
   previous_until: string | null
   /** From oauth_clients, joined: the client's redirect URIs (JSON). */
   redirect_uris?: string | null
+  /** From users, joined: its owner's role (a member's key is suspended while members may not have keys). */
+  owner_role?: string | null
 }
 
-/** A key's row joined with its OAuth client, if any. */
-const SELECT = 'select k.*, c.redirect_uris from api_keys k left join oauth_clients c on c.id = k.oauth_client'
+/** A key's row joined with its OAuth client, if any, and its owner's role. */
+const SELECT = 'select k.*, c.redirect_uris, (select role from users where id = k.user_id) owner_role from api_keys k left join oauth_clients c on c.id = k.oauth_client'
+
+/** The admin's switch that lets members have keys (integrations.ts): off, a member's keys are suspended. */
+const MEMBERS_KEYS = 'integrations.membersCanCreateKeys'
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest()
 
@@ -163,9 +172,20 @@ export class ApiKeys {
     return (this.db.prepare(`${SELECT} where k.user_id = ? order by k.created_at desc, k.id desc`).all(userId) as Row[]).map((r) => this.info(r))
   }
 
+  /** Whether members may have keys (the admin's switch, off by default): if not, theirs are suspended. */
+  membersAllowed(): boolean {
+    return (this.db.prepare('select value from settings where key = ?').get(MEMBERS_KEYS) as { value: string } | undefined)?.value === 'true'
+  }
+
+  /** How many keys (and authorised apps) of members work now, or would if members may have them: what turning that off suspends. */
+  memberKeys(): number {
+    return (this.db.prepare(`select count(*) n from api_keys k join users u on u.id = k.user_id
+      where u.role = 'member' and u.deleted_at is null and k.revoked_at is null and (k.expires_at is null or k.expires_at > ?)`).get(this.now().toISOString()) as { n: number }).n
+  }
+
   /** Everyone's keys, for the admin. */
   listAll(): KeyWithUser[] {
-    const rows = this.db.prepare(`select k.*, c.redirect_uris, u.username from api_keys k join users u on u.id = k.user_id
+    const rows = this.db.prepare(`select k.*, c.redirect_uris, u.username, u.role owner_role from api_keys k join users u on u.id = k.user_id
       left join oauth_clients c on c.id = k.oauth_client
       order by u.username, k.created_at desc, k.id desc`).all() as (Row & { username: string })[]
     return rows.map((r) => ({ ...this.info(r), user: { id: r.user_id, username: r.username } }))
@@ -264,10 +284,12 @@ export class ApiKeys {
   /**
    * The agent a key acts as, or null: not a key, unknown, wrong secret (or
    * one rotated out more than ROTATION_GRACE_MS ago), revoked, expired, its
-   * user disabled, or an OAuth authorization (only its tokens reach it).
-   * Records when it was last used (at most every 5 minutes) and how (`via`).
+   * user disabled, or an OAuth authorization (only its tokens reach it);
+   * `suspended`: a member's key while members may not have keys (it works
+   * again once they may). Records when it was last used (at most every 5
+   * minutes) and how (`via`).
    */
-  authenticate(token: string, via: Via): AgentPrincipal | null {
+  authenticate(token: string, via: Via): AgentPrincipal | 'suspended' | null {
     if (!VIAS.includes(via)) return null
     const m = KEY_FORMAT.exec(token)
     const r = m ? this.db.prepare('select secret_hash, previous_secret_hash, previous_until, oauth_client from api_keys where id = ?').get(m[1]) as
@@ -287,14 +309,16 @@ export class ApiKeys {
   /**
    * The agent a key acts as, once whoever asks has proved they hold it (its
    * secret, or an OAuth token for it); null if it's revoked, expired or its
-   * user disabled. Records when and how (`via`) it was last used.
+   * user disabled; `suspended` for a member's while members may not have
+   * keys (nothing is recorded). Records when and how (`via`) it was last used.
    */
-  principal(id: string, via: Via): AgentPrincipal | null {
+  principal(id: string, via: Via): AgentPrincipal | 'suspended' | null {
     const r = this.db.prepare('select k.*, u.username, u.role, u.disabled from api_keys k join users u on u.id = k.user_id where k.id = ?')
       .get(id) as (Row & { username: string; role: Role; disabled: number }) | undefined
     if (!r) return null
     const now = this.now()
     if (r.revoked_at || r.disabled || (r.expires_at && Date.parse(r.expires_at) <= now.getTime())) return null
+    if (r.role !== 'admin' && !this.membersAllowed()) return 'suspended'
     if (!r.last_used_at || now.getTime() - Date.parse(r.last_used_at) >= LAST_USED_EVERY_MS || r.last_via !== via) {
       this.db.prepare('update api_keys set last_used_at = ?, last_via = ? where id = ?').run(now.toISOString(), via, r.id)
     }
@@ -308,10 +332,11 @@ export class ApiKeys {
 
   private info(r: Row): KeyInfo {
     const expired = r.expires_at !== null && Date.parse(r.expires_at) <= this.now().getTime()
+    const suspended = r.owner_role === 'member' && !this.membersAllowed()
     return {
       id: r.id, userId: r.user_id, name: r.name, canWrite: !!r.can_write, folders: JSON.parse(r.folders) as string[],
       expiresAt: r.expires_at, createdAt: r.created_at, lastUsedAt: r.last_used_at, lastVia: r.last_via, revokedAt: r.revoked_at,
-      last4: r.last4, status: r.revoked_at ? 'revoked' : expired ? 'expired' : 'active',
+      last4: r.last4, status: r.revoked_at ? 'revoked' : expired ? 'expired' : suspended ? 'suspended' : 'active',
       previousUntil: !r.revoked_at && r.previous_until && Date.parse(r.previous_until) > this.now().getTime() ? r.previous_until : null,
       client: r.oauth_client ? { id: r.oauth_client, redirectUris: JSON.parse(r.redirect_uris ?? '[]') as string[] } : null,
     }

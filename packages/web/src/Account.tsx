@@ -34,21 +34,23 @@ function PasswordForm({ onUnauthorized }: { onUnauthorized: () => void }) {
   const t = useT()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState(false)
+  const [done, setDone] = useState<string | null>(null)
+  // Ticked by default: a new password after a stolen one shuts out whatever got in with it.
+  const [revokeOthers, setRevokeOthers] = useState(true)
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const form = e.currentTarget
     const f = new FormData(form)
     const password = String(f.get('password'))
-    setDone(false)
+    setDone(null)
     if (password !== String(f.get('repeat'))) return setError(t('invite.mismatch'))
     setBusy(true)
     setError(null)
     try {
-      await api.changePassword(String(f.get('current')), password)
+      const r = await api.changePassword(String(f.get('current')), password, revokeOthers)
       form.reset()
-      setDone(true)
+      setDone(revokeOthers ? t('account.changedRevoked', { sessions: r.sessionsEnded, keys: r.keysRevoked }) : t('account.changed'))
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return onUnauthorized()
       setError(errorText(t, err))
@@ -74,8 +76,12 @@ function PasswordForm({ onUnauthorized }: { onUnauthorized: () => void }) {
         <Input />
         <FieldError className="error-text" />
       </TextField>
+      <label className="check">
+        <input type="checkbox" name="revokeOthers" checked={revokeOthers} onChange={(e) => setRevokeOthers(e.target.checked)} />
+        <span className="check-text">{t('account.revokeOthers')}</span>
+      </label>
       {error && <p className="error-text" role="alert">{error}</p>}
-      {done && <p className="account-done" role="status">{t('account.changed')}</p>}
+      {done && <p className="account-done" role="status">{done}</p>}
       <div className="account-actions">
         <Button type="submit" className="btn btn-primary" isDisabled={busy}>{t('account.change')}</Button>
         <span className="hint">{t('account.changeHint')}</span>

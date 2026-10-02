@@ -69,6 +69,14 @@ export interface ScopedDeps {
   onFolderMoved?: (from: string, to: string) => void
   /** After a note moved from vihko: what state.db keeps by its path follows it (folderRefs.ts `noteMoved`). */
   onNoteMoved?: (from: string, to: string) => void
+  /** Before a folder's rules are written at its new path: when its grants began goes with them (grantStarts.ts). */
+  onFolderMoving?: (from: string, to: string) => void
+  /**
+   * After someone (or their agent) moved a note or folder out of another
+   * person's own space, to another space: `owner` (their username) is told
+   * (notices.ts `moved_out`).
+   */
+  onMovedOut?: (move: { kind: 'note' | 'folder'; owner: string; from: string; to: string; by: string }) => void
 }
 
 /**
@@ -997,6 +1005,7 @@ export class ScopedNotes {
     if (!opts.dryRun) await this.clearForgotten(folderOf(t))
     // The folder of images' rules are first written at its new path too (never left without them), then the old ones go.
     const file = this.deps.permissionsFile
+    if (!opts.dryRun && assetRules && file) this.deps.onFolderMoving?.(assets.from, assets.to)
     const copied = !opts.dryRun && assetRules && file ? (await this.rulesWritable(() => file.moveRules(assets.from, assets.to, { actor: this.access.actor, keepFrom: true, ...grants }))).changed : false
     let report: MoveReport
     try {
@@ -1021,6 +1030,7 @@ export class ScopedNotes {
         this.deps.log?.(`what opens on coming in still names ${shownPath(f)} after it moved to ${shownPath(t)}: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
+    if (!report.dryRun) this.movedOut('note', f, t)
     const masked: ScopedMoveReport = this.maskReport(report)
     if (report.dryRun && audience) masked.audience = audience
     const broken = brokenLinks(masked.shifted, (p) => (p === f ? t : p), f, t)
@@ -1393,6 +1403,7 @@ export class ScopedNotes {
     const file = space !== null || this.hasRules(f, t) ? this.deps.permissionsFile : undefined
     if (!space) await this.rulesWritable(() => this.clearForgotten(parentFolder(t)!))
     const before = file?.read().text ?? null
+    if (file) this.deps.onFolderMoving?.(f, t)
     const copied = file ? (await this.rulesWritable(() => file.moveRules(f, t, { actor, keepFrom: true, ...grants, ...(space ? { extra: [space] } : {}) }))).changed : false
     const afterCopy = copied ? file!.read().text : null
     let report: FolderMoveReport
@@ -1412,7 +1423,24 @@ export class ScopedNotes {
     } catch (err) {
       this.deps.log?.(`keys, pins or trash entries under ${shownPath(f)} still name it after it moved to ${shownPath(t)}: ${err instanceof Error ? err.message : String(err)}`)
     }
+    this.movedOut('folder', f, t)
     return mask(report)
+  }
+
+  /**
+   * Whoever manages (or edits) something another person shared from their
+   * own space may take it to another space: never behind their back. The
+   * owner is told, unless they did it themselves (or an agent of theirs).
+   */
+  private movedOut(kind: 'note' | 'folder', from: string, to: string) {
+    const s = parseSpacePath(from)
+    if (!s || s.space.kind !== 'personal' || sameSpace(from, to)) return
+    if (s.space.owner === this.access.user.username.normalize('NFC')) return
+    try {
+      this.deps.onMovedOut?.({ kind, owner: s.space.owner, from, to, by: this.access.user.id })
+    } catch (err) {
+      this.deps.log?.(`the owner of ${shownPath(s.space.root)} couldn't be told of a move out of it: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   /** Unless `from` is a shared space's root this person manages, and `to` another shared space's root: a space renamed (`moveFolder` with `renameSpace`). */
@@ -1482,8 +1510,10 @@ export class ScopedNotes {
   trash(): (TrashEntry & { space: string | null })[] {
     return this.deps.notes.trash().flatMap((e) => {
       const orphaned = this.orphanedFor(e)
-      const files = orphaned ? e.files : e.files?.filter((f) => this.access.canWrite(f.path))
-      if (!orphaned && (e.kind === 'files' ? !files?.length : !this.access.canWrite(e.path))) return []
+      // Only what was deleted since the person could read there: sharing a folder doesn't share what left it before.
+      const since = (path: string) => this.access.sawAt(folderOf(path), e.deletedAt)
+      const files = orphaned ? e.files : e.files?.filter((f) => this.access.canWrite(f.path) && since(f.path))
+      if (!orphaned && (e.kind === 'files' ? !files?.length : !this.access.canWrite(e.path) || !since(e.path))) return []
       // Who managed a deleted space is kept for the trash, never shown.
       const { managers: _, ...shown } = e
       return [{ ...shown, ...(files ? { files } : {}), space: spaceRootOf(e.kind === 'files' ? `${e.path}/_` : e.path) }]

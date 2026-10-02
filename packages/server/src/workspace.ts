@@ -45,6 +45,14 @@ export const PERMISSIONS_SETTLE_MS = 2000
 /** The last valid vihko.yaml, in the state volume. */
 export const LAST_VALID_FILE = 'vihko.yaml.last-valid'
 
+/**
+ * The last vihko.yaml whose `permissions` shared something, in the state
+ * volume: if the section disappears from the file (pasted over, deleted),
+ * what applies is the file (nothing shared), and the admin can put these
+ * back (`lastPermissions`).
+ */
+export const LAST_PERMISSIONS_FILE = 'vihko.yaml.last-permissions'
+
 export class Workspace {
   private opts: WorkspaceOptions
   /** Text of the file last read (null: it doesn't exist), to skip re-parsing an unchanged file. */
@@ -140,13 +148,17 @@ export class Workspace {
         const p = r.sections.permissions as Permissions
         if (p.kind === 'closed') this.permissionsUnusable()
         else this.offerPermissions(p, text)
+        this.keepPermissions(p, text)
       } else {
         this.problems = r.errors
         if (!this.hasGood) this.useKept()
         // The section stands on its own: a mistake elsewhere in the file doesn't touch it.
         const p = r.sections?.permissions as Permissions | undefined
         if (p === undefined || p.kind === 'closed') this.permissionsUnusable()
-        else this.offerPermissions(p, text)
+        else {
+          this.offerPermissions(p, text)
+          this.keepPermissions(p, text)
+        }
       }
     }
     const changed = before !== JSON.stringify([this.good, this.problems, this.ignored, this.perms, this.permsFallback])
@@ -171,6 +183,49 @@ export class Workspace {
     } catch (err) {
       this.opts.log?.(`the last valid ${WORKSPACE_FILE} couldn't be kept in the state volume: ${err instanceof Error ? err.message : String(err)}`)
     }
+  }
+
+  /** The text kept as LAST_PERMISSIONS_FILE (undefined: not looked at yet). */
+  private keptPermissions: string | null | undefined = undefined
+
+  /** Keeps the file's text when its permissions share something (LAST_PERMISSIONS_FILE). */
+  private keepPermissions(p: Permissions, text: string) {
+    const dir = this.opts.stateDir
+    if (dir === undefined || p.kind !== 'rules' || p.rules.length === 0) return
+    if (this.lastPermissions() === text) return
+    const file = join(dir, LAST_PERMISSIONS_FILE)
+    try {
+      renameSync(writeTmp(file, text), file)
+      this.keptPermissions = text
+    } catch (err) {
+      this.opts.log?.(`the last permissions of ${WORKSPACE_FILE} couldn't be kept in the state volume: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  /** The last vihko.yaml whose permissions shared something (its whole text), kept in the state volume; null if none. */
+  lastPermissions(): string | null {
+    const dir = this.opts.stateDir
+    if (dir === undefined) return null
+    if (this.keptPermissions === undefined) this.keptPermissions = readText(join(dir, LAST_PERMISSIONS_FILE))
+    return this.keptPermissions
+  }
+
+  /** Forgets the permissions kept (the admin dismissed their alert, or put them back). */
+  forgetLastPermissions() {
+    const dir = this.opts.stateDir
+    if (dir === undefined) return
+    rmSync(join(dir, LAST_PERMISSIONS_FILE), { force: true })
+    this.keptPermissions = null
+  }
+
+  /**
+   * Whether the file has no `permissions` (or there's no file) and nothing is
+   * shared because of it, while vihko kept ones that shared something: the
+   * admin's `permissions_missing` alert. An empty section written on purpose
+   * (`permissions: {}`) isn't missing.
+   */
+  get permissionsMissing(): boolean {
+    return this.perms.kind === 'none' && this.permsFallback === null && this.lastPermissions() !== null
   }
 
   /** With nothing valid read yet: the last valid file kept in the state volume, if there is one. */

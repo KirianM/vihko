@@ -31,7 +31,7 @@ const NO_HISTORY: NoteHistory = {
   operation: (_a, _r, fn) => fn(),
 }
 
-export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'control_characters' | 'edit_mismatch' | 'too_large' | 'unsupported_type' | 'not_configured' | 'not_empty' | 'series_gone'
+export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'control_characters' | 'edit_mismatch' | 'too_large' | 'note_too_large' | 'unsupported_type' | 'not_configured' | 'not_empty' | 'series_gone'
 
 export class NoteError extends Error {
   readonly code: NoteErrorCode
@@ -116,6 +116,8 @@ export interface NoteServiceOptions {
   retries?: RelinkRetries
   /** A retry that failed again: given up, for whoever made the move to be told. */
   onRelinkGaveUp?: (entry: RelinkRetry, failed: MoveReport['failed']) => void
+  /** The largest note, in bytes (vihko.yaml `notes.maxSize`): a write that makes a note larger is refused. None by default. */
+  maxNoteBytes?: () => number
 }
 
 export const DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -485,6 +487,11 @@ export class NoteService {
     return rows[0]!.path
   }
 
+  /** Whether a note is at `path` (on the disk, or open in an editor). */
+  exists(path: string): boolean {
+    return this.opts.hot?.has(path) === true || readText(this.file(path)) !== null
+  }
+
   read(path: string): NoteRead {
     const text = readText(this.file(path))
     if (text === null) throw new NoteError('not_found', `does not exist: ${path}`)
@@ -576,7 +583,17 @@ export class NoteService {
    * the note is created and the system rewrites that link so it keeps
    * leading where it did, without saying so.
    */
+  /** Unless a note's text fits the size limit (vihko.yaml `notes.maxSize`): `note_too_large`. */
+  checkSize(text: string): void {
+    const max = this.opts.maxNoteBytes?.()
+    // Never more than 3 bytes of UTF-8 per UTF-16 unit: a short text needs no counting.
+    if (max === undefined || text.length * 3 <= max) return
+    const bytes = Buffer.byteLength(text, 'utf8')
+    if (bytes > max) throw new NoteError('note_too_large', `the note would be ${bytes} bytes; notes are kept up to ${max} bytes here`)
+  }
+
   async create(path: string, text: string, actor: Actor, opts: { freshUid?: boolean; reason?: Reason; mayName?: (path: string) => boolean } = {}): Promise<{ path: string; etag: string; uid: string | null }> {
+    this.checkSize(text)
     const file = this.newFile(path)
     const taken = opts.mayName ? this.newNoteTakes(path, text, opts.mayName) : null
     if (taken?.refuse) throw nameTaken(path)
@@ -611,7 +628,14 @@ export class NoteService {
    * hasn't changed since it was read. If the note had no `uid`, it gets one in
    * this same write; if it had one, it's kept even if the new text omits it.
    */
-  async edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor; mayName?: (path: string) => boolean }): Promise<{ etag: string; rebased?: boolean }> {
+  async edit(path: string, given: (text: string) => Change, opts: { ifMatch?: string; actor: Actor; mayName?: (path: string) => boolean }): Promise<{ etag: string; rebased?: boolean }> {
+    // A note never grows over the size limit by an edit (`note_too_large`); one already over it is never made larger.
+    const fn = (t: string): Change => {
+      const change = given(t)
+      const next = changedText(t, change)
+      if (next.length > t.length) this.checkSize(next)
+      return change
+    }
     // An alias the edit adds is a name the note takes, as when creating one.
     const mayName = opts.mayName
     if (mayName) {
@@ -1909,7 +1933,7 @@ export class NoteService {
    * One commit, by `actor`, with the reason `restored`. A note that no
    * longer exists is created again (with `mayName`, as `create` does).
    */
-  async restoreVersion(path: string, version: { id: string; at: string; path: string; text: string }, opts: { ifMatch?: string; actor: Actor; file: (path: string) => Promise<Uint8Array | null>; canWrite?: (path: string) => boolean; mayName?: (path: string) => boolean }): Promise<RestoreReport> {
+  async restoreVersion(path: string, version: { id: string; at: string; path: string; text: string }, opts: { ifMatch?: string; actor: Actor; file: (path: string) => Promise<Uint8Array | null>; canWrite?: (path: string) => boolean; mayName?: (path: string) => boolean; freshUid?: boolean }): Promise<RestoreReport> {
     const file = this.file(path)
     const reason: Reason = { code: 'restored', id: version.id, at: version.at }
     return this.history.operation(opts.actor, reason, async () => {
@@ -1918,7 +1942,10 @@ export class NoteService {
         etag = (await this.edit(path, () => version.text, { ifMatch: opts.ifMatch, actor: opts.actor })).etag
       } else {
         if (opts.ifMatch !== undefined) throw new NoteError('precondition_failed', `the note doesn't exist: ${path}`)
-        etag = (await this.create(path, version.text, opts.actor, { mayName: opts.mayName })).etag
+        // A new uid only when the version's is another note's now (`freshUid`): otherwise it comes back as it was.
+        const uid = this.uidIn(version.text)
+        const fresh = opts.freshUid === true && uid !== null && this.opts.db.prepare('select 1 from notes where uid = ?').get(uid) !== undefined
+        etag = (await this.create(path, version.text, opts.actor, { mayName: opts.mayName, freshUid: fresh })).etag
       }
       const images: RestoreReport['images'] = { restored: [], missing: [] }
       const seen = new Set<string>()

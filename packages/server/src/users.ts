@@ -84,6 +84,7 @@ export interface NewLink {
 
 export type UsersErrorCode =
   | 'not_found' // no such user or group
+  | 'not_invited' // only someone who hasn't used their invitation yet is renamed
   | 'last_admin' // the last active admin can't stop being one
   | 'not_disabled' // only a disabled user is deleted
   | 'user_disabled' // no link for someone disabled
@@ -107,6 +108,8 @@ export class UsersError extends Error {
 export interface UserHooks {
   /** Before a user is deleted: their grants in vihko.yaml go. If it throws, the user isn't deleted. */
   onUserDeleted?(username: string, by: Actor): void | Promise<void>
+  /** Before someone invited is renamed: their grants (and their folder's rules) in vihko.yaml follow. If it throws, they keep their name. */
+  onUserRenamed?(from: string, to: string, by: Actor): void | Promise<void>
   /**
    * After a user is deleted: their personal space is closed, so
    * whoever has one of its notes open elsewhere (a folder it shared) loses it
@@ -165,8 +168,8 @@ export class Users {
   }
 
   /** A new user without a password, and the link to choose it. */
-  async create(username: string, role: unknown): Promise<{ user: UserInfo; link: NewLink }> {
-    const user = await this.auth.createUser(String(username ?? ''), null, checkRole(role))
+  async create(username: string, role: unknown, opts: { adopt?: boolean } = {}): Promise<{ user: UserInfo; link: NewLink }> {
+    const user = await this.auth.createUser(String(username ?? ''), null, checkRole(role), opts)
     const link = this.newLink(user.id)
     return { user: this.get(user.id)!, link }
   }
@@ -229,6 +232,25 @@ export class Users {
     this.hooks.onSessionsEnded?.(userId)
     const r = this.must(userId)
     return { id: r.id, username: r.username, role: r.role, disabled: false }
+  }
+
+  /**
+   * Renames someone who hasn't used their invitation yet (never chose a
+   * password: nothing of theirs names them but their folder and grants to
+   * them): their folder, `people/<name>`, and every grant to them in
+   * vihko.yaml (`onUserRenamed`, first: if it fails, nothing changes) follow.
+   * Their link keeps working, for the new name. Someone who signed in is
+   * `not_invited`: renaming an active person isn't possible yet.
+   */
+  async rename(id: string, username: unknown, by: Actor): Promise<UserInfo> {
+    const r = this.must(id)
+    if (r.password_hash !== '') throw new UsersError('not_invited', 'only someone who hasn\'t used their invitation yet can be renamed')
+    const to = this.auth.newUsername(String(username ?? ''), { renaming: r.username })
+    if (to === r.username) return this.info(r)
+    await this.hooks.onUserRenamed?.(r.username, to, by)
+    this.auth.personalFolders?.rename(r.username, to)
+    this.db.prepare('update users set username = ? where id = ?').run(to, id)
+    return this.get(id)!
   }
 
   setRole(id: string, role: unknown): UserInfo {
@@ -341,7 +363,8 @@ export class Users {
   addMember(groupId: string, userId: string): GroupInfo {
     this.group(groupId)
     this.must(userId)
-    this.db.prepare('insert or ignore into group_members (group_id, user_id) values (?, ?)').run(groupId, userId)
+    // Since when they're in it: a grant to the group shows them the past only from then (grantStarts.ts).
+    this.db.prepare('insert or ignore into group_members (group_id, user_id, added_at) values (?, ?, ?)').run(groupId, userId, this.now().toISOString())
     this.hooks.onMembersChanged?.()
     return this.group(groupId)
   }

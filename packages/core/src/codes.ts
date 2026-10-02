@@ -10,6 +10,7 @@ export type { ConfigError, ConfigErrorCode } from './workspace.ts'
  */
 export type ErrorCode =
   | 'unauthorized' // no session, or expired
+  | 'key_suspended' // a member's key (or authorised app) while the admin doesn't let members have keys: it works again once they do
   | 'invalid_credentials'
   | 'forbidden'
   | 'not_found'
@@ -27,6 +28,7 @@ export type ErrorCode =
   | 'already_setup'
   | 'invalid_token'
   | 'too_large' // an image over the size limit
+  | 'note_too_large' // a write that would make a note larger than vihko.yaml's `notes.maxSize` (5 MB by default)
   | 'unsupported_type' // not an image type vihko stores
   | 'fetch_failed' // an image URL could not be downloaded
   | 'busy' // too many images being received at once (uploads and copies from a URL): try again in a moment (Retry-After)
@@ -47,6 +49,7 @@ export type ErrorCode =
   | 'wrong_password' // a password asked for with a session (changing it, confirming a key or an OAuth client) isn't right
   | 'last_admin' // the last active admin can't be demoted, disabled or deleted
   | 'not_disabled' // only a disabled user can be deleted
+  | 'not_invited' // only someone who hasn't used their invitation yet can be renamed
   | 'user_disabled' // a disabled user gets no link: enable them first
   | 'group_exists'
   | 'invalid_group_name'
@@ -72,7 +75,9 @@ export type ErrorCode =
   | 'space_needs_manager' // a deleted person's space made a shared space needs at least one member who manages it
   | 'permissions_invalid' // what is moved has sharing rules of its own in vihko.yaml, which can't be changed as it is (a mistake the admin fixes by hand first)
   | 'query_too_complex' // a search with more characters, filters or words than it takes (SEARCH_LIMITS)
-  | 'space_name_taken' // a new shared space's name (or a new name for one) that a space in the installation already has, in any case (`name`: as that one writes it)
+  | 'space_name_taken' // a new shared space's name (or a new name for one) that a space in the installation already has (or had, while its trash or history is there), in any case (`name`: as that one writes it)
+  | 'grant_not_higher' // a grant inside a shared space to one of its members (a person or a group) at or below their level in the whole space (`subject`, and `level`: theirs there): it would add nothing
+  | 'uid_mismatch' // restoring a version of another note that had this path before (another `uid`) over the note there: it goes back as a new note instead (`to`)
 
 /**
  * Space-level alerts: what vihko has detected in the notes folder that needs
@@ -91,6 +96,15 @@ export type Alert =
    * roots of the spaces that hold the others. Only admins see it.
    */
   | { code: 'unreadable_notes'; paths: string[]; elsewhere: string[]; actions: never[] }
+  /**
+   * Notes larger than vihko.yaml's `notes.maxSize` (`limitMb`): indexed by
+   * their name alone (no words, links or tags of theirs), never opened in
+   * the live editor (they show as plain text, with a download), and the API
+   * and MCP refuse writes that make a note larger. `paths`: those the admin
+   * reads; `elsewhere`: the roots of the spaces that hold the others. Only
+   * admins see it.
+   */
+  | { code: 'notes_too_large'; paths: string[]; elsewhere: string[]; limitMb: number; actions: never[] }
   /** A note deleted from outside, with a copy pending a decision. */
   | { code: 'orphaned_note'; path: string; actions: ('keep_copy' | 'discard_copy')[] }
   /**
@@ -198,6 +212,14 @@ export type Alert =
    * admins see it.
    */
   | { code: 'permissions_rejected'; fallback: 'last_good' | 'closed'; actions: never[] }
+  /**
+   * The `permissions` section is gone from vihko.yaml (or the file is):
+   * what applies is the file, so nothing is shared. vihko kept the last
+   * one that shared something (`folders`: how many folders it had rules
+   * for): `restore_permissions` writes it back; `dismiss` forgets it. Only
+   * admins see it.
+   */
+  | { code: 'permissions_missing'; file: string; folders: number; actions: ('restore_permissions' | 'dismiss')[] }
   /**
    * Notes moved outside vihko out of `folder` to where someone who didn't
    * read them would: nobody reads them until they go back or someone
@@ -328,6 +350,41 @@ export type Alert =
    * only while they can still see it; all null otherwise.
    */
   | { code: 'shared_with_you'; id: string; kind: 'space' | 'folder'; by: string; path: string | null; name: string | null; owner: string | null; space: string | null; at: string; actions: 'dismiss'[] }
+
+  /**
+   * Addressed to a personal space's owner: `by` (a name), who manages or
+   * edits something they shared, moved a note or a folder of theirs (`kind`,
+   * `from`: where it was) out of their space at `at`. `to`: where it is now,
+   * only while they read it; `space` (a shared space's root and name) or
+   * `owner` (another person's space) say whose space it went to.
+   */
+  | { code: 'moved_out'; id: string; kind: 'note' | 'folder'; by: string; from: string; to: string | null; space: { path: string; name: string | null } | null; owner: string | null; at: string; actions: 'dismiss'[] }
+  /**
+   * Addressed to one person: `by` (a name) took them out of a shared space
+   * (`kind: 'space'`, `name` its name) or stopped sharing a folder with them
+   * (`kind: 'folder'`, `name` the folder's; `owner` the personal space's
+   * owner, or `space` the shared space's name) at `at`, as they last saw
+   * them (a later rename never shows). Nothing else of it.
+   */
+  | { code: 'removed_from'; id: string; kind: 'space' | 'folder'; by: string; name: string | null; owner: string | null; space: string | null; at: string; actions: 'dismiss'[] }
+  /**
+   * Addressed to the members of a shared space: `by` deleted it (`name`, its
+   * name then) at `at`. `deleted`: what `restore_space` restores it by,
+   * only for whoever may (who managed it, while it can be restored); null
+   * otherwise.
+   */
+  | { code: 'space_deleted'; id: string; by: string; name: string; deleted: string | null; at: string; actions: ('restore_space' | 'dismiss')[] }
+  /**
+   * Addressed to one person: a key (`kind: 'key'`) was made, or an app
+   * (`kind: 'app'`) authorized, on their account at `at`, named `name`.
+   * Even when they did it: a session someone else took would make one
+   * unnoticed otherwise.
+   */
+  | { code: 'account_key_added'; id: string; kind: 'key' | 'app'; name: string; at: string; actions: 'dismiss'[] }
+  /** Addressed to the members of a shared space: `by` restored it at `at`; `path` and `name` while they're in it. */
+  | { code: 'space_restored'; id: string; by: string; path: string | null; name: string | null; at: string; actions: 'dismiss'[] }
+  /** Addressed to the members of a shared space: `by` renamed it from `from` to `name` at `at` (`path`: its root, while they're in it). */
+  | { code: 'space_renamed'; id: string; by: string; from: string; path: string | null; name: string | null; at: string; actions: 'dismiss'[] }
 
 /** What was done to a space that someone is told about (`space_changed`). */
 export type SpaceChange = 'manager_assigned' | 'admin_joined' | 'personal_transferred' | 'personal_converted' | 'personal_deleted'

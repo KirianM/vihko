@@ -37,6 +37,8 @@ export interface OAuthRoutesDeps {
    * password without one), even with a session: null if so, the response otherwise.
    */
   confirm: (c: Context<Env>, confirm: unknown) => Promise<Response | null>
+  /** An app was authorized on someone's account: they're told (notices.ts `account_key_added`), whoever did it. */
+  onAppAuthorized?: (userId: string, name: string) => void
 }
 
 const MAX_BODY = 64 * 1024
@@ -172,6 +174,8 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
     if (unconfirmed) return unconfirmed
     // Read-only and every folder unless the person chose otherwise.
     const folders = b.folders ?? []
-    return c.json({ redirect: oauth.approve(check.req, c.get('user').id, { canWrite: b.canWrite === true, folders: folders as string[] }) })
+    const redirect = oauth.approve(check.req, c.get('user').id, { canWrite: b.canWrite === true, folders: folders as string[] })
+    deps.onAppAuthorized?.(c.get('user').id, check.req.client.name)
+    return c.json({ redirect })
   })
 }

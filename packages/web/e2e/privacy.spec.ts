@@ -6,7 +6,7 @@
 import { expect, test, type Browser } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, BASE_URL, E2E_DIR, MEMBER, inVault, specMother } from './env.ts'
-import { signIn } from './helpers.ts'
+import { dismissNoticesOf, signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const m = specMother(import.meta.url)
@@ -21,6 +21,8 @@ async function admin(browser: Browser) {
   return { page, request: page.request }
 }
 test.afterAll(async ({ browser }) => {
+  // The keys made here are told to their owners: not left for other specs.
+  await dismissNoticesOf(ADMIN, MEMBER)
   const { page, request } = await admin(browser)
   for (const k of (await (await request.get('/api/keys?all=1')).json()).keys as { id: string; name: string; status: string }[]) {
     if ((k.name === KEY.admins || k.name === KEY.members) && k.status === 'active') await request.delete(`/api/keys/${k.id}`)

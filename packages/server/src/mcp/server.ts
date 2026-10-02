@@ -235,13 +235,17 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
     // An OAuth access token (only while OAuth is available): also from its client's own site.
     // A key: only from vihko's own origin, or with no Origin at all.
     let principal: AgentPrincipal | null
+    // A member's key or app while the admin doesn't let members have keys: suspended, never deleted (403 `key_suspended`).
+    const suspended = () => fail(c, 403, 'key_suspended', 'this key is suspended while the admin doesn\'t let members have keys')
     if (OAuthServer.isAccessToken(token)) {
       const r = services.oauth.authenticate(token, foreignOrigin)
       if (r === 'origin') return foreign(c)
+      if (r === 'suspended') return suspended()
       principal = r
     } else {
       const r = authenticateKey({ keys: services.keys, integrations: services.integrations }, token, 'mcp')
       if (!r.ok && r.status === 404) return fail(c, 404, 'not_found', 'does not exist')
+      if (!r.ok && r.status === 403) return suspended()
       if (r.ok && foreignOrigin !== undefined) return foreign(c)
       principal = r.ok ? r.principal : null
     }

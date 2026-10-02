@@ -31,6 +31,8 @@ export const LIVE_DEBOUNCE_MS = 250
 interface Subscriber {
   user: User
   send: () => void
+  /** «Read your notices again»: one arrived for this person (notices.ts). */
+  notice?: () => void
   /** The fingerprint of what the person reached when last told. */
   view: string
   timer: ReturnType<typeof setTimeout> | null
@@ -64,9 +66,13 @@ export class LiveTree {
     }
   }
 
-  /** Listens for one person; `send` is called (debounced) when their tree should be read again. Returns how to stop. */
-  subscribe(user: User, send: () => void): () => void {
-    const sub: Subscriber = { user, send, view: this.fingerprint(user), timer: null }
+  /**
+   * Listens for one person; `send` is called (debounced) when their tree
+   * should be read again, `notice` when a notice arrived for them. Returns
+   * how to stop.
+   */
+  subscribe(user: User, send: () => void, notice?: () => void): () => void {
+    const sub: Subscriber = { user, send, notice, view: this.fingerprint(user), timer: null }
     this.subs.add(sub)
     return () => {
       if (sub.timer) clearTimeout(sub.timer)
@@ -111,5 +117,13 @@ export class LiveTree {
   /** Tells one person's every connection (something only they did: a pin, from another tab). */
   userChanged(userId: string): void {
     for (const sub of this.subs) if (sub.user.id === userId) this.tell(sub)
+  }
+
+  /** A notice arrived for one person: each of their connections reads its notices again, at once. Nothing of it is sent. */
+  noticeFor(userId: string): void {
+    for (const sub of this.subs) {
+      if (sub.user.id !== userId || !sub.notice) continue
+      try { sub.notice() } catch { /* the connection is gone: it unsubscribes itself */ }
+    }
   }
 }

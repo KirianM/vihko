@@ -34,6 +34,8 @@ export interface LegacySpacesDeps {
   notes: NoteService
   refs: FolderRefs
   indexer: Indexer
+  /** When grants began (grantStarts.ts): kept at the space's new name. */
+  starts?: { moving(from: string, to: string): void }
   log?: (msg: string) => void
 }
 
@@ -110,6 +112,7 @@ export async function renameLegacySpaces(deps: LegacySpacesDeps): Promise<Legacy
 async function moveSpace(deps: LegacySpacesDeps, from: string, to: string, actor: Actor) {
   const before = deps.file.read().text ?? ''
   const own = rulesInFile(before).get(from)
+  deps.starts?.moving(from, to)
   await deps.file.moveRules(from, to, { actor, keepFrom: true, extra: [{ folder: to, grants: own?.grants ?? null, ai: own?.ai ?? null, name: null }] })
   const copied = deps.file.read().text
   try {
