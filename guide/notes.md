@@ -271,6 +271,14 @@ and inserts a `![](…)` link with a relative path. From a URL, you choose:
 «Save a copy» (vihko downloads it into the folder) or «Link to source»
 (the note keeps the URL; for images that change, such as a chart).
 
+With «Save a copy» it's vihko's server that downloads the image, so members
+can only do it from public internet addresses: nobody can use vihko as a
+bridge to the devices or services on the network where it runs. What counts
+is the IP the name points to, as the server sees it (a subdomain of yours that
+points to an address on your network is private). Admins always can, and can
+let members too: «Users and groups» → «Settings» → «Members can save copies
+of images from private addresses».
+
 Images from other sites (`![](https://…)`) load directly in the browser, which
 tells that site someone is looking. `VIHKO_EXTERNAL_IMAGES=block` stops that
 for the whole installation (see [Install](install.md)).
