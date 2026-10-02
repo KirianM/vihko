@@ -44,6 +44,12 @@ small team meets after months of use.
 
 ### Fixed
 
+- Renaming a shared space no longer hides its notes' history from
+  everyone, and renaming a folder within its space no longer hides the
+  history from before the rename from whoever it's shared with: each version
+  is judged where the note is now, in «History», «Recent changes», restore
+  and revert. A note that came from another space keeps that part of its
+  past as before.
 - A mistake in the `permissions` of `vihko.yaml` (`grant:` for `grants:`)
   no longer stops everyone from moving or renaming any folder or space:
   vihko.yaml is only written when what moves has rules there. Moving a
