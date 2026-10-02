@@ -17,6 +17,16 @@ small team meets after months of use.
 
 ### Changed
 
+- **Taking someone out of a shared space takes their grants below it too**,
+  as leaving it does: they no longer keep a subfolder shared with them on
+  its own. The dialog says so.
+- **A grant inside a shared space to one of its members only raises them.**
+  The share dialog offers only the levels above theirs in the space, and
+  `PUT /api/permissions` refuses one at or below it with `400
+  grant_not_higher` (`subject`, `level`: theirs in the space). When a
+  member's level in the space goes up, their grants below that no longer
+  raise them go by themselves. Sharing a subfolder with someone who isn't in
+  the space is as before.
 - **A confirmation lasts 15 minutes in that browser**, as GitHub's «sudo
   mode» does: after the current code, a recovery code, the password (without
   a second factor) or a sign-in with a code, the actions «confirmed at the
@@ -105,10 +115,11 @@ small team meets after months of use.
   `deleted`; `GET /api/spaces/deleted` and `POST /api/spaces/restore` are
   new. Before, the dialog promised a restore there was no way to make but
   note by note.
-- **Notices of what is taken away**, besides those of what is given: a
-  shared space you're in deleted (`space_deleted`) or restored
-  (`space_restored`), or renamed («Casa is now called Hogar»,
-  `space_renamed`).
+- **Notices of what is taken away**, besides those of what is given: taken
+  out of a shared space or a folder (`removed_from`, with its name and whose
+  it is as you last saw them), a shared space you're in deleted
+  (`space_deleted`) or restored (`space_restored`), or renamed («Casa is now
+  called Hogar», `space_renamed`).
 - **«Restore previous permissions».** When the `permissions` section goes
   from `vihko.yaml` (an example pasted over it, the file deleted), the file
   applies, so nothing is shared, as before; now the admins get the

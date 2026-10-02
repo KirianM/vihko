@@ -776,9 +776,14 @@ test('whoever is added to a shared space or receives a folder is told, only whil
     // No longer shared: nothing of it is shown any more.
     await h.services.permissionsFile.setRule(trips, { grants: null, ai: null }, { actor })
     assert.deepEqual((await noticesOf('other')).map(brief).at(-1), { kind: 'folder', by: h.names.member, path: null, name: null, owner: null, space: null })
-    const text = (await h.other('GET', '/api/alerts')).text
+    const text = JSON.stringify(await noticesOf('other'))
     // As a value of its own (a short folder name may well be part of the space's name).
     assert.ok(!text.includes(JSON.stringify(folder)) && !text.includes(trips), text)
+    // What they're told of it going: its name and whose, as they saw them; never where it is, nor what it's called later.
+    await h.member('POST', '/api/folder/move', { from: trips, to: `${h.home('member')}/${m.aFolder()}` })
+    const gone = (await h.other('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'removed_from')
+    assert.deepEqual(gone.map((a: any) => [a.kind, a.name, a.owner]), [['folder', folder, h.names.member]])
+    assert.ok(!JSON.stringify(gone).includes(trips))
   } finally {
     h.close()
   }
@@ -855,6 +860,42 @@ test('a deleted space is restored whole by whoever managed it, or the admin: fol
     assert.equal((await h.admin('POST', '/api/spaces/restore', { id: id2 })).status, 200)
     assert.equal((await h.admin('GET', '/api/spaces')).body.spaces.some((x: any) => x.path === t.path), false)
     assert.equal((await h.other('GET', '/api/spaces')).body.spaces.find((x: any) => x.path === t.path)?.level, 'manage')
+  } finally {
+    h.close()
+  }
+})
+
+test('taking someone out of a space takes their grants below it too, and tells them; raising a member drops grants below that no longer raise them', async () => {
+  const h = await setup({ group: false })
+  try {
+    const yaml = () => rulesInFile(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8'))
+    const put = async (folder: string, grants: Record<string, string>) => {
+      const etag = (await h.member('GET', `/api/permissions?folder=${encodeURIComponent(folder)}`)).body.etag
+      return h.member('PUT', '/api/permissions', { folder, grants, ifMatch: etag })
+    }
+    const s = await newSpace(h, 'member', { [h.names.other]: 'read' })
+    const sub = `${s.path}/${m.aFolder()}`
+    h.write(`${sub}/${m.aTitle()}.md`, m.aParagraph())
+    // Above their level in the space: fine; to someone who isn't in it: as ever.
+    assert.equal((await put(sub, { [h.names.other]: 'manage', [h.names.admin]: 'read' })).status, 200)
+    // Out of the space: their grant below goes with it, the non-member's stays; they're told.
+    assert.equal((await put(s.path, { [h.names.member]: 'manage' })).status, 200)
+    assert.deepEqual(yaml().get(sub)?.grants, { [h.names.admin]: 'read' })
+    const told = (await h.other('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'removed_from')
+    assert.deepEqual(told.map((a: any) => [a.kind, a.by, a.name]), [['space', h.names.member, s.name]])
+    assert.deepEqual((await h.other('GET', '/api/spaces')).body.shared, [])
+    // Back at read, a grant to comment below; raised to edit in the space, that grant adds nothing and goes.
+    assert.equal((await put(s.path, { [h.names.member]: 'manage', [h.names.other]: 'read' })).status, 200)
+    assert.equal((await put(sub, { [h.names.other]: 'comment', [h.names.admin]: 'read' })).status, 200)
+    assert.equal((await put(s.path, { [h.names.member]: 'manage', [h.names.other]: 'edit' })).status, 200)
+    assert.deepEqual(yaml().get(sub)?.grants, { [h.names.admin]: 'read' })
+    // A folder of one's own no longer shared: the other is told, with its name and whose it is.
+    const mine = `${h.home('member')}/${m.aFolder()}`
+    h.write(`${mine}/${m.aTitle()}.md`, m.aParagraph())
+    assert.equal((await put(mine, { [h.names.other]: 'read' })).status, 200)
+    assert.equal((await put(mine, {})).status, 200)
+    const last = (await h.other('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'removed_from').at(-1)
+    assert.deepEqual([last.kind, last.name, last.owner], ['folder', mine.slice(mine.lastIndexOf('/') + 1), h.names.member])
   } finally {
     h.close()
   }

@@ -83,16 +83,8 @@ export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => s
         owner: s?.space.kind === 'personal' ? s.space.owner : null,
       }
     }
-    case 'removed_from': {
-      // What they no longer see: a shared space's name (no secret), a folder's own name (they saw it) and whose it was.
-      const s = parseSpacePath(d.path)
-      const name = d.kind === 'space' ? (s?.space.kind === 'shared' ? s.space.name : null) : d.path.slice(d.path.lastIndexOf('/') + 1)
-      return {
-        code: d.code, ...base, kind: d.kind, name,
-        owner: s?.space.kind === 'personal' ? s.space.owner : null,
-        space: s?.space.kind === 'shared' && d.kind === 'folder' ? s.space.name : null,
-      }
-    }
+    // What they no longer see, as they last saw it: kept with the notice, never looked up again.
+    case 'removed_from': return { code: d.code, ...base, kind: d.kind, name: d.name, owner: d.owner, space: d.space }
     case 'space_deleted': {
       // Restoring it whole, from here, for whoever may (its managers then), while it can be.
       const restorable = mayRestore(d.deleted)
@@ -136,8 +128,13 @@ export type NoticeData =
   | { code: 'retention_ran'; trashEntries: number; versions: number; failed: boolean }
   /** To a personal space's owner: `by` moved a note or folder of theirs (`from`) out of it, to `to`. */
   | { code: 'moved_out'; kind: 'note' | 'folder'; by: string; from: string; to: string }
-  /** `by` took them out of the shared space at `path` (`space`), or stopped sharing the folder at `path` with them (`folder`). */
-  | { code: 'removed_from'; kind: 'space' | 'folder'; by: string; path: string }
+  /**
+   * `by` took them out of a shared space (`space`), or stopped sharing a
+   * folder with them (`folder`): its name, and whose it is (`owner`) or the
+   * space it's in (`space`, its name), as they last saw them. No path: what
+   * it's called later is no longer theirs to know.
+   */
+  | { code: 'removed_from'; kind: 'space' | 'folder'; by: string; name: string; owner: string | null; space: string | null }
   /** `by` deleted the shared space `name` they were in (`deleted`: its record, to restore it whole). */
   | { code: 'space_deleted'; by: string; name: string; deleted: string }
   /** `by` restored the shared space at `path` they were in. */

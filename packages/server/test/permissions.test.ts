@@ -323,23 +323,28 @@ test('the permissions API: who sees and changes what, what reaches a folder from
   } finally { await h.close() }
 })
 
-test('sharing only adds: nobody is taken out of a subfolder they reach from above, and a lower grant there changes nothing', async () => {
+test('sharing only adds: nobody is taken out of a subfolder they reach from above, and a grant to a member of the space only raises them', async () => {
   const trips = `${DIR.shared}/${m.aFolder()}`
   const folder = `${trips}/${m.aFolder()}`
   const gift = m.aNotePath(folder)
   const h = await setup({ files: { ...FILES, [gift]: noteText() }, config: RULES + rule(trips, [[M, 'manage'], [O, 'manage']]) })
   try {
     const giftUrl = h.url('/api/note', { path: gift })
-    // The member writes the subfolder's grants leaving the other out: the other still manages it, from the folder above.
+    // A grant to a member of the space (the other edits all of it, through the group) at or below that: refused, with their level.
     const before = (await h.member('GET', h.url('/api/permissions', { folder }))).body
-    const put = await h.member('PUT', '/api/permissions', { folder, grants: { [M]: 'manage', [O]: 'read' }, ifMatch: before.etag })
+    for (const level of ['read', 'edit']) {
+      const lower = await h.member('PUT', '/api/permissions', { folder, grants: { [M]: 'manage', [O]: level }, ifMatch: before.etag })
+      assert.deepEqual([lower.status, lower.body.error, lower.body.subject, lower.body.level], [400, 'grant_not_higher', O, 'edit'], level)
+    }
+    // The member writes the subfolder's grants leaving the other out: the other still manages it, from the folder above.
+    const put = await h.member('PUT', '/api/permissions', { folder, grants: { [M]: 'manage' }, ifMatch: before.etag })
     assert.equal(put.status, 200, put.text)
     assert.equal((await h.other('GET', giftUrl)).status, 200)
     const seen = (await h.other('GET', h.url('/api/permissions', { folder }))).body
     assert.equal(seen.canEdit, true)
     const other = seen.access.find((a: { username: string }) => a.username === O)
     assert.equal(other.level, 'manage')
-    assert.deepEqual(other.via.map((v: { from: string; level: string }) => [v.from, v.level]), [[DIR.shared, 'edit'], [trips, 'manage'], [folder, 'read']])
+    assert.deepEqual(other.via.map((v: { from: string; level: string }) => [v.from, v.level]), [[DIR.shared, 'edit'], [trips, 'manage']])
     // Whoever manages the space manages everything in it.
     assert.equal(h.policy.for({ kind: 'user', user: h.users.admin }).canManage(folder), true)
     // A grant in someone's own space never locks its owner out.

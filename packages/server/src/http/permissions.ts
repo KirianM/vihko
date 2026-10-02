@@ -17,6 +17,8 @@ import {
   LEVELS, WORKSPACE_FILE, atLeast, isSubject, parentFolder, parseSpacePath, rulesOf, spaceKeyProblem, subjectKey, trimSlashes,
   type Level, type RuleValue,
 } from '@vihko/core'
+import { SpaceError } from '../spaceService.ts'
+import { memberLevel, tidyBelow } from '../spaceGrants.ts'
 import { AccessError, inFolders, type Access, type AccessPolicy } from '../access.ts'
 import type { User } from '../auth.ts'
 import type { Db } from '../db.ts'
@@ -129,9 +131,23 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
     }
     const ifMatch = typeof body.ifMatch === 'string' ? body.ifMatch.replace(/^W\//, '').replace(/^"|"$/g, '') : undefined
     if (ifMatch === undefined) throw new RequestError(428, 'precondition_required', 'ifMatch: the ETag of vihko.yaml the change was planned on')
+    const s = parseSpacePath(folder)!
+    // Inside a shared space, a grant to one of its members only raises them above their level there.
+    if (s.space.kind === 'shared' && s.inner !== '') {
+      for (const [subject, level] of Object.entries(grants ?? {})) {
+        const was = Object.entries(written?.grants ?? {}).find(([k]) => subjectKey(k) === subjectKey(subject))?.[1]
+        if (was === level) continue
+        const member = memberLevel(engine, engine.spaceRules(), s.space.root, subject)
+        if (member !== null && atLeast(member, level)) throw new SpaceError(400, 'grant_not_higher', `${subject} has ${member} in the whole space already: a grant here only raises it`, { subject, level: member })
+      }
+    }
     // A name rc.1 or rc.2 wrote at a shared space's root stays, for the start that renames its folder to it.
     const value: RuleValue = { grants, ai, name: written?.name ?? null }
-    await file.setRule(folder, value, { actor: c.get('access').actor, ifMatch })
+    // At a shared space's root, what follows below: whoever is taken out of it loses their grants there too
+    // (as leaving does), and grants that no longer raise anyone above their level in the space go.
+    const removed = new Set(Object.keys(written?.grants ?? {}).map(subjectKey).filter((k) => !Object.keys(grants ?? {}).some((g) => subjectKey(g) === k)))
+    const then = s.space.kind === 'shared' && s.inner === '' ? (t: string) => tidyBelow(t, s.space.root, removed, engine) : undefined
+    await file.setRule(folder, value, { actor: c.get('access').actor, ifMatch, then })
     // The dialog after the change: whoever made it may have given their own `manage` away.
     const now = deps.policy.for({ kind: 'user', user: c.get('user') })
     c.set('access', now)

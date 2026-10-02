@@ -28,6 +28,7 @@ import type { AdminSettings } from './adminSettings.ts'
 import type { Db } from './db.ts'
 import type { FolderRefs } from './folderRefs.ts'
 import type { GrantStarts } from './grantStarts.ts'
+import { tidyBelow } from './spaceGrants.ts'
 import { followable } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService } from './notes.ts'
@@ -37,10 +38,10 @@ import type { PermissionsEngine, SharedEntry, SharedSpaceInfo, SpaceEntry } from
 import type { PermissionsFile } from './permissionsFile.ts'
 import type { Users } from './users.ts'
 
-/** A request about spaces that can't be made as it is: `invalid` and `space_needs_manager` (400), `leave_via_group`, `space_has_managers` and `space_name_taken` (409). */
+/** A request about spaces that can't be made as it is: `invalid`, `space_needs_manager` and `grant_not_higher` (400), `leave_via_group`, `space_has_managers` and `space_name_taken` (409). */
 export class SpaceError extends Error {
   readonly status: 400 | 409
-  readonly code: 'invalid' | 'leave_via_group' | 'space_has_managers' | 'space_needs_manager' | 'space_name_taken'
+  readonly code: 'invalid' | 'leave_via_group' | 'space_has_managers' | 'space_needs_manager' | 'space_name_taken' | 'grant_not_higher'
   readonly extra: Record<string, unknown>
   constructor(status: SpaceError['status'], code: SpaceError['code'], message: string, extra: Record<string, unknown> = {}) {
     super(message)
@@ -699,7 +700,8 @@ export class SpaceService {
   /**
    * After a folder's rule changed (`before`: vihko.yaml's text then): whoever
    * sees the folder now and didn't before is told that `actor`
-   * added them to the shared space (its root) or shared the folder with them.
+   * added them to the shared space (its root) or shared the folder with them;
+   * whoever saw it and doesn't now, that `actor` took them out of it.
    * Never the one who did it, and only for a person's change. What they're told is only what they can see (notices.ts).
    */
   notifyShared(folder: string, before: string, actor: Actor): void {
@@ -717,7 +719,16 @@ export class SpaceService {
     for (const u of users) {
       if (u.id === actor.id) continue
       const who = { username: u.username, groups: dir.groupsOf(u.id) }
-      if (then.level(f, who, exists) !== null || now.level(f, who, exists) === null) continue
+      const [was, is] = [then.level(f, who, exists), now.level(f, who, exists)]
+      // Taken out of it (or stopped being shared with): told too, as they were when added.
+      if (was !== null && is === null) {
+        const name = kind === 'space' ? (s.space.kind === 'shared' ? s.space.name : '') : f.slice(f.lastIndexOf('/') + 1)
+        this.opts.notices.add(u.id, {
+          code: 'removed_from', kind, by: actor.id, name,
+          owner: s.space.kind === 'personal' ? s.space.owner : null, space: s.space.kind === 'shared' && kind === 'folder' ? s.space.name : null,
+        })
+      }
+      if (was !== null || is === null) continue
       this.opts.notices.add(u.id, { code: 'shared_with_you', kind, by: actor.id, path: f })
     }
   }
@@ -882,7 +893,8 @@ export class SpaceService {
         else grants[k] = l
       }
       grants[username] = maxLevel(had, level)!
-      return setRule(t, root, { ...current, grants })
+      // Their grants below that no longer raise them above the space go (spaceGrants.ts).
+      return tidyBelow(setRule(t, root, { ...current, grants }), root, new Set(), this.engine)
     }, { actor })
   }
 

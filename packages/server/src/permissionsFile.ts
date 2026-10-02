@@ -109,11 +109,13 @@ export class PermissionsFile {
    * takes its members (its grants), never a name (the folder is it):
    * `setRule('spaces/Home', { grants: { ana: 'manage' }, ai: null })`.
    */
-  async setRule(folder: string, value: RuleValue, opts: { actor: Actor; ifMatch?: string }) {
+  async setRule(folder: string, value: RuleValue, opts: { actor: Actor; ifMatch?: string; then?: (text: string) => string }) {
     let before = ''
     const r = await this.update((t) => {
       before = t
-      return setRule(t, folder, value)
+      const out = setRule(t, folder, value)
+      // What follows from it, in the same write (grants below a space's root that went with a member, say).
+      return opts.then ? opts.then(out) : out
     }, opts)
     if (r.changed) {
       try {

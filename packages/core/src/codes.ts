@@ -72,6 +72,7 @@ export type ErrorCode =
   | 'permissions_invalid' // what is moved has sharing rules of its own in vihko.yaml, which can't be changed as it is (a mistake the admin fixes by hand first)
   | 'query_too_complex' // a search with more characters, filters or words than it takes (SEARCH_LIMITS)
   | 'space_name_taken' // a new shared space's name (or a new name for one) that a space in the installation already has (or had, while its trash or history is there), in any case (`name`: as that one writes it)
+  | 'grant_not_higher' // a grant inside a shared space to one of its members (a person or a group) at or below their level in the whole space (`subject`, and `level`: theirs there): it would add nothing
   | 'uid_mismatch' // restoring a version of another note that had this path before (another `uid`) over the note there: it goes back as a new note instead (`to`)
 
 /**
@@ -327,7 +328,8 @@ export type Alert =
    * Addressed to one person: `by` (a name) took them out of a shared space
    * (`kind: 'space'`, `name` its name) or stopped sharing a folder with them
    * (`kind: 'folder'`, `name` the folder's; `owner` the personal space's
-   * owner, or `space` the shared space's name) at `at`. Nothing else of it.
+   * owner, or `space` the shared space's name) at `at`, as they last saw
+   * them (a later rename never shows). Nothing else of it.
    */
   | { code: 'removed_from'; id: string; kind: 'space' | 'folder'; by: string; name: string | null; owner: string | null; space: string | null; at: string; actions: 'dismiss'[] }
   /**
