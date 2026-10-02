@@ -212,7 +212,7 @@ and [turn a folder into a space of its own](users-and-permissions.md#step-by-ste
 Your name, at the bottom of the sidebar, opens **Preferences**:
 
 - **Timezone**: what day «today» is for you.
-- **Daily notes and templates**, a box with two things that are easy to
+- **Daily notes**, a box with two things that are easy to
   mix up:
   - **Daily note series** chooses which of the series you already have
     «Today's note» opens. It only shows when you have at least one.
@@ -247,7 +247,7 @@ daily notes are set in «Your note settings».
 
 ### «Daily note series» or «Your note settings»?
 
-Both are in Preferences, in the box «Daily notes and templates», and they do
+Both are in Preferences, in the box «Daily notes», and they do
 different things:
 
 | | What it's for |

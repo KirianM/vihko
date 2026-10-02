@@ -55,7 +55,7 @@ test('one\'s own settings, from Preferences: a series in one\'s space, used by �
   await expect(k.locator('nav.sidebar').getByRole('button', { name: 'Nota de hoy' })).toHaveCount(0)
   await k.getByRole('button', { name: 'Preferencias' }).click()
   // Choosing one's series and defining one's own sit together, each with its line; with no series yet, it says where to make one.
-  const group = k.getByRole('dialog', { name: 'Preferencias' }).getByRole('group', { name: 'Notas del día y plantillas' })
+  const group = k.getByRole('dialog', { name: 'Preferencias' }).getByRole('group', { name: 'Notas del día', exact: true })
   await expect(group).toContainText('Aún no tienes ninguna serie de notas del día')
   await expect(group.getByRole('button', { name: 'Ajustes de tus notas' })).toHaveAccessibleDescription(/^Define las tuyas: series de notas del día/)
   await group.getByRole('button', { name: 'Ajustes de tus notas' }).click()
