@@ -90,8 +90,13 @@ note. Every path vihko serves is inside a space:
   case, and it is not secret: everyone who can sign in can learn that a name
   is taken (creating a space with it answers `space_name_taken`), and the
   admin's directory lists every shared space by name. What a space holds and
-  who is in it stay private. A name can't hold `/` or `\`, start with `.` or
-  `~`, end with `.`, `~` or `.md`, or be `people` or `spaces`.
+  who is in it stay private. A name can't hold `/`, `\` or any of
+  `<>:"|?*`, start with `.` or `~`, end with `.`, `~` or `.md`, or be
+  `people`, `spaces` or a device name of Windows (`CON`, `PRN`, `AUX`, `NUL`,
+  `COM1` to `COM9`, `LPT1` to `LPT9`, in any case, alone or with an
+  extension). Those characters and device names are refused since
+  0.1.0-rc.6, when creating or renaming a space; a folder made on the disk
+  with them is a space all the same.
 - Shared spaces made by 0.1.0-rc.1 or rc.2 were `spaces/<readable>-<id>/`,
   with their name in `vihko.yaml` (`name`). Each start renames such a folder
   to its name (or, when the name can't be a folder's, to its readable part)

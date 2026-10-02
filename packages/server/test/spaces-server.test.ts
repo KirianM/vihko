@@ -204,7 +204,7 @@ test('names of shared spaces are unique in the installation, in any case, and mu
     assert.equal((await h.member('POST', '/api/spaces', { name: onDisk })).body.error, 'space_name_taken')
     // What can't be a folder's name, each with its problem.
     const name = m.aSpaceName()
-    for (const [bad, problem] of [[`${name}/${m.aWord()}`, 'invalid_characters'], [`${name}\\${m.aWord()}`, 'invalid_characters'], [`.${name}`, 'invalid_name'], [`~${name}`, 'invalid_name'], [`${name}.md`, 'invalid_name'], ['people', 'invalid_name']] as const) {
+    for (const [bad, problem] of [[`${name}/${m.aWord()}`, 'invalid_characters'], [`${name}\\${m.aWord()}`, 'invalid_characters'], [`.${name}`, 'invalid_name'], [`~${name}`, 'invalid_name'], [`${name}.md`, 'invalid_name'], ['people', 'invalid_name'], [`${name}: ${m.aWord()}`, 'invalid_characters'], ['nul.txt', 'invalid_name']] as const) {
       const bad400 = await h.member('POST', '/api/spaces', { name: bad })
       assert.deepEqual([bad400.status, bad400.body.error, bad400.body.problem], [400, 'invalid', problem], bad)
     }
@@ -262,6 +262,11 @@ test('renaming a space renames its folder, with its notes, rules, keys, pins and
     const clash = await h.member('POST', '/api/spaces/rename', { path: again.body.space.path, name: other.name.toLowerCase() })
     assert.deepEqual([clash.status, clash.body.error, clash.body.name], [409, 'space_name_taken', other.name])
     const s2 = { path: again.body.space.path as string }
+    // A name that can't be a space's, as when creating one.
+    for (const [bad, problem] of [[`${m.aSpaceName()}?`, 'invalid_characters'], ['Lpt1', 'invalid_name']] as const) {
+      const r = await h.member('POST', '/api/spaces/rename', { path: s2.path, name: bad })
+      assert.deepEqual([r.status, r.body.error, r.body.problem], [400, 'invalid', problem], bad)
+    }
     assert.equal((await h.other('POST', '/api/spaces/rename', { path: s2.path, name: m.aSpaceName() })).status, 403, 'an editor sees it')
     // The admin isn't a member: the same answer as for a space that doesn't exist.
     const hidden = await h.admin('POST', '/api/spaces/rename', { path: s2.path, name: m.aSpaceName() })

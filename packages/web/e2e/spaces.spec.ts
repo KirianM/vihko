@@ -584,6 +584,12 @@ test('a space\'s folder is its name: renaming it moves the open note\'s address,
   await fresh.getByLabel('Nombre', { exact: true }).fill(after.toLowerCase() === after ? after.toUpperCase() : after.toLowerCase())
   await fresh.getByRole('button', { name: 'Crear espacio' }).click()
   await expect(fresh.getByRole('alert')).toHaveText(`Ya hay un espacio llamado «${after}»: elige otro nombre.`)
+  // A name Windows can't give a folder, by a character or as a device's: each said.
+  for (const [bad, said] of [[`${m.aWord()}?`, 'ninguno de < > : " | ? *'], ['Nul', 'como CON, NUL o COM1']] as const) {
+    await fresh.getByLabel('Nombre', { exact: true }).fill(bad)
+    await fresh.getByRole('button', { name: 'Crear espacio' }).click()
+    await expect(fresh.getByRole('alert')).toContainText(said)
+  }
   await fresh.getByRole('button', { name: 'Cancelar' }).click()
 
   // An address of the folder rc.1 or rc.2 would have made for it leads to the space it is now.

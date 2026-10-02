@@ -118,6 +118,12 @@ small team meets after months of use.
   vault copied into a space keeps its links written from its root; a rename
   keeps a Markdown link or an image written so in that form; `[[/…`
   suggests notes from the root of the space.
+- **A space's name can't hold `<>:"|?*`, nor be a device name of
+  Windows** (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, in
+  any case, with or without an extension): the name is its folder, which
+  Windows and SMB shares can't create. Creating or renaming a space with one
+  answers `400 invalid` (`invalid_characters` or `invalid_name`). A space
+  that already has such a name keeps it.
 
 ### Security
 
