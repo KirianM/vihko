@@ -537,13 +537,16 @@ export class SpaceService {
   /**
    * The admin adds themselves to a shared space: a member row
    * like any other, at `level` (`read` by default), which its managers and
-   * the other admins are told of, so it's never done unnoticed.
+   * the other admins are told of, so it's never done unnoticed. Only to
+   * rescue a space without managers (disabled ones don't count): one that has
+   * any is theirs to add people to, the admin too (`space_has_managers`).
    */
   async join(access: Access, path: unknown, level: unknown): Promise<SharedSpaceInfo> {
     const { admin, root, level: l } = this.checkJoin(access, path, level)
-    const managers = this.engine.spaceAudience(root).filter((u) => u.level === 'manage' && !u.disabled && u.id !== admin.id).map((u) => u.id)
+    // With no manager to tell (that's when the admin may), its members are told.
+    const members = this.engine.spaceAudience(root).filter((u) => !u.disabled && u.id !== admin.id).map((u) => u.id)
     await this.grant(root, admin.username, l, access.actor)
-    this.opts.notices.spaceChanged(managers, admin.id, { change: 'admin_joined', user: admin.id, to: null, space: root })
+    this.opts.notices.spaceChanged(members, admin.id, { change: 'admin_joined', user: admin.id, to: null, space: root })
     return this.info(root)
   }
 
@@ -553,6 +556,7 @@ export class SpaceService {
     const root = this.existingShared(path)
     const l = level === undefined || level === null ? 'read' : level
     if (typeof l !== 'string' || !(LEVELS as readonly string[]).includes(l)) throw new SpaceError(400, 'invalid', `level must be one of ${LEVELS.join(', ')}`)
+    if (this.engine.managersOf(root).length > 0) throw new SpaceError(409, 'space_has_managers', 'this space has managers: only they add people, the admin included')
     return { admin, root, level: l as Level }
   }
 

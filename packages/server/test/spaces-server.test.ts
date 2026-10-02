@@ -432,25 +432,32 @@ test('a disabled manager manages nothing meanwhile: the space shows without mana
   }
 })
 
-test('the admin joins a space as a member, visibly: its managers and the other admins are told', async () => {
+test('the admin never joins a space that has managers; one whose managers are all disabled, to rescue it, visibly', async () => {
   const h = await setup()
   try {
     const second = m.aUser({ role: 'admin' })
     await h.auth.createUser(second.username, second.password, 'admin')
-    const s = await newSpace(h, 'member')
-    const r = await h.admin('POST', '/api/admin/spaces/join', { path: s.path, level: 'edit', confirm: h.created.admin.password })
+    const s = await newSpace(h, 'member', { [h.names.other]: 'edit' })
+    // Its manager adds people, the admin too: the admin can't add themselves.
+    const refused = await h.admin('POST', '/api/admin/spaces/join', { path: s.path, level: 'edit', confirm: h.created.admin.password })
+    assert.deepEqual([refused.status, refused.body.error], [409, 'space_has_managers'])
+    assert.deepEqual((await h.admin('GET', '/api/spaces')).body.spaces, [])
+    // Its only manager disabled: nobody can add anyone, and the admin may join to rescue it.
+    assert.equal((await h.admin('POST', `/api/admin/users/${h.created.member.id}/disable`, { confirm: h.created.admin.password })).status, 200)
+    const r = await h.admin('POST', '/api/admin/spaces/join', { path: s.path, level: 'manage', confirm: h.created.admin.password })
     assert.equal(r.status, 200, r.text)
-    assert.deepEqual((await h.admin('GET', '/api/spaces')).body.spaces.map((x: any) => [x.path, x.level]), [[s.path, 'edit']])
-    const told = (await h.member('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'space_changed')
+    assert.deepEqual((await h.admin('GET', '/api/spaces')).body.spaces.map((x: any) => [x.path, x.level]), [[s.path, 'manage']])
+    // With no manager to tell, its members are, and the other admins.
+    const told = (await h.other('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'space_changed')
     assert.deepEqual(told.map((a: any) => [a.change, a.by]), [['admin_joined', h.names.admin]])
     const res = await h.app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: second.username, password: second.password }) })
     const cookie = res.headers.get('set-cookie')!.split(';')[0]!
     const alerts = await (await h.app.request('/api/alerts', { headers: { cookie } })).json() as { alerts: any[] }
     assert.deepEqual(alerts.alerts.filter((a) => a.code === 'space_changed').map((a) => [a.change, a.by, a.space]), [['admin_joined', h.names.admin, { path: s.path, name: s.name }]])
-    // Not whoever joined; nor the other member, who doesn't manage it.
-    assert.equal((await h.admin('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'space_changed').length, 0)
-    assert.equal((await h.other('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'space_changed').length, 0)
+    assert.equal((await h.admin('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'space_changed').length, 0, 'not whoever joined')
+    // Now it has a manager again: no more joining.
     assert.equal((await h.admin('POST', '/api/admin/spaces/join', { path: s.path, level: 'own', confirm: h.created.admin.password })).status, 400)
+    assert.equal((await h.admin('POST', '/api/admin/spaces/join', { path: s.path, level: 'read', confirm: h.created.admin.password })).body.error, 'space_has_managers')
   } finally {
     h.close()
   }

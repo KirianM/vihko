@@ -161,6 +161,17 @@ with a neighbour who isn't a member, say), but never take someone away from a
 subfolder they reach from above: the dialog shows those rows as «Through
 <folder>», without a way to remove them there.
 
+A member of a shared space can only be raised in a subfolder: the share
+dialog offers them only the levels above the one they have in the whole
+space (someone who reads Home may edit `recipes/`). When their level in the
+space goes up, a grant below that no longer raises them goes by itself, and
+taking someone out of the space takes their grants below it too, as leaving
+does.
+
+Sharing a folder doesn't share its past: whoever you share it with (or add to
+a space, or to a group) sees its history and its trash from that moment on,
+not what was written or deleted there before.
+
 So what someone shouldn't see goes somewhere else: another folder of your own
 space, or another shared space. This is on purpose. Where you can create a
 note, you see everything around it, and nothing hidden there can get in your
@@ -217,8 +228,15 @@ for the others, and someone who manages it has to add you again to come back.
 ### Delete a space
 
 The space's menu → **Delete space…** (it takes `manage`). Its notes go to the
-trash, and only the people who managed it can restore them. Its members stop
-seeing it at once.
+trash, and its members stop seeing it at once; they get a notice. **Undo**,
+right after, brings it back whole; later, so does **Restore space** in the
+notice its managers get (and, for the admin, in «Spaces»): its folders, its
+notes and its members with their levels, as they were. Only under its own
+name: while another space has it, it can't come back.
+
+A deleted or renamed space's name stays taken while its trash or its history
+holds anything, so that a new space with that name never inherits them. It's
+free again once the retention or a purge empties that past.
 
 ### A shared space's notes
 
@@ -501,10 +519,14 @@ manages it, and how many members it has. Never what's inside.
 
 - **Assign a manager** to a space that has none (its last manager left, or
   nobody was ever given access). The person and the other admins are told.
-- **Join** a space, as one more member, at a level the admin chooses (`read`
-  by default). It's confirmed at the moment, the space's managers and the
-  other admins are told, and the admin shows up in its member list. That is the only way for an
-  admin to see what's inside a space that isn't theirs.
+- **Join** a space without managers (all of them disabled, or none left), to
+  rescue it, as one more member at a level the admin chooses (`read` by
+  default). It's confirmed at the moment, its members and the other admins are
+  told, and the admin shows up in its member list. A space with managers is
+  theirs: only they add people, the admin included, so the admin never sees
+  inside a space they weren't invited to.
+- **Restore a deleted space** whole (the admin sees every one, under «Deleted
+  spaces»), without gaining access to it.
 - **Who can create spaces**: everyone (the default) or admins only.
 - The page also shows what is in the notes folder outside every space, and
   the spaces of deleted people (below).

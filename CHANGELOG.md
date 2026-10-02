@@ -17,6 +17,12 @@ small team meets after months of use.
 
 ### Changed
 
+- **The admin never joins a shared space without being invited.** Only its
+  managers add people, the admin included: `POST /api/admin/spaces/join` is
+  `409 space_has_managers` for a space with any, and «Spaces» offers
+  «Join» only for one without. Its exception is a rescue: a space whose
+  managers are all disabled (or gone), which the admin may join, its
+  members being told.
 - **Taking someone out of a shared space takes their grants below it too**,
   as leaving it does: they no longer keep a subfolder shared with them on
   its own. The dialog says so.
