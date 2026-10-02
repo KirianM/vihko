@@ -38,6 +38,9 @@ test('refused when someone typed inside what it replaces, or right against it', 
   assert.equal(rebase(base, planned, typedAfter(base, target, m.aWord())), null, 'typed right after it')
   assert.equal(rebase(base, planned, base.replace(target, m.aWord() + target)), null, 'typed right before it')
   assert.equal(rebase(base, planned, base.replace(` ${target} `, ` ${target}`)), null, 'a character next to it deleted')
+  // A replacement that keeps the word's last letters: its splice leaves them out, but the word is still what it changes.
+  const keeping = planEdits(base, [{ op: 'find_replace', find: target, replace: `${m.aUniqueWord()}${target.slice(-2)}` }])
+  assert.equal(rebase(base, keeping, typedAfter(base, target, m.aWord())), null, 'typed right after a word it keeps the end of')
 })
 
 test('the same text now: the change as planned', () => {

@@ -78,7 +78,12 @@ function changesBetween(a: string, b: string): Replacement[] {
 export function rebase(base: string, planned: string | readonly Splice[], current: string): Splice[] | null {
   const mine = typeof planned === 'string' ? hull(base, planned) : replacementsOf(base, planned)
   const theirs = changesBetween(base, current)
-  for (const a of mine) for (const o of theirs) if (o.from <= a.to && a.from <= o.to) return null
+  // A splice leaves out what the replacement keeps at its ends (edits.ts spliceOf): the word it
+  // touches is still what it changes, so a change anywhere in that word counts as touching it.
+  for (const a of mine) {
+    const { from, to } = widened(base, a)
+    for (const o of theirs) if (o.from <= to && from <= o.to) return null
+  }
   const out: Splice[] = []
   // From the last one: the positions of those before it stay valid.
   for (const a of [...mine].reverse()) {
@@ -87,6 +92,17 @@ export function rebase(base: string, planned: string | readonly Splice[], curren
     out.push({ at: a.from + shift, remove: a.to - a.from, insert: a.insert })
   }
   return out
+}
+
+const WORD = /[\p{L}\p{N}\p{M}_]/u
+
+/** A replacement's range grown to the whole words at its ends. */
+function widened(base: string, r: Replacement): { from: number; to: number } {
+  let from = r.from
+  let to = r.to
+  while (from > 0 && WORD.test(base[from - 1]!)) from--
+  while (to < base.length && WORD.test(base[to]!)) to++
+  return { from, to }
 }
 
 /** A new text as one replacement of `base`: from their first difference to their last (none if equal). */
