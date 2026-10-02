@@ -307,9 +307,17 @@ Conventions the tools share:
   links it leaves broken.
 - Every read returns the note's ETag (`sha256:…`). Operations that replace text
   (`find_replace`, `replace_section`, `set_frontmatter`) need it as `if_match`,
-  so the agent plans changes on the text it read. Appends don't. If the note
-  changed in between, the edit fails with `precondition_failed`, and the agent
-  reads again.
+  so the agent plans changes on the text it read. Appends don't. If someone
+  typed in the note in between (its ETag changes on every keystroke), the
+  edit still goes in, applied to the text as it is now, as long as nothing
+  changed in what it replaces or right next to it, and the ETag is one the
+  note had in the last few minutes (vihko keeps the texts it handed out for
+  about ten minutes while the note is open). Otherwise it fails with
+  `precondition_failed`, and the agent reads again (or asks `changes_since`)
+  and plans again. The ETag an edit returns is the note's new one, others'
+  changes included.
+- What an agent appends while someone is typing at the end of the note goes
+  after the word they are typing, never into it.
 - Parameters are `snake_case` (`dry_run`, `if_match`); `camelCase` is accepted
   too.
 - Lists are paged: pass `next_offset` (or `next`) back as `offset` (or

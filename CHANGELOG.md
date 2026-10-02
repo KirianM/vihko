@@ -10,6 +10,53 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.0-rc.6] - unreleased
+
+### Added
+
+- **The `note_not_saved` alert**, for the admins: an open note vihko can't
+  save (a full disk, a folder or state volume it may not write to), with
+  why (`reason`) and where (`volume`, `space`, and `path` only to an admin
+  who reads the note).
+- **«Save my version as a copy» whenever something you typed can't reach
+  its note**: the note was moved somewhere you can't open, deleted, or
+  moved while you were offline; you can no longer edit it; your session
+  ended. The copy goes next to the note, or into your own space when you
+  can't write there any more.
+- Leaving the page while something you typed hasn't been sent asks first.
+
+### Changed
+
+- **Agents' substitutions while someone types.** `find_replace`,
+  `replace_section` and `set_frontmatter` (and `PUT /api/note`) with an
+  ETag the open note had in the last few minutes go in, applied to the
+  text as it is now, when nothing changed since in what they replace or
+  right next to it. Before, any keystroke made them fail.
+- A note vihko can't save turns read-only for everyone who has it open,
+  says so, and saves on its own once it can; writes to it through the API
+  or MCP answer `internal` meanwhile, and so do moving and deleting it.
+- The editor's «Offline» no longer promises that changes are sent on
+  reconnecting: it says to keep the tab open.
+
+### Fixed
+
+- A note moved somewhere the person editing it can't open left them typing
+  into nothing, «Saving…» forever. It now closes, as when it goes to the
+  trash, and says so.
+- Text typed while offline was lost without a word when the note was moved
+  or deleted meanwhile, when the person's access was lowered, or when their
+  session ended; and so was what was typed in the moment someone else
+  moved or renamed the note, or while closing it or opening another one.
+- What an agent appends while someone types at the end of the note no
+  longer splits the word they are typing.
+
+### Upgrade notes
+
+- A client of the API or MCP that took `412 precondition_failed` for
+  granted whenever someone had typed since its read now gets its write
+  applied when it touches nothing they changed. Read the `etag` in the
+  answer: it's the note's new one, with their changes.
+
 ## [0.1.0-rc.5] - unreleased
 
 Templates marked in the notes themselves, and searching by any frontmatter

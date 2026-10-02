@@ -124,6 +124,17 @@ vihko never overwrites text you haven't seen:
   (`find_replace`, `replace_section`, `set_frontmatter`) need the ETag, as
   `ifMatch` in the body or as `If-Match`. Appends don't: they apply to the text
   as it is, which is how you add to a note someone is typing in.
+- **A note someone has open**: its ETag changes on every keystroke. A write
+  with an ETag the note had in the last few minutes (vihko keeps the texts it
+  handed out for about ten minutes while the note is open) still goes in,
+  applied to the text as it is now, when nothing changed since in what it
+  replaces or right next to it; for a whole note (`PUT`), from the first
+  character it changes to the last. When something did, `412
+  precondition_failed`. The answer's `etag` is the note's new one, with the
+  others' changes in it.
+- **A note vihko can't save right now** (a full disk, a folder it may not
+  write to) refuses writes with `500 internal` until it can; the admins see
+  the `note_not_saved` alert.
 - **Moving and deleting** take `If-Match` too, optionally.
 
 Both quoted (`"sha256:…"`) and bare ETags are accepted.

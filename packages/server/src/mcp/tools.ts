@@ -143,7 +143,7 @@ export const LEAVE_IT = 'do not delete, rewrite or replace links to notes you ca
 const NAME_ALIASES ={ note: 'path', file: 'path', note_path: 'path', etag: 'if_match', q: 'query', source: 'from', destination: 'to', id: 'version' }
 
 const notePath = z.string().min(1).describe('Path of the note from the notes root, with its .md extension, e.g. "projects/plan.md".')
-const ifMatch = z.string().describe('The ETag ("sha256:…") of the text the change was planned on, as get_note or the last edit returned it.')
+const ifMatch = z.string().describe('The ETag ("sha256:…") of the text the change was planned on, as get_note or the last edit returned it. If someone typed in the note since, the change still goes in where nothing changed since (an ETag from the last few minutes); otherwise precondition_failed.')
 
 // --- Output --------------------------------------------------------------------
 
@@ -767,7 +767,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('edit_note', {
     title: 'Edit a note',
-    description: 'Changes a note with operations applied in order, all or none, on its current text, even while someone has it open (they see the change live). Substitutions (find_replace, replace_section, set_frontmatter) need if_match: the ETag of the text you planned them on; appends don\'t. With dry_run, what it would change, without writing. Returns the new ETag. '
+    description: 'Changes a note with operations applied in order, all or none, on its current text, even while someone has it open (they see the change live). Substitutions (find_replace, replace_section, set_frontmatter) need if_match: the ETag of the text you planned them on; appends don\'t. If someone typed since you read, a substitution is applied to the text as it is now when nothing changed in what it replaces or right next to it; when something did, precondition_failed. With dry_run, what it would change, without writing. Returns the new ETag. '
       + HIDING + ' Then the answer has the ETag only if you gave if_match.',
     inputSchema: input(z.object({
       path,
