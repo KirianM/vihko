@@ -52,7 +52,7 @@ test.beforeAll(async ({ browser }) => {
 })
 test.afterAll(async () => {
   await k.context().close()
-  rmSync(`${NOTES}/${DIR}`, { recursive: true, force: true })
+  rmSync(`${NOTES}/${DIR}`, { recursive: true, force: true, maxRetries: 10 })
 })
 
 /** The paragraph with every inline style, its bold, and the note's first heading. */

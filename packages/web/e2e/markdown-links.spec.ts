@@ -35,7 +35,7 @@ test.beforeAll(() => {
   mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
   writeFileSync(`${NOTES}/${NOTE}`, TEXT)
 })
-test.afterAll(() => rmSync(`${NOTES}/${DIR}`, { recursive: true, force: true }))
+test.afterAll(() => rmSync(`${NOTES}/${DIR}`, { recursive: true, force: true, maxRetries: 10 }))
 
 const link = (page: Page, text: string) => page.locator('.cm-content .cm-link', { hasText: text })
 /** Opens the note and waits until its links have resolved (the one to a note shows as such). */

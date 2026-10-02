@@ -70,7 +70,7 @@ test.afterAll(async ({ browser }) => {
     }
     await page.context().close()
   }
-  for (const dir of dirs) rmSync(`${NOTES}/${dir}`, { recursive: true, force: true })
+  for (const dir of dirs) rmSync(`${NOTES}/${dir}`, { recursive: true, force: true, maxRetries: 10 })
 })
 
 /** Today's date (YYYY-MM-DD) in a timezone. */

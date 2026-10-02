@@ -45,7 +45,7 @@ test.beforeAll(async ({ browser }) => {
 test.afterAll(async () => {
   const { notes } = await (await k.request.get('/api/tree')).json() as { notes: { path: string }[] }
   for (const n of notes) if (n.path.startsWith(`${MINE}/${JOURNAL}/`) || n.path.startsWith(`${PROBE_DIR}/`)) await k.request.delete(`/api/note?path=${encodeURIComponent(n.path)}`)
-  for (const dir of [`${MINE}/${JOURNAL}`, `${MINE}/${TEMPLATES}`, PROBE_DIR, `${SPACE}/${IMAGES}`]) rmSync(`${NOTES}/${dir}`, { recursive: true, force: true })
+  for (const dir of [`${MINE}/${JOURNAL}`, `${MINE}/${TEMPLATES}`, PROBE_DIR, `${SPACE}/${IMAGES}`]) rmSync(`${NOTES}/${dir}`, { recursive: true, force: true, maxRetries: 10 })
   for (const root of [MINE, personal(MEMBER), SPACE]) rmSync(settingsFile(root), { force: true })
   await k.context().close()
 })

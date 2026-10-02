@@ -73,7 +73,7 @@ test.beforeAll(async ({ browser }) => {
 // The other specs share the notes folder: everything goes as it was.
 test.afterAll(async () => {
   for (const p of Object.values(path)) if (existsSync(`${NOTES}/${p}`)) await k.request.delete(`/api/note?path=${encodeURIComponent(p)}`)
-  rmSync(`${NOTES}/${MINE}/${FOLDER}`, { recursive: true, force: true })
+  rmSync(`${NOTES}/${MINE}/${FOLDER}`, { recursive: true, force: true, maxRetries: 10 })
   await k.context().close()
 })
 

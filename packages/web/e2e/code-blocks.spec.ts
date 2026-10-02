@@ -47,7 +47,7 @@ test.beforeAll(async ({ browser }) => {
 })
 test.afterAll(async () => {
   await k.context().close()
-  rmSync(`${NOTES}/${DIR}`, { recursive: true, force: true })
+  rmSync(`${NOTES}/${DIR}`, { recursive: true, force: true, maxRetries: 10 })
 })
 
 /** The editor's lines that show a fence (no line of code has a backtick). */
