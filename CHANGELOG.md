@@ -17,6 +17,13 @@ small team meets after months of use.
 
 ### Changed
 
+- **Deleting someone no longer takes away at once what they shared.** Their
+  space closes, but the folders they shared from it stay shared, as they
+  were, until the admin decides what becomes of it (transfer it, make it a
+  shared space or delete it). The delete dialog lists who has access to what
+  (`GET /api/admin/users/:id/space` adds `shared`: each shared folder with
+  its people and levels, its path only where the admin reads it); deleting
+  the space later tells those people (`removed_from`).
 - **The admin never joins a shared space without being invited.** Only its
   managers add people, the admin included: `POST /api/admin/spaces/join` is
   `409 space_has_managers` for a space with any, and «Spaces» offers

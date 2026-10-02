@@ -131,12 +131,14 @@ export interface PersonalSpacePlan {
 
 export type PersonalAction = 'transfer' | 'convert' | 'delete'
 
-/** What a person's space holds shared, for the confirmation of deleting them: counts only. */
+/** What a person's space holds shared, for the confirmation of deleting them. */
 export interface PersonalSummary {
   path: string
   exists: boolean
   sharedFolders: number
   people: number
+  /** Each folder they share and who has access to it (but them): `path` only where the admin reads it. */
+  shared: { path: string | null; people: { username: string; level: Level }[] }[]
 }
 
 export interface SpaceServiceOptions {
@@ -560,14 +562,27 @@ export class SpaceService {
     return { admin, root, level: l as Level }
   }
 
-  /** What a person's space holds shared (the confirmation of deleting them): counts, nothing named. */
+  /**
+   * What a person's space holds shared (the confirmation of deleting them):
+   * counts, and who has access to what (each folder they share, with its
+   * people and levels), which stays shared until the admin decides what
+   * becomes of their space. A folder's path only where the admin reads it.
+   */
   summary(access: Access, userId: string): PersonalSummary {
     this.admin(access)
     const u = this.opts.users.get(userId)
     if (!u) throw new NoteError('not_found', 'no such user')
     const root = personalRoot(u.username)
     const { folders, people } = this.sharedCounts(root, u.username)
-    return { path: root, exists: this.isFolder(root), sharedFolders: folders, people }
+    const shared = this.engine.spaceRules().rules
+      .filter((r) => r.folder.normalize('NFC').startsWith(root + '/') && r.grants && Object.keys(r.grants).length > 0 && this.isFolder(r.folder))
+      .map((r) => r.folder.normalize('NFC')).sort()
+      .map((f) => ({
+        path: access.level(f) !== null ? f : null,
+        people: this.engine.spaceAudience(f).filter((p) => p.id !== u.id).map((p) => ({ username: p.username, level: p.level })).sort((a, b) => a.username.localeCompare(b.username)),
+      }))
+      .filter((s) => s.people.length > 0)
+    return { path: root, exists: this.isFolder(root), sharedFolders: folders, people, shared }
   }
 
   /**
@@ -620,6 +635,9 @@ export class SpaceService {
     if (dryRun) return plan(to)
 
     if (action === 'delete') {
+      // Who still had what they shared, until now: told once it's gone.
+      const losing = this.engine.spaceRules().rules.map((r) => r.folder.normalize('NFC')).filter((f) => f.startsWith(from + '/'))
+        .flatMap((f) => this.engine.spaceAudience(f).map((u) => ({ id: u.id, folder: f })))
       // Its rules first: if vihko.yaml can't be written, nothing is deleted.
       await this.opts.file.update((t) => {
         let out = t
@@ -631,6 +649,13 @@ export class SpaceService {
       this.opts.refs.dropTrash(from)
       this.opts.state.prepare("delete from pins where path = ? or path like ? escape '\\'").run(from, likePrefix(from))
       this.opts.notices.spaceChanged([], admin.id, { change: 'personal_deleted', user: gone.id, to: null, space: null })
+      // Each once, for the topmost folder they had.
+      const told = new Set<string>()
+      for (const l of losing.sort((a, b) => a.folder.length - b.folder.length)) {
+        if (told.has(l.id) || l.id === admin.id) continue
+        told.add(l.id)
+        this.opts.notices.add(l.id, { code: 'removed_from', kind: 'folder', by: admin.id, name: l.folder.slice(l.folder.lastIndexOf('/') + 1), owner: gone.username, space: null })
+      }
       return plan(null)
     }
 

@@ -553,13 +553,14 @@ Both are in the user's «Actions» menu.
 - The account goes: sessions, links, profile, group memberships, second factor
   and notices. Their keys are revoked for good (they stay listed as revoked).
 - Their grants are removed from `vihko.yaml`.
-- **Their space closes**: nobody sees it, the admin neither, and the folders
-  they shared stop being seen by whoever received them. The delete dialog
-  says how many shared folders and how many people that is, and asks what
+- **Their space closes**: nobody sees it, the admin neither, but the folders
+  they shared stay shared, as they were, until the admin decides what becomes
+  of it. The delete dialog lists who has access to what, and asks what
   becomes of the space: **decide later** (the default), **transfer it** to
   someone, or **make it a shared space**, with the same choices and counts as
   below. Transferring or converting it right there is confirmed at the moment
-  with the admin's code or password, before the person is deleted.
+  with the admin's code or password, before the person is deleted. Deleting
+  the space later tells whoever still had a folder of it.
 - Their notes stay on disk, and the history still says what they wrote, under
   their name.
 - **Their username is reserved**: nobody else can take it, so a newcomer

@@ -471,7 +471,9 @@ async function deletedMember(h: Spaces) {
   h.write(note, m.aParagraph())
   h.write(own, m.aParagraph())
   await h.rule(shared, { grants: { [h.names.other]: 'edit' } })
-  assert.deepEqual((await h.admin('GET', `/api/admin/users/${h.created.member.id}/space`)).body, { path: h.home('member'), exists: true, sharedFolders: 1, people: 1 })
+  // Who has access to what: the folder's path only where the admin reads it (here, nowhere).
+  assert.deepEqual((await h.admin('GET', `/api/admin/users/${h.created.member.id}/space`)).body,
+    { path: h.home('member'), exists: true, sharedFolders: 1, people: 1, shared: [{ path: null, people: [{ username: h.names.other, level: 'edit' }] }] })
   assert.equal((await h.other('POST', '/api/spaces/pin', { path: shared, pinned: true })).status, 200)
   assert.equal((await h.admin('POST', `/api/admin/users/${h.created.member.id}/disable`, { confirm: h.created.admin.password })).status, 200)
   // Disabled, what they shared is still there for the others.
@@ -480,14 +482,17 @@ async function deletedMember(h: Spaces) {
   return { shared, note, own }
 }
 
-test('deleting a person closes their space for everyone, the admin included; it shows in the admin\'s directory as closed', async () => {
+test('deleting a person closes their space for everyone, the admin included, but for what they shared, until the admin decides; it shows in the admin\'s directory as closed', async () => {
   const h = await setup()
   try {
     const before = h.rechecks.n
-    const { shared, note } = await deletedMember(h)
+    const { shared, note, own } = await deletedMember(h)
     assert.ok(h.rechecks.n > before, 'open editors are checked again at once')
-    assert.deepEqual((await h.other('GET', '/api/spaces')).body.shared, [])
-    assert.equal((await h.other('GET', `/api/note?path=${encodeURIComponent(note)}`)).status, 404)
+    // What they shared stays shared, as it was (pinned, with the same level).
+    assert.deepEqual((await h.other('GET', '/api/spaces')).body.shared, [{ path: shared, level: 'edit', owner: h.names.member, pinned: true }])
+    assert.equal((await h.other('GET', `/api/note?path=${encodeURIComponent(note)}`)).status, 200)
+    // The rest of their space is nobody's.
+    for (const who of ['other', 'admin'] as Name[]) assert.equal((await h.as(who)('GET', `/api/note?path=${encodeURIComponent(own)}`)).status, 404, who)
     assert.equal((await h.admin('GET', `/api/note?path=${encodeURIComponent(note)}`)).status, 404)
     assert.ok(existsSync(join(h.notesDir, shared)), 'nothing is deleted')
     assert.deepEqual((await h.admin('GET', '/api/admin/spaces')).body.closed, [{ userId: h.created.member.id, username: h.names.member, path: h.home('member') }])
@@ -682,6 +687,10 @@ test('a closed space deleted: gone from the disk and vihko.yaml, without the tra
     assert.deepEqual((await h.admin('GET', '/api/trash')).body.entries, [])
     assert.deepEqual(h.notes.trash().map((e) => e.id), [kept.id], 'only what was deleted elsewhere is left in the trash')
     assert.equal((h.index.prepare("select count(*) n from notes where path like 'people/%'").get() as { n: number }).n, 0)
+    // Who still had what they shared until now is told, with the folder's name and whose it was.
+    const told = (await h.other('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'removed_from')
+    assert.deepEqual(told.map((a: any) => [a.kind, a.by, a.name, a.owner]), [['folder', h.names.admin, shared.slice(shared.lastIndexOf('/') + 1), h.names.member]])
+    assert.deepEqual((await h.other('GET', '/api/spaces')).body.shared, [])
     // No closed space left for that person.
     assert.equal((await h.admin('POST', `/api/admin/users/${h.created.member.id}/space`, { action: 'delete', confirm: h.created.admin.password })).status, 404)
     // Someone active has no closed space.

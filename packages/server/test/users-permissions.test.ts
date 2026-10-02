@@ -1,6 +1,6 @@
 // Users and groups meet the permissions: deleting someone
 // takes their grants out of vihko.yaml and closes their personal space to
-// everyone, what they shared from it included; renaming or deleting a group
+// everyone, but what they shared from it, until the admin decides; renaming or deleting a group
 // moves or removes its grants. The vihko.yaml writer keeps everything else as
 // it was.
 import { test } from 'node:test'
@@ -70,17 +70,18 @@ test('deleting a user takes their grants out and closes their space, what they s
     const edit = await s.member('PUT', s.url('/api/note', { path: LIST }), { text: note() }, { 'if-none-match': 'x' })
     assert.notEqual(edit.status, 200, 'without the group, only read')
 
-    // The member deleted: their grants go; their space is nobody's, not even what they shared.
+    // The member deleted: their grants go; their space is nobody's, but what they shared stays shared until the admin decides.
     assert.equal((await s.admin('POST', `/api/admin/users/${s.users.member.id}/disable`, { confirm: s.users.admin.password })).status, 200)
     assert.equal((await s.admin('GET', s.url('/api/note', { path: rome }))).status, 200, 'disabled: what they shared stays shared')
     assert.equal((await s.admin('DELETE', `/api/admin/users/${s.users.member.id}`, { confirm: s.users.admin.password })).status, 200)
     assert.doesNotMatch(yaml(), new RegExp(`(?<![\\p{L}\\p{N}._-])"?${literally(member)}"?:`, 'u'))
     assert.deepEqual(rulesInFile(yaml()).get(SHARED)?.grants, { [s.users.admin.username]: 'manage' })
     assert.ok(yaml().includes(`  # ${BY_NAME}\n`), 'the comment stays')
-    for (const path of [diary, rome]) assert.equal((await s.admin('GET', s.url('/api/note', { path }))).status, 404, path)
+    assert.equal((await s.admin('GET', s.url('/api/note', { path: diary }))).status, 404)
+    assert.equal((await s.admin('GET', s.url('/api/note', { path: rome }))).status, 200, 'deleted: what they shared still is, until the admin decides')
     const tree = (await s.admin('GET', '/api/tree')).body as { notes: { path: string }[] }
-    assert.ok(!tree.notes.some((n) => n.path === diary || n.path === rome), 'their notes appear to no one')
-    assert.ok(tree.notes.some((n) => n.path === plan))
+    assert.ok(!tree.notes.some((n) => n.path === diary), 'what they kept to themselves appears to no one')
+    assert.ok(tree.notes.some((n) => n.path === plan) && tree.notes.some((n) => n.path === rome))
   } finally {
     await s.close()
   }
