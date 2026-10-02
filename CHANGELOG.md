@@ -112,12 +112,12 @@ small team meets after months of use.
 - **A link that starts with `/` counts from the root of its note's space**,
   in every form: `[[/recipes/Bread]]`, `[bread](/recipes/Bread.md)` and
   `![](/images/plan.png)`, as Obsidian counts from the root of its vault.
-  Until now a wikilink counted from the notes root (and inside a space never resolved),
-  a Markdown link from the note's folder, an image from the notes root. A
-  first folder `people` or `spaces` still counts from the notes root. A
-  vault copied into a space keeps its links written from its root; a rename
-  keeps a Markdown link or an image written so in that form; `[[/…`
-  suggests notes from the root of the space.
+  Until now a wikilink counted from the notes root (and inside a space
+  never resolved), a Markdown link from the note's folder, an image from
+  the notes root. A first folder `people` or `spaces` still counts from the
+  notes root. A vault copied into a space keeps its links written from its
+  root; a rename keeps a Markdown link or an image written so in that form;
+  `[[/…` suggests notes from the root of the space.
 - **A space's name can't hold `<>:"|?*`, nor be a device name of
   Windows** (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, in
   any case, with or without an extension): the name is its folder, which
